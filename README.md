@@ -28,6 +28,11 @@ The crab comes in two looks: **oil-painted** (the default) and the original
 
 Milestone 0 (top-down, click to walk) is in the git history.
 
+**Play the latest build:** <https://stevenkauwe.github.io/crabscape/> (deployed from `main` once the repository is
+public; every CI run also keeps the built `web/` folder as a downloadable artifact).
+**Want to help?** See [CONTRIBUTING.md](CONTRIBUTING.md). Claude sessions start from [CLAUDE.md](CLAUDE.md) and the
+one-page design notes in [docs/design/](docs/design/).
+
 ## Run it on your computer
 
 You need Rust. If you don't have it, install it from <https://rustup.rs>.

@@ -30,3 +30,7 @@
 .env.*
 node_modules/
 __pycache__/
+
+# Personal Claude Code settings (the shared skills in .claude/skills/ ARE committed).
+/.claude/settings.local.json
+/.claude/worktrees/

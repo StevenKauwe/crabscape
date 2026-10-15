@@ -1,0 +1,74 @@
+name: Task
+description: One small, self-contained piece of work a Claude Code session can finish.
+title: "[task] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep it small: one Claude session should finish it. Size by Claude work time (token cost), not human time.
+        Size L is not allowed: split it into S/M tasks first.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this matters and what exists today. Link the docs/design page or decision it serves.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Files likely involved
+      description: Paths, so Claude doesn't spend tokens searching.
+      placeholder: "src/view.rs, src/tuning.rs"
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Acceptance criteria, as a checklist anyone can tick.
+      placeholder: |
+        - [ ] ...
+        - [ ] All checks in CLAUDE.md pass
+    validations:
+      required: true
+  - type: textarea
+    id: verify
+    attributes:
+      label: How to verify
+      description: Commands to run, what to look at, which screenshots to attach.
+    validations:
+      required: true
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size
+      options:
+        - "S: under ~30 min of Claude work"
+        - "M: about 1 hour of Claude work"
+        - "L: too big, must be split"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [code, art, research, design, tooling]
+    validations:
+      required: true
+  - type: dropdown
+    id: readiness
+    attributes:
+      label: Who can do it
+      options:
+        - "claude-ready: a Claude session can do it end to end"
+        - "needs-human: a taste decision or a drawing by a person is needed first"
+    validations:
+      required: true
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: Fits the ocean-shaped rules (docs/design/ocean-shaped.md) and adds no licence
+          required: true

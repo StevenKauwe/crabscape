@@ -1,0 +1,38 @@
+name: Taste feedback
+description: You played a build or looked at some art. Tell us how it felt. No technical words needed.
+title: "[feedback] "
+labels: [feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for playing! Short and honest beats long and polite. The lead's Claude turns this into tasks.
+  - type: input
+    id: what
+    attributes:
+      label: What did you try?
+      description: Which build, page or picture (a link is perfect), and on what (phone, laptop, controller)?
+    validations:
+      required: true
+  - type: textarea
+    id: off
+    attributes:
+      label: What felt off?
+      description: Anything that felt wrong, slow, floaty, ugly, confusing, too easy, too hard...
+    validations:
+      required: true
+  - type: textarea
+    id: good
+    attributes:
+      label: What felt great?
+      description: So we don't break it.
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: Overall
+      options: ["Love it", "Good, needs polish", "Meh", "Something's really wrong"]
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshot or clip (optional)
+      description: Drag files here.
