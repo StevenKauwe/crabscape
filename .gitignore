@@ -1,0 +1,32 @@
+# Rust build output (large, and rebuilt from source any time).
+/target/
+
+# The compiled web game. tools/build-web.sh recreates it; the .wasm is ~18 MB,
+# and committing a new copy on every change would bloat the repository fast.
+# web/index.html IS committed: it is hand-written source.
+/web/pkg/
+
+# The native build's save file (the web build saves in the browser instead).
+/crabscape-save.json
+
+# Copies of assets/ made by tools/build-web.sh, and the oil-atlas tool's build.
+/web/assets/
+/tools/oil-atlas/target/
+
+# Teaser renders: rebuilt by docs/teaser/build.sh into docs/teaser/build/.
+/docs/teaser/build/
+# The finished teaser videos (~16 MB and ~14 MB) are kept out of git: Git LFS
+# isn't set up, and big binaries bloat every clone forever. Share them as
+# release attachments or links instead.
+/docs/teaser/*.mp4
+
+# Scratch and editor/OS clutter.
+/tmp/
+/scratch/
+*.tmp
+*.swp
+.DS_Store
+.env
+.env.*
+node_modules/
+__pycache__/

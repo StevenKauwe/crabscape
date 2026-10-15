@@ -1,0 +1,14 @@
+{
+ "note": "Painted crab sprites (lit = lantern on, unlit = deep ambient only). Same pose, same canvas: crossfade lit over unlit by lantern strength. Coordinates in sprite pixels.",
+ "size": [
+  1388,
+  642
+ ],
+ "lantern": [
+  1044.1032244400892,
+  204.64944659533546
+ ],
+ "groundY": 568,
+ "centreX": 694,
+ "scaleVsSheet": 2.55
+}

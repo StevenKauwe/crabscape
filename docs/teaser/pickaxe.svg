@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <!-- CrabScape teaser: level-up pop-up icon. Original drawing: an iron pick head seated across a wooden haft. -->
+  <defs>
+    <linearGradient id="wood" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c38a4e"/><stop offset="0.45" stop-color="#9a6234"/><stop offset="1" stop-color="#5e3a1c"/>
+    </linearGradient>
+    <linearGradient id="iron" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9e0e7"/><stop offset="0.45" stop-color="#9aa4ae"/><stop offset="1" stop-color="#58616b"/>
+    </linearGradient>
+    <linearGradient id="band" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7d8792"/><stop offset="0.5" stop-color="#4a525b"/><stop offset="1" stop-color="#2f353c"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(38 200 215)">
+    <!-- haft -->
+    <rect x="183" y="96" width="34" height="284" rx="14" fill="url(#wood)" stroke="#2a190b" stroke-width="7"/>
+    <path d="M196,140 C193,200 199,260 194,350" fill="none" stroke="#5a3417" stroke-width="3.5" stroke-linecap="round" opacity="0.85"/>
+    <path d="M207,170 C210,230 204,290 208,340" fill="none" stroke="#5a3417" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+    <path d="M190,130 L190,360" fill="none" stroke="#e0b07a" stroke-width="3" stroke-linecap="round" opacity="0.45"/>
+    <!-- head: curved, double-pointed -->
+    <path d="M28,154 Q200,-2 372,154 Q200,96 28,154 Z" fill="url(#iron)" stroke="#1f2328" stroke-width="7" stroke-linejoin="round"/>
+    <!-- the eye / collar where the head sits on the haft -->
+    <rect x="176" y="78" width="48" height="58" rx="6" fill="url(#band)" stroke="#1f2328" stroke-width="6"/>
+    <!-- highlight along the upper edge -->
+    <path d="M72,136 Q128,96 172,86" fill="none" stroke="#f6f9fc" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
+    <path d="M228,86 Q286,94 328,136" fill="none" stroke="#f6f9fc" stroke-width="5" stroke-linecap="round" opacity="0.6"/>
+    <path d="M186,90 L186,124" stroke="#b9c2cc" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  </g>
+</svg>

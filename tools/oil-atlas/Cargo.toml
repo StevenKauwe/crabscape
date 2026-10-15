@@ -1,0 +1,13 @@
+[package]
+name = "oil-atlas"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Lays the crab's parts out for the oil painter, then cuts the painted parts back into an atlas."
+
+# Not part of the game's build: a separate little program with its own lock file.
+[workspace]
+
+[dependencies]
+png = "0.18"
+serde_json = "1"

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CrabScape</title>
+<!-- Single-page poster. Rebuild with ./build.sh (PDF + poster.png). The old 10-page deck is deck.html. -->
+<style>
+@font-face { font-family: "Bookman"; src: url(fonts/URWBookman-Light.otf); font-weight: 300; }
+@font-face { font-family: "Bookman"; src: url(fonts/URWBookman-LightItalic.otf); font-weight: 300; font-style: italic; }
+@font-face { font-family: "Bookman"; src: url(fonts/URWBookman-Demi.otf); font-weight: 600; }
+@page { size: 13.333in 7.5in; margin: 0; }
+:root { --cream: #f3e6cf; --amber: #f3b459; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: #05080b; }
+body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page { width: 1280px; height: 720px; position: relative; overflow: hidden; background: #05080b; }
+.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.shade { position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(3,6,9,.55) 0%, rgba(3,6,9,.18) 30%, rgba(3,6,9,0) 45%); }
+.type { position: absolute; left: 0; right: 0; top: 74px; text-align: center; }
+h1 { font-family: "Bookman"; font-weight: 600; font-size: 64px; letter-spacing: .32em; margin-right: -.32em;
+  color: var(--cream); text-shadow: 0 0 36px rgba(243,180,89,.16); }
+.rule { width: 72px; height: 1px; margin: 26px auto 22px; background: rgba(243,180,89,.6); }
+.tag { font-family: "Bookman"; font-weight: 300; font-style: italic; font-size: 27px; letter-spacing: .02em; color: #f0cf96; }
+.tag b { font-weight: 300; color: var(--amber); }
+</style>
+</head>
+<body>
+<section class="page">
+  <img class="bg" src="img/poster-lantern.jpg" alt="">
+  <div class="shade"></div>
+  <div class="type">
+    <h1>CRABSCAPE</h1>
+    <div class="rule"></div>
+    <div class="tag">Experience&hellip; the wealth of the deep.</div>
+  </div>
+</section>
+</body>
+</html>
