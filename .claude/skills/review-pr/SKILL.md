@@ -1,17 +1,16 @@
 ---
 name: review-pr
-description: Cross-review someone else's CrabScape pull request - run the checks, read the diff against the CLAUDE.md rules, comment findings, approve only if everything passes. Use for /review-pr <number> or "review PR 12".
+description: Optional Claude-only check of a CrabScape pull request - your own before you merge it, or already-merged work when you have spare budget. Never a human step; no human approval is ever needed. Use for /review-pr <number> or "check PR 12".
 argument-hint: "<pr-number>"
 ---
 
-# /review-pr
+# /review-pr (optional, Claude-only)
 
-PR number: `$ARGUMENTS` (if missing, list `gh pr list --search "review:required -author:@me"` and ask which).
+PR number: `$ARGUMENTS` (if missing: your own open PR, else a recent one from `gh pr list --state merged --limit 5`).
+This is a self-check, not a gate. Nobody approves anything, and never ask a human to review code.
 
-1. **Context.** Read `CLAUDE.md`. `gh pr view <n> --comments` and the linked issue's "Done when". Never review your
-   own PR (the author can't approve it anyway).
-2. **Checks.** `gh pr checks <n>`. If CI is green you may skip re-running locally; if CI is missing or red,
-   `gh pr checkout <n>` and run the checks in `CLAUDE.md` yourself.
+1. **Context.** Read `CLAUDE.md`. `gh pr view <n> --comments` and the linked issue's "Done when".
+2. **Checks.** `gh pr checks <n>`. If CI is missing or red, `gh pr checkout <n>` and run the checks in `CLAUDE.md`.
 3. **Read the diff** (`gh pr diff <n>`). Look for, in this order:
    - Does it do what the issue's "Done when" says, and nothing unrelated?
    - Rule breaks: licence files/fields, relaxed-SIMD or `RUSTFLAGS` tricks, air/air-tank/pressure-helmet ideas,
@@ -20,9 +19,6 @@ PR number: `$ARGUMENTS` (if missing, list `gh pr list --search "review:required 
    - Bugs: panics on the web, frame-rate dependent physics (must use the fixed step), anything moving the crab
      directly instead of through `MoveRequest`.
    - Feel numbers belong in `src/tuning.rs` with a comment.
-4. **Report.** Keep it short and concrete (file:line, why, suggested fix).
-   - Problems: `gh pr review <n> --request-changes --body "..."`.
-   - Small nits only: `gh pr review <n> --comment --body "..."`.
-   - All good and checks pass: `gh pr review <n> --approve --body "Checks pass; matches the issue. <one-line summary>"`.
-   - A visual or feel change also needs a human taste verdict: say so in the review and leave merging to a person.
-5. Never merge. Never push to the author's branch unless they asked.
+4. **Act, cheaply.** Your own open PR: fix what you found, then merge as in `/next-task`. Another Claude's open PR:
+   a short comment (file:line, why, fix); don't push to their branch. Merged work: fix small problems in a new small
+   PR you merge yourself, or open a `claude-ready` issue for bigger ones. Skip nits.

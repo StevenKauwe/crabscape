@@ -8,4 +8,4 @@ Closes #
 - [ ] `tools/build-web.sh` (if the game changed)
 
 ## Screenshots
-<!-- Required for visual changes: before and after. -->
+<!-- For visual changes: before and after. The author's Claude merges this itself once CI passes. -->

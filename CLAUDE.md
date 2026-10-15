@@ -4,8 +4,29 @@ A side-on 2D browser game in Rust + Bevy (wasm, WebGL2). You play a heavy, lante
 floor. "Feels like Valheim. Plays like Silksong. Grows like RuneScape." Solo is the full game; P2P co-op comes later.
 Milestone 1 is one test level and one crab (see README.md).
 
-**Team:** a few friends, no game designers. Claude is the designer and builder. Humans give taste (play builds, react
-to art, vote) and run Claude on small token budgets. Nobody reads code, so checks are the safety net. Keep work small.
+**Team:** a few friends, no game designers. Claude is the designer and builder. Humans run Claude on small token
+budgets. Nobody reads code, so checks are the safety net.
+
+## How we work
+- **Humans bring taste; Claude does the work, including all process.** Never ask a human to review code, approve a
+  PR, resolve a merge conflict, or do git chores.
+- **Merge your own PR** when your task's checks pass: `gh pr merge --squash --auto --delete-branch`. Small PRs, one
+  issue each. Rebase on `main` before merging; if `main` moved and things conflict, resolve them yourself.
+- **Nothing is precious.** Anything merged can be changed later by anyone's Claude. Progress over perfection; don't
+  gold-plate.
+- **Only stop and ask a human** for genuine taste or direction calls (how it should feel or look, which way the
+  design goes) or anything outward-facing (making things public, spending money, contacting people). Ask briefly,
+  in plain words, with a recommended choice.
+- **Taste input** arrives via the Studio hub artifact (https://claude.ai/artifact/PttxVTZCC75dqSEpKXYowf) and
+  `feedback` issues; `/triage` turns it into tasks.
+- **Talking to humans:** most teammates don't know GitHub or dev tools exist. Anything a human truly must do comes in
+  one of three forms only: (1) in this conversation: you do it, ask a yes/no, or (only for an unavoidable
+  interactive login) have them type one `! command`; (2) a button or form on an artifact page (Studio hub, a demo);
+  (3) one clickable link that lands exactly on the action (e.g. https://github.com/StevenKauwe/crabscape/invitations).
+  Never "go to Settings → … and click …". No jargon (PR, branch, merge, CI, issue) in anything a human reads: say
+  "your change", "the task", "the automatic checks", "it's in the game now".
+- **Respect the token budget:** pick tasks that fit, stop at a clean point, and if unfinished leave a short handoff
+  comment on the issue.
 
 ## Rules that never bend
 - **No licence.** All rights reserved. Never add a LICENSE file or licence fields.
@@ -47,9 +68,10 @@ Visual change? Attach before/after screenshots (`python3 tools/test-webkit.py --
 ## Picking and finishing work
 - Tasks are GitHub issues labelled `claude-ready`, sized `size:S` (under ~30 min of Claude work) or `size:M` (~1 h).
   `size:L` must be split first. `needs-human` means a person must decide or draw something: don't start it.
-- Use the shared skills: `/next-task` (claim and do one issue), `/review-pr <n>` (cross-review), `/triage` (lead only).
-- One issue per branch (`issue-<n>-<slug>`) and per PR. Keep PRs small. PR body has `Closes #<n>`, what changed,
-  how you verified it, screenshots for visual changes. Never merge your own PR; never push to `main`.
+- Use the shared skills: `/next-task` (claim, do and merge one issue), `/review-pr <n>` (optional self-check before
+  merging), `/triage` (feedback → tasks).
+- One issue per branch (`issue-<n>-<slug>`) and per PR. PR body has `Closes #<n>`, what changed, how you verified
+  it, screenshots for visual changes. Changes go through a PR (so CI runs); never push straight to `main`.
 - If the work turns out bigger than the size label, stop, comment on the issue with what you learned, and suggest
   a split instead of burning budget.
-- Decisions go in `docs/design/decisions.md` (dated). Don't change a rule above without the owner (StevenKauwe).
+- Decisions go in `docs/design/decisions.md` (dated). Changing a rule that never bends is a direction call: ask the owner (StevenKauwe).

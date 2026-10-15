@@ -21,3 +21,4 @@ overturned, but only by a new dated entry here (never by quietly changing code o
 | 2026-10-15 | Oil-painted assets ("better than I'd have ever hoped"). Paint ahead, play live: offline-painted lit + unlit sprites blended at runtime | Owner |
 | 2026-10-15 | No licence: all rights reserved | Owner |
 | 2026-10-15 | Team workflow: GitHub issues are the task list; small token-sized tasks; CI is the code safety net; humans give taste verdicts on playable builds; decisions land in this file | Owner |
+| 2026-10-15 | Working agreement: humans only give taste (Studio hub, docs, demos); Claude does all work and process, merges its own PRs once CI passes (no human review/approval), and asks humans only for taste/direction or outward-facing calls, in plain words via the conversation, an artifact page or one direct link. Nothing is precious: anything merged can be changed later | Owner |
