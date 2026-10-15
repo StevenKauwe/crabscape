@@ -98,7 +98,7 @@ jobs:
           path: web/
           retention-days: 14
       - name: Upload for GitHub Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.private
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: web/
@@ -106,7 +106,9 @@ jobs:
   deploy:
     name: deploy to GitHub Pages
     # Pages for private repositories needs a paid plan, so only deploy when public.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.private
+    # (The private flag is read from the event, so a run started while private skips;
+    # rerun with workflow_dispatch on main.)
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
     needs: [check, web]
     runs-on: ubuntu-latest
     permissions:
