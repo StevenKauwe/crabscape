@@ -1,0 +1,12 @@
+[package]
+name = "tidy"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Keeps the project's build files from filling the disk. Run with `cargo tidy` from the project folder."
+
+# Not part of the game's build: a separate little program (standard library only) with its own `target/`, so it
+# can clean the game's build files while a game build is running, and survives a full clean.
+[workspace]
+
+[dependencies]

@@ -2,3 +2,5 @@
 [alias]
 # Run the game's simulation headless: `cargo crabsim --help`.
 crabsim = "run --release --quiet -p crabsim --"
+# `cargo tidy`: says how big the build files are and cleans them up if they get too big (see tools/tidy).
+tidy = "run -q --release --offline --manifest-path tools/tidy/Cargo.toml --"
