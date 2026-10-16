@@ -71,11 +71,20 @@ pub struct Tuning {
     /// Press jump this long before landing and it still counts
     /// ("jump buffering").
     pub jump_buffer: f32,
-    /// Upward speed of the paddle stroke (the double jump, made with the
-    /// flattened fifth legs). Weaker than the floor push.
+    /// Upward speed of a paddle stroke (made with the flattened fifth legs).
+    /// Weaker than the floor push. The first stroke after a jump is the
+    /// double jump; more strokes swim higher, one push at a time, sinking in
+    /// between.
     pub paddle_speed: f32,
-    /// Paddle strokes allowed per jump.
-    pub paddles_per_jump: u32,
+    /// Swimming stamina, in strokes: how many paddle strokes the crab can
+    /// make before its paddle legs need a rest on something solid.
+    pub swim_strokes: u32,
+    /// The paddle legs' rhythm: the shortest time between two strokes, so
+    /// mashing doesn't help.
+    pub stroke_interval: f32,
+    /// Seconds standing on something solid (floor or rock) that rest the
+    /// paddle legs from spent to full. They don't rest while swimming.
+    pub stamina_refill_time: f32,
 
     // --- Landing --------------------------------------------------------
     /// Landing faster than this counts as a heavy landing: big squash, a
@@ -133,7 +142,9 @@ impl Default for Tuning {
             coyote_time: 0.10,
             jump_buffer: 0.13,
             paddle_speed: 740.0, // adds about 140 at the top of a jump
-            paddles_per_jump: 1,
+            swim_strokes: 3,
+            stroke_interval: 0.30,
+            stamina_refill_time: 0.6,
 
             heavy_landing_speed: 520.0,
             heavy_landing_keep: 0.55,
@@ -152,6 +163,15 @@ impl Default for Tuning {
 }
 
 impl Tuning {
+    /// The share of stamina (0 to 1) one paddle stroke uses.
+    pub fn stroke_cost(&self) -> f32 {
+        if self.swim_strokes == 0 {
+            f32::INFINITY // no stamina at all: no strokes
+        } else {
+            1.0 / self.swim_strokes as f32
+        }
+    }
+
     /// A short code that changes whenever any number here changes. Replays
     /// store it, so a replay made with different tuning can warn you.
     pub fn fingerprint(&self) -> u64 {

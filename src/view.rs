@@ -142,7 +142,7 @@ fn spawn_hud(mut commands: Commands) {
             ));
             hud.spawn((
                 HelpText,
-                Text::new("A/D walk  Space jump/paddle  Shift dodge"),
+                Text::new("A/D walk  Space jump, again to swim  Shift+dir dodge"),
                 TextFont {
                     font_size: FontSize::Px(13.0),
                     ..default()
@@ -155,7 +155,7 @@ fn spawn_hud(mut commands: Commands) {
 /// On touch screens, the keyboard help is replaced by a shorter hint.
 fn update_help(touch: Res<TouchControls>, mut text: Single<&mut Text, With<HelpText>>) {
     if touch.is_changed() && touch.visible {
-        text.0 = "JUMP twice: paddle stroke".to_string();
+        text.0 = "JUMP again in the water: swim".to_string();
     }
 }
 
