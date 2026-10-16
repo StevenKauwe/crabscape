@@ -2,13 +2,13 @@
 //! bumping into the level.
 //!
 //! This is plain Rust with no Bevy systems in it, so it can be unit tested
-//! (see the tests at the bottom). The game calls [`step`] 120 times a second
-//! for every crab, with that crab's [`Controls`].
+//! (see the tests at the bottom). The [`Sim`](crate::Sim) calls [`step`] 120
+//! times a simulated second for every crab, with that crab's [`Controls`].
 //!
 //! The crab's position is the point between its feet, at the bottom-middle
 //! of its collision box.
 
-use bevy::prelude::*;
+use bevy_math::{Rect, Vec2};
 
 use crate::level::Level;
 use crate::tuning::Tuning;
@@ -16,7 +16,10 @@ use crate::tuning::Tuning;
 /// The physics runs in fixed steps of this many seconds. A fixed step makes
 /// the motion the same on a 60 Hz phone and a 144 Hz monitor (and, later,
 /// on every player's computer).
-pub const STEP: f32 = 1.0 / 120.0;
+pub const STEP: f32 = 1.0 / TICKS_PER_SECOND as f32;
+
+/// How many physics steps ("ticks") make one second of game time.
+pub const TICKS_PER_SECOND: u32 = 120;
 
 /// What a player is asking their crab to do. This is a *command*, not a
 /// keyboard or touch-screen reading, so it can come from anywhere: the local
@@ -33,8 +36,10 @@ pub struct Controls {
     pub dodge_pressed: bool,
 }
 
-/// A crab's movement state.
-#[derive(Component, Clone, Debug)]
+/// A crab's movement state. (In the game, each crab entity also carries a
+/// copy as a Bevy component, for the animation and camera to read.)
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 pub struct Mover {
     /// Feet position, in world units.
     pub pos: Vec2,
@@ -82,6 +87,25 @@ impl Mover {
             facing: 1.0,
         }
     }
+
+    /// A one-word description of what the crab is doing, for logs and tests.
+    pub fn activity(&self) -> &'static str {
+        if self.dodge_left > 0.0 {
+            "dodging"
+        } else if self.windup > 0.0 {
+            "crouching"
+        } else if self.grounded {
+            if self.vel.x.abs() > 1.0 {
+                "walking"
+            } else {
+                "idle"
+            }
+        } else if self.vel.y > 0.0 {
+            "rising"
+        } else {
+            "falling"
+        }
+    }
 }
 
 /// Things that happened during one step, for the animation and effects.
@@ -109,6 +133,20 @@ impl StepEvents {
         if other.landed.is_some() {
             self.landed = other.landed;
         }
+    }
+
+    /// The names of the events that happened, for logs and tests.
+    pub fn names(&self) -> Vec<&'static str> {
+        [
+            (self.crouched, "crouched"),
+            (self.jumped, "jumped"),
+            (self.paddled, "paddled"),
+            (self.landed.is_some(), "landed"),
+            (self.dodged, "dodged"),
+        ]
+        .into_iter()
+        .filter_map(|(happened, name)| happened.then_some(name))
+        .collect()
     }
 }
 
@@ -350,6 +388,11 @@ pub fn is_valid_spot(pos: Vec2, t: &Tuning, level: &Level) -> bool {
 mod tests {
     use super::*;
     use crate::level::SPAWN;
+
+    /// Shorthand for `Default::default()`, as Bevy's prelude has.
+    fn default<T: Default>() -> T {
+        T::default()
+    }
 
     /// Run the physics for `seconds` with the same controls every step
     /// (`jump_pressed` and `dodge_pressed` only count on the first step).

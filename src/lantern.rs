@@ -22,7 +22,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 
 use crate::effects::SoftTextures;
-use crate::tuning::Tuning;
+use crate::tuning::ViewTuning;
 
 /// The light itself (the middle of the jar).
 #[derive(Component)]
@@ -93,7 +93,7 @@ pub fn spawn_lantern(
     holder: Entity,
     at: Vec3,
     soft: &SoftTextures,
-    tuning: &Tuning,
+    tuning: &ViewTuning,
 ) -> Entity {
     let pivot = commands
         .spawn((
@@ -172,14 +172,14 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 }
 
 /// How much light reaches a point `distance` away from a lantern.
-pub fn light_at(distance: f32, tuning: &Tuning, flicker: f32) -> f32 {
+pub fn light_at(distance: f32, tuning: &ViewTuning, flicker: f32) -> f32 {
     1.0 - smoothstep(tuning.light_inner, tuning.light_outer * flicker, distance)
 }
 
 /// Work out every [`Lit`] thing's [`LightBlend`] from its distance to the
 /// nearest lantern.
 fn measure_light(
-    tuning: Res<Tuning>,
+    tuning: Res<ViewTuning>,
     flicker: Res<Flicker>,
     lights: Query<&GlobalTransform, With<LightSource>>,
     mut lit: Query<(&Lit, &GlobalTransform, &mut LightBlend)>,
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn light_falls_off_fast() {
-        let t = Tuning::default();
+        let t = ViewTuning::default();
         assert_eq!(light_at(0.0, &t, 1.0), 1.0);
         assert_eq!(light_at(t.light_inner, &t, 1.0), 1.0);
         let half = light_at((t.light_inner + t.light_outer) / 2.0, &t, 1.0);

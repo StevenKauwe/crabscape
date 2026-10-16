@@ -4,10 +4,11 @@ use bevy::camera::ScalingMode;
 use bevy::prelude::*;
 
 use crate::input::TouchControls;
-use crate::level::{Level, Parallax, SPAWN};
-use crate::physics::Mover;
+use crate::level::Parallax;
 use crate::player::{GameSet, LocalPlayer};
-use crate::tuning::Tuning;
+use crate::tuning::ViewTuning;
+use crabsim::Mover;
+use crabsim::{SPAWN, Sim};
 
 /// The camera always shows at least this much of the world (in world
 /// units), whatever the screen's shape: on a portrait phone you see more
@@ -68,11 +69,12 @@ type CameraParts = (&'static mut Transform, &'static Projection);
 /// above. The view stops at the level's walls.
 fn follow_crab(
     time: Res<Time>,
-    tuning: Res<Tuning>,
-    level: Res<Level>,
+    tuning: Res<ViewTuning>,
+    sim: Res<Sim>,
     crab: Single<(&Mover, &Transform), With<LocalPlayer>>,
     camera: Single<CameraParts, (With<Camera2d>, Without<LocalPlayer>)>,
 ) {
+    let level = &sim.level;
     let (mover, crab_tr) = *crab;
     let (mut cam, projection) = camera.into_inner();
     let Projection::Orthographic(ortho) = projection else {

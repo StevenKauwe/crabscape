@@ -18,7 +18,8 @@ This is a self-check, not a gate. Nobody approves anything, and never ask a huma
      renders, videos), secrets or personal paths.
    - Bugs: panics on the web, frame-rate dependent physics (must use the fixed step), anything moving the crab
      directly instead of through `MoveRequest`.
-   - Feel numbers belong in `src/tuning.rs` with a comment.
+   - Movement feel numbers belong in `crates/sim/src/tuning.rs` with a comment; game rules belong in `crates/sim`
+     (deterministic: no clocks, no unseeded randomness), never in Bevy systems.
 4. **Act, cheaply.** Your own open PR: fix what you found, then merge as in `/next-task`. Another Claude's open PR:
    a short comment (file:line, why, fix); don't push to their branch. Merged work: fix small problems in a new small
    PR you merge yourself, or open a `claude-ready` issue for bigger ones. Skip nits.

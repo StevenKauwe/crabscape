@@ -33,3 +33,6 @@ __pycache__/
 # Personal Claude Code settings (the shared skills in .claude/skills/ ARE committed).
 /.claude/settings.local.json
 /.claude/worktrees/
+
+# Replays saved from the native game with F9 (share the text, not the file).
+/crabscape-replay-*.txt

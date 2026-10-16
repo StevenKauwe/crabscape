@@ -11,8 +11,8 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::lantern::{LightBlend, Lit, LitTint};
-use crate::physics::Mover;
 use crate::player::{FrameEvents, GameSet};
+use crabsim::Mover;
 
 /// Soft round pictures shared by everything that glows or floats.
 #[derive(Resource)]

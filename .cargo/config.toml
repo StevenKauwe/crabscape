@@ -1,0 +1,4 @@
+# Shortcuts for `cargo`. (Only aliases here: build flags would leak into the wasm build, which must stay plain.)
+[alias]
+# Run the game's simulation headless: `cargo crabsim --help`.
+crabsim = "run --release --quiet -p crabsim --"

@@ -16,8 +16,8 @@
 
 use bevy::prelude::*;
 
-use crate::physics::Controls;
 use crate::player::{GameSet, LocalPlayer, MoveRequest, PlayerId};
+use crabsim::Controls;
 
 /// One on-screen button's job.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]

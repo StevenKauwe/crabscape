@@ -5,13 +5,19 @@ edition = "2024"
 authors = ["Steven Kauwe"]
 description = "A tiny RuneScape-inspired co-op browser game about crabs, written in Rust with Bevy."
 publish = false
+# `cargo run` starts the game (the workspace also has the headless `crabsim` runner).
+default-run = "crabscape"
 
-# The game is the root package; the art tools are workspace members. Plain `cargo build` / `cargo test` / the wasm
-# build only touch the game (a root package is the workspace's only default member). Art tools: `-p painter`.
+# The game is the root package. `crates/sim` is the simulation (the game rules with no graphics), which the game
+# uses and which also runs headless (`cargo crabsim`); plain `cargo build` / `cargo test` / the wasm build cover the
+# game and the simulation. The art tools are the other members: `--workspace` or `-p painter` to include them.
 [workspace]
-members = ["crates/painter", "crates/crabrig", "tools/oil-atlas"]
+members = ["crates/sim", "crates/painter", "crates/crabrig", "tools/oil-atlas"]
+default-members = [".", "crates/sim"]
 
 [dependencies]
+# The game rules. The `bevy` feature makes its types Bevy components/resources.
+crabsim = { path = "crates/sim", features = ["bevy"] }
 # Bevy with its default features switched off, so only the parts this game
 # actually uses get compiled in. That keeps the WebAssembly download small.
 bevy = { version = "0.20.0", default-features = false, features = [

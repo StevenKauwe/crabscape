@@ -15,6 +15,8 @@ and checks that:
   - holding D (a simulated key press) walks the crab right, and Space makes it jump (its height goes up);
   - a second jump press in the water is a paddle stroke that lifts it again;
   - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
+  - F9 hands out a replay of the session (shown in a box to copy), and the headless runner, playing that replay,
+    ends exactly where the crab in the browser stands (needs cargo; see crates/sim);
   - its resting position, and the chosen style, are saved in localStorage and survive a reload.
 The game writes the crab's state onto the canvas as data-crab="x y grounded" (see src/view.rs); the test reads that.
 With --shots PREFIX it saves screenshots as PREFIX-1.png, PREFIX-2.png, ...; with --style-shots PREFIX it saves
@@ -406,6 +408,33 @@ top = max(top, hold(0.2))
 pointer("pointerup", jx, jy, 4, 0)
 top = max(top, hold(1.0))
 check(top > after[1] + 120, f"holding the on-screen JUMP button jumps (height {after[1]:.0f} -> {top:.0f})")
+
+# --- replay ---------------------------------------------------------------------------------------------------------
+# F9 asks for a replay of everything so far; the page shows it in a box. Played headless, it must end exactly where
+# the crab stands now: same controls, same simulation, same result.
+standing = rest()
+key("keydown", "F9", "F9")
+pump(0.1)
+key("keyup", "F9", "F9")
+check(wait_for('document.getElementById("crabscape").hasAttribute("data-replay")', 5), "F9 hands out a replay")
+replay = js(canvas_attr("data-replay")) or ""
+check(replay.startswith("# CrabScape replay") and " jump" in replay and not js('document.getElementById("replay-box").hidden'),
+      f"the page shows the replay to copy ({len(replay.splitlines())} lines)")
+js('document.getElementById("replay-close").click()')
+try:
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write(replay)
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    out = subprocess.run(["cargo", "run", "--release", "--quiet", "-p", "crabsim", "--", "--inputs", f.name],
+                         cwd=root, capture_output=True, text=True, timeout=600).stdout
+    end = next(line for line in out.splitlines() if line.startswith("crab:")).split("end (")[1].split(")")[0]
+    hx, hy = (float(v) for v in end.split(","))
+    check(abs(hx - standing[0]) < 0.11 and abs(hy - standing[1]) < 0.11,
+          f"the replay played headless ends where the crab stands (headless {hx}, {hy}; browser {standing[0]}, {standing[1]})")
+except (OSError, StopIteration, IndexError, ValueError) as e:
+    print(f"skip the headless replay check ({e!r})")
 
 # --- save and reload ------------------------------------------------------------------------------------------------
 resting = rest()

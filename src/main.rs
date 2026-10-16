@@ -16,11 +16,16 @@
 //! simulate, then present (animate, effects, camera). Lighting runs last,
 //! once every piece's final position is known.
 //!
+//! The game *rules* (physics, the level's shape, every number that decides
+//! how the crab moves) are not in here: they are the simulation, in the
+//! `crabsim` crate (`crates/sim/`), plain Rust that also runs headless for
+//! tests and replays (`cargo crabsim`). Everything in `src/` presents it.
+//!
 //! The modules:
-//! - [`tuning`]: every number that decides how the crab feels
-//! - [`level`]: the test level (sea floor, rocks) and drawing it
-//! - [`physics`]: walking, sinking, jumping, paddling, dodging (plain Rust, unit tested)
-//! - [`player`]: the crabs, and running their physics each frame
+//! - [`tuning`]: the camera and lantern numbers
+//! - [`level`]: drawing the test level (sea floor, rocks, spires)
+//! - [`player`]: the crabs, and ticking the simulation each frame
+//! - [`replay`]: F9 saves a replay of this session
 //! - [`input`]: keys, controllers and touch buttons become move requests
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
@@ -33,9 +38,9 @@ mod effects;
 mod input;
 mod lantern;
 mod level;
-mod physics;
 mod player;
 mod puppet;
+mod replay;
 mod save;
 mod style;
 mod tuning;
@@ -69,8 +74,9 @@ fn main() {
                     ..default()
                 }),
         )
-        .init_resource::<tuning::Tuning>()
+        .init_resource::<tuning::ViewTuning>()
         .add_plugins((
+            replay::ReplayPlugin,
             level::LevelPlugin,
             player::PlayerPlugin,
             input::InputPlugin,

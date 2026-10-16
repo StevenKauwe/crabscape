@@ -1,8 +1,8 @@
 # How it plays
 
 Silksong-style movement and combat, but you are a crab: **a heavy-hitting tank.** The feel is momentum, power,
-timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** Every feel number lives in
-`src/tuning.rs`.
+timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** Every movement feel number lives in
+`crates/sim/src/tuning.rs` (camera and light in `src/tuning.rs`); `cargo crabsim` measures them headless.
 
 ## Movement (milestone 1 has the first four)
 - **Weight you can feel.** A crab is denser than water, so it sinks. Jumps are strong push-offs from the floor with a
