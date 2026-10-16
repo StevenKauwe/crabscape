@@ -4,8 +4,7 @@
 #   tools/build-web.sh
 #
 # Afterwards web/ is a complete static website (index.html, the JavaScript
-# glue, the .wasm and the pictures in web/assets/), plus artifact.html (see
-# step 6). Serve it with any static file server, for example:
+# glue, the .wasm and the pictures in web/assets/). Serve it with any static file server, for example:
 #   python3 -m http.server -d web 8000     then open http://localhost:8000
 #
 # Needs: the wasm32-unknown-unknown Rust target, and wasm-bindgen-cli at the
@@ -66,15 +65,6 @@ fi
 rm -rf web/assets
 mkdir -p web/assets/crab
 cp assets/crab/crab-atlas.png assets/crab/crab-atlas-oil.png web/assets/crab/
-
-# 6. A copy of the page for hosts that wrap it in their own <html>/<head>/<body>
-#    (an iframe host, for example): the same page minus those tags and
-#    the <meta> lines, with the dark colour scheme declared in the CSS.
-#    Plain POSIX sed -E (no \s, \? or \n) so it works on macOS and Linux alike.
-sed -E -e '/<!DOCTYPE/d' -e '/<\/?html/d' -e '/<\/?head>/d' -e '/<\/?body>/d' -e '/<meta /d' -e '/Fill the phone screen/d' \
-    -e 's|^([[:space:]]*)<style>$|\1<style>\
-\1  :root { color-scheme: dark; }|' \
-    web/index.html > web/artifact.html
 
 raw=$(wc -c < "$wasm")
 gz=$(gzip -9 -c "$wasm" | wc -c)

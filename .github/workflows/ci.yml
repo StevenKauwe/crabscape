@@ -82,8 +82,6 @@ jobs:
           rm binaryen.tgz binaryen.tgz.sha256
       - name: Build the web game
         run: tools/build-web.sh
-      - name: web/artifact.html is up to date with web/index.html
-        run: git diff --exit-code web/artifact.html
       - name: No relaxed SIMD (iPhone/WebKit rejects it)
         run: wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
       - name: Size report (information only)
