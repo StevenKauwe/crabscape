@@ -49,8 +49,8 @@ Checks to run before you share a change:
 
 ```sh
 cargo fmt                                  # tidy the code layout
-cargo clippy --all-targets -- -D warnings  # catch common mistakes
-cargo test                                 # run the unit tests (jump heights, the level, the save format, ...)
+cargo clippy --workspace --all-targets -- -D warnings  # catch common mistakes (game + art tools)
+cargo test --workspace                     # run the tests (jump heights, the level, the save format, the crab rig, ...)
 ```
 
 ## Build it for the web
@@ -122,8 +122,9 @@ bindings (on Arch: `webkit2gtk-4.1` and `python-gobject`).
 | `src/view.rs` | The camera, which follows the crab with a little lag, and the HUD text. |
 | `src/style.rs` | The art style (oil paint or ink), the P key and the "Style" button that switch it. |
 | `assets/crab/` | The crab's pieces in one picture (`crab-atlas.png`, and `crab-atlas-oil.png` painted), plus their joints (`crab-parts.json`, baked into the game). The pictures are loaded when the game starts. |
-| `tools/export-crab-parts.py` | Re-exports `assets/crab/` from `art/crab/crab-parts.svg`. Run it when the crab art changes, then rebuild. |
-| `tools/paint-oil-crab.sh`, `tools/oil-atlas/` | Oil-paints the parts into `crab-atlas-oil.png`, keeping each part's outline (uses the painter from the music-to-movie-magic studio). |
+| `crates/crabrig/` | The crab as a parametric puppet (proportions, poses, named parts with joints). `crabrig parts` writes `art/crab/crab-parts.svg`; `crabrig export` writes `assets/crab/` from it. |
+| `crates/painter/` | The owner's oil painter and pure-Rust p5.brush port (`crabpaint`), moved in from music-to-movie-magic. |
+| `tools/paint-oil-crab.sh`, `tools/oil-atlas/` | Oil-paints the parts into `crab-atlas-oil.png`, keeping each part's outline. |
 | `tools/build-web.sh` | Builds the web version into `web/`. |
 | `tools/test-webkit.py` | Plays the web build in a real WebKit engine. |
 
@@ -136,15 +137,21 @@ so every computer simulates the same motion.
 
 ## Changing the crab's art
 
-The crab is drawn from `art/crab/crab-parts.svg`: every piece is a named
-group, with the piece it hangs from and the joint it turns around. After
-the art changes:
+The crab is a parametric puppet in `crates/crabrig/` (its proportions,
+poses and parts). It writes `art/crab/crab-parts.svg`, where every piece is a
+named group with the piece it hangs from and the joint it turns around, and
+the game's pictures come from that file. Everything is `cargo run`, nothing
+else to install. After changing the crab:
 
 ```sh
-python3 tools/export-crab-parts.py   # needs rsvg-convert (librsvg)
-tools/paint-oil-crab.sh              # the oil-painted copy (about 15 s)
+cargo run -p crabrig --profile art -- parts    # art/crab/crab-parts.svg
+cargo run -p crabrig --profile art -- export   # assets/crab/crab-atlas.png + crab-parts.json
+tools/paint-oil-crab.sh                        # the oil-painted copy (about 15 s)
 cargo run
 ```
+
+`cargo test --workspace` fails if the SVG or the parts file is out of date
+with the puppet.
 
 Pieces the animation moves are found by name (`leg-L1-merus`,
 `cheliped-R-dactyl`, `eye-L-stalk`, ...). If a name disappears, the game

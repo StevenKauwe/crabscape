@@ -3,7 +3,7 @@
 #
 #   tools/paint-oil-crab.sh
 #
-# Run after tools/export-crab-parts.py (the oil atlas uses the same rectangles,
+# Run after `cargo run -p crabrig --profile art -- export` (the oil atlas uses the same rectangles,
 # so crab-parts.json serves both styles). Takes about 15 seconds (plus a first
 # build of the painter).
 #
@@ -17,18 +17,19 @@
 #    outline (grown a pixel, softened), puts back the drawing's broad shading,
 #    and writes the atlas.
 #
-# Needs: Rust and rsvg-convert (for step 1).
+# Needs: only Rust.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ZOOM=${ZOOM:-1.8}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-cargo build --profile art --quiet -p painter -p oil-atlas
+cargo build --profile art --quiet -p painter -p oil-atlas -p crabrig
 target=${CARGO_TARGET_DIR:-target}
 tool=$target/art/oil-atlas
 painter=$target/art/crabpaint
-python3 tools/export-crab-parts.py --scale "$ZOOM" --out "$work/big"
+rig=$target/art/crabrig
+"$rig" export --scale "$ZOOM" --out "$work/big" >/dev/null
 "$tool" layout "$work/big/crab-atlas.png" "$work/big/crab-parts.json" "$work"
 for sheet in "$work"/sheet-*.png; do
   n=${sheet##*/sheet-}

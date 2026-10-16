@@ -51,9 +51,10 @@ Read the one-pagers in `docs/design/` that touch your task before you start (`vi
 
 ## Where things live
 `src/` game code (`tuning.rs` holds every feel number) · `assets/` files the game loads · `art/` source art
-(`art/crab/crab-parts.svg` is the rig, `anatomy-notes.md` the sourced anatomy) · `concept/` sketches · `docs/` design,
-poster, teaser scripts, screenshots · `crates/painter` the owner's oil painter and p5.brush port (art tool,
-`crabpaint`) · `tools/` build and test scripts · `web/` the page (`pkg/`, `assets/` are built).
+(`art/crab/crab-parts.svg` is the rig, written by `crates/crabrig`; `anatomy-notes.md` the sourced anatomy) ·
+`concept/` sketches · `docs/` design, poster, teaser scripts, screenshots · `crates/` art tools, all pure Rust (`painter`: the owner's oil painter
+and p5.brush port, `crabpaint`; `crabrig`: the crab puppet and parts exporter; art pipeline is `cargo run`, see
+README "Changing the crab's art") · `tools/` build and test scripts · `web/` the page (`pkg/`, `assets/` are built).
 
 ## Checks (run all before a PR; CI runs them too)
 ```sh
