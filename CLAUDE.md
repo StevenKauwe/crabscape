@@ -52,14 +52,15 @@ Read the one-pagers in `docs/design/` that touch your task before you start (`vi
 ## Where things live
 `src/` game code (`tuning.rs` holds every feel number) · `assets/` files the game loads · `art/` source art
 (`art/crab/crab-parts.svg` is the rig, `anatomy-notes.md` the sourced anatomy) · `concept/` sketches · `docs/` design,
-poster, teaser scripts, screenshots · `tools/` build and test scripts · `web/` the page (`pkg/`, `assets/` are built).
+poster, teaser scripts, screenshots · `crates/painter` the owner's oil painter and p5.brush port (art tool,
+`crabpaint`) · `tools/` build and test scripts · `web/` the page (`pkg/`, `assets/` are built).
 
 ## Checks (run all before a PR; CI runs them too)
 ```sh
 cargo fmt
-cargo clippy --all-targets -- -D warnings
-cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings
-cargo test
+cargo clippy --workspace --all-targets -- -D warnings      # the game + the art tools (crates/)
+cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings   # the game only
+cargo test --workspace
 tools/build-web.sh                 # web build + relaxed-SIMD check + size report
 python3 tools/test-webkit.py       # optional, needs WebKitGTK: plays it at iPhone size, saves screenshots
 ```

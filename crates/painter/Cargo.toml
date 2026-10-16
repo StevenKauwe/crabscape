@@ -1,0 +1,15 @@
+[package]
+name = "painter"
+version = "0.1.0"
+edition = "2024"
+authors = ["Steven Kauwe"]
+description = "The owner's oil painter and pure-Rust p5.brush port, moved in from music-to-movie-magic. Art tool, not part of the game."
+publish = false
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rayon = "1"
+
+[[bin]]
+name = "crabpaint"
+path = "src/bin/crabpaint.rs"

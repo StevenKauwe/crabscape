@@ -6,6 +6,11 @@ authors = ["Steven Kauwe"]
 description = "A tiny RuneScape-inspired co-op browser game about crabs, written in Rust with Bevy."
 publish = false
 
+# The game is the root package; the art tools are workspace members. Plain `cargo build` / `cargo test` / the wasm
+# build only touch the game (a root package is the workspace's only default member). Art tools: `-p painter`.
+[workspace]
+members = ["crates/painter"]
+
 [dependencies]
 # Bevy with its default features switched off, so only the parts this game
 # actually uses get compiled in. That keeps the WebAssembly download small.
@@ -58,6 +63,19 @@ web-sys = { version = "0.3", features = ["Window", "Storage", "Navigator", "Docu
 opt-level = 1
 
 [profile.dev.package."*"]
+opt-level = 3
+
+# The art tools (`--profile art`): fast code, quick to link, nothing of the game's size tuning.
+[profile.art]
+inherits = "release"
+opt-level = 3
+lto = false
+codegen-units = 16
+panic = "unwind"
+strip = false
+
+# Painter tests paint full 1920x1080 canvases: optimise them even in test builds.
+[profile.dev.package.painter]
 opt-level = 3
 
 # Release builds are tuned for a small download rather than raw speed.
