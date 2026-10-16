@@ -46,6 +46,7 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   Anything a human must do comes as one of: a yes/no or one `! command` in chat, a button on an artifact page (Studio:
   https://claude.ai/artifact/PttxVTZCC75dqSEpKXYowf), or one link that lands on the action. Never "go to Settings…".
 - **Taste input** comes from the Studio page and `feedback` issues; `/triage` turns it into tasks.
+- **Always start from the latest `main`.** `git fetch origin` and branch (or make your worktree) from `origin/main` before any change; fetch and rebase again right before pushing.
 - **Small PRs, one issue each.** Work in your own git worktree when other sessions may be active.
 - **Respect the token budget:** pick tasks that fit, stop at a clean point, leave a handoff comment if unfinished.
 - **Progress over perfection.** Nothing is precious; anything can be changed later by anyone's Claude.
