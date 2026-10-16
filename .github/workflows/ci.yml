@@ -40,12 +40,13 @@ jobs:
           key: check
       - name: cargo fmt
         run: cargo fmt --all --check
-      - name: clippy (native)
-        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: clippy (native, game + art tools)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The game only: the art tools never run in a browser.
       - name: clippy (wasm32)
         run: cargo clippy --all-targets --locked --target wasm32-unknown-unknown -- -D warnings
       - name: tests
-        run: cargo test --locked
+        run: cargo test --workspace --locked
 
   web:
     name: web build, relaxed-SIMD check, size
