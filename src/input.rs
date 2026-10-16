@@ -14,7 +14,8 @@
 //!
 //! The dodge goes the way you hold, so it needs a direction (see `crabsim`).
 //!
-//! Press jump again in the water for the paddle stroke (the double jump).
+//! Press jump again in the water for a paddle stroke: the double jump, then
+//! more strokes to swim up while the stamina lasts.
 
 use bevy::prelude::*;
 

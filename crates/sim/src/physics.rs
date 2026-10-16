@@ -55,8 +55,12 @@ pub struct Mover {
     pub windup: f32,
     /// Rising because of a jump or paddle (so letting go can cut it short).
     pub rising: bool,
-    /// Paddle strokes still available in this jump.
-    pub paddles_left: u32,
+    /// How rested the paddle legs are: 1 = full, 0 = spent. Each stroke uses
+    /// up a share ([`Tuning::stroke_cost`]); only standing on something solid
+    /// gives it back.
+    pub stamina: f32,
+    /// Time before the paddle legs can make their next stroke (the rhythm).
+    pub stroke_rest: f32,
     /// Time left in the current dodge (0 = not dodging).
     pub dodge_left: f32,
     /// Time before the next dodge is allowed.
@@ -79,7 +83,8 @@ impl Mover {
             jump_buffer: 0.0,
             windup: 0.0,
             rising: false,
-            paddles_left: 0,
+            stamina: 1.0,
+            stroke_rest: 0.0,
             dodge_left: 0.0,
             dodge_cooldown: 0.0,
             dodge_dir: 1.0,
@@ -114,7 +119,7 @@ pub struct StepEvents {
     pub crouched: bool,
     /// Pushed off the floor.
     pub jumped: bool,
-    /// Made a paddle stroke (the double jump).
+    /// Made a paddle stroke (the double jump, or a swim stroke after it).
     pub paddled: bool,
     /// Landed, at this downward speed.
     pub landed: Option<f32>,
@@ -175,10 +180,12 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
     if m.grounded {
         m.coyote = t.coyote_time;
-        m.paddles_left = t.paddles_per_jump;
+        // Standing on something solid rests the paddle legs.
+        m.stamina = (m.stamina + dt / t.stamina_refill_time).min(1.0);
     } else {
         m.coyote = (m.coyote - dt).max(0.0);
     }
+    m.stroke_rest = (m.stroke_rest - dt).max(0.0);
     m.dodge_cooldown = (m.dodge_cooldown - dt).max(0.0);
     if c.dodge_pressed {
         m.dodge_buffer = t.dodge_buffer;
@@ -248,10 +255,13 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             } else {
                 launch(m, &mut ev); // a coyote jump: no floor to crouch on
             }
-        } else if m.paddles_left > 0 {
-            // In the water with no floor: a paddle stroke instead.
+        } else if m.stroke_rest <= 0.0 && m.stamina + 1e-4 >= t.stroke_cost() {
+            // In the water with no floor: a paddle stroke instead, if the
+            // legs have the stamina and the rhythm allows. (A press during
+            // the rhythm stays in the jump buffer, so a little early counts.)
             m.jump_buffer = 0.0;
-            m.paddles_left -= 1;
+            m.stamina = (m.stamina - t.stroke_cost()).max(0.0);
+            m.stroke_rest = t.stroke_interval;
             m.vel.y = m.vel.y.max(t.paddle_speed);
             m.rising = true;
             ev.paddled = true;
@@ -494,16 +504,22 @@ mod tests {
     }
 
     #[test]
-    fn paddle_stroke_works_once_per_jump() {
+    fn paddle_strokes_last_as_long_as_the_stamina() {
         let level = Level::test_level();
+        let t = Tuning::default();
         let mut m = Mover::new(SPAWN);
         let first = run(&mut m, HOLD_JUMP, 0.4, &level);
         assert!(first.jumped && !first.paddled);
-        let second = run(&mut m, HOLD_JUMP, 0.2, &level);
-        assert!(second.paddled, "second press paddles");
-        let third = run(&mut m, HOLD_JUMP, 0.2, &level);
-        assert!(!third.paddled && !third.jumped, "third press does nothing");
-        run_until_landed(&mut m, Controls::default(), &level, 3.0);
+        for n in 0..t.swim_strokes {
+            let ev = run(&mut m, HOLD_JUMP, t.stroke_interval + STEP, &level);
+            assert!(ev.paddled, "press {n} paddles");
+        }
+        let spent = run(&mut m, HOLD_JUMP, 0.2, &level);
+        assert!(
+            !spent.paddled && !spent.jumped,
+            "spent: a press does nothing"
+        );
+        run_until_landed(&mut m, Controls::default(), &level, 5.0);
         let again = run(&mut m, HOLD_JUMP, 0.2, &level);
         assert!(again.jumped, "landing restores the jump");
     }
@@ -567,7 +583,7 @@ mod tests {
         let level = Level::test_level();
         let mut m = Mover::new(SPAWN + Vec2::new(0.0, 30.0));
         m.grounded = false;
-        m.paddles_left = 0; // so the early press can't become a paddle
+        m.stamina = 0.0; // so the early press can't become a paddle
         // Fall until just above the floor, then press jump.
         while m.pos.y > SPAWN.y + 8.0 {
             run(&mut m, Controls::default(), STEP, &level);

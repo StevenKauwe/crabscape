@@ -31,6 +31,7 @@
 //! - [`lantern`]: the lantern and its cheap fake lighting
 //! - [`effects`]: bubbles, sand puffs and marine snow
 //! - [`save`]: remembering the crab's position between visits
+//! - [`stamina`]: the rings over the crab that show its swimming stamina
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
 
@@ -42,6 +43,7 @@ mod player;
 mod puppet;
 mod replay;
 mod save;
+mod stamina;
 mod style;
 mod tuning;
 mod view;
@@ -84,6 +86,7 @@ fn main() {
             lantern::LanternPlugin,
             effects::EffectsPlugin,
             save::SavePlugin,
+            stamina::StaminaPlugin,
             style::StylePlugin,
             view::ViewPlugin,
         ))

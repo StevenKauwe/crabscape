@@ -26,3 +26,4 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 | 2026-10-16 | Game rules live in the deterministic, headless `crabsim` crate (`crates/sim`, fixed 1/120 s ticks driven only by commands); the Bevy game ticks and draws it; `cargo crabsim` runs it for tests, replays and later bots and the co-op host | Claude |
 | 2026-10-16 | The game ships on GitHub Pages from `main`; no per-file size cap, but download size still matters | Owner |
 | 2026-10-16 | Docs hold only the current state; history lives in git | Owner |
+| 2026-10-16 | Swimming takes stamina: paddle strokes one at a time with a rhythm (no hovering), stamina for 3 strokes to start (meant to grow with use), refilled only on solid ground; shown as small rings over the crab only while tired. Opens up vertical, hidden routes and makes the way back up the cost of a dive (#37) | Koa (taste) |

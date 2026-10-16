@@ -4,11 +4,14 @@ Silksong-style movement and combat, but you are a crab: **a heavy-hitting tank.*
 timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** Every movement feel number lives in
 `crates/sim/src/tuning.rs` (camera and light in `src/tuning.rs`); `cargo crabsim` measures them headless.
 
-## Movement (the first three are in the game)
+## Movement (the first four are in the game)
 - **Weight you can feel.** A crab is denser than water, so it sinks. Jumps are strong push-offs from the floor with a
   short wind-up; falls are heavy but slowed by water drag. Heavy landings bleed speed.
-- **Paddle legs give the air moves.** The flattened 5th legs of swimming crabs drive the double jump and short swims,
-  one stroke at a time.
+- **Paddle legs give the air moves.** The flattened 5th legs of swimming crabs drive the double jump and swimming,
+  one strong stroke at a time, sinking in between (never hovering). Strokes have a rhythm, so mashing doesn't help.
+- **Swimming takes stamina; the way up is the cost.** Sinking is free, climbing back up isn't: the legs have stamina
+  for a few strokes (3 to start, meant to grow with use) and only rest on something solid, so ledges and rocks are
+  rest stops and high or hidden routes need planning. A few small rings above the crab show it, only while tired.
 - **Sideways is fast.** Crabs scuttle sideways quickly, so the dodge is a short sideways burst. It goes the way
   you hold and needs a direction: dodge on its own does nothing, so it never goes a way you didn't mean.
 - **Most of the sea is faster than you.** Fish and shrimp out-speed you; you out-hit and out-last them.
@@ -27,7 +30,7 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 |---|---|---|---|
 | Walk | A / D, arrows | left stick, d-pad | `<` `>` |
 | Jump (hold = higher) | Space, W, Up, K | A | JUMP |
-| Paddle (double jump) | jump again in water | A again | JUMP again |
+| Swim (double jump, then more strokes) | jump again in water | A again | JUMP again |
 | Dodge (on floor, + a direction) | Shift, J | B, X, triggers | DODGE |
 | Art style | P | | "Style" |
 

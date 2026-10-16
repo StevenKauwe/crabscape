@@ -132,10 +132,69 @@ fn the_paddle_stroke_adds_height() {
         "paddle peak {}",
         double.highest
     );
-    // A third press in the same jump does nothing.
-    let triple = run("t=0 jump; t=0.5 jump; t=0.7 jump", 3.0);
-    assert_eq!(triple.count("paddled"), 1);
-    assert_eq!(triple.count("jumped"), 1);
+    // Mashing doesn't help: presses faster than the stroke rhythm make one
+    // stroke.
+    let mashed = run(
+        "t=0 jump; t=0.5 jump; t=0.55 jump; t=0.6 jump; t=0.65 jump",
+        3.0,
+    );
+    assert_eq!(mashed.count("paddled"), 1);
+    assert_eq!(mashed.highest, double.highest);
+}
+
+/// Jump, then press jump `presses` times, one per beat of the stroke rhythm.
+fn swim_script(presses: u32) -> String {
+    let beat = f64::from(Tuning::default().stroke_interval) + 0.01;
+    let mut script = "t=0 jump".to_string();
+    for k in 0..presses {
+        script += &format!("; t={} jump", 0.5 + f64::from(k) * beat);
+    }
+    script
+}
+
+#[test]
+fn swimming_up_lasts_as_long_as_the_stamina() {
+    let t = Tuning::default();
+    let one = run("t=0 jump; t=0.5 jump", 3.0).highest;
+    // More presses than there is stamina for: one stroke each until spent.
+    let r = run(&swim_script(t.swim_strokes + 3), 4.0);
+    println!(
+        "{} strokes reach {:.1} (jump + one stroke: {one:.1})",
+        r.count("paddled"),
+        r.highest
+    );
+    assert_eq!(r.count("paddled"), t.swim_strokes);
+    assert_eq!(r.count("jumped"), 1);
+    // Each stroke after the first climbs about as much again...
+    let climb = 100.0 * (t.swim_strokes - 1) as f32;
+    assert!(r.highest > one + climb, "swim peak {}", r.highest);
+    // ...and three strokes top out about three jumps high (585), not forever.
+    assert!(
+        (500.0..700.0).contains(&r.highest),
+        "swim peak {}",
+        r.highest
+    );
+}
+
+#[test]
+fn only_solid_ground_rests_the_paddle_legs() {
+    let t = Tuning::default();
+    let spend = swim_script(t.swim_strokes);
+    let landed = run(&spend, 4.0).first("landed").unwrap();
+    // Jump again straight after landing: the legs had no rest, so no stroke.
+    let tired = run(
+        &format!("{spend}; t={} jump; t={} jump", landed + 0.01, landed + 0.4),
+        6.0,
+    );
+    assert_eq!(tired.count("jumped"), 2);
+    assert_eq!(tired.count("paddled"), t.swim_strokes);
+    // Stand for the refill time first: a stroke again.
+    let rest = landed + f64::from(t.stamina_refill_time) + 0.05;
+    let rested = run(
+        &format!("{spend}; t={rest} jump; t={} jump", rest + 0.4),
+        6.0,
+    );
+    assert_eq!(rested.count("paddled"), t.swim_strokes + 1);
 }
 
 /// A start a little way back from the trench's left edge (x = 1300), on the
@@ -220,10 +279,15 @@ fn coyote_time_allows_a_jump_just_after_the_edge() {
 
 #[test]
 fn an_early_jump_press_is_buffered_until_landing() {
-    // Jump, then press jump again just before landing (with no paddle left).
+    // Jump, then press jump again just before landing (with no stamina left
+    // for a stroke: one stroke's worth, used at 0.3 s).
+    let t = Tuning {
+        swim_strokes: 1,
+        ..Tuning::default()
+    };
+    let run = |script: &str, seconds| run_with(t.clone(), script, seconds, |_| false);
     let first = run("t=0 jump; t=0.3 jump", 3.0);
     let landed = first.first("landed").unwrap();
-    let t = Tuning::default();
     let early = landed - f64::from(t.jump_buffer) + 0.03;
     let r = run(&format!("t=0 jump; t=0.3 jump; t={early} jump"), 3.0);
     assert_eq!(r.count("jumped"), 2, "the early press made a second jump");
