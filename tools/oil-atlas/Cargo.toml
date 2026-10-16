@@ -5,8 +5,7 @@ edition = "2024"
 publish = false
 description = "Lays the crab's parts out for the oil painter, then cuts the painted parts back into an atlas."
 
-# Not part of the game's build: a separate little program with its own lock file.
-[workspace]
+# An art tool in the workspace (not part of the game's build): `cargo run -p oil-atlas --profile art`.
 
 [dependencies]
 png = "0.18"
