@@ -4,7 +4,7 @@
 //! fixed size. A puppet part can't be painted alone (too small) or in place on the assembled crab (parts overlap,
 //! so a part's hidden end would be painted with its neighbour's colours). So:
 //!
-//! 1. `layout`: take a big copy of the atlas (`tools/export-crab-parts.py --scale 2.5 --out DIR`), spread the parts
+//! 1. `layout`: take a big copy of the atlas (`crabrig export --scale 2.5 --out DIR`), spread the parts
 //!    over painter-sized sheets with plenty of room around each, and surround each part with a halo of its own edge
 //!    colours fading into a dark neutral ground, so the painter's edge strokes have something sensible to pull.
 //! 2. Paint every sheet (see `tools/paint-oil-crab.sh`).

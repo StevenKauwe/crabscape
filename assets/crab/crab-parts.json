@@ -1,5 +1,5 @@
 {
- "comment": "Written by tools/export-crab-parts.py from art/crab/crab-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/crab/crab-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
  "atlas": "crab-atlas.png",
  "atlas_size": [
   1024,

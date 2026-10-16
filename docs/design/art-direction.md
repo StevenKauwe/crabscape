@@ -27,9 +27,12 @@ left, holding a jar of yellow glowing bacteria. Side-on play shows its **front**
 `art/crab/anatomy-notes.md` (ten legs, one-plane hinge joints, claws held off the ground, abdomen tucked under).
 
 ## Tools today
-- `tools/export-crab-parts.py` exports the atlas from the SVG rig.
-- `tools/paint-oil-crab.sh` + `tools/oil-atlas/` oil-paint the parts. The painter itself lives in the owner's
-  private repo for now, so most contributors can't re-paint; see the open issue about moving it in.
-- `art/crab/src/*.mjs` drew the model sheets with p5.brush (needs a music-to-movie-magic checkout next to this repo).
+Everything is pure Rust and `cargo run` (nothing outside this repo):
+- `crates/crabrig`: the crab as a parametric puppet; writes the SVG rig (`crabrig parts`) and the game's atlas +
+  parts file (`crabrig export`).
+- `crates/painter` (`crabpaint`): the owner's oil painter and its pure-Rust p5.brush port (fill, wash, ink stroke).
+- `tools/paint-oil-crab.sh` + `tools/oil-atlas/` oil-paint the parts with it.
+- The model sheets (`art/crab/model-sheet*.png`) were drawn by the old JS (in git history); porting the sheet to
+  crabrig + the Rust brush is an open task.
 
 Taste calls on art always go to a human (`needs-human`): show options as screenshots or short clips.

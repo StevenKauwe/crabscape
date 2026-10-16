@@ -3,7 +3,7 @@
 //! puppet, and moved by code.
 //!
 //! The pieces come from `assets/crab/`, written by
-//! `tools/export-crab-parts.py` from the art file. The parts list (small) is
+//! `crabrig export` (crates/crabrig) from the art file. The parts list (small) is
 //! baked into the game; the pictures are loaded at start-up, next to the page
 //! on the web (`assets/crab/crab-atlas.png`, and `crab-atlas-oil.png` for the
 //! oil-painted style, made by `tools/paint-oil-crab.sh`). Keeping pictures out
@@ -63,7 +63,7 @@ const Z_STEP: f32 = 0.01;
 const STRIDE: f32 = 36.0;
 
 // ---------------------------------------------------------------------------
-// The parts file (see tools/export-crab-parts.py for what each field means)
+// The parts file (see crates/crabrig/src/export.rs for what each field means)
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize, Debug)]

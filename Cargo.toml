@@ -9,7 +9,7 @@ publish = false
 # The game is the root package; the art tools are workspace members. Plain `cargo build` / `cargo test` / the wasm
 # build only touch the game (a root package is the workspace's only default member). Art tools: `-p painter`.
 [workspace]
-members = ["crates/painter", "tools/oil-atlas"]
+members = ["crates/painter", "crates/crabrig", "tools/oil-atlas"]
 
 [dependencies]
 # Bevy with its default features switched off, so only the parts this game

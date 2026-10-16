@@ -1,0 +1,14 @@
+[package]
+name = "crabrig"
+version = "0.1.0"
+edition = "2024"
+authors = ["Steven Kauwe"]
+description = "The player crab as a parametric cut-out puppet: rig parts SVG, the game's parts atlas, the model sheet. Art tool, not part of the game."
+publish = false
+
+[dependencies]
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
+roxmltree = "0.20"
+resvg = { version = "0.45", default-features = false }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde = "1"
