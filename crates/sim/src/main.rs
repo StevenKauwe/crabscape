@@ -230,7 +230,7 @@ impl Summary {
             highest: p.y,
             lowest: p.y,
             fastest_landing: 0.0,
-            counts: ["crouched", "jumped", "paddled", "landed", "dodged"]
+            counts: ["crouched", "jumped", "paddled", "ate", "landed", "dodged"]
                 .map(|n| (n, 0))
                 .to_vec(),
             timeline: Vec::new(),

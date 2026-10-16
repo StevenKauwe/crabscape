@@ -17,7 +17,7 @@ use bevy_math::Vec2;
 use serde::Serialize;
 
 use crate::hash::fnv1a;
-use crate::level::Level;
+use crate::level::{EGG_RADIUS, Level};
 use crate::physics::{self, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::tuning::Tuning;
@@ -40,6 +40,8 @@ pub struct SimCrab {
     pub controls: Controls,
     /// What happened during the latest tick.
     pub events: StepEvents,
+    /// Which of the level's eggs this crab has eaten (each crab finds its own).
+    pub eaten: Vec<bool>,
 }
 
 /// The game world, as far as the rules are concerned. (In the game it is a
@@ -81,12 +83,15 @@ impl Sim {
 
     /// Put a crab standing still at `pos` into the world.
     pub fn add_crab(&mut self, id: PlayerId, pos: Vec2) {
+        let mut mover = Mover::new(pos);
+        mover.stamina = mover.strokes(&self.tuning) as f32; // rested
         self.crabs.push(SimCrab {
             id,
-            mover: Mover::new(pos),
+            mover,
             prev_pos: pos,
             controls: Controls::default(),
             events: StepEvents::default(),
+            eaten: vec![false; self.level.eggs.len()],
         });
     }
 
@@ -148,6 +153,16 @@ impl Sim {
             // A press counts once.
             crab.controls.jump_pressed = false;
             crab.controls.dodge_pressed = false;
+            // An egg the crab touches is eaten: one more swim stroke for
+            // good, and it comes rested.
+            for (egg, eaten) in self.level.eggs.iter().zip(&mut crab.eaten) {
+                if !*eaten && in_reach(&crab.mover, *egg, &self.tuning) {
+                    *eaten = true;
+                    crab.mover.upgrades += 1;
+                    crab.mover.stamina += 1.0;
+                    crab.events.ate = true;
+                }
+            }
         }
         self.tick += 1;
     }
@@ -215,6 +230,14 @@ pub struct Snapshot {
     /// How fast it hit the floor, if it landed this tick.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub landed_speed: Option<f32>,
+}
+
+/// Is `egg` touching the crab's body (with a little reach for the claws)?
+fn in_reach(m: &Mover, egg: Vec2, t: &Tuning) -> bool {
+    let reach = EGG_RADIUS + 6.0;
+    (egg.x - m.pos.x).abs() <= t.body_half_width + reach
+        && egg.y >= m.pos.y - reach
+        && egg.y <= m.pos.y + t.body_height + reach
 }
 
 #[cfg(test)]

@@ -43,6 +43,8 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, until: impl Fn(&Sim) -> 
     let replay = Replay::parse(script).expect("the script reads");
     let mut sim = Sim::with_one_crab(replay.start);
     sim.tuning = tuning;
+    let full = sim.tuning.swim_strokes as f32;
+    sim.crab_mut(PlayerId(0)).unwrap().mover.stamina = full; // rested
     let mut run = Run {
         highest: replay.start.y,
         sim: sim.clone(),
@@ -139,8 +141,11 @@ fn a_tapped_jump_is_a_small_hop() {
 #[test]
 fn the_paddle_stroke_adds_height() {
     let single = run("t=0 jump", 3.0).highest;
-    // Paddle near the top of the jump.
-    let double = run("t=0 jump; t=0.5 jump", 3.0);
+    // No strokes grown yet: no double jump.
+    assert_eq!(run("t=0 jump; t=0.5 jump", 3.0).count("paddled"), 0);
+    // One stroke (the first egg): paddle near the top of the jump.
+    let run1 = |script: &str| run_with(strokes(1), script, 3.0, |_| false);
+    let double = run1("t=0 jump; t=0.5 jump");
     println!("jump {single:.1}, jump + paddle {:.1}", double.highest);
     assert_eq!(double.count("paddled"), 1);
     assert!(
@@ -150,9 +155,11 @@ fn the_paddle_stroke_adds_height() {
     );
     // Mashing doesn't help: presses faster than the stroke rhythm make one
     // stroke.
-    let mashed = run(
+    let mashed = run_with(
+        strokes(3),
         "t=0 jump; t=0.5 jump; t=0.55 jump; t=0.6 jump; t=0.65 jump",
         3.0,
+        |_| false,
     );
     assert_eq!(mashed.count("paddled"), 1);
     assert_eq!(mashed.highest, double.highest);
@@ -168,23 +175,33 @@ fn swim_script(presses: u32) -> String {
     script
 }
 
+/// A crab with this many paddle strokes grown (rested); the first is the
+/// double jump.
+fn strokes(n: u32) -> Tuning {
+    Tuning {
+        swim_strokes: n,
+        ..Tuning::default()
+    }
+}
+
 #[test]
 fn swimming_up_lasts_as_long_as_the_stamina() {
-    let t = Tuning::default();
-    let one = run("t=0 jump; t=0.5 jump", 3.0).highest;
-    // More presses than there is stamina for: one stroke each until spent.
-    let r = run(&swim_script(t.swim_strokes + 3), 4.0);
+    let t = strokes(3);
+    let one = run_with(strokes(1), "t=0 jump; t=0.5 jump", 3.0, |_| false).highest;
+    // More presses than there are strokes: one stroke per press (the double
+    // jump, then swim strokes) until they're spent.
+    let r = run_with(t.clone(), &swim_script(t.swim_strokes + 3), 4.0, |_| false);
     println!(
-        "{} strokes reach {:.1} (jump + one stroke: {one:.1})",
+        "{} strokes reach {:.1} (jump + double jump: {one:.1})",
         r.count("paddled"),
         r.highest
     );
     assert_eq!(r.count("paddled"), t.swim_strokes);
     assert_eq!(r.count("jumped"), 1);
-    // Each stroke after the first climbs about as much again...
+    // Each stroke after the double jump climbs about as much again...
     let climb = 100.0 * (t.swim_strokes - 1) as f32;
     assert!(r.highest > one + climb, "swim peak {}", r.highest);
-    // ...and three strokes top out about three jumps high (585), not forever.
+    // ...and three paddles top out about three jumps high (585), not forever.
     assert!(
         (500.0..700.0).contains(&r.highest),
         "swim peak {}",
@@ -194,23 +211,63 @@ fn swimming_up_lasts_as_long_as_the_stamina() {
 
 #[test]
 fn only_solid_ground_rests_the_paddle_legs() {
-    let t = Tuning::default();
+    let t = strokes(2);
     let spend = swim_script(t.swim_strokes);
-    let landed = run(&spend, 4.0).first("landed").unwrap();
-    // Jump again straight after landing: the legs had no rest, so no stroke.
-    let tired = run(
-        &format!("{spend}; t={} jump; t={} jump", landed + 0.01, landed + 0.4),
-        6.0,
-    );
+    let run2 = |script: &str| run_with(t.clone(), script, 7.0, |_| false);
+    let landed = run2(&spend).first("landed").unwrap();
+    let all = t.swim_strokes;
+    // Jump again straight after landing: the legs had no rest, so not even
+    // the double jump.
+    let (a, b) = (landed + 0.01, landed + 0.4);
+    let tired = run2(&format!("{spend}; t={a} jump; t={b} jump"));
     assert_eq!(tired.count("jumped"), 2);
-    assert_eq!(tired.count("paddled"), t.swim_strokes);
-    // Stand for the refill time first: a stroke again.
+    assert_eq!(tired.count("paddled"), all);
+    // Stand for the refill time first: strokes again.
     let rest = landed + f64::from(t.stamina_refill_time) + 0.05;
-    let rested = run(
-        &format!("{spend}; t={rest} jump; t={} jump", rest + 0.4),
-        6.0,
-    );
-    assert_eq!(rested.count("paddled"), t.swim_strokes + 1);
+    let (b, c) = (rest + 0.4, rest + 0.71);
+    let rested = run2(&format!("{spend}; t={rest} jump; t={b} jump; t={c} jump"));
+    assert_eq!(rested.count("paddled"), all + 2);
+}
+
+/// Start standing at (`x`, `y`) with `upgrades` extra strokes (rested), jump
+/// and swim straight up as hard as possible. Did the crab eat an egg?
+fn reaches_an_egg(x: f32, y: f32, upgrades: u32) -> bool {
+    let script = format!("start x={x} y={y}\n{}", swim_script(4));
+    let replay = Replay::parse(&script).unwrap();
+    let mut sim = Sim::with_one_crab(replay.start);
+    let crab = sim.crab_mut(PlayerId(0)).unwrap();
+    crab.mover.upgrades = upgrades;
+    crab.mover.stamina = upgrades as f32;
+    let mut playback = replay.playback();
+    let mut ate = false;
+    for _ in 0..ticks(4.0) {
+        sim.set_controls(PlayerId(0), playback.next_controls());
+        sim.tick();
+        ate |= sim.crabs()[0].events.ate;
+    }
+    if ate {
+        assert_eq!(sim.crabs()[0].mover.upgrades, upgrades + 1);
+    }
+    ate
+}
+
+#[test]
+fn each_egg_needs_the_strokes_the_eggs_before_it_give() {
+    // Standing under each egg on its perch (the low ledge, the high ledge,
+    // the far ledge): out of reach with one stroke fewer, in reach with them.
+    let eggs = crabsim::Level::test_level().eggs;
+    let perch_tops = [150.0, 330.0, 330.0];
+    for (k, (egg, top)) in eggs.iter().zip(perch_tops).enumerate() {
+        let k = k as u32;
+        if k > 0 {
+            assert!(
+                !reaches_an_egg(egg.x, top, k - 1),
+                "egg {k} with {} strokes",
+                k - 1
+            );
+        }
+        assert!(reaches_an_egg(egg.x, top, k), "egg {k} with {k} strokes");
+    }
 }
 
 /// A start a little way back from the trench's left edge (x = 1300), on the
@@ -220,7 +277,7 @@ const BEFORE_TRENCH: &str = "start x=1150 y=110\nt=0 walk=right\n";
 /// Where a trench attempt ends up after it lands.
 fn trench_attempt(extra: &str) -> Run {
     run_with(
-        Tuning::default(),
+        strokes(1), // the double jump
         &format!("{BEFORE_TRENCH}{extra}"),
         4.0,
         |sim| {
@@ -289,18 +346,15 @@ fn coyote_time_allows_a_jump_just_after_the_edge() {
 
     // After coyote time it is a paddle stroke instead.
     let too_late = left_ground + f64::from(t.coyote_time) + 0.03;
-    let r = run(&format!("{BEFORE_TRENCH}t={too_late} jump"), 3.0);
+    let r = trench_attempt(&format!("t={too_late} jump"));
     assert!(r.first("jumped").is_none() && r.first("paddled").is_some());
 }
 
 #[test]
 fn an_early_jump_press_is_buffered_until_landing() {
-    // Jump, then press jump again just before landing (with no stamina left
-    // for a stroke: one stroke's worth, used at 0.3 s).
-    let t = Tuning {
-        swim_strokes: 1,
-        ..Tuning::default()
-    };
+    // Jump, then press jump again just before landing (with nothing left
+    // for a stroke: the double jump is used at 0.3 s, and no extra strokes).
+    let t = strokes(0);
     let run = |script: &str, seconds| run_with(t.clone(), script, seconds, |_| false);
     let first = run("t=0 jump; t=0.3 jump", 3.0);
     let landed = first.first("landed").unwrap();
@@ -366,6 +420,57 @@ fn dodge_goes_the_way_you_hold() {
     let late = f64::from(Tuning::default().dodge_buffer) + 0.05;
     let r = run(&format!("t=0 dodge; t={late} walk=right"), 1.0);
     assert_eq!(r.count("dodged"), 0);
+}
+
+/// Swim strokes (beyond the double jump) for the reserve tests.
+const RESERVE_TEST_STROKES: u32 = 3;
+
+/// Dives: jump and swim up with a full set of strokes, sink back, rest on the
+/// floor, again. One every 5 s, the first starting at `from` seconds.
+fn dives(count: u32, from: f64) -> String {
+    let presses = RESERVE_TEST_STROKES;
+    let mut script = String::new();
+    for d in 0..count {
+        let t0 = from + 5.0 * f64::from(d);
+        script += &format!("t={t0} jump;");
+        for k in 0..presses {
+            script += &format!(" t={} jump;", t0 + 0.5 + 0.31 * f64::from(k));
+        }
+    }
+    script
+}
+
+#[test]
+fn resting_draws_on_a_reserve_that_runs_dry() {
+    // With the reserve's slow comeback switched off: the rings' own strokes,
+    // then the reserve's (6), then the legs stay tired.
+    let t = Tuning {
+        reserve_refill_time: 1e9,
+        ..strokes(RESERVE_TEST_STROKES)
+    };
+    let r = run_with(t.clone(), &dives(4, 0.0), 21.0, |_| false);
+    assert_eq!(r.count("jumped"), 4, "jumping off the floor stays free");
+    // The rings' own strokes, then the reserve's.
+    assert_eq!(r.count("paddled"), t.swim_strokes + t.stamina_reserve);
+    assert_eq!(r.crab().reserve, 0.0);
+}
+
+#[test]
+fn the_reserve_comes_back_slowly() {
+    let t = strokes(RESERVE_TEST_STROKES);
+    let run2 = |script: &str, seconds| run_with(t.clone(), script, seconds, |_| false);
+    // Three dives spend the rings and the whole reserve (3 + 6); a fourth
+    // straight after has (nearly) nothing to swim with.
+    let r = run2(&dives(4, 0.0), 21.0);
+    let spent = t.swim_strokes * 3;
+    assert!(r.count("paddled") <= spent + 1, "{}", r.count("paddled"));
+    // After the reserve's refill time standing still, a full dive again.
+    let later = 15.0 + f64::from(t.reserve_refill_time);
+    let r = run2(
+        &format!("{} {}", dives(3, 0.0), dives(1, later)),
+        later + 5.0,
+    );
+    assert_eq!(r.count("paddled"), spent + t.swim_strokes);
 }
 
 /// A busy script that uses every control, for the determinism checks.

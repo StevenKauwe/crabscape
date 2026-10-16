@@ -12,6 +12,10 @@ use bevy_math::{Rect, Vec2};
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
 
+/// Size of a fish egg. A crab eats one when it touches its body (with a
+/// little reach for the claws).
+pub const EGG_RADIUS: f32 = 14.0;
+
 /// The shape of the level. The [`Sim`](crate::Sim) owns it; the game draws it
 /// from there.
 #[derive(Clone, Debug, PartialEq)]
@@ -23,6 +27,9 @@ pub struct Level {
     /// Solid rocks, as axis-aligned boxes. The crab can stand on them and
     /// bumps into their sides and undersides.
     pub rocks: Vec<Rect>,
+    /// Fish eggs drifting in the water (their middles). Eating one gives a
+    /// crab one more swim stroke for good.
+    pub eggs: Vec<Vec2>,
     /// The crab can't go further left or right than this (the level's walls).
     pub min_x: f32,
     pub max_x: f32,
@@ -60,6 +67,15 @@ impl Level {
                 // A block and a ledge above it, past the trench.
                 Rect::new(1940.0, 110.0, 2020.0, 200.0),
                 Rect::new(2070.0, 300.0, 2220.0, 330.0),
+            ],
+            // Each egg needs the paddle strokes the eggs before it give: A a
+            // plain jump from the low ledge (it gives the double jump), B over
+            // the high ledge with one stroke (the high ledge and the trench
+            // need it too), C high over the far ledge with two.
+            eggs: vec![
+                Vec2::new(460.0, 330.0),
+                Vec2::new(1005.0, 680.0),
+                Vec2::new(2145.0, 810.0),
             ],
             min_x: 0.0,
             max_x: 2880.0,
