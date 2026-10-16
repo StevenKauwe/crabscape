@@ -1,6 +1,6 @@
 //! Oil-paint the crab's puppet parts, keeping each part's exact outline.
 //!
-//! The painter (`film-oh-brassica oilphoto`, in the music-to-movie-magic studio) paints one landscape picture at a
+//! The painter (`crabpaint oilphoto`, crates/painter) paints one landscape picture at a
 //! fixed size. A puppet part can't be painted alone (too small) or in place on the assembled crab (parts overlap,
 //! so a part's hidden end would be painted with its neighbour's colours). So:
 //!
@@ -11,6 +11,8 @@
 //! 3. `pack`: cut each painted part back out with the game atlas's own alpha (grown by about a pixel and softened,
 //!    so the painted edge survives), shrink it to the game atlas's size, and write `crab-atlas-oil.png` with exactly
 //!    the same rectangles as `crab-atlas.png`, so `crab-parts.json` serves both.
+//!
+//! Usage:
 //!
 //!     oil-atlas layout <big-atlas.png> <big-parts.json> <workdir>
 //!     oil-atlas pack <big-parts.json> <game-atlas.png> <game-parts.json> <workdir> <out.png>
@@ -40,15 +42,25 @@ struct Img {
 
 impl Img {
     fn new(w: usize, h: usize) -> Self {
-        Self { w, h, px: vec![[0.0; 4]; w * h] }
+        Self {
+            w,
+            h,
+            px: vec![[0.0; 4]; w * h],
+        }
     }
 
     fn load(path: &str) -> Self {
-        let decoder = png::Decoder::new(std::io::BufReader::new(File::open(path).unwrap_or_else(|e| panic!("{path}: {e}"))));
+        let decoder = png::Decoder::new(std::io::BufReader::new(
+            File::open(path).unwrap_or_else(|e| panic!("{path}: {e}")),
+        ));
         let mut reader = decoder.read_info().expect("png header");
         let mut buf = vec![0; reader.output_buffer_size().expect("size")];
         let info = reader.next_frame(&mut buf).expect("png data");
-        assert_eq!(info.bit_depth, png::BitDepth::Eight, "{path}: 8-bit PNG expected");
+        assert_eq!(
+            info.bit_depth,
+            png::BitDepth::Eight,
+            "{path}: 8-bit PNG expected"
+        );
         let ch = match info.color_type {
             png::ColorType::Rgba => 4,
             png::ColorType::Rgb => 3,
@@ -58,7 +70,12 @@ impl Img {
         let px = (0..w * h)
             .map(|i| {
                 let p = &buf[i * ch..i * ch + ch];
-                [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0, if ch == 4 { p[3] as f32 / 255.0 } else { 1.0 }]
+                [
+                    p[0] as f32 / 255.0,
+                    p[1] as f32 / 255.0,
+                    p[2] as f32 / 255.0,
+                    if ch == 4 { p[3] as f32 / 255.0 } else { 1.0 },
+                ]
             })
             .collect();
         Self { w, h, px }
@@ -67,7 +84,11 @@ impl Img {
     fn save(&self, path: &str, alpha: bool) {
         let file = BufWriter::new(File::create(path).unwrap_or_else(|e| panic!("{path}: {e}")));
         let mut enc = png::Encoder::new(file, self.w as u32, self.h as u32);
-        enc.set_color(if alpha { png::ColorType::Rgba } else { png::ColorType::Rgb });
+        enc.set_color(if alpha {
+            png::ColorType::Rgba
+        } else {
+            png::ColorType::Rgb
+        });
         enc.set_depth(png::BitDepth::Eight);
         enc.set_compression(png::Compression::High);
         let mut out = Vec::with_capacity(self.w * self.h * 4);
@@ -78,7 +99,10 @@ impl Img {
                 out.push(q(p[3]));
             }
         }
-        enc.write_header().expect("png header").write_image_data(&out).expect("png data");
+        enc.write_header()
+            .expect("png header")
+            .write_image_data(&out)
+            .expect("png data");
     }
 
     fn at(&self, x: usize, y: usize) -> [f32; 4] {
@@ -90,7 +114,10 @@ impl Img {
         let mut sum = [0.0f32; 3];
         let mut wsum = 0.0;
         let (ix0, iy0) = (x0.floor().max(0.0) as usize, y0.floor().max(0.0) as usize);
-        let (ix1, iy1) = ((x1.ceil() as usize).min(self.w), (y1.ceil() as usize).min(self.h));
+        let (ix1, iy1) = (
+            (x1.ceil() as usize).min(self.w),
+            (y1.ceil() as usize).min(self.h),
+        );
         for y in iy0..iy1 {
             let wy = ((y + 1) as f32).min(y1) - (y as f32).max(y0);
             for x in ix0..ix1 {
@@ -108,7 +135,8 @@ impl Img {
 }
 
 fn read_json(path: &str) -> Value {
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"))).expect("json")
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}")))
+        .expect("json")
 }
 
 fn rect(part: &Value) -> [usize; 4] {
@@ -177,7 +205,16 @@ fn layout(big_atlas: &str, big_json: &str, dir: &str) {
                     }
                     let mut sum = [0.0f32; 3];
                     let mut n = 0.0;
-                    for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)] {
+                    for (dx, dy) in [
+                        (-1i32, 0i32),
+                        (1, 0),
+                        (0, -1),
+                        (0, 1),
+                        (-1, -1),
+                        (1, 1),
+                        (-1, 1),
+                        (1, -1),
+                    ] {
                         let k = ((yy as i32 + dy) as usize) * SHEET_W + (xx as i32 + dx) as usize;
                         if known[k] {
                             for c in 0..3 {
@@ -200,7 +237,11 @@ fn layout(big_atlas: &str, big_json: &str, dir: &str) {
             let a = alpha[i];
             let edge = if known[i] { col[i] } else { GROUND };
             // the halo fades towards the ground as it reaches out
-            let fade = if a > 0.5 || !known[i] { 0.0 } else { (dist[i] as f32 / HALO as f32).powf(1.5) };
+            let fade = if a > 0.5 || !known[i] {
+                0.0
+            } else {
+                (dist[i] as f32 / HALO as f32).powf(1.5)
+            };
             let halo: [f32; 3] = std::array::from_fn(|k| edge[k] + (GROUND[k] - edge[k]) * fade);
             let c: [f32; 3] = std::array::from_fn(|k| img.px[i][k] * a + halo[k] * (1.0 - a));
             img.px[i] = [c[0], c[1], c[2], 1.0];
@@ -210,8 +251,15 @@ fn layout(big_atlas: &str, big_json: &str, dir: &str) {
     for (p, s, x, y) in placed {
         out["parts"][p["name"].as_str().unwrap()] = json!({"sheet": s, "x": x, "y": y});
     }
-    std::fs::write(format!("{dir}/layout.json"), serde_json::to_string_pretty(&out).unwrap()).unwrap();
-    println!("laid {} parts out on {sheets} sheet(s) in {dir}", parts.len());
+    std::fs::write(
+        format!("{dir}/layout.json"),
+        serde_json::to_string_pretty(&out).unwrap(),
+    )
+    .unwrap();
+    println!(
+        "laid {} parts out on {sheets} sheet(s) in {dir}",
+        parts.len()
+    );
 }
 
 /// Cut the painted parts back out into an atlas laid out like the game's.
@@ -225,23 +273,40 @@ fn pack(big_json: &str, game_atlas: &str, game_json: &str, dir: &str, out_path: 
     let sheets: Vec<Img> = (0..lay["sheets"].as_u64().unwrap())
         .map(|s| {
             let img = Img::load(&format!("{dir}/painted-{s}.png"));
-            assert!(img.w == SHEET_W && img.h <= SHEET_H, "painted-{s}.png is {}x{}", img.w, img.h);
+            assert!(
+                img.w == SHEET_W && img.h <= SHEET_H,
+                "painted-{s}.png is {}x{}",
+                img.w,
+                img.h
+            );
             img
         })
         .collect();
     let mut out = Img::new(src.w, src.h);
     // Alpha: the drawn outline, grown by a pixel and softened, so the painted edge isn't shaved off.
     let a = |x: i32, y: i32| -> f32 {
-        if x < 0 || y < 0 || x >= src.w as i32 || y >= src.h as i32 { 0.0 } else { src.at(x as usize, y as usize)[3] }
+        if x < 0 || y < 0 || x >= src.w as i32 || y >= src.h as i32 {
+            0.0
+        } else {
+            src.at(x as usize, y as usize)[3]
+        }
     };
     for part in game["parts"].as_array().unwrap() {
         let name = part["name"].as_str().unwrap();
-        let big_part = big["parts"].as_array().unwrap().iter().find(|p| p["name"] == name).expect("part in big atlas");
+        let big_part = big["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == name)
+            .expect("part in big atlas");
         let place = &lay["parts"][name];
         let sheet = &sheets[place["sheet"].as_u64().unwrap() as usize];
         // the painter may have cropped the canvas height evenly top and bottom
         let crop_y = (SHEET_H - sheet.h) as f32 / 2.0;
-        let (sx, sy) = (place["x"].as_f64().unwrap() as f32, place["y"].as_f64().unwrap() as f32 - crop_y);
+        let (sx, sy) = (
+            place["x"].as_f64().unwrap() as f32,
+            place["y"].as_f64().unwrap() as f32 - crop_y,
+        );
         let [bx, by, _, _] = bbox(part);
         let [bbx, bby, _, _] = bbox(big_part);
         let [rx, ry, rw, rh] = rect(part);
@@ -254,7 +319,13 @@ fn pack(big_json: &str, game_atlas: &str, game_json: &str, dir: &str, out_path: 
                     for dx in -1..=1 {
                         let v = a(x + dx, y + dy);
                         grown = grown.max(v);
-                        soft += v * if dx == 0 && dy == 0 { 4.0 } else if dx == 0 || dy == 0 { 2.0 } else { 1.0 };
+                        soft += v * if dx == 0 && dy == 0 {
+                            4.0
+                        } else if dx == 0 || dy == 0 {
+                            2.0
+                        } else {
+                            1.0
+                        };
                     }
                 }
                 let soft = soft / 16.0;
@@ -282,7 +353,11 @@ fn pack(big_json: &str, game_atlas: &str, game_json: &str, dir: &str, out_path: 
             for dy in -R..=R {
                 for dx in -R..=R {
                     let (xx, yy) = (x + dx, y + dy);
-                    if xx < rx as i32 || yy < ry as i32 || xx >= (rx + rw) as i32 || yy >= (ry + rh) as i32 {
+                    if xx < rx as i32
+                        || yy < ry as i32
+                        || xx >= (rx + rw) as i32
+                        || yy >= (ry + rh) as i32
+                    {
                         continue;
                     }
                     let a = src.at(xx as usize, yy as usize)[3];
@@ -319,7 +394,12 @@ fn pack(big_json: &str, game_atlas: &str, game_json: &str, dir: &str, out_path: 
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+    match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         ["layout", big_atlas, big_json, dir] => {
             std::fs::create_dir_all(dir).unwrap();
             layout(big_atlas, big_json, dir)
@@ -329,7 +409,9 @@ fn main() {
             pack(big_json, game_atlas, game_json, dir, out)
         }
         _ => {
-            eprintln!("usage:\n  oil-atlas layout <big-atlas.png> <big-parts.json> <workdir>\n  oil-atlas pack <big-parts.json> <game-atlas.png> <game-parts.json> <workdir> <out.png>");
+            eprintln!(
+                "usage:\n  oil-atlas layout <big-atlas.png> <big-parts.json> <workdir>\n  oil-atlas pack <big-parts.json> <game-atlas.png> <game-parts.json> <workdir> <out.png>"
+            );
             std::process::exit(2);
         }
     }

@@ -9,9 +9,8 @@
 # The native build's save file (the web build saves in the browser instead).
 /crabscape-save.json
 
-# Copies of assets/ made by tools/build-web.sh, and the oil-atlas tool's build.
+# Copies of assets/ made by tools/build-web.sh.
 /web/assets/
-/tools/oil-atlas/target/
 
 # Teaser renders: rebuilt by docs/teaser/build.sh into docs/teaser/build/.
 /docs/teaser/build/
