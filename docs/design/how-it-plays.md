@@ -6,7 +6,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 
 ## Movement (the first four are in the game)
 - **Weight you can feel.** A crab is denser than water, so it sinks. Jumps are strong push-offs from the floor with a
-  short wind-up; falls are heavy but slowed by water drag. Heavy landings bleed speed.
+  short wind-up that the water soon brakes; the way down is a slow, steady sink, not a drop (about 0.8 s back down
+  from a 0.5 s rise). Heavy landings bleed speed.
 - **Paddle legs give the air moves.** The flattened 5th legs of swimming crabs drive the double jump and swimming,
   one strong stroke at a time, sinking in between (never hovering). Strokes have a rhythm, so mashing doesn't help.
 - **Swimming takes stamina; the way up is the cost.** Sinking is free, climbing back up isn't: the legs have stamina

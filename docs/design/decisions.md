@@ -27,3 +27,4 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 | 2026-10-16 | The game ships on GitHub Pages from `main`; no per-file size cap, but download size still matters | Owner |
 | 2026-10-16 | Docs hold only the current state; history lives in git | Owner |
 | 2026-10-16 | Swimming takes stamina: paddle strokes one at a time with a rhythm (no hovering), stamina for 3 strokes to start (meant to grow with use), refilled only on solid ground; shown as small rings over the crab only while tired. Opens up vertical, hidden routes and makes the way back up the cost of a dive (#37) | Koa (taste) |
+| 2026-10-16 | Sink, don't drop: a hard push-off the water brakes, then a slow, steady sink (no extra fall pull; ~0.8 s down from a ~0.5 s rise, top sinking speed ~350). The trench widened to 480 so it still needs a stroke (#39) | Koa (taste) |

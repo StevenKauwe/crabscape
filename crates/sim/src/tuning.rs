@@ -45,11 +45,13 @@ pub struct Tuning {
     /// How much of `gravity` the water's buoyancy cancels (0 = none, 1 = the
     /// crab floats). A crab is denser than water, so it still sinks.
     pub buoyancy: f32,
-    /// Extra weight while falling (1 = none). Falls feel heavier than rises.
+    /// Extra weight while falling (1 = none). Kept at 1: in water the crab
+    /// sinks under the same pull it rose against, so the way down is a sink,
+    /// not a drop (the "fall faster" trick belongs to land platformers).
     pub fall_gravity_scale: f32,
-    /// Water drag. It grows with the square of the speed, so slow motion is
-    /// barely touched but fast falls are capped: the top falling speed is
-    /// about `sqrt(net gravity / water_drag)`.
+    /// Water drag. It grows with the square of the speed, so a hard push-off
+    /// is braked quickly and the crab settles into a steady, gentle sink: the
+    /// top sinking speed is about `sqrt(net gravity / water_drag)`.
     pub water_drag: f32,
 
     // --- Jumping --------------------------------------------------------
@@ -131,22 +133,22 @@ impl Default for Tuning {
             air_decel: 500.0,
 
             gravity: 2400.0,
-            buoyancy: 0.4, // net pull 1440: sinks, but slower than in air
-            fall_gravity_scale: 1.25,
-            water_drag: 0.0020, // top falling speed about 950
+            buoyancy: 0.6, // net pull 960: sinks, gently
+            fall_gravity_scale: 1.0,
+            water_drag: 0.008, // top sinking speed about 350
 
-            jump_speed: 920.0, // about 190 units high (1.6 crabs) with drag
+            jump_speed: 1750.0, // a hard push the water soon brakes: about 190 high
             jump_windup: 0.05,
             jump_carry: 1.25,
-            jump_cut: 0.5, // a tap gives a hop of about 60
+            jump_cut: 0.27, // a tap gives a hop of about 60
             coyote_time: 0.10,
             jump_buffer: 0.13,
-            paddle_speed: 740.0, // adds about 140 at the top of a jump
+            paddle_speed: 1050.0, // adds about 140 at the top of a jump
             swim_strokes: 3,
             stroke_interval: 0.30,
             stamina_refill_time: 0.6,
 
-            heavy_landing_speed: 520.0,
+            heavy_landing_speed: 290.0, // a full jump lands heavy, a tapped hop (~240) not
             heavy_landing_keep: 0.55,
 
             dodge_speed: 720.0,
