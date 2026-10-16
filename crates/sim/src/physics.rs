@@ -55,10 +55,16 @@ pub struct Mover {
     pub windup: f32,
     /// Rising because of a jump or paddle (so letting go can cut it short).
     pub rising: bool,
-    /// How rested the paddle legs are: 1 = full, 0 = spent. Each stroke uses
-    /// up a share ([`Tuning::stroke_cost`]); only standing on something solid
-    /// gives it back.
+    /// Paddle strokes the crab has grown (one per egg eaten), on top of
+    /// [`Tuning::swim_strokes`]. The first one is the double jump.
+    pub upgrades: u32,
+    /// Paddle strokes left (fractions are strokes still resting). Only
+    /// standing on something solid gives them back, and only from the
+    /// [`reserve`](Self::reserve).
     pub stamina: f32,
+    /// The body's deeper reserve: 1 = full, 0 = empty. Resting the paddle
+    /// legs draws on it; it comes back by itself, slowly.
+    pub reserve: f32,
     /// Time before the paddle legs can make their next stroke (the rhythm).
     pub stroke_rest: f32,
     /// Time left in the current dodge (0 = not dodging).
@@ -83,13 +89,21 @@ impl Mover {
             jump_buffer: 0.0,
             windup: 0.0,
             rising: false,
-            stamina: 1.0,
+            upgrades: 0,
+            stamina: 0.0,
+            reserve: 1.0,
             stroke_rest: 0.0,
             dodge_left: 0.0,
             dodge_cooldown: 0.0,
             dodge_dir: 1.0,
             dodge_buffer: 0.0,
         }
+    }
+
+    /// How many paddle strokes the legs hold when rested (the double jump,
+    /// then swim strokes).
+    pub fn strokes(&self, t: &Tuning) -> u32 {
+        t.swim_strokes + self.upgrades
     }
 
     /// A one-word description of what the crab is doing, for logs and tests.
@@ -121,6 +135,8 @@ pub struct StepEvents {
     pub jumped: bool,
     /// Made a paddle stroke (the double jump, or a swim stroke after it).
     pub paddled: bool,
+    /// Ate an egg: one more swim stroke from now on.
+    pub ate: bool,
     /// Landed, at this downward speed.
     pub landed: Option<f32>,
     /// Started a dodge.
@@ -133,6 +149,7 @@ impl StepEvents {
         self.crouched |= other.crouched;
         self.jumped |= other.jumped;
         self.paddled |= other.paddled;
+        self.ate |= other.ate;
         self.dodged |= other.dodged;
         if other.landed.is_some() {
             self.landed = other.landed;
@@ -145,6 +162,7 @@ impl StepEvents {
             (self.crouched, "crouched"),
             (self.jumped, "jumped"),
             (self.paddled, "paddled"),
+            (self.ate, "ate"),
             (self.landed.is_some(), "landed"),
             (self.dodged, "dodged"),
         ]
@@ -178,10 +196,20 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     } else {
         m.jump_buffer = (m.jump_buffer - dt).max(0.0);
     }
+    // The reserve comes back by itself, slowly.
+    m.reserve = (m.reserve + dt / t.reserve_refill_time).min(1.0);
     if m.grounded {
         m.coyote = t.coyote_time;
-        // Standing on something solid rests the paddle legs.
-        m.stamina = (m.stamina + dt / t.stamina_refill_time).min(1.0);
+        // Standing on something solid rests the paddle legs, drawing on the
+        // reserve (both counted in strokes). An empty reserve leaves them
+        // tired.
+        let full = m.strokes(t) as f32;
+        let want = (full * dt / t.stamina_refill_time).min(full - m.stamina);
+        let strokes = want.min(m.reserve * t.stamina_reserve as f32);
+        if strokes > 0.0 {
+            m.stamina = (m.stamina + strokes).min(full);
+            m.reserve = (m.reserve - strokes / t.stamina_reserve as f32).max(0.0);
+        }
     } else {
         m.coyote = (m.coyote - dt).max(0.0);
     }
@@ -255,12 +283,13 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             } else {
                 launch(m, &mut ev); // a coyote jump: no floor to crouch on
             }
-        } else if m.stroke_rest <= 0.0 && m.stamina + 1e-4 >= t.stroke_cost() {
-            // In the water with no floor: a paddle stroke instead, if the
-            // legs have the stamina and the rhythm allows. (A press during
-            // the rhythm stays in the jump buffer, so a little early counts.)
+        } else if m.stroke_rest <= 0.0 && m.stamina + 1e-4 >= 1.0 {
+            // In the water with no floor: a paddle stroke instead (the
+            // double jump, then swim strokes), if the legs have one left.
+            // The rhythm spaces them out. (A press during the rhythm stays in
+            // the jump buffer, so a little early counts.)
             m.jump_buffer = 0.0;
-            m.stamina = (m.stamina - t.stroke_cost()).max(0.0);
+            m.stamina = (m.stamina - 1.0).max(0.0);
             m.stroke_rest = t.stroke_interval;
             m.vel.y = m.vel.y.max(t.paddle_speed);
             m.rising = true;
@@ -505,16 +534,24 @@ mod tests {
     }
 
     #[test]
-    fn paddle_strokes_last_as_long_as_the_stamina() {
+    fn paddle_strokes_use_stamina() {
         let level = Level::test_level();
         let t = Tuning::default();
         let mut m = Mover::new(SPAWN);
         let first = run(&mut m, HOLD_JUMP, 0.4, &level);
         assert!(first.jumped && !first.paddled);
-        for n in 0..t.swim_strokes {
+        let none = run(&mut m, HOLD_JUMP, 0.2, &level);
+        assert!(!none.paddled, "no strokes grown yet: no double jump");
+        run_until_landed(&mut m, Controls::default(), &level, 5.0);
+
+        m.upgrades = 3;
+        m.stamina = 3.0;
+        run(&mut m, HOLD_JUMP, 0.4, &level);
+        for n in 0..3 {
             let ev = run(&mut m, HOLD_JUMP, t.stroke_interval + STEP, &level);
-            assert!(ev.paddled, "press {n} paddles");
+            assert!(ev.paddled, "stroke {n} (the first is the double jump)");
         }
+        assert_eq!(m.stamina, 0.0);
         let spent = run(&mut m, HOLD_JUMP, 0.2, &level);
         assert!(
             !spent.paddled && !spent.jumped,
@@ -534,6 +571,8 @@ mod tests {
         let x = left + t.body_half_width - t.walk_speed * t.jump_windup;
         let mut m = Mover::new(Vec2::new(x, level.floor_height(left - 1.0)));
         m.vel.x = t.walk_speed;
+        m.upgrades = 1; // the double jump, for the trench
+        m.stamina = 1.0;
         m
     }
 

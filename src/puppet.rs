@@ -180,6 +180,16 @@ struct PuppetAnim {
     squash_vel: f32,
     /// Seconds since the last paddle stroke.
     since_paddle: f32,
+    /// 0..1 (smoothed): shooting up after a stroke, legs folded in under the
+    /// body like a squid's arms trailing behind it.
+    streamline: f32,
+    /// 0..1 (smoothed): sinking, the water pushing the legs up as they fall.
+    water_push: f32,
+    /// How hard the last stroke was (1 = rested, up to 1.6 when the legs
+    /// are nearly spent: the last strokes look hardest).
+    effort: f32,
+    /// Which way the body rocks on this stroke (+1 / -1, alternating).
+    heave_side: f32,
     /// How far the claws are raised (smoothed, 0..1).
     claw_raise: f32,
     /// Eyestalk angles and their spin, per side (springs: they lag and sway).
@@ -498,6 +508,22 @@ fn animate(
         }
         if ev.paddled {
             a.since_paddle = 0.0;
+            // A whole-body effort (the shell itself stays rigid): it rocks to
+            // alternate sides, and the surge throws the eyes and the lantern.
+            // (Rested legs look easiest.)
+            let strokes = mover.strokes(&sim.tuning) as f32;
+            let rested = if strokes > 0.0 {
+                mover.stamina / strokes
+            } else {
+                1.0
+            };
+            a.effort = 1.0 + 0.6 * (1.0 - rested);
+            a.heave_side = if a.heave_side > 0.0 { -1.0 } else { 1.0 };
+            let kick = 4.0 * a.effort;
+            for (vel, s) in a.eye_vel.iter_mut().zip(SIDE_SIGN) {
+                *vel += s * kick;
+            }
+            a.lantern_vel += 1.5 * a.heave_side;
         } else {
             a.since_paddle += dt;
         }
@@ -519,6 +545,22 @@ fn animate(
             0.0
         };
         a.claw_raise = ease(a.claw_raise, raise, 16.0, dt);
+        // Shooting up after a stroke: fold in, strongest right after it.
+        let shooting = !grounded && a.since_paddle < 0.7 && vy > 0.0;
+        let streamline = if shooting {
+            (vy / sim.tuning.paddle_speed).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        a.streamline = ease(a.streamline, streamline, 14.0, dt);
+        // Sinking: the faster, the harder the water pushes on the legs.
+        let top_sink = (sim.tuning.net_gravity() / sim.tuning.water_drag).sqrt();
+        let sink = if grounded {
+            0.0
+        } else {
+            (-vy / top_sink).clamp(0.0, 1.0)
+        };
+        a.water_push = ease(a.water_push, sink, 6.0, dt);
         let squash_target = if crouching { 0.6 } else { 0.0 };
         let (mut sq, mut sq_vel) = (a.squash, a.squash_vel);
         spring(&mut sq, &mut sq_vel, squash_target, 320.0, 20.0, dt);
@@ -526,8 +568,14 @@ fn animate(
         a.squash_vel = sq_vel;
         let squashed = a.squash.max(0.0);
 
+        // How far into this paddle stroke we are: 1 at the end of the push.
+        let stroke = paddle_curve(a.since_paddle);
+        let heave = stroke * a.effort;
+        // A strain tremble while the legs push hard.
+        let strain = 0.04 * heave * (t * 46.0).sin();
+
         // --- Whole body: squash and lean around the feet ------------------
-        let lean = -(vx / sim.tuning.walk_speed) * 0.035;
+        let lean = -(vx / sim.tuning.walk_speed) * 0.035 + 0.07 * heave * a.heave_side;
         set(&mut parts, Some(rig.root), lean, Vec2::ZERO);
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
             tr.scale = Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0);
@@ -537,7 +585,13 @@ fn animate(
         let phase = a.walk_phase;
         let bob = 1.4 * a.walk * (2.0 * phase).cos() + 0.5 * (1.0 - a.walk) * (t * 2.1).sin();
         let roll = 0.025 * a.walk * phase.sin();
-        set(&mut parts, rig.shell, roll, Vec2::new(0.0, bob));
+        // The body surges up a little against the push of the legs.
+        set(
+            &mut parts,
+            rig.shell,
+            roll,
+            Vec2::new(0.0, bob + 2.0 * heave),
+        );
 
         for (side, s) in SIDE_SIGN.into_iter().enumerate() {
             // --- Walking legs: diagonal sets (L1 + L3 + R2, then R1 + R3 + L2)
@@ -547,19 +601,34 @@ fn animate(
                 let swing = ph.sin();
                 let lift = swing.max(0.0); // the leg in the air
                 let push = (-swing).max(0.0); // the leg on the floor, pushing
-                // "up" for a leg is +s (its tip rises), "down" is -s.
+                // "up" for a leg is +s (its tip rises), "down" is -s. The
+                // carpus folds in with -s and straightens with +s.
+                let k = n as f32;
+                let fold = a.streamline;
+                let water = a.water_push;
+                // Caught in the current: a quick, uneven tremble.
+                let flutter = water * (t * 17.0 + 2.3 * k + 1.1 * side as f32).sin();
                 let merus = s * a.walk * (0.32 * lift - 0.05 * push)
                     + s * 0.12 * squashed // knees rise when crouched
-                    - s * a.air * (0.14 + 0.04 * (t * 5.0 + n as f32).sin()); // dangle in the water
-                let carpus = -s * a.walk * 0.22 * lift - s * 0.08 * squashed;
+                    - s * a.air * (1.0 - water) * (0.14 + 0.04 * (t * 5.0 + k).sin()) // dangle
+                    - s * 0.45 * fold // swing down under the body
+                    - s * 0.25 * heave // kick down with the paddles
+                    + s * (0.40 * water + 0.05 * flutter); // lifted by the water
+                let carpus = -s * a.walk * 0.22 * lift - s * 0.08 * squashed - s * 0.55 * fold
+                    + s * 0.20 * water;
+                let tremble = 0.12 * water * (t * 24.0 + 1.9 * k + 0.7 * side as f32).sin();
                 let limb = rig.legs[side][n];
                 set(&mut parts, limb.0[0], merus, Vec2::ZERO);
                 set(&mut parts, limb.0[1], carpus, Vec2::ZERO);
-                set(&mut parts, limb.0[2], -0.5 * carpus, Vec2::ZERO);
+                set(
+                    &mut parts,
+                    limb.0[2],
+                    -0.5 * carpus - s * 0.2 * fold + s * tremble,
+                    Vec2::ZERO,
+                );
             }
 
-            // --- Paddles: a big stroke on the double jump, sculling in water
-            let stroke = paddle_curve(a.since_paddle);
+            // --- Paddles: a big stroke on each swim stroke, sculling in water
             let scull = a.air * 0.07 * (t * 7.0 + side as f32 * PI).sin();
             let paddle = rig.legs[side][3];
             set(
@@ -576,8 +645,12 @@ fn animate(
             let claw = rig.claws[side];
             // The cutter (side 1) is carried a little higher: it holds the lantern up.
             let carry = if side == 1 { 0.12 } else { 0.0 };
-            let merus = s * (carry + 0.55 * a.claw_raise - 0.25 * squashed) + s * sway;
-            let carpus = s * 0.25 * a.claw_raise;
+            // On a stroke the claws pull down hard too, trembling with the
+            // strain, then come back up.
+            let merus = s * (carry + 0.55 * a.claw_raise - 0.25 * squashed) + s * sway
+                - s * 0.75 * heave
+                + s * strain;
+            let carpus = s * 0.25 * a.claw_raise - s * 0.35 * heave;
             set(&mut parts, claw.0[0], merus, Vec2::ZERO);
             set(&mut parts, claw.0[1], carpus, Vec2::ZERO);
             // The crusher's finger opens as it rises; the cutter keeps its

@@ -30,12 +30,14 @@
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
 //! - [`effects`]: bubbles, sand puffs and marine snow
+//! - [`eggs`]: the fish eggs that give the crab more swim strokes
 //! - [`save`]: remembering the crab's position between visits
 //! - [`stamina`]: the rings over the crab that show its swimming stamina
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
 
 mod effects;
+mod eggs;
 mod input;
 mod lantern;
 mod level;
@@ -85,6 +87,7 @@ fn main() {
             puppet::PuppetPlugin,
             lantern::LanternPlugin,
             effects::EffectsPlugin,
+            eggs::EggsPlugin,
             save::SavePlugin,
             stamina::StaminaPlugin,
             style::StylePlugin,

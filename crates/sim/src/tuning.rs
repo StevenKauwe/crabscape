@@ -78,8 +78,10 @@ pub struct Tuning {
     /// double jump; more strokes swim higher, one push at a time, sinking in
     /// between.
     pub paddle_speed: f32,
-    /// Swimming stamina, in strokes: how many paddle strokes the crab can
-    /// make before its paddle legs need a rest on something solid.
+    /// Paddle strokes the crab starts with (the first is the double jump,
+    /// then swim strokes) before its legs need a rest on something solid.
+    /// None: every stroke is an upgrade, one per egg eaten (see
+    /// [`Mover::upgrades`](crate::Mover::upgrades)).
     pub swim_strokes: u32,
     /// The paddle legs' rhythm: the shortest time between two strokes, so
     /// mashing doesn't help.
@@ -87,6 +89,12 @@ pub struct Tuning {
     /// Seconds standing on something solid (floor or rock) that rest the
     /// paddle legs from spent to full. They don't rest while swimming.
     pub stamina_refill_time: f32,
+    /// The body's reserve, in strokes: resting refills the paddle legs from
+    /// it, and when it runs dry they stay tired. Keeps swimming from being
+    /// endless.
+    pub stamina_reserve: u32,
+    /// Seconds for the reserve to come back by itself from empty to full.
+    pub reserve_refill_time: f32,
 
     // --- Landing --------------------------------------------------------
     /// Landing faster than this counts as a heavy landing: big squash, a
@@ -144,9 +152,11 @@ impl Default for Tuning {
             coyote_time: 0.10,
             jump_buffer: 0.13,
             paddle_speed: 1050.0, // adds about 140 at the top of a jump
-            swim_strokes: 3,
+            swim_strokes: 0,
             stroke_interval: 0.30,
             stamina_refill_time: 0.6,
+            stamina_reserve: 6,
+            reserve_refill_time: 120.0,
 
             heavy_landing_speed: 290.0, // a full jump lands heavy, a tapped hop (~240) not
             heavy_landing_keep: 0.55,
@@ -165,15 +175,6 @@ impl Default for Tuning {
 }
 
 impl Tuning {
-    /// The share of stamina (0 to 1) one paddle stroke uses.
-    pub fn stroke_cost(&self) -> f32 {
-        if self.swim_strokes == 0 {
-            f32::INFINITY // no stamina at all: no strokes
-        } else {
-            1.0 / self.swim_strokes as f32
-        }
-    }
-
     /// A short code that changes whenever any number here changes. Replays
     /// store it, so a replay made with different tuning can warn you.
     pub fn fingerprint(&self) -> u64 {
