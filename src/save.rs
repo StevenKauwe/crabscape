@@ -16,8 +16,8 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::physics::Mover;
 use crate::player::{GameSet, LocalPlayer};
+use crabsim::Mover;
 
 /// Bump this if the format ever changes, so old saves can be recognised.
 /// (1 was milestone 0's tile position.)

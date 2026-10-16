@@ -1,0 +1,20 @@
+[package]
+name = "crabsim"
+version = "0.1.0"
+edition = "2024"
+authors = ["Steven Kauwe"]
+description = "CrabScape's game rules (the simulation), with no window, graphics or sound: runs in the game and headless."
+publish = false
+
+# Deliberately tiny: maths types, and JSON for the headless runner's output. No graphics, so the headless runner
+# (`cargo crabsim`, see .cargo/config.toml) builds in seconds and runs anywhere, with no display or GPU.
+[dependencies]
+bevy_math = { version = "0.20.0", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Only for the game: lets its types be Bevy components and resources.
+bevy_ecs = { version = "0.20.0", default-features = false, features = ["std"], optional = true }
+
+[features]
+# The game turns this on. The headless runner and the tests leave it off.
+bevy = ["dep:bevy_ecs"]

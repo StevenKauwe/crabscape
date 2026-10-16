@@ -49,9 +49,23 @@ Checks to run before you share a change:
 
 ```sh
 cargo fmt                                  # tidy the code layout
-cargo clippy --workspace --all-targets -- -D warnings  # catch common mistakes (game + art tools)
-cargo test --workspace                     # run the tests (jump heights, the level, the save format, the crab rig, ...)
+cargo clippy --workspace --all-targets -- -D warnings  # catch common mistakes (game + sim + art tools)
+cargo test --workspace                     # run the tests (jump heights, the trench, replays, the save format, the crab rig, ...)
 ```
+
+## Test the gameplay without a window
+
+The game's rules (physics, the level, every movement number) live in their own small crate, `crates/sim`, with no
+graphics. It runs headless, far faster than real time, which is how the tests check the crab's feel:
+
+```sh
+cargo crabsim --script "t=0 walk=right; t=1 jump; t=1.45 jump" --seconds 4   # what happened, in numbers
+cargo crabsim --inputs crabscape-replay-1760000000.txt --dump -              # replay a session, tick by tick
+cargo crabsim --help
+```
+
+While playing, **F9** saves a replay of the session (in the browser it shows the text to copy; add `?replay` to the
+address for a button). Send it along with "this felt wrong" and it can be reproduced exactly.
 
 ## Build it for the web
 
@@ -110,10 +124,16 @@ bindings (on Arch: `webkit2gtk-4.1` and `python-gobject`).
 | File | What it does |
 |---|---|
 | `src/main.rs` | Starts the app. Read this first: it explains the Bevy basics (App, plugins, entities, components, resources, systems, messages). |
-| `src/tuning.rs` | **Every number that decides how the crab feels** (speeds, jump, sinking, drag, dodge, camera lag, light radius), with comments. Start here to experiment. |
-| `src/level.rs` | The test level: the sea-floor line and the rock boxes, and drawing them. |
-| `src/physics.rs` | Walking, sinking, jumping (coyote time, jump buffering), paddling, dodging, collisions. Plain Rust with unit tests. |
-| `src/player.rs` | The crabs: spawning them, and running their physics 120 times a second. |
+| `crates/sim/` | **The simulation**: the game rules with no graphics, which also run headless (`cargo crabsim`). Start with its `lib.rs`. |
+| `crates/sim/src/tuning.rs` | **Every number that decides how the crab moves** (speeds, jump, sinking, drag, dodge), with comments. Start here to experiment. |
+| `crates/sim/src/physics.rs` | Walking, sinking, jumping (coyote time, jump buffering), paddling, dodging, collisions. Plain Rust with unit tests. |
+| `crates/sim/src/level.rs` | The test level's shape: the sea-floor line and the rock boxes. |
+| `crates/sim/src/world.rs`, `replay.rs` | `Sim`, the whole world ticked 120 times a game second; replays and input scripts. |
+| `crates/sim/tests/scenarios.rs` | Scripted gameplay tests (jump height, the trench, coyote time, determinism...). |
+| `src/tuning.rs` | The camera and lantern-light numbers. |
+| `src/level.rs` | Draws the test level. |
+| `src/player.rs` | The crabs: spawning them, ticking the simulation each frame, and drawing them between ticks. |
+| `src/replay.rs` | F9 saves a replay of the session. |
 | `src/input.rs` | Turns keys, controllers and the on-screen touch buttons into move requests. |
 | `src/puppet.rs` | The crab as a cut-out puppet: pieces pinned at their joints, animated in code (walk, bob, eyestalks, paddles, claws, squash). |
 | `src/lantern.rs` | The lantern and its cheap fake light: things near it get their colour back, things far away go dark. |
@@ -132,8 +152,9 @@ An important design choice, made with multiplayer in mind: **nothing moves
 the crab directly.** Every frame, input sends a `MoveRequest` message
 ("player 0 wants to walk right with jump held"), and the physics acts on
 those requests. When networking arrives, requests from other players will
-go through the same path. The physics also runs in fixed steps of 1/120 s,
-so every computer simulates the same motion.
+go through the same path. The simulation (`crates/sim`) runs in fixed ticks
+of 1/120 s, never reads a clock and has no randomness, so the same requests
+give exactly the same motion on every computer, in the game or headless.
 
 ## Changing the crab's art
 

@@ -39,10 +39,11 @@ use serde::Deserialize;
 
 use crate::effects::SoftTextures;
 use crate::lantern::{self, Lit, LitTint};
-use crate::physics::Mover;
 use crate::player::{Crab, FrameEvents, GameSet};
 use crate::style::ArtStyle;
-use crate::tuning::Tuning;
+use crate::tuning::ViewTuning;
+use crabsim::Mover;
+use crabsim::Sim;
 
 /// The parts list, baked into the game (it is small).
 const PARTS_JSON: &str = include_str!("../assets/crab/crab-parts.json");
@@ -304,7 +305,7 @@ fn build_puppets(
     art: Res<CrabArt>,
     style: Res<ArtStyle>,
     soft: Res<SoftTextures>,
-    tuning: Res<Tuning>,
+    tuning: Res<ViewTuning>,
     crabs: Query<Entity, (With<Crab>, Without<Rig>)>,
 ) {
     // Wait for the pictures.
@@ -467,7 +468,7 @@ fn paddle_curve(t: f32) -> f32 {
 /// Pose every crab puppet from its movement state.
 fn animate(
     time: Res<Time>,
-    tuning: Res<Tuning>,
+    sim: Res<Sim>,
     mut crabs: Query<(&Mover, &FrameEvents, &Rig, &mut PuppetAnim)>,
     mut parts: Query<(&mut Transform, Option<&RestPos>)>,
 ) {
@@ -500,7 +501,7 @@ fn animate(
         }
 
         // --- Smoothed states ---------------------------------------------
-        let speed = (vx.abs() / tuning.walk_speed).min(1.0);
+        let speed = (vx.abs() / sim.tuning.walk_speed).min(1.0);
         let grounded = mover.grounded;
         a.walk = ease(a.walk, if grounded { speed } else { 0.0 }, 12.0, dt);
         a.air = ease(a.air, if grounded { 0.0 } else { 1.0 }, 10.0, dt);
@@ -524,7 +525,7 @@ fn animate(
         let squashed = a.squash.max(0.0);
 
         // --- Whole body: squash and lean around the feet ------------------
-        let lean = -(vx / tuning.walk_speed) * 0.035;
+        let lean = -(vx / sim.tuning.walk_speed) * 0.035;
         set(&mut parts, Some(rig.root), lean, Vec2::ZERO);
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
             tr.scale = Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0);

@@ -2314,9 +2314,20 @@ name = "crabscape"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "crabsim",
  "serde",
  "serde_json",
  "web-sys",
+]
+
+[[package]]
+name = "crabsim"
+version = "0.1.0"
+dependencies = [
+ "bevy_ecs",
+ "bevy_math",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,21 +1,26 @@
-//! The crabs: spawning them and running their physics.
+//! The crabs: spawning them, and running the simulation each frame.
 //!
-//! Movement is driven by [`MoveRequest`] *messages*, never by reading the
-//! keyboard directly. Today the only sender is the local input system; when
-//! multiplayer arrives, requests from other players (relayed by the host)
-//! will go through exactly the same door, and every crab will move the same
-//! way.
+//! The game rules live in the `crabsim` crate (`crates/sim/`): a [`Sim`]
+//! resource holds every crab's state and only changes when it *ticks*, 120
+//! times per second of game time. This module is the bridge between it and
+//! Bevy:
+//! - [`MoveRequest`] *messages* say what each player wants. Today the only
+//!   sender is the local input system; when co-op arrives, requests from other
+//!   players (relayed by the host) will go through exactly the same door.
+//! - Each frame, `simulate` runs as many ticks as real time needs, then copies
+//!   each crab's state onto its entity, where the animation, effects and
+//!   camera read it. Those never change the simulation.
+//! - The crab is drawn part-way between its last two ticks, so motion stays
+//!   smooth whatever the screen's refresh rate.
 
 use bevy::prelude::*;
 
-use crate::level::{Level, SPAWN};
-use crate::physics::{self, Controls, Mover, STEP, StepEvents};
-use crate::save;
-use crate::tuning::Tuning;
+use crabsim::physics::{self, Controls, Mover, STEP, StepEvents};
+use crabsim::{Level, SPAWN, Sim, Tuning};
 
-/// Identifies a player. Only one exists for now, but networking will add more.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct PlayerId(pub u32);
+use crate::save;
+
+pub use crabsim::PlayerId;
 
 /// Marks the crab controlled by *this* browser tab.
 #[derive(Component)]
@@ -35,17 +40,13 @@ pub struct MoveRequest {
     pub controls: Controls,
 }
 
-/// The controls a crab is currently following (the latest request).
-#[derive(Component, Default, Debug)]
-pub struct CurrentControls(pub Controls);
-
-/// Where the crab was at the previous physics step. The crab is drawn
+/// Where the crab was at the previous tick. The crab is drawn
 /// part-way between that and its current position, which keeps motion
 /// smooth when the screen refreshes at a different rate than the physics.
 #[derive(Component, Debug)]
 pub struct PreviousPos(pub Vec2);
 
-/// What happened to the crab during this frame's physics steps, for the
+/// What happened to the crab during this frame's ticks, for the
 /// animation and the effects to react to.
 #[derive(Component, Default, Debug)]
 pub struct FrameEvents(pub StepEvents);
@@ -73,6 +74,7 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<MoveRequest>()
+            .insert_resource(Sim::new(Tuning::default(), Level::test_level()))
             .init_resource::<StepClock>()
             .configure_sets(
                 Update,
@@ -90,54 +92,41 @@ impl Plugin for PlayerPlugin {
 }
 
 /// Create this tab's crab, standing where it was saved if that's a fair spot.
-fn spawn_local_crab(mut commands: Commands, tuning: Res<Tuning>, level: Res<Level>) {
+fn spawn_local_crab(mut commands: Commands, mut sim: ResMut<Sim>) {
     let pos = save::load()
-        .filter(|&p| physics::is_valid_spot(p, &tuning, &level))
+        .filter(|&p| physics::is_valid_spot(p, &sim.tuning, &sim.level))
         .unwrap_or(SPAWN);
+    sim.add_crab(PlayerId(0), pos);
+    // Always write down what the local player does, so a replay can be saved
+    // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
+    sim.start_recording();
     commands.spawn((
         Crab,
         PlayerId(0),
         LocalPlayer,
         Mover::new(pos),
         PreviousPos(pos),
-        CurrentControls::default(),
         FrameEvents::default(),
         Transform::from_xyz(pos.x, pos.y, 10.0),
         Visibility::default(),
     ));
 }
 
-/// Hand each [`MoveRequest`] to its crab. A press (jump, dodge) is kept
-/// until the physics has seen it, even if the button is already released.
-fn apply_requests(
-    mut requests: MessageReader<MoveRequest>,
-    mut crabs: Query<(&PlayerId, &mut CurrentControls)>,
-) {
+/// Hand each [`MoveRequest`] to the simulation. (A press, like jump, is
+/// kept until a tick has used it, even if the button is already released.)
+fn apply_requests(mut requests: MessageReader<MoveRequest>, mut sim: ResMut<Sim>) {
     for req in requests.read() {
-        for (id, mut current) in &mut crabs {
-            if *id == req.player {
-                let c = &mut current.0;
-                c.walk = req.controls.walk;
-                c.jump_held = req.controls.jump_held;
-                c.jump_pressed |= req.controls.jump_pressed;
-                c.dodge_pressed |= req.controls.dodge_pressed;
-            }
-        }
+        sim.set_controls(req.player, req.controls);
     }
 }
 
-/// Run as many fixed physics steps as the time since the last frame needs.
+/// Run as many ticks as the time since the last frame needs, then copy each
+/// crab's new state onto its entity.
 fn simulate(
     time: Res<Time>,
-    tuning: Res<Tuning>,
-    level: Res<Level>,
+    mut sim: ResMut<Sim>,
     mut clock: ResMut<StepClock>,
-    mut crabs: Query<(
-        &mut Mover,
-        &mut PreviousPos,
-        &mut CurrentControls,
-        &mut FrameEvents,
-    )>,
+    mut crabs: Query<(&PlayerId, &mut Mover, &mut PreviousPos, &mut FrameEvents)>,
 ) {
     // Never try to catch up more than a quarter of a second (say, after the
     // browser tab was in the background); just carry on from here.
@@ -145,21 +134,28 @@ fn simulate(
     let steps = (clock.leftover / STEP) as usize;
     clock.leftover -= steps as f32 * STEP;
 
-    for (mut mover, mut prev, mut controls, mut events) in &mut crabs {
+    for (_, _, _, mut events) in &mut crabs {
         events.0 = StepEvents::default();
-        for _ in 0..steps {
-            prev.0 = mover.pos;
-            let happened = physics::step(&mut mover, &controls.0, &tuning, &level, STEP);
-            events.0.merge(happened);
-            // A press counts once.
-            controls.0.jump_pressed = false;
-            controls.0.dodge_pressed = false;
+    }
+    for _ in 0..steps {
+        sim.tick();
+        // Collect what happened during each tick for the animation.
+        for (id, _, _, mut events) in &mut crabs {
+            if let Some(crab) = sim.crab(*id) {
+                events.0.merge(crab.events);
+            }
+        }
+    }
+    for (id, mut mover, mut prev, _) in &mut crabs {
+        if let Some(crab) = sim.crab(*id) {
+            mover.clone_from(&crab.mover);
+            prev.0 = crab.prev_pos;
         }
     }
 }
 
-/// Move each crab's `Transform` (where it is drawn) to its physics position,
-/// blending between the last two steps.
+/// Move each crab's `Transform` (where it is drawn) to its simulated
+/// position, blending between the last two ticks.
 fn place_crabs(
     clock: Res<StepClock>,
     mut crabs: Query<(&Mover, &PreviousPos, &mut Transform), With<Crab>>,

@@ -45,11 +45,45 @@
       background: #03090c;
     }
     #message[hidden] { display: none; }
+    /* Replays (press F9, or the Replay button with ?replay in the address). */
+    #replay-button {
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      border: 1px solid #f4e7d055;
+      border-radius: 14px;
+      background: #03090ccc;
+      color: inherit;
+      font: inherit;
+      font-size: 14px;
+    }
+    #replay-box {
+      position: fixed;
+      inset: 10%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 14px;
+      border-radius: 10px;
+      background: #03090cf0;
+      border: 1px solid #f4e7d055;
+    }
+    #replay-box textarea { flex: 1; font: 12px/1.3 ui-monospace, monospace; background: #0b1519; color: inherit; }
+    #replay-box button { font: inherit; padding: 6px 14px; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <div id="game"><canvas id="crabscape" tabindex="0"></canvas></div>
   <div id="message" role="status">Loading CrabScape&hellip; 🦀</div>
+  <button id="replay-button" hidden>Replay</button>
+  <div id="replay-box" hidden>
+    <div>Your replay. Copy all of it and send it with what felt wrong.</div>
+    <textarea readonly></textarea>
+    <div><button id="replay-copy">Copy</button> <button id="replay-close">Close</button></div>
+  </div>
 
   <script type="module">
     // Relative path on purpose: the page also works from a subfolder (GitHub
@@ -83,6 +117,28 @@
       const canvas = document.getElementById("crabscape");
       const focusGame = () => canvas.focus({ preventScroll: true });
       document.addEventListener("pointerdown", focusGame);
+      // Replays: the game writes the text into data-replay on the canvas
+      // (F9, see src/replay.rs); show it in a box to copy. With ?replay in the
+      // address there is also a button, for phones, which asks the game for
+      // one by setting data-want-replay.
+      const box = document.getElementById("replay-box");
+      const text = box.querySelector("textarea");
+      new MutationObserver(() => {
+        text.value = canvas.getAttribute("data-replay") || "";
+        box.hidden = false;
+        text.select();
+      }).observe(canvas, { attributeFilter: ["data-replay"] });
+      document.getElementById("replay-copy").onclick = () => {
+        text.select();
+        (navigator.clipboard ? navigator.clipboard.writeText(text.value) : Promise.reject())
+          .catch(() => document.execCommand("copy"));
+      };
+      document.getElementById("replay-close").onclick = () => { box.hidden = true; focusGame(); };
+      if (new URLSearchParams(location.search).has("replay")) {
+        const button = document.getElementById("replay-button");
+        button.hidden = false;
+        button.onclick = () => canvas.setAttribute("data-want-replay", "1");
+      }
       init().then(
         () => { message.hidden = true; focusGame(); },
         (e) => {
