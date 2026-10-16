@@ -241,22 +241,51 @@ fn an_early_jump_press_is_buffered_until_landing() {
 #[test]
 fn dodge_has_a_cooldown() {
     let t = Tuning::default();
-    // Two dodges closer together than the cooldown: only the first counts.
+    let wait = f64::from(t.dodge_cooldown);
+    // Two dodges well inside the cooldown: only the first counts.
+    let early = wait - f64::from(t.dodge_buffer) - 0.05;
+    let r = run(&format!("t=0 walk=right dodge; t={early} dodge"), 2.0);
+    assert_eq!(r.count("dodged"), 1);
+    // Pressed just before the cooldown ends: remembered, so both count.
     let r = run(
-        &format!("t=0 dodge; t={} dodge", f64::from(t.dodge_cooldown) - 0.05),
+        &format!("t=0 walk=right dodge; t={} dodge", wait - 0.05),
         2.0,
     );
-    assert_eq!(r.count("dodged"), 1);
+    assert_eq!(r.count("dodged"), 2);
     // Just after the cooldown: both count.
     let r = run(
-        &format!("t=0 dodge; t={} dodge", f64::from(t.dodge_cooldown) + 0.02),
+        &format!("t=0 walk=right dodge; t={} dodge", wait + 0.02),
         2.0,
     );
     assert_eq!(r.count("dodged"), 2);
     // And a dodge covers ground fast: further than walking for the same time.
-    let dodge = run("t=0 dodge", 0.15);
+    let dodge = run("t=0 walk=right dodge", 0.15);
     let walk = run("t=0 walk=right", 0.15);
     assert!(dodge.crab().pos.x > walk.crab().pos.x + 50.0);
+}
+
+#[test]
+fn dodge_goes_the_way_you_hold() {
+    // Dodge on its own does nothing, even just after walking somewhere: it
+    // never guesses a way you didn't mean (Koa's playtest, 2026-10-15).
+    assert_eq!(run("t=0 dodge", 1.0).count("dodged"), 0);
+    let r = run(
+        "start x=400 y=0; t=0 walk=left; t=0.3 walk=stop; t=1 dodge",
+        1.5,
+    );
+    assert_eq!(r.count("dodged"), 0);
+    // Dodge a moment before the direction: it waits and goes that way, not
+    // the way the crab last walked.
+    let r = run(
+        "start x=300 y=0; t=0 walk=right; t=0.3 walk=stop; t=0.8 dodge; t=0.85 walk=left",
+        1.0,
+    );
+    assert_eq!(r.count("dodged"), 1);
+    assert_eq!(r.crab().dodge_dir, -1.0);
+    // Much later than that, it was a stray press: nothing happens.
+    let late = f64::from(Tuning::default().dodge_buffer) + 0.05;
+    let r = run(&format!("t=0 dodge; t={late} walk=right"), 1.0);
+    assert_eq!(r.count("dodged"), 0);
 }
 
 /// A busy script that uses every control, for the determinism checks.

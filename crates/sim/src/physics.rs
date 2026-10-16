@@ -63,10 +63,9 @@ pub struct Mover {
     pub dodge_cooldown: f32,
     /// Direction of the current dodge: -1 or 1.
     pub dodge_dir: f32,
-    /// The way the crab last walked: -1 or 1. A dodge with no direction held
-    /// goes this way. (The crab is never drawn mirrored; this is only for
-    /// the dodge and the animation.)
-    pub facing: f32,
+    /// Time left in which a dodge press still waits for a direction (or for
+    /// the floor, or the cooldown).
+    pub dodge_buffer: f32,
 }
 
 impl Mover {
@@ -84,7 +83,7 @@ impl Mover {
             dodge_left: 0.0,
             dodge_cooldown: 0.0,
             dodge_dir: 1.0,
-            facing: 1.0,
+            dodge_buffer: 0.0,
         }
     }
 
@@ -167,9 +166,6 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     let mut ev = StepEvents::default();
     let walk = c.walk.clamp(-1.0, 1.0);
     let walking = walk.abs() > 0.1;
-    if walking {
-        m.facing = walk.signum();
-    }
 
     // --- Timers ---------------------------------------------------------
     if c.jump_pressed {
@@ -184,12 +180,20 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.coyote = (m.coyote - dt).max(0.0);
     }
     m.dodge_cooldown = (m.dodge_cooldown - dt).max(0.0);
+    if c.dodge_pressed {
+        m.dodge_buffer = t.dodge_buffer;
+    } else {
+        m.dodge_buffer = (m.dodge_buffer - dt).max(0.0);
+    }
 
     // --- Dodge: a short, fast sideways scuttle ----------------------------
+    // It goes the way you hold, so it needs a direction: dodge on its own
+    // does nothing (it never guesses a way you didn't mean).
     // Scuttling needs legs on the floor, so there is no dodge in the water.
     // (Dodge, then jump, and the extra speed carries into the jump.)
-    if c.dodge_pressed && m.dodge_cooldown <= 0.0 && m.grounded {
-        m.dodge_dir = if walking { walk.signum() } else { m.facing };
+    if m.dodge_buffer > 0.0 && walking && m.dodge_cooldown <= 0.0 && m.grounded {
+        m.dodge_buffer = 0.0;
+        m.dodge_dir = walk.signum();
         m.dodge_left = t.dodge_time;
         m.dodge_cooldown = t.dodge_cooldown;
         ev.dodged = true;

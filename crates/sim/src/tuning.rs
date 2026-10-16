@@ -91,6 +91,11 @@ pub struct Tuning {
     pub dodge_time: f32,
     /// Time before you can dodge again (counted from the start).
     pub dodge_cooldown: f32,
+    /// The dodge goes the way you hold, so it needs a direction. Press dodge
+    /// this long before the direction (thumbs and fingers are never quite
+    /// together), or before landing or the cooldown ending, and it still
+    /// counts.
+    pub dodge_buffer: f32,
 
     // --- Body and collisions -------------------------------------------
     /// Half the width of the crab's collision box (its shell, not the legs:
@@ -136,6 +141,7 @@ impl Default for Tuning {
             dodge_speed: 720.0,
             dodge_time: 0.15,
             dodge_cooldown: 0.45,
+            dodge_buffer: 0.10,
 
             body_half_width: 36.0,
             body_height: 48.0,
