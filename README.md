@@ -18,7 +18,7 @@ it.
 | Walk | A / D or the arrow keys | left stick or d-pad | `<` `>` buttons |
 | Jump | Space (or W, Up, K); hold for higher | A | JUMP |
 | Paddle stroke (double jump) | jump again in the water | A again | JUMP again |
-| Dodge (on the floor) | Shift (or J) | B, X or a trigger | DODGE |
+| Dodge (on the floor, toward the way you hold) | Shift (or J) + a direction | B, X or a trigger + a direction | DODGE + `<` or `>` |
 | Art style (oil paint / ink) | P | | "Style" button, top right |
 
 The crab comes in two looks: **oil-painted** (the default) and the original

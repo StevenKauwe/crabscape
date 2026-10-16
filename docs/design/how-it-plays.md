@@ -9,7 +9,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   short wind-up; falls are heavy but slowed by water drag. Heavy landings bleed speed.
 - **Paddle legs give the air moves.** The flattened 5th legs of swimming crabs drive the double jump and short swims,
   one stroke at a time.
-- **Sideways is fast.** Crabs scuttle sideways quickly, so the dodge is a short sideways burst.
+- **Sideways is fast.** Crabs scuttle sideways quickly, so the dodge is a short sideways burst. It goes the way
+  you hold and needs a direction: dodge on its own does nothing, so it never goes a way you didn't mean.
 - **Most of the sea is faster than you.** Fish and shrimp out-speed you; you out-hit and out-last them.
 - Possible later: wall cling (crabs grip rock with their dactyls).
 
@@ -27,7 +28,7 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 | Walk | A / D, arrows | left stick, d-pad | `<` `>` |
 | Jump (hold = higher) | Space, W, Up, K | A | JUMP |
 | Paddle (double jump) | jump again in water | A again | JUMP again |
-| Dodge (on floor) | Shift, J | B, X, triggers | DODGE |
+| Dodge (on floor, + a direction) | Shift, J | B, X, triggers | DODGE |
 | Art style | P | | "Style" |
 
 ## Architecture rule

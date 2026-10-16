@@ -12,6 +12,8 @@
 //! | Jump   | Space, W, Up, K         | A (south button)     | JUMP       |
 //! | Dodge  | Shift, J                | B, X, or a trigger   | DODGE      |
 //!
+//! The dodge goes the way you hold, so it needs a direction (see `crabsim`).
+//!
 //! Press jump again in the water for the paddle stroke (the double jump).
 
 use bevy::prelude::*;
