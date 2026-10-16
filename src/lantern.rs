@@ -21,7 +21,10 @@ use bevy::color::Mix;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 
+use crabsim::Mover;
+
 use crate::effects::SoftTextures;
+use crate::player::LocalPlayer;
 use crate::tuning::ViewTuning;
 
 /// The light itself (the middle of the jar).
@@ -58,6 +61,18 @@ pub struct LitTint {
 struct Glow {
     /// Full brightness (alpha).
     alpha: f32,
+    /// Size with the starting culture.
+    size: f32,
+}
+
+/// How much further the light reaches for each culture brought home (a
+/// share of the starting reach).
+const BRIGHTER_PER_CULTURE: f32 = 0.35;
+
+/// How far the lantern's light reaches (before flicker), with this many
+/// cultures brought home.
+pub fn light_reach(tuning: &ViewTuning, cultures: u32) -> f32 {
+    tuning.light_outer * (1.0 + BRIGHTER_PER_CULTURE * cultures as f32)
 }
 
 /// The current light radius after flicker, shared by the systems below.
@@ -132,7 +147,10 @@ pub fn spawn_lantern(
     // (The crab is at depth ~10 and the lantern ~11, so -6 lands near 5.)
     commands.spawn((
         ChildOf(pivot),
-        Glow { alpha: 0.26 },
+        Glow {
+            alpha: 0.26,
+            size: tuning.light_outer * 2.8,
+        },
         Sprite {
             image: soft.dot.clone(),
             color: WARM.with_alpha(0.26),
@@ -144,7 +162,10 @@ pub fn spawn_lantern(
     // In front of everything on the crab: a small halo round the jar.
     commands.spawn((
         ChildOf(pivot),
-        Glow { alpha: 0.45 },
+        Glow {
+            alpha: 0.45,
+            size: 46.0,
+        },
         Sprite {
             image: soft.dot.clone(),
             color: WARM.with_alpha(0.45),
@@ -156,12 +177,24 @@ pub fn spawn_lantern(
     pivot
 }
 
-/// Living light flickers a little. Two slow waves added together.
-fn flicker(time: Res<Time>, mut flicker: ResMut<Flicker>, mut glows: Query<(&Glow, &mut Sprite)>) {
+/// Living light flickers a little: two slow waves added together. Each
+/// culture the crab has brought home makes it reach further.
+fn flicker(
+    time: Res<Time>,
+    mut flicker: ResMut<Flicker>,
+    crab: Query<&Mover, With<LocalPlayer>>,
+    mut glows: Query<(&Glow, &mut Sprite)>,
+) {
     let t = time.elapsed_secs();
-    flicker.0 = 1.0 + 0.03 * (t * 7.3).sin() + 0.02 * (t * 12.9 + 1.0).sin();
+    let wave = 1.0 + 0.03 * (t * 7.3).sin() + 0.02 * (t * 12.9 + 1.0).sin();
+    let cultures = crab.single().map_or(0, |m| m.lantern) as f32;
+    let reach = 1.0 + BRIGHTER_PER_CULTURE * cultures; // see `light_reach`
+    flicker.0 = wave * reach;
     for (glow, mut sprite) in &mut glows {
-        sprite.color.set_alpha(glow.alpha * flicker.0);
+        sprite
+            .color
+            .set_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures));
+        sprite.custom_size = Some(Vec2::splat(glow.size * reach));
     }
 }
 

@@ -32,6 +32,7 @@
 //! | `sprint`        | press dodge and keep holding it (a dodge, then a sprint) |
 //! | `slow`          | let go of dodge (ends a sprint)                          |
 //! | `sprinting`     | hold dodge without a new press                           |
+//! | `down=on`       | hold down (climbs down kelp or coral); `down=off` lets go |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
 //! `tap`, `dodge`, `sprint`) happen on that one tick. Recorded replays also have a
@@ -184,6 +185,9 @@ impl Replay {
                 (false, false, true) => " slow",
                 _ => "",
             };
+            if c.down != before.down {
+                line += if c.down { " down=on" } else { " down=off" };
+            }
             out += &line;
             out.push('\n');
             before = c;
@@ -267,7 +271,8 @@ impl Recorder {
     pub fn note(&mut self, tick: u64, c: Controls) {
         let changed = c.walk != self.last.walk
             || c.jump_held != self.last.jump_held
-            || c.dodge_held != self.last.dodge_held;
+            || c.dodge_held != self.last.dodge_held
+            || c.down != self.last.down;
         if changed || c.jump_pressed || c.dodge_pressed {
             self.replay.inputs.push(Input {
                 tick: tick - self.first_tick,
@@ -335,6 +340,8 @@ fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
                     _ => number(v)?.clamp(-1.0, 1.0),
                 }
             }
+            Some(("down", "on")) => c.down = true,
+            Some(("down", "off")) => c.down = false,
             _ => return Err(format!("don't know `{word}`")),
         },
     }

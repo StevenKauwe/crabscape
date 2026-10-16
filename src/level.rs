@@ -11,9 +11,10 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use crabsim::Sim;
+use crabsim::level::{Climb, Growth};
 
 /// How far down the sea floor is drawn below its surface.
-const FLOOR_DEPTH: f32 = 1500.0;
+const FLOOR_DEPTH: f32 = 10000.0;
 
 /// Marks the level's shapes (so they could be found and removed later).
 #[derive(Component)]
@@ -39,10 +40,20 @@ impl Plugin for LevelPlugin {
 // little lighter. The lantern's glow is what makes things readable.
 const SAND: Color = Color::srgb(0.085, 0.13, 0.13);
 const SAND_TOP: Color = Color::srgb(0.16, 0.20, 0.18);
-const ROCK: Color = Color::srgb(0.06, 0.10, 0.11);
+pub const ROCK: Color = Color::srgb(0.06, 0.10, 0.11);
 const ROCK_TOP: Color = Color::srgb(0.13, 0.18, 0.18);
 const SPIRE_NEAR: Color = Color::srgb(0.035, 0.075, 0.085);
 const SPIRE_FAR: Color = Color::srgb(0.03, 0.06, 0.07);
+// Kelp and coral: a little lighter than the rock, so the lantern finds
+// them. Kelp olive-brown with paler floats; the deep coral pale as bone,
+// with orange polyps, so the two never look like one plant.
+const KELP: Color = Color::srgb(0.22, 0.18, 0.07);
+const KELP_BLADE: Color = Color::srgb(0.26, 0.22, 0.09);
+const KELP_FLOAT: Color = Color::srgb(0.34, 0.28, 0.12);
+const CORAL: Color = Color::srgb(0.30, 0.27, 0.25);
+const CORAL_TIP: Color = Color::srgb(0.55, 0.32, 0.22);
+/// Plants sit in front of the rock, behind the crab (~10).
+const PLANT_Z: f32 = 2.0;
 
 /// Draw the floor, the rocks and the background spires as flat shapes.
 fn draw_level(
@@ -94,11 +105,13 @@ fn draw_level(
     for x in [level.min_x - 200.0, level.max_x + 200.0] {
         commands.spawn((
             LevelShape,
-            Mesh2d(meshes.add(Rectangle::new(400.0, 4000.0))),
+            Mesh2d(meshes.add(Rectangle::new(400.0, 24000.0))),
             MeshMaterial2d(rock.clone()),
-            Transform::from_xyz(x, 1000.0, 1.0),
+            Transform::from_xyz(x, 0.0, 1.0),
         ));
     }
+
+    draw_climbs(&mut commands, &level.climbs, &mut meshes, &mut materials);
 
     // Background spires, two layers. Triangles of different sizes.
     let spire = meshes.add(Triangle2d::new(
@@ -128,6 +141,146 @@ fn draw_level(
                 Transform::from_xyz(x, -250.0, 0.0).with_scale(Vec3::new(w, h, 1.0)),
             ));
         }
+    }
+}
+
+/// Kelp and coral along each climb line (see [`kelp`] and [`coral`]).
+fn draw_climbs(
+    commands: &mut Commands,
+    climbs: &[Climb],
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+) {
+    for c in climbs {
+        let mut draw = |mesh: Mesh, colour: Color, at: Vec2, angle: f32| {
+            commands.spawn((
+                LevelShape,
+                Mesh2d(meshes.add(mesh)),
+                MeshMaterial2d(materials.add(colour)),
+                Transform::from_translation(at.extend(PLANT_Z))
+                    .with_rotation(Quat::from_rotation_z(angle)),
+            ));
+        };
+        match c.kind {
+            Growth::Kelp => kelp(c, &mut draw),
+            Growth::Coral => coral(c, &mut draw),
+        }
+    }
+}
+
+/// Something to draw: a shape, its colour, where its middle goes, and its
+/// turn (radians, counter-clockwise).
+type Draw<'a> = dyn FnMut(Mesh, Color, Vec2, f32) + 'a;
+
+/// A straight piece from `a` to `b`, `width` wide.
+fn rod(draw: &mut Draw, a: Vec2, b: Vec2, width: f32, colour: Color) {
+    let d = b - a;
+    let mesh = Rectangle::new(width, d.length() + width * 0.5).into();
+    draw(mesh, colour, (a + b) / 2.0, -d.x.atan2(d.y));
+}
+
+/// The direction `lean` radians off straight up (positive leans right).
+fn up_and_out(lean: f32) -> Vec2 {
+    Vec2::new(lean.sin(), lean.cos())
+}
+
+/// Giant kelp: a holdfast gripping the rock shelf, a thin stalk bending out
+/// to the climb line and swaying gently up it, a blade on a gas-filled float
+/// at every joint (alternating sides), and a fan of blades at the top.
+fn kelp(c: &Climb, draw: &mut Draw) {
+    let root = Vec2::new(c.x - 70.0, c.bottom);
+    // The stalk leaves the holdfast and bends out to the line it's climbed on.
+    let x_at = |y: f32| {
+        let rise = ((y - c.bottom) / 220.0).min(1.0);
+        c.x + (root.x - c.x) * (1.0 - rise) * (1.0 - rise) + 6.0 * (y * 0.003).sin()
+    };
+    for (dx, w) in [(-14.0, 11.0), (0.0, 13.0), (13.0, 10.0)] {
+        draw(
+            Ellipse::new(w, 6.0).into(),
+            KELP,
+            root + Vec2::new(dx, 4.0),
+            0.0,
+        );
+    }
+    let mut y = c.bottom;
+    let mut k = 0;
+    while y < c.top {
+        let y2 = (y + 70.0).min(c.top);
+        let (a, b) = (Vec2::new(x_at(y), y), Vec2::new(x_at(y2), y2));
+        rod(draw, a, b, 8.0, KELP);
+        if k > 1 && y2 < c.top {
+            let side = if k % 2 == 0 { -1.0 } else { 1.0 };
+            let lean = side * 0.6;
+            let out = up_and_out(lean);
+            draw(Circle::new(5.5).into(), KELP_FLOAT, b + out * 5.0, 0.0);
+            draw(
+                Ellipse::new(8.0, 34.0).into(),
+                KELP_BLADE,
+                b + out * 42.0,
+                -lean,
+            );
+        }
+        y = y2;
+        k += 1;
+    }
+    let top = Vec2::new(x_at(c.top), c.top);
+    for lean in [-1.0_f32, -0.5, 0.0, 0.5, 1.0] {
+        let out = up_and_out(lean);
+        draw(
+            Ellipse::new(8.0, 40.0).into(),
+            KELP_BLADE,
+            top + out * 44.0,
+            -lean,
+        );
+    }
+    draw(Circle::new(6.0).into(), KELP_FLOAT, top, 0.0);
+}
+
+/// Deep-sea coral: an encrusting foot, a straight pale trunk that narrows as
+/// it rises, forked branches (alternating sides) tipped with orange polyps,
+/// and a crown of short twigs at the top. Clearly not a plant.
+fn coral(c: &Climb, draw: &mut Draw) {
+    let height = c.top - c.bottom;
+    let width_at = |y: f32| 24.0 - 12.0 * ((y - c.bottom) / height);
+    draw(
+        Ellipse::new(44.0, 14.0).into(),
+        CORAL,
+        Vec2::new(c.x, c.bottom + 6.0),
+        0.0,
+    );
+    let mut y = c.bottom;
+    let mut k = 0;
+    while y < c.top {
+        let y2 = (y + 120.0).min(c.top);
+        let (a, b) = (Vec2::new(c.x, y), Vec2::new(c.x, y2));
+        rod(
+            draw,
+            a,
+            b.min(Vec2::new(c.x, c.top - 60.0)),
+            width_at(y),
+            CORAL,
+        );
+        if k > 0 && y2 < c.top - 60.0 {
+            let side = if k % 2 == 0 { -1.0 } else { 1.0 };
+            let length = 75.0 + 20.0 * ((k * 7 % 5) as f32 / 4.0);
+            let base = b + Vec2::new(side * width_at(y2) * 0.4, 0.0);
+            let tip = base + up_and_out(side * 0.75) * length;
+            rod(draw, base, tip, 8.0, CORAL);
+            draw(Circle::new(7.0).into(), CORAL_TIP, tip, 0.0);
+            let fork = base.lerp(tip, 0.5);
+            let twig = fork + up_and_out(side * 1.25) * length * 0.5;
+            rod(draw, fork, twig, 6.0, CORAL);
+            draw(Circle::new(5.0).into(), CORAL_TIP, twig, 0.0);
+        }
+        y = y2;
+        k += 1;
+    }
+    // The crown stays just under the shelf above it, clear of the kelp.
+    let crown = Vec2::new(c.x, c.top - 60.0);
+    for lean in [-0.45_f32, 0.0, 0.45] {
+        let tip = crown + up_and_out(lean) * 40.0;
+        rod(draw, crown, tip, 7.0, CORAL);
+        draw(Circle::new(6.0).into(), CORAL_TIP, tip, 0.0);
     }
 }
 

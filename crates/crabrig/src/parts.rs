@@ -26,6 +26,16 @@ pub fn parent_of(id: &str) -> String {
     if let Some(m) = re(r"^(cheliped-[RL])-dactyl-tip").captures(id) {
         return format!("{}-dactyl", &m[1]);
     }
+    // Scissor-claw teeth: each row is a part riding on its finger.
+    if let Some(m) = re(r"^(cheliped-[RL])-(dactyl|propodus)-scissor-tooth").captures(id) {
+        return format!("{}-{}-scissor", &m[1], &m[2]);
+    }
+    if let Some(m) = re(r"^(cheliped-[RL])-dactyl-scissor$").captures(id) {
+        return format!("{}-dactyl", &m[1]);
+    }
+    if let Some(m) = re(r"^(cheliped-[RL])-propodus-scissor$").captures(id) {
+        return format!("{}-propodus-palm", &m[1]);
+    }
     if let Some(m) = re(r"^(eye-[RL])-(cornea|glint)").captures(id) {
         return format!("{}-stalk", &m[1]);
     }

@@ -165,6 +165,17 @@ struct Rig {
     lantern: Option<Entity>,
 }
 
+/// A piece of the crab's art that only shows with scissor claws fitted (the
+/// rows of tooth edges on the crusher's fingers, named `...-scissor`), and
+/// the crab it belongs to.
+#[derive(Component)]
+struct ScissorPiece {
+    crab: Entity,
+}
+
+/// How long the scissor snap takes when the claw cuts (seconds).
+const SNAP_TIME: f32 = 0.3;
+
 /// Animation memory for one crab.
 #[derive(Component, Default)]
 struct PuppetAnim {
@@ -185,6 +196,16 @@ struct PuppetAnim {
     streamline: f32,
     /// 0..1 (smoothed): sinking, the water pushing the legs up as they fall.
     water_push: f32,
+    /// 0..1 (smoothed): turned sideways onto kelp or coral, climbing it.
+    climb: f32,
+    /// -1..1 (smoothed): diving, tilted that way.
+    dive: f32,
+    /// Time left in a scissor snap of the crusher (it just cut something).
+    snap: f32,
+    /// Which side of the stalk the crab clings to (smoothed from the
+    /// simulation's): 1 = to its right (turned clockwise), -1 = to its left.
+    /// Swinging round from one to the other passes through facing front.
+    climb_side: f32,
     /// How hard the last stroke was (1 = rested, up to 1.6 when the legs
     /// are nearly spent: the last strokes look hardest).
     effort: f32,
@@ -208,7 +229,7 @@ impl Plugin for PuppetPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, load_art).add_systems(
             Update,
-            (prepare_art, build_puppets, restyle, animate)
+            (prepare_art, build_puppets, restyle, animate, show_scissors)
                 .chain()
                 .in_set(GameSet::Present),
         );
@@ -386,6 +407,12 @@ fn build_puppets(
                     bright: Color::srgba(1.0, 0.92, 0.78, 1.0),
                 },
             ));
+            // Scissor-claw teeth wait, hidden, until the tooth is fitted.
+            if part.name.ends_with("-scissor") {
+                commands
+                    .entity(entity)
+                    .insert((ScissorPiece { crab }, Visibility::Hidden));
+            }
             by_name.insert(&part.name, entity);
         }
 
@@ -506,6 +533,10 @@ fn animate(
             }
             a.lantern_vel += 2.0 * k * if a.lantern >= 0.0 { 1.0 } else { -1.0 };
         }
+        a.snap = (a.snap - dt).max(0.0);
+        if ev.cut_net {
+            a.snap = SNAP_TIME;
+        }
         if ev.paddled {
             a.since_paddle = 0.0;
             // A whole-body effort (the shell itself stays rigid): it rocks to
@@ -531,10 +562,35 @@ fn animate(
         // --- Smoothed states ---------------------------------------------
         let speed = (vx.abs() / sim.tuning.walk_speed).min(1.0);
         let grounded = mover.grounded;
-        a.walk = ease(a.walk, if grounded { speed } else { 0.0 }, 12.0, dt);
-        a.air = ease(a.air, if grounded { 0.0 } else { 1.0 }, 10.0, dt);
+        // Climbing is walking, turned sideways onto the stalk: the legs step
+        // along it at the climbing speed.
+        let climbing = mover.climbing;
+        if climbing && a.climb < 0.05 {
+            a.climb_side = mover.climb_side; // just gripped: turn straight to it
+        }
+        a.climb_side = ease(a.climb_side, mover.climb_side, 8.0, dt);
+        a.climb = ease(a.climb, f32::from(u8::from(climbing)), 9.0, dt);
+        let dive = if mover.diving { vx.signum() } else { 0.0 };
+        a.dive = ease(a.dive, dive, 6.0, dt);
+        let climb_speed = (vy.abs() / sim.tuning.climb_speed).min(1.0);
+        let stepping = if grounded {
+            speed
+        } else if climbing {
+            climb_speed
+        } else {
+            0.0
+        };
+        a.walk = ease(a.walk, stepping, 12.0, dt);
+        a.air = ease(
+            a.air,
+            if grounded || climbing { 0.0 } else { 1.0 },
+            10.0,
+            dt,
+        );
         if grounded {
             a.walk_phase += vx.abs() * dt / STRIDE * TAU;
+        } else if climbing {
+            a.walk_phase += vy.abs() * dt / STRIDE * TAU;
         }
         let crouching = mover.windup > 0.0;
         let raise = if crouching || (!grounded && vy > 0.0) {
@@ -546,7 +602,7 @@ fn animate(
         };
         a.claw_raise = ease(a.claw_raise, raise, 16.0, dt);
         // Shooting up after a stroke: fold in, strongest right after it.
-        let shooting = !grounded && a.since_paddle < 0.7 && vy > 0.0;
+        let shooting = !grounded && !climbing && a.since_paddle < 0.7 && vy > 0.0;
         let streamline = if shooting {
             (vy / sim.tuning.paddle_speed).clamp(0.0, 1.0)
         } else {
@@ -555,7 +611,7 @@ fn animate(
         a.streamline = ease(a.streamline, streamline, 14.0, dt);
         // Sinking: the faster, the harder the water pushes on the legs.
         let top_sink = (sim.tuning.net_gravity() / sim.tuning.water_drag).sqrt();
-        let sink = if grounded {
+        let sink = if grounded || climbing {
             0.0
         } else {
             (-vy / top_sink).clamp(0.0, 1.0)
@@ -575,8 +631,25 @@ fn animate(
         let strain = 0.04 * heave * (t * 46.0).sin();
 
         // --- Whole body: squash and lean around the feet ------------------
-        let lean = -(vx / sim.tuning.walk_speed) * 0.035 + 0.07 * heave * a.heave_side;
-        set(&mut parts, Some(rig.root), lean, Vec2::ZERO);
+        // Climbing turns the crab sideways onto the stalk (round its feet),
+        // its underside to the stalk, on the side it came from. On the right
+        // the crusher leads up the stalk, on the left the lantern claw does
+        // (the crab never flips: its crusher is always on its right).
+        // Diving tilts the crab a little the way it's pushing; a flip turns
+        // it right round, about its middle rather than its feet.
+        let flip = if mover.flip_left > 0.0 {
+            let p = 1.0 - mover.flip_left / sim.tuning.flip_time;
+            -mover.flip_dir * TAU * p * p * (3.0 - 2.0 * p)
+        } else {
+            0.0
+        };
+        let lean = -(vx / sim.tuning.walk_speed) * 0.035 + 0.07 * heave * a.heave_side
+            - CLIMB_TURN * a.climb * a.climb_side
+            - DIVE_TILT * a.dive
+            + flip;
+        let middle = Vec2::new(0.0, FLIP_MIDDLE);
+        let about_middle = middle - Vec2::from_angle(flip).rotate(middle);
+        set(&mut parts, Some(rig.root), lean, about_middle);
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
             tr.scale = Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0);
         }
@@ -647,16 +720,39 @@ fn animate(
             let carry = if side == 1 { 0.12 } else { 0.0 };
             // On a stroke the claws pull down hard too, trembling with the
             // strain, then come back up.
+            // Climbing, the free crusher reaches up the stalk with its finger
+            // open, grabs it and pulls, over and over; still, it holds on.
+            let (reach, pull, open) = if side == 0 {
+                let g = if climb_speed > 0.05 {
+                    phase.sin()
+                } else {
+                    -1.0
+                };
+                (
+                    a.climb * (0.25 + 0.25 * g),
+                    a.climb * 0.3 * (1.0 - g) / 2.0,
+                    a.climb * 0.45 * g.max(0.0),
+                )
+            } else {
+                (0.0, 0.0, 0.0)
+            };
             let merus = s * (carry + 0.55 * a.claw_raise - 0.25 * squashed) + s * sway
                 - s * 0.75 * heave
-                + s * strain;
-            let carpus = s * 0.25 * a.claw_raise - s * 0.35 * heave;
+                + s * strain
+                - s * reach;
+            let carpus = s * 0.25 * a.claw_raise - s * 0.35 * heave - s * pull;
             set(&mut parts, claw.0[0], merus, Vec2::ZERO);
             set(&mut parts, claw.0[1], carpus, Vec2::ZERO);
             // The crusher's finger opens as it rises; the cutter keeps its
             // grip on the lantern.
+            // The crusher snaps wide and shut, scissor-like, when it cuts.
+            let snapping = if a.snap > 0.0 {
+                (PI * (1.0 - a.snap / SNAP_TIME)).sin()
+            } else {
+                0.0
+            };
             let gape = if side == 0 {
-                -s * 0.35 * a.claw_raise
+                -s * 0.35 * a.claw_raise * (1.0 - a.climb) - s * open - s * 0.8 * snapping
             } else {
                 0.0
             };
@@ -686,6 +782,27 @@ fn animate(
             set(&mut parts, rig.eyes[side], a.eye[side], Vec2::ZERO);
         }
         a.prev_vx = vx;
+    }
+}
+
+/// How far a dive tilts the crab towards the way it's pushing (radians).
+const DIVE_TILT: f32 = 0.22;
+/// Height of the crab's middle above its feet: a flip turns about it.
+const FLIP_MIDDLE: f32 = 30.0;
+
+/// How far climbing turns the crab, clockwise (radians: nearly a quarter
+/// turn, so it reads as clinging sideways rather than lying flat).
+const CLIMB_TURN: f32 = 1.45;
+
+/// Show a crab's scissor-claw teeth once the tooth has been fitted.
+fn show_scissors(movers: Query<&Mover>, mut pieces: Query<(&ScissorPiece, &mut Visibility)>) {
+    for (piece, mut shown) in &mut pieces {
+        let fitted = movers.get(piece.crab).is_ok_and(|m| m.scissor_claw);
+        shown.set_if_neq(if fitted {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
     }
 }
 

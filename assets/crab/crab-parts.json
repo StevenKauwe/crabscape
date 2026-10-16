@@ -1094,6 +1094,60 @@
     "cheliped-R-dactyl",
     "cheliped-R-dactyl-tip"
    ]
+  },
+  {
+   "name": "cheliped-R-propodus-scissor",
+   "parent": "cheliped-R-propodus-palm",
+   "pivot": [
+    351.0,
+    439.3
+   ],
+   "bbox": [
+    557.3,
+    469.4,
+    59.6,
+    28.2
+   ],
+   "rect": [
+    535,
+    337,
+    36,
+    17
+   ],
+   "z": 86,
+   "members": [
+    "cheliped-R-propodus-scissor",
+    "cheliped-R-propodus-scissor-tooth1",
+    "cheliped-R-propodus-scissor-tooth2",
+    "cheliped-R-propodus-scissor-tooth3"
+   ]
+  },
+  {
+   "name": "cheliped-R-dactyl-scissor",
+   "parent": "cheliped-R-dactyl",
+   "pivot": [
+    516.1,
+    418.0
+   ],
+   "bbox": [
+    549.0,
+    420.6,
+    57.8,
+    44.3
+   ],
+   "rect": [
+    497,
+    337,
+    35,
+    27
+   ],
+   "z": 90,
+   "members": [
+    "cheliped-R-dactyl-scissor",
+    "cheliped-R-dactyl-scissor-tooth1",
+    "cheliped-R-dactyl-scissor-tooth2",
+    "cheliped-R-dactyl-scissor-tooth3"
+   ]
   }
  ]
 }

@@ -36,6 +36,17 @@ pub struct Controls {
     pub dodge_pressed: bool,
     /// Is the dodge button held down? (Keep holding after a dodge to sprint.)
     pub dodge_held: bool,
+    /// Is down held? (Climbs down kelp or coral; so does holding dodge.)
+    pub down: bool,
+}
+
+/// Something a crab carries home on its back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Carry {
+    /// A lump of wild glowing bacteria: cultured at home into the lantern.
+    Culture,
+    /// A shed tooth: fitted to the crusher at home, making scissor claws.
+    Tooth,
 }
 
 /// A crab's movement state. (In the game, each crab entity also carries a
@@ -60,6 +71,18 @@ pub struct Mover {
     /// Paddle strokes the crab has grown (one per egg eaten), on top of
     /// [`Tuning::swim_strokes`]. The first one is the double jump.
     pub upgrades: u32,
+    /// What the crab is carrying home on its back, if anything (one thing
+    /// at a time).
+    pub carrying: Option<Carry>,
+    /// Scissor claws: a shed tooth's edges fitted along both fingers of its
+    /// crusher claw (at the workbench at home). They cut through ghost nets.
+    pub scissor_claw: bool,
+    /// How many cultures have been brought home: each makes the lantern
+    /// brighter.
+    pub lantern: u32,
+    /// Climbing experience: it grows with every bit climbed, and each level
+    /// climbs faster (see [`Mover::climb_level`]).
+    pub climb_xp: f32,
     /// Paddle strokes left (fractions are strokes still resting). Only
     /// standing on something solid gives them back, and only from the
     /// [`reserve`](Self::reserve).
@@ -82,6 +105,22 @@ pub struct Mover {
     pub sprinting: bool,
     /// The reserve ran dry mid-sprint: no sprint until dodge is let go.
     pub winded: bool,
+    /// Gripping kelp or coral (see [`Level::climbs`](crate::Level::climbs)).
+    pub climbing: bool,
+    /// Diving: pushing a way while sinking, tilted and streamlined, so a
+    /// little faster down and sideways.
+    pub diving: bool,
+    /// Time left in a flip (dodge in the water), and which way it turns
+    /// (1 = clockwise, towards the right).
+    pub flip_left: f32,
+    pub flip_dir: f32,
+    /// The way the crab was already walking when it gripped (-1, 0 or 1):
+    /// only a fresh press sideways steps it off.
+    pub climb_dir: f32,
+    /// Which side of the stalk the crab clings to while climbing: 1 = to the
+    /// right of it, -1 = to the left. It's the side the crab came from; it
+    /// swings round to the other side when something blocks the way.
+    pub climb_side: f32,
 }
 
 impl Mover {
@@ -96,6 +135,10 @@ impl Mover {
             windup: 0.0,
             rising: false,
             upgrades: 0,
+            carrying: None,
+            scissor_claw: false,
+            lantern: 0,
+            climb_xp: 0.0,
             stamina: 0.0,
             reserve: 1.0,
             stroke_rest: 0.0,
@@ -105,6 +148,12 @@ impl Mover {
             dodge_buffer: 0.0,
             sprinting: false,
             winded: false,
+            climbing: false,
+            diving: false,
+            flip_left: 0.0,
+            flip_dir: 1.0,
+            climb_dir: 0.0,
+            climb_side: 1.0,
         }
     }
 
@@ -114,9 +163,35 @@ impl Mover {
         t.swim_strokes + self.upgrades
     }
 
+    /// The Climbing skill's level, from its experience (see
+    /// [`Tuning::climb_level_xp`]: each level needs a little more than the
+    /// last).
+    pub fn climb_level(&self, t: &Tuning) -> u32 {
+        let mut level = 1;
+        while level < 99 && self.climb_xp >= t.climb_level_xp * (level * (level + 1)) as f32 {
+            level += 1;
+        }
+        level
+    }
+
+    /// How far through its current Climbing level the crab is, 0 to 1.
+    pub fn climb_progress(&self, t: &Tuning) -> f32 {
+        let level = self.climb_level(t) as f32;
+        let from = t.climb_level_xp * (level - 1.0) * level;
+        let to = t.climb_level_xp * level * (level + 1.0);
+        ((self.climb_xp - from) / (to - from)).clamp(0.0, 1.0)
+    }
+
+    /// Climbing speed at the crab's Climbing level.
+    pub fn climb_speed(&self, t: &Tuning) -> f32 {
+        t.climb_speed * (1.0 + t.climb_speed_per_level * (self.climb_level(t) - 1) as f32)
+    }
+
     /// A one-word description of what the crab is doing, for logs and tests.
     pub fn activity(&self) -> &'static str {
-        if self.dodge_left > 0.0 {
+        if self.climbing {
+            "climbing"
+        } else if self.dodge_left > 0.0 {
             "dodging"
         } else if self.sprinting {
             "sprinting"
@@ -147,6 +222,26 @@ pub struct StepEvents {
     pub paddled: bool,
     /// Ate an egg: one more swim stroke from now on.
     pub ate: bool,
+    /// Gripped kelp or coral.
+    pub gripped: bool,
+    /// Picked up a lump of glowing bacteria to carry home.
+    pub picked_up: bool,
+    /// Rested at home (the stamina bar and rings refilled).
+    pub rested: bool,
+    /// Brought a culture home: the lantern grew brighter.
+    pub delivered: bool,
+    /// The Climbing skill went up a level.
+    pub levelled: bool,
+    /// Started a flip (dodge in the water).
+    pub flipped: bool,
+    /// Found a clue (which one, in [`Level::clues`](crate::Level::clues)).
+    pub found_clue: Option<usize>,
+    /// Brought a tooth home: the workbench fitted it, scissor claws.
+    pub fitted_scissors: bool,
+    /// Cut through a ghost net with scissor claws.
+    pub cut_net: bool,
+    /// Pressed against a ghost net with nothing to cut it.
+    pub tangled: bool,
     /// Landed, at this downward speed.
     pub landed: Option<f32>,
     /// Started a dodge.
@@ -160,6 +255,16 @@ impl StepEvents {
         self.jumped |= other.jumped;
         self.paddled |= other.paddled;
         self.ate |= other.ate;
+        self.gripped |= other.gripped;
+        self.picked_up |= other.picked_up;
+        self.rested |= other.rested;
+        self.delivered |= other.delivered;
+        self.levelled |= other.levelled;
+        self.flipped |= other.flipped;
+        self.found_clue = self.found_clue.or(other.found_clue);
+        self.fitted_scissors |= other.fitted_scissors;
+        self.cut_net |= other.cut_net;
+        self.tangled |= other.tangled;
         self.dodged |= other.dodged;
         if other.landed.is_some() {
             self.landed = other.landed;
@@ -173,6 +278,16 @@ impl StepEvents {
             (self.jumped, "jumped"),
             (self.paddled, "paddled"),
             (self.ate, "ate"),
+            (self.gripped, "gripped"),
+            (self.picked_up, "picked up"),
+            (self.rested, "rested"),
+            (self.delivered, "delivered"),
+            (self.levelled, "levelled"),
+            (self.flipped, "flipped"),
+            (self.found_clue.is_some(), "found a clue"),
+            (self.fitted_scissors, "fitted scissor claws"),
+            (self.cut_net, "cut a net"),
+            (self.tangled, "tangled"),
             (self.landed.is_some(), "landed"),
             (self.dodged, "dodged"),
         ]
@@ -243,6 +358,22 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.dodge_cooldown = t.dodge_cooldown;
         ev.dodged = true;
     }
+    // In the water (not climbing) dodge is a flip instead: a quick
+    // somersault, towards the way the crab is pushing. Only a flourish for
+    // now: it doesn't move the crab any further.
+    m.flip_left = (m.flip_left - dt).max(0.0);
+    if m.dodge_buffer > 0.0
+        && !m.grounded
+        && !m.climbing
+        && m.dodge_cooldown <= 0.0
+        && m.flip_left <= 0.0
+    {
+        m.dodge_buffer = 0.0;
+        m.flip_left = t.flip_time;
+        m.flip_dir = if walking { walk.signum() } else { 1.0 };
+        m.dodge_cooldown = t.dodge_cooldown;
+        ev.flipped = true;
+    }
 
     // --- Sprint: keep holding dodge to keep scuttling fast ----------------
     // Paid from the reserve, legs on the floor only. If the reserve runs dry
@@ -263,13 +394,99 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         }
     }
 
+    // --- Climbing kelp or coral ------------------------------------------
+    // In the water, press jump while touching one to grip it (instead of a
+    // paddle stroke). With the walking legs (no stamina needed): hold jump
+    // to climb up, hold down (or dodge) to climb down, nothing to hang on.
+    // A fresh press sideways shuffles along the stalk (fidgeting is safe);
+    // pushing on past the edge of its reach steps off. Jump with a direction
+    // kicks off the stalk that way (free, like a floor jump). Climbing past
+    // the top pulls the crab up over it.
+    let grip = level.climb_at(m.pos, t.climb_reach);
+    let mut shuffle = 0.0;
+    if m.climbing {
+        if !walking {
+            m.climb_dir = 0.0;
+        }
+        let fresh = walking && walk.signum() != m.climb_dir;
+        let off_centre = grip.map_or(0.0, |g| m.pos.x - g.x);
+        let at_edge = off_centre * walk.signum() >= t.climb_reach - 1.0;
+        let step_off = fresh && at_edge;
+        if fresh && !at_edge {
+            shuffle = walk * t.climb_shuffle;
+        }
+        if m.grounded {
+            m.climbing = false;
+        } else if c.jump_pressed && walking {
+            // Kick off the stalk: up and away, the way the crab is pressing.
+            m.climbing = false;
+            m.jump_buffer = 0.0;
+            m.vel = Vec2::new(walk.signum() * t.walk_speed, t.climb_leap);
+            m.rising = true;
+            ev.jumped = true;
+        } else if step_off {
+            m.climbing = false;
+            m.vel.x = walk.signum() * t.walk_speed;
+        } else if grip.is_none() {
+            m.climbing = false;
+            if c.jump_held {
+                m.vel.y = t.climb_pull_up;
+                m.rising = true;
+            }
+        }
+    } else if let Some(g) = grip.filter(|_| !m.grounded && m.jump_buffer > 0.0) {
+        m.climbing = true;
+        m.climb_dir = if walking { walk.signum() } else { 0.0 };
+        // Cling on the side it came from (or was heading in from).
+        let dx = m.pos.x - g.x;
+        m.climb_side = if dx.abs() > 1.0 {
+            dx.signum()
+        } else if m.vel.x.abs() > 1.0 {
+            -m.vel.x.signum()
+        } else {
+            1.0
+        };
+        if climb_blocked(m, t, level) {
+            m.climb_side = -m.climb_side;
+        }
+        m.jump_buffer = 0.0;
+        m.dodge_left = 0.0;
+        ev.gripped = true;
+    }
+    if m.climbing {
+        let down = c.down || c.dodge_held;
+        let speed = m.climb_speed(t);
+        let climb = match (c.jump_held, down) {
+            (true, false) => speed,
+            (false, true) => -speed,
+            _ => 0.0,
+        };
+        m.vel = Vec2::new(shuffle, climb);
+        m.rising = false;
+        let (from, was) = (m.pos.y, m.climb_level(t));
+        climb_and_collide(m, t, level, dt);
+        // Climbing is a skill: it grows with every bit climbed.
+        m.climb_xp += (m.pos.y - from).abs() * t.climb_xp_per_unit;
+        ev.levelled = m.climb_level(t) > was;
+        // Shuffling stops at the edge of the reach; pushing on steps off.
+        if let Some(g) = level.climb_at(m.pos, t.climb_reach + 5.0) {
+            let edge = t.climb_reach - 0.5;
+            m.pos.x = m.pos.x.clamp(g.x - edge, g.x + edge);
+        }
+        return ev;
+    }
+
     // --- Sideways speed -------------------------------------------------
     if m.dodge_left > 0.0 {
         m.dodge_left -= dt;
         m.vel.x = m.dodge_dir * t.dodge_speed;
     } else {
+        // Pushing a way while sinking: a dive, a little quicker sideways.
+        m.diving = !m.grounded && walking && m.vel.y < 0.0;
         let top = if m.sprinting {
             t.sprint_speed
+        } else if m.diving {
+            t.walk_speed * t.dive_speed
         } else {
             t.walk_speed
         };
@@ -346,11 +563,71 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             g *= t.fall_gravity_scale;
         }
         m.vel.y -= g * dt;
-        m.vel.y -= t.water_drag * m.vel.y * m.vel.y.abs() * dt;
+        // Diving, the crab is streamlined: the water holds it back less.
+        let drag = if m.diving {
+            t.water_drag * t.dive_drag
+        } else {
+            t.water_drag
+        };
+        m.vel.y -= drag * m.vel.y * m.vel.y.abs() * dt;
     }
 
     move_and_collide(m, t, level, dt, &mut ev);
     ev
+}
+
+/// The crab's body while climbing: turned sideways onto the stalk, so as
+/// tall as its shell is wide and sticking out as far as its shell is high,
+/// on the side it clings to (its feet are at the stalk).
+pub fn climb_box(m: &Mover, t: &Tuning) -> Rect {
+    let (out, half_tall) = (t.body_height, t.body_half_width);
+    let (left, right) = if m.climb_side > 0.0 {
+        (m.pos.x, m.pos.x + out)
+    } else {
+        (m.pos.x - out, m.pos.x)
+    };
+    Rect::new(left, m.pos.y - half_tall, right, m.pos.y + half_tall)
+}
+
+/// Does the climbing body overlap anything solid?
+fn climb_blocked(m: &Mover, t: &Tuning, level: &Level) -> bool {
+    let b = climb_box(m, t);
+    level.solids().any(|r| {
+        b.min.x < r.max.x - EPS
+            && b.max.x > r.min.x + EPS
+            && b.min.y < r.max.y - EPS
+            && b.max.y > r.min.y + EPS
+    })
+}
+
+/// Move a climbing crab: sideways (shuffling), then up or down, each only
+/// if the turned body stays clear of anything solid. Blocked going up or
+/// down, it swings round to the other side of the stalk if that's clear.
+/// Down at the floor, it lets go and stands.
+fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
+    let start = m.pos;
+    m.pos.x += m.vel.x * dt;
+    if climb_blocked(m, t, level) {
+        m.pos.x = start.x;
+        m.vel.x = 0.0;
+    }
+    let before = m.pos.y;
+    m.pos.y += m.vel.y * dt;
+    if climb_blocked(m, t, level) {
+        m.climb_side = -m.climb_side;
+        if climb_blocked(m, t, level) {
+            m.climb_side = -m.climb_side;
+            m.pos.y = before;
+            m.vel.y = 0.0;
+        }
+    }
+    let floor = level.floor_height(m.pos.x);
+    if m.pos.y - t.body_half_width <= floor {
+        m.pos.y = floor;
+        m.vel = Vec2::ZERO;
+        m.climbing = false;
+        m.grounded = true;
+    }
 }
 
 /// Move by the velocity, then sort out collisions: sideways first, then up
@@ -512,6 +789,7 @@ mod tests {
         jump_pressed: true,
         dodge_pressed: false,
         dodge_held: false,
+        down: false,
     };
 
     #[test]

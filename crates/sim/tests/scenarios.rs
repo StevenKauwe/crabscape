@@ -40,11 +40,25 @@ impl Run {
 /// Play `script` from its start for `seconds` with the given tuning, and
 /// keep notes. `until` can stop the run early.
 fn run_with(tuning: Tuning, script: &str, seconds: f64, until: impl Fn(&Sim) -> bool) -> Run {
+    run_crab(tuning, script, seconds, until, |_| {})
+}
+
+/// Like [`run_with`], with a chance to set the crab up first (strokes grown,
+/// something carried...).
+fn run_crab(
+    tuning: Tuning,
+    script: &str,
+    seconds: f64,
+    until: impl Fn(&Sim) -> bool,
+    setup: impl FnOnce(&mut crabsim::Mover),
+) -> Run {
     let replay = Replay::parse(script).expect("the script reads");
     let mut sim = Sim::with_one_crab(replay.start);
     sim.tuning = tuning;
     let full = sim.tuning.swim_strokes as f32;
-    sim.crab_mut(PlayerId(0)).unwrap().mover.stamina = full; // rested
+    let mover = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
+    mover.stamina = full; // rested
+    setup(mover);
     let mut run = Run {
         highest: replay.start.y,
         sim: sim.clone(),
@@ -484,17 +498,352 @@ fn the_reserve_comes_back_by_itself() {
     assert_eq!(sim.crabs()[0].mover.reserve, 1.0);
 }
 
-/// On the long flat at the far right of the level.
-const FAR_FLAT: &str = "start x=2800 y=20\n";
+/// Play `script` with a crab that has grown `strokes` strokes (rested). Did
+/// it ever stand on top of the shape spanning `left`..`right` at `top`?
+fn stands_on(script: &str, strokes: u32, (left, right, top): (f32, f32, f32)) -> bool {
+    let replay = Replay::parse(script).unwrap();
+    let mut sim = Sim::with_one_crab(replay.start);
+    let crab = sim.crab_mut(PlayerId(0)).unwrap();
+    crab.mover.upgrades = strokes;
+    crab.mover.stamina = strokes as f32;
+    let mut playback = replay.playback();
+    for _ in 0..ticks(4.0) {
+        sim.set_controls(PlayerId(0), playback.next_controls());
+        sim.tick();
+        let m = &sim.crabs()[0].mover;
+        if m.grounded
+            && (m.pos.y - top).abs() < 1.0
+            && m.pos.x > left - 30.0
+            && m.pos.x < right + 30.0
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// The cliff's top at the right end of the level: the way out.
+const CLIFF_TOP: (f32, f32, f32) = (2717.0, 2800.0, 860.0);
+
+#[test]
+fn the_way_out_needs_all_three_strokes() {
+    // From the far ledge, run right, jump and swim up as hard as possible:
+    // only at the peak of three strokes does the crab crawl onto the cliff.
+    let attempt = |strokes: u32, jump: f64| {
+        let mut script = format!("start x=2080 y=330\nt=0 walk=right; t={jump} jump");
+        for s in 0..strokes {
+            script += &format!("; t={} jump", jump + 0.45 + 0.31 * f64::from(s));
+        }
+        stands_on(&script, strokes, CLIFF_TOP)
+    };
+    let take_offs: Vec<f64> = (0..60).map(|k| 0.05 + f64::from(k) * 0.01).collect();
+    let three = take_offs.iter().filter(|&&j| attempt(3, j)).count();
+    println!("three strokes crawl over in {three} of 60 take-off times");
+    assert!(three > 0, "three strokes make it");
+    assert!(take_offs.iter().all(|&j| !attempt(2, j)), "two never do");
+}
+
+#[test]
+fn the_basin_has_a_way_back_up() {
+    // Each hop up the steps behind the cliff works with two strokes: from
+    // the basin floor, ledge by ledge, back onto the cliff top.
+    let hops = [
+        ((3150.0, -700.0), "left", (2950.0, 3050.0, -390.0)),
+        ((3000.0, -390.0), "left", (2810.0, 2890.0, -80.0)),
+        ((2850.0, -80.0), "right", (2950.0, 3050.0, 230.0)),
+        ((3000.0, 230.0), "left", (2810.0, 2890.0, 540.0)),
+        ((2850.0, 540.0), "left", CLIFF_TOP),
+    ];
+    for ((x, y), way, target) in hops {
+        let made_it = (0..7).any(|d| {
+            (1..6).any(|e| {
+                let go = 0.15 * f64::from(d);
+                let stop = go + 0.2 * f64::from(e);
+                let script = format!(
+                    "start x={x} y={y}\nt=0 jump; t=0.45 jump; t=0.76 jump; t={go} walk={way}; t={stop} walk=stop"
+                );
+                stands_on(&script, 2, target)
+            })
+        });
+        assert!(
+            made_it,
+            "no way up from ({x}, {y}) onto the ledge at {}",
+            target.2
+        );
+    }
+}
+
+#[test]
+fn the_pit_is_deep_and_the_climb_gets_you_out() {
+    let level = crabsim::Level::test_level();
+    let (left, _, bottom) = level.pit();
+    // Walk off the lip: a long, slow sink to the bottom.
+    let dive = run("start x=3200 y=-700; t=0 walk=right; t=1.6 walk=stop", 40.0);
+    let down = dive.first("landed").unwrap();
+    println!("sank to the bottom in {down:.1} s");
+    assert_eq!(dive.crab().pos.y, bottom);
+    assert!(down > 15.0, "deep: {down:.1} s down");
+    // From the bottom, with no strokes at all: jump, grip the coral, hold
+    // jump to climb, and come out on the rim (pressing towards it).
+    let climb = run(
+        &format!("start x=3500 y={bottom}; t=0 jump; t=0.2 release; t=0.3 jump walk=left"),
+        40.0,
+    );
+    let out = climb.first("landed").unwrap();
+    println!("climbed out in {out:.1} s");
+    assert_eq!(climb.count("gripped"), 1);
+    assert_eq!(climb.count("paddled"), 0);
+    assert_eq!(climb.crab().pos.y, -700.0);
+    assert!(
+        climb.crab().pos.x < left + 100.0,
+        "on the lip or the floor beside it"
+    );
+    assert_eq!(climb.crab().reserve, 1.0, "climbing costs no stamina");
+}
+
+#[test]
+fn climbing_goes_up_and_down_and_steps_off_sideways() {
+    let kelp = "start x=3500 y=-2000; t=0.3 tap";
+    // A tap grips the kelp while sinking past it, and the crab hangs there.
+    let hang = run(kelp, 1.5);
+    assert!(hang.crab().climbing);
+    let y = hang.crab().pos.y;
+    assert_eq!(run(kelp, 3.0).crab().pos.y, y, "hanging, not sinking");
+    // Hold down, or dodge, to climb down.
+    for down in ["down=on", "sprinting"] {
+        let r = run(&format!("{kelp}; t=1.5 {down}"), 2.5);
+        assert!(r.crab().climbing, "{down}: still gripping");
+        assert!(r.crab().pos.y < y - 250.0, "{down}: climbed down");
+    }
+    // A quick fidget sideways just shuffles along the stalk.
+    let fidget = run(&format!("{kelp}; t=1.5 walk=right; t=1.7 walk=stop"), 2.5);
+    assert!(fidget.crab().climbing, "a fidget doesn't drop the crab");
+    assert!(fidget.crab().pos.x > 3510.0, "it shuffled");
+    // Pushing on past the edge of the reach steps off: sinking again.
+    let off = run(&format!("{kelp}; t=1.5 walk=right"), 3.0);
+    assert!(!off.crab().climbing);
+    assert!(off.crab().pos.y < y - 100.0 && off.crab().pos.x > 3560.0);
+    // Jump with a direction kicks off the stalk: up and away that way.
+    let leap = run(&format!("{kelp}; t=1.5 walk=right jump"), 1.8);
+    assert!(!leap.crab().climbing);
+    assert!(
+        leap.crab().pos.y > y + 40.0 && leap.crab().pos.x > 3540.0,
+        "{}",
+        leap.crab().pos
+    );
+    assert_eq!(leap.count("jumped"), 1);
+    // A direction already held when gripping doesn't count.
+    let held = run("start x=3500 y=-2000; t=0.3 tap walk=right", 1.5);
+    assert!(held.crab().climbing);
+    // Away from the stalks a press is a stroke as usual, not a grip.
+    let swim = run_with(strokes(1), "start x=3900 y=-2000; t=0.3 jump", 1.0, |_| {
+        false
+    });
+    assert_eq!((swim.count("paddled"), swim.count("gripped")), (1, 0));
+}
+
+#[test]
+fn the_crab_clings_on_the_side_it_came_from_and_climbs_round_obstacles() {
+    // Gripping the kelp (at x 3500) from its left or its right.
+    let left = run("start x=3470 y=-2000; t=0.3 tap", 1.0);
+    let right = run("start x=3530 y=-2000; t=0.3 tap", 1.0);
+    assert!(left.crab().climbing && right.crab().climbing);
+    assert_eq!(
+        (left.crab().climb_side, right.crab().climb_side),
+        (-1.0, 1.0)
+    );
+    // Climbing up the coral on the wall side, the shelf above is in the
+    // way: the crab swings round to the open side and keeps going.
+    let r = run("start x=3460 y=-3600; t=0.2 jump", 2.5);
+    assert!(r.crab().climbing, "still climbing");
+    assert!(r.crab().pos.y > -3200.0, "past the shelf: {}", r.crab().pos);
+    assert_eq!(r.crab().climb_side, 1.0, "round on the open side");
+}
+
+#[test]
+fn home_rests_the_crab_fully() {
+    // Tired out, with two strokes grown: walk left from the start into the
+    // doorway of the shell.
+    let tired = |m: &mut crabsim::Mover| {
+        m.upgrades = 2;
+        m.stamina = 0.0;
+        m.reserve = 0.1;
+    };
+    let r = run_crab(Tuning::default(), "t=0 walk=left", 1.5, |_| false, tired);
+    assert_eq!(r.count("rested"), 1);
+    assert_eq!((r.crab().reserve, r.crab().stamina), (1.0, 2.0));
+}
+
+#[test]
+fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
+    // At the bottom of the pit, walk over the glowing patch: a lump of it
+    // goes on the crab's back.
+    let found = run("start x=3800 y=-8700; t=0 walk=right", 1.5);
+    assert_eq!(found.count("picked up"), 1);
+    assert_eq!(found.crab().carrying, Some(crabsim::Carry::Culture));
+    // Carrying it, walk in at home: it's cultured into the lantern.
+    let carrying = |m: &mut crabsim::Mover| m.carrying = Some(crabsim::Carry::Culture);
+    let home = run_crab(Tuning::default(), "t=0 walk=left", 1.5, |_| false, carrying);
+    assert_eq!(home.count("delivered"), 1);
+    assert_eq!(home.crab().carrying, None);
+    assert_eq!(home.crab().lantern, 1);
+}
+
+#[test]
+fn climbing_is_a_skill_that_levels_up() {
+    // One climb out of the pit from the bottom: Climbing level 2.
+    let level = crabsim::Level::test_level();
+    let (_, _, bottom) = level.pit();
+    let climb = run(
+        &format!("start x=3500 y={bottom}; t=0 jump; t=0.2 release; t=0.3 jump walk=left"),
+        40.0,
+    );
+    let t = Tuning::default();
+    let crab = climb.crab();
+    println!(
+        "one climb: {:.0} experience, level {}",
+        crab.climb_xp,
+        crab.climb_level(&t)
+    );
+    assert_eq!(climb.count("levelled"), 1);
+    assert_eq!(crab.climb_level(&t), 2);
+    // ...and each level climbs faster.
+    assert!(crab.climb_speed(&t) > t.climb_speed);
+}
+
+#[test]
+fn pushing_a_way_while_sinking_dives() {
+    // Sinking in open water, pushing right: a little faster down and across.
+    let still = run("start x=3600 y=-2000; t=0 walk=stop", 1.5);
+    let dive = run("start x=3600 y=-2000; t=0 walk=right", 1.5);
+    assert!(dive.crab().diving);
+    assert!(
+        dive.crab().pos.y < still.crab().pos.y - 20.0,
+        "sinks a little faster"
+    );
+    let t = Tuning::default();
+    assert!(
+        dive.crab().vel.x > t.walk_speed + 20.0,
+        "and moves across a little faster"
+    );
+}
+
+#[test]
+fn dodge_in_the_water_is_a_flip() {
+    let r = run("start x=3600 y=-2000; t=0.5 walk=left dodge", 0.7);
+    assert_eq!((r.count("flipped"), r.count("dodged")), (1, 0));
+    assert_eq!(r.crab().flip_dir, -1.0);
+    // It doesn't move the crab any further than not flipping.
+    let plain = run("start x=3600 y=-2000; t=0.5 walk=left", 0.7);
+    assert_eq!(r.crab().pos, plain.crab().pos);
+    // One flip at a time: the dodge's rest applies.
+    let twice = run("start x=3600 y=-2000; t=0.5 dodge; t=0.7 dodge", 1.0);
+    assert_eq!(twice.count("flipped"), 1);
+}
+
+#[test]
+fn the_pit_hides_an_alcove_with_an_egg_and_a_clue() {
+    // Sinking past the alcove's mouth, push right at the right moment: in.
+    let into = |push: f64| run(&format!("start x=4020 y=-4700; t={push} walk=right"), 4.0);
+    let inside = into(1.4);
+    assert_eq!(inside.crab().pos.y, -5200.0, "on the alcove's floor");
+    assert_eq!(inside.count("ate"), 1, "the fourth egg");
+    assert_eq!(inside.count("found a clue"), 1);
+    assert_eq!(inside.sim.crabs()[0].clues_found, [true]);
+    // Too early lands on its roof; too late sinks on past.
+    assert_eq!(into(1.1).crab().pos.y, -5040.0);
+    assert!(into(1.8).crab().pos.y < -5300.0);
+    // And out again: walk out of the mouth and sink to the pit's floor.
+    let level = crabsim::Level::test_level();
+    let out = run("start x=4200 y=-5200; t=0 walk=left; t=1.2 walk=stop", 20.0);
+    assert_eq!(out.crab().pos.y, level.pit().2);
+}
+
+/// From the alcove's roof, run at the pit's wall and swim up it as hard as
+/// possible with `strokes` strokes, with scissor claws or not. Where does the crab
+/// end up (it keeps pushing right: into the tunnel, if it got in)?
+fn try_the_passage(strokes: u32, scissors: bool, jump: f64) -> (f32, Run) {
+    let mut script = format!("start x=4180 y=-5040; t=0 walk=right; t={jump} jump");
+    for k in 0..strokes {
+        script += &format!("; t={} jump", jump + 0.45 + 0.31 * f64::from(k));
+    }
+    let r = run_crab(
+        Tuning::default(),
+        &script,
+        4.0,
+        |_| false,
+        |m| {
+            m.upgrades = strokes;
+            m.stamina = strokes as f32;
+            m.scissor_claw = scissors;
+        },
+    );
+    (r.crab().pos.x, r)
+}
+
+#[test]
+fn the_passage_needs_four_strokes_and_scissor_claws() {
+    let take_offs: Vec<f64> = (0..30).map(|k| 0.1 + f64::from(k) * 0.02).collect();
+    let tunnel = 4330.0; // past the net, in the tunnel
+    // With scissor claws and four strokes, take-offs cut the net and get in.
+    let four: Vec<(f32, Run)> = take_offs
+        .iter()
+        .map(|&j| try_the_passage(4, true, j))
+        .collect();
+    let made_it = four.iter().filter(|(x, _)| *x > tunnel).count();
+    println!("four strokes and scissor claws get into the tunnel in {made_it} of 30 take-offs");
+    assert!(made_it > 0);
+    assert!(four.iter().any(|(_, r)| r.count("cut a net") == 1));
+    // Three strokes never reach it, scissor claws or not.
+    assert!(
+        take_offs
+            .iter()
+            .all(|&j| try_the_passage(3, true, j).0 <= tunnel)
+    );
+    // Without scissor claws the net stops a crab with four strokes: tangled.
+    let no_scissors: Vec<(f32, Run)> = take_offs
+        .iter()
+        .map(|&j| try_the_passage(4, false, j))
+        .collect();
+    assert!(no_scissors.iter().all(|(x, _)| *x <= tunnel));
+    assert!(no_scissors.iter().any(|(_, r)| r.count("tangled") > 0));
+}
+
+#[test]
+fn the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin() {
+    // In the alcove, the tooth goes on the crab's back.
+    let found = run("start x=4200 y=-5200; t=0 walk=right", 1.0);
+    assert_eq!(found.crab().carrying, Some(crabsim::Carry::Tooth));
+    // At home, the workbench fits it to the crusher: scissor claws.
+    let tooth = |m: &mut crabsim::Mover| m.carrying = Some(crabsim::Carry::Tooth);
+    let home = run_crab(Tuning::default(), "t=0 walk=left", 1.5, |_| false, tooth);
+    assert_eq!(home.count("fitted scissor claws"), 1);
+    assert!(home.crab().scissor_claw && home.crab().carrying.is_none());
+    // Beyond the net: grip the shaft's coral, climb, and come out on the
+    // far basin's floor.
+    let up = run(
+        "start x=4420 y=-4380; t=0 jump; t=0.2 release; t=0.3 jump walk=right",
+        30.0,
+    );
+    assert_eq!(up.crab().pos.y, -700.0);
+    assert!(
+        up.crab().pos.x > 4471.0,
+        "out on the far basin: {}",
+        up.crab().pos
+    );
+}
+
+/// On the long, flat basin floor past the pit (right end), facing right.
+const FAR_FLAT: &str = "start x=4520 y=-700\n";
 
 #[test]
 fn holding_dodge_sprints_and_uses_the_reserve() {
     let t = Tuning::default();
-    let left = |extra: &str, seconds| run(&format!("{FAR_FLAT}t=0 walk=left{extra}"), seconds);
-    let (walk, tap, sprint) = (left("", 0.8), left(" dodge", 0.8), left(" sprint", 0.8));
+    let right = |extra: &str, seconds| run(&format!("{FAR_FLAT}t=0 walk=right{extra}"), seconds);
+    let (walk, tap, sprint) = (right("", 0.8), right(" dodge", 0.8), right(" sprint", 0.8));
     let (w, d, s) = (walk.crab().pos.x, tap.crab().pos.x, sprint.crab().pos.x);
-    println!("0.8 s left from x 2800: walk {w:.0}, dodge {d:.0}, sprint {s:.0}");
-    assert!(s < d - 50.0, "the sprint keeps going after the dodge");
+    println!("0.8 s right from x 4520: walk {w:.0}, dodge {d:.0}, sprint {s:.0}");
+    assert!(s > d + 50.0, "the sprint keeps going after the dodge");
     assert!(sprint.crab().sprinting);
     assert!((sprint.crab().vel.x.abs() - t.sprint_speed).abs() < 1.0);
     assert!(tap.crab().vel.x.abs() <= t.walk_speed + 1.0);
@@ -504,7 +853,7 @@ fn holding_dodge_sprints_and_uses_the_reserve() {
         "the sprint is paid from the reserve"
     );
     // Let go and it's a walk again.
-    let slowed = run(&format!("{FAR_FLAT}t=0 walk=left sprint; t=0.5 slow"), 1.0);
+    let slowed = run(&format!("{FAR_FLAT}t=0 walk=right sprint; t=0.5 slow"), 1.0);
     assert!(!slowed.crab().sprinting);
     assert!(slowed.crab().vel.x.abs() <= t.walk_speed + 1.0);
 }
@@ -518,20 +867,20 @@ fn an_empty_reserve_leaves_the_crab_winded() {
         ..Tuning::default()
     };
     let go = |script: &str, seconds| run_with(t.clone(), script, seconds, |_| false);
-    let r = go(&format!("{FAR_FLAT}t=0 walk=left sprint"), 1.5);
+    let r = go(&format!("{FAR_FLAT}t=0 walk=right sprint"), 1.5);
     assert!(r.crab().winded && !r.crab().sprinting);
     assert!(r.crab().vel.x.abs() <= t.walk_speed + 1.0);
     // Still winded while dodge stays held, even as the reserve trickles back.
-    let r = go(&format!("{FAR_FLAT}t=0 walk=left sprint"), 2.5);
+    let r = go(&format!("{FAR_FLAT}t=0 walk=right sprint"), 2.5);
     assert!(!r.crab().sprinting);
     // Let go, then hold dodge again once a little is back: sprinting again.
-    let script = format!("{FAR_FLAT}t=0 walk=left sprint; t=1 slow; t=2 sprinting");
+    let script = format!("{FAR_FLAT}t=0 walk=right sprint; t=1 slow; t=2 sprinting");
     assert!(go(&script, 2.0 + f64::from(STEP)).crab().sprinting);
 }
 
 #[test]
 fn replays_keep_a_held_dodge() {
-    let script = "t=0 walk=left sprint\n@60 slow\n@90 sprinting\n@100 slow dodge\n@130 sprint";
+    let script = "t=0 walk=left sprint\n@60 slow down=on\n@90 sprinting\n@100 slow dodge down=off\n@130 sprint";
     let r = Replay::parse(script).unwrap();
     let again = Replay::parse(&r.to_text()).unwrap();
     assert_eq!(again.inputs, r.inputs);

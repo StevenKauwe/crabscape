@@ -1,14 +1,15 @@
 //! Fish eggs drifting in the water: translucent beads with a glowing yolk.
 //! The simulation decides when a crab eats one (one more swim stroke); this
-//! draws them bobbing in place, catching more light near the lantern, a
-//! quick pop when the local crab eats one, and a "+1 stroke" note.
+//! draws them bobbing in place, catching more light near the lantern, and a
+//! quick pop when the local crab eats one (the "+1 stroke" note is in
+//! `notes`).
 
 use bevy::prelude::*;
 use crabsim::Sim;
 use crabsim::level::EGG_RADIUS;
 
 use crate::effects::SoftTextures;
-use crate::player::{FrameEvents, GameSet, LocalPlayer, PlayerId};
+use crate::player::{GameSet, LocalPlayer, PlayerId};
 
 /// Behind the crab (~10-11), in front of the level.
 const Z: f32 = 8.0;
@@ -20,17 +21,13 @@ const YOLK: Color = Color::srgb(1.0, 0.80, 0.42);
 const LIGHT_REACH: f32 = 320.0;
 /// How long the pop lasts (seconds).
 const POP: f32 = 0.35;
-/// How long the "+1 stroke" note floats (seconds).
-const NOTE: f32 = 1.6;
 
 pub struct EggsPlugin;
 
 impl Plugin for EggsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_eggs).add_systems(
-            Update,
-            (show_eggs, note_eaten, float_notes).in_set(GameSet::Present),
-        );
+        app.add_systems(Startup, spawn_eggs)
+            .add_systems(Update, show_eggs.in_set(GameSet::Present));
     }
 }
 
@@ -39,12 +36,6 @@ impl Plugin for EggsPlugin {
 struct EggPart {
     index: usize,
     yolk: bool,
-}
-
-/// A "+1 stroke" note floating up and fading.
-#[derive(Component)]
-struct Note {
-    age: f32,
 }
 
 fn spawn_eggs(mut commands: Commands, soft: Res<SoftTextures>, sim: Res<Sim>) {
@@ -118,42 +109,5 @@ fn show_eggs(
         at.translation = (egg + bob).extend(at.translation.z);
         at.scale = Vec3::splat(scale);
         sprite.color = if part.yolk { YOLK } else { SKIN }.with_alpha(alpha);
-    }
-}
-
-/// When the local crab eats an egg, say so above its rings.
-fn note_eaten(mut commands: Commands, crab: Query<(&FrameEvents, &Transform), With<LocalPlayer>>) {
-    let Ok((events, at)) = crab.single() else {
-        return;
-    };
-    if events.0.ate {
-        commands.spawn((
-            Note { age: 0.0 },
-            Text2d::new("+1 stroke"),
-            TextFont {
-                font_size: FontSize::Px(15.0),
-                ..default()
-            },
-            TextColor(YOLK),
-            Transform::from_translation(at.translation.truncate().extend(21.0) + Vec3::Y * 135.0),
-        ));
-    }
-}
-
-/// Float the notes up, fade them out, then remove them.
-fn float_notes(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut notes: Query<(Entity, &mut Note, &mut Transform, &mut TextColor)>,
-) {
-    let dt = time.delta_secs();
-    for (entity, mut note, mut at, mut color) in &mut notes {
-        note.age += dt;
-        if note.age >= NOTE {
-            commands.entity(entity).despawn();
-            continue;
-        }
-        at.translation.y += 30.0 * dt;
-        color.0 = YOLK.with_alpha(1.0 - note.age / NOTE);
     }
 }

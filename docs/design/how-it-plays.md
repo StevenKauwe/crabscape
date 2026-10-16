@@ -23,6 +23,13 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   you hold and needs a direction: dodge on its own does nothing, so it never goes a way you didn't mean. Keep
   holding dodge to **sprint** (a fast scuttle, between walking and the dodge) on the floor; it drains the reserve,
   and when the reserve is empty the crab is winded and walks until dodge is let go.
+- **Dive and flip in the water.** Pushing a way while sinking tilts the crab into a dive: streamlined, it sinks a
+  little faster and moves across a little quicker. Dodge in the water is a flip, a quick somersault (a flourish for
+  now; it doesn't carry the crab further, so the trench and the cliff stay fair).
+- **Climb kelp and coral.** In the water, press jump while touching a kelp stalk or a coral to grip it instead of
+  stroking. With the walking legs (no stamina): hold jump to climb up, hold down (or dodge) to climb down, let go of
+  both to hang on. Sideways shuffles along the stalk (fidgeting is safe); pushing on past the edge steps off; jump with a direction kicks off it. The crab turns sideways onto the stalk, on the side it came from (crabs climb sideways), and swings round to the other side if something is in the way; its body box turns with it. Climbing past the top pulls the crab up over it. Slow but free: the
+  way home from the deep when the stamina is spent.
 - **Most of the sea is faster than you.** Fish and shrimp out-speed you; you out-hit and out-last them.
 - Possible later: wall cling (crabs grip rock with their dactyls).
 
@@ -31,6 +38,9 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 - **Guard with your claws.** Raised claws and a hard shell block blows, the way real crabs defend.
 - **Parry:** block at the last moment and the attacker is thrown off balance, opening a window for a crushing
   counter (Expedition 33-style timing).
+- **Claw upgrades become fighting styles.** Found things fitted to the claws: **cut** (scissor claws, a shed tooth's
+  edges on the crusher: in the game, cutting ghost nets), **hammer** (the crusher's smash, built up) and **rip**
+  (gripping and tearing). Each its own branch to grow.
 - **Enemy tells come from real behaviour.** A mantis shrimp cocks its club before it strikes; an anglerfish's lure
   goes still before the lunge; a jellyfish drifts into reach. Learning to read the ocean is how you get good.
 
@@ -40,7 +50,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 | Walk | A / D, arrows | left stick, d-pad | `<` `>` |
 | Jump (hold = higher) | Space, W, Up, K | A | JUMP |
 | Swim (double jump, then more strokes; one per egg eaten) | jump again in water | A again | JUMP again |
-| Dodge (on floor, + a direction; hold to sprint) | Shift, J | B, X, triggers | DODGE |
+| Dodge (on floor, + a direction; hold to sprint; in the water: a flip) | Shift, J | B, X, triggers | DODGE |
+| Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Art style | P | | "Style" |
 
 ## Architecture rule

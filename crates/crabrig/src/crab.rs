@@ -250,6 +250,48 @@ impl ClawInfo {
     }
 }
 
+/// One finger's row of scissor-claw teeth: the part it makes (`owner`), the finger's spine and width (as given
+/// to `limb`), a point on the other finger (so the teeth face it), where along the finger they go, and the part's
+/// pivot (its finger's joint).
+struct ToothRow<'a> {
+    owner: String,
+    spine: &'a [P],
+    width: &'a dyn Fn(f64) -> f64,
+    toward: P,
+    ts: [f64; 4],
+    pivot: P,
+}
+
+/// Points on one edge of a limb drawn with `limb(spine, width, ..)` (smooth): for each `t` along it, the
+/// edge point on the side that faces `toward`, the way out from the edge there, and the way along it.
+fn edge_at(spine: &[P], width: &dyn Fn(f64) -> f64, ts: &[f64], toward: P) -> Vec<(P, P, P)> {
+    let c = through(spine, 5, false);
+    let n = c.len();
+    let frame = |i: usize| {
+        let (a, b) = (c[i.saturating_sub(1)], c[(i + 1).min(n - 1)]);
+        let along = norm(sub(b, a));
+        (along, perp(along), width(i as f64 / (n - 1) as f64) / 2.0)
+    };
+    // Which side faces `toward`: the one whose middle edge point is nearer to it.
+    let mid = n / 2;
+    let (_, nm, wm) = frame(mid);
+    let plus = add(c[mid], [nm[0] * wm, nm[1] * wm]);
+    let minus = add(c[mid], [-nm[0] * wm, -nm[1] * wm]);
+    let side = if len(sub(plus, toward)) < len(sub(minus, toward)) {
+        1.0
+    } else {
+        -1.0
+    };
+    ts.iter()
+        .map(|&t| {
+            let i = ((t * (n - 1) as f64).round() as usize).min(n - 1);
+            let (along, nn, w) = frame(i);
+            let out = [nn[0] * side, nn[1] * side];
+            (add(c[i], [out[0] * w, out[1] * w]), out, along)
+        })
+        .collect()
+}
+
 struct Out(Vec<Item>);
 impl Out {
     fn push(&mut self, id: impl Into<String>, g: &str, pts: Vec<P>, mat: &str) -> &mut Item {
@@ -681,6 +723,59 @@ pub fn build_front(pose: &Pose) -> Vec<Item> {
         out.push(format!("{gid}-dactyl"), &dg, hp(&dact), "leg").pv = Some(ci.to_w(piv));
         out.push(format!("{gid}-dactyl-tip"), &dg, hp(&dtip), "tip")
             .sw = Some(0.5);
+        if crusher {
+            // Scissor claws (an upgrade in the game: a shed tooth's edges fitted along both fingers): a row of
+            // teeth on each finger's facing edge, offset so the rows interlock when the claw closes. Each row
+            // is its own part, pivoting with its finger; the game shows them only once fitted.
+            let fixed_w = |t: f64| h * 0.42 * (1.0 - t) + 3.0;
+            let dact_w = |t: f64| h * 0.40 * (1.0 - t) + 3.0;
+            let rows = [
+                ToothRow {
+                    owner: format!("{gid}-propodus-scissor"),
+                    spine: &fpts[..],
+                    width: &fixed_w,
+                    toward: dsp[1],
+                    ts: [0.5, 0.63, 0.76, 0.89],
+                    pivot: w,
+                },
+                ToothRow {
+                    owner: format!("{gid}-dactyl-scissor"),
+                    spine: &dsp[..],
+                    width: &dact_w,
+                    toward: fpts[1],
+                    ts: [0.44, 0.57, 0.70, 0.83],
+                    pivot: ci.to_w(piv),
+                },
+            ];
+            for ToothRow {
+                owner,
+                spine,
+                width,
+                toward,
+                ts,
+                pivot,
+            } in rows
+            {
+                for (i, (e, o, a)) in edge_at(spine, width, &ts, toward).into_iter().enumerate() {
+                    let (bw, th) = (2.8 * k, 5.0 * k);
+                    let tooth = vec![
+                        [e[0] + a[0] * bw, e[1] + a[1] * bw],
+                        [e[0] - a[0] * bw, e[1] - a[1] * bw],
+                        [e[0] + o[0] * th, e[1] + o[1] * th],
+                    ];
+                    let id = if i == 0 {
+                        owner.clone()
+                    } else {
+                        format!("{owner}-tooth{i}")
+                    };
+                    let it = out.push(id, &owner, hp(&tooth), "vent");
+                    it.sw = Some(0.45);
+                    if i == 0 {
+                        it.pv = Some(pivot);
+                    }
+                }
+            }
+        }
         ci
     };
 
