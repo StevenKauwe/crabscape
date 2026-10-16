@@ -35,7 +35,7 @@ bevy = { version = "0.20.0", default-features = false, features = [
     "bevy_color",
     "bevy_camera",
     "bevy_image",
-    "png",               # decode the crab's parts picture (baked into the game)
+    "png",               # decode the crab's parts pictures (loaded from assets/crab/)
     "bevy_text",
     "bevy_ui",
     "bevy_ui_render",    # the HUD text
@@ -49,6 +49,12 @@ bevy = { version = "0.20.0", default-features = false, features = [
     "web",               # browser timers and clocks (does nothing on native)
     "x11",
     "wayland",
+    # A size switch, not a feature: about 4 MB off the .wasm (15125 -> 11052 KiB, #30). Bevy's crates turn on
+    # "register every reflected type automatically" by default, which makes the linker keep reflection code for
+    # every Bevy type although the game never asks for it. The "static" flavour, without its opt-in environment
+    # variable (BEVY_REFLECT_AUTO_REGISTER_STATIC), generates nothing, so all of that code can be dropped. The game
+    # works the same: it never used automatic registration.
+    "reflect_auto_register_static",
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

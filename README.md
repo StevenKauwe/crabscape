@@ -188,13 +188,18 @@ still runs; that piece just stops moving.
   contains even one relaxed-SIMD instruction. The build adds no special CPU
   features, and `build-web.sh` checks the file with `wasm-tools`.
 - **The release build is tuned for size** (`opt-level = "z"`, LTO,
-  `panic = "abort"`). The web game is about 17.5 MB, or 4.8 MB as browsers
-  download it (compressed). Most of that is Bevy itself.
+  `panic = "abort"`; `opt-level = "s"` came out 2 MB bigger). The web game's
+  `.wasm` is about 11 MiB, or 3.7 MiB as browsers download it (compressed).
+  Most of that is Bevy itself. Every served file must stay under 15 MiB.
+- **`reflect_auto_register_static` is a size switch.** It looks like a
+  feature, but here it switches Bevy's automatic type registration *off*,
+  which took about 4 MB out of the `.wasm` (see the comment in `Cargo.toml`).
+  The game doesn't use reflection; don't remove it without measuring.
 - **The lighting is faked**, because real 2D lights are too heavy for
   phones. Each crab piece is drawn twice: a dark, colourless copy, and the
   real colours on top, faded in by how close the piece is to the lantern.
 - **`web/pkg/` is not committed to git** (see `.gitignore`). It's rebuilt from
-  the source every time, and committing an 18 MB file on every change would
+  the source every time, and committing an 11 MB file on every change would
   quickly bloat the repository. To publish on GitHub Pages, build in a GitHub
   Action, or copy `web/` to a separate `gh-pages` branch.
 
