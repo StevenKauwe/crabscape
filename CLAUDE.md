@@ -1,112 +1,100 @@
 # CrabScape: notes for Claude
 
-A side-on 2D browser game in Rust + Bevy (wasm, WebGL2). You play a heavy, lantern-carrying crab on the deep-sea
-floor. "Feels like Valheim. Plays like Silksong. Grows like RuneScape." Solo is the full game; P2P co-op comes later.
-Milestone 1 is one test level and one crab (see README.md).
+A cozy, brutal, surreal, biologically true side-scrolling game: you are a heavy, lantern-carrying crab on the deep-sea
+floor. Rust + Bevy. "Feels like Valheim. Plays like Silksong. Grows like RuneScape." See `docs/design/vision.md`.
 
-**Team:** a few friends, no game designers. Claude is the designer and builder. Humans run Claude on small token
-budgets. Nobody reads code, so checks are the safety net.
+The team is a few friends with small token budgets. Humans play, give taste and look at art; Claude designs, builds
+and runs all process. Nobody reads code, so tests and CI are the safety net.
 
-## How we work
-- **Humans bring taste; Claude does the work, including all process.** Never ask a human to review code, approve a
-  PR, resolve a merge conflict, or do git chores.
-- **Merge your own PR** when your task's checks pass: `gh pr merge --squash --auto --delete-branch`. Small PRs, one
-  issue each. Rebase on `main` before merging; if `main` moved and things conflict, resolve them yourself.
-- **Nothing is precious.** Anything merged can be changed later by anyone's Claude. Progress over perfection; don't
-  gold-plate.
-- **Only stop and ask a human** for genuine taste or direction calls (how it should feel or look, which way the
-  design goes) or anything outward-facing (making things public, spending money, contacting people). Ask briefly,
-  in plain words, with a recommended choice.
-- **Taste input** arrives via the Studio hub artifact (https://claude.ai/artifact/PttxVTZCC75dqSEpKXYowf) and
-  `feedback` issues; `/triage` turns it into tasks.
-- **Talking to humans:** most teammates don't know GitHub or dev tools exist. Anything a human truly must do comes in
-  one of three forms only: (1) in this conversation: you do it, ask a yes/no, or (only for an unavoidable
-  interactive login) have them type one `! command`; (2) a button or form on an artifact page (Studio hub, a demo);
-  (3) one clickable link that lands exactly on the action (e.g. https://github.com/StevenKauwe/crabscape/invitations).
-  Never "go to Settings → … and click …". No jargon (PR, branch, merge, CI, issue) in anything a human reads: say
-  "your change", "the task", "the automatic checks", "it's in the game now".
-- **Respect the token budget:** pick tasks that fit, stop at a clean point, and if unfinished leave a short handoff
-  comment on the issue.
+## Anchors (read the ones your task touches)
+- Style and art direction: `docs/design/art-direction.md` (crab anatomy: `art/crab/anatomy-notes.md`)
+- Tone, pillars, loop: `docs/design/vision.md`
+- Ocean-shaped rules (biology, no air, real mechanisms only): `docs/design/ocean-shaped.md`
+- How it plays (movement, combat, controls): `docs/design/how-it-plays.md`
+- World, zones, economy: `docs/design/world.md`
+- Current decisions: `docs/design/decisions.md`
 
 ## Rules that never bend
 - **No licence.** All rights reserved. Never add a LICENSE file or licence fields.
-- **Ocean-shaped.** Everything is biologically real. Surreal = the real ocean seen at crab scale. Grounded fantasy is
-  OK (bacteria lantern, litter as gear, one crab mixing several species' behaviours). Game "magic" (poison, stun,
-  blind...) only through a real mechanism, and the same rules apply to everyone. **Self-consistency never bends.**
-- **Crabs breathe water.** No air, air tanks, air bladders or "air brews". Pressure is handled by body chemistry
-  (e.g. TMAO) and adapting over time, never helmets or armour. The lantern is farmed glowing bacteria.
-- **Facts need real sources.** Never invent a citation. If you can't open a source, mark the fact "not verified".
-- **Art:** stylised for emotion, accurate in anatomy and behaviour. Hand-drawn ink + painted fills, oil-painted
-  assets. Variation lives in each shape; **never full-frame filters or overlays**. "Tame but bold."
-- **Feel:** Silksong-like moves but a heavy-hitting tank: momentum, power, timing, anticipation. Never sluggish.
-  Timed parries and counters. Enemy tells come from the animal's real behaviour.
-- **iPhone (WebKit) must work:** WebGL2 only, **no relaxed-SIMD ever** (`wasm-tools validate --features=-relaxed-simd`).
-  Keep `RUSTFLAGS` empty for wasm builds.
-- **Files:** each served file (the `.wasm` especially) must stay under **15 MiB** (claude.ai artifact limit).
-- **Never commit generated junk:** `target/`, `web/pkg/`, `web/assets/`, renders, scratch, throwaway art iterations,
-  videos. Big binaries bloat every clone forever.
+- **Ocean-shaped.** Everything is biologically real; self-consistency never bends. Crabs breathe water: no air, air
+  tanks, goggles or pressure helmets. Facts need real, opened sources; otherwise mark them "not verified".
+- **Art varies inside each shape; never full-frame filters or overlays.**
+- **Never commit generated junk:** `target/`, `web/pkg/`, `web/assets/`, renders, scratch, throwaway art, videos.
+- Changing any of these is a direction call for the owner (StevenKauwe).
+
+## Engineering principles (non-negotiable)
+- **100% Rust:** game, tools and art pipeline. No JS, Python or Node in the pipeline.
+- **Two targets:** WebAssembly for the browser, native for PC.
+- **Runs on phones and desktop.** iPhone/WebKit: WebGL2 only, **no relaxed-SIMD ever**, keep `RUSTFLAGS` empty.
+- **Multiplayer-ready:** input becomes commands (`MoveRequest`), nothing moves the crab directly; the sim is
+  deterministic; co-op will be host-authoritative.
+- **Headless deterministic sim:** game rules live in `crates/sim` (fixed 1/120 s ticks, no clocks, randomness only
+  from a seeded generator stored in `Sim`), never in Bevy systems. The game only presents it. `cargo crabsim` runs
+  it at any speed; replays reproduce bug reports exactly.
+- **Tests prove promises:** `crates/sim/tests/scenarios.rs` for feel (jump peaks, the trench, coyote time, dodge...);
+  `crates/crabrig/tests/rig.rs` fails if the rig SVG or parts file drifts from the puppet. Changing a feel number on
+  purpose? Update the test and say so in the PR. Feel numbers live in `crates/sim/src/tuning.rs`.
+- **Performance and download size matter.** Bevy runs with few features and a size-tuned release build; measure
+  before adding features or dependencies.
+
+## How we work
+- **Humans bring taste; Claude does all process.** Merge your own PR when checks pass. Never ask a human to review
+  code, approve anything, resolve conflicts or do git chores.
+- **Ask humans only** for taste/direction calls (how it feels or looks) or outward-facing ones (going public, money,
+  contacting people): briefly, in plain words, with a recommendation.
+- **Talking to humans:** plain words, no jargon (say "your change", "the automatic checks", "it's in the game now").
+  Anything a human must do comes as one of: a yes/no or one `! command` in chat, a button on an artifact page (Studio:
+  https://claude.ai/artifact/PttxVTZCC75dqSEpKXYowf), or one link that lands on the action. Never "go to Settings…".
+- **Taste input** comes from the Studio page and `feedback` issues; `/triage` turns it into tasks.
+- **Small PRs, one issue each.** Work in your own git worktree when other sessions may be active.
+- **Respect the token budget:** pick tasks that fit, stop at a clean point, leave a handoff comment if unfinished.
+- **Progress over perfection.** Nothing is precious; anything can be changed later by anyone's Claude.
+- New or changed decisions go in `docs/design/decisions.md`.
+
+## Repo practices and CI/CD
+- Branch (`issue-<n>-<slug>`) → PR (`Closes #<n>`, what changed, how verified, screenshots for visual changes) →
+  `gh pr merge --squash --auto --delete-branch`. Rebase on `main` and resolve conflicts yourself. Never push to `main`.
+- CI (`.github/workflows/ci.yml`): fmt, clippy (native + wasm32), tests, the tidy tool's checks, the web build,
+  relaxed-SIMD check, a size report. On `main` it deploys `web/` to GitHub Pages
+  (https://stevenkauwe.github.io/crabscape/). Branch protection requires CI only.
+- Issues: `claude-ready`, `size:S` (~30 min of Claude work), `size:M` (~1 h); `size:L` must be split; `needs-human`
+  means a person must decide or draw first (don't start it). Areas: `area:code|art|research|design|tooling`.
+- Skills: `/next-task` (claim, do and merge one issue), `/review-pr <n>` (optional self-check), `/triage`
+  (feedback → tasks), `/doctor` (fix a broken computer or project copy).
+
+## Setup and commands
+Setup: Rust from https://rustup.rs, then `rustup target add wasm32-unknown-unknown`,
+`cargo install wasm-bindgen-cli --version <wasm-bindgen version in Cargo.lock>`, optionally `cargo install wasm-tools`
+and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbcommon-dev pkg-config`.
+
+| Job | Command |
+|---|---|
+| Run the game (native) | `cargo run` |
+| Format | `cargo fmt` |
+| Lint (native) | `cargo clippy --workspace --all-targets -- -D warnings` |
+| Lint (wasm32) | `cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings` |
+| Test | `cargo test --workspace` |
+| Web build into `web/` | `tools/build-web.sh` (serve with any static server, e.g. `python3 -m http.server -d web`) |
+| WebKit (iPhone engine) test | `python3 tools/test-webkit.py [--landscape] [--shots /tmp/shot]` (needs WebKitGTK 4.1) |
+| Headless sim | `cargo crabsim --script "t=0 walk=right; t=1 jump; t=1.45 jump" --seconds 4` |
+| Replay a bug report | `cargo crabsim --inputs replay.txt --dump -` (F9 in the game saves a replay; `?replay` adds a button on the web) |
+| Crab rig → SVG | `cargo run -p crabrig --profile art -- parts` (writes `art/crab/crab-parts.svg`) |
+| Rig → game atlas | `cargo run -p crabrig --profile art -- export` (writes `assets/crab/`) |
+| Oil-paint the atlas | `tools/paint-oil-crab.sh` |
+| Oil painter | `cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png` |
+| Disk housekeeping | `cargo tidy` (`cargo tidy report` only looks) |
+
+Feel change? Run the same crabsim script on `main` and on your branch and compare the numbers (`cargo crabsim --help`
+lists the script format and flags). Visual change? Attach before/after screenshots.
+
+Layout: `crates/sim` rules · `src/` the Bevy game (drawing, input, camera, effects) · `crates/crabrig` crab puppet ·
+`crates/painter` oil painter (`crabpaint`) · `assets/` files the game loads · `art/` source art · `tools/` build,
+test and tidy scripts · `web/` the page.
 
 ## Keeping the computer happy
-Teammates can't fix a broken computer, so don't break it. Bevy builds are big (several GB of `target/`).
-- `cargo tidy` runs automatically when a session starts (`.claude/settings.json`): it cleans old build files when
-  `target/` passes 8 GB or the disk has under 10 GB free, and only speaks up when it did something. Run it by hand
-  any time (`cargo tidy report` just looks).
-- Anything looks broken (yours or theirs: disk full, tools missing, git stuck, odd errors)? Run `/doctor`.
-- Before a long build, render or video job, check free space (`cargo tidy report`); stop if it's under ~10 GB.
-- Clean up scratch files you create (renders, frames, downloads) before you finish; never leave huge files around,
-  in the repo or outside it. Side copies in `.claude/worktrees/` go once their work is merged.
-
-Read the one-pagers in `docs/design/` that touch your task before you start (`vision`, `ocean-shaped`,
-`art-direction`, `how-it-plays`, `world`, `decisions`).
-
-## Where things live
-`crates/sim` the simulation: game rules with no graphics (physics, level shape, `tuning.rs` holds every movement
-feel number, replays) · `src/` the game: drawing, animation, input, camera, effects (`tuning.rs` there is camera and
-light) · `assets/` files the game loads · `art/` source art
-(`art/crab/crab-parts.svg` is the rig, written by `crates/crabrig`; `anatomy-notes.md` the sourced anatomy) ·
-`concept/` sketches · `docs/` design, poster, teaser scripts, screenshots · `crates/` also has the art tools, all pure
-Rust (`painter`: the owner's oil painter and p5.brush port, `crabpaint`; `crabrig`: the crab puppet and parts
-exporter; art pipeline is `cargo run`, see README "Changing the crab's art") · `tools/` build and test scripts
-(`tidy`: disk housekeeping) · `web/` the page (`pkg/`, `assets/` are built).
-
-## Checks (run all before a PR; CI runs them too)
-```sh
-cargo fmt
-cargo clippy --workspace --all-targets -- -D warnings      # the game, the sim and the art tools
-cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings   # the game and the sim
-cargo test --workspace
-tools/build-web.sh                 # web build + relaxed-SIMD check + size report
-python3 tools/test-webkit.py       # optional, needs WebKitGTK: plays it at iPhone size, saves screenshots
-```
-Visual change? Attach before/after screenshots (`python3 tools/test-webkit.py --shots /tmp/shot`) to the PR.
-
-## Testing gameplay headless
-The game rules are the `crabsim` crate (`crates/sim`): plain Rust, fixed 1/120 s ticks, driven only by controls, no
-clocks or randomness, so the same inputs always give bit-identical results. `cargo crabsim` runs it with no window at
-about 10 million ticks a second (~80,000x real time). The game is only a presentation of it. Keep it that way: game
-rules go in `crates/sim`, never in Bevy systems; anything random in the sim must be a seeded generator stored in `Sim`.
-- **Feel changes: measure before and after.** Run the same script on `main` and on your change and compare numbers:
-  `cargo crabsim --script "t=0 walk=right; t=1 jump; t=1.45 jump" --seconds 4` prints peak height, event timeline
-  (crouch, jump, paddle, landing speed, dodge), end position and a state hash. `--dump states.jsonl` writes every tick
-  as JSON (`--every 12` thins it; `--dump -` prints it); `--speed 0.25` paces it in slow motion.
-- **Promises go in tests.** `crates/sim/tests/scenarios.rs` plays scripts and checks numbers (jump peaks ~190, the
-  trench needs jump + paddle, coyote time, jump buffer, dodge cooldown, replays are exact). If a change should keep a
-  feel number, assert it there; if it deliberately changes one, update the test and say so in the PR.
-- **Script format** (also replays): entries `t=<s>` or `@<tick>` then `walk=right|left|stop|<-1..1>`, `jump` (press
-  and hold), `tap`, `release`, `hold`, `dodge`; `;` or newlines separate; `start x=.. y=..`; `end t=..`. See
-  `crates/sim/src/replay.rs`. `cargo crabsim --help` lists everything.
-- **Bug reports with replays.** In the game, F9 hands out a replay of the session so far (desktop: a
-  `crabscape-replay-*.txt` file; web: a box to copy; add `?replay` to the page address for an on-screen button, e.g. on
-  phones). Ask a teammate who says "that felt wrong" to send it; `cargo crabsim --inputs replay.txt --dump -` then
-  reproduces it exactly, and it can become a scenario test. A replay warns if the movement tuning has changed since.
-
-## Picking and finishing work
-- Tasks are GitHub issues labelled `claude-ready`, sized `size:S` (under ~30 min of Claude work) or `size:M` (~1 h).
-  `size:L` must be split first. `needs-human` means a person must decide or draw something: don't start it.
-- Use the shared skills: `/next-task` (claim, do and merge one issue), `/review-pr <n>` (optional self-check before
-  merging), `/triage` (feedback → tasks).
-- One issue per branch (`issue-<n>-<slug>`) and per PR. PR body has `Closes #<n>`, what changed, how you verified
-  it, screenshots for visual changes. Changes go through a PR (so CI runs); never push straight to `main`.
-- If the work turns out bigger than the size label, stop, comment on the issue with what you learned, and suggest
-  a split instead of burning budget.
-- Decisions go in `docs/design/decisions.md` (dated). Changing a rule that never bends is a direction call: ask the owner (StevenKauwe).
+Bevy builds are big and teammates can't fix a broken computer.
+- `cargo tidy` runs at session start (`.claude/settings.json`) and cleans build files when `target/` passes 8 GB or the
+  disk has under 10 GB free.
+- Anything broken (disk full, tools missing, git stuck, odd errors)? Run `/doctor`.
+- Before a big build, render or video job, check space with `cargo tidy report`; stop under ~10 GB free.
+- Delete your scratch files and merged worktrees before you finish.

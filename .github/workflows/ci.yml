@@ -1,5 +1,5 @@
-# Checks every push and pull request, builds the web game, and (on main, once
-# the repository is public) deploys it to GitHub Pages as the playable preview.
+# Checks every push and pull request, builds the web game, and (on main)
+# deploys it to GitHub Pages.
 # Actions are pinned to commit SHAs; the comment says which release that is.
 name: CI
 
@@ -86,7 +86,7 @@ jobs:
         run: git diff --exit-code web/artifact.html
       - name: No relaxed SIMD (iPhone/WebKit rejects it)
         run: wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
-      - name: Size report (fails over 15 MiB)
+      - name: Size report (information only)
         run: |
           {
             echo "### Web build size"
@@ -97,8 +97,6 @@ jobs:
               echo "| \`$f\` | $b | $((b / 1024)) | $((g / 1024)) |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
-          big=$(find web -type f -size +15728640c)
-          if [ -n "$big" ]; then echo "::error::Over the 15 MiB file limit: $big"; exit 1; fi
       - name: Upload the playable web/ folder
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

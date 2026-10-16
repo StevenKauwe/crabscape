@@ -1,27 +1,28 @@
-# Decisions log
+# Decisions
 
-Newest at the bottom. One line each: date, decision, who decided, and a pointer if there's more. A decision can be
-overturned, but only by a new dated entry here (never by quietly changing code or docs). "Owner" = StevenKauwe.
+The current decisions. One row each: date, decision, who decided. When a decision changes, edit its row (with the new
+date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 
 | Date | Decision | By |
 |---|---|---|
-| 2026-10-14 | Browser game in Rust + Bevy → wasm, WebGL2; must run on iPhone (WebKit); no relaxed-SIMD ever | Owner |
+| 2026-10-14 | Rust + Bevy; WebAssembly in the browser (WebGL2) and native on PC; must run on iPhone (WebKit); no relaxed-SIMD ever | Owner |
 | 2026-10-14 | Co-op later via matchbox (WebRTC), host-authoritative, 2–8 players, no database, cheating allowed; saves live in each player's browser | Owner |
 | 2026-10-14 | Solo is the full game; RuneScape-style economy where rarer resources come from deeper zones; trading optional (Ironman-style solo) | Owner |
 | 2026-10-14 | A hosted shared-world server is far off: refactor then, don't design for it now | Owner |
 | 2026-10-15 | Pillars: cozy, brutal, surreal. Hook: "Feels like Valheim. Plays like Silksong. Grows like RuneScape." | Owner + Claude |
-| 2026-10-15 | Side-on 2D camera with parallax (replaces the top-down click-to-move milestone 0) | Claude (owner asked for value calls) |
-| 2026-10-15 | Look: hand-drawn ink + painted fills, more detailed than the films; per-shape variation, never full-frame filters | Claude, owner's taste |
+| 2026-10-15 | Side-on 2D camera with parallax | Claude (owner asked for value calls) |
+| 2026-10-15 | Look: hand-drawn ink + painted fills, oil-painted assets; per-shape variation, never full-frame filters | Claude, owner's taste |
 | 2026-10-15 | Why dive: to grow (bigger shell-home) + the trench mystery. Surface: beach/tide-pool hub. Death: Valheim-style, loot stays in your cast-off shell. Neighbours: a few, the whale-fall village | Claude (owner asked for value calls) |
 | 2026-10-15 | **Ocean-shaped:** everything biologically correct; surreal = the real ocean at crab scale; grounded fantasy allowed; game magic only through real mechanisms; self-consistency never bends; facts need real sources | Owner |
 | 2026-10-15 | Crab breathes water: no air tank, no air bladder, no "brewing air". Pressure via body chemistry and adapting, not helmets. Lantern = farmed luminous bacteria (yellow Y-1-like strain) | Owner + Claude |
 | 2026-10-15 | Art highly stylised for emotion; accuracy lives in anatomy and behaviour | Owner |
 | 2026-10-15 | Feel: Silksong-like moves, but a heavy-hitting tank (momentum, power, timing, anticipation), never sluggish; Expedition 33-style timed parries and counters; enemy tells from real behaviour | Owner |
 | 2026-10-15 | Player crab: composite swimming crab with paddle 5th legs (jump/double jump/swim), crusher on its right (screen left), cutter on its left, front view in play | Claude, owner confirmed paddles |
-| 2026-10-15 | Oil-painted assets ("better than I'd have ever hoped"). Paint ahead, play live: offline-painted lit + unlit sprites blended at runtime | Owner |
+| 2026-10-15 | Paint ahead, play live: offline oil-painted lit + unlit sprites blended at runtime | Owner |
+| 2026-10-15 | Dodge goes the way you hold and needs a direction; dodge alone does nothing. A 0.1 s buffer lets dodge come a moment before the direction, landing or the end of the cooldown (#32) | Koa (playtest) |
 | 2026-10-15 | No licence: all rights reserved | Owner |
-| 2026-10-15 | Team workflow: GitHub issues are the task list; small token-sized tasks; CI is the code safety net; humans give taste verdicts on playable builds; decisions land in this file | Owner |
-| 2026-10-15 | Working agreement: humans only give taste (Studio hub, docs, demos); Claude does all work and process, merges its own PRs once CI passes (no human review/approval), and asks humans only for taste/direction or outward-facing calls, in plain words via the conversation, an artifact page or one direct link. Nothing is precious: anything merged can be changed later | Owner |
-| 2026-10-15 | The owner's oil painter (and its p5.brush port) moved into this repo as `crates/painter` (`crabpaint`); the art pipeline is pure Rust and self-contained: the crab puppet + parts exporter are `crates/crabrig`, no Node, Python, rsvg or p5.js. Repo stays unlicensed (#11) | Owner (approved), Claude |
-| 2026-10-16 | Simulation/presentation split: game rules live in the plain-Rust `crabsim` crate (`crates/sim`), fixed 1/120 s ticks driven only by controls, deterministic (no clocks, no unseeded randomness, stable order). The Bevy game ticks it and draws it; `cargo crabsim` runs it headless for tests, replays (F9 in the game) and, later, bots and the co-op host | Claude |
-| 2026-10-15 | Dodge goes the way you hold and needs a direction; dodge alone does nothing (no guessing from the last way walked). A 0.1 s buffer lets dodge come a moment before the direction, landing or the end of the cooldown (#32) | Koa (playtest) |
+| 2026-10-15 | Humans only give taste (Studio page, demos); Claude does all work and process, merges its own PRs once CI passes, and asks humans only for taste/direction or outward-facing calls. GitHub issues are the task list, sized to token budgets | Owner |
+| 2026-10-16 | 100% Rust: game, tools and art pipeline (`crates/painter` = the owner's oil painter `crabpaint`, `crates/crabrig` = the crab puppet); no JS, Python or Node in the pipeline | Owner |
+| 2026-10-16 | Game rules live in the deterministic, headless `crabsim` crate (`crates/sim`, fixed 1/120 s ticks driven only by commands); the Bevy game ticks and draws it; `cargo crabsim` runs it for tests, replays and later bots and the co-op host | Claude |
+| 2026-10-16 | The game ships on GitHub Pages from `main`; no per-file size cap, but download size still matters | Owner |
+| 2026-10-16 | Docs hold only the current state; history lives in git | Owner |

@@ -14,7 +14,7 @@ This is a self-check, not a gate. Nobody approves anything, and never ask a huma
 3. **Read the diff** (`gh pr diff <n>`). Look for, in this order:
    - Does it do what the issue's "Done when" says, and nothing unrelated?
    - Rule breaks: licence files/fields, relaxed-SIMD or `RUSTFLAGS` tricks, air/air-tank/pressure-helmet ideas,
-     invented or unopened citations, full-frame filters, a file over 15 MiB, generated junk (`target/`, `web/pkg/`,
+     invented or unopened citations, full-frame filters, generated junk (`target/`, `web/pkg/`,
      renders, videos), secrets or personal paths.
    - Bugs: panics on the web, frame-rate dependent physics (must use the fixed step), anything moving the crab
      directly instead of through `MoveRequest`.

@@ -6,8 +6,8 @@
 //! database.
 //!
 //! The crab's position is saved whenever it stands still on the floor. Saves
-//! from milestone 0 (a map tile on the old island) don't fit the side-on
-//! level, so they are ignored and the crab starts at the beginning.
+//! from another format version are ignored and the crab starts at the
+//! beginning.
 //!
 //! Saving is best-effort: private browsing, a sandboxed iframe or a full
 //! disk can all make it fail. That should never crash the game, so failures
@@ -20,7 +20,7 @@ use crate::player::{GameSet, LocalPlayer};
 use crabsim::Mover;
 
 /// Bump this if the format ever changes, so old saves can be recognised.
-/// (1 was milestone 0's tile position.)
+/// (Version 1 had no position.)
 const SAVE_VERSION: u32 = 2;
 
 /// Save no more often than this many seconds.
@@ -53,7 +53,7 @@ pub fn load() -> Option<Vec2> {
             None
         }
         Err(e) => {
-            // Milestone 0's saves land here too: they have no x and y.
+            // Version 1 saves land here too: they have no x and y.
             info!("ignoring a save this version can't read: {e}");
             None
         }
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn milestone_0_saves_are_not_read_as_positions() {
+    fn version_1_saves_are_not_read_as_positions() {
         let old = r#"{"version":1,"tile":{"x":3,"y":4}}"#;
         assert!(serde_json::from_str::<SaveData>(old).is_err());
     }

@@ -1,4 +1,4 @@
-//! Export the crab's cut-out puppet parts from the art file into the game (port of `tools/export-crab-parts.py`).
+//! Export the crab's cut-out puppet parts from the art file into the game.
 //!
 //! Reads `art/crab/crab-parts.svg` (or the file given) and writes:
 //! * `crab-atlas.png`: every moving part, drawn once, packed into one picture (a "texture atlas");

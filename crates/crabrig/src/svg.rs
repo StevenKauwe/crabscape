@@ -1,4 +1,4 @@
-//! SVG backend (port of `svg.mjs`): per-shape wobble on the ink line, per-shape light gradient, heavier line weight
+//! SVG backend: per-shape wobble on the ink line, per-shape light gradient, heavier line weight
 //! on the shadow side.
 
 use crate::geom::*;
@@ -59,8 +59,8 @@ pub fn mat_cols(p: &Palette, it: &Item) -> [String; 3] {
     m
 }
 
-/// Small, low-frequency wobble along the normal, seeded by the shape id (so it stays with the shape). The JS used
-/// 6.28 / 6.283 rather than TAU: kept, so the wobble is the same.
+/// Small, low-frequency wobble along the normal, seeded by the shape id (so it stays with the shape). Uses
+/// 6.28 / 6.283 rather than TAU on purpose: changing it would change every committed wobble.
 #[allow(clippy::approx_constant)]
 pub fn wobble(pts: &[P], id: &str, amp: f64) -> Vec<P> {
     let mut r = rng(hash_str(id));

@@ -1,6 +1,6 @@
-//! The CrabScape player crab as a cut-out puppet (port of `crab.mjs`, v0.2 'charm pass'; v0.1's proportions are
-//! `DESIGN_V01`). Each builder returns draw-ordered items in crab space (units ≈ px at scale 1; carapace about 290
-//! wide spine-to-spine; y down; ground at y = 100 in the neutral stance).
+//! The CrabScape player crab as a cut-out puppet (design v0.2, the 'charm pass'). Each builder returns
+//! draw-ordered items in crab space (units ≈ px at scale 1; carapace about 290 wide spine-to-spine; y down; ground at
+//! y = 100 in the neutral stance).
 //!
 //! Sides use the CRAB's own left/right: R = crab's right (screen LEFT in the front view), L = crab's left.
 //! Heterochely: the crusher claw is on the crab's right (R), the cutter on the left (L).
@@ -56,24 +56,6 @@ pub const DESIGN: Design = Design {
         f: 58.0,
     },
     front_teeth: 0.35,
-};
-/// v0.1's proportions.
-pub const DESIGN_V01: Design = Design {
-    cara: 1.0,
-    eye: 1.0,
-    stalk: 1.0,
-    leg: 1.0,
-    crusher: Hand {
-        l: 84.0,
-        h: 60.0,
-        f: 46.0,
-    },
-    cutter: Hand {
-        l: 70.0,
-        h: 40.0,
-        f: 50.0,
-    },
-    front_teeth: 1.0,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

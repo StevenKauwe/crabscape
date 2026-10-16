@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Typography + level-up pop-up for the CrabScape teaser, drawn with ImageMagick into RGBA PNGs.
-# Fonts: URW Bookman (the CrabScape vision deck's face), from docs/vision/fonts.
+# Fonts: URW Bookman (the CrabScape poster's face), from docs/vision/fonts.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 F="$HERE/../vision/fonts"

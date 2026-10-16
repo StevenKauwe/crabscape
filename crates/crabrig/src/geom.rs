@@ -1,4 +1,4 @@
-//! Small 2D geometry kit for the crab puppet (port of `geom.mjs`). Points are `[x, y]`, y points down.
+//! Small 2D geometry kit for the crab puppet. Points are `[x, y]`, y points down.
 
 pub type P = [f64; 2];
 

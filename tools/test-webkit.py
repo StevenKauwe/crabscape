@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Play CrabScape in a real WebKit engine (the engine of Safari and of every browser on iPhone).
 
-    tools/build-web.sh && python3 tools/test-webkit.py [--landscape | --desktop] [--shots docs/side-on]
-                                                       [--style-shots docs/style]
+    tools/build-web.sh && python3 tools/test-webkit.py [--landscape | --desktop] [--shots /tmp/shot]
+                                                       [--style-shots /tmp/style]
 
 Needs WebKitGTK 4.1 with its Python bindings (Arch: webkit2gtk-4.1 and python-gobject) and a desktop session
 (the page is drawn in an off-screen window). It serves web/ on a local port, opens the game with an iPhone's

@@ -2,19 +2,19 @@
 # Rebuilds the CrabScape teaser from scratch.
 #   ./build.sh            -> crabscape-teaser.mp4 + crabscape-teaser-vertical.mp4 (in this folder)
 # Needs: ffmpeg, ImageMagick 7 (magick), python3 with numpy + scipy (PY=...), and the oil painter
-# (film-oh-brassica oilphoto, from ~/Work/music-to-movie-magic). No engine changes are needed.
+# (crabpaint: cargo build -p painter --profile art --bin crabpaint).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ART="$HERE/../../art"
-PY="${PY:-$HOME/Work/tabicl-rs/ref/venv/bin/python}"
-OIL="${OIL:-$HOME/Work/music-to-movie-magic/studio/target-local/release/film-oh-brassica}"
+PY="${PY:-python3}"
+OIL="${OIL:-$HERE/../../target/art/crabpaint}"
 WORK="${WORK:-$HERE/build}"
 mkdir -p "$WORK/boil" "$WORK/assets"
 cd "$HERE"
 
-# 1) four repaints of the round-1 painting for the "boil". The painter has no seed for photos, so each repaint
+# 1) four repaints of the painting for the "boil". The painter has no seed for photos, so each repaint
 #    gets a differently shifted copy of the input (its strokes then land in different places), and the result is
-#    shifted back into register. Same settings as round 1.
+#    shifted back into register.
 if [ ! -f "$WORK/boil/al3.png" ]; then
   i=0
   for s in "0 0" "23 -17" "-19 13" "13 21"; do

@@ -4,7 +4,7 @@ Silksong-style movement and combat, but you are a crab: **a heavy-hitting tank.*
 timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** Every movement feel number lives in
 `crates/sim/src/tuning.rs` (camera and light in `src/tuning.rs`); `cargo crabsim` measures them headless.
 
-## Movement (milestone 1 has the first four)
+## Movement (the first three are in the game)
 - **Weight you can feel.** A crab is denser than water, so it sinks. Jumps are strong push-offs from the floor with a
   short wind-up; falls are heavy but slowed by water drag. Heavy landings bleed speed.
 - **Paddle legs give the air moves.** The flattened 5th legs of swimming crabs drive the double jump and short swims,
