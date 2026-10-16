@@ -142,7 +142,7 @@ fn spawn_hud(mut commands: Commands) {
             ));
             hud.spawn((
                 HelpText,
-                Text::new("A/D walk  Space jump, again to swim  Shift+dir dodge"),
+                Text::new("A/D walk  Space jump, again to swim  Shift+dir dodge, hold to sprint"),
                 TextFont {
                     font_size: FontSize::Px(13.0),
                     ..default()

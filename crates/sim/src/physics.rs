@@ -34,6 +34,8 @@ pub struct Controls {
     pub jump_pressed: bool,
     /// Was dodge pressed since the last step?
     pub dodge_pressed: bool,
+    /// Is the dodge button held down? (Keep holding after a dodge to sprint.)
+    pub dodge_held: bool,
 }
 
 /// A crab's movement state. (In the game, each crab entity also carries a
@@ -76,6 +78,10 @@ pub struct Mover {
     /// Time left in which a dodge press still waits for a direction (or for
     /// the floor, or the cooldown).
     pub dodge_buffer: f32,
+    /// Sprinting: holding dodge on the floor, paid from the reserve.
+    pub sprinting: bool,
+    /// The reserve ran dry mid-sprint: no sprint until dodge is let go.
+    pub winded: bool,
 }
 
 impl Mover {
@@ -97,6 +103,8 @@ impl Mover {
             dodge_cooldown: 0.0,
             dodge_dir: 1.0,
             dodge_buffer: 0.0,
+            sprinting: false,
+            winded: false,
         }
     }
 
@@ -110,6 +118,8 @@ impl Mover {
     pub fn activity(&self) -> &'static str {
         if self.dodge_left > 0.0 {
             "dodging"
+        } else if self.sprinting {
+            "sprinting"
         } else if self.windup > 0.0 {
             "crouching"
         } else if self.grounded {
@@ -234,14 +244,38 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         ev.dodged = true;
     }
 
+    // --- Sprint: keep holding dodge to keep scuttling fast ----------------
+    // Paid from the reserve, legs on the floor only. If the reserve runs dry
+    // the crab is winded: back to walking until dodge is let go (so it never
+    // flickers between the two as the reserve trickles back).
+    if !c.dodge_held {
+        m.winded = false;
+    }
+    m.sprinting = c.dodge_held && walking && m.grounded && !m.winded && m.dodge_left <= 0.0;
+    if m.sprinting {
+        let cost = t.sprint_cost * dt / t.stamina_reserve as f32;
+        if m.reserve >= cost {
+            m.reserve -= cost;
+        } else {
+            m.reserve = 0.0;
+            m.sprinting = false;
+            m.winded = true;
+        }
+    }
+
     // --- Sideways speed -------------------------------------------------
     if m.dodge_left > 0.0 {
         m.dodge_left -= dt;
         m.vel.x = m.dodge_dir * t.dodge_speed;
     } else {
-        let target = walk * t.walk_speed;
+        let top = if m.sprinting {
+            t.sprint_speed
+        } else {
+            t.walk_speed
+        };
+        let target = walk * top;
         let reversing = walking && m.vel.x.abs() > 1.0 && target.signum() != m.vel.x.signum();
-        let too_fast = m.vel.x.abs() > t.walk_speed && !reversing;
+        let too_fast = m.vel.x.abs() > top && !reversing;
         let rate = match (m.grounded, walking) {
             (true, false) => t.ground_decel,
             (true, true) if reversing => t.ground_turn,
@@ -477,6 +511,7 @@ mod tests {
         jump_held: true,
         jump_pressed: true,
         dodge_pressed: false,
+        dodge_held: false,
     };
 
     #[test]

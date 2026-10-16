@@ -28,10 +28,13 @@
 //! | `tap`           | press jump and let go at once (a small hop)              |
 //! | `release`       | let go of jump (cuts a rising jump short)                |
 //! | `hold`          | hold jump without a new press                            |
-//! | `dodge`         | press dodge                                              |
+//! | `dodge`         | press dodge and let go at once (a dodge)                 |
+//! | `sprint`        | press dodge and keep holding it (a dodge, then a sprint) |
+//! | `slow`          | let go of dodge (ends a sprint)                          |
+//! | `sprinting`     | hold dodge without a new press                           |
 //!
-//! Walking and holding jump last until changed. Presses (`jump`, `tap`,
-//! `dodge`) happen on that one tick. Recorded replays also have a
+//! Walking and holding jump or dodge last until changed. Presses (`jump`,
+//! `tap`, `dodge`, `sprint`) happen on that one tick. Recorded replays also have a
 //! `tuning <code>` line: the fingerprint of the movement numbers they were
 //! recorded with, so the runner can warn when they differ.
 
@@ -174,9 +177,13 @@ impl Replay {
                 (false, false, true) => " release",
                 _ => "",
             };
-            if c.dodge_pressed {
-                line += " dodge";
-            }
+            line += match (c.dodge_pressed, c.dodge_held, before.dodge_held) {
+                (true, true, _) => " sprint",
+                (true, false, _) => " dodge",
+                (false, true, false) => " sprinting",
+                (false, false, true) => " slow",
+                _ => "",
+            };
             out += &line;
             out.push('\n');
             before = c;
@@ -258,7 +265,9 @@ impl Recorder {
 
     /// The controls used on `tick`. Only changes and presses are kept.
     pub fn note(&mut self, tick: u64, c: Controls) {
-        let changed = c.walk != self.last.walk || c.jump_held != self.last.jump_held;
+        let changed = c.walk != self.last.walk
+            || c.jump_held != self.last.jump_held
+            || c.dodge_held != self.last.dodge_held;
         if changed || c.jump_pressed || c.dodge_pressed {
             self.replay.inputs.push(Input {
                 tick: tick - self.first_tick,
@@ -307,7 +316,16 @@ fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
         }
         "release" => c.jump_held = false,
         "hold" => c.jump_held = true,
-        "dodge" => c.dodge_pressed = true,
+        "dodge" => {
+            c.dodge_pressed = true;
+            c.dodge_held = false;
+        }
+        "sprint" => {
+            c.dodge_pressed = true;
+            c.dodge_held = true;
+        }
+        "slow" => c.dodge_held = false,
+        "sprinting" => c.dodge_held = true,
         _ => match word.split_once('=') {
             Some(("walk", v)) => {
                 c.walk = match v {
