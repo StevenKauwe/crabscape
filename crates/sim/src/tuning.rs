@@ -95,6 +95,11 @@ pub struct Tuning {
     pub stamina_reserve: u32,
     /// Seconds for the reserve to come back by itself from empty to full.
     pub reserve_refill_time: f32,
+    /// Top speed of the sprint: holding dodge (on the floor) after the dodge
+    /// keeps the crab scuttling fast. Between walking and the dodge burst.
+    pub sprint_speed: f32,
+    /// What sprinting costs, in reserve strokes per second.
+    pub sprint_cost: f32,
 
     // --- Landing --------------------------------------------------------
     /// Landing faster than this counts as a heavy landing: big squash, a
@@ -156,7 +161,9 @@ impl Default for Tuning {
             stroke_interval: 0.30,
             stamina_refill_time: 0.6,
             stamina_reserve: 6,
-            reserve_refill_time: 120.0,
+            reserve_refill_time: 30.0,
+            sprint_speed: 480.0,
+            sprint_cost: 0.7, // a full reserve lasts about 12 s of sprinting
 
             heavy_landing_speed: 290.0, // a full jump lands heavy, a tapped hop (~240) not
             heavy_landing_keep: 0.55,

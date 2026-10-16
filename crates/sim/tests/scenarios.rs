@@ -310,6 +310,16 @@ fn the_trench_needs_jump_and_paddle() {
             r.crab().pos
         );
     }
+    // Nor does a sprint-jump: sprinting up to the edge and jumping.
+    for k in 0..40 {
+        let t = 0.15 + k as f64 * f64::from(STEP);
+        let r = trench_attempt(&format!("t=0 sprint; t={t} jump"));
+        assert!(
+            r.crab().pos.y < 0.0,
+            "a sprint-jump at {t:.3} crossed: {}",
+            r.crab().pos
+        );
+    }
     // Jump at the edge and paddle at the top: across.
     let mut crossed = 0;
     for k in 0..20 {
@@ -456,21 +466,77 @@ fn resting_draws_on_a_reserve_that_runs_dry() {
 }
 
 #[test]
-fn the_reserve_comes_back_slowly() {
-    let t = strokes(RESERVE_TEST_STROKES);
-    let run2 = |script: &str, seconds| run_with(t.clone(), script, seconds, |_| false);
-    // Three dives spend the rings and the whole reserve (3 + 6); a fourth
-    // straight after has (nearly) nothing to swim with.
-    let r = run2(&dives(4, 0.0), 21.0);
-    let spent = t.swim_strokes * 3;
-    assert!(r.count("paddled") <= spent + 1, "{}", r.count("paddled"));
-    // After the reserve's refill time standing still, a full dive again.
-    let later = 15.0 + f64::from(t.reserve_refill_time);
-    let r = run2(
-        &format!("{} {}", dives(3, 0.0), dives(1, later)),
-        later + 5.0,
+fn the_reserve_comes_back_by_itself() {
+    // An empty reserve, standing still: half back after half the refill
+    // time, full after all of it.
+    let t = Tuning::default();
+    let mut sim = Sim::with_one_crab(crabsim::SPAWN);
+    sim.crab_mut(PlayerId(0)).unwrap().mover.reserve = 0.0;
+    let half = f64::from(t.reserve_refill_time) / 2.0;
+    for _ in 0..ticks(half) {
+        sim.tick();
+    }
+    let reserve = sim.crabs()[0].mover.reserve;
+    assert!((reserve - 0.5).abs() < 0.01, "half way: {reserve}");
+    for _ in 0..ticks(half) + 1 {
+        sim.tick();
+    }
+    assert_eq!(sim.crabs()[0].mover.reserve, 1.0);
+}
+
+/// On the long flat at the far right of the level.
+const FAR_FLAT: &str = "start x=2800 y=20\n";
+
+#[test]
+fn holding_dodge_sprints_and_uses_the_reserve() {
+    let t = Tuning::default();
+    let left = |extra: &str, seconds| run(&format!("{FAR_FLAT}t=0 walk=left{extra}"), seconds);
+    let (walk, tap, sprint) = (left("", 0.8), left(" dodge", 0.8), left(" sprint", 0.8));
+    let (w, d, s) = (walk.crab().pos.x, tap.crab().pos.x, sprint.crab().pos.x);
+    println!("0.8 s left from x 2800: walk {w:.0}, dodge {d:.0}, sprint {s:.0}");
+    assert!(s < d - 50.0, "the sprint keeps going after the dodge");
+    assert!(sprint.crab().sprinting);
+    assert!((sprint.crab().vel.x.abs() - t.sprint_speed).abs() < 1.0);
+    assert!(tap.crab().vel.x.abs() <= t.walk_speed + 1.0);
+    assert_eq!(tap.crab().reserve, 1.0, "a dodge alone is free");
+    assert!(
+        sprint.crab().reserve < 1.0,
+        "the sprint is paid from the reserve"
     );
-    assert_eq!(r.count("paddled"), spent + t.swim_strokes);
+    // Let go and it's a walk again.
+    let slowed = run(&format!("{FAR_FLAT}t=0 walk=left sprint; t=0.5 slow"), 1.0);
+    assert!(!slowed.crab().sprinting);
+    assert!(slowed.crab().vel.x.abs() <= t.walk_speed + 1.0);
+}
+
+#[test]
+fn an_empty_reserve_leaves_the_crab_winded() {
+    // A tiny reserve: about half a second of sprint.
+    let t = Tuning {
+        stamina_reserve: 1,
+        sprint_cost: 2.0,
+        ..Tuning::default()
+    };
+    let go = |script: &str, seconds| run_with(t.clone(), script, seconds, |_| false);
+    let r = go(&format!("{FAR_FLAT}t=0 walk=left sprint"), 1.5);
+    assert!(r.crab().winded && !r.crab().sprinting);
+    assert!(r.crab().vel.x.abs() <= t.walk_speed + 1.0);
+    // Still winded while dodge stays held, even as the reserve trickles back.
+    let r = go(&format!("{FAR_FLAT}t=0 walk=left sprint"), 2.5);
+    assert!(!r.crab().sprinting);
+    // Let go, then hold dodge again once a little is back: sprinting again.
+    let script = format!("{FAR_FLAT}t=0 walk=left sprint; t=1 slow; t=2 sprinting");
+    assert!(go(&script, 2.0 + f64::from(STEP)).crab().sprinting);
+}
+
+#[test]
+fn replays_keep_a_held_dodge() {
+    let script = "t=0 walk=left sprint\n@60 slow\n@90 sprinting\n@100 slow dodge\n@130 sprint";
+    let r = Replay::parse(script).unwrap();
+    let again = Replay::parse(&r.to_text()).unwrap();
+    assert_eq!(again.inputs, r.inputs);
+    let held: Vec<bool> = r.inputs.iter().map(|i| i.controls.dodge_held).collect();
+    assert_eq!(held, [true, false, true, false, true]);
 }
 
 /// A busy script that uses every control, for the determinism checks.
@@ -482,6 +548,7 @@ t=2.2 walk=right tap
 t=3 walk=right jump; t=3.4 jump
 t=4 dodge; t=4.1 jump
 t=5.5 walk=left; t=6 jump; t=6.1 release
+t=6.6 sprint; t=7.4 slow
 t=8 walk=right
 ";
 

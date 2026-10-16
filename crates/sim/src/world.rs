@@ -129,6 +129,7 @@ impl Sim {
             let c = &mut crab.controls;
             c.walk = new.walk;
             c.jump_held = new.jump_held;
+            c.dodge_held = new.dodge_held;
             c.jump_pressed |= new.jump_pressed;
             c.dodge_pressed |= new.dodge_pressed;
         }

@@ -13,6 +13,7 @@
 //! | Dodge  | Shift, J                | B, X, or a trigger   | DODGE      |
 //!
 //! The dodge goes the way you hold, so it needs a direction (see `crabsim`).
+//! Keep holding dodge to sprint, which uses the stamina reserve.
 //!
 //! Press jump again in the water for a paddle stroke: the double jump, then
 //! more strokes to swim up while the stamina lasts.
@@ -193,6 +194,7 @@ fn read_input(
         jump_held: jump,
         jump_pressed: jump && !held_before.jump,
         dodge_pressed: dodge && !held_before.dodge,
+        dodge_held: dodge,
     };
     *held_before = Held { jump, dodge };
     requests.write(MoveRequest {

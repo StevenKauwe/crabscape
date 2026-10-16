@@ -37,7 +37,8 @@ USAGE: cargo crabsim [OPTIONS]
   --help            this text
 
 Script words: t=<seconds> or @<tick> starts an entry; then walk=right|left|stop|<-1..1>,
-jump (press and hold), tap (press and let go), release, hold, dodge. ';' or a new line
+jump (press and hold), tap (press and let go), release, hold, dodge (a tap), sprint (press dodge
+and hold), slow (let go of dodge), sprinting (hold dodge). ';' or a new line
 separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
 ";
 

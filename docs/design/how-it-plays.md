@@ -16,10 +16,13 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   each reachable only with the strokes the ones before it give (the first unlocks the double jump the trench and
   the high ledge need). Strokes only rest on something solid, so ledges and rocks are rest stops and
   high or hidden routes need planning. Small rings above the crab show them, only while tired. Resting draws on a
-  deeper **reserve** (6 strokes' worth, a small bar in the top-left corner) that comes back by itself in about 2
-  minutes; when it's empty the legs stay tired, so swimming can't be endless. Floor jumps are free.
+  deeper **reserve** (6 strokes' worth, a small bar in the top-left corner) that comes back by itself in about 30
+  seconds; when it's empty the legs stay tired, so swimming can't be endless. Sprinting drains it too. Floor jumps
+  are free.
 - **Sideways is fast.** Crabs scuttle sideways quickly, so the dodge is a short sideways burst. It goes the way
-  you hold and needs a direction: dodge on its own does nothing, so it never goes a way you didn't mean.
+  you hold and needs a direction: dodge on its own does nothing, so it never goes a way you didn't mean. Keep
+  holding dodge to **sprint** (a fast scuttle, between walking and the dodge) on the floor; it drains the reserve,
+  and when the reserve is empty the crab is winded and walks until dodge is let go.
 - **Most of the sea is faster than you.** Fish and shrimp out-speed you; you out-hit and out-last them.
 - Possible later: wall cling (crabs grip rock with their dactyls).
 
@@ -37,7 +40,7 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 | Walk | A / D, arrows | left stick, d-pad | `<` `>` |
 | Jump (hold = higher) | Space, W, Up, K | A | JUMP |
 | Swim (double jump, then more strokes; one per egg eaten) | jump again in water | A again | JUMP again |
-| Dodge (on floor, + a direction) | Shift, J | B, X, triggers | DODGE |
+| Dodge (on floor, + a direction; hold to sprint) | Shift, J | B, X, triggers | DODGE |
 | Art style | P | | "Style" |
 
 ## Architecture rule
