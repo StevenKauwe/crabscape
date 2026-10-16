@@ -1,4 +1,4 @@
-//! The owner's oil painter and watercolour brush, moved in from music-to-movie-magic (see README.md).
+//! The owner's oil painter and watercolour brush (see README.md).
 //!
 //! * [`oil`]: the oil painter (`Painting`, its tools and strokes, `run_photo` = `crabpaint oilphoto`), the
 //!   watercolour / mixed modes, and a pure-Rust port of p5.brush (`brush_fill`, `brush_wash`, `brush_stroke`).
@@ -6,7 +6,7 @@
 //!
 //! An art tool: the game never links it.
 
-// The owner's code, moved as it was: style lints it was never written against stay off rather than the code being
+// The owner's code: style lints it was never written against stay off rather than the code being
 // reworded (the spectral tables are generated, hence their long digits).
 #![allow(
     clippy::excessive_precision,

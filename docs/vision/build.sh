@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Rebuild docs/CrabScape-vision.pdf (single-page poster) and poster.png from index.html.
-# The earlier 10-page deck lives in deck.html: build it with  ./build.sh deck.html out.pdf
 set -euo pipefail
 ulimit -c 0
 here="$(cd "$(dirname "$0")" && pwd)"

@@ -68,7 +68,7 @@ mkdir -p web/assets/crab
 cp assets/crab/crab-atlas.png assets/crab/crab-atlas-oil.png web/assets/crab/
 
 # 6. A copy of the page for hosts that wrap it in their own <html>/<head>/<body>
-#    (a claude.ai artifact, for example): the same page minus those tags and
+#    (an iframe host, for example): the same page minus those tags and
 #    the <meta> lines, with the dark colour scheme declared in the CSS.
 #    Plain POSIX sed -E (no \s, \? or \n) so it works on macOS and Linux alike.
 sed -E -e '/<!DOCTYPE/d' -e '/<\/?html/d' -e '/<\/?head>/d' -e '/<\/?body>/d' -e '/<meta /d' -e '/Fill the phone screen/d' \
@@ -79,7 +79,3 @@ sed -E -e '/<!DOCTYPE/d' -e '/<\/?html/d' -e '/<\/?head>/d' -e '/<\/?body>/d' -e
 raw=$(wc -c < "$wasm")
 gz=$(gzip -9 -c "$wasm" | wc -c)
 echo "Built web/ — $wasm is $((raw / 1024)) KiB ($((gz / 1024)) KiB gzipped)"
-# Some hosts (a claude.ai artifact, for one) take files of at most 15 MiB.
-if (( raw > 15 * 1024 * 1024 )); then
-  echo "WARNING: $wasm is over 15 MiB ($raw bytes)" >&2
-fi

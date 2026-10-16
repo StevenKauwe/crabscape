@@ -1,5 +1,4 @@
-//! The rig-ready cut-out parts: front (in-game) view, neutral pose → `art/crab/crab-parts.svg` (port of the
-//! "rig-ready parts" block of `sheet.mjs`).
+//! The rig-ready cut-out parts: front (in-game) view, neutral pose → `art/crab/crab-parts.svg`.
 
 use regex::Regex;
 

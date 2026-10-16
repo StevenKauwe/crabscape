@@ -1,14 +1,9 @@
-//! EXPERIMENT: an oil-paint spike. Repaints one frame of the film from its recorded shapes: every shape is
-//! covered with bristle strokes that follow its form, each stroke streaked bristle by bristle, picking up the
-//! wet paint under it and leaving ridges of thickness; the ridges are then lit from the upper left.
+//! The oil painter: every shape is covered with bristle strokes that follow its form, each stroke streaked bristle
+//! by bristle, picking up the wet paint under it and leaving ridges of thickness; the ridges are then lit from the
+//! upper left. `run_photo` (`crabpaint oilphoto`) paints a whole picture this way.
 //!
-//!   film-oh-brassica oil <t> <out.png> [seed]
-//!
-//! MOVED (crabscape): this is the owner's `studio/examples/oh-brassica/src/oil.rs` from music-to-movie-magic,
-//! unchanged except: the film-only parts (`oil`/`oilclip`, which paint a frame from the studio's recorded shapes,
-//! and the cast list and colour conversion they use) are left out; items are `pub` so this works as a library;
-//! `set_zoom`/`set_scene` let a caller set what `paint_frame` used to; and `run_photo`'s crabscape switches come
-//! in a `PhotoOptions` (still read from the same environment variables by `run_photo`).
+//! `set_zoom`/`set_scene` set the zoom and scene for the next strokes; `run_photo`'s switches also come as a
+//! `PhotoOptions` (or from the same environment variables).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 /// Mix picked-up paint as pigment (Kubelka-Munk, 38 bands) instead of averaging RGB.
@@ -343,11 +338,11 @@ thread_local! {
 pub fn zoom() -> f32 {
     ZOOM.with(|z| z.get()).max(0.05)
 }
-/// MOVED (crabscape): set the zoom that `paint_frame` used to set per shape (1 = no camera).
+/// Set the zoom for the next strokes (1 = no camera).
 pub fn set_zoom(z: f32) {
     ZOOM.with(|c| c.set(z));
 }
-/// MOVED (crabscape): set the scene that `paint_frame` used to set per frame (`None` = no light, no attention).
+/// Set the scene for the next strokes (`None` = no light, no attention).
 pub fn set_scene(sc: Option<Scene>) {
     SCENE.with(|s| s.set(sc));
 }

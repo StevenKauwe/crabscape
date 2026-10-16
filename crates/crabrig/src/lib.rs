@@ -1,6 +1,6 @@
-//! The CrabScape player crab as a parametric cut-out puppet (ported from the JS in `art/crab/src/`, now removed).
+//! The CrabScape player crab as a parametric cut-out puppet.
 //!
-//! * [`crab`]: design proportions (v0.2 default, v0.1 available), poses, the front / back builders.
+//! * [`crab`]: design proportions, poses, the front / back builders.
 //! * [`parts`]: the rig-ready parts file `art/crab/crab-parts.svg`.
 //! * [`svg`]: the SVG writer (wobbled ink, per-shape light gradient, heavier shadow-side line).
 //!

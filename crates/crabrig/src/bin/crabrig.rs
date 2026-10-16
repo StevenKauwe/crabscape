@@ -1,14 +1,14 @@
 //! `crabrig`: the player crab's art, from the parametric puppet.
 //!
-//!     crabrig parts  [--design v0.1|v0.2] [out.svg]               the rig parts file (default art/crab/crab-parts.svg)
+//!     crabrig parts  [out.svg]                                    the rig parts file (default art/crab/crab-parts.svg)
 //!     crabrig export [--scale S] [--out DIR] [parts.svg]          atlas + crab-parts.json (default into assets/crab/)
 //!
 //! Run from the repo root: `cargo run -p crabrig --profile art -- <command>`.
 
-use crabrig::crab::{DESIGN, DESIGN_V01, base_pose};
+use crabrig::crab::base_pose;
 
 const USAGE: &str = "usage:
-  crabrig parts  [--design v0.1|v0.2] [out.svg]
+  crabrig parts  [out.svg]
   crabrig export [--scale S] [--out DIR] [parts.svg]";
 
 /// Pull `--flag value` out of the arguments.
@@ -27,12 +27,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     };
     match cmd.as_str() {
         "parts" => {
-            let mut pose = base_pose();
-            pose.design = match option(&mut args, "--design").as_deref() {
-                None | Some("v0.2") => DESIGN,
-                Some("v0.1") => DESIGN_V01,
-                Some(v) => return Err(format!("--design v0.1|v0.2, not {v}")),
-            };
+            let pose = base_pose();
             let out = args
                 .first()
                 .cloned()

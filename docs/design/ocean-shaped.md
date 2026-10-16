@@ -20,7 +20,6 @@ the way they actually work. The goal: a marine biologist saying "no way!" at a d
   not armour. Going deeper means adapting over time: eating deep food, building tolerance.
 - **No fire.** The lantern is alive: a jar of farmed luminous bacteria (a yellow, *Vibrio fischeri* Y-1-like strain;
   sourced in `art/crab/anatomy-notes.md`). It needs oxygenated water to glow.
-- Old concept art with an AIR gauge, glass air tank or pressure helmet is wrong and must not be copied.
 
 ## Abilities and status effects → real mechanism
 | Game term | Real mechanism | Example animals |

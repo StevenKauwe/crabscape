@@ -1,4 +1,4 @@
-//! Materials, resolved per picture by palette (port of `PALETTES` in `crab.mjs`).
+//! Materials, resolved per picture by palette.
 
 use std::collections::BTreeMap;
 

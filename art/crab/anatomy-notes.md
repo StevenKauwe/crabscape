@@ -102,8 +102,7 @@ source, it says so.
   between the eyes [WP-CS].
 - [x] **Gills sit under the carapace.** The carapace "protects the internal organs and gills", and every appendage from
   the second maxilla to the fifth pereiopod carries a gill [WP-DEC]. [CQ] calls the gills "dead man's fingers".
-  **Crabs breathe water, so the crab gets no air tank and no goggles.** (The old concept art in
-  `concept/key-art.svg` shows an "AIR" gauge and a glass tank. Both are wrong for an animal that lives underwater.)
+  **Crabs breathe water, so the crab gets no air tank and no goggles.**
 
 ### Swimming legs (Portunidae)
 - [x] Portunids are "characterised by the flattening of the fifth pair of legs into broad paddles" [WP-POR], with the
