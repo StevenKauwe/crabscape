@@ -25,7 +25,8 @@ fn the_game_parts_file_matches_the_rig() {
         },
     )
     .unwrap();
-    assert_eq!(e.parts, 43);
+    // 43, plus the two rows of scissor-claw teeth on the crusher (shown in the game once fitted).
+    assert_eq!(e.parts, 45);
     assert!(
         e.json == GAME_JSON,
         "assets/crab/crab-parts.json is out of date: cargo run -p crabrig --profile art -- export"

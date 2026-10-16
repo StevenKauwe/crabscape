@@ -9,6 +9,26 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
 - **The way home matters.** Getting back with what you found is half the challenge.
 - **Home is a shell.** You start in a borrowed shell and grow it into a base: kitchen, workshop, beds for friends.
 
+## The first loop (in the test level)
+- **Home** is an empty sea-snail shell on the floor near the start, a warm glow in its doorway. Standing there rests the
+  crab fully (stamina bar and rings) and is where things are brought back to.
+- **The lantern culture:** at the bottom of the pit, a patch of wild glowing bacteria (blue-green). Touching it puts a
+  lump on the crab's back (sponge crabs really carry things on their backs). Brought home, it's cultured into the
+  lantern: the light reaches about a third further for each one. The trip home (climb out, cross the basin, the cliff
+  steps, the trench) is the challenge.
+- **Skills grow by doing (RuneScape):** the first is **Climbing**. Climbing earns experience; each level climbs a
+  little faster (+8%). One climb out of the pit reaches level 2. A small readout under the stamina bar shows it.
+- **The light matters:** halfway down the pit's right wall is an alcove that looks like a solid lump of rock until a
+  bright enough lantern comes near (the starting lantern doesn't reach; one brightened with the pit's culture does).
+  Inside: a fourth egg and the first clue to the trench mystery, a shed tooth bigger than the crab (sharks shed and
+  regrow teeth all their lives), hinting at the huge shape that passes in the pit.
+- **The tooth makes scissor claws:** the crab carries it home on its back (one thing at a time), and the workbench in
+  the shell fits its edges along both fingers of the crusher claw (found things as gear): **scissor claws**. Higher up
+  the pit's right wall, a passage is blocked by a **ghost net** (a lost fishing net): only a jump and four strokes from
+  the alcove's roof reach it, and the scissor claws snap through it (gone for everyone once cut). Beyond: a short tunnel and a coral-lined shaft up to the far part of the basin, where a
+  crack in the end wall shows **lights far below**: the first glimpse of the trench.
+- For now eggs, cultures and skills reset when the page reloads (saving them is a follow-up).
+
 ## Zones and economy
 Like RuneScape, rarer resources come from rarer, more dangerous places: depth is wealth.
 

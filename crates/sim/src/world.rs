@@ -13,12 +13,12 @@
 //! - the headless runner (`cargo crabsim`), as fast as the computer can,
 //! - the tests, the same way.
 
-use bevy_math::Vec2;
+use bevy_math::{Rect, Vec2};
 use serde::Serialize;
 
 use crate::hash::fnv1a;
 use crate::level::{EGG_RADIUS, Level};
-use crate::physics::{self, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
+use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::tuning::Tuning;
 
@@ -42,6 +42,12 @@ pub struct SimCrab {
     pub events: StepEvents,
     /// Which of the level's eggs this crab has eaten (each crab finds its own).
     pub eaten: Vec<bool>,
+    /// Which of the level's bacteria patches this crab has taken a lump of.
+    pub cultures_taken: Vec<bool>,
+    /// Which of the level's clues this crab has found.
+    pub clues_found: Vec<bool>,
+    /// Which of the level's shed teeth this crab has taken.
+    pub teeth_taken: Vec<bool>,
 }
 
 /// The game world, as far as the rules are concerned. (In the game it is a
@@ -92,6 +98,9 @@ impl Sim {
             controls: Controls::default(),
             events: StepEvents::default(),
             eaten: vec![false; self.level.eggs.len()],
+            cultures_taken: vec![false; self.level.cultures.len()],
+            clues_found: vec![false; self.level.clues.len()],
+            teeth_taken: vec![false; self.level.teeth.len()],
         });
     }
 
@@ -130,6 +139,7 @@ impl Sim {
             c.walk = new.walk;
             c.jump_held = new.jump_held;
             c.dodge_held = new.dodge_held;
+            c.down = new.down;
             c.jump_pressed |= new.jump_pressed;
             c.dodge_pressed |= new.dodge_pressed;
         }
@@ -162,6 +172,73 @@ impl Sim {
                     crab.mover.upgrades += 1;
                     crab.mover.stamina += 1.0;
                     crab.events.ate = true;
+                }
+            }
+            // A patch of glowing bacteria it touches: it takes a lump of it
+            // home on its back (one thing at a time).
+            for (patch, taken) in self.level.cultures.iter().zip(&mut crab.cultures_taken) {
+                let free = crab.mover.carrying.is_none();
+                if !*taken && free && in_reach(&crab.mover, *patch, &self.tuning) {
+                    *taken = true;
+                    crab.mover.carrying = Some(Carry::Culture);
+                    crab.events.picked_up = true;
+                }
+            }
+            // A shed tooth: the same, to be fitted to the crusher at home.
+            for (tooth, taken) in self.level.teeth.iter().zip(&mut crab.teeth_taken) {
+                let free = crab.mover.carrying.is_none();
+                if !*taken && free && in_reach(&crab.mover, *tooth, &self.tuning) {
+                    *taken = true;
+                    crab.mover.carrying = Some(Carry::Tooth);
+                    crab.events.picked_up = true;
+                }
+            }
+            // A ghost net it presses against: cut, with scissor claws (gone
+            // for everyone); without them, it's in the way.
+            for net in self.level.nets.iter_mut().filter(|n| !n.cut) {
+                if against(&crab.mover, net.rect, &self.tuning) {
+                    if crab.mover.scissor_claw {
+                        net.cut = true;
+                        crab.events.cut_net = true;
+                    } else {
+                        crab.events.tangled = true;
+                    }
+                }
+            }
+            // A clue it touches: found.
+            for (i, (clue, found)) in self
+                .level
+                .clues
+                .iter()
+                .zip(&mut crab.clues_found)
+                .enumerate()
+            {
+                if !*found && in_reach(&crab.mover, *clue, &self.tuning) {
+                    *found = true;
+                    crab.events.found_clue = Some(i);
+                }
+            }
+            // Home: standing in the doorway rests the crab fully, and what it
+            // carries is put to use: a culture into its lantern, a tooth
+            // fitted to its crusher at the workbench (scissor claws).
+            let m = &mut crab.mover;
+            if m.grounded && self.level.home.contains(m.pos) {
+                let full = m.strokes(&self.tuning) as f32;
+                if m.reserve < 1.0 || m.stamina < full {
+                    m.reserve = 1.0;
+                    m.stamina = full;
+                    crab.events.rested = true;
+                }
+                match m.carrying.take() {
+                    Some(Carry::Culture) => {
+                        m.lantern += 1;
+                        crab.events.delivered = true;
+                    }
+                    Some(Carry::Tooth) => {
+                        m.scissor_claw = true;
+                        crab.events.fitted_scissors = true;
+                    }
+                    None => {}
                 }
             }
         }
@@ -231,6 +308,15 @@ pub struct Snapshot {
     /// How fast it hit the floor, if it landed this tick.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub landed_speed: Option<f32>,
+}
+
+/// Is the crab's body pressed against (or overlapping) `r`?
+fn against(m: &Mover, r: Rect, t: &Tuning) -> bool {
+    let reach = 4.0;
+    m.pos.x + t.body_half_width + reach > r.min.x
+        && m.pos.x - t.body_half_width - reach < r.max.x
+        && m.pos.y + t.body_height > r.min.y
+        && m.pos.y < r.max.y
 }
 
 /// Is `egg` touching the crab's body (with a little reach for the claws)?

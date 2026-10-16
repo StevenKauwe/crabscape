@@ -38,7 +38,8 @@ USAGE: cargo crabsim [OPTIONS]
 
 Script words: t=<seconds> or @<tick> starts an entry; then walk=right|left|stop|<-1..1>,
 jump (press and hold), tap (press and let go), release, hold, dodge (a tap), sprint (press dodge
-and hold), slow (let go of dodge), sprinting (hold dodge). ';' or a new line
+and hold), slow (let go of dodge), sprinting (hold dodge), down=on / down=off (hold down: climbs
+down). ';' or a new line
 separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
 ";
 
@@ -231,9 +232,26 @@ impl Summary {
             highest: p.y,
             lowest: p.y,
             fastest_landing: 0.0,
-            counts: ["crouched", "jumped", "paddled", "ate", "landed", "dodged"]
-                .map(|n| (n, 0))
-                .to_vec(),
+            counts: [
+                "crouched",
+                "jumped",
+                "paddled",
+                "ate",
+                "gripped",
+                "levelled",
+                "picked up",
+                "rested",
+                "delivered",
+                "landed",
+                "dodged",
+                "flipped",
+                "found a clue",
+                "fitted scissor claws",
+                "cut a net",
+                "tangled",
+            ]
+            .map(|n| (n, 0))
+            .to_vec(),
             timeline: Vec::new(),
         }
     }

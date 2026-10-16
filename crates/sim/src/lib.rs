@@ -37,7 +37,7 @@ pub mod tuning;
 pub mod world;
 
 pub use level::{Level, SPAWN};
-pub use physics::{Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
+pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use replay::Replay;
 pub use tuning::Tuning;
 pub use world::{PlayerId, Sim, SimCrab, Snapshot};

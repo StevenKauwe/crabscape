@@ -15,6 +15,9 @@
 //! The dodge goes the way you hold, so it needs a direction (see `crabsim`).
 //! Keep holding dodge to sprint, which uses the stamina reserve.
 //!
+//! On kelp or coral: hold jump to climb up, hold down (S, the down arrow,
+//! down on a controller, or dodge) to climb down, press sideways to step off.
+//!
 //! Press jump again in the water for a paddle stroke: the double jump, then
 //! more strokes to swim up while the stamina lasts.
 
@@ -164,12 +167,15 @@ fn read_input(
     ]) || touch(TouchAction::Jump);
     let mut dodge = any_key(&[KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ])
         || touch(TouchAction::Dodge);
+    // Down climbs down kelp or coral. (On a phone, holding DODGE does too.)
+    let mut down = any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]);
 
     for pad in &gamepads {
         let stick = pad.left_stick().x;
         if stick.abs() > 0.25 {
             walk += stick;
         }
+        down |= pad.left_stick().y < -0.5 || pad.pressed(GamepadButton::DPadDown);
         if pad.pressed(GamepadButton::DPadLeft) {
             walk -= 1.0;
         }
@@ -195,6 +201,7 @@ fn read_input(
         jump_pressed: jump && !held_before.jump,
         dodge_pressed: dodge && !held_before.dodge,
         dodge_held: dodge,
+        down,
     };
     *held_before = Held { jump, dodge };
     requests.write(MoveRequest {

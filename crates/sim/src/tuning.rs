@@ -54,6 +54,13 @@ pub struct Tuning {
     /// top sinking speed is about `sqrt(net gravity / water_drag)`.
     pub water_drag: f32,
 
+    /// Diving (pushing a way while sinking): sideways speed, as a multiple
+    /// of `walk_speed`...
+    pub dive_speed: f32,
+    /// ...and water drag, as a multiple of `water_drag` (less: it sinks a
+    /// little faster, streamlined).
+    pub dive_drag: f32,
+
     // --- Jumping --------------------------------------------------------
     /// Upward speed of the push off the floor. Strong!
     pub jump_speed: f32,
@@ -101,6 +108,30 @@ pub struct Tuning {
     /// What sprinting costs, in reserve strokes per second.
     pub sprint_cost: f32,
 
+    // --- Climbing -------------------------------------------------------
+    /// How fast the crab climbs kelp or coral (walking legs: no stamina).
+    pub climb_speed: f32,
+    /// How close the crab's middle must be to a stalk to grip it, and how far
+    /// either side of it the crab can shuffle while holding on.
+    pub climb_reach: f32,
+    /// Sideways shuffling speed while holding on (a fidget is safe; only
+    /// pushing on past the edge of the reach lets go).
+    pub climb_shuffle: f32,
+    /// The pull-up when climbing past a stalk's top: enough to get over a
+    /// rim beside it.
+    pub climb_pull_up: f32,
+    /// Upward speed of a kick off a stalk (jump + a direction while
+    /// climbing). Weaker than a jump off the floor.
+    pub climb_leap: f32,
+    /// Climbing experience per unit climbed (up or down).
+    pub climb_xp_per_unit: f32,
+    /// Climbing levels: level n+1 needs n x (n+1) times this much experience
+    /// (with 15: 30 for level 2, 90 for 3, 180 for 4, 300 for 5).
+    pub climb_level_xp: f32,
+    /// Extra climbing speed per Climbing level above 1 (a share of
+    /// `climb_speed`).
+    pub climb_speed_per_level: f32,
+
     // --- Landing --------------------------------------------------------
     /// Landing faster than this counts as a heavy landing: big squash, a
     /// puff of sand, and some sideways speed lost.
@@ -115,6 +146,8 @@ pub struct Tuning {
     pub dodge_time: f32,
     /// Time before you can dodge again (counted from the start).
     pub dodge_cooldown: f32,
+    /// How long a flip (dodge in the water) takes.
+    pub flip_time: f32,
     /// The dodge goes the way you hold, so it needs a direction. Press dodge
     /// this long before the direction (thumbs and fingers are never quite
     /// together), or before landing or the cooldown ending, and it still
@@ -149,6 +182,8 @@ impl Default for Tuning {
             buoyancy: 0.6, // net pull 960: sinks, gently
             fall_gravity_scale: 1.0,
             water_drag: 0.008, // top sinking speed about 350
+            dive_speed: 1.15,
+            dive_drag: 0.8, // top diving speed about 390
 
             jump_speed: 1750.0, // a hard push the water soon brakes: about 190 high
             jump_windup: 0.05,
@@ -165,6 +200,15 @@ impl Default for Tuning {
             sprint_speed: 480.0,
             sprint_cost: 0.7, // a full reserve lasts about 12 s of sprinting
 
+            climb_speed: 320.0, // the whole pit in about 25 s
+            climb_reach: 48.0,
+            climb_shuffle: 110.0, // about half a second from the middle to the edge
+            climb_pull_up: 700.0,
+            climb_leap: 1300.0,      // about two-thirds of a floor jump's height
+            climb_xp_per_unit: 0.01, // the whole pit is worth 80
+            climb_level_xp: 15.0,    // level 2 at 30, 3 at 90, 4 at 180, 5 at 300
+            climb_speed_per_level: 0.08,
+
             heavy_landing_speed: 290.0, // a full jump lands heavy, a tapped hop (~240) not
             heavy_landing_keep: 0.55,
 
@@ -172,6 +216,7 @@ impl Default for Tuning {
             dodge_time: 0.15,
             dodge_cooldown: 0.45,
             dodge_buffer: 0.10,
+            flip_time: 0.45,
 
             body_half_width: 36.0,
             body_height: 48.0,

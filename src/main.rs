@@ -29,22 +29,30 @@
 //! - [`input`]: keys, controllers and touch buttons become move requests
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
+//! - [`deep`]: the depth counter in the pit, and something big in the dark
 //! - [`effects`]: bubbles, sand puffs and marine snow
 //! - [`eggs`]: the fish eggs that give the crab more swim strokes
+//! - [`home`]: the shell-home, the glowing culture and the lump carried home
+//! - [`notes`]: the short notes that float up when something happens
 //! - [`save`]: remembering the crab's position between visits
+//! - [`secrets`]: places hidden in darkness until a bright lantern comes near
 //! - [`stamina`]: the rings over the crab that show its swimming stamina
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
 
+mod deep;
 mod effects;
 mod eggs;
+mod home;
 mod input;
 mod lantern;
 mod level;
+mod notes;
 mod player;
 mod puppet;
 mod replay;
 mod save;
+mod secrets;
 mod stamina;
 mod style;
 mod tuning;
@@ -79,6 +87,8 @@ fn main() {
                 }),
         )
         .init_resource::<tuning::ViewTuning>()
+        // The game's core, then the world's things and the HUD. (Bevy takes
+        // at most 15 plugins in one group.)
         .add_plugins((
             replay::ReplayPlugin,
             level::LevelPlugin,
@@ -87,11 +97,17 @@ fn main() {
             puppet::PuppetPlugin,
             lantern::LanternPlugin,
             effects::EffectsPlugin,
-            eggs::EggsPlugin,
             save::SavePlugin,
-            stamina::StaminaPlugin,
             style::StylePlugin,
             view::ViewPlugin,
+        ))
+        .add_plugins((
+            deep::DeepPlugin,
+            eggs::EggsPlugin,
+            home::HomePlugin,
+            notes::NotesPlugin,
+            secrets::SecretsPlugin,
+            stamina::StaminaPlugin,
         ))
         .run();
 }

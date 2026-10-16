@@ -37,8 +37,11 @@ pub struct StaminaPlugin;
 
 impl Plugin for StaminaPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_rings, spawn_reserve_bar))
-            .add_systems(Update, (show_rings, show_reserve).in_set(GameSet::Present));
+        app.add_systems(Startup, (spawn_rings, spawn_reserve_bar, spawn_skill))
+            .add_systems(
+                Update,
+                (show_rings, show_reserve, show_skill).in_set(GameSet::Present),
+            );
     }
 }
 
@@ -168,6 +171,88 @@ fn show_reserve(
     let left = mover.reserve * sim.tuning.stamina_reserve as f32;
     for (fill, mut node) in &mut fills {
         let width = percent(100.0 * (left - fill.0 as f32).clamp(0.0, 1.0));
+        if node.width != width {
+            node.width = width;
+        }
+    }
+}
+
+/// The Climbing skill's readout under the reserve bar: its level and a thin
+/// bar for the way to the next. Hidden until the crab first climbs.
+#[derive(Component)]
+struct SkillText;
+
+#[derive(Component)]
+struct SkillFill;
+
+fn spawn_skill(mut commands: Commands) {
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(74),
+                left: px(12),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(3),
+                ..default()
+            },
+            Visibility::Hidden,
+            SkillText,
+        ))
+        .with_children(|skill| {
+            skill.spawn((
+                Text::new(""),
+                TextFont {
+                    font_size: FontSize::Px(12.0),
+                    ..default()
+                },
+                TextColor(Color::srgba(0.85, 0.92, 0.95, 0.75)),
+            ));
+            skill
+                .spawn((
+                    Node {
+                        width: px(80),
+                        height: px(3),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.2)),
+                ))
+                .with_child((
+                    SkillFill,
+                    Node {
+                        width: percent(0),
+                        height: percent(100),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.8)),
+                ));
+        });
+}
+
+fn show_skill(
+    sim: Res<Sim>,
+    crab: Query<&Mover, With<LocalPlayer>>,
+    mut readout: Query<(&mut Visibility, &Children), With<SkillText>>,
+    mut texts: Query<&mut Text>,
+    mut fill: Query<&mut Node, With<SkillFill>>,
+) {
+    let (Ok(mover), Ok((mut shown, children))) = (crab.single(), readout.single_mut()) else {
+        return;
+    };
+    if mover.climb_xp <= 0.0 {
+        *shown = Visibility::Hidden;
+        return;
+    }
+    *shown = Visibility::Inherited;
+    let level = mover.climb_level(&sim.tuning);
+    if let Some(mut text) = children.first().and_then(|c| texts.get_mut(*c).ok()) {
+        let line = format!("Climbing {level}");
+        if text.0 != line {
+            text.0 = line;
+        }
+    }
+    if let Ok(mut node) = fill.single_mut() {
+        let width = percent(100.0 * mover.climb_progress(&sim.tuning));
         if node.width != width {
             node.width = width;
         }
