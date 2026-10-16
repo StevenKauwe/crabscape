@@ -41,8 +41,9 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 - **Claw upgrades become fighting styles.** Found things fitted to the claws: **cut** (scissor claws, a shed tooth's
   edges on the crusher: in the game, cutting ghost nets), **hammer** (the crusher's smash, built up) and **rip**
   (gripping and tearing). Each its own branch to grow.
-- **Enemy tells come from real behaviour.** A mantis shrimp cocks its club before it strikes; an anglerfish's lure
-  goes still before the lunge; a jellyfish drifts into reach. Learning to read the ocean is how you get good.
+- **Enemy tells come from real behaviour.** A mantis shrimp cocks its club before it strikes; a snapping
+  shrimp holds its claw open; an octopus rises and spreads its web. Learning to read the ocean is how you get good.
+  The first six enemies and the shared combat model (health, poise, block, parry, statuses): `creatures/README.md`.
 
 ## Controls today
 | Action | Keyboard | Controller | Phone |

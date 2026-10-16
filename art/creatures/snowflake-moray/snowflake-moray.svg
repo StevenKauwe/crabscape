@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<!-- CrabScape concept sheet: snowflake moray (Echidna nebulosa). Side view, head to the left.
+     Hand-written SVG. Ink = #2A140F, paper = #F3EBDD. Rig notes: docs/design/creatures/snowflake-moray.md -->
+<defs>
+  <filter id="wob" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="11"/>
+    <feDisplacementMap in="SourceGraphic" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <linearGradient id="gRock" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#A89A86"/><stop offset="1" stop-color="#5E5246"/>
+  </linearGradient>
+  <linearGradient id="gSkin" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#FFFBEF"/><stop offset=".6" stop-color="#EDE3C8"/><stop offset="1" stop-color="#C9BC98"/>
+  </linearGradient>
+  <linearGradient id="gWater" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#BFDCD6"/><stop offset=".7" stop-color="#8FBDB5"/><stop offset="1" stop-color="#6E9F96"/>
+  </linearGradient>
+
+  <!-- one dendritic "snowflake" blotch with a yellow centre -->
+  <g id="flake0">
+    <path d="M0 -11 L4 -4 L11 -6 L6 1 L10 9 L2 6 L-3 12 L-4 4 L-12 3 L-5 -2 L-8 -9 L-1 -5 Z" fill="#1E1712"/>
+    <circle r="3.2" fill="#F2C531"/>
+  </g>
+  <g id="flake"><use href="#flake0" transform="scale(1.6)"/></g>
+
+  <!-- rock with a crevice (the moray's home) -->
+  <g id="rock" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round">
+    <path d="M300 404 C292 340 300 250 340 210 C380 180 450 186 490 220 L500 404 Z" fill="url(#gRock)"/>
+    <path d="M318 268 C340 262 360 268 376 282 C364 300 350 330 346 352 C330 340 316 300 318 268 Z" fill="#231A14"/>
+    <path d="M360 220 C390 206 430 206 460 222" fill="none" stroke="#CFC4B2" stroke-width="4" opacity=".7"/>
+    <g fill="#C78A6E" stroke-width="2"><circle cx="420" cy="300" r="6"/><circle cx="452" cy="340" r="5"/><circle cx="404" cy="372" r="4"/></g>
+  </g>
+
+  <!-- rock lip drawn over the neck where it enters the crevice -->
+  <path id="lip" d="M340 250 C352 262 360 300 356 352 C366 352 380 346 384 330 C388 300 380 268 364 252 Z" fill="#7C6E5E" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round"/>
+  <!-- head, mouth slightly open (the breathing gape) -->
+  <g id="headGape" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M100 296 C104 278 128 266 160 264 C190 262 214 266 230 274 L232 330 C206 334 176 334 148 330 C124 326 104 318 100 306 Z" fill="url(#gSkin)"/>
+    <path d="M104 306 C126 312 150 314 176 312" fill="none"/>
+    <path d="M106 300 C130 296 156 298 178 304" fill="none" stroke-width="2.5"/>
+    <path d="M106 301 L176 306 L176 310 L104 305 Z" fill="#7A2A2A" stroke="none"/>
+    <circle cx="136" cy="280" r="7.5" fill="#F2C531"/><circle cx="135" cy="280" r="3.5" fill="#1E1712" stroke="none"/>
+    <path d="M104 290 l-8 -8 M110 286 l-6 -10" stroke="#F2C531" stroke-width="5"/>
+    <path d="M104 290 l-8 -8 M110 286 l-6 -10" stroke-width="1.5"/>
+    <circle cx="214" cy="304" r="4" fill="#3A2A20" stroke-width="2"/>
+    <use href="#flake" x="190" y="282" stroke="none"/><use href="#flake" x="168" y="324" transform="scale(1)" stroke="none"/>
+  </g>
+  <!-- head, mouth shut (the gape stops: about to strike) -->
+  <g id="headShut" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M100 296 C104 278 128 266 160 264 C190 262 214 266 230 274 L232 330 C206 334 176 334 148 330 C124 326 104 316 100 304 Z" fill="url(#gSkin)"/>
+    <path d="M102 302 C128 306 154 306 180 304" fill="none" stroke-width="3"/>
+    <circle cx="136" cy="280" r="7.5" fill="#F2C531"/><circle cx="135" cy="280" r="3.5" fill="#1E1712" stroke="none"/>
+    <path d="M104 290 l-8 -8 M110 286 l-6 -10" stroke="#F2C531" stroke-width="5"/>
+    <path d="M104 290 l-8 -8 M110 286 l-6 -10" stroke-width="1.5"/>
+    <circle cx="214" cy="304" r="4" fill="#3A2A20" stroke-width="2"/>
+    <use href="#flake" x="190" y="282" stroke="none"/><use href="#flake" x="168" y="324" stroke="none"/>
+  </g>
+  <!-- head, jaws wide, the throat jaws (pharyngeal) thrown forward into the mouth -->
+  <g id="headBite" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M232 278 C210 268 186 262 160 258 C130 254 104 252 92 262 C98 272 120 282 150 290 L232 300 Z" fill="url(#gSkin)"/>
+    <path d="M232 306 C206 316 176 330 150 342 C124 352 102 354 94 346 C102 334 124 320 150 310 L232 300 Z" fill="url(#gSkin)"/>
+    <path d="M100 266 C130 280 170 292 220 300 C170 306 130 322 100 342 Z" fill="#7A2A2A"/>
+    <!-- blunt crushing teeth -->
+    <g fill="#FFF6DE" stroke-width="1.8"><circle cx="112" cy="270" r="4"/><circle cx="128" cy="277" r="4"/><circle cx="146" cy="283" r="4"/>
+      <circle cx="112" cy="338" r="4"/><circle cx="128" cy="330" r="4"/><circle cx="146" cy="322" r="4"/></g>
+    <!-- pharyngeal jaws coming forward -->
+    <path d="M206 290 C186 288 168 292 160 300 C168 308 186 312 206 310 Z" fill="#B85656" stroke-width="2.5"/>
+    <g fill="#FFF6DE" stroke-width="1.5"><path d="M166 296 l4 -6 l4 6 Z"/><path d="M176 294 l4 -6 l4 6 Z"/><path d="M166 304 l4 6 l4 -6 Z"/><path d="M176 306 l4 6 l4 -6 Z"/></g>
+    <circle cx="170" cy="266" r="7.5" fill="#F2C531"/><circle cx="169" cy="266" r="3.5" fill="#1E1712" stroke="none"/>
+    <path d="M96 262 l-10 -6 M102 258 l-8 -10" stroke="#F2C531" stroke-width="5"/>
+    <path d="M96 262 l-10 -6 M102 258 l-8 -10" stroke-width="1.5"/>
+    <use href="#flake" x="206" y="270" stroke="none"/>
+  </g>
+</defs>
+
+<rect id="paper" width="1600" height="1000" fill="#F3EBDD"/>
+
+<g id="art">
+  <g fill="#FBF6EC" stroke="#E2D6C2" stroke-width="2">
+    <rect x="30" y="110" width="500" height="360" rx="6"/><rect x="550" y="110" width="500" height="360" rx="6"/>
+    <rect x="1070" y="110" width="500" height="360" rx="6"/>
+  </g>
+
+  <!-- 1 KEY: head out of the crevice, breathing gape, nostrils tasting the water -->
+  <g transform="translate(50 20) scale(0.95)" filter="url(#wob)">
+    <path d="M0 404 L500 404" stroke="#D9CBB2" stroke-width="10"/>
+    <use href="#rock"/>
+    <use href="#headGape"/>
+    <path d="M226 302 C262 300 300 290 350 300" fill="none" stroke="#2A140F" stroke-width="60"/>
+    <path d="M226 302 C262 300 300 290 350 300" fill="none" stroke="#EFE6CC" stroke-width="53"/>
+    <path d="M230 286 C262 280 300 274 346 282" fill="none" stroke="#FFFBEF" stroke-width="6" opacity=".8"/>
+    <use href="#flake" x="262" y="290"/><use href="#flake" x="306" y="314"/><use href="#flake" x="330" y="282"/>
+    <use href="#lip"/>
+    <g fill="none" stroke="#7A9C98" stroke-width="2" stroke-linecap="round" opacity=".9">
+      <path d="M84 268 q-10 -6 -18 2"/><path d="M76 256 q-14 -8 -26 2"/>
+    </g>
+  </g>
+  <!-- 2 TELL: head pulled back into an S, mouth clamps shut, gape stops -->
+  <g transform="translate(570 20) scale(0.95)" filter="url(#wob)">
+    <path d="M0 404 L500 404" stroke="#D9CBB2" stroke-width="10"/>
+    <use href="#rock"/>
+    <g transform="translate(64 14)"><use href="#headShut"/></g>
+    <path d="M290 316 C320 318 310 262 350 284" fill="none" stroke="#2A140F" stroke-width="60"/>
+    <path d="M290 316 C320 318 310 262 350 284" fill="none" stroke="#EFE6CC" stroke-width="53"/>
+    <use href="#flake" x="314" y="296"/><use href="#flake" x="330" y="262"/>
+    <use href="#lip"/>
+    <g fill="none" stroke="#2A140F" stroke-width="2.5" stroke-linecap="round">
+      <path d="M160 270 l-10 -10 M174 262 l-4 -14 M148 282 l-14 -4"/>
+    </g>
+  </g>
+  <!-- 3 STRIKE: full lunge, jaws wide, throat jaws forward -->
+  <g transform="translate(1090 20) scale(0.95)" filter="url(#wob)">
+    <path d="M0 404 L500 404" stroke="#D9CBB2" stroke-width="10"/>
+    <use href="#rock"/>
+    <g transform="translate(-60 0)"><use href="#headBite"/></g>
+    <path d="M166 300 C230 300 300 296 350 300" fill="none" stroke="#2A140F" stroke-width="60"/>
+    <path d="M166 300 C230 300 300 296 350 300" fill="none" stroke="#EFE6CC" stroke-width="53"/>
+    <path d="M170 284 C230 282 300 280 346 284" fill="none" stroke="#FFFBEF" stroke-width="6" opacity=".8"/>
+    <use href="#flake" x="200" y="314"/><use href="#flake" x="244" y="288"/><use href="#flake" x="290" y="314"/><use href="#flake" x="330" y="286"/>
+    <use href="#lip"/>
+    <g fill="none" stroke="#2A140F" stroke-width="2.5" stroke-linecap="round"><path d="M24 280 h-18 M24 300 h-22 M24 320 h-18"/></g>
+  </g>
+
+  <!-- SIZE: 9 px per cm (half the shrimp sheets' scale) -->
+  <rect x="30" y="490" width="1020" height="480" rx="6" fill="url(#gWater)"/>
+  <path d="M30 880 C200 874 420 889 640 880 C840 872 960 884 1050 880 L1050 970 L30 970 Z" fill="#CDBA94"/>
+  <image href="../../crab/crab-parts.svg" x="80" y="782" width="216" height="109" preserveAspectRatio="none" clip-path="url(#cropCrab)"/>
+  <!-- whole moray, 70 cm = 630 px, lying in an S on the floor -->
+  <g filter="url(#wob)">
+    <path d="M400 846 C470 820 540 868 620 846 C700 824 760 866 840 848 C890 838 940 846 990 860" fill="none" stroke="#2A140F" stroke-width="40" stroke-linecap="round"/>
+    <path d="M400 846 C470 820 540 868 620 846 C700 824 760 866 840 848 C890 838 940 846 990 860" fill="none" stroke="#EFE6CC" stroke-width="34" stroke-linecap="round"/>
+    <path d="M410 830 C470 806 540 852 620 830 C700 808 760 850 840 832 C890 822 940 830 990 846" fill="none" stroke="#2A140F" stroke-width="2"/>
+    <g transform="scale(0.6)">
+      <use href="#flake" x="760" y="1390"/><use href="#flake" x="860" y="1430"/><use href="#flake" x="960" y="1405"/><use href="#flake" x="1060" y="1385"/>
+      <use href="#flake" x="1160" y="1415"/><use href="#flake" x="1260" y="1395"/><use href="#flake" x="1360" y="1420"/><use href="#flake" x="1460" y="1400"/>
+      <use href="#flake" x="1560" y="1418"/>
+    </g>
+    <g transform="translate(330 668) scale(0.6)"><use href="#headGape"/></g>
+  </g>
+  <g stroke="#2A140F" stroke-width="2"><path d="M760 940 h90 M760 935 v10 M850 935 v10"/></g>
+</g>
+<clipPath id="cropCrab"><rect x="80" y="792" width="216" height="100"/></clipPath>
+
+<g id="labels" font-family="Liberation Sans, sans-serif" fill="#2A140F">
+  <text x="30" y="58" font-family="Noto Serif, serif" font-weight="bold" font-size="40">SNOWFLAKE MORAY</text>
+  <text x="470" y="58" font-family="Noto Serif, serif" font-style="italic" font-size="22">Echidna nebulosa</text>
+  <text x="30" y="90" font-size="18">Role: ambusher · crevice striker · reef flats and lagoons, 0–48 m · up to 100 cm · eats mainly crustaceans · night hunter</text>
+  <g font-size="17" font-weight="bold">
+    <text x="46" y="140">1 · KEY · head out, tasting the water</text>
+    <text x="566" y="140">2 · TELL · pulls back into an S, mouth shuts</text>
+    <text x="1086" y="140">3 · STRIKE · lunge, then the throat jaws</text>
+  </g>
+  <g font-size="15" fill="#5A4636">
+    <text x="46" y="458">It finds you by smell: hiding in the dark won't help.</text>
+    <text x="566" y="458">The breathing gape stops. Read the S-curve.</text>
+    <text x="1086" y="458">Bitten = held: pharyngeal jaws drag you in.</text>
+  </g>
+  <text x="46" y="520" font-size="17" font-weight="bold">SIZE · real scale from the crab's eye (crab carapace 12 cm)</text>
+  <text x="90" y="915" font-size="15">our crab · 12 cm</text>
+  <text x="400" y="915" font-size="15">snowflake moray · 70 cm (max 100)</text>
+  <text x="780" y="962" font-size="14">10 cm</text>
+  <text x="1086" y="520" font-size="17" font-weight="bold">PALETTE</text>
+</g>
+<g id="swatches" stroke="#2A140F" stroke-width="1.5">
+  <rect x="1086" y="536" width="60" height="44" fill="#EFE6CC"/><rect x="1150" y="536" width="60" height="44" fill="#1E1712"/>
+  <rect x="1214" y="536" width="60" height="44" fill="#F2C531"/><rect x="1278" y="536" width="60" height="44" fill="#7A2A2A"/>
+  <rect x="1342" y="536" width="60" height="44" fill="#5E5246"/><rect x="1406" y="536" width="60" height="44" fill="#C9BC98"/>
+</g>
+<g id="labels2" font-family="Liberation Sans, sans-serif" fill="#2A140F" font-size="13">
+  <text x="1086" y="596">skin · blotches · eye/nostrils/spots · mouth · rock · belly shade</text>
+  <text x="1086" y="640" font-size="17" font-weight="bold">TELL → WINDOW (tuned)</text>
+  <text x="1086" y="664" font-size="15">Notice by smell (slow, ~1 s), then pull back 0.5 s</text>
+  <text x="1086" y="686" font-size="15">Lunge reach ~2 crab widths from the crevice</text>
+  <text x="1086" y="708" font-size="15">Parry window: 12 ticks; parry = snout rap, it recoils</text>
+  <text x="1086" y="730" font-size="15">Dodge sideways out of the lunge line</text>
+  <text x="1086" y="752" font-size="15">Bitten: struggle (dodge presses) or drop a leg</text>
+  <text x="1086" y="786" font-size="15">Weak spot: the extended neck during recovery</text>
+  <text x="1086" y="808" font-size="15">Never leaves its crevice by day; roams at night</text>
+  <text x="1086" y="838" font-size="13" fill="#5A4636">Sources: FishBase (E. nebulosa) · Mehta &amp; Wainwright 2007</text>
+  <text x="1086" y="856" font-size="13" fill="#5A4636">Nature · Bshary et al. 2006 PLOS Biol · EurekAlert (UCSC)</text>
+</g>
+</svg>

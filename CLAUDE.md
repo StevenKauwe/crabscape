@@ -11,7 +11,8 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - Tone, pillars, loop: `docs/design/vision.md`
 - Ocean-shaped rules (biology, no air, real mechanisms only): `docs/design/ocean-shaped.md`
 - How it plays (movement, combat, controls): `docs/design/how-it-plays.md`
-- World, zones, economy: `docs/design/world.md`
+- World, zones, economy: `docs/design/world.md` (ecology by depth, food web, creature rules: `docs/design/universe.md`)
+- Enemies (biology, combat spec, rig notes): `docs/design/creatures/` (concept sheets: `art/creatures/`)
 - Current decisions: `docs/design/decisions.md`
 
 ## Rules that never bend
