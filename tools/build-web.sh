@@ -70,11 +70,13 @@ cp assets/crab/crab-atlas.png assets/crab/crab-atlas-oil.png web/assets/crab/
 # 6. A copy of the page for hosts that wrap it in their own <html>/<head>/<body>
 #    (a claude.ai artifact, for example): the same page minus those tags and
 #    the <meta> lines, with the dark colour scheme declared in the CSS.
-sed -e '/<!DOCTYPE/d' -e '/<\/\?html/d' -e '/<\/\?head>/d' -e '/<\/\?body>/d' -e '/<meta /d' -e '/Fill the phone screen/d' \
-    -e 's|^\(\s*\)<style>$|\1<style>\n\1  :root { color-scheme: dark; }|' \
+#    Plain POSIX sed -E (no \s, \? or \n) so it works on macOS and Linux alike.
+sed -E -e '/<!DOCTYPE/d' -e '/<\/?html/d' -e '/<\/?head>/d' -e '/<\/?body>/d' -e '/<meta /d' -e '/Fill the phone screen/d' \
+    -e 's|^([[:space:]]*)<style>$|\1<style>\
+\1  :root { color-scheme: dark; }|' \
     web/index.html > web/artifact.html
 
-raw=$(stat -c %s "$wasm")
+raw=$(wc -c < "$wasm")
 gz=$(gzip -9 -c "$wasm" | wc -c)
 echo "Built web/ — $wasm is $((raw / 1024)) KiB ($((gz / 1024)) KiB gzipped)"
 # Some hosts (a claude.ai artifact, for one) take files of at most 15 MiB.
