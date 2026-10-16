@@ -500,7 +500,8 @@ mod tests {
         let mut m = Mover::new(Vec2::new(SPAWN.x, 5000.0));
         m.grounded = false;
         run(&mut m, Controls::default(), 3.0, &level);
-        assert!((-1000.0..-850.0).contains(&m.vel.y), "fell at {}", m.vel.y);
+        // A steady, gentle sink: about 350, not a free fall.
+        assert!((-380.0..-320.0).contains(&m.vel.y), "fell at {}", m.vel.y);
     }
 
     #[test]

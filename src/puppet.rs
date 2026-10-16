@@ -487,7 +487,9 @@ fn animate(
         }
         if let Some(impact) = ev.landed {
             // Heavier landings squash harder and kick the eyes outwards.
-            let k = (impact / 900.0).min(1.2);
+            // (Measured against what counts as heavy, so it keeps working
+            // when the sinking speed is retuned.)
+            let k = (impact / (1.7 * sim.tuning.heavy_landing_speed)).min(1.2);
             a.squash_vel += 10.0 * k;
             for (vel, s) in a.eye_vel.iter_mut().zip(SIDE_SIGN) {
                 *vel -= s * 5.0 * k;

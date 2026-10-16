@@ -38,14 +38,15 @@ impl Level {
                 // A slope up onto a plateau.
                 Vec2::new(820.0, 110.0),
                 Vec2::new(1300.0, 110.0),
-                // The trench: 400 units across, too wide for one jump.
+                // The trench: 480 units across, too wide for one jump (or a
+                // dodge-jump), even sinking slowly.
                 Vec2::new(1301.0, -260.0),
-                Vec2::new(1699.0, -260.0),
-                Vec2::new(1700.0, 110.0),
-                Vec2::new(2010.0, 110.0),
+                Vec2::new(1779.0, -260.0),
+                Vec2::new(1780.0, 110.0),
+                Vec2::new(2090.0, 110.0),
                 // A gentler slope back down.
-                Vec2::new(2260.0, 20.0),
-                Vec2::new(2800.0, 20.0),
+                Vec2::new(2340.0, 20.0),
+                Vec2::new(2880.0, 20.0),
             ],
             rocks: vec![
                 // A low ledge near the start: one jump gets you up.
@@ -57,11 +58,11 @@ impl Level {
                 // A stepping stone inside the trench, to climb back out.
                 Rect::new(1330.0, -260.0, 1430.0, -130.0),
                 // A block and a ledge above it, past the trench.
-                Rect::new(1860.0, 110.0, 1940.0, 200.0),
-                Rect::new(1990.0, 300.0, 2140.0, 330.0),
+                Rect::new(1940.0, 110.0, 2020.0, 200.0),
+                Rect::new(2070.0, 300.0, 2220.0, 330.0),
             ],
             min_x: 0.0,
-            max_x: 2800.0,
+            max_x: 2880.0,
         }
     }
 
@@ -96,7 +97,7 @@ impl Level {
 
     /// The trench that needs the double jump: (left edge x, right edge x).
     pub fn trench(&self) -> (f32, f32) {
-        (1300.0, 1700.0)
+        (1300.0, 1780.0)
     }
 }
 

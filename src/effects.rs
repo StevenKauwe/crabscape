@@ -12,7 +12,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::lantern::{LightBlend, Lit, LitTint};
 use crate::player::{FrameEvents, GameSet};
-use crabsim::Mover;
+use crabsim::{Mover, Sim};
 
 /// Soft round pictures shared by everything that glows or floats.
 #[derive(Resource)]
@@ -144,6 +144,7 @@ fn emit(
     mut commands: Commands,
     soft: Res<SoftTextures>,
     mut rng: ResMut<Rng>,
+    sim: Res<Sim>,
     crabs: Query<(&Mover, &FrameEvents)>,
 ) {
     let sand_dark = Color::srgba(0.30, 0.36, 0.34, 0.0);
@@ -190,9 +191,11 @@ fn emit(
             }
         }
 
-        // Landing: a puff of sand, bigger for harder landings.
+        // Landing: a puff of sand, bigger for harder landings (measured
+        // against what counts as heavy, so it follows the sinking speed).
         if let Some(impact) = ev.landed {
-            let strength = ((impact - 150.0) / 700.0).clamp(0.0, 1.0);
+            let heavy = impact / sim.tuning.heavy_landing_speed;
+            let strength = ((heavy - 0.3) / 1.35).clamp(0.0, 1.0);
             let count = (strength * 16.0) as usize;
             for i in 0..count {
                 let side = if i % 2 == 0 { -1.0 } else { 1.0 };

@@ -114,6 +114,22 @@ fn a_full_height_jump_peaks_at_about_190() {
 }
 
 #[test]
+fn the_way_down_is_a_sink_not_a_drop() {
+    // A hard push that the water brakes, then a slower, steady sink.
+    let top = run_with(Tuning::default(), "t=0 jump", 3.0, |sim| {
+        let m = &sim.crabs()[0].mover;
+        !m.grounded && m.vel.y < 0.0
+    });
+    let peak = top.sim.time();
+    let landed = run("t=0 jump", 3.0).first("landed").unwrap();
+    let rise = peak - f64::from(Tuning::default().jump_windup);
+    let fall = landed - peak;
+    println!("rise {rise:.2} s, fall {fall:.2} s");
+    assert!((0.4..0.6).contains(&rise), "rise {rise}");
+    assert!((0.7..0.95).contains(&fall), "fall {fall}");
+}
+
+#[test]
 fn a_tapped_jump_is_a_small_hop() {
     let r = run("t=0 tap", 3.0);
     println!("tap peaks at {:.1}", r.highest);
