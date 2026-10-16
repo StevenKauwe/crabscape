@@ -15,6 +15,10 @@ Open Claude Code in the project and say what you'd like to do, or just type `/ne
 fits your budget, does it, checks it and adds it to the game. If it runs out of budget halfway, that's fine: it
 leaves a note so someone else's Claude can continue.
 
+## If something seems broken
+Just tell Claude "something's wrong" (or type `/doctor`). It checks the computer and the project, fixes what it can,
+and tells you in plain words what happened. You never need to clean up or repair anything yourself.
+
 ## Giving taste (the most useful thing you can do)
 Use the Studio page: <https://claude.ai/artifact/PttxVTZCC75dqSEpKXYowf>. Say what you tried, what felt off, what
 felt great. Short and honest is perfect. That's it.

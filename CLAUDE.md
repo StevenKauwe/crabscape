@@ -46,6 +46,16 @@ budgets. Nobody reads code, so checks are the safety net.
 - **Never commit generated junk:** `target/`, `web/pkg/`, `web/assets/`, renders, scratch, throwaway art iterations,
   videos. Big binaries bloat every clone forever.
 
+## Keeping the computer happy
+Teammates can't fix a broken computer, so don't break it. Bevy builds are big (several GB of `target/`).
+- `cargo tidy` runs automatically when a session starts (`.claude/settings.json`): it cleans old build files when
+  `target/` passes 8 GB or the disk has under 10 GB free, and only speaks up when it did something. Run it by hand
+  any time (`cargo tidy report` just looks).
+- Anything looks broken (yours or theirs: disk full, tools missing, git stuck, odd errors)? Run `/doctor`.
+- Before a long build, render or video job, check free space (`cargo tidy report`); stop if it's under ~10 GB.
+- Clean up scratch files you create (renders, frames, downloads) before you finish; never leave huge files around,
+  in the repo or outside it. Side copies in `.claude/worktrees/` go once their work is merged.
+
 Read the one-pagers in `docs/design/` that touch your task before you start (`vision`, `ocean-shaped`,
 `art-direction`, `how-it-plays`, `world`, `decisions`).
 
@@ -56,8 +66,8 @@ light) · `assets/` files the game loads · `art/` source art
 (`art/crab/crab-parts.svg` is the rig, written by `crates/crabrig`; `anatomy-notes.md` the sourced anatomy) ·
 `concept/` sketches · `docs/` design, poster, teaser scripts, screenshots · `crates/` also has the art tools, all pure
 Rust (`painter`: the owner's oil painter and p5.brush port, `crabpaint`; `crabrig`: the crab puppet and parts
-exporter; art pipeline is `cargo run`, see README "Changing the crab's art") · `tools/` build and test scripts ·
-`web/` the page (`pkg/`, `assets/` are built).
+exporter; art pipeline is `cargo run`, see README "Changing the crab's art") · `tools/` build and test scripts
+(`tidy`: disk housekeeping) · `web/` the page (`pkg/`, `assets/` are built).
 
 ## Checks (run all before a PR; CI runs them too)
 ```sh

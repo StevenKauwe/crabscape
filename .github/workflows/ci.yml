@@ -47,6 +47,11 @@ jobs:
         run: cargo clippy --all-targets --locked --target wasm32-unknown-unknown -- -D warnings
       - name: tests
         run: cargo test --workspace --locked
+      - name: tidy tool (fmt, clippy, tests)
+        run: |
+          cargo fmt --manifest-path tools/tidy/Cargo.toml --check
+          cargo clippy --manifest-path tools/tidy/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tools/tidy/Cargo.toml --locked
 
   web:
     name: web build, relaxed-SIMD check, size

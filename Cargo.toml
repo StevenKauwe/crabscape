@@ -67,9 +67,13 @@ web-sys = { version = "0.3", features = ["Window", "Storage", "Navigator", "Docu
 # our own code quick to compile.
 [profile.dev]
 opt-level = 1
+# Only file:line tables, so crash messages still say where. Full debug info made
+# build files many times bigger (Bevy is huge); `cargo tidy` keeps them in check.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 
 # The art tools (`--profile art`): fast code, quick to link, nothing of the game's size tuning.
 [profile.art]
