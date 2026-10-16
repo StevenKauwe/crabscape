@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<!-- CrabScape concept sheet: big-clawed snapping shrimp (Alpheus heterochaelis). Side view, facing left.
+     Hand-written SVG. Ink = #2A140F, paper = #F3EBDD. Rig notes: docs/design/creatures/snapping-shrimp.md -->
+<defs>
+  <filter id="wob" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="7"/>
+    <feDisplacementMap in="SourceGraphic" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <linearGradient id="gBody" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#C9C27E"/><stop offset=".5" stop-color="#8E8A4E"/><stop offset="1" stop-color="#5A5630"/>
+  </linearGradient>
+  <linearGradient id="gClaw" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#D9C98A"/><stop offset=".55" stop-color="#9C8448"/><stop offset="1" stop-color="#5E4A26"/>
+  </linearGradient>
+  <linearGradient id="gLeg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#E7C98E"/><stop offset="1" stop-color="#B08850"/>
+  </linearGradient>
+  <linearGradient id="gWater" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#BFDCD6"/><stop offset=".7" stop-color="#8FBDB5"/><stop offset="1" stop-color="#6E9F96"/>
+  </linearGradient>
+
+  <!-- walking legs (pereiopods 3-5) and the slender 2nd pereiopod, near side -->
+  <g id="legs" stroke="#2A140F" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" fill="url(#gLeg)">
+    <path d="M250 352 L240 380 L230 404 L236 405 L246 382 L258 355 Z"/>
+    <path d="M276 354 L272 382 L266 405 L272 406 L279 383 L284 356 Z"/>
+    <path d="M300 354 L304 382 L304 405 L310 405 L311 382 L307 355 Z"/>
+    <!-- 2nd pereiopod: thin, many-jointed carpus, tiny pincer -->
+    <path d="M226 350 C214 364 204 376 196 392" fill="none" stroke-width="5"/>
+    <path d="M226 350 C214 364 204 376 196 392" fill="none" stroke="#E7C98E" stroke-width="2.5"/>
+    <path d="M214 364 l4 3 M207 374 l4 3 M201 383 l4 3" stroke-width="1.5"/>
+    <path d="M196 392 l-6 6 M196 392 l-1 8" stroke-width="2.5"/>
+  </g>
+  <g id="farLegs" stroke="#2A140F" stroke-width="2.5" stroke-linejoin="round" fill="#8C6A3A">
+    <path d="M262 352 L256 380 L250 404 L254 405 L261 382 L268 354 Z"/>
+    <path d="M290 354 L290 382 L286 405 L290 405 L295 382 L296 355 Z"/>
+  </g>
+  <!-- body: carapace with hood over the eyes, humped abdomen (2nd plate overlaps 1st and 3rd), tail fan -->
+  <g id="body" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M430 346 C452 336 472 334 488 340 C482 354 468 364 440 368 Z" fill="#7E7A44"/>
+    <path d="M432 358 C454 364 474 376 486 390 C466 394 446 386 430 372 Z" fill="#6A6638"/>
+    <path d="M408 340 C428 336 446 346 452 358 C446 370 428 378 408 376 Z" fill="url(#gBody)"/>
+    <path d="M384 324 C398 324 410 330 414 340 L414 380 C402 384 392 384 384 382 Z" fill="url(#gBody)"/>
+    <path d="M360 314 C374 314 386 318 390 326 L390 384 C378 388 368 388 360 386 Z" fill="url(#gBody)"/>
+    <path d="M334 306 C348 306 360 310 366 318 L366 388 C354 392 344 392 334 390 Z" fill="url(#gBody)"/>
+    <!-- 2nd abdominal plate, big, overlapping (caridean hallmark) -->
+    <path d="M296 302 C318 296 338 300 344 312 C348 340 346 372 340 394 C324 400 306 398 294 392 Z" fill="url(#gBody)"/>
+    <path d="M276 308 C286 304 296 304 302 308 L302 390 C292 392 284 390 276 388 Z" fill="url(#gBody)"/>
+    <!-- carapace -->
+    <path d="M168 330 C176 312 210 304 250 304 C268 304 280 308 284 316 C288 336 286 360 280 376 C246 382 206 380 180 368 C168 360 164 344 168 330 Z" fill="url(#gBody)"/>
+    <path d="M196 314 C220 308 248 308 270 312" fill="none" stroke="#E8E2A8" stroke-width="4" opacity=".8"/>
+    <!-- mottling -->
+    <g fill="#5A5630" stroke="none" opacity=".55">
+      <ellipse cx="226" cy="336" rx="8" ry="5"/><ellipse cx="252" cy="350" rx="6" ry="4"/><ellipse cx="318" cy="340" rx="7" ry="5"/>
+      <ellipse cx="350" cy="356" rx="6" ry="4"/><ellipse cx="398" cy="352" rx="5" ry="4"/><ellipse cx="206" cy="356" rx="6" ry="4"/>
+    </g>
+    <!-- orbital hood over the eye, the eye a dark shape seen through it -->
+    <path d="M166 332 C160 322 164 312 176 310 C188 310 194 320 190 332 Z" fill="#B9B276"/>
+    <ellipse cx="177" cy="322" rx="7" ry="6" fill="#2A140F" opacity=".75"/>
+    <!-- pleopods -->
+    <g fill="#D2B98A" stroke-width="2">
+      <path d="M300 394 q-4 9 3 13 q4 -6 2 -13 Z"/><path d="M326 396 q-4 9 3 13 q4 -6 2 -13 Z"/><path d="M352 390 q-4 9 3 13 q4 -6 2 -13 Z"/>
+    </g>
+  </g>
+  <!-- antennules (2 flagella), antenna (long whip) and its scale -->
+  <g id="feelers" stroke="#2A140F" stroke-linecap="round" fill="none">
+    <path d="M168 326 C140 300 110 280 70 266" stroke-width="2.2"/><path d="M168 326 C146 304 120 296 92 296" stroke-width="2.2"/>
+    <path d="M170 336 C120 330 70 300 30 240" stroke-width="2.4"/>
+    <path d="M172 336 C156 330 144 326 132 330 C146 340 160 342 172 340 Z" fill="#C2B47E" stroke-width="2.5"/>
+  </g>
+  <!-- small claw (other 1st pereiopod), tucked -->
+  <g id="smallClaw" stroke="#2A140F" stroke-width="3" stroke-linejoin="round" fill="url(#gLeg)">
+    <path d="M206 360 L186 380 L168 384 L164 392 L182 392 L200 386 L214 366 Z"/>
+    <path d="M168 384 l-10 -2 M164 392 l-10 1" stroke-width="2.5"/>
+  </g>
+
+  <!-- snapper claw: merus + carpus from under the head, huge palm (propodus), dactyl with the plunger -->
+  <g id="snapClosed" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M200 356 C190 352 176 350 162 352 L160 364 C176 366 190 366 202 368 Z" fill="url(#gLeg)"/>
+    <path d="M164 340 C130 330 92 334 72 350 C66 364 78 378 100 382 C128 386 156 380 168 368 Z" fill="url(#gClaw)"/>
+    <path d="M76 350 C62 348 50 352 44 360 C58 362 70 362 80 360 Z" fill="#7A5E30"/>
+    <path d="M72 346 C60 340 46 342 40 350 C50 354 62 354 74 352 Z" fill="#A78B52"/>
+    <path d="M96 344 C116 338 140 338 156 344" fill="none" stroke="#F1E4B0" stroke-width="4" opacity=".85"/>
+    <path d="M44 358 l-4 2" stroke="#C0472C" stroke-width="4"/>
+  </g>
+  <g id="snapOpen" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M200 356 C190 352 176 350 162 352 L160 364 C176 366 190 366 202 368 Z" fill="url(#gLeg)"/>
+    <path d="M164 340 C130 330 92 334 72 350 C66 364 78 378 100 382 C128 386 156 380 168 368 Z" fill="url(#gClaw)"/>
+    <path d="M76 350 C62 348 50 352 44 360 C58 362 70 362 80 360 Z" fill="#7A5E30"/>
+    <!-- dactyl cocked open ~100 degrees, plunger showing -->
+    <path d="M80 346 C74 330 72 312 76 296 C84 300 90 318 90 340 Z" fill="#A78B52"/>
+    <path d="M86 342 l6 -6 l4 6 Z" fill="#E8D6A0" stroke-width="2"/>
+    <path d="M96 344 C116 338 140 338 156 344" fill="none" stroke="#F1E4B0" stroke-width="4" opacity=".85"/>
+    <path d="M100 290 a16 16 0 0 0 -24 4" fill="none" stroke-width="2"/><path d="M78 292 l-4 6 l7 0" fill="none" stroke-width="2"/>
+  </g>
+
+  <g id="shrimp"><use href="#farLegs"/><use href="#body"/><use href="#legs"/><use href="#feelers"/><use href="#smallClaw"/></g>
+</defs>
+
+<rect id="paper" width="1600" height="1000" fill="#F3EBDD"/>
+
+<g id="art">
+  <g fill="#FBF6EC" stroke="#E2D6C2" stroke-width="2">
+    <rect x="30" y="110" width="500" height="360" rx="6"/><rect x="550" y="110" width="500" height="360" rx="6"/>
+    <rect x="1070" y="110" width="500" height="360" rx="6"/>
+  </g>
+  <g fill="#D9CBB2" opacity=".7"><ellipse cx="290" cy="400" rx="220" ry="10"/><ellipse cx="810" cy="400" rx="220" ry="10"/><ellipse cx="1330" cy="400" rx="220" ry="10"/></g>
+
+  <!-- 1 KEY: at the burrow mouth in the oyster rubble, feelers out -->
+  <g transform="translate(50 10) scale(0.95)" filter="url(#wob)">
+    <path d="M360 406 C380 384 440 380 480 392 L490 406 Z" fill="#B7A27E" stroke="#2A140F" stroke-width="3"/>
+    <path d="M392 406 C410 394 448 394 470 406 Z" fill="#3A2A20"/>
+    <path d="M20 406 C30 392 56 388 70 400 L74 406 Z" fill="#CFC3AE" stroke="#2A140F" stroke-width="3"/>
+    <use href="#shrimp"/><use href="#snapClosed" transform="translate(165 358) scale(1.45) translate(-165 -358)"/>
+  </g>
+  <!-- 2 TELL: claw cocked open (about half a second), body braced -->
+  <g transform="translate(570 10) scale(0.95)" filter="url(#wob)">
+    <use href="#shrimp"/><use href="#snapOpen" transform="translate(165 358) scale(1.45) translate(-165 -358)"/>
+  </g>
+  <!-- 3 SNAP: claw shut, jet + cavitation bubble ahead, shock rings -->
+  <g transform="translate(1090 10) scale(0.95)" filter="url(#wob)">
+    <use href="#shrimp"/><use href="#snapClosed" transform="translate(165 358) scale(1.45) translate(-165 -358)"/>
+    <path d="M40 356 C30 354 20 354 8 356" stroke="#FFFFFF" stroke-width="6" fill="none"/>
+    <path d="M40 356 C30 354 20 354 8 356" stroke="#2A140F" stroke-width="1.5" fill="none" stroke-dasharray="4 4"/>
+    <circle cx="14" cy="356" r="12" fill="#FFFFFF" stroke="#2A140F" stroke-width="2.5"/>
+    <circle cx="10" cy="352" r="3" fill="#BFE6F0" stroke="none"/>
+    <g fill="none" stroke="#2A140F" stroke-width="2.5" stroke-linecap="round">
+      <path d="M2 320 a40 40 0 0 0 0 72"/><path d="M-14 304 a60 60 0 0 0 0 104" opacity=".55"/>
+      <path d="M40 316 a44 44 0 0 1 4 80" opacity=".5"/>
+    </g>
+  </g>
+
+  <!-- SIZE: real scale, 18 px per cm -->
+  <rect x="30" y="490" width="1020" height="480" rx="6" fill="url(#gWater)"/>
+  <path d="M30 880 C200 874 420 889 640 880 C840 872 960 884 1050 880 L1050 970 L30 970 Z" fill="#CDBA94"/>
+  <image href="../../crab/crab-parts.svg" x="80" y="689" width="432" height="217" preserveAspectRatio="none" clip-path="url(#cropCrab)"/>
+  <!-- shrimp 5.5 cm body (art ~420 units incl. claw; body ~300) -> 99 px body: scale 0.33 -->
+  <g transform="translate(620 747) scale(0.33)" filter="url(#wob)"><use href="#shrimp"/><use href="#snapOpen" transform="translate(165 358) scale(1.45) translate(-165 -358)"/></g>
+  <!-- reach of the shock: real directed snaps ~0.9 cm; acoustic 80 kPa at 4 cm. Game: 6 cm cone -->
+  <path d="M634 862 L526 836 L526 880 Z" fill="#FFFFFF" opacity=".35" stroke="#2A140F" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <g stroke="#2A140F" stroke-width="2"><path d="M760 940 h180 M760 935 v10 M940 935 v10"/></g>
+</g>
+<clipPath id="cropCrab"><rect x="80" y="716" width="432" height="200"/></clipPath>
+
+<g id="labels" font-family="Liberation Sans, sans-serif" fill="#2A140F">
+  <text x="30" y="58" font-family="Noto Serif, serif" font-weight="bold" font-size="40">BIG-CLAWED SNAPPING SHRIMP</text>
+  <text x="720" y="58" font-family="Noto Serif, serif" font-style="italic" font-size="22">Alpheus heterochaelis</text>
+  <text x="30" y="90" font-size="18">Role: turret · short-range shockwave · oyster banks and rubble, shallows · 5.5 cm (half a crab shell)</text>
+  <g font-size="17" font-weight="bold">
+    <text x="46" y="140">1 · KEY · guarding its burrow</text>
+    <text x="566" y="140">2 · TELL · snapper claw cocked open (~0.5 s)</text>
+    <text x="1086" y="140">3 · SNAP · jet, bubble, shock (claw shuts in ~1 ms)</text>
+  </g>
+  <g font-size="15" fill="#5A4636">
+    <text x="46" y="458">Feelers out, huge claw held low and closed.</text>
+    <text x="566" y="458">The open claw is the warning: step out of line.</text>
+    <text x="1086" y="458">The bubble's collapse makes the bang, not the claw.</text>
+  </g>
+  <text x="46" y="520" font-size="17" font-weight="bold">SIZE · real scale from the crab's eye (crab carapace 12 cm)</text>
+  <text x="150" y="915" font-size="15">our crab · 12 cm shell</text>
+  <text x="560" y="915" font-size="15">snapping shrimp · 5.5 cm · dashed = game shock reach (tuned)</text>
+  <text x="820" y="962" font-size="14">10 cm</text>
+  <text x="1086" y="520" font-size="17" font-weight="bold">PALETTE (stylised olive; colour not verified)</text>
+</g>
+<g id="swatches" stroke="#2A140F" stroke-width="1.5">
+  <rect x="1086" y="536" width="60" height="44" fill="#8E8A4E"/><rect x="1150" y="536" width="60" height="44" fill="#5A5630"/>
+  <rect x="1214" y="536" width="60" height="44" fill="#9C8448"/><rect x="1278" y="536" width="60" height="44" fill="#E7C98E"/>
+  <rect x="1342" y="536" width="60" height="44" fill="#C0472C"/><rect x="1406" y="536" width="60" height="44" fill="#FFFFFF"/>
+</g>
+<g id="labels2" font-family="Liberation Sans, sans-serif" fill="#2A140F" font-size="13">
+  <text x="1086" y="596">body · mottling · snapper claw · legs · finger tip · bubble</text>
+  <text x="1086" y="640" font-size="17" font-weight="bold">TELL → WINDOW (tuned)</text>
+  <text x="1086" y="664" font-size="15">Claw cocked: real ~500 ms; game 54 ticks (0.45 s)</text>
+  <text x="1086" y="686" font-size="15">Shock: a cone in front, 6 cm long (tuned up from mm)</text>
+  <text x="1086" y="708" font-size="15">Dodge out of line or jump over: no hit</text>
+  <text x="1086" y="730" font-size="15">Block: no shell damage, but poise drops (stagger)</text>
+  <text x="1086" y="752" font-size="15">Parry: no; you can't parry water. Close in instead</text>
+  <text x="1086" y="786" font-size="15">Weak spot: 0.6 s recock after a snap; tiny and soft</text>
+  <text x="1086" y="808" font-size="15">Many snaps tire it (contests are won on endurance)</text>
+  <text x="1086" y="838" font-size="13" fill="#5A4636">Sources: Versluis et al. 2000 Science · Herberholz &amp; Schmitz 1998</text>
+  <text x="1086" y="856" font-size="13" fill="#5A4636">Biol. Bull. · Dinh &amp; Patek 2023 (search abstract only)</text>
+</g>
+</svg>

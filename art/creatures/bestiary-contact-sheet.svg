@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1130" viewBox="0 0 1600 1130">
+<!-- CrabScape bestiary contact sheet: key pose + tell from each concept sheet. Render: resvg bestiary-contact-sheet.svg bestiary-contact-sheet.png -->
+<rect width="1600" height="1130" fill="#F3EBDD"/>
+<text x="20" y="54" font-family="Noto Serif, serif" font-weight="bold" font-size="40" fill="#2A140F">CRABSCAPE · BESTIARY v0.1</text>
+<text x="660" y="52" font-family="Liberation Sans, sans-serif" font-size="20" fill="#5A4636">six first enemies · key pose and the tell (the real behaviour that warns you)</text>
+<text x="16" y="108" font-family="Liberation Sans, sans-serif" font-weight="bold" font-size="22" fill="#2A140F">MANTIS SHRIMP · rusher · tell: rears, cocks its club</text>
+<svg x="10" y="118" width="780" height="275" viewBox="30 110 1020 360"><image href="mantis-shrimp/mantis-shrimp.png" width="1600" height="1000"/></svg>
+<text x="816" y="108" font-family="Liberation Sans, sans-serif" font-weight="bold" font-size="22" fill="#2A140F">SNAPPING SHRIMP · turret · tell: claw held open</text>
+<svg x="810" y="118" width="780" height="275" viewBox="30 110 1020 360"><image href="snapping-shrimp/snapping-shrimp.png" width="1600" height="1000"/></svg>
+<text x="16" y="458" font-family="Liberation Sans, sans-serif" font-weight="bold" font-size="22" fill="#2A140F">SNOWFLAKE MORAY · ambusher · tell: S-curve, mouth shut</text>
+<svg x="10" y="468" width="780" height="275" viewBox="30 110 1020 360"><image href="snowflake-moray/snowflake-moray.png" width="1600" height="1000"/></svg>
+<text x="816" y="458" font-family="Liberation Sans, sans-serif" font-weight="bold" font-size="22" fill="#2A140F">QUEEN TRIGGERFISH · tank/ranged · tell: noses down</text>
+<svg x="810" y="468" width="780" height="275" viewBox="30 110 1020 360"><image href="queen-triggerfish/queen-triggerfish.png" width="1600" height="1000"/></svg>
+<text x="16" y="808" font-family="Liberation Sans, sans-serif" font-weight="bold" font-size="22" fill="#2A140F">COMMON OCTOPUS · boss · tell: rises, web spreads</text>
+<svg x="10" y="818" width="780" height="275" viewBox="30 110 1020 360"><image href="common-octopus/common-octopus.png" width="1600" height="1000"/></svg>
+<text x="816" y="808" font-family="Liberation Sans, sans-serif" font-weight="bold" font-size="22" fill="#2A140F">ALARM JELLY · hazard · tell: red on black, tentacle line</text>
+<svg x="810" y="818" width="780" height="275" viewBox="30 110 1020 360"><image href="alarm-jelly/alarm-jelly.png" width="1600" height="1000"/></svg>
+</svg>

@@ -4,6 +4,7 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
 
 - **Depth is the map.** Sunny, safe shallows; then the twilight zone, the midnight zone and the trenches, each
   darker, colder and stranger.
+  Real ecology by depth, the food web and the rules every creature follows: `universe.md`.
 - **Real limits:** oxygen (the oxygen minimum zone), cold, pressure (body chemistry, adapted to over time) and light
   (your lantern). You go deeper by preparing and adapting, not only by levelling.
 - **The way home matters.** Getting back with what you found is half the challenge.

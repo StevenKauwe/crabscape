@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<!-- CrabScape concept sheet: queen triggerfish (Balistes vetula). Side view, facing left.
+     Hand-written SVG. Ink = #2A140F, paper = #F3EBDD. Rig notes: docs/design/creatures/queen-triggerfish.md -->
+<defs>
+  <filter id="wob" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="5"/>
+    <feDisplacementMap in="SourceGraphic" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <linearGradient id="gFish" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#6F8F8A"/><stop offset=".45" stop-color="#9DAE7E"/><stop offset=".75" stop-color="#E2C25A"/><stop offset="1" stop-color="#E8A63A"/>
+  </linearGradient>
+  <linearGradient id="gFin" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#5E8A92"/><stop offset="1" stop-color="#3C6670"/>
+  </linearGradient>
+  <linearGradient id="gWater" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#BFDCD6"/><stop offset=".7" stop-color="#8FBDB5"/><stop offset="1" stop-color="#6E9F96"/>
+  </linearGradient>
+
+  <!-- the fish, spine down (resting) -->
+  <g id="fishBody" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- caudal fin: lunate with long streamers -->
+    <path d="M404 252 C430 232 452 200 470 170 C462 214 462 300 474 352 C454 322 430 290 404 272 Z" fill="url(#gFin)"/>
+    <path d="M470 170 C478 160 486 154 496 150 M474 352 C482 362 490 368 500 372" fill="none" stroke-width="3"/>
+    <!-- second dorsal fin, tall at the front, with a trailing filament -->
+    <path d="M250 176 C268 136 286 110 300 96 C306 122 330 160 400 232 L380 240 C340 206 300 186 250 186 Z" fill="url(#gFin)"/>
+    <path d="M300 96 C308 82 318 74 330 70" fill="none" stroke-width="2.5"/>
+    <!-- anal fin, mirror below -->
+    <path d="M250 340 C268 380 286 404 300 416 C306 392 330 354 400 288 L380 280 C340 314 300 330 250 330 Z" fill="url(#gFin)"/>
+    <path d="M300 416 C310 428 320 434 332 436" fill="none" stroke-width="2.5"/>
+    <!-- body: deep rhomboid, compressed -->
+    <path d="M86 268 C94 232 132 196 190 176 C250 160 330 180 410 248 L410 274 C330 336 250 360 190 344 C132 330 96 304 86 280 Z" fill="url(#gFish)"/>
+    <!-- tough plate-like scales -->
+    <g fill="none" stroke="#2A140F" stroke-width="1.2" opacity=".2">
+      <path d="M180 190 L360 330 M220 180 L390 300 M260 176 L404 270 M150 210 L320 344 M130 240 L270 352"/>
+      <path d="M180 340 L360 196 M220 350 L390 226 M140 316 L320 182 M260 352 L400 250"/>
+    </g>
+    <!-- mouth: small, beaked, terminal -->
+    <path d="M86 268 C80 266 74 268 72 274 C74 280 80 282 86 280" fill="#C9A07A"/>
+    <path d="M73 274 l10 0" stroke-width="2.5"/>
+    <!-- the two blue face lines -->
+    <path d="M90 282 C110 300 150 306 188 296" fill="none" stroke="#2C7FC9" stroke-width="6"/>
+    <path d="M92 292 C114 316 150 324 196 316" fill="none" stroke="#2C7FC9" stroke-width="6"/>
+    <!-- eye high and far back, with radiating lines -->
+    <circle cx="176" cy="226" r="13" fill="#E8D27A"/><circle cx="174" cy="226" r="6" fill="#1E1712" stroke="none"/>
+    <circle cx="171" cy="223" r="2" fill="#fff" stroke="none"/>
+    <g stroke="#3B5C8C" stroke-width="3" opacity=".8"><path d="M162 216 l-10 -10 M176 210 l0 -14 M190 216 l10 -10 M160 236 l-12 6"/></g>
+    <!-- gill slit and pectoral fin -->
+    <path d="M206 250 C210 262 210 274 206 284" fill="none" stroke-width="3"/>
+    <path d="M214 262 C232 250 248 252 254 262 C246 272 230 278 214 272 Z" fill="#E9C46A" stroke-width="2.5"/>
+    <!-- pelvic spine (the rudimentary pelvic fin) -->
+    <path d="M220 344 L236 368 L242 346" fill="#C9A07A" stroke-width="2.5"/>
+    <path d="M120 230 C150 204 190 190 230 186" fill="none" stroke="#C6D6C0" stroke-width="5" opacity=".7"/>
+  </g>
+  <!-- first dorsal fin, folded (spine down in its groove) -->
+  <g id="spineDown" stroke="#2A140F" stroke-width="3" stroke-linejoin="round">
+    <path d="M196 178 L246 160 L250 172 L204 184 Z" fill="#4E6E74"/>
+  </g>
+  <!-- first dorsal fin raised and locked: big 1st spine, the 2nd ("trigger") behind it -->
+  <g id="spineUp" stroke="#2A140F" stroke-width="3" stroke-linejoin="round">
+    <path d="M200 180 L206 118 L214 120 L218 176 Z" fill="#4E6E74"/>
+    <path d="M206 120 C220 138 232 156 236 172 L218 176 Z" fill="#6F8F8A" stroke-width="2.5"/>
+    <path d="M226 172 L232 148 L238 150 L236 174 Z" fill="#4E6E74" stroke-width="2.5"/>
+  </g>
+</defs>
+
+<rect id="paper" width="1600" height="1000" fill="#F3EBDD"/>
+
+<g id="art">
+  <g fill="#FBF6EC" stroke="#E2D6C2" stroke-width="2">
+    <rect x="30" y="110" width="500" height="360" rx="6"/><rect x="550" y="110" width="500" height="360" rx="6"/>
+    <rect x="1070" y="110" width="500" height="360" rx="6"/>
+  </g>
+  <g fill="#D9CBB2" opacity=".7"><rect x="40" y="440" width="480" height="8" rx="4"/><rect x="560" y="440" width="480" height="8" rx="4"/><rect x="1080" y="440" width="480" height="8" rx="4"/></g>
+
+  <!-- 1 KEY: cruising, the soft dorsal and anal fins rippling -->
+  <g transform="translate(70 120) scale(0.78)" filter="url(#wob)">
+    <use href="#fishBody"/><use href="#spineDown"/>
+    <g fill="none" stroke="#2A140F" stroke-width="2" opacity=".7"><path d="M330 120 q8 6 0 12 q-8 6 0 12"/><path d="M330 392 q8 6 0 12 q-8 6 0 12"/></g>
+  </g>
+  <!-- 2 TELL: noses down over the target, spine locked up, mouth pursed -->
+  <g transform="translate(630 108) scale(0.75) rotate(-30 250 260)" filter="url(#wob)">
+    <use href="#fishBody"/><use href="#spineUp"/>
+  </g>
+  <g transform="translate(560 120)" filter="url(#wob)">
+    <!-- the crab it's lining up on, seen small -->
+    <image href="../../crab/crab-parts.svg" x="24" y="250" width="150" height="76" preserveAspectRatio="none" clip-path="url(#cropT)"/>
+  </g>
+  <!-- 3 JET: a blast of water from the mouth flips the crab onto its back -->
+  <g transform="translate(1150 108) scale(0.75) rotate(-30 250 260)" filter="url(#wob)">
+    <use href="#fishBody"/><use href="#spineUp"/>
+    <g fill="none" stroke="#5FA8C8" stroke-width="5" stroke-linecap="round" opacity=".9">
+      <path d="M66 276 C30 282 -20 296 -80 312"/><path d="M66 270 C30 268 -20 270 -76 276"/><path d="M68 282 C34 298 -10 320 -60 348"/>
+    </g>
+    <g fill="none" stroke="#2A140F" stroke-width="2" stroke-linecap="round"><path d="M50 260 C30 262 10 264 -14 262"/><path d="M50 296 C30 306 10 316 -10 330"/></g>
+  </g>
+  <g transform="translate(1080 120)">
+    <g transform="rotate(160 100 290)"><image href="../../crab/crab-parts.svg" x="24" y="250" width="150" height="76" preserveAspectRatio="none" clip-path="url(#cropT)"/></g>
+    <g fill="#D9CBB2" stroke="#2A140F" stroke-width="2"><circle cx="40" cy="314" r="9"/><circle cx="64" cy="318" r="7"/><circle cx="150" cy="316" r="8"/><circle cx="170" cy="312" r="5"/></g>
+    <g fill="none" stroke="#2A140F" stroke-width="2.5" stroke-linecap="round"><path d="M70 232 a40 40 0 0 1 50 -6"/><path d="M118 220 l4 10 l-10 2"/></g>
+  </g>
+
+  <!-- SIZE: 9 px per cm -->
+  <rect x="30" y="490" width="1020" height="480" rx="6" fill="url(#gWater)"/>
+  <path d="M30 880 C200 874 420 889 640 880 C840 872 960 884 1050 880 L1050 970 L30 970 Z" fill="#CDBA94"/>
+  <image href="../../crab/crab-parts.svg" x="120" y="782" width="216" height="109" preserveAspectRatio="none" clip-path="url(#cropCrab)"/>
+  <!-- adult queen triggerfish, 45 cm total = 405 px; art spans ~430 units nose to tail tip -> scale 0.94 -->
+  <g transform="translate(470 470) scale(0.94)" filter="url(#wob)"><use href="#fishBody"/><use href="#spineDown"/></g>
+  <g stroke="#2A140F" stroke-width="2"><path d="M760 940 h90 M760 935 v10 M850 935 v10"/></g>
+</g>
+<clipPath id="cropCrab"><rect x="120" y="792" width="216" height="100"/></clipPath>
+<clipPath id="cropT"><rect x="24" y="257" width="150" height="70"/></clipPath>
+
+<g id="labels" font-family="Liberation Sans, sans-serif" fill="#2A140F">
+  <text x="30" y="58" font-family="Noto Serif, serif" font-weight="bold" font-size="40">QUEEN TRIGGERFISH</text>
+  <text x="500" y="58" font-family="Noto Serif, serif" font-style="italic" font-size="22">Balistes vetula</text>
+  <text x="30" y="90" font-size="18">Role: tank + ranged · armoured reef fish · rocky and coral reefs, usually 3–30 m · 30–60 cm · eats bottom invertebrates</text>
+  <g font-size="17" font-weight="bold">
+    <text x="46" y="140">1 · KEY · cruising on rippling fins</text>
+    <text x="566" y="140">2 · TELL · noses down over you, spine locked</text>
+    <text x="1086" y="140">3 · JET · blows water to flip you over</text>
+  </g>
+  <g font-size="15" fill="#5A4636">
+    <text x="46" y="458">Slow on its soft fins; the tail is for bursts.</text>
+    <text x="566" y="458">Head-down hover = the jet is coming.</text>
+    <text x="1086" y="458">Flipped: belly up, then it bites the soft side.</text>
+  </g>
+  <text x="46" y="520" font-size="17" font-weight="bold">SIZE · real scale from the crab's eye (crab carapace 12 cm)</text>
+  <text x="120" y="915" font-size="15">our crab · 12 cm</text>
+  <text x="500" y="915" font-size="15">queen triggerfish · 45 cm adult (max 60)</text>
+  <text x="780" y="962" font-size="14">10 cm</text>
+  <text x="1086" y="520" font-size="17" font-weight="bold">PALETTE</text>
+</g>
+<g id="swatches" stroke="#2A140F" stroke-width="1.5">
+  <rect x="1086" y="536" width="60" height="44" fill="#6F8F8A"/><rect x="1150" y="536" width="60" height="44" fill="#9DAE7E"/>
+  <rect x="1214" y="536" width="60" height="44" fill="#E2C25A"/><rect x="1278" y="536" width="60" height="44" fill="#2C7FC9"/>
+  <rect x="1342" y="536" width="60" height="44" fill="#3C6670"/><rect x="1406" y="536" width="60" height="44" fill="#5FA8C8"/>
+</g>
+<g id="labels2" font-family="Liberation Sans, sans-serif" fill="#2A140F" font-size="13">
+  <text x="1086" y="596">back · flank · belly · face lines · fins · water jet</text>
+  <text x="1086" y="640" font-size="17" font-weight="bold">TELL → WINDOW (tuned)</text>
+  <text x="1086" y="664" font-size="15">Nose-down hover 0.6 s, then the jet (a cone)</text>
+  <text x="1086" y="686" font-size="15">Dodge sideways or brace (hold block) = not flipped</text>
+  <text x="1086" y="708" font-size="15">Flipped: 1.0 s helpless, mash to right yourself</text>
+  <text x="1086" y="730" font-size="15">Bite: parry window 10 ticks, punishes the mouth</text>
+  <text x="1086" y="752" font-size="15">Armour: hits on the flank do little (thick scales)</text>
+  <text x="1086" y="786" font-size="15">Weak spots: the mouth and eyes after a jet</text>
+  <text x="1086" y="808" font-size="15">Hides in a crevice locked by its spine (can't be pulled)</text>
+  <text x="1086" y="838" font-size="13" fill="#5A4636">Sources: FishBase (B. vetula) · Australian Museum</text>
+  <text x="1086" y="856" font-size="13" fill="#5A4636">(trigger lock) · jet at crabs: design extrapolation</text>
+</g>
+</svg>

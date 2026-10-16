@@ -36,7 +36,7 @@ The rule cuts both ways: if ink blinds a predator, it blinds the player too. If 
 enough shell blocks it.
 
 ## Real behaviours that suggest mechanics
-**Status: TO VERIFY WITH SOURCES.** None of these rows has a source yet. Each needs a real, opened source added
+**Status: TO VERIFY WITH SOURCES.** Rows without a source each need a real, opened source added
 (see the research issues) before it becomes lore or a mechanic. Write sources as `[KEY] author, title, link`.
 
 | # | Real biology (unverified) | What it could become | Source |
@@ -45,13 +45,13 @@ enough shell blocks it.
 | 2 | Crabs **moult** and stay soft and vulnerable until the new shell hardens | Growing up is a risk: hide somewhere safe while soft | partly: [CQ] in anatomy-notes |
 | 3 | **Red light is absorbed first** with depth, so red animals look black in the deep | Your red crab is camouflaged down there | [NOAA] in anatomy-notes |
 | 4 | **Stoplight loosejaws** see and make red light most deep animals can't see | A red lantern as late-game stealth gear | — |
-| 5 | The **alarm jellyfish** (*Atolla*) flashes when attacked, drawing bigger predators onto its attacker | A defence trick, or a danger when you grab the wrong jelly | — |
+| 5 | The **alarm jellyfish** (*Atolla*) flashes when attacked, drawing bigger predators onto its attacker | A defence trick, or a danger when you grab the wrong jelly (`creatures/alarm-jelly.md`) | [MBARI] MBARI, "Deep-sea crown jelly", https://www.mbari.org/animal/deep-sea-crown-jelly/ |
 | 6 | **Boxer crabs** carry small anemones in their claws as stinging weapons | Living tools and weapons instead of metal swords | — |
 | 7 | **Decorator crabs** stick sponges and algae onto their shells for camouflage | Cosmetic and functional costumes from biology | — |
 | 8 | **Yeti crabs** at hydrothermal vents farm bacteria on their hairy claws by waving them | Food farming in the deep | — |
 | 9 | **Whale falls** pass through stages over years: scavengers → bone-eating *Osedax* worms → bacteria | The whale-fall village changes over time | — |
 | 10 | **Brine pools** on the sea floor are hypersaline lakes that kill animals that wander in | A real environmental hazard | — |
-| 11 | **Diel vertical migration:** each night huge numbers of animals rise to feed, then sink at dawn | Day and night change which creatures are where | — |
+| 11 | **Diel vertical migration:** each night huge numbers of animals rise to feed, then sink at dawn | Day and night change which creatures are where (`universe.md`) | [WHOI-DVM] WHOI news release (2022), https://www.whoi.edu/press-room/news-release/whoi-leads-multi-ship-study-of-northwest-atlantic/ |
 | 12 | The **oxygen minimum zone**, roughly 200–1,000 m in many oceans, holds very little dissolved oxygen | The real breathing limit for a crab | — |
 | 13 | Deep-sea animals accumulate **TMAO**, which counters pressure's effect on proteins | Depth tolerance you build by adapting | — |
 

@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<!-- CrabScape concept sheet: alarm jelly / deep-sea crown jelly (Atolla, e.g. A. wyvillei). Side view.
+     Hand-written SVG. Ink = #2A140F, paper = #F3EBDD, the deep = #0B1A22. Rig notes: docs/design/creatures/alarm-jelly.md -->
+<defs>
+  <filter id="wob" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="13"/>
+    <feDisplacementMap in="SourceGraphic" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>
+  <linearGradient id="gDeep" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12303A"/><stop offset="1" stop-color="#070F14"/></linearGradient>
+  <radialGradient id="gLit" cx=".5" cy=".55" r=".6"><stop offset="0" stop-color="#3A3020"/><stop offset=".6" stop-color="#16231F"/><stop offset="1" stop-color="#0B1A22"/></radialGradient>
+  <radialGradient id="gBell" cx=".45" cy=".3" r=".8"><stop offset="0" stop-color="#E0564A"/><stop offset=".55" stop-color="#A3202A"/><stop offset="1" stop-color="#5A0E18"/></radialGradient>
+  <radialGradient id="gBellDark" cx=".45" cy=".3" r=".8"><stop offset="0" stop-color="#2A1418"/><stop offset="1" stop-color="#120A0E"/></radialGradient>
+  <radialGradient id="gLantern" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFF2B0"/><stop offset=".3" stop-color="#F2C24A" stop-opacity=".6"/><stop offset="1" stop-color="#F2C24A" stop-opacity="0"/></radialGradient>
+
+  <!-- the jelly: flattened bell, deep coronal groove, scalloped rim of lappets, ~20 marginal tentacles
+       (about 10 seen on the near side), one long trailing tentacle -->
+  <g id="jelly" stroke="#2A140F" stroke-linejoin="round" stroke-linecap="round">
+    <g fill="none" stroke="#C23A3A" stroke-width="3">
+      <path d="M150 262 C130 250 112 236 104 214"/><path d="M168 268 C152 262 138 256 124 244"/><path d="M190 272 C182 290 176 304 168 312"/>
+      <path d="M214 274 C212 292 210 306 204 318"/><path d="M238 275 C240 294 242 306 240 320"/><path d="M262 274 C268 292 274 304 278 314"/>
+      <path d="M286 272 C296 286 306 296 316 302"/><path d="M308 268 C324 262 338 254 350 240"/><path d="M326 262 C344 250 360 236 366 214"/>
+    </g>
+    <!-- the long tentacle -->
+    <path d="M200 274 C190 330 230 380 210 440 C196 480 230 520 250 560" fill="none" stroke="#2A140F" stroke-width="7"/>
+    <path d="M200 274 C190 330 230 380 210 440 C196 480 230 520 250 560" fill="none" stroke="#D84A4A" stroke-width="4"/>
+    <!-- rim of lappets -->
+    <path d="M140 258 C150 272 164 274 172 266 C182 278 198 280 206 270 C216 282 232 282 240 272 C250 282 266 282 274 270 C284 280 300 278 308 266 C318 274 332 272 340 258 C300 246 180 246 140 258 Z" fill="#8E1A26" stroke-width="3"/>
+    <!-- bell + central dome above the coronal groove -->
+    <path d="M144 256 C150 230 180 214 240 212 C300 214 330 230 336 256 C300 264 180 264 144 256 Z" fill="url(#gBell)" stroke-width="3.5"/>
+    <path d="M176 232 C190 196 214 184 240 184 C266 184 290 196 304 232 C280 240 200 240 176 232 Z" fill="url(#gBell)" stroke-width="3.5"/>
+    <!-- stomach seen through the dome -->
+    <ellipse cx="240" cy="224" rx="32" ry="12" fill="#5A0E18" stroke="none" opacity=".8"/>
+    <path d="M196 204 C214 192 236 190 256 192" fill="none" stroke="#FFB0A0" stroke-width="4" opacity=".7"/>
+  </g>
+</defs>
+
+<rect id="paper" width="1600" height="1000" fill="#F3EBDD"/>
+
+<g id="art">
+  <rect x="30" y="110" width="500" height="360" rx="6" fill="url(#gLit)"/>
+  <rect x="550" y="110" width="500" height="360" rx="6" fill="url(#gDeep)"/>
+  <rect x="1070" y="110" width="500" height="360" rx="6" fill="url(#gDeep)"/>
+
+  <g clip-path="url(#clipP1)">
+  <!-- 1 KEY: drifting, in the lantern's yellow light its red shows -->
+  <circle cx="420" cy="400" r="160" fill="url(#gLantern)" opacity=".55" clip-path="url(#clipP1)"/>
+  <g transform="translate(60 60) scale(0.82)" filter="url(#wob)"><use href="#jelly"/></g>
+  <g fill="#F2C24A" stroke="#2A140F" stroke-width="2"><rect x="470" y="420" width="18" height="24" rx="3"/></g>
+  </g><g clip-path="url(#clipP2)">
+  <!-- 2 TELL: out of the light it is a black shape on black; only the drifting tentacle line gives it away -->
+  <g transform="translate(580 60) scale(0.82)" opacity=".9">
+    <g filter="url(#wob)">
+      <path d="M144 256 C150 230 180 214 240 212 C300 214 330 230 336 256 C300 264 180 264 144 256 Z" fill="url(#gBellDark)" stroke="#24363C" stroke-width="2"/>
+      <path d="M176 232 C190 196 214 184 240 184 C266 184 290 196 304 232 C280 240 200 240 176 232 Z" fill="url(#gBellDark)" stroke="#24363C" stroke-width="2"/>
+      <path d="M200 274 C190 330 230 380 210 440 C196 480 230 520 250 560" fill="none" stroke="#3C4E52" stroke-width="3" stroke-dasharray="10 6"/>
+    </g>
+  </g>
+  <g fill="none" stroke="#7FA8A8" stroke-width="2" stroke-linecap="round" opacity=".8">
+    <path d="M840 400 q14 -8 28 0"/><path d="M836 414 q18 -10 36 0"/>
+  </g>
+  </g><g clip-path="url(#clipP3)">
+  <!-- 3 ALARM: touched, it throws pinwheels of blue light ... and something big turns toward you -->
+  <path d="M1500 180 C1450 170 1380 200 1350 260 C1330 300 1340 360 1380 400 C1440 440 1540 430 1570 400 L1570 180 Z" fill="#050B0E" opacity=".9"/>
+  <circle cx="1480" cy="260" r="7" fill="#7FD8E0" opacity=".5"/>
+  <path d="M1352 300 C1400 330 1470 340 1570 330" fill="none" stroke="#1C2C32" stroke-width="4"/>
+  <path d="M1360 330 l10 -12 l8 14 l10 -14 l8 14 l10 -12" fill="none" stroke="#2A3C42" stroke-width="2"/>
+  <g transform="translate(1100 60) scale(0.82)">
+    <g filter="url(#glow)" fill="none" stroke="#3FA9FF" stroke-width="10" opacity=".85">
+      <path d="M240 232 m-90 0 a90 30 0 1 0 180 0 a90 30 0 1 0 -180 0"/>
+    </g>
+    <g filter="url(#wob)"><use href="#jelly"/></g>
+    <g fill="#9FE0FF" stroke="none">
+      <circle cx="146" cy="258" r="6"/><circle cx="176" cy="268" r="6"/><circle cx="208" cy="274" r="6"/><circle cx="240" cy="276" r="7"/>
+      <circle cx="272" cy="274" r="6"/><circle cx="304" cy="268" r="6"/><circle cx="334" cy="258" r="6"/>
+    </g>
+    <g fill="none" stroke="#3FA9FF" stroke-width="4" stroke-linecap="round" opacity=".9">
+      <path d="M120 300 a130 60 0 0 0 240 0"/><path d="M90 320 a160 80 0 0 0 300 0" opacity=".55"/>
+    </g>
+  </g>
+
+  </g>
+  <!-- SIZE: 6 px per cm, midnight floor -->
+  <rect x="30" y="490" width="1020" height="480" rx="6" fill="url(#gDeep)"/>
+  <path d="M30 880 C200 874 420 889 640 880 C840 872 960 884 1050 880 L1050 970 L30 970 Z" fill="#1E2A2A"/>
+  <circle cx="200" cy="850" r="120" fill="url(#gLantern)" opacity=".45" clip-path="url(#clipSz)"/>
+  <image href="../../crab/crab-parts.svg" x="130" y="808" width="144" height="73" preserveAspectRatio="none" clip-path="url(#cropCrab)"/>
+  <!-- bell 15 cm = 90 px (art bell ~196 units -> scale 0.46); tentacle drawn ~6x bell -->
+  <g transform="translate(520 500) scale(0.46)" filter="url(#wob)"><use href="#jelly"/></g>
+  <path d="M637 758 C660 820 720 840 780 820 C860 790 920 740 990 770 C1020 784 1030 820 1010 850" fill="none" stroke="#D84A4A" stroke-width="2.5"/>
+  <g stroke="#9FB8B8" stroke-width="2"><path d="M840 940 h60 M840 935 v10 M900 935 v10"/></g>
+</g>
+<clipPath id="clipP1"><rect x="30" y="110" width="500" height="360" rx="6"/></clipPath>
+<clipPath id="clipP2"><rect x="550" y="110" width="500" height="360" rx="6"/></clipPath>
+<clipPath id="clipP3"><rect x="1070" y="110" width="500" height="360" rx="6"/></clipPath>
+<clipPath id="clipSz"><rect x="30" y="490" width="1020" height="480" rx="6"/></clipPath>
+<clipPath id="cropCrab"><rect x="130" y="814" width="144" height="68"/></clipPath>
+
+<g id="labels" font-family="Liberation Sans, sans-serif" fill="#2A140F">
+  <text x="30" y="58" font-family="Noto Serif, serif" font-weight="bold" font-size="40">ALARM JELLY</text>
+  <text x="330" y="58" font-family="Noto Serif, serif" font-style="italic" font-size="22">Atolla (deep-sea crown jelly)</text>
+  <text x="30" y="90" font-size="18">Role: environmental hazard · drifts in the midnight zone, 500–5,000 m · bell up to 15 cm, one tentacle up to 6× the bell</text>
+  <g font-size="17" font-weight="bold" fill="#F3EBDD">
+    <text x="46" y="140">1 · KEY · in your lantern light it's red</text>
+    <text x="566" y="140">2 · TELL · out of the light: black on black</text>
+    <text x="1086" y="140">3 · ALARM · touched, it screams in light</text>
+  </g>
+  <g font-size="15" fill="#C9D8D4">
+    <text x="46" y="458">Red is invisible in the deep. The lantern shows it.</text>
+    <text x="566" y="458">Watch for the drifting tentacle line.</text>
+    <text x="1086" y="458">Blue pinwheels call bigger hunters to you.</text>
+  </g>
+  <text x="46" y="520" font-size="17" font-weight="bold" fill="#F3EBDD">SIZE · real scale from the crab's eye (crab carapace 12 cm)</text>
+  <text x="110" y="915" font-size="15" fill="#C9D8D4">our crab · 12 cm</text>
+  <text x="520" y="915" font-size="15" fill="#C9D8D4">alarm jelly · bell 15 cm, long tentacle ~90 cm</text>
+  <text x="850" y="962" font-size="14" fill="#C9D8D4">10 cm</text>
+  <text x="1086" y="520" font-size="17" font-weight="bold">PALETTE</text>
+</g>
+<g id="swatches" stroke="#2A140F" stroke-width="1.5">
+  <rect x="1086" y="536" width="60" height="44" fill="#A3202A"/><rect x="1150" y="536" width="60" height="44" fill="#5A0E18"/>
+  <rect x="1214" y="536" width="60" height="44" fill="#120A0E"/><rect x="1278" y="536" width="60" height="44" fill="#3FA9FF"/>
+  <rect x="1342" y="536" width="60" height="44" fill="#9FE0FF"/><rect x="1406" y="536" width="60" height="44" fill="#0B1A22"/>
+</g>
+<g id="labels2" font-family="Liberation Sans, sans-serif" fill="#2A140F" font-size="13">
+  <text x="1086" y="596">bell red · stomach · red at depth · alarm blue · flash core · the deep</text>
+  <text x="1086" y="640" font-size="17" font-weight="bold">HOW IT HURTS (tuned)</text>
+  <text x="1086" y="664" font-size="15">Never attacks: it drifts. Touching a tentacle stings</text>
+  <text x="1086" y="686" font-size="15">(venom: small damage over 2 s; claws up blocks it)</text>
+  <text x="1086" y="708" font-size="15">Hit it or bump the bell: ALARM for 3 s (real waves</text>
+  <text x="1086" y="730" font-size="15">5–50 cm/s) and the nearest big hunter comes</text>
+  <text x="1086" y="752" font-size="15">It doesn't chase: it only reacts to touch</text>
+  <text x="1086" y="786" font-size="15">Use it: lure a hunter onto something chasing you</text>
+  <text x="1086" y="808" font-size="15">Drops nothing; it's weather, not prey</text>
+  <text x="1086" y="838" font-size="13" fill="#5A4636">Sources: MBARI (deep-sea crown jelly) · Wikipedia</text>
+  <text x="1086" y="856" font-size="13" fill="#5A4636">(Atolla wyvillei) · NOAA Ocean Exploration (e-jelly)</text>
+</g>
+</svg>

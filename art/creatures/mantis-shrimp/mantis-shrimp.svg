@@ -1,0 +1,221 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="1000" viewBox="0 0 1600 1000">
+<!-- CrabScape concept sheet: peacock mantis shrimp (Odontodactylus scyllarus). Side view, facing left (toward the crab).
+     Hand-written SVG. Ink = #2A140F, paper = #F3EBDD. Parts: see docs/design/creatures/mantis-shrimp.md (rig notes). -->
+<defs>
+  <filter id="wob" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="3"/>
+    <feDisplacementMap in="SourceGraphic" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <linearGradient id="gBody" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#9CC27A"/><stop offset=".45" stop-color="#5B9452"/><stop offset="1" stop-color="#2E5A34"/>
+  </linearGradient>
+  <linearGradient id="gAbd" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#8DB872"/><stop offset=".5" stop-color="#4F8749"/><stop offset="1" stop-color="#2A5030"/>
+  </linearGradient>
+  <linearGradient id="gLeg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#F59A5E"/><stop offset="1" stop-color="#C2482A"/>
+  </linearGradient>
+  <linearGradient id="gClub" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#F7A3A0"/><stop offset=".5" stop-color="#D8475A"/><stop offset="1" stop-color="#8E2238"/>
+  </linearGradient>
+  <linearGradient id="gFan" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#F08A4B"/><stop offset="1" stop-color="#B8392C"/>
+  </linearGradient>
+  <radialGradient id="gEye" cx=".35" cy=".3" r=".8">
+    <stop offset="0" stop-color="#7FB5B0"/><stop offset=".6" stop-color="#2D6670"/><stop offset="1" stop-color="#15343C"/>
+  </radialGradient>
+  <linearGradient id="gWater" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#BFDCD6"/><stop offset=".7" stop-color="#8FBDB5"/><stop offset="1" stop-color="#6E9F96"/>
+  </linearGradient>
+
+  <!-- far-side limbs (darker, behind body) -->
+  <g id="farLegs" stroke="#2A140F" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" fill="#A8492E">
+    <path d="M214 352 L206 380 L196 400 L200 401 L211 381 L220 354 Z"/>
+    <path d="M238 354 L236 382 L230 401 L234 402 L241 383 L244 356 Z"/>
+    <path d="M262 356 L266 384 L264 402 L268 402 L271 384 L268 357 Z"/>
+  </g>
+  <!-- near-side walking legs (3 pairs of thoracic legs behind the raptorials) -->
+  <g id="nearLegs" stroke="#2A140F" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" fill="url(#gLeg)">
+    <path d="M222 352 L210 377 L201 401 L207 403 L217 379 L230 355 Z"/>
+    <path d="M246 355 L245 380 L240 403 L246 404 L252 381 L254 357 Z"/>
+    <path d="M270 357 L276 382 L276 404 L282 404 L283 381 L277 357 Z"/>
+  </g>
+  <!-- body: carapace, exposed thoracic segments, 6 abdominal segments, telson + uropods -->
+  <g id="body" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- uropods (tail fan) -->
+    <path d="M418 352 C440 340 466 334 486 340 C478 352 462 364 432 370 Z" fill="url(#gFan)"/>
+    <path d="M420 362 C446 368 470 380 482 394 C462 398 440 390 422 376 Z" fill="#C24A30"/>
+    <path d="M470 343 l6 -3 M474 386 l7 4" stroke-width="2"/>
+    <!-- telson -->
+    <path d="M404 340 C430 336 452 346 458 360 C452 374 430 382 404 378 Z" fill="url(#gAbd)"/>
+    <path d="M414 350 C430 352 442 356 448 360 M414 368 C430 368 442 364 448 360" fill="none" stroke-width="2"/>
+    <!-- abdominal segments 6..1 (back to front so front overlaps) -->
+    <path d="M378 330 L408 334 L410 382 L380 386 Z" fill="url(#gAbd)"/>
+    <path d="M352 326 L382 330 L384 387 L354 390 Z" fill="url(#gAbd)"/>
+    <path d="M326 323 L356 326 L358 391 L328 393 Z" fill="url(#gAbd)"/>
+    <path d="M300 321 L330 323 L332 393 L302 394 Z" fill="url(#gAbd)"/>
+    <path d="M274 320 L304 321 L306 394 L276 394 Z" fill="url(#gAbd)"/>
+    <path d="M250 320 L278 320 L280 393 L252 392 Z" fill="url(#gAbd)"/>
+    <!-- segment ridges and orange posterior margins -->
+    <g fill="none" stroke="#E58A4C" stroke-width="3">
+      <path d="M276 323 L278 390 M302 324 L304 391 M328 326 L330 390 M354 329 L356 387 M380 333 L382 383"/>
+    </g>
+    <!-- pleopods (swimmerets) under the abdomen -->
+    <g fill="#E9A07A" stroke-width="2">
+      <path d="M262 392 q-4 10 4 14 q4 -6 2 -14 Z"/><path d="M288 393 q-4 10 4 14 q4 -6 2 -14 Z"/>
+      <path d="M314 392 q-4 10 4 14 q4 -6 2 -14 Z"/><path d="M340 390 q-4 10 4 14 q4 -6 2 -14 Z"/>
+      <path d="M366 387 q-4 10 4 13 q4 -6 2 -13 Z"/>
+    </g>
+    <!-- exposed thoracic segments -->
+    <path d="M214 324 L252 320 L254 360 L216 360 Z" fill="url(#gBody)"/>
+    <path d="M228 323 L230 360 M240 321 L242 360" fill="none" stroke-width="2"/>
+    <!-- carapace -->
+    <path d="M118 318 C130 300 170 296 220 302 C226 318 226 346 220 362 C180 368 140 366 120 352 C110 342 110 328 118 318 Z" fill="url(#gBody)"/>
+    <path d="M140 306 C170 302 196 304 214 308" fill="none" stroke="#C8E0A0" stroke-width="4" opacity=".8"/>
+    <!-- leopard spots on the front of the carapace -->
+    <g fill="none" stroke="#1F3A24" stroke-width="2.2">
+      <circle cx="140" cy="326" r="4"/><circle cx="154" cy="318" r="3.5"/><circle cx="152" cy="336" r="4"/>
+      <circle cx="168" cy="326" r="3.5"/><circle cx="136" cy="342" r="3"/><circle cx="170" cy="342" r="3"/>
+    </g>
+    <!-- rostral plate -->
+    <path d="M112 322 L100 318 L104 330 L116 334 Z" fill="#7FAF64"/>
+  </g>
+  <!-- head: antennal scales, antennules (3 flagella each), stalked eyes with a midband -->
+  <g id="head" stroke="#2A140F" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M110 330 C88 318 70 300 66 286 C80 288 98 302 112 322 Z" fill="#F28E62" stroke-width="3"/>
+    <path d="M70 290 l-6 -2 M76 296 l-7 0 M84 304 l-7 2" stroke-width="1.6"/>
+    <g fill="none" stroke-width="2">
+      <path d="M108 314 C92 290 80 262 76 236"/><path d="M108 314 C96 288 92 262 96 240"/><path d="M108 314 C100 292 102 266 110 246"/>
+      <path d="M104 318 C84 302 64 286 46 278"/>
+    </g>
+    <path d="M122 312 L112 286" stroke-width="7" stroke="#2A140F"/><path d="M122 312 L112 286" stroke-width="4" stroke="#6E9C5A"/>
+    <ellipse cx="108" cy="268" rx="14" ry="20" fill="url(#gEye)" stroke-width="3" transform="rotate(-18 108 268)"/>
+    <path d="M96 272 C104 268 114 264 121 262" stroke="#E9F0C0" stroke-width="3.5" fill="none"/>
+    <path d="M136 310 L134 284" stroke-width="7"/><path d="M136 310 L134 284" stroke-width="4" stroke="#5E8C4E"/>
+    <ellipse cx="132" cy="268" rx="13" ry="19" fill="url(#gEye)" stroke-width="3" transform="rotate(-8 132 268)"/>
+    <path d="M120 271 C128 268 138 266 145 265" stroke="#E9F0C0" stroke-width="3.5" fill="none"/>
+    <circle cx="103" cy="258" r="3" fill="#fff" stroke="none"/><circle cx="127" cy="258" r="3" fill="#fff" stroke="none"/>
+  </g>
+  <!-- small maxillipeds (3rd-5th, folded under the head) -->
+  <g id="maxis" stroke="#2A140F" stroke-width="2.5" fill="#E07A55" stroke-linejoin="round">
+    <path d="M176 358 l-8 18 l-10 2 l2 4 l12 -2 l9 -20 Z"/><path d="M196 360 l-6 18 l-10 3 l2 4 l12 -3 l7 -21 Z"/>
+  </g>
+
+  <!-- raptorial appendage, folded (merus + propodus/dactyl folded back, club heel forward) -->
+  <g id="raptFolded" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M160 346 C150 360 136 376 124 392 L136 400 C148 386 162 368 172 352 Z" fill="url(#gClub)"/>
+    <path d="M126 396 C140 392 160 384 178 372 L182 380 C164 394 146 402 130 406 Z" fill="#E86A6A"/>
+    <circle cx="124" cy="400" r="15" fill="url(#gClub)"/>
+    <path d="M118 394 a7 7 0 0 1 10 -2" stroke="#FFD9CF" stroke-width="2.5" fill="none"/>
+  </g>
+  <!-- raptorial appendage, cocked: merus pulled back, latch set, heel tucked tight -->
+  <g id="raptCocked" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M160 346 C166 356 174 366 182 374 L192 366 C184 358 176 350 170 342 Z" fill="url(#gClub)"/>
+    <path d="M184 380 C170 378 156 374 144 366 L148 358 C160 364 172 368 188 370 Z" fill="#E86A6A"/>
+    <circle cx="188" cy="376" r="16" fill="url(#gClub)"/>
+    <ellipse cx="176" cy="358" rx="4" ry="6" fill="#6A2DA0" stroke-width="2" transform="rotate(40 176 358)"/>
+    <path d="M196 392 l6 7 M204 380 l9 2 M182 394 l-2 9" stroke-width="2.5"/>
+  </g>
+  <!-- raptorial appendage, striking: propodus swung out, dactyl heel leading -->
+  <g id="raptStrike" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M160 346 C146 356 128 368 112 378 L120 388 C136 378 154 366 170 354 Z" fill="url(#gClub)"/>
+    <path d="M114 374 C96 372 76 372 58 374 L58 386 C76 386 96 388 116 388 Z" fill="#E86A6A"/>
+    <circle cx="54" cy="380" r="17" fill="url(#gClub)"/>
+    <path d="M47 372 a8 8 0 0 1 11 -3" stroke="#FFD9CF" stroke-width="2.5" fill="none"/>
+  </g>
+
+  <g id="shrimpBase">
+    <use href="#farLegs"/><use href="#body"/><use href="#nearLegs"/><use href="#maxis"/><use href="#head"/>
+  </g>
+</defs>
+
+<rect id="paper" width="1600" height="1000" fill="#F3EBDD"/>
+
+<g id="art">
+  <!-- pose cards -->
+  <g fill="#FBF6EC" stroke="#E2D6C2" stroke-width="2">
+    <rect x="30" y="110" width="500" height="360" rx="6"/><rect x="550" y="110" width="500" height="360" rx="6"/>
+    <rect x="1070" y="110" width="500" height="360" rx="6"/>
+  </g>
+  <!-- ground lines -->
+  <g fill="#D9CBB2" opacity=".7"><ellipse cx="290" cy="414" rx="220" ry="10"/><ellipse cx="810" cy="414" rx="220" ry="10"/><ellipse cx="1330" cy="414" rx="220" ry="10"/></g>
+
+  <!-- 1 KEY: at the burrow mouth, club folded -->
+  <g transform="translate(30 -10) scale(1.04)" filter="url(#wob)">
+    <path d="M330 404 C350 380 420 372 470 386 L486 404 Z" fill="#B49C78" stroke="#2A140F" stroke-width="3"/>
+    <path d="M360 404 C380 392 430 390 458 404 Z" fill="#3A2A20"/>
+    <use href="#shrimpBase"/><use href="#raptFolded"/>
+  </g>
+  <!-- 2 TELL: reared, club cocked back (latch set) -->
+  <g transform="translate(550 -10) scale(1.04)" filter="url(#wob)">
+    <g transform="rotate(-7 420 390)"><use href="#shrimpBase"/><use href="#raptCocked"/></g>
+    <g fill="none" stroke="#7A3B2A" stroke-width="2.5" stroke-linecap="round" opacity=".85">
+      <path d="M300 300 q8 -4 16 0 q8 4 16 0"/><path d="M296 288 q10 -5 20 0 q10 5 20 0"/><path d="M200 400 c-6 -10 -2 -22 8 -28" stroke="#2A140F"/><path d="M204 368 l6 4 l-8 3"/>
+    </g>
+  </g>
+  <!-- 3 STRIKE: heel out, cavitation flash at the target -->
+  <g transform="translate(1070 -10) scale(1.04)" filter="url(#wob)">
+    <use href="#shrimpBase"/><use href="#raptStrike"/>
+    <!-- a snail shell being hit -->
+    <path d="M4 404 C2 380 18 362 34 366 C44 370 44 388 36 398 Z" fill="#C9A77A" stroke="#2A140F" stroke-width="3"/>
+    <path d="M14 380 C20 372 30 372 34 380" fill="none" stroke="#2A140F" stroke-width="2"/>
+    <g fill="#FFFFFF" stroke="#2A140F" stroke-width="1.5" opacity=".95">
+      <circle cx="40" cy="372" r="7"/><circle cx="48" cy="394" r="5"/><circle cx="32" cy="362" r="4"/><circle cx="58" cy="364" r="3"/>
+    </g>
+    <g fill="none" stroke="#2A140F" stroke-width="2.5" stroke-linecap="round">
+      <path d="M26 350 a40 40 0 0 0 -6 56"/><path d="M16 340 a54 54 0 0 0 -8 76" opacity=".6"/>
+      <path d="M70 352 l14 -10 M74 404 l14 8"/>
+    </g>
+  </g>
+
+  <!-- SIZE: crab-eye view, real scale (1 cm = 18 px here) -->
+  <rect x="30" y="490" width="1020" height="480" rx="6" fill="url(#gWater)"/>
+  <path d="M30 880 C200 874 420 889 640 880 C840 872 960 884 1050 880 L1050 970 L30 970 Z" fill="#CDBA94"/>
+  <g>
+    <!-- player crab: crab-parts.svg is 24 cm wide at this scale (carapace 12 cm = 50% of the image) -->
+    <image href="../../crab/crab-parts.svg" x="80" y="689" width="432" height="217" preserveAspectRatio="none" clip-path="url(#cropCrab)"/>
+  </g>
+  <!-- mantis shrimp 15 cm long at 7 px/cm (art is ~390 units long in its box, so scale 0.27) -->
+  <g transform="translate(600 620) scale(0.643)" filter="url(#wob)"><use href="#shrimpBase"/><use href="#raptFolded"/></g>
+  <!-- scale bar -->
+  <g stroke="#2A140F" stroke-width="2"><path d="M760 940 h180 M760 935 v10 M940 935 v10"/></g>
+</g>
+<clipPath id="cropCrab"><rect x="80" y="716" width="432" height="200"/></clipPath>
+
+<g id="labels" font-family="Liberation Sans, sans-serif" fill="#2A140F">
+  <text x="30" y="58" font-family="Noto Serif, serif" font-weight="bold" font-size="40">PEACOCK MANTIS SHRIMP</text>
+  <text x="620" y="58" font-family="Noto Serif, serif" font-style="italic" font-size="22">Odontodactylus scyllarus</text>
+  <text x="30" y="90" font-size="18">Role: rusher · armour breaker · reef burrows 3–40 m · 3–18 cm (crab-sized) · prefers crabs</text>
+  <g font-size="17" font-weight="bold">
+    <text x="46" y="140">1 · KEY · at its burrow, club folded</text>
+    <text x="566" y="140">2 · TELL · rears up, club cocked back (latch set)</text>
+    <text x="1086" y="140">3 · STRIKE · 14–23 m/s, then a cavitation pop</text>
+  </g>
+  <g font-size="15" fill="#5A4636">
+    <text x="46" y="458">Raptorial club tucked under the head like a fist.</text>
+    <text x="566" y="458">Hold-still beat before the release: block or dodge NOW.</text>
+    <text x="1086" y="458">Two hits in one: the club, then the bubble collapsing.</text>
+  </g>
+  <text x="46" y="520" font-size="17" font-weight="bold">SIZE · real scale from the crab's eye (crab carapace 12 cm)</text>
+  <text x="150" y="915" font-size="15">our crab · 12 cm shell (24 cm with legs)</text>
+  <text x="640" y="915" font-size="15">mantis shrimp · 15 cm</text>
+  <text x="820" y="962" font-size="14">10 cm</text>
+  <text x="1086" y="520" font-size="17" font-weight="bold">PALETTE</text>
+</g>
+<g id="swatches" stroke="#2A140F" stroke-width="1.5">
+  <rect x="1086" y="536" width="60" height="44" fill="#5B9452"/><rect x="1150" y="536" width="60" height="44" fill="#2E5A34"/>
+  <rect x="1214" y="536" width="60" height="44" fill="#D8475A"/><rect x="1278" y="536" width="60" height="44" fill="#F08A4B"/>
+  <rect x="1342" y="536" width="60" height="44" fill="#2D6670"/><rect x="1406" y="536" width="60" height="44" fill="#6A2DA0"/>
+</g>
+<g id="labels2" font-family="Liberation Sans, sans-serif" fill="#2A140F" font-size="13">
+  <text x="1086" y="596">shell green · deep green · club pink-red · legs/tail fan · eyes · meral spot</text>
+  <text x="1086" y="640" font-size="17" font-weight="bold">TELL → WINDOW (tuned)</text>
+  <text x="1086" y="664" font-size="15">Rumble + rear (0.40 s) → cocked hold (0.25 s)</text>
+  <text x="1086" y="686" font-size="15">Parry window: last 10 ticks before contact</text>
+  <text x="1086" y="708" font-size="15">Dodge sideways: i-frames beat the club reach</text>
+  <text x="1086" y="730" font-size="15">Blocked hit still deals the bubble (shell damage)</text>
+  <text x="1086" y="764" font-size="15">Weak spot: soft abdomen after a whiffed strike</text>
+  <text x="1086" y="786" font-size="15">Meral spread (arms out wide) = threat display</text>
+  <text x="1086" y="816" font-size="13" fill="#5A4636">Sources: Patek &amp; Caldwell 2005 JEB · UC Berkeley 2004 · ADW</text>
+</g>
+</svg>
