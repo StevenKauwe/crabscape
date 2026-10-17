@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the browser version of CrabScape into web/.
 #
-#   tools/build-web.sh
+#   tools/build-web.sh [--features <cargo-features>]
 #
 # Afterwards web/ is a complete static website (index.html, the JavaScript
 # glue, the .wasm and the pictures in web/assets/). Serve it with any static file server, for example:
@@ -18,8 +18,13 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 # 1. Compile Rust to WebAssembly. RUSTFLAGS is cleared on purpose so no
 #    extra CPU features (like relaxed SIMD, which iPhones reject) sneak in
-#    from your shell environment.
-RUSTFLAGS='' cargo build --release --target wasm32-unknown-unknown
+#    from your shell environment. Extra cargo feature NAMES come as
+#    arguments (e.g. `tools/build-web.sh dev-checkpoints` for preview
+#    builds, issue #55); the script adds the --features flag itself.
+FEATURES="${*:-}"
+FEATURE_FLAG=""
+if [[ -n "$FEATURES" ]]; then FEATURE_FLAG="--features $FEATURES"; fi
+RUSTFLAGS='' cargo build --release --target wasm32-unknown-unknown $FEATURE_FLAG
 
 # 2. Generate the JavaScript glue that loads the wasm into a page.
 want=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' Cargo.lock)

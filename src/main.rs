@@ -41,6 +41,8 @@
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
 
+#[cfg(feature = "dev-checkpoints")]
+mod checkpoints;
 mod deep;
 mod effects;
 mod eggs;
@@ -48,6 +50,7 @@ mod home;
 mod input;
 mod lantern;
 mod level;
+mod moments;
 mod notes;
 mod player;
 mod puppet;
@@ -111,6 +114,7 @@ fn main() {
             reset::ResetPlugin,
             secrets::SecretsPlugin,
             stamina::StaminaPlugin,
+            moments::MomentsPlugin,
         ))
         .run();
 }

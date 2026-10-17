@@ -35,10 +35,12 @@
 //!                             // affordable, prize+return is not
 //! turn_strokes: 3,            // paddle strokes grown for this moment
 //! ```
+//!
+//! Written against the amended framework broadcast (units-carrying piles:
+//! one unit per pile here — each pile is a single item and a single trip).
 
-use bevy_math::Vec2;
+use bevy::math::Vec2;
 
-use crabsim::level::Level;
 use crabsim::world::PlayerId;
 use crabsim::{Moment, MomentState, MomentStatus, Sim};
 
@@ -46,32 +48,36 @@ use crabsim::{Moment, MomentState, MomentStatus, Sim};
 /// the shaft (the level's own geometry; `Level::pit` brackets it).
 const LIP: Vec2 = Vec2::new(3260.0, -700.0);
 
-/// The free pile, at the lip itself.
+/// The free pile, at the lip itself. One unit: one grab.
 const PILE_LIP: Vec2 = Vec2::new(3235.0, -695.0);
-/// The patient pile, on the left wall's halfway ledge.
+/// The patient pile, on the left wall's halfway ledge. One unit.
 const PILE_SHELF: Vec2 = Vec2::new(3370.0, -3315.0);
 /// The push pile, hanging in black water off both climb lines near the
-/// shaft floor — stroke-gated both ways.
+/// shaft floor — stroke-gated both ways. One unit.
 const PILE_PRIZE: Vec2 = Vec2::new(3950.0, -7500.0);
+
+/// Items per pile on today's on-disk framework (single-item piles). When
+/// the units amendment lands, this becomes the per-pile unit count; the
+/// design wants one item per pile either way (each pile is one trip).
+const PILE_UNITS: u32 = 1;
 
 /// How many items must reach home (the objective).
 const ITEMS_HOME: u32 = 2;
-
-/// Reserve the crab starts with (proposed `turn_reserve_start`).
-const RESERVE_START: f32 = 0.30;
-/// Paddle strokes the crab starts with (proposed `turn_strokes`).
-const STROKES: u32 = 3;
 
 /// THE TURN-AROUND: the push-or-bank pang, in one pit.
 pub struct TurnAround;
 
 /// Baseline the moment recorded at setup: only the bank matters (the pile
-/// set is static — three, placed by `setup`).
+/// set is static — three single-unit piles, placed by `setup`).
 struct State {
     banked_at_start: u32,
 }
 
-impl MomentState for State {}
+impl MomentState for State {
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+}
 
 impl Moment for TurnAround {
     fn name(&self) -> &'static str {
@@ -91,18 +97,20 @@ impl Moment for TurnAround {
     }
 
     fn setup(&self, sim: &mut Sim) -> Box<dyn MomentState> {
-        // The stage: three piles at three depths. (The test level ships no
-        // biopiles; these three are the moment's whole economy.)
-        sim.spawn_biopile(PILE_LIP);
-        sim.spawn_biopile(PILE_SHELF);
-        sim.spawn_biopile(PILE_PRIZE);
+        // The stage: three single-item piles at three depths. (The test
+        // level ships no biopiles; these three are the moment's economy.)
+        sim.spawn_biopile(PILE_LIP, PILE_UNITS);
+        sim.spawn_biopile(PILE_SHELF, PILE_UNITS);
+        sim.spawn_biopile(PILE_PRIZE, PILE_UNITS);
 
         // The crab: rested rings, thin body. The dive is affordable; the
         // prize and the return, together, are not. That gap is the moment.
+        let strokes = sim.tuning.turn_strokes;
+        let reserve = sim.tuning.turn_reserve_start;
         if let Some(crab) = sim.crab_mut(PlayerId(0)) {
-            crab.mover.upgrades = STROKES;
-            crab.mover.stamina = STROKES as f32;
-            crab.mover.reserve = RESERVE_START;
+            crab.mover.upgrades = strokes;
+            crab.mover.stamina = strokes as f32;
+            crab.mover.reserve = reserve;
             crab.mover.carrying = None;
         }
 
@@ -112,28 +120,24 @@ impl Moment for TurnAround {
     }
 
     fn status(&self, sim: &Sim, state: &dyn MomentState) -> MomentStatus {
-        let Some(state) = state.downcast_ref::<State>() else {
+        let Some(state) = state.as_any().downcast_ref::<State>() else {
             return MomentStatus::Ongoing;
         };
-        let banked = sim
-            .biomass_banked
-            .saturating_sub(state.banked_at_start);
+        let banked = sim.biomass_banked.saturating_sub(state.banked_at_start);
         if banked >= ITEMS_HOME {
             return MomentStatus::Done;
         }
 
-        // What can still become banked: untouched piles, the one on the
-        // back, and what's already home. If eating in the field spent more
-        // of the three than the objective can survive, the moment is lost —
-        // the trade had teeth.
-        let unclaimed = sim
-            .biopiles
-            .iter()
-            .filter(|(_, claimed)| !*claimed)
-            .count() as u32;
+        // What can still become banked: piles not yet emptied, the one
+        // on the back, and what's already home. If eating in the field
+        // spent more of the three than the objective can survive, the
+        // moment is lost — the trade had teeth.
+        // (On-disk framework: piles are (pos, claimed) singles; when the
+        // units amendment lands, count units instead.)
+        let unclaimed: u32 = sim.biopiles.iter().map(|(_, units)| *units).sum();
         let carried = u32::from(
             sim.crab(PlayerId(0))
-                .map_or(false, |c| c.mover.carrying.is_some()),
+                .is_some_and(|c| c.mover.carrying.is_some()),
         );
         if banked + carried + unclaimed < ITEMS_HOME {
             return MomentStatus::Failed;
@@ -155,7 +159,10 @@ mod tests {
     #[test]
     fn fresh_moment_is_ongoing() {
         let (sim, state) = moment_sim();
-        assert_eq!(TurnAround.status(&sim, state.as_ref()), MomentStatus::Ongoing);
+        assert_eq!(
+            TurnAround.status(&sim, state.as_ref()),
+            MomentStatus::Ongoing
+        );
     }
 
     #[test]
@@ -168,13 +175,18 @@ mod tests {
     #[test]
     fn overeating_fails_the_budget() {
         let (mut sim, state) = moment_sim();
-        // Two piles eaten in the field (spent on the present), one banked,
-        // hands empty: only the third pile remains, and two items home is
-        // no longer possible. The sea keeps what the stomach spent.
+        // Every pile emptied in the field (spent on the present), one
+        // banked, hands empty: two items home is no longer possible. The
+        // sea keeps what the stomach spent.
         sim.biomass_banked += 1;
-        for (_, claimed) in sim.biopiles.iter_mut() {
-            *claimed = true;
+        // Every pile emptied in the field (spent on the present): the sea
+        // keeps what the stomach spent.
+        for (_, units) in sim.biopiles.iter_mut() {
+            *units = 0;
         }
-        assert_eq!(TurnAround.status(&sim, state.as_ref()), MomentStatus::Failed);
+        assert_eq!(
+            TurnAround.status(&sim, state.as_ref()),
+            MomentStatus::Failed
+        );
     }
 }
