@@ -131,6 +131,7 @@ jobs:
         run: tools/previews.sh comment "${{ github.event.number }}" "pr-${{ github.event.number }}"
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          PREVIEW_SHA: ${{ env.SHA }}
 
       - id: snap
         name: Assemble the site from the store

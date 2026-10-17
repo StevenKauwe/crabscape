@@ -107,7 +107,7 @@ case "${1:-}" in
     body="$MARKER
 **Preview build:** <$url> — this comment updates with the PR.
 
-$( [ -n "${PREVIEW_SHA:-}" ] && echo "build: \`$(short "$PREVIEW_SHA")\`" )"
+$( [ -n "${PREVIEW_SHA:-}" ] && echo "build: \`$(short "$PREVIEW_SHA")\`" || true )"
     id="$(curl -fsS -H "${AUTH[0]}" -H "${AUTH[1]}" \
       "$API/repos/$REPO/issues/$PR/comments?per_page=100" |
       jq -r ".[] | select(.body | startswith(\"$MARKER\")) | .id" | head -1 || true)"
