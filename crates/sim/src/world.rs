@@ -222,12 +222,15 @@ impl Sim {
         }
         for crab in &mut self.crabs {
             crab.prev_pos = crab.mover.pos;
-            // The molt rules the body: ecdysis is immobile; the paper shell
-            // is slow.
+            // The molt rules the body: ecdysis is immobile; the paper
+            // shell is slow, cannot stroke or jump (paddle legs are soft),
+            // and climbs at a fraction. The flag is what physics reads.
+            crab.mover.soft = self.molt.slowed();
             if self.molt.immobile() {
                 crab.controls = Controls::default();
             } else if self.molt.slowed() {
                 crab.controls.walk *= self.tuning.soft_speed_factor;
+                crab.controls.jump_pressed = false;
             }
             crab.events = physics::step(
                 &mut crab.mover,
