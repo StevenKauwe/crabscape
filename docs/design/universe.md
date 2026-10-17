@@ -27,8 +27,8 @@ light, life and dangers are the real ones for its depth.
   The crab goes deeper by adapting (`ocean-shaped.md`).
 
 ## Rules of the deep (for everyone: the crab, its friends and every enemy)
-- **Oxygen.** Everything here breathes water. The oxygen minimum zone is a band where water holds too little oxygen
-  for most animals to work hard [OMZ]: fights and sprints there drain stamina faster and nothing refills it. Animals
+- **Oxygen.** Everything here breathes water. The oxygen minimum zone is a band of low-oxygen water [OMZ]; in the game
+  fights and sprints there drain stamina faster and nothing refills it. Animals
   built for it (the giant red mysid, with huge gills and lots of oxygen-carrying blood [OMZ]) are at home there; the
   crab crosses it quickly or after adapting.
 - **Cold.** Below the twilight zone the water sits near 4 °C [WHOI]. Cold makes cold-blooded animals slow (not
