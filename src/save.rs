@@ -9,6 +9,11 @@
 //! from another format version are ignored and the crab starts at the
 //! beginning.
 //!
+//! Each web build keeps its own save: the live game uses the plain keys,
+//! and a preview build (served from `/pr-<n>/` or `/branches/<name>/` on the
+//! same site) puts its folder in its keys, so trying a preview never touches
+//! the live game's save, or another preview's.
+//!
 //! Saving is best-effort: private browsing, a sandboxed iframe or a full
 //! disk can all make it fail. That should never crash the game, so failures
 //! are logged once and otherwise ignored.
@@ -98,13 +103,72 @@ pub fn wipe() {
     backend::wipe();
 }
 
-/// Browser version: `window.localStorage`.
+/// The browser storage key for `suffix` (".save", "-style") in this build.
 #[cfg(target_arch = "wasm32")]
-mod backend {
-    const KEY: &str = "crabscape.save";
+pub fn browser_key(suffix: &str) -> String {
+    keys::key(build_slug().as_deref(), suffix)
+}
+
+/// This page's preview folder, if it is a preview build.
+#[cfg(target_arch = "wasm32")]
+fn build_slug() -> Option<String> {
+    let path = web_sys::window()?.location().pathname().ok()?;
+    keys::slug(&path)
+}
+
+/// Storage keys per build, as plain functions so they are tested natively.
+#[cfg(any(target_arch = "wasm32", test))]
+mod keys {
     /// Every key the game writes starts with this.
     const PREFIX: &str = "crabscape";
 
+    /// The preview folder in a page path: `/crabscape/pr-12/` gives
+    /// `pr-12`, `/crabscape/branches/my-idea/` gives `branches-my-idea`. The
+    /// live game (any other path) gives `None`.
+    pub fn slug(path: &str) -> Option<String> {
+        let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+        let raw = parts.iter().enumerate().find_map(|(i, p)| {
+            if p.starts_with("pr-") && p[3..].chars().all(|c| c.is_ascii_digit()) && p.len() > 3 {
+                Some(p.to_string())
+            } else if *p == "branches" {
+                parts.get(i + 1).map(|name| format!("branches-{name}"))
+            } else {
+                None
+            }
+        })?;
+        let clean: String = raw
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        Some(clean)
+    }
+
+    /// The key for `suffix` in a build: the live game keeps the plain key.
+    pub fn key(slug: Option<&str>, suffix: &str) -> String {
+        match slug {
+            None => format!("{PREFIX}{suffix}"),
+            Some(s) => format!("{PREFIX}@{s}@{suffix}"),
+        }
+    }
+
+    /// Is `key` one of this build's keys (what "Start over" may wipe)?
+    pub fn owned(slug: Option<&str>, key: &str) -> bool {
+        match slug {
+            None => key.starts_with(PREFIX) && !key.starts_with(&format!("{PREFIX}@")),
+            Some(s) => key.starts_with(&format!("{PREFIX}@{s}@")),
+        }
+    }
+}
+
+/// Browser version: `window.localStorage`.
+#[cfg(target_arch = "wasm32")]
+mod backend {
     fn storage() -> Result<web_sys::Storage, String> {
         let window = web_sys::window().ok_or("no browser window")?;
         // Both layers can fail: the call can throw (sandboxed iframe) or
@@ -116,24 +180,29 @@ mod backend {
     }
 
     pub fn read() -> Option<String> {
-        storage().ok()?.get_item(KEY).ok().flatten()
+        storage()
+            .ok()?
+            .get_item(&super::browser_key(".save"))
+            .ok()
+            .flatten()
     }
 
     pub fn write(text: &str) -> Result<(), String> {
         storage()?
-            .set_item(KEY, text)
+            .set_item(&super::browser_key(".save"), text)
             .map_err(|e| format!("localStorage refused the write: {e:?}"))
     }
 
-    /// Remove every key of the game's (and nothing else on the site).
+    /// Remove every key of this build's (and nothing else on the site).
     pub fn wipe() {
         let Ok(storage) = storage() else {
             return;
         };
+        let slug = super::build_slug();
         let count = storage.length().unwrap_or(0);
         let ours: Vec<String> = (0..count)
             .filter_map(|i| storage.key(i).ok().flatten())
-            .filter(|k| k.starts_with(PREFIX))
+            .filter(|k| super::keys::owned(slug.as_deref(), k))
             .collect();
         for key in ours {
             let _ = storage.remove_item(&key);
@@ -173,6 +242,47 @@ mod tests {
         let text = serde_json::to_string(&data).unwrap();
         assert_eq!(text, r#"{"version":2,"x":640.0,"y":110.0}"#);
         assert_eq!(serde_json::from_str::<SaveData>(&text).unwrap(), data);
+    }
+
+    #[test]
+    fn each_preview_build_has_its_own_keys() {
+        assert_eq!(keys::slug("/crabscape/"), None);
+        assert_eq!(keys::slug("/"), None);
+        assert_eq!(keys::slug("/crabscape/pr-60/").as_deref(), Some("pr-60"));
+        assert_eq!(
+            keys::slug("/crabscape/pr-60/index.html").as_deref(),
+            Some("pr-60")
+        );
+        assert_eq!(
+            keys::slug("/crabscape/branches/Big_Idea/").as_deref(),
+            Some("branches-big-idea")
+        );
+        assert_eq!(keys::slug("/crabscape/pr-notes/"), None);
+
+        // The live game keeps the keys it always had.
+        assert_eq!(keys::key(None, ".save"), "crabscape.save");
+        assert_eq!(keys::key(None, "-style"), "crabscape-style");
+        assert_eq!(keys::key(Some("pr-6"), ".save"), "crabscape@pr-6@.save");
+    }
+
+    #[test]
+    fn start_over_wipes_only_this_builds_keys() {
+        let all = [
+            "crabscape.save",
+            "crabscape-style",
+            "crabscape@pr-6@.save",
+            "crabscape@pr-60@.save",
+            "something-else",
+        ];
+        let wiped = |slug: Option<&str>| -> Vec<&str> {
+            all.iter()
+                .copied()
+                .filter(|k| keys::owned(slug, k))
+                .collect()
+        };
+        assert_eq!(wiped(None), ["crabscape.save", "crabscape-style"]);
+        assert_eq!(wiped(Some("pr-6")), ["crabscape@pr-6@.save"]);
+        assert_eq!(wiped(Some("pr-60")), ["crabscape@pr-60@.save"]);
     }
 
     #[test]

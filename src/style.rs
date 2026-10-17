@@ -162,9 +162,6 @@ fn show_style(style: Res<ArtStyle>, mut label: Single<&mut Text, With<StyleLabel
 /// sandboxed iframe) is ignored and the default is used.
 mod storage {
     #[cfg(target_arch = "wasm32")]
-    const KEY: &str = "crabscape-style";
-
-    #[cfg(target_arch = "wasm32")]
     fn local_storage() -> Option<web_sys::Storage> {
         web_sys::window()?.local_storage().ok()?
     }
@@ -172,7 +169,9 @@ mod storage {
     pub fn read() -> Option<String> {
         #[cfg(target_arch = "wasm32")]
         {
-            local_storage()?.get_item(KEY).ok()?
+            local_storage()?
+                .get_item(&crate::save::browser_key("-style"))
+                .ok()?
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -183,7 +182,7 @@ mod storage {
     pub fn write(_value: &str) {
         #[cfg(target_arch = "wasm32")]
         if let Some(storage) = local_storage() {
-            let _ = storage.set_item(KEY, _value);
+            let _ = storage.set_item(&crate::save::browser_key("-style"), _value);
         }
     }
 }
