@@ -120,7 +120,7 @@ jobs:
         run: |
           # Preview builds carry the dev-checkpoints feature (issue #55):
           # the picker gains a CHECKPOINTS section from dev/checkpoints/*.ron.
-          tools/build-web.sh --features dev-checkpoints
+          tools/build-web.sh dev-checkpoints
       - name: No relaxed SIMD (iPhone/WebKit rejects it)
         run: wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
 

@@ -18,9 +18,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 # 1. Compile Rust to WebAssembly. RUSTFLAGS is cleared on purpose so no
 #    extra CPU features (like relaxed SIMD, which iPhones reject) sneak in
-#    from your shell environment. Extra cargo features come as arguments
-#    (e.g. `tools/build-web.sh --features dev-checkpoints` for preview
-#    builds, issue #55).
+#    from your shell environment. Extra cargo feature NAMES come as
+#    arguments (e.g. `tools/build-web.sh dev-checkpoints` for preview
+#    builds, issue #55); the script adds the --features flag itself.
 FEATURES="${*:-}"
 FEATURE_FLAG=""
 if [[ -n "$FEATURES" ]]; then FEATURE_FLAG="--features $FEATURES"; fi
