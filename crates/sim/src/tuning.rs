@@ -196,6 +196,14 @@ pub struct Tuning {
     /// How much of the Climbing speed survives the soft shell (paddle legs
     /// are soft: no strokes or jumps; climbing is walking legs, slowed).
     pub soft_climb_factor: f32,
+    /// The watcher patrol's sweep speed.
+    pub watcher_speed: f32,
+    /// How close the crab may come to a watcher before it is found (and
+    /// how close the watcher must be: one threshold, two stories).
+    pub watcher_detect_radius: f32,
+    /// Biomass the molt bill charges for the first feat (the pit's on-ramp
+    /// molts are cheaper; bills scale from here).
+    pub molt_bill_base: u32,
 }
 
 impl Default for Tuning {
@@ -254,7 +262,7 @@ impl Default for Tuning {
             step_up: 14.0,
             ground_snap: 12.0,
 
-            raw_eat_stamina: 2.0,
+            raw_eat_stamina: 1.5,
             committed_seconds: 2.0,
             ecdysis_seconds: 1.0,
             soft_seconds: 5.0,
@@ -265,6 +273,9 @@ impl Default for Tuning {
             wild_decay_seconds: 30.0,  // the web is coming
             molt_units_per_feat: 6,
             soft_climb_factor: 0.6,
+            watcher_speed: 140.0,
+            watcher_detect_radius: 180.0,
+            molt_bill_base: 3,
         }
     }
 }
