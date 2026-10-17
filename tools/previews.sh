@@ -15,8 +15,10 @@ cd "$(dirname "$0")/.."
 
 API="https://api.github.com"
 REPO="${GITHUB_REPOSITORY:?}"
-AUTH=("Authorization: Bearer ${GITHUB_TOKEN:?}" "Accept: application/vnd.github+json")
 MARKER='<!-- preview-build -->'
+# Auth is built lazily inside comment) — subcommands that never touch the
+# API must not require the token.
+auth() { printf 'Authorization: Bearer %s' "${GITHUB_TOKEN:?}"; }
 
 short() { printf '%.8s' "$1"; }
 
@@ -108,15 +110,15 @@ case "${1:-}" in
 **Preview build:** <$url> — this comment updates with the PR.
 
 $( [ -n "${PREVIEW_SHA:-}" ] && echo "build: \`$(short "$PREVIEW_SHA")\`" || true )"
-    id="$(curl -fsS -H "${AUTH[0]}" -H "${AUTH[1]}" \
+    id="$(curl -fsS -H "$(auth)" -H "Accept: application/vnd.github+json" \
       "$API/repos/$REPO/issues/$PR/comments?per_page=100" |
       jq -r ".[] | select(.body | startswith(\"$MARKER\")) | .id" | head -1 || true)"
     if [ -n "${id:-}" ]; then
-      curl -fsS -X PATCH -H "${AUTH[0]}" -H "${AUTH[1]}" \
+      curl -fsS -X PATCH -H "$(auth)" -H "Accept: application/vnd.github+json" \
         -d "$(jq -n --arg b "$body" '{body:$b}')" \
         "$API/repos/$REPO/issues/comments/$id" >/dev/null
     else
-      curl -fsS -X POST -H "${AUTH[0]}" -H "${AUTH[1]}" \
+      curl -fsS -X POST -H "$(auth)" -H "Accept: application/vnd.github+json" \
         -d "$(jq -n --arg b "$body" '{body:$b}')" \
         "$API/repos/$REPO/issues/$PR/comments" >/dev/null
     fi
