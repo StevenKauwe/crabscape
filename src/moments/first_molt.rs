@@ -118,4 +118,8 @@ impl Moment for FirstMolt {
     }
 }
 
-impl MomentState for FirstMoltState {}
+impl MomentState for FirstMoltState {
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+}

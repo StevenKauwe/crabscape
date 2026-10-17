@@ -420,6 +420,23 @@ impl Sim {
                 true
             }
         });
+        // The watchers sweep their paths on game time; then the molt
+        // machine fires on its clock, wherever the crab is.
+        for w in &mut self.watchers {
+            w.tick(&self.tuning);
+        }
+        let _ = self.molt.tick(&self.tuning);
+        // Wild death-moults decay on the carrion clock: the web eats what
+        // the wild killed. Home moults persist — what dies at home waits
+        // for you.
+        self.moults.retain_mut(|m| {
+            if let Some(d) = &mut m.decay_left {
+                *d = d.saturating_sub(1);
+                *d > 0
+            } else {
+                true
+            }
+        });
         self.tick += 1;
     }
 
