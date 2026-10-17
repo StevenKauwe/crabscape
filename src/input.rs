@@ -54,6 +54,8 @@ pub struct TouchControls {
 struct Held {
     jump: bool,
     dodge: bool,
+    eat: bool,
+    autotomy: bool,
 }
 
 pub struct InputPlugin;
@@ -169,6 +171,10 @@ fn read_input(
         || touch(TouchAction::Dodge);
     // Down climbs down kelp or coral. (On a phone, holding DODGE does too.)
     let mut down = any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]);
+    // E eats carried raw biomass (or, empty-handed at home or a rest stop,
+    // commits the molt). G sheds a claw mid-premolt: the siege verb.
+    let eat = any_key(&[KeyCode::KeyE]);
+    let autotomy = any_key(&[KeyCode::KeyG]);
 
     for pad in &gamepads {
         let stick = pad.left_stick().x;
@@ -202,8 +208,15 @@ fn read_input(
         dodge_pressed: dodge && !held_before.dodge,
         dodge_held: dodge,
         down,
+        eat_pressed: eat && !held_before.eat,
+        autotomy_pressed: autotomy && !held_before.autotomy,
     };
-    *held_before = Held { jump, dodge };
+    *held_before = Held {
+        jump,
+        dodge,
+        eat,
+        autotomy,
+    };
     requests.write(MoveRequest {
         player: **local,
         controls,

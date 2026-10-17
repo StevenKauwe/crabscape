@@ -75,6 +75,13 @@ pub struct Level {
     /// Shed teeth lying about: a crab can carry one home, where the
     /// workbench fits it to the crusher claw (scissor claws).
     pub teeth: Vec<Vec2>,
+    /// Raw biomass piles: claimed one back-slot at a time, eaten in the
+    /// field for stamina now or banked at home as molt fuel. Empty in the
+    /// test level; moments place their own.
+    pub biopiles: Vec<Vec2>,
+    /// Rest stops: forward-deployed safe zones (built reach). Banking works
+    /// here as at home; the world never raids them in v1.
+    pub rest_stops: Vec<Rect>,
     /// Ghost nets: lost fishing nets snagged across a way through. Solid
     /// until a crab with scissor claws cuts them (then gone for everyone).
     pub nets: Vec<Net>,
@@ -203,6 +210,8 @@ impl Level {
             // In the alcove: a shed tooth bigger than the crab.
             clues: vec![Vec2::new(4250.0, -5185.0)],
             teeth: vec![Vec2::new(4250.0, -5185.0)],
+            biopiles: vec![],
+            rest_stops: vec![],
             // Across the passage's mouth, high on the pit's right wall: only
             // a jump and four strokes from the alcove's roof reach it.
             nets: vec![Net {

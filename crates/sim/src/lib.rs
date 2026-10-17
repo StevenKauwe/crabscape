@@ -31,12 +31,16 @@
 
 pub mod hash;
 pub mod level;
+pub mod molt;
+pub mod moments;
 pub mod physics;
 pub mod replay;
 pub mod tuning;
 pub mod world;
 
 pub use level::{Level, SPAWN};
+pub use molt::{Molt, MoltEvent, MoltState, Moult};
+pub use moments::{Moment, MomentState, MomentStatus};
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use replay::Replay;
 pub use tuning::Tuning;

@@ -38,6 +38,12 @@ pub struct Controls {
     pub dodge_held: bool,
     /// Is down held? (Climbs down kelp or coral; so does holding dodge.)
     pub down: bool,
+    /// Was eat pressed since the last step? (Eats one carried raw biomass
+    /// for stamina now — never during premolt anorexia.)
+    pub eat_pressed: bool,
+    /// Was the claw-shed pressed since the last step? (Autotomy during
+    /// premolt delays ecdysis: the rest-stop siege verb.)
+    pub autotomy_pressed: bool,
 }
 
 /// Something a crab carries home on its back.
@@ -47,6 +53,9 @@ pub enum Carry {
     Culture,
     /// A shed tooth: fitted to the crusher at home, making scissor claws.
     Tooth,
+    /// A pile of raw biomass: eaten in the field for stamina now, or banked
+    /// at home or a rest stop as molt fuel.
+    Biomass,
 }
 
 /// A crab's movement state. (In the game, each crab entity also carries a
@@ -801,6 +810,8 @@ mod tests {
         dodge_pressed: false,
         dodge_held: false,
         down: false,
+        eat_pressed: false,
+        autotomy_pressed: false,
     };
 
     #[test]
