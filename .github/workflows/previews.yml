@@ -1,0 +1,100 @@
+# Playable previews: every pull request (and any named branch, on demand)
+# builds to its own folder on the gh-pages branch, so many builds of the
+# game are playable at once from one Pages site:
+#
+#   /                 the main build (deployed by ci.yml)
+#   /pr-42/           pull request #42's build
+#   /branches/design-bible/   a named branch, on demand
+#   /builds/          the chooser page listing everything
+#
+# gh-pages is only the STORE for preview folders; ci.yml folds them into the
+# Pages artifact on every main deploy, so the site stays on the Actions
+# pipeline (no Pages settings change).
+#
+# Actions are pinned to commit SHAs; the comment says which release that is.
+# Everything else is plain git + shell, like tools/build-web.sh.
+name: previews
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to build a preview for (e.g. design-bible)"
+        required: true
+
+permissions:
+  contents: write # push preview folders to gh-pages
+  pull-requests: write # keep one "Preview build" comment per PR
+
+concurrency:
+  group: previews-pr-${{ github.event.number || github.event.inputs.branch }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: ""
+  BINARYEN_VERSION: "133"
+
+jobs:
+  # ---------------------------------------------------------------- closed --
+  cleanup:
+    name: remove the preview folder
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Delete pr-${{ github.event.number }} from gh-pages and refresh /builds/
+        run: tools/previews.sh cleanup "pr-${{ github.event.number }}"
+
+  # ----------------------------------------------------------------- build --
+  preview:
+    name: build the preview folder
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    env:
+      # Where this build goes: pr-<number>, or branches/<name> for dispatches.
+      FOLDER: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || format('branches/{0}', github.event.inputs.branch) }}
+      # What to check out: the PR merge ref, or the named branch.
+      REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.event.inputs.branch }}
+      SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REF }}
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: web
+      - name: wasm-bindgen version from Cargo.lock
+        id: wb
+        run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' Cargo.lock)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: wasm-bindgen@${{ steps.wb.outputs.version }},wasm-tools
+      - name: Install wasm-opt (binaryen ${{ env.BINARYEN_VERSION }})
+        run: |
+          url="https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          curl -fsSL "$url" -o binaryen.tgz
+          curl -fsSL "$url.sha256" -o binaryen.tgz.sha256
+          echo "$(awk '{print $1}' binaryen.tgz.sha256)  binaryen.tgz" | sha256sum -c -
+          tar -xzf binaryen.tgz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          rm binaryen.tgz binaryen.tgz.sha256
+      - name: Build the web game
+        run: tools/build-web.sh
+      - name: No relaxed SIMD (iPhone/WebKit rejects it)
+        run: wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
+
+      - name: Publish folder to gh-pages and refresh /builds/
+        run: tools/previews.sh publish "$FOLDER" "$SHA"
+
+      - name: Upsert the PR comment with the playable URL
+        if: github.event_name == 'pull_request'
+        run: tools/previews.sh comment "${{ github.event.number }}" "pr-${{ github.event.number }}"
