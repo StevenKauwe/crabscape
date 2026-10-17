@@ -169,3 +169,22 @@ jobs:
       - id: deployment
         if: steps.snap.outputs.deployed == 'true'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  main-health:
+    name: report main's health
+    # On main only: a failure opens (or adds to) one "main is broken" issue for the next Claude; a green run closes it.
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check, web, browser, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Open, update or close the "main is broken" issue
+        run: tools/main-health.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NEEDS: ${{ toJSON(needs) }}
+          COMMIT_TITLE: ${{ github.event.head_commit.message }}

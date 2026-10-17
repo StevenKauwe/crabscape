@@ -59,9 +59,12 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 ## Repo practices and CI/CD
 - Branch (`issue-<n>-<slug>`) → PR (`Closes #<n>`, what changed, how verified, screenshots for visual changes) →
   `gh pr merge --squash --auto --delete-branch`. Rebase on `main` and resolve conflicts yourself. Never push to `main`.
-- CI (`.github/workflows/ci.yml`): fmt, clippy (native + wasm32), tests, the tidy tool's checks, the web build,
-  relaxed-SIMD check, a size report. On `main` it deploys `web/` to GitHub Pages
-  (https://stevenkauwe.github.io/crabscape/). Branch protection requires CI only.
+- CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests, the
+  tidy tool's checks, the web build, relaxed-SIMD check, a size report, and the browser test (`cargo webtest`, the
+  game played in WebKit). On `main` it deploys `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/).
+  Branch protection requires the check, web and browser jobs.
+- **Main is broken?** A failed CI run on `main` opens (or adds to) the `main-broken` issue "main is broken"; a green
+  run closes it. Fix it before anything else (`/next-task` picks it first; the session-start check says so too).
 - **Playable previews** (`.github/workflows/previews.yml`, `tools/previews.sh`): every PR builds to `/pr-<n>/` on
   the Pages site (link commented on the PR, refreshed per push, removed on close); a named branch builds on demand
   (run the workflow with its name) to `/branches/<name>/`; `/builds/` lists them all. Each build keeps its own save on
