@@ -72,7 +72,7 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   (feedback → tasks), `/doctor` (fix a broken computer or project copy).
 
 ## Setup and commands
-Setup: Rust from https://rustup.rs, then `rustup target add wasm32-unknown-unknown`,
+Setup: Rust from https://rustup.rs (it installs the pinned version and targets in `rust-toolchain.toml` by itself),
 `cargo install wasm-bindgen-cli --version <wasm-bindgen version in Cargo.lock>`, optionally `cargo install wasm-tools`
 and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbcommon-dev pkg-config`.
 

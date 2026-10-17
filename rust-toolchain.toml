@@ -1,0 +1,8 @@
+# The Rust everyone builds with, CI included: a pinned stable release, so a new Rust (new lints, new behaviour)
+# arrives in one deliberate PR rather than as a surprise red CI. To move on: change `channel` to the newest stable
+# (https://releases.rs) and fix what clippy says.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
