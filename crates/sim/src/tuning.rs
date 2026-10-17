@@ -179,6 +179,11 @@ pub struct Tuning {
     /// Movement scale while soft or in ecdysis recovery (defense ≈ 0 and
     /// slow).
     pub soft_speed_factor: f32,
+    /// THE TURN-AROUND: the body-reserve fraction the crab starts with
+    /// (the dive is affordable; prize and return together are not).
+    pub turn_reserve_start: f32,
+    /// THE TURN-AROUND: paddle strokes grown for this moment.
+    pub turn_strokes: u32,
     /// Ticks a shed claw adds back to the premolt countdown (documented: a
     /// limb lost mid-premolt delays ecdysis so it can regrow fully).
     pub autotomy_delay_ticks: u64,
@@ -257,6 +262,8 @@ impl Default for Tuning {
             ecdysis_seconds: 1.0,
             soft_seconds: 5.0,
             soft_speed_factor: 0.45,
+            turn_reserve_start: 0.30,
+            turn_strokes: 3,
             autotomy_delay_ticks: 360, // 3 s: the siege verb
             wild_decay_seconds: 30.0,  // the web is coming
             molt_units_per_feat: 6,

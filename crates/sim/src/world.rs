@@ -49,9 +49,6 @@ pub struct SimCrab {
     pub clues_found: Vec<bool>,
     /// Which of the level's shed teeth this crab has taken.
     pub teeth_taken: Vec<bool>,
-    /// Which of the level's (and the moments') biomass piles this crab has
-    /// taken.
-    pub biopiles_claimed: Vec<bool>,
 }
 
 /// The game world, as far as the rules are concerned. (In the game it is a
@@ -76,8 +73,9 @@ pub struct Sim {
     pub biomass_banked: u32,
     /// Death-moults and growth-moults in the world.
     pub moults: Vec<Moult>,
-    /// Biomass piles (positions + claimed flags), placed by moment setups.
-    pub biopiles: Vec<(Vec2, bool)>,
+    /// Biomass piles (positions + units left), placed by moment setups.
+    /// Each pickup takes one unit onto the back.
+    pub biopiles: Vec<(Vec2, u32)>,
 }
 
 impl Sim {
@@ -118,17 +116,13 @@ impl Sim {
             cultures_taken: vec![false; self.level.cultures.len()],
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
-            biopiles_claimed: vec![false; self.biopiles.len()],
         });
     }
 
-    /// Place a biomass pile (a moment setup calls this; `R` re-runs setup,
-    /// so also clear the claimed flags).
-    pub fn spawn_biopile(&mut self, pos: Vec2) {
-        self.biopiles.push((pos, false));
-        for crab in &mut self.crabs {
-            crab.biopiles_claimed.push(false);
-        }
+    /// Place a biomass pile holding `units` pickups (a moment setup calls
+    /// this; `R` re-runs setup on a fresh world, so nothing to clear).
+    pub fn spawn_biopile(&mut self, pos: Vec2, units: u32) {
+        self.biopiles.push((pos, units));
     }
 
     /// Place a moult (death-moult or growth-moult) for a moment setup.
@@ -277,12 +271,13 @@ impl Sim {
                     crab.events.found_clue = Some(i);
                 }
             }
-            // A biomass pile it touches: one pile on the back (one slot —
-            // a haul run is a treasure run's rival, never both).
-            for (pos, claimed) in &mut self.biopiles {
+            // A biomass pile it touches: one unit onto the back (one slot
+            // — a haul run is a treasure run's rival, never both). The pile
+            // keeps its remaining units for the next trip.
+            for (pos, units) in &mut self.biopiles {
                 let free = crab.mover.carrying.is_none();
-                if !*claimed && free && in_reach(&crab.mover, *pos, &self.tuning) {
-                    *claimed = true;
+                if *units > 0 && free && in_reach(&crab.mover, *pos, &self.tuning) {
+                    *units -= 1;
                     crab.mover.carrying = Some(Carry::Biomass);
                     crab.events.picked_up = true;
                 }
@@ -369,6 +364,19 @@ impl Sim {
                 self.molt.commit(&mut self.biomass_banked);
             }
         }
+        // The molt machine fires on its clock, wherever the crab is.
+        let _ = self.molt.tick(&self.tuning);
+        // Wild death-moults decay on the carrion clock: the web eats what
+        // the wild killed. Home moults persist — what dies at home waits
+        // for you.
+        self.moults.retain_mut(|m| {
+            if let Some(d) = &mut m.decay_left {
+                *d = d.saturating_sub(1);
+                *d > 0
+            } else {
+                true
+            }
+        });
         // The molt machine fires on its clock, wherever the crab is.
         let _ = self.molt.tick(&self.tuning);
         // Wild death-moults decay on the carrion clock: the web eats what
