@@ -18,8 +18,9 @@ use crabsim::Moment;
 pub fn all() -> Vec<Box<dyn Moment>> {
     // (moment authors: one entry each, in the order they should list)
     vec![
+        Box::new(crate::moments::turn_around::TurnAround),
         Box::new(crate::moments::first_molt::FirstMolt),
         Box::new(crate::moments::forward_siege::ForwardSiege),
-        Box::new(crate::moments::turn_around::TurnAround),
+        Box::new(crate::moments::rescue::Rescue),
     ]
 }

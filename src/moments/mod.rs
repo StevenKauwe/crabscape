@@ -15,6 +15,7 @@ mod first_molt;
 mod forward_siege;
 mod picker;
 mod registry;
+mod rescue;
 mod turn_around;
 
 pub use picker::MomentsPlugin;

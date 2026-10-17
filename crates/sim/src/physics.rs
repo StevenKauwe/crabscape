@@ -80,8 +80,8 @@ pub struct Mover {
     /// Paddle strokes the crab has grown (one per egg eaten), on top of
     /// [`Tuning::swim_strokes`]. The first one is the double jump.
     pub upgrades: u32,
-    /// The paper-shell flag (set by the world while the molt is in its
-    /// soft window): paddle legs are soft, so no strokes or jumps, and
+    /// The paper-shell flag (the world sets it while the molt is in its
+    /// soft window): paddle legs are soft — no strokes or jumps — and
     /// climbing slows to a fraction.
     pub soft: bool,
     /// What the crab is carrying home on its back, if anything (one thing
@@ -336,7 +336,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     let walking = walk.abs() > 0.1;
 
     // --- Timers ---------------------------------------------------------
-    if c.jump_pressed {
+    // A soft crab cannot wind up a push-off: no jump buffer fills while the
+    // shell is paper (the climb is walking legs and stays open).
+    if c.jump_pressed && !m.soft {
         m.jump_buffer = t.jump_buffer;
     } else {
         m.jump_buffer = (m.jump_buffer - dt).max(0.0);
@@ -844,6 +846,61 @@ mod tests {
         let mut m = Mover::new(SPAWN);
         let top = run_until_landed(&mut m, HOLD_JUMP, &level, 3.0);
         assert!((170.0..220.0).contains(&top), "full jump reached {top}");
+    }
+
+    // The soft-shell law (the moments' molt): paddle legs are soft — no
+    // strokes, no jumps — and climbing slows. The world sets `soft`;
+    // physics enforces it.
+
+    #[test]
+    fn soft_crab_cannot_stroke() {
+        let t = Tuning::default();
+        let mut m = Mover::new(SPAWN);
+        m.upgrades = 3;
+        m.soft = true;
+        assert_eq!(m.strokes(&t), 0, "a soft crab has no paddle strokes");
+        m.soft = false;
+        assert_eq!(
+            m.strokes(&t),
+            t.swim_strokes + m.upgrades,
+            "hardening restores every stroke"
+        );
+    }
+
+    #[test]
+    fn soft_crab_cannot_jump() {
+        let level = Level::test_level();
+        let mut soft = Mover::new(SPAWN);
+        soft.soft = true;
+        run(&mut soft, HOLD_JUMP, 0.5, &level);
+        assert!(
+            soft.pos.y <= 0.01,
+            "a soft crab's push-off must not lift it (y = {})",
+            soft.pos.y
+        );
+        let mut hard = Mover::new(SPAWN);
+        run(&mut hard, HOLD_JUMP, 0.5, &level);
+        assert!(
+            hard.pos.y > 50.0,
+            "control: a hard crab's push-off lifts it (y = {})",
+            hard.pos.y
+        );
+    }
+
+    #[test]
+    fn soft_climb_uses_the_soft_factor() {
+        let t = Tuning::default();
+        let mut m = Mover::new(SPAWN);
+        m.soft = true;
+        let soft_speed = m.climb_speed(&t);
+        m.soft = false;
+        let hard_speed = m.climb_speed(&t);
+        assert!(soft_speed < hard_speed, "softening slows the climb");
+        let expected = t.climb_speed * t.soft_climb_factor;
+        assert!(
+            (soft_speed - expected).abs() < 1.0,
+            "soft climb {soft_speed} should be ~{expected}"
+        );
     }
 
     #[test]
