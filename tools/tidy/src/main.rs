@@ -171,14 +171,13 @@ fn run(root: &Path, mode: Mode, max_target: u64, min_free: u64) -> Vec<String> {
         }
         for t in &targets {
             // Leftovers that aren't build folders (cargo's tmp/, old `cargo doc` output...). Build folders were
-            // just handled above, with their locks; the test browser profile is kept (it holds no build output).
+            // just handled above, with their locks; the browser test's screenshots are kept (it holds no build output).
             if let Ok(rd) = fs::read_dir(t) {
                 for e in rd.flatten() {
                     let path = e.path();
                     let name = e.file_name();
-                    let keep = name == "CACHEDIR.TAG"
-                        || name == "webkit-profile"
-                        || contains_profile(&path);
+                    let keep =
+                        name == "CACHEDIR.TAG" || name == "webtest" || contains_profile(&path);
                     if !keep {
                         cleaner.remove(&path);
                     }

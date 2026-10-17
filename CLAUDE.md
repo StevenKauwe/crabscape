@@ -84,7 +84,7 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Lint (wasm32) | `cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings` |
 | Test | `cargo test --workspace` |
 | Web build into `web/` | `tools/build-web.sh` (serve with any static server, e.g. `python3 -m http.server -d web`) |
-| WebKit (iPhone engine) test | `python3 tools/test-webkit.py [--landscape] [--shots /tmp/shot]` (needs WebKitGTK 4.1) |
+| WebKit (iPhone engine) test | `cargo webtest [--landscape \| --desktop] [--shots /tmp/shot]` (after the web build; needs WebKitGTK 4.1 and `WebKitWebDriver`, Ubuntu `webkit2gtk-driver`) |
 | Headless sim | `cargo crabsim --script "t=0 walk=right; t=1 jump; t=1.45 jump" --seconds 4` |
 | Replay a bug report | `cargo crabsim --inputs replay.txt --dump -` (F9 in the game saves a replay; `?replay` adds a button on the web) |
 | Crab rig → SVG | `cargo run -p crabrig --profile art -- parts` (writes `art/crab/crab-parts.svg`) |

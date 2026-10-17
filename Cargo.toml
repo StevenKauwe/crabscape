@@ -12,7 +12,7 @@ default-run = "crabscape"
 # uses and which also runs headless (`cargo crabsim`); plain `cargo build` / `cargo test` / the wasm build cover the
 # game and the simulation. The art tools are the other members: `--workspace` or `-p painter` to include them.
 [workspace]
-members = ["crates/sim", "crates/painter", "crates/crabrig", "tools/oil-atlas"]
+members = ["crates/sim", "crates/painter", "crates/crabrig", "tools/oil-atlas", "tools/webtest"]
 default-members = [".", "crates/sim"]
 
 [dependencies]

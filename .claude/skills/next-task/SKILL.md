@@ -45,7 +45,7 @@ gh issue comment <n> --body "Claimed by <login>'s Claude."
 ## 4. Check
 Run every check in `CLAUDE.md` that applies (fmt, clippy native + wasm32, tests; `tools/build-web.sh` for anything
 that changes the game). Fix failures. For visual changes take before/after screenshots
-(`python3 tools/test-webkit.py --shots /tmp/issue-<n>` if WebKitGTK is installed; otherwise describe what to look at).
+(`cargo webtest --shots /tmp/issue-<n>` if WebKitGTK and its WebDriver are installed; otherwise describe what to look at).
 
 ## 5. Open the PR and merge it yourself
 No human review or approval is needed. If budget allows, run `/review-pr` on your own PR first (optional).

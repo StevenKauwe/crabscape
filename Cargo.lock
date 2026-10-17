@@ -5745,6 +5745,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "webtest"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "crabsim",
+ "png 0.18.1",
+ "serde_json",
+]
+
+[[package]]
 name = "wesl"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
