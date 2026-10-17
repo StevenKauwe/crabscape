@@ -92,10 +92,18 @@ fn save_when_resting(
     }
 }
 
+/// Forget everything the game keeps on this device (the save, the art
+/// style...), for a fresh start.
+pub fn wipe() {
+    backend::wipe();
+}
+
 /// Browser version: `window.localStorage`.
 #[cfg(target_arch = "wasm32")]
 mod backend {
     const KEY: &str = "crabscape.save";
+    /// Every key the game writes starts with this.
+    const PREFIX: &str = "crabscape";
 
     fn storage() -> Result<web_sys::Storage, String> {
         let window = web_sys::window().ok_or("no browser window")?;
@@ -116,6 +124,21 @@ mod backend {
             .set_item(KEY, text)
             .map_err(|e| format!("localStorage refused the write: {e:?}"))
     }
+
+    /// Remove every key of the game's (and nothing else on the site).
+    pub fn wipe() {
+        let Ok(storage) = storage() else {
+            return;
+        };
+        let count = storage.length().unwrap_or(0);
+        let ours: Vec<String> = (0..count)
+            .filter_map(|i| storage.key(i).ok().flatten())
+            .filter(|k| k.starts_with(PREFIX))
+            .collect();
+        for key in ours {
+            let _ = storage.remove_item(&key);
+        }
+    }
 }
 
 /// Native version: a file in the current folder.
@@ -129,6 +152,10 @@ mod backend {
 
     pub fn write(text: &str) -> Result<(), String> {
         std::fs::write(FILE, text).map_err(|e| e.to_string())
+    }
+
+    pub fn wipe() {
+        let _ = std::fs::remove_file(FILE);
     }
 }
 
