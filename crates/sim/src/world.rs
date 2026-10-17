@@ -22,6 +22,7 @@ use crate::molt::{Molt, MoltState, Moult};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::tuning::Tuning;
+use crate::watcher::Watcher;
 
 /// Identifies a player. Only one exists for now, but co-op will add more.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -76,6 +77,9 @@ pub struct Sim {
     /// Biomass piles (positions + units left), placed by moment setups.
     /// Each pickup takes one unit onto the back.
     pub biopiles: Vec<(Vec2, u32)>,
+    /// Watchers: sweeping patrols that see the crab when it is close and
+    /// not hidden (gripping kelp or coral reads as weed).
+    pub watchers: Vec<Watcher>,
 }
 
 impl Sim {
@@ -91,6 +95,7 @@ impl Sim {
             biomass_banked: 0,
             moults: Vec::new(),
             biopiles: Vec::new(),
+            watchers: Vec::new(),
         }
     }
 
@@ -148,6 +153,23 @@ impl Sim {
     /// it). The rest-stop siege verb.
     pub fn autotomy_delay(&mut self) {
         self.molt.autotomy_delay(&self.tuning);
+    }
+
+    /// Place a watcher patrol (a moment setup calls this; speed and
+    /// detection radius come from tuning).
+    pub fn spawn_watcher(&mut self, path: Vec<Vec2>) {
+        self.watchers.push(Watcher::new(path));
+    }
+
+    /// Is player 0 found by any watcher this tick? (Gripping kelp or
+    /// coral hides the crab.)
+    pub fn watcher_finding(&self) -> bool {
+        let Some(crab) = self.crab(PlayerId(0)) else {
+            return false;
+        };
+        self.watchers
+            .iter()
+            .any(|w| w.finding(&crab.mover, &self.tuning))
     }
 
     /// Ticks run so far.
@@ -364,7 +386,11 @@ impl Sim {
                 self.molt.commit(&mut self.biomass_banked);
             }
         }
-        // The molt machine fires on its clock, wherever the crab is.
+        // The watchers sweep their paths on game time; then the molt
+        // machine fires on its clock, wherever the crab is.
+        for w in &mut self.watchers {
+            w.tick(&self.tuning);
+        }
         let _ = self.molt.tick(&self.tuning);
         // Wild death-moults decay on the carrion clock: the web eats what
         // the wild killed. Home moults persist — what dies at home waits
@@ -377,7 +403,11 @@ impl Sim {
                 true
             }
         });
-        // The molt machine fires on its clock, wherever the crab is.
+        // The watchers sweep their paths on game time; then the molt
+        // machine fires on its clock, wherever the crab is.
+        for w in &mut self.watchers {
+            w.tick(&self.tuning);
+        }
         let _ = self.molt.tick(&self.tuning);
         // Wild death-moults decay on the carrion clock: the web eats what
         // the wild killed. Home moults persist — what dies at home waits
