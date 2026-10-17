@@ -4,7 +4,8 @@
 //! cargo tidy            say how big the build files are and how much disk is free; clean up if needed
 //! cargo tidy report     only say it, never delete anything
 //! cargo tidy deep       remove all build files (target/, web/pkg, web/assets, ...) to free the most space
-//! cargo tidy hook       what Claude Code runs at session start: quiet unless it cleaned or space is low
+//! cargo tidy hook       what Claude Code runs at session start: quiet unless it cleaned, space is low or
+//!                       main's latest CI run failed (asked with `gh`; skipped quietly offline)
 //! ```
 //! Options: `--max-target-gb N` (default 8), `--min-free-gb N` (default 10), `--project DIR`.
 //! (`cargo tidy` is an alias in `.cargo/config.toml` for
@@ -23,8 +24,10 @@
 
 use std::collections::HashMap;
 use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant, SystemTime};
 
 const USAGE: &str = "\
 cargo tidy            say how big the build files are and how much disk is free; clean up if needed
@@ -96,13 +99,31 @@ fn main() {
     }
     let lines = run(&root, mode, max_target, min_free);
     if mode == Mode::Hook {
-        if !lines.is_empty() {
-            let text = lines.join(" ");
+        let red = main_ci_failed(&root);
+        if !lines.is_empty() || red.is_some() {
+            let mut shown = lines.join(" ");
+            let mut context = if lines.is_empty() {
+                String::new()
+            } else {
+                format!("Disk housekeeping (cargo tidy) at session start: {shown}")
+            };
+            if let Some(url) = red {
+                shown = format!("{shown} The automatic checks on main are failing: {url}")
+                    .trim()
+                    .into();
+                context = format!(
+                    "{context} Main's latest CI run FAILED: {url}. Fixing main comes first: /next-task picks the \
+                     open \"main is broken\" issue."
+                )
+                .trim()
+                .into();
+            }
             // `systemMessage` is shown to the person; `additionalContext` tells Claude what happened.
             println!(
-                "{{\"systemMessage\":\"{0}\",\"hookSpecificOutput\":{{\"hookEventName\":\"SessionStart\",\
-                 \"additionalContext\":\"Disk housekeeping (cargo tidy) at session start: {0}\"}}}}",
-                json_escape(&text)
+                "{{\"systemMessage\":\"{}\",\"hookSpecificOutput\":{{\"hookEventName\":\"SessionStart\",\
+                 \"additionalContext\":\"{}\"}}}}",
+                json_escape(&shown),
+                json_escape(&context)
             );
         }
     } else {
@@ -110,6 +131,53 @@ fn main() {
             println!("{l}");
         }
     }
+}
+
+/// Session start: did main's latest finished CI run fail? Asks GitHub with `gh`; returns the run's link. Says
+/// nothing (None) when `gh` is missing, signed out, offline or slow.
+fn main_ci_failed(root: &Path) -> Option<String> {
+    let mut child = Command::new("gh")
+        .args([
+            "run",
+            "list",
+            "--branch",
+            "main",
+            "--workflow",
+            "ci.yml",
+            "--event",
+            "push",
+        ])
+        .args([
+            "--status",
+            "completed",
+            "--limit",
+            "1",
+            "--json",
+            "conclusion,url",
+        ])
+        .args(["--jq", r#".[0] | "\(.conclusion) \(.url)""#])
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    let (conclusion, url) = out.trim().split_once(' ')?;
+    (conclusion == "failure").then(|| url.to_string())
 }
 
 fn is_crabscape(root: &Path) -> bool {

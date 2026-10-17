@@ -18,6 +18,12 @@ every GitHub/git step yourself.
   `gh api user --jq .login`.
 
 ## 2. Pick
+**A broken `main` comes first.** CI opens (and closes, once green) one issue titled "main is broken":
+```sh
+gh issue list --state open --label main-broken --json number,title,assignees
+```
+If it is open and nobody is on it, take it whatever the budget or area: it names the failing run and step. Fix
+main (or revert the change that broke it) before anything else. Otherwise pick normally:
 ```sh
 gh issue list --state open --label claude-ready --search "no:assignee -label:in-progress -label:needs-human" \
   --json number,title,labels --limit 50
