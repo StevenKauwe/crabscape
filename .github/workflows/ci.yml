@@ -50,6 +50,25 @@ jobs:
           cargo clippy --manifest-path tools/tidy/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/tidy/Cargo.toml --locked
 
+  determinism:
+    name: native and wasm sims agree
+    # The game rules must play out bit for bit the same natively and as WebAssembly (co-op and replays rely on it).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: determinism
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: wasmtime
+      - name: The simulation's tests, as WebAssembly in wasmtime
+        run: cargo test -p crabsim --locked --target wasm32-wasip1
+      - name: Native and wasm runs match tick for tick, same state hash
+        run: tools/determinism.sh
+
   web:
     name: web build, relaxed-SIMD check, size
     runs-on: ubuntu-latest
@@ -142,7 +161,7 @@ jobs:
     # (The private flag is read from the event, so a run started while private skips;
     # rerun with workflow_dispatch on main.)
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
-    needs: [check, web, browser]
+    needs: [check, determinism, web, browser]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -174,7 +193,7 @@ jobs:
     name: report main's health
     # On main only: a failure opens (or adds to) one "main is broken" issue for the next Claude; a green run closes it.
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [check, web, browser, deploy]
+    needs: [check, determinism, web, browser, deploy]
     runs-on: ubuntu-latest
     permissions:
       issues: write

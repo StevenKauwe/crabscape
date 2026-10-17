@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Proves the simulation plays out bit for bit the same natively and as WebAssembly (the browser's kind of code):
+# each script below runs in the native crabsim and in crabsim compiled to wasm32-wasip1 (run by wasmtime), and the
+# full tick-by-tick state dumps and the final state hashes must match exactly. CI runs it; locally it needs
+# wasmtime on PATH.
+#
+#   tools/determinism.sh
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cargo build --release --locked -q -p crabsim
+cargo build --release --locked -q -p crabsim --target wasm32-wasip1
+native=target/release/crabsim
+wasm="wasmtime target/wasm32-wasip1/release/crabsim.wasm"
+
+while IFS= read -r script; do
+  a=$($native --script "$script" --seconds 60 --dump - --quiet | sha256sum)
+  b=$($wasm --script "$script" --seconds 60 --dump - --quiet | sha256sum)
+  ha=$($native --script "$script" --seconds 60 | grep '^state hash')
+  hb=$($wasm --script "$script" --seconds 60 | grep '^state hash')
+  if [ "$a" != "$b" ] || [ "$ha" != "$hb" ]; then
+    echo "DIFFERENT: native ${a:0:16} ($ha), wasm ${b:0:16} ($hb) for: $script" >&2
+    exit 1
+  fi
+  echo "same: ${ha%% (*} (dump ${a:0:16}) for: $script"
+done << 'SCRIPTS'
+t=0 walk=right; t=0.4 jump; t=0.7 jump; t=0.9 release; t=1.6 dodge; t=1.8 walk=-0.4; t=2.2 walk=right tap; t=3 walk=right jump; t=3.4 jump; t=4 dodge; t=4.1 jump; t=5.5 walk=left; t=6 jump; t=6.1 release; t=6.6 sprint; t=7.4 slow; t=8 walk=right
+t=0 walk=right; t=1 jump; t=1.45 jump; t=3 walk=right sprint; t=6 slow; t=9 jump; t=12 walk=left; t=20 walk=right down=on; t=30 down=off jump
+t=0 walk=left; t=0.5 jump; t=2 walk=right; t=2.5 dodge; t=10 walk=right sprint; t=40 walk=stop
+SCRIPTS
+echo "native and wasm agree"
