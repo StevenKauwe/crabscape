@@ -41,6 +41,11 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 ## How we work
 - **Humans bring taste; Claude does all process.** Merge your own PR when checks pass. Never ask a human to review
   code, approve anything, resolve conflicts or do git chores.
+- **Merge consent splits by content.** PRs with **no game content** — docs, CI, tooling, tests, repo chores — merge
+  yourself when checks pass. PRs **with game content** (anything under `src/`, `crates/`, `web/assets/`, `art/`, or
+  design docs that change the game) **do not merge**: post the PR's playable preview link (the previews workflow
+  comments it automatically; the chooser is at `/builds/`) to the owner in plain words, with a recommendation, and
+  wait for their go. If the preview can't build, say so and wait anyway.
 - **Ask humans only** for taste/direction calls (how it feels or looks) or outward-facing ones (going public, money,
   contacting people): briefly, in plain words, with a recommendation.
 - **Talking to humans:** plain words, no jargon (say "your change", "the automatic checks", "it's in the game now").
@@ -59,6 +64,10 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - CI (`.github/workflows/ci.yml`): fmt, clippy (native + wasm32), tests, the tidy tool's checks, the web build,
   relaxed-SIMD check, a size report. On `main` it deploys `web/` to GitHub Pages
   (https://stevenkauwe.github.io/crabscape/). Branch protection requires CI only.
+- **Playable previews** (`.github/workflows/previews.yml`): every PR builds to `/pr-<n>/` on the Pages site (URL
+  commented on the PR, updated per push, reaped on close/merge); named branches on demand via workflow_dispatch to
+  `/branches/<name>/`; the chooser page lives at `/builds/`. Preview builds carry the `dev-checkpoints` feature
+  (see #55: start-from-checkpoint testing, saves isolated per build path); main deploys do not.
 - Issues: `claude-ready`, `size:S` (~30 min of Claude work), `size:M` (~1 h); `size:L` must be split; `needs-human`
   means a person must decide or draw first (don't start it). Areas: `area:code|art|research|design|tooling`.
 - Skills: `/next-task` (claim, do and merge one issue), `/review-pr <n>` (optional self-check), `/triage`
