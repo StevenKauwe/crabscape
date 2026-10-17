@@ -67,9 +67,6 @@ struct RestartButton;
 /// Query bundle for a touch button's box.
 type ButtonNode<'w> = (&'w mut Node, &'w mut Visibility);
 
-/// Query bundle for the MOMENTS button's box and label.
-type MomentsUi<'w> = (&'w mut Node, &'w mut Text);
-
 /// The top edge of the touch button row. Narrow phones push it under the
 /// HUD text — the same placement rule as the Style button.
 fn buttons_top(window_x: f32) -> f32 {
@@ -233,8 +230,6 @@ fn spawn_touch_buttons(mut commands: Commands) {
             MomentsButton,
             Node {
                 position_type: PositionType::Absolute,
-                top: px(10),
-                right: px(10),
                 width: px(104),
                 height: px(34),
                 justify_content: JustifyContent::Center,
@@ -262,8 +257,6 @@ fn spawn_touch_buttons(mut commands: Commands) {
             RestartButton,
             Node {
                 position_type: PositionType::Absolute,
-                top: px(52),
-                right: px(10),
                 width: px(104),
                 height: px(34),
                 justify_content: JustifyContent::Center,
@@ -358,8 +351,9 @@ fn handle_touch(
 fn place_touch_buttons(
     picker: Res<Picker>,
     window: Single<&Window>,
-    mut moments: Single<MomentsUi<'_>, (With<MomentsButton>, Without<RestartButton>)>,
+    mut moments: Single<&mut Node, (With<MomentsButton>, Without<RestartButton>)>,
     mut restart: Single<ButtonNode<'_>, (With<RestartButton>, Without<MomentsButton>)>,
+    mut moments_label: Single<&mut Text, (With<MomentsLabel>, Without<RestartLabel>)>,
 ) {
     let place = |node: &mut Node, r: Rect| {
         let (left, top, w, h) = (px(r.min.x), px(r.min.y), px(r.width()), px(r.height()));
@@ -370,7 +364,7 @@ fn place_touch_buttons(
             node.height = h;
         }
     };
-    place(&mut moments.0, moments_button_rect(window.size()));
+    place(&mut moments, moments_button_rect(window.size()));
     place(&mut restart.0, restart_button_rect(window.size()));
 
     let wanted = if picker.active.is_some() {
@@ -387,8 +381,8 @@ fn place_touch_buttons(
     } else {
         "MOMENTS"
     };
-    if moments.1.0 != label {
-        moments.1.0 = label.to_string();
+    if moments_label.0 != label {
+        moments_label.0 = label.to_string();
     }
 }
 
