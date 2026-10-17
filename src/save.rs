@@ -165,6 +165,8 @@ mod backend {
 
 /// Path text → a localStorage-safe slug: alphanumerics kept, every other
 /// run folded to one dash. Pure, so tests cover it on any target.
+/// (Unused on native builds — there the save key is stable.)
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 fn slugify(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     let mut last_dash = false;
