@@ -250,7 +250,10 @@ fn spawn_touch_buttons(mut commands: Commands) {
             b.spawn((
                 MomentsLabel,
                 Text::new("MOMENTS"),
-                TextFont { font_size: FontSize::Px(14.0), ..default() },
+                TextFont {
+                    font_size: FontSize::Px(14.0),
+                    ..default()
+                },
                 TextColor(Color::srgba(1.0, 0.9, 0.7, 0.85)),
             ));
         });
@@ -277,7 +280,10 @@ fn spawn_touch_buttons(mut commands: Commands) {
             b.spawn((
                 RestartLabel,
                 Text::new("RESTART"),
-                TextFont { font_size: FontSize::Px(14.0), ..default() },
+                TextFont {
+                    font_size: FontSize::Px(14.0),
+                    ..default()
+                },
                 TextColor(Color::srgba(1.0, 0.9, 0.7, 0.85)),
             ));
         });
@@ -294,10 +300,7 @@ fn handle_touch(
     mouse: Res<ButtonInput<MouseButton>>,
     window: Single<&Window>,
 ) {
-    let mut taps: Vec<Vec2> = touches
-        .iter_just_pressed()
-        .map(|t| t.position())
-        .collect();
+    let mut taps: Vec<Vec2> = touches.iter_just_pressed().map(|t| t.position()).collect();
     if mouse.just_pressed(MouseButton::Left)
         && let Some(cursor) = window.cursor_position()
     {
