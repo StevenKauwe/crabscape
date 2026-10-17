@@ -123,10 +123,14 @@ jobs:
 
       - name: Publish folder to the store and refresh /builds/
         run: tools/previews.sh publish "$FOLDER" "$SHA"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upsert the PR comment with the playable URL
         if: github.event_name == 'pull_request'
         run: tools/previews.sh comment "${{ github.event.number }}" "pr-${{ github.event.number }}"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - id: snap
         name: Assemble the site from the store
