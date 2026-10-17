@@ -165,32 +165,6 @@ pub struct Tuning {
     /// While walking, stay glued to a floor that drops away by less than
     /// this (so walking down a slope doesn't turn into tiny falls).
     pub ground_snap: f32,
-
-    // --- Moments: molt, biomass and death-moults ------------------------
-    /// Stamina gained from eating one carried raw biomass in the field
-    /// ("eat raw = stamina now"). Locked while premolt anorexia holds.
-    pub raw_eat_stamina: f32,
-    /// How long (seconds) the committed premolt runs before ecdysis.
-    pub committed_seconds: f32,
-    /// How long (seconds) ecdysis lasts: the crab is immobile.
-    pub ecdysis_seconds: f32,
-    /// How long (seconds) the paper-shell window lasts after ecdysis.
-    pub soft_seconds: f32,
-    /// Movement scale while soft or in ecdysis recovery (defense ≈ 0 and
-    /// slow).
-    pub soft_speed_factor: f32,
-    /// Ticks a shed claw adds back to the premolt countdown (documented: a
-    /// limb lost mid-premolt delays ecdysis so it can regrow fully).
-    pub autotomy_delay_ticks: u64,
-    /// Seconds before a wild death-moult is eaten by the web (the decay
-    /// ring). Home moults never decay.
-    pub wild_decay_seconds: f32,
-    /// Biomass the molt bill charges per feat (the body's cost; a molt
-    /// with two queued feats bills double).
-    pub molt_units_per_feat: u32,
-    /// How much of the Climbing speed survives the soft shell (paddle legs
-    /// are soft: no strokes or jumps; climbing is walking legs, slowed).
-    pub soft_climb_factor: f32,
 }
 
 impl Default for Tuning {
@@ -248,16 +222,6 @@ impl Default for Tuning {
             body_height: 48.0,
             step_up: 14.0,
             ground_snap: 12.0,
-
-            raw_eat_stamina: 2.0,
-            committed_seconds: 2.0,
-            ecdysis_seconds: 1.0,
-            soft_seconds: 5.0,
-            soft_speed_factor: 0.45,
-            autotomy_delay_ticks: 360, // 3 s: the siege verb
-            wild_decay_seconds: 30.0,  // the web is coming
-            molt_units_per_feat: 6,
-            soft_climb_factor: 0.6,
         }
     }
 }
