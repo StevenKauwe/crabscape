@@ -63,7 +63,8 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   tidy tool's checks, the web build, relaxed-SIMD check, a size report, the browser test (`cargo webtest`, the game
   played in WebKit), native = wasm determinism (`tools/determinism.sh`, the sim's tests in wasmtime too) and an art
   check (re-exports the rig and oil atlas; committed `art/crab`, `assets/crab` must match). On `main` it deploys
-  `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/). Branch protection requires all of these jobs.
+  `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/), then checks the live site starts
+  (`cargo webtest --smoke`). Branch protection requires the check, determinism, art, web and browser jobs.
 - **Main is broken?** A failed CI run on `main` opens (or adds to) the `main-broken` issue "main is broken"; a green
   run closes it. Fix it before anything else (`/next-task` picks it first; the session-start check says so too).
 - **Playable previews** (`tools/previews.sh`): CI publishes each PR's web build to `/pr-<n>/` on the Pages site
