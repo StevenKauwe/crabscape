@@ -56,6 +56,8 @@ jobs:
   web:
     name: web build, relaxed-SIMD check, size
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the main build to the gh-pages store
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
@@ -101,16 +103,11 @@ jobs:
           name: crabscape-web-${{ github.sha }}
           path: web/
           retention-days: 14
-      - name: Fold stored preview builds into the site
-        # Preview folders (pr-*/, branches/*, builds/) live on the gh-pages
-        # branch; include them so one Pages site serves every build.
+      - name: Publish the main build to the preview store (gh-pages root)
+        # The store is the source of truth: main at the root, previews in
+        # folders. The deploy job below serves the whole store.
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
-        run: tools/previews.sh fold
-      - name: Upload for GitHub Pages
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: web/
+        run: tools/previews.sh publish-main
 
   deploy:
     name: deploy to GitHub Pages
@@ -130,6 +127,15 @@ jobs:
       group: pages
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: snap
+        name: Assemble the site from the preview store
+        run: tools/previews.sh snapshot site
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -99,7 +99,6 @@ case "${1:-}" in
     ;;
   comment)
     PR="$2" FOLDER="$3"
-    [ -f .build_url ] || true
     url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${REPO#*/}/$FOLDER/"
     body="$MARKER
 **Preview build:** <$url> — this comment updates with the PR.
@@ -119,20 +118,36 @@ $( [ -n "${PREVIEW_SHA:-}" ] && echo "build: \`$(short "$PREVIEW_SHA")\`" )"
     fi
     echo "comment upserted: $url"
     ;;
-  fold)
-    # Called by ci.yml on main: fold stored preview folders into web/.
-    git fetch --quiet origin gh-pages --depth=1 2>/dev/null || { echo "no gh-pages yet; site = main only"; exit 0; }
-    n=0
-    for d in $(git ls-tree --name-only FETCH_HEAD); do
-      case "$d" in pr-*|branches|builds)
-        git archive "FETCH_HEAD:$d" 2>/dev/null | tar -x -C web || \
-          git archive FETCH_HEAD "$d" | tar -x -C web
-        n=$((n + 1)) ;;
-      esac
-    done
-    echo "folded $n preview entrie(s) into the Pages artifact"
+  publish-main)
+    # Called by ci.yml on main: refresh the store's ROOT with this build,
+    # leaving preview folders (pr-*/, branches/*, builds/) untouched.
+    site_worktree
+    rm -rf "$SITE/index.html" "$SITE/pkg" "$SITE/assets"
+    cp -r web/. "$SITE/"
+    builds_page "$SITE"
+    site_push "$SITE" "main build @ $(short "${GITHUB_SHA:-local}")"
+    git worktree remove --force "$SITE" 2>/dev/null || true
+    echo "main build published to the store root"
+    ;;
+  snapshot)
+    # Export the whole store (root main build + previews + /builds/) to a
+    # dir, ready to upload as the Pages artifact. Bootstrap-safe: outputs
+    # deployed=false while the store has no main build at its root yet, so
+    # the very first preview cannot publish a rootless site.
+    OUT="$2"
+    if ! git fetch --quiet origin gh-pages --depth=1 2>/dev/null; then
+      echo "store missing"; echo "deployed=false" >> "${GITHUB_OUTPUT:-/dev/null}"; exit 0
+    fi
+    mkdir -p "$OUT"
+    git archive FETCH_HEAD | tar -x -C "$OUT"
+    if [ -f "$OUT/index.html" ]; then
+      echo "deployed=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+    else
+      echo "no main build at the store root yet; skipping deploy (bootstrap-safe)"
+      echo "deployed=false" >> "${GITHUB_OUTPUT:-/dev/null}"
+    fi
     ;;
   *)
-    echo "usage: $0 publish <folder> <sha> | cleanup <folder> | comment <pr> <folder> | fold" >&2
+    echo "usage: $0 publish <folder> <sha> | cleanup <folder> | comment <pr> <folder> | publish-main | snapshot <dir>" >&2
     exit 2 ;;
 esac

@@ -2,14 +2,16 @@
 # builds to its own folder on the gh-pages branch, so many builds of the
 # game are playable at once from one Pages site:
 #
-#   /                 the main build (deployed by ci.yml)
+#   /                 the main build (published to the store by ci.yml)
 #   /pr-42/           pull request #42's build
 #   /branches/design-bible/   a named branch, on demand
 #   /builds/          the chooser page listing everything
 #
-# gh-pages is only the STORE for preview folders; ci.yml folds them into the
-# Pages artifact on every main deploy, so the site stays on the Actions
-# pipeline (no Pages settings change).
+# gh-pages is the STORE and the source of truth: main pushes its build to
+# the store's root, previews push folders, and whoever pushes last also
+# deploys the whole store — so a new preview is live the moment its job
+# finishes. Bootstrap-safe: the deploy is skipped while the store has no
+# main build at its root yet (so this very PR cannot blank the site).
 #
 # Actions are pinned to commit SHAs; the comment says which release that is.
 # Everything else is plain git + shell, like tools/build-web.sh.
@@ -25,7 +27,7 @@ on:
         required: true
 
 permissions:
-  contents: write # push preview folders to gh-pages
+  contents: write # push preview folders to the gh-pages store
   pull-requests: write # keep one "Preview build" comment per PR
 
 concurrency:
@@ -43,18 +45,45 @@ jobs:
     name: remove the preview folder
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Delete pr-${{ github.event.number }} from gh-pages and refresh /builds/
+      - name: Delete pr-${{ github.event.number }} from the store and refresh /builds/
         run: tools/previews.sh cleanup "pr-${{ github.event.number }}"
+      - id: snap
+        name: Assemble the site from the store
+        run: tools/previews.sh snapshot site
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        if: steps.snap.outputs.deployed == 'true'
+      - uses: actions/upload-pages-artifact@fc324f3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: steps.snap.outputs.deployed == 'true'
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        if: steps.snap.outputs.deployed == 'true'
 
   # ----------------------------------------------------------------- build --
   preview:
     name: build the preview folder
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     env:
       # Where this build goes: pr-<number>, or branches/<name> for dispatches.
       FOLDER: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || format('branches/{0}', github.event.inputs.branch) }}
@@ -92,9 +121,22 @@ jobs:
       - name: No relaxed SIMD (iPhone/WebKit rejects it)
         run: wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
 
-      - name: Publish folder to gh-pages and refresh /builds/
+      - name: Publish folder to the store and refresh /builds/
         run: tools/previews.sh publish "$FOLDER" "$SHA"
 
       - name: Upsert the PR comment with the playable URL
         if: github.event_name == 'pull_request'
         run: tools/previews.sh comment "${{ github.event.number }}" "pr-${{ github.event.number }}"
+
+      - id: snap
+        name: Assemble the site from the store
+        run: tools/previews.sh snapshot site
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        if: steps.snap.outputs.deployed == 'true'
+      - uses: actions/upload-pages-artifact@fc324f3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: steps.snap.outputs.deployed == 'true'
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        if: steps.snap.outputs.deployed == 'true'
