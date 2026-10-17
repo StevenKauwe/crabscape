@@ -38,12 +38,12 @@ pub trait MomentState: core::any::Any + Send + Sync {
 /// it in `src/moments/registry.rs`.
 pub trait Moment: core::any::Any + Send + Sync {
     /// Short name for the picker list (e.g. "THE TURN-AROUND").
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     /// One line for the picker: what this moment is.
-    fn blurb(&self) -> &'static str;
+    fn blurb(&self) -> &str;
     /// The objective, shown while playing (the win condition in player
     /// words).
-    fn objective(&self) -> &'static str;
+    fn objective(&self) -> &str;
     /// Where the crab starts. Defaults to the level spawn.
     fn spawn(&self) -> Vec2 {
         crate::SPAWN

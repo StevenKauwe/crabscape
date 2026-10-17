@@ -47,7 +47,7 @@ pub struct Controls {
 }
 
 /// Something a crab carries home on its back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub enum Carry {
     /// A lump of wild glowing bacteria: cultured at home into the lantern.
     Culture,

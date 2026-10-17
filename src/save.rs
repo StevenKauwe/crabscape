@@ -101,9 +101,18 @@ pub fn wipe() {
 /// Browser version: `window.localStorage`.
 #[cfg(target_arch = "wasm32")]
 mod backend {
-    const KEY: &str = "crabscape.save";
+    /// The save key for THIS build: namespaced by the page path, so each
+    /// preview build (`/pr-55/`, `/design-bible/`, ...) gets its own save
+    /// and never bleeds into the main deploy's — or another preview's.
+    /// The root deploy (`/`) keeps the stable key.
+    fn key() -> String {
+        format!("crabscape.save{}", suffix())
+    }
+
     /// Every key the game writes starts with this.
-    const PREFIX: &str = "crabscape";
+    fn prefix() -> String {
+        format!("crabscape{}", suffix())
+    }
 
     fn storage() -> Result<web_sys::Storage, String> {
         let window = web_sys::window().ok_or("no browser window")?;
@@ -116,16 +125,29 @@ mod backend {
     }
 
     pub fn read() -> Option<String> {
-        storage().ok()?.get_item(KEY).ok().flatten()
+        storage().ok()?.get_item(&key()).ok().flatten()
     }
 
     pub fn write(text: &str) -> Result<(), String> {
         storage()?
-            .set_item(KEY, text)
+            .set_item(&key(), text)
             .map_err(|e| format!("localStorage refused the write: {e:?}"))
     }
 
     /// Remove every key of the game's (and nothing else on the site).
+    /// The per-build path suffix: ".pr-55" for /pr-55/, empty for the root
+    /// deploy. Folding runs of non-path characters keeps the slug stable.
+    fn suffix() -> String {
+        let path = web_sys::window()
+            .and_then(|w| w.location().pathname().ok())
+            .unwrap_or_default();
+        let trimmed = path.trim_matches('/');
+        if trimmed.is_empty() {
+            return String::new();
+        }
+        format!(".{}", super::slugify(trimmed))
+    }
+
     pub fn wipe() {
         let Ok(storage) = storage() else {
             return;
@@ -133,12 +155,29 @@ mod backend {
         let count = storage.length().unwrap_or(0);
         let ours: Vec<String> = (0..count)
             .filter_map(|i| storage.key(i).ok().flatten())
-            .filter(|k| k.starts_with(PREFIX))
+            .filter(|k| k.starts_with(&prefix()))
             .collect();
         for key in ours {
             let _ = storage.remove_item(&key);
         }
     }
+}
+
+/// Path text → a localStorage-safe slug: alphanumerics kept, every other
+/// run folded to one dash. Pure, so tests cover it on any target.
+fn slugify(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut last_dash = false;
+    for c in path.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
 }
 
 /// Native version: a file in the current folder.
@@ -162,6 +201,22 @@ mod backend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slugify_keeps_path_segments_legible() {
+        assert_eq!(slugify("pr-55"), "pr-55");
+        assert_eq!(
+            slugify("issue-55-dev-checkpoints"),
+            "issue-55-dev-checkpoints"
+        );
+    }
+
+    #[test]
+    fn slugify_folds_separators_and_noise() {
+        assert_eq!(slugify("a//b"), "a-b");
+        assert_eq!(slugify("design bible!"), "design-bible");
+        assert_eq!(slugify("///"), "");
+    }
 
     #[test]
     fn save_format_round_trips() {
