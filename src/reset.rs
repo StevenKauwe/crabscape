@@ -1,6 +1,7 @@
 //! The "Start over" button, under the art-style button: for when a game
 //! gets stuck (or a browser holds on to old saved data). It forgets
-//! everything the game keeps on this device, puts the crab back at the
+//! everything this build of the game keeps on the device (a preview build
+//! forgets only its own), puts the crab back at the
 //! start and, in a browser, reloads the page. Tap once to arm it and again
 //! within a few seconds to do it, so a stray tap never wipes anything.
 
