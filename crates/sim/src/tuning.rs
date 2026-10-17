@@ -185,6 +185,12 @@ pub struct Tuning {
     /// Seconds before a wild death-moult is eaten by the web (the decay
     /// ring). Home moults never decay.
     pub wild_decay_seconds: f32,
+    /// Biomass the molt bill charges per feat (the body's cost; a molt
+    /// with two queued feats bills double).
+    pub molt_units_per_feat: u32,
+    /// How much of the Climbing speed survives the soft shell (paddle legs
+    /// are soft: no strokes or jumps; climbing is walking legs, slowed).
+    pub soft_climb_factor: f32,
     /// Biomass the molt bill charges for the first feat (the pit's on-ramp
     /// molts are cheaper; bills scale from here).
     pub molt_bill_base: u32,
@@ -253,6 +259,8 @@ impl Default for Tuning {
             soft_speed_factor: 0.45,
             autotomy_delay_ticks: 360, // 3 s: the siege verb
             wild_decay_seconds: 30.0,  // the web is coming
+            molt_units_per_feat: 6,
+            soft_climb_factor: 0.6,
             molt_bill_base: 3,
         }
     }
