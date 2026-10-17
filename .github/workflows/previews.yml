@@ -7,14 +7,13 @@
 #   /branches/design-bible/   a named branch, on demand
 #   /builds/          the chooser page listing everything
 #
-# gh-pages is the STORE and the source of truth: main pushes its build to
-# the store's root, previews push folders, and whoever pushes last also
-# deploys the whole store — so a new preview is live the moment its job
-# finishes. Bootstrap-safe: the deploy is skipped while the store has no
-# main build at its root yet (so this very PR cannot blank the site).
+# The gh-pages branch is the store (one commit, replaced on every update):
+# main's build at the root, previews in folders. Every job that changes the
+# store also deploys all of it, so a new preview is live when its job ends.
+# The deploy is skipped while the store has no main build at its root.
 #
 # Actions are pinned to commit SHAs; the comment says which release that is.
-# Everything else is plain git + shell, like tools/build-web.sh.
+# Everything else is git, gh and shell (tools/previews.sh).
 name: previews
 
 on:
@@ -123,14 +122,12 @@ jobs:
 
       - name: Publish folder to the store and refresh /builds/
         run: tools/previews.sh publish "$FOLDER" "$SHA"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upsert the PR comment with the playable URL
         if: github.event_name == 'pull_request'
         run: tools/previews.sh comment "${{ github.event.number }}" "pr-${{ github.event.number }}"
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
           PREVIEW_SHA: ${{ env.SHA }}
 
       - id: snap
