@@ -22,6 +22,9 @@ short() { printf '%.8s' "$1"; }
 
 # A worktree of gh-pages in a temp dir; makes an orphan branch if none yet.
 site_worktree() {
+  # Runners have no git identity; committing to the store needs one.
+  git config --global user.name "preview-bot"
+  git config --global user.email "actions@users.noreply.github.com"
   SITE="$(mktemp -d)"
   if git fetch --quiet origin gh-pages --depth=1 2>/dev/null; then
     git worktree add -B preview-tmp "$SITE" FETCH_HEAD --detach >/dev/null 2>&1 ||
