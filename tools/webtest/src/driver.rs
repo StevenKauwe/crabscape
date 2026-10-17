@@ -123,6 +123,12 @@ impl Browser {
             .map(drop)
     }
 
+    /// Run the following scripts in the page's first frame (until the next `go`).
+    pub fn enter_frame(&self) -> Result<()> {
+        self.call("POST", "/frame", Some(json!({ "id": 0 })))
+            .map(drop)
+    }
+
     /// Run `body` (a JavaScript function body; it may `return` a promise) in the page and return its result.
     pub fn js(&self, body: &str) -> Result<Value> {
         self.call(

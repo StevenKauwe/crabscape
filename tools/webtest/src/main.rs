@@ -123,6 +123,12 @@ struct Test<'a> {
     o: &'a Options,
     scratch: &'a Path,
     failures: u32,
+    /// Where pages are: the site, or the phone-sized frame around it.
+    pages: String,
+    framed: bool,
+    /// The game's size in CSS pixels, as measured.
+    w: f64,
+    h: f64,
 }
 
 /// Wait for a while, letting the game run.
@@ -138,7 +144,7 @@ fn run(o: &Options, root: &Path, scratch: &Path, log: &Path) -> Result<u32> {
             if !web.join("pkg/crabscape_bg.wasm").is_file() {
                 return Err("no web build in web/ (run tools/build-web.sh first)".into());
             }
-            serve::start(&web).map_err(|e| e.to_string())?
+            serve::start(&web, o.width as u32, o.height as u32).map_err(|e| e.to_string())?
         }
     };
     let mut args = vec![
@@ -148,15 +154,23 @@ fn run(o: &Options, root: &Path, scratch: &Path, log: &Path) -> Result<u32> {
     if !o.desktop {
         args.push(format!("--user-agent={IPHONE}"));
     }
+    // Locally the game runs in a frame of exactly the phone's size (a browser window has a minimum width); a live
+    // site is opened as it is, in the whole window.
+    let framed = o.url.is_none();
     let b = Browser::start(&args, log)?;
     let mut t = Test {
         b,
         o,
         scratch,
         failures: 0,
+        pages: format!("{base}/{}", if framed { "__phone/" } else { "" }),
+        framed,
+        w: o.width,
+        h: o.height,
     };
-    t.b.set_viewport(o.width as u32, o.height as u32)?;
-    t.all(&base)?;
+    let vw = if framed { o.width.max(500.0) } else { o.width };
+    t.b.set_viewport(vw as u32, o.height as u32)?;
+    t.all()?;
     t.console_errors(log);
     Ok(t.failures)
 }
@@ -325,9 +339,18 @@ impl Test<'_> {
         }
     }
 
+    /// Load a page of the site (in the phone frame, when there is one).
+    fn go(&self, page: &str) -> Result<()> {
+        self.b.go(&format!("{}{page}", self.pages))?;
+        if self.framed {
+            self.b.enter_frame()?;
+        }
+        Ok(())
+    }
+
     /// Load the page and wait for the game to start and report the crab.
-    fn open(&mut self, url: &str) -> Result<bool> {
-        self.b.go(url)?;
+    fn open(&mut self, page: &str) -> Result<bool> {
+        self.go(page)?;
         let started = self.wait_for(r#"document.getElementById("message").hidden"#, 90.0)?;
         let crab = self.wait_for(&format!(r#"{CANVAS}.hasAttribute("data-crab")"#), 20.0)?;
         Ok(started && crab)
@@ -353,13 +376,18 @@ impl Test<'_> {
         Ok(())
     }
 
-    fn all(&mut self, base: &str) -> Result<()> {
-        let (w, h) = (self.o.width, self.o.height);
-        let index = format!("{base}/index.html");
+    fn all(&mut self) -> Result<()> {
+        let index = "index.html";
         // --- start ------------------------------------------------------------------------------------------------
-        self.b.go(&index)?;
+        self.go(index)?;
         self.eval("(localStorage.clear(), true)")?;
-        let started = self.open(&index)?;
+        let started = self.open(index)?;
+        let size = self.eval("[innerWidth, innerHeight]")?;
+        (self.w, self.h) = (
+            size[0].as_f64().unwrap_or(0.0),
+            size[1].as_f64().unwrap_or(0.0),
+        );
+        let (w, h) = (self.w, self.h);
         println!(
             "     viewport {w}x{h}, user agent: {}",
             self.eval("navigator.userAgent")?.as_str().unwrap_or("?")
@@ -413,8 +441,19 @@ impl Test<'_> {
             n(3)
         );
         self.check(
-            n(0) > 0.0 && n(1) > 0.0 && n(2) == w && n(3) == h,
-            "the canvas fills the window",
+            n(0) > 0.0
+                && n(1) > 0.0
+                && n(2) == w
+                && n(3) == h
+                && (!self.framed || (w, h) == (self.o.width, self.o.height)),
+            format!(
+                "the canvas fills the {}",
+                if self.framed {
+                    "phone-sized frame"
+                } else {
+                    "window"
+                }
+            ),
         );
         let start = self.rest()?;
         println!("     crab at {start:?}");
@@ -518,9 +557,10 @@ impl Test<'_> {
         self.rest()?;
         self.key("keydown", "Space", " ")?;
         self.hold(0.45, false)?;
-        let before = self.crab()?;
         self.key("keyup", "Space", " ")?;
-        pump(0.05);
+        // Long enough for the game to see the key up (a few frames even with slow software drawing).
+        pump(0.25);
+        let before = self.crab()?;
         self.key("keydown", "Space", " ")?;
         let top = self.hold(0.35, true)?;
         self.key("keyup", "Space", " ")?;
@@ -588,7 +628,7 @@ impl Test<'_> {
             format!("the resting position is saved in localStorage ({raw})"),
         );
         // `?replay` adds a Replay button (for phones); a reload must keep the place and the style.
-        self.open(&format!("{index}?replay"))?;
+        self.open("index.html?replay")?;
         let again = self.rest()?;
         self.check(
             (again.0 - resting.0).abs() < 1.5,

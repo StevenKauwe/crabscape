@@ -4,8 +4,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
-/// Serve `root` on 127.0.0.1 in the background; returns the base URL.
-pub fn start(root: &Path) -> std::io::Result<String> {
+/// Serve `root` on 127.0.0.1 in the background; returns the base URL. `/__phone/<page>` is a wrapper page that
+/// shows `/<page>` in a `width` x `height` frame: the phone's screen, whatever the browser window's size.
+pub fn start(root: &Path, width: u32, height: u32) -> std::io::Result<String> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let base = format!("http://{}", listener.local_addr()?);
     let root = root.to_path_buf();
@@ -13,14 +14,14 @@ pub fn start(root: &Path) -> std::io::Result<String> {
         for stream in listener.incoming().flatten() {
             let root = root.clone();
             std::thread::spawn(move || {
-                let _ = answer(stream, &root);
+                let _ = answer(stream, &root, (width, height));
             });
         }
     });
     Ok(base)
 }
 
-fn answer(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
+fn answer(mut stream: TcpStream, root: &Path, (w, h): (u32, u32)) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request = String::new();
     reader.read_line(&mut request)?;
@@ -29,20 +30,38 @@ fn answer(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
     while reader.read_line(&mut line)? > 2 {
         line.clear();
     }
-    let path = request.split_whitespace().nth(1).unwrap_or("/");
+    let target = request.split_whitespace().nth(1).unwrap_or("/");
+    if let Some(page) = target.strip_prefix("/__phone/") {
+        let html = format!(
+            "<!DOCTYPE html><meta charset=\"utf-8\"><title>phone</title><style>html, body {{ margin: 0; \
+             background: #000; }} iframe {{ display: block; border: 0; width: {w}px; height: {h}px; }}</style>\
+             <iframe src=\"/{page}\"></iframe>"
+        );
+        return reply(
+            &mut stream,
+            "200 OK",
+            "text/html; charset=utf-8",
+            html.as_bytes(),
+        );
+    }
+    let path = target;
     let path = path.split(['?', '#']).next().unwrap_or("/");
     let (status, kind, body) =
         match file_for(root, path).and_then(|p| Some((std::fs::read(&p).ok()?, p))) {
             Some((body, p)) => ("200 OK", content_type(&p), body),
             None => ("404 Not Found", "text/plain", b"not found".to_vec()),
         };
+    reply(&mut stream, status, kind, &body)
+}
+
+fn reply(stream: &mut TcpStream, status: &str, kind: &str, body: &[u8]) -> std::io::Result<()> {
     write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n\
          Connection: close\r\n\r\n",
         body.len()
     )?;
-    stream.write_all(&body)
+    stream.write_all(body)
 }
 
 /// The file a URL path names, if it is inside `root`.
