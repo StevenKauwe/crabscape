@@ -947,6 +947,11 @@ fn a_recording_replays_exactly() {
         i += 1;
     });
     assert_eq!(again.state_hash(), live.state_hash());
+    assert_eq!(
+        replay.hash,
+        Some(live.state_hash()),
+        "the replay carries the end state hash"
+    );
 }
 
 #[test]

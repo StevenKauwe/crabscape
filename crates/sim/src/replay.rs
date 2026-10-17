@@ -37,7 +37,8 @@
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
 //! `tap`, `dodge`, `sprint`) happen on that one tick. Recorded replays also have a
 //! `tuning <code>` line: the fingerprint of the movement numbers they were
-//! recorded with, so the runner can warn when they differ.
+//! recorded with, so the runner can warn when they differ, and a `hash <code>` line: the state hash at the end,
+//! so the runner can say whether it ended in exactly the same state.
 
 use bevy_math::Vec2;
 
@@ -66,6 +67,9 @@ pub struct Replay {
     pub inputs: Vec<Input>,
     /// How many ticks it lasts, if it says.
     pub end: Option<u64>,
+    /// [`Sim::state_hash`](crate::Sim::state_hash) at the end, if recorded: playing it again must end with the
+    /// same hash, or the code (or the computer) plays it differently.
+    pub hash: Option<u64>,
 }
 
 impl Default for Replay {
@@ -75,6 +79,7 @@ impl Default for Replay {
             tuning: None,
             inputs: Vec::new(),
             end: None,
+            hash: None,
         }
     }
 }
@@ -118,6 +123,14 @@ impl Replay {
                         let code = u64::from_str_radix(code, 16)
                             .map_err(|_| err(format!("`{code}` is not a tuning code")))?;
                         replay.tuning = Some(code);
+                    }
+                    "hash" => {
+                        let code = rest
+                            .first()
+                            .ok_or_else(|| err("`hash` needs a code".into()))?;
+                        let code = u64::from_str_radix(code, 16)
+                            .map_err(|_| err(format!("`{code}` is not a hash")))?;
+                        replay.hash = Some(code);
                     }
                     "end" => {
                         let when = rest
@@ -195,6 +208,9 @@ impl Replay {
         if let Some(end) = self.end {
             out += &format!("end @{end}\n");
         }
+        if let Some(hash) = self.hash {
+            out += &format!("hash {hash:016x}\n");
+        }
         out
     }
 
@@ -250,7 +266,7 @@ impl Playback<'_> {
 pub struct Recorder {
     replay: Replay,
     /// The tick the recording started at (replays always start at 0).
-    first_tick: u64,
+    pub(crate) first_tick: u64,
     last: Controls,
 }
 
