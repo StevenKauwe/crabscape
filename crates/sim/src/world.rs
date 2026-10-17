@@ -18,9 +18,11 @@ use serde::Serialize;
 
 use crate::hash::fnv1a;
 use crate::level::{EGG_RADIUS, Level};
+use crate::molt::{Molt, MoltState, Moult};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::tuning::Tuning;
+use crate::watcher::Watcher;
 
 /// Identifies a player. Only one exists for now, but co-op will add more.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -65,6 +67,19 @@ pub struct Sim {
     crabs: Vec<SimCrab>,
     /// Writes down the controls of player 0, if a recording is running.
     recorder: Option<Recorder>,
+    /// The molt state machine: growth deploys at the molt (Cmd 16).
+    pub molt: Molt,
+    /// Banked raw biomass: molt fuel. Home-book — it only ever grows by
+    /// surviving the way home.
+    pub biomass_banked: u32,
+    /// Death-moults and growth-moults in the world.
+    pub moults: Vec<Moult>,
+    /// Biomass piles (positions + units left), placed by moment setups.
+    /// Each pickup takes one unit onto the back.
+    pub biopiles: Vec<(Vec2, u32)>,
+    /// Watchers: sweeping patrols that see the crab when it is close and
+    /// not hidden (gripping kelp or coral reads as weed).
+    pub watchers: Vec<Watcher>,
 }
 
 impl Sim {
@@ -76,6 +91,11 @@ impl Sim {
             tick: 0,
             crabs: Vec::new(),
             recorder: None,
+            molt: Molt::default(),
+            biomass_banked: 0,
+            moults: Vec::new(),
+            biopiles: Vec::new(),
+            watchers: Vec::new(),
         }
     }
 
@@ -102,6 +122,54 @@ impl Sim {
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
         });
+    }
+
+    /// Place a biomass pile holding `units` pickups (a moment setup calls
+    /// this; `R` re-runs setup on a fresh world, so nothing to clear).
+    pub fn spawn_biopile(&mut self, pos: Vec2, units: u32) {
+        self.biopiles.push((pos, units));
+    }
+
+    /// Place a moult (death-moult or growth-moult) for a moment setup.
+    pub fn spawn_moult(&mut self, moult: Moult) {
+        self.moults.push(moult);
+    }
+
+    /// Queue a feat for the next molt: skill earned the eligibility, the
+    /// bill grows by the feat's biomass (the body's cost).
+    pub fn queue_feat(&mut self) {
+        self.molt.feats_queued += 1;
+        self.molt.bill += self.tuning.molt_units_per_feat;
+    }
+
+    /// Commit the molt now: pays the bill from the banked wallet. Only in
+    /// [`MoltState::Hard`] with the bill covered.
+    pub fn commit_molt(&mut self) -> bool {
+        self.molt.commit(&mut self.biomass_banked)
+    }
+
+    /// Autotomy during premolt: shed a claw to delay ecdysis (documented:
+    /// a limb lost mid-premolt pushes the molt back so it can regrow in
+    /// it). The rest-stop siege verb.
+    pub fn autotomy_delay(&mut self) {
+        self.molt.autotomy_delay(&self.tuning);
+    }
+
+    /// Place a watcher patrol (a moment setup calls this; speed and
+    /// detection radius come from tuning).
+    pub fn spawn_watcher(&mut self, path: Vec<Vec2>) {
+        self.watchers.push(Watcher::new(path));
+    }
+
+    /// Is player 0 found by any watcher this tick? (Gripping kelp or
+    /// coral hides the crab.)
+    pub fn watcher_finding(&self) -> bool {
+        let Some(crab) = self.crab(PlayerId(0)) else {
+            return false;
+        };
+        self.watchers
+            .iter()
+            .any(|w| w.finding(&crab.mover, &self.tuning))
     }
 
     /// Ticks run so far.
@@ -154,6 +222,16 @@ impl Sim {
         }
         for crab in &mut self.crabs {
             crab.prev_pos = crab.mover.pos;
+            // The molt rules the body: ecdysis is immobile; the paper
+            // shell is slow, cannot stroke or jump (paddle legs are soft),
+            // and climbs at a fraction. The flag is what physics reads.
+            crab.mover.soft = self.molt.slowed();
+            if self.molt.immobile() {
+                crab.controls = Controls::default();
+            } else if self.molt.slowed() {
+                crab.controls.walk *= self.tuning.soft_speed_factor;
+                crab.controls.jump_pressed = false;
+            }
             crab.events = physics::step(
                 &mut crab.mover,
                 &crab.controls,
@@ -218,6 +296,56 @@ impl Sim {
                     crab.events.found_clue = Some(i);
                 }
             }
+            // A biomass pile it touches: one unit onto the back (one slot
+            // — a haul run is a treasure run's rival, never both). The pile
+            // keeps its remaining units for the next trip.
+            for (pos, units) in &mut self.biopiles {
+                let free = crab.mover.carrying.is_none();
+                if *units > 0 && free && in_reach(&crab.mover, *pos, &self.tuning) {
+                    *units -= 1;
+                    crab.mover.carrying = Some(Carry::Biomass);
+                    crab.events.picked_up = true;
+                }
+            }
+            // Eat the carried raw biomass: stamina now. Never during premolt
+            // anorexia — the molt is prepaid.
+            if crab.controls.eat_pressed
+                && !self.molt.eating_locked()
+                && crab.mover.carrying == Some(Carry::Biomass)
+            {
+                crab.mover.carrying = None;
+                crab.mover.stamina += self.tuning.raw_eat_stamina;
+                crab.events.ate = true;
+            }
+            crab.controls.eat_pressed = false;
+            // A death-moult it reaches: one unit of its future per back-trip
+            // (the slot is the drama). Items take their own trip.
+            if crab.mover.carrying.is_none() {
+                for m in &mut self.moults {
+                    if !in_reach(&crab.mover, m.pos, &self.tuning) {
+                        continue;
+                    }
+                    if m.biomass > 0 {
+                        m.biomass -= 1;
+                        crab.mover.carrying = Some(Carry::Biomass);
+                        crab.events.picked_up = true;
+                        break;
+                    }
+                    if let Some(item) = m.item.take() {
+                        crab.mover.carrying = Some(item);
+                        crab.events.picked_up = true;
+                        break;
+                    }
+                }
+            }
+            // Autotomy during premolt: shed a claw to delay ecdysis (the
+            // rest-stop siege verb — documented decapod biology). The claw
+            // regrows with this molt; the delay is the price.
+            if crab.controls.autotomy_pressed && self.molt.state == MoltState::Committed {
+                crab.controls.autotomy_pressed = false;
+                self.molt.autotomy_delay(&self.tuning);
+            }
+            crab.controls.autotomy_pressed = false;
             // Home: standing in the doorway rests the crab fully, and what it
             // carries is put to use: a culture into its lantern, a tooth
             // fitted to its crusher at the workbench (scissor claws).
@@ -238,10 +366,80 @@ impl Sim {
                         m.scissor_claw = true;
                         crab.events.fitted_scissors = true;
                     }
+                    Some(Carry::Biomass) => {
+                        self.biomass_banked += 1;
+                        crab.events.delivered = true;
+                    }
                     None => {}
                 }
             }
+            // A rest stop banks biomass like home does (built reach) — and
+            // with empty hands, eating the bank IS committing the molt: the
+            // ceremony is wherever the crab can afford to be soft.
+            if crab.mover.grounded
+                && (self.level.home.contains(crab.mover.pos)
+                    || self
+                        .level
+                        .rest_stops
+                        .iter()
+                        .any(|r| r.contains(crab.mover.pos)))
+                && crab.controls.eat_pressed
+                && crab.mover.carrying.is_none()
+            {
+                self.molt.commit(&mut self.biomass_banked);
+            }
         }
+        // The watchers sweep their paths on game time; then the molt
+        // machine fires on its clock, wherever the crab is.
+        for w in &mut self.watchers {
+            w.tick(&self.tuning);
+        }
+        let _ = self.molt.tick(&self.tuning);
+        // Wild death-moults decay on the carrion clock: the web eats what
+        // the wild killed. Home moults persist — what dies at home waits
+        // for you.
+        self.moults.retain_mut(|m| {
+            if let Some(d) = &mut m.decay_left {
+                *d = d.saturating_sub(1);
+                *d > 0
+            } else {
+                true
+            }
+        });
+        // The watchers sweep their paths on game time; then the molt
+        // machine fires on its clock, wherever the crab is.
+        for w in &mut self.watchers {
+            w.tick(&self.tuning);
+        }
+        let _ = self.molt.tick(&self.tuning);
+        // Wild death-moults decay on the carrion clock: the web eats what
+        // the wild killed. Home moults persist — what dies at home waits
+        // for you.
+        self.moults.retain_mut(|m| {
+            if let Some(d) = &mut m.decay_left {
+                *d = d.saturating_sub(1);
+                *d > 0
+            } else {
+                true
+            }
+        });
+        // The watchers sweep their paths on game time; then the molt
+        // machine fires on its clock, wherever the crab is.
+        for w in &mut self.watchers {
+            w.tick(&self.tuning);
+        }
+        let _ = self.molt.tick(&self.tuning);
+        // Wild death-moults decay on the carrion clock: the web eats what
+        // the wild killed. Home moults persist — what dies at home waits
+        // for you.
+        self.moults.retain_mut(|m| {
+            if let Some(d) = &mut m.decay_left {
+                *d = d.saturating_sub(1);
+                *d > 0
+            } else {
+                true
+            }
+        });
         self.tick += 1;
     }
 

@@ -48,6 +48,7 @@ mod home;
 mod input;
 mod lantern;
 mod level;
+mod moments;
 mod notes;
 mod player;
 mod puppet;
@@ -111,6 +112,7 @@ fn main() {
             reset::ResetPlugin,
             secrets::SecretsPlugin,
             stamina::StaminaPlugin,
+            moments::MomentsPlugin,
         ))
         .run();
 }
