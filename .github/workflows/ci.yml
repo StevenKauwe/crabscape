@@ -109,13 +109,46 @@ jobs:
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
         run: tools/previews.sh publish-main
 
+  browser:
+    name: browser test (WebKit, iPhone size)
+    # Plays the web build from the job above in WebKitGTK (the iPhone's engine) through WebDriver: tools/webtest.
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
+        with:
+          toolchain: stable
+      - name: WebKitGTK, its WebDriver and a virtual display
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends webkit2gtk-driver libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: webtest
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - name: Build the browser test
+        run: cargo build --profile art --locked -p webtest
+      - name: Play it in WebKit (portrait phone)
+        run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --shots target/webtest/portrait
+      - name: Play it in WebKit (landscape phone)
+        run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --landscape --shots target/webtest/landscape
+      - name: Keep the screenshots and browser log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webtest-${{ github.sha }}
+          path: target/webtest/
+          retention-days: 7
+
   deploy:
     name: deploy to GitHub Pages
     # Pages for private repositories needs a paid plan, so only deploy when public.
     # (The private flag is read from the event, so a run started while private skips;
     # rerun with workflow_dispatch on main.)
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
-    needs: [check, web]
+    needs: [check, web, browser]
     runs-on: ubuntu-latest
     permissions:
       pages: write

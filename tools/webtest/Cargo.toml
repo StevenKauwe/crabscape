@@ -1,0 +1,15 @@
+[package]
+name = "webtest"
+version = "0.1.0"
+edition = "2024"
+authors = ["Steven Kauwe"]
+description = "Plays the web build in a real WebKit browser (the iPhone's engine) through WebDriver and checks it works."
+publish = false
+
+# Small on purpose: JSON for the WebDriver protocol (spoken over plain local HTTP, see src/driver.rs), base64 and PNG
+# decoding for screenshots. The headless simulation is linked in to replay what the browser recorded.
+[dependencies]
+crabsim = { path = "../../crates/sim" }
+serde_json = "1"
+base64 = "0.22"
+png = "0.18"
