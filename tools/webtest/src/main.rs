@@ -13,7 +13,7 @@
 //! - the game starts with no error message and draws something into the canvas, including warm lantern light;
 //! - the crab's pictures load, the style starts as Oil, and the P key and the on-screen "Style" button switch
 //!   between Oil and Ink (the canvas's `data-style` says which);
-//! - holding D walks the crab right, Space makes it jump, and a second press in the water paddles it up again;
+//! - holding D walks the crab right, Space makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
 //! - F9, and the `?replay` page's Replay button, hand out a replay that the headless simulation (linked in) plays
 //!   to exactly the same state: same state hash, same place;
@@ -553,7 +553,8 @@ impl Test<'_> {
             top > moved.1 + 120.0,
             format!("holding Space jumps (height {:.0} -> {top:.0})", moved.1),
         );
-        // Jump, let go, then press again on the way down: the paddle stroke.
+        // Jump, let go, then press again on the way down. A fresh crab has grown no paddle strokes yet (they come
+        // from eating eggs, see Tuning::swim_strokes), so the second press must not lift it.
         self.rest()?;
         self.key("keydown", "Space", " ")?;
         self.hold(0.45, false)?;
@@ -566,9 +567,10 @@ impl Test<'_> {
         self.key("keyup", "Space", " ")?;
         let from = before.map_or(f64::MAX, |c| c.1);
         self.check(
-            top > from + 30.0,
+            top < from + 5.0,
             format!(
-                "a second jump press in the water paddles upwards again ({from:.0} -> {top:.0})"
+                "a fresh crab can't paddle yet: a second press in the water doesn't lift it \
+                 ({from:.0} -> {top:.0})"
             ),
         );
         self.hold(1.5, false)?;
