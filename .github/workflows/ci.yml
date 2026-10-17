@@ -69,6 +69,31 @@ jobs:
       - name: Native and wasm runs match tick for tick, same state hash
         run: tools/determinism.sh
 
+  art:
+    name: committed art matches the rig
+    # Re-runs the crab art pipeline (rig -> parts SVG -> game atlas -> oil-painted atlas; all deterministic) and
+    # fails if the committed files differ: art changes must come with their exports.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: art
+      - name: Re-export the rig and re-paint the oil atlas
+        run: |
+          cargo run --locked -q -p crabrig --profile art -- parts
+          cargo run --locked -q -p crabrig --profile art -- export
+          tools/paint-oil-crab.sh
+      - name: The committed art/crab and assets/crab match
+        run: |
+          if [ -n "$(git status --porcelain -- art/crab assets/crab)" ]; then
+            git status --short -- art/crab assets/crab
+            echo "::error::The committed crab art differs from what the rig exports. Run the three commands of the step above and commit the result."
+            exit 1
+          fi
+
   web:
     name: web build, relaxed-SIMD check, size
     runs-on: ubuntu-latest
@@ -161,7 +186,7 @@ jobs:
     # (The private flag is read from the event, so a run started while private skips;
     # rerun with workflow_dispatch on main.)
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
-    needs: [check, determinism, web, browser]
+    needs: [check, determinism, art, web, browser]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -193,7 +218,7 @@ jobs:
     name: report main's health
     # On main only: a failure opens (or adds to) one "main is broken" issue for the next Claude; a green run closes it.
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [check, determinism, web, browser, deploy]
+    needs: [check, determinism, art, web, browser, deploy]
     runs-on: ubuntu-latest
     permissions:
       issues: write
