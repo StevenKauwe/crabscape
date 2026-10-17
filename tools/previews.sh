@@ -46,7 +46,8 @@ site_push() { # site dir, message
 }
 
 builds_page() { # regen the chooser at /builds/ from the folders present
-  local site="$1" out="$site/builds/index.html"
+  local site="$1"
+  local out="$site/builds/index.html"
   mkdir -p "$site/builds"
   {
     echo '<!doctype html><meta charset="utf-8"><title>CrabScape builds</title>'
