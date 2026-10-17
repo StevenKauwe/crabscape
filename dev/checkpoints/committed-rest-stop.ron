@@ -1,0 +1,9 @@
+(
+    name: "Committed at the rest stop",
+    blurb: "The bill is paid and the anorexia has locked eating. The ecdysis clock is running where you sit.",
+    spawn: (3370.0, -3310.0),
+    biomass_banked: 2,
+    scissor_claws: true,
+    molt_state: Committed,
+    carrying: None,
+)

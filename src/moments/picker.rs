@@ -31,8 +31,13 @@ struct Active {
 
 impl Default for Picker {
     fn default() -> Self {
+        let mut moments = registry::all();
+        #[cfg(feature = "dev-checkpoints")]
+        moments.extend(crate::checkpoints::checkpoint_moments());
+        #[cfg(not(feature = "dev-checkpoints"))]
+        let _ = &mut moments;
         Self {
-            moments: registry::all(),
+            moments,
             open: false,
             selected: 0,
             active: None,

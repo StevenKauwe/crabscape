@@ -1,0 +1,15 @@
+(
+    name: "Soft, mid-rescue",
+    blurb: "Paper shell at the pit floor, and the ring is running. Climb, don't swim.",
+    spawn: (3800.0, -8600.0),
+    biomass_banked: 0,
+    scissor_claws: false,
+    molt_state: Soft,
+    carrying: None,
+    death_moult: Some((
+        pos: (3800.0, -8650.0),
+        biomass: 6,
+        item: Some(Tooth),
+        wild: true,
+    )),
+)

@@ -1,0 +1,9 @@
+(
+    name: "Home, 12 banked, cut unlocked",
+    blurb: "The full wallet: feel what a feat buys, and what the molt bill takes.",
+    spawn: (95.0, 5.0),
+    biomass_banked: 12,
+    scissor_claws: true,
+    molt_state: Hard,
+    carrying: None,
+)

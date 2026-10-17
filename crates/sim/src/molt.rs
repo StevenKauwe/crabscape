@@ -25,7 +25,7 @@ use crate::physics::Carry;
 use crate::tuning::Tuning;
 
 /// Where a crab is in the molt. See the [module docs](self).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub enum MoltState {
     /// Fully hardened: eating, fighting and diving as usual.
     Hard,

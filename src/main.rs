@@ -41,6 +41,8 @@
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
 
+#[cfg(feature = "dev-checkpoints")]
+mod checkpoints;
 mod deep;
 mod effects;
 mod eggs;
