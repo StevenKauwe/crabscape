@@ -10,12 +10,12 @@ a metre each. The game squeezes vertical distance (a zone is a few screens, not 
 light, life and dangers are the real ones for its depth.
 
 ## The map by depth
-| Zone (game) | Real depth | Light | Cold, pressure, oxygen | Who lives here |
-|---|---|---|---|---|
-| **Sunlit Shallows**: beach hub, tide pools, kelp, warm reef | 0–200 m [WHOI] | Sunlight; reds fade first and are gone by ~100 m [NOAA-RED]. Light-dependent coral reaches ~30–150 m [NOAA-MCE] | Warmest; 1–21 atm (+1 atm per 10 m) [NOAA-P] | Snails, clams, urchins, kelp; snapping shrimp, mantis shrimp, morays, triggerfish, the common octopus (to 200 m) |
-| **Twilight Reef**: cold-water coral | 200–1,000 m [WHOI] | No sunlight to grow by; coral eats plankton [LOPH] | 4–12 °C on the reef [LOPH]; 21–101 atm; the oxygen minimum zone lies around here in many oceans (not verified) | *Lophelia* reefs with conger eels, groupers, squat lobsters, crabs, brittle stars; lanternfish and hatchetfish above [LOPH] |
-| **Midnight Zone**: whale-fall village | 1,000–4,000 m [WHOI] | Only living light; sunlight is gone below ~1,000 m [WHOI] | Falls toward 4 °C [WHOI]; 100–400 atm | Alarm jellies (500–5,000 m) [MBARI-AT]; the whale-fall community |
-| **The Trench** (hadal) | 6,000–11,000 m, only in trenches [WHOI] | Dark except living light | Near-freezing (not verified); 600–1,100 atm | Snailfish filmed at 8,336 m, the deepest fish seen [UWA]; amphipods (not verified) |
+| Zone (game) | Real depth | Light | Cold, pressure, oxygen | Who lives here | Rare resource |
+|---|---|---|---|---|---|
+| **Sunlit Shallows**: beach hub, tide pools, kelp, warm reef | 0–200 m [WHOI] | Sunlight; reds fade first and are gone by ~100 m [NOAA-RED]. Light-dependent coral reaches ~30–150 m [NOAA-MCE] | Warmest; 1–21 atm (+1 atm per 10 m) [NOAA-P] | Snails, clams, urchins, kelp; snapping shrimp, mantis shrimp, morays, triggerfish, the common octopus (to 200 m) | A big empty sea-snail shell (the next shell-home), guarded in the octopus's den |
+| **Twilight Reef**: cold-water coral | 200–1,000 m [WHOI] | No sunlight to grow by; coral eats plankton [LOPH] | 4–12 °C on the reef [LOPH]; 21–101 atm; the oxygen minimum zone lies at about 200–1,500 m, depending on the ocean [OMZ] | *Lophelia* reefs with conger eels, groupers, squat lobsters, crabs, brittle stars; lanternfish and hatchetfish above [LOPH] | Wild luminous bacteria (lantern cultures) |
+| **Midnight Zone**: whale-fall village | 1,000–4,000 m [WHOI] | Only living light; sunlight is gone below ~1,000 m [WHOI] | Falls toward 4 °C [WHOI]; 100–400 atm | Alarm jellies (500–5,000 m) [MBARI-AT]; the whale-fall community, hundreds of species on one carcass, among them bone-eating worms with no mouth or gut [MBARI-WF] | Whale bone: oil-soaked, it can feed a community for decades [MBARI-WF] |
+| **The Trench**: across the abyssal plain (4,000–6,000 m) to the hadal trench | 6,000–11,000 m, only in trenches [WHOI] | Dark except living light | Near-freezing (not verified); 600–1,100 atm | Snailfish filmed at 8,336 m, the deepest fish seen [UWA]; amphipods (not verified) | Manganese nodules on the abyssal plain, growing under half a centimetre per million years [NOAA-MN]; whatever makes the lights below |
 
 - **Bioluminescence is the deep's light.** About three-quarters of animals over 1 cm seen in Monterey Bay make light
   (Martini & Haddock 2017; read via press coverage, paper not opened: not verified). Wild light is blue-green; only
@@ -26,12 +26,28 @@ light, life and dangers are the real ones for its depth.
   amount needed may cap fish at ~8,200 m (Yancey et al. 2014, PNAS; abstract via search, not opened: not verified).
   The crab goes deeper by adapting (`ocean-shaped.md`).
 
+## Rules of the deep (for everyone: the crab, its friends and every enemy)
+- **Oxygen.** Everything here breathes water. The oxygen minimum zone is a band where water holds too little oxygen
+  for most animals to work hard [OMZ]: fights and sprints there drain stamina faster and nothing refills it. Animals
+  built for it (the giant red mysid, with huge gills and lots of oxygen-carrying blood [OMZ]) are at home there; the
+  crab crosses it quickly or after adapting.
+- **Cold.** Below the twilight zone the water sits near 4 °C [WHOI]. Cold makes cold-blooded animals slow (not
+  verified as a rule; needs a source before it changes any number): deep creatures are slow, and so is the crab.
+- **Pressure.** Handled by body chemistry, never armour or helmets (see above). Going deeper means adapting first.
+- **Darkness.** Below ~1,000 m the only light is living light. Anything red is black there, the crab included.
+- **Light is a resource and a risk.** The lantern lets the crab see, but it shows the crab to everything that hunts by
+  sight. Turning it down hides you (no help against hunters that use smell or touch, like the moray).
+- **Moulting.** Crustaceans grow by moulting and stay soft until the new shell hardens [CQ in
+  `art/crab/anatomy-notes.md`]. This holds for the crab (issue #62) and for crustacean enemies alike: a mantis or
+  snapping shrimp met soft hides rather than fights (design call).
+- **Depth is rarity.** Rarer creatures and resources live deeper and in rarer places (a whale fall, a trench).
+
 ## Who eats whom (the crab's place)
 ```
 sunlight → kelp, algae, phytoplankton ──→ snails, urchins, clams, oysters ──→ OUR CRAB (snails, clams, carrion)
                                        │                                   └→ also eaten by: mantis shrimp, triggerfish
 plankton ─→ alarm jelly (crustaceans)  │
-marine snow + the nightly migrants ──→ deep floor ← whale falls feed the midnight zone for decades
+marine snow + the nightly migrants ──→ deep floor ← whale falls feed the midnight zone for decades [MBARI-WF]
 OUR CRAB ──→ eaten by: common octopus (its favourite food), moray, triggerfish, mantis shrimp (prefers crabs)
 octopus, moray ──→ eaten by: groupers, sharks (moray predators: groupers, barracudas [MORAY-WP])
 ```
@@ -59,7 +75,7 @@ want to eat it. Snapping shrimp are not predators of crabs; they defend burrows 
    opening a claw, rising to spread its web).
 3. **The magic table applies to everyone, the crab included** (`ocean-shaped.md`): venom needs a sting or bite and a
    raised claw or hard shell blocks it; ink blinds whoever is in it; a red animal is black in the deep, and so is the
-   crab with its lantern dark; autotomy lets the crab drop a leg to escape a grip, regrown over moults.
+   crab with its lantern dark; autotomy lets the crab drop a leg to escape a grip (regrowth over later moults: not verified, see #62).
 4. **Animals want to eat, not to fight.** Most give up when hurt (flee to a burrow, ink and jet). A fight won often
    means a predator driven off, not killed.
 5. **Real scale, no giants.** Big means really big (a 1 m-armed octopus), never inflated.
@@ -72,6 +88,9 @@ want to eat it. Snapping shrimp are not predators of crabs; they defend burrows 
 - [NOAA-MCE] NOAA mesophotic coral pages, 30–150 m (search results only, not opened: not verified).
 - [LOPH] Wikipedia, "Lophelia" (start point only). <https://en.wikipedia.org/wiki/Lophelia>
 - [MBARI-AT] MBARI, "Deep-sea crown jelly". <https://www.mbari.org/animal/deep-sea-crown-jelly/>
+- [OMZ] Wikipedia, "Oxygen minimum zone" (start point). <https://en.wikipedia.org/wiki/Oxygen_minimum_zone>
+- [MBARI-WF] MBARI, "Whale carcass yields bone-devouring worms" (2,891 m fall in Monterey Canyon). <https://www.mbari.org/whale-carcass-yields-bone-devouring-worms/>
+- [NOAA-MN] NOAA Ocean Exploration, "Manganese Nodule" (DeepCCZ). <https://oceanexplorer.noaa.gov/?p=14785>
 - [UWA] University of Western Australia, "Scientists break new record after finding world's deepest fish" (2023). <https://uwa.edu.au/news/article/2023/april/scientists-break-new-record-after-finding-worlds-deepest-fish>
 - [BSHARY] Bshary et al. (2006), "Interspecific communicative and coordinated hunting between groupers and giant moray eels", *PLOS Biology* 4(12):e431. <https://journals.plos.org/plosbiology/article?id=10.1371/journal.pbio.0040431>
 - [ADW-OV] Animal Diversity Web, *Octopus vulgaris*. <https://animaldiversity.org/accounts/Octopus_vulgaris/>

@@ -36,11 +36,11 @@ Like RuneScape, rarer resources come from rarer, more dangerous places: depth is
 | Zone | Example resources | Rarity | What they make |
 |---|---|---|---|
 | Sunlit Shallows | Kelp, driftwood, common shells, beach litter | Everywhere | Starter tools, basic stew, your first shell-home |
-| Twilight Reef | Coral, luminous bacteria cultures, pearl grit | Uncommon | Lanterns, reef armour |
-| Midnight Zone | Whale bone, ink sacs, deep pearls | Rare | Strong claws, deep-adaptation food, trade goods |
-| The Trench | Abyssal glass, leviathan scale, unknown things | Very rare | The best gear, and things nobody has made yet |
+| Twilight Reef | Coral rubble, luminous bacteria cultures | Uncommon | Lanterns, reef armour |
+| Midnight Zone | Whale bone, the village's trade | Rare | Strong claws, deep-adaptation food, trade goods |
+| The Trench | Manganese nodules (abyssal plain), unknown things | Very rare | The best gear, and things nobody has made yet |
 
-(Exact resources still need the ocean-shaped check: each must exist where we put it.)
+(Each must really exist where we put it; sources and the rules of the deep are in `universe.md`.)
 
 - **Risk is the price.** Rare things are only worth something if you get them home.
 - **Things get used up.** Food is eaten, lantern cultures die without care, gear cracks and needs repair, so common
