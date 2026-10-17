@@ -71,6 +71,10 @@ pub struct Mover {
     /// Paddle strokes the crab has grown (one per egg eaten), on top of
     /// [`Tuning::swim_strokes`]. The first one is the double jump.
     pub upgrades: u32,
+    /// The paper-shell flag (set by the world while the molt is in its
+    /// soft window): paddle legs are soft, so no strokes or jumps, and
+    /// climbing slows to a fraction.
+    pub soft: bool,
     /// What the crab is carrying home on its back, if anything (one thing
     /// at a time).
     pub carrying: Option<Carry>,
@@ -135,6 +139,7 @@ impl Mover {
             windup: 0.0,
             rising: false,
             upgrades: 0,
+            soft: false,
             carrying: None,
             scissor_claw: false,
             lantern: 0,
@@ -160,6 +165,10 @@ impl Mover {
     /// How many paddle strokes the legs hold when rested (the double jump,
     /// then swim strokes).
     pub fn strokes(&self, t: &Tuning) -> u32 {
+        // The paper shell: paddle legs are soft, so no strokes at all.
+        if self.soft {
+            return 0;
+        }
         t.swim_strokes + self.upgrades
     }
 
@@ -184,7 +193,9 @@ impl Mover {
 
     /// Climbing speed at the crab's Climbing level.
     pub fn climb_speed(&self, t: &Tuning) -> f32 {
-        t.climb_speed * (1.0 + t.climb_speed_per_level * (self.climb_level(t) - 1) as f32)
+        // Climbing is walking legs: it survives the soft shell, slowed.
+        let soft = if self.soft { t.soft_climb_factor } else { 1.0 };
+        t.climb_speed * soft * (1.0 + t.climb_speed_per_level * (self.climb_level(t) - 1) as f32)
     }
 
     /// A one-word description of what the crab is doing, for logs and tests.
