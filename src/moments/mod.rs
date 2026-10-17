@@ -11,7 +11,10 @@
 //! the `Sim` through its public API and its [`Moment::status`] reads it.
 //! Moment state is a baseline snapshot taken at setup — never ticked.
 
+mod first_molt;
+mod forward_siege;
 mod picker;
 mod registry;
+mod turn_around;
 
 pub use picker::MomentsPlugin;

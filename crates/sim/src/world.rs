@@ -137,9 +137,9 @@ impl Sim {
 
     /// Queue a feat for the next molt: skill earned the eligibility, the
     /// bill grows by the feat's biomass (the body's cost).
-    pub fn queue_feat(&mut self, bill: u32) {
+    pub fn queue_feat(&mut self) {
         self.molt.feats_queued += 1;
-        self.molt.bill += bill;
+        self.molt.bill += self.tuning.molt_units_per_feat;
     }
 
     /// Commit the molt now: pays the bill from the banked wallet. Only in
