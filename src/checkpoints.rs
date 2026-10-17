@@ -50,6 +50,17 @@ pub struct DeathMoultSpec {
     pub wild: bool,
 }
 
+/// A carried item by name, from a checkpoint file: "tooth", "culture" or
+/// "biomass". Unknown names are simply not carried (files are dev data).
+fn carry_from_name(name: &str) -> crabsim::physics::Carry {
+    match name {
+        "tooth" => crabsim::physics::Carry::Tooth,
+        "culture" => crabsim::physics::Carry::Culture,
+        "biomass" => crabsim::physics::Carry::Biomass,
+        _ => crabsim::physics::Carry::Biomass,
+    }
+}
+
 impl DeathMoultSpec {
     fn to_moult(&self, t: &crabsim::tuning::Tuning) -> crabsim::molt::Moult {
         let mut m = crabsim::molt::Moult::death(
