@@ -208,6 +208,20 @@ fn run() -> Result<(), String> {
     }
     if !o.quiet {
         summary.print(&sim, elapsed);
+        // A recorded replay, played in full from its own start, must end in the recorded state.
+        if let Some(want) = o.replay.hash
+            && o.start.is_none()
+            && total == o.replay.length()
+        {
+            if want == sim.state_hash() {
+                println!("replay: same state hash as when it was recorded");
+            } else {
+                println!(
+                    "replay: DIFFERENT state hash from the recording ({want:016x}): the code changed since, \
+                     or the game and this runner disagree"
+                );
+            }
+        }
     }
     Ok(())
 }

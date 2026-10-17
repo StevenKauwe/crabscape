@@ -255,9 +255,13 @@ impl Sim {
         self.recorder = Some(Recorder::new(start, self.tick, &self.tuning));
     }
 
-    /// The recording so far, as a replay (or nothing if none is running).
+    /// The recording so far, as a replay (or nothing if none is running). A recording started before the first
+    /// tick also carries the state hash now, which playing it again must reproduce.
     pub fn recording(&self) -> Option<crate::Replay> {
-        self.recorder.as_ref().map(|r| r.replay(self.tick))
+        self.recorder.as_ref().map(|r| crate::Replay {
+            hash: (r.first_tick == 0).then(|| self.state_hash()),
+            ..r.replay(self.tick)
+        })
     }
 
     /// A fingerprint of the whole world's state. Two runs whose fingerprints
