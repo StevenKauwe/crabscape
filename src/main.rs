@@ -34,6 +34,7 @@
 //! - [`eggs`]: the fish eggs that give the crab more swim strokes
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
 //! - [`notes`]: the short notes that float up when something happens
+//! - [`reset`]: the "Start over" button: forget this device's saved data, start fresh
 //! - [`save`]: remembering the crab's position between visits
 //! - [`secrets`]: places hidden in darkness until a bright lantern comes near
 //! - [`stamina`]: the rings over the crab that show its swimming stamina
@@ -51,6 +52,7 @@ mod notes;
 mod player;
 mod puppet;
 mod replay;
+mod reset;
 mod save;
 mod secrets;
 mod stamina;
@@ -106,6 +108,7 @@ fn main() {
             eggs::EggsPlugin,
             home::HomePlugin,
             notes::NotesPlugin,
+            reset::ResetPlugin,
             secrets::SecretsPlugin,
             stamina::StaminaPlugin,
         ))

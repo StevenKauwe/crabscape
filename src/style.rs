@@ -76,7 +76,7 @@ impl Plugin for StylePlugin {
 /// The button's box, in logical pixels from the window's top-left corner.
 /// Top-right; on narrow (portrait phone) screens it sits under the HUD text,
 /// which would otherwise run into it.
-fn button_rect(window: Vec2) -> Rect {
+pub fn button_rect(window: Vec2) -> Rect {
     let (w, h, margin) = (104.0, 34.0, 10.0);
     let top = if window.x < 600.0 { 58.0 } else { margin };
     Rect::new(window.x - margin - w, top, window.x - margin, top + h)
