@@ -29,7 +29,10 @@ pub enum MomentStatus {
 /// State a moment keeps between setup and status. Pure data: the simulation
 /// never ticks it, and status reads it as the baseline the moment recorded
 /// at setup (no per-tick mutation anywhere — determinism by construction).
-pub trait MomentState: core::any::Any + Send + Sync {}
+pub trait MomentState: core::any::Any + Send + Sync {
+    /// Toolchain-safe downcast bridge (works before trait upcasting).
+    fn as_any(&self) -> &dyn core::any::Any;
+}
 
 /// A playable moment. Implement this in `src/moments/<name>.rs` and register
 /// it in `src/moments/registry.rs`.

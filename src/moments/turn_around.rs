@@ -73,7 +73,11 @@ struct State {
     banked_at_start: u32,
 }
 
-impl MomentState for State {}
+impl MomentState for State {
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+}
 
 impl Moment for TurnAround {
     fn name(&self) -> &'static str {
@@ -95,16 +99,18 @@ impl Moment for TurnAround {
     fn setup(&self, sim: &mut Sim) -> Box<dyn MomentState> {
         // The stage: three single-item piles at three depths. (The test
         // level ships no biopiles; these three are the moment's economy.)
-        sim.spawn_biopile(PILE_LIP);
-        sim.spawn_biopile(PILE_SHELF);
-        sim.spawn_biopile(PILE_PRIZE);
+        sim.spawn_biopile(PILE_LIP, PILE_UNITS);
+        sim.spawn_biopile(PILE_SHELF, PILE_UNITS);
+        sim.spawn_biopile(PILE_PRIZE, PILE_UNITS);
 
         // The crab: rested rings, thin body. The dive is affordable; the
         // prize and the return, together, are not. That gap is the moment.
+        let strokes = sim.tuning.turn_strokes;
+        let reserve = sim.tuning.turn_reserve_start;
         if let Some(crab) = sim.crab_mut(PlayerId(0)) {
-            crab.mover.upgrades = sim.tuning.turn_strokes;
-            crab.mover.stamina = sim.tuning.turn_strokes as f32;
-            crab.mover.reserve = sim.tuning.turn_reserve_start;
+            crab.mover.upgrades = strokes;
+            crab.mover.stamina = strokes as f32;
+            crab.mover.reserve = reserve;
             crab.mover.carrying = None;
         }
 
@@ -114,7 +120,7 @@ impl Moment for TurnAround {
     }
 
     fn status(&self, sim: &Sim, state: &dyn MomentState) -> MomentStatus {
-        let Some(state) = state.downcast_ref::<State>() else {
+        let Some(state) = state.as_any().downcast_ref::<State>() else {
             return MomentStatus::Ongoing;
         };
         let banked = sim.biomass_banked.saturating_sub(state.banked_at_start);
@@ -128,10 +134,10 @@ impl Moment for TurnAround {
         // moment is lost — the trade had teeth.
         // (On-disk framework: piles are (pos, claimed) singles; when the
         // units amendment lands, count units instead.)
-        let unclaimed = sim.biopiles.iter().filter(|(_, claimed)| !*claimed).count() as u32;
+        let unclaimed: u32 = sim.biopiles.iter().map(|(_, units)| *units).sum();
         let carried = u32::from(
             sim.crab(PlayerId(0))
-                .map_or(false, |c| c.mover.carrying.is_some()),
+                .is_some_and(|c| c.mover.carrying.is_some()),
         );
         if banked + carried + unclaimed < ITEMS_HOME {
             return MomentStatus::Failed;
@@ -173,8 +179,10 @@ mod tests {
         // banked, hands empty: two items home is no longer possible. The
         // sea keeps what the stomach spent.
         sim.biomass_banked += 1;
-        for (_, claimed) in sim.biopiles.iter_mut() {
-            *claimed = true;
+        // Every pile emptied in the field (spent on the present): the sea
+        // keeps what the stomach spent.
+        for (_, units) in sim.biopiles.iter_mut() {
+            *units = 0;
         }
         assert_eq!(
             TurnAround.status(&sim, state.as_ref()),

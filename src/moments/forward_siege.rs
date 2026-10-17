@@ -44,7 +44,11 @@ pub struct SiegeState {
     gate: Rect,
 }
 
-impl MomentState for SiegeState {}
+impl MomentState for SiegeState {
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+}
 
 impl Moment for ForwardSiege {
     fn name(&self) -> &'static str {
