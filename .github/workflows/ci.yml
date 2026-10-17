@@ -28,11 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
       - name: System libraries Bevy needs on Linux
         run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev pkg-config
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -60,10 +57,8 @@ jobs:
       contents: write # push the main build to the gh-pages store
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: web
@@ -116,9 +111,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
-        with:
-          toolchain: stable
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
       - name: WebKitGTK, its WebDriver and a virtual display
         run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends webkit2gtk-driver libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
