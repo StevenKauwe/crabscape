@@ -18,7 +18,7 @@
 //! tunable.
 
 use bevy::math::Vec2;
-use crabsim::{Moment, MomentState, MomentStatus, Sim, SPAWN};
+use crabsim::{Moment, MomentState, MomentStatus, SPAWN, Sim};
 
 /// The home shell scene: a pile in the field, an empty larder, a bill.
 pub struct FirstMolt;

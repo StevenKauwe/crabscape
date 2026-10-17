@@ -128,11 +128,7 @@ impl Moment for TurnAround {
         // moment is lost — the trade had teeth.
         // (On-disk framework: piles are (pos, claimed) singles; when the
         // units amendment lands, count units instead.)
-        let unclaimed = sim
-            .biopiles
-            .iter()
-            .filter(|(_, claimed)| !*claimed)
-            .count() as u32;
+        let unclaimed = sim.biopiles.iter().filter(|(_, claimed)| !*claimed).count() as u32;
         let carried = u32::from(
             sim.crab(PlayerId(0))
                 .map_or(false, |c| c.mover.carrying.is_some()),

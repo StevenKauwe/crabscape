@@ -1,38 +1,45 @@
 //! FORWARD-MOLT SIEGE — Cmd 16 tier 2: growth deployed in the wild.
 //!
-//! Doctrine (docs/design/moments.md #3, synthesis/02 §10): a rest stop
-//! beside a gate; biomass carried from home; commit in the wild; the finder
+//! Doctrine (docs/design/moments.md #3, synthesis/02 §10): a rest stop beside
+//! a gate; biomass carried from home; commit in the wild; the watcher
 //! converges during the soft window; hide in the weed, or shed a claw to
-//! delay the ecdysis; when hardened, swim through the gate wearing the new
-//! verb. Feeling: **chosen terror** — the commit is chosen, the soft window
-//! is the terror, and the autotomy is the price of fear.
+//! delay the ecdysis; when hardened, climb out through the gate wearing the
+//! new verb. Feeling: **chosen terror** — the commit is chosen, the soft
+//! window is the terror, and the autotomy is the price of fear.
 //!
 //! Threat model (crab-ocean bible, soft-window lethality table, scaled to a
-//! snippet): ONE finder is the end. There is no chase and no second chance —
-//! the finder is a *certainty* once committed in the wild (the plume peaks
-//! when the soft window opens), so the sim-side law is a pure threshold:
+//! snippet): ONE finder is the end. The Watcher patrol is that finder: while
+//! the crab is Ecdysis or Soft, `watcher_finding()` is the whole siege law —
+//! found is failed. Grip the weed and you are blind to it, and it to you.
 //!
-//! ```text
-//! Ecdysis or Soft, and not in the weed  =>  found  =>  Failed.
-//! ```
-//!
-//! The circling shadow is presentation (the game draws it from this same
-//! rule); the sim stays honest: no clocks, no entities, no randomness —
-//! position, state, and the level's own weed.
-//!
-//! All numbers here are either canon level geometry or marked
-//! `// TUNING PROPOSAL` for promotion into `tuning.rs` "Moments"
-//! (framework lead folds them at integration).
+//! The soft rules are engine law: no strokes or jumps, walk ×0.45, climb
+//! ×0.6 (climbing survives — walking legs), defense ≈ 0. The floor-bound
+//! siege needs no author-side multipliers, and the soft window stays
+//! canon-driven (`soft_seconds`) — the terror is honest whatever the water
+//! is like today.
 
 use bevy::math::{Rect, Vec2};
-use crabsim::world::PlayerId;
-use crabsim::{Moment, MomentState, MomentStatus, MoltState, Sim};
+use crabsim::{MoltState, Moment, MomentState, MomentStatus, Sim};
 
-/// The moment: commit away from home, be soft in the open, live in the weed.
+/// The patrol sweeps the pit's mouth between open water and the shelf, so it
+/// threatens the commit, the ecdysis, and the stalk in one loop. Geometry,
+/// not tuning: waypoints, like the level's own rocks.
+const WATCH_PATH: [Vec2; 3] = [
+    Vec2::new(2900.0, -2200.0), // open water, left of the climb
+    Vec2::new(3650.0, -3250.0), // a pass close to the shelf — the danger leg
+    Vec2::new(3600.0, -900.0),  // up beside the lip, near the kelp top
+];
+
+/// The gate: the lip ledge and the air above it — the way out of the pit,
+/// wearing the new verb.
+const GATE: Rect = Rect::new(3250.0, -760.0, 3650.0, -500.0);
+
+/// The moment: commit away from home, be soft under the sweep, live in the
+/// weed, climb out wearing what you grew.
 pub struct ForwardSiege;
 
-/// The state a feat needs: the geometry this moment was built with. Pure
-/// data, recorded once at setup, read by [`ForwardSiege::status`].
+/// The stage, recorded once at setup and read by
+/// [`ForwardSiege::status`]. Pure data.
 pub struct SiegeState {
     gate: Rect,
 }
@@ -45,98 +52,72 @@ impl Moment for ForwardSiege {
     }
 
     fn blurb(&self) -> &'static str {
-        "Commit in the wild; survive soft; wear the new verb through the gate."
+        "Commit in the wild; survive soft; wear the new verb out through the gate."
     }
 
     fn objective(&self) -> &'static str {
-        "Commit at the rest stop, hide in the weed while you are soft, and \
-         swim through the gate."
+        "Carry the biomass down the stalk to the shelf, commit, and survive \
+         the soft window under the patrol — then climb out through the gate."
     }
 
-    /// The crab sets out from home: the biomass is carried, and the walk down
-    /// (three eggs on the road, the cliff that wants them) is the carry.
+    /// The crab sets out on the lip above the pit: the biomass is carried
+    /// from home, the descent down the stalk is the carry, and the shelf
+    /// below is where the commit is worth the risk.
+    fn spawn(&self) -> Vec2 {
+        Vec2::new(3350.0, -690.0)
+    }
+
     fn setup(&self, sim: &mut Sim) -> Box<dyn MomentState> {
         // The stage is canon: the pit's halfway shelf — "a place to stand
-        // and rest" (`level.rs`) — beside the stalk that climbs the whole
-        // pit (coral below the shelf, kelp above it, both at x = 3500).
-        // The level never registered the shelf as a rest stop; this moment
-        // formalizes it.
-        let (pit_x, _lip, _bottom) = sim.level.pit();
-        let shelf = Rect::new(3300.0, -3330.0, 3440.0, -3300.0);
-        let rest_x = shelf.max.x - 60.0;
-        let floor = sim.level.floor_height(rest_x);
+        // and rest" (`level.rs`) — under the stalk that climbs the whole
+        // pit (coral below, kelp above, both at x = 3500). The level never
+        // registered the shelf as a rest stop; this moment formalizes it.
         sim.level
             .rest_stops
-            .push(Rect::new(rest_x - 120.0, floor - 40.0, rest_x + 120.0, floor));
+            .push(Rect::new(3300.0, -3330.0, 3440.0, -3300.0));
 
-        // The gate: the far pillar past the pit, across open water at lip
-        // height. Only a hardened crab with the new verb crosses.
-        // TUNING PROPOSAL (gate zone): bracket the canon pillar —
-        // Rect::new(4900.0, -700.0, 5400.0, -200.0).
-        let gate = Rect::new(4900.0, -700.0, 5400.0, -200.0);
+        // The patrol: one watcher, three legs, ping-ponging the pit's mouth.
+        // Its pass close to the shelf is the danger leg — the commit and the
+        // ecdysis have to be timed against it.
+        sim.spawn_watcher(WATCH_PATH.to_vec());
 
-        let _ = pit_x; // the pit's mouth is the stage; the shelf sits beside it
-
-        // Carried from home, covering the queued feat exactly.
+        // Carried from home: the bill is covered before the crab sets out,
+        // and the feat is queued — it becomes anatomy at Hardened. The bill
+        // is the tuning's own (molt_units_per_feat); no literals here.
         sim.biomass_banked = sim.tuning.molt_units_per_feat;
-        // The feat is queued arg-less (bill = molt_units_per_feat).
         sim.queue_feat();
 
-        // Soft-window length stays canon-driven (soft_seconds, world-bible
-        // molt clock) — the siege does not override it: the terror is honest
-        // whatever the water is like today. While Soft/Ecdysis the engine
-        // itself blocks strokes and jumps and slows the walk and climb
-        // (framework amendment 3) — the floor-bound siege needs no
-        // author-side multipliers.
-
-        Box::new(SiegeState { gate })
+        Box::new(SiegeState { gate: GATE })
     }
 
     fn status(&self, sim: &Sim, state: &dyn MomentState) -> MomentStatus {
-        let Some(siege) = state.downcast_ref::<SiegeState>() else {
+        let Some(siege) = (state as &dyn core::any::Any).downcast_ref::<SiegeState>() else {
             return MomentStatus::Ongoing;
         };
         let Some(crab) = sim.crabs().first() else {
             return MomentStatus::Ongoing;
         };
-        let pos = crab.mover.pos;
 
-        // Hardened with the feat as anatomy: cross the gate to win.
+        // Hardened with the feat as anatomy: climb out through the gate.
         if sim.molt.state == MoltState::Hardened {
-            return if siege.gate.contains(pos) {
+            return if siege.gate.contains(crab.mover.pos) {
                 MomentStatus::Done
             } else {
                 MomentStatus::Ongoing
             };
         }
 
-        // Hard before commit is safe: the finder answers the plume, and
-        // there is no plume until the crab commits (exposure during the
-        // premolt walk is the positioning window — that is the point of the
-        // autotomy delay: more premolt time to reach the weed).
-        if sim.molt.state == MoltState::Hard || sim.molt.state == MoltState::Committed {
-            return MomentStatus::Ongoing;
+        // The siege law, one line: while you are ecdysis or paper — edible —
+        // the finder's radius is death. Gripping the weed hides you (engine
+        // truth: `watcher_finding` spares the gripping); the autotomy (G)
+        // buys three more seconds of premolt to reach it.
+        let edible = matches!(sim.molt.state, MoltState::Ecdysis | MoltState::Soft);
+        if edible && sim.watcher_finding() {
+            return MomentStatus::Failed;
         }
 
-        // Ecdysis (immobile) and Soft (paper shell): the finder is here.
-        // Concealment is the weed — gripping a stalk, or inside its mass.
-        // One finder is the end: the soft-window lethality table, scaled.
-        let in_the_weed = crab.mover.climbing
-            || sim
-                .level
-                .climb_at(pos, sim.tuning.climb_reach)
-                .is_some();
-        if in_the_weed {
-            MomentStatus::Ongoing
-        } else {
-            MomentStatus::Failed
-        }
+        // Hard and Committed are the positioning phases: the plume is
+        // rising, the finder is circling, and neither can touch you yet.
+        MomentStatus::Ongoing
     }
-}
-
-/// Unused today, kept beside the stage: the pit mouth this siege is staged
-/// against (see `Level::pit`).
-#[allow(dead_code)]
-fn pit_mouth() -> Vec2 {
-    Vec2::new(3300.0, -700.0)
 }
