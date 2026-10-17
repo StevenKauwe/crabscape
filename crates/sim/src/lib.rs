@@ -36,6 +36,7 @@ pub mod moments;
 pub mod physics;
 pub mod replay;
 pub mod tuning;
+pub mod watcher;
 pub mod world;
 
 pub use level::{Level, SPAWN};
@@ -44,6 +45,7 @@ pub use moments::{Moment, MomentState, MomentStatus};
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use replay::Replay;
 pub use tuning::Tuning;
+pub use watcher::Watcher;
 pub use world::{PlayerId, Sim, SimCrab, Snapshot};
 
 /// Play `replay` (as player 0) in `sim` for `ticks` ticks, calling
