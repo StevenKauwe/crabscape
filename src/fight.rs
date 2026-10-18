@@ -157,7 +157,10 @@ fn show_flash(
         };
         sprite.custom_size = Some(b.size() * Vec2::new(1.6, 1.3) * grow);
         let whiff = if j.sound > 0.0 { 0.3 } else { 0.55 };
-        *fade = if ev.0.struck || strong || landed {
+        *fade = if f.crush.is_some() {
+            // Clamped on: a low glow, so the squeeze shows.
+            fade.clamp(0.2, 0.35)
+        } else if ev.0.struck || strong || landed {
             1.0
         } else {
             fade.max(whiff)
@@ -186,7 +189,7 @@ fn show_trail(
     };
     let (sprite, tr) = &mut *trail;
     let strength = lab.juice().trail;
-    if let (Some(b), Some(s)) = (f.hitbox(m, &sim.tuning), &f.swing) {
+    if let (Some(b), Some(s), None) = (f.hitbox(m, &sim.tuning), &f.swing, f.crush) {
         let heavy = s.claw == Claw::Crusher;
         let end =
             b.center() + Vec2::new(f.facing * b.width() * 0.45, if heavy { -6.0 } else { 0.0 });
@@ -215,25 +218,28 @@ fn fight_notes(
     };
     let ev = ev.0;
     let above = at.translation.truncate() + Vec2::Y * 92.0;
+    // Later beats of a parry stack higher, so they don't overlap.
+    let higher = |n: f32| above + Vec2::Y * 16.0 * n;
     let cracked = f.armour_break > 0;
-    let mut say = |text: &str, colour: Color| notes::say(&mut commands, text, above, colour);
+    let mut say =
+        |text: &str, colour: Color, n: f32| notes::say(&mut commands, text, higher(n), colour);
     if ev.parried {
-        say("Parry! Smash now", GOLD);
+        say("Parry! Smash now", GOLD, 0.0);
     }
     if ev.countered {
-        say("Counter!", GOLD);
+        say("Counter!", GOLD, 1.0);
     }
     if ev.seized {
-        say("Crush!", GOLD);
+        say("Crush!", GOLD, 2.0);
     }
     if cracked && !*cracked_before {
-        say("Guard cracked", SHELL);
+        say("Guard cracked", SHELL, 0.0);
     }
     if ev.staggered {
-        say("Staggered", PALE);
+        say("Staggered", PALE, 0.0);
     }
     if ev.died {
-        say("Shell broken...", SHELL);
+        say("Shell broken...", SHELL, 0.0);
     }
     *cracked_before = cracked;
 }
