@@ -901,6 +901,7 @@ t=5.5 walk=left; t=6 jump; t=6.1 release
 t=6.6 sprint; t=7.4 slow
 t=8 walk=right
 t=9 smash; t=9.5 jab; t=9.6 smash
+t=10 block; t=10.5 unblock; t=10.7 parry; t=11 guard; t=11.2 unblock
 ";
 
 #[test]
@@ -1205,4 +1206,301 @@ fn hit_stop_freezes_the_crab_for_a_moment() {
         sim.crab(P0).unwrap().mover.pos.x > SPAWN.x,
         "then knocked back"
     );
+}
+
+// --- Enemies, block, parry, counter, dodge (with the test fixture) ----------
+
+use crabsim::Kind;
+use crabsim::enemy::State;
+use crabsim::physics::StepEvents;
+
+/// A scripted fight: the crab at the spawn (x 160, facing right) and the
+/// fixture at `enemy_x` (240 = close enough to start its tell at once).
+struct Duel {
+    sim: Sim,
+    /// The crab's events, tick by tick (index 0 = tick 1).
+    crab: Vec<StepEvents>,
+    /// The fixture's (state, phase, state tick, health) after each tick.
+    enemy: Vec<(State, &'static str, u32, f32)>,
+    /// The crab's health after each tick.
+    health: Vec<f32>,
+}
+
+impl Duel {
+    /// The tick number (1 = the first) of each tick on which `f` holds.
+    fn ticks_where(&self, f: impl Fn(&StepEvents) -> bool) -> Vec<usize> {
+        (0..self.crab.len())
+            .filter(|&i| f(&self.crab[i]))
+            .map(|i| i + 1)
+            .collect()
+    }
+
+    fn first_attack_tick(&self) -> usize {
+        1 + self
+            .enemy
+            .iter()
+            .position(|e| e.0 == State::Attack)
+            .expect("it attacks")
+    }
+}
+
+fn duel_with(edit: impl FnOnce(&mut Tuning), enemy_x: f32, script: &str, ticks: u64) -> Duel {
+    let replay = Replay::parse(script).expect("the script reads");
+    let mut sim = Sim::with_one_crab(SPAWN);
+    edit(&mut sim.tuning);
+    sim.spawn_enemy(Kind::Fixture, Vec2::new(enemy_x, 0.0));
+    let mut d = Duel {
+        sim: sim.clone(),
+        crab: Vec::new(),
+        enemy: Vec::new(),
+        health: Vec::new(),
+    };
+    play(&mut sim, &replay, ticks, |sim| {
+        d.crab.push(sim.crabs()[0].events);
+        let e = &sim.enemies()[0];
+        d.enemy
+            .push((e.state, e.phase(&sim.tuning), e.state_tick, e.vitals.health));
+        d.health.push(sim.crabs()[0].fighter.vitals.health);
+    });
+    d.sim = sim;
+    d
+}
+
+/// The most ticks the fixture spent in `state` in one go (frozen hit-stop
+/// ticks don't count: its state clock stops too).
+fn longest(d: &Duel, state: State) -> u32 {
+    d.enemy
+        .iter()
+        .filter(|e| e.0 == state)
+        .map(|e| e.2)
+        .max()
+        .unwrap_or(0)
+}
+
+fn duel(script: &str, ticks: u64) -> Duel {
+    duel_with(|_| {}, 240.0, script, ticks)
+}
+
+/// When the fixture's first blow lands on a crab that does nothing.
+fn impact_tick() -> usize {
+    let d = duel("", 120);
+    d.ticks_where(|e| e.hurt)[0]
+}
+
+#[test]
+fn the_tell_lasts_exactly_its_ticks_before_the_blow() {
+    let d = duel("", 120);
+    let first_attack = d.first_attack_tick();
+    let tells: Vec<_> = d.enemy[..first_attack]
+        .iter()
+        .filter(|e| e.0 == State::Tell)
+        .collect();
+    assert_eq!(tells.len(), 30, "the fixture's tell is 30 ticks");
+    assert_eq!(tells.first().unwrap().2, 1);
+    assert_eq!(tells.last().unwrap().2, 30);
+    let cocked = tells.iter().filter(|e| e.1 == "cocked").count();
+    assert_eq!(cocked, 10, "ending in a 10-tick cocked hold");
+    assert_eq!(
+        d.enemy[first_attack - 2].0,
+        State::Tell,
+        "straight from the tell"
+    );
+    // The blow lands on its first active tick.
+    assert_eq!(impact_tick(), first_attack);
+}
+
+#[test]
+fn a_crab_out_of_the_hitbox_takes_nothing() {
+    // Back off during the tell: the committed blow lands on water.
+    let d = duel("@5 walk=left; @30 walk=stop", 50);
+    assert!(d.enemy.iter().any(|e| e.0 == State::Attack));
+    assert!(d.ticks_where(|e| e.hurt).is_empty());
+    assert_eq!(*d.health.last().unwrap(), 100.0);
+}
+
+#[test]
+fn a_crab_in_the_hitbox_takes_one_hit_not_one_per_tick() {
+    let d = duel("", 70);
+    assert_eq!(
+        d.ticks_where(|e| e.hurt).len(),
+        1,
+        "6 active ticks, one hit"
+    );
+    assert_eq!(*d.health.last().unwrap(), 90.0);
+}
+
+/// A fixture that never notices the crab: a punching bag.
+fn bag(t: &mut Tuning) {
+    t.fixture.notice_range = 0.0;
+}
+
+#[test]
+fn crusher_hits_land_only_in_its_active_ticks() {
+    let d = duel_with(bag, 240.0, "@9 smash", 60);
+    // Pressed on tick 10, so wind-up ticks 10-23, the blow from tick 24.
+    let hurt = d.enemy.iter().position(|e| e.3 < 40.0).unwrap() + 1;
+    assert_eq!(hurt, 24);
+    assert_eq!(d.enemy[hurt - 1].3, 28.0, "12 damage, once");
+    assert_eq!(d.ticks_where(|e| e.struck), [24]);
+    // Out of reach: a swing at nothing.
+    let far = duel_with(bag, 300.0, "@9 smash", 60);
+    assert!(far.enemy.iter().all(|e| e.3 == 40.0));
+}
+
+#[test]
+fn enemy_poise_breaks_into_a_stagger() {
+    // 25 poise a smash against the fixture's 30: the second one breaks it.
+    let d = duel_with(bag, 240.0, "@0 smash; @50 smash", 140);
+    assert_eq!(longest(&d, State::Stagger), 40);
+}
+
+#[test]
+fn enemy_health_zero_means_flee_or_gone() {
+    let smashes = "@0 smash; @60 smash; @120 smash; @180 smash";
+    // (No knockback, so it stays in reach.)
+    let bag = |t: &mut Tuning| {
+        bag(t);
+        t.crusher.knockback = (0.0, 0.0);
+    };
+    let d = duel_with(bag, 240.0, smashes, 240);
+    assert_eq!(
+        d.enemy.last().unwrap().0,
+        State::Gone,
+        "{:?}",
+        d.enemy.last()
+    );
+    let fled = duel_with(
+        |t| {
+            bag(t);
+            t.fixture.flee_below = 0.5;
+            t.fixture.flee_speed = 100.0;
+        },
+        240.0,
+        smashes,
+        240,
+    );
+    assert!(fled.enemy.iter().any(|e| e.0 == State::Flee));
+}
+
+#[test]
+fn same_seed_and_inputs_give_the_same_fight() {
+    let script = "t=0 walk=right; t=0.3 smash; t=0.6 parry; t=1 jab; t=1.4 block; t=2 unblock dodge; t=3 smash";
+    let random = |t: &mut Tuning| t.fixture.pause_ticks = (5, 60);
+    let a = duel_with(random, 300.0, script, 1200);
+    let b = duel_with(random, 300.0, script, 1200);
+    assert_eq!(a.sim.state_hash(), b.sim.state_hash());
+    let c = duel_with(
+        random,
+        300.0,
+        &script.replace("t=3 smash", "t=3 walk=left"),
+        1200,
+    );
+    assert_ne!(a.sim.state_hash(), c.sim.state_hash());
+}
+
+#[test]
+fn a_press_10_ticks_before_impact_parries_and_11_blocks() {
+    let h = impact_tick();
+    // `@n` is processed on tick n + 1.
+    let parry = duel(&format!("@{} parry", h - 11), 70);
+    assert_eq!(parry.ticks_where(|e| e.parried), [h]);
+    assert_eq!(*parry.health.last().unwrap(), 100.0, "no damage");
+    let late = duel(&format!("@{} block", h - 12), 70);
+    assert!(late.ticks_where(|e| e.parried).is_empty());
+    assert_eq!(late.ticks_where(|e| e.blocked), [h]);
+    assert_eq!(
+        *late.health.last().unwrap(),
+        98.0,
+        "10 x 0.2 through the claws"
+    );
+    // A tap 11 ahead is neither: the claws are down again.
+    let tapped = duel(&format!("@{} parry", h - 12), 70);
+    assert_eq!(tapped.ticks_where(|e| e.hurt), [h]);
+}
+
+#[test]
+fn a_held_block_never_parries() {
+    let d = duel("@0 block", 70);
+    assert!(d.ticks_where(|e| e.parried).is_empty());
+    assert_eq!(d.ticks_where(|e| e.blocked).len(), 1);
+    let poise = d.sim.crabs()[0].fighter.vitals.poise;
+    assert_eq!(poise, 80.0, "a block takes the poise damage in full");
+}
+
+#[test]
+fn mashing_block_does_not_parry() {
+    let h = impact_tick();
+    // A press every 5 ticks from well before the blow.
+    let mash: Vec<String> = (0..h / 5).map(|i| format!("@{} parry", 5 * i)).collect();
+    let d = duel(&mash.join("; "), 70);
+    assert!(d.ticks_where(|e| e.parried).is_empty());
+}
+
+#[test]
+fn a_parry_staggers_the_attacker_and_opens_a_counter() {
+    let h = impact_tick();
+    let base = format!("@{} parry", h - 6);
+    let d = duel(&base, 140);
+    assert_eq!(
+        longest(&d, State::Stagger),
+        50,
+        "the fixture's own stagger after a parry"
+    );
+    // A smash started inside the 45-tick window (hit-stop included) does
+    // double damage; one started after it, normal damage.
+    let damage_of = |delay: usize| {
+        let d = duel(&format!("{base}; @{} smash", h + delay), 140);
+        40.0 - d.enemy.iter().map(|e| e.3).fold(40.0, f32::min)
+    };
+    assert_eq!(damage_of(20), 24.0);
+    assert_eq!(damage_of(60), 12.0);
+    // Only the next smash: the counter is used up.
+    let twice = duel(
+        &format!("{base}; @{} smash; @{} smash", h + 12, h + 65),
+        200,
+    );
+    let lowest = twice.enemy.iter().map(|e| e.3).fold(40.0, f32::min);
+    assert_eq!(lowest, 40.0 - 24.0 - 12.0);
+}
+
+#[test]
+fn an_unparryable_blow_is_only_blocked() {
+    let h = impact_tick();
+    let d = duel_with(
+        |t| t.fixture.strike.parryable = false,
+        240.0,
+        &format!("@{} block", h - 6),
+        70,
+    );
+    assert!(d.ticks_where(|e| e.parried).is_empty());
+    assert_eq!(d.ticks_where(|e| e.blocked), [h]);
+}
+
+#[test]
+fn a_dodge_through_the_blow_takes_nothing_and_a_late_one_takes_it() {
+    let h = impact_tick();
+    // Dodging right, through the fixture, starting just before the blow:
+    // the active ticks fall inside the invulnerable ones (2-13).
+    let through = duel(&format!("@0 walk=stop; @{} walk=right dodge", h - 3), 100);
+    assert!(
+        through.ticks_where(|e| e.hurt).is_empty(),
+        "{:?}",
+        through.health
+    );
+    assert!(!through.ticks_where(|e| e.evaded).is_empty());
+    // Started on the very tick of the blow: its first tick isn't safe yet.
+    let late = duel(&format!("@{} walk=right dodge", h - 1), 100);
+    assert_eq!(late.ticks_where(|e| e.hurt), [h]);
+}
+
+#[test]
+fn blocking_walks_at_40_percent() {
+    let walk = |script: &str| {
+        let r = run(script, 1.0);
+        r.crab().pos.x - SPAWN.x
+    };
+    let free = walk("t=0 walk=right; t=0.5 walk=stop");
+    let guarded = walk("t=0 walk=right block; t=0.5 walk=stop");
+    let ratio = guarded / free;
+    assert!((ratio - 0.4).abs() < 0.03, "{ratio}");
 }

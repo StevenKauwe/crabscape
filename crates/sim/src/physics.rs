@@ -42,6 +42,11 @@ pub struct Controls {
     pub smash_pressed: bool,
     /// Was the cutter (jab) pressed since the last step?
     pub jab_pressed: bool,
+    /// Is block (claws up) held?
+    pub block_held: bool,
+    /// Was block freshly pressed since the last step? (A press just before
+    /// a blow lands is a parry.)
+    pub block_pressed: bool,
 }
 
 impl Controls {
@@ -52,13 +57,18 @@ impl Controls {
             dodge_pressed: false,
             smash_pressed: false,
             jab_pressed: false,
+            block_pressed: false,
             ..self
         }
     }
 
     /// Is any button newly pressed?
     pub fn any_press(&self) -> bool {
-        self.jump_pressed || self.dodge_pressed || self.smash_pressed || self.jab_pressed
+        self.jump_pressed
+            || self.dodge_pressed
+            || self.smash_pressed
+            || self.jab_pressed
+            || self.block_pressed
     }
 }
 
@@ -280,6 +290,16 @@ pub struct StepEvents {
     pub died: bool,
     /// Back at the spawn after dying.
     pub respawned: bool,
+    /// A claw connected with something.
+    pub struck: bool,
+    /// Stopped a blow with raised claws.
+    pub blocked: bool,
+    /// Turned a blow aside with a timed block.
+    pub parried: bool,
+    /// Dodged through a blow.
+    pub evaded: bool,
+    /// Started a counter smash (inside a parry's counter window).
+    pub countered: bool,
 }
 
 impl StepEvents {
@@ -306,6 +326,11 @@ impl StepEvents {
         self.staggered |= other.staggered;
         self.died |= other.died;
         self.respawned |= other.respawned;
+        self.struck |= other.struck;
+        self.blocked |= other.blocked;
+        self.parried |= other.parried;
+        self.evaded |= other.evaded;
+        self.countered |= other.countered;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -336,6 +361,11 @@ impl StepEvents {
             (self.staggered, "staggered"),
             (self.died, "died"),
             (self.respawned, "respawned"),
+            (self.struck, "struck"),
+            (self.blocked, "blocked"),
+            (self.parried, "parried"),
+            (self.evaded, "evaded"),
+            (self.countered, "countered"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))
@@ -838,6 +868,8 @@ mod tests {
         down: false,
         smash_pressed: false,
         jab_pressed: false,
+        block_held: false,
+        block_pressed: false,
     };
 
     #[test]
