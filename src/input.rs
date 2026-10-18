@@ -202,6 +202,7 @@ fn read_input(
         dodge_pressed: dodge && !held_before.dodge,
         dodge_held: dodge,
         down,
+        ..Controls::default()
     };
     *held_before = Held { jump, dodge };
     requests.write(MoveRequest {

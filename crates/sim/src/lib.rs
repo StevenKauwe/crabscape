@@ -18,6 +18,7 @@
 //! - [`tuning`]: every number that decides how the crab moves
 //! - [`level`]: the test level's shape (floor line and rocks)
 //! - [`physics`]: walking, sinking, jumping, paddling, dodging for one crab
+//! - [`combat`]: health, poise, hits, knockback, hit-stop, claw swings
 //! - [`world`]: [`Sim`], the whole world, advanced one tick at a time
 //! - [`replay`]: recording controls, and the little text format for replays
 //!   and input scripts
@@ -29,6 +30,7 @@
 //! - No `HashMap` iteration (its order changes every run): use `Vec`s.
 //! - Nothing about drawing or sound.
 
+pub mod combat;
 pub mod hash;
 pub mod level;
 pub mod physics;
@@ -36,6 +38,7 @@ pub mod replay;
 pub mod tuning;
 pub mod world;
 
+pub use combat::{Claw, Fighter, Hit, Source, Vitals};
 pub use level::{Level, SPAWN};
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use replay::Replay;

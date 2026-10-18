@@ -27,5 +27,6 @@ done << 'SCRIPTS'
 t=0 walk=right; t=0.4 jump; t=0.7 jump; t=0.9 release; t=1.6 dodge; t=1.8 walk=-0.4; t=2.2 walk=right tap; t=3 walk=right jump; t=3.4 jump; t=4 dodge; t=4.1 jump; t=5.5 walk=left; t=6 jump; t=6.1 release; t=6.6 sprint; t=7.4 slow; t=8 walk=right
 t=0 walk=right; t=1 jump; t=1.45 jump; t=3 walk=right sprint; t=6 slow; t=9 jump; t=12 walk=left; t=20 walk=right down=on; t=30 down=off jump
 t=0 walk=left; t=0.5 jump; t=2 walk=right; t=2.5 dodge; t=10 walk=right sprint; t=40 walk=stop
+t=0 walk=right; t=0.5 smash; t=0.6 jab; t=1 jab; t=1.05 jab; t=2 walk=left smash; t=2.2 dodge; t=3 jump; t=3.2 smash
 SCRIPTS
 echo "native and wasm agree"

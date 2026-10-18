@@ -38,6 +38,28 @@ pub struct Controls {
     pub dodge_held: bool,
     /// Is down held? (Climbs down kelp or coral; so does holding dodge.)
     pub down: bool,
+    /// Was the crusher (smash) pressed since the last step?
+    pub smash_pressed: bool,
+    /// Was the cutter (jab) pressed since the last step?
+    pub jab_pressed: bool,
+}
+
+impl Controls {
+    /// The same controls with every press taken out (what is still held).
+    pub fn held_only(self) -> Self {
+        Self {
+            jump_pressed: false,
+            dodge_pressed: false,
+            smash_pressed: false,
+            jab_pressed: false,
+            ..self
+        }
+    }
+
+    /// Is any button newly pressed?
+    pub fn any_press(&self) -> bool {
+        self.jump_pressed || self.dodge_pressed || self.smash_pressed || self.jab_pressed
+    }
 }
 
 /// Something a crab carries home on its back.
@@ -246,6 +268,18 @@ pub struct StepEvents {
     pub landed: Option<f32>,
     /// Started a dodge.
     pub dodged: bool,
+    /// Started a crusher smash.
+    pub smashed: bool,
+    /// Started a cutter jab.
+    pub jabbed: bool,
+    /// Was hit.
+    pub hurt: bool,
+    /// Poise broke: staggered.
+    pub staggered: bool,
+    /// Health ran out.
+    pub died: bool,
+    /// Back at the spawn after dying.
+    pub respawned: bool,
 }
 
 impl StepEvents {
@@ -266,6 +300,12 @@ impl StepEvents {
         self.cut_net |= other.cut_net;
         self.tangled |= other.tangled;
         self.dodged |= other.dodged;
+        self.smashed |= other.smashed;
+        self.jabbed |= other.jabbed;
+        self.hurt |= other.hurt;
+        self.staggered |= other.staggered;
+        self.died |= other.died;
+        self.respawned |= other.respawned;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -290,6 +330,12 @@ impl StepEvents {
             (self.tangled, "tangled"),
             (self.landed.is_some(), "landed"),
             (self.dodged, "dodged"),
+            (self.smashed, "smashed"),
+            (self.jabbed, "jabbed"),
+            (self.hurt, "hurt"),
+            (self.staggered, "staggered"),
+            (self.died, "died"),
+            (self.respawned, "respawned"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))
@@ -790,6 +836,8 @@ mod tests {
         dodge_pressed: false,
         dodge_held: false,
         down: false,
+        smash_pressed: false,
+        jab_pressed: false,
     };
 
     #[test]
