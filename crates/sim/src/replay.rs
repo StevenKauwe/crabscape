@@ -39,6 +39,7 @@
 //! | `parry`         | press block and let go at once (a timed parry)           |
 //! | `guard`         | hold block without a new press (never a parry)           |
 //! | `unblock`       | let go of block                                          |
+//! | `spawn=fixture@300,0` | an enemy appears there (tests, crabsim, replays)   |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
 //! `tap`, `dodge`, `sprint`, `smash`, `jab`, `block`, `parry`) happen on that one tick. Recorded replays also have a
@@ -48,6 +49,7 @@
 
 use bevy_math::Vec2;
 
+use crate::enemy::Kind;
 use crate::level::SPAWN;
 use crate::physics::{Controls, TICKS_PER_SECOND};
 use crate::tuning::Tuning;
@@ -76,6 +78,17 @@ pub struct Replay {
     /// [`Sim::state_hash`](crate::Sim::state_hash) at the end, if recorded: playing it again must end with the
     /// same hash, or the code (or the computer) plays it differently.
     pub hash: Option<u64>,
+    /// Enemies that appear, in tick order: in scripts (`spawn=`), and in
+    /// recordings of the game (its level's enemies, at tick 0).
+    pub spawns: Vec<Spawn>,
+}
+
+/// An enemy appearing at the start of a tick.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spawn {
+    pub tick: u64,
+    pub kind: Kind,
+    pub pos: Vec2,
 }
 
 impl Default for Replay {
@@ -86,6 +99,7 @@ impl Default for Replay {
             inputs: Vec::new(),
             end: None,
             hash: None,
+            spawns: Vec::new(),
         }
     }
 }
@@ -153,7 +167,15 @@ impl Replay {
 
         // Now play the words forward, keeping track of what is held.
         let mut held = Controls::default();
-        for (tick, words, line_no) in entries {
+        for (tick, mut words, line_no) in entries {
+            let err = |msg: String| format!("line {line_no}: {msg}");
+            for w in words.iter().filter_map(|w| w.strip_prefix("spawn=")) {
+                replay.spawns.push(spawn(tick, w).map_err(err)?);
+            }
+            words.retain(|w| !w.starts_with("spawn="));
+            if words.is_empty() {
+                continue; // only spawns: no change to the controls
+            }
             let mut c = match replay.inputs.last() {
                 // Two entries on the same tick: the second adds to the first.
                 Some(last) if last.tick == tick => replay.inputs.pop().unwrap().controls,
@@ -178,6 +200,15 @@ impl Replay {
         out += &format!("start x={} y={}\n", self.start.x, self.start.y);
         if let Some(code) = self.tuning {
             out += &format!("tuning {code:016x}\n");
+        }
+        for s in &self.spawns {
+            out += &format!(
+                "@{} spawn={}@{},{}\n",
+                s.tick,
+                s.kind.name(),
+                s.pos.x,
+                s.pos.y
+            );
         }
         let mut before = Controls::default();
         for input in &self.inputs {
@@ -234,6 +265,12 @@ impl Replay {
     pub fn length(&self) -> u64 {
         self.end
             .unwrap_or_else(|| self.inputs.last().map_or(0, |i| i.tick) + ticks(1.0))
+    }
+
+    /// The enemies that appear just before tick number `tick` runs (0 = the
+    /// first).
+    pub fn spawns_at(&self, tick: u64) -> impl Iterator<Item = &Spawn> + '_ {
+        self.spawns.iter().filter(move |s| s.tick == tick)
     }
 
     /// Something that hands out the controls for tick 0, 1, 2, ... in turn.
@@ -308,6 +345,15 @@ impl Recorder {
             });
             self.last = c;
         }
+    }
+
+    /// An enemy appeared at `tick`.
+    pub fn note_spawn(&mut self, tick: u64, kind: Kind, pos: Vec2) {
+        self.replay.spawns.push(Spawn {
+            tick: tick - self.first_tick,
+            kind,
+            pos,
+        });
     }
 
     /// The replay so far, ending at `now`.
@@ -388,6 +434,18 @@ fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `fixture@300,0`, the part after `spawn=`.
+fn spawn(tick: u64, w: &str) -> Result<Spawn, String> {
+    let bad = || format!("`spawn={w}` wants <kind>@<x>,<y>");
+    let (kind, at) = w.split_once('@').ok_or_else(bad)?;
+    let (x, y) = at.split_once(',').ok_or_else(bad)?;
+    Ok(Spawn {
+        tick,
+        kind: Kind::parse(kind).ok_or_else(|| format!("no enemy kind `{kind}`"))?,
+        pos: Vec2::new(number(x)?, number(y)?),
+    })
+}
+
 fn number(v: &str) -> Result<f32, String> {
     v.parse().map_err(|_| format!("`{v}` is not a number"))
 }
@@ -448,7 +506,7 @@ mod tests {
     #[test]
     fn text_round_trips_exactly() {
         let r = Replay::parse(
-            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\nend @400",
+            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block spawn=fixture@300,0\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\nend @400",
         )
         .unwrap();
         let again = Replay::parse(&r.to_text()).unwrap();

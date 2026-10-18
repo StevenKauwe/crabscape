@@ -187,6 +187,9 @@ impl Sim {
         self.next_enemy += 1;
         let at = Vec2::new(pos.x, self.level.floor_height(pos.x));
         self.enemies.push(Enemy::new(id, kind, at, &self.tuning));
+        if let Some(rec) = &mut self.recorder {
+            rec.note_spawn(self.tick, kind, pos);
+        }
         id
     }
 
@@ -439,6 +442,17 @@ pub struct EnemySnapshot {
 }
 
 impl Sim {
+    /// This tick's `--dump` lines: one JSON line per crab, then one per
+    /// enemy.
+    pub fn dump_lines(&self) -> Vec<String> {
+        let crabs = self.snapshots().map(|s| serde_json::to_string(&s));
+        let enemies = self.enemy_snapshots().map(|s| serde_json::to_string(&s));
+        crabs
+            .chain(enemies)
+            .map(|line| line.expect("snapshots always serialise"))
+            .collect()
+    }
+
     /// One line of state per enemy, for `--dump`.
     pub fn enemy_snapshots(&self) -> impl Iterator<Item = EnemySnapshot> + '_ {
         self.enemies.iter().map(|e| EnemySnapshot {
