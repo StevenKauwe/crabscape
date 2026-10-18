@@ -1,5 +1,5 @@
-# Checks every push and pull request, builds the web game, and (on main)
-# deploys it to GitHub Pages.
+# Checks every push and pull request and builds the web game once: the browser test plays that build, a pull
+# request publishes it as its playable preview, and on main it is deployed to GitHub Pages.
 # Actions are pinned to commit SHAs; the comment says which release that is.
 name: CI
 
@@ -97,8 +97,6 @@ jobs:
   web:
     name: web build, relaxed-SIMD check, size
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # push the main build to the gh-pages store
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Rust (the version, targets and components in rust-toolchain.toml)
@@ -142,11 +140,6 @@ jobs:
           name: crabscape-web-${{ github.sha }}
           path: web/
           retention-days: 14
-      - name: Publish the main build to the preview store (gh-pages root)
-        # The store is the source of truth: main at the root, previews in
-        # folders. The deploy job below serves the whole store.
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
-        run: tools/previews.sh publish-main
 
   browser:
     name: browser test (WebKit, iPhone size)
@@ -180,6 +173,52 @@ jobs:
           path: target/webtest/
           retention-days: 7
 
+  preview:
+    name: playable preview
+    # Publishes this run's web build (no second build) to its own folder on the Pages site: /pr-<n>/ for a pull
+    # request, /branches/<name>/ for a run started by hand on another branch (gh workflow run ci.yml --ref <name>).
+    # The link is commented on the PR. Removed when the PR closes (previews.yml). See tools/previews.sh.
+    if: (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !github.event.repository.private
+    needs: web
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the folder to the gh-pages store
+      pull-requests: write # keep one "Play this change" comment per PR
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      FOLDER: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || format('branches/{0}', github.ref_name) }}
+      SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - name: Publish the folder to the store and refresh /builds/
+        run: tools/previews.sh publish "$FOLDER" "$SHA"
+      - name: Upsert the PR comment with the playable URL
+        if: github.event_name == 'pull_request'
+        run: tools/previews.sh comment "${{ github.event.number }}" "$FOLDER"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_SHA: ${{ env.SHA }}
+      - id: snap
+        name: Assemble the site from the store
+        run: tools/previews.sh snapshot site
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        if: steps.snap.outputs.deployed == 'true'
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: steps.snap.outputs.deployed == 'true'
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        if: steps.snap.outputs.deployed == 'true'
+
   deploy:
     name: deploy to GitHub Pages
     # Pages for private repositories needs a paid plan, so only deploy when public.
@@ -189,6 +228,7 @@ jobs:
     needs: [check, determinism, art, web, browser]
     runs-on: ubuntu-latest
     permissions:
+      contents: write # push the main build to the gh-pages store
       pages: write
       id-token: write
     environment:
@@ -201,6 +241,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - name: Publish the main build to the preview store (gh-pages root)
+        # The store is the source of truth: main at the root, previews in folders. Only a build that passed every
+        # check gets here.
+        run: tools/previews.sh publish-main
       - id: snap
         name: Assemble the site from the preview store
         run: tools/previews.sh snapshot site

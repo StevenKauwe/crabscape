@@ -66,10 +66,10 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/). Branch protection requires all of these jobs.
 - **Main is broken?** A failed CI run on `main` opens (or adds to) the `main-broken` issue "main is broken"; a green
   run closes it. Fix it before anything else (`/next-task` picks it first; the session-start check says so too).
-- **Playable previews** (`.github/workflows/previews.yml`, `tools/previews.sh`): every PR builds to `/pr-<n>/` on
-  the Pages site (link commented on the PR, refreshed per push, removed on close); a named branch builds on demand
-  (run the workflow with its name) to `/branches/<name>/`; `/builds/` lists them all. Each build keeps its own save on
-  the device.
+- **Playable previews** (`tools/previews.sh`): CI publishes each PR's web build to `/pr-<n>/` on the Pages site
+  (link commented on the PR, refreshed per push; `previews.yml` removes it on close); a named branch on demand with
+  `gh workflow run ci.yml --ref <name>` to `/branches/<name>/`; `/builds/` lists them all. Each build keeps its own
+  save on the device.
 - Issues: `claude-ready`, `size:S` (~30 min of Claude work), `size:M` (~1 h); `size:L` must be split; `needs-human`
   means a person must decide or draw first (don't start it). Areas: `area:code|art|research|design|tooling`.
 - Skills: `/next-task` (claim, do and merge one issue), `/review-pr <n>` (optional self-check), `/triage`

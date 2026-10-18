@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Playable previews on GitHub Pages (see .github/workflows/previews.yml).
+# Playable previews on GitHub Pages (published by .github/workflows/ci.yml, removed by previews.yml).
 # Runs in CI from a repo checkout:
 #
 #   tools/previews.sh publish <folder> <sha>   # web/ -> store/<folder>
