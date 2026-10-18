@@ -17,7 +17,7 @@ craft and build your way deeper, and come home alive.
 | Pillar | Means | Feels like | Never |
 |---|---|---|---|
 | Cozy | Home, food and friends are a warm refuge | Kelp stew in your shell-home after a dive | Cozy everywhere, so nothing is earned |
-| Brutal | The deep is dangerous and indifferent; mistakes cost | Limping home with a cracked shell and a dimming lantern | Cruel for its own sake, or punishing friends for playing together |
+| Brutal | The deep is dangerous and indifferent, and bodies visibly break: hits crack shells and tear off limbs, on the crab and its enemies alike | Limping home with a cracked shell, a missing leg and a dimming lantern | Big damage numbers or punishing difficulty; cruel for its own sake, or punishing friends for playing together |
 | Surreal | The real ocean is stranger than anything on land | A whale-fall village; an anglerfish that fills the sky at crab scale | Made up. If the real ocean doesn't do it, neither do we |
 
 Every art, sound and design choice is checked against all three. A hat should be cozy to own, hard-won, and a bit

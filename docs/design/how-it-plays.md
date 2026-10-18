@@ -43,6 +43,14 @@ recovery. Numbers: `crates/sim/src/tuning.rs`. Dying returns the crab to the spa
 no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. **Dodge** (and flip):
 invulnerable on its ticks 2–13. Enemies (`crates/sim/src/enemy.rs`) run the bestiary's state machine with a
 `tell` whose last stretch is `cocked`, and take the crab's blows by the same rules.
+- **Brutal means bodies break** (a direction, not a spec yet). Hits have located, visible consequences, the same
+  rules for the crab and every creature: shells crack, limbs are torn off or dropped, and a damaged part changes what
+  its owner can do (a crusher torn off can't smash; a mantis with a cracked club strikes weaker). Damage carries until
+  the next moult (#62). Not big numbers or harsh difficulty: fights should end in fewer one-combo deaths and more
+  limping. Biology: crabs drop a leg or claw and regrow it over the next moults (regrowth: [KM] in
+  `art/crab/anatomy-notes.md`; that they break at a set breakage plane: TO VERIFY); a mantis strikes a shell again and
+  again until it reaches the soft parts (`creatures/mantis-shrimp.md`; that strikes shatter crab shells: TO VERIFY);
+  crusher claws are built to break shells (TO VERIFY; heterochely itself: [YDF] in anatomy-notes).
 - **Commit to every hit.** Claw strikes have a clear wind-up, a crushing impact and a recovery. Timing beats speed.
 - **Guard with your claws.** Raised claws and a hard shell block blows, the way real crabs defend.
 - **Parry:** block at the last moment and the attacker is thrown off balance, opening a window for a crushing
