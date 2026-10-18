@@ -756,9 +756,11 @@ impl Test<'_> {
             pump(0.3);
             self.key("keyup", "KeyE", "e")?;
             let started = Instant::now();
-            for n in 1..=16 {
+            // About 0.3 s apart: 1/30 s of game time each, through wind-up, blow and recovery.
+            for n in 1..=20 {
                 let path = PathBuf::from(format!("{prefix}-{feel}-{n:02}.png"));
                 self.shot(path, false)?;
+                pump(0.2);
                 println!(
                     "     {feel} frame {n} at {:.2} s",
                     started.elapsed().as_secs_f64()
