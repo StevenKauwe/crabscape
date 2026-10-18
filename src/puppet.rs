@@ -42,8 +42,10 @@ use crate::lantern::{self, Lit, LitTint};
 use crate::player::{Crab, FrameEvents, GameSet};
 use crate::style::ArtStyle;
 use crate::tuning::ViewTuning;
+use crabsim::Fighter;
 use crabsim::Mover;
 use crabsim::Sim;
+use crabsim::combat::{Claw, Phase};
 
 /// The parts list, baked into the game (it is small).
 const PARTS_JSON: &str = include_str!("../assets/crab/crab-parts.json");
@@ -506,11 +508,17 @@ fn paddle_curve(t: f32) -> f32 {
 fn animate(
     time: Res<Time>,
     sim: Res<Sim>,
-    mut crabs: Query<(&Mover, &FrameEvents, &Rig, &mut PuppetAnim)>,
+    mut crabs: Query<(
+        &Mover,
+        Option<&Fighter>,
+        &FrameEvents,
+        &Rig,
+        &mut PuppetAnim,
+    )>,
     mut parts: Query<(&mut Transform, Option<&RestPos>)>,
 ) {
     let dt = time.delta_secs().min(0.05);
-    for (mover, events, rig, mut a) in &mut crabs {
+    for (mover, fighter, events, rig, mut a) in &mut crabs {
         let ev = events.0;
         let vx = mover.vel.x;
         let vy = mover.vel.y;
@@ -630,6 +638,11 @@ fn animate(
         // A strain tremble while the legs push hard.
         let strain = 0.04 * heave * (t * 46.0).sin();
 
+        // --- Fighting poses (straight from the sim's tick counts, so hit-stop
+        // freezes them): the crusher rears back over the wind-up and slams
+        // down; the cutter jabs; guard raises both claws.
+        let fight = fight_pose(fighter, &sim.tuning, a.time);
+
         // --- Whole body: squash and lean around the feet ------------------
         // Climbing turns the crab sideways onto the stalk (round its feet),
         // its underside to the stalk, on the side it came from. On the right
@@ -646,7 +659,8 @@ fn animate(
         let lean = -(vx / sim.tuning.walk_speed) * 0.035 + 0.07 * heave * a.heave_side
             - CLIMB_TURN * a.climb * a.climb_side
             - DIVE_TILT * a.dive
-            + flip;
+            + flip
+            + fight.lean;
         let middle = Vec2::new(0.0, FLIP_MIDDLE);
         let about_middle = middle - Vec2::from_angle(flip).rotate(middle);
         set(&mut parts, Some(rig.root), lean, about_middle);
@@ -736,11 +750,13 @@ fn animate(
             } else {
                 (0.0, 0.0, 0.0)
             };
+            let (swing_merus, swing_carpus) = fight.claw[side];
             let merus = s * (carry + 0.55 * a.claw_raise - 0.25 * squashed) + s * sway
                 - s * 0.75 * heave
                 + s * strain
-                - s * reach;
-            let carpus = s * 0.25 * a.claw_raise - s * 0.35 * heave - s * pull;
+                - s * reach
+                + s * swing_merus;
+            let carpus = s * 0.25 * a.claw_raise - s * 0.35 * heave - s * pull + s * swing_carpus;
             set(&mut parts, claw.0[0], merus, Vec2::ZERO);
             set(&mut parts, claw.0[1], carpus, Vec2::ZERO);
             // The crusher's finger opens as it rises; the cutter keeps its
@@ -752,7 +768,10 @@ fn animate(
                 0.0
             };
             let gape = if side == 0 {
-                -s * 0.35 * a.claw_raise * (1.0 - a.climb) - s * open - s * 0.8 * snapping
+                -s * 0.35 * a.claw_raise * (1.0 - a.climb)
+                    - s * open
+                    - s * 0.8 * snapping
+                    - s * fight.gape
             } else {
                 0.0
             };
@@ -783,6 +802,72 @@ fn animate(
         }
         a.prev_vx = vx;
     }
+}
+
+/// The fighting part of a crab's pose.
+struct FightPose {
+    /// Whole-body lean (radians).
+    lean: f32,
+    /// Extra merus and carpus turn per claw (crusher, cutter), "up" positive.
+    claw: [(f32, f32); 2],
+    /// The crusher's finger opening.
+    gape: f32,
+}
+
+fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32) -> FightPose {
+    let mut pose = FightPose {
+        lean: 0.0,
+        claw: [(0.0, 0.0); 2],
+        gape: 0.0,
+    };
+    let Some(f) = fighter else {
+        return pose;
+    };
+    let facing = f.facing;
+    if let Some(s) = &f.swing {
+        let c = s.claw.tuning(t);
+        let tick = s.tick as f32;
+        let (w, a, r) = (
+            c.windup_ticks as f32,
+            c.active_ticks as f32,
+            c.recovery_ticks as f32,
+        );
+        // 0..1 up over the wind-up; 1 at the blow, easing back over recovery.
+        let (load, blow) = match s.phase(t) {
+            Phase::Windup => ((tick / w).powi(2), 0.0),
+            Phase::Active => (0.0, 1.0),
+            Phase::Recovery => (0.0, 1.0 - ((tick - w - a) / r).clamp(0.0, 1.0)),
+        };
+        match s.claw {
+            Claw::Crusher => {
+                // Rear back from the blow, then throw the body into it.
+                pose.lean += facing * 0.12 * load - facing * 0.16 * blow;
+                pose.claw[0] = (1.3 * load - 0.55 * blow, 0.7 * load - 0.35 * blow);
+                pose.gape = 0.55 * load;
+            }
+            Claw::Cutter => {
+                pose.lean += facing * 0.04 * load - facing * 0.07 * blow;
+                pose.claw[1] = (0.4 * load - 0.5 * blow, 0.3 * load - 0.25 * blow);
+            }
+        }
+    }
+    if f.blocking {
+        pose.claw[0].0 += 0.75;
+        pose.claw[0].1 += 0.5;
+        pose.claw[1].0 += 0.6;
+        pose.claw[1].1 += 0.45;
+    }
+    if f.vitals.stagger > 0 {
+        pose.lean += 0.1 * (time * 22.0).sin();
+        pose.claw[0].0 -= 0.4;
+        pose.claw[1].0 -= 0.4;
+    }
+    if f.dead.is_some() {
+        pose.lean += 0.45;
+        pose.claw[0].0 -= 0.6;
+        pose.claw[1].0 -= 0.6;
+    }
+    pose
 }
 
 /// How far a dive tilts the crab towards the way it's pushing (radians).

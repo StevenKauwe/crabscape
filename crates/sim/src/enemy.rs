@@ -398,12 +398,22 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
         e.vel_x - decel * e.vel_x.signum()
     };
     if e.state != State::Gone {
-        e.pos.x += (e.vel_x + e.facing * want_speed) * STEP;
+        let half = k.body.0 / 2.0;
+        let x = (e.pos.x + (e.vel_x + e.facing * want_speed) * STEP)
+            .clamp(level.min_x + half, level.max_x - half);
+        // A drop or a wall (a big step in the floor) stops it: it walks the
+        // floor, it doesn't fall off cliffs.
+        let y = level.floor_height(x);
+        if (y - e.pos.y).abs() <= MAX_STEP {
+            e.pos = Vec2::new(x, y);
+        } else {
+            e.vel_x = 0.0;
+        }
     }
-    let half = k.body.0 / 2.0;
-    e.pos.x = e.pos.x.clamp(level.min_x + half, level.max_x - half);
-    e.pos.y = level.floor_height(e.pos.x);
 }
+
+/// The biggest step in the floor an enemy walks up or down in one tick.
+const MAX_STEP: f32 = 8.0;
 
 /// The blow is out: does it reach a crab?
 fn strike(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, k: &EnemyTuning) {

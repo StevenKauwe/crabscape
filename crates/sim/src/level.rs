@@ -13,6 +13,8 @@
 
 use bevy_math::{Rect, Vec2};
 
+use crate::enemy::Kind;
+
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
 
@@ -82,6 +84,9 @@ pub struct Level {
     /// enough lantern comes close (the drawing's job; the rules let a crab
     /// in either way).
     pub secrets: Vec<Rect>,
+    /// The animals living here, each at its burrow or den (see
+    /// [`Sim::populate`](crate::Sim::populate)).
+    pub foes: Vec<(Kind, Vec2)>,
     /// The crab can't go further left or right than this (the level's walls).
     pub min_x: f32,
     pub max_x: f32,
@@ -210,6 +215,9 @@ impl Level {
                 cut: false,
             }],
             secrets: vec![Rect::new(4060.0, -5200.0, 4300.0, -5080.0)],
+            // A peacock mantis shrimp's burrow on the plateau, before the
+            // trench: the first fight (it sees the crab coming up the slope).
+            foes: vec![(Kind::Mantis, Vec2::new(1120.0, 110.0))],
             min_x: 0.0,
             max_x: 5500.0,
         }

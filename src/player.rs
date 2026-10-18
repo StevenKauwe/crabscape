@@ -16,7 +16,7 @@
 use bevy::prelude::*;
 
 use crabsim::physics::{self, Controls, Mover, STEP, StepEvents};
-use crabsim::{Level, SPAWN, Sim, Tuning};
+use crabsim::{Fighter, Level, SPAWN, Sim, Tuning};
 
 use crate::save;
 
@@ -100,11 +100,13 @@ fn spawn_local_crab(mut commands: Commands, mut sim: ResMut<Sim>) {
     // Always write down what the local player does, so a replay can be saved
     // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
     sim.start_recording();
+    sim.populate();
     commands.spawn((
         Crab,
         PlayerId(0),
         LocalPlayer,
         Mover::new(pos),
+        Fighter::new(&sim.tuning),
         PreviousPos(pos),
         FrameEvents::default(),
         Transform::from_xyz(pos.x, pos.y, 10.0),
@@ -126,7 +128,13 @@ fn simulate(
     time: Res<Time>,
     mut sim: ResMut<Sim>,
     mut clock: ResMut<StepClock>,
-    mut crabs: Query<(&PlayerId, &mut Mover, &mut PreviousPos, &mut FrameEvents)>,
+    mut crabs: Query<(
+        &PlayerId,
+        &mut Mover,
+        &mut Fighter,
+        &mut PreviousPos,
+        &mut FrameEvents,
+    )>,
 ) {
     // Never try to catch up more than a quarter of a second (say, after the
     // browser tab was in the background); just carry on from here.
@@ -134,21 +142,22 @@ fn simulate(
     let steps = (clock.leftover / STEP) as usize;
     clock.leftover -= steps as f32 * STEP;
 
-    for (_, _, _, mut events) in &mut crabs {
+    for (_, _, _, _, mut events) in &mut crabs {
         events.0 = StepEvents::default();
     }
     for _ in 0..steps {
         sim.tick();
         // Collect what happened during each tick for the animation.
-        for (id, _, _, mut events) in &mut crabs {
+        for (id, _, _, _, mut events) in &mut crabs {
             if let Some(crab) = sim.crab(*id) {
                 events.0.merge(crab.events);
             }
         }
     }
-    for (id, mut mover, mut prev, _) in &mut crabs {
+    for (id, mut mover, mut fighter, mut prev, _) in &mut crabs {
         if let Some(crab) = sim.crab(*id) {
             mover.clone_from(&crab.mover);
+            fighter.clone_from(&crab.fighter);
             prev.0 = crab.prev_pos;
         }
     }

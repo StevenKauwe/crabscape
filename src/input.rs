@@ -10,7 +10,13 @@
 //! |--------|-------------------------|----------------------|------------|
 //! | Walk   | A / D, or the arrows    | left stick, d-pad    | `<` `>`    |
 //! | Jump   | Space, W, Up, K         | A (south button)     | JUMP       |
-//! | Dodge  | Shift, J                | B, X, or a trigger   | DODGE      |
+//! | Dodge  | Shift, J                | B, right trigger     | DODGE      |
+//! | Smash  | L, E                    | Y (north button)     | SMASH      |
+//! | Jab    | O, Q                    | X (west button)      | JAB        |
+//! | Guard  | I, F (tap: parry)       | left bumper/trigger  | GUARD      |
+//!
+//! Guard raises the claws while held; pressed just before a blow lands
+//! (within 10 ticks) it is a parry, and a smash right after is a counter.
 //!
 //! The dodge goes the way you hold, so it needs a direction (see `crabsim`).
 //! Keep holding dodge to sprint, which uses the stamina reserve.
@@ -33,13 +39,19 @@ enum TouchAction {
     Right,
     Jump,
     Dodge,
+    Smash,
+    Jab,
+    Guard,
 }
 
-const ACTIONS: [TouchAction; 4] = [
+const ACTIONS: [TouchAction; 7] = [
     TouchAction::Left,
     TouchAction::Right,
     TouchAction::Jump,
     TouchAction::Dodge,
+    TouchAction::Smash,
+    TouchAction::Jab,
+    TouchAction::Guard,
 ];
 
 /// Whether the on-screen buttons are showing. They appear on touch screens,
@@ -54,6 +66,9 @@ pub struct TouchControls {
 struct Held {
     jump: bool,
     dodge: bool,
+    smash: bool,
+    jab: bool,
+    guard: bool,
 }
 
 pub struct InputPlugin;
@@ -84,9 +99,11 @@ fn has_touch_screen() -> bool {
 
 /// Where each on-screen button goes, for a window of `size` (in logical
 /// pixels, measured from the top-left corner like the browser does). Walk
-/// buttons sit bottom-left under the left thumb; jump and dodge bottom-right.
-/// Works in portrait and landscape: buttons scale with the shorter side.
-fn button_rects(size: Vec2) -> [(TouchAction, Rect); 4] {
+/// buttons sit bottom-left under the left thumb; jump and dodge bottom-right,
+/// with the fighting row above them (smash over dodge, guard over jump, jab
+/// beside smash). Works in portrait and landscape: buttons scale with the
+/// shorter side.
+fn button_rects(size: Vec2) -> [(TouchAction, Rect); 7] {
     let button = (size.min_element() * 0.18).clamp(56.0, 96.0);
     let gap = button * 0.25;
     let margin = 18.0;
@@ -103,6 +120,21 @@ fn button_rects(size: Vec2) -> [(TouchAction, Rect); 4] {
         (
             TouchAction::Dodge,
             square(size.x - margin - 2.0 * button - gap, bottom),
+        ),
+        (
+            TouchAction::Smash,
+            square(size.x - margin - 2.0 * button - gap, bottom - button - gap),
+        ),
+        (
+            TouchAction::Guard,
+            square(size.x - margin - button, bottom - button * 1.45 - gap),
+        ),
+        (
+            TouchAction::Jab,
+            square(
+                size.x - margin - 3.0 * button - 2.0 * gap,
+                bottom - button - gap,
+            ),
         ),
     ]
 }
@@ -169,6 +201,9 @@ fn read_input(
         || touch(TouchAction::Dodge);
     // Down climbs down kelp or coral. (On a phone, holding DODGE does too.)
     let mut down = any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]);
+    let mut smash = any_key(&[KeyCode::KeyL, KeyCode::KeyE]) || touch(TouchAction::Smash);
+    let mut jab = any_key(&[KeyCode::KeyO, KeyCode::KeyQ]) || touch(TouchAction::Jab);
+    let mut guard = any_key(&[KeyCode::KeyI, KeyCode::KeyF]) || touch(TouchAction::Guard);
 
     for pad in &gamepads {
         let stick = pad.left_stick().x;
@@ -185,13 +220,15 @@ fn read_input(
         jump |= pad.pressed(GamepadButton::South);
         dodge |= [
             GamepadButton::East,
-            GamepadButton::West,
-            GamepadButton::LeftTrigger,
             GamepadButton::RightTrigger,
             GamepadButton::RightTrigger2,
         ]
         .into_iter()
         .any(|b| pad.pressed(b));
+        smash |= pad.pressed(GamepadButton::North);
+        jab |= pad.pressed(GamepadButton::West);
+        guard |=
+            pad.pressed(GamepadButton::LeftTrigger) || pad.pressed(GamepadButton::LeftTrigger2);
     }
 
     // A "press" is held now but wasn't last frame.
@@ -202,9 +239,18 @@ fn read_input(
         dodge_pressed: dodge && !held_before.dodge,
         dodge_held: dodge,
         down,
-        ..Controls::default()
+        smash_pressed: smash && !held_before.smash,
+        jab_pressed: jab && !held_before.jab,
+        block_held: guard,
+        block_pressed: guard && !held_before.guard,
     };
-    *held_before = Held { jump, dodge };
+    *held_before = Held {
+        jump,
+        dodge,
+        smash,
+        jab,
+        guard,
+    };
     requests.write(MoveRequest {
         player: **local,
         controls,
@@ -219,6 +265,9 @@ fn spawn_touch_buttons(mut commands: Commands) {
             TouchAction::Right => ">",
             TouchAction::Jump => "JUMP",
             TouchAction::Dodge => "DODGE",
+            TouchAction::Smash => "SMASH",
+            TouchAction::Jab => "JAB",
+            TouchAction::Guard => "GUARD",
         };
         commands
             .spawn((

@@ -180,6 +180,15 @@ impl Sim {
         &mut self.enemies
     }
 
+    /// Bring in the level's animals (the game does this once, after it
+    /// starts recording, so replays carry them). Headless runs and tests
+    /// leave the level empty unless they ask.
+    pub fn populate(&mut self) {
+        for (kind, at) in self.level.foes.clone() {
+            self.spawn_enemy(kind, at);
+        }
+    }
+
     /// Put an enemy into the world, standing on the floor at `x` (`pos.y` is
     /// ignored: it walks on the sea floor). Returns its id.
     pub fn spawn_enemy(&mut self, kind: Kind, pos: Vec2) -> u32 {

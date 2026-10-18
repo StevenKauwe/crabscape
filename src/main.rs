@@ -31,6 +31,8 @@
 //! - [`lantern`]: the lantern and its cheap fake lighting
 //! - [`deep`]: the depth counter in the pit, and something big in the dark
 //! - [`effects`]: bubbles, sand puffs and marine snow
+//! - [`fight`]: the shell and poise bars, the blow's flash, fight notes
+//! - [`foes`]: the enemies (placeholder shapes for now) and their tells
 //! - [`eggs`]: the fish eggs that give the crab more swim strokes
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
 //! - [`notes`]: the short notes that float up when something happens
@@ -44,6 +46,8 @@
 mod deep;
 mod effects;
 mod eggs;
+mod fight;
+mod foes;
 mod home;
 mod input;
 mod lantern;
@@ -106,6 +110,8 @@ fn main() {
         .add_plugins((
             deep::DeepPlugin,
             eggs::EggsPlugin,
+            foes::FoesPlugin,
+            fight::FightPlugin,
             home::HomePlugin,
             notes::NotesPlugin,
             reset::ResetPlugin,

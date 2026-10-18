@@ -1811,3 +1811,35 @@ fn badly_hurt_it_flees_into_its_burrow_and_comes_back_later() {
             .unwrap();
     assert_eq!(out - hid, 960, "8 s in the burrow");
 }
+
+#[test]
+fn the_levels_mantis_waits_on_the_plateau_and_sees_a_crab_coming_up() {
+    let mut sim = Sim::with_one_crab(SPAWN);
+    sim.populate();
+    assert_eq!(sim.enemies().len(), 1);
+    idle(&mut sim, 600);
+    let e = &sim.enemies()[0];
+    assert_eq!(
+        e.phase(&sim.tuning),
+        "burrowed",
+        "the spawn is far away and safe"
+    );
+    // Up the slope: it emerges before the crab reaches the top.
+    let replay = Replay::parse("t=0 walk=right; t=0.4 jump; t=1.2 walk=stop").unwrap();
+    let mut sim = Sim::with_one_crab(Vec2::new(500.0, 0.0));
+    sim.populate();
+    let mut noticed = None;
+    play(&mut sim, &replay, ticks(4.0), |sim| {
+        if noticed.is_none() && sim.enemies()[0].state != State::Idle {
+            noticed = Some(sim.crabs()[0].mover.pos.x);
+        }
+    });
+    let x = noticed.expect("it noticed the crab");
+    assert!((800.0..=860.0).contains(&x), "noticed at x {x}");
+    // It never leaves the plateau: no falling into the trench.
+    let mut sim = Sim::with_one_crab(Vec2::new(1500.0, -260.0));
+    sim.populate();
+    sim.enemies_mut()[0].vitals.health = 60.0;
+    idle(&mut sim, 1200);
+    assert!(sim.enemies()[0].pos.y > 100.0);
+}

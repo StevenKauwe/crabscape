@@ -15,6 +15,7 @@
 //!   between Oil and Ink (the canvas's `data-style` says which);
 //! - holding D walks the crab right, Space makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
+//! - next to the mantis shrimp's burrow, it comes out and winds up, and blows land (`data-fight`);
 //! - F9, and the `?replay` page's Replay button, hand out a replay that the headless simulation (linked in) plays
 //!   to exactly the same state: same state hash, same place;
 //! - its resting position, and the chosen style, are saved in localStorage and survive a reload;
@@ -647,6 +648,48 @@ impl Test<'_> {
         let standing = self.rest()?;
         self.eval(r#"(document.getElementById("replay-button").click(), true)"#)?;
         self.replay_matches("the ?replay page's Replay button", standing)?;
+
+        // --- a fight: start by the mantis shrimp's burrow on the plateau ------------------------------------------
+        self.eval(
+            r#"(localStorage.setItem("crabscape.save", JSON.stringify({version: 2, x: 870, y: 110})), true)"#,
+        )?;
+        self.open("index.html")?;
+        let by_burrow = self.crab()?;
+        self.check(
+            by_burrow.is_some_and(|(x, _, _)| (x - 870.0).abs() < 2.0),
+            format!("the crab starts by the mantis's burrow ({by_burrow:?})"),
+        );
+        // It sees the crab, comes out and darts in; by now it is rearing for its strike.
+        let came_out = self.wait_for(
+            &format!(r#"/(tell|attack|recover):/.test({CANVAS}.getAttribute("data-fight") || "")"#),
+            4.0,
+        )?;
+        self.numbered_shot(4)?;
+        let fight = self.attr("data-fight")?;
+        self.check(
+            came_out,
+            format!("the mantis comes out of its burrow and winds up its strike ({fight:?})"),
+        );
+        // Guard (a tap: parry), then smash.
+        self.press("KeyF", "f")?;
+        self.press("KeyE", "e")?;
+        pump(2.0);
+        self.numbered_shot(5)?;
+        let after = self.attr("data-fight")?.unwrap_or_default();
+        let crab_hp: f64 = after
+            .split_whitespace()
+            .next()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100.0);
+        let mantis_hurt = after
+            .split(':')
+            .next_back()
+            .and_then(|v| v.parse::<f64>().ok())
+            != Some(60.0);
+        self.check(
+            crab_hp < 100.0 || mantis_hurt,
+            format!("blows land in the fight (shell and mantis: {after})"),
+        );
         self.no_error_on_page("at the end")?;
         Ok(())
     }
