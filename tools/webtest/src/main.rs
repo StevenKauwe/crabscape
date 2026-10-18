@@ -756,16 +756,27 @@ impl Test<'_> {
                     localStorage.setItem("crabscape-feel", "{feel}"),
                     localStorage.setItem("crabscape-juice", "on"), true)"#
             ))?;
-            self.open("index.html?feel&slow=10")?;
+            // The counter run plays 20x slower, so the parry's 8-tick window is over a second long.
+            self.open(if counter {
+                "index.html?feel&slow=20"
+            } else {
+                "index.html?feel&slow=10"
+            })?;
             let phase =
                 |p: &str| format!(r#"/tell:{p}/.test({CANVAS}.getAttribute("data-fight") || "")"#);
             if counter {
-                // Parry about 4 ticks before the club lands (the hold is 30 ticks; 10x slow), then smash.
-                let cocked = self.wait_for(&phase("cocked"), 60.0)?;
+                // Catch the cocked hold as it starts (the page updates every 0.1 s), then parry about 5 ticks
+                // before the club lands (the hold is 30 ticks), then smash.
+                let end = Instant::now() + Duration::from_secs(90);
+                let mut cocked = false;
+                while Instant::now() < end && !cocked {
+                    cocked = self.eval(&phase("cocked"))?.as_bool() == Some(true);
+                    pump(0.03);
+                }
                 self.check(cocked, format!("{name}: the mantis cocks its club"));
-                pump(26.0 * 10.0 / 120.0);
+                pump(24.0 * 20.0 / 120.0);
                 self.press("KeyF", "f")?;
-                pump(0.4);
+                pump(0.8);
             } else {
                 // It comes out and darts in (slowly); smash as it starts to rear.
                 let rearing = self.wait_for(&phase("rear"), 60.0)?;
@@ -781,7 +792,7 @@ impl Test<'_> {
             for n in 1..=frames {
                 let path = PathBuf::from(format!("{prefix}-{name}-{n:02}.png"));
                 self.shot(path, false)?;
-                pump(0.2);
+                pump(if counter { 0.4 } else { 0.2 });
             }
             let fight = self.attr("data-fight")?;
             println!(

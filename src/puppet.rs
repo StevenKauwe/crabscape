@@ -941,14 +941,23 @@ fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32, j: &Jui
         }
         match s.claw {
             Claw::Crusher => {
+                // Juiced, the blow reaches out and down along the attack
+                // (the elbow opens) instead of curling in under the body.
+                let (bm, bc) = if j.trail > 0.0 {
+                    (0.2, -0.5)
+                } else {
+                    (0.55, 0.35)
+                };
                 pose.claw[0] = (
-                    1.3 * load - 0.55 * blow + strain * 3.0,
-                    0.7 * load - 0.35 * blow,
+                    1.3 * load - bm * blow + strain * 3.0,
+                    0.7 * load - bc * blow,
                 );
                 pose.gape = 0.55 * load;
             }
             Claw::Cutter => {
-                pose.claw[1] = (0.4 * load - 0.5 * blow, 0.3 * load - 0.25 * blow);
+                // Juiced, the jab thrusts straight out (elbow open).
+                let (bm, bc) = if j.trail > 0.0 { (0.15, -0.45) } else { (0.5, 0.25) };
+                pose.claw[1] = (0.4 * load - bm * blow, 0.3 * load - bc * blow);
             }
         }
     }
