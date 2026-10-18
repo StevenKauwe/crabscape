@@ -16,11 +16,13 @@
 use bevy_math::{Rect, Vec2};
 use serde::Serialize;
 
-use crate::combat::{self, Fighter, Hit, Took};
+use crate::combat::{self, Fighter, Hit, Outcome, Source};
+use crate::enemy::{self, Enemy, Kind};
 use crate::hash::fnv1a;
 use crate::level::{EGG_RADIUS, Level, SPAWN};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
+use crate::rng::Rng;
 use crate::tuning::Tuning;
 
 /// Identifies a player. Only one exists for now, but co-op will add more.
@@ -71,7 +73,15 @@ pub struct Sim {
     crabs: Vec<SimCrab>,
     /// Writes down the controls of player 0, if a recording is running.
     recorder: Option<Recorder>,
+    /// Every enemy, stepped in this order after the crabs.
+    enemies: Vec<Enemy>,
+    next_enemy: u32,
+    /// The only randomness allowed: seeded, part of the state hash.
+    rng: Rng,
 }
+
+/// The seed every world starts with (a replay therefore needs no seed).
+pub const SEED: u64 = 0x00c0_ffee_c4ab_5eed;
 
 impl Sim {
     /// An empty world: no crabs yet.
@@ -82,6 +92,9 @@ impl Sim {
             tick: 0,
             crabs: Vec::new(),
             recorder: None,
+            enemies: Vec::new(),
+            next_enemy: 0,
+            rng: Rng::new(SEED),
         }
     }
 
@@ -150,20 +163,44 @@ impl Sim {
             c.down = new.down;
             c.jump_pressed |= new.jump_pressed;
             c.dodge_pressed |= new.dodge_pressed;
+            c.block_held = new.block_held;
             c.smash_pressed |= new.smash_pressed;
             c.jab_pressed |= new.jab_pressed;
+            c.block_pressed |= new.block_pressed;
         }
+    }
+
+    /// All the enemies, in the fixed order they step in.
+    pub fn enemies(&self) -> &[Enemy] {
+        &self.enemies
+    }
+
+    /// Mutable access to the enemies (tests use this to set up a fight).
+    pub fn enemies_mut(&mut self) -> &mut [Enemy] {
+        &mut self.enemies
+    }
+
+    /// Put an enemy into the world, standing on the floor at `x` (`pos.y` is
+    /// ignored: it walks on the sea floor). Returns its id.
+    pub fn spawn_enemy(&mut self, kind: Kind, pos: Vec2) -> u32 {
+        let id = self.next_enemy;
+        self.next_enemy += 1;
+        let at = Vec2::new(pos.x, self.level.floor_height(pos.x));
+        self.enemies.push(Enemy::new(id, kind, at, &self.tuning));
+        id
     }
 
     /// A hit reaches a crab: the one way damage gets to it (see
     /// [`combat::crab_takes`]). The events show up with the next tick's.
-    pub fn hit_crab(&mut self, id: PlayerId, hit: &Hit) -> Option<Took> {
+    pub fn hit_crab(&mut self, id: PlayerId, hit: &Hit) -> Outcome {
         let t = &self.tuning;
-        let crab = self.crabs.iter_mut().find(|c| c.id == id)?;
+        let Some(crab) = self.crabs.iter_mut().find(|c| c.id == id) else {
+            return Outcome::Ignored;
+        };
         let mut ev = StepEvents::default();
-        let took = combat::crab_takes(&mut crab.fighter, &mut crab.mover, hit, t, &mut ev);
+        let outcome = combat::crab_defends(&mut crab.fighter, &mut crab.mover, hit, t, &mut ev);
         crab.pending.merge(ev);
-        took
+        outcome
     }
 
     /// Advance the world by one [`STEP`].
@@ -200,6 +237,7 @@ impl Sim {
                 &self.level,
                 STEP,
             ));
+            combat::after_step(&mut crab.fighter, &crab.mover);
             crab.events = ev;
             // A press counts once.
             crab.controls = crab.controls.held_only();
@@ -283,7 +321,46 @@ impl Sim {
                 }
             }
         }
+        self.claws_meet_enemies();
+        for e in &mut self.enemies {
+            enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
+        }
         self.tick += 1;
+    }
+
+    /// Each crab's blow, while it is out, reaches the enemies it overlaps
+    /// (each once per swing).
+    fn claws_meet_enemies(&mut self) {
+        let t = &self.tuning;
+        for crab in &mut self.crabs {
+            let Some(hitbox) = crab.fighter.hitbox(&crab.mover, t) else {
+                continue;
+            };
+            let f = &mut crab.fighter;
+            let swing = f.swing.as_mut().expect("a hitbox means a swing");
+            let c = swing.claw.tuning(t);
+            let boost = if swing.counter { t.counter_damage } else { 1.0 };
+            for e in &mut self.enemies {
+                if swing.hits.contains(&e.id)
+                    || !e.hittable(t)
+                    || hitbox.intersect(e.hurtbox(t)).is_empty()
+                {
+                    continue;
+                }
+                let hit = Hit {
+                    damage: c.damage * boost,
+                    poise: c.poise * boost,
+                    knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1),
+                    hitstop: c.hitstop_ticks,
+                    ..Hit::new(0.0, 0.0, Source::Crab(crab.id))
+                };
+                if e.takes(&hit, crab.mover.pos.x, t).is_some() {
+                    swing.hits.push(e.id);
+                    f.vitals.hitstop = f.vitals.hitstop.max(c.hitstop_ticks);
+                    crab.events.struck = true;
+                }
+            }
+        }
     }
 
     /// Start writing down player 0's controls, from this tick on, so they can
@@ -312,7 +389,13 @@ impl Sim {
         // `{:?}` prints every field, and prints each `f32` exactly, so
         // formatting is an easy way to "hash everything" that keeps working
         // when fields are added.
-        fnv1a(format!("{} {:?}", self.tick, self.crabs).as_bytes())
+        fnv1a(
+            format!(
+                "{} {:?} {:?} {:?}",
+                self.tick, self.crabs, self.enemies, self.rng
+            )
+            .as_bytes(),
+        )
     }
 
     /// One line of state per crab, for the headless runner's `--dump`.
@@ -332,6 +415,44 @@ impl Sim {
             health: c.fighter.vitals.health,
             poise: c.fighter.vitals.poise,
             combat: c.fighter.status(&self.tuning),
+        })
+    }
+}
+
+/// An enemy's state after a tick, as written by `--dump` (one JSON line each).
+#[derive(Clone, Debug, Serialize)]
+pub struct EnemySnapshot {
+    pub tick: u64,
+    pub t: f64,
+    pub enemy: u32,
+    pub kind: &'static str,
+    /// Its state machine: idle, notice, approach, tell, attack, ...
+    pub state: &'static str,
+    /// The finer part: rear / cocked / recock in the tell, burrowed, ...
+    pub phase: &'static str,
+    /// Ticks into the state (1 on its first tick).
+    pub state_tick: u32,
+    pub health: f32,
+    pub poise: f32,
+    pub x: f32,
+    pub facing: f32,
+}
+
+impl Sim {
+    /// One line of state per enemy, for `--dump`.
+    pub fn enemy_snapshots(&self) -> impl Iterator<Item = EnemySnapshot> + '_ {
+        self.enemies.iter().map(|e| EnemySnapshot {
+            tick: self.tick,
+            t: self.time(),
+            enemy: e.id,
+            kind: e.kind.name(),
+            state: e.state.name(),
+            phase: e.phase(&self.tuning),
+            state_tick: e.state_tick,
+            health: e.vitals.health,
+            poise: e.vitals.poise,
+            x: e.pos.x,
+            facing: e.facing,
         })
     }
 }

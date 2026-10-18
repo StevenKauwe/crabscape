@@ -11,7 +11,8 @@
 //! This crate is the simulation. The game (`src/`) wraps it in Bevy and draws
 //! it; the headless runner (`cargo crabsim`, in `main.rs`) runs it as fast as
 //! the computer can, for tests, replays and bots. Because the simulation
-//! never reads a clock and has no randomness, the same controls always give
+//! never reads a clock and its only randomness is a seeded generator it
+//! carries, the same controls always give
 //! exactly the same result, on any computer.
 //!
 //! The modules:
@@ -19,6 +20,8 @@
 //! - [`level`]: the test level's shape (floor line and rocks)
 //! - [`physics`]: walking, sinking, jumping, paddling, dodging for one crab
 //! - [`combat`]: health, poise, hits, knockback, hit-stop, claw swings
+//! - [`enemy`]: enemies, their state machines and tells
+//! - [`rng`]: the seeded random generator (the only randomness)
 //! - [`world`]: [`Sim`], the whole world, advanced one tick at a time
 //! - [`replay`]: recording controls, and the little text format for replays
 //!   and input scripts
@@ -31,14 +34,17 @@
 //! - Nothing about drawing or sound.
 
 pub mod combat;
+pub mod enemy;
 pub mod hash;
 pub mod level;
 pub mod physics;
 pub mod replay;
+pub mod rng;
 pub mod tuning;
 pub mod world;
 
-pub use combat::{Claw, Fighter, Hit, Source, Vitals};
+pub use combat::{Claw, Fighter, Hit, Outcome, Source, Vitals};
+pub use enemy::{Enemy, Kind};
 pub use level::{Level, SPAWN};
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use replay::Replay;

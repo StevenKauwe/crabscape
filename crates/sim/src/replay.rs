@@ -35,9 +35,13 @@
 //! | `down=on`       | hold down (climbs down kelp or coral); `down=off` lets go |
 //! | `smash`         | press the crusher (a heavy smash)                        |
 //! | `jab`           | press the cutter (a quick jab)                           |
+//! | `block`         | press block and keep holding it (claws up)               |
+//! | `parry`         | press block and let go at once (a timed parry)           |
+//! | `guard`         | hold block without a new press (never a parry)           |
+//! | `unblock`       | let go of block                                          |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
-//! `tap`, `dodge`, `sprint`, `smash`, `jab`) happen on that one tick. Recorded replays also have a
+//! `tap`, `dodge`, `sprint`, `smash`, `jab`, `block`, `parry`) happen on that one tick. Recorded replays also have a
 //! `tuning <code>` line: the fingerprint of the movement numbers they were
 //! recorded with, so the runner can warn when they differ, and a `hash <code>` line: the state hash at the end,
 //! so the runner can say whether it ended in exactly the same state.
@@ -199,6 +203,13 @@ impl Replay {
             if c.down != before.down {
                 line += if c.down { " down=on" } else { " down=off" };
             }
+            line += match (c.block_pressed, c.block_held, before.block_held) {
+                (true, true, _) => " block",
+                (true, false, _) => " parry",
+                (false, true, false) => " guard",
+                (false, false, true) => " unblock",
+                _ => "",
+            };
             if c.smash_pressed {
                 line += " smash";
             }
@@ -288,7 +299,8 @@ impl Recorder {
         let changed = c.walk != self.last.walk
             || c.jump_held != self.last.jump_held
             || c.dodge_held != self.last.dodge_held
-            || c.down != self.last.down;
+            || c.down != self.last.down
+            || c.block_held != self.last.block_held;
         if changed || c.any_press() {
             self.replay.inputs.push(Input {
                 tick: tick - self.first_tick,
@@ -347,6 +359,16 @@ fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
         }
         "slow" => c.dodge_held = false,
         "sprinting" => c.dodge_held = true,
+        "block" => {
+            c.block_pressed = true;
+            c.block_held = true;
+        }
+        "parry" => {
+            c.block_pressed = true;
+            c.block_held = false;
+        }
+        "guard" => c.block_held = true,
+        "unblock" => c.block_held = false,
         "smash" => c.smash_pressed = true,
         "jab" => c.jab_pressed = true,
         _ => match word.split_once('=') {
@@ -426,7 +448,7 @@ mod tests {
     #[test]
     fn text_round_trips_exactly() {
         let r = Replay::parse(
-            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash\n@200 release dodge walk=left jab\nend @400",
+            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\nend @400",
         )
         .unwrap();
         let again = Replay::parse(&r.to_text()).unwrap();

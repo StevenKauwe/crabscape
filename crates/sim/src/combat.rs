@@ -1,4 +1,6 @@
-//! Fighting: health and poise, hits, knockback, hit-stop and the claw swings.
+//! Fighting: health and poise, hits, knockback, hit-stop, the claw swings,
+//! and the crab's defence: block, the timed parry and its counter, and the
+//! dodge's moment of invulnerability.
 //!
 //! The same rules hold for the crab and for every enemy: anything that fights
 //! has [`Vitals`] (health, poise, stagger, hit-stop), and every blow arrives
@@ -36,6 +38,54 @@ pub struct Hit {
     pub source: Source,
     /// Hit-stop: both fighters freeze this many ticks.
     pub hitstop: u32,
+    /// Can a timed block turn it aside? (A water shock can't be parried.)
+    pub parryable: bool,
+    /// Can raised claws stop it at all?
+    pub blockable: bool,
+    /// Share of the damage a block lets through, if not the usual
+    /// [`Tuning::block_damage`].
+    pub block_damage: Option<f32>,
+    /// Blocking it cracks the guard for this many ticks (blocks then let
+    /// [`Tuning::cracked_block_damage`] through).
+    pub armour_break: u32,
+    /// A bite or sting: venom if it isn't blocked (venom itself is #68).
+    pub venom: bool,
+}
+
+impl Hit {
+    /// A plain blow that can be blocked and parried.
+    pub fn new(damage: f32, poise: f32, source: Source) -> Self {
+        Self {
+            damage,
+            poise,
+            source,
+            parryable: true,
+            blockable: true,
+            ..Self::default()
+        }
+    }
+}
+
+/// What a hit did to a crab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Nothing (dead already).
+    Ignored,
+    /// Dodged: the invulnerable moment of a dodge or flip.
+    Evaded,
+    /// Turned aside by a timed block: no damage; the attacker staggers.
+    Parried,
+    /// Stopped by raised claws: a little damage, full poise damage.
+    Blocked(Took),
+    /// Took it.
+    Hit(Took),
+}
+
+impl Outcome {
+    /// Did it get through to the body (not dodged, parried or blocked)?
+    pub fn landed(self) -> bool {
+        matches!(self, Outcome::Hit(_))
+    }
 }
 
 /// Health ("shell") and poise, for the crab and enemies alike.
@@ -161,6 +211,8 @@ pub struct Swing {
     pub tick: u32,
     /// Who it has already hit (each swing hits each target once).
     pub hits: Vec<u32>,
+    /// Started inside a parry's counter window: it hits harder.
+    pub counter: bool,
 }
 
 impl Swing {
@@ -196,6 +248,21 @@ pub struct Fighter {
     pub knocked: u32,
     /// Ticks since health ran out (None = alive).
     pub dead: Option<u32>,
+    /// Claws raised (block held, and free to block).
+    pub blocking: bool,
+    /// Ticks since block was last freshly pressed (a parry needs a fresh
+    /// press, not a block held from far ahead).
+    pub block_age: u32,
+    /// Ticks before a press can open a new parry window (so mashing block
+    /// doesn't parry everything).
+    pub parry_lockout: u32,
+    /// Ticks left in the counter window after a parry.
+    pub counter: u32,
+    /// Ticks left with the guard cracked (blocks let more through).
+    pub armour_break: u32,
+    /// Ticks into the current dodge or flip (1 on its first tick, 0 when
+    /// not dodging).
+    pub dodge_age: u32,
 }
 
 impl Fighter {
@@ -207,6 +274,12 @@ impl Fighter {
             queued: None,
             knocked: 0,
             dead: None,
+            blocking: false,
+            block_age: u32::MAX / 2,
+            parry_lockout: 0,
+            counter: 0,
+            armour_break: 0,
+            dodge_age: 0,
         }
     }
 
@@ -220,6 +293,8 @@ impl Fighter {
             format!("{} {}", s.claw.name(), s.phase(t).name())
         } else if self.knocked > 0 {
             "knocked".into()
+        } else if self.blocking {
+            "blocking".into()
         } else {
             String::new()
         }
@@ -227,6 +302,22 @@ impl Fighter {
 
     /// The swing's hitbox, while its blow is out: a box beside the body on
     /// the facing side.
+    /// Inside the dodge's invulnerable ticks?
+    pub fn evading(&self, t: &Tuning) -> bool {
+        let (from, to) = t.dodge_invulnerable;
+        (from..=to).contains(&self.dodge_age)
+    }
+
+    /// Would a parryable hit landing now be parried?
+    pub fn parrying(&self, t: &Tuning) -> bool {
+        self.block_age <= t.parry_window_ticks
+            && self.vitals.stagger == 0
+            && self
+                .swing
+                .as_ref()
+                .is_none_or(|s| s.phase(t) == Phase::Recovery)
+    }
+
     pub fn hitbox(&self, m: &Mover, t: &Tuning) -> Option<Rect> {
         let s = self
             .swing
@@ -272,13 +363,26 @@ pub fn before_step(
     let staggered = f.vitals.stagger > 0;
     f.vitals.tick(&t.crab);
     f.knocked = f.knocked.saturating_sub(1);
+    f.counter = f.counter.saturating_sub(1);
+    f.armour_break = f.armour_break.saturating_sub(1);
+    f.parry_lockout = f.parry_lockout.saturating_sub(1);
+    f.block_age = f.block_age.saturating_add(1);
     let mut out = *c;
     out.smash_pressed = false;
     out.jab_pressed = false;
+    out.block_pressed = false;
     if staggered {
         f.swing = None;
         f.queued = None;
+        f.blocking = false;
         return Controls::default();
+    }
+    // A fresh block press opens the parry window (unless mashing).
+    if c.block_pressed {
+        if f.parry_lockout == 0 {
+            f.block_age = 0;
+        }
+        f.parry_lockout = t.parry_lockout_ticks;
     }
 
     let walking = c.walk.abs() > 0.1;
@@ -302,7 +406,7 @@ pub fn before_step(
     if let Some(s) = &mut f.swing {
         s.tick += 1;
         let recovering = s.phase(t) == Phase::Recovery;
-        if s.done(t) || (recovering && c.dodge_pressed) {
+        if s.done(t) || (recovering && (c.dodge_pressed || c.block_pressed)) {
             f.swing = None;
         }
     }
@@ -311,10 +415,16 @@ pub fn before_step(
         if walking {
             f.facing = c.walk.signum();
         }
+        let counter = claw == Claw::Crusher && f.counter > 0;
+        if counter {
+            f.counter = 0;
+            ev.countered = true;
+        }
         f.swing = Some(Swing {
             claw,
             tick: 1,
             hits: Vec::new(),
+            counter,
         });
         match claw {
             Claw::Crusher => ev.smashed = true,
@@ -342,10 +452,77 @@ pub fn before_step(
         }
         None => {}
     }
+    f.blocking = c.block_held && f.swing.is_none() && !m.climbing && m.dodge_left <= 0.0;
+    if f.blocking {
+        out.walk *= t.block_walk;
+        out.dodge_held = false; // no sprinting with the claws up
+    }
     if f.knocked > 0 {
         out.walk = 0.0;
     }
     out
+}
+
+/// The crab's side of a tick, after its physics step: counts the dodge.
+pub fn after_step(f: &mut Fighter, m: &Mover) {
+    f.dodge_age = if m.dodge_left > 0.0 || m.flip_left > 0.0 {
+        f.dodge_age + 1
+    } else {
+        0
+    };
+}
+
+/// A hit reaches a crab, with all its defences: the dodge's invulnerable
+/// moment, a timed parry, raised claws. Otherwise as [`crab_takes`].
+pub fn crab_defends(
+    f: &mut Fighter,
+    m: &mut Mover,
+    hit: &Hit,
+    t: &Tuning,
+    ev: &mut StepEvents,
+) -> Outcome {
+    if f.dead.is_some() {
+        return Outcome::Ignored;
+    }
+    if f.evading(t) {
+        ev.evaded = true;
+        return Outcome::Evaded;
+    }
+    if hit.parryable && f.parrying(t) {
+        f.block_age = u32::MAX / 2; // one press parries one blow
+        f.parry_lockout = 0;
+        f.counter = t.counter_ticks;
+        f.swing = None;
+        f.vitals.hitstop = f.vitals.hitstop.max(t.parry_hitstop_ticks);
+        ev.parried = true;
+        return Outcome::Parried;
+    }
+    if hit.blockable && f.blocking {
+        let share = if f.armour_break > 0 {
+            t.cracked_block_damage
+        } else {
+            hit.block_damage.unwrap_or(t.block_damage)
+        };
+        let took = f.vitals.take(hit.damage * share, hit.poise, &t.crab);
+        f.armour_break = f.armour_break.max(hit.armour_break);
+        knock(m, hit.knockback * t.block_knockback);
+        f.vitals.hitstop = f.vitals.hitstop.max(t.block_hitstop_ticks);
+        ev.blocked = true;
+        if took.broke_poise {
+            f.blocking = false;
+            ev.staggered = true;
+        }
+        if took.died {
+            f.dead = Some(0);
+            m.vel = Vec2::ZERO;
+            ev.died = true;
+        }
+        return Outcome::Blocked(took);
+    }
+    match crab_takes(f, m, hit, t, ev) {
+        Some(took) => Outcome::Hit(took),
+        None => Outcome::Ignored,
+    }
 }
 
 /// A hit reaches a crab. Lowers health and poise by exactly the hit's
@@ -366,6 +543,7 @@ pub fn crab_takes(
     knock(m, hit.knockback);
     f.knocked = t.hit_stun_ticks;
     f.vitals.hitstop = f.vitals.hitstop.max(hit.hitstop);
+    f.blocking = false;
     if took.broke_poise {
         f.swing = None;
         f.queued = None;

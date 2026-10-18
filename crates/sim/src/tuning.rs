@@ -188,6 +188,118 @@ pub struct Tuning {
     /// Walking speed during a swing's recovery, as a share of normal (the
     /// wind-up and the blow itself plant the feet: no walking).
     pub recovery_walk: f32,
+
+    // --- Defence (ticks) -------------------------------------------------
+    /// Share of a blow's damage that raised claws let through (poise damage
+    /// is taken in full).
+    pub block_damage: f32,
+    /// The same with the guard cracked (an armour breaker's blow).
+    pub cracked_block_damage: f32,
+    /// Walking speed with the claws up, as a share of normal.
+    pub block_walk: f32,
+    /// Share of a blow's knockback a block still takes.
+    pub block_knockback: f32,
+    pub block_hitstop_ticks: u32,
+    /// A block pressed at most this many ticks before a blow lands parries it.
+    pub parry_window_ticks: u32,
+    /// After a press, a new press within this many ticks doesn't open a new
+    /// window (so mashing block isn't a parry). A parry clears it.
+    pub parry_lockout_ticks: u32,
+    pub parry_hitstop_ticks: u32,
+    /// After a parry, a smash started within this many ticks is a counter...
+    pub counter_ticks: u32,
+    /// ...and does this many times the damage and poise damage.
+    pub counter_damage: f32,
+    /// The dodge's (and the flip's) invulnerable ticks, counting its first
+    /// tick as 1.
+    pub dodge_invulnerable: (u32, u32),
+
+    // --- Enemies ----------------------------------------------------------
+    /// A plain test enemy (tell, strike, recover). Tests and crabsim only:
+    /// never placed in a level.
+    pub fixture: EnemyTuning,
+}
+
+/// One kind of enemy: its body, senses, state timings and attack. Times in
+/// ticks. See `docs/design/creatures/`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EnemyTuning {
+    pub vitals: VitalsTuning,
+    /// Hurtbox: width and height, standing on its feet point.
+    pub body: (f32, f32),
+    /// The front this long is the head: hits there count `head_recover`
+    /// times while it recovers (head low)...
+    pub head: f32,
+    pub head_recover: f32,
+    /// ...and the back this long is the tail, hits there count `tail` times.
+    pub tail: f32,
+    pub tail_damage: f32,
+    /// Waits hidden in a burrow at home (can't be hit) until it notices.
+    pub burrows: bool,
+    /// Notices a crab this close (sideways, in units).
+    pub notice_range: f32,
+    /// Ticks from noticing to coming at it (emerging from the burrow).
+    pub notice_ticks: u32,
+    /// Gives up on a crab further than this from home.
+    pub give_up_range: f32,
+    pub approach_speed: f32,
+    /// Starts its tell when the crab's middle is this close to its head.
+    pub strike_range: f32,
+    /// A pause, sizing the crab up, between attacks: random in this range
+    /// (the sim's seeded generator).
+    pub pause_ticks: (u32, u32),
+    /// The whole tell...
+    pub tell_ticks: u32,
+    /// ...ending with this long cocked and still: the warning beat.
+    pub cocked_ticks: u32,
+    /// A shorter tell before each extra strike of a combo.
+    pub recock_ticks: u32,
+    /// Extra strikes, only after one landed.
+    pub combo_extra: u32,
+    pub active_ticks: u32,
+    pub recover_ticks: u32,
+    /// Stagger after being parried.
+    pub parried_ticks: u32,
+    /// Below this share of its health it flees home (0 = never)...
+    pub flee_below: f32,
+    pub flee_speed: f32,
+    /// ...and stays hidden this long.
+    pub hide_ticks: u32,
+    /// After its health runs out, another one moves in this much later (0 =
+    /// never).
+    pub respawn_ticks: u32,
+    pub strike: StrikeTuning,
+}
+
+/// An enemy's blow: a circle ahead of its head.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrikeTuning {
+    pub damage: f32,
+    pub poise: f32,
+    /// Centre of the hit circle: this far ahead of the head...
+    pub ahead: f32,
+    /// ...this high above its feet...
+    pub height: f32,
+    /// ...this big.
+    pub radius: f32,
+    pub knockback: (f32, f32),
+    pub hitstop_ticks: u32,
+    pub parryable: bool,
+    pub blockable: bool,
+    /// Share of damage a block lets through, if not the usual.
+    pub block_damage: Option<f32>,
+    /// Blocking it cracks the crab's guard this long.
+    pub armour_break_ticks: u32,
+    /// A second hit this many ticks after it connects (a cavitation bubble):
+    /// ignores block, cancelled by a parry.
+    pub follow_up: Option<FollowUp>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FollowUp {
+    pub delay_ticks: u32,
+    pub damage: f32,
+    pub poise: f32,
 }
 
 /// Health ("shell") and poise for anything that fights, crab or enemy: the
@@ -311,6 +423,65 @@ impl Default for Tuning {
             },
             swing_buffer_ticks: 12,
             recovery_walk: 0.35,
+
+            block_damage: 0.2,
+            cracked_block_damage: 0.4,
+            block_walk: 0.4,
+            block_knockback: 0.5,
+            block_hitstop_ticks: 5,
+            parry_window_ticks: 10,
+            parry_lockout_ticks: 24, // 0.2 s: mashing faster than 5 a second opens no window
+            parry_hitstop_ticks: 9,
+            counter_ticks: 45,
+            counter_damage: 2.0,
+            dodge_invulnerable: (2, 13),
+
+            fixture: EnemyTuning {
+                vitals: VitalsTuning {
+                    health: 40.0,
+                    poise: 30.0,
+                    poise_refill: 30.0,
+                    poise_delay_ticks: 60,
+                    stagger_ticks: 40,
+                },
+                body: (60.0, 30.0),
+                head: 0.0,
+                head_recover: 1.0,
+                tail: 0.0,
+                tail_damage: 1.0,
+                burrows: false,
+                notice_range: 400.0,
+                notice_ticks: 1,
+                give_up_range: 2000.0,
+                approach_speed: 150.0,
+                strike_range: 60.0,
+                pause_ticks: (0, 0),
+                tell_ticks: 30,
+                cocked_ticks: 10,
+                recock_ticks: 20,
+                combo_extra: 0,
+                active_ticks: 6,
+                recover_ticks: 40,
+                parried_ticks: 50,
+                flee_below: 0.0,
+                flee_speed: 0.0,
+                hide_ticks: 0,
+                respawn_ticks: 0,
+                strike: StrikeTuning {
+                    damage: 10.0,
+                    poise: 20.0,
+                    ahead: 30.0,
+                    height: 15.0,
+                    radius: 14.0,
+                    knockback: (200.0, 0.0),
+                    hitstop_ticks: 6,
+                    parryable: true,
+                    blockable: true,
+                    block_damage: None,
+                    armour_break_ticks: 0,
+                    follow_up: None,
+                },
+            },
         }
     }
 }
