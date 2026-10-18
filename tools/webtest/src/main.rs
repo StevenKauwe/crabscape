@@ -707,17 +707,17 @@ impl Test<'_> {
         // --- the feel lab -----------------------------------------------------------------------------------------
         let feel_is = |s: &str| format!(r#"{CANVAS}.getAttribute("data-feel") === "{s}""#);
         self.open("index.html?feel")?;
-        let ok = self.wait_for(&feel_is("heavy on"), 5.0)?;
+        let ok = self.wait_for(&feel_is("hybrid on"), 5.0)?;
         let feel = self.attr("data-feel")?;
         self.check(
             ok,
             format!("the feel lab starts on the recommended preset ({feel:?})"),
         );
         self.press("Backquote", "`")?;
-        let ok = self.wait_for(&feel_is("snappy on"), 5.0)?;
+        let ok = self.wait_for(&feel_is("tank on"), 5.0)?;
         self.check(ok, "the backtick key switches to the next preset");
         self.press("Backslash", "\\")?;
-        let ok = self.wait_for(&feel_is("snappy off"), 5.0)?;
+        let ok = self.wait_for(&feel_is("tank off"), 5.0)?;
         self.check(ok, "backslash switches the juice off");
         // The FEEL button: under Style and Start over (mirrors button_rect() in src/feel.rs), tapped.
         let top = if w < 600.0 { 58.0 } else { 10.0 } + 2.0 * (34.0 + 8.0);
@@ -725,10 +725,10 @@ impl Test<'_> {
         self.pointer("pointerdown", fx, fy, 11, 1, true)?;
         pump(0.15);
         self.pointer("pointerup", fx, fy, 11, 0, true)?;
-        let ok = self.wait_for(&feel_is("momentum off"), 5.0)?;
+        let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
         self.check(ok, "tapping the FEEL button switches preset");
         self.open("index.html?feel")?;
-        let ok = self.wait_for(&feel_is("momentum off"), 5.0)?;
+        let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
         self.check(ok, "the preset and juice are kept over a reload");
         self.no_error_on_page("at the end")?;
         Ok(())
@@ -737,7 +737,19 @@ impl Test<'_> {
     /// `--feel-shots`: a smash on the mantis in slow motion, frame by frame, in a few presets.
     fn feel_strips(&mut self, prefix: &str) -> Result<()> {
         self.go("index.html")?;
-        for feel in ["current", "heavy", "snappy", "silksong"] {
+        // A smash in a few presets, then a parry and the crush counter.
+        let runs = [
+            ("current", false),
+            ("hybrid", false),
+            ("tank", false),
+            ("tank", true),
+        ];
+        for (feel, counter) in runs {
+            let name = if counter {
+                format!("{feel}-crush")
+            } else {
+                feel.to_string()
+            };
             self.eval(&format!(
                 r#"(localStorage.clear(),
                     localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: 870, y: 110}})),
@@ -745,29 +757,37 @@ impl Test<'_> {
                     localStorage.setItem("crabscape-juice", "on"), true)"#
             ))?;
             self.open("index.html?feel&slow=10")?;
-            // It comes out and darts in (slowly); smash as it starts to rear.
-            let rearing = self.wait_for(
-                &format!(r#"/tell:/.test({CANVAS}.getAttribute("data-fight") || "")"#),
-                60.0,
-            )?;
-            self.check(rearing, format!("{feel}: the mantis rears"));
-            pump(1.0); // past the toast
+            let phase =
+                |p: &str| format!(r#"/tell:{p}/.test({CANVAS}.getAttribute("data-fight") || "")"#);
+            if counter {
+                // Parry about 4 ticks before the club lands (the hold is 30 ticks; 10x slow), then smash.
+                let cocked = self.wait_for(&phase("cocked"), 60.0)?;
+                self.check(cocked, format!("{name}: the mantis cocks its club"));
+                pump(26.0 * 10.0 / 120.0);
+                self.press("KeyF", "f")?;
+                pump(0.4);
+            } else {
+                // It comes out and darts in (slowly); smash as it starts to rear.
+                let rearing = self.wait_for(&phase("rear"), 60.0)?;
+                self.check(rearing, format!("{name}: the mantis rears"));
+                pump(1.0); // past the toast
+            }
             self.key("keydown", "KeyE", "e")?;
             pump(0.3);
             self.key("keyup", "KeyE", "e")?;
             let started = Instant::now();
-            // About 0.3 s apart: 1/30 s of game time each, through wind-up, blow and recovery.
-            for n in 1..=20 {
-                let path = PathBuf::from(format!("{prefix}-{feel}-{n:02}.png"));
+            let frames = if counter { 30 } else { 20 };
+            // About 0.3 s apart: 1/30 s of game time each.
+            for n in 1..=frames {
+                let path = PathBuf::from(format!("{prefix}-{name}-{n:02}.png"));
                 self.shot(path, false)?;
                 pump(0.2);
-                println!(
-                    "     {feel} frame {n} at {:.2} s",
-                    started.elapsed().as_secs_f64()
-                );
             }
             let fight = self.attr("data-fight")?;
-            println!("     {feel}: after the smash {fight:?}");
+            println!(
+                "     {name}: {frames} frames in {:.1} s; after: {fight:?}",
+                started.elapsed().as_secs_f64()
+            );
         }
         self.no_error_on_page("after the frame strips")?;
         Ok(())

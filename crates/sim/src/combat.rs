@@ -292,6 +292,19 @@ pub struct Fighter {
     /// Ticks into the current dodge or flip (1 on its first tick, 0 when
     /// not dodging).
     pub dodge_age: u32,
+    /// A counter smash that seized its target: crushing it.
+    pub crush: Option<Crush>,
+}
+
+/// The crusher clamped on an enemy (see [`Tuning::crush`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Crush {
+    /// The enemy's id.
+    pub target: u32,
+    /// Ticks held so far.
+    pub tick: u32,
+    /// Cracks squeezed in so far.
+    pub cracks: u32,
 }
 
 impl Fighter {
@@ -309,6 +322,7 @@ impl Fighter {
             counter: 0,
             armour_break: 0,
             dodge_age: 0,
+            crush: None,
         }
     }
 
@@ -316,6 +330,8 @@ impl Fighter {
     pub fn status(&self, t: &Tuning) -> String {
         if self.dead.is_some() {
             "dead".into()
+        } else if self.crush.is_some() {
+            "crushing".into()
         } else if self.vitals.stagger > 0 {
             "staggered".into()
         } else if let Some(s) = &self.swing {
@@ -403,6 +419,12 @@ pub fn before_step(
     if staggered {
         f.swing = None;
         f.queued = None;
+        f.blocking = false;
+        return Controls::default();
+    }
+    // Crushing: the crusher is clamped on; the crab stands and squeezes
+    // (the sim's world step counts the crush and lets go).
+    if f.crush.is_some() {
         f.blocking = false;
         return Controls::default();
     }

@@ -85,7 +85,67 @@ fn react(
         None
     });
 
+    // The crush: clamp on, squeeze crack after crack (each louder, higher,
+    // shakier), then let go with the counter's full blow.
+    let at = f
+        .hitbox(m, t)
+        .map_or(m.pos + Vec2::new(f.facing * 70.0, 25.0), |b| {
+            b.center() + Vec2::X * f.facing * b.width() * 0.4
+        });
+    if ev.seized {
+        play(Sfx::Thud, 1.0, 0.7);
+        play(Sfx::Click, 0.9, 0.6);
+        shake.add(j.shake * 0.5);
+        shake.kick(Vec2::new(f.facing, -0.3) * j.kick * 0.5);
+    }
+    if ev.cracked {
+        let n = f.crush.map_or(1, |c| c.cracks) as f32;
+        play(Sfx::Crunch, 0.5 + 0.2 * n, 1.25 + 0.15 * n);
+        shake.add(j.shake * (0.25 + 0.15 * n));
+        bursts.write(Burst {
+            kind: BurstKind::Shards,
+            at,
+            dir: f.facing,
+            count: (j.debris * (0.25 + 0.15 * n)) as u32,
+            strength: 0.6 + 0.2 * n,
+        });
+    }
+    if ev.crushed {
+        let power = j.counter;
+        play(Sfx::Boom, 1.2, 0.9);
+        play(Sfx::Crunch, 1.2, 0.8);
+        shake.add(j.shake * power);
+        shake.kick(Vec2::new(f.facing, -0.35) * j.kick * power.sqrt());
+        shake.punch(j.zoom);
+        bursts.write(Burst {
+            kind: BurstKind::Shards,
+            at,
+            dir: f.facing,
+            count: (j.debris * power) as u32,
+            strength: power.min(2.5),
+        });
+        bursts.write(Burst {
+            kind: BurstKind::Sand,
+            at: Vec2::new(at.x, m.pos.y),
+            dir: f.facing,
+            count: (j.debris * power * 0.5) as u32,
+            strength: power.min(2.5),
+        });
+    }
+    if ev.respawned && j.debris > 0.0 {
+        for dir in [-1.0, 1.0] {
+            bursts.write(Burst {
+                kind: BurstKind::Sand,
+                at: m.pos,
+                dir,
+                count: 8,
+                strength: 0.8,
+            });
+        }
+    }
+
     if ev.struck
+        && !ev.seized
         && let Some(s) = swing
     {
         let heavy = s.claw == Claw::Crusher;

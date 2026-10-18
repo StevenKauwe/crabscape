@@ -224,6 +224,11 @@ struct PuppetAnim {
     lantern_vel: f32,
     /// Last frame's sideways speed, to work out acceleration.
     prev_vx: f32,
+    /// 0..1 (smoothed): the claws swapped sides (each mirrored across the
+    /// body), so the striking claw is on the side the blow goes.
+    claw_flip: f32,
+    /// Seconds the claws stay swapped after the swing.
+    swap_hold: f32,
 }
 
 pub struct PuppetPlugin;
@@ -630,6 +635,29 @@ fn animate(
         // Fighting poses (see `fight_pose`): the crusher rears back over the
         // wind-up and slams down; the cutter jabs; guard raises both claws.
         let fight = fight_pose(fighter, &sim.tuning, a.time, lab.juice());
+        // Which way the blow goes: the striking claw turns to that side.
+        // The crusher sits on the crab's right (screen-left) and the cutter
+        // on its left; a blow the other way swaps the claws across the body
+        // (each mirrored) for the swing, so the claw always reaches along
+        // the attack. With no juice (preset A), they stay put.
+        let striking = fighter.and_then(|f| {
+            let claw = f.swing.as_ref()?.claw;
+            let side = if claw == Claw::Crusher { 0 } else { 1 };
+            Some(SIDE_SIGN[side] != f.facing)
+        });
+        if lab.juice().trail > 0.0 {
+            match striking {
+                Some(swap) => {
+                    a.swap_hold = if swap { 0.3 } else { 0.0 };
+                }
+                None => a.swap_hold = (a.swap_hold - dt).max(0.0),
+            }
+        } else {
+            a.swap_hold = 0.0;
+        }
+        let flip_to = if a.swap_hold > 0.0 { 1.0 } else { 0.0 };
+        a.claw_flip = ease(a.claw_flip, flip_to, 30.0, dt);
+        let turn = 1.0 - 2.0 * a.claw_flip; // 1 normal, -1 swapped
         let squash_target = if crouching { 0.6 } else { 0.0 } + fight.squash;
         let (mut sq, mut sq_vel) = (a.squash, a.squash_vel);
         spring(&mut sq, &mut sq_vel, squash_target, 320.0, 20.0, dt);
@@ -669,8 +697,15 @@ fn animate(
             lean,
             about_middle + Vec2::X * fight.shift,
         );
+        // Dead: in the last part of the wait it sinks into the sand and is
+        // gone, to come back at its safe spot (a sand puff, `impact.rs`).
+        let gone = fighter.and_then(|f| f.dead).map_or(0.0, |d| {
+            let r = sim.tuning.respawn_ticks as f32;
+            ((d as f32 - 0.45 * r) / (0.4 * r)).clamp(0.0, 1.0)
+        });
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
-            tr.scale = Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0);
+            tr.scale = Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0) * (1.0 - gone);
+            tr.translation.y -= 18.0 * gone;
         }
 
         // --- Shell: walking bob and roll, idle breathing -------------------
@@ -763,6 +798,23 @@ fn animate(
                 + s * swing_merus;
             let carpus = s * 0.25 * a.claw_raise - s * 0.35 * heave - s * pull + s * swing_carpus;
             set(&mut parts, claw.0[0], merus, Vec2::ZERO);
+            // Swapped: mirror the limb about the body's middle (scale x
+            // through 0: the claw turns edge-on, then shows its other face).
+            // Mirroring flips its turn too, so it turns the opposite way.
+            if let Some(e) = claw.0[0]
+                && let Ok((mut tr, rest)) = parts.get_mut(e)
+            {
+                let base = rest.map_or(Vec3::ZERO, |r| r.0);
+                tr.translation.x = base.x * turn;
+                tr.scale.x = if turn.abs() < 0.05 {
+                    0.05 * turn.signum()
+                } else {
+                    turn
+                };
+                if turn < 0.0 {
+                    tr.rotation = Quat::from_rotation_z(-merus);
+                }
+            }
             set(&mut parts, claw.0[1], carpus, Vec2::ZERO);
             // The crusher's finger opens as it rises; the cutter keeps its
             // grip on the lantern.
@@ -791,8 +843,13 @@ fn animate(
                 a.lantern = ang.clamp(-0.9, 0.9);
                 a.lantern_vel = vel;
                 // Undo the rotations of everything it hangs from.
-                let held_by = lean + roll + merus + carpus;
-                set(&mut parts, rig.lantern, a.lantern - held_by, Vec2::ZERO);
+                // (Swapped, the mirrored claw turns the other way.)
+                let lantern_angle = if turn < 0.0 {
+                    lean + roll - merus - carpus - a.lantern
+                } else {
+                    a.lantern - (lean + roll + merus + carpus)
+                };
+                set(&mut parts, rig.lantern, lantern_angle, Vec2::ZERO);
             }
 
             // --- Eyestalks: lag behind the motion and sway ------------------
@@ -894,6 +951,16 @@ fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32, j: &Jui
                 pose.claw[1] = (0.4 * load - 0.5 * blow, 0.3 * load - 0.25 * blow);
             }
         }
+    }
+    // Crushing: the crusher stays out, clamped shut on the target, the whole
+    // body straining and squeezing.
+    if f.crush.is_some() {
+        let squeeze = (time * 32.0).sin();
+        pose.gape = -0.2;
+        pose.claw[0].0 += 0.08 * squeeze;
+        pose.claw[0].1 -= 0.12;
+        pose.lean += facing * 0.04 + 0.025 * (time * 47.0).sin();
+        pose.squash += 0.12 + 0.06 * squeeze;
     }
     if f.blocking {
         pose.claw[0].0 += 0.75;

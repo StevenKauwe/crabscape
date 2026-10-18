@@ -37,7 +37,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 In the sim now: the crab's shell (health) and poise, hits with knockback and hit-stop, and the two claws: the
 crusher's **smash** (14-tick wind-up, 6 active, 22 recovery; 12 damage, 25 poise) and the cutter's quick **jab**
 (6/4/12; 5 damage, 8 poise). A swing plants the feet (the crab slides to a stop: momentum); dodge cancels its
-recovery. Numbers: `crates/sim/src/tuning.rs`. Dying returns the crab to the spawn after 3 s, until the moult rule.
+recovery. Numbers: `crates/sim/src/tuning.rs`. Dying sinks the crab into the sand and brings it back after 1.25 s at
+its last safe spot (where it last stood on the floor with no enemy near), until the moult rule.
 **Block** (hold): damage ×0.2, poise in full, walk at 40%. **Parry**: block pressed ≤ 10 ticks before a blow lands
 (a fresh press; a tap counts, a held block never does, and presses closer than 0.2 s apart open no new window):
 no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. **Dodge** (and flip):
@@ -45,12 +46,14 @@ invulnerable on its ticks 2–13. Enemies (`crates/sim/src/enemy.rs`) run the be
 `tell` whose last stretch is `cocked`, and take the crab's blows by the same rules.
 The first enemy in the level: a mantis shrimp's burrow on the plateau (placeholder shapes until its puppet).
 **Feel lab (preview builds):** the attacks' feel is being chosen. A FEEL button under "Start over" (or the backtick
-key, or 1–6) cycles six presets (A Current, B Heavy tank, C Snappy brawler, D Momentum, E Silksong-ish, F Expedition
-timing): each a row of swing timings and extras in `crates/sim/src/feel.rs` (lunge, chaining a press late in a
+key, or 1–9) cycles nine presets (A Current, B Heavy tank, C Snappy brawler, D Momentum, E Silksong-ish, F Expedition
+timing, and the blends G Momentum + Silksong + Expedition, H Heavy + Silksong + Expedition, I Charge brawler): each a row of swing timings and extras in `crates/sim/src/feel.rs` (lunge, chaining a press late in a
 recovery, recoil, a hop on a hit, charging the smash, momentum, the counter's payoff) and of juice in `src/feel.rs`
 (anticipation pose, camera shake and kick, flash, shell chips, sound). "Juice off" shows the bare timings. Damage and
-poise are the same in all of them: brutal is how a blow lands, not bigger numbers. The game plays **B. Heavy tank**
-until the owner picks; the numbers above are A (`Tuning::default`, what the tests use).
+poise are the same in all of them: brutal is how a blow lands, not bigger numbers. In all but A a counter **crushes**:
+the crusher clamps on, squeezes three cracks into the shell, then lets go with the full blow. The striking claw swings
+across to the side the blow goes, with a streak along it; the mantis shows its strike line while it tells. The game
+plays **G** until the owner picks; the numbers above are A (`Tuning::default`, what the tests use).
 - **Brutal means bodies break** (a direction, not a spec yet). Hits have located, visible consequences, the same
   rules for the crab and every creature: shells crack, limbs are torn off or dropped, and a damaged part changes what
   its owner can do (a crusher torn off can't smash; a mantis with a cracked club strikes weaker). Damage carries until
@@ -82,7 +85,7 @@ until the owner picks; the numbers above are A (`Tuning::default`, what the test
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Art style | P | | "Style" |
-| Feel lab: next preset / juice off-on (previews) | backtick (or 1–6) / backslash | | "FEEL" / "Juice" |
+| Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |
 
 ## Architecture rule
 Nothing moves the crab directly: input sends a `MoveRequest` message and fixed-step physics (1/120 s) acts on it, so

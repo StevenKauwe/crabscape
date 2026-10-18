@@ -45,7 +45,7 @@ Concept sheet: `art/creatures/mantis-shrimp/mantis-shrimp.png`. Shared rules: `R
 | Re-cock (combo) | 24 | 1 more strike if the first connected (capped at two strikes for now) |
 | Recover | 60 | Head low: head hits ×1.5 |
 | Stagger (parried) | 50 | |
-| Flee | — | Below 40% health, back into the burrow; comes out again after 8 s |
+| Flee | — | Once a fight, below 25% health, back into the burrow; peeks out again after 2.5 s |
 
 - **Boxes:** body hurtbox 94 × 22 centred on the body; club hitbox a circle r 12 at 40 units ahead of the head.
   Telson hurtbox takes ×0.5.
@@ -57,7 +57,7 @@ Concept sheet: `art/creatures/mantis-shrimp/mantis-shrimp.png`. Shared rules: `R
   `tests/scenarios.rs`). Tuned beyond this table: head zone 24 and telson zone 16 units, poise refill 25/s, poise-break
   stagger 50, gives up 500 from its burrow, a 20–50-tick random pause between attacks, club knockback 300 and 12 ticks
   of hit-stop; a blocked club does nothing until the guard is cracked (then ×0.4). Another mantis moves into an empty
-  burrow 20 s after one dies. An undefended full combo (2 × club + bubble = 72) hurts badly but can't kill a full shell (capped at two
+  burrow 20 s after one dies. Home with no crab near and unhit for 2 s, it mends (full health, cracks gone, may flee again). An undefended full combo (2 × club + bubble = 72) hurts badly but can't kill a full shell (capped at two
   strikes until located body damage brings the brutality, PR #90).
 - **Scenario tests:** parry in the window takes no damage from club or bubble; block takes only the bubble (8 × 1) and
   sets armour break; a dodge through the strike takes nothing; a burrowed mantis can't be hit; a 2-strike combo only

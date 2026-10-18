@@ -10,19 +10,18 @@
 //!
 //! [`Feel::Current`] is exactly [`Tuning::default`], the numbers the rules
 //! and their tests are written against. The game starts on
-//! [`Feel::default`], the recommended preset, and records any switch in its
+//! [`Feel::default`], the recommended preset (G, a hybrid), and records any switch in its
 //! replays (`feel=heavy`), so a replay always plays back with the feel it was
 //! played with.
 
-use crate::tuning::{ClawTuning, Tuning};
+use crate::tuning::{ClawTuning, CrushTuning, Tuning};
 
 /// One way the attacks can feel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Feel {
     /// A: the baseline from #86-#89.
     Current,
-    /// B: long, readable wind-up, a big lunge, a long freeze. Recommended.
-    #[default]
+    /// B: long, readable wind-up, a big lunge, a long freeze.
     Heavy,
     /// C: short wind-ups, a sharp hit-stop, fast recovery, jab chains.
     Snappy,
@@ -32,16 +31,27 @@ pub enum Feel {
     Silksong,
     /// F: a tighter parry, and a huge, fast counter for getting it right.
     Expedition,
+    /// G: D + E + F: run speed and a charged smash, an instant bouncing jab
+    /// and a smash hop, a tight parry with the crush counter. Recommended.
+    #[default]
+    Hybrid,
+    /// H: B's weight and impact, E's quick jab, F's crush counter.
+    Tank,
+    /// I: C's chaining jabs, D's charged smash, B's heavy landing.
+    Brawler,
 }
 
 /// Every preset, in the order the FEEL button cycles them.
-pub const ALL: [Feel; 6] = [
+pub const ALL: [Feel; 9] = [
     Feel::Current,
     Feel::Heavy,
     Feel::Snappy,
     Feel::Momentum,
     Feel::Silksong,
     Feel::Expedition,
+    Feel::Hybrid,
+    Feel::Tank,
+    Feel::Brawler,
 ];
 
 impl Feel {
@@ -59,6 +69,9 @@ impl Feel {
             Feel::Momentum => "momentum",
             Feel::Silksong => "silksong",
             Feel::Expedition => "expedition",
+            Feel::Hybrid => "hybrid",
+            Feel::Tank => "tank",
+            Feel::Brawler => "brawler",
         }
     }
 
@@ -71,6 +84,9 @@ impl Feel {
             Feel::Momentum => "D. Momentum",
             Feel::Silksong => "E. Silksong-ish",
             Feel::Expedition => "F. Expedition timing",
+            Feel::Hybrid => "G. Momentum + Silksong + Expedition",
+            Feel::Tank => "H. Heavy + Silksong + Expedition",
+            Feel::Brawler => "I. Charge brawler",
         }
     }
 
@@ -84,7 +100,14 @@ impl Feel {
             Feel::Snappy => "Quick claws, sharp stops, jab-jab-jab-smash chains.",
             Feel::Momentum => "Run into it to hit harder. Hold SMASH to charge, let go to strike.",
             Feel::Silksong => "Instant jab that bounces you off; a smash hit hops you up.",
-            Feel::Expedition => "Tight parry window; a counter comes out fast and lands huge.",
+            Feel::Expedition => "Tight parry; the counter clamps on and crushes.",
+            Feel::Hybrid => {
+                "Run in to hit harder, hold SMASH to charge; instant bouncing jab; parry, then crush."
+            }
+            Feel::Tank => "Heavy rear-back and slam, an instant jab, parry, then crush.",
+            Feel::Brawler => {
+                "Jab-jab-jab chains, hold SMASH to charge a heavy blow; parry, then crush."
+            }
         }
     }
 
@@ -152,6 +175,7 @@ pub struct FeelSpec {
     pub counter_hitstop: u32,
     pub counter_haste: u32,
     pub knock_decel: f32,
+    pub crush: Option<CrushTuning>,
 }
 
 impl FeelSpec {
@@ -169,6 +193,7 @@ impl FeelSpec {
         t.counter_hitstop_ticks = self.counter_hitstop;
         t.counter_haste = self.counter_haste;
         t.knock_decel = self.knock_decel;
+        t.crush = self.crush;
     }
 }
 
@@ -185,8 +210,17 @@ const fn strike(ticks: (u32, u32, u32), hitstop: u32, knockback: (f32, f32)) -> 
     }
 }
 
-/// The table, one row per [`Feel`], in [`ALL`]'s order.
-pub const SPECS: [FeelSpec; 6] = [
+/// The counter's crush: clamp on for 0.45 s, three cracks, then let go.
+const CRUSH: Option<CrushTuning> = Some(CrushTuning {
+    ticks: 54,
+    cracks: 3,
+    crack_damage: 2.0,
+    crack_hitstop: 5,
+});
+
+/// The table, one row per [`Feel`], in [`ALL`]'s order. Every preset but A
+/// crushes on a counter (the owner's ask: "the crusher crushes").
+pub const SPECS: [FeelSpec; 9] = [
     // A. Current: exactly the defaults (a test checks).
     FeelSpec {
         crusher: strike((14, 6, 22), 7, (320.0, 0.0)),
@@ -202,6 +236,7 @@ pub const SPECS: [FeelSpec; 6] = [
         counter_hitstop: 7,
         counter_haste: 0,
         knock_decel: 1500.0,
+        crush: None,
     },
     // B. Heavy tank: a long but readable wind-up (the pull-back shows from
     // its first tick, so the press is answered at once), the body thrown
@@ -230,6 +265,7 @@ pub const SPECS: [FeelSpec; 6] = [
         counter_hitstop: 18,
         counter_haste: 6,
         knock_decel: 3200.0,
+        crush: CRUSH,
     },
     // C. Snappy brawler: everything quick, a sharp stop on every hit, and
     // presses cut recoveries early so jabs chain into a smash.
@@ -255,6 +291,7 @@ pub const SPECS: [FeelSpec; 6] = [
         counter_hitstop: 12,
         counter_haste: 4,
         knock_decel: 4000.0,
+        crush: CRUSH,
     },
     // D. Momentum: speed going into a swing makes it hit harder, lunge
     // further and freeze longer (up to x1.8 at a sprint). Hold smash to keep
@@ -281,6 +318,7 @@ pub const SPECS: [FeelSpec; 6] = [
         counter_hitstop: 14,
         counter_haste: 0,
         knock_decel: 2200.0,
+        crush: CRUSH,
     },
     // E. Silksong-ish: the jab is out on the next tick and bounces the crab
     // back off what it hits; a smash that lands hops it up (a pogo off the
@@ -308,6 +346,7 @@ pub const SPECS: [FeelSpec; 6] = [
         counter_hitstop: 12,
         counter_haste: 0,
         knock_decel: 2500.0,
+        crush: CRUSH,
     },
     // F. Expedition timing: a parry window nearly half as wide, but get it
     // right and the world holds still, the counter comes out in a flash and
@@ -334,6 +373,89 @@ pub const SPECS: [FeelSpec; 6] = [
         counter_hitstop: 26,
         counter_haste: 10,
         knock_decel: 3000.0,
+        crush: CRUSH,
+    },
+    // G. Momentum + Silksong + Expedition: run speed adds power and the
+    // smash charges (D); the jab is instant and bounces back, a smash that
+    // lands hops (E); a tight parry opens the crush counter (F).
+    FeelSpec {
+        crusher: StrikeFeel {
+            lunge: 280.0,
+            chain_after: Some(8),
+            recoil: 120.0,
+            hop: 700.0,
+            ..strike((12, 5, 20), 9, (380.0, 40.0))
+        },
+        cutter: StrikeFeel {
+            chain_after: Some(3),
+            recoil: 240.0,
+            ..strike((1, 4, 9), 4, (90.0, 0.0))
+        },
+        swing_buffer: 12,
+        recovery_walk: 0.7,
+        momentum: 0.8,
+        charge: (60, 1.0),
+        parry_window: 6,
+        parry_hitstop: 18,
+        counter_ticks: 60,
+        counter_damage: 3.0,
+        counter_hitstop: 26,
+        counter_haste: 10,
+        knock_decel: 2800.0,
+        crush: CRUSH,
+    },
+    // H. Heavy + Silksong + Expedition: B's rear-back, lunge, long freeze
+    // and hard shove on the smash; E's instant bouncing jab to stay nimble;
+    // a parry window between F's and the usual, and the crush counter.
+    FeelSpec {
+        crusher: StrikeFeel {
+            lunge: 380.0,
+            chain_after: Some(9),
+            ..strike((18, 5, 22), 12, (480.0, 0.0))
+        },
+        cutter: StrikeFeel {
+            chain_after: Some(3),
+            recoil: 200.0,
+            ..strike((1, 4, 9), 4, (90.0, 0.0))
+        },
+        swing_buffer: 14,
+        recovery_walk: 0.5,
+        momentum: 0.0,
+        charge: (0, 0.0),
+        parry_window: 8,
+        parry_hitstop: 16,
+        counter_ticks: 60,
+        counter_damage: 3.0,
+        counter_hitstop: 24,
+        counter_haste: 10,
+        knock_decel: 3200.0,
+        crush: CRUSH,
+    },
+    // I. Charge brawler: C's quick chaining jabs to set up, D's charged
+    // smash (no run-speed bonus) to finish, B's long freeze and shove.
+    FeelSpec {
+        crusher: StrikeFeel {
+            lunge: 320.0,
+            chain_after: Some(8),
+            ..strike((10, 5, 20), 11, (460.0, 0.0))
+        },
+        cutter: StrikeFeel {
+            lunge: 90.0,
+            chain_after: Some(2),
+            ..strike((3, 3, 8), 5, (100.0, 0.0))
+        },
+        swing_buffer: 16,
+        recovery_walk: 0.5,
+        momentum: 0.0,
+        charge: (60, 1.0),
+        parry_window: 10,
+        parry_hitstop: 12,
+        counter_ticks: 45,
+        counter_damage: 2.0,
+        counter_hitstop: 18,
+        counter_haste: 6,
+        knock_decel: 3600.0,
+        crush: CRUSH,
     },
 ];
 
@@ -356,7 +478,7 @@ mod tests {
                 assert_ne!(f.tuning().fingerprint(), g.tuning().fingerprint());
             }
         }
-        assert_eq!(Feel::Expedition.next(), Feel::Current);
+        assert_eq!(Feel::Brawler.next(), Feel::Current);
         assert_eq!(Feel::parse("floaty"), None);
     }
 }

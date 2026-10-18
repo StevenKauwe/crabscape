@@ -76,6 +76,11 @@ enum Piece {
     Smear,
     Bubble,
     Eyes,
+    /// The strike line during the tell: where the club will land.
+    Aim,
+    Target,
+    /// A crack the crusher squeezed into the shell (shown from the n-th).
+    Crack(u32),
     HealthBack,
     HealthFill,
 }
@@ -104,7 +109,13 @@ fn rect(commands: &mut ChildSpawnerCommands, colour: Color, size: Vec2, at: Vec3
 
 /// A mantis, facing right in its own space (the root flips it), 94 long:
 /// tail at x -47, head at 47, standing on y 0.
+/// Pale warning red: the strike line.
+const AIM: Color = Color::srgb(1.0, 0.6, 0.5);
+const CRACK: Color = Color::srgb(0.05, 0.08, 0.06);
+
 fn spawn_mantis(commands: &mut Commands, e: &Enemy, soft: &SoftTextures) {
+    let streak = soft.streak.clone();
+    let ring = soft.ring.clone();
     // The burrow's mouth, always there.
     commands.spawn((
         Sprite::from_color(Color::srgb(0.05, 0.04, 0.03), Vec2::new(44.0, 5.0)),
@@ -199,6 +210,46 @@ fn spawn_mantis(commands: &mut Commands, e: &Enemy, soft: &SoftTextures) {
                     Sprite::from_color(CLUB.with_alpha(0.0), Vec2::new(40.0, 6.0)),
                     Transform::from_xyz(110.0, 7.0, 0.3),
                 ));
+                // The strike line, from the head to where the club lands
+                // (the sim's hit circle: 40 past the head, 11 up), and a
+                // ring there. It rears with the body, so it shows the aim.
+                b.spawn((
+                    Piece::Aim,
+                    Sprite {
+                        image: streak,
+                        color: AIM.with_alpha(0.0),
+                        custom_size: Some(Vec2::new(54.0, 8.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(114.0, 7.0, 0.25),
+                ));
+                b.spawn((
+                    Piece::Target,
+                    Sprite {
+                        image: ring,
+                        color: AIM.with_alpha(0.0),
+                        custom_size: Some(Vec2::splat(26.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(134.0, 7.0, 0.25),
+                ));
+                // Cracks the crusher can squeeze in (hidden until then).
+                for (n, (x, y, turn, len)) in [
+                    (70.0, 9.0, 0.9_f32, 14.0),
+                    (40.0, 6.0, -0.7, 12.0),
+                    (80.0, 4.0, -1.2, 11.0),
+                    (52.0, 9.0, 1.3, 10.0),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    b.spawn((
+                        Piece::Crack(n as u32),
+                        Sprite::from_color(CRACK, Vec2::new(len, 1.8)),
+                        Transform::from_xyz(x, y, 0.5).with_rotation(Quat::from_rotation_z(turn)),
+                        Visibility::Hidden,
+                    ));
+                }
                 b.spawn((
                     Piece::Bubble,
                     Sprite {
@@ -330,7 +381,7 @@ fn pose_foes(
 
         let mut stack: Vec<Entity> = children.iter().collect();
         while let Some(id) = stack.pop() {
-            let Ok((piece, paint, sprite, mut tr, kids, _)) = pieces.get_mut(id) else {
+            let Ok((piece, paint, sprite, mut tr, kids, vis)) = pieces.get_mut(id) else {
                 continue;
             };
             if let Some(kids) = kids {
@@ -340,6 +391,23 @@ fn pose_foes(
                 Some(Piece::Body) => {
                     tr.translation.y = 4.0 + foe.lift + rumble;
                     tr.rotation = Quat::from_rotation_z(foe.rear + 0.01 * rumble);
+                    // Seized in the crusher: squeezed flat, straining.
+                    let squeeze = if e.held {
+                        0.12 + 0.05 * (foe.time * 32.0).sin()
+                    } else {
+                        0.0
+                    };
+                    tr.scale = Vec3::new(1.0 + 0.4 * squeeze, 1.0 - squeeze, 1.0);
+                }
+                Some(Piece::Crack(n)) => {
+                    if let Some(mut vis) = vis {
+                        vis.set_if_neq(if *n < e.cracks {
+                            Visibility::Inherited
+                        } else {
+                            Visibility::Hidden
+                        });
+                    }
+                    continue;
                 }
                 Some(Piece::Arm) => tr.rotation = Quat::from_rotation_z(foe.arm),
                 Some(Piece::Club) => {
@@ -357,6 +425,17 @@ fn pose_foes(
             match piece {
                 Some(Piece::Smear) => {
                     sprite.color = CLUB.with_alpha(if striking { 0.5 } else { 0.0 });
+                }
+                Some(Piece::Aim) | Some(Piece::Target) => {
+                    // Faint as it rears, firm and pulsing once cocked.
+                    let tell = match (e.state, phase) {
+                        (State::Tell, "rear") => 0.15 + 0.25 * (tick / k.tell_ticks as f32),
+                        (State::Tell, _) => 0.55 + 0.2 * (foe.time * 14.0).sin(),
+                        _ => 0.0,
+                    };
+                    let want = tell * lab.juice().trail.max(0.6);
+                    let a = sprite.color.alpha();
+                    sprite.color = AIM.with_alpha(a + (want - a) * (1.0 - (-18.0 * dt).exp()));
                 }
                 Some(Piece::Bubble) => {
                     // The cavitation bubble: a flash that grows and fades.

@@ -175,9 +175,12 @@ pub struct Tuning {
     /// After a hit that doesn't break poise, this many ticks with no walking
     /// control, so the knockback reads (short: a tank shrugs it off).
     pub hit_stun_ticks: u32,
-    /// Ticks after health runs out before the crab is back at the spawn
-    /// (a stand-in until the moult rule, `world.md`).
+    /// Ticks after health runs out before the crab is back, at its last safe
+    /// spot (a stand-in until the moult rule, `world.md`).
     pub respawn_ticks: u32,
+    /// A spot counts as safe (to come back to after dying) when the crab
+    /// stands on the floor there with no enemy's home or body this close.
+    pub safe_distance: f32,
     /// Home mends the shell only after this long unhit (a rest, not a
     /// refuge mid-fight).
     pub home_heal_after_ticks: u32,
@@ -203,6 +206,9 @@ pub struct Tuning {
     pub counter_hitstop_ticks: u32,
     /// A counter smash's wind-up is this many ticks shorter.
     pub counter_haste: u32,
+    /// A counter smash that lands seizes the target in the crusher and
+    /// crushes it (None = a plain hit).
+    pub crush: Option<CrushTuning>,
     /// How quickly an enemy sheds the knockback of a blow (units per second
     /// per second): high = a hard shove that stops, low = a slide.
     pub knock_decel: f32,
@@ -321,6 +327,18 @@ pub struct FollowUp {
     pub delay_ticks: u32,
     pub damage: f32,
     pub poise: f32,
+}
+
+/// The crusher's crush: a counter smash clamps on, squeezes (cracks), then
+/// lets go with the counter's full blow.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrushTuning {
+    /// How long it holds on (ticks), the cracks spread evenly over it.
+    pub ticks: u32,
+    pub cracks: u32,
+    /// Each crack's damage (on top of the release's) and its freeze.
+    pub crack_damage: f32,
+    pub crack_hitstop: u32,
 }
 
 /// Health ("shell") and poise for anything that fights, crab or enemy: the
@@ -460,7 +478,8 @@ impl Default for Tuning {
                 stagger_ticks: 40,
             },
             hit_stun_ticks: 10,
-            respawn_ticks: 360,
+            respawn_ticks: 150, // 1.25 s, back near the fight
+            safe_distance: 420.0,
             home_heal_after_ticks: 240,
             // Hit-stop 7: about 60 ms, you feel it land.
             crusher: ClawTuning::plain((14, 6, 22), 12.0, 25.0, 40.0, 30.0, (320.0, 0.0), 7),
@@ -474,6 +493,7 @@ impl Default for Tuning {
             counter_hitstop_ticks: 7,
             counter_haste: 0,
             knock_decel: 1500.0,
+            crush: None,
 
             block_damage: 0.2,
             cracked_block_damage: 0.4,
@@ -565,9 +585,11 @@ impl Default for Tuning {
                 active_ticks: 3, // real: a few ms, under one tick
                 recover_ticks: 60,
                 parried_ticks: 50,
-                flee_below: 0.4,
+                // Retreats to its burrow (real), but only once a fight, badly
+                // hurt, and not for long: it peeks out and comes back.
+                flee_below: 0.25,
                 flee_speed: 260.0,
-                hide_ticks: 960, // 8 s in the burrow
+                hide_ticks: 300, // 2.5 s in the burrow
                 respawn_ticks: 2400,
                 strike: StrikeTuning {
                     damage: 28.0,

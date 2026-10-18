@@ -23,6 +23,9 @@ pub struct SoftTextures {
     pub ring: Handle<Image>,
     /// A small hard-edged chip (a bit of shell).
     pub chip: Handle<Image>,
+    /// A tapered streak, faint and thin at its left end, bright and full at
+    /// its right: the way a blow travels (flip it for the other way).
+    pub streak: Handle<Image>,
 }
 
 /// A burst of debris where a blow lands (see `impact.rs`).
@@ -179,10 +182,39 @@ fn make_textures(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::RENDER_WORLD,
     );
+    let (w, h) = (64usize, 16usize);
+    let mut data = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let u = (x as f32 + 0.5) / w as f32;
+            let v = ((y as f32 + 0.5) / h as f32 - 0.5).abs() * 2.0;
+            // Thickens towards the head, rounded at the tip.
+            let half = 0.15 + 0.85 * u.powf(0.7);
+            let tip = ((1.0 - u) / 0.08).min(1.0);
+            let a = if v < half {
+                (1.0 - v / half).powf(0.6) * u.powf(1.2) * tip
+            } else {
+                0.0
+            };
+            data.extend([255, 255, 255, (a.clamp(0.0, 1.0) * 255.0) as u8]);
+        }
+    }
+    let streak = Image::new(
+        Extent3d {
+            width: w as u32,
+            height: h as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
     commands.insert_resource(SoftTextures {
         dot: images.add(dot),
         ring: images.add(ring),
         chip: images.add(chip),
+        streak: images.add(streak),
     });
 }
 

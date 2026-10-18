@@ -20,7 +20,7 @@ use crate::combat::{self, Fighter, Hit, Outcome, Source};
 use crate::enemy::{self, Enemy, Kind};
 use crate::feel::Feel;
 use crate::hash::fnv1a;
-use crate::level::{EGG_RADIUS, Level, SPAWN};
+use crate::level::{EGG_RADIUS, Level};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::rng::Rng;
@@ -54,6 +54,9 @@ pub struct SimCrab {
     pub teeth_taken: Vec<bool>,
     /// Health, poise and claw swings.
     pub fighter: Fighter,
+    /// The last safe spot it stood on (where it comes back after dying):
+    /// on the floor, away from every enemy.
+    pub safe: Vec2,
     /// Events from between ticks (a hit from outside), added to the next
     /// tick's.
     pending: StepEvents,
@@ -142,6 +145,7 @@ impl Sim {
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
             fighter: Fighter::new(&self.tuning),
+            safe: pos,
             pending: StepEvents::default(),
         });
     }
@@ -254,12 +258,18 @@ impl Sim {
                 crab.events = ev;
                 continue;
             }
-            // Dead: still, until it's back at the spawn.
+            // Dead: still, until it's back at its last safe spot.
             if f.dead.is_some_and(|d| d >= self.tuning.respawn_ticks) {
                 *f = Fighter::new(&self.tuning);
-                crab.mover.pos = SPAWN;
-                crab.mover.vel = Vec2::ZERO;
-                crab.prev_pos = SPAWN;
+                crab.mover = crate::physics::Mover {
+                    upgrades: crab.mover.upgrades,
+                    lantern: crab.mover.lantern,
+                    scissor_claw: crab.mover.scissor_claw,
+                    climb_xp: crab.mover.climb_xp,
+                    ..crate::physics::Mover::new(crab.safe)
+                };
+                crab.mover.stamina = crab.mover.strokes(&self.tuning) as f32;
+                crab.prev_pos = crab.safe;
                 ev.respawned = true;
             }
             let controls =
@@ -272,6 +282,20 @@ impl Sim {
                 STEP,
             ));
             combat::after_step(&mut crab.fighter, &crab.mover);
+            crush(crab, &mut self.enemies, &self.tuning, &mut ev);
+            // A safe spot to come back to: on the floor, no enemy near.
+            let m = &crab.mover;
+            let near = |x: f32| (x - m.pos.x).abs() < self.tuning.safe_distance;
+            if m.grounded
+                && !m.climbing
+                && crab.fighter.dead.is_none()
+                && !self
+                    .enemies
+                    .iter()
+                    .any(|e| near(e.home.x) || (e.state != enemy::State::Gone && near(e.pos.x)))
+            {
+                crab.safe = m.pos;
+            }
             crab.events = ev;
             // A press counts once.
             crab.controls = crab.controls.held_only();
@@ -401,6 +425,27 @@ impl Sim {
                     hitstop,
                     ..Hit::new(0.0, 0.0, Source::Crab(crab.id))
                 };
+                // A counter smash with a crusher that crushes: it clamps on.
+                if swing.counter
+                    && swing.claw == crate::combat::Claw::Crusher
+                    && t.crush.is_some()
+                    && f.crush.is_none()
+                {
+                    swing.hits.push(e.id);
+                    e.held = true;
+                    e.vel_x = 0.0;
+                    f.crush = Some(crate::combat::Crush {
+                        target: e.id,
+                        tick: 0,
+                        cracks: 0,
+                    });
+                    f.vitals.hitstop = f.vitals.hitstop.max(c.hitstop_ticks);
+                    e.vitals.hitstop = e.vitals.hitstop.max(c.hitstop_ticks);
+                    crab.events.struck = true;
+                    crab.events.seized = true;
+                    crab.mover.vel.x = 0.0; // planted, gripping
+                    continue;
+                }
                 if e.takes(&hit, crab.mover.pos.x, t).is_some() {
                     swing.hits.push(e.id);
                     f.vitals.hitstop = f.vitals.hitstop.max(hitstop);
@@ -409,8 +454,8 @@ impl Sim {
                 }
             }
             // Bouncing off what it struck: back, or up (it moves once the
-            // freeze is over).
-            if landed {
+            // freeze is over). Not while crushing it.
+            if landed && f.crush.is_none() {
                 let m = &mut crab.mover;
                 if c.recoil > 0.0 {
                     m.vel.x = -f.facing * c.recoil;
@@ -558,6 +603,60 @@ pub struct Snapshot {
     /// ("smash windup"); empty when none.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub combat: String,
+}
+
+/// The crusher clamped on an enemy: hold it, squeeze cracks into it at
+/// even steps, then let go with the counter's full blow. Lets go early,
+/// with no blow, if the crab is knocked, staggered or killed, or the enemy
+/// is gone.
+fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEvents) {
+    let f = &mut crab.fighter;
+    let (Some(cr), Some(ct)) = (&mut f.crush, t.crush) else {
+        return;
+    };
+    let Some(e) = enemies.iter_mut().find(|e| e.id == cr.target) else {
+        f.crush = None;
+        return;
+    };
+    let broken = f.knocked > 0 || f.vitals.stagger > 0 || f.dead.is_some();
+    if broken || !e.hittable(t) {
+        e.held = false;
+        f.crush = None;
+        return;
+    }
+    cr.tick += 1;
+    let step = (ct.ticks / (ct.cracks + 1)).max(1);
+    let source = Source::Crab(crab.id);
+    if cr.tick < ct.ticks && cr.tick.is_multiple_of(step) && cr.cracks < ct.cracks {
+        cr.cracks += 1;
+        e.cracks += 1;
+        let squeeze = Hit {
+            hitstop: ct.crack_hitstop,
+            ..Hit::new(ct.crack_damage, 0.0, source)
+        };
+        e.takes(&squeeze, crab.mover.pos.x, t);
+        f.vitals.hitstop = f.vitals.hitstop.max(ct.crack_hitstop);
+        ev.cracked = true;
+    }
+    if cr.tick >= ct.ticks || !e.hittable(t) {
+        e.held = false;
+        f.crush = None;
+        let Some(s) = &mut f.swing else { return };
+        let c = s.claw.tuning(t);
+        let strength = s.strength(t) * t.counter_damage;
+        let blow = Hit {
+            damage: c.damage * strength,
+            poise: c.poise * strength,
+            knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1) * s.strength(t) * 1.5,
+            hitstop: t.counter_hitstop_ticks,
+            ..Hit::new(0.0, 0.0, source)
+        };
+        e.takes(&blow, crab.mover.pos.x, t);
+        f.vitals.hitstop = f.vitals.hitstop.max(t.counter_hitstop_ticks);
+        // Straight into the recovery.
+        s.tick = s.windup_len() + c.active_ticks + 1;
+        ev.crushed = true;
+    }
 }
 
 /// Is the crab's body pressed against (or overlapping) `r`?

@@ -8,7 +8,8 @@
 //!
 //! In the browser it plays through the page's Web Audio. Browsers (iPhones
 //! most of all) keep sound off until the page is touched or a key is
-//! pressed, so the first tap or key switches it on. Native runs are silent
+//! pressed, so the first tap or key switches it on (and, on iPhones, lets it
+//! play with the ring/silent switch on, as Listen & Learn does). Native runs are silent
 //! for now (the sounds are still made in tests, so they stay checked).
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
@@ -218,6 +219,46 @@ fn mix(parts: &[Vec<f32>]) -> Vec<f32> {
     out
 }
 
+/// A 0.1 s silent WAV (mono, 8-bit, 8 kHz) as a data address, built here:
+/// the looping silent `<audio>` that carries sound through an iPhone's
+/// silent switch.
+pub fn silent_wav_uri() -> String {
+    const N: u32 = 800;
+    let mut b: Vec<u8> = Vec::with_capacity(44 + N as usize);
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + N).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    b.extend_from_slice(&1u16.to_le_bytes()); // mono
+    b.extend_from_slice(&8000u32.to_le_bytes());
+    b.extend_from_slice(&8000u32.to_le_bytes()); // bytes per second
+    b.extend_from_slice(&1u16.to_le_bytes()); // block align
+    b.extend_from_slice(&8u16.to_le_bytes()); // bits
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&N.to_le_bytes());
+    b.resize(44 + N as usize, 128); // 8-bit silence is the midpoint
+    format!("data:audio/wav;base64,{}", base64(&b))
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = u32::from(c[0]) << 16
+            | u32::from(*c.get(1).unwrap_or(&0)) << 8
+            | u32::from(*c.get(2).unwrap_or(&0));
+        for i in 0..4 {
+            if i <= c.len() {
+                s.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                s.push('=');
+            }
+        }
+    }
+    s
+}
+
 /// White noise from a tiny generator (sound only; nothing to do with the
 /// simulation's seeded randomness).
 struct Noise(u32);
@@ -250,8 +291,8 @@ impl Lowpass {
 mod backend {
     use std::cell::RefCell;
 
-    use wasm_bindgen::JsCast;
     use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue};
     use web_sys::{AudioBuffer, AudioContext};
 
     use super::{ALL, Sfx};
@@ -259,6 +300,8 @@ mod backend {
     struct Audio {
         ctx: AudioContext,
         buffers: Vec<AudioBuffer>,
+        /// Playing through the iPhone's silent switch (see below).
+        unmuted: bool,
     }
 
     thread_local! {
@@ -286,26 +329,84 @@ mod backend {
         }
         let unlock = Closure::<dyn FnMut()>::new(|| {
             AUDIO.with(|a| {
-                if let Some(a) = a.borrow().as_ref()
-                    && a.ctx.state() != web_sys::AudioContextState::Running
-                {
-                    let _ = a.ctx.resume();
-                    // iPhones also want something played inside the touch.
-                    if let Ok(src) = a.ctx.create_buffer_source() {
-                        let _ = src.connect_with_audio_node(&a.ctx.destination());
-                        let _ = src.start();
-                    }
+                if let Some(a) = a.borrow_mut().as_mut() {
+                    a.unlock();
                 }
             });
         });
+        // iPhones only let sound start from these (not a touch's pointerdown).
         if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
-            for event in ["pointerdown", "touchend", "keydown"] {
+            for event in ["touchend", "pointerup", "click", "keydown"] {
                 let _ =
                     doc.add_event_listener_with_callback(event, unlock.as_ref().unchecked_ref());
             }
         }
         unlock.forget(); // listens for as long as the page lives
-        AUDIO.with(|a| *a.borrow_mut() = Some(Audio { ctx, buffers }));
+        AUDIO.with(|a| {
+            *a.borrow_mut() = Some(Audio {
+                ctx,
+                buffers,
+                unmuted: false,
+            })
+        });
+    }
+
+    impl Audio {
+        /// Inside a touch or key: resume the context, play through the
+        /// silent switch, and play a blank sound (iPhones want one).
+        fn unlock(&mut self) {
+            if self.ctx.state() != web_sys::AudioContextState::Running
+                && let Ok(p) = self.ctx.resume()
+            {
+                let noop = Closure::once(|_: JsValue| {});
+                let _ = p.catch(&noop);
+                noop.forget();
+            }
+            if !self.unmuted {
+                self.unmuted = play_through_silent_switch();
+            }
+            if let (Ok(buf), Ok(src)) = (
+                self.ctx.create_buffer(1, 1, 22050.0),
+                self.ctx.create_buffer_source(),
+            ) {
+                src.set_buffer(Some(&buf));
+                let _ = src.connect_with_audio_node(&self.ctx.destination());
+                let _ = src.start();
+            }
+        }
+    }
+
+    /// iPhones mute Web Audio with the ring/silent switch on, unlike media
+    /// playback. Safari 17+ takes `navigator.audioSession.type = "playback"`;
+    /// older ones move the page into the media category when a looping
+    /// silent `<audio>` plays (started in a touch). Both, since some web
+    /// views have the first and ignore it. True once applied.
+    fn play_through_silent_switch() -> bool {
+        use js_sys::Reflect;
+        let Some(win) = web_sys::window() else {
+            return false;
+        };
+        let nav: JsValue = win.navigator().into();
+        if let Ok(session) = Reflect::get(&nav, &"audioSession".into())
+            && session.is_object()
+        {
+            let _ = Reflect::set(&session, &"type".into(), &"playback".into());
+        }
+        let Ok(el) = web_sys::HtmlAudioElement::new_with_src(&super::silent_wav_uri()) else {
+            return false;
+        };
+        el.set_loop(true);
+        let _ = el.set_attribute("playsinline", "");
+        match el.play() {
+            Ok(p) => {
+                let noop = Closure::once(|_: JsValue| {});
+                let _ = p.catch(&noop);
+                noop.forget();
+                std::mem::forget(el); // keeps playing for the page's life
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     pub fn play(sfx: Sfx, gain: f32, pitch: f32) {
@@ -353,5 +454,14 @@ mod tests {
             assert!(s.iter().all(|x| x.is_finite()));
         }
         assert_eq!(synth(Sfx::Crunch, 44100.0), synth(Sfx::Crunch, 44100.0));
+    }
+
+    #[test]
+    fn the_silent_wav_is_a_whole_base64_wav() {
+        assert_eq!(base64(b"Man"), "TWFu");
+        assert_eq!(base64(b"Ma"), "TWE=");
+        let uri = silent_wav_uri();
+        assert!(uri.starts_with("data:audio/wav;base64,UklGR")); // "RIFF"
+        assert_eq!((uri.len() - "data:audio/wav;base64,".len()) % 4, 0);
     }
 }

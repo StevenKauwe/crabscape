@@ -65,24 +65,30 @@ fn the_presets_are_really_different() {
     assert!(t(Feel::Heavy).crusher.windup_ticks > t(Feel::Current).crusher.windup_ticks);
     assert!(t(Feel::Snappy).crusher.windup_ticks < 10);
     assert_eq!(t(Feel::Silksong).cutter.windup_ticks, 1, "an instant jab");
-    // Heavy freezes longest on a plain smash.
-    let longest = ALL
-        .into_iter()
-        .max_by_key(|f| t(*f).crusher.hitstop_ticks)
-        .unwrap();
-    assert_eq!(longest, Feel::Heavy);
-    // Only Momentum charges and cares about speed.
+    // Heavy freezes (at least as) long as any on a plain smash.
+    let longest = ALL.into_iter().map(|f| t(f).crusher.hitstop_ticks).max();
+    assert_eq!(Some(t(Feel::Heavy).crusher.hitstop_ticks), longest);
+    // Charging: Momentum and the hybrids built on it; run speed: Momentum, G.
+    let charges = [Feel::Momentum, Feel::Hybrid, Feel::Brawler];
     for f in ALL {
-        assert_eq!(t(f).charge_ticks > 0, f == Feel::Momentum, "{f:?}");
-        assert_eq!(t(f).momentum > 0.0, f == Feel::Momentum, "{f:?}");
+        assert_eq!(t(f).charge_ticks > 0, charges.contains(&f), "{f:?}");
+        let speed = [Feel::Momentum, Feel::Hybrid].contains(&f);
+        assert_eq!(t(f).momentum > 0.0, speed, "{f:?}");
+        // Every preset but A crushes on a counter.
+        assert_eq!(t(f).crush.is_some(), f != Feel::Current, "{f:?}");
     }
-    // Expedition: the tightest parry and the biggest counter.
+    // Expedition (and G, built on it): the tightest parry, the biggest counter.
     for f in ALL {
-        if f != Feel::Expedition {
-            assert!(t(Feel::Expedition).parry_window_ticks < t(f).parry_window_ticks);
-            assert!(t(Feel::Expedition).counter_damage > t(f).counter_damage);
-        }
+        assert!(t(Feel::Expedition).parry_window_ticks <= t(f).parry_window_ticks);
+        assert!(t(Feel::Expedition).counter_damage >= t(f).counter_damage);
     }
+    assert_eq!(t(Feel::Hybrid).parry_window_ticks, 6);
+    // G really is D + E + F: momentum and charge, E's jab and hop, F's parry.
+    let g = t(Feel::Hybrid);
+    assert_eq!(g.momentum, t(Feel::Momentum).momentum);
+    assert_eq!(g.cutter.windup_ticks, t(Feel::Silksong).cutter.windup_ticks);
+    assert!(g.crusher.hop > 0.0 && g.cutter.recoil > 0.0);
+    assert_eq!(g.counter_damage, t(Feel::Expedition).counter_damage);
 }
 
 /// Where the crab is after each tick of `script` in `feel`.
@@ -281,13 +287,18 @@ fn expedition_parries_are_tighter_and_its_counter_bigger_and_faster() {
     let h = impact(Feel::Expedition);
     let script = format!("@{} parry; @{} smash", h - 3, h + 2);
     let mut windup = 0;
-    let sim = duel(Feel::Expedition, &script, h as u64 + 80, |s| {
+    let sim = duel(Feel::Expedition, &script, h as u64 + 200, |s| {
         if s.snapshots().next().unwrap().combat == "smash windup" {
             windup += 1;
         }
     });
     assert_eq!(windup, 16 - 10, "a counter comes out fast");
-    assert_eq!(1000.0 - sim.enemies()[0].vitals.health, 36.0, "12 x 3");
+    // It clamps on and crushes: three cracks of 2, then the 12 x 3 blow.
+    assert_eq!(
+        1000.0 - sim.enemies()[0].vitals.health,
+        42.0,
+        "12 x 3 + 3 x 2"
+    );
 }
 
 #[test]
@@ -320,4 +331,41 @@ fn a_replay_that_switches_feels_plays_back_exactly() {
     play(&mut again, &replay, replay.length(), |_| {});
     assert_eq!(again.feel(), Feel::Momentum);
     assert_eq!(Some(again.state_hash()), replay.hash);
+}
+
+#[test]
+fn a_counter_clamps_on_cracks_three_times_then_lets_go_hard() {
+    for feel in ALL.into_iter().skip(1) {
+        let h = impact(feel);
+        let script = format!("@{} parry; @{} smash", h - 3, h + 2);
+        let (mut seized, mut cracked, mut crushed, mut crushing) = (0, 0, 0, 0);
+        let mut held_still = true;
+        let mut at = None;
+        let sim = duel(feel, &script, h as u64 + 240, |s| {
+            let ev = s.crabs()[0].events;
+            seized += u32::from(ev.seized);
+            cracked += u32::from(ev.cracked);
+            crushed += u32::from(ev.crushed);
+            if s.crabs()[0].fighter.crush.is_some() {
+                crushing += 1;
+                let x = s.enemies()[0].pos.x;
+                held_still &= *at.get_or_insert(x) == x;
+            }
+        });
+        assert_eq!((seized, cracked, crushed), (1, 3, 1), "{feel:?}");
+        assert!(crushing >= 54, "{feel:?}: held {crushing} ticks");
+        assert!(held_still, "{feel:?}: the target stays in the claw");
+        assert_eq!(sim.enemies()[0].cracks, 3);
+        assert!(!sim.enemies()[0].held, "{feel:?}: let go");
+    }
+    // A has no crush: a plain counter.
+    let h = impact(Feel::Current);
+    let mut seized = false;
+    duel(
+        Feel::Current,
+        &format!("@{} parry; @{} smash", h - 3, h + 2),
+        h as u64 + 120,
+        |s| seized |= s.crabs()[0].events.seized,
+    );
+    assert!(!seized);
 }

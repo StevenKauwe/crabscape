@@ -305,6 +305,12 @@ pub struct StepEvents {
     pub countered: bool,
     /// A blow came out with a lunge (the body thrown forward).
     pub lunged: bool,
+    /// A counter seized an enemy in the crusher...
+    pub seized: bool,
+    /// ...squeezed a crack into it...
+    pub cracked: bool,
+    /// ...and let go with the full blow.
+    pub crushed: bool,
 }
 
 impl StepEvents {
@@ -337,6 +343,9 @@ impl StepEvents {
         self.evaded |= other.evaded;
         self.countered |= other.countered;
         self.lunged |= other.lunged;
+        self.seized |= other.seized;
+        self.cracked |= other.cracked;
+        self.crushed |= other.crushed;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -373,6 +382,9 @@ impl StepEvents {
             (self.evaded, "evaded"),
             (self.countered, "countered"),
             (self.lunged, "lunged"),
+            (self.seized, "seized"),
+            (self.cracked, "cracked"),
+            (self.crushed, "crushed"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))

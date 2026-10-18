@@ -2315,6 +2315,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "crabsim",
+ "js-sys",
  "serde",
  "serde_json",
  "wasm-bindgen",

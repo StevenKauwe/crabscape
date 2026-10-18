@@ -1105,10 +1105,19 @@ fn health_zero_emits_one_died_and_stops_the_crab() {
     let x = sim.crab(P0).unwrap().mover.pos.x;
     idle(&mut sim, 60);
     assert_eq!(sim.crab(P0).unwrap().mover.pos.x, x, "it stopped");
-    // Later it is back at the spawn, whole (until the moult rule replaces this).
-    idle(&mut sim, 305);
+    // Soon it is back, whole, at its last safe spot: with no enemy about,
+    // where it last stood on the floor (until the moult rule replaces this).
+    idle(&mut sim, 100);
     let crab = sim.crab(P0).unwrap();
-    assert!(crab.mover.pos.distance(SPAWN) < 0.01, "{}", crab.mover.pos);
+    assert!(
+        crab.mover.pos.distance(crab.safe) < 0.01,
+        "{}",
+        crab.mover.pos
+    );
+    assert!(
+        (crab.mover.pos.x - x).abs() < 5.0,
+        "back near where it fell"
+    );
     assert_eq!(crab.fighter.vitals.health, 100.0);
 }
 
@@ -1828,7 +1837,7 @@ fn badly_hurt_it_flees_into_its_burrow_and_comes_back_later() {
             .iter()
             .position(|s| s.1 != "burrowed")
             .unwrap();
-    assert_eq!(out - hid, 960, "8 s in the burrow");
+    assert_eq!(out - hid, 300, "2.5 s in the burrow");
 }
 
 #[test]
@@ -1861,4 +1870,60 @@ fn the_levels_mantis_waits_on_the_plateau_and_sees_a_crab_coming_up() {
     sim.enemies_mut()[0].vitals.health = 60.0;
     idle(&mut sim, 1200);
     assert!(sim.enemies()[0].pos.y > 100.0);
+}
+
+#[test]
+fn the_crab_comes_back_quickly_before_the_burrow_and_the_mantis_mends_at_home() {
+    // Walk along the plateau to the mantis and stand there taking it.
+    let mut sim = Sim::with_one_crab(Vec2::new(640.0, 110.0));
+    sim.populate(); // the level's mantis, on the plateau
+    let burrow = sim.enemies()[0].home.x;
+    let replay = Replay::parse("t=0 walk=right; t=0.9 walk=stop").unwrap();
+    let mut died_at = None;
+    let mut back_at = None;
+    play(&mut sim, &replay, 6000, |s| {
+        let c = &s.crabs()[0];
+        if c.events.died && died_at.is_none() {
+            died_at = Some(s.tick_count());
+        }
+        if c.events.respawned && back_at.is_none() {
+            back_at = Some((s.tick_count(), c.mover.pos));
+        }
+    });
+    let died = died_at.expect("standing in front of it, the crab dies");
+    let (tick, pos) = back_at.expect("and comes back");
+    assert!(
+        tick - died <= 180,
+        "back in under 1.5 s, not 3 ({})",
+        tick - died
+    );
+    let gap = burrow - pos.x;
+    assert!(
+        (420.0..800.0).contains(&gap),
+        "back just out of the mantis's reach, not at the far spawn ({gap})"
+    );
+    // The crab walks right again and dies again; meanwhile the mantis, with
+    // nobody near and unhit, mends at home. Hurt it, then leave.
+    let mut sim = Sim::with_one_crab(Vec2::new(250.0, 0.0));
+    sim.populate();
+    sim.enemies_mut()[0].vitals.health = 20.0;
+    sim.enemies_mut()[0].fled = true;
+    idle(&mut sim, 300);
+    assert_eq!(sim.enemies()[0].vitals.health, 60.0, "mended in its burrow");
+    assert!(!sim.enemies()[0].fled, "and may flee again next fight");
+}
+
+#[test]
+fn it_flees_only_once_a_fight() {
+    let mut sim = Sim::with_one_crab(Vec2::new(250.0, 0.0));
+    sim.spawn_enemy(Kind::Mantis, Vec2::new(470.0, 0.0));
+    let e = &mut sim.enemies_mut()[0];
+    e.fled = true;
+    e.vitals.health = 10.0;
+    e.state = State::Recover;
+    let t = sim.tuning.clone();
+    let hit = Hit::new(1.0, 0.0, crabsim::Source::World);
+    let e = &mut sim.enemies_mut()[0];
+    e.takes(&hit, 250.0, &t);
+    assert_ne!(e.state, State::Flee, "it already fled once this fight");
 }

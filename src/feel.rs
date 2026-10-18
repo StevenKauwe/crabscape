@@ -1,6 +1,6 @@
 //! The feel lab: try different ways the crab's attacks can feel, side by
 //! side, in preview builds (and native runs). A "FEEL" button under "Start
-//! over" (or the backtick key, or 1-6) cycles the presets; a "Juice" button
+//! over" (or the backtick key, or 1-9) cycles the presets; a "Juice" button
 //! (or backslash) switches the presentation extras off and on, so you can
 //! feel what they add. The choice is remembered per build.
 //!
@@ -49,6 +49,8 @@ pub struct Juice {
     pub jitter: f32,
     /// A counter's payoff: shake, flash and debris times this.
     pub counter: f32,
+    /// The streak along each blow (0 = none), so you see which way it goes.
+    pub trail: f32,
 }
 
 impl Juice {
@@ -67,6 +69,7 @@ impl Juice {
         pitch: 1.0,
         jitter: 0.0,
         counter: 1.0,
+        trail: 0.0,
     };
 
     /// Each preset's juice, in `crabsim::feel::ALL`'s order.
@@ -76,7 +79,7 @@ impl Juice {
 }
 
 /// The juice table, one row per preset.
-const JUICE: [Juice; 6] = [
+const JUICE: [Juice; 9] = [
     // A. Current: the game as it was.
     Juice::OFF,
     // B. Heavy tank: a big, early pull-back and crouch, the whole body thrown
@@ -96,6 +99,7 @@ const JUICE: [Juice; 6] = [
         pitch: 0.8,
         jitter: 3.5,
         counter: 1.6,
+        trail: 1.0,
     },
     // C. Snappy brawler: small, instant tells, crisp clicks, short sharp kicks.
     Juice {
@@ -113,6 +117,7 @@ const JUICE: [Juice; 6] = [
         pitch: 1.15,
         jitter: 2.5,
         counter: 1.4,
+        trail: 1.0,
     },
     // D. Momentum: like Heavy, and everything grows with the blow's strength.
     Juice {
@@ -130,6 +135,7 @@ const JUICE: [Juice; 6] = [
         pitch: 0.9,
         jitter: 3.0,
         counter: 1.5,
+        trail: 1.0,
     },
     // E. Silksong-ish: barely any tell, light and bright, the bounce is the juice.
     Juice {
@@ -147,6 +153,7 @@ const JUICE: [Juice; 6] = [
         pitch: 1.25,
         jitter: 2.0,
         counter: 1.4,
+        trail: 1.0,
     },
     // F. Expedition timing: ordinary blows kept modest, so the counter's
     // zoom, boom and burst stand out.
@@ -165,6 +172,63 @@ const JUICE: [Juice; 6] = [
         pitch: 0.9,
         jitter: 3.0,
         counter: 2.6,
+        trail: 1.0,
+    },
+    // G. Momentum + Silksong + Expedition: D's growing weight, E's light
+    // bright jab, F's big counter payoff (the crush).
+    Juice {
+        rear: 0.16,
+        crouch: 0.28,
+        curve: 0.4,
+        throw: 0.24,
+        stretch: 0.3,
+        shake: 0.45,
+        kick: 9.0,
+        zoom: 0.12,
+        flash: 1.2,
+        debris: 11.0,
+        sound: 1.0,
+        pitch: 0.95,
+        jitter: 3.0,
+        counter: 2.4,
+        trail: 1.0,
+    },
+    // H. Heavy + Silksong + Expedition: B's big rear-back and crunch, a
+    // light quick jab, F's counter payoff.
+    Juice {
+        rear: 0.24,
+        crouch: 0.4,
+        curve: 0.45,
+        throw: 0.26,
+        stretch: 0.35,
+        shake: 0.55,
+        kick: 9.0,
+        zoom: 0.12,
+        flash: 1.4,
+        debris: 14.0,
+        sound: 1.0,
+        pitch: 0.8,
+        jitter: 3.5,
+        counter: 2.4,
+        trail: 1.0,
+    },
+    // I. Charge brawler: crisp jabs, a heavy finisher.
+    Juice {
+        rear: 0.18,
+        crouch: 0.3,
+        curve: 0.4,
+        throw: 0.24,
+        stretch: 0.3,
+        shake: 0.5,
+        kick: 9.0,
+        zoom: 0.06,
+        flash: 1.3,
+        debris: 12.0,
+        sound: 1.0,
+        pitch: 0.9,
+        jitter: 3.0,
+        counter: 1.8,
+        trail: 1.0,
     },
 ];
 
@@ -354,7 +418,7 @@ fn slow_motion(mut time: ResMut<Time<Virtual>>) {
     let _ = &mut time;
 }
 
-/// Backtick (or the FEEL button) for the next preset, 1-6 for one of them,
+/// Backtick (or the FEEL button) for the next preset, 1-9 for one of them,
 /// backslash (or the Juice button) for juice off/on.
 #[allow(clippy::too_many_arguments)]
 fn switch(
@@ -384,6 +448,9 @@ fn switch(
         KeyCode::Digit4,
         KeyCode::Digit5,
         KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
     ];
     let mut feel = lab.feel;
     if keys.just_pressed(KeyCode::Backquote) || hit(LabButton::Feel) {

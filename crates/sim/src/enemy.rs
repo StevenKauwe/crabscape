@@ -120,6 +120,13 @@ pub struct Enemy {
     pub follow_ups: Vec<(PlayerId, u32)>,
     /// Ticks left hiding at home before it will notice anything.
     pub hiding: u32,
+    /// Has fled once this fight (it flees at most once, until it has rested
+    /// at home with nobody near).
+    pub fled: bool,
+    /// Seized in a crab's crusher: frozen, its state on hold.
+    pub held: bool,
+    /// Cracks the crusher squeezed into its shell (shown; mended at home).
+    pub cracks: u32,
 }
 
 impl Enemy {
@@ -141,6 +148,9 @@ impl Enemy {
             struck: Vec::new(),
             follow_ups: Vec::new(),
             hiding: 0,
+            fled: false,
+            held: false,
+            cracks: 0,
         }
     }
 
@@ -234,7 +244,12 @@ impl Enemy {
             self.follow_ups.clear();
         } else if took.broke_poise {
             self.enter(State::Stagger, k.vitals.stagger_ticks);
-        } else if self.vitals.health < k.flee_below * k.vitals.health && self.state != State::Flee {
+        } else if self.vitals.health < k.flee_below * k.vitals.health
+            && self.state != State::Flee
+            && !self.fled
+            && !self.held
+        {
+            self.fled = true;
             self.enter(State::Flee, 0);
         }
         Some(took)
@@ -257,6 +272,9 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
     if e.vitals.hitstop > 0 {
         e.vitals.hitstop -= 1;
         return;
+    }
+    if e.held {
+        return; // in a crab's crusher
     }
     let k = e.kind.tuning(t).clone();
     e.vitals.tick(&k.vitals);
@@ -339,11 +357,17 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
                     e.pos.x = e.home.x;
                     want_speed = 0.0;
                 }
-            } else if e.hiding == 0
-                && let Some(id) = e.sense(crabs, k.notice_range)
-            {
-                e.target = Some(id);
-                e.enter_now(State::Notice, k.notice_ticks);
+            } else if e.hiding == 0 {
+                if let Some(id) = e.sense(crabs, k.notice_range) {
+                    e.target = Some(id);
+                    e.enter_now(State::Notice, k.notice_ticks);
+                } else if e.vitals.unhit > MEND_AFTER {
+                    // Home with nobody near, unhit for a while: the fight is
+                    // over. It mends.
+                    e.vitals = Vitals::new(&k.vitals);
+                    e.fled = false;
+                    e.cracks = 0;
+                }
             }
         }
         State::Notice => {
@@ -411,6 +435,9 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
         }
     }
 }
+
+/// Ticks unhit, at home with nobody near, before an enemy mends (2 s).
+const MEND_AFTER: u32 = 240;
 
 /// The biggest step in the floor an enemy walks up or down in one tick.
 const MAX_STEP: f32 = 8.0;
