@@ -53,6 +53,11 @@ Concept sheet: `art/creatures/mantis-shrimp/mantis-shrimp.png`. Shared rules: `R
   of ×0.2 for 5 s. Bubble 8 damage, ignores block, cancelled by parry.
 - **Drops:** a club fragment (hammer-branch material: the club's mineralised surface resists fracture, Wikipedia citing
   Weaver et al. 2012) and food.
+- **In the sim:** `Kind::Mantis` (`crates/sim/src/enemy.rs`, numbers in `tuning.rs`, tests in
+  `tests/scenarios.rs`). Tuned beyond this table: head zone 24 and telson zone 16 units, poise refill 25/s, poise-break
+  stagger 50, gives up 500 from its burrow, a 20–50-tick random pause between attacks, club knockback 300 and 12 ticks
+  of hit-stop; a blocked club does nothing until the guard is cracked (then ×0.4). Another mantis moves into an empty
+  burrow 20 s after one dies. An undefended full combo (3 × club + bubble = 108) kills from full health.
 - **Scenario tests:** parry in the window takes no damage from club or bubble; block takes only the bubble (8 × 1) and
   sets armour break; a dodge through the strike takes nothing; a burrowed mantis can't be hit; a 3-strike combo only
   follows a landed first strike; a missed strike gives the full 60-tick recover.

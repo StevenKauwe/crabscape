@@ -178,6 +178,9 @@ pub struct Tuning {
     /// Ticks after health runs out before the crab is back at the spawn
     /// (a stand-in until the moult rule, `world.md`).
     pub respawn_ticks: u32,
+    /// Home mends the shell only after this long unhit (a rest, not a
+    /// refuge mid-fight).
+    pub home_heal_after_ticks: u32,
     /// The crusher's smash: slow, heavy, committed.
     pub crusher: ClawTuning,
     /// The cutter's jab: quick and light.
@@ -218,6 +221,9 @@ pub struct Tuning {
     /// A plain test enemy (tell, strike, recover). Tests and crabsim only:
     /// never placed in a level.
     pub fixture: EnemyTuning,
+    /// The peacock mantis shrimp: a rusher and armour breaker
+    /// (`docs/design/creatures/mantis-shrimp.md`, its "Implementation spec").
+    pub mantis: EnemyTuning,
 }
 
 /// One kind of enemy: its body, senses, state timings and attack. Times in
@@ -399,6 +405,7 @@ impl Default for Tuning {
             },
             hit_stun_ticks: 10,
             respawn_ticks: 360,
+            home_heal_after_ticks: 240,
             crusher: ClawTuning {
                 windup_ticks: 14,
                 active_ticks: 6,
@@ -480,6 +487,59 @@ impl Default for Tuning {
                     block_damage: None,
                     armour_break_ticks: 0,
                     follow_up: None,
+                },
+            },
+
+            // "Real" = from the page's sources; everything else is tuned.
+            mantis: EnemyTuning {
+                vitals: VitalsTuning {
+                    health: 60.0,
+                    poise: 50.0,
+                    poise_refill: 25.0,
+                    poise_delay_ticks: 60,
+                    stagger_ticks: 50,
+                },
+                body: (94.0, 22.0), // 15 cm long (real: 3-18 cm), slim
+                head: 24.0,
+                head_recover: 1.5, // head low after a strike
+                tail: 16.0,
+                tail_damage: 0.5,    // the heavily armoured telson (real)
+                burrows: true,       // U-shaped burrows (real)
+                notice_range: 300.0, // a sight hunter; in light (the dark rule is #68)
+                notice_ticks: 24,    // emerging
+                give_up_range: 500.0,
+                approach_speed: 260.0, // darts, faster than the crab walks
+                strike_range: 70.0,
+                pause_ticks: (20, 50),
+                tell_ticks: 78,   // rumble and rear (48), then the cocked hold (30)
+                cocked_ticks: 30, // the latch is set: parry at its end
+                recock_ticks: 24,
+                combo_extra: 2,  // strikes the shell again and again (real)
+                active_ticks: 3, // real: a few ms, under one tick
+                recover_ticks: 60,
+                parried_ticks: 50,
+                flee_below: 0.4,
+                flee_speed: 260.0,
+                hide_ticks: 960, // 8 s in the burrow
+                respawn_ticks: 2400,
+                strike: StrikeTuning {
+                    damage: 28.0,
+                    poise: 60.0,
+                    ahead: 40.0,
+                    height: 11.0,
+                    radius: 12.0,
+                    knockback: (300.0, 0.0),
+                    hitstop_ticks: 12, // the loudest crack on the reef
+                    parryable: true,
+                    blockable: true,
+                    block_damage: Some(0.0), // the club is stopped...
+                    armour_break_ticks: 600, // ...but the guard cracks for 5 s
+                    // The cavitation bubble: 0.4-0.5 ms after impact (real).
+                    follow_up: Some(FollowUp {
+                        delay_ticks: 1,
+                        damage: 8.0,
+                        poise: 0.0,
+                    }),
                 },
             },
         }

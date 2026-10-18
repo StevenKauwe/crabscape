@@ -24,23 +24,29 @@ use crate::world::{PlayerId, SimCrab};
 pub enum Kind {
     /// A plain test enemy: tell, strike, recover. Tests and crabsim only.
     Fixture,
+    /// The peacock mantis shrimp: rumbles, rears and cocks its club.
+    Mantis,
 }
 
 impl Kind {
     pub fn tuning(self, t: &Tuning) -> &EnemyTuning {
         match self {
             Kind::Fixture => &t.fixture,
+            Kind::Mantis => &t.mantis,
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
             Kind::Fixture => "fixture",
+            Kind::Mantis => "mantis",
         }
     }
 
     pub fn parse(name: &str) -> Option<Self> {
-        [Kind::Fixture].into_iter().find(|k| k.name() == name)
+        [Kind::Fixture, Kind::Mantis]
+            .into_iter()
+            .find(|k| k.name() == name)
     }
 }
 
