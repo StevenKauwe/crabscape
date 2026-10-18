@@ -57,6 +57,9 @@ pub use world::{PlayerId, Sim, SimCrab, Snapshot};
 pub fn play(sim: &mut Sim, replay: &Replay, ticks: u64, mut after_tick: impl FnMut(&Sim)) {
     let mut playback = replay.playback();
     for _ in 0..ticks {
+        for s in replay.spawns_at(sim.tick_count()) {
+            sim.spawn_enemy(s.kind, s.pos);
+        }
         sim.set_controls(PlayerId(0), playback.next_controls());
         sim.tick();
         after_tick(sim);

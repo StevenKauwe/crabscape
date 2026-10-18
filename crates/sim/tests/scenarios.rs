@@ -1504,3 +1504,90 @@ fn blocking_walks_at_40_percent() {
     let ratio = guarded / free;
     assert!((ratio - 0.4).abs() < 0.03, "{ratio}");
 }
+
+// --- Fights as scripts and dumps (crabsim) ---------------------------------
+
+/// Play a script headless (spawns included) and keep every dump line.
+fn dump(script: &str, seconds: f64) -> (Sim, Vec<String>) {
+    let replay = Replay::parse(script).expect("the script reads");
+    let mut sim = Sim::with_one_crab(replay.start);
+    let mut lines = Vec::new();
+    play(&mut sim, &replay, ticks(seconds), |sim| {
+        lines.extend(sim.dump_lines())
+    });
+    (sim, lines)
+}
+
+#[test]
+fn a_fight_script_reads_as_text() {
+    let (sim, lines) = dump("t=0 spawn=fixture@300,0; t=0.4 block; t=0.5 smash", 1.5);
+    assert_eq!(sim.enemies().len(), 1);
+    let has = |needles: &[&str]| lines.iter().any(|l| needles.iter().all(|n| l.contains(n)));
+    // The enemy's rows: kind, state, phase, state tick, health and poise.
+    assert!(has(&[
+        r#""kind":"fixture""#,
+        r#""state":"tell""#,
+        r#""phase":"rear""#
+    ]));
+    assert!(has(&[
+        r#""state":"tell""#,
+        r#""phase":"cocked""#,
+        r#""state_tick":30"#
+    ]));
+    assert!(has(&[
+        r#""enemy":0"#,
+        r#""health":40.0"#,
+        r#""poise":30.0"#
+    ]));
+    // The crab's rows: health, poise and what it's doing in the fight.
+    assert!(has(&[r#""player":0"#, r#""combat":"blocking""#]));
+    assert!(has(&[r#""player":0"#, r#""combat":"smash windup""#]));
+    assert!(has(&[
+        r#""player":0"#,
+        r#""health":100.0"#,
+        r#""poise":100.0"#
+    ]));
+    // The smash lands on the fixture: its health drops by 12.
+    assert!(has(&[r#""enemy":0"#, r#""health":28.0"#]), "the smash hit");
+}
+
+#[test]
+fn a_recorded_fight_replays_to_the_same_hash() {
+    // As the game does: start recording, then the level's enemies appear.
+    let mut live = Sim::with_one_crab(SPAWN);
+    live.start_recording();
+    live.spawn_enemy(Kind::Fixture, Vec2::new(320.0, 0.0));
+    let script = Replay::parse(
+        "t=0 walk=right; t=0.2 walk=stop; t=0.4 block; t=0.6 unblock; t=0.65 parry; \
+         t=0.8 smash; t=1.3 jab; t=1.6 walk=left dodge; t=2 walk=right; t=2.3 smash; t=3 guard",
+    )
+    .unwrap();
+    let mut playback = script.playback();
+    for frame in 0..600 {
+        live.set_controls(PlayerId(0), playback.next_controls());
+        for _ in 0..[1, 0, 2, 1][frame % 4] {
+            live.tick();
+        }
+    }
+    assert!(
+        live.crabs()[0].fighter.vitals.health < 100.0 || live.enemies()[0].vitals.health < 40.0,
+        "something was hit"
+    );
+    let text = live.recording().unwrap().to_text();
+    assert!(text.contains("@0 spawn=fixture@320,0"), "{text}");
+    let replay = Replay::parse(&text).unwrap();
+    let mut again = Sim::with_one_crab(replay.start);
+    play(&mut again, &replay, replay.length(), |_| {});
+    assert_eq!(again.state_hash(), live.state_hash());
+    assert_eq!(replay.hash, Some(live.state_hash()));
+}
+
+#[test]
+fn a_spawn_needs_a_known_kind_and_a_place() {
+    assert!(
+        Replay::parse("t=0 spawn=kraken@1,0")
+            .unwrap_err()
+            .contains("kraken")
+    );
+    assert!(Replay::parse("t=0 spawn=fixture").is_err());
+}

@@ -30,7 +30,9 @@ USAGE: cargo crabsim [OPTIONS]
   --speed max|X     max = as fast as possible (default); X = X times real
                     time (0.25 is slow motion; useful with --dump -)
   --start X,Y       where the crab starts (default: the replay's, or the spawn)
-  --dump FILE       write the crab's state as JSON lines ('-' = the screen)
+  --dump FILE       write the state as JSON lines ('-' = the screen): one per
+                    crab (health, poise, combat status), one per enemy (kind,
+                    state, phase, state tick, health, poise)
   --every N         with --dump, only every Nth tick (events are never skipped)
   --record FILE     write the controls that were played as an exact replay
   --quiet           no summary
@@ -40,7 +42,8 @@ Script words: t=<seconds> or @<tick> starts an entry; then walk=right|left|stop|
 jump (press and hold), tap (press and let go), release, hold, dodge (a tap), sprint (press dodge
 and hold), slow (let go of dodge), sprinting (hold dodge), down=on / down=off (hold down: climbs
 down), smash (crusher), jab (cutter), block (press and hold: claws up), parry (press block and
-let go), guard (hold block, no press), unblock. ';' or a new line
+let go), guard (hold block, no press), unblock, spawn=<kind>@<x>,<y> (an enemy appears; kinds:
+fixture). ';' or a new line
 separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
 ";
 
@@ -170,6 +173,9 @@ fn run() -> Result<(), String> {
     let mut write_error = None;
     let mut playback = o.replay.playback();
     for _ in 0..total {
+        for s in o.replay.spawns_at(sim.tick_count()) {
+            sim.spawn_enemy(s.kind, s.pos);
+        }
         sim.set_controls(PlayerId(0), playback.next_controls());
         sim.tick();
         summary.after_tick(&sim);
@@ -177,8 +183,7 @@ fn run() -> Result<(), String> {
         if let Some(out) = &mut dump {
             let crab = &sim.crabs()[0];
             if sim.tick_count().is_multiple_of(o.every) || crab.events != Default::default() {
-                for snap in sim.snapshots() {
-                    let line = serde_json::to_string(&snap).expect("snapshots always serialise");
+                for line in sim.dump_lines() {
                     if let Err(e) = writeln!(out, "{line}") {
                         write_error.get_or_insert(e);
                     }
@@ -344,6 +349,18 @@ impl Summary {
         println!("events: {}", counts.join(", "));
         for line in &self.timeline {
             println!("  {line}");
+        }
+        for e in sim.enemies() {
+            println!(
+                "enemy {} {}: {} ({}), health {}, poise {}, at x {:.1}",
+                e.id,
+                e.kind.name(),
+                e.state.name(),
+                e.phase(&sim.tuning),
+                e.vitals.health,
+                e.vitals.poise,
+                e.pos.x
+            );
         }
         println!(
             "state hash {:016x} (same inputs + same code = same hash), tuning {:016x}",
