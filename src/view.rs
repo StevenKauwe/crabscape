@@ -246,7 +246,8 @@ mod page_bridge {
     use super::*;
 
     pub fn publish(
-        time: Res<Time>,
+        // Real time: in slow motion (?slow) the page still hears often.
+        time: Res<Time<Real>>,
         sim: Res<Sim>,
         crab: Single<(&Mover, &crabsim::Fighter), With<LocalPlayer>>,
         mut since: Local<f32>,
