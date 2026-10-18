@@ -1640,7 +1640,11 @@ fn the_mantis_rumbles_rears_and_holds_cocked_before_it_strikes() {
     assert_eq!(tell.iter().filter(|e| e.1 == "cocked").count(), 30);
     assert_eq!(club_tick(), first_attack);
     // Emerging from the burrow first.
-    assert_eq!(longest(&d, State::Notice), 24);
+    let emerging = d.enemy[..first_attack]
+        .iter()
+        .filter(|e| e.0 == State::Notice)
+        .count();
+    assert_eq!(emerging, 24);
 }
 
 #[test]
@@ -1713,7 +1717,7 @@ fn a_burrowed_mantis_cannot_be_hit() {
 }
 
 #[test]
-fn the_three_strike_combo_only_follows_a_landed_first_strike() {
+fn the_two_strike_combo_only_follows_a_landed_first_strike() {
     let strikes = |d: &Duel| {
         // Strikes before the first recover.
         let until = d
@@ -1726,8 +1730,23 @@ fn the_three_strike_combo_only_follows_a_landed_first_strike() {
     let open = mantis("", 400);
     assert_eq!(
         strikes(&open),
-        3,
-        "landed: it strikes the shell again and again"
+        2,
+        "landed: it strikes the shell again (capped at two for now)"
+    );
+    // An undefended combo hurts badly, but can't kill a full shell.
+    let recovered = open
+        .enemy
+        .iter()
+        .position(|e| e.0 == State::Recover)
+        .unwrap();
+    let worst = open.health[..recovered + 10]
+        .iter()
+        .copied()
+        .fold(100.0, f32::min);
+    assert_eq!(
+        worst,
+        100.0 - 2.0 * (28.0 + 8.0),
+        "two clubs and two bubbles"
     );
     assert!(open.enemy.iter().any(|e| e.1 == "recock"));
     let h = club_tick();

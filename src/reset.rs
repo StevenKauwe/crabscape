@@ -39,7 +39,7 @@ struct ResetButton;
 struct ResetLabel;
 
 /// The button's box: just under the art-style button, the same size.
-fn button_rect(window: Vec2) -> Rect {
+pub fn button_rect(window: Vec2) -> Rect {
     let above = style::button_rect(window);
     let down = Vec2::Y * (above.height() + GAP);
     Rect::from_corners(above.min + down, above.max + down)

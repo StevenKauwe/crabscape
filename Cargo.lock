@@ -2317,6 +2317,7 @@ dependencies = [
  "crabsim",
  "serde",
  "serde_json",
+ "wasm-bindgen",
  "web-sys",
 ]
 

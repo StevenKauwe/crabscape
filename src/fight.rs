@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use crabsim::{Fighter, Mover, Sim};
 
 use crate::effects::SoftTextures;
+use crate::feel::FeelLab;
 use crate::notes;
 use crate::player::{FrameEvents, GameSet, LocalPlayer};
 
@@ -118,6 +119,7 @@ fn spawn_flash(mut commands: Commands, soft: Res<SoftTextures>) {
 fn show_flash(
     time: Res<Time>,
     sim: Res<Sim>,
+    lab: Res<FeelLab>,
     crab: Query<(&Mover, &Fighter, &FrameEvents), With<LocalPlayer>>,
     mut flash: Single<(&mut Sprite, &mut Transform), With<Flash>>,
     mut fade: Local<f32>,
@@ -126,14 +128,23 @@ fn show_flash(
         return;
     };
     let (sprite, tr) = &mut *flash;
+    let j = lab.juice();
     if let Some(b) = f.hitbox(m, &sim.tuning) {
         tr.translation = b.center().extend(12.0);
-        sprite.custom_size = Some(b.size() * Vec2::new(1.6, 1.3));
         let strong = f.swing.as_ref().is_some_and(|s| s.counter);
-        *fade = if ev.0.struck || strong {
+        // Juiced, a whiff is only a faint streak and a hit a big bloom.
+        let landed = !f.swing.as_ref().is_none_or(|s| s.hits.is_empty());
+        let grow = if landed && j.flash > 1.0 {
+            j.flash * if strong { j.counter.sqrt() } else { 1.0 }
+        } else {
+            1.0
+        };
+        sprite.custom_size = Some(b.size() * Vec2::new(1.6, 1.3) * grow);
+        let whiff = if j.sound > 0.0 { 0.3 } else { 0.55 };
+        *fade = if ev.0.struck || strong || landed {
             1.0
         } else {
-            fade.max(0.55)
+            fade.max(whiff)
         };
     } else if ev.0.parried {
         // A pale flash at the raised claws.

@@ -29,5 +29,6 @@ t=0 walk=right; t=1 jump; t=1.45 jump; t=3 walk=right sprint; t=6 slow; t=9 jump
 t=0 walk=left; t=0.5 jump; t=2 walk=right; t=2.5 dodge; t=10 walk=right sprint; t=40 walk=stop
 t=0 walk=right; t=0.5 smash; t=0.6 jab; t=1 jab; t=1.05 jab; t=2 walk=left smash; t=2.2 dodge; t=3 jump; t=3.2 smash
 t=0 spawn=fixture@320,0; t=0 walk=right; t=0.2 walk=stop; t=0.4 block; t=0.6 unblock; t=0.65 parry; t=0.8 smash; t=1.3 jab; t=1.6 walk=left dodge; t=2 walk=right; t=2.3 smash; t=3 guard; t=5 unblock walk=right smash; t=8 spawn=fixture@900,0
+t=0 feel=momentum spawn=fixture@320,0; t=0 walk=right sprint; t=0.3 charge; t=0.6 loose; t=1 feel=silksong walk=stop; t=1.2 smash; t=1.4 jab; t=2 feel=heavy smash; t=2.3 jab; t=2.35 jab; t=3 feel=expedition parry; t=3.2 smash; t=4 feel=snappy jab; t=4.05 jab; t=4.1 smash
 SCRIPTS
 echo "native and wasm agree"

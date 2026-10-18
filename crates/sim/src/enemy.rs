@@ -391,7 +391,7 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
     }
 
     // Move: its own legs, plus any knockback dying away.
-    let decel = 1500.0 * STEP;
+    let decel = t.knock_decel * STEP;
     e.vel_x = if e.vel_x.abs() <= decel {
         0.0
     } else {

@@ -17,6 +17,7 @@
 //!
 //! The modules:
 //! - [`tuning`]: every number that decides how the crab moves
+//! - [`feel`]: presets for how the attacks feel, laid over the tuning
 //! - [`level`]: the test level's shape (floor line and rocks)
 //! - [`physics`]: walking, sinking, jumping, paddling, dodging for one crab
 //! - [`combat`]: health, poise, hits, knockback, hit-stop, claw swings
@@ -35,6 +36,7 @@
 
 pub mod combat;
 pub mod enemy;
+pub mod feel;
 pub mod hash;
 pub mod level;
 pub mod physics;
@@ -45,6 +47,7 @@ pub mod world;
 
 pub use combat::{Claw, Fighter, Hit, Outcome, Source, Vitals};
 pub use enemy::{Enemy, Kind};
+pub use feel::Feel;
 pub use level::{Level, SPAWN};
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use replay::Replay;
@@ -57,9 +60,7 @@ pub use world::{PlayerId, Sim, SimCrab, Snapshot};
 pub fn play(sim: &mut Sim, replay: &Replay, ticks: u64, mut after_tick: impl FnMut(&Sim)) {
     let mut playback = replay.playback();
     for _ in 0..ticks {
-        for s in replay.spawns_at(sim.tick_count()) {
-            sim.spawn_enemy(s.kind, s.pos);
-        }
+        replay.apply_at(sim);
         sim.set_controls(PlayerId(0), playback.next_controls());
         sim.tick();
         after_tick(sim);

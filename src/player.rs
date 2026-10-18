@@ -18,6 +18,7 @@ use bevy::prelude::*;
 use crabsim::physics::{self, Controls, Mover, STEP, StepEvents};
 use crabsim::{Fighter, Level, SPAWN, Sim, Tuning};
 
+use crate::feel::FeelLab;
 use crate::save;
 
 pub use crabsim::PlayerId;
@@ -92,7 +93,9 @@ impl Plugin for PlayerPlugin {
 }
 
 /// Create this tab's crab, standing where it was saved if that's a fair spot.
-fn spawn_local_crab(mut commands: Commands, mut sim: ResMut<Sim>) {
+fn spawn_local_crab(mut commands: Commands, mut sim: ResMut<Sim>, lab: Res<FeelLab>) {
+    // The feel preset first, so the recording starts with it.
+    sim.set_feel(lab.feel);
     let pos = save::load()
         .filter(|&p| physics::is_valid_spot(p, &sim.tuning, &sim.level))
         .unwrap_or(SPAWN);

@@ -19,7 +19,12 @@
 //! - F9, and the `?replay` page's Replay button, hand out a replay that the headless simulation (linked in) plays
 //!   to exactly the same state: same state hash, same place;
 //! - its resting position, and the chosen style, are saved in localStorage and survive a reload;
+//! - the feel lab (`?feel`; it shows by itself in preview builds) starts on the recommended preset, and the backtick
+//!   key, backslash and the FEEL button switch preset and juice, kept over a reload (`data-feel`);
 //! - nothing went wrong along the way (no error on the page or in the browser console).
+//!
+//! `--feel-shots PREFIX` instead plays a smash on the mantis in slow motion (`?slow=10`) in a few feel presets and
+//! saves a strip of frames of each as PREFIX-<preset>-<n>.png, to look at how the blow lands.
 //!
 //! `--smoke` stops after the start-up checks (for the live site). The game writes the crab's state onto the canvas
 //! as `data-crab="x y grounded"` (see src/view.rs); the test reads that. With `--shots PREFIX` it saves
@@ -49,6 +54,7 @@ struct Options {
     style_shots: Option<String>,
     url: Option<String>,
     smoke: bool,
+    feel_shots: Option<String>,
 }
 
 fn options() -> std::result::Result<Options, String> {
@@ -60,6 +66,7 @@ fn options() -> std::result::Result<Options, String> {
         style_shots: None,
         url: None,
         smoke: false,
+        feel_shots: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -72,10 +79,13 @@ fn options() -> std::result::Result<Options, String> {
             }
             "--url" => o.url = Some(args.next().ok_or("--url needs an address")?),
             "--smoke" => o.smoke = true,
+            "--feel-shots" => {
+                o.feel_shots = Some(args.next().ok_or("--feel-shots needs a prefix")?)
+            }
             "-h" | "--help" => {
                 println!(
                     "cargo webtest [--landscape | --desktop] [--shots PREFIX] [--style-shots PREFIX] \
-                     [--url URL] [--smoke]\n(see tools/webtest/src/main.rs)"
+                     [--url URL] [--smoke] [--feel-shots PREFIX]\n(see tools/webtest/src/main.rs)"
                 );
                 std::process::exit(0);
             }
@@ -171,7 +181,10 @@ fn run(o: &Options, root: &Path, scratch: &Path, log: &Path) -> Result<u32> {
     };
     let vw = if framed { o.width.max(500.0) } else { o.width };
     t.b.set_viewport(vw as u32, o.height as u32)?;
-    t.all()?;
+    match &o.feel_shots {
+        Some(prefix) => t.feel_strips(prefix)?,
+        None => t.all()?,
+    }
     t.console_errors(log);
     Ok(t.failures)
 }
@@ -690,7 +703,71 @@ impl Test<'_> {
             crab_hp < 100.0 || mantis_hurt,
             format!("blows land in the fight (shell and mantis: {after})"),
         );
+
+        // --- the feel lab -----------------------------------------------------------------------------------------
+        let feel_is = |s: &str| format!(r#"{CANVAS}.getAttribute("data-feel") === "{s}""#);
+        self.open("index.html?feel")?;
+        let ok = self.wait_for(&feel_is("heavy on"), 5.0)?;
+        let feel = self.attr("data-feel")?;
+        self.check(
+            ok,
+            format!("the feel lab starts on the recommended preset ({feel:?})"),
+        );
+        self.press("Backquote", "`")?;
+        let ok = self.wait_for(&feel_is("snappy on"), 5.0)?;
+        self.check(ok, "the backtick key switches to the next preset");
+        self.press("Backslash", "\\")?;
+        let ok = self.wait_for(&feel_is("snappy off"), 5.0)?;
+        self.check(ok, "backslash switches the juice off");
+        // The FEEL button: under Style and Start over (mirrors button_rect() in src/feel.rs), tapped.
+        let top = if w < 600.0 { 58.0 } else { 10.0 } + 2.0 * (34.0 + 8.0);
+        let (fx, fy) = (w - 10.0 - 52.0, top + 17.0);
+        self.pointer("pointerdown", fx, fy, 11, 1, true)?;
+        pump(0.15);
+        self.pointer("pointerup", fx, fy, 11, 0, true)?;
+        let ok = self.wait_for(&feel_is("momentum off"), 5.0)?;
+        self.check(ok, "tapping the FEEL button switches preset");
+        self.open("index.html?feel")?;
+        let ok = self.wait_for(&feel_is("momentum off"), 5.0)?;
+        self.check(ok, "the preset and juice are kept over a reload");
         self.no_error_on_page("at the end")?;
+        Ok(())
+    }
+
+    /// `--feel-shots`: a smash on the mantis in slow motion, frame by frame, in a few presets.
+    fn feel_strips(&mut self, prefix: &str) -> Result<()> {
+        self.go("index.html")?;
+        for feel in ["current", "heavy", "snappy", "silksong"] {
+            self.eval(&format!(
+                r#"(localStorage.clear(),
+                    localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: 870, y: 110}})),
+                    localStorage.setItem("crabscape-feel", "{feel}"),
+                    localStorage.setItem("crabscape-juice", "on"), true)"#
+            ))?;
+            self.open("index.html?feel&slow=10")?;
+            // It comes out and darts in (slowly); smash as it starts to rear.
+            let rearing = self.wait_for(
+                &format!(r#"/tell:/.test({CANVAS}.getAttribute("data-fight") || "")"#),
+                60.0,
+            )?;
+            self.check(rearing, format!("{feel}: the mantis rears"));
+            pump(1.0); // past the toast
+            self.key("keydown", "KeyE", "e")?;
+            pump(0.3);
+            self.key("keyup", "KeyE", "e")?;
+            let started = Instant::now();
+            for n in 1..=16 {
+                let path = PathBuf::from(format!("{prefix}-{feel}-{n:02}.png"));
+                self.shot(path, false)?;
+                println!(
+                    "     {feel} frame {n} at {:.2} s",
+                    started.elapsed().as_secs_f64()
+                );
+            }
+            let fight = self.attr("data-fight")?;
+            println!("     {feel}: after the smash {fight:?}");
+        }
+        self.no_error_on_page("after the frame strips")?;
         Ok(())
     }
 

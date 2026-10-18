@@ -41,9 +41,11 @@ USAGE: cargo crabsim [OPTIONS]
 Script words: t=<seconds> or @<tick> starts an entry; then walk=right|left|stop|<-1..1>,
 jump (press and hold), tap (press and let go), release, hold, dodge (a tap), sprint (press dodge
 and hold), slow (let go of dodge), sprinting (hold dodge), down=on / down=off (hold down: climbs
-down), smash (crusher), jab (cutter), block (press and hold: claws up), parry (press block and
+down), smash (crusher), charge (press smash and hold: a charging crusher winds up), loose (let
+go of smash), jab (cutter), block (press and hold: claws up), parry (press block and
 let go), guard (hold block, no press), unblock, spawn=<kind>@<x>,<y> (an enemy appears; kinds:
-fixture, mantis). ';' or a new line
+fixture, mantis), feel=<preset> (current, heavy, snappy, momentum, silksong, expedition: the
+game's feel lab presets, crates/sim/src/feel.rs). ';' or a new line
 separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
 ";
 
@@ -148,13 +150,15 @@ fn run() -> Result<(), String> {
     });
 
     let mut sim = Sim::with_one_crab(o.replay.start);
+    // A feel switch on the first tick is the feel it was recorded with.
+    let start_feel = o.replay.feels.iter().find(|(t, _)| *t == 0).map(|f| f.1);
+    let expected = start_feel.map_or(sim.tuning.fingerprint(), |f| f.tuning().fingerprint());
     if let Some(code) = o.replay.tuning
-        && code != sim.tuning.fingerprint()
+        && code != expected
     {
         eprintln!(
             "crabsim: note: this replay was recorded with different movement tuning \
-             ({code:016x}, now {:016x}), so it may play out differently",
-            sim.tuning.fingerprint()
+             ({code:016x}, now {expected:016x}), so it may play out differently"
         );
     }
     sim.start_recording();
@@ -173,9 +177,7 @@ fn run() -> Result<(), String> {
     let mut write_error = None;
     let mut playback = o.replay.playback();
     for _ in 0..total {
-        for s in o.replay.spawns_at(sim.tick_count()) {
-            sim.spawn_enemy(s.kind, s.pos);
-        }
+        o.replay.apply_at(&mut sim);
         sim.set_controls(PlayerId(0), playback.next_controls());
         sim.tick();
         summary.after_tick(&sim);

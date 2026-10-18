@@ -15,6 +15,7 @@ use crabsim::enemy::{Enemy, State};
 use crabsim::{Kind, Sim};
 
 use crate::effects::SoftTextures;
+use crate::feel::FeelLab;
 use crate::lantern::{LightBlend, Lit};
 use crate::player::GameSet;
 
@@ -237,6 +238,7 @@ const CLUB_DROOP: Vec2 = Vec2::new(98.0, -6.0);
 fn pose_foes(
     time: Res<Time>,
     sim: Res<Sim>,
+    lab: Res<FeelLab>,
     mut foes: Query<(
         &mut Foe,
         &LightBlend,
@@ -310,7 +312,17 @@ fn pose_foes(
         let lit = 0.45 + 0.55 * light.0;
         let rumble = shiver * 1.3 * (foe.time * 75.0).sin();
 
-        root.translation = Vec3::new(e.pos.x, e.pos.y, if foe.lift < -2.0 { Z_BURIED } else { Z });
+        // Held still by a blow (hit-stop): it shivers where it's struck.
+        let shiver = if e.vitals.hitstop > 0 {
+            lab.juice().jitter * (foe.time * 95.0).sin()
+        } else {
+            0.0
+        };
+        root.translation = Vec3::new(
+            e.pos.x + shiver,
+            e.pos.y,
+            if foe.lift < -2.0 { Z_BURIED } else { Z },
+        );
         root.scale.x = e.facing.signum();
 
         let health = e.vitals.health / k.vitals.health;

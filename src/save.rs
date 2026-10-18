@@ -103,6 +103,38 @@ pub fn wipe() {
     backend::wipe();
 }
 
+/// Read one small setting this build keeps (`suffix` names it: "-feel").
+/// Best-effort: None if there is none or storage is blocked (and always on
+/// native, where settings aren't kept).
+pub fn read_key(_suffix: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()?
+            .local_storage()
+            .ok()??
+            .get_item(&browser_key(_suffix))
+            .ok()?
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+
+/// Keep one small setting (best-effort, like [`read_key`]).
+pub fn write_key(_suffix: &str, _value: &str) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = storage.set_item(&browser_key(_suffix), _value);
+    }
+}
+
+/// Is this page a preview build (`/pr-<n>/`, `/branches/<name>/`)?
+#[cfg(target_arch = "wasm32")]
+pub fn is_preview() -> bool {
+    build_slug().is_some()
+}
+
 /// The browser storage key for `suffix` (".save", "-style") in this build.
 #[cfg(target_arch = "wasm32")]
 pub fn browser_key(suffix: &str) -> String {

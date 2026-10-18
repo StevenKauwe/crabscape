@@ -191,6 +191,21 @@ pub struct Tuning {
     /// Walking speed during a swing's recovery, as a share of normal (the
     /// wind-up and the blow itself plant the feet: no walking).
     pub recovery_walk: f32,
+    /// Momentum: a swing started at speed hits harder and lunges further,
+    /// by up to this share at sprinting speed (0 = speed doesn't matter).
+    pub momentum: f32,
+    /// The crusher charges: hold smash to keep winding up for up to this
+    /// many more ticks, let go to strike (0 = no charging: a fixed wind-up).
+    pub charge_ticks: u32,
+    /// A full charge does this much more (damage, poise, knockback, lunge).
+    pub charge_bonus: f32,
+    /// Ticks of hit-stop when a counter smash lands (the payoff beat).
+    pub counter_hitstop_ticks: u32,
+    /// A counter smash's wind-up is this many ticks shorter.
+    pub counter_haste: u32,
+    /// How quickly an enemy sheds the knockback of a blow (units per second
+    /// per second): high = a hard shove that stops, low = a slide.
+    pub knock_decel: f32,
 
     // --- Defence (ticks) -------------------------------------------------
     /// Share of a blow's damage that raised claws let through (poise damage
@@ -338,6 +353,47 @@ pub struct ClawTuning {
     pub knockback: (f32, f32),
     /// Hit-stop: both fighters freeze this many ticks when it connects.
     pub hitstop_ticks: u32,
+    /// The body goes with the blow: forward speed given on its first active
+    /// tick (0 = none). The feet then brake it as usual.
+    pub lunge: f32,
+    /// From this tick of the recovery on, a claw press cuts the recovery
+    /// short and swings again (None = only when the swing is over). Dodge
+    /// and block always cut a recovery short.
+    pub chain_after: Option<u32>,
+    /// On a hit, the crab bounces back off what it struck (sideways speed
+    /// away from it; 0 = none).
+    pub recoil: f32,
+    /// On a hit, the crab hops up off it (upward speed; 0 = none).
+    pub hop: f32,
+}
+
+impl ClawTuning {
+    /// A plain strike: no lunge, no chaining, no charging.
+    pub const fn plain(
+        (windup_ticks, active_ticks, recovery_ticks): (u32, u32, u32),
+        damage: f32,
+        poise: f32,
+        reach: f32,
+        height: f32,
+        knockback: (f32, f32),
+        hitstop_ticks: u32,
+    ) -> Self {
+        Self {
+            windup_ticks,
+            active_ticks,
+            recovery_ticks,
+            damage,
+            poise,
+            reach,
+            height,
+            knockback,
+            hitstop_ticks,
+            lunge: 0.0,
+            chain_after: None,
+            recoil: 0.0,
+            hop: 0.0,
+        }
+    }
 }
 
 impl Default for Tuning {
@@ -406,30 +462,18 @@ impl Default for Tuning {
             hit_stun_ticks: 10,
             respawn_ticks: 360,
             home_heal_after_ticks: 240,
-            crusher: ClawTuning {
-                windup_ticks: 14,
-                active_ticks: 6,
-                recovery_ticks: 22,
-                damage: 12.0,
-                poise: 25.0,
-                reach: 40.0,
-                height: 30.0,
-                knockback: (320.0, 0.0),
-                hitstop_ticks: 7, // about 60 ms: you feel it land
-            },
-            cutter: ClawTuning {
-                windup_ticks: 6,
-                active_ticks: 4,
-                recovery_ticks: 12,
-                damage: 5.0,
-                poise: 8.0,
-                reach: 34.0, // a touch shorter than the crusher (tuned)
-                height: 24.0,
-                knockback: (90.0, 0.0),
-                hitstop_ticks: 3,
-            },
+            // Hit-stop 7: about 60 ms, you feel it land.
+            crusher: ClawTuning::plain((14, 6, 22), 12.0, 25.0, 40.0, 30.0, (320.0, 0.0), 7),
+            // Reach 34: a touch shorter than the crusher (tuned).
+            cutter: ClawTuning::plain((6, 4, 12), 5.0, 8.0, 34.0, 24.0, (90.0, 0.0), 3),
             swing_buffer_ticks: 12,
             recovery_walk: 0.35,
+            momentum: 0.0,
+            charge_ticks: 0,
+            charge_bonus: 0.0,
+            counter_hitstop_ticks: 7,
+            counter_haste: 0,
+            knock_decel: 1500.0,
 
             block_damage: 0.2,
             cracked_block_damage: 0.4,
@@ -514,7 +558,10 @@ impl Default for Tuning {
                 tell_ticks: 78,   // rumble and rear (48), then the cocked hold (30)
                 cocked_ticks: 30, // the latch is set: parry at its end
                 recock_ticks: 24,
-                combo_extra: 2,  // strikes the shell again and again (real)
+                // Strikes the shell again and again (real); two strikes for
+                // now, so an undefended combo (2 x 36) can't kill a full
+                // shell. Brutality comes later from located body damage.
+                combo_extra: 1,
                 active_ticks: 3, // real: a few ms, under one tick
                 recover_ticks: 60,
                 parried_ticks: 50,

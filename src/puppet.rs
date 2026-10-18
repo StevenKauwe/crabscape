@@ -38,6 +38,7 @@ use bevy::sprite::Anchor;
 use serde::Deserialize;
 
 use crate::effects::SoftTextures;
+use crate::feel::{FeelLab, Juice};
 use crate::lantern::{self, Lit, LitTint};
 use crate::player::{Crab, FrameEvents, GameSet};
 use crate::style::ArtStyle;
@@ -508,6 +509,7 @@ fn paddle_curve(t: f32) -> f32 {
 fn animate(
     time: Res<Time>,
     sim: Res<Sim>,
+    lab: Res<FeelLab>,
     mut crabs: Query<(
         &Mover,
         Option<&Fighter>,
@@ -625,7 +627,10 @@ fn animate(
             (-vy / top_sink).clamp(0.0, 1.0)
         };
         a.water_push = ease(a.water_push, sink, 6.0, dt);
-        let squash_target = if crouching { 0.6 } else { 0.0 };
+        // Fighting poses (see `fight_pose`): the crusher rears back over the
+        // wind-up and slams down; the cutter jabs; guard raises both claws.
+        let fight = fight_pose(fighter, &sim.tuning, a.time, lab.juice());
+        let squash_target = if crouching { 0.6 } else { 0.0 } + fight.squash;
         let (mut sq, mut sq_vel) = (a.squash, a.squash_vel);
         spring(&mut sq, &mut sq_vel, squash_target, 320.0, 20.0, dt);
         a.squash = sq.clamp(-0.8, 1.0);
@@ -637,11 +642,6 @@ fn animate(
         let heave = stroke * a.effort;
         // A strain tremble while the legs push hard.
         let strain = 0.04 * heave * (t * 46.0).sin();
-
-        // --- Fighting poses (straight from the sim's tick counts, so hit-stop
-        // freezes them): the crusher rears back over the wind-up and slams
-        // down; the cutter jabs; guard raises both claws.
-        let fight = fight_pose(fighter, &sim.tuning, a.time);
 
         // --- Whole body: squash and lean around the feet ------------------
         // Climbing turns the crab sideways onto the stalk (round its feet),
@@ -663,7 +663,12 @@ fn animate(
             + fight.lean;
         let middle = Vec2::new(0.0, FLIP_MIDDLE);
         let about_middle = middle - Vec2::from_angle(flip).rotate(middle);
-        set(&mut parts, Some(rig.root), lean, about_middle);
+        set(
+            &mut parts,
+            Some(rig.root),
+            lean,
+            about_middle + Vec2::X * fight.shift,
+        );
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
             tr.scale = Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0);
         }
@@ -812,13 +817,24 @@ struct FightPose {
     claw: [(f32, f32); 2],
     /// The crusher's finger opening.
     gape: f32,
+    /// Added to the body's squash: crouching into a wind-up (> 0),
+    /// stretching into the blow (< 0).
+    squash: f32,
+    /// The body shifted sideways (world units): back in the wind-up,
+    /// forward with the blow.
+    shift: f32,
 }
 
-fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32) -> FightPose {
+/// The fighting pose, straight from the sim's tick counts (so hit-stop
+/// freezes it). `j` is the feel preset's juice: how far the body rears back
+/// and crouches, how early, and how hard it is thrown into the blow.
+fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32, j: &Juice) -> FightPose {
     let mut pose = FightPose {
         lean: 0.0,
         claw: [(0.0, 0.0); 2],
         gape: 0.0,
+        squash: 0.0,
+        shift: 0.0,
     };
     let Some(f) = fighter else {
         return pose;
@@ -828,25 +844,53 @@ fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32) -> Figh
         let c = s.claw.tuning(t);
         let tick = s.tick as f32;
         let (w, a, r) = (
-            c.windup_ticks as f32,
+            s.windup_len() as f32,
             c.active_ticks as f32,
             c.recovery_ticks as f32,
         );
-        // 0..1 up over the wind-up; 1 at the blow, easing back over recovery.
+        // 0..1 up over the wind-up (early or late, by the juice's curve); 1
+        // at the blow, easing back over the recovery.
         let (load, blow) = match s.phase(t) {
-            Phase::Windup => ((tick / w).powi(2), 0.0),
+            Phase::Windup if s.charging => (1.0, 0.0),
+            Phase::Windup => ((tick / s.windup as f32).min(1.0).powf(j.curve), 0.0),
             Phase::Active => (0.0, 1.0),
-            Phase::Recovery => (0.0, 1.0 - ((tick - w - a) / r).clamp(0.0, 1.0)),
+            Phase::Recovery => {
+                let p = ((tick - w - a) / r).clamp(0.0, 1.0);
+                // Juiced: the blow holds, then comes back quickly.
+                let back = if j.curve < 1.0 { p.powf(0.6) } else { p };
+                (0.0, 1.0 - back)
+            }
         };
+        // Charging: straining, a tremble that grows.
+        let strain = if s.charging {
+            0.04 * (s.charged as f32 / t.charge_ticks.max(1) as f32 + 0.3) * (time * 50.0).sin()
+        } else {
+            0.0
+        };
+        let (rear, crouch) = match s.claw {
+            Claw::Crusher => (j.rear, j.crouch),
+            Claw::Cutter => (j.rear * 0.35, j.crouch * 0.35),
+        };
+        let (throw, stretch) = match s.claw {
+            Claw::Crusher => (j.throw, j.stretch),
+            Claw::Cutter => (j.throw * 0.45, j.stretch * 0.4),
+        };
+        // Rear back from the blow, then throw the body into it.
+        pose.lean += facing * (rear * load - throw * blow) + strain;
+        pose.squash += crouch * load - stretch * blow;
+        // The shift needs juice (Juice::OFF has no crouch).
+        if j.crouch > 0.0 {
+            pose.shift += facing * (-6.0 * load + 5.0 * blow) * rear / j.rear.max(0.01);
+        }
         match s.claw {
             Claw::Crusher => {
-                // Rear back from the blow, then throw the body into it.
-                pose.lean += facing * 0.12 * load - facing * 0.16 * blow;
-                pose.claw[0] = (1.3 * load - 0.55 * blow, 0.7 * load - 0.35 * blow);
+                pose.claw[0] = (
+                    1.3 * load - 0.55 * blow + strain * 3.0,
+                    0.7 * load - 0.35 * blow,
+                );
                 pose.gape = 0.55 * load;
             }
             Claw::Cutter => {
-                pose.lean += facing * 0.04 * load - facing * 0.07 * blow;
                 pose.claw[1] = (0.4 * load - 0.5 * blow, 0.3 * load - 0.25 * blow);
             }
         }

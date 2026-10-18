@@ -21,6 +21,28 @@ pub struct SoftTextures {
     pub dot: Handle<Image>,
     /// A thin ring with a faint inside: a bubble.
     pub ring: Handle<Image>,
+    /// A small hard-edged chip (a bit of shell).
+    pub chip: Handle<Image>,
+}
+
+/// A burst of debris where a blow lands (see `impact.rs`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Burst {
+    pub kind: BurstKind,
+    pub at: Vec2,
+    /// Which way the blow went (1 = right): most of it flies that way.
+    pub dir: f32,
+    pub count: u32,
+    /// 1 = a plain smash; harder blows throw it further.
+    pub strength: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BurstKind {
+    /// Chips of shell knocked off, sinking (heavier than sand).
+    Shards,
+    /// Sand kicked up from the floor.
+    Sand,
 }
 
 /// A short-lived speck: a bubble or a grain of sand.
@@ -84,11 +106,14 @@ pub struct EffectsPlugin;
 impl Plugin for EffectsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Rng(0x2545_F491))
+            .add_message::<Burst>()
             .add_systems(PreStartup, make_textures)
             .add_systems(Startup, spawn_snow)
             .add_systems(
                 Update,
-                (emit, update_particles, drift_snow).in_set(GameSet::Present),
+                (emit, burst, update_particles, drift_snow)
+                    .chain()
+                    .in_set(GameSet::Present),
             );
     }
 }
@@ -133,10 +158,99 @@ fn make_textures(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         let rim = (-((r - 0.78) / 0.10).powi(2)).exp();
         rim + if r < 0.8 { 0.15 } else { 0.0 }
     });
+    // A chip: a hard-edged, lopsided shard (pointed at one end).
+    let size = 16;
+    let mut data = Vec::with_capacity(size * size * 4);
+    for y in 0..size {
+        for x in 0..size {
+            let (u, v) = (x as f32 / size as f32, y as f32 / size as f32);
+            let inside = v > 0.15 && v < 0.85 && (u - 0.5).abs() < 0.45 * (1.0 - v) + 0.05;
+            data.extend([255, 255, 255, if inside { 255 } else { 0 }]);
+        }
+    }
+    let chip = Image::new(
+        Extent3d {
+            width: size as u32,
+            height: size as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
     commands.insert_resource(SoftTextures {
         dot: images.add(dot),
         ring: images.add(ring),
+        chip: images.add(chip),
     });
+}
+
+/// Throw out the debris of blows that landed.
+fn burst(
+    mut commands: Commands,
+    soft: Res<SoftTextures>,
+    mut rng: ResMut<Rng>,
+    mut bursts: MessageReader<Burst>,
+) {
+    for b in bursts.read() {
+        let k = b.strength;
+        for i in 0..b.count {
+            let (image, p) = match b.kind {
+                BurstKind::Shards => {
+                    // Mostly along the blow, fanning up; a few spray back.
+                    let back = i % 5 == 4;
+                    let dir = if back { -b.dir } else { b.dir };
+                    let angle = rng.range(-0.3, 1.1);
+                    let speed = rng.range(120.0, 340.0) * k.sqrt();
+                    (
+                        &soft.chip,
+                        Particle {
+                            vel: Vec2::new(dir * angle.cos(), angle.sin()) * speed,
+                            lift: -420.0, // shell sinks
+                            drag: 2.2,
+                            age: 0.0,
+                            life: rng.range(0.5, 0.9),
+                            size: (rng.range(4.0, 8.0) * k.sqrt().min(1.4), rng.range(2.0, 4.0)),
+                            dark: Color::srgba(0.55, 0.62, 0.58, 0.0),
+                            bright: Color::srgba(1.0, 0.95, 0.82, 0.0),
+                            wobble: 0.0,
+                        },
+                    )
+                }
+                BurstKind::Sand => (
+                    &soft.dot,
+                    Particle {
+                        vel: Vec2::new(
+                            b.dir * rng.range(30.0, 160.0) * k,
+                            rng.range(20.0, 90.0) * k.sqrt(),
+                        ),
+                        lift: -15.0,
+                        drag: 3.0,
+                        age: 0.0,
+                        life: rng.range(0.6, 1.1),
+                        size: (rng.range(4.0, 8.0), rng.range(14.0, 26.0)),
+                        dark: Color::srgba(0.30, 0.36, 0.34, 0.0),
+                        bright: Color::srgba(0.85, 0.72, 0.52, 0.0),
+                        wobble: 0.0,
+                    },
+                ),
+            };
+            let at = b.at + Vec2::new(rng.range(-6.0, 6.0), rng.range(-6.0, 6.0));
+            commands.spawn((
+                Sprite {
+                    image: image.clone(),
+                    color: p.dark,
+                    custom_size: Some(Vec2::splat(p.size.0)),
+                    ..default()
+                },
+                Transform::from_translation(at.extend(EFFECT_Z))
+                    .with_rotation(Quat::from_rotation_z(rng.range(0.0, 6.3))),
+                Lit::default(),
+                p,
+            ));
+        }
+    }
 }
 
 /// Spawn bubbles and sand when crabs paddle, land and dodge.

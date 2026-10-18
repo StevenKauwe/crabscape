@@ -240,6 +240,7 @@ fn read_input(
         dodge_held: dodge,
         down,
         smash_pressed: smash && !held_before.smash,
+        smash_held: smash,
         jab_pressed: jab && !held_before.jab,
         block_held: guard,
         block_pressed: guard && !held_before.guard,

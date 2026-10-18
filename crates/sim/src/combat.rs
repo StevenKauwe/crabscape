@@ -213,23 +213,52 @@ pub struct Swing {
     pub hits: Vec<u32>,
     /// Started inside a parry's counter window: it hits harder.
     pub counter: bool,
+    /// This swing's wind-up before any charging (a counter's is shorter).
+    pub windup: u32,
+    /// Extra wind-up ticks spent charging (holding smash).
+    pub charged: u32,
+    /// Still held, still charging.
+    pub charging: bool,
+    /// How hard it was started (momentum): 1 = plain.
+    pub power: f32,
 }
 
 impl Swing {
+    /// The whole wind-up, charging included.
+    pub fn windup_len(&self) -> u32 {
+        self.windup + self.charged
+    }
+
     pub fn phase(&self, t: &Tuning) -> Phase {
         let c = self.claw.tuning(t);
-        if self.tick <= c.windup_ticks {
+        if self.tick <= self.windup_len() {
             Phase::Windup
-        } else if self.tick <= c.windup_ticks + c.active_ticks {
+        } else if self.tick <= self.windup_len() + c.active_ticks {
             Phase::Active
         } else {
             Phase::Recovery
         }
     }
 
+    /// Ticks into the recovery (1 on its first), 0 before it.
+    pub fn recovery_tick(&self, t: &Tuning) -> u32 {
+        let c = self.claw.tuning(t);
+        self.tick.saturating_sub(self.windup_len() + c.active_ticks)
+    }
+
+    /// How much harder than plain it hits: momentum, and a charge.
+    pub fn strength(&self, t: &Tuning) -> f32 {
+        let charge = if t.charge_ticks > 0 {
+            t.charge_bonus * self.charged as f32 / t.charge_ticks as f32
+        } else {
+            0.0
+        };
+        self.power * (1.0 + charge)
+    }
+
     fn done(&self, t: &Tuning) -> bool {
         let c = self.claw.tuning(t);
-        self.tick > c.windup_ticks + c.active_ticks + c.recovery_ticks
+        self.tick > self.windup_len() + c.active_ticks + c.recovery_ticks
     }
 }
 
@@ -402,11 +431,26 @@ pub fn before_step(
         f.queued = Some((claw, t.swing_buffer_ticks));
     }
 
-    // Advance the swing; dodge cancels its recovery.
+    // Advance the swing; dodge or block cut its recovery short, and so does
+    // a claw press late enough in it (when the claw chains).
     if let Some(s) = &mut f.swing {
         s.tick += 1;
+        // Charging: held at the top of the wind-up until let go (or full).
+        if s.charging {
+            if !c.smash_held || s.charged >= t.charge_ticks {
+                s.charging = false;
+            } else if s.tick > s.windup_len() {
+                s.charged += 1;
+            }
+        }
         let recovering = s.phase(t) == Phase::Recovery;
-        if s.done(t) || (recovering && (c.dodge_pressed || c.block_pressed)) {
+        let chains = s
+            .claw
+            .tuning(t)
+            .chain_after
+            .is_some_and(|n| s.recovery_tick(t) >= n);
+        let cut = c.dodge_pressed || c.block_pressed || (chains && f.queued.is_some());
+        if s.done(t) || (recovering && cut) {
             f.swing = None;
         }
     }
@@ -420,11 +464,18 @@ pub fn before_step(
             f.counter = 0;
             ev.countered = true;
         }
+        let ct = claw.tuning(t);
+        let haste = if counter { t.counter_haste } else { 0 };
+        let speed = (m.vel.x.abs() / t.sprint_speed).min(1.0);
         f.swing = Some(Swing {
             claw,
             tick: 1,
             hits: Vec::new(),
             counter,
+            windup: ct.windup_ticks.saturating_sub(haste).max(1),
+            charged: 0,
+            charging: claw == Claw::Crusher && t.charge_ticks > 0 && c.smash_held,
+            power: 1.0 + t.momentum * speed,
         });
         match claw {
             Claw::Crusher => ev.smashed = true,
@@ -435,6 +486,17 @@ pub fn before_step(
         *left = left.saturating_sub(1);
         if *left == 0 {
             f.queued = None;
+        }
+    }
+    // The blow comes out: the body goes with it.
+    if let Some(s) = &f.swing {
+        let ct = s.claw.tuning(t);
+        if ct.lunge > 0.0 && s.tick == s.windup_len() + 1 {
+            let lunge = ct.lunge * s.strength(t);
+            if m.vel.x * f.facing < lunge {
+                m.vel.x = f.facing * lunge;
+            }
+            ev.lunged = true;
         }
     }
 

@@ -44,6 +44,13 @@ no damage, the attacker staggers, and a smash *started* in the next 45 ticks is 
 invulnerable on its ticks 2–13. Enemies (`crates/sim/src/enemy.rs`) run the bestiary's state machine with a
 `tell` whose last stretch is `cocked`, and take the crab's blows by the same rules.
 The first enemy in the level: a mantis shrimp's burrow on the plateau (placeholder shapes until its puppet).
+**Feel lab (preview builds):** the attacks' feel is being chosen. A FEEL button under "Start over" (or the backtick
+key, or 1–6) cycles six presets (A Current, B Heavy tank, C Snappy brawler, D Momentum, E Silksong-ish, F Expedition
+timing): each a row of swing timings and extras in `crates/sim/src/feel.rs` (lunge, chaining a press late in a
+recovery, recoil, a hop on a hit, charging the smash, momentum, the counter's payoff) and of juice in `src/feel.rs`
+(anticipation pose, camera shake and kick, flash, shell chips, sound). "Juice off" shows the bare timings. Damage and
+poise are the same in all of them: brutal is how a blow lands, not bigger numbers. The game plays **B. Heavy tank**
+until the owner picks; the numbers above are A (`Tuning::default`, what the tests use).
 - **Brutal means bodies break** (a direction, not a spec yet). Hits have located, visible consequences, the same
   rules for the crab and every creature: shells crack, limbs are torn off or dropped, and a damaged part changes what
   its owner can do (a crusher torn off can't smash; a mantis with a cracked club strikes weaker). Damage carries until
@@ -75,6 +82,7 @@ The first enemy in the level: a mantis shrimp's burrow on the plateau (placehold
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Art style | P | | "Style" |
+| Feel lab: next preset / juice off-on (previews) | backtick (or 1–6) / backslash | | "FEEL" / "Juice" |
 
 ## Architecture rule
 Nothing moves the crab directly: input sends a `MoveRequest` message and fixed-step physics (1/120 s) acts on it, so

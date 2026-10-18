@@ -18,6 +18,7 @@ use serde::Serialize;
 
 use crate::combat::{self, Fighter, Hit, Outcome, Source};
 use crate::enemy::{self, Enemy, Kind};
+use crate::feel::Feel;
 use crate::hash::fnv1a;
 use crate::level::{EGG_RADIUS, Level, SPAWN};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
@@ -65,6 +66,8 @@ pub struct SimCrab {
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Sim {
     pub tuning: Tuning,
+    /// The feel preset the tuning came from (see [`Sim::set_feel`]).
+    feel: Feel,
     pub level: Level,
     /// How many ticks have run.
     tick: u64,
@@ -88,6 +91,7 @@ impl Sim {
     pub fn new(tuning: Tuning, level: Level) -> Self {
         Self {
             tuning,
+            feel: Feel::Current,
             level,
             tick: 0,
             crabs: Vec::new(),
@@ -104,6 +108,23 @@ impl Sim {
         let mut sim = Self::new(Tuning::default(), Level::test_level());
         sim.add_crab(PlayerId(0), start);
         sim
+    }
+
+    /// Which feel preset the tuning came from ([`Feel::Current`] unless
+    /// [`Sim::set_feel`] was called).
+    pub fn feel(&self) -> Feel {
+        self.feel
+    }
+
+    /// Switch to a feel preset: its tuning replaces the current one from the
+    /// next tick on. A running recording notes the switch, so the replay
+    /// plays back with the same feel.
+    pub fn set_feel(&mut self, feel: Feel) {
+        self.feel = feel;
+        self.tuning = feel.tuning();
+        if let Some(rec) = &mut self.recorder {
+            rec.note_feel(self.tick, feel);
+        }
     }
 
     /// Put a crab standing still at `pos` into the world.
@@ -164,6 +185,7 @@ impl Sim {
             c.jump_pressed |= new.jump_pressed;
             c.dodge_pressed |= new.dodge_pressed;
             c.block_held = new.block_held;
+            c.smash_held = new.smash_held;
             c.smash_pressed |= new.smash_pressed;
             c.jab_pressed |= new.jab_pressed;
             c.block_pressed |= new.block_pressed;
@@ -355,7 +377,16 @@ impl Sim {
             let f = &mut crab.fighter;
             let swing = f.swing.as_mut().expect("a hitbox means a swing");
             let c = swing.claw.tuning(t);
-            let boost = if swing.counter { t.counter_damage } else { 1.0 };
+            let strength = swing.strength(t);
+            let boost = strength * if swing.counter { t.counter_damage } else { 1.0 };
+            let hitstop = if swing.counter {
+                c.hitstop_ticks.max(t.counter_hitstop_ticks)
+            } else {
+                c.hitstop_ticks
+            };
+            // A harder blow (momentum, a charge) holds the freeze longer.
+            let hitstop = (hitstop as f32 * strength).round() as u32;
+            let mut landed = false;
             for e in &mut self.enemies {
                 if swing.hits.contains(&e.id)
                     || !e.hittable(t)
@@ -366,14 +397,27 @@ impl Sim {
                 let hit = Hit {
                     damage: c.damage * boost,
                     poise: c.poise * boost,
-                    knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1),
-                    hitstop: c.hitstop_ticks,
+                    knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1) * strength,
+                    hitstop,
                     ..Hit::new(0.0, 0.0, Source::Crab(crab.id))
                 };
                 if e.takes(&hit, crab.mover.pos.x, t).is_some() {
                     swing.hits.push(e.id);
-                    f.vitals.hitstop = f.vitals.hitstop.max(c.hitstop_ticks);
+                    f.vitals.hitstop = f.vitals.hitstop.max(hitstop);
                     crab.events.struck = true;
+                    landed = true;
+                }
+            }
+            // Bouncing off what it struck: back, or up (it moves once the
+            // freeze is over).
+            if landed {
+                let m = &mut crab.mover;
+                if c.recoil > 0.0 {
+                    m.vel.x = -f.facing * c.recoil;
+                }
+                if c.hop > 0.0 {
+                    m.vel.y = m.vel.y.max(c.hop);
+                    m.grounded = false;
                 }
             }
         }
@@ -386,7 +430,11 @@ impl Sim {
         let start = self
             .crab(PlayerId(0))
             .map_or(crate::level::SPAWN, |c| c.mover.pos);
-        self.recorder = Some(Recorder::new(start, self.tick, &self.tuning));
+        let mut rec = Recorder::new(start, self.tick, &self.tuning);
+        if self.feel != Feel::Current {
+            rec.note_feel(self.tick, self.feel);
+        }
+        self.recorder = Some(rec);
     }
 
     /// The recording so far, as a replay (or nothing if none is running). A recording started before the first
