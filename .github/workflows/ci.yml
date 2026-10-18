@@ -262,11 +262,41 @@ jobs:
         if: steps.snap.outputs.deployed == 'true'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
+  smoke:
+    name: live site starts (after deploy)
+    # Loads the deployed site in WebKit and checks the game starts with no errors (cargo webtest --smoke). A failure
+    # here feeds the "main is broken" issue like any other.
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - name: WebKitGTK, its WebDriver and a virtual display
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends webkit2gtk-driver libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: webtest
+          save-if: false
+      - name: Build the browser test
+        run: cargo build --profile art --locked -p webtest
+      - name: The live site starts in WebKit (a few tries while Pages catches up)
+        run: |
+          ulimit -c 0
+          url="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          for try in 1 2 3; do
+            xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --url "$url" --smoke && exit 0
+            echo "try $try failed; waiting for Pages"
+            sleep 45
+          done
+          exit 1
+
   main-health:
     name: report main's health
     # On main only: a failure opens (or adds to) one "main is broken" issue for the next Claude; a green run closes it.
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [check, determinism, art, web, browser, deploy]
+    needs: [check, determinism, art, web, browser, deploy, smoke]
     runs-on: ubuntu-latest
     permissions:
       issues: write
