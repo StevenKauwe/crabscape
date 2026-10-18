@@ -33,7 +33,11 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 - **Most of the sea is faster than you.** Fish and shrimp out-speed you; you out-hit and out-last them.
 - Possible later: wall cling (crabs grip rock with their dactyls).
 
-## Combat (not built yet)
+## Combat (being built: issues #64–#68)
+In the sim now: the crab's shell (health) and poise, hits with knockback and hit-stop, and the two claws: the
+crusher's **smash** (14-tick wind-up, 6 active, 22 recovery; 12 damage, 25 poise) and the cutter's quick **jab**
+(6/4/12; 5 damage, 8 poise). A swing plants the feet (the crab slides to a stop: momentum); dodge cancels its
+recovery. Numbers: `crates/sim/src/tuning.rs`. Dying returns the crab to the spawn after 3 s, until the moult rule.
 - **Commit to every hit.** Claw strikes have a clear wind-up, a crushing impact and a recovery. Timing beats speed.
 - **Guard with your claws.** Raised claws and a hard shell block blows, the way real crabs defend.
 - **Parry:** block at the last moment and the attacker is thrown off balance, opening a window for a crushing

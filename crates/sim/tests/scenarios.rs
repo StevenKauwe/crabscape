@@ -6,8 +6,9 @@
 //! fraction of a real second, so they are cheap to add: when a feel change
 //! should keep (or change) a number, write it down here.
 
+use bevy_math::Vec2;
 use crabsim::replay::ticks;
-use crabsim::{PlayerId, Replay, SPAWN, STEP, Sim, Tuning, play};
+use crabsim::{Hit, PlayerId, Replay, SPAWN, STEP, Sim, Tuning, play};
 
 /// What one scripted run did.
 struct Run {
@@ -899,6 +900,7 @@ t=4 dodge; t=4.1 jump
 t=5.5 walk=left; t=6 jump; t=6.1 release
 t=6.6 sprint; t=7.4 slow
 t=8 walk=right
+t=9 smash; t=9.5 jab; t=9.6 smash
 ";
 
 #[test]
@@ -970,4 +972,237 @@ fn headless_runs_far_faster_than_real_time() {
         600.0 / took
     );
     assert!(took < 2.0, "took {took} s");
+}
+
+// --- Fighting: health, poise, hits, knockback, hit-stop, claw swings -------
+
+const P0: PlayerId = PlayerId(0);
+
+/// Run `n` ticks with no new controls.
+fn idle(sim: &mut Sim, n: u32) {
+    for _ in 0..n {
+        sim.tick();
+    }
+}
+
+fn fighter(sim: &Sim) -> &crabsim::Fighter {
+    &sim.crab(P0).unwrap().fighter
+}
+
+fn blow(damage: f32, poise: f32) -> Hit {
+    Hit {
+        damage,
+        poise,
+        ..Hit::default()
+    }
+}
+
+#[test]
+fn a_hit_lowers_health_and_poise_by_exactly_its_numbers() {
+    let mut sim = Sim::with_one_crab(SPAWN);
+    sim.hit_crab(P0, &blow(12.5, 30.0));
+    let v = fighter(&sim).vitals;
+    assert_eq!((v.health, v.poise), (87.5, 70.0));
+    sim.tick();
+    assert!(
+        sim.crabs()[0].events.hurt,
+        "the hurt event comes with the next tick"
+    );
+    let snap = sim.snapshots().next().unwrap();
+    assert_eq!(
+        (snap.health, snap.poise),
+        (87.5, 70.0),
+        "the dump shows them"
+    );
+}
+
+#[test]
+fn poise_refills_only_after_60_unhit_ticks() {
+    let mut sim = Sim::with_one_crab(SPAWN);
+    sim.hit_crab(P0, &blow(0.0, 50.0));
+    idle(&mut sim, 60);
+    assert_eq!(fighter(&sim).vitals.poise, 50.0, "nothing back yet");
+    idle(&mut sim, 1);
+    assert!(fighter(&sim).vitals.poise > 50.0, "refilling");
+    // 40 per second: the other 50 take 1.25 s.
+    idle(&mut sim, 149);
+    assert_eq!(fighter(&sim).vitals.poise, 100.0);
+    // A new hit restarts the wait.
+    sim.hit_crab(P0, &blow(0.0, 10.0));
+    idle(&mut sim, 30);
+    sim.hit_crab(P0, &blow(0.0, 10.0));
+    idle(&mut sim, 60);
+    assert_eq!(fighter(&sim).vitals.poise, 80.0);
+}
+
+#[test]
+fn a_poise_break_staggers_for_40_ticks() {
+    let mut sim = Sim::with_one_crab(SPAWN);
+    sim.hit_crab(P0, &blow(0.0, 100.0));
+    assert_eq!(fighter(&sim).vitals.stagger, 40);
+    let walk = Replay::parse("t=0 walk=right").unwrap().inputs[0].controls;
+    sim.set_controls(P0, walk);
+    let x = sim.crab(P0).unwrap().mover.pos.x;
+    for _ in 0..40 {
+        sim.tick();
+        assert_eq!(
+            sim.crab(P0).unwrap().mover.pos.x,
+            x,
+            "can't act while staggered"
+        );
+    }
+    assert_eq!(fighter(&sim).vitals.poise, 100.0, "steady again");
+    // Knocked back for a moment, then it walks.
+    idle(&mut sim, 12);
+    assert!(sim.crab(P0).unwrap().mover.pos.x > x, "walks again");
+}
+
+#[test]
+fn knockback_cannot_push_the_crab_through_a_wall() {
+    // The boulder's left face is at x = 640; stand right against it.
+    let mut sim = Sim::with_one_crab(Vec2::new(600.0, 0.0));
+    for _ in 0..5 {
+        let hit = Hit {
+            knockback: Vec2::new(5000.0, 0.0),
+            ..Hit::default()
+        };
+        sim.hit_crab(P0, &hit);
+        idle(&mut sim, 20);
+    }
+    let x = sim.crab(P0).unwrap().mover.pos.x;
+    assert!(x <= 640.0 - 36.0 + 0.01, "pushed into the boulder: {x}");
+    // And a push away moves it, through the normal physics.
+    sim.hit_crab(
+        P0,
+        &Hit {
+            knockback: Vec2::new(-400.0, 0.0),
+            ..Hit::default()
+        },
+    );
+    idle(&mut sim, 30);
+    let away = sim.crab(P0).unwrap().mover.pos.x;
+    assert!(away < x - 15.0, "{away}");
+}
+
+#[test]
+fn health_zero_emits_one_died_and_stops_the_crab() {
+    let r = run("t=0.5 walk=right", 1.0);
+    let mut sim = r.sim;
+    sim.set_controls(P0, crabsim::Controls::default());
+    let mut died = 0;
+    for n in 0..3 {
+        sim.hit_crab(P0, &blow(40.0, 0.0));
+        sim.tick();
+        died += u32::from(sim.crabs()[0].events.died);
+        assert_eq!(fighter(&sim).dead.is_some(), n == 2);
+    }
+    // More hits on a dead crab do nothing.
+    sim.hit_crab(P0, &blow(40.0, 0.0));
+    sim.tick();
+    died += u32::from(sim.crabs()[0].events.died);
+    assert_eq!(died, 1);
+    let x = sim.crab(P0).unwrap().mover.pos.x;
+    idle(&mut sim, 60);
+    assert_eq!(sim.crab(P0).unwrap().mover.pos.x, x, "it stopped");
+    // Later it is back at the spawn, whole (until the moult rule replaces this).
+    idle(&mut sim, 305);
+    let crab = sim.crab(P0).unwrap();
+    assert!(crab.mover.pos.distance(SPAWN) < 0.01, "{}", crab.mover.pos);
+    assert_eq!(crab.fighter.vitals.health, 100.0);
+}
+
+/// The status of the crab on each tick of a script, as `--dump` shows it.
+fn statuses(script: &str, seconds: f64) -> Vec<String> {
+    let replay = Replay::parse(script).unwrap();
+    let mut sim = Sim::with_one_crab(replay.start);
+    let mut out = Vec::new();
+    play(&mut sim, &replay, ticks(seconds), |sim| {
+        out.push(sim.snapshots().next().unwrap().combat);
+    });
+    out
+}
+
+/// How many ticks in a row each status lasts, from the first non-empty one.
+fn runs(statuses: &[String]) -> Vec<(String, usize)> {
+    let mut out: Vec<(String, usize)> = Vec::new();
+    for s in statuses {
+        match out.last_mut() {
+            Some((last, n)) if last == s => *n += 1,
+            _ => out.push((s.clone(), 1)),
+        }
+    }
+    out
+}
+
+#[test]
+fn the_crusher_is_a_heavy_slow_smash_and_the_cutter_a_quick_jab() {
+    let smash = runs(&statuses("@10 smash", 1.0));
+    assert_eq!(
+        smash[1..4],
+        [
+            ("smash windup".to_string(), 14),
+            ("smash active".to_string(), 6),
+            ("smash recovery".to_string(), 22)
+        ],
+        "{smash:?}"
+    );
+    let jab = runs(&statuses("@10 jab", 1.0));
+    assert_eq!(
+        jab[1..4],
+        [
+            ("jab windup".to_string(), 6),
+            ("jab active".to_string(), 4),
+            ("jab recovery".to_string(), 12)
+        ],
+        "{jab:?}"
+    );
+}
+
+#[test]
+fn a_swing_plants_the_feet_and_dodge_cancels_its_recovery() {
+    // Walking right, smash: no walking in the wind-up or the blow.
+    let replay = Replay::parse("t=0 walk=right; @60 smash").unwrap();
+    let mut sim = Sim::with_one_crab(replay.start);
+    let mut xs = Vec::new();
+    play(&mut sim, &replay, 100, |sim| {
+        xs.push(sim.crabs()[0].mover.pos.x)
+    });
+    // It slides to a stop (momentum) within the wind-up, then stands firm.
+    let slide = xs[60 + 13] - xs[59];
+    assert!(slide < 16.0, "slid {slide}");
+    let planted = xs[60 + 19] - xs[60 + 13];
+    assert!(planted.abs() < 0.01, "moved {planted} during the blow");
+    // A dodge in the recovery cuts it short.
+    let s = statuses("t=0 walk=right; @60 smash; @85 dodge", 1.0);
+    assert_eq!(s[84], "smash recovery");
+    assert_eq!(s[85], "", "the dodge ends the recovery");
+}
+
+#[test]
+fn a_press_during_a_swing_comes_out_after_it() {
+    let s = runs(&statuses("@10 jab; @25 jab", 1.0));
+    let jabs = s.iter().filter(|(n, _)| n == "jab windup").count();
+    assert_eq!(jabs, 2, "{s:?}");
+}
+
+#[test]
+fn hit_stop_freezes_the_crab_for_a_moment() {
+    let mut sim = Sim::with_one_crab(SPAWN);
+    sim.hit_crab(
+        P0,
+        &Hit {
+            knockback: Vec2::new(300.0, 0.0),
+            hitstop: 6,
+            ..Hit::default()
+        },
+    );
+    for _ in 0..6 {
+        sim.tick();
+        assert_eq!(sim.crab(P0).unwrap().mover.pos, SPAWN, "frozen");
+    }
+    sim.tick();
+    assert!(
+        sim.crab(P0).unwrap().mover.pos.x > SPAWN.x,
+        "then knocked back"
+    );
 }

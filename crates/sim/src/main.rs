@@ -39,7 +39,7 @@ USAGE: cargo crabsim [OPTIONS]
 Script words: t=<seconds> or @<tick> starts an entry; then walk=right|left|stop|<-1..1>,
 jump (press and hold), tap (press and let go), release, hold, dodge (a tap), sprint (press dodge
 and hold), slow (let go of dodge), sprinting (hold dodge), down=on / down=off (hold down: climbs
-down). ';' or a new line
+down), smash (crusher), jab (cutter). ';' or a new line
 separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
 ";
 
@@ -263,6 +263,12 @@ impl Summary {
                 "fitted scissor claws",
                 "cut a net",
                 "tangled",
+                "smashed",
+                "jabbed",
+                "hurt",
+                "staggered",
+                "died",
+                "respawned",
             ]
             .map(|n| (n, 0))
             .to_vec(),
@@ -306,14 +312,16 @@ impl Summary {
             sim.time() / secs,
         );
         println!(
-            "crab: start ({:.1}, {:.1}) -> end ({:.1}, {:.1}), velocity ({:.1}, {:.1}), {}",
+            "crab: start ({:.1}, {:.1}) -> end ({:.1}, {:.1}), velocity ({:.1}, {:.1}), {}, health {}, poise {}",
             self.start.0,
             self.start.1,
             m.pos.x,
             m.pos.y,
             m.vel.x,
             m.vel.y,
-            m.activity()
+            m.activity(),
+            crab.fighter.vitals.health,
+            crab.fighter.vitals.poise,
         );
         println!(
             "height: highest {:.1} (+{:.1} from the start), lowest {:.1}; hardest landing {:.0}",

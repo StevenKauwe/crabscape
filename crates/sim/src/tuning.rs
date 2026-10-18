@@ -13,6 +13,9 @@
 //!
 //! (The camera and lantern numbers only change how things look, so they live
 //! with the game, in `src/tuning.rs`.)
+//!
+//! Fighting numbers are in *ticks* (120 = 1 s), as in the combat spec
+//! (`docs/design/creatures/README.md`), so a window can be tried tick by tick.
 
 /// The feel of the crab's movement. In the game it is a Bevy *resource* (one
 /// shared copy), inside the [`Sim`](crate::Sim).
@@ -165,6 +168,58 @@ pub struct Tuning {
     /// While walking, stay glued to a floor that drops away by less than
     /// this (so walking down a slope doesn't turn into tiny falls).
     pub ground_snap: f32,
+
+    // --- Fighting (ticks) ----------------------------------------------
+    /// The crab's shell (health) and poise, and how they recover.
+    pub crab: VitalsTuning,
+    /// After a hit that doesn't break poise, this many ticks with no walking
+    /// control, so the knockback reads (short: a tank shrugs it off).
+    pub hit_stun_ticks: u32,
+    /// Ticks after health runs out before the crab is back at the spawn
+    /// (a stand-in until the moult rule, `world.md`).
+    pub respawn_ticks: u32,
+    /// The crusher's smash: slow, heavy, committed.
+    pub crusher: ClawTuning,
+    /// The cutter's jab: quick and light.
+    pub cutter: ClawTuning,
+    /// Press a claw this many ticks before the current swing ends and it
+    /// still comes out.
+    pub swing_buffer_ticks: u32,
+    /// Walking speed during a swing's recovery, as a share of normal (the
+    /// wind-up and the blow itself plant the feet: no walking).
+    pub recovery_walk: f32,
+}
+
+/// Health ("shell") and poise for anything that fights, crab or enemy: the
+/// same rules for both.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VitalsTuning {
+    pub health: f32,
+    /// Each hit's poise damage drains it; at 0 the fighter staggers.
+    pub poise: f32,
+    /// Poise refilled per second, once unhit for `poise_delay_ticks`.
+    pub poise_refill: f32,
+    pub poise_delay_ticks: u32,
+    /// How long a poise break staggers (can't act). Poise is full after.
+    pub stagger_ticks: u32,
+}
+
+/// One claw strike: wind-up, active (the hitbox is out), recovery.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClawTuning {
+    pub windup_ticks: u32,
+    pub active_ticks: u32,
+    pub recovery_ticks: u32,
+    pub damage: f32,
+    pub poise: f32,
+    /// The hitbox: a box this wide beside the body on the facing side...
+    pub reach: f32,
+    /// ...and this tall, centred on the body's middle height.
+    pub height: f32,
+    /// Push given to whatever it hits (x away from the crab, y up).
+    pub knockback: (f32, f32),
+    /// Hit-stop: both fighters freeze this many ticks when it connects.
+    pub hitstop_ticks: u32,
 }
 
 impl Default for Tuning {
@@ -222,6 +277,40 @@ impl Default for Tuning {
             body_height: 48.0,
             step_up: 14.0,
             ground_snap: 12.0,
+
+            crab: VitalsTuning {
+                health: 100.0,
+                poise: 100.0,
+                poise_refill: 40.0,
+                poise_delay_ticks: 60,
+                stagger_ticks: 40,
+            },
+            hit_stun_ticks: 10,
+            respawn_ticks: 360,
+            crusher: ClawTuning {
+                windup_ticks: 14,
+                active_ticks: 6,
+                recovery_ticks: 22,
+                damage: 12.0,
+                poise: 25.0,
+                reach: 40.0,
+                height: 30.0,
+                knockback: (320.0, 0.0),
+                hitstop_ticks: 7, // about 60 ms: you feel it land
+            },
+            cutter: ClawTuning {
+                windup_ticks: 6,
+                active_ticks: 4,
+                recovery_ticks: 12,
+                damage: 5.0,
+                poise: 8.0,
+                reach: 34.0, // a touch shorter than the crusher (tuned)
+                height: 24.0,
+                knockback: (90.0, 0.0),
+                hitstop_ticks: 3,
+            },
+            swing_buffer_ticks: 12,
+            recovery_walk: 0.35,
         }
     }
 }

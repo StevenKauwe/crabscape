@@ -16,8 +16,9 @@
 use bevy_math::{Rect, Vec2};
 use serde::Serialize;
 
+use crate::combat::{self, Fighter, Hit, Took};
 use crate::hash::fnv1a;
-use crate::level::{EGG_RADIUS, Level};
+use crate::level::{EGG_RADIUS, Level, SPAWN};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::tuning::Tuning;
@@ -48,6 +49,11 @@ pub struct SimCrab {
     pub clues_found: Vec<bool>,
     /// Which of the level's shed teeth this crab has taken.
     pub teeth_taken: Vec<bool>,
+    /// Health, poise and claw swings.
+    pub fighter: Fighter,
+    /// Events from between ticks (a hit from outside), added to the next
+    /// tick's.
+    pending: StepEvents,
 }
 
 /// The game world, as far as the rules are concerned. (In the game it is a
@@ -101,6 +107,8 @@ impl Sim {
             cultures_taken: vec![false; self.level.cultures.len()],
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
+            fighter: Fighter::new(&self.tuning),
+            pending: StepEvents::default(),
         });
     }
 
@@ -142,7 +150,20 @@ impl Sim {
             c.down = new.down;
             c.jump_pressed |= new.jump_pressed;
             c.dodge_pressed |= new.dodge_pressed;
+            c.smash_pressed |= new.smash_pressed;
+            c.jab_pressed |= new.jab_pressed;
         }
+    }
+
+    /// A hit reaches a crab: the one way damage gets to it (see
+    /// [`combat::crab_takes`]). The events show up with the next tick's.
+    pub fn hit_crab(&mut self, id: PlayerId, hit: &Hit) -> Option<Took> {
+        let t = &self.tuning;
+        let crab = self.crabs.iter_mut().find(|c| c.id == id)?;
+        let mut ev = StepEvents::default();
+        let took = combat::crab_takes(&mut crab.fighter, &mut crab.mover, hit, t, &mut ev);
+        crab.pending.merge(ev);
+        took
     }
 
     /// Advance the world by one [`STEP`].
@@ -154,16 +175,34 @@ impl Sim {
         }
         for crab in &mut self.crabs {
             crab.prev_pos = crab.mover.pos;
-            crab.events = physics::step(
+            let mut ev = std::mem::take(&mut crab.pending);
+            // Hit-stop: frozen for a moment as a blow lands. Presses wait.
+            let f = &mut crab.fighter;
+            if f.vitals.hitstop > 0 {
+                f.vitals.hitstop -= 1;
+                crab.events = ev;
+                continue;
+            }
+            // Dead: still, until it's back at the spawn.
+            if f.dead.is_some_and(|d| d >= self.tuning.respawn_ticks) {
+                *f = Fighter::new(&self.tuning);
+                crab.mover.pos = SPAWN;
+                crab.mover.vel = Vec2::ZERO;
+                crab.prev_pos = SPAWN;
+                ev.respawned = true;
+            }
+            let controls =
+                combat::before_step(f, &mut crab.mover, &crab.controls, &self.tuning, &mut ev);
+            ev.merge(physics::step(
                 &mut crab.mover,
-                &crab.controls,
+                &controls,
                 &self.tuning,
                 &self.level,
                 STEP,
-            );
+            ));
+            crab.events = ev;
             // A press counts once.
-            crab.controls.jump_pressed = false;
-            crab.controls.dodge_pressed = false;
+            crab.controls = crab.controls.held_only();
             // An egg the crab touches is eaten: one more swim stroke for
             // good, and it comes rested.
             for (egg, eaten) in self.level.eggs.iter().zip(&mut crab.eaten) {
@@ -224,9 +263,11 @@ impl Sim {
             let m = &mut crab.mover;
             if m.grounded && self.level.home.contains(m.pos) {
                 let full = m.strokes(&self.tuning) as f32;
-                if m.reserve < 1.0 || m.stamina < full {
+                let v = &mut crab.fighter.vitals;
+                if m.reserve < 1.0 || m.stamina < full || v.health < self.tuning.crab.health {
                     m.reserve = 1.0;
                     m.stamina = full;
+                    v.health = self.tuning.crab.health;
                     crab.events.rested = true;
                 }
                 match m.carrying.take() {
@@ -288,6 +329,9 @@ impl Sim {
             state: c.mover.activity(),
             events: c.events.names(),
             landed_speed: c.events.landed,
+            health: c.fighter.vitals.health,
+            poise: c.fighter.vitals.poise,
+            combat: c.fighter.status(&self.tuning),
         })
     }
 }
@@ -312,6 +356,12 @@ pub struct Snapshot {
     /// How fast it hit the floor, if it landed this tick.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub landed_speed: Option<f32>,
+    pub health: f32,
+    pub poise: f32,
+    /// Fighting: staggered, dead, knocked, or a swing and its phase
+    /// ("smash windup"); empty when none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub combat: String,
 }
 
 /// Is the crab's body pressed against (or overlapping) `r`?
