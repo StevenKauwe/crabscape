@@ -956,7 +956,11 @@ fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32, j: &Jui
             }
             Claw::Cutter => {
                 // Juiced, the jab thrusts straight out (elbow open).
-                let (bm, bc) = if j.trail > 0.0 { (0.15, -0.45) } else { (0.5, 0.25) };
+                let (bm, bc) = if j.trail > 0.0 {
+                    (0.15, -0.45)
+                } else {
+                    (0.5, 0.25)
+                };
                 pose.claw[1] = (0.4 * load - bm * blow, 0.3 * load - bc * blow);
             }
         }
