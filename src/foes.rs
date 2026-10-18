@@ -188,7 +188,7 @@ fn spawn_mantis(commands: &mut Commands, e: &Enemy, soft: &SoftTextures) {
                     Sprite {
                         image: dot.clone(),
                         color: CLUB,
-                        custom_size: Some(Vec2::splat(18.0)),
+                        custom_size: Some(Vec2::splat(22.0)),
                         ..default()
                     },
                     Transform::from_xyz(98.0, 1.0, 0.35),

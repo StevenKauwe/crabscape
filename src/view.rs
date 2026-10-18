@@ -142,10 +142,7 @@ fn spawn_hud(mut commands: Commands) {
             ));
             hud.spawn((
                 HelpText,
-                Text::new(
-                    "A/D walk  Space jump, again to swim  Shift+dir dodge, hold to sprint\n\
-                     E/L smash  Q/O jab  F/I guard: tap it just before a blow to parry",
-                ),
+                Text::new(KEYS_HELP),
                 TextFont {
                     font_size: FontSize::Px(13.0),
                     ..default()
@@ -155,12 +152,28 @@ fn spawn_hud(mut commands: Commands) {
         });
 }
 
-/// On touch screens, the keyboard help is replaced by a shorter hint.
-fn update_help(touch: Res<TouchControls>, mut text: Single<&mut Text, With<HelpText>>) {
-    if touch.is_changed() && touch.visible {
-        text.0 = "JUMP again in the water: swim\nGUARD just before a blow: parry".to_string();
+/// On touch screens, the keyboard help is replaced by a shorter hint; on
+/// narrow windows a shorter list of keys, so it stays two lines.
+fn update_help(
+    touch: Res<TouchControls>,
+    window: Single<&Window>,
+    mut text: Single<&mut Text, With<HelpText>>,
+) {
+    let help = if touch.visible {
+        "JUMP again in the water: swim\nGUARD just before a blow: parry"
+    } else if window.width() < 600.0 {
+        "A/D walk  Space jump  Shift dodge\nE smash  Q jab  F guard (tap: parry)"
+    } else {
+        KEYS_HELP
+    };
+    if text.0 != help {
+        text.0 = help.to_string();
     }
 }
+
+/// The full keyboard help.
+const KEYS_HELP: &str = "A/D walk  Space jump, again to swim  Shift+dir dodge, hold to sprint\n\
+                         E/L smash  Q/O jab  F/I guard: tap it just before a blow to parry";
 
 /// Browser only: write the crab's position onto the page's `<canvas>` as
 /// `data-crab="x y grounded"` (and the fight as `data-fight`), a few times a
