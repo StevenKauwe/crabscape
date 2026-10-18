@@ -43,6 +43,7 @@ recovery. Numbers: `crates/sim/src/tuning.rs`. Dying returns the crab to the spa
 no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. **Dodge** (and flip):
 invulnerable on its ticks 2–13. Enemies (`crates/sim/src/enemy.rs`) run the bestiary's state machine with a
 `tell` whose last stretch is `cocked`, and take the crab's blows by the same rules.
+The first enemy in the level: a mantis shrimp's burrow on the plateau (placeholder shapes until its puppet).
 - **Brutal means bodies break** (a direction, not a spec yet). Hits have located, visible consequences, the same
   rules for the crab and every creature: shells crack, limbs are torn off or dropped, and a damaged part changes what
   its owner can do (a crusher torn off can't smash; a mantis with a cracked club strikes weaker). Damage carries until
@@ -68,7 +69,10 @@ invulnerable on its ticks 2–13. Enemies (`crates/sim/src/enemy.rs`) run the be
 | Walk | A / D, arrows | left stick, d-pad | `<` `>` |
 | Jump (hold = higher) | Space, W, Up, K | A | JUMP |
 | Swim (double jump, then more strokes; one per egg eaten) | jump again in water | A again | JUMP again |
-| Dodge (on floor, + a direction; hold to sprint; in the water: a flip) | Shift, J | B, X, triggers | DODGE |
+| Dodge (on floor, + a direction; hold to sprint; in the water: a flip) | Shift, J | B, right trigger | DODGE |
+| Smash (crusher) | E, L | Y | SMASH |
+| Jab (cutter) | Q, O | X | JAB |
+| Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Art style | P | | "Style" |
 
