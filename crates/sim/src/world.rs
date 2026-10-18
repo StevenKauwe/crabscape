@@ -305,10 +305,14 @@ impl Sim {
             if m.grounded && self.level.home.contains(m.pos) {
                 let full = m.strokes(&self.tuning) as f32;
                 let v = &mut crab.fighter.vitals;
-                if m.reserve < 1.0 || m.stamina < full || v.health < self.tuning.crab.health {
+                let mend = v.health < self.tuning.crab.health
+                    && v.unhit >= self.tuning.home_heal_after_ticks;
+                if m.reserve < 1.0 || m.stamina < full || mend {
                     m.reserve = 1.0;
                     m.stamina = full;
-                    v.health = self.tuning.crab.health;
+                    if mend {
+                        v.health = self.tuning.crab.health;
+                    }
                     crab.events.rested = true;
                 }
                 match m.carrying.take() {

@@ -43,7 +43,7 @@ jump (press and hold), tap (press and let go), release, hold, dodge (a tap), spr
 and hold), slow (let go of dodge), sprinting (hold dodge), down=on / down=off (hold down: climbs
 down), smash (crusher), jab (cutter), block (press and hold: claws up), parry (press block and
 let go), guard (hold block, no press), unblock, spawn=<kind>@<x>,<y> (an enemy appears; kinds:
-fixture). ';' or a new line
+fixture, mantis). ';' or a new line
 separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
 ";
 

@@ -1245,10 +1245,22 @@ impl Duel {
 }
 
 fn duel_with(edit: impl FnOnce(&mut Tuning), enemy_x: f32, script: &str, ticks: u64) -> Duel {
+    fight(Kind::Fixture, SPAWN.x, edit, enemy_x, script, ticks)
+}
+
+/// A crab at `crab_x` against one enemy of `kind` at `enemy_x`.
+fn fight(
+    kind: Kind,
+    crab_x: f32,
+    edit: impl FnOnce(&mut Tuning),
+    enemy_x: f32,
+    script: &str,
+    ticks: u64,
+) -> Duel {
     let replay = Replay::parse(script).expect("the script reads");
-    let mut sim = Sim::with_one_crab(SPAWN);
+    let mut sim = Sim::with_one_crab(Vec2::new(crab_x, 0.0));
     edit(&mut sim.tuning);
-    sim.spawn_enemy(Kind::Fixture, Vec2::new(enemy_x, 0.0));
+    sim.spawn_enemy(kind, Vec2::new(enemy_x, 0.0));
     let mut d = Duel {
         sim: sim.clone(),
         crab: Vec::new(),
@@ -1275,6 +1287,13 @@ fn longest(d: &Duel, state: State) -> u32 {
         .map(|e| e.2)
         .max()
         .unwrap_or(0)
+}
+
+/// How many times the enemy entered `state`.
+fn entries(d: &[(State, &'static str, u32, f32)], state: State) -> usize {
+    (0..d.len())
+        .filter(|&i| d[i].0 == state && (i == 0 || d[i - 1].0 != state || d[i].2 < d[i - 1].2))
+        .count()
 }
 
 fn duel(script: &str, ticks: u64) -> Duel {
@@ -1590,4 +1609,205 @@ fn a_spawn_needs_a_known_kind_and_a_place() {
             .contains("kraken")
     );
     assert!(Replay::parse("t=0 spawn=fixture").is_err());
+}
+
+// --- The mantis shrimp (docs/design/creatures/mantis-shrimp.md) -------------
+
+/// The crab on open floor at x 250, the mantis's burrow at 470 (in sight).
+fn mantis(script: &str, ticks: u64) -> Duel {
+    mantis_with(|_| {}, script, ticks)
+}
+
+fn mantis_with(edit: impl FnOnce(&mut Tuning), script: &str, ticks: u64) -> Duel {
+    fight(Kind::Mantis, 250.0, edit, 470.0, script, ticks)
+}
+
+/// The tick its first club lands on a crab that does nothing.
+fn club_tick() -> usize {
+    mantis("", 300).ticks_where(|e| e.hurt)[0]
+}
+
+#[test]
+fn the_mantis_rumbles_rears_and_holds_cocked_before_it_strikes() {
+    let d = mantis("", 300);
+    let first_attack = d.first_attack_tick();
+    let tell: Vec<_> = d.enemy[..first_attack - 1]
+        .iter()
+        .filter(|e| e.0 == State::Tell)
+        .collect();
+    assert_eq!(tell.len(), 78, "48 rumbling and rearing, 30 cocked");
+    assert_eq!(tell.iter().filter(|e| e.1 == "rear").count(), 48);
+    assert_eq!(tell.iter().filter(|e| e.1 == "cocked").count(), 30);
+    assert_eq!(club_tick(), first_attack);
+    // Emerging from the burrow first.
+    assert_eq!(longest(&d, State::Notice), 24);
+}
+
+#[test]
+fn a_parry_at_the_end_of_the_hold_stops_club_and_bubble() {
+    let h = club_tick();
+    let d = mantis(&format!("@{} parry", h - 4), h as u64 + 40);
+    assert_eq!(d.ticks_where(|e| e.parried), [h]);
+    assert!(
+        d.ticks_where(|e| e.hurt).is_empty(),
+        "neither club nor bubble"
+    );
+    assert_eq!(*d.health.last().unwrap(), 100.0);
+    let mut stagger = mantis(&format!("@{} parry", h - 4), h as u64 + 120);
+    assert_eq!(longest(&stagger, State::Stagger), 50);
+    // ...and a counter smash in its stagger hits twice as hard.
+    stagger = mantis(
+        &format!(
+            "@{} parry; @{} walk=right; @{} walk=stop smash",
+            h - 4,
+            h + 9,
+            h + 20
+        ),
+        h as u64 + 120,
+    );
+    let lowest = stagger.enemy.iter().map(|e| e.3).fold(60.0, f32::min);
+    assert_eq!(lowest, 60.0 - 24.0, "a x2 counter");
+}
+
+#[test]
+fn a_block_stops_the_club_but_the_bubble_pops_and_cracks_the_guard() {
+    let h = club_tick();
+    let d = mantis("@0 block", h as u64 + 30);
+    assert_eq!(d.ticks_where(|e| e.blocked), [h]);
+    assert_eq!(*d.health.last().unwrap(), 92.0, "only the bubble: 8 x 1");
+    let crab = &d.sim.crabs()[0].fighter;
+    assert!(crab.armour_break > 500, "guard cracked for 5 s");
+    assert_eq!(crab.vitals.poise, 40.0, "the club's 60 poise");
+    // A blocked strike is no combo: it recovers.
+    let after = mantis("@0 block", h as u64 + 100);
+    assert_eq!(entries(&after.enemy, State::Attack), 1);
+}
+
+#[test]
+fn a_dodge_through_the_strike_takes_nothing_and_it_recovers_long() {
+    let h = club_tick();
+    let d = mantis(&format!("@{} walk=right dodge", h - 3), h as u64 + 120);
+    assert!(d.ticks_where(|e| e.hurt).is_empty());
+    assert_eq!(
+        longest(&d, State::Recover),
+        60,
+        "a missed strike: the full recover"
+    );
+    assert_eq!(entries(&d.enemy, State::Attack), 1);
+}
+
+#[test]
+fn a_burrowed_mantis_cannot_be_hit() {
+    // It hasn't seen the crab (out of its sight) when the crab smashes the burrow.
+    let d = fight(
+        Kind::Mantis,
+        420.0,
+        |t| t.mantis.notice_range = 0.0,
+        470.0,
+        "@0 smash; @60 jab",
+        120,
+    );
+    assert!(d.enemy.iter().all(|e| e.1 == "burrowed"));
+    assert!(d.enemy.iter().all(|e| e.3 == 60.0));
+    assert!(d.ticks_where(|e| e.struck).is_empty());
+}
+
+#[test]
+fn the_three_strike_combo_only_follows_a_landed_first_strike() {
+    let strikes = |d: &Duel| {
+        // Strikes before the first recover.
+        let until = d
+            .enemy
+            .iter()
+            .position(|e| matches!(e.0, State::Recover | State::Stagger))
+            .unwrap();
+        entries(&d.enemy[..until], State::Attack)
+    };
+    let open = mantis("", 400);
+    assert_eq!(
+        strikes(&open),
+        3,
+        "landed: it strikes the shell again and again"
+    );
+    assert!(open.enemy.iter().any(|e| e.1 == "recock"));
+    let h = club_tick();
+    assert_eq!(strikes(&mantis("@0 block", 400)), 1);
+    assert_eq!(
+        strikes(&mantis(&format!("@{} parry", h - 4), 400)),
+        0,
+        "parried: staggered"
+    );
+    assert_eq!(
+        strikes(&mantis(&format!("@{} walk=right dodge", h - 3), 400)),
+        1
+    );
+}
+
+#[test]
+fn hits_on_its_lowered_head_count_more_and_on_its_tail_less() {
+    let h = club_tick();
+    // Dodge through to its back, turn and smash its tail while it recovers.
+    let tail = mantis(
+        &format!(
+            "@{} walk=right dodge; @{} walk=left; @{} walk=stop smash",
+            h - 3,
+            h + 20,
+            h + 24
+        ),
+        h as u64 + 80,
+    );
+    let lowest = |d: &Duel| d.enemy.iter().map(|e| e.3).fold(60.0, f32::min);
+    assert_eq!(lowest(&tail), 54.0, "12 x 0.5 on the armoured telson");
+    // Back off before the blow, step in after it and smash the lowered head.
+    let head = mantis(
+        &format!(
+            "@{} walk=left; @{} walk=right; @{} walk=stop smash",
+            h - 20,
+            h,
+            h + 26
+        ),
+        h as u64 + 80,
+    );
+    assert!(
+        head.ticks_where(|e| e.hurt).is_empty(),
+        "out of reach of the club"
+    );
+    assert_eq!(lowest(&head), 42.0, "12 x 1.5 on the head");
+}
+
+#[test]
+fn badly_hurt_it_flees_into_its_burrow_and_comes_back_later() {
+    let h = club_tick();
+    // Hurt it to 30, then a parry and a counter (24) takes it under 40%.
+    let mut sim = Sim::with_one_crab(Vec2::new(250.0, 0.0));
+    sim.spawn_enemy(Kind::Mantis, Vec2::new(470.0, 0.0));
+    idle(&mut sim, 60);
+    sim.enemies_mut()[0].vitals.health = 30.0;
+    let replay = Replay::parse(&format!(
+        "@{} parry; @{} walk=right; @{} walk=stop smash",
+        h - 4 - 60,
+        h + 9 - 60,
+        h + 20 - 60
+    ))
+    .unwrap();
+    let mut states = Vec::new();
+    play(&mut sim, &replay, 1400, |sim| {
+        let e = &sim.enemies()[0];
+        states.push((e.state, e.phase(&sim.tuning)));
+    });
+    let fled = states
+        .iter()
+        .position(|s| s.0 == State::Flee)
+        .expect("it flees");
+    let hid = fled
+        + states[fled..]
+            .iter()
+            .position(|s| s.1 == "burrowed")
+            .unwrap();
+    let out = hid
+        + states[hid..]
+            .iter()
+            .position(|s| s.1 != "burrowed")
+            .unwrap();
+    assert_eq!(out - hid, 960, "8 s in the burrow");
 }
