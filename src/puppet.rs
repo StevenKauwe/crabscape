@@ -954,7 +954,7 @@ fn animate(
         }
         // From behind the lantern is on the far side of the body: a soft
         // fill keeps the claws from going black (stylised over strict).
-        let fill = 0.4 * (-view).clamp(0.0, 1.0);
+        let fill = 0.65 * (-view).clamp(0.0, 1.0);
         for &e in &rig.lit {
             if let Ok(mut l) = lits.get_mut(e)
                 && l.fill != fill
