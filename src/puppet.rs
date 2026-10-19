@@ -21,7 +21,8 @@
 //! is R; the cutter claw (L, screen-right) holds the lantern. Walking left or
 //! right it shows its front. Claws never swap sides: to strike across (the
 //! crusher towards screen-right, the cutter towards screen-left) the crab
-//! spins round and shows its back, which is the front view mirrored with a
+//! pivots round and shows its back: the front view mirrored, its depth order
+//! turned inside out (what was in front of the shell goes behind it), with a
 //! rear plate over the face (painted back-view parts are a later art task).
 //!
 //! # Light
@@ -172,6 +173,9 @@ struct Rig {
     /// The rear of the carapace, shown over the face when the crab turns
     /// its back (a stand-in until painted back-view parts).
     back: Option<Entity>,
+    /// Every piece hung (directly or not) from the carapace, and the lantern:
+    /// seen from behind their depth order turns inside out (see `animate`).
+    depth: Vec<Entity>,
 }
 
 /// A piece of the crab's art that only shows with scissor claws fitted (the
@@ -481,6 +485,13 @@ fn build_puppets(
             ));
             plate
         });
+        let mut depth: Vec<Entity> = file
+            .parts
+            .iter()
+            .filter(|p| p.parent.is_some())
+            .map(|p| by_name[p.name.as_str()])
+            .collect();
+        depth.extend(lantern);
         let get = |name: String| by_name.get(name.as_str()).copied();
         let limb = |names: [String; 4]| Limb(names.map(get));
         let sides = ["R", "L"];
@@ -506,6 +517,7 @@ fn build_puppets(
                 }),
                 lantern,
                 back,
+                depth,
             },
             PuppetAnim::default(),
         ));
@@ -746,7 +758,7 @@ fn animate(
             };
             tr.scale = Vec3::new(edge * (1.0 + 0.10 * a.squash), 1.0 - 0.20 * a.squash, 1.0)
                 * (1.0 - gone);
-            tr.translation.y += -18.0 * gone + 5.0 * turning; // a little hop in the spin
+            tr.translation.y += -18.0 * gone + 7.0 * turning; // lifted through the spin
         }
         // Seen from behind: the rear of the shell covers the face.
         if let Some(back) = rig.back
@@ -891,6 +903,22 @@ fn animate(
             a.eye[side] = ang.clamp(-0.6, 0.6);
             a.eye_vel[side] = vel;
             set(&mut parts, rig.eyes[side], a.eye[side], Vec2::ZERO);
+        }
+        // Seen from behind, what hides what turns inside out: everything in
+        // front of the carapace (claws, near legs, the lantern) goes behind
+        // it and the far legs come in front, each piece's depth mirrored
+        // about the shell. The eye stalks, on top of the front of the shell,
+        // drop behind it and show only above its edge. Switched at the
+        // edge-on middle of a turn. (The lit layer and the rear plate keep
+        // their small offsets in front of their own piece.)
+        let flip = if view < 0.0 { -1.0 } else { 1.0 };
+        for &e in &rig.depth {
+            if let Ok((mut tr, Some(rest))) = parts.get_mut(e) {
+                let z = rest.0.z * flip;
+                if tr.translation.z != z {
+                    tr.translation.z = z;
+                }
+            }
         }
         a.prev_vx = vx;
     }

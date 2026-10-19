@@ -31,6 +31,12 @@ fn runs(statuses: &[String]) -> Vec<(String, u32)> {
     out
 }
 
+/// A wind-up after a turn: the turn, then the wind-up, overlapping by up
+/// to half of each.
+fn turned(windup: u32, turn: u32) -> u32 {
+    windup + turn - (windup / 2).min(turn / 2)
+}
+
 fn phases(claw: &str, (w, a, r): (u32, u32, u32)) -> Vec<(String, u32)> {
     vec![
         (format!("{claw} windup"), w),
@@ -49,7 +55,7 @@ fn every_preset_swings_with_its_own_timings() {
         let smash = runs(&statuses(feel, "@10 smash", 1.0));
         assert_eq!(
             smash[1..4],
-            phases("smash", (w + spec.turn, a, r)),
+            phases("smash", (turned(w, spec.turn), a, r)),
             "{feel:?} {smash:?}"
         );
         // Facing left, it is already on the right side: no turn.
@@ -115,9 +121,10 @@ fn xs(feel: Feel, script: &str, n: u64) -> Vec<f32> {
 
 #[test]
 fn a_lunge_throws_the_body_into_the_blow_and_the_feet_brake_it() {
+    // Facing left the crusher is on the near side: no turn, only the lunge.
     let moved = |f: Feel| {
-        let x = xs(f, "@10 smash", 90);
-        x[89] - x[0]
+        let x = xs(f, "@0 walk=left; @3 walk=stop; @30 smash", 150);
+        x[29] - x[149]
     };
     assert_eq!(moved(Feel::Current), 0.0, "planted, as before");
     let heavy = moved(Feel::Heavy);
@@ -126,9 +133,6 @@ fn a_lunge_throws_the_body_into_the_blow_and_the_feet_brake_it() {
         "a step, not a slide: {heavy}"
     );
     assert!(moved(Feel::Snappy) < heavy);
-    // Facing left, it lunges left.
-    let x = xs(Feel::Heavy, "@0 walk=left; @3 walk=stop; @30 smash", 120);
-    assert!(x[119] < x[29] - 20.0, "{} -> {}", x[29], x[119]);
 }
 
 #[test]
@@ -264,8 +268,8 @@ fn momentum_hits_harder_at_speed_and_a_held_smash_charges() {
     let s = runs(&statuses(Feel::Momentum, "@10 charge; @200 loose", 2.0));
     assert_eq!(
         s[1],
-        ("smash windup".to_string(), 5 + 72),
-        "turn, then 12 + 60: {s:?}"
+        ("smash windup".to_string(), turned(12, 12) + 60),
+        "turn, then the wind-up and the charge: {s:?}"
     );
     let s = runs(&statuses(Feel::Momentum, "@10 charge; @40 loose", 2.0));
     assert_eq!(
@@ -309,8 +313,8 @@ fn expedition_parries_are_tighter_and_its_counter_bigger_and_faster() {
     });
     assert_eq!(
         windup,
-        16 - 10 + 5,
-        "a counter comes out fast (after a 5-tick turn)"
+        turned(16 - 10, 14),
+        "a counter comes out fast (after its turn)"
     );
     // It clamps on and crushes: three cracks of 2, then the 12 x 3 blow.
     assert_eq!(
@@ -410,12 +414,12 @@ fn the_crab_turns_round_to_strike_across_and_never_swaps_claws() {
     .unwrap();
     let mut sim = Sim::with_one_crab(SPAWN);
     let mut back = Vec::new();
-    let mut turned = Vec::new();
+    let mut turns = Vec::new();
     play(&mut sim, &replay, 700, |s| {
         let c = &s.crabs()[0];
         back.push(c.fighter.back);
         if c.events.turned {
-            turned.push(s.tick_count());
+            turns.push(s.tick_count());
         }
         // Whatever it does, the striking claw is on the side of the blow.
         if let Some(sw) = &c.fighter.swing
@@ -427,7 +431,7 @@ fn the_crab_turns_round_to_strike_across_and_never_swaps_claws() {
     // Smash right: turns (back). Jab right: the cutter is now screen-left:
     // turns to the front. Jab left from the front: turns (back). Smash left
     // from behind: the crusher is screen-right: turns to the front.
-    assert_eq!(turned.len(), 4, "{turned:?}");
+    assert_eq!(turns.len(), 4, "{turns:?}");
     assert!(back[20] && !back[100] && back[160] && !back[260]);
     // Out of the fight with its back shown, it turns to the front again.
     let mut sim = Sim::with_one_crab(SPAWN);
@@ -439,7 +443,7 @@ fn the_crab_turns_round_to_strike_across_and_never_swaps_claws() {
             when = Some(s.tick_count());
         }
     });
-    let swing_end = 10 + (12 + t.turn_ticks + 5 + 20) as u64;
+    let swing_end = 10 + (turned(12, t.turn_ticks) + 5 + 20) as u64;
     let w = when.expect("turns back");
     assert!((swing_end + 230..swing_end + 260).contains(&w), "{w}");
 }
@@ -449,4 +453,28 @@ fn the_hitboxes_reach_as_far_as_the_longer_claws() {
     let t = Feel::Current.tuning();
     assert_eq!((t.crusher.reach, t.cutter.reach), (44.0, 38.0));
     assert!(t.cutter.reach < t.crusher.reach);
+}
+
+#[test]
+fn a_turn_into_a_blow_is_a_readable_step_that_covers_ground() {
+    for feel in ALL.into_iter().skip(1) {
+        let t = feel.tuning();
+        assert!(
+            (10..=18).contains(&t.turn_ticks),
+            "{feel:?}: {} ticks",
+            t.turn_ticks
+        );
+        // Smash to the right from the front: it pivots and steps that way.
+        let x = xs(feel, "@10 smash", 10 + t.turn_ticks as u64 + 2);
+        let step = x[x.len() - 1] - x[9];
+        assert!(
+            step > t.turn_travel * 0.75 && step < t.turn_travel * 1.6,
+            "{feel:?}: stepped {step} for {}",
+            t.turn_travel
+        );
+        assert!((20.0..=40.0).contains(&t.turn_travel));
+    }
+    // A press during the turn is kept and comes out after the swing.
+    let s = statuses(Feel::Heavy, "@10 smash; @14 jab", 2.0);
+    assert!(s.iter().any(|x| x == "jab windup"), "{:?}", runs(&s));
 }

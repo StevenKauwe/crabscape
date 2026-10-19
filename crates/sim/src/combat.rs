@@ -300,6 +300,8 @@ pub struct Fighter {
     pub back: bool,
     /// Ticks left in a turn (0 = not turning).
     pub turn: u32,
+    /// The turn is into a blow: it steps that way as it pivots.
+    pub turn_step: bool,
     /// Ticks out of a fight while showing its back (it turns to the front
     /// again after [`Tuning::turn_back_after`]).
     pub calm: u32,
@@ -346,6 +348,7 @@ impl Fighter {
             crush: None,
             back: false,
             turn: 0,
+            turn_step: false,
             calm: 0,
         }
     }
@@ -448,6 +451,7 @@ pub fn before_step(
     if t.turn_ticks > 0 && f.calm >= t.turn_back_after {
         f.back = false;
         f.turn = t.turn_ticks;
+        f.turn_step = false;
         f.calm = 0;
         ev.turned = true;
     }
@@ -532,18 +536,24 @@ pub fn before_step(
         let turn = if t.turn_ticks > 0 && claw.screen_side(f.back) != f.facing {
             f.back = !f.back;
             f.turn = t.turn_ticks;
+            f.turn_step = true;
             ev.turned = true;
             t.turn_ticks
         } else {
+            f.turn_step = false;
             0
         };
+        // The wind-up starts in the last part of the turn (it overlaps up to
+        // half of each), so turning never adds its whole length.
+        let base = ct.windup_ticks.saturating_sub(haste).max(1);
+        let overlap = (base / 2).min(turn / 2);
         let speed = (m.vel.x.abs() / t.sprint_speed).min(1.0);
         f.swing = Some(Swing {
             claw,
             tick: 1,
             hits: Vec::new(),
             counter,
-            windup: ct.windup_ticks.saturating_sub(haste).max(1) + turn,
+            windup: base + turn - overlap,
             charged: 0,
             charging: claw == Claw::Crusher && t.charge_ticks > 0 && c.smash_held,
             power: 1.0 + t.momentum * speed,
@@ -553,11 +563,24 @@ pub fn before_step(
             Claw::Cutter => ev.jabbed = true,
         }
     }
-    if let Some((_, left)) = &mut f.queued {
+    // A press is kept, not counted down, through a turn and the swing it
+    // starts (the turn is long; nothing pressed in it is lost): it comes
+    // out when the swing can chain or ends.
+    let turning = f.turn > 0 || (f.turn_step && f.swing.is_some());
+    if let Some((_, left)) = &mut f.queued
+        && !turning
+    {
         *left = left.saturating_sub(1);
         if *left == 0 {
             f.queued = None;
         }
+    }
+    // Turning into a blow: a pivoting sidestep that way (the wind-up plants
+    // the feet otherwise; the momentum carries on into the blow).
+    if f.turn > 0 && f.turn_step && t.turn_ticks > 0 {
+        let speed = t.turn_travel / (t.turn_ticks as f32 * crate::physics::STEP);
+        // Plus what the planted feet brake off in one step.
+        m.vel.x = f.facing * (speed + t.ground_decel * crate::physics::STEP);
     }
     // The blow comes out: the body goes with it.
     if let Some(s) = &f.swing {

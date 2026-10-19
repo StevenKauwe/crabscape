@@ -200,6 +200,9 @@ pub struct Tuning {
     /// back, or its front again): this many ticks, added to the wind-up
     /// (0 = no turning).
     pub turn_ticks: u32,
+    /// A turn into a blow is a pivoting sidestep: it carries the crab this
+    /// far towards the blow (units), and the momentum runs on into it.
+    pub turn_travel: f32,
     /// Shown its back, it turns to face the camera again after this many
     /// ticks out of a fight (no swing, guard or crush).
     pub turn_back_after: u32,
@@ -498,6 +501,7 @@ impl Default for Tuning {
             swing_buffer_ticks: 12,
             recovery_walk: 0.35,
             turn_ticks: 0,
+            turn_travel: 0.0,
             turn_back_after: 240,
             momentum: 0.0,
             charge_ticks: 0,

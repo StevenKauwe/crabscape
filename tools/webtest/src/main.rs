@@ -738,15 +738,19 @@ impl Test<'_> {
     fn feel_strips(&mut self, prefix: &str) -> Result<()> {
         self.go("index.html")?;
         // A smash in a few presets, then a parry and the crush counter.
+        // (preset, a parry and crush, one turn frame by frame)
         let runs = [
-            ("current", false),
-            ("hybrid", false),
-            ("tank", false),
-            ("tank", true),
+            ("current", false, false),
+            ("hybrid", false, false),
+            ("tank", false, false),
+            ("tank", false, true),
+            ("tank", true, false),
         ];
-        for (feel, counter) in runs {
+        for (feel, counter, turn) in runs {
             let name = if counter {
                 format!("{feel}-crush")
+            } else if turn {
+                format!("{feel}-turn")
             } else {
                 feel.to_string()
             };
@@ -757,8 +761,11 @@ impl Test<'_> {
                     localStorage.setItem("crabscape-juice", "on"), true)"#
             ))?;
             // The counter run plays 20x slower, so the parry's 8-tick window is over a second long.
+            // The turn strip plays 30x slower: about one game tick per frame.
             self.open(if counter {
                 "index.html?feel&slow=20"
+            } else if turn {
+                "index.html?feel&slow=30"
             } else {
                 "index.html?feel&slow=10"
             })?;
@@ -787,12 +794,18 @@ impl Test<'_> {
             pump(0.3);
             self.key("keyup", "KeyE", "e")?;
             let started = Instant::now();
-            let frames = if counter { 30 } else { 20 };
+            let frames = if counter || turn { 30 } else { 20 };
             // About 0.3 s apart: 1/30 s of game time each.
             for n in 1..=frames {
                 let path = PathBuf::from(format!("{prefix}-{name}-{n:02}.png"));
                 self.shot(path, false)?;
-                pump(if counter { 0.4 } else { 0.2 });
+                pump(if counter {
+                    0.4
+                } else if turn {
+                    0.1
+                } else {
+                    0.2
+                });
             }
             let fight = self.attr("data-fight")?;
             println!(

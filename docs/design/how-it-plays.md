@@ -52,8 +52,10 @@ recovery, recoil, a hop on a hit, charging the smash, momentum, the counter's pa
 (anticipation pose, camera shake and kick, flash, shell chips, sound). "Juice off" shows the bare timings. Damage and
 poise are the same in all of them: brutal is how a blow lands, not bigger numbers. In all but A a counter **crushes**:
 the crusher clamps on, squeezes three cracks into the shell, then lets go with the full blow. Claws never swap sides (the
-crusher is the crab's right, screen-left from the front): to strike across, the crab spins round and shows its back
-(a short turn added to the wind-up, per preset), staying turned until it needs the other side or has been out of the
+crusher is the crab's right, screen-left from the front): to strike across, the crab pivots round and shows its back
+in a sidestep that carries it 20–40 units into the blow (10–16 ticks per preset, the wind-up overlapping its end;
+presses during it are kept). From behind, what hides what is reversed (claws and near legs behind the shell, the far
+legs in front). It stays turned until it needs the other side or has been out of the
 fight for 2 s. A streak runs along each blow; the mantis shows its strike line while it tells. The game
 plays **G** until the owner picks; the numbers above are A (`Tuning::default`, what the tests use).
 - **Brutal means bodies break** (a direction, not a spec yet). Hits have located, visible consequences, the same

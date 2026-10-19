@@ -165,8 +165,10 @@ pub struct FeelSpec {
     pub cutter: StrikeFeel,
     pub swing_buffer: u32,
     pub recovery_walk: f32,
-    /// Ticks to turn round before striking across (0 = no turning).
+    /// Ticks to turn round before striking across (0 = no turning), and how
+    /// far that pivoting step carries the crab.
     pub turn: u32,
+    pub turn_travel: f32,
     pub momentum: f32,
     /// The crusher's charge: extra ticks, and the bonus at full charge.
     pub charge: (u32, f32),
@@ -187,6 +189,7 @@ impl FeelSpec {
         t.swing_buffer_ticks = self.swing_buffer;
         t.recovery_walk = self.recovery_walk;
         t.turn_ticks = self.turn;
+        t.turn_travel = self.turn_travel;
         t.momentum = self.momentum;
         (t.charge_ticks, t.charge_bonus) = self.charge;
         t.parry_window_ticks = self.parry_window;
@@ -231,6 +234,7 @@ pub const SPECS: [FeelSpec; 9] = [
         swing_buffer: 12,
         recovery_walk: 0.35,
         turn: 0,
+        turn_travel: 0.0,
         momentum: 0.0,
         charge: (0, 0.0),
         parry_window: 10,
@@ -260,7 +264,8 @@ pub const SPECS: [FeelSpec; 9] = [
         },
         swing_buffer: 14,
         recovery_walk: 0.35,
-        turn: 6,
+        turn: 16,
+        turn_travel: 36.0,
         momentum: 0.0,
         charge: (0, 0.0),
         parry_window: 10,
@@ -287,7 +292,8 @@ pub const SPECS: [FeelSpec; 9] = [
         },
         swing_buffer: 16,
         recovery_walk: 0.6,
-        turn: 3,
+        turn: 10,
+        turn_travel: 22.0,
         momentum: 0.0,
         charge: (0, 0.0),
         parry_window: 10,
@@ -315,7 +321,8 @@ pub const SPECS: [FeelSpec; 9] = [
         },
         swing_buffer: 12,
         recovery_walk: 0.35,
-        turn: 5,
+        turn: 12,
+        turn_travel: 30.0,
         momentum: 0.8,
         charge: (60, 1.0),
         parry_window: 10,
@@ -344,7 +351,8 @@ pub const SPECS: [FeelSpec; 9] = [
         },
         swing_buffer: 10,
         recovery_walk: 0.8,
-        turn: 2,
+        turn: 10,
+        turn_travel: 20.0,
         momentum: 0.0,
         charge: (0, 0.0),
         parry_window: 10,
@@ -372,7 +380,8 @@ pub const SPECS: [FeelSpec; 9] = [
         },
         swing_buffer: 12,
         recovery_walk: 0.35,
-        turn: 5,
+        turn: 14,
+        turn_travel: 28.0,
         momentum: 0.0,
         charge: (0, 0.0),
         parry_window: 6,
@@ -402,7 +411,8 @@ pub const SPECS: [FeelSpec; 9] = [
         },
         swing_buffer: 12,
         recovery_walk: 0.7,
-        turn: 4,
+        turn: 12,
+        turn_travel: 30.0,
         momentum: 0.8,
         charge: (60, 1.0),
         parry_window: 6,
@@ -430,7 +440,8 @@ pub const SPECS: [FeelSpec; 9] = [
         },
         swing_buffer: 14,
         recovery_walk: 0.5,
-        turn: 6,
+        turn: 16,
+        turn_travel: 36.0,
         momentum: 0.0,
         charge: (0, 0.0),
         parry_window: 8,
@@ -457,7 +468,8 @@ pub const SPECS: [FeelSpec; 9] = [
         },
         swing_buffer: 16,
         recovery_walk: 0.5,
-        turn: 4,
+        turn: 12,
+        turn_travel: 26.0,
         momentum: 0.0,
         charge: (60, 1.0),
         parry_window: 10,
