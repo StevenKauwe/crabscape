@@ -54,8 +54,8 @@ poise are the same in all of them: brutal is how a blow lands, not bigger number
 the crusher clamps on, squeezes three cracks into the shell, then lets go with the full blow. Claws never swap sides (the
 crusher is the crab's right, screen-left from the front): to strike across, the crab pivots round and shows its back
 in a sidestep that carries it 20–40 units into the blow (10–16 ticks per preset, the wind-up overlapping its end;
-presses during it are kept). From behind, what hides what is reversed (claws and near legs behind the shell, the far
-legs in front). It stays turned until it needs the other side or has been out of the
+presses during it are kept). From behind, what sits on the front of the body (claws, lantern, eye stalks) goes behind
+the shell; the legs stay tucked under its edges, their order among themselves reversed (the paddles come forward). It stays turned until it needs the other side or has been out of the
 fight for 2 s. A streak runs along each blow; the mantis shows its strike line while it tells. The game
 plays **G** until the owner picks; the numbers above are A (`Tuning::default`, what the tests use).
 - **Brutal means bodies break** (a direction, not a spec yet). Hits have located, visible consequences, the same

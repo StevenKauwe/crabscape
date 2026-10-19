@@ -21,8 +21,9 @@
 //! is R; the cutter claw (L, screen-right) holds the lantern. Walking left or
 //! right it shows its front. Claws never swap sides: to strike across (the
 //! crusher towards screen-right, the cutter towards screen-left) the crab
-//! pivots round and shows its back: the front view mirrored, its depth order
-//! turned inside out (what was in front of the shell goes behind it), with a
+//! pivots round and shows its back: the front view mirrored, with what sits
+//! on the front of the body (claws, lantern, eye stalks) behind the shell
+//! and the legs' order among themselves reversed, a fill light, and a
 //! rear plate over the face (painted back-view parts are a later art task).
 //!
 //! # Light
@@ -173,9 +174,11 @@ struct Rig {
     /// The rear of the carapace, shown over the face when the crab turns
     /// its back (a stand-in until painted back-view parts).
     back: Option<Entity>,
-    /// Every piece hung (directly or not) from the carapace, and the lantern:
-    /// seen from behind their depth order turns inside out (see `animate`).
-    depth: Vec<Entity>,
+    /// Pieces whose depth changes seen from behind, with their depth then
+    /// (see `animate`).
+    depth: Vec<(Entity, f32)>,
+    /// The lit layer of every piece (a fill light from behind).
+    lit: Vec<Entity>,
 }
 
 /// A piece of the crab's art that only shows with scissor claws fitted (the
@@ -367,6 +370,7 @@ fn build_puppets(
 
         // Pass 1: one entity per piece, both layers.
         let mut by_name: HashMap<&str, Entity> = HashMap::new();
+        let mut lit_layers: Vec<Entity> = Vec::new();
         for part in &file.parts {
             let parent = part
                 .parent
@@ -407,7 +411,8 @@ fn build_puppets(
                     anchor,
                 ))
                 .id();
-            commands.spawn((
+            lit_layers.push(commands.spawn_empty().id());
+            commands.entity(*lit_layers.last().unwrap()).insert((
                 ChildOf(entity),
                 sprite(&lit),
                 ArtLayer::Lit,
@@ -485,13 +490,38 @@ fn build_puppets(
             ));
             plate
         });
-        let mut depth: Vec<Entity> = file
+        // Seen from behind (anatomy-notes.md): what sits on the front of the
+        // body (the chelipeds, held before the mouth; the lantern in the
+        // cutter; the eye stalks on the front of the shell) goes behind the
+        // carapace, its depth mirrored. The walking legs stay tucked under
+        // the shell's side edges, behind it in both views; only their order
+        // among themselves reverses (perspective), so the paddles at the
+        // rear come forward of the other legs.
+        let shell_z = file
             .parts
             .iter()
-            .filter(|p| p.parent.is_some())
-            .map(|p| by_name[p.name.as_str()])
-            .collect();
-        depth.extend(lantern);
+            .find(|p| p.parent.is_none())
+            .map_or(0.0, |p| p.z);
+        let mut depth: Vec<(Entity, f32)> = Vec::new();
+        for p in file.parts.iter().filter(|p| p.parent.is_some()) {
+            let rest = (p.z
+                - file
+                    .parts
+                    .iter()
+                    .find(|q| Some(&q.name) == p.parent.as_ref())
+                    .map_or(0.0, |q| q.z))
+                * Z_STEP;
+            let e = by_name[p.name.as_str()];
+            if p.name.starts_with("cheliped-") || p.name.starts_with("eye-") {
+                depth.push((e, -rest));
+            } else if p.name.starts_with("leg-") && p.parent.as_deref() == Some("carapace") {
+                depth.push((e, (shell_z - 1.0 - p.z - shell_z) * Z_STEP));
+            }
+        }
+        if let Some(l) = lantern {
+            depth.push((l, -0.3));
+        }
+        let lit = lit_layers;
         let get = |name: String| by_name.get(name.as_str()).copied();
         let limb = |names: [String; 4]| Limb(names.map(get));
         let sides = ["R", "L"];
@@ -518,6 +548,7 @@ fn build_puppets(
                 lantern,
                 back,
                 depth,
+                lit,
             },
             PuppetAnim::default(),
         ));
@@ -570,6 +601,7 @@ fn animate(
         &mut PuppetAnim,
     )>,
     mut parts: Query<(&mut Transform, Option<&RestPos>)>,
+    mut lits: Query<&mut Lit>,
 ) {
     let dt = time.delta_secs().min(0.05);
     for (mover, fighter, events, rig, mut a) in &mut crabs {
@@ -911,13 +943,23 @@ fn animate(
         // drop behind it and show only above its edge. Switched at the
         // edge-on middle of a turn. (The lit layer and the rear plate keep
         // their small offsets in front of their own piece.)
-        let flip = if view < 0.0 { -1.0 } else { 1.0 };
-        for &e in &rig.depth {
+        let behind = view < 0.0;
+        for &(e, back_z) in &rig.depth {
             if let Ok((mut tr, Some(rest))) = parts.get_mut(e) {
-                let z = rest.0.z * flip;
+                let z = if behind { back_z } else { rest.0.z };
                 if tr.translation.z != z {
                     tr.translation.z = z;
                 }
+            }
+        }
+        // From behind the lantern is on the far side of the body: a soft
+        // fill keeps the claws from going black (stylised over strict).
+        let fill = 0.4 * (-view).clamp(0.0, 1.0);
+        for &e in &rig.lit {
+            if let Ok(mut l) = lits.get_mut(e)
+                && l.fill != fill
+            {
+                l.fill = fill;
             }
         }
         a.prev_vx = vx;

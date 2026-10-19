@@ -37,11 +37,13 @@ pub struct LightSource;
 #[require(LightBlend)]
 pub struct Lit {
     pub centre: Vec2,
+    /// Never darker than this (a soft fill light, 0 = none).
+    pub fill: f32,
 }
 
 impl Lit {
     pub fn at(centre: Vec2) -> Self {
-        Self { centre }
+        Self { centre, fill: 0.0 }
     }
 }
 
@@ -224,7 +226,7 @@ fn measure_light(
             .iter()
             .map(|l| l.distance(at))
             .fold(f32::INFINITY, f32::min);
-        blend.0 = light_at(nearest, &tuning, flicker.0);
+        blend.0 = light_at(nearest, &tuning, flicker.0).max(thing.fill);
     }
 }
 
