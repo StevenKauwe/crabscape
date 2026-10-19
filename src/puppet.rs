@@ -504,16 +504,21 @@ fn build_puppets(
             .map_or(0.0, |p| p.z);
         let mut depth: Vec<(Entity, f32)> = Vec::new();
         for p in file.parts.iter().filter(|p| p.parent.is_some()) {
-            let rest = (p.z
-                - file
+            let e = by_name[p.name.as_str()];
+            let front_face = p.name.starts_with("cheliped-") || p.name.starts_with("eye-");
+            if front_face && p.parent.as_deref() == Some("carapace") {
+                // The whole limb drops just behind the shell, keeping its own
+                // pieces' order (deepest piece of it still behind the shell).
+                let deepest = file
                     .parts
                     .iter()
-                    .find(|q| Some(&q.name) == p.parent.as_ref())
-                    .map_or(0.0, |q| q.z))
-                * Z_STEP;
-            let e = by_name[p.name.as_str()];
-            if p.name.starts_with("cheliped-") || p.name.starts_with("eye-") {
-                depth.push((e, -rest));
+                    .filter(|q| {
+                        q.name
+                            .starts_with(&p.name[..p.name.rfind('-').unwrap_or(0)])
+                    })
+                    .map(|q| q.z)
+                    .fold(p.z, f32::max);
+                depth.push((e, -(deepest - p.z + 1.0) * Z_STEP));
             } else if p.name.starts_with("leg-") && p.parent.as_deref() == Some("carapace") {
                 depth.push((e, (shell_z - 1.0 - p.z - shell_z) * Z_STEP));
             }
