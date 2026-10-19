@@ -21,9 +21,10 @@
 //! is R; the cutter claw (L, screen-right) holds the lantern. Walking left or
 //! right it shows its front. Claws never swap sides: to strike across (the
 //! crusher towards screen-right, the cutter towards screen-left) the crab
-//! pivots round and shows its back: the front view mirrored, with what sits
-//! on the front of the body (claws, lantern, eye stalks) behind the shell
-//! and the legs' order among themselves reversed, a fill light, and a
+//! pivots round and shows its back: the front view mirrored, the shell's
+//! picture brought forward over what sits on the front of the body (claws,
+//! lantern, eye stalks), the legs' order among themselves reversed, a fill
+//! light, and a
 //! rear plate over the face (painted back-view parts are a later art task).
 //!
 //! # Light
@@ -179,6 +180,9 @@ struct Rig {
     depth: Vec<(Entity, f32)>,
     /// The lit layer of every piece (a fill light from behind).
     lit: Vec<Entity>,
+    /// The carapace's lit layer: from behind it comes forward over
+    /// everything on the front of the body (claws, lantern, eye stalks).
+    shell_lit: Option<Entity>,
 }
 
 /// A piece of the crab's art that only shows with scissor claws fitted (the
@@ -505,27 +509,15 @@ fn build_puppets(
         let mut depth: Vec<(Entity, f32)> = Vec::new();
         for p in file.parts.iter().filter(|p| p.parent.is_some()) {
             let e = by_name[p.name.as_str()];
-            let front_face = p.name.starts_with("cheliped-") || p.name.starts_with("eye-");
-            if front_face && p.parent.as_deref() == Some("carapace") {
-                // The whole limb drops just behind the shell, keeping its own
-                // pieces' order (deepest piece of it still behind the shell).
-                let deepest = file
-                    .parts
-                    .iter()
-                    .filter(|q| {
-                        q.name
-                            .starts_with(&p.name[..p.name.rfind('-').unwrap_or(0)])
-                    })
-                    .map(|q| q.z)
-                    .fold(p.z, f32::max);
-                depth.push((e, -(deepest - p.z + 1.0) * Z_STEP));
-            } else if p.name.starts_with("leg-") && p.parent.as_deref() == Some("carapace") {
+            if p.name.starts_with("leg-") && p.parent.as_deref() == Some("carapace") {
                 depth.push((e, (shell_z - 1.0 - p.z - shell_z) * Z_STEP));
             }
         }
-        if let Some(l) = lantern {
-            depth.push((l, -0.3));
-        }
+        let shell_lit = file
+            .parts
+            .iter()
+            .position(|p| p.parent.is_none())
+            .map(|i| lit_layers[i]);
         let lit = lit_layers;
         let get = |name: String| by_name.get(name.as_str()).copied();
         let limb = |names: [String; 4]| Limb(names.map(get));
@@ -554,6 +546,7 @@ fn build_puppets(
                 back,
                 depth,
                 lit,
+                shell_lit,
             },
             PuppetAnim::default(),
         ));
@@ -966,6 +959,31 @@ fn animate(
             {
                 l.fill = fill;
             }
+        }
+        // What sits on the front of the body (the claws held before the
+        // mouth, the lantern in the cutter, the eye stalks on the front of
+        // the shell) goes behind the shell: its picture comes forward over
+        // them, fully lit, with the rear plate on it.
+        let (shell_z, plate_z) = if behind {
+            (0.75, 0.76)
+        } else {
+            (Z_STEP * 0.3, Z_STEP * 0.6)
+        };
+        if let Some(e) = rig.shell_lit {
+            if let Ok((mut tr, _)) = parts.get_mut(e)
+                && tr.translation.z != shell_z
+            {
+                tr.translation.z = shell_z;
+            }
+            if behind && let Ok(mut l) = lits.get_mut(e) {
+                l.fill = 1.0;
+            }
+        }
+        if let Some(e) = rig.back
+            && let Ok((mut tr, _)) = parts.get_mut(e)
+            && tr.translation.z != plate_z
+        {
+            tr.translation.z = plate_z;
         }
         a.prev_vx = vx;
     }
