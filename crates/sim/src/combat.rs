@@ -294,6 +294,27 @@ pub struct Fighter {
     pub dodge_age: u32,
     /// A counter smash that seized its target: crushing it.
     pub crush: Option<Crush>,
+    /// Showing its back to the camera (turned round to strike across; its
+    /// claws never swap sides, so seen from behind the crusher is on the
+    /// screen's right).
+    pub back: bool,
+    /// Ticks left in a turn (0 = not turning).
+    pub turn: u32,
+    /// Ticks out of a fight while showing its back (it turns to the front
+    /// again after [`Tuning::turn_back_after`]).
+    pub calm: u32,
+}
+
+impl Claw {
+    /// Which side of the screen the claw is on (-1 left, 1 right): the
+    /// crusher is the crab's right, screen-left from the front.
+    pub fn screen_side(self, back: bool) -> f32 {
+        let front = match self {
+            Claw::Crusher => -1.0,
+            Claw::Cutter => 1.0,
+        };
+        if back { -front } else { front }
+    }
 }
 
 /// The crusher clamped on an enemy (see [`Tuning::crush`]).
@@ -323,6 +344,9 @@ impl Fighter {
             armour_break: 0,
             dodge_age: 0,
             crush: None,
+            back: false,
+            turn: 0,
+            calm: 0,
         }
     }
 
@@ -412,6 +436,21 @@ pub fn before_step(
     f.armour_break = f.armour_break.saturating_sub(1);
     f.parry_lockout = f.parry_lockout.saturating_sub(1);
     f.block_age = f.block_age.saturating_add(1);
+    f.turn = f.turn.saturating_sub(1);
+    // Out of a fight for a while with its back shown: it turns to face the
+    // camera again.
+    let fighting = f.swing.is_some() || f.crush.is_some() || c.block_held;
+    f.calm = if f.back && !fighting && f.turn == 0 {
+        f.calm + 1
+    } else {
+        0
+    };
+    if t.turn_ticks > 0 && f.calm >= t.turn_back_after {
+        f.back = false;
+        f.turn = t.turn_ticks;
+        f.calm = 0;
+        ev.turned = true;
+    }
     let mut out = *c;
     out.smash_pressed = false;
     out.jab_pressed = false;
@@ -488,13 +527,23 @@ pub fn before_step(
         }
         let ct = claw.tuning(t);
         let haste = if counter { t.counter_haste } else { 0 };
+        // Striking across: the body turns round first, so the claw is on the
+        // side the blow goes (claws never swap sides). It adds to the wind-up.
+        let turn = if t.turn_ticks > 0 && claw.screen_side(f.back) != f.facing {
+            f.back = !f.back;
+            f.turn = t.turn_ticks;
+            ev.turned = true;
+            t.turn_ticks
+        } else {
+            0
+        };
         let speed = (m.vel.x.abs() / t.sprint_speed).min(1.0);
         f.swing = Some(Swing {
             claw,
             tick: 1,
             hits: Vec::new(),
             counter,
-            windup: ct.windup_ticks.saturating_sub(haste).max(1),
+            windup: ct.windup_ticks.saturating_sub(haste).max(1) + turn,
             charged: 0,
             charging: claw == Claw::Crusher && t.charge_ticks > 0 && c.smash_held,
             power: 1.0 + t.momentum * speed,

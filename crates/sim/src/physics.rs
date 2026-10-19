@@ -311,6 +311,8 @@ pub struct StepEvents {
     pub cracked: bool,
     /// ...and let go with the full blow.
     pub crushed: bool,
+    /// Turned round (to show its back, or its front again).
+    pub turned: bool,
 }
 
 impl StepEvents {
@@ -346,6 +348,7 @@ impl StepEvents {
         self.seized |= other.seized;
         self.cracked |= other.cracked;
         self.crushed |= other.crushed;
+        self.turned |= other.turned;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -385,6 +388,7 @@ impl StepEvents {
             (self.seized, "seized"),
             (self.cracked, "cracked"),
             (self.crushed, "crushed"),
+            (self.turned, "turned"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))

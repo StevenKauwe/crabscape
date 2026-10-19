@@ -43,12 +43,23 @@ fn phases(claw: &str, (w, a, r): (u32, u32, u32)) -> Vec<(String, u32)> {
 fn every_preset_swings_with_its_own_timings() {
     for feel in ALL {
         let spec = feel.spec();
+        // Facing right, the crusher (on the crab's right, screen-left) is on
+        // the wrong side: the body turns round first, adding to the wind-up.
+        let (w, a, r) = spec.crusher.ticks;
         let smash = runs(&statuses(feel, "@10 smash", 1.0));
         assert_eq!(
             smash[1..4],
-            phases("smash", spec.crusher.ticks),
+            phases("smash", (w + spec.turn, a, r)),
             "{feel:?} {smash:?}"
         );
+        // Facing left, it is already on the right side: no turn.
+        let left = runs(&statuses(
+            feel,
+            "@0 walk=left; @2 walk=stop; @10 smash",
+            1.0,
+        ));
+        let windup = left.iter().find(|(n, _)| n == "smash windup").unwrap().1;
+        assert_eq!(windup, w, "{feel:?} {left:?}");
         let jab = runs(&statuses(feel, "@10 jab", 1.0));
         assert_eq!(
             jab[1..4],
@@ -251,7 +262,11 @@ fn momentum_hits_harder_at_speed_and_a_held_smash_charges() {
     assert!(half > 12.0 && half < 24.0, "half a charge: {half}");
     // Charging holds the wind-up: a full charge is 12 + 60 ticks.
     let s = runs(&statuses(Feel::Momentum, "@10 charge; @200 loose", 2.0));
-    assert_eq!(s[1], ("smash windup".to_string(), 72), "{s:?}");
+    assert_eq!(
+        s[1],
+        ("smash windup".to_string(), 5 + 72),
+        "turn, then 12 + 60: {s:?}"
+    );
     let s = runs(&statuses(Feel::Momentum, "@10 charge; @40 loose", 2.0));
     assert_eq!(
         s[1],
@@ -292,7 +307,11 @@ fn expedition_parries_are_tighter_and_its_counter_bigger_and_faster() {
             windup += 1;
         }
     });
-    assert_eq!(windup, 16 - 10, "a counter comes out fast");
+    assert_eq!(
+        windup,
+        16 - 10 + 5,
+        "a counter comes out fast (after a 5-tick turn)"
+    );
     // It clamps on and crushes: three cracks of 2, then the 12 x 3 blow.
     assert_eq!(
         1000.0 - sim.enemies()[0].vitals.health,
@@ -368,4 +387,66 @@ fn a_counter_clamps_on_cracks_three_times_then_lets_go_hard() {
         |s| seized |= s.crabs()[0].events.seized,
     );
     assert!(!seized);
+}
+
+#[test]
+fn the_crab_turns_round_to_strike_across_and_never_swaps_claws() {
+    use crabsim::combat::Claw;
+    // The claws' sides: from the front the crusher is screen-left, from
+    // behind screen-right; the cutter the other way. Always opposite.
+    for back in [false, true] {
+        assert_eq!(
+            Claw::Crusher.screen_side(back),
+            -Claw::Cutter.screen_side(back)
+        );
+    }
+    assert_eq!(Claw::Crusher.screen_side(false), -1.0);
+    let feel = Feel::Hybrid;
+    let t = feel.tuning();
+    let replay = Replay::parse(&format!(
+        "@0 feel={}\n@10 smash; @80 jab; @140 walk=left; @142 walk=stop; @150 jab; @200 smash",
+        feel.name()
+    ))
+    .unwrap();
+    let mut sim = Sim::with_one_crab(SPAWN);
+    let mut back = Vec::new();
+    let mut turned = Vec::new();
+    play(&mut sim, &replay, 700, |s| {
+        let c = &s.crabs()[0];
+        back.push(c.fighter.back);
+        if c.events.turned {
+            turned.push(s.tick_count());
+        }
+        // Whatever it does, the striking claw is on the side of the blow.
+        if let Some(sw) = &c.fighter.swing
+            && c.fighter.turn == 0
+        {
+            assert_eq!(sw.claw.screen_side(c.fighter.back), c.fighter.facing);
+        }
+    });
+    // Smash right: turns (back). Jab right: the cutter is now screen-left:
+    // turns to the front. Jab left from the front: turns (back). Smash left
+    // from behind: the crusher is screen-right: turns to the front.
+    assert_eq!(turned.len(), 4, "{turned:?}");
+    assert!(back[20] && !back[100] && back[160] && !back[260]);
+    // Out of the fight with its back shown, it turns to the front again.
+    let mut sim = Sim::with_one_crab(SPAWN);
+    sim.set_feel(feel);
+    let replay = Replay::parse("@10 smash").unwrap();
+    let mut when = None;
+    play(&mut sim, &replay, 600, |s| {
+        if !s.crabs()[0].fighter.back && s.tick_count() > 20 && when.is_none() {
+            when = Some(s.tick_count());
+        }
+    });
+    let swing_end = 10 + (12 + t.turn_ticks + 5 + 20) as u64;
+    let w = when.expect("turns back");
+    assert!((swing_end + 230..swing_end + 260).contains(&w), "{w}");
+}
+
+#[test]
+fn the_hitboxes_reach_as_far_as_the_longer_claws() {
+    let t = Feel::Current.tuning();
+    assert_eq!((t.crusher.reach, t.cutter.reach), (44.0, 38.0));
+    assert!(t.cutter.reach < t.crusher.reach);
 }

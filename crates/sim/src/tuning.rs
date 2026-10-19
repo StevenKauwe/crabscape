@@ -194,6 +194,15 @@ pub struct Tuning {
     /// Walking speed during a swing's recovery, as a share of normal (the
     /// wind-up and the blow itself plant the feet: no walking).
     pub recovery_walk: f32,
+    /// Turning round: the crab faces the camera, crusher on its right
+    /// (screen-left), cutter on its left, and never swaps them. A blow towards
+    /// the side its claw isn't on turns the body round first (showing its
+    /// back, or its front again): this many ticks, added to the wind-up
+    /// (0 = no turning).
+    pub turn_ticks: u32,
+    /// Shown its back, it turns to face the camera again after this many
+    /// ticks out of a fight (no swing, guard or crush).
+    pub turn_back_after: u32,
     /// Momentum: a swing started at speed hits harder and lunges further,
     /// by up to this share at sprinting speed (0 = speed doesn't matter).
     pub momentum: f32,
@@ -481,12 +490,15 @@ impl Default for Tuning {
             respawn_ticks: 150, // 1.25 s, back near the fight
             safe_distance: 420.0,
             home_heal_after_ticks: 240,
-            // Hit-stop 7: about 60 ms, you feel it land.
-            crusher: ClawTuning::plain((14, 6, 22), 12.0, 25.0, 40.0, 30.0, (320.0, 0.0), 7),
-            // Reach 34: a touch shorter than the crusher (tuned).
-            cutter: ClawTuning::plain((6, 4, 12), 5.0, 8.0, 34.0, 24.0, (90.0, 0.0), 3),
+            // Hit-stop 7: about 60 ms, you feel it land. Reach: the claw's
+            // length past the shell (the longer chelipeds, #90).
+            crusher: ClawTuning::plain((14, 6, 22), 12.0, 25.0, 44.0, 30.0, (320.0, 0.0), 7),
+            // A touch shorter than the crusher (tuned).
+            cutter: ClawTuning::plain((6, 4, 12), 5.0, 8.0, 38.0, 24.0, (90.0, 0.0), 3),
             swing_buffer_ticks: 12,
             recovery_walk: 0.35,
+            turn_ticks: 0,
+            turn_back_after: 240,
             momentum: 0.0,
             charge_ticks: 0,
             charge_bonus: 0.0,

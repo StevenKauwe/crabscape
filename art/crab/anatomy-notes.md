@@ -154,3 +154,11 @@ source, it says so.
 - A bottle-cap helmet held on by hooked setae, as decorator crabs (Majoidea) do with debris. A sea-glass shield
   carried in the cutter claw, the way boxer crabs (*Lybia*) hold anemones. Both rest on well-known behaviour, but I
   didn't open a source for either this session. Check them before writing lore.
+
+## Proportions note (2026-10-18)
+- The chelipeds' merus and carpus were lengthened a little (rig: merus 50 → 60, carpus 28 → 34 units, wrists moved
+  out to match) so the claws reach further in a fight. That swimming crabs' chelipeds are this long relative to the
+  carapace is not verified (no source opened for it): TO VERIFY against a specimen photo or plate.
+- The claws never swap sides: the crusher is always the crab's right. Seen from behind (when it turns to strike
+  across), the crab's right is on screen-right. The game shows this with the front parts mirrored and a rear plate
+  over the face; painted back-view parts are a follow-up.
