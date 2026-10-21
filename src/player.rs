@@ -96,10 +96,21 @@ impl Plugin for PlayerPlugin {
 fn spawn_local_crab(mut commands: Commands, mut sim: ResMut<Sim>, lab: Res<FeelLab>) {
     // The feel preset first, so the recording starts with it.
     sim.set_feel(lab.feel);
-    let pos = save::load()
+    let saved = save::load();
+    let pos = saved
+        .as_ref()
+        .map(|(p, _)| *p)
         .filter(|&p| physics::is_valid_spot(p, &sim.tuning, &sim.level))
         .unwrap_or(SPAWN);
     sim.add_crab(PlayerId(0), pos);
+    // What it remembers comes back with it.
+    if let Some(m) = saved
+        .and_then(|(_, m)| m)
+        .and_then(|m| crabsim::Memory::from_save(&m, &sim.level, &sim.tuning.memory))
+        && let Some(me) = sim.crab_mut(PlayerId(0))
+    {
+        me.memory = m;
+    }
     // Always write down what the local player does, so a replay can be saved
     // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
     sim.start_recording();

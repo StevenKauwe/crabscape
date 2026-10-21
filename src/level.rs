@@ -13,6 +13,8 @@ use bevy::prelude::*;
 use crabsim::Sim;
 use crabsim::level::{Climb, Growth};
 
+use crate::memory::{MemoryMaterial, MemoryTexture};
+
 /// How far down the sea floor is drawn below its surface.
 const FLOOR_DEPTH: f32 = 10000.0;
 
@@ -32,7 +34,10 @@ pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, draw_level);
+        app.add_systems(
+            Startup,
+            draw_level.after(crate::memory::setup_memory_texture),
+        );
     }
 }
 
@@ -55,21 +60,27 @@ const CORAL_TIP: Color = Color::srgb(0.55, 0.32, 0.22);
 /// Plants sit in front of the rock, behind the crab (~10).
 const PLANT_Z: f32 = 2.0;
 
-/// Draw the floor, the rocks and the background spires as flat shapes.
+/// Draw the floor, the rocks and the background spires as flat shapes. The
+/// level's own shapes are seen through the crab's memory (`memory.rs`); the
+/// far-away spires are scenery.
 fn draw_level(
     mut commands: Commands,
     sim: Res<Sim>,
+    tex: Res<MemoryTexture>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut remembered: ResMut<Assets<MemoryMaterial>>,
 ) {
     let level = &sim.level;
+    let mut palette = Palette::default();
+    let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
     // The sea floor: one mesh. Each floor segment becomes a four-cornered
     // shape from the surface down to FLOOR_DEPTH.
     let floor = meshes.add(floor_mesh(&level.floor, 0.0, FLOOR_DEPTH));
     commands.spawn((
         LevelShape,
         Mesh2d(floor),
-        MeshMaterial2d(materials.add(SAND)),
+        MeshMaterial2d(paint(SAND)),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
     // A thin lighter band along the top: the surface of the sand.
@@ -77,13 +88,13 @@ fn draw_level(
     commands.spawn((
         LevelShape,
         Mesh2d(lip),
-        MeshMaterial2d(materials.add(SAND_TOP)),
+        MeshMaterial2d(paint(SAND_TOP)),
         Transform::from_xyz(0.0, 0.0, 0.1),
     ));
 
     // Rocks: a dark box with a lighter top edge.
-    let rock = materials.add(ROCK);
-    let rock_top = materials.add(ROCK_TOP);
+    let rock = paint(ROCK);
+    let rock_top = paint(ROCK_TOP);
     for r in &level.rocks {
         let size = r.size();
         let centre = r.center();
@@ -111,7 +122,7 @@ fn draw_level(
         ));
     }
 
-    draw_climbs(&mut commands, &level.climbs, &mut meshes, &mut materials);
+    draw_climbs(&mut commands, &level.climbs, &mut meshes, &mut paint);
 
     // Background spires, two layers. Triangles of different sizes.
     let spire = meshes.add(Triangle2d::new(
@@ -144,19 +155,40 @@ fn draw_level(
     }
 }
 
+/// One remembered material per colour (they all share the memory texture).
+#[derive(Default)]
+struct Palette(Vec<([u8; 4], Handle<MemoryMaterial>)>);
+
+impl Palette {
+    fn get(
+        &mut self,
+        colour: Color,
+        tex: &MemoryTexture,
+        materials: &mut Assets<MemoryMaterial>,
+    ) -> Handle<MemoryMaterial> {
+        let key = colour.to_srgba().to_u8_array();
+        if let Some((_, h)) = self.0.iter().find(|(k, _)| *k == key) {
+            return h.clone();
+        }
+        let h = materials.add(tex.material(colour));
+        self.0.push((key, h.clone()));
+        h
+    }
+}
+
 /// Kelp and coral along each climb line (see [`kelp`] and [`coral`]).
 fn draw_climbs(
     commands: &mut Commands,
     climbs: &[Climb],
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<ColorMaterial>,
+    paint: &mut impl FnMut(Color) -> Handle<MemoryMaterial>,
 ) {
     for c in climbs {
         let mut draw = |mesh: Mesh, colour: Color, at: Vec2, angle: f32| {
             commands.spawn((
                 LevelShape,
                 Mesh2d(meshes.add(mesh)),
-                MeshMaterial2d(materials.add(colour)),
+                MeshMaterial2d(paint(colour)),
                 Transform::from_translation(at.extend(PLANT_Z))
                     .with_rotation(Quat::from_rotation_z(angle)),
             ));

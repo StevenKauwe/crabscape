@@ -20,7 +20,7 @@ use crate::tuning::{EnemyTuning, Tuning};
 use crate::world::{PlayerId, SimCrab};
 
 /// What kind of animal it is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Kind {
     /// A plain test enemy: tell, strike, recover. Tests and crabsim only.
     Fixture,
@@ -60,7 +60,7 @@ impl Kind {
 }
 
 /// Where an enemy is in its state machine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum State {
     /// Waiting (in its burrow, if it has one), or wandering home.
     Idle,

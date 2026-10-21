@@ -1,6 +1,7 @@
 //! The camera (which part of the level is on screen) and the HUD text.
 
 use bevy::camera::ScalingMode;
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 
 use crate::input::TouchControls;
@@ -71,15 +72,106 @@ impl Shake {
     }
 }
 
+/// How far the view is zoomed out: 1 = the usual view (what the crab
+/// perceives); beyond it the crab's memory shows (`memory.rs`). Pinch on a
+/// touch screen, the mouse wheel or the - and = keys.
+#[derive(Resource)]
+pub struct Zoom {
+    pub out: f32,
+    want: f32,
+    /// The two pinching fingers' distance last frame.
+    pinch: Option<f32>,
+}
+
+impl Default for Zoom {
+    fn default() -> Self {
+        // `?zoom=4` in the address starts zoomed out (for tests and
+        // screenshots); otherwise the usual view.
+        let start = start_zoom().unwrap_or(1.0).clamp(1.0, ZOOM_MAX);
+        Self {
+            out: start,
+            want: start,
+            pinch: None,
+        }
+    }
+}
+
+fn start_zoom() -> Option<f32> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let q = web_sys::window()?.location().search().ok()?;
+        q.trim_start_matches('?')
+            .split('&')
+            .find_map(|kv| kv.strip_prefix("zoom=")?.parse::<f32>().ok())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+
+/// Furthest out: the whole level and more.
+const ZOOM_MAX: f32 = 30.0;
+
+/// Read the zoom controls and ease the zoom towards what they ask for.
+fn read_zoom(
+    time: Res<Time<Real>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut wheel: MessageReader<MouseWheel>,
+    touches: Res<Touches>,
+    window: Single<&Window>,
+    mut zoom: ResMut<Zoom>,
+) {
+    let dt = time.delta_secs().min(0.05);
+    let mut by = 1.0f32;
+    if keys.any_pressed([KeyCode::Minus, KeyCode::NumpadSubtract]) {
+        by *= (1.6 * dt).exp();
+    }
+    if keys.any_pressed([KeyCode::Equal, KeyCode::NumpadAdd]) {
+        by /= (1.6 * dt).exp();
+    }
+    for w in wheel.read() {
+        let lines = match w.unit {
+            MouseScrollUnit::Line => w.y,
+            MouseScrollUnit::Pixel => w.y / 60.0,
+        };
+        by *= 1.15f32.powf(-lines);
+    }
+    // Two fingers off the buttons: a pinch.
+    let size = Vec2::new(window.width(), window.height());
+    let fingers: Vec<Vec2> = touches
+        .iter()
+        .map(|t| t.position())
+        .filter(|p| !crate::input::on_a_button(size, *p))
+        .collect();
+    if let [a, b] = fingers[..] {
+        let d = a.distance(b).max(1.0);
+        if let Some(was) = zoom.pinch {
+            by *= was / d;
+        }
+        zoom.pinch = Some(d);
+    } else {
+        zoom.pinch = None;
+    }
+    zoom.want = (zoom.want * by).clamp(1.0, ZOOM_MAX);
+    // Ease in log space, so every step feels the same size.
+    let (now, want) = (zoom.out.ln(), zoom.want.ln());
+    zoom.out = (now + (want - now) * (1.0 - (-12.0 * dt).exp())).exp();
+    if (zoom.out - zoom.want).abs() < 1e-3 {
+        zoom.out = zoom.want;
+    }
+}
+
 pub struct ViewPlugin;
 
 impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Shake>()
+            .init_resource::<Zoom>()
             .add_systems(Startup, (spawn_camera, spawn_hud))
             .add_systems(
                 Update,
-                (follow_crab, move_parallax, update_help)
+                (read_zoom, follow_crab, move_parallax, update_help)
                     .chain()
                     .in_set(GameSet::Present),
             );
@@ -116,12 +208,14 @@ type CameraParts = (&'static mut Transform, &'static mut Projection);
 /// it is moving. The crab sits a bit below the middle of the screen, so
 /// there is room for the touch buttons underneath and more water to see
 /// above. The view stops at the level's walls.
+#[allow(clippy::too_many_arguments)] // Bevy systems often need many inputs
 fn follow_crab(
     time: Res<Time>,
     tuning: Res<ViewTuning>,
     sim: Res<Sim>,
     crab: Single<(&Mover, &Transform), With<LocalPlayer>>,
     camera: Single<CameraParts, (With<Camera2d>, Without<LocalPlayer>)>,
+    zoom: Res<Zoom>,
     mut shake: ResMut<Shake>,
     mut rest: Local<Option<Vec2>>,
 ) {
@@ -131,12 +225,13 @@ fn follow_crab(
     let Projection::Orthographic(ortho) = &mut *projection else {
         return;
     };
-    // The zoom punch (scale 1 = the usual view).
-    let scale = 1.0 - shake.zoom;
+    // Zoomed out, and the zoom punch (scale 1 = the usual view).
+    let scale = zoom.out * (1.0 - shake.zoom);
     if ortho.scale != scale {
         ortho.scale = scale;
     }
-    let view = ortho.area.size() / scale;
+    let view = ortho.area.size() / ortho.scale.max(1e-3);
+    let seen = view * scale;
     let dt = time.delta_secs();
     // Follow from where the camera rests, without last frame's shake.
     let base = rest.get_or_insert(cam.translation.truncate());
@@ -145,8 +240,8 @@ fn follow_crab(
     let mut target = crab_tr.translation.truncate() + Vec2::new(lead, view.y * 0.12);
     // Keep the walls at the edges of the screen (a little of them showing).
     let (lo, hi) = (
-        level.min_x + view.x / 2.0 - 60.0,
-        level.max_x - view.x / 2.0 + 60.0,
+        level.min_x + seen.x / 2.0 - 60.0,
+        level.max_x - seen.x / 2.0 + 60.0,
     );
     target.x = if lo < hi {
         target.x.clamp(lo, hi)
@@ -171,11 +266,19 @@ fn follow_crab(
 }
 
 /// Far-away layers follow the camera part of the way, so they seem distant.
+/// Zoomed out into the crab's memory they aren't there (it never saw them
+/// from up here).
 fn move_parallax(
     camera: Single<&Transform, With<Camera2d>>,
-    mut layers: Query<(&Parallax, &mut Transform), Without<Camera2d>>,
+    zoom: Res<Zoom>,
+    mut layers: Query<(&Parallax, &mut Transform, &mut Visibility), Without<Camera2d>>,
 ) {
-    for (layer, mut tr) in &mut layers {
+    for (layer, mut tr, mut shown) in &mut layers {
+        shown.set_if_neq(if zoom.out < 1.6 {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
         tr.translation.x = camera.translation.x * layer.factor;
         tr.translation.y = camera.translation.y * layer.factor * 0.6;
     }
@@ -229,7 +332,7 @@ fn update_help(
     let (text, colour) = &mut *text;
     colour.set_if_neq(TextColor(Color::srgba(0.85, 0.92, 0.95, alpha)));
     let help = if touch.visible {
-        "JUMP again in the water: swim\nGUARD just before a blow: parry"
+        "JUMP again in the water: swim  Pinch: memory\nGUARD just before a blow: parry"
     } else if window.width() < 600.0 {
         "A/D walk  Space jump  Shift dodge\nE smash  Q jab  F guard (tap: parry)"
     } else {
@@ -242,7 +345,7 @@ fn update_help(
 
 /// The full keyboard help.
 const KEYS_HELP: &str = "A/D walk  Space jump, again to swim  Shift+dir dodge, hold to sprint\n\
-                         E/L smash  Q/O jab  F/I guard: tap it just before a blow to parry";
+                         E/L smash  Q/O jab  F/I guard: tap it just before a blow to parry  -/= zoom out (memory)";
 
 /// Browser only: write the crab's position onto the page's `<canvas>` as
 /// `data-crab="x y grounded"` (and the fight as `data-fight`), a few times a

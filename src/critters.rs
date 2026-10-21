@@ -22,6 +22,7 @@ use crabsim::{Kind, Sim};
 use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
 use crate::lantern::{Lit, LitTint};
+use crate::memory::{Known, Remembered};
 use crate::player::GameSet;
 
 /// In front of the level, behind the crab (10).
@@ -142,6 +143,7 @@ fn spawn_critters(
                 commands.spawn((
                     Sprite::from_color(ROCK, Vec2::new(30.0, 4.0)),
                     Transform::from_xyz(e.home.x, e.home.y + 1.0, 0.2),
+                    Remembered(e.home),
                 ));
                 commands.entity(root).with_children(|c| {
                     c.spawn((Part::Body, Transform::default(), Visibility::default()))
@@ -169,13 +171,17 @@ fn spawn_critters(
                                 lit_sprite(SNAPPER_CLAW, Vec2::new(12.0, 8.0), None),
                                 Transform::from_xyz(18.0, 4.0, 0.2),
                             ));
-                            b.spawn((Part::Dactyl, Transform::from_xyz(14.0, 8.0, 0.25)))
-                                .with_children(|d| {
-                                    d.spawn((
-                                        lit_sprite(SNAPPER_CLAW, Vec2::new(12.0, 3.0), None),
-                                        Transform::from_xyz(6.0, 0.0, 0.0),
-                                    ));
-                                });
+                            b.spawn((
+                                Part::Dactyl,
+                                Transform::from_xyz(14.0, 8.0, 0.25),
+                                Visibility::default(),
+                            ))
+                            .with_children(|d| {
+                                d.spawn((
+                                    lit_sprite(SNAPPER_CLAW, Vec2::new(12.0, 3.0), None),
+                                    Transform::from_xyz(6.0, 0.0, 0.0),
+                                ));
+                            });
                         });
                     // The shock along the floor, and its warning line.
                     c.spawn((
@@ -207,6 +213,7 @@ fn spawn_critters(
                         e.home.y + (deep + 10.0) / 2.0,
                         8.5,
                     ),
+                    Remembered(e.home),
                 ));
                 commands.entity(root).with_children(|c| {
                     for n in 0..6u8 {
@@ -225,29 +232,37 @@ fn spawn_critters(
                     }
                     // The head fills the body box the simulation hits
                     // (`len` x `deep`), its middle at the root.
-                    c.spawn((Part::Head, Transform::from_xyz(0.0, MORAY_MID, 0.2)))
-                        .with_children(|h| {
-                            h.spawn((
-                                lit_sprite(MORAY, Vec2::new(len, deep), Some(soft.disc.clone())),
-                                Transform::default(),
+                    c.spawn((
+                        Part::Head,
+                        Transform::from_xyz(0.0, MORAY_MID, 0.2),
+                        Visibility::default(),
+                    ))
+                    .with_children(|h| {
+                        h.spawn((
+                            lit_sprite(MORAY, Vec2::new(len, deep), Some(soft.disc.clone())),
+                            Transform::default(),
+                        ));
+                        h.spawn((
+                            lit_sprite(BLOTCH, Vec2::new(9.0, 4.0), None),
+                            Transform::from_xyz(-9.0, 6.0, 0.01),
+                        ));
+                        h.spawn((
+                            lit_sprite(MORAY_EYE, Vec2::splat(4.5), Some(soft.disc.clone())),
+                            Transform::from_xyz(10.0, 5.0, 0.02),
+                        ));
+                        // The lower jaw, hinged behind the eye: it gapes.
+                        h.spawn((
+                            Part::Jaw,
+                            Transform::from_xyz(-2.0, -4.0, 0.03),
+                            Visibility::default(),
+                        ))
+                        .with_children(|j| {
+                            j.spawn((
+                                lit_sprite(MORAY, Vec2::new(len / 2.0, 6.0), None),
+                                Transform::from_xyz(len / 4.0 + 2.0, -1.0, 0.0),
                             ));
-                            h.spawn((
-                                lit_sprite(BLOTCH, Vec2::new(9.0, 4.0), None),
-                                Transform::from_xyz(-9.0, 6.0, 0.01),
-                            ));
-                            h.spawn((
-                                lit_sprite(MORAY_EYE, Vec2::splat(4.5), Some(soft.disc.clone())),
-                                Transform::from_xyz(10.0, 5.0, 0.02),
-                            ));
-                            // The lower jaw, hinged behind the eye: it gapes.
-                            h.spawn((Part::Jaw, Transform::from_xyz(-2.0, -4.0, 0.03)))
-                                .with_children(|j| {
-                                    j.spawn((
-                                        lit_sprite(MORAY, Vec2::new(len / 2.0, 6.0), None),
-                                        Transform::from_xyz(len / 4.0 + 2.0, -1.0, 0.0),
-                                    ));
-                                });
                         });
+                    });
                     c.spawn((
                         Part::Aim,
                         Sprite::from_color(AIM.with_alpha(0.0), Vec2::new(1.0, 2.0)),
@@ -264,6 +279,7 @@ fn spawn_critters(
 fn pose_critters(
     time: Res<Time>,
     sim: Res<Sim>,
+    known: Res<Known>,
     lab: Res<FeelLab>,
     mut critters: Query<(&mut Critter, &mut Transform, &mut Visibility, &Children)>,
     mut parts: Query<
@@ -288,7 +304,9 @@ fn pose_critters(
         } else {
             c.since_strike += dt;
         }
-        shown.set_if_neq(if e.state == State::Gone {
+        // Out of the crab's sight it isn't shown (its last sighting is, see
+        // `memory.rs`).
+        shown.set_if_neq(if e.state == State::Gone || !known.perceives(e.pos) {
             Visibility::Hidden
         } else {
             Visibility::Inherited

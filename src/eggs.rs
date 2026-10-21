@@ -9,6 +9,7 @@ use crabsim::Sim;
 use crabsim::level::EGG_RADIUS;
 
 use crate::effects::SoftTextures;
+use crate::memory::Known;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
 /// Behind the crab (~10-11), in front of the level.
@@ -65,6 +66,7 @@ fn spawn_eggs(mut commands: Commands, soft: Res<SoftTextures>, sim: Res<Sim>) {
 fn show_eggs(
     time: Res<Time>,
     sim: Res<Sim>,
+    known: Res<Known>,
     mut eaten_at: Local<Vec<Option<f32>>>,
     crab: Query<(&PlayerId, &Transform), With<LocalPlayer>>,
     mut parts: Query<(&EggPart, &mut Transform, &mut Sprite), Without<LocalPlayer>>,
@@ -106,6 +108,8 @@ fn show_eggs(
             scale = 1.0 + 0.8 * t;
             alpha *= 1.0 - t;
         }
+        // Only as well as the crab knows the spot (never seen: not at all).
+        alpha *= known.knows(egg);
         at.translation = (egg + bob).extend(at.translation.z);
         at.scale = Vec3::splat(scale);
         sprite.color = if part.yolk { YOLK } else { SKIN }.with_alpha(alpha);
