@@ -23,6 +23,7 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{Material2d, Material2dPlugin};
 
+use crabsim::memory::ANIMAL_EYE_LINE;
 use crabsim::{Kind, Memory, Sight, Sim};
 
 use crate::effects::SoftTextures;
@@ -142,24 +143,30 @@ pub struct Known {
 
 impl Known {
     /// Does the crab perceive this point right now?
+    /// (Its circle, and no rock or floor in the way: the simulation's own
+    /// in-sight cells.)
     pub fn perceives(&self, p: Vec2) -> bool {
-        self.sight.is_none_or(|s| s.sees(p))
+        self.byte(p) == 255
+    }
+
+    /// Does it see this animal (standing at `feet`) right now?
+    pub fn perceives_animal(&self, feet: Vec2) -> bool {
+        self.perceives(feet + ANIMAL_EYE_LINE)
     }
 
     /// How well it knows this point: 1 in sight, its memory's clarity
     /// elsewhere, 0 never seen.
     pub fn knows(&self, p: Vec2) -> f32 {
-        if self.perceives(p) {
-            return 1.0;
-        }
+        self.byte(p) as f32 / 255.0
+    }
+
+    fn byte(&self, p: Vec2) -> u8 {
         let q = (p - self.origin) / self.cell;
         if q.x < 0.0 || q.y < 0.0 || q.x as u32 >= self.cols || q.y as u32 >= self.rows {
-            return 0.0;
+            return 0;
         }
         let i = q.y as u32 * self.cols + q.x as u32;
-        self.bytes
-            .get(i as usize)
-            .map_or(0.0, |b| *b as f32 / 255.0)
+        self.bytes.get(i as usize).copied().unwrap_or(0)
     }
 }
 
@@ -186,10 +193,8 @@ fn update_known(
     let eye = me.mover.pos + Vec2::new(0.0, sim.tuning.body_height);
     let sight = Sight::new(eye, me.mover.lantern, t);
     known.sight = Some(sight);
-    if known
-        .made_at
-        .is_some_and(|(now, at)| now == m.now && at.distance(eye) < 4.0)
-    {
+    // What's in sight changes only on a memory step.
+    if known.made_at.is_some_and(|(now, _)| now == m.now) {
         return;
     }
     let n = (m.cols * m.rows) as usize;
@@ -202,18 +207,18 @@ fn update_known(
     (known.cols, known.rows) = (m.cols, m.rows);
     // Work out the fade of every cell now and then, else just around the
     // crab (where things change between refades).
-    let around = Rect::from_center_half_size(eye, sight.radii + 4.0 * t.cell);
-    for i in 0..n as u32 {
-        let c = m.centre(i, t);
-        if !full && !around.contains(c) {
-            continue;
-        }
-        let v = if sight.sees(c) {
+    let cells: Vec<u32> = if full {
+        (0..n as u32).collect()
+    } else {
+        let around = Rect::from_center_half_size(eye, sight.radii + 6.0 * t.cell);
+        m.cells_in(around, t).collect()
+    };
+    for i in cells {
+        known.bytes[i as usize] = if m.in_sight(i) {
             255
         } else {
             (m.clarity(i, t) * 254.0).round() as u8
         };
-        known.bytes[i as usize] = v;
     }
     if full {
         known.faded_at = m.now;
@@ -280,7 +285,7 @@ fn show_sightings(
             continue;
         };
         // In sight, the live animal (or its absence) is what shows.
-        let show = !known.perceives(s.pos);
+        let show = !known.perceives_animal(s.pos);
         shown.set_if_neq(if show {
             Visibility::Inherited
         } else {

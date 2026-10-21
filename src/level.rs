@@ -28,6 +28,10 @@ struct LevelShape;
 pub struct Parallax {
     /// 0 = stuck to the world, 1 = stuck to the camera.
     pub factor: f32,
+    /// Its spires' material and colour: zoomed out they sink into the water
+    /// (far scenery the crab only half remembers; `view.rs`).
+    pub material: Handle<ColorMaterial>,
+    pub colour: Color,
 }
 
 pub struct LevelPlugin;
@@ -134,7 +138,11 @@ fn draw_level(
         let material = materials.add(colour);
         let parent = commands
             .spawn((
-                Parallax { factor },
+                Parallax {
+                    factor,
+                    material: material.clone(),
+                    colour,
+                },
                 Transform::from_xyz(0.0, 0.0, z),
                 Visibility::default(),
             ))

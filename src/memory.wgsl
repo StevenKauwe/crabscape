@@ -47,7 +47,14 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
         (p.x - material.grid.x) / material.grid.z,
         1.0 - (p.y - material.grid.y) / material.grid.w
     );
-    let m = textureSample(memory_texture, memory_sampler, uv).r;
+    // Four taps half a cell apart: softer, rounder edges than the grid.
+    let texel = 0.5 / vec2<f32>(textureDimensions(memory_texture));
+    let m = 0.25 * (
+        textureSample(memory_texture, memory_sampler, uv + vec2<f32>(texel.x, texel.y)).r
+        + textureSample(memory_texture, memory_sampler, uv + vec2<f32>(-texel.x, texel.y)).r
+        + textureSample(memory_texture, memory_sampler, uv + vec2<f32>(texel.x, -texel.y)).r
+        + textureSample(memory_texture, memory_sampler, uv + vec2<f32>(-texel.x, -texel.y)).r
+    );
     let c = material.color.rgb;
     if m >= 0.995 {
         return vec4<f32>(c, 1.0);

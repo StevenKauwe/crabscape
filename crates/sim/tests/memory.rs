@@ -200,3 +200,61 @@ fn the_same_inputs_give_the_same_memory() {
     };
     assert_eq!(go(), go());
 }
+
+/// A flat floor with one rock wall from 600 to 640, 400 tall.
+fn walled() -> Sim {
+    let mut level = crabsim::Level::test_level();
+    level.floor = vec![Vec2::new(0.0, 0.0), Vec2::new(3000.0, 0.0)];
+    level.rocks = vec![bevy_math::Rect::new(600.0, 0.0, 640.0, 400.0)];
+    level.secrets.clear();
+    level.nets.clear();
+    level.climbs.clear();
+    let mut sim = Sim::new(crabsim::Tuning::default(), level);
+    sim.add_crab(ME, Vec2::new(480.0, 0.0));
+    sim
+}
+
+#[test]
+fn rock_hides_what_is_behind_it_but_not_itself() {
+    let mut sim = walled();
+    let behind = sim.spawn_enemy(Kind::Moray, Vec2::new(720.0, 0.0));
+    let open = sim.spawn_enemy(Kind::Moray, Vec2::new(300.0, 0.0));
+    run(&mut sim, 1.0);
+    assert!(
+        clarity(&sim, Vec2::new(380.0, 60.0)) > 0.5,
+        "open water this side"
+    );
+    assert!(
+        clarity(&sim, Vec2::new(620.0, 200.0)) > 0.5,
+        "the wall itself"
+    );
+    assert_eq!(
+        clarity(&sim, Vec2::new(720.0, 60.0)),
+        UNSEEN,
+        "water behind the wall"
+    );
+    let seen: Vec<u32> = memory(&sim).sightings.iter().map(|s| s.id).collect();
+    assert!(seen.contains(&open));
+    assert!(!seen.contains(&behind), "an animal behind rock isn't seen");
+    // The same spot with no wall is seen.
+    let mut sim = walled();
+    sim.level.rocks.clear();
+    let mut fresh = Sim::new(crabsim::Tuning::default(), sim.level.clone());
+    fresh.add_crab(ME, Vec2::new(480.0, 0.0));
+    run(&mut fresh, 1.0);
+    assert!(clarity(&fresh, Vec2::new(720.0, 60.0)) > 0.5);
+}
+
+#[test]
+fn what_is_in_sight_now_is_marked() {
+    let mut sim = sim_at(400.0);
+    run(&mut sim, 1.0);
+    let t = sim.tuning.memory.clone();
+    let t = &t;
+    let m = memory(&sim);
+    assert!(m.in_sight(m.cell_at(Vec2::new(420.0, 60.0), t).unwrap()));
+    put(&mut sim, 1600.0);
+    run(&mut sim, 0.5);
+    let m = memory(&sim);
+    assert!(!m.in_sight(m.cell_at(Vec2::new(420.0, 60.0), t).unwrap()));
+}

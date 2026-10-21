@@ -326,11 +326,13 @@ fn pose_foes(
         let hidden = e.hidden(t);
         // Out of the crab's sight it isn't shown (its last sighting is, see
         // `memory.rs`).
-        shown.set_if_neq(if e.state == State::Gone || !known.perceives(e.pos) {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        });
+        shown.set_if_neq(
+            if e.state == State::Gone || !known.perceives_animal(e.pos) {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            },
+        );
 
         // --- Targets for this state ------------------------------------
         let tick = e.state_tick as f32;
