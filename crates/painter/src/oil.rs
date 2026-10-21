@@ -183,32 +183,50 @@ impl Painting {
         // bristles touch down and lift off: about a brush width, less on a touch too short to have that much
         let whole_len = (s.len / (s.span.1 - s.span.0).max(1e-3)).max(1.0);
         let end_w = s.width * (whole_len / (5.0 * s.width)).min(1.0);
+        // SPEED (no effect on the picture): everything below that is the same for every pixel of the stroke, or
+        // for every pixel of one bristle, is worked out once; and each row is only visited across the span where
+        // the footprint can be. The footprint is never wider than half_max either side of its (bent) centre line
+        // (taper <= 1, the ragged-side noise < 1), and never longer than len, so a pixel outside those bounds would
+        // fail the exact tests below anyway; the bounds carry a pixel of margin so rounding can't cut a pixel off.
+        let half_max = s.width * 0.53 * (1.0 + 1e-4) + 1e-3;
+        let (slant_k, slant_c) = ((hf(id, 991) - 0.5) * 1.7, (hf(id, 992) - 0.5) * 0.25);
+        let size_k = (s.width / z / 40.0).clamp(0.3, 1.5);
+        let knife_k = if s.tool == Tool::Knife { 1.6 } else { 1.0 };
+        let bristle = |b: i32| -> [f32; 5] { [hf(id, b as u32), hf(id ^ 0x55, b as u32), hf(id ^ 0xAA, b as u32), hf(id ^ 0x3C, b as u32), hf(id ^ 0x77, b as u32)] };
+        let nbi = nb.ceil() as i32 + 2;
+        let bristles: Vec<[f32; 5]> = (-1..=nbi).map(bristle).collect();
+        let along_max = s.len / 2.0 + 1.0;
+        let side_max = half_max + s.bend.abs() * along_max * along_max / s.len + 1.0;
+        // the x range (in pixels) where |a * dx + c| <= m, for dx = x + 0.5 - cx
+        let span = |a: f32, c: f32, m: f32| -> Option<(i32, i32)> {
+            if a.abs() < 1e-6 {
+                return if c.abs() <= m { Some((x0, x1)) } else { None };
+            }
+            let (p, q) = ((-m - c) / a, (m - c) / a);
+            let (lo, hi) = (p.min(q) + s.c[0] - 0.5, p.max(q) + s.c[0] - 0.5);
+            Some(((lo.floor() as i32 - 1).max(x0), (hi.ceil() as i32 + 1).min(x1)))
+        };
         for y in y0..=y1 {
-            for x in x0..=x1 {
-                let (dx, dy) = (x as f32 + 0.5 - s.c[0], y as f32 + 0.5 - s.c[1]);
+            let dy = y as f32 + 0.5 - s.c[1];
+            let Some((ua, ub)) = span(cs, dy * sn, along_max) else { continue };
+            let Some((va, vb)) = span(-sn, dy * cs, side_max) else { continue };
+            for x in ua.max(va)..=ub.min(vb) {
+                let dx = x as f32 + 0.5 - s.c[0];
                 let u = dx * cs + dy * sn;
                 let pos = u / s.len + 0.5;
                 if !(0.0..=1.0).contains(&pos) {
                     continue;
                 }
                 let v = -dx * sn + dy * cs - s.bend * (u * u) / s.len;
+                if v.abs() > half_max {
+                    continue;
+                }
                 // the brush's footprint: a little narrower where it lands and lifts, ragged at the sides
                 // position along the whole stroke: pressure, paint and dryness go by it
                 let whole = s.span.0 + (s.span.1 - s.span.0) * pos;
-                let arc = (whole * std::f32::consts::PI).sin().max(0.0);
-                let taper = match s.tool {
-                    Tool::Flat | Tool::Knife => 0.94 + 0.06 * arc,
-                    Tool::Filbert => 0.70 + 0.30 * arc.powf(0.5),
-                    Tool::Round => 0.35 + 0.65 * arc.powf(0.7),
-                };
-                let u = u + s.along;
-                let half = s.width / 2.0 * taper * (0.94 + 0.12 * noise(u / (9.0 * z), 0.0, id));
-                if v.abs() > half {
-                    continue;
-                }
                 let across = (v / s.width + 0.5) * nb;
                 let b = across.floor() as i32;
-                let (r1, r2, r3, r4) = (hf(id, b as u32), hf(id ^ 0x55, b as u32), hf(id ^ 0xAA, b as u32), hf(id ^ 0x3C, b as u32));
+                let [r1, r2, r3, r4, r5] = if (-1..=nbi).contains(&b) { bristles[(b + 1) as usize] } else { bristle(b) };
                 // The brush meets the canvas at a slant and its bristles touch down and lift off one by one, so a
                 // stroke's ends are ragged and oblique, and soft with pressure. (Every bristle used to land within
                 // the first 2-6 % of the stroke and the longest ones ran into the hard cut at its end: each stroke
@@ -221,29 +239,50 @@ impl Painting {
                 // long line still reaches where it was drawn to and only its last width or so is ragged; a short
                 // touch keeps its ends in proportion.
                 let t = (across / nb).clamp(0.0, 1.0);
-                let slant = ((hf(id, 991) - 0.5) * 1.7 * (t - 0.5) + (hf(id, 992) - 0.5) * 0.25) * end_w;
+                let slant = (slant_k * (t - 0.5) + slant_c) * end_w;
                 let round = 0.38 * (2.0 * t - 1.0).powi(2) * end_w;
-                let r5 = hf(id ^ 0x77, b as u32);
                 let land_at = ((0.06 + 0.38 * r5) * end_w + slant + round).max(0.0) / whole_len;
                 // each bristle runs dry at its own point, and skips over the ground as it does
                 let dry_at = 1.0 - ((0.30 + 0.85 * (1.0 - r1)) * end_w - slant + round).max(0.18 * end_w) / whole_len;
-                // (each bristle reads the noise at its own phase: sharing the lattice lined every bristle's skips up in
-                // columns, a fine vertical grain across the stroke)
-                let skip = smooth(dry_at - (0.18f32).min(2.5 * s.width / whole_len), dry_at, whole) * (0.35 + 0.65 * noise(u / (5.0 * z) + 37.0 * r3, b as f32 * 3.7, id ^ 9));
                 let landed = smooth(land_at, land_at + (0.25 + 0.35 * r2) * end_w / whole_len, whole) * if lands { 1.0 } else { 1.0 };
+                let lift_k = 1.0 - smooth(dry_at - 0.10 * end_w / whole_len, dry_at + 0.12 * end_w / whole_len, whole);
+                let m_k = match mask {
+                    Some((m, o, sz)) => {
+                        let (mx, my) = (x - o[0], y - o[1]);
+                        if mx < 0 || my < 0 || mx as usize >= sz[0] || my as usize >= sz[1] {
+                            continue;
+                        }
+                        m[my as usize * sz[0] + mx as usize]
+                    }
+                    None => 1.0,
+                };
+                // SPEED: the coverage below is this product times more factors in [0, 1], so (rounding being
+                // monotonic) if this is already too little to lay, the full product is too: skip the rest
+                if landed * lift_k * m_k <= 0.004 {
+                    continue;
+                }
+                let arc = (whole * std::f32::consts::PI).sin().max(0.0);
+                let taper = match s.tool {
+                    Tool::Flat | Tool::Knife => 0.94 + 0.06 * arc,
+                    Tool::Filbert => 0.70 + 0.30 * arc.powf(0.5),
+                    Tool::Round => 0.35 + 0.65 * arc.powf(0.7),
+                };
+                let u = u + s.along;
+                let half = s.width / 2.0 * taper * (0.94 + 0.12 * noise(u / (9.0 * z), 0.0, id));
+                if v.abs() > half {
+                    continue;
+                }
+                // (each bristle reads the noise at its own phase: sharing the lattice lined every bristle's skips up in
+                // columns, a fine vertical grain across the stroke; outside the dry zone the first factor is exactly
+                // 0, and so is skip, so the noise isn't needed there)
+                let dry_k = smooth(dry_at - (0.18f32).min(2.5 * s.width / whole_len), dry_at, whole);
+                let skip = if dry_k == 0.0 { 0.0 } else { dry_k * (0.35 + 0.65 * noise(u / (5.0 * z) + 37.0 * r3, b as f32 * 3.7, id ^ 9)) };
                 let side = smooth(0.0, edge_soft, half - v.abs());
-                let mut a =
-                    landed * side * (1.0 - smooth(0.45, 0.8, skip)) * (1.0 - smooth(dry_at - 0.10 * end_w / whole_len, dry_at + 0.12 * end_w / whole_len, whole)) * if lifts { 1.0 } else { 1.0 };
+                let mut a = landed * side * (1.0 - smooth(0.45, 0.8, skip)) * lift_k * if lifts { 1.0 } else { 1.0 };
                 if s.tool == Tool::Knife {
                     a *= smooth(0.25, 0.45, noise(u / (7.0 * z), v / (2.5 * z), id ^ 77) + 0.35 * (1.0 - whole));
                 }
-                if let Some((m, o, sz)) = mask {
-                    let (mx, my) = (x - o[0], y - o[1]);
-                    if mx < 0 || my < 0 || mx as usize >= sz[0] || my as usize >= sz[1] {
-                        continue;
-                    }
-                    a *= m[my as usize * sz[0] + mx as usize];
-                }
+                a *= m_k;
                 if a <= 0.004 {
                     continue;
                 }
@@ -275,7 +314,7 @@ impl Painting {
                     self.col[i][k] += (c[k] - self.col[i][k]) * cover;
                 }
                 // thickness: most where the loaded brush lands, least where it lifts; a new stroke flattens what it crosses
-                let lay = s.load * ((0.6 + 0.4 * r1) * ridge * (1.0 - 0.6 * whole) + lips * lip) * if s.tool == Tool::Knife { 1.6 } else { 1.0 } * (s.width / z / 40.0).clamp(0.3, 1.5);
+                let lay = s.load * ((0.6 + 0.4 * r1) * ridge * (1.0 - 0.6 * whole) + lips * lip) * knife_k * size_k;
                 // the brush leaves ITS thickness: going over the same place twice in one sweep adds nothing
                 self.thick[i] += (lay - self.thick[i]) * cover;
             }
