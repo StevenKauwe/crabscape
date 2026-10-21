@@ -16,6 +16,8 @@
 //! - holding D walks the crab right, Space makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
 //! - next to the mantis shrimp's burrow, it comes out and winds up, and blows land (`data-fight`);
+//! - while the page is hidden (a pretend `visibilitychange`) the game stands still, its audio context is suspended
+//!   and the silent `<audio>` paused; shown again it walks on, sound resumes, and the replay below spans the gap;
 //! - F9, and the `?replay` page's Replay button, hand out a replay that the headless simulation (linked in) plays
 //!   to exactly the same state: same state hash, same place;
 //! - its resting position, and the chosen style, are saved in localStorage and survive a reload;
@@ -623,6 +625,9 @@ impl Test<'_> {
             ),
         );
 
+        // --- a hidden page ----------------------------------------------------------------------------------------
+        self.background()?;
+
         // --- replay -----------------------------------------------------------------------------------------------
         // F9 asks for a replay of everything so far; the page shows it in a box. Played headless, it must end in
         // exactly the same state: same controls, same simulation, same result.
@@ -843,6 +848,64 @@ impl Test<'_> {
             );
         }
         self.no_error_on_page("after the frame strips")?;
+        Ok(())
+    }
+
+    /// A hidden page does no work (an iPhone keeps a page that plays media running in the background): the game
+    /// stands still, sound sleeps. Hidden is pretended (`document.hidden` and a `visibilitychange` event), so the
+    /// browser keeps sending frames here, unlike a real hidden tab; the game must stand still anyway.
+    fn background(&mut self) -> Result<()> {
+        self.eval(
+            r#"(() => { const c = window.__bg = { suspend: 0, resume: 0, pause: 0, play: 0 };
+  const A = (window.AudioContext || window.webkitAudioContext).prototype, M = HTMLMediaElement.prototype;
+  for (const [o, m] of [[A, "suspend"], [A, "resume"], [M, "pause"], [M, "play"]]) {
+    const f = o[m]; o[m] = function (...a) { c[m]++; return f.apply(this, a); }; }
+  window.__hid = false;
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => window.__hid });
+  Object.defineProperty(document, "visibilityState", { configurable: true,
+    get: () => (window.__hid ? "hidden" : "visible") });
+  return true; })()"#,
+        )?;
+        let set_hidden = |hidden: bool| {
+            format!(
+                "(window.__hid = {hidden}, document.dispatchEvent(new Event('visibilitychange')), true)"
+            )
+        };
+        self.key("keydown", "KeyD", "d")?;
+        self.hold(0.3, false)?;
+        self.eval(&set_hidden(true))?;
+        pump(0.2);
+        let before = self.crab()?;
+        pump(1.5);
+        let after = self.crab()?;
+        let bg = self.eval("window.__bg")?;
+        let still = matches!((before, after), (Some(a), Some(b)) if (a.0 - b.0).abs() < 0.01);
+        self.check(
+            still,
+            format!("while the page is hidden the crab stands still, though D is held ({before:?} -> {after:?})"),
+        );
+        self.check(
+            bg["suspend"].as_u64() >= Some(1) && bg["pause"].as_u64() >= Some(1),
+            format!("hiding the page suspends the sound and pauses the silent <audio> ({bg})"),
+        );
+        self.eval(&set_hidden(false))?;
+        self.hold(0.4, false)?;
+        self.key("keyup", "KeyD", "d")?;
+        let walked = self.rest()?;
+        let bg = self.eval("window.__bg")?;
+        self.check(
+            after.is_some_and(|a| walked.0 > a.0 + 20.0),
+            format!(
+                "shown again, the crab walks on (x {:?} -> {:.0})",
+                after.map(|a| a.0),
+                walked.0
+            ),
+        );
+        self.check(
+            bg["resume"].as_u64() >= Some(1) && bg["play"].as_u64() >= Some(1),
+            format!("shown again, the sound resumes and the silent <audio> plays ({bg})"),
+        );
+        self.no_error_on_page("after hiding and showing the page")?;
         Ok(())
     }
 
