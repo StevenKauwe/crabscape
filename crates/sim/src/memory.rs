@@ -28,6 +28,9 @@ const MAX_VISITS: u8 = 8;
 pub const UNSEEN: f32 = 0.0;
 /// The least a seen place is remembered: a faint shape, never gone.
 pub const FAINT: f32 = 0.08;
+/// An animal is seen by a point this far above its feet (its body, not the
+/// floor it stands on).
+pub const ANIMAL_EYE_LINE: Vec2 = Vec2::new(0.0, 12.0);
 
 /// An animal as the crab last saw it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -44,7 +47,7 @@ pub struct Sighting {
 }
 
 /// One crab's memory of the level.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct Memory {
     /// The grid's lower-left corner and size (cells).
     pub origin: Vec2,
@@ -61,6 +64,22 @@ pub struct Memory {
     pub sightings: Vec<Sighting>,
     /// Each ghost net as last seen: cut or not (None = never seen).
     pub nets: Vec<Option<bool>>,
+    /// Cells of rock or sea floor: they block sight (see [`Memory::step`]).
+    solid: Vec<bool>,
+    /// Cells in sight on the latest step (not saved: the next step makes it).
+    live: Vec<bool>,
+    live_cells: Vec<u32>,
+}
+
+impl PartialEq for Memory {
+    // What is remembered; what's in sight this moment isn't memory.
+    fn eq(&self, o: &Self) -> bool {
+        (self.origin, self.cols, self.rows, self.now) == (o.origin, o.cols, o.rows, o.now)
+            && self.visits == o.visits
+            && self.last == o.last
+            && self.sightings == o.sightings
+            && self.nets == o.nets
+    }
 }
 
 impl std::fmt::Debug for Memory {
@@ -115,7 +134,25 @@ impl Memory {
             home: Vec::new(),
             sightings: Vec::new(),
             nets: vec![None; level.nets.len()],
+            solid: Vec::new(),
+            live: vec![false; (cols * rows) as usize],
+            live_cells: Vec::new(),
         };
+        // Solid: inside a rock (or a dark hidden place, or past the walls),
+        // or more than half a cell down into the sea floor.
+        m.solid = (0..cols * rows)
+            .map(|i| {
+                let c = m.centre(i, t);
+                c.x < level.min_x
+                    || c.x > level.max_x
+                    || level
+                        .rocks
+                        .iter()
+                        .chain(&level.secrets)
+                        .any(|r| r.contains(c))
+                    || c.y < level.floor_height(c.x) - t.cell * 0.5
+            })
+            .collect();
         m.home = m.cells_in(level.home.inflate(t.cell), t).collect();
         m.refresh_home();
         m
@@ -134,8 +171,28 @@ impl Memory {
         self.origin + (Vec2::new(x as f32, y as f32) + 0.5) * t.cell
     }
 
+    /// Is this cell in sight right now (on the latest step)?
+    pub fn in_sight(&self, i: u32) -> bool {
+        self.live.get(i as usize).copied().unwrap_or(false)
+    }
+
+    /// Nothing solid between two points (sampled every half cell, ignoring
+    /// the cells the line starts and ends in): a crab sees past water, not
+    /// through rock or the floor.
+    fn clear_line(&self, from: Vec2, to: Vec2, t: &MemoryTuning) -> bool {
+        let d = to - from;
+        let steps = (d.length() / (t.cell * 0.5)) as u32;
+        let near = t.cell * t.cell;
+        (1..steps).all(|k| {
+            let p = from + d * (k as f32 / steps as f32);
+            (p - from).length_squared() < near
+                || (to - p).length_squared() < near
+                || self.cell_at(p, t).is_none_or(|i| !self.solid[i as usize])
+        })
+    }
+
     /// The cells whose middles lie in a box.
-    fn cells_in(&self, r: Rect, t: &MemoryTuning) -> impl Iterator<Item = u32> + '_ {
+    pub fn cells_in(&self, r: Rect, t: &MemoryTuning) -> impl Iterator<Item = u32> + '_ {
         let lo = ((r.min - self.origin) / t.cell - 0.5)
             .ceil()
             .max(Vec2::ZERO);
@@ -205,11 +262,20 @@ impl Memory {
         let t = &tuning.memory;
         self.now += 1;
         let sight = Sight::new(eye, lantern, t);
+        for i in std::mem::take(&mut self.live_cells) {
+            self.live[i as usize] = false;
+        }
+        // In sight: inside the circle, and either solid itself (a rock's or
+        // the floor's whole shape reads at once) or water with a clear line
+        // to it (nothing seen through rock).
         let cells: Vec<u32> = self.cells_in(sight.bounds(), t).collect();
         for i in cells {
-            if !sight.sees(self.centre(i, t)) {
+            let c = self.centre(i, t);
+            if !sight.sees(c) || !(self.solid[i as usize] || self.clear_line(eye, c, t)) {
                 continue;
             }
+            self.live[i as usize] = true;
+            self.live_cells.push(i);
             let (v, last) = (&mut self.visits[i as usize], &mut self.last[i as usize]);
             if *v == 0 || self.now - *last >= t.visit_gap_steps {
                 *v = (*v + 1).min(MAX_VISITS);
@@ -219,8 +285,9 @@ impl Memory {
         self.refresh_home();
         // Animals: where they are now if in sight; a remembered one whose
         // spot is in sight but who isn't there any more is forgotten.
+        let sees = |m: &Self, p: Vec2| sight.sees(p) && m.clear_line(eye, p, t);
         for e in enemies {
-            let here = e.state != State::Gone && sight.sees(e.pos);
+            let here = e.state != State::Gone && sees(self, e.pos + ANIMAL_EYE_LINE);
             let known = self.sightings.iter().position(|s| s.id == e.id);
             if here {
                 let s = Sighting {
@@ -237,14 +304,15 @@ impl Memory {
                     None => self.sightings.push(s),
                 }
             } else if let Some(k) = known
-                && sight.sees(self.sightings[k].pos)
+                && sees(self, self.sightings[k].pos + ANIMAL_EYE_LINE)
             {
                 self.sightings.remove(k);
             }
         }
-        for (seen, net) in self.nets.iter_mut().zip(&level.nets) {
-            if sight.sees(net.rect.center()) {
-                *seen = Some(net.cut);
+        for i in 0..self.nets.len() {
+            let net = &level.nets[i];
+            if sees(self, net.rect.center()) {
+                self.nets[i] = Some(net.cut);
             }
         }
     }

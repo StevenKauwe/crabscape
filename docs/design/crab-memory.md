@@ -6,6 +6,8 @@ the world. Rules: `crates/sim/src/memory.rs` (numbers in `Tuning::memory`); draw
 ## What the crab perceives now
 - A circle 360 units (58 cm) round its eyes, wider with each culture in its lantern (+40). It covers the usual view, so
   the usual zoom looks as before. Tuned: the lantern lights only ~18 cm; beyond that the crab gets dim shapes.
+- Rock and the sea floor block sight: open water (and any animal in it) counts only with a clear line from the eyes,
+  checked on the memory grid. A rock's or the floor's own shape reads whole once it is inside the circle.
 - Crab vision is limited and topographic: what a crab can perceive bounds what it can know and care about [ZH06].
   Deep-sea crab eyes are tuned to blue light, likely for spotting bioluminescence [FJC12, not verified].
 
@@ -18,6 +20,8 @@ the world. Rules: `crates/sim/src/memory.rs` (numbers in `Tuning::memory`); draw
 | Animals out of sight are where they were last seen | Design reading of the above | A faint shape at the last sighting, fading like a place seen once; forgotten if the crab sees the spot empty |
 | The world as last seen | Same | A ghost net cut while away still shows until the crab sees it again |
 
+- Small things (eggs, the shed tooth, the bacteria patch, burrow mouths, crevices) show only where the crab knows the
+  spot. The far background spires sink into the water as you zoom out.
 - Never seen = water (fog). Remembered = greyer, sinking into the water, with softer edges as it fades; in sight = true.
 - Each crab has its own memory (co-op players don't share it). It is stepped on the sim tick (every 12 ticks, 5 cm
   cells), saved with the character, and left out of the state hash (a replay has no save).

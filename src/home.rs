@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use crabsim::{Carry, Mover, Sim};
 
 use crate::effects::SoftTextures;
+use crate::memory::Known;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
 /// Behind the crab (~10-11), in front of the level.
@@ -165,6 +166,7 @@ fn spawn_cultures(mut commands: Commands, sim: Res<Sim>, soft: Res<SoftTextures>
 fn glow_cultures(
     time: Res<Time>,
     sim: Res<Sim>,
+    known: Res<Known>,
     crab: Query<&PlayerId, With<LocalPlayer>>,
     mut specks: Query<(&Speck, &mut Sprite)>,
 ) {
@@ -183,7 +185,13 @@ fn glow_cultures(
             1.0
         };
         let alpha = if speck.size > 60.0 { 0.25 } else { 0.85 };
-        sprite.color = WILD.with_alpha(alpha * pulse * strength);
+        // Only as well as the crab knows the spot (never seen: not at all).
+        let known = sim
+            .level
+            .cultures
+            .get(speck.patch)
+            .map_or(0.0, |at| known.knows(*at + Vec2::new(0.0, 12.0)));
+        sprite.color = WILD.with_alpha(alpha * pulse * strength * known);
     }
 }
 

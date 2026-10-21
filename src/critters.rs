@@ -306,11 +306,13 @@ fn pose_critters(
         }
         // Out of the crab's sight it isn't shown (its last sighting is, see
         // `memory.rs`).
-        shown.set_if_neq(if e.state == State::Gone || !known.perceives(e.pos) {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        });
+        shown.set_if_neq(
+            if e.state == State::Gone || !known.perceives_animal(e.pos) {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            },
+        );
         let k = e.kind.tuning(t);
         let phase = e.phase(t);
         let hidden = e.hidden(t);

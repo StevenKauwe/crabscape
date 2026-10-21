@@ -145,8 +145,10 @@ fn spawn_clues(
 struct LyingTooth(usize);
 
 /// Gone from the floor once the local crab has taken it.
+/// Not shown either where the crab has never seen it.
 fn take_teeth(
     sim: Res<Sim>,
+    known: Res<Known>,
     crab: Query<&PlayerId, With<LocalPlayer>>,
     mut teeth: Query<(&LyingTooth, &mut Visibility)>,
 ) {
@@ -154,9 +156,17 @@ fn take_teeth(
         return;
     };
     for (tooth, mut shown) in &mut teeth {
-        if me.teeth_taken.get(tooth.0).copied().unwrap_or(false) {
-            *shown = Visibility::Hidden;
-        }
+        let taken = me.teeth_taken.get(tooth.0).copied().unwrap_or(false);
+        let seen = sim
+            .level
+            .teeth
+            .get(tooth.0)
+            .is_some_and(|at| known.knows(*at) > 0.0);
+        shown.set_if_neq(if taken || !seen {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
     }
 }
 

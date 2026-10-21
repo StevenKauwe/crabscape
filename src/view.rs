@@ -1,6 +1,7 @@
 //! The camera (which part of the level is on screen) and the HUD text.
 
 use bevy::camera::ScalingMode;
+use bevy::color::Mix;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 
@@ -266,19 +267,24 @@ fn follow_crab(
 }
 
 /// Far-away layers follow the camera part of the way, so they seem distant.
-/// Zoomed out into the crab's memory they aren't there (it never saw them
-/// from up here).
+/// Zoomed out into the crab's memory they sink into the water: scenery it
+/// only half remembers.
 fn move_parallax(
     camera: Single<&Transform, With<Camera2d>>,
     zoom: Res<Zoom>,
-    mut layers: Query<(&Parallax, &mut Transform, &mut Visibility), Without<Camera2d>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut layers: Query<(&Parallax, &mut Transform), Without<Camera2d>>,
 ) {
-    for (layer, mut tr, mut shown) in &mut layers {
-        shown.set_if_neq(if zoom.out < 1.6 {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        });
+    let fade = ((zoom.out - 1.0) / 3.0).clamp(0.0, 0.85);
+    for (layer, mut tr) in &mut layers {
+        let colour = layer.colour.mix(&WATER, fade);
+        if materials
+            .get(&layer.material)
+            .is_some_and(|m| m.color != colour)
+            && let Some(mut m) = materials.get_mut(&layer.material)
+        {
+            m.color = colour;
+        }
         tr.translation.x = camera.translation.x * layer.factor;
         tr.translation.y = camera.translation.y * layer.factor * 0.6;
     }
