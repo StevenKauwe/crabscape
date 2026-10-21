@@ -47,6 +47,7 @@
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
 
+mod background;
 mod critters;
 mod deep;
 mod effects;
@@ -105,6 +106,7 @@ fn main() {
         // The game's core, then the world's things and the HUD. (Bevy takes
         // at most 15 plugins in one group.)
         .add_plugins((
+            background::BackgroundPlugin,
             replay::ReplayPlugin,
             memory::MemoryPlugin,
             level::LevelPlugin,

@@ -64,6 +64,8 @@ impl Plugin for SoundPlugin {
     }
 }
 
+pub use backend::{sleep, wake};
+
 fn play(mut requests: MessageReader<PlaySfx>) {
     for r in requests.read() {
         if r.gain > 0.0 {
@@ -293,19 +295,32 @@ mod backend {
 
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::{JsCast, JsValue};
-    use web_sys::{AudioBuffer, AudioContext};
+    use web_sys::{AudioBuffer, AudioContext, HtmlAudioElement};
 
     use super::{ALL, Sfx};
 
     struct Audio {
         ctx: AudioContext,
         buffers: Vec<AudioBuffer>,
-        /// Playing through the iPhone's silent switch (see below).
-        unmuted: bool,
+        /// The looping silent `<audio>` that plays through the iPhone's
+        /// silent switch (see [`set_session`]), once a touch made it.
+        silent: Option<HtmlAudioElement>,
+        /// The page is hidden: sound is asleep until it shows again.
+        asleep: bool,
     }
 
     thread_local! {
         static AUDIO: RefCell<Option<Audio>> = const { RefCell::new(None) };
+    }
+
+    fn with(f: impl FnOnce(&mut Audio)) {
+        AUDIO.with(|a| {
+            if let Ok(mut a) = a.try_borrow_mut()
+                && let Some(a) = a.as_mut()
+            {
+                f(a);
+            }
+        });
     }
 
     /// Make the sounds, and switch sound on at the first touch or key.
@@ -327,13 +342,7 @@ mod backend {
         if buffers.len() != ALL.len() {
             return;
         }
-        let unlock = Closure::<dyn FnMut()>::new(|| {
-            AUDIO.with(|a| {
-                if let Some(a) = a.borrow_mut().as_mut() {
-                    a.unlock();
-                }
-            });
-        });
+        let unlock = Closure::<dyn FnMut()>::new(|| with(Audio::unlock));
         // iPhones only let sound start from these (not a touch's pointerdown).
         if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
             for event in ["touchend", "pointerup", "click", "keydown"] {
@@ -346,25 +355,43 @@ mod backend {
             *a.borrow_mut() = Some(Audio {
                 ctx,
                 buffers,
-                unmuted: false,
+                silent: None,
+                asleep: false,
             })
         });
+    }
+
+    /// The page was hidden, frozen or left (see `crate::background`).
+    pub fn sleep() {
+        with(Audio::sleep);
+    }
+
+    /// The page shows again.
+    pub fn wake() {
+        with(Audio::wake);
+    }
+
+    /// Run a promise to its end, ignoring a refusal (outside a touch an
+    /// iPhone may refuse a play or a resume; the next touch tries again).
+    fn ignore(p: Result<js_sys::Promise, JsValue>) {
+        if let Ok(p) = p {
+            let noop = Closure::once(|_: JsValue| {});
+            let _ = p.catch(&noop);
+            noop.forget();
+        }
     }
 
     impl Audio {
         /// Inside a touch or key: resume the context, play through the
         /// silent switch, and play a blank sound (iPhones want one).
         fn unlock(&mut self) {
-            if self.ctx.state() != web_sys::AudioContextState::Running
-                && let Ok(p) = self.ctx.resume()
-            {
-                let noop = Closure::once(|_: JsValue| {});
-                let _ = p.catch(&noop);
-                noop.forget();
+            if self.asleep {
+                return;
             }
-            if !self.unmuted {
-                self.unmuted = play_through_silent_switch();
+            if self.ctx.state() != web_sys::AudioContextState::Running {
+                ignore(self.ctx.resume());
             }
+            self.play_through_silent_switch();
             if let (Ok(buf), Ok(src)) = (
                 self.ctx.create_buffer(1, 1, 22050.0),
                 self.ctx.create_buffer_source(),
@@ -374,38 +401,68 @@ mod backend {
                 let _ = src.start();
             }
         }
+
+        /// Declare "playback" audio and (re)start the silent `<audio>`
+        /// whenever it is paused: a play outside an activating event is
+        /// refused, and hiding the page pauses it.
+        fn play_through_silent_switch(&mut self) {
+            set_session("playback");
+            if self.silent.is_none() {
+                self.silent = HtmlAudioElement::new_with_src(&super::silent_wav_uri()).ok();
+                if let Some(el) = &self.silent {
+                    el.set_loop(true);
+                    let _ = el.set_attribute("playsinline", "");
+                }
+            }
+            if let Some(el) = &self.silent
+                && el.paused()
+            {
+                ignore(el.play());
+            }
+        }
+
+        /// Hidden: pause the silent `<audio>`, hand the audio session back
+        /// and suspend the context, so the phone can put the page to sleep
+        /// (a page that plays media counts as a music player and is kept
+        /// running in the background, draining the battery).
+        fn sleep(&mut self) {
+            self.asleep = true;
+            if let Some(el) = &self.silent {
+                let _ = el.pause();
+            }
+            set_session("auto");
+            ignore(self.ctx.suspend());
+        }
+
+        /// Shown again: undo [`Audio::sleep`]. If the phone refuses outside
+        /// a touch, the next touch's [`Audio::unlock`] does it.
+        fn wake(&mut self) {
+            if !self.asleep {
+                return;
+            }
+            self.asleep = false;
+            if self.silent.is_some() {
+                ignore(self.ctx.resume());
+                self.play_through_silent_switch();
+            }
+        }
     }
 
     /// iPhones mute Web Audio with the ring/silent switch on, unlike media
     /// playback. Safari 17+ takes `navigator.audioSession.type = "playback"`;
     /// older ones move the page into the media category when a looping
     /// silent `<audio>` plays (started in a touch). Both, since some web
-    /// views have the first and ignore it. True once applied.
-    fn play_through_silent_switch() -> bool {
+    /// views have the first and ignore it.
+    fn set_session(kind: &str) {
         use js_sys::Reflect;
         let Some(win) = web_sys::window() else {
-            return false;
+            return;
         };
         let nav: JsValue = win.navigator().into();
         if let Ok(session) = Reflect::get(&nav, &"audioSession".into())
             && session.is_object()
         {
-            let _ = Reflect::set(&session, &"type".into(), &"playback".into());
-        }
-        let Ok(el) = web_sys::HtmlAudioElement::new_with_src(&super::silent_wav_uri()) else {
-            return false;
-        };
-        el.set_loop(true);
-        let _ = el.set_attribute("playsinline", "");
-        match el.play() {
-            Ok(p) => {
-                let noop = Closure::once(|_: JsValue| {});
-                let _ = p.catch(&noop);
-                noop.forget();
-                std::mem::forget(el); // keeps playing for the page's life
-                true
-            }
-            Err(_) => false,
+            let _ = Reflect::set(&session, &"type".into(), &kind.into());
         }
     }
 
@@ -414,6 +471,7 @@ mod backend {
             let Some(a) = a
                 .borrow()
                 .as_ref()
+                .filter(|a| !a.asleep)
                 .map(|a| (a.ctx.clone(), a.buffers.clone()))
             else {
                 return;
@@ -436,6 +494,8 @@ mod backend {
 #[cfg(not(target_arch = "wasm32"))]
 mod backend {
     pub fn start() {}
+    pub fn sleep() {}
+    pub fn wake() {}
     pub fn play(_sfx: super::Sfx, _gain: f32, _pitch: f32) {}
 }
 
