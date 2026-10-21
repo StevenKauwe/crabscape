@@ -15,6 +15,15 @@ never links it.
   layer of pigment), `brush_stroke` (the stamped ink line), built on `FillPoly` and `Mask`, mixing as pigment with
   `spectral.rs` (Kubelka-Munk, 38 bands).
 
+## Upstream
+This painter is a copy of the studio's oil engine in the owner's film studio (music-to-movie-magic,
+`studio/crates/oil`), which is **upstream**: fixes land there first and are ported here. The shared functions
+(`Painting::stroke`, `paint_form`, `plan_slots`, `edge_dir`, `signed_depth`, `flat_under`, `hand_paths`, `sweep`,
+`paint_contour`, `paint_line_with`, the `Fade`/`Premix` guards) are kept textually identical to upstream apart from
+`pub`, so a port is a function-for-function replacement. The tests in `oil.rs` are upstream's steadiness tests that
+apply here. This copy adds `PhotoOptions`, `set_zoom`/`set_scene` and the `crabpaint` CLI, and leaves out the
+film-frame painter.
+
 ## Use
 ```sh
 cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png [fx fy reach] \
@@ -29,5 +38,6 @@ by its environment variable (`OIL_ATTENTION=off` = `--attention off`, `OIL_GROUN
 As a library: `painter::{Painting, brush_fill, brush_wash, brush_stroke, oil::paint_body, ...}`.
 
 ## Tests
-`cargo test -p painter` paints the brush port and an oil shape and checks they are deterministic and in place; the
-heavier full-photo test is `cargo test -p painter -- --ignored`.
+`cargo test -p painter` paints the brush port and an oil shape and checks they are deterministic and in place, and
+runs the steadiness tests (no stroke pops in or out as a shape moves or flexes by a fraction of a pixel, no seams at
+stroke ends, outlines keep their sweeps); the heavier full-photo test is `cargo test -p painter -- --ignored`.
