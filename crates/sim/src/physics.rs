@@ -40,6 +40,9 @@ pub struct Controls {
     pub down: bool,
     /// Was the crusher (smash) pressed since the last step?
     pub smash_pressed: bool,
+    /// Is smash held? (Only matters when the crusher charges: see
+    /// [`Tuning::charge_ticks`].)
+    pub smash_held: bool,
     /// Was the cutter (jab) pressed since the last step?
     pub jab_pressed: bool,
     /// Is block (claws up) held?
@@ -300,6 +303,18 @@ pub struct StepEvents {
     pub evaded: bool,
     /// Started a counter smash (inside a parry's counter window).
     pub countered: bool,
+    /// A blow came out with a lunge (the body thrown forward).
+    pub lunged: bool,
+    /// A counter seized an enemy in the crusher...
+    pub seized: bool,
+    /// ...squeezed a crack into it...
+    pub cracked: bool,
+    /// ...and let go with the full blow.
+    pub crushed: bool,
+    /// Turned round (to show its back, or its front again).
+    pub turned: bool,
+    /// Struggled free of a bite.
+    pub freed: bool,
 }
 
 impl StepEvents {
@@ -331,6 +346,12 @@ impl StepEvents {
         self.parried |= other.parried;
         self.evaded |= other.evaded;
         self.countered |= other.countered;
+        self.lunged |= other.lunged;
+        self.seized |= other.seized;
+        self.cracked |= other.cracked;
+        self.crushed |= other.crushed;
+        self.turned |= other.turned;
+        self.freed |= other.freed;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -366,6 +387,12 @@ impl StepEvents {
             (self.parried, "parried"),
             (self.evaded, "evaded"),
             (self.countered, "countered"),
+            (self.lunged, "lunged"),
+            (self.seized, "seized"),
+            (self.cracked, "cracked"),
+            (self.crushed, "crushed"),
+            (self.turned, "turned"),
+            (self.freed, "freed"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))
@@ -867,6 +894,7 @@ mod tests {
         dodge_held: false,
         down: false,
         smash_pressed: false,
+        smash_held: false,
         jab_pressed: false,
         block_held: false,
         block_pressed: false,

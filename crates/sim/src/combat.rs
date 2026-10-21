@@ -213,23 +213,52 @@ pub struct Swing {
     pub hits: Vec<u32>,
     /// Started inside a parry's counter window: it hits harder.
     pub counter: bool,
+    /// This swing's wind-up before any charging (a counter's is shorter).
+    pub windup: u32,
+    /// Extra wind-up ticks spent charging (holding smash).
+    pub charged: u32,
+    /// Still held, still charging.
+    pub charging: bool,
+    /// How hard it was started (momentum): 1 = plain.
+    pub power: f32,
 }
 
 impl Swing {
+    /// The whole wind-up, charging included.
+    pub fn windup_len(&self) -> u32 {
+        self.windup + self.charged
+    }
+
     pub fn phase(&self, t: &Tuning) -> Phase {
         let c = self.claw.tuning(t);
-        if self.tick <= c.windup_ticks {
+        if self.tick <= self.windup_len() {
             Phase::Windup
-        } else if self.tick <= c.windup_ticks + c.active_ticks {
+        } else if self.tick <= self.windup_len() + c.active_ticks {
             Phase::Active
         } else {
             Phase::Recovery
         }
     }
 
+    /// Ticks into the recovery (1 on its first), 0 before it.
+    pub fn recovery_tick(&self, t: &Tuning) -> u32 {
+        let c = self.claw.tuning(t);
+        self.tick.saturating_sub(self.windup_len() + c.active_ticks)
+    }
+
+    /// How much harder than plain it hits: momentum, and a charge.
+    pub fn strength(&self, t: &Tuning) -> f32 {
+        let charge = if t.charge_ticks > 0 {
+            t.charge_bonus * self.charged as f32 / t.charge_ticks as f32
+        } else {
+            0.0
+        };
+        self.power * (1.0 + charge)
+    }
+
     fn done(&self, t: &Tuning) -> bool {
         let c = self.claw.tuning(t);
-        self.tick > c.windup_ticks + c.active_ticks + c.recovery_ticks
+        self.tick > self.windup_len() + c.active_ticks + c.recovery_ticks
     }
 }
 
@@ -263,6 +292,53 @@ pub struct Fighter {
     /// Ticks into the current dodge or flip (1 on its first tick, 0 when
     /// not dodging).
     pub dodge_age: u32,
+    /// A counter smash that seized its target: crushing it.
+    pub crush: Option<Crush>,
+    /// Showing its back to the camera (turned round to strike across; its
+    /// claws never swap sides, so seen from behind the crusher is on the
+    /// screen's right).
+    pub back: bool,
+    /// Ticks left in a turn (0 = not turning).
+    pub turn: u32,
+    /// The turn is into a blow: it steps that way as it pivots.
+    pub turn_step: bool,
+    /// Ticks out of a fight while showing its back (it turns to the front
+    /// again after [`Tuning::turn_back_after`]).
+    pub calm: u32,
+    /// Held in an enemy's jaws: no acting until it struggles free.
+    pub grabbed: Option<Grabbed>,
+}
+
+/// Held in a bite (see [`crate::tuning::GrabTuning`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Grabbed {
+    /// The enemy's id.
+    pub by: u32,
+    /// Ticks left before it lets go (each dodge press takes some off).
+    pub left: u32,
+}
+
+impl Claw {
+    /// Which side of the screen the claw is on (-1 left, 1 right): the
+    /// crusher is the crab's right, screen-left from the front.
+    pub fn screen_side(self, back: bool) -> f32 {
+        let front = match self {
+            Claw::Crusher => -1.0,
+            Claw::Cutter => 1.0,
+        };
+        if back { -front } else { front }
+    }
+}
+
+/// The crusher clamped on an enemy (see [`Tuning::crush`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Crush {
+    /// The enemy's id.
+    pub target: u32,
+    /// Ticks held so far.
+    pub tick: u32,
+    /// Cracks squeezed in so far.
+    pub cracks: u32,
 }
 
 impl Fighter {
@@ -280,6 +356,12 @@ impl Fighter {
             counter: 0,
             armour_break: 0,
             dodge_age: 0,
+            crush: None,
+            back: false,
+            turn: 0,
+            turn_step: false,
+            calm: 0,
+            grabbed: None,
         }
     }
 
@@ -287,6 +369,10 @@ impl Fighter {
     pub fn status(&self, t: &Tuning) -> String {
         if self.dead.is_some() {
             "dead".into()
+        } else if self.grabbed.is_some() {
+            "grabbed".into()
+        } else if self.crush.is_some() {
+            "crushing".into()
         } else if self.vitals.stagger > 0 {
             "staggered".into()
         } else if let Some(s) = &self.swing {
@@ -367,6 +453,22 @@ pub fn before_step(
     f.armour_break = f.armour_break.saturating_sub(1);
     f.parry_lockout = f.parry_lockout.saturating_sub(1);
     f.block_age = f.block_age.saturating_add(1);
+    f.turn = f.turn.saturating_sub(1);
+    // Out of a fight for a while with its back shown: it turns to face the
+    // camera again.
+    let fighting = f.swing.is_some() || f.crush.is_some() || c.block_held;
+    f.calm = if f.back && !fighting && f.turn == 0 {
+        f.calm + 1
+    } else {
+        0
+    };
+    if t.turn_ticks > 0 && f.calm >= t.turn_back_after {
+        f.back = false;
+        f.turn = t.turn_ticks;
+        f.turn_step = false;
+        f.calm = 0;
+        ev.turned = true;
+    }
     let mut out = *c;
     out.smash_pressed = false;
     out.jab_pressed = false;
@@ -374,6 +476,24 @@ pub fn before_step(
     if staggered {
         f.swing = None;
         f.queued = None;
+        f.blocking = false;
+        return Controls::default();
+    }
+    // Held in a bite: struggle (dodge presses) to get free sooner.
+    if let Some(g) = &mut f.grabbed {
+        let struggle = if c.dodge_pressed { 8 } else { 0 };
+        g.left = g.left.saturating_sub(1 + struggle);
+        if g.left == 0 {
+            f.grabbed = None;
+            ev.freed = true;
+        }
+        f.swing = None;
+        f.blocking = false;
+        return Controls::default();
+    }
+    // Crushing: the crusher is clamped on; the crab stands and squeezes
+    // (the sim's world step counts the crush and lets go).
+    if f.crush.is_some() {
         f.blocking = false;
         return Controls::default();
     }
@@ -402,11 +522,26 @@ pub fn before_step(
         f.queued = Some((claw, t.swing_buffer_ticks));
     }
 
-    // Advance the swing; dodge cancels its recovery.
+    // Advance the swing; dodge or block cut its recovery short, and so does
+    // a claw press late enough in it (when the claw chains).
     if let Some(s) = &mut f.swing {
         s.tick += 1;
+        // Charging: held at the top of the wind-up until let go (or full).
+        if s.charging {
+            if !c.smash_held || s.charged >= t.charge_ticks {
+                s.charging = false;
+            } else if s.tick > s.windup_len() {
+                s.charged += 1;
+            }
+        }
         let recovering = s.phase(t) == Phase::Recovery;
-        if s.done(t) || (recovering && (c.dodge_pressed || c.block_pressed)) {
+        let chains = s
+            .claw
+            .tuning(t)
+            .chain_after
+            .is_some_and(|n| s.recovery_tick(t) >= n);
+        let cut = c.dodge_pressed || c.block_pressed || (chains && f.queued.is_some());
+        if s.done(t) || (recovering && cut) {
             f.swing = None;
         }
     }
@@ -420,21 +555,68 @@ pub fn before_step(
             f.counter = 0;
             ev.countered = true;
         }
+        let ct = claw.tuning(t);
+        let haste = if counter { t.counter_haste } else { 0 };
+        // Striking across: the body turns round first, so the claw is on the
+        // side the blow goes (claws never swap sides). It adds to the wind-up.
+        let turn = if t.turn_ticks > 0 && claw.screen_side(f.back) != f.facing {
+            f.back = !f.back;
+            f.turn = t.turn_ticks;
+            f.turn_step = true;
+            ev.turned = true;
+            t.turn_ticks
+        } else {
+            f.turn_step = false;
+            0
+        };
+        // The wind-up starts in the last part of the turn (it overlaps up to
+        // half of each), so turning never adds its whole length.
+        let base = ct.windup_ticks.saturating_sub(haste).max(1);
+        let overlap = (base / 2).min(turn / 2);
+        let speed = (m.vel.x.abs() / t.sprint_speed).min(1.0);
         f.swing = Some(Swing {
             claw,
             tick: 1,
             hits: Vec::new(),
             counter,
+            windup: base + turn - overlap,
+            charged: 0,
+            charging: claw == Claw::Crusher && t.charge_ticks > 0 && c.smash_held,
+            power: 1.0 + t.momentum * speed,
         });
         match claw {
             Claw::Crusher => ev.smashed = true,
             Claw::Cutter => ev.jabbed = true,
         }
     }
-    if let Some((_, left)) = &mut f.queued {
+    // A press is kept, not counted down, through a turn and the swing it
+    // starts (the turn is long; nothing pressed in it is lost): it comes
+    // out when the swing can chain or ends.
+    let turning = f.turn > 0 || (f.turn_step && f.swing.is_some());
+    if let Some((_, left)) = &mut f.queued
+        && !turning
+    {
         *left = left.saturating_sub(1);
         if *left == 0 {
             f.queued = None;
+        }
+    }
+    // Turning into a blow: a pivoting sidestep that way (the wind-up plants
+    // the feet otherwise; the momentum carries on into the blow).
+    if f.turn > 0 && f.turn_step && t.turn_ticks > 0 {
+        let speed = t.turn_travel / (t.turn_ticks as f32 * crate::physics::STEP);
+        // Plus what the planted feet brake off in one step.
+        m.vel.x = f.facing * (speed + t.ground_decel * crate::physics::STEP);
+    }
+    // The blow comes out: the body goes with it.
+    if let Some(s) = &f.swing {
+        let ct = s.claw.tuning(t);
+        if ct.lunge > 0.0 && s.tick == s.windup_len() + 1 {
+            let lunge = ct.lunge * s.strength(t);
+            if m.vel.x * f.facing < lunge {
+                m.vel.x = f.facing * lunge;
+            }
+            ev.lunged = true;
         }
     }
 
@@ -553,6 +735,7 @@ pub fn crab_takes(
         f.dead = Some(0);
         f.swing = None;
         f.queued = None;
+        f.grabbed = None;
         m.vel = Vec2::ZERO;
         ev.died = true;
     }

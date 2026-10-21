@@ -165,6 +165,9 @@ jobs:
         run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --shots target/webtest/portrait
       - name: Play it in WebKit (landscape phone)
         run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --landscape --shots target/webtest/landscape
+      - name: Frame strips of a smash in a few feel presets (to look at; never fails the job)
+        continue-on-error: true
+        run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --feel-shots target/webtest/feel
       - name: Keep the screenshots and browser log
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

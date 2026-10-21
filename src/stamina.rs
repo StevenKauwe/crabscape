@@ -128,7 +128,7 @@ fn spawn_reserve_bar(mut commands: Commands, sim: Res<Sim>) {
     commands
         .spawn(Node {
             position_type: PositionType::Absolute,
-            top: px(60),
+            top: px(76),
             left: px(12),
             column_gap: px(3),
             ..default()
@@ -190,7 +190,7 @@ fn spawn_skill(mut commands: Commands) {
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                top: px(74),
+                top: px(90),
                 left: px(12),
                 flex_direction: FlexDirection::Column,
                 row_gap: px(3),

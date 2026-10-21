@@ -177,14 +177,14 @@ pub fn base_pose() -> Pose {
         // hero: the heavy crusher rests low across the front like a fist; the slim cutter is held up beside the face
         claws: [
             Claw {
-                wrist: [-116.0, 70.0],
+                wrist: [-130.0, 78.0],
                 aim: Some(-6.0),
                 gape: Some(4.0),
                 size: Some(1.0),
                 flip: None,
             },
             Claw {
-                wrist: [148.0, 44.0],
+                wrist: [162.0, 50.0],
                 aim: Some(66.0),
                 gape: Some(18.0),
                 size: Some(1.0),
@@ -510,7 +510,8 @@ pub fn build_front(pose: &Pose) -> Vec<Item> {
         }
         let w = body_m(wr);
         let km = if small { 0.62 } else { 1.0 };
-        let (ml, cl) = (50.0 * km, 28.0 * km);
+        // Merus and carpus: a little long for a swimming crab's reach (#90).
+        let (ml, cl) = (60.0 * km, 34.0 * km);
         let e = ik2(coxa, w, ml, cl, |j| s * j[0] + j[1] * 0.4).joint; // elbow outward/down
         let mw = if crusher {
             28.0 + 6.0 * (ds.crusher.h / 60.0 - 1.0) * 3.0

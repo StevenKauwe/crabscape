@@ -29,22 +29,33 @@
 //! - [`input`]: keys, controllers and touch buttons become move requests
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
+//! - [`critters`]: the snapping shrimp and the moray (placeholder shapes)
 //! - [`deep`]: the depth counter in the pit, and something big in the dark
 //! - [`effects`]: bubbles, sand puffs and marine snow
+//! - [`feel`]: the feel lab: presets for how attacks feel, and their juice
+//! - [`fight`]: the shell and poise bars, the blow's flash, fight notes
+//! - [`foes`]: the enemies (placeholder shapes for now) and their tells
 //! - [`eggs`]: the fish eggs that give the crab more swim strokes
+//! - [`impact`]: how a blow lands: shake, kick, zoom, sound, debris
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
 //! - [`notes`]: the short notes that float up when something happens
 //! - [`reset`]: the "Start over" button: forget this device's saved data, start fresh
 //! - [`save`]: remembering the crab's position between visits
 //! - [`secrets`]: places hidden in darkness until a bright lantern comes near
+//! - [`sound`]: impact sounds, synthesised in code, played with Web Audio
 //! - [`stamina`]: the rings over the crab that show its swimming stamina
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
 
+mod critters;
 mod deep;
 mod effects;
 mod eggs;
+mod feel;
+mod fight;
+mod foes;
 mod home;
+mod impact;
 mod input;
 mod lantern;
 mod level;
@@ -55,6 +66,7 @@ mod replay;
 mod reset;
 mod save;
 mod secrets;
+mod sound;
 mod stamina;
 mod style;
 mod tuning;
@@ -104,12 +116,18 @@ fn main() {
             view::ViewPlugin,
         ))
         .add_plugins((
+            critters::CrittersPlugin,
             deep::DeepPlugin,
             eggs::EggsPlugin,
+            feel::FeelPlugin,
+            foes::FoesPlugin,
+            fight::FightPlugin,
             home::HomePlugin,
+            impact::ImpactPlugin,
             notes::NotesPlugin,
             reset::ResetPlugin,
             secrets::SecretsPlugin,
+            sound::SoundPlugin,
             stamina::StaminaPlugin,
         ))
         .run();

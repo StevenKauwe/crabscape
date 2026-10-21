@@ -15,10 +15,16 @@
 //!   between Oil and Ink (the canvas's `data-style` says which);
 //! - holding D walks the crab right, Space makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
+//! - next to the mantis shrimp's burrow, it comes out and winds up, and blows land (`data-fight`);
 //! - F9, and the `?replay` page's Replay button, hand out a replay that the headless simulation (linked in) plays
 //!   to exactly the same state: same state hash, same place;
 //! - its resting position, and the chosen style, are saved in localStorage and survive a reload;
+//! - the feel lab (`?feel`; it shows by itself in preview builds) starts on the recommended preset, and the backtick
+//!   key, backslash and the FEEL button switch preset and juice, kept over a reload (`data-feel`);
 //! - nothing went wrong along the way (no error on the page or in the browser console).
+//!
+//! `--feel-shots PREFIX` instead plays a smash on the mantis in slow motion (`?slow=10`) in a few feel presets and
+//! saves a strip of frames of each as PREFIX-<preset>-<n>.png, to look at how the blow lands.
 //!
 //! `--smoke` stops after the start-up checks (for the live site). The game writes the crab's state onto the canvas
 //! as `data-crab="x y grounded"` (see src/view.rs); the test reads that. With `--shots PREFIX` it saves
@@ -48,6 +54,7 @@ struct Options {
     style_shots: Option<String>,
     url: Option<String>,
     smoke: bool,
+    feel_shots: Option<String>,
 }
 
 fn options() -> std::result::Result<Options, String> {
@@ -59,6 +66,7 @@ fn options() -> std::result::Result<Options, String> {
         style_shots: None,
         url: None,
         smoke: false,
+        feel_shots: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -71,10 +79,13 @@ fn options() -> std::result::Result<Options, String> {
             }
             "--url" => o.url = Some(args.next().ok_or("--url needs an address")?),
             "--smoke" => o.smoke = true,
+            "--feel-shots" => {
+                o.feel_shots = Some(args.next().ok_or("--feel-shots needs a prefix")?)
+            }
             "-h" | "--help" => {
                 println!(
                     "cargo webtest [--landscape | --desktop] [--shots PREFIX] [--style-shots PREFIX] \
-                     [--url URL] [--smoke]\n(see tools/webtest/src/main.rs)"
+                     [--url URL] [--smoke] [--feel-shots PREFIX]\n(see tools/webtest/src/main.rs)"
                 );
                 std::process::exit(0);
             }
@@ -170,7 +181,10 @@ fn run(o: &Options, root: &Path, scratch: &Path, log: &Path) -> Result<u32> {
     };
     let vw = if framed { o.width.max(500.0) } else { o.width };
     t.b.set_viewport(vw as u32, o.height as u32)?;
-    t.all()?;
+    match &o.feel_shots {
+        Some(prefix) => t.feel_strips(prefix)?,
+        None => t.all()?,
+    }
     t.console_errors(log);
     Ok(t.failures)
 }
@@ -647,7 +661,188 @@ impl Test<'_> {
         let standing = self.rest()?;
         self.eval(r#"(document.getElementById("replay-button").click(), true)"#)?;
         self.replay_matches("the ?replay page's Replay button", standing)?;
+
+        // --- a fight: start by the mantis shrimp's burrow on the plateau ------------------------------------------
+        self.eval(
+            r#"(localStorage.setItem("crabscape.save", JSON.stringify({version: 2, x: 870, y: 110})), true)"#,
+        )?;
+        self.open("index.html")?;
+        let by_burrow = self.crab()?;
+        self.check(
+            by_burrow.is_some_and(|(x, _, _)| (x - 870.0).abs() < 2.0),
+            format!("the crab starts by the mantis's burrow ({by_burrow:?})"),
+        );
+        // It sees the crab, comes out and darts in; by now it is rearing for its strike.
+        let came_out = self.wait_for(
+            &format!(
+                r#"/mantis=(tell|attack|recover):/.test({CANVAS}.getAttribute("data-fight") || "")"#
+            ),
+            4.0,
+        )?;
+        self.numbered_shot(4)?;
+        let fight = self.attr("data-fight")?;
+        self.check(
+            came_out,
+            format!("the mantis comes out of its burrow and winds up its strike ({fight:?})"),
+        );
+        // Guard (a tap: parry), then smash.
+        self.press("KeyF", "f")?;
+        self.press("KeyE", "e")?;
+        pump(2.0);
+        self.numbered_shot(5)?;
+        let after = self.attr("data-fight")?.unwrap_or_default();
+        let crab_hp: f64 = after
+            .split_whitespace()
+            .next()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100.0);
+        let mantis_hurt = after
+            .split_whitespace()
+            .find(|w| w.starts_with("mantis="))
+            .and_then(|w| w.rsplit(':').next())
+            .and_then(|v| v.parse::<f64>().ok())
+            != Some(60.0);
+        self.check(
+            crab_hp < 100.0 || mantis_hurt,
+            format!("blows land in the fight (shell and mantis: {after})"),
+        );
+
+        // --- the feel lab -----------------------------------------------------------------------------------------
+        let feel_is = |s: &str| format!(r#"{CANVAS}.getAttribute("data-feel") === "{s}""#);
+        self.open("index.html?feel")?;
+        let ok = self.wait_for(&feel_is("hybrid on"), 5.0)?;
+        let feel = self.attr("data-feel")?;
+        self.check(
+            ok,
+            format!("the feel lab starts on the recommended preset ({feel:?})"),
+        );
+        self.press("Backquote", "`")?;
+        let ok = self.wait_for(&feel_is("tank on"), 5.0)?;
+        self.check(ok, "the backtick key switches to the next preset");
+        self.press("Backslash", "\\")?;
+        let ok = self.wait_for(&feel_is("tank off"), 5.0)?;
+        self.check(ok, "backslash switches the juice off");
+        // The FEEL button: under Style and Start over (mirrors button_rect() in src/feel.rs), tapped.
+        let top = if w < 600.0 { 58.0 } else { 10.0 } + 2.0 * (34.0 + 8.0);
+        let (fx, fy) = (w - 10.0 - 52.0, top + 17.0);
+        self.pointer("pointerdown", fx, fy, 11, 1, true)?;
+        pump(0.15);
+        self.pointer("pointerup", fx, fy, 11, 0, true)?;
+        let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
+        self.check(ok, "tapping the FEEL button switches preset");
+        self.open("index.html?feel")?;
+        let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
+        self.check(ok, "the preset and juice are kept over a reload");
         self.no_error_on_page("at the end")?;
+        Ok(())
+    }
+
+    /// `--feel-shots`: a smash on the mantis in slow motion, frame by frame, in a few presets.
+    fn feel_strips(&mut self, prefix: &str) -> Result<()> {
+        self.go("index.html")?;
+        // The new creatures' tells, 10x slow: walk up to a snapping shrimp (it feels the steps), stand by a
+        // moray's crevice (it smells the crab).
+        for (kind, x, y, walk) in [("snapper", 210, 0, true), ("moray", 2480, 20, false)] {
+            self.eval(&format!(
+                r#"(localStorage.clear(),
+                    localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: {x}, y: {y}}})), true)"#
+            ))?;
+            self.open("index.html?slow=10")?;
+            if walk {
+                self.key("keydown", "KeyD", "d")?;
+                pump(2.2);
+                self.key("keyup", "KeyD", "d")?;
+            }
+            let telling = self.wait_for(
+                &format!(r#"/{kind}=tell:/.test({CANVAS}.getAttribute("data-fight") || "")"#),
+                60.0,
+            )?;
+            self.check(telling, format!("the {kind} starts its tell"));
+            for n in 1..=20 {
+                self.shot(PathBuf::from(format!("{prefix}-{kind}-{n:02}.png")), false)?;
+                pump(0.3);
+            }
+            let fight = self.attr("data-fight")?;
+            println!("     {kind}: after {fight:?}");
+        }
+        // A smash in a few presets, then a parry and the crush counter.
+        // (preset, a parry and crush, one turn frame by frame)
+        let runs = [
+            ("current", false, false),
+            ("hybrid", false, false),
+            ("tank", false, false),
+            ("tank", false, true),
+            ("tank", true, false),
+        ];
+        for (feel, counter, turn) in runs {
+            let name = if counter {
+                format!("{feel}-crush")
+            } else if turn {
+                format!("{feel}-turn")
+            } else {
+                feel.to_string()
+            };
+            self.eval(&format!(
+                r#"(localStorage.clear(),
+                    localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: 870, y: 110}})),
+                    localStorage.setItem("crabscape-feel", "{feel}"),
+                    localStorage.setItem("crabscape-juice", "on"), true)"#
+            ))?;
+            // The counter run plays 20x slower, so the parry's 8-tick window is over a second long.
+            // The turn strip plays 30x slower: about one game tick per frame.
+            self.open(if counter {
+                "index.html?feel&slow=20"
+            } else if turn {
+                "index.html?feel&slow=30"
+            } else {
+                "index.html?feel&slow=10"
+            })?;
+            let phase = |p: &str| {
+                format!(r#"/mantis=tell:{p}/.test({CANVAS}.getAttribute("data-fight") || "")"#)
+            };
+            if counter {
+                // Catch the cocked hold as it starts (the page updates every 0.1 s), then parry about 5 ticks
+                // before the club lands (the hold is 30 ticks), then smash.
+                let end = Instant::now() + Duration::from_secs(90);
+                let mut cocked = false;
+                while Instant::now() < end && !cocked {
+                    cocked = self.eval(&phase("cocked"))?.as_bool() == Some(true);
+                    pump(0.03);
+                }
+                self.check(cocked, format!("{name}: the mantis cocks its club"));
+                pump(24.0 * 20.0 / 120.0);
+                self.press("KeyF", "f")?;
+                pump(0.8);
+            } else {
+                // It comes out and darts in (slowly); smash as it starts to rear.
+                let rearing = self.wait_for(&phase("rear"), 60.0)?;
+                self.check(rearing, format!("{name}: the mantis rears"));
+                pump(1.0); // past the toast
+            }
+            self.key("keydown", "KeyE", "e")?;
+            pump(0.3);
+            self.key("keyup", "KeyE", "e")?;
+            let started = Instant::now();
+            let frames = if counter || turn { 30 } else { 20 };
+            // About 0.3 s apart: 1/30 s of game time each.
+            for n in 1..=frames {
+                let path = PathBuf::from(format!("{prefix}-{name}-{n:02}.png"));
+                self.shot(path, false)?;
+                pump(if counter {
+                    0.4
+                } else if turn {
+                    0.1
+                } else {
+                    0.2
+                });
+            }
+            let fight = self.attr("data-fight")?;
+            println!(
+                "     {name}: {frames} frames in {:.1} s; after: {fight:?}",
+                started.elapsed().as_secs_f64()
+            );
+        }
+        self.no_error_on_page("after the frame strips")?;
         Ok(())
     }
 

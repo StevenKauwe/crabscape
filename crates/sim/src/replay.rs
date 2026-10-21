@@ -39,7 +39,11 @@
 //! | `parry`         | press block and let go at once (a timed parry)           |
 //! | `guard`         | hold block without a new press (never a parry)           |
 //! | `unblock`       | let go of block                                          |
+//! | `smash`         | (above) a tap: with a charging crusher, the shortest wind-up |
+//! | `charge`        | press smash and keep holding it (a charging crusher winds up) |
+//! | `loose`         | let go of smash (a charged smash strikes)                |
 //! | `spawn=fixture@300,0` | an enemy appears there (tests, crabsim, replays)   |
+//! | `feel=heavy`    | switch to a feel preset (`crabsim::feel`; the game's feel lab) |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
 //! `tap`, `dodge`, `sprint`, `smash`, `jab`, `block`, `parry`) happen on that one tick. Recorded replays also have a
@@ -50,6 +54,7 @@
 use bevy_math::Vec2;
 
 use crate::enemy::Kind;
+use crate::feel::Feel;
 use crate::level::SPAWN;
 use crate::physics::{Controls, TICKS_PER_SECOND};
 use crate::tuning::Tuning;
@@ -81,6 +86,8 @@ pub struct Replay {
     /// Enemies that appear, in tick order: in scripts (`spawn=`), and in
     /// recordings of the game (its level's enemies, at tick 0).
     pub spawns: Vec<Spawn>,
+    /// Switches of feel preset, in tick order (the game's feel lab).
+    pub feels: Vec<(u64, Feel)>,
 }
 
 /// An enemy appearing at the start of a tick.
@@ -100,6 +107,7 @@ impl Default for Replay {
             end: None,
             hash: None,
             spawns: Vec::new(),
+            feels: Vec::new(),
         }
     }
 }
@@ -172,7 +180,11 @@ impl Replay {
             for w in words.iter().filter_map(|w| w.strip_prefix("spawn=")) {
                 replay.spawns.push(spawn(tick, w).map_err(err)?);
             }
-            words.retain(|w| !w.starts_with("spawn="));
+            for w in words.iter().filter_map(|w| w.strip_prefix("feel=")) {
+                let feel = Feel::parse(w).ok_or_else(|| err(format!("no feel preset `{w}`")))?;
+                replay.feels.push((tick, feel));
+            }
+            words.retain(|w| !w.starts_with("spawn=") && !w.starts_with("feel="));
             if words.is_empty() {
                 continue; // only spawns: no change to the controls
             }
@@ -210,6 +222,9 @@ impl Replay {
                 s.pos.y
             );
         }
+        for (tick, feel) in &self.feels {
+            out += &format!("@{tick} feel={}\n", feel.name());
+        }
         let mut before = Controls::default();
         for input in &self.inputs {
             let c = input.controls;
@@ -241,9 +256,13 @@ impl Replay {
                 (false, false, true) => " unblock",
                 _ => "",
             };
-            if c.smash_pressed {
-                line += " smash";
-            }
+            line += match (c.smash_pressed, c.smash_held, before.smash_held) {
+                (true, true, _) => " charge",
+                (true, false, _) => " smash",
+                (false, true, false) => " charging",
+                (false, false, true) => " loose",
+                _ => "",
+            };
             if c.jab_pressed {
                 line += " jab";
             }
@@ -271,6 +290,18 @@ impl Replay {
     /// first).
     pub fn spawns_at(&self, tick: u64) -> impl Iterator<Item = &Spawn> + '_ {
         self.spawns.iter().filter(move |s| s.tick == tick)
+    }
+
+    /// What happens to the world just before tick number `sim.tick_count()`
+    /// runs: enemies appear, the feel switches.
+    pub fn apply_at(&self, sim: &mut crate::Sim) {
+        let tick = sim.tick_count();
+        for s in self.spawns_at(tick) {
+            sim.spawn_enemy(s.kind, s.pos);
+        }
+        for (_, feel) in self.feels.iter().filter(|(t, _)| *t == tick) {
+            sim.set_feel(*feel);
+        }
     }
 
     /// Something that hands out the controls for tick 0, 1, 2, ... in turn.
@@ -337,7 +368,8 @@ impl Recorder {
             || c.jump_held != self.last.jump_held
             || c.dodge_held != self.last.dodge_held
             || c.down != self.last.down
-            || c.block_held != self.last.block_held;
+            || c.block_held != self.last.block_held
+            || c.smash_held != self.last.smash_held;
         if changed || c.any_press() {
             self.replay.inputs.push(Input {
                 tick: tick - self.first_tick,
@@ -345,6 +377,11 @@ impl Recorder {
             });
             self.last = c;
         }
+    }
+
+    /// The feel preset switched at `tick`.
+    pub fn note_feel(&mut self, tick: u64, feel: Feel) {
+        self.replay.feels.push((tick - self.first_tick, feel));
     }
 
     /// An enemy appeared at `tick`.
@@ -415,7 +452,16 @@ fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
         }
         "guard" => c.block_held = true,
         "unblock" => c.block_held = false,
-        "smash" => c.smash_pressed = true,
+        "smash" => {
+            c.smash_pressed = true;
+            c.smash_held = false;
+        }
+        "charge" => {
+            c.smash_pressed = true;
+            c.smash_held = true;
+        }
+        "charging" => c.smash_held = true,
+        "loose" => c.smash_held = false,
         "jab" => c.jab_pressed = true,
         _ => match word.split_once('=') {
             Some(("walk", v)) => {
@@ -506,7 +552,7 @@ mod tests {
     #[test]
     fn text_round_trips_exactly() {
         let r = Replay::parse(
-            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block spawn=fixture@300,0\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\nend @400",
+            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block spawn=fixture@300,0\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\n@210 charge feel=momentum\n@230 loose\n@240 smash\nend @400",
         )
         .unwrap();
         let again = Replay::parse(&r.to_text()).unwrap();

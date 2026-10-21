@@ -5,8 +5,8 @@ The ocean as real ecology, by depth: what anchors enemies and later levels. Zone
 
 ## Scale
 Our crab has a **12 cm carapace** (75 world units), so **1 cm = 6.25 units**. Every creature is drawn and simulated at
-its real size against that: a snapping shrimp is half a crab shell, a moray is six crabs long, an octopus's arms are
-a metre each. The game squeezes vertical distance (a zone is a few screens, not hundreds of metres), but each zone's
+its real size against that (table: `creatures/README.md`): a snapping shrimp is half a crab shell, a moray is five
+crabs long, an octopus's arms are a metre each. The game squeezes vertical distance (a zone is a few screens, not hundreds of metres), but each zone's
 light, life and dangers are the real ones for its depth.
 
 ## The map by depth

@@ -26,13 +26,22 @@ pub enum Kind {
     Fixture,
     /// The peacock mantis shrimp: rumbles, rears and cocks its club.
     Mantis,
+    /// A snapping shrimp: a turret whose snap shocks along the floor.
+    Snapper,
+    /// A snowflake moray: lunges from a crevice and holds on.
+    Moray,
 }
+
+/// Every kind, for parsing and lists.
+pub const KINDS: [Kind; 4] = [Kind::Fixture, Kind::Mantis, Kind::Snapper, Kind::Moray];
 
 impl Kind {
     pub fn tuning(self, t: &Tuning) -> &EnemyTuning {
         match self {
             Kind::Fixture => &t.fixture,
             Kind::Mantis => &t.mantis,
+            Kind::Snapper => &t.snapper,
+            Kind::Moray => &t.moray,
         }
     }
 
@@ -40,13 +49,13 @@ impl Kind {
         match self {
             Kind::Fixture => "fixture",
             Kind::Mantis => "mantis",
+            Kind::Snapper => "snapper",
+            Kind::Moray => "moray",
         }
     }
 
     pub fn parse(name: &str) -> Option<Self> {
-        [Kind::Fixture, Kind::Mantis]
-            .into_iter()
-            .find(|k| k.name() == name)
+        KINDS.into_iter().find(|k| k.name() == name)
     }
 }
 
@@ -68,6 +77,8 @@ pub enum State {
     Recover,
     /// Poise broken or parried: can't act.
     Stagger,
+    /// Holding a crab in its jaws (a moray's bite).
+    Grab,
     /// Hurt badly: off home to hide.
     Flee,
     /// Health ran out.
@@ -84,6 +95,7 @@ impl State {
             State::Attack => "attack",
             State::Recover => "recover",
             State::Stagger => "stagger",
+            State::Grab => "grab",
             State::Flee => "flee",
             State::Gone => "gone",
         }
@@ -120,6 +132,19 @@ pub struct Enemy {
     pub follow_ups: Vec<(PlayerId, u32)>,
     /// Ticks left hiding at home before it will notice anything.
     pub hiding: u32,
+    /// Has fled once this fight (it flees at most once, until it has rested
+    /// at home with nobody near).
+    pub fled: bool,
+    /// Seized in a crab's crusher: frozen, its state on hold.
+    pub held: bool,
+    /// Cracks the crusher squeezed into its shell (shown; mended at home).
+    pub cracks: u32,
+    /// Ticks of a crab's smell built up (for kinds that hunt by smell).
+    pub scent: u32,
+    /// How far its head is out past its body box (a lunge from a crevice):
+    /// the body box grows to it, so the head and neck that show are what a
+    /// claw hits.
+    pub reach: f32,
 }
 
 impl Enemy {
@@ -141,6 +166,11 @@ impl Enemy {
             struck: Vec::new(),
             follow_ups: Vec::new(),
             hiding: 0,
+            fled: false,
+            held: false,
+            cracks: 0,
+            scent: 0,
+            reach: 0.0,
         }
     }
 
@@ -171,15 +201,15 @@ impl Enemy {
         self.state != State::Gone && !self.hidden(t)
     }
 
-    /// Its body box.
+    /// Its body box, out to the head when it has lunged (`reach`).
     pub fn hurtbox(&self, t: &Tuning) -> Rect {
         let (w, h) = self.kind.tuning(t).body;
-        Rect::new(
-            self.pos.x - w / 2.0,
-            self.pos.y,
-            self.pos.x + w / 2.0,
-            self.pos.y + h,
-        )
+        let (back, front) = (-w / 2.0, w / 2.0 + self.reach);
+        let (a, b) = (
+            self.pos.x + self.facing * back,
+            self.pos.x + self.facing * front,
+        );
+        Rect::new(a.min(b), self.pos.y, a.max(b), self.pos.y + h)
     }
 
     /// The front of its head.
@@ -187,14 +217,30 @@ impl Enemy {
         self.pos.x + self.facing * self.kind.tuning(t).body.0 / 2.0
     }
 
-    /// Its blow's hit circle (centre, radius).
+    /// Its blow's hit circle (centre, radius). A lunge carries it out over
+    /// the active ticks.
     pub fn strike_circle(&self, t: &Tuning) -> (Vec2, f32) {
-        let s = &self.kind.tuning(t).strike;
+        let k = self.kind.tuning(t);
+        let s = &k.strike;
+        let out = if self.state == State::Attack && k.active_ticks > 0 {
+            s.lunge * (self.state_tick as f32 / k.active_ticks as f32).min(1.0)
+        } else {
+            0.0
+        };
         let c = Vec2::new(
-            self.head_x(t) + self.facing * s.ahead,
+            self.head_x(t) + self.facing * (s.ahead + out),
             self.pos.y + s.height,
         );
         (c, s.radius)
+    }
+
+    /// A floor shock's box (for kinds whose blow runs along the floor).
+    pub fn shock_box(&self, t: &Tuning) -> Option<Rect> {
+        let s = &self.kind.tuning(t).strike;
+        (s.floor_len > 0.0).then(|| {
+            let (a, b) = (self.head_x(t), self.head_x(t) + self.facing * s.floor_len);
+            Rect::new(a.min(b), self.pos.y, a.max(b), self.pos.y + s.height)
+        })
     }
 
     /// Start a state; the next tick is its first.
@@ -234,7 +280,12 @@ impl Enemy {
             self.follow_ups.clear();
         } else if took.broke_poise {
             self.enter(State::Stagger, k.vitals.stagger_ticks);
-        } else if self.vitals.health < k.flee_below * k.vitals.health && self.state != State::Flee {
+        } else if self.vitals.health < k.flee_below * k.vitals.health
+            && self.state != State::Flee
+            && !self.fled
+            && !self.held
+        {
+            self.fled = true;
             self.enter(State::Flee, 0);
         }
         Some(took)
@@ -242,9 +293,14 @@ impl Enemy {
 
     /// The nearest living crab it can sense, if any (ties: the first).
     fn sense(&self, crabs: &[SimCrab], range: f32) -> Option<PlayerId> {
+        self.sense_moving(crabs, range, 0.0)
+    }
+
+    /// The same, counting only crabs moving faster than `moving`.
+    fn sense_moving(&self, crabs: &[SimCrab], range: f32, moving: f32) -> Option<PlayerId> {
         crabs
             .iter()
-            .filter(|c| c.fighter.dead.is_none())
+            .filter(|c| c.fighter.dead.is_none() && c.mover.vel.x.abs() >= moving)
             .map(|c| (c.id, (c.mover.pos.x - self.pos.x).abs(), c))
             .filter(|(_, d, c)| *d <= range && (c.mover.pos.y - self.pos.y).abs() < 200.0)
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -257,6 +313,9 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
     if e.vitals.hitstop > 0 {
         e.vitals.hitstop -= 1;
         return;
+    }
+    if e.held {
+        return; // in a crab's crusher
     }
     let k = e.kind.tuning(t).clone();
     e.vitals.tick(&k.vitals);
@@ -292,10 +351,20 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
                 e.enter(State::Notice, pause);
             }
             State::Gone => *e = Enemy::new(e.id, e.kind, e.home, t),
-            State::Idle | State::Approach | State::Flee => {}
+            State::Idle | State::Approach | State::Flee | State::Grab => {}
         }
     }
     e.state_tick += 1;
+
+    // The head: out with the lunge, held out while it holds on, recovers or
+    // reels, then drawn back in.
+    e.reach = match e.state {
+        State::Attack if k.active_ticks > 0 => {
+            k.strike.lunge * (e.state_tick as f32 / k.active_ticks as f32).min(1.0)
+        }
+        State::Grab | State::Recover | State::Stagger => e.reach,
+        _ => (e.reach - k.strike.lunge / HEAD_BACK_TICKS).max(0.0),
+    };
 
     // Follow-up hits (the bubble) pop when their time comes.
     let mut due = Vec::new();
@@ -339,11 +408,26 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
                     e.pos.x = e.home.x;
                     want_speed = 0.0;
                 }
-            } else if e.hiding == 0
-                && let Some(id) = e.sense(crabs, k.notice_range)
-            {
-                e.target = Some(id);
-                e.enter_now(State::Notice, k.notice_ticks);
+            } else if e.hiding == 0 {
+                // Feeling steps (only a crab moving fast enough), or a smell
+                // that has to build up first.
+                let sensed = e.sense_moving(crabs, k.notice_range, k.notice_moving);
+                e.scent = if sensed.is_some() {
+                    e.scent + 1
+                } else {
+                    e.scent.saturating_sub(2)
+                };
+                if let Some(id) = sensed.filter(|_| e.scent >= k.scent_ticks) {
+                    e.scent = 0;
+                    e.target = Some(id);
+                    e.enter_now(State::Notice, k.notice_ticks);
+                } else if e.sense(crabs, k.notice_range).is_none() && e.vitals.unhit > MEND_AFTER {
+                    // Home with nobody near, unhit for a while: the fight is
+                    // over. It mends.
+                    e.vitals = Vitals::new(&k.vitals);
+                    e.fled = false;
+                    e.cracks = 0;
+                }
             }
         }
         State::Notice => {
@@ -376,6 +460,32 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
             }
         }
         State::Attack => strike(e, crabs, t, &k),
+        State::Grab => {
+            // Holding on: it bites again every so often, until the crab
+            // struggles free (or its hold gives out).
+            let held = crabs
+                .iter_mut()
+                .find(|c| c.fighter.grabbed.is_some_and(|g| g.by == e.id));
+            match (held, k.strike.grab) {
+                (Some(crab), Some(g)) => {
+                    if e.state_tick.is_multiple_of(g.every) {
+                        let bite = Hit {
+                            damage: g.damage,
+                            source: Source::Enemy(e.id),
+                            ..Hit::default()
+                        };
+                        combat::crab_takes(
+                            &mut crab.fighter,
+                            &mut crab.mover,
+                            &bite,
+                            t,
+                            &mut crab.events,
+                        );
+                    }
+                }
+                _ => e.enter_now(State::Recover, k.recover_ticks),
+            }
+        }
         State::Flee => {
             let dx = e.home.x - e.pos.x;
             e.facing = if dx == 0.0 { e.facing } else { dx.signum() };
@@ -391,19 +501,35 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
     }
 
     // Move: its own legs, plus any knockback dying away.
-    let decel = 1500.0 * STEP;
+    let decel = t.knock_decel * STEP;
     e.vel_x = if e.vel_x.abs() <= decel {
         0.0
     } else {
         e.vel_x - decel * e.vel_x.signum()
     };
     if e.state != State::Gone {
-        e.pos.x += (e.vel_x + e.facing * want_speed) * STEP;
+        let half = k.body.0 / 2.0;
+        let x = (e.pos.x + (e.vel_x + e.facing * want_speed) * STEP)
+            .clamp(level.min_x + half, level.max_x - half);
+        // A drop or a wall (a big step in the floor) stops it: it walks the
+        // floor, it doesn't fall off cliffs.
+        let y = level.floor_height(x);
+        if (y - e.pos.y).abs() <= MAX_STEP {
+            e.pos = Vec2::new(x, y);
+        } else {
+            e.vel_x = 0.0;
+        }
     }
-    let half = k.body.0 / 2.0;
-    e.pos.x = e.pos.x.clamp(level.min_x + half, level.max_x - half);
-    e.pos.y = level.floor_height(e.pos.x);
 }
+
+/// Ticks a lunged head takes to draw back into its crevice.
+const HEAD_BACK_TICKS: f32 = 24.0;
+
+/// Ticks unhit, at home with nobody near, before an enemy mends (2 s).
+const MEND_AFTER: u32 = 240;
+
+/// The biggest step in the floor an enemy walks up or down in one tick.
+const MAX_STEP: f32 = 8.0;
 
 /// The blow is out: does it reach a crab?
 fn strike(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, k: &EnemyTuning) {
@@ -413,7 +539,12 @@ fn strike(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, k: &EnemyTuning) {
         if e.struck.contains(&crab.id) || crab.fighter.dead.is_some() {
             continue;
         }
-        if !circle_meets(centre, radius, combat::body(&crab.mover, t)) {
+        let body = combat::body(&crab.mover, t);
+        let meets = match e.shock_box(t) {
+            Some(shock) => !shock.intersect(body).is_empty(),
+            None => circle_meets(centre, radius, body),
+        };
+        if !meets {
             continue;
         }
         let hit = Hit {
@@ -456,6 +587,19 @@ fn strike(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, k: &EnemyTuning) {
                 });
                 if let Some(f) = &s.follow_up {
                     e.follow_ups.push((crab.id, f.delay_ticks));
+                }
+                // A bite that holds on: only a bite that got through.
+                if let Some(g) = s.grab
+                    && outcome.landed()
+                    && crab.fighter.dead.is_none()
+                {
+                    crab.fighter.grabbed = Some(combat::Grabbed {
+                        by: e.id,
+                        left: g.ticks,
+                    });
+                    crab.mover.vel = Vec2::ZERO;
+                    e.enter(State::Grab, 0);
+                    return;
                 }
             }
         }

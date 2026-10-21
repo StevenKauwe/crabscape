@@ -47,6 +47,10 @@ read and avoid. Teaches spacing and jumping.
 - **Scenario tests:** a jump over the cone takes no hit; a dodge through it takes no hit; standing in it takes 6
   and 45 poise; a blocked snap takes ~1 damage and the full poise; parry has no effect; a crab sneaking at half speed
   is not noticed; it tires after 5 snaps.
+- **In the sim:** `Kind::Snapper` (`crates/sim/src/enemy.rs`, numbers in `tuning.rs`, tests in `tests/creatures.rs`):
+  feels steps (a crab moving faster than half walking speed within 120), guards its burrow, a 54-tick tell ending
+  30 ticks cocked, a 2-tick snap whose shock is a box 38 long and 30 tall along the floor (unparryable), 72 ticks
+  re-cocking, into its burrow when hit (once a fight, 3 s). Not yet: tiring after 5 snaps, the stun on a poise break.
 
 ## Rig notes
 Parts: carapace with eye hood (eye shows through as a dark spot), 6 abdominal plates (the 2nd big and overlapping its
