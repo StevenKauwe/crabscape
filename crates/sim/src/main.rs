@@ -44,7 +44,7 @@ and hold), slow (let go of dodge), sprinting (hold dodge), down=on / down=off (h
 down), smash (crusher), charge (press smash and hold: a charging crusher winds up), loose (let
 go of smash), jab (cutter), block (press and hold: claws up), parry (press block and
 let go), guard (hold block, no press), unblock, spawn=<kind>@<x>,<y> (an enemy appears; kinds:
-fixture, mantis), feel=<preset> (current, heavy, snappy, momentum, silksong, expedition: the
+fixture, mantis, snapper, moray), feel=<preset> (current, heavy, snappy, momentum, silksong, expedition: the
 game's feel lab presets, crates/sim/src/feel.rs). ';' or a new line
 separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
 ";

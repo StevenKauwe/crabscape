@@ -8,9 +8,9 @@
 //! one *looks and sounds* (shake, flash, debris, the sound) lives with the
 //! game, in `src/feel.rs`.
 //!
-//! [`Feel::Current`] is exactly [`Tuning::default`], the numbers the rules
-//! and their tests are written against. The game starts on
-//! [`Feel::default`], the recommended preset (G, a hybrid), and records any switch in its
+//! [`Feel::Current`] is exactly [`Tuning::base`], the numbers the rules'
+//! tests are written against. [`Tuning::default`] (the game's combat) is
+//! [`Feel::default`], G (a hybrid), and records any switch in its
 //! replays (`feel=heavy`), so a replay always plays back with the feel it was
 //! played with.
 
@@ -125,9 +125,9 @@ impl Feel {
         &SPECS[self as usize]
     }
 
-    /// The full tuning for this feel: the defaults with its row laid over.
+    /// The full tuning for this feel: the base numbers with its row laid over.
     pub fn tuning(self) -> Tuning {
-        let mut t = Tuning::default();
+        let mut t = Tuning::base();
         self.spec().apply(&mut t);
         t
     }
@@ -488,8 +488,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn current_is_exactly_the_defaults() {
-        assert_eq!(Feel::Current.tuning(), Tuning::default());
+    fn the_game_plays_g_and_a_is_the_base() {
+        assert_eq!(Feel::default(), Feel::Hybrid);
+        assert_eq!(Feel::Hybrid.tuning(), Tuning::default());
+        assert_eq!(Feel::Current.tuning(), Tuning::base());
     }
 
     #[test]

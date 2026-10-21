@@ -179,7 +179,8 @@ pub struct Tuning {
     /// spot (a stand-in until the moult rule, `world.md`).
     pub respawn_ticks: u32,
     /// A spot counts as safe (to come back to after dying) when the crab
-    /// stands on the floor there with no enemy's home or body this close.
+    /// stands on the floor there with no enemy's home or body within its
+    /// notice range plus this.
     pub safe_distance: f32,
     /// Home mends the shell only after this long unhit (a rest, not a
     /// refuge mid-fight).
@@ -257,6 +258,14 @@ pub struct Tuning {
     /// The peacock mantis shrimp: a rusher and armour breaker
     /// (`docs/design/creatures/mantis-shrimp.md`, its "Implementation spec").
     pub mantis: EnemyTuning,
+    /// A snapping shrimp: a turret at its burrow whose snap sends a shock
+    /// along the floor: jump or dodge it, it can't be parried
+    /// (`creatures/snapping-shrimp.md`, #69).
+    pub snapper: EnemyTuning,
+    /// A snowflake moray: an ambusher in a crevice that smells you coming,
+    /// coils into an S and lunges, and holds on (`creatures/snowflake-moray.md`,
+    /// #71).
+    pub moray: EnemyTuning,
 }
 
 /// One kind of enemy: its body, senses, state timings and attack. Times in
@@ -299,6 +308,12 @@ pub struct EnemyTuning {
     pub recover_ticks: u32,
     /// Stagger after being parried.
     pub parried_ticks: u32,
+    /// Notices a crab only if it moves faster than this (units per second;
+    /// feeling the vibration of its steps); 0 = sees it standing still too.
+    pub notice_moving: f32,
+    /// Notices by smell: a crab must stay in range this long first (ticks;
+    /// light makes no difference). 0 = at once (sight).
+    pub scent_ticks: u32,
     /// Below this share of its health it flees home (0 = never)...
     pub flee_below: f32,
     pub flee_speed: f32,
@@ -332,6 +347,26 @@ pub struct StrikeTuning {
     /// A second hit this many ticks after it connects (a cavitation bubble):
     /// ignores block, cancelled by a parry.
     pub follow_up: Option<FollowUp>,
+    /// Not a circle but a shock along the floor: this long from the head,
+    /// `height` tall from the floor (a jump clears it). 0 = the circle.
+    pub floor_len: f32,
+    /// The circle travels this far out from `ahead` over the active ticks
+    /// (a lunge from a crevice; the body stays put).
+    pub lunge: f32,
+    /// An unblocked hit seizes the crab (a bite that holds on).
+    pub grab: Option<GrabTuning>,
+}
+
+/// A bite that holds on: the crab can't act until it struggles free.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GrabTuning {
+    /// Longest hold (ticks), then it lets go...
+    pub ticks: u32,
+    /// ...each dodge press takes this many ticks off...
+    pub struggle: u32,
+    /// ...and every this many ticks held, this much damage.
+    pub every: u32,
+    pub damage: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -427,7 +462,19 @@ impl ClawTuning {
 }
 
 impl Default for Tuning {
+    /// The game's combat: the base numbers with the chosen feel preset
+    /// (G, `crate::feel`) laid over them.
     fn default() -> Self {
+        let mut t = Self::base();
+        crate::feel::Feel::default().spec().apply(&mut t);
+        t
+    }
+}
+
+impl Tuning {
+    /// The numbers before any feel preset: what [`crate::feel::Feel`]s are
+    /// laid over (preset A's swing numbers).
+    pub fn base() -> Self {
         Self {
             walk_speed: 270.0,
             ground_accel: 1900.0,
@@ -491,7 +538,7 @@ impl Default for Tuning {
             },
             hit_stun_ticks: 10,
             respawn_ticks: 150, // 1.25 s, back near the fight
-            safe_distance: 420.0,
+            safe_distance: 120.0,
             home_heal_after_ticks: 240,
             // Hit-stop 7: about 60 ms, you feel it land. Reach: the claw's
             // length past the shell (the longer chelipeds, #90).
@@ -554,6 +601,8 @@ impl Default for Tuning {
                 flee_speed: 0.0,
                 hide_ticks: 0,
                 respawn_ticks: 0,
+                notice_moving: 0.0,
+                scent_ticks: 0,
                 strike: StrikeTuning {
                     damage: 10.0,
                     poise: 20.0,
@@ -567,6 +616,9 @@ impl Default for Tuning {
                     block_damage: None,
                     armour_break_ticks: 0,
                     follow_up: None,
+                    floor_len: 0.0,
+                    lunge: 0.0,
+                    grab: None,
                 },
             },
 
@@ -607,6 +659,8 @@ impl Default for Tuning {
                 flee_speed: 260.0,
                 hide_ticks: 300, // 2.5 s in the burrow
                 respawn_ticks: 2400,
+                notice_moving: 0.0,
+                scent_ticks: 0,
                 strike: StrikeTuning {
                     damage: 28.0,
                     poise: 60.0,
@@ -624,6 +678,118 @@ impl Default for Tuning {
                         delay_ticks: 1,
                         damage: 8.0,
                         poise: 0.0,
+                    }),
+                    floor_len: 0.0,
+                    lunge: 0.0,
+                    grab: None,
+                },
+            },
+
+            // "Real" = from the page's sources; everything else is tuned.
+            snapper: EnemyTuning {
+                vitals: VitalsTuning {
+                    health: 12.0,
+                    poise: 10.0,
+                    poise_refill: 20.0,
+                    poise_delay_ticks: 60,
+                    stagger_ticks: 30, // stunned
+                },
+                body: (34.0, 12.0), // about 5 cm (real: 3-5)
+                head: 0.0,
+                head_recover: 1.0,
+                tail: 0.0,
+                tail_damage: 1.0,
+                burrows: true,       // lives in a burrow (real)
+                notice_range: 120.0, // feels the vibration of steps (real: mechanosensory)
+                notice_ticks: 12,
+                give_up_range: 200.0,
+                approach_speed: 0.0, // a turret: it guards its burrow mouth
+                strike_range: 60.0,
+                pause_ticks: (10, 30),
+                tell_ticks: 54, // real about 60 (500 ms), a little shorter
+                cocked_ticks: 30,
+                recock_ticks: 0,
+                combo_extra: 0,
+                active_ticks: 2,   // real: under 1 ms
+                recover_ticks: 72, // re-cocking: the punish window
+                parried_ticks: 0,
+                flee_below: 0.99, // into its burrow when hit
+                flee_speed: 200.0,
+                hide_ticks: 360,
+                respawn_ticks: 2400,
+                notice_moving: 135.0, // half walking speed: creep past it
+                scent_ticks: 0,
+                strike: StrikeTuning {
+                    damage: 6.0,
+                    poise: 45.0,
+                    ahead: 0.0,
+                    height: 30.0, // hugs the floor: a jump clears it
+                    radius: 0.0,
+                    knockback: (220.0, 0.0),
+                    hitstop_ticks: 6,
+                    parryable: false, // a shock in the water, not a blow
+                    blockable: true,
+                    block_damage: None,
+                    armour_break_ticks: 0,
+                    follow_up: None,
+                    floor_len: 38.0, // 6 cm, tuned up from the real ~1 cm
+                    lunge: 0.0,
+                    grab: None,
+                },
+            },
+            moray: EnemyTuning {
+                vitals: VitalsTuning {
+                    health: 90.0,
+                    poise: 70.0,
+                    poise_refill: 25.0,
+                    poise_delay_ticks: 60,
+                    stagger_ticks: 60,
+                },
+                body: (44.0, 38.0), // the head out of the crevice (the rock shields the rest)
+                head: 0.0,
+                head_recover: 1.5, // the neck stretched out after a lunge
+                tail: 0.0,
+                tail_damage: 1.0,
+                burrows: true, // rests in a crevice, head out (real)
+                notice_range: 260.0,
+                notice_ticks: 18,
+                give_up_range: 320.0,
+                approach_speed: 0.0, // strikes from its crevice
+                strike_range: 150.0,
+                pause_ticks: (30, 60),
+                tell_ticks: 60, // pulls back into an S, mouth shut
+                cocked_ticks: 24,
+                recock_ticks: 0,
+                combo_extra: 0,
+                active_ticks: 8,
+                recover_ticks: 50,
+                parried_ticks: 60,
+                flee_below: 0.3,
+                flee_speed: 200.0,
+                hide_ticks: 360,
+                respawn_ticks: 2400,
+                notice_moving: 0.0,
+                scent_ticks: 120, // hunts by smell (real); light makes no difference
+                strike: StrikeTuning {
+                    damage: 15.0,
+                    poise: 40.0,
+                    ahead: 4.0,
+                    height: 18.0,
+                    radius: 22.0,
+                    knockback: (0.0, 0.0),
+                    hitstop_ticks: 10,
+                    parryable: true,
+                    blockable: true,
+                    block_damage: None,
+                    armour_break_ticks: 0,
+                    follow_up: None,
+                    floor_len: 0.0,
+                    lunge: 130.0, // the head shoots out about two crab widths
+                    grab: Some(GrabTuning {
+                        ticks: 150,
+                        struggle: 8,
+                        every: 30,
+                        damage: 4.0,
                     }),
                 },
             },

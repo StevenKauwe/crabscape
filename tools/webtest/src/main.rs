@@ -674,7 +674,9 @@ impl Test<'_> {
         );
         // It sees the crab, comes out and darts in; by now it is rearing for its strike.
         let came_out = self.wait_for(
-            &format!(r#"/(tell|attack|recover):/.test({CANVAS}.getAttribute("data-fight") || "")"#),
+            &format!(
+                r#"/mantis=(tell|attack|recover):/.test({CANVAS}.getAttribute("data-fight") || "")"#
+            ),
             4.0,
         )?;
         self.numbered_shot(4)?;
@@ -695,8 +697,9 @@ impl Test<'_> {
             .and_then(|v| v.parse().ok())
             .unwrap_or(100.0);
         let mantis_hurt = after
-            .split(':')
-            .next_back()
+            .split_whitespace()
+            .find(|w| w.starts_with("mantis="))
+            .and_then(|w| w.rsplit(':').next())
             .and_then(|v| v.parse::<f64>().ok())
             != Some(60.0);
         self.check(
@@ -737,6 +740,31 @@ impl Test<'_> {
     /// `--feel-shots`: a smash on the mantis in slow motion, frame by frame, in a few presets.
     fn feel_strips(&mut self, prefix: &str) -> Result<()> {
         self.go("index.html")?;
+        // The new creatures' tells, 10x slow: walk up to a snapping shrimp (it feels the steps), stand by a
+        // moray's crevice (it smells the crab).
+        for (kind, x, y, walk) in [("snapper", 210, 0, true), ("moray", 2480, 20, false)] {
+            self.eval(&format!(
+                r#"(localStorage.clear(),
+                    localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: {x}, y: {y}}})), true)"#
+            ))?;
+            self.open("index.html?slow=10")?;
+            if walk {
+                self.key("keydown", "KeyD", "d")?;
+                pump(1.5);
+                self.key("keyup", "KeyD", "d")?;
+            }
+            let telling = self.wait_for(
+                &format!(r#"/{kind}=tell:/.test({CANVAS}.getAttribute("data-fight") || "")"#),
+                60.0,
+            )?;
+            self.check(telling, format!("the {kind} starts its tell"));
+            for n in 1..=20 {
+                self.shot(PathBuf::from(format!("{prefix}-{kind}-{n:02}.png")), false)?;
+                pump(0.3);
+            }
+            let fight = self.attr("data-fight")?;
+            println!("     {kind}: after {fight:?}");
+        }
         // A smash in a few presets, then a parry and the crush counter.
         // (preset, a parry and crush, one turn frame by frame)
         let runs = [
@@ -769,8 +797,9 @@ impl Test<'_> {
             } else {
                 "index.html?feel&slow=10"
             })?;
-            let phase =
-                |p: &str| format!(r#"/tell:{p}/.test({CANVAS}.getAttribute("data-fight") || "")"#);
+            let phase = |p: &str| {
+                format!(r#"/mantis=tell:{p}/.test({CANVAS}.getAttribute("data-fight") || "")"#)
+            };
             if counter {
                 // Catch the cocked hold as it starts (the page updates every 0.1 s), then parry about 5 ticks
                 // before the club lands (the hold is 30 ticks), then smash.

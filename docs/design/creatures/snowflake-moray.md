@@ -47,6 +47,11 @@ Concept sheet: `art/creatures/snowflake-moray/snowflake-moray.png`. Shared rules
 - **Scenario tests:** a parry in the window takes no damage and staggers it; a block takes ~4 and is never a grab; an
   unblocked hit grabs; a dodge press every 4 ticks frees the crab in about 50 ticks; autotomy frees at once and drops
   walk speed 8%; a lantern-off crab is noticed as fast as a lit one; a crab outside 260 units is never noticed.
+- **In the sim:** `Kind::Moray` (`crates/sim/src/enemy.rs`, numbers in `tuning.rs`, tests in `tests/creatures.rs`):
+  waits in its crevice, smells a crab after 120 ticks within 260 (light makes no difference), a 60-tick tell, an
+  8-tick lunge whose bite circle travels 130 out from the head, an unblocked bite grabs (15, then 4 every 30, up to
+  150 ticks; each dodge press takes 8 off), recover 50, parried 60, flees below 30% (once, 3 s). Not yet: night
+  roaming, autotomy, the neck-chain hurtbox, the timeout damage.
 
 ## Rig notes
 Parts: head (upper jaw + lower jaw, pivot at the jaw hinge behind the eye), eye, 2 tubular nostrils, gill-opening spot,

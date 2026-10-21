@@ -305,6 +305,17 @@ pub struct Fighter {
     /// Ticks out of a fight while showing its back (it turns to the front
     /// again after [`Tuning::turn_back_after`]).
     pub calm: u32,
+    /// Held in an enemy's jaws: no acting until it struggles free.
+    pub grabbed: Option<Grabbed>,
+}
+
+/// Held in a bite (see [`crate::tuning::GrabTuning`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Grabbed {
+    /// The enemy's id.
+    pub by: u32,
+    /// Ticks left before it lets go (each dodge press takes some off).
+    pub left: u32,
 }
 
 impl Claw {
@@ -350,6 +361,7 @@ impl Fighter {
             turn: 0,
             turn_step: false,
             calm: 0,
+            grabbed: None,
         }
     }
 
@@ -357,6 +369,8 @@ impl Fighter {
     pub fn status(&self, t: &Tuning) -> String {
         if self.dead.is_some() {
             "dead".into()
+        } else if self.grabbed.is_some() {
+            "grabbed".into()
         } else if self.crush.is_some() {
             "crushing".into()
         } else if self.vitals.stagger > 0 {
@@ -462,6 +476,18 @@ pub fn before_step(
     if staggered {
         f.swing = None;
         f.queued = None;
+        f.blocking = false;
+        return Controls::default();
+    }
+    // Held in a bite: struggle (dodge presses) to get free sooner.
+    if let Some(g) = &mut f.grabbed {
+        let struggle = if c.dodge_pressed { 8 } else { 0 };
+        g.left = g.left.saturating_sub(1 + struggle);
+        if g.left == 0 {
+            f.grabbed = None;
+            ev.freed = true;
+        }
+        f.swing = None;
         f.blocking = false;
         return Controls::default();
     }
@@ -709,6 +735,7 @@ pub fn crab_takes(
         f.dead = Some(0);
         f.swing = None;
         f.queued = None;
+        f.grabbed = None;
         m.vel = Vec2::ZERO;
         ev.died = true;
     }

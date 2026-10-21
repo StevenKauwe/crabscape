@@ -29,6 +29,7 @@
 //! - [`input`]: keys, controllers and touch buttons become move requests
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
+//! - [`critters`]: the snapping shrimp and the moray (placeholder shapes)
 //! - [`deep`]: the depth counter in the pit, and something big in the dark
 //! - [`effects`]: bubbles, sand puffs and marine snow
 //! - [`feel`]: the feel lab: presets for how attacks feel, and their juice
@@ -46,6 +47,7 @@
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
 
+mod critters;
 mod deep;
 mod effects;
 mod eggs;
@@ -114,6 +116,7 @@ fn main() {
             view::ViewPlugin,
         ))
         .add_plugins((
+            critters::CrittersPlugin,
             deep::DeepPlugin,
             eggs::EggsPlugin,
             feel::FeelPlugin,

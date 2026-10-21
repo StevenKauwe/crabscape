@@ -217,7 +217,18 @@ impl Level {
             secrets: vec![Rect::new(4060.0, -5200.0, 4300.0, -5080.0)],
             // A peacock mantis shrimp's burrow on the plateau, before the
             // trench: the first fight (it sees the crab coming up the slope).
-            foes: vec![(Kind::Mantis, Vec2::new(1120.0, 110.0))],
+            // The route, easy to hard, with room to breathe between: snapping
+            // shrimp in the shallows rubble, the mantis on the plateau, a
+            // moray in a crevice of the trench, and past the trench a shrimp
+            // on the far ledge and a moray guarding the flats.
+            foes: vec![
+                (Kind::Snapper, Vec2::new(340.0, 0.0)),
+                (Kind::Snapper, Vec2::new(590.0, 0.0)),
+                (Kind::Mantis, Vec2::new(1120.0, 110.0)),
+                (Kind::Moray, Vec2::new(1760.0, -260.0)),
+                (Kind::Snapper, Vec2::new(2060.0, 110.0)),
+                (Kind::Moray, Vec2::new(2650.0, 20.0)),
+            ],
             min_x: 0.0,
             max_x: 5500.0,
         }

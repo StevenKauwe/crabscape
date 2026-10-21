@@ -216,10 +216,18 @@ fn spawn_hud(mut commands: Commands) {
 /// On touch screens, the keyboard help is replaced by a shorter hint; on
 /// narrow windows a shorter list of keys, so it stays two lines.
 fn update_help(
+    time: Res<Time<Real>>,
     touch: Res<TouchControls>,
     window: Single<&Window>,
-    mut text: Single<&mut Text, With<HelpText>>,
+    mut text: Single<(&mut Text, &mut TextColor), With<HelpText>>,
+    mut shown_for: Local<f32>,
 ) {
+    // The keys show for the first 20 s, then fade: after that the game
+    // only says something when it matters (hints near each creature).
+    *shown_for += time.delta_secs();
+    let alpha = 0.6 * ((25.0 - *shown_for) / 5.0).clamp(0.0, 1.0);
+    let (text, colour) = &mut *text;
+    colour.set_if_neq(TextColor(Color::srgba(0.85, 0.92, 0.95, alpha)));
     let help = if touch.visible {
         "JUMP again in the water: swim\nGUARD just before a blow: parry"
     } else if window.width() < 600.0 {
@@ -270,11 +278,12 @@ mod page_bridge {
         {
             let _ = canvas.set_attribute("data-crab", &value);
             // The fight, for the WebKit test: the crab's shell, then each
-            // enemy's state, phase and health.
+            // enemy's kind=state:phase:health.
             let mut fight = format!("{:.0}", fighter.vitals.health);
             for e in sim.enemies() {
                 fight += &format!(
-                    " {}:{}:{:.0}",
+                    " {}={}:{}:{:.0}",
+                    e.kind.name(),
                     e.state.name(),
                     e.phase(&sim.tuning),
                     e.vitals.health

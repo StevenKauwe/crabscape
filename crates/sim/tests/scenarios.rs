@@ -8,7 +8,16 @@
 
 use bevy_math::Vec2;
 use crabsim::replay::ticks;
-use crabsim::{Hit, PlayerId, Replay, SPAWN, STEP, Sim, Tuning, play};
+use crabsim::{Feel, Hit, PlayerId, Replay, SPAWN, STEP, Sim, Tuning, play};
+
+/// A world with one crab at `start`, on preset A's fighting numbers (the
+/// base numbers these rules were written against; the game plays G, which
+/// `tests/feel.rs` covers).
+fn sim_a(start: Vec2) -> Sim {
+    let mut sim = Sim::with_one_crab(start);
+    sim.set_feel(Feel::Current);
+    sim
+}
 
 /// What one scripted run did.
 struct Run {
@@ -54,7 +63,7 @@ fn run_crab(
     setup: impl FnOnce(&mut crabsim::Mover),
 ) -> Run {
     let replay = Replay::parse(script).expect("the script reads");
-    let mut sim = Sim::with_one_crab(replay.start);
+    let mut sim = sim_a(replay.start);
     sim.tuning = tuning;
     let full = sim.tuning.swim_strokes as f32;
     let mover = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
@@ -90,14 +99,14 @@ fn run_crab(
 }
 
 fn run(script: &str, seconds: f64) -> Run {
-    run_with(Tuning::default(), script, seconds, |_| false)
+    run_with(Tuning::base(), script, seconds, |_| false)
 }
 
 #[test]
 fn walking_from_spawn_reaches_the_slope_quickly() {
     // The slope starts at x = 520 and the crab's shell is 36 to each side of
     // its feet. 360 units at 270/s is about 1.33 s, plus a moment to speed up.
-    let r = run_with(Tuning::default(), "t=0 walk=right", 5.0, |sim| {
+    let r = run_with(Tuning::base(), "t=0 walk=right", 5.0, |sim| {
         sim.crabs()[0].mover.pos.x >= 520.0
     });
     let t = r.sim.time();
@@ -133,13 +142,13 @@ fn a_full_height_jump_peaks_at_about_190() {
 #[test]
 fn the_way_down_is_a_sink_not_a_drop() {
     // A hard push that the water brakes, then a slower, steady sink.
-    let top = run_with(Tuning::default(), "t=0 jump", 3.0, |sim| {
+    let top = run_with(Tuning::base(), "t=0 jump", 3.0, |sim| {
         let m = &sim.crabs()[0].mover;
         !m.grounded && m.vel.y < 0.0
     });
     let peak = top.sim.time();
     let landed = run("t=0 jump", 3.0).first("landed").unwrap();
-    let rise = peak - f64::from(Tuning::default().jump_windup);
+    let rise = peak - f64::from(Tuning::base().jump_windup);
     let fall = landed - peak;
     println!("rise {rise:.2} s, fall {fall:.2} s");
     assert!((0.4..0.6).contains(&rise), "rise {rise}");
@@ -182,7 +191,7 @@ fn the_paddle_stroke_adds_height() {
 
 /// Jump, then press jump `presses` times, one per beat of the stroke rhythm.
 fn swim_script(presses: u32) -> String {
-    let beat = f64::from(Tuning::default().stroke_interval) + 0.01;
+    let beat = f64::from(Tuning::base().stroke_interval) + 0.01;
     let mut script = "t=0 jump".to_string();
     for k in 0..presses {
         script += &format!("; t={} jump", 0.5 + f64::from(k) * beat);
@@ -195,7 +204,7 @@ fn swim_script(presses: u32) -> String {
 fn strokes(n: u32) -> Tuning {
     Tuning {
         swim_strokes: n,
-        ..Tuning::default()
+        ..Tuning::base()
     }
 }
 
@@ -249,7 +258,7 @@ fn only_solid_ground_rests_the_paddle_legs() {
 fn reaches_an_egg(x: f32, y: f32, upgrades: u32) -> bool {
     let script = format!("start x={x} y={y}\n{}", swim_script(4));
     let replay = Replay::parse(&script).unwrap();
-    let mut sim = Sim::with_one_crab(replay.start);
+    let mut sim = sim_a(replay.start);
     let crab = sim.crab_mut(PlayerId(0)).unwrap();
     crab.mover.upgrades = upgrades;
     crab.mover.stamina = upgrades as f32;
@@ -354,11 +363,11 @@ fn the_trench_needs_jump_and_paddle() {
 #[test]
 fn coyote_time_allows_a_jump_just_after_the_edge() {
     // Walk off the plateau into the trench and find the tick the floor goes.
-    let walk = run_with(Tuning::default(), BEFORE_TRENCH, 3.0, |sim| {
+    let walk = run_with(Tuning::base(), BEFORE_TRENCH, 3.0, |sim| {
         !sim.crabs()[0].mover.grounded
     });
     let left_ground = walk.sim.time();
-    let t = Tuning::default();
+    let t = Tuning::base();
 
     // A press within coyote time is a real jump (with no crouch: no floor).
     let late = left_ground + f64::from(t.coyote_time) - 0.03;
@@ -399,7 +408,7 @@ fn an_early_jump_press_is_buffered_until_landing() {
 
 #[test]
 fn dodge_has_a_cooldown() {
-    let t = Tuning::default();
+    let t = Tuning::base();
     let wait = f64::from(t.dodge_cooldown);
     // Two dodges well inside the cooldown: only the first counts.
     let early = wait - f64::from(t.dodge_buffer) - 0.05;
@@ -442,7 +451,7 @@ fn dodge_goes_the_way_you_hold() {
     assert_eq!(r.count("dodged"), 1);
     assert_eq!(r.crab().dodge_dir, -1.0);
     // Much later than that, it was a stray press: nothing happens.
-    let late = f64::from(Tuning::default().dodge_buffer) + 0.05;
+    let late = f64::from(Tuning::base().dodge_buffer) + 0.05;
     let r = run(&format!("t=0 dodge; t={late} walk=right"), 1.0);
     assert_eq!(r.count("dodged"), 0);
 }
@@ -484,8 +493,8 @@ fn resting_draws_on_a_reserve_that_runs_dry() {
 fn the_reserve_comes_back_by_itself() {
     // An empty reserve, standing still: half back after half the refill
     // time, full after all of it.
-    let t = Tuning::default();
-    let mut sim = Sim::with_one_crab(crabsim::SPAWN);
+    let t = Tuning::base();
+    let mut sim = sim_a(crabsim::SPAWN);
     sim.crab_mut(PlayerId(0)).unwrap().mover.reserve = 0.0;
     let half = f64::from(t.reserve_refill_time) / 2.0;
     for _ in 0..ticks(half) {
@@ -503,7 +512,7 @@ fn the_reserve_comes_back_by_itself() {
 /// it ever stand on top of the shape spanning `left`..`right` at `top`?
 fn stands_on(script: &str, strokes: u32, (left, right, top): (f32, f32, f32)) -> bool {
     let replay = Replay::parse(script).unwrap();
-    let mut sim = Sim::with_one_crab(replay.start);
+    let mut sim = sim_a(replay.start);
     let crab = sim.crab_mut(PlayerId(0)).unwrap();
     crab.mover.upgrades = strokes;
     crab.mover.stamina = strokes as f32;
@@ -670,7 +679,7 @@ fn home_rests_the_crab_fully() {
         m.stamina = 0.0;
         m.reserve = 0.1;
     };
-    let r = run_crab(Tuning::default(), "t=0 walk=left", 1.5, |_| false, tired);
+    let r = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, tired);
     assert_eq!(r.count("rested"), 1);
     assert_eq!((r.crab().reserve, r.crab().stamina), (1.0, 2.0));
 }
@@ -684,7 +693,7 @@ fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
     assert_eq!(found.crab().carrying, Some(crabsim::Carry::Culture));
     // Carrying it, walk in at home: it's cultured into the lantern.
     let carrying = |m: &mut crabsim::Mover| m.carrying = Some(crabsim::Carry::Culture);
-    let home = run_crab(Tuning::default(), "t=0 walk=left", 1.5, |_| false, carrying);
+    let home = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, carrying);
     assert_eq!(home.count("delivered"), 1);
     assert_eq!(home.crab().carrying, None);
     assert_eq!(home.crab().lantern, 1);
@@ -699,7 +708,7 @@ fn climbing_is_a_skill_that_levels_up() {
         &format!("start x=3500 y={bottom}; t=0 jump; t=0.2 release; t=0.3 jump walk=left"),
         40.0,
     );
-    let t = Tuning::default();
+    let t = Tuning::base();
     let crab = climb.crab();
     println!(
         "one climb: {:.0} experience, level {}",
@@ -722,7 +731,7 @@ fn pushing_a_way_while_sinking_dives() {
         dive.crab().pos.y < still.crab().pos.y - 20.0,
         "sinks a little faster"
     );
-    let t = Tuning::default();
+    let t = Tuning::base();
     assert!(
         dive.crab().vel.x > t.walk_speed + 20.0,
         "and moves across a little faster"
@@ -769,7 +778,7 @@ fn try_the_passage(strokes: u32, scissors: bool, jump: f64) -> (f32, Run) {
         script += &format!("; t={} jump", jump + 0.45 + 0.31 * f64::from(k));
     }
     let r = run_crab(
-        Tuning::default(),
+        Tuning::base(),
         &script,
         4.0,
         |_| false,
@@ -817,7 +826,7 @@ fn the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin() {
     assert_eq!(found.crab().carrying, Some(crabsim::Carry::Tooth));
     // At home, the workbench fits it to the crusher: scissor claws.
     let tooth = |m: &mut crabsim::Mover| m.carrying = Some(crabsim::Carry::Tooth);
-    let home = run_crab(Tuning::default(), "t=0 walk=left", 1.5, |_| false, tooth);
+    let home = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, tooth);
     assert_eq!(home.count("fitted scissor claws"), 1);
     assert!(home.crab().scissor_claw && home.crab().carrying.is_none());
     // Beyond the net: grip the shaft's coral, climb, and come out on the
@@ -839,7 +848,7 @@ const FAR_FLAT: &str = "start x=4520 y=-700\n";
 
 #[test]
 fn holding_dodge_sprints_and_uses_the_reserve() {
-    let t = Tuning::default();
+    let t = Tuning::base();
     let right = |extra: &str, seconds| run(&format!("{FAR_FLAT}t=0 walk=right{extra}"), seconds);
     let (walk, tap, sprint) = (right("", 0.8), right(" dodge", 0.8), right(" sprint", 0.8));
     let (w, d, s) = (walk.crab().pos.x, tap.crab().pos.x, sprint.crab().pos.x);
@@ -865,7 +874,7 @@ fn an_empty_reserve_leaves_the_crab_winded() {
     let t = Tuning {
         stamina_reserve: 1,
         sprint_cost: 2.0,
-        ..Tuning::default()
+        ..Tuning::base()
     };
     let go = |script: &str, seconds| run_with(t.clone(), script, seconds, |_| false);
     let r = go(&format!("{FAR_FLAT}t=0 walk=right sprint"), 1.5);
@@ -909,7 +918,7 @@ fn same_inputs_give_exactly_the_same_result() {
     let replay = Replay::parse(BUSY).unwrap();
     let mut hashes = Vec::new();
     for _ in 0..3 {
-        let mut sim = Sim::with_one_crab(replay.start);
+        let mut sim = sim_a(replay.start);
         play(&mut sim, &replay, ticks(30.0), |_| {});
         hashes.push(sim.state_hash());
     }
@@ -917,7 +926,7 @@ fn same_inputs_give_exactly_the_same_result() {
     assert!(hashes.iter().all(|h| *h == hashes[0]), "{hashes:x?}");
     // ... and a different input gives a different hash.
     let other = Replay::parse(&BUSY.replace("t=8 walk=right", "t=8 walk=left")).unwrap();
-    let mut sim = Sim::with_one_crab(other.start);
+    let mut sim = sim_a(other.start);
     play(&mut sim, &other, ticks(30.0), |_| {});
     assert_ne!(sim.state_hash(), hashes[0]);
 }
@@ -926,7 +935,7 @@ fn same_inputs_give_exactly_the_same_result() {
 fn a_recording_replays_exactly() {
     // Feed controls the way the game does: some frames run no tick, some run
     // two, and a tap can start and end between ticks.
-    let mut live = Sim::with_one_crab(SPAWN);
+    let mut live = sim_a(SPAWN);
     live.start_recording();
     let script = Replay::parse(BUSY).unwrap();
     let mut playback = script.playback();
@@ -943,7 +952,7 @@ fn a_recording_replays_exactly() {
     let text = live.recording().unwrap().to_text();
     let replay = Replay::parse(&text).unwrap();
     assert_eq!(replay.length(), live.tick_count());
-    let mut again = Sim::with_one_crab(replay.start);
+    let mut again = sim_a(replay.start);
     let mut i = 0;
     play(&mut again, &replay, replay.length(), |sim| {
         assert_eq!(sim.crabs()[0].mover, path[i], "differs at tick {i}");
@@ -963,7 +972,7 @@ fn headless_runs_far_faster_than_real_time() {
     // under a second; a release build does millions of ticks per second.
     let replay = Replay::parse(BUSY).unwrap();
     let start = std::time::Instant::now();
-    let mut sim = Sim::with_one_crab(replay.start);
+    let mut sim = sim_a(replay.start);
     play(&mut sim, &replay, ticks(600.0), |_| {});
     let took = start.elapsed().as_secs_f64();
     println!(
@@ -1000,7 +1009,7 @@ fn blow(damage: f32, poise: f32) -> Hit {
 
 #[test]
 fn a_hit_lowers_health_and_poise_by_exactly_its_numbers() {
-    let mut sim = Sim::with_one_crab(SPAWN);
+    let mut sim = sim_a(SPAWN);
     sim.hit_crab(P0, &blow(12.5, 30.0));
     let v = fighter(&sim).vitals;
     assert_eq!((v.health, v.poise), (87.5, 70.0));
@@ -1019,7 +1028,7 @@ fn a_hit_lowers_health_and_poise_by_exactly_its_numbers() {
 
 #[test]
 fn poise_refills_only_after_60_unhit_ticks() {
-    let mut sim = Sim::with_one_crab(SPAWN);
+    let mut sim = sim_a(SPAWN);
     sim.hit_crab(P0, &blow(0.0, 50.0));
     idle(&mut sim, 60);
     assert_eq!(fighter(&sim).vitals.poise, 50.0, "nothing back yet");
@@ -1038,7 +1047,7 @@ fn poise_refills_only_after_60_unhit_ticks() {
 
 #[test]
 fn a_poise_break_staggers_for_40_ticks() {
-    let mut sim = Sim::with_one_crab(SPAWN);
+    let mut sim = sim_a(SPAWN);
     sim.hit_crab(P0, &blow(0.0, 100.0));
     assert_eq!(fighter(&sim).vitals.stagger, 40);
     let walk = Replay::parse("t=0 walk=right").unwrap().inputs[0].controls;
@@ -1061,7 +1070,7 @@ fn a_poise_break_staggers_for_40_ticks() {
 #[test]
 fn knockback_cannot_push_the_crab_through_a_wall() {
     // The boulder's left face is at x = 640; stand right against it.
-    let mut sim = Sim::with_one_crab(Vec2::new(600.0, 0.0));
+    let mut sim = sim_a(Vec2::new(600.0, 0.0));
     for _ in 0..5 {
         let hit = Hit {
             knockback: Vec2::new(5000.0, 0.0),
@@ -1124,7 +1133,7 @@ fn health_zero_emits_one_died_and_stops_the_crab() {
 /// The status of the crab on each tick of a script, as `--dump` shows it.
 fn statuses(script: &str, seconds: f64) -> Vec<String> {
     let replay = Replay::parse(script).unwrap();
-    let mut sim = Sim::with_one_crab(replay.start);
+    let mut sim = sim_a(replay.start);
     let mut out = Vec::new();
     play(&mut sim, &replay, ticks(seconds), |sim| {
         out.push(sim.snapshots().next().unwrap().combat);
@@ -1172,7 +1181,7 @@ fn the_crusher_is_a_heavy_slow_smash_and_the_cutter_a_quick_jab() {
 fn a_swing_plants_the_feet_and_dodge_cancels_its_recovery() {
     // Walking right, smash: no walking in the wind-up or the blow.
     let replay = Replay::parse("t=0 walk=right; @60 smash").unwrap();
-    let mut sim = Sim::with_one_crab(replay.start);
+    let mut sim = sim_a(replay.start);
     let mut xs = Vec::new();
     play(&mut sim, &replay, 100, |sim| {
         xs.push(sim.crabs()[0].mover.pos.x)
@@ -1197,7 +1206,7 @@ fn a_press_during_a_swing_comes_out_after_it() {
 
 #[test]
 fn hit_stop_freezes_the_crab_for_a_moment() {
-    let mut sim = Sim::with_one_crab(SPAWN);
+    let mut sim = sim_a(SPAWN);
     sim.hit_crab(
         P0,
         &Hit {
@@ -1267,7 +1276,7 @@ fn fight(
     ticks: u64,
 ) -> Duel {
     let replay = Replay::parse(script).expect("the script reads");
-    let mut sim = Sim::with_one_crab(Vec2::new(crab_x, 0.0));
+    let mut sim = sim_a(Vec2::new(crab_x, 0.0));
     edit(&mut sim.tuning);
     sim.spawn_enemy(kind, Vec2::new(enemy_x, 0.0));
     let mut d = Duel {
@@ -1538,7 +1547,7 @@ fn blocking_walks_at_40_percent() {
 /// Play a script headless (spawns included) and keep every dump line.
 fn dump(script: &str, seconds: f64) -> (Sim, Vec<String>) {
     let replay = Replay::parse(script).expect("the script reads");
-    let mut sim = Sim::with_one_crab(replay.start);
+    let mut sim = sim_a(replay.start);
     let mut lines = Vec::new();
     play(&mut sim, &replay, ticks(seconds), |sim| {
         lines.extend(sim.dump_lines())
@@ -1582,7 +1591,7 @@ fn a_fight_script_reads_as_text() {
 #[test]
 fn a_recorded_fight_replays_to_the_same_hash() {
     // As the game does: start recording, then the level's enemies appear.
-    let mut live = Sim::with_one_crab(SPAWN);
+    let mut live = sim_a(SPAWN);
     live.start_recording();
     live.spawn_enemy(Kind::Fixture, Vec2::new(320.0, 0.0));
     let script = Replay::parse(
@@ -1604,7 +1613,7 @@ fn a_recorded_fight_replays_to_the_same_hash() {
     let text = live.recording().unwrap().to_text();
     assert!(text.contains("@0 spawn=fixture@320,0"), "{text}");
     let replay = Replay::parse(&text).unwrap();
-    let mut again = Sim::with_one_crab(replay.start);
+    let mut again = sim_a(replay.start);
     play(&mut again, &replay, replay.length(), |_| {});
     assert_eq!(again.state_hash(), live.state_hash());
     assert_eq!(replay.hash, Some(live.state_hash()));
@@ -1807,7 +1816,7 @@ fn hits_on_its_lowered_head_count_more_and_on_its_tail_less() {
 fn badly_hurt_it_flees_into_its_burrow_and_comes_back_later() {
     let h = club_tick();
     // Hurt it to 30, then a parry and a counter (24) takes it under 40%.
-    let mut sim = Sim::with_one_crab(Vec2::new(250.0, 0.0));
+    let mut sim = sim_a(Vec2::new(250.0, 0.0));
     sim.spawn_enemy(Kind::Mantis, Vec2::new(470.0, 0.0));
     idle(&mut sim, 60);
     sim.enemies_mut()[0].vitals.health = 30.0;
@@ -1842,9 +1851,18 @@ fn badly_hurt_it_flees_into_its_burrow_and_comes_back_later() {
 
 #[test]
 fn the_levels_mantis_waits_on_the_plateau_and_sees_a_crab_coming_up() {
-    let mut sim = Sim::with_one_crab(SPAWN);
-    sim.populate();
-    assert_eq!(sim.enemies().len(), 1);
+    let mantis = |sim: &mut Sim| {
+        let at = sim
+            .level
+            .foes
+            .iter()
+            .find(|f| f.0 == Kind::Mantis)
+            .unwrap()
+            .1;
+        sim.spawn_enemy(Kind::Mantis, at);
+    };
+    let mut sim = sim_a(SPAWN);
+    mantis(&mut sim);
     idle(&mut sim, 600);
     let e = &sim.enemies()[0];
     assert_eq!(
@@ -1854,8 +1872,8 @@ fn the_levels_mantis_waits_on_the_plateau_and_sees_a_crab_coming_up() {
     );
     // Up the slope: it emerges before the crab reaches the top.
     let replay = Replay::parse("t=0 walk=right; t=0.4 jump; t=1.2 walk=stop").unwrap();
-    let mut sim = Sim::with_one_crab(Vec2::new(500.0, 0.0));
-    sim.populate();
+    let mut sim = sim_a(Vec2::new(500.0, 0.0));
+    mantis(&mut sim);
     let mut noticed = None;
     play(&mut sim, &replay, ticks(4.0), |sim| {
         if noticed.is_none() && sim.enemies()[0].state != State::Idle {
@@ -1865,8 +1883,8 @@ fn the_levels_mantis_waits_on_the_plateau_and_sees_a_crab_coming_up() {
     let x = noticed.expect("it noticed the crab");
     assert!((800.0..=860.0).contains(&x), "noticed at x {x}");
     // It never leaves the plateau: no falling into the trench.
-    let mut sim = Sim::with_one_crab(Vec2::new(1500.0, -260.0));
-    sim.populate();
+    let mut sim = sim_a(Vec2::new(1500.0, -260.0));
+    mantis(&mut sim);
     sim.enemies_mut()[0].vitals.health = 60.0;
     idle(&mut sim, 1200);
     assert!(sim.enemies()[0].pos.y > 100.0);
@@ -1875,8 +1893,8 @@ fn the_levels_mantis_waits_on_the_plateau_and_sees_a_crab_coming_up() {
 #[test]
 fn the_crab_comes_back_quickly_before_the_burrow_and_the_mantis_mends_at_home() {
     // Walk along the plateau to the mantis and stand there taking it.
-    let mut sim = Sim::with_one_crab(Vec2::new(640.0, 110.0));
-    sim.populate(); // the level's mantis, on the plateau
+    let mut sim = sim_a(Vec2::new(640.0, 110.0));
+    sim.spawn_enemy(Kind::Mantis, Vec2::new(1120.0, 110.0)); // the level's, alone
     let burrow = sim.enemies()[0].home.x;
     let replay = Replay::parse("t=0 walk=right; t=0.9 walk=stop").unwrap();
     let mut died_at = None;
@@ -1904,8 +1922,8 @@ fn the_crab_comes_back_quickly_before_the_burrow_and_the_mantis_mends_at_home() 
     );
     // The crab walks right again and dies again; meanwhile the mantis, with
     // nobody near and unhit, mends at home. Hurt it, then leave.
-    let mut sim = Sim::with_one_crab(Vec2::new(250.0, 0.0));
-    sim.populate();
+    let mut sim = sim_a(Vec2::new(250.0, 0.0));
+    sim.spawn_enemy(Kind::Mantis, Vec2::new(1120.0, 110.0));
     sim.enemies_mut()[0].vitals.health = 20.0;
     sim.enemies_mut()[0].fled = true;
     idle(&mut sim, 300);
@@ -1915,7 +1933,7 @@ fn the_crab_comes_back_quickly_before_the_burrow_and_the_mantis_mends_at_home() 
 
 #[test]
 fn it_flees_only_once_a_fight() {
-    let mut sim = Sim::with_one_crab(Vec2::new(250.0, 0.0));
+    let mut sim = sim_a(Vec2::new(250.0, 0.0));
     sim.spawn_enemy(Kind::Mantis, Vec2::new(470.0, 0.0));
     let e = &mut sim.enemies_mut()[0];
     e.fled = true;
@@ -1926,4 +1944,41 @@ fn it_flees_only_once_a_fight() {
     let e = &mut sim.enemies_mut()[0];
     e.takes(&hit, 250.0, &t);
     assert_ne!(e.state, State::Flee, "it already fled once this fight");
+}
+
+#[test]
+fn the_route_gets_harder_with_room_to_breathe() {
+    let level = crabsim::Level::test_level();
+    let kinds: Vec<Kind> = level.foes.iter().map(|f| f.0).collect();
+    assert_eq!(
+        kinds,
+        [
+            Kind::Snapper,
+            Kind::Snapper,
+            Kind::Mantis,
+            Kind::Moray,
+            Kind::Snapper,
+            Kind::Moray
+        ],
+        "easy shrimp first, then the mantis, then morays and a mix"
+    );
+    let xs: Vec<f32> = level.foes.iter().map(|f| f.1.x).collect();
+    assert!(
+        xs.windows(2).all(|w| w[1] - w[0] >= 240.0),
+        "breathing room: {xs:?}"
+    );
+    // The home and spawn stay out of every enemy's notice.
+    let t = crabsim::Tuning::default();
+    for (kind, at) in &level.foes {
+        assert!(
+            (at.x - SPAWN.x).abs() > kind.tuning(&t).notice_range,
+            "{kind:?}"
+        );
+    }
+    // All of them stand on the floor where they are put.
+    let mut sim = sim_a(SPAWN);
+    sim.populate();
+    for e in sim.enemies() {
+        assert_eq!(e.pos.y, level.floor_height(e.pos.x), "{:?}", e.kind);
+    }
 }

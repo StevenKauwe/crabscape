@@ -5,7 +5,8 @@
 use bevy::prelude::*;
 
 use crabsim::combat::Claw;
-use crabsim::{Fighter, Mover, Sim};
+use crabsim::enemy::State;
+use crabsim::{Fighter, Kind, Mover, Sim};
 
 use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
@@ -208,14 +209,49 @@ fn show_trail(
     sprite.color = Color::srgb(1.0, 0.95, 0.85).with_alpha(0.75 * *fade * strength);
 }
 
+/// A hint, once per creature kind, the first time one starts its tell near
+/// the crab: what to do about it.
+fn hint(kind: Kind) -> Option<&'static str> {
+    match kind {
+        Kind::Snapper => Some("A snapping shrimp! Jump or dodge its shock"),
+        Kind::Mantis => Some("It holds still: GUARD right then to parry"),
+        Kind::Moray => Some("A moray coils: dodge, or GUARD to parry"),
+        Kind::Fixture => None,
+    }
+}
+
 fn fight_notes(
     mut commands: Commands,
-    crab: Query<(&FrameEvents, &Fighter, &Transform), With<LocalPlayer>>,
+    sim: Res<Sim>,
+    crab: Query<(&FrameEvents, &Fighter, &Mover, &Transform), With<LocalPlayer>>,
     mut cracked_before: Local<bool>,
+    mut hinted: Local<Vec<Kind>>,
+    mut grabbed_before: Local<bool>,
 ) {
-    let Ok((ev, f, at)) = crab.single() else {
+    let Ok((ev, f, m, at)) = crab.single() else {
         return;
     };
+    let near_tell = sim.enemies().iter().find(|e| {
+        e.state == State::Tell && (e.pos.x - m.pos.x).abs() < 400.0 && !hinted.contains(&e.kind)
+    });
+    if let Some(e) = near_tell {
+        hinted.push(e.kind);
+        if let Some(text) = hint(e.kind) {
+            let above = at.translation.truncate() + Vec2::Y * 130.0;
+            notes::say(&mut commands, text, above, PALE);
+        }
+    }
+    let grabbed = f.grabbed.is_some();
+    if grabbed && !*grabbed_before {
+        let above = at.translation.truncate() + Vec2::Y * 110.0;
+        notes::say(
+            &mut commands,
+            "Held! Tap DODGE to struggle free",
+            above,
+            SHELL,
+        );
+    }
+    *grabbed_before = grabbed;
     let ev = ev.0;
     let above = at.translation.truncate() + Vec2::Y * 92.0;
     // Later beats of a parry stack higher, so they don't overlap.

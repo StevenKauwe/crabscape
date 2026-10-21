@@ -1,5 +1,6 @@
 //! The feel lab: try different ways the crab's attacks can feel, side by
-//! side, in preview builds (and native runs). A "FEEL" button under "Start
+//! side. Hidden in normal play (the game plays G); `?lab` in the address
+//! shows it, and on preview builds (and native runs) the backtick key opens it. A "FEEL" button under "Start
 //! over" (or the backtick key, or 1-9) cycles the presets; a "Juice" button
 //! (or backslash) switches the presentation extras off and on, so you can
 //! feel what they add. The choice is remembered per build.
@@ -238,8 +239,10 @@ const JUICE: [Juice; 9] = [
 pub struct FeelLab {
     pub feel: Feel,
     pub juice_on: bool,
-    /// Preview builds and native runs: the buttons show.
+    /// The lab's buttons show (`?lab` in the address, or the backtick key).
     pub open: bool,
+    /// The lab can be opened at all (preview builds, native runs, `?lab`).
+    pub available: bool,
     /// Seconds left showing the preset's name and pitch.
     toast: f32,
 }
@@ -255,8 +258,8 @@ impl FeelLab {
     }
 }
 
-/// The feel the game starts with: the remembered one in a preview build,
-/// else the recommended one.
+/// The feel the game starts with: the game's combat (G), unless the lab is
+/// open from the start, then the remembered one.
 pub fn starting() -> (Feel, bool) {
     if !lab_open() {
         return (Feel::default(), true);
@@ -269,15 +272,26 @@ pub fn starting() -> (Feel, bool) {
     (feel, juice)
 }
 
-/// Is this a build that shows the lab? Previews (`/pr-<n>/`, `/branches/..`),
-/// `?feel` in the address, and native runs.
+/// Does the lab show from the start? Only with `?lab` (or `?feel`) in the
+/// address: normal play has no lab.
 fn lab_open() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
-        save::is_preview()
-            || web_sys::window()
-                .and_then(|w| w.location().search().ok())
-                .is_some_and(|q| q.contains("feel"))
+        web_sys::window()
+            .and_then(|w| w.location().search().ok())
+            .is_some_and(|q| q.contains("lab") || q.contains("feel"))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+/// Can the backtick key open it? Preview builds, native runs, `?lab`.
+fn lab_available() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        save::is_preview() || lab_open()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -299,6 +313,7 @@ impl Plugin for FeelPlugin {
             feel,
             juice_on,
             open,
+            available: lab_available(),
             toast: if open { TOAST } else { 0.0 },
         })
         .add_systems(Startup, (spawn_lab, slow_motion))
@@ -334,7 +349,7 @@ fn button_rect(window: Vec2, which: LabButton) -> Rect {
 }
 
 fn spawn_lab(mut commands: Commands, lab: Res<FeelLab>, window: Single<&Window>) {
-    if !lab.open {
+    if !lab.available {
         return;
     }
     for which in [LabButton::Feel, LabButton::Juice] {
@@ -356,6 +371,7 @@ fn spawn_lab(mut commands: Commands, lab: Res<FeelLab>, window: Single<&Window>)
                 },
                 BorderColor::all(Color::srgba(0.55, 0.95, 0.85, 0.45)),
                 BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.55)),
+                Visibility::Hidden,
             ))
             .with_children(|b| {
                 b.spawn((
@@ -429,7 +445,15 @@ fn switch(
     mut lab: ResMut<FeelLab>,
     mut sim: ResMut<Sim>,
 ) {
+    if !lab.available {
+        return;
+    }
+    // The backtick key opens the hidden lab first (preview builds).
     if !lab.open {
+        if keys.just_pressed(KeyCode::Backquote) {
+            lab.open = true;
+            lab.toast = TOAST;
+        }
         return;
     }
     let size = window.size();
@@ -482,7 +506,15 @@ fn show_lab(
     buttons: Query<(&LabButton, &Children)>,
     mut labels: Query<&mut Text, (With<ButtonLabel>, Without<ToastText>)>,
     mut toast: Query<(&mut Text, &mut TextColor), With<ToastText>>,
+    mut shown: Query<&mut Visibility, With<LabButton>>,
 ) {
+    for mut v in &mut shown {
+        v.set_if_neq(if lab.open {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
     if !lab.open {
         return;
     }

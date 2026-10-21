@@ -93,6 +93,8 @@ fn spawn_foes(mut commands: Commands, sim: Res<Sim>, soft: Res<SoftTextures>, fo
         }
         match e.kind {
             Kind::Mantis | Kind::Fixture => spawn_mantis(&mut commands, e, &soft),
+            // Drawn in critters.rs.
+            Kind::Snapper | Kind::Moray => {}
         }
     }
 }

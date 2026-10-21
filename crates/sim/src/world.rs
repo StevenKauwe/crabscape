@@ -94,7 +94,7 @@ impl Sim {
     pub fn new(tuning: Tuning, level: Level) -> Self {
         Self {
             tuning,
-            feel: Feel::Current,
+            feel: Feel::default(),
             level,
             tick: 0,
             crabs: Vec::new(),
@@ -113,7 +113,7 @@ impl Sim {
         sim
     }
 
-    /// Which feel preset the tuning came from ([`Feel::Current`] unless
+    /// Which feel preset the tuning came from ([`Feel::default`] unless
     /// [`Sim::set_feel`] was called).
     pub fn feel(&self) -> Feel {
         self.feel
@@ -285,14 +285,18 @@ impl Sim {
             crush(crab, &mut self.enemies, &self.tuning, &mut ev);
             // A safe spot to come back to: on the floor, no enemy near.
             let m = &crab.mover;
-            let near = |x: f32| (x - m.pos.x).abs() < self.tuning.safe_distance;
+            // (Each enemy's own reach: how far it notices, plus a margin.)
+            let t = &self.tuning;
+            let near = |e: &Enemy, x: f32| {
+                let reach = e.kind.tuning(t).notice_range + t.safe_distance;
+                (x - m.pos.x).abs() < reach
+            };
             if m.grounded
                 && !m.climbing
                 && crab.fighter.dead.is_none()
-                && !self
-                    .enemies
-                    .iter()
-                    .any(|e| near(e.home.x) || (e.state != enemy::State::Gone && near(e.pos.x)))
+                && !self.enemies.iter().any(|e| {
+                    near(e, e.home.x) || (e.state != enemy::State::Gone && near(e, e.pos.x))
+                })
             {
                 crab.safe = m.pos;
             }
@@ -476,7 +480,7 @@ impl Sim {
             .crab(PlayerId(0))
             .map_or(crate::level::SPAWN, |c| c.mover.pos);
         let mut rec = Recorder::new(start, self.tick, &self.tuning);
-        if self.feel != Feel::Current {
+        if self.feel != Feel::default() {
             rec.note_feel(self.tick, self.feel);
         }
         self.recorder = Some(rec);
