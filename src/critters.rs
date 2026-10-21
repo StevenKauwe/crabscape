@@ -311,7 +311,16 @@ fn pose_critters(
         // of its neck.
         let (reach, coil) = match e.state {
             State::Tell => (6.0, (tick / 20.0).min(1.0)),
-            State::Attack | State::Grab => {
+            // Holding on: the head is at the crab it holds.
+            State::Grab => {
+                let held = sim
+                    .crabs()
+                    .iter()
+                    .find(|c| c.fighter.grabbed.is_some_and(|g| g.by == e.id));
+                let x = held.map_or(c.reach, |h| (h.mover.pos.x - e.home.x).abs() - 26.0);
+                (x, 0.0)
+            }
+            State::Attack => {
                 let (centre, _) = e.strike_circle(t);
                 ((centre.x - e.home.x).abs(), 0.0)
             }

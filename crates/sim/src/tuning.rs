@@ -704,7 +704,7 @@ impl Tuning {
                 notice_ticks: 12,
                 give_up_range: 200.0,
                 approach_speed: 0.0, // a turret: it guards its burrow mouth
-                strike_range: 60.0,
+                strike_range: 72.0,  // its shock (38) reaches a crab this close
                 pause_ticks: (10, 30),
                 tell_ticks: 54, // real about 60 (500 ms), a little shorter
                 cocked_ticks: 30,

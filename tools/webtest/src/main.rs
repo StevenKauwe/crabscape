@@ -750,7 +750,7 @@ impl Test<'_> {
             self.open("index.html?slow=10")?;
             if walk {
                 self.key("keydown", "KeyD", "d")?;
-                pump(1.5);
+                pump(2.2);
                 self.key("keyup", "KeyD", "d")?;
             }
             let telling = self.wait_for(
