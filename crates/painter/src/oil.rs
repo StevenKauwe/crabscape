@@ -80,6 +80,7 @@ pub enum Tool {
     Knife,
 }
 
+#[derive(Clone, Copy)]
 pub struct Stroke {
     pub tool: Tool,
     /// What the brush picked up where the whole stroke landed (pieces of one sweep share it).
@@ -132,11 +133,20 @@ impl Painting {
             return;
         }
         // the paint already there, where the brush lands
-        let at = |x: f32, y: f32| -> usize { (y.clamp(0.0, HI as f32 - 1.0) as usize) * WI + x.clamp(0.0, WI as f32 - 1.0) as usize };
         let start = [s.c[0] - cs * s.len * 0.4, s.c[1] - sn * s.len * 0.4];
         // a stroke that lands off the canvas has nothing to pick up (not whatever happens to be at the canvas edge)
-        let on_canvas = start[0] >= 0.0 && start[1] >= 0.0 && start[0] < WI as f32 && start[1] < HI as f32;
-        let under = s.picked.unwrap_or(if on_canvas { self.flat[at(start[0], start[1])] } else { s.col });
+        let under = s.picked.unwrap_or_else(|| flat_under(&self.flat, start[0], start[1], s.width * 0.3, s.col));
+        let premix = PREMIX.with(|p| p.get());
+        let fade = FADE.with(|f| f.get());
+        if fade <= 0.0 {
+            return;
+        }
+        let s = &if premix < 1.0 || fade < 1.0 {
+            let tint = |c: [f32; 3]| -> [f32; 3] { std::array::from_fn(|k| under[k] + (c[k] - under[k]) * premix) };
+            Stroke { col: tint(s.col), alt: tint(s.alt), load: s.load * (0.35 + 0.65 * premix), opacity: s.opacity * fade, ..*s }
+        } else {
+            *s
+        };
         // what the brush's two colours become with more and more of the picked-up paint worked into them: as
         // pigments (blue into yellow goes green and stays rich), worked out once per stroke
         let pigment = PIGMENT.load(Ordering::Relaxed);
@@ -169,6 +179,10 @@ impl Painting {
             Tool::Round => (0.07 * BODY, 0.2 * BODY, 1.4),
             Tool::Knife => (0.0, 1.1 * BODY, 0.8),
         };
+        // the whole stroke's length (a piece of a sweep knows its share of it), and how far in from its ends the
+        // bristles touch down and lift off: about a brush width, less on a touch too short to have that much
+        let whole_len = (s.len / (s.span.1 - s.span.0).max(1e-3)).max(1.0);
+        let end_w = s.width * (whole_len / (5.0 * s.width)).min(1.0);
         for y in y0..=y1 {
             for x in x0..=x1 {
                 let (dx, dy) = (x as f32 + 0.5 - s.c[0], y as f32 + 0.5 - s.c[1]);
@@ -195,12 +209,31 @@ impl Painting {
                 let across = (v / s.width + 0.5) * nb;
                 let b = across.floor() as i32;
                 let (r1, r2, r3, r4) = (hf(id, b as u32), hf(id ^ 0x55, b as u32), hf(id ^ 0xAA, b as u32), hf(id ^ 0x3C, b as u32));
+                // The brush meets the canvas at a slant and its bristles touch down and lift off one by one, so a
+                // stroke's ends are ragged and oblique, and soft with pressure. (Every bristle used to land within
+                // the first 2-6 % of the stroke and the longest ones ran into the hard cut at its end: each stroke
+                // began and ended on a straight edge square to its direction. In a sky of level strokes those edges
+                // lined up into hard vertical seams all over the film.) No bristle reaches either end of the
+                // footprint, so the footprint's own cut never shows.
+                // the brush is held at a slant to its path (so its ends are oblique, the same way at both ends) and
+                // its loaded edge is rounded (so the middle bristles reach a little further than the outer ones)
+                // All of it is measured in brush widths from the stroke's ends (not as a share of its length), so a
+                // long line still reaches where it was drawn to and only its last width or so is ragged; a short
+                // touch keeps its ends in proportion.
+                let t = (across / nb).clamp(0.0, 1.0);
+                let slant = ((hf(id, 991) - 0.5) * 1.7 * (t - 0.5) + (hf(id, 992) - 0.5) * 0.25) * end_w;
+                let round = 0.38 * (2.0 * t - 1.0).powi(2) * end_w;
+                let r5 = hf(id ^ 0x77, b as u32);
+                let land_at = ((0.06 + 0.38 * r5) * end_w + slant + round).max(0.0) / whole_len;
                 // each bristle runs dry at its own point, and skips over the ground as it does
-                let dry_at = 0.82 + 0.18 * r1;
-                let skip = smooth(dry_at - 0.18, dry_at, whole) * (0.35 + 0.65 * noise(u / (5.0 * z), b as f32 * 3.7, id ^ 9));
-                let landed = smooth(0.0, 0.02 + 0.04 * r2, whole) * if lands { 1.0 } else { 1.0 };
+                let dry_at = 1.0 - ((0.30 + 0.85 * (1.0 - r1)) * end_w - slant + round).max(0.18 * end_w) / whole_len;
+                // (each bristle reads the noise at its own phase: sharing the lattice lined every bristle's skips up in
+                // columns, a fine vertical grain across the stroke)
+                let skip = smooth(dry_at - (0.18f32).min(2.5 * s.width / whole_len), dry_at, whole) * (0.35 + 0.65 * noise(u / (5.0 * z) + 37.0 * r3, b as f32 * 3.7, id ^ 9));
+                let landed = smooth(land_at, land_at + (0.25 + 0.35 * r2) * end_w / whole_len, whole) * if lands { 1.0 } else { 1.0 };
                 let side = smooth(0.0, edge_soft, half - v.abs());
-                let mut a = landed * side * (1.0 - smooth(0.45, 0.8, skip)) * (1.0 - smooth(dry_at - 0.02, dry_at + 0.03, whole)) * if lifts { 1.0 } else { 1.0 };
+                let mut a =
+                    landed * side * (1.0 - smooth(0.45, 0.8, skip)) * (1.0 - smooth(dry_at - 0.10 * end_w / whole_len, dry_at + 0.12 * end_w / whole_len, whole)) * if lifts { 1.0 } else { 1.0 };
                 if s.tool == Tool::Knife {
                     a *= smooth(0.25, 0.45, noise(u / (7.0 * z), v / (2.5 * z), id ^ 77) + 0.35 * (1.0 - whole));
                 }
@@ -332,9 +365,44 @@ thread_local! {
     /// towards. Brush size, bristle count, stroke spacing and every wobble scale together, so nothing re-plans as
     /// the camera moves in.
     static ZOOM: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+    static PREMIX: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+    static FADE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
     // one frame is painted start to finish on one thread
     static SCENE: std::cell::Cell<Option<Scene>> = const { std::cell::Cell::new(None) };
 }
+/// How much of what is painted now is laid (1 = all of it). A painter's decisions about a shape go by its size,
+/// and a size threshold crossed by a shape that grows or shrinks by a pixel would switch the treatment in one frame:
+/// so near every such threshold the two treatments are cross-faded, each laid at its share (`Fade`), and a shape
+/// arrives or leaves by degrees. Fades nest (they multiply).
+pub struct Fade(f32);
+impl Fade {
+    pub fn set(k: f32) -> Fade {
+        let prev = FADE.with(|f| f.get());
+        FADE.with(|f| f.set(prev * k.clamp(0.0, 1.0)));
+        Fade(prev)
+    }
+}
+impl Drop for Fade {
+    fn drop(&mut self) {
+        FADE.with(|f| f.set(self.0));
+    }
+}
+
+/// The opacity of the wash being painted (1 = as is). Paint is mixed down with what it lands on by this
+/// much before it is laid, as a painter mixes a thin tint on the palette instead of laying a transparent stroke.
+pub struct Premix;
+impl Premix {
+    pub fn set(k: f32) -> Premix {
+        PREMIX.with(|p| p.set(k.clamp(0.0, 1.0)));
+        Premix
+    }
+}
+impl Drop for Premix {
+    fn drop(&mut self) {
+        PREMIX.with(|p| p.set(1.0));
+    }
+}
+
 pub fn zoom() -> f32 {
     ZOOM.with(|z| z.get()).max(0.05)
 }
@@ -565,6 +633,119 @@ pub fn wash_shape(p: &mut Painting, pts: &[[f32; 2]], col: [f32; 3], density: f3
 }
 
 #[allow(clippy::too_many_arguments)]
+/// The strokes a shape is laid with: (slot centre, stroke id, how much of it is laid 0..1). `c` is the shape's
+/// centroid, `lo`/`hi` its bounding box clipped to the canvas, `base` the brushwork's direction.
+pub fn plan_slots(pts: &[[f32; 2]], c: [f32; 2], lo: [f32; 2], hi: [f32; 2], width: f32, base: f32, seed: u32) -> Vec<([f32; 2], u32, f32)> {
+    let vis = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0];
+    let mid = c;
+    let (step_u, step_v) = (width * 1.35, width * 0.42);
+    let (sn, cs) = base.sin_cos();
+    // a stroke reaches up to about 4.3 brush widths from its slot: every slot that could touch the visible part
+    // is visited and kept, so none appears or disappears as the canvas edge slides along the shape
+    let reach = 4.5 * width;
+    let rad = (hi[0] - lo[0]).hypot(hi[1] - lo[1]) / 2.0 + reach;
+    let (du, dv) = ((vis[0] - c[0]) * cs + (vis[1] - c[1]) * sn, -(vis[0] - c[0]) * sn + (vis[1] - c[1]) * cs);
+    let (cu, cv) = ((du / step_u).round() as i32, (dv / step_v).round() as i32);
+    let (nu, nv) = ((rad / step_u).ceil() as i32 + 1, (rad / step_v).ceil() as i32 + 1);
+    // How far inside the shape a slot's centre is decides how much of the stroke is laid, smoothly. (A hard
+    // in/out test on the rasterised mask let a stroke whose centre sat on the edge appear and vanish from one
+    // frame to the next as the shape or camera moved a fraction of a pixel; with strokes several brush-widths
+    // long, that was the "few strokes that flicker while most are perfect".) Strokes are clipped by the mask
+    // anyway, so a slot just outside the edge only contributes the part of it that lands inside.
+    let (fade_out, fade_in) = (-0.45 * width, 0.15 * width);
+    let mut spots: Vec<([f32; 2], u32, f32)> = vec![];
+    for iu in cu - nu..=cu + nu {
+        for iv in cv - nv..=cv + nv {
+            let id = seed.wrapping_mul(31).wrapping_add((iu * 4001 + iv) as u32);
+            let (u, v) = ((iu as f32 + hf(id, 1) - 0.5) * step_u, (iv as f32 + hf(id, 2) - 0.5) * step_v);
+            let q = [mid[0] + u * cs - v * sn, mid[1] + u * sn + v * cs];
+            if q[0] < lo[0] - reach || q[1] < lo[1] - reach || q[0] > hi[0] + reach || q[1] > hi[1] + reach {
+                continue;
+            }
+            let d = signed_depth(pts, q, fade_in);
+            if d <= fade_out {
+                continue;
+            }
+            let e = smooth(fade_out, fade_in, d);
+            if e <= 0.002 {
+                continue;
+            }
+            spots.push((q, id, e));
+        }
+    }
+    spots
+}
+
+/// The nearest distance from `q` to the outline, and the outline's direction there (a line, so modulo pi), blended
+/// over the edges that are nearly as close.
+pub fn edge_dir(pts: &[[f32; 2]], q: [f32; 2], width: f32) -> (f32, f32) {
+    let mut ds: Vec<(f32, f32)> = Vec::with_capacity(pts.len());
+    let mut near = f32::MAX;
+    for i in 0..pts.len() {
+        let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+        let ab = [b[0] - a[0], b[1] - a[1]];
+        if ab[0].abs() + ab[1].abs() < 1e-3 {
+            continue;
+        }
+        let t = (((q[0] - a[0]) * ab[0] + (q[1] - a[1]) * ab[1]) / (ab[0] * ab[0] + ab[1] * ab[1]).max(1e-6)).clamp(0.0, 1.0);
+        let d = (q[0] - a[0] - ab[0] * t).hypot(q[1] - a[1] - ab[1] * t);
+        near = near.min(d);
+        ds.push((d, ab[1].atan2(ab[0])));
+    }
+    let along = {
+        let sigma = (0.5 * width).max(1.0);
+        let (mut sx, mut sy) = (0.0f32, 0.0f32);
+        for (d, th) in &ds {
+            let w = (-((d - near) / sigma).powi(2)).exp();
+            sx += w * (2.0 * th).cos();
+            sy += w * (2.0 * th).sin();
+        }
+        0.5 * sy.atan2(sx)
+    };
+    (near, along)
+}
+
+/// How far `q` lies inside the polygon (negative outside), in pixels; exact within `cap` of the edge, and `cap`
+/// anywhere deeper (the caller only needs the band near the edge).
+pub fn signed_depth(pts: &[[f32; 2]], q: [f32; 2], cap: f32) -> f32 {
+    let mut near = f32::MAX;
+    for i in 0..pts.len() {
+        let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+        let ab = [b[0] - a[0], b[1] - a[1]];
+        let t = (((q[0] - a[0]) * ab[0] + (q[1] - a[1]) * ab[1]) / (ab[0] * ab[0] + ab[1] * ab[1]).max(1e-6)).clamp(0.0, 1.0);
+        near = near.min((q[0] - a[0] - ab[0] * t).hypot(q[1] - a[1] - ab[1] * t));
+    }
+    if in_poly(pts, q) { near.min(cap) } else { -near }
+}
+
+/// The plain picture's colour around (x, y), averaged over a little patch of radius `r`: what a brush landing
+/// there picks up. A single pixel would flip between two colours whenever an edge in the plain picture moved
+/// across it by a fraction of a pixel, changing the whole stroke's colour from one frame to the next. Off the
+/// canvas there is nothing to pick up, so the result slides to `none` over one patch radius past the edge.
+pub fn flat_under(flat: &[[f32; 3]], x: f32, y: f32, r: f32, none: [f32; 3]) -> [f32; 3] {
+    let r = r.max(1.0);
+    let bil = |x: f32, y: f32| -> [f32; 3] {
+        let (x, y) = (x.clamp(0.0, WI as f32 - 1.001), y.clamp(0.0, HI as f32 - 1.001));
+        let (x0, y0) = (x.floor() as usize, y.floor() as usize);
+        let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+        let (a, b, c, d) = (flat[y0 * WI + x0], flat[y0 * WI + x0 + 1], flat[(y0 + 1) * WI + x0], flat[(y0 + 1) * WI + x0 + 1]);
+        std::array::from_fn(|k| (a[k] * (1.0 - fx) + b[k] * fx) * (1.0 - fy) + (c[k] * (1.0 - fx) + d[k] * fx) * fy)
+    };
+    let mut sum = [0.0f32; 3];
+    for j in -1..=1 {
+        for i in -1..=1 {
+            let q = bil(x + i as f32 * r, y + j as f32 * r);
+            for k in 0..3 {
+                sum[k] += q[k] / 9.0;
+            }
+        }
+    }
+    let outside = (-x).max(x - (WI as f32 - 1.0)).max(-y).max(y - (HI as f32 - 1.0)).max(0.0);
+    let w = smooth(0.0, r, outside);
+    std::array::from_fn(|k| sum[k] + (none[k] - sum[k]) * w)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn paint_body(p: &mut Painting, pts: &[[f32; 2]], col: [f32; 3], alt: [f32; 3], opacity: f32, seed: u32, detail: f32, body: f32, tool: Tool) {
     paint_form(p, pts, col, alt, opacity, seed, detail, body, tool, 0.0)
 }
@@ -591,10 +772,9 @@ pub fn paint_form(p: &mut Painting, pts: &[[f32; 2]], col: [f32; 3], alt: [f32; 
     // part is off the canvas), and in steps, so a shape that swells a little keeps the same brush.
     let small = (hi[0] - lo[0]).min(hi[1] - lo[1]);
     let z = zoom();
-    let width = {
-        let w = (small / z * 0.30 * detail).clamp(5.0, 110.0);
-        5.0 * 1.22f32.powf(((w / 5.0).ln() / 1.22f32.ln()).round()) * z
-    };
+    // The brush follows the shape's size continuously. (It used to snap to steps of 1.22x: a shape that swelled
+    // across a step boundary, or a blinking eye, re-planned every stroke in it in one frame, which read as a pop.)
+    let width = (small / z * 0.30 * detail).clamp(5.0, 110.0) * z;
     lo = [lo[0].max(-80.0), lo[1].max(-80.0)];
     hi = [hi[0].min(WI as f32 + 80.0), hi[1].min(HI as f32 + 80.0)];
     if hi[0] <= lo[0] || hi[1] <= lo[1] {
@@ -617,51 +797,30 @@ pub fn paint_form(p: &mut Painting, pts: &[[f32; 2]], col: [f32; 3], alt: [f32; 
         while to < -std::f32::consts::FRAC_PI_2 {
             to += std::f32::consts::PI;
         }
-        // in steps of 7.5 degrees: a shape that sways or flexes a little keeps its brushwork's direction, instead of
-        // every stroke in it turning a fraction each frame
-        let step = std::f32::consts::PI / 24.0;
-        ((diag + to * smooth(1.35, 2.1, stretch)) / step).round() * step
+        // Continuous. (It used to snap to steps of 7.5 degrees; a shape whose axis wobbled across a step boundary
+        // turned AND re-laid its whole lattice in one frame: the flicker on wings, eyes and beaks.) A turn of a
+        // fraction of a degree per frame is the shape's own motion, which the brushwork should follow.
+        diag + to * smooth(1.35, 2.1, stretch)
     };
     let Some((mask, o, sz)) = shape_mask(pts, width * 0.22 + 1.5 * z) else { return };
-    let (step_u, step_v) = (width * 1.35, width * 0.42);
-    let (sn, cs) = base.sin_cos();
-    let rad = (hi[0] - lo[0]).hypot(hi[1] - lo[1]) / 2.0 + width;
     // the grid of strokes hangs on the shape's own centre, so it travels with the shape (and a big shape half off
     // the canvas keeps its strokes where they were)
-    let vis = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0];
-    let mid = c;
-    let (du, dv) = ((vis[0] - c[0]) * cs + (vis[1] - c[1]) * sn, -(vis[0] - c[0]) * sn + (vis[1] - c[1]) * cs);
-    let (cu, cv) = ((du / step_u).round() as i32, (dv / step_v).round() as i32);
-    let (nu, nv) = ((rad / step_u).ceil() as i32, (rad / step_v).ceil() as i32);
-    let mut spots: Vec<([f32; 2], u32)> = vec![];
-    for iu in cu - nu..=cu + nu {
-        for iv in cv - nv..=cv + nv {
-            let id = seed.wrapping_mul(31).wrapping_add((iu * 4001 + iv) as u32);
-            let (u, v) = ((iu as f32 + hf(id, 1) - 0.5) * step_u, (iv as f32 + hf(id, 2) - 0.5) * step_v);
-            let q = [mid[0] + u * cs - v * sn, mid[1] + u * sn + v * cs];
-            let (mx, my) = (q[0] as i32 - o[0], q[1] as i32 - o[1]);
-            if mx < 0 || my < 0 || mx as usize >= sz[0] || my as usize >= sz[1] || mask[my as usize * sz[0] + mx as usize] < 0.5 {
-                continue;
-            }
-            spots.push((q, id));
-        }
-    }
-    spots.sort_by_key(|(_, id)| h32(*id));
-    for (q, id) in spots {
+    // A slot's identity is its lattice index (iu, iv) counted from the shape's own centroid, so it never depends
+    // on which slots are visited. Only the visiting WINDOW follows the visible part of the shape (a big shape
+    // half off the canvas, an iris wedge or a whip streak reaching 4000 px out, has its centroid far away; a
+    // window centred on the centroid with the clipped radius missed the visible part entirely).
+    let mut spots = plan_slots(pts, c, lo, hi, width, base, seed);
+    spots.sort_by_key(|(_, id, _)| h32(*id));
+    for (q, id, edge_k) in spots {
         // Brushwork within a plane is deliberate: one direction, drifting slowly. Near where the colour ends it
         // turns to run ALONG that edge, so two colours meet with their strokes side by side, never with one
         // hatched across and chopped off.
         let drift = (noise((q[0] - c[0]) / (420.0 * z), (q[1] - c[1]) / (420.0 * z), seed) - 0.5) * 0.5 + (hf(id, 3) - 0.5) * 0.10;
-        let (mut near, mut along) = (f32::MAX, 0.0f32);
-        for i in 0..pts.len() {
-            let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
-            let ab = [b[0] - a[0], b[1] - a[1]];
-            let t = (((q[0] - a[0]) * ab[0] + (q[1] - a[1]) * ab[1]) / (ab[0] * ab[0] + ab[1] * ab[1]).max(1e-6)).clamp(0.0, 1.0);
-            let d = (q[0] - a[0] - ab[0] * t).hypot(q[1] - a[1] - ab[1] * t);
-            if d < near {
-                (near, along) = (d, ab[1].atan2(ab[0]));
-            }
-        }
+        // The edge's direction is a blend of the nearest edges' directions (as lines: doubled angles), weighted by
+        // how nearly as close each is. Taking only THE nearest edge flipped a stroke's direction outright where two
+        // edges were equally close (a corner, or the two sides of a narrow trunk): as the shape or camera moved a
+        // fraction of a pixel, a long stroke swung several degrees in one frame.
+        let (near, along) = edge_dir(pts, q, width);
         // the edge has no "forwards": take whichever way round is closer to the plane's direction
         let mut turn_to = along - (base + drift);
         while turn_to > std::f32::consts::FRAC_PI_2 {
@@ -685,13 +844,14 @@ pub fn paint_form(p: &mut Painting, pts: &[[f32; 2]], col: [f32; 3], alt: [f32; 
             &Stroke {
                 c: q,
                 angle: base + swirl,
-                len: width * (3.0 + 3.0 * hf(id, 5)) * (1.0 - 0.35 * pull),
+                // (a little longer than the paint it lays: its bristles land and lift a way in from its ends)
+                len: width * (3.6 + 3.6 * hf(id, 5)) * (1.0 - 0.35 * pull),
                 width: width * (0.75 + 0.5 * hf(id, 6)),
                 // strokes are arcs from the wrist: mostly bowed the same way, never ruler-straight
                 bend: 0.12 + (hf(id, 7) - 0.5) * 0.2,
                 col: shifted(lit_col, k, (hf(id, 8) - 0.5) * 2.0),
                 alt: shifted(alt, 1.0, 0.0),
-                opacity: opacity * (0.86 + 0.12 * hf(id, 9)),
+                opacity: opacity * (0.86 + 0.12 * hf(id, 9)) * edge_k,
                 pickup: 0.22 + 0.3 * hf(id, 10),
                 load: (0.6 + 0.4 * hf(id, 11)) * body,
                 // the stroke's bristles belong to its place on its shape, not to how many strokes came before it
@@ -704,18 +864,24 @@ pub fn paint_form(p: &mut Painting, pts: &[[f32; 2]], col: [f32; 3], alt: [f32; 
             Some((&mask, o, sz)),
         );
     }
-    // the shape now stands in the plain picture, for whatever is painted over it later
+    // the shape now stands in the plain picture, for whatever is painted over it later (a translucent wash as the
+    // tint it was mixed to, not as its full colour)
+    let premix = PREMIX.with(|p| p.get());
     for y in 0..sz[1] {
         for x in 0..sz[0] {
             if mask[y * sz[0] + x] >= 0.5 {
                 let (px, py) = (x as i32 + o[0], y as i32 + o[1]);
                 if px >= 0 && py >= 0 && (px as usize) < WI && (py as usize) < HI {
-                    p.flat[py as usize * WI + px as usize] = col;
+                    let f = &mut p.flat[py as usize * WI + px as usize];
+                    *f = std::array::from_fn(|k| f[k] + (col[k] - f[k]) * premix);
                 }
             }
         }
     }
-    if small > SMALLEST * 4.0 * z {
+    // the cut-in edge comes in by degrees as a shape grows past the size that has one
+    let contour_k = smooth(SMALLEST * 3.5 * z, SMALLEST * 4.5 * z, small);
+    if contour_k > 0.001 {
+        let _contour = Fade::set(contour_k);
         paint_contour(p, pts, col, alt, (width * 0.45).clamp(SMALLEST * z, 26.0 * z), seed ^ 0xC0, opacity, body);
     }
 }
@@ -728,7 +894,8 @@ pub fn paint_form(p: &mut Painting, pts: &[[f32; 2]], col: [f32; 3], alt: [f32; 
 /// * the hand pulls (left to right, top to bottom) rather than pushes;
 /// * it runs a little past where it meant to stop, and wanders a little either side of the line.
 /// Returns each stroke's path as closely spaced points.
-pub fn hand_paths(pts: &[[f32; 2]], closed: bool, width: f32, offset: f32, seed: u32) -> Vec<Vec<[f32; 2]>> {
+/// Returns each stroke's path, the share of it to lay (1 = all), and its stable identity.
+pub fn hand_paths(pts: &[[f32; 2]], closed: bool, width: f32, offset: f32, seed: u32) -> Vec<(Vec<[f32; 2]>, f32, u32)> {
     let n = pts.len();
     if n < 2 {
         return vec![];
@@ -797,38 +964,76 @@ pub fn hand_paths(pts: &[[f32; 2]], closed: bool, width: f32, offset: f32, seed:
                 [curve[i][0] + nrm[0] * off, curve[i][1] + nrm[1] * off]
             })
             .collect();
-        // cut into sweeps: so much turning, so much paint
-        let mut i = 0usize;
-        let mut sweep = 0u32;
-        while i + 1 < m {
-            let reach = width * (11.0 + 9.0 * hf(seed ^ (pi as u32 * 131), sweep + 5));
-            let (mut len, mut turned, mut j) = (0.0f32, 0.0f32, i);
-            while j + 1 < m && len < reach && turned.abs() < 2.3 {
-                let d = [moved[j + 1][0] - moved[j][0], moved[j + 1][1] - moved[j][1]];
-                len += d[0].hypot(d[1]);
-                if j > i {
-                    let e = [moved[j][0] - moved[j - 1][0], moved[j][1] - moved[j - 1][1]];
-                    turned += (e[0] * d[1] - e[1] * d[0]).atan2(e[0] * d[0] + e[1] * d[1]);
-                }
-                j += 1;
-            }
-            let mut path: Vec<[f32; 2]> = moved[i..=j].to_vec();
-            if path.len() >= 2 {
+        // Cut into sweeps: so much turning, so much paint. Each point along the piece has a cost (its length in
+        // reaches plus its turning in 130-degree turns), and the sweeps end where the running cost passes a
+        // fixed series of marks drawn from the seed. The cuts therefore slide with the shape as it flexes, and a
+        // sweep is only ever added or lost at the END of a piece, starting from nothing (it is faded in by how far
+        // the piece reaches past its mark). (The sweeps used to be cut greedily, "until this much length or this
+        // much turn": a shape that flexed a little re-cut every sweep after the change, and since each sweep was
+        // seeded by its place in the list, re-seeded them all; the outline of a breathing owl flickered.)
+        let unit = 15.5 * width;
+        let mut cost = vec![0.0f32; m];
+        let mut arc = vec![0.0f32; m];
+        for q in 1..m {
+            let d = (moved[q][0] - moved[q - 1][0]).hypot(moved[q][1] - moved[q - 1][1]);
+            arc[q] = arc[q - 1] + d;
+            let turn = if q >= 2 {
+                let (e, f) = ([curve[q - 1][0] - curve[q - 2][0], curve[q - 1][1] - curve[q - 2][1]], [curve[q][0] - curve[q - 1][0], curve[q][1] - curve[q - 1][1]]);
+                (e[0] * f[1] - e[1] * f[0]).atan2(e[0] * f[0] + e[1] * f[1]).abs()
+            } else {
+                0.0
+            };
+            cost[q] = cost[q - 1] + d / unit + turn / 2.3;
+        }
+        let total = cost[m - 1];
+        // the point at running cost c, and the point `back` pixels of path before it
+        let at_cost = |c: f32| -> (usize, [f32; 2], f32) {
+            let q = cost.partition_point(|&v| v < c).clamp(1, m - 1);
+            let f = ((c - cost[q - 1]) / (cost[q] - cost[q - 1]).max(1e-9)).clamp(0.0, 1.0);
+            (q, std::array::from_fn(|k| moved[q - 1][k] + (moved[q][k] - moved[q - 1][k]) * f), arc[q - 1] + (arc[q] - arc[q - 1]) * f)
+        };
+        let at_arc = |a: f32| -> (usize, [f32; 2]) {
+            let q = arc.partition_point(|&v| v < a).clamp(1, m - 1);
+            let f = ((a - arc[q - 1]) / (arc[q] - arc[q - 1]).max(1e-9)).clamp(0.0, 1.0);
+            (q, std::array::from_fn(|k| moved[q - 1][k] + (moved[q][k] - moved[q - 1][k]) * f))
+        };
+        let piece_seed = seed ^ (pi as u32).wrapping_mul(131);
+        let (mut c0, mut sweep) = (0.0f32, 0u32);
+        while c0 < total && sweep < 4096 {
+            let c1 = c0 + 0.71 + 0.58 * hf(piece_seed, sweep + 5);
+            // a sweep that has only just come into being (the piece reaching past its mark by a hair) is laid by degrees
+            let born = if sweep == 0 { 1.0 } else { smooth(0.0, 0.15, total - c0) };
+            let (_, _, a0) = at_cost(c0);
+            // the next sweep starts a little back, over the end of the last one
+            let (qs, ps) = at_arc((a0 - if sweep == 0 { 0.0 } else { width * 0.9 }).max(0.0));
+            let (qe, pe, _) = at_cost(c1.min(total));
+            let mut path: Vec<[f32; 2]> = vec![ps];
+            path.extend_from_slice(&moved[qs..qe]);
+            path.push(pe);
+            path.dedup_by(|a, b| (a[0] - b[0]).abs() + (a[1] - b[1]).abs() < 1e-3);
+            if path.len() >= 2 && born > 0.001 {
                 // run on a little past the end, as a hand does
                 let (e, f) = (path[path.len() - 2], path[path.len() - 1]);
                 let l = (f[0] - e[0]).hypot(f[1] - e[1]).max(1e-3);
                 let over = width * (0.25 + 0.5 * hf(seed, sweep * 7 + pi as u32));
                 path.push([f[0] + (f[0] - e[0]) / l * over, f[1] + (f[1] - e[1]) / l * over]);
-                // pull, don't push
+                // Pull, don't push. Which way a sweep runs is one of two, so near the line between them both are
+                // laid, each by its share, instead of the whole sweep turning round in one frame.
                 let (s0, s1) = (path[0], path[path.len() - 1]);
-                if (s1[0] - s0[0]) * 0.75 + (s1[1] - s0[1]) < 0.0 {
-                    path.reverse();
+                let chord = (s1[0] - s0[0]).hypot(s1[1] - s0[1]).max(1e-3);
+                let fwd = smooth(-0.2, 0.2, ((s1[0] - s0[0]) * 0.75 + (s1[1] - s0[1])) / (1.25 * chord));
+                // a sweep's identity is its piece and its place on that piece, never its place in the list
+                let ident = h32(piece_seed ^ sweep.wrapping_mul(0x9E37_79B9));
+                if fwd > 0.001 {
+                    out.push((path.clone(), born * fwd, ident));
                 }
-                out.push(path);
+                if fwd < 0.999 {
+                    let mut back = path;
+                    back.reverse();
+                    out.push((back, born * (1.0 - fwd), ident ^ 0x5bd1_e995));
+                }
             }
-            // the next sweep starts a little back, over the end of this one
-            let back = ((width * 0.9) / step) as usize;
-            i = if j + 1 >= m { m } else { j.saturating_sub(back).max(i + 1) };
+            c0 = c1;
             sweep += 1;
         }
     }
@@ -843,7 +1048,7 @@ pub fn sweep(p: &mut Painting, tool: Tool, path: &[[f32; 2]], width: f32, col: [
         return;
     }
     let ident = 0x4000_0000 | (h32(seed) >> 2);
-    let picked = p.flat[(path[0][1].clamp(0.0, HI as f32 - 1.0) as usize) * WI + path[0][0].clamp(0.0, WI as f32 - 1.0) as usize];
+    let picked = flat_under(&p.flat, path[0][0], path[0][1], width * 0.3, col);
     let mut walked = 0.0;
     for (i, w) in path.windows(2).enumerate() {
         let (a, b) = (w[0], w[1]);
@@ -881,9 +1086,9 @@ pub fn sweep(p: &mut Painting, tool: Tool, path: &[[f32; 2]], width: f32, col: [
 /// Cutting in: where a colour ends, the brush is drawn along the edge, just inside it.
 #[allow(clippy::too_many_arguments)]
 pub fn paint_contour(p: &mut Painting, pts: &[[f32; 2]], col: [f32; 3], alt: [f32; 3], width: f32, seed: u32, opacity: f32, body: f32) {
-    for (k, path) in hand_paths(pts, true, width, width * 0.42, seed).iter().enumerate() {
-        let id = seed ^ (k as u32).wrapping_mul(2971);
-        sweep(p, Tool::Flat, path, width, shifted(col, 0.95 + 0.10 * hf(id, 2), (hf(id, 3) - 0.5) * 0.8), alt, opacity * 0.88, 0.34, 0.85 * body, id, &|_| 1.0);
+    for (path, share, ident) in hand_paths(pts, true, width, width * 0.42, seed) {
+        let id = seed ^ ident;
+        sweep(p, Tool::Flat, &path, width, shifted(col, 0.95 + 0.10 * hf(id, 2), (hf(id, 3) - 0.5) * 0.8), alt, opacity * 0.88 * share, 0.34, 0.85 * body, id, &|_| 1.0);
     }
 }
 
@@ -903,8 +1108,9 @@ pub fn paint_line_with(p: &mut Painting, pts: &[[f32; 2]], closed: bool, col: [f
     } else {
         0.0
     };
-    for (k, path) in hand_paths(pts, closed, width, 0.0, seed).iter().enumerate() {
-        let id = seed ^ (k as u32).wrapping_mul(7717);
+    for (path, share, ident) in hand_paths(pts, closed, width, 0.0, seed) {
+        let id = seed ^ ident.rotate_left(7);
+        let path = &path;
         // the sweep may have been turned round to be pulled: which side is out depends on its direction
         let flip = if closed && path.len() > 2 {
             let (a, b) = (path[0], path[1]);
@@ -923,7 +1129,7 @@ pub fn paint_line_with(p: &mut Painting, pts: &[[f32; 2]], closed: bool, col: [f
             let out = [-t[1] * flip, t[0] * flip];
             lit + (1.0 - lit) * smooth(0.3, 0.6, (out[0] * 0.64 + out[1] * 0.77) * 0.5 + 0.5)
         };
-        sweep(p, Tool::Round, path, width, shifted(col, 0.95 + 0.2 * hf(id, 4), 0.2), shifted(col, 1.4, 0.6), opacity, 0.16 * load / 0.55, load, id, &weight);
+        sweep(p, Tool::Round, path, width, shifted(col, 0.95 + 0.2 * hf(id, 4), 0.2), shifted(col, 1.4, 0.6), opacity * share, 0.16 * load / 0.55, load, id, &weight);
     }
 }
 
@@ -2068,4 +2274,299 @@ pub fn brush_stroke(p: &mut Painting, pts: &[[f32; 2]], closed: bool, col: [f32;
         walked += l;
     }
     mask.composite_stroke(p, col);
+}
+
+#[cfg(test)]
+mod tests {
+    //! Steadiness regressions, kept in step with the studio's oil crate (music-to-movie-magic,
+    //! studio/crates/oil), which is upstream of this painter. Run with `cargo test -p painter --profile art`.
+    use super::*;
+
+    fn bare() -> Painting {
+        ZOOM.with(|z| z.set(1.0));
+        Painting::new()
+    }
+    fn band(z: f32, dy: f32) -> Vec<[f32; 2]> {
+        // the sky band of the frame that flickered (sky.b#1 at t = 19.125 s): very wide, its top edge on screen,
+        // seen through a camera zooming slowly about the frame's centre
+        let raw = [[-960.0, 194.0 + dy], [2840.0, 194.0 + dy], [2840.0, 1990.0], [-960.0, 1990.0]];
+        raw.iter().map(|q| [960.0 + (q[0] - 960.0) * z, 540.0 + (q[1] - 540.0) * z]).collect()
+    }
+    /// The largest change of any 24 x 24 block's mean colour between two paintings, within rows y0..y1. A stroke
+    /// that pops in or out moves a block by several percent; brushwork that only travels with its shape does not.
+    fn block_peak(a: &Painting, b: &Painting, y0: usize, y1: usize) -> f32 {
+        let mut peak = 0.0f32;
+        for by in (y0..y1 - 23).step_by(24) {
+            for bx in (0..WI - 23).step_by(24) {
+                let mut d = [0.0f32; 3];
+                for y in by..by + 24 {
+                    for x in bx..bx + 24 {
+                        for k in 0..3 {
+                            d[k] += a.col[y * WI + x][k] - b.col[y * WI + x][k];
+                        }
+                    }
+                }
+                peak = peak.max(d.iter().map(|v| (v / 576.0).abs()).fold(0.0, f32::max));
+            }
+        }
+        peak
+    }
+
+    #[test]
+    fn a_slow_zoom_moves_no_stroke_in_or_out_at_an_edge() {
+        // Frames 458 -> 459 of the film: the camera zoomed 1.0218 -> 1.0220 and one whole sky stroke (about 600 px
+        // long) appeared at the band's edge, because its slot centre crossed the rasterised mask's 0.5 line.
+        let (z0, z1) = (1.0218f32, 1.0220f32);
+        let col = [0.55, 0.35, 0.6];
+        let mut worst = 0.0f32;
+        // a few sub-pixel phases, so the test does not hinge on one lucky alignment
+        for (k, dy) in [0.0f32, 0.37, 0.71, 1.13].iter().enumerate() {
+            let paint = |z: f32| {
+                let mut p = bare();
+                ZOOM.with(|zz| zz.set(z));
+                paint_body(&mut p, &band(z, *dy), col, col, 0.97, 0x8504_0000 ^ k as u32, 1.25, 0.7, Tool::Flat);
+                p
+            };
+            let (a, b) = (paint(z0), paint(z1));
+            worst = worst.max(block_peak(&a, &b, 120, 420));
+        }
+        assert!(worst < 0.02, "a 0.02 % zoom changed a 24 px block of the band's edge by {:.1} %", worst * 100.0);
+    }
+
+    #[test]
+    fn stroke_slots_fade_in_and_out_at_an_edge_never_pop() {
+        // The root cause, at the level of the stroke plan: slide the band's top edge down 120 px in 0.05 px steps
+        // (the size of one frame's camera creep) and follow every stroke id. A stroke may only arrive, leave or
+        // change its weight a little per step. With the old hard mask test, a slot's weight went 0 -> 1 at once.
+        let width = 112.4f32;
+        let base = -1.1781f32;
+        // a stroke reaches under 4 brush widths from its slot: only those that can reach the canvas count
+        let core = |q: [f32; 2]| q[0] > -4.0 * width && q[1] > -4.0 * width && q[0] < WI as f32 + 4.0 * width && q[1] < HI as f32 + 4.0 * width;
+        let mut prev: std::collections::HashMap<u32, (f32, [f32; 2])> = Default::default();
+        let mut worst = (0.0f32, 0u32, 0.0f32);
+        for k in 0..2400 {
+            let dy = k as f32 * 0.05;
+            let pts = band(1.0, dy);
+            let c = [940.0, (194.0 + dy + 1990.0) / 2.0];
+            let lo = [-80.0f32, 194.0 + dy];
+            let hi = [WI as f32 + 80.0, HI as f32 + 80.0];
+            let now: std::collections::HashMap<u32, (f32, [f32; 2])> = plan_slots(&pts, c, lo, hi, width, base, 0x8504_0000).into_iter().map(|(q, id, e)| (id, (e, q))).collect();
+            if k > 0 {
+                for (id, (e, q)) in &now {
+                    let d = match prev.get(id) {
+                        Some((e0, _)) => (e - e0).abs(),
+                        None if core(*q) => *e,
+                        None => 0.0,
+                    };
+                    if d > worst.0 {
+                        worst = (d, *id, dy);
+                    }
+                }
+                for (id, (e, q)) in &prev {
+                    if !now.contains_key(id) && core(*q) && *e > worst.0 {
+                        worst = (*e, *id, dy);
+                    }
+                }
+            }
+            prev = now;
+        }
+        assert!(worst.0 < 0.02, "stroke {:08x} jumped by {:.2} of its weight at dy = {:.2}", worst.1, worst.0, worst.2);
+    }
+
+    #[test]
+    fn a_strokes_edge_direction_never_flips_between_two_equally_near_edges() {
+        // A narrow trunk whose two sides lean differently (frames 472 -> 473: one long bark stroke swung as the
+        // nearest side changed from left to right). Sliding the shape sideways must turn the direction smoothly.
+        let mut worst = 0.0f32;
+        let mut last: Option<f32> = None;
+        for k in 0..400 {
+            let dx = k as f32 * 0.05;
+            let pts = vec![[300.0 + dx, 100.0], [420.0 + dx, 100.0], [440.0 + dx, 1000.0], [290.0 + dx, 1000.0]];
+            let (_, a) = edge_dir(&pts, [365.0 + 10.0, 550.0], 110.0);
+            if let Some(b) = last {
+                let mut d = (a - b).abs() % std::f32::consts::PI;
+                d = d.min(std::f32::consts::PI - d);
+                worst = worst.max(d);
+            }
+            last = Some(a);
+        }
+        assert!(worst < 0.01, "the edge direction jumped {:.3} rad for a 0.05 px move", worst);
+    }
+
+    /// How strongly the picture has straight seams running at right angles to level brushwork. A seam is many
+    /// rows stepping in colour at the SAME column: for every run of `run` rows, each column's median horizontal step
+    /// is compared with the mean of its neighbours 4-16 px either side; the score is the largest excess, against
+    /// the region's mean step. Ragged, oblique stroke ends spread their steps over many columns and score low; a
+    /// stroke that starts or stops on a straight edge square to its direction makes one column stand out.
+    fn seam_score(p: &Painting, x0: usize, x1: usize, y0: usize, y1: usize, run: usize) -> f32 {
+        let l = |x: usize, y: usize| {
+            let c = p.col[y * WI + x];
+            0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+        };
+        let (w, h) = (x1 - x0, y1 - y0);
+        let g: Vec<f32> = (0..h).flat_map(|y| (0..w).map(move |x| (y, x))).map(|(y, x)| (l(x0 + x + 1, y0 + y) - l(x0 + x, y0 + y)).abs()).collect();
+        let mean = g.iter().sum::<f32>() / g.len() as f32;
+        let mut worst = 0.0f32;
+        for ys in (0..h - run).step_by(run / 3) {
+            // the median over the run: a seam steps in most of its rows, a speck or a glint in one or two
+            let col: Vec<f32> = (0..w)
+                .map(|x| {
+                    let mut v: Vec<f32> = (ys..ys + run).map(|y| g[y * w + x]).collect();
+                    v.sort_by(|a, b| a.total_cmp(b));
+                    v[run / 2]
+                })
+                .collect();
+            for x in 16..w - 16 {
+                let side = (4..=16).map(|d| col[x - d] + col[x + d]).sum::<f32>() / 26.0;
+                worst = worst.max(col[x] - side);
+            }
+        }
+        worst / mean.max(1e-6)
+    }
+
+    #[test]
+    fn level_strokes_end_raggedly_not_on_a_vertical_seam() {
+        // The owner's screenshot (the flight shot, t = 71.5 s): a night sky of level flat-brush strokes, cut all
+        // over by hard vertical edges where strokes started and stopped square to their direction. Lay level
+        // strokes on a flat ground and look, at each end, for one column where most rows step at once.
+        let mut worst = 0.0f32;
+        for k in 0..8u32 {
+            let mut p = bare();
+            for c in p.col.iter_mut().chain(p.flat.iter_mut()) {
+                *c = [0.10, 0.12, 0.30];
+            }
+            let (len, width) = (520.0f32, 110.0f32);
+            p.stroke(
+                &Stroke {
+                    c: [960.0, 540.0],
+                    angle: 0.0,
+                    len,
+                    width,
+                    bend: 0.0,
+                    col: [0.25, 0.35, 0.75],
+                    alt: [0.3, 0.4, 0.8],
+                    opacity: 0.97,
+                    pickup: 0.0,
+                    load: 1.0,
+                    part: Some((h32(0x5EA0 + k) >> 2, true, true)),
+                    span: (0.0, 1.0),
+                    tool: Tool::Flat,
+                    picked: None,
+                    along: 0.0,
+                },
+                None,
+            );
+            let (x0, x1) = (960 - (len / 2.0) as usize, 960 + (len / 2.0) as usize);
+            let (y0, y1) = (540 - 36, 540 + 36);
+            let start = seam_score(&p, x0 - 40, x0 + 140, y0, y1, 60);
+            let end = seam_score(&p, x1 - 280, x1 + 20, y0, y1, 60);
+            if std::env::var("SEAM_PNG").is_ok() {
+                eprintln!("stroke {k}: start {start:.2} end {end:.2}");
+            }
+            worst = worst.max(start).max(end);
+        }
+        assert!(worst < 6.0, "a stroke end makes a straight vertical seam ({:.1}x the mean step)", worst);
+    }
+
+    #[test]
+    fn an_outline_that_flexes_keeps_its_sweeps() {
+        // Frames 587 -> 588 -> 589: the owl's head outline went from 9 sweeps to 10 and back as it breathed, and
+        // since sweeps were seeded by their place in the list every later sweep was re-seeded. Flex an outline in
+        // tiny steps: every sweep keeps its identity, and its share may only change a little per step.
+        ZOOM.with(|z| z.set(1.0));
+        let shape = |sy: f32| -> Vec<[f32; 2]> {
+            (0..40)
+                .map(|i| {
+                    let a = i as f32 / 40.0 * std::f32::consts::TAU;
+                    [960.0 + 160.0 * a.cos() * (1.0 + 0.08 * (3.0 * a).sin()), 540.0 + 130.0 * sy * a.sin()]
+                })
+                .collect()
+        };
+        let mut prev: std::collections::HashMap<u32, f32> = Default::default();
+        let mut worst = (0.0f32, 0usize);
+        for k in 0..600 {
+            let sy = 1.0 + k as f32 * 0.0005;
+            let now: std::collections::HashMap<u32, f32> = hand_paths(&shape(sy), true, 9.0, 0.0, 0xC0FFEE).into_iter().map(|(_, w, id)| (id, w)).collect();
+            if k > 0 {
+                for (id, w) in &now {
+                    let d = (w - prev.get(id).copied().unwrap_or(0.0)).abs();
+                    if d > worst.0 {
+                        worst = (d, k);
+                    }
+                }
+                for (id, w) in &prev {
+                    if !now.contains_key(id) && *w > worst.0 {
+                        worst = (*w, k);
+                    }
+                }
+            }
+            prev = now;
+        }
+        assert!(worst.0 < 0.1, "a sweep's share jumped by {:.2} at step {}", worst.0, worst.1);
+    }
+
+    #[test]
+    fn same_shape_same_place_paints_identically() {
+        let pts: Vec<[f32; 2]> = (0..24)
+            .map(|i| {
+                let a = i as f32 / 24.0 * std::f32::consts::TAU;
+                [900.0 + 210.0 * a.cos(), 520.0 + 150.0 * a.sin()]
+            })
+            .collect();
+        let paint = || {
+            let mut p = bare();
+            paint_form(&mut p, &pts, [0.8, 0.45, 0.2], [0.9, 0.7, 0.4], 0.97, 0xBEEF, 0.8, 1.15, Tool::Filbert, 1.0);
+            p
+        };
+        let (a, b) = (paint(), paint());
+        assert!(a.col == b.col && a.thick == b.thick, "painting the same frame twice must give the same picture");
+    }
+
+    #[test]
+    fn a_shape_that_swells_a_little_keeps_its_brushwork() {
+        // The brush used to snap to steps of 1.22x and the stroke direction to steps of 7.5 degrees: a shape
+        // crossing a step boundary re-planned every stroke at once. Swelling by 0.5 % must change little.
+        let shape = |s: f32, turn: f32| -> Vec<[f32; 2]> {
+            (0..20)
+                .map(|i| {
+                    let a = i as f32 / 20.0 * std::f32::consts::TAU;
+                    let (x, y) = (60.0 * s * a.cos(), 25.0 * s * a.sin());
+                    let (sn, cs) = turn.sin_cos();
+                    [960.0 + x * cs - y * sn, 540.0 + x * sn + y * cs]
+                })
+                .collect()
+        };
+        let mut worst = 0.0f32;
+        for k in 0..12 {
+            // sweep sizes and turns across where the old steps sat
+            let (s, turn) = (0.9 + k as f32 * 0.07, -1.2 + k as f32 * 0.21);
+            let paint = |s: f32, turn: f32| {
+                let mut p = bare();
+                paint_form(&mut p, &shape(s, turn), [0.8, 0.45, 0.2], [0.9, 0.7, 0.4], 0.97, 0xFACE, 0.8, 1.15, Tool::Filbert, 0.0);
+                p
+            };
+            worst = worst.max(block_peak(&paint(s, turn), &paint(s * 1.005, turn + 0.002), 420, 660));
+        }
+        assert!(worst < 0.06, "0.5 % of swelling changed a block by {:.1} %", worst * 100.0);
+    }
+
+    #[test]
+    fn a_shape_reaching_far_off_canvas_is_still_painted_where_it_shows() {
+        // An iris wedge / whip streak: its centroid is thousands of pixels off screen, its visible part is not.
+        let pts = vec![[300.0, 200.0], [700.0, 260.0], [4300.0, 2000.0], [-3000.0, 3800.0]];
+        let mut p = bare();
+        let col = [0.1, 0.08, 0.2];
+        paint_body(&mut p, &pts, col, col, 0.97, 0x1215, 1.25, 0.7, Tool::Flat);
+        let (mut inside, mut dark) = (0, 0);
+        for y in (300..1080).step_by(7) {
+            for x in (200..900).step_by(7) {
+                if in_poly(&pts, [x as f32, y as f32]) && signed_depth(&pts, [x as f32, y as f32], 60.0) >= 60.0 {
+                    inside += 1;
+                    let c = p.col[y * WI + x];
+                    dark += (c[0] + c[1] + c[2] < 0.9) as u32;
+                }
+            }
+        }
+        assert!(inside > 100 && dark as f32 > 0.9 * inside as f32, "only {dark} of {inside} samples inside the visible part were painted");
+    }
 }
