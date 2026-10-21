@@ -36,6 +36,9 @@ const BLOTCH: Color = Color::srgb(0.18, 0.15, 0.12);
 const MORAY_EYE: Color = Color::srgb(0.95, 0.85, 0.3);
 const ROCK: Color = Color::srgb(0.07, 0.06, 0.05);
 const AIM: Color = Color::srgb(1.0, 0.6, 0.5);
+/// The middle of the moray's head and neck above the floor: half its body
+/// box (`Tuning::moray.body`, 24 deep).
+const MORAY_MID: f32 = 12.0;
 
 pub struct CrittersPlugin;
 
@@ -58,7 +61,8 @@ struct Critter {
     time: f32,
     /// Seconds since its blow came out.
     since_strike: f32,
-    /// The moray's head, out from its crevice (smoothed, units).
+    /// The moray's head drawn back from the simulation's reach (smoothed;
+    /// hidden or in the tell).
     reach: f32,
 }
 
@@ -193,21 +197,23 @@ fn spawn_critters(
                 });
             }
             _ => {
-                // The crevice it lives in: a dark opening behind its head.
+                // The crevice it lives in: a dark opening behind its head,
+                // a little deeper than the moray.
+                let (len, deep) = e.kind.tuning(&sim.tuning).body;
                 commands.spawn((
-                    Sprite::from_color(ROCK, Vec2::new(46.0, 44.0)),
-                    Transform::from_xyz(e.home.x - e.facing * 18.0, e.home.y + 22.0, 8.5),
+                    Sprite::from_color(ROCK, Vec2::new(40.0, deep + 10.0)),
+                    Transform::from_xyz(
+                        e.home.x - e.facing * (len / 2.0 + 16.0),
+                        e.home.y + (deep + 10.0) / 2.0,
+                        8.5,
+                    ),
                 ));
                 commands.entity(root).with_children(|c| {
                     for n in 0..6u8 {
                         c.spawn((
                             Part::Neck(n),
-                            lit_sprite(
-                                MORAY,
-                                Vec2::new(18.0, 20.0 - n as f32),
-                                Some(soft.disc.clone()),
-                            ),
-                            Transform::from_xyz(0.0, 18.0, 0.1 - n as f32 * 0.01),
+                            lit_sprite(MORAY, Vec2::new(26.0, deep - 2.0), Some(soft.disc.clone())),
+                            Transform::from_xyz(0.0, MORAY_MID, 0.1 - n as f32 * 0.01),
                         ))
                         .with_children(|s| {
                             s.spawn((
@@ -217,35 +223,37 @@ fn spawn_critters(
                             ));
                         });
                     }
-                    c.spawn((Part::Head, Transform::from_xyz(0.0, 18.0, 0.2)))
+                    // The head fills the body box the simulation hits
+                    // (`len` x `deep`), its middle at the root.
+                    c.spawn((Part::Head, Transform::from_xyz(0.0, MORAY_MID, 0.2)))
                         .with_children(|h| {
                             h.spawn((
-                                lit_sprite(MORAY, Vec2::new(30.0, 18.0), Some(soft.disc.clone())),
+                                lit_sprite(MORAY, Vec2::new(len, deep), Some(soft.disc.clone())),
                                 Transform::default(),
                             ));
                             h.spawn((
-                                lit_sprite(BLOTCH, Vec2::new(7.0, 3.0), None),
-                                Transform::from_xyz(-6.0, 5.0, 0.01),
+                                lit_sprite(BLOTCH, Vec2::new(9.0, 4.0), None),
+                                Transform::from_xyz(-9.0, 6.0, 0.01),
                             ));
                             h.spawn((
-                                lit_sprite(MORAY_EYE, Vec2::splat(4.0), Some(soft.disc.clone())),
-                                Transform::from_xyz(6.0, 4.0, 0.02),
+                                lit_sprite(MORAY_EYE, Vec2::splat(4.5), Some(soft.disc.clone())),
+                                Transform::from_xyz(10.0, 5.0, 0.02),
                             ));
                             // The lower jaw, hinged behind the eye: it gapes.
-                            h.spawn((Part::Jaw, Transform::from_xyz(-2.0, -3.0, 0.03)))
+                            h.spawn((Part::Jaw, Transform::from_xyz(-2.0, -4.0, 0.03)))
                                 .with_children(|j| {
                                     j.spawn((
-                                        lit_sprite(MORAY, Vec2::new(16.0, 5.0), None),
-                                        Transform::from_xyz(8.0, -1.0, 0.0),
+                                        lit_sprite(MORAY, Vec2::new(len / 2.0, 6.0), None),
+                                        Transform::from_xyz(len / 4.0 + 2.0, -1.0, 0.0),
                                     ));
                                 });
                         });
                     c.spawn((
                         Part::Aim,
                         Sprite::from_color(AIM.with_alpha(0.0), Vec2::new(1.0, 2.0)),
-                        Transform::from_xyz(0.0, 18.0, 0.05),
+                        Transform::from_xyz(0.0, MORAY_MID, 0.05),
                     ));
-                    bar(c, 52.0);
+                    bar(c, deep + 16.0);
                 });
             }
         }
@@ -307,33 +315,17 @@ fn pose_critters(
         let health = e.vitals.health / k.vitals.health;
         let show_bar = !hidden && (health < 1.0 || e.target.is_some());
 
-        // The moray's head: how far out of its crevice (local x), and the S
-        // of its neck.
-        let (reach, coil) = match e.state {
-            State::Tell => (6.0, (tick / 20.0).min(1.0)),
-            // Holding on: the head is at the crab it holds.
-            State::Grab => {
-                let held = sim
-                    .crabs()
-                    .iter()
-                    .find(|c| c.fighter.grabbed.is_some_and(|g| g.by == e.id));
-                let x = held.map_or(c.reach, |h| (h.mover.pos.x - e.home.x).abs() - 26.0);
-                (x, 0.0)
-            }
-            State::Attack => {
-                let (centre, _) = e.strike_circle(t);
-                ((centre.x - e.home.x).abs(), 0.0)
-            }
-            State::Recover => (c.reach, 0.0),
-            _ if hidden => (4.0, 0.0),
-            _ => (18.0, 0.0),
+        // The moray's head: how far out past its crevice box (local x; the
+        // simulation's own reach, so the head shown is the head hit), and
+        // the S of its neck. Hidden, it is back in the rock; in the tell it
+        // pulls back a touch.
+        let (back, coil) = match e.state {
+            State::Tell => (-6.0, (tick / 20.0).min(1.0)),
+            _ if hidden => (-30.0, 0.0),
+            _ => (0.0, 0.0),
         };
-        let rate = if matches!(e.state, State::Attack) {
-            60.0
-        } else {
-            6.0
-        };
-        c.reach += (reach - c.reach) * (1.0 - (-rate * dt).exp());
+        c.reach += (back - c.reach) * (1.0 - (-6.0 * dt).exp());
+        let reach = e.reach + c.reach;
         let gape = match e.state {
             State::Tell => 0.0,
             State::Attack | State::Grab => 0.5,
@@ -371,15 +363,16 @@ fn pose_critters(
                     s.color = AIM.with_alpha(a + (want - a) * (1.0 - (-18.0 * dt).exp()));
                 }
                 Part::Head => {
-                    tr.translation.x = c.reach;
-                    tr.translation.y = 18.0 + 3.0 * (c.time * 2.0).sin() * (1.0 - coil);
+                    tr.translation.x = reach;
+                    tr.translation.y = MORAY_MID + 2.0 * (c.time * 2.0).sin() * (1.0 - coil);
                     tr.rotation = Quat::from_rotation_z(-0.3 * coil);
                 }
                 Part::Neck(n) => {
                     let f = (*n as f32 + 1.0) / 7.0;
                     // Back from the head into the crevice; an S while coiled.
-                    tr.translation.x = c.reach * (1.0 - f) - 10.0 * f;
-                    tr.translation.y = 18.0 + coil * 12.0 * (f * std::f32::consts::TAU).sin();
+                    let crevice = -k.body.0 / 2.0 - 12.0;
+                    tr.translation.x = reach * (1.0 - f) + crevice * f;
+                    tr.translation.y = MORAY_MID + coil * 10.0 * (f * std::f32::consts::TAU).sin();
                 }
                 Part::Jaw => tr.rotation = Quat::from_rotation_z(-gape),
                 Part::Dactyl => {

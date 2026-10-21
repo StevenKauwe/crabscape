@@ -199,3 +199,45 @@ fn a_block_takes_a_little_and_is_never_a_grab_and_a_parry_staggers_it() {
     );
     let _ = parry.sim;
 }
+
+#[test]
+fn a_morays_head_out_of_its_crevice_is_what_a_claw_hits() {
+    let b = bite_tick();
+    let r = moray("", b as u64 + 1);
+    let (e, c) = (&r.sim.enemies()[0], &r.sim.crabs()[0]);
+    let t = &r.sim.tuning;
+    let crevice = e.kind.tuning(t).body.0;
+    let body = e.hurtbox(t);
+    // Holding on: its box runs out of the crevice to the crab it holds.
+    assert!(e.reach > 0.0 && body.width() > crevice, "{body:?}");
+    let gap = body.min.x - (c.mover.pos.x + t.body_half_width);
+    assert!(gap < 2.0 * e.kind.tuning(t).strike.radius, "gap {gap}");
+    // Then the head draws back in.
+    let later = moray("@0 block", b as u64 + 300);
+    let e = &later.sim.enemies()[0];
+    assert_eq!(e.reach, 0.0);
+    assert_eq!(e.hurtbox(t).width(), crevice);
+}
+
+/// Real sizes (cm) at crab scale (1 cm = 6.25 units; `docs/design/creatures/README.md`).
+#[test]
+fn every_body_is_its_real_size_at_crab_scale() {
+    let t = crabsim::Tuning::default();
+    let cm = |u: f32| u / 6.25;
+    // Crab: a 12 cm carapace, a blue crab just grown up (females mature at
+    // 11.3-13.0 cm, up to 23 cm).
+    let crab = cm(2.0 * t.body_half_width);
+    assert!((11.0..=13.0).contains(&crab), "crab {crab}");
+    // Big-clawed snapping shrimp: up to 5.5 cm long.
+    let snapper = cm(t.snapper.body.0);
+    assert!((3.0..=5.5).contains(&snapper), "snapper {snapper}");
+    // Peacock mantis shrimp: 3-18 cm long.
+    let mantis = cm(t.mantis.body.0);
+    assert!((3.0..=18.0).contains(&mantis), "mantis {mantis}");
+    // Snowflake moray, 60 cm: deep at the gill opening a 14th to a 23rd of that.
+    let depth = cm(t.moray.body.1);
+    assert!(
+        (60.0 / 23.0..=60.0 / 14.0).contains(&depth),
+        "moray {depth}"
+    );
+}

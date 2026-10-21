@@ -745,7 +745,10 @@ impl Tuning {
                     poise_delay_ticks: 60,
                     stagger_ticks: 60,
                 },
-                body: (44.0, 38.0), // the head out of the crevice (the rock shields the rest)
+                // The head out of the crevice (the rock shields the rest) of
+                // a 60 cm adult: 7 cm long (not verified), 3.8 cm deep (real:
+                // depth at the gill opening is a 14th to a 23rd of its length).
+                body: (44.0, 24.0),
                 head: 0.0,
                 head_recover: 1.5, // the neck stretched out after a lunge
                 tail: 0.0,
@@ -774,8 +777,8 @@ impl Tuning {
                     damage: 15.0,
                     poise: 40.0,
                     ahead: 4.0,
-                    height: 18.0,
-                    radius: 22.0,
+                    height: 12.0, // the middle of its head
+                    radius: 12.0, // its gape, about the head's depth (tuned)
                     knockback: (0.0, 0.0),
                     hitstop_ticks: 10,
                     parryable: true,
@@ -784,7 +787,7 @@ impl Tuning {
                     armour_break_ticks: 0,
                     follow_up: None,
                     floor_len: 0.0,
-                    lunge: 130.0, // the head shoots out about two crab widths
+                    lunge: 130.0, // 21 cm: about a third of its length (tuned)
                     grab: Some(GrabTuning {
                         ticks: 150,
                         struggle: 8,

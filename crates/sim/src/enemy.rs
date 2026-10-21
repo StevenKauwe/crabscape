@@ -141,6 +141,10 @@ pub struct Enemy {
     pub cracks: u32,
     /// Ticks of a crab's smell built up (for kinds that hunt by smell).
     pub scent: u32,
+    /// How far its head is out past its body box (a lunge from a crevice):
+    /// the body box grows to it, so the head and neck that show are what a
+    /// claw hits.
+    pub reach: f32,
 }
 
 impl Enemy {
@@ -166,6 +170,7 @@ impl Enemy {
             held: false,
             cracks: 0,
             scent: 0,
+            reach: 0.0,
         }
     }
 
@@ -196,15 +201,15 @@ impl Enemy {
         self.state != State::Gone && !self.hidden(t)
     }
 
-    /// Its body box.
+    /// Its body box, out to the head when it has lunged (`reach`).
     pub fn hurtbox(&self, t: &Tuning) -> Rect {
         let (w, h) = self.kind.tuning(t).body;
-        Rect::new(
-            self.pos.x - w / 2.0,
-            self.pos.y,
-            self.pos.x + w / 2.0,
-            self.pos.y + h,
-        )
+        let (back, front) = (-w / 2.0, w / 2.0 + self.reach);
+        let (a, b) = (
+            self.pos.x + self.facing * back,
+            self.pos.x + self.facing * front,
+        );
+        Rect::new(a.min(b), self.pos.y, a.max(b), self.pos.y + h)
     }
 
     /// The front of its head.
@@ -350,6 +355,16 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
         }
     }
     e.state_tick += 1;
+
+    // The head: out with the lunge, held out while it holds on, recovers or
+    // reels, then drawn back in.
+    e.reach = match e.state {
+        State::Attack if k.active_ticks > 0 => {
+            k.strike.lunge * (e.state_tick as f32 / k.active_ticks as f32).min(1.0)
+        }
+        State::Grab | State::Recover | State::Stagger => e.reach,
+        _ => (e.reach - k.strike.lunge / HEAD_BACK_TICKS).max(0.0),
+    };
 
     // Follow-up hits (the bubble) pop when their time comes.
     let mut due = Vec::new();
@@ -506,6 +521,9 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
         }
     }
 }
+
+/// Ticks a lunged head takes to draw back into its crevice.
+const HEAD_BACK_TICKS: f32 = 24.0;
 
 /// Ticks unhit, at home with nobody near, before an enemy mends (2 s).
 const MEND_AFTER: u32 = 240;

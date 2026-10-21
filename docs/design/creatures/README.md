@@ -12,6 +12,17 @@ of them on `art/creatures/bestiary-contact-sheet.png`. World and food web: `../u
 | [Common octopus](common-octopus.md) | Boss | Rocky shallows, its den | Rises and spreads its web |
 | [Alarm jelly](alarm-jelly.md) | Hazard | Midnight zone | None: a red shape on black and a drifting tentacle |
 
+## Sizes at crab scale (drawn and hit the same; `tests/creatures.rs` checks them)
+| Animal | Real adult | Game | × crab shell |
+|---|---|---|---|
+| Our crab (blue-crab-like swimming crab) | Females mature at 112.5–129.5 mm carapace width [HART21]; up to 23 cm [CBP] | 12 cm wide: hurtbox 72 × 48 | 1 |
+| Snapping shrimp (*A. heterochaelis*) | Up to 5.5 cm long ([HS98], `snapping-shrimp.md`) | 5.4 cm: 34 × 12 | 0.45 long |
+| Peacock mantis (*O. scyllarus*) | 3–18 cm long ([ADW], `mantis-shrimp.md`) | 15 cm: 94 × 22 | 1.25 long |
+| Snowflake moray (*E. nebulosa*) | Common 50 cm, max 100 cm; depth 1/14–1/23 of length ([FB-EN], `snowflake-moray.md`) | 60 cm long, 3.8 cm deep; head 44 × 24 out of its crevice | 5 long, 0.3 deep |
+
+- [HART21] Hart, Crowley & Walters (2021), "Blue crab spawning and recruitment in two Gulf Coast and two Atlantic estuaries in Florida", *Marine and Coastal Fisheries* 13(2):113–130. <https://academic.oup.com/mcf/article/13/2/113/7819956>
+- [CBP] Chesapeake Bay Program, field guide: blue crab. <https://www.chesapeakebay.net/discover/field-guide/entry/blue-crab>
+
 ## Shared combat model (to build in `crates/sim`; every number tuned, lives in `Tuning`)
 Times are ticks at 120 Hz. Sizes in world units (1 cm = 6.25). "Real" = measured in a source; "tuned" = chosen for play.
 

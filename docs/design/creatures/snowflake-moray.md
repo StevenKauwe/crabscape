@@ -3,7 +3,9 @@
 Concept sheet: `art/creatures/snowflake-moray/snowflake-moray.png`. Shared rules: `README.md`.
 
 ## Biology that matters
-- **Size:** up to 100 cm [FB-EN]. Game adult: 70 cm (438 units), head ~6 cm tall (38 units): six crabs long.
+- **Size:** up to 100 cm, commonly 50 cm [FB-EN]; 75 cm in the Andaman Sea survey [KAH]. Body depth at the gill
+  opening is 1/14–1/23 of its length [FB-EN-M]. Game adult: 60 cm (375 units), five crab shells long but only 3.8 cm
+  deep (24 units): a long, thin giant. Head 7 cm long (44 units; not verified).
 - **Where:** among rocks and corals on intertidal reef flats, shallow lagoons and seaward reefs, 0–48 m, usually
   above 10 m [FB-EN]. Shallows and reef crevices.
 - **Diet:** mainly crustaceans [FB-EN]; snowflake morays usually eat hard-shelled prey such as crabs and have been
@@ -40,8 +42,8 @@ Concept sheet: `art/creatures/snowflake-moray/snowflake-moray.png`. Shared rules
 | Stagger (parried) | 60 | Snout hit ×2 during it |
 | Flee | — | Below 30%: back deep in the crevice for 10 s |
 
-- **Boxes:** head hurtbox 40 × 38; neck hurtbox a chain of 3 circles r 22 back to the crevice; bite hitbox circle r 22
-  at the snout during the active ticks. The rock shields the rest.
+- **Boxes:** head hurtbox 44 × 24; once lunged it stretches out to the head (head and neck are hit); bite hitbox
+  circle r 12 (about its gape; tuned) at the snout, 12 up, during the active ticks. The rock shields the rest.
 - **Numbers:** health 90, poise 70. Lunge 18 damage, 40 poise (block: ×0.2, no grab).
 - **Drops:** food; the crevice it guarded opens as a shortcut or stash spot.
 - **Scenario tests:** a parry in the window takes no damage and staggers it; a block takes ~4 and is never a grab; an
@@ -49,9 +51,10 @@ Concept sheet: `art/creatures/snowflake-moray/snowflake-moray.png`. Shared rules
   walk speed 8%; a lantern-off crab is noticed as fast as a lit one; a crab outside 260 units is never noticed.
 - **In the sim:** `Kind::Moray` (`crates/sim/src/enemy.rs`, numbers in `tuning.rs`, tests in `tests/creatures.rs`):
   waits in its crevice, smells a crab after 120 ticks within 260 (light makes no difference), a 60-tick tell, an
-  8-tick lunge whose bite circle travels 130 out from the head, an unblocked bite grabs (15, then 4 every 30, up to
+  8-tick lunge whose bite circle travels 130 (21 cm, a third of its length; tuned) out from the head, its body box
+  following the head out and back in over 24 ticks, an unblocked bite grabs (15, then 4 every 30, up to
   150 ticks; each dodge press takes 8 off), recover 50, parried 60, flees below 30% (once, 3 s). Not yet: night
-  roaming, autotomy, the neck-chain hurtbox, the timeout damage.
+  roaming, autotomy, the timeout damage.
 
 ## Rig notes
 Parts: head (upper jaw + lower jaw, pivot at the jaw hinge behind the eye), eye, 2 tubular nostrils, gill-opening spot,
@@ -64,6 +67,8 @@ Key poses: **idle** (slow gape cycle ~1 s, nostrils twitch, head sways); **tell*
 
 ## Sources
 - [FB-EN] FishBase, *Echidna nebulosa*. <https://www.fishbase.se/summary/Echidna-nebulosa.html>
+- [FB-EN-M] FishBase, morphology summary, *Echidna nebulosa*. <https://www.fishbase.se/physiology/Echidna_nebulosa>
+- [KAH] National Museum of Nature and Science (Tokyo), Fishes of the Andaman Sea, *Echidna nebulosa*. <https://www.kahaku.go.jp/research/db/zoology/Fishes_of_Andaman_Sea/contents/muraenidae/01.html>
 - [EUR] EurekAlert (UC Santa Cruz), snowflake morays swallow on land with their throat jaws. <https://www.eurekalert.org/news-releases/606098>
 - [MW07] Mehta & Wainwright (2007), "Raptorial jaws in the throat help moray eels swallow large prey", *Nature* 449:79–82 (read via search summary and [EUR]; not opened).
 - [BSH06] Bshary et al. (2006), *PLOS Biology* 4(12):e431. <https://journals.plos.org/plosbiology/article?id=10.1371/journal.pbio.0040431>
