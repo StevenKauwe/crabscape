@@ -92,6 +92,7 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Jab (cutter) | Q, O | X | JAB |
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
+| Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
 | Art style | P | | "Style" |
 | Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |
 

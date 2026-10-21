@@ -139,6 +139,14 @@ fn button_rects(size: Vec2) -> [(TouchAction, Rect); 7] {
     ]
 }
 
+/// Is this point (logical pixels from the top-left) on an on-screen button?
+/// (A finger there isn't pinching the view.)
+pub fn on_a_button(size: Vec2, p: Vec2) -> bool {
+    button_rects(size)
+        .iter()
+        .any(|(_, r)| r.inflate(10.0).contains(p))
+}
+
 /// Which on-screen buttons are under any finger (or the mouse) right now.
 fn touched_buttons(
     size: Vec2,

@@ -15,6 +15,7 @@ use crabsim::{Mover, Sim};
 use crate::effects::SoftTextures;
 use crate::lantern::{LightSource, light_reach};
 use crate::level::ROCK;
+use crate::memory::{Known, Remembered};
 use crate::notes::say;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 use crate::tuning::ViewTuning;
@@ -76,6 +77,7 @@ fn spawn_veils(
                 ..default()
             })),
             Transform::from_translation(hidden.center().extend(VEIL_Z)),
+            Remembered(hidden.center()),
         ));
     }
 }
@@ -209,12 +211,33 @@ fn spawn_nets(
     }
 }
 
-/// A net that's been cut is gone.
-fn cut_nets(sim: Res<Sim>, mut strands: Query<(&Strand, &mut Visibility)>) {
+/// A net that's been cut is gone, as far as the crab knows: out of sight a
+/// net shows as it was last seen (or not at all if never seen).
+fn cut_nets(
+    sim: Res<Sim>,
+    known: Res<Known>,
+    crab: Query<&PlayerId, With<LocalPlayer>>,
+    mut strands: Query<(&Strand, &mut Visibility)>,
+) {
+    let memory = crab
+        .single()
+        .ok()
+        .and_then(|id| sim.crab(*id))
+        .map(|c| &c.memory);
     for (strand, mut shown) in &mut strands {
-        if sim.level.nets.get(strand.0).is_some_and(|n| n.cut) {
-            *shown = Visibility::Hidden;
-        }
+        let Some(net) = sim.level.nets.get(strand.0) else {
+            continue;
+        };
+        let cut = if known.perceives(net.rect.center()) {
+            Some(net.cut)
+        } else {
+            memory.map_or(Some(net.cut), |m| m.nets.get(strand.0).copied().flatten())
+        };
+        shown.set_if_neq(if cut == Some(false) {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
     }
 }
 

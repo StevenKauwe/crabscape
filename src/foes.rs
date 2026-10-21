@@ -17,6 +17,7 @@ use crabsim::{Kind, Sim};
 use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
 use crate::lantern::{LightBlend, Lit};
+use crate::memory::{Known, Remembered};
 use crate::player::GameSet;
 
 /// In front of the level and the shell-home, behind the crab (10).
@@ -122,6 +123,7 @@ fn spawn_mantis(commands: &mut Commands, e: &Enemy, soft: &SoftTextures) {
     commands.spawn((
         Sprite::from_color(Color::srgb(0.05, 0.04, 0.03), Vec2::new(44.0, 5.0)),
         Transform::from_xyz(e.home.x, e.home.y + 1.0, 0.2),
+        Remembered(e.home),
     ));
     let dot = soft.dot.clone();
     commands
@@ -291,6 +293,7 @@ const CLUB_DROOP: Vec2 = Vec2::new(98.0, -6.0);
 fn pose_foes(
     time: Res<Time>,
     sim: Res<Sim>,
+    known: Res<Known>,
     lab: Res<FeelLab>,
     mut foes: Query<(
         &mut Foe,
@@ -321,7 +324,9 @@ fn pose_foes(
         let k = e.kind.tuning(t);
         let phase = e.phase(t);
         let hidden = e.hidden(t);
-        shown.set_if_neq(if e.state == State::Gone {
+        // Out of the crab's sight it isn't shown (its last sighting is, see
+        // `memory.rs`).
+        shown.set_if_neq(if e.state == State::Gone || !known.perceives(e.pos) {
             Visibility::Hidden
         } else {
             Visibility::Inherited

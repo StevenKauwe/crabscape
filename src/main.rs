@@ -59,6 +59,7 @@ mod impact;
 mod input;
 mod lantern;
 mod level;
+mod memory;
 mod notes;
 mod player;
 mod puppet;
@@ -105,6 +106,7 @@ fn main() {
         // at most 15 plugins in one group.)
         .add_plugins((
             replay::ReplayPlugin,
+            memory::MemoryPlugin,
             level::LevelPlugin,
             player::PlayerPlugin,
             input::InputPlugin,

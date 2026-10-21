@@ -21,8 +21,8 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::player::{GameSet, LocalPlayer};
-use crabsim::Mover;
+use crate::player::{GameSet, LocalPlayer, PlayerId};
+use crabsim::{MemorySave, Mover, Sim};
 
 /// Bump this if the format ever changes, so old saves can be recognised.
 /// (Version 1 had no position.)
@@ -38,7 +38,14 @@ pub struct SaveData {
     /// Where the crab's feet are, in world units.
     pub x: f32,
     pub y: f32,
+    /// What the crab has seen and remembers (`crabsim::memory`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<MemorySave>,
 }
+
+/// Save the memory at least this often (memory steps, 0.1 s each) while
+/// the crab rests, even if it hasn't moved.
+const MEMORY_EVERY: u32 = 100;
 
 pub struct SavePlugin;
 
@@ -48,11 +55,11 @@ impl Plugin for SavePlugin {
     }
 }
 
-/// Load the saved position, if there is a readable save.
-pub fn load() -> Option<Vec2> {
+/// Load the saved position and memory, if there is a readable save.
+pub fn load() -> Option<(Vec2, Option<MemorySave>)> {
     let text = backend::read()?;
     match serde_json::from_str::<SaveData>(&text) {
-        Ok(data) if data.version == SAVE_VERSION => Some(Vec2::new(data.x, data.y)),
+        Ok(data) if data.version == SAVE_VERSION => Some((Vec2::new(data.x, data.y), data.memory)),
         Ok(data) => {
             info!("ignoring a save from an older version ({})", data.version);
             None
@@ -67,26 +74,35 @@ pub fn load() -> Option<Vec2> {
 
 /// Save the local crab's position when it is standing still on something,
 /// and has moved since the last save.
+#[allow(clippy::too_many_arguments)]
 fn save_when_resting(
     time: Res<Time>,
-    crab: Single<&Mover, With<LocalPlayer>>,
+    sim: Res<Sim>,
+    crab: Single<(&Mover, &PlayerId), With<LocalPlayer>>,
     mut since_last: Local<f32>,
     mut last_saved: Local<Option<Vec2>>,
+    mut memory_saved: Local<u32>,
     mut warned: Local<bool>, // `Local` is private memory for this one system
 ) {
+    let (crab, id) = *crab;
     *since_last += time.delta_secs();
+    let memory = sim.crab(*id).map(|c| &c.memory);
+    let now = memory.map_or(0, |m| m.now);
     let resting = crab.grounded && crab.vel.length() < 1.0;
     let moved = last_saved.is_none_or(|p| p.distance(crab.pos) > 1.0);
-    if !resting || !moved || *since_last < SAVE_EVERY {
+    let saw = now.saturating_sub(*memory_saved) >= MEMORY_EVERY;
+    if !resting || !(moved || saw) || *since_last < SAVE_EVERY {
         return;
     }
     *since_last = 0.0;
     *last_saved = Some(crab.pos);
+    *memory_saved = now;
     let data = SaveData {
         version: SAVE_VERSION,
         // Whole units are plenty, and keep the save easy to read.
         x: crab.pos.x.round(),
         y: crab.pos.y.round(),
+        memory: memory.map(|m| m.to_save()),
     };
     let text = serde_json::to_string(&data).expect("save data always serialises");
     if let Err(e) = backend::write(&text)
@@ -270,6 +286,7 @@ mod tests {
             version: SAVE_VERSION,
             x: 640.0,
             y: 110.0,
+            memory: None,
         };
         let text = serde_json::to_string(&data).unwrap();
         assert_eq!(text, r#"{"version":2,"x":640.0,"y":110.0}"#);

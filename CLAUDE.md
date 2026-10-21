@@ -10,6 +10,7 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - Style and art direction: `docs/design/art-direction.md` (crab anatomy: `art/crab/anatomy-notes.md`)
 - Tone, pillars, loop: `docs/design/vision.md`
 - Ocean-shaped rules (biology, no air, real mechanisms only): `docs/design/ocean-shaped.md`
+- Zooming out shows the crab's memory, not the world: `docs/design/crab-memory.md`
 - How it plays (movement, combat, controls): `docs/design/how-it-plays.md`
 - World, zones, economy: `docs/design/world.md` (ecology by depth, food web, creature rules: `docs/design/universe.md`)
 - Enemies (biology, combat spec, rig notes): `docs/design/creatures/` (concept sheets: `art/creatures/`)

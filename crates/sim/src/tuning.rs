@@ -266,6 +266,8 @@ pub struct Tuning {
     /// coils into an S and lunges, and holds on (`creatures/snowflake-moray.md`,
     /// #71).
     pub moray: EnemyTuning,
+    /// What a crab sees and remembers (`crate::memory`).
+    pub memory: MemoryTuning,
 }
 
 /// One kind of enemy: its body, senses, state timings and attack. Times in
@@ -323,6 +325,29 @@ pub struct EnemyTuning {
     /// never).
     pub respawn_ticks: u32,
     pub strike: StrikeTuning,
+}
+
+/// What a crab perceives and how it remembers (`crate::memory`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemoryTuning {
+    /// Memory grid cell size (units).
+    pub cell: f32,
+    /// Memory steps this often (ticks).
+    pub step_ticks: u32,
+    /// Sight: half-width of the ellipse it perceives (units)...
+    pub sight: f32,
+    /// ...its half-height as a share of that...
+    pub sight_tall: f32,
+    /// ...and how much wider per culture in the lantern.
+    pub sight_per_culture: f32,
+    /// Out of sight this many steps, a place seen again is one more visit.
+    pub visit_gap_steps: u32,
+    /// How well a place is known after 1, 2 and 3+ visits (0..1).
+    pub learned: [f32; 3],
+    /// The share of that kept however long ago it was seen.
+    pub kept: f32,
+    /// The rest halves over this many steps, times the visits.
+    pub half_life_steps: u32,
 }
 
 /// An enemy's blow: a circle ahead of its head.
@@ -795,6 +820,25 @@ impl Tuning {
                         damage: 4.0,
                     }),
                 },
+            },
+            memory: MemoryTuning {
+                cell: 32.0, // 5 cm
+                step_ticks: 12,
+                // The usual view's corners on a wide screen (58 cm): what's
+                // on screen at the usual zoom is what the crab perceives
+                // (tuned; its lantern lights only 18 cm, beyond that dim
+                // shapes and movement).
+                sight: 360.0,
+                sight_tall: 1.0,
+                sight_per_culture: 40.0,
+                visit_gap_steps: 300, // away 30 s, back again: one more visit
+                // Shore crabs ran a maze without error by the third run (real);
+                // a place is learned the same way.
+                learned: [0.55, 0.8, 1.0],
+                // Two weeks without the maze, they still found the way, more
+                // slowly (real): a remembered place keeps some of itself.
+                kept: 0.35,
+                half_life_steps: 1800, // 3 min per visit (tuned: weeks into minutes)
             },
         }
     }

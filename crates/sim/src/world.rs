@@ -21,6 +21,7 @@ use crate::enemy::{self, Enemy, Kind};
 use crate::feel::Feel;
 use crate::hash::fnv1a;
 use crate::level::{EGG_RADIUS, Level};
+use crate::memory::Memory;
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::rng::Rng;
@@ -54,6 +55,8 @@ pub struct SimCrab {
     pub teeth_taken: Vec<bool>,
     /// Health, poise and claw swings.
     pub fighter: Fighter,
+    /// What it has seen and remembers: its own map of the level.
+    pub memory: Memory,
     /// The last safe spot it stood on (where it comes back after dying):
     /// on the floor, away from every enemy.
     pub safe: Vec2,
@@ -145,6 +148,7 @@ impl Sim {
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
             fighter: Fighter::new(&self.tuning),
+            memory: Memory::new(&self.level, &self.tuning.memory),
             safe: pos,
             pending: StepEvents::default(),
         });
@@ -390,6 +394,22 @@ impl Sim {
         self.claws_meet_enemies();
         for e in &mut self.enemies {
             enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
+        }
+        // Each crab's memory: what it sees now is seen.
+        if self
+            .tick
+            .is_multiple_of(self.tuning.memory.step_ticks as u64)
+        {
+            for c in &mut self.crabs {
+                let eye = c.mover.pos + Vec2::new(0.0, self.tuning.body_height);
+                c.memory.step(
+                    eye,
+                    c.mover.lantern,
+                    &self.level,
+                    &self.enemies,
+                    &self.tuning,
+                );
+            }
         }
         self.tick += 1;
     }
