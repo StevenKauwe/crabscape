@@ -3,12 +3,20 @@ name = "painter"
 version = "0.1.0"
 edition = "2024"
 authors = ["Steven Kauwe"]
-description = "The owner's oil painter and pure-Rust p5.brush port. Art tool, not part of the game."
+description = "The oil painter (brushwork) and its crabpaint command line. Art tool, not part of the game."
 publish = false
 
 [dependencies]
+# The painter itself lives upstream in brushwork (MIT, https://github.com/StevenKauwe/brushwork).
+brushwork = { git = "https://github.com/StevenKauwe/brushwork", tag = "v0.1.0" }
+brushwork-kit = { git = "https://github.com/StevenKauwe/brushwork", tag = "v0.1.0" }
+
+[dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-rayon = "1"
+
+[features]
+# brushwork's GPU backend (wgpu). Off by default and in CI; crabpaint's photo painting runs on the CPU either way.
+gpu = ["brushwork/gpu"]
 
 [[bin]]
 name = "crabpaint"

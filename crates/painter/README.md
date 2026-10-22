@@ -1,28 +1,16 @@
 # painter
 
-The owner's own oil painter (Steven Kauwe), all rights reserved like the rest of the repo. An art tool: the game
-never links it.
+The oil painter for CrabScape's art: a thin layer over **brushwork**
+(https://github.com/StevenKauwe/brushwork, MIT), which is **upstream**. Fixes to the painting itself go there, get
+tagged, and this crate bumps its pin. An art tool: the game never links it.
 
 ## What is in it
-- **The oil painter** (`oil.rs`): a `Painting` (1920x1080 canvas: colour, a flat copy, paint thickness), the tools a
-  painter reaches for (`Tool::Flat`, `Filbert`, `Round`, `Knife`), bristle-by-bristle `Stroke`s that pick up wet
-  paint and leave ridges that are lit at the end (`Painting::lit`); shapes painted along their form (`paint_body`,
-  `paint_form`, `paint_contour`, `paint_line`, `sweep`); and `run_photo`, which paints a picture as a painter does
-  from life (block in, find the regions, paint them biggest first, then touch in with small brushes only where
-  the canvas is still wrong).
-- **Watercolour / mixed modes** (`WATER`, `MIXED`, `PIGMENT` switches; `wash_shape`).
-- **A pure-Rust port of p5.brush**: `brush_fill` (the layered, bleeding watercolour fill), `brush_wash` (one flat
-  layer of pigment), `brush_stroke` (the stamped ink line), built on `FillPoly` and `Mask`, mixing as pigment with
-  `spectral.rs` (Kubelka-Munk, 38 bands).
-
-## Upstream
-This painter is a copy of the studio's oil engine in the owner's film studio (music-to-movie-magic,
-`studio/crates/oil`), which is **upstream**: fixes land there first and are ported here. The shared functions
-(`Painting::stroke`, `paint_form`, `plan_slots`, `edge_dir`, `signed_depth`, `flat_under`, `hand_paths`, `sweep`,
-`paint_contour`, `paint_line_with`, the `Fade`/`Premix` guards) are kept textually identical to upstream apart from
-`pub`, so a port is a function-for-function replacement. The tests in `oil.rs` are upstream's steadiness tests that
-apply here. This copy adds `PhotoOptions`, `set_zoom`/`set_scene` and the `crabpaint` CLI, and leaves out the
-film-frame painter.
+- `src/lib.rs`: brushwork's painter under the paths CrabScape has always used: `painter::oil::*` (a `Painting`,
+  the tools `Tool::Flat`, `Filbert`, `Round`, `Knife`, bristle-by-bristle `Stroke`s, `paint_body`, the p5.brush port
+  `brush_fill` / `brush_wash` / `brush_stroke`), `run_photo_with` + `PhotoOptions` (paints a picture as a painter
+  does from life), and `painter::spectral` (Kubelka-Munk pigment mixing).
+- `src/bin/crabpaint.rs`: the command line.
+- The `gpu` feature turns on brushwork's GPU backend (wgpu). It is off by default and in CI.
 
 ## Use
 ```sh
@@ -35,9 +23,12 @@ by its environment variable (`OIL_ATTENTION=off` = `--attention off`, `OIL_GROUN
 `OIL_KEY`). `OIL_EDGE` (the brush port's edge deposit) is still environment-only. Always use `--profile art`
 (or `--release`): unoptimised it is very slow.
 
-As a library: `painter::{Painting, brush_fill, brush_wash, brush_stroke, oil::paint_body, ...}`.
+## Bumping brushwork
+Change the tag in `Cargo.toml`, then repaint the atlas (`tools/paint-oil-crab.sh`, after `crabrig parts` and
+`crabrig export`). The art CI job fails if the committed atlas differs: a brushwork release that changes pixels
+comes with the repainted atlas in the same PR.
 
 ## Tests
-`cargo test -p painter` paints the brush port and an oil shape and checks they are deterministic and in place, and
-runs the steadiness tests (no stroke pops in or out as a shape moves or flexes by a fraction of a pixel, no seams at
-stroke ends, outlines keep their sweeps); the heavier full-photo test is `cargo test -p painter -- --ignored`.
+`cargo test -p painter` paints the brush port and an oil shape and checks they are deterministic and in place; the
+heavier full-photo test is `cargo test -p painter -- --ignored`. The painter's steadiness tests run in brushwork's
+own CI.

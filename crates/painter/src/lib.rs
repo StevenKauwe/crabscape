@@ -1,26 +1,17 @@
-//! The owner's oil painter and watercolour brush (see README.md).
+//! The oil painter, from brushwork (https://github.com/StevenKauwe/brushwork, MIT), which is upstream: fixes to
+//! the painting itself go there. This crate keeps CrabScape's side: the `crabpaint` command line, and the paths
+//! CrabScape has always used.
 //!
-//! * [`oil`]: the oil painter (`Painting`, its tools and strokes, `run_photo` = `crabpaint oilphoto`), the
-//!   watercolour / mixed modes, and a pure-Rust port of p5.brush (`brush_fill`, `brush_wash`, `brush_stroke`).
-//! * [`spectral`]: Kubelka-Munk pigment mixing (38 bands), after spectral.js as p5.brush ships it.
+//! * [`oil`]: the painter (`Painting`, its tools and strokes, `run_photo_with` = `crabpaint oilphoto`, the
+//!   watercolour / mixed modes, the p5.brush port `brush_fill` / `brush_wash` / `brush_stroke`).
+//! * [`spectral`]: Kubelka-Munk pigment mixing (38 bands), after spectral.js.
 //!
 //! An art tool: the game never links it.
 
-// The owner's code: style lints it was never written against stay off rather than the code being
-// reworded (the spectral tables are generated, hence their long digits).
-#![allow(
-    clippy::excessive_precision,
-    clippy::int_plus_one,
-    clippy::if_same_then_else,
-    clippy::len_zero,
-    clippy::new_without_default,
-    clippy::type_complexity,
-    clippy::needless_range_loop,
-    clippy::doc_lazy_continuation,
-    clippy::unnecessary_sort_by
-)]
+/// brushwork's painter, under the name CrabScape uses.
+pub mod oil {
+    pub use brushwork::*;
+}
+pub use brushwork_kit::spectral;
 
-pub mod oil;
-pub mod spectral;
-
-pub use oil::{Painting, PhotoOptions, Stroke, Tool, brush_fill, brush_stroke, brush_wash, run_mix, run_photo, run_photo_with};
+pub use brushwork::{Painting, PhotoOptions, Stroke, Tool, brush_fill, brush_stroke, brush_wash, run_mix, run_photo, run_photo_with};

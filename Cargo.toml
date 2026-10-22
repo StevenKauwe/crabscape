@@ -103,6 +103,12 @@ strip = false
 # Painter tests paint full 1920x1080 canvases: optimise them even in test builds.
 [profile.dev.package.painter]
 opt-level = 3
+[profile.dev.package.brushwork]
+opt-level = 3
+[profile.dev.package.brushwork-kit]
+opt-level = 3
+[profile.dev.package.brushwork-paint]
+opt-level = 3
 
 # Release builds are tuned for a small download rather than raw speed.
 [profile.release]
