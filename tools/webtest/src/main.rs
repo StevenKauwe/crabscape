@@ -5,7 +5,7 @@
 //! cargo webtest --url https://stevenkauwe.github.io/crabscape/ --smoke
 //! ```
 //!
-//! Needs WebKitGTK 4.1's MiniBrowser and `WebKitWebDriver` (Ubuntu: `apt install webkit2gtk-driver`) and a display
+//! Needs WebKitGTK 4.1's MiniBrowser and `WebKitWebDriver` (Ubuntu: `apt install webkitgtk-webdriver`, before 26.04 `webkit2gtk-driver`) and a display
 //! (CI uses `xvfb-run`). It serves `web/` on a local port (or opens `--url`), opens the game with an iPhone's screen
 //! size and user agent (portrait 390x844; `--landscape` turns the phone; `--desktop` is a 1024x700 desktop browser),
 //! and checks that:
@@ -600,17 +600,39 @@ impl Test<'_> {
         pump(0.3);
         let (lx, ly) = button_centre(w, h, "left");
         self.pointer("pointerdown", lx, ly, 3, 1, true)?;
-        self.hold(0.7, false)?;
+        self.hold(2.0, false)?;
         self.pointer("pointerup", lx, ly, 3, 0, true)?;
-        let after = self.rest()?;
+        let inside = self.rest()?;
         self.check(
-            after.0 < here.0 - 80.0,
+            inside.0 < here.0 - 80.0,
             format!(
                 "holding the on-screen < button walks the crab left (x {:.0} -> {:.0})",
-                here.0, after.0
+                here.0, inside.0
+            ),
+        );
+        // Walking on, it went into its home shell (`crabsim::home`); a tap on JUMP brings it back out to the
+        // doorstep, without jumping.
+        let level = crabsim::Level::test_level();
+        self.check(
+            (inside.0 - f64::from(level.home_den.x)).abs() < 1.5,
+            format!(
+                "walking on left, the crab goes into its home shell (x {:.0})",
+                inside.0
             ),
         );
         let (jx, jy) = button_centre(w, h, "jump");
+        self.pointer("pointerdown", jx, jy, 4, 1, true)?;
+        pump(0.15);
+        self.pointer("pointerup", jx, jy, 4, 0, true)?;
+        let top = self.hold(0.8, true)?;
+        let after = self.rest()?;
+        self.check(
+            (after.0 - f64::from(level.home.max.x)).abs() < 1.5 && top < after.1 + 5.0,
+            format!(
+                "a tap on JUMP brings it back out of its shell without jumping (x {:.0}, top {top:.0})",
+                after.0
+            ),
+        );
         self.pointer("pointerdown", jx, jy, 4, 1, true)?;
         let mut top = self.hold(0.25, true)?;
         self.numbered_shot(3)?; // touch buttons showing, crab in the water
