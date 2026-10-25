@@ -11,8 +11,11 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
 - **Home is a shell.** You start in a borrowed shell and grow it into a base: kitchen, workshop, beds for friends.
 
 ## The first loop (in the test level)
-- **Home** is an empty sea-snail shell on the floor near the start, a warm glow in its doorway. Standing there rests the
-  crab fully (stamina bar and rings) and is where things are brought back to.
+- **Home** is an empty sea-snail shell on the floor near the start, a warm glow in its doorway. Walk into the doorway
+  and the crab goes inside: it backs into the opening, claws to the door, and disappears into the dark (crabs shelter in
+  crevices, empty shells and litter; that they back in claws first: not verified). Tucked in, it rests fully (stamina
+  bar and rings, and its shell mends after a moment unhit), and the workbench puts what it carried home to use. Walk
+  away (or jump or dodge) and it walks back out. Inside, the claws stay folded.
 - **The lantern culture:** at the bottom of the pit, a patch of wild glowing bacteria (blue-green). Touching it puts a
   lump on the crab's back (sponge crabs really carry things on their backs). Brought home, it's cultured into the
   lantern: the light reaches about a third further for each one. The trip home (climb out, cross the basin, the cliff

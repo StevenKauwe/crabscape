@@ -20,6 +20,7 @@ use crate::combat::{self, Fighter, Hit, Outcome, Source};
 use crate::enemy::{self, Enemy, Kind};
 use crate::feel::Feel;
 use crate::hash::fnv1a;
+use crate::home::{self, Shelter};
 use crate::level::{EGG_RADIUS, Level};
 use crate::memory::Memory;
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
@@ -276,15 +277,35 @@ impl Sim {
                 crab.prev_pos = crab.safe;
                 ev.respawned = true;
             }
-            let controls =
-                combat::before_step(f, &mut crab.mover, &crab.controls, &self.tuning, &mut ev);
-            ev.merge(physics::step(
-                &mut crab.mover,
-                &controls,
-                &self.tuning,
-                &self.level,
-                STEP,
-            ));
+            // In its home shell the claws stay folded (nothing queued comes
+            // out in there either).
+            let sheltered = crab.mover.shelter != Shelter::Out;
+            let asked = if sheltered {
+                f.queued = None;
+                home::claws_folded(crab.controls)
+            } else {
+                crab.controls
+            };
+            let controls = combat::before_step(f, &mut crab.mover, &asked, &self.tuning, &mut ev);
+            let f = &crab.fighter;
+            let free = f.swing.is_none() && !f.blocking && f.knocked == 0;
+            if sheltered || home::walks_in(&crab.mover, &controls, free, &self.level) {
+                ev.merge(home::step(
+                    &mut crab.mover,
+                    &controls,
+                    &self.level,
+                    &self.tuning,
+                    STEP,
+                ));
+            } else {
+                ev.merge(physics::step(
+                    &mut crab.mover,
+                    &controls,
+                    &self.tuning,
+                    &self.level,
+                    STEP,
+                ));
+            }
             combat::after_step(&mut crab.fighter, &crab.mover);
             crush(crab, &mut self.enemies, &self.tuning, &mut ev);
             // A safe spot to come back to: on the floor, no enemy near.
@@ -361,11 +382,11 @@ impl Sim {
                     crab.events.found_clue = Some(i);
                 }
             }
-            // Home: standing in the doorway rests the crab fully, and what it
-            // carries is put to use: a culture into its lantern, a tooth
+            // Home: tucked into the shell, the crab rests fully, and what it
+            // carried in is put to use: a culture into its lantern, a tooth
             // fitted to its crusher at the workbench (scissor claws).
             let m = &mut crab.mover;
-            if m.grounded && self.level.home.contains(m.pos) {
+            if m.tucked_in() {
                 let full = m.strokes(&self.tuning) as f32;
                 let v = &mut crab.fighter.vitals;
                 let mend = v.health < self.tuning.crab.health

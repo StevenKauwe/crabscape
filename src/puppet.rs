@@ -45,6 +45,7 @@ use serde::Deserialize;
 
 use crate::effects::SoftTextures;
 use crate::feel::{FeelLab, Juice};
+use crate::home;
 use crate::lantern::{self, Lit, LitTint};
 use crate::player::{Crab, FrameEvents, GameSet};
 use crate::style::ArtStyle;
@@ -249,7 +250,14 @@ impl Plugin for PuppetPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, load_art).add_systems(
             Update,
-            (prepare_art, build_puppets, restyle, animate, show_scissors)
+            (
+                prepare_art,
+                build_puppets,
+                restyle,
+                animate,
+                into_the_dark,
+                show_scissors,
+            )
                 .chain()
                 .in_set(GameSet::Present),
         );
@@ -711,7 +719,16 @@ fn animate(
         a.water_push = ease(a.water_push, sink, 6.0, dt);
         // Fighting poses (see `fight_pose`): the crusher rears back over the
         // wind-up and slams down; the cutter jabs; guard raises both claws.
-        let fight = fight_pose(fighter, &sim.tuning, a.time, lab.juice());
+        let mut fight = fight_pose(fighter, &sim.tuning, a.time, lab.juice());
+        // Backing into its home shell (sim: `Mover::tucked`): its legs fold
+        // under it and its claws come up before it as it goes into the dark
+        // (`into_the_dark`).
+        let tuck = mover.tucked * mover.tucked * (3.0 - 2.0 * mover.tucked);
+        fight.claw[0].0 += 0.7 * tuck;
+        fight.claw[0].1 += 0.5 * tuck;
+        fight.claw[1].0 += 0.55 * tuck;
+        fight.claw[1].1 += 0.4 * tuck;
+        fight.squash += 0.25 * tuck;
         // Turning round (sim: `Fighter::back`, `turn`): the body spins about
         // its middle to show its back, so a claw strikes across without ever
         // swapping sides. `view` is 1 from the front, -1 from behind, passing
@@ -820,7 +837,7 @@ fn animate(
                 // "up" for a leg is +s (its tip rises), "down" is -s. The
                 // carpus folds in with -s and straightens with +s.
                 let k = n as f32;
-                let fold = a.streamline;
+                let fold = a.streamline.max(tuck);
                 let water = a.water_push;
                 // Caught in the current: a quick, uneven tremble.
                 let flutter = water * (t * 17.0 + 2.3 * k + 1.1 * side as f32).sin();
@@ -986,6 +1003,35 @@ fn animate(
             tr.translation.z = plate_z;
         }
         a.prev_vx = vx;
+    }
+}
+
+/// Backing into its home shell, the crab goes into the dark: it falls into
+/// shadow, then is gone inside (claws, lantern and all).
+fn into_the_dark(
+    crabs: Query<(&Mover, &Rig)>,
+    mut lits: Query<&mut Lit>,
+    mut shown: Query<&mut Visibility>,
+) {
+    for (mover, rig) in &crabs {
+        let shade = mover.tucked * mover.tucked * (3.0 - 2.0 * mover.tucked);
+        for &e in &rig.lit {
+            if let Ok(mut l) = lits.get_mut(e)
+                && l.shade != shade
+            {
+                l.shade = shade;
+            }
+        }
+        let show = if mover.tucked >= home::OUT_OF_SIGHT {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        if let Ok(mut v) = shown.get_mut(rig.root)
+            && *v != show
+        {
+            *v = show;
+        }
     }
 }
 

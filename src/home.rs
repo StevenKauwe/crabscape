@@ -2,8 +2,10 @@
 //!
 //! - Home is an empty sea-snail shell lying on the floor near the start,
 //!   its opening a doorway with a warm glow inside: the one warm place in a
-//!   cold sea. (Resting there and delivering things are rules: see
-//!   `crabsim`'s `world.rs`.)
+//!   cold sea. The crab walks up to the opening and backs in, into the dark,
+//!   until it's gone inside (see `puppet.rs`); the hearth glows warmer while
+//!   it's in. (Going in, resting and putting things to use are rules: see
+//!   `crabsim`'s `home.rs`.)
 //! - At the bottom of the pit, a patch of wild glowing bacteria shines
 //!   blue-green (wild light in the sea is blue-green; only the crab's farmed
 //!   strain is yellow).
@@ -17,14 +19,22 @@ use crate::effects::SoftTextures;
 use crate::memory::Known;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
+/// How far the crab has backed into its home shell ([`Mover::tucked`]) when
+/// it's out of sight.
+pub const OUT_OF_SIGHT: f32 = 0.8;
+
 /// Behind the crab (~10-11), in front of the level.
 const SHELL_Z: f32 = 3.0;
+/// The shell's size: its opening big enough for the crab to go in.
+const SHELL_SCALE: f32 = 1.35;
 const SHELL: Color = Color::srgb(0.24, 0.20, 0.16);
 const SHELL_LIP: Color = Color::srgb(0.31, 0.26, 0.20);
 const WHORL: Color = Color::srgb(0.20, 0.17, 0.13);
 const WHORL_DEEP: Color = Color::srgb(0.16, 0.13, 0.10);
 const INSIDE: Color = Color::srgb(0.045, 0.05, 0.05);
 const HEARTH: Color = Color::srgba(1.0, 0.72, 0.30, 0.22);
+/// How much warmer the hearth glows with the crab tucked in (alpha added).
+const HEARTH_HOME: f32 = 0.16;
 /// Wild bacteria: blue-green.
 const WILD: Color = Color::srgb(0.35, 0.95, 0.80);
 
@@ -38,7 +48,7 @@ impl Plugin for HomePlugin {
         )
         .add_systems(
             Update,
-            (glow_cultures, carry_lump, carry_tooth).in_set(GameSet::Present),
+            (glow_cultures, carry_lump, carry_tooth, warm_hearth).in_set(GameSet::Present),
         );
     }
 }
@@ -56,12 +66,30 @@ struct Speck {
 #[derive(Component)]
 struct Lump;
 
+/// The warm glow inside the shell.
+#[derive(Component)]
+struct Hearth;
+
 /// A shed tooth on the crab's back, being carried home.
 #[derive(Component)]
 struct ToothOnBack;
 
 /// The lump, never the crab (both have a `Transform`).
 type LumpOnly = (With<Lump>, Without<LocalPlayer>);
+
+/// The hearth glows warmer as the crab settles in.
+fn warm_hearth(
+    crab: Query<&Mover, With<LocalPlayer>>,
+    mut hearth: Query<&mut Sprite, With<Hearth>>,
+) {
+    let Ok(mover) = crab.single() else {
+        return;
+    };
+    let settled = mover.tucked * mover.tucked * (3.0 - 2.0 * mover.tucked);
+    for mut sprite in &mut hearth {
+        sprite.color = HEARTH.with_alpha(HEARTH.alpha() + HEARTH_HOME * settled);
+    }
+}
 
 fn spawn_home(
     mut commands: Commands,
@@ -72,7 +100,8 @@ fn spawn_home(
 ) {
     // The shell lies with its opening (the doorway) to the right, over the
     // home spot, and its spire up to the left against the wall.
-    let door = sim.level.home.center().with_y(0.0);
+    let door = sim.level.home_den;
+    let k = SHELL_SCALE;
     let parts: [(Vec2, Vec2, Color, f32); 6] = [
         (Vec2::new(-75.0, 80.0), Vec2::new(120.0, 85.0), SHELL, 0.0),
         (Vec2::new(-125.0, 108.0), Vec2::new(70.0, 52.0), WHORL, 0.01),
@@ -88,12 +117,13 @@ fn spawn_home(
     ];
     for (at, half, colour, z) in parts {
         commands.spawn((
-            Mesh2d(meshes.add(Ellipse::new(half.x, half.y))),
+            Mesh2d(meshes.add(Ellipse::new(half.x * k, half.y * k))),
             MeshMaterial2d(materials.add(colour)),
-            Transform::from_translation((door + at).extend(SHELL_Z + z)),
+            Transform::from_translation((door + at * k).extend(SHELL_Z + z)),
         ));
     }
-    // A workbench just inside: a flat stone, a sharp shell and a pebble.
+    // A workbench just inside: a flat stone, a sharp shell and a pebble
+    // (crab-sized things, so only their places grow with the shell).
     for (at, mesh, colour) in [
         (
             Vec2::new(-14.0, 10.0),
@@ -114,18 +144,19 @@ fn spawn_home(
         commands.spawn((
             Mesh2d(meshes.add(mesh)),
             MeshMaterial2d(materials.add(colour)),
-            Transform::from_translation((door + at).extend(SHELL_Z + 0.055)),
+            Transform::from_translation((door + at * k).extend(SHELL_Z + 0.055)),
         ));
     }
     // The warm glow inside: home.
     commands.spawn((
+        Hearth,
         Sprite {
             image: soft.dot.clone(),
             color: HEARTH,
-            custom_size: Some(Vec2::splat(170.0)),
+            custom_size: Some(Vec2::splat(170.0 * k)),
             ..default()
         },
-        Transform::from_translation((door + Vec2::new(4.0, 54.0)).extend(SHELL_Z + 0.06)),
+        Transform::from_translation((door + Vec2::new(4.0, 54.0) * k).extend(SHELL_Z + 0.06)),
     ));
 }
 
@@ -222,7 +253,7 @@ fn carry_lump(
     let (Ok((mover, at)), Ok((mut lump_at, mut shown))) = (crab.single(), lump.single_mut()) else {
         return;
     };
-    *shown = if mover.carrying == Some(Carry::Culture) {
+    *shown = if mover.carrying == Some(Carry::Culture) && mover.tucked < OUT_OF_SIGHT {
         Visibility::Inherited
     } else {
         Visibility::Hidden
@@ -263,7 +294,7 @@ fn carry_tooth(
     else {
         return;
     };
-    *shown = if mover.carrying == Some(Carry::Tooth) {
+    *shown = if mover.carrying == Some(Carry::Tooth) && mover.tucked < OUT_OF_SIGHT {
         Visibility::Inherited
     } else {
         Visibility::Hidden

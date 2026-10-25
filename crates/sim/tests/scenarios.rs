@@ -8,7 +8,7 @@
 
 use bevy_math::Vec2;
 use crabsim::replay::ticks;
-use crabsim::{Feel, Hit, PlayerId, Replay, SPAWN, STEP, Sim, Tuning, play};
+use crabsim::{Feel, Hit, PlayerId, Replay, SPAWN, STEP, Shelter, Sim, Tuning, play};
 
 /// A world with one crab at `start`, on preset A's fighting numbers (the
 /// base numbers these rules were written against; the game plays G, which
@@ -671,17 +671,86 @@ fn the_crab_clings_on_the_side_it_came_from_and_climbs_round_obstacles() {
 }
 
 #[test]
-fn home_rests_the_crab_fully() {
-    // Tired out, with two strokes grown: walk left from the start into the
-    // doorway of the shell.
+fn the_crab_backs_into_its_home_shell_rests_there_and_walks_out() {
+    let level = crabsim::Level::test_level();
+    let (den, doorstep) = (level.home_den.x, level.home.max.x);
+    // Tired out, with two strokes grown, carrying a culture home.
     let tired = |m: &mut crabsim::Mover| {
         m.upgrades = 2;
         m.stamina = 0.0;
         m.reserve = 0.1;
+        m.carrying = Some(crabsim::Carry::Culture);
     };
-    let r = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, tired);
-    assert_eq!(r.count("rested"), 1);
-    assert_eq!((r.crab().reserve, r.crab().stamina), (1.0, 2.0));
+    let play =
+        |script: &str, seconds: f64| run_crab(Tuning::base(), script, seconds, |_| false, tired);
+    // Standing in the doorway isn't going in: no rest, nothing put to use.
+    let at_door = play("start x=120 y=0", 1.5);
+    assert_eq!((at_door.count("went in"), at_door.count("rested")), (0, 0));
+    assert_eq!(at_door.crab().shelter, Shelter::Out);
+    assert!(at_door.crab().carrying.is_some());
+    // Walking left from the start into the doorway, it backs in...
+    let backing = play("t=0 walk=left", 0.3);
+    assert_eq!(backing.count("went in"), 1);
+    assert_eq!(backing.crab().shelter, Shelter::In);
+    assert!(!backing.crab().tucked_in());
+    let x = backing.crab().pos.x;
+    assert!(den < x && x < doorstep, "on its way in: {x}");
+    assert!(
+        backing.crab().carrying.is_some(),
+        "used inside, not at the door"
+    );
+    // ...and tucked in at the back, it rests fully and the workbench takes
+    // the culture into the lantern. Pushing on moves it no further.
+    let inside = play("t=0 walk=left", 2.0);
+    let tucked = inside.first("tucked in").expect("tucked in");
+    assert!(tucked < 0.6, "settled in {tucked:.2} s");
+    assert!(inside.crab().tucked_in());
+    assert_eq!(inside.crab().pos.x, den);
+    assert_eq!((inside.count("rested"), inside.count("delivered")), (1, 1));
+    assert_eq!((inside.crab().reserve, inside.crab().stamina), (1.0, 2.0));
+    assert_eq!((inside.crab().carrying, inside.crab().lantern), (None, 1));
+    // Walking right, it comes back out through the doorway quickly, still
+    // moving, and walks on (it doesn't go back in).
+    let out = play("t=0 walk=left; t=1 walk=right", 2.0);
+    let came_out = out.first("came out").expect("came out");
+    assert!(came_out - 1.0 < 0.3, "out in {:.2} s", came_out - 1.0);
+    assert_eq!(
+        (out.count("went in"), out.crab().shelter),
+        (1, Shelter::Out)
+    );
+    assert!(out.crab().pos.x > doorstep + 150.0, "{}", out.crab().pos);
+    // A jump press brings it out too (without jumping), and turning round
+    // while backing in brings it straight out, unrested.
+    let hop = play("t=0 walk=left; t=0.8 walk=stop; t=1 tap", 1.6);
+    assert_eq!((hop.count("came out"), hop.count("jumped")), (1, 0));
+    let changed_mind = play("t=0 walk=left; t=0.2 walk=right", 1.0);
+    assert_eq!(changed_mind.count("came out"), 1);
+    assert_eq!(
+        (
+            changed_mind.count("tucked in"),
+            changed_mind.count("rested")
+        ),
+        (0, 0)
+    );
+    // A claw press inside does nothing: the claws stay folded.
+    let claws = play("t=0 walk=left; t=1 smash; t=1.2 jab", 2.0);
+    assert_eq!((claws.count("smashed"), claws.count("jabbed")), (0, 0));
+    assert!(claws.crab().tucked_in());
+}
+
+#[test]
+fn a_crab_tucked_in_at_home_mends_its_shell_after_a_moment_unhit() {
+    let mut sim = sim_a(SPAWN);
+    let crab = sim.crab_mut(PlayerId(0)).unwrap();
+    crab.fighter.vitals.health = 40.0;
+    crab.fighter.vitals.unhit = 0;
+    let walk_in = Replay::parse("t=0 walk=left").unwrap();
+    play(&mut sim, &walk_in, ticks(1.0), |_| {});
+    let crab = sim.crab(PlayerId(0)).unwrap();
+    assert!(crab.mover.tucked_in());
+    assert_eq!(crab.fighter.vitals.health, 40.0, "not yet: hit just now");
+    play(&mut sim, &walk_in, ticks(1.5), |_| {});
+    assert_eq!(sim.crab(PlayerId(0)).unwrap().fighter.vitals.health, 100.0);
 }
 
 #[test]

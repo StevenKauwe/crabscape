@@ -64,10 +64,14 @@ pub struct Level {
     pub eggs: Vec<Vec2>,
     /// Kelp and coral the crab can grip and climb.
     pub climbs: Vec<Climb>,
-    /// Home: the doorway of an empty sea-snail shell near the start (where a
-    /// crab's feet count as home). Standing there rests it fully, and it's
-    /// where things are brought back to.
+    /// Home: the doorway of an empty sea-snail shell near the start, its
+    /// opening to the right. A crab walking in here on the floor backs inside
+    /// to rest, and it's where things are brought back to (see
+    /// [`crate::home`]).
     pub home: Rect,
+    /// Where a crab sits tucked into the home shell (its feet), by the
+    /// workbench.
+    pub home_den: Vec2,
     /// Patches of wild glowing bacteria (their middles). A crab that
     /// touches one carries a lump home on its back; cultured there, it makes
     /// the crab's lantern brighter.
@@ -203,6 +207,7 @@ impl Level {
                 },
             ],
             home: Rect::new(40.0, -1.0, 150.0, 40.0),
+            home_den: Vec2::new(95.0, 0.0),
             // At the bottom of the pit, across from the coral.
             cultures: vec![Vec2::new(3950.0, -8690.0)],
             // In the alcove: a shed tooth bigger than the crab.

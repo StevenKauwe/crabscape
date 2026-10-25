@@ -185,6 +185,10 @@ pub struct Tuning {
     /// Home mends the shell only after this long unhit (a rest, not a
     /// refuge mid-fight).
     pub home_heal_after_ticks: u32,
+    /// How long the crab takes to back into its home shell, and to come back
+    /// out (seconds; see [`crate::home`]). Out is quicker: crabs dart out.
+    pub home_in_time: f32,
+    pub home_out_time: f32,
     /// The crusher's smash: slow, heavy, committed.
     pub crusher: ClawTuning,
     /// The cutter's jab: quick and light.
@@ -565,6 +569,8 @@ impl Tuning {
             respawn_ticks: 150, // 1.25 s, back near the fight
             safe_distance: 120.0,
             home_heal_after_ticks: 240,
+            home_in_time: 0.45,
+            home_out_time: 0.25,
             // Hit-stop 7: about 60 ms, you feel it land. Reach: the claw's
             // length past the shell (the longer chelipeds, #90).
             crusher: ClawTuning::plain((14, 6, 22), 12.0, 25.0, 44.0, 30.0, (320.0, 0.0), 7),
