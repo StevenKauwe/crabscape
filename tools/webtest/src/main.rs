@@ -893,8 +893,11 @@ impl Test<'_> {
                 "(window.__hid = {hidden}, document.dispatchEvent(new Event('visibilitychange')), true)"
             )
         };
-        self.key("keydown", "KeyD", "d")?;
-        self.hold(0.3, false)?;
+        // Walking left, from the shell's doorstep into the shell: the replay and save checks after this run with
+        // the crab at home, out of the snapping shrimp's reach (walking right to it, a snap could knock the crab
+        // back between those checks' readings).
+        self.key("keydown", "KeyA", "a")?;
+        self.hold(0.1, false)?;
         self.eval(&set_hidden(true))?;
         pump(0.2);
         let before = self.crab()?;
@@ -904,7 +907,7 @@ impl Test<'_> {
         let still = matches!((before, after), (Some(a), Some(b)) if (a.0 - b.0).abs() < 0.01);
         self.check(
             still,
-            format!("while the page is hidden the crab stands still, though D is held ({before:?} -> {after:?})"),
+            format!("while the page is hidden the crab stands still, though A is held ({before:?} -> {after:?})"),
         );
         self.check(
             bg["suspend"].as_u64() >= Some(1) && bg["pause"].as_u64() >= Some(1),
@@ -912,13 +915,13 @@ impl Test<'_> {
         );
         self.eval(&set_hidden(false))?;
         self.hold(0.4, false)?;
-        self.key("keyup", "KeyD", "d")?;
+        self.key("keyup", "KeyA", "a")?;
         let walked = self.rest()?;
         let bg = self.eval("window.__bg")?;
         self.check(
-            after.is_some_and(|a| walked.0 > a.0 + 20.0),
+            after.is_some_and(|a| walked.0 < a.0 - 20.0),
             format!(
-                "shown again, the crab walks on (x {:?} -> {:.0})",
+                "shown again, the crab walks on, into its shell (x {:?} -> {:.0})",
                 after.map(|a| a.0),
                 walked.0
             ),
