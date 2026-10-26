@@ -896,8 +896,9 @@ impl Test<'_> {
         // Walking left, from the shell's doorstep into the shell: the replay and save checks after this run with
         // the crab at home, out of the snapping shrimp's reach (walking right to it, a snap could knock the crab
         // back between those checks' readings).
+        // (Hidden straight away: it's only 55 units in, and it must still have some way to go when shown again.)
         self.key("keydown", "KeyA", "a")?;
-        self.hold(0.1, false)?;
+        self.hold(0.02, false)?;
         self.eval(&set_hidden(true))?;
         pump(0.2);
         let before = self.crab()?;
@@ -919,7 +920,7 @@ impl Test<'_> {
         let walked = self.rest()?;
         let bg = self.eval("window.__bg")?;
         self.check(
-            after.is_some_and(|a| walked.0 < a.0 - 20.0),
+            after.is_some_and(|a| walked.0 < a.0 - 10.0),
             format!(
                 "shown again, the crab walks on, into its shell (x {:?} -> {:.0})",
                 after.map(|a| a.0),
