@@ -39,11 +39,18 @@ pub struct Lit {
     pub centre: Vec2,
     /// Never darker than this (a soft fill light, 0 = none).
     pub fill: f32,
+    /// In shadow: 0 = none, 1 = dark whatever the light (a crab backing into
+    /// its home shell goes into the dark).
+    pub shade: f32,
 }
 
 impl Lit {
     pub fn at(centre: Vec2) -> Self {
-        Self { centre, fill: 0.0 }
+        Self {
+            centre,
+            fill: 0.0,
+            shade: 0.0,
+        }
     }
 }
 
@@ -226,7 +233,7 @@ fn measure_light(
             .iter()
             .map(|l| l.distance(at))
             .fold(f32::INFINITY, f32::min);
-        blend.0 = light_at(nearest, &tuning, flicker.0).max(thing.fill);
+        blend.0 = light_at(nearest, &tuning, flicker.0).max(thing.fill) * (1.0 - thing.shade);
     }
 }
 

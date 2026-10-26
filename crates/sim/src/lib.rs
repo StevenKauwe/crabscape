@@ -20,6 +20,7 @@
 //! - [`feel`]: presets for how the attacks feel, laid over the tuning
 //! - [`level`]: the test level's shape (floor line and rocks)
 //! - [`physics`]: walking, sinking, jumping, paddling, dodging for one crab
+//! - [`home`]: backing into the home shell to rest, and coming out again
 //! - [`combat`]: health, poise, hits, knockback, hit-stop, claw swings
 //! - [`enemy`]: enemies, their state machines and tells
 //! - [`rng`]: the seeded random generator (the only randomness)
@@ -38,6 +39,7 @@ pub mod combat;
 pub mod enemy;
 pub mod feel;
 pub mod hash;
+pub mod home;
 pub mod level;
 pub mod memory;
 pub mod physics;
@@ -49,6 +51,7 @@ pub mod world;
 pub use combat::{Claw, Fighter, Hit, Outcome, Source, Vitals};
 pub use enemy::{Enemy, Kind};
 pub use feel::Feel;
+pub use home::Shelter;
 pub use level::{Level, SPAWN};
 pub use memory::{Memory, MemorySave, Sight, Sighting};
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};

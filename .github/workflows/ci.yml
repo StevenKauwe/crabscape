@@ -151,7 +151,12 @@ jobs:
       - name: Rust (the version, targets and components in rust-toolchain.toml)
         run: rustup toolchain install && rustc --version
       - name: WebKitGTK, its WebDriver and a virtual display
-        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends webkit2gtk-driver libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11
+        # The WebDriver package is webkitgtk-webdriver since Ubuntu 26.04 (webkit2gtk-driver before).
+        run: |
+          sudo apt-get update -q
+          pkgs="libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11"
+          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver $pkgs \
+            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver $pkgs
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: webtest
@@ -277,7 +282,12 @@ jobs:
       - name: Rust (the version, targets and components in rust-toolchain.toml)
         run: rustup toolchain install && rustc --version
       - name: WebKitGTK, its WebDriver and a virtual display
-        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends webkit2gtk-driver libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11
+        # The WebDriver package is webkitgtk-webdriver since Ubuntu 26.04 (webkit2gtk-driver before).
+        run: |
+          sudo apt-get update -q
+          pkgs="libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11"
+          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver $pkgs \
+            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver $pkgs
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: webtest

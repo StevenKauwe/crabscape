@@ -10,6 +10,7 @@
 
 use bevy_math::{Rect, Vec2};
 
+use crate::home::Shelter;
 use crate::level::Level;
 use crate::tuning::Tuning;
 
@@ -156,6 +157,11 @@ pub struct Mover {
     /// right of it, -1 = to the left. It's the side the crab came from; it
     /// swings round to the other side when something blocks the way.
     pub climb_side: f32,
+    /// Going into its home shell, or coming out (see [`crate::home`]).
+    pub shelter: Shelter,
+    /// How far into the home shell the crab has backed: 0 = out in the
+    /// open, 1 = tucked right in.
+    pub tucked: f32,
 }
 
 impl Mover {
@@ -189,7 +195,14 @@ impl Mover {
             flip_dir: 1.0,
             climb_dir: 0.0,
             climb_side: 1.0,
+            shelter: Shelter::Out,
+            tucked: 0.0,
         }
+    }
+
+    /// Tucked right into the home shell, resting there.
+    pub fn tucked_in(&self) -> bool {
+        self.shelter == Shelter::In && self.tucked >= 1.0
     }
 
     /// How many paddle strokes the legs hold when rested (the double jump,
@@ -224,7 +237,13 @@ impl Mover {
 
     /// A one-word description of what the crab is doing, for logs and tests.
     pub fn activity(&self) -> &'static str {
-        if self.climbing {
+        if self.tucked_in() {
+            "tucked in"
+        } else if self.shelter == Shelter::In {
+            "backing in"
+        } else if self.shelter == Shelter::Leaving {
+            "coming out"
+        } else if self.climbing {
             "climbing"
         } else if self.dodge_left > 0.0 {
             "dodging"
@@ -261,6 +280,12 @@ pub struct StepEvents {
     pub gripped: bool,
     /// Picked up a lump of glowing bacteria to carry home.
     pub picked_up: bool,
+    /// Started backing into the home shell.
+    pub went_in: bool,
+    /// Settled, tucked right into the home shell.
+    pub tucked_in: bool,
+    /// Out of the home shell again.
+    pub came_out: bool,
     /// Rested at home (the stamina bar and rings refilled).
     pub rested: bool,
     /// Brought a culture home: the lantern grew brighter.
@@ -326,6 +351,9 @@ impl StepEvents {
         self.ate |= other.ate;
         self.gripped |= other.gripped;
         self.picked_up |= other.picked_up;
+        self.went_in |= other.went_in;
+        self.tucked_in |= other.tucked_in;
+        self.came_out |= other.came_out;
         self.rested |= other.rested;
         self.delivered |= other.delivered;
         self.levelled |= other.levelled;
@@ -366,6 +394,9 @@ impl StepEvents {
             (self.ate, "ate"),
             (self.gripped, "gripped"),
             (self.picked_up, "picked up"),
+            (self.went_in, "went in"),
+            (self.tucked_in, "tucked in"),
+            (self.came_out, "came out"),
             (self.rested, "rested"),
             (self.delivered, "delivered"),
             (self.levelled, "levelled"),

@@ -41,7 +41,8 @@ impl Browser {
     /// `log`.
     pub fn start(args: &[String], log: &Path) -> Result<Self> {
         let driver = find("WEBKIT_WEBDRIVER", &["WebKitWebDriver"]).ok_or(
-            "WebKitWebDriver not found (Ubuntu: apt install webkit2gtk-driver; or set WEBKIT_WEBDRIVER)",
+            "WebKitWebDriver not found (Ubuntu: apt install webkitgtk-webdriver, before 26.04 webkit2gtk-driver; or set \
+             WEBKIT_WEBDRIVER)",
         )?;
         let browser = find(
             "MINIBROWSER",
