@@ -16,6 +16,11 @@
 //! The host's crab is always [`HOST`] (as in solo play); a guest's gets a
 //! random number. A guest finds the host's device by its crab's updates.
 //!
+//! A room lasts as long as the host's page. A device that loses everyone it
+//! played with (a phone slept, the network dropped) joins the same room
+//! afresh every few seconds until they're back; a guest plays on alone in
+//! the meantime, then takes the host's word for the world again.
+//!
 //! Web only for now: a desktop build plays solo.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
@@ -121,6 +126,9 @@ mod web {
     const WAITING_AT_MOST: usize = 256;
     /// How long the button says the link went (seconds).
     const FLASH_FOR: f32 = 2.5;
+    /// How long a device without its company waits before joining the room
+    /// afresh, and again after that (seconds).
+    const REJOIN_AFTER: f32 = 5.0;
     /// The button's width, and its gap from the art-style button.
     const WIDTH: f32 = 124.0;
     const GAP: f32 = 8.0;
@@ -134,8 +142,11 @@ mod web {
         status: String,
         /// Seconds the button keeps saying the link went out.
         flash: f32,
-        /// A guest whose host left: the button offers solo play.
-        ended: bool,
+        /// Played together already (a guest: with the host; the host: with
+        /// anyone), so being alone now means they were lost.
+        met: bool,
+        /// Seconds alone, or with a dead connection, since the last try.
+        lonely: f32,
     }
 
     /// The connection to the other devices.
@@ -318,7 +329,7 @@ mod web {
     }
 
     /// A click or tap on the button: start hosting (the first time) and send
-    /// the link; for a guest whose host left, go back to solo play.
+    /// the link.
     fn press(
         time: Res<Time>,
         mouse: Res<ButtonInput<MouseButton>>,
@@ -336,12 +347,6 @@ mod web {
             .iter_just_pressed()
             .any(|t| rect.contains(t.position()));
         if !(clicked || tapped) {
-            return;
-        }
-        if coop.ended {
-            if let Some(w) = web_sys::window() {
-                let _ = w.location().set_href(&page());
-            }
             return;
         }
         if coop.code.is_none() && me.0 == HOST {
@@ -390,19 +395,31 @@ mod web {
     }
 
     /// What arrived since the last frame: devices that came or went, and
-    /// their messages, which go to the simulation.
-    fn take_in(mut sim: ResMut<Sim>, mut coop: ResMut<Coop>, me: Res<LocalId>) {
-        let ended = LINK.with(|cell| {
+    /// their messages, which go to the simulation. Lost everyone (or the
+    /// connection itself)? Join the room afresh every few seconds.
+    fn take_in(
+        time: Res<Time>,
+        mut sim: ResMut<Sim>,
+        mut coop: ResMut<Coop>,
+        me: Res<LocalId>,
+    ) {
+        let Some(code) = coop.code.clone() else {
+            return;
+        };
+        let host = me.0 == HOST;
+        let alive = LINK.with(|cell| {
             let mut cell = cell.borrow_mut();
-            let link = cell.as_mut()?;
+            let Some(link) = cell.as_mut() else {
+                return false;
+            };
             let Ok(changes) = link.socket.try_update_peers() else {
-                return Some("Lost the connection: playing alone");
+                return false;
             };
             for (peer, state) in changes {
                 match state {
                     PeerState::Connected => {
                         link.peers.push((peer, None));
-                        if sim.is_host() {
+                        if host {
                             link.send(peer, sim.world().to_bytes().into(), RELIABLE);
                         }
                     }
@@ -411,7 +428,8 @@ mod web {
                             continue;
                         };
                         match link.peers.remove(i).1 {
-                            Some(HOST) => return Some("Your friend's game ended"),
+                            // The host went: play on alone until it's back.
+                            Some(HOST) => sim.go_offline(),
                             Some(id) => sim.remove_crab(id),
                             None => {}
                         }
@@ -429,36 +447,57 @@ mod web {
                         && crab.id != me.0
                     {
                         p.1 = Some(crab.id);
+                        // The host is here (again): back to its world.
+                        if crab.id == HOST && !sim.online() {
+                            sim.go_online(false);
+                        }
                     }
                     sim.receive(msg);
                 }
             }
-            let n = link.known().count();
-            coop.status = if sim.is_host() {
-                match n {
-                    0 => "Waiting for a friend...".into(),
-                    n => format!("Playing with {}", friends(n)),
-                }
-            } else if link.known().any(|id| id == HOST) {
-                format!("Playing with {}", friends(n))
-            } else {
-                "Joining your friend...".into()
-            };
-            None
+            true
         });
-        if let Some(why) = ended {
-            LINK.with(|cell| {
-                if let Some(mut link) = cell.borrow_mut().take() {
-                    link.socket.close();
-                }
-            });
-            sim.go_offline();
-            // A guest's crab can't become a host's: it goes back to solo play
-            // with the button. A host can simply invite again.
-            coop.ended = me.0 != HOST;
-            coop.code = None;
-            coop.status = why.into();
+        let (n, with_host) = LINK.with(|cell| {
+            cell.borrow().as_ref().map_or((0, false), |l| {
+                (l.known().count(), l.known().any(|id| id == HOST))
+            })
+        });
+        let together = if host { n > 0 } else { with_host };
+        coop.met |= together;
+        if together && alive {
+            coop.lonely = 0.0;
+        } else if coop.met || !alive {
+            coop.lonely += time.delta_secs();
+            if coop.lonely >= REJOIN_AFTER {
+                coop.lonely = 0.0;
+                rejoin(&mut sim, &code, host);
+            }
         }
+        coop.status = match (host, together, coop.met) {
+            (_, true, _) => format!("Playing with {}", friends(n)),
+            (true, false, _) => "Waiting for a friend...".into(),
+            (false, false, false) => "Joining your friend...".into(),
+            (false, false, true) => "Host away: playing alone...".into(),
+        };
+    }
+
+    /// Drop the connection (and everyone on it) and join `code`'s room
+    /// afresh: whoever is still there, or comes back, meets this device anew.
+    fn rejoin(sim: &mut Sim, code: &str, host: bool) {
+        let gone: Vec<PlayerId> = LINK.with(|cell| {
+            cell.borrow_mut().take().map_or(Vec::new(), |mut link| {
+                link.socket.close();
+                link.known().collect()
+            })
+        });
+        if host {
+            for id in gone {
+                sim.remove_crab(id);
+            }
+        } else {
+            sim.go_offline();
+        }
+        connect(code);
     }
 
     /// Send what the simulation wrote this frame.
@@ -495,9 +534,7 @@ mod web {
         mut label: Single<&mut Text, (With<InviteLabel>, Without<StatusLine>)>,
         mut line: Single<&mut Text, (With<StatusLine>, Without<InviteLabel>)>,
     ) {
-        let words = if coop.ended {
-            "Play solo"
-        } else if coop.flash > 0.0 {
+        let words = if coop.flash > 0.0 {
             "Link ready!"
         } else {
             "Invite a friend"
@@ -507,6 +544,13 @@ mod web {
         }
         if line.0 != coop.status {
             line.0.clone_from(&coop.status);
+            // For the browser tests, which can't read the game's own text.
+            if let Some(canvas) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id("crabscape"))
+            {
+                let _ = canvas.set_attribute("data-coop", &coop.status);
+            }
         }
     }
 
