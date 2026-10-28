@@ -103,7 +103,7 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Oil painter | `cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png` |
 | Disk housekeeping | `cargo tidy` (`cargo tidy report` only looks) |
 | Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`. Live: one Fly.io machine, redeployed by `introducer.yml` on `main` (setup and rules in its `src/main.rs`) |
-| Co-op on one computer | Two windows side by side (a hidden tab pauses). A browser that hides local addresses (Chrome's mDNS, often without macOS Local Network access) can't connect them: use headless Chrome with `--disable-features=WebRtcHideLocalIpsWithMdns` and two tabs, or a phone on cellular. `data-coop` on the canvas says each tab's co-op status |
+| Co-op on one computer | Two windows side by side (a hidden tab pauses). A browser that hides local addresses (Chrome's mDNS, often without macOS Local Network access) can't connect them: use headless Chrome with `--disable-features=WebRtcHideLocalIpsWithMdns --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` and each player in its own window (DevTools `Target.createTarget` with `newWindow`), or a phone on cellular. Console lines starting `co-op:` say who connected, met, went silent or rejoined. `data-coop` on the canvas says each tab's co-op status |
 
 Feel change? Run the same crabsim script on `main` and on your branch and compare the numbers (`cargo crabsim --help`
 lists the script format and flags). Visual change? Attach before/after screenshots.

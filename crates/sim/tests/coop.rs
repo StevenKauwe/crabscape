@@ -598,7 +598,9 @@ fn a_guest_who_rejoins_takes_the_hosts_word_for_every_enemy() {
     // The host is back: the guest goes online again.
     g.guest.go_online(false);
     let mut host_had = Vec::new();
-    play(&mut g, "", "", 60, |g| host_had.push(g.host.enemies()[0].pos.x));
+    play(&mut g, "", "", 60, |g| {
+        host_had.push(g.host.enemies()[0].pos.x)
+    });
     // Where the host had it, the lag (and at most two updates' gap) ago.
     let shown = g.guest.enemies()[0].pos.x;
     let n = host_had.len();

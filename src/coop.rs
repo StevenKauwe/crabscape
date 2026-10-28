@@ -126,9 +126,17 @@ mod web {
     const WAITING_AT_MOST: usize = 256;
     /// How long the button says the link went (seconds).
     const FLASH_FOR: f32 = 2.5;
-    /// How long a device without its company waits before joining the room
-    /// afresh, and again after that (seconds).
+    /// How long a device whose connection ended waits before joining the
+    /// room afresh (seconds).
     const REJOIN_AFTER: f32 = 5.0;
+    /// How long a device that lost its company, but still has a connection,
+    /// waits before joining afresh, and again after that: long enough for a
+    /// fresh join to find the others (seconds).
+    const ALONE_FOR: f32 = 15.0;
+    /// A device that has sent nothing for this long is gone (seconds). Every
+    /// device sends its crab many times a second, and a dropped connection
+    /// isn't always reported, so silence is the sure sign.
+    const SILENT_FOR: f32 = 5.0;
     /// The button's width, and its gap from the art-style button.
     const WIDTH: f32 = 124.0;
     const GAP: f32 = 8.0;
@@ -145,15 +153,23 @@ mod web {
         /// Played together already (a guest: with the host; the host: with
         /// anyone), so being alone now means they were lost.
         met: bool,
-        /// Seconds alone, or with a dead connection, since the last try.
+        /// Seconds alone, or with a dead connection, since the last (re)join.
         lonely: f32,
+    }
+
+    /// A connected device.
+    struct Peer {
+        id: PeerId,
+        /// Its player, once its first crab update came.
+        player: Option<PlayerId>,
+        /// Seconds since it last sent anything.
+        quiet: f32,
     }
 
     /// The connection to the other devices.
     struct Link {
         socket: WebRtcSocket,
-        /// Each connected device, and its player once its first update came.
-        peers: Vec<(PeerId, Option<PlayerId>)>,
+        peers: Vec<Peer>,
         /// Messages for a player whose device we can't tell yet.
         waiting: Vec<(PlayerId, Packet, usize)>,
     }
@@ -170,8 +186,11 @@ mod web {
         }
 
         fn send_to(&mut self, id: PlayerId, bytes: Packet, channel: usize) {
-            match self.peers.iter().find(|p| p.1 == Some(id)) {
-                Some(&(peer, _)) => self.send(peer, bytes, channel),
+            match self.peers.iter().find(|p| p.player == Some(id)) {
+                Some(p) => {
+                    let peer = p.id;
+                    self.send(peer, bytes, channel);
+                }
                 None => {
                     if self.waiting.len() >= WAITING_AT_MOST {
                         self.waiting.remove(0);
@@ -182,7 +201,7 @@ mod web {
         }
 
         fn known(&self) -> impl Iterator<Item = PlayerId> + '_ {
-            self.peers.iter().filter_map(|p| p.1)
+            self.peers.iter().filter_map(|p| p.player)
         }
     }
 
@@ -397,12 +416,7 @@ mod web {
     /// What arrived since the last frame: devices that came or went, and
     /// their messages, which go to the simulation. Lost everyone (or the
     /// connection itself)? Join the room afresh every few seconds.
-    fn take_in(
-        time: Res<Time>,
-        mut sim: ResMut<Sim>,
-        mut coop: ResMut<Coop>,
-        me: Res<LocalId>,
-    ) {
+    fn take_in(time: Res<Time>, mut sim: ResMut<Sim>, mut coop: ResMut<Coop>, me: Res<LocalId>) {
         let Some(code) = coop.code.clone() else {
             return;
         };
@@ -415,44 +429,63 @@ mod web {
             let Ok(changes) = link.socket.try_update_peers() else {
                 return false;
             };
+            let mut gone = Vec::new();
             for (peer, state) in changes {
                 match state {
                     PeerState::Connected => {
-                        link.peers.push((peer, None));
+                        info!("co-op: a device connected");
+                        link.peers.push(Peer {
+                            id: peer,
+                            player: None,
+                            quiet: 0.0,
+                        });
                         if host {
                             link.send(peer, sim.world().to_bytes().into(), RELIABLE);
                         }
                     }
-                    PeerState::Disconnected => {
-                        let Some(i) = link.peers.iter().position(|p| p.0 == peer) else {
-                            continue;
-                        };
-                        match link.peers.remove(i).1 {
-                            // The host went: play on alone until it's back.
-                            Some(HOST) => sim.go_offline(),
-                            Some(id) => sim.remove_crab(id),
-                            None => {}
-                        }
-                    }
+                    PeerState::Disconnected => gone.push(peer),
                 }
             }
             for channel in [RELIABLE, QUICK] {
                 for (peer, bytes) in link.socket.channel_mut(channel).receive() {
+                    let Some(p) = link.peers.iter_mut().find(|p| p.id == peer) else {
+                        continue;
+                    };
+                    p.quiet = 0.0;
                     let Some(msg) = Msg::from_bytes(&bytes) else {
                         continue;
                     };
                     if let Msg::Crab { crab, .. } = &msg
-                        && let Some(p) = link.peers.iter_mut().find(|p| p.0 == peer)
-                        && p.1.is_none()
+                        && p.player.is_none()
                         && crab.id != me.0
                     {
-                        p.1 = Some(crab.id);
+                        p.player = Some(crab.id);
+                        info!("co-op: met player {}", crab.id.0);
                         // The host is here (again): back to its world.
                         if crab.id == HOST && !sim.online() {
                             sim.go_online(false);
                         }
                     }
                     sim.receive(msg);
+                }
+            }
+            for p in &mut link.peers {
+                p.quiet += time.delta_secs();
+                if p.quiet > SILENT_FOR {
+                    info!("co-op: a device went silent");
+                    gone.push(p.id);
+                }
+            }
+            for peer in gone {
+                let Some(i) = link.peers.iter().position(|p| p.id == peer) else {
+                    continue;
+                };
+                info!("co-op: a device left");
+                match link.peers.remove(i).player {
+                    // The host went: play on alone until it's back.
+                    Some(HOST) => sim.go_offline(),
+                    Some(id) => sim.remove_crab(id),
+                    None => {}
                 }
             }
             true
@@ -468,7 +501,8 @@ mod web {
             coop.lonely = 0.0;
         } else if coop.met || !alive {
             coop.lonely += time.delta_secs();
-            if coop.lonely >= REJOIN_AFTER {
+            let wait = if alive { ALONE_FOR } else { REJOIN_AFTER };
+            if coop.lonely >= wait {
                 coop.lonely = 0.0;
                 rejoin(&mut sim, &code, host);
             }
@@ -484,6 +518,7 @@ mod web {
     /// Drop the connection (and everyone on it) and join `code`'s room
     /// afresh: whoever is still there, or comes back, meets this device anew.
     fn rejoin(sim: &mut Sim, code: &str, host: bool) {
+        info!("co-op: joining the room afresh");
         let gone: Vec<PlayerId> = LINK.with(|cell| {
             cell.borrow_mut().take().map_or(Vec::new(), |mut link| {
                 link.socket.close();
@@ -516,7 +551,7 @@ mod web {
                 let bytes: Packet = msg.to_bytes().into();
                 match to {
                     To::Everyone => {
-                        let peers: Vec<PeerId> = link.peers.iter().map(|p| p.0).collect();
+                        let peers: Vec<PeerId> = link.peers.iter().map(|p| p.id).collect();
                         for peer in peers {
                             link.send(peer, bytes.clone(), channel);
                         }
