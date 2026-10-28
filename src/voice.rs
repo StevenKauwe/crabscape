@@ -54,6 +54,58 @@ impl Plugin for VoicePlugin {
     }
 }
 
+/// Why the browser didn't hand over the microphone, so the player knows
+/// whether they can fix it (shared with the report form's Speak).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub(crate) enum MicTrouble {
+    /// The player, the browser or the phone said no.
+    Blocked,
+    /// There's no microphone.
+    Missing,
+    /// Another app (a phone call, say) has it.
+    Busy,
+    /// Anything else, or a page where this browser can't use one at all.
+    Other,
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+impl MicTrouble {
+    /// From the name of the browser's error (older names included).
+    pub(crate) fn from_error(name: &str) -> Self {
+        match name {
+            "NotAllowedError" | "SecurityError" | "PermissionDeniedError" => Self::Blocked,
+            "NotFoundError" | "OverconstrainedError" | "DevicesNotFoundError" => Self::Missing,
+            "NotReadableError" | "AbortError" | "TrackStartError" => Self::Busy,
+            _ => Self::Other,
+        }
+    }
+
+    /// A few words for the Mic button.
+    pub(crate) fn short(self) -> &'static str {
+        match self {
+            Self::Blocked => "Blocked",
+            Self::Busy => "Mic busy",
+            Self::Missing | Self::Other => "No mic",
+        }
+    }
+
+    /// What happened and what the player can do about it.
+    pub(crate) fn advice(self) -> &'static str {
+        match self {
+            Self::Blocked => {
+                "The microphone is blocked. Allow it for this page; on an iPhone, also switch on \
+                 Microphone for Chrome or Safari in the Settings app. Then try again, or type."
+            }
+            Self::Missing => "No microphone found: you can still type.",
+            Self::Busy => "Another app is using the microphone. Close it and try again, or type.",
+            Self::Other => "This browser can't use the microphone here: you can still type.",
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) use web::mic_trouble;
 #[cfg(target_arch = "wasm32")]
 pub use web::{forget, forget_all, hear, meet, outbox};
 
@@ -76,7 +128,7 @@ mod web {
         RtcTrackEvent,
     };
 
-    use super::Note;
+    use super::{MicTrouble, Note};
     use crate::coop::LocalId;
     use crate::player::{GameSet, LocalPlayer};
     use crate::settings::Settings;
@@ -121,8 +173,8 @@ mod web {
         mic: Option<MediaStreamTrack>,
         /// Asked the browser for the microphone; waiting for the answer.
         asking: bool,
-        /// The browser said no (or has no microphone).
-        refused: bool,
+        /// Why the browser last said no.
+        refused: Option<MicTrouble>,
     }
 
     thread_local! {
@@ -428,7 +480,7 @@ mod web {
         }
         let Some(devices) = web_sys::window().and_then(|w| w.navigator().media_devices().ok())
         else {
-            with(|v| v.refused = true);
+            with(|v| v.refused = Some(MicTrouble::Other));
             return;
         };
         let audio = js_sys::Object::new();
@@ -437,32 +489,53 @@ mod web {
         }
         let wanted = MediaStreamConstraints::new();
         wanted.set_audio(&audio);
-        let Ok(ask) = devices.get_user_media_with_constraints(&wanted) else {
-            with(|v| v.refused = true);
-            return;
+        let ask = match devices.get_user_media_with_constraints(&wanted) {
+            Ok(ask) => ask,
+            Err(e) => {
+                with(|v| v.refused = Some(mic_trouble(&e)));
+                return;
+            }
         };
         with(|v| v.asking = true);
         spawn_local(async move {
-            let track = JsFuture::from(ask)
-                .await
-                .ok()
-                .and_then(|s| s.dyn_into::<MediaStream>().ok())
-                .and_then(|s| {
-                    s.get_audio_tracks()
-                        .get(0)
-                        .dyn_into::<MediaStreamTrack>()
-                        .ok()
-                });
-            with(|v| {
+            let track = match JsFuture::from(ask).await {
+                Ok(s) => s
+                    .dyn_into::<MediaStream>()
+                    .ok()
+                    .and_then(|s| {
+                        s.get_audio_tracks()
+                            .get(0)
+                            .dyn_into::<MediaStreamTrack>()
+                            .ok()
+                    })
+                    .ok_or(MicTrouble::Missing),
+                Err(e) => Err(mic_trouble(&e)),
+            };
+            let track = with(|v| {
                 v.asking = false;
-                v.refused = track.is_none();
-                v.mic = track.clone();
+                v.refused = track.as_ref().err().copied();
+                v.mic = track.ok();
+                v.mic.clone()
             });
             if let Some(track) = track {
                 crate::sound::recording(true);
                 plug(Some(&track));
             }
         });
+    }
+
+    /// Why the browser refused the microphone with `error`, logged so it
+    /// reaches bug reports.
+    pub(crate) fn mic_trouble(error: &JsValue) -> MicTrouble {
+        let field = |key: &str| {
+            Reflect::get(error, &key.into())
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_default()
+        };
+        let name = field("name");
+        warn!("microphone refused: {name}: {}", field("message"));
+        MicTrouble::from_error(&name)
     }
 
     /// Put `track` (or nothing) into every line's sending side.
@@ -602,8 +675,8 @@ mod web {
         let (words, colour) = with(|v| match (&v.mic, v.asking, v.refused) {
             (Some(_), _, _) => ("Mic on", Color::srgba(0.7, 1.0, 0.8, 1.0)),
             (None, true, _) => ("Mic...", Color::srgba(1.0, 0.9, 0.7, 0.7)),
-            (None, false, true) => ("No mic", Color::srgba(1.0, 0.6, 0.5, 0.8)),
-            (None, false, false) => ("Mic off", Color::srgba(1.0, 0.9, 0.7, 0.7)),
+            (None, false, Some(trouble)) => (trouble.short(), Color::srgba(1.0, 0.6, 0.5, 0.8)),
+            (None, false, None) => ("Mic off", Color::srgba(1.0, 0.9, 0.7, 0.7)),
         });
         if label.0.0 != words {
             label.0.0 = words.into();
@@ -666,6 +739,21 @@ mod web {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_blocked_microphone_is_told_apart_from_a_missing_or_busy_one() {
+        for (error, trouble) in [
+            ("NotAllowedError", MicTrouble::Blocked),
+            ("SecurityError", MicTrouble::Blocked),
+            ("NotFoundError", MicTrouble::Missing),
+            ("NotReadableError", MicTrouble::Busy),
+            ("TypeError", MicTrouble::Other),
+            ("", MicTrouble::Other),
+        ] {
+            assert_eq!(MicTrouble::from_error(error), trouble, "{error}");
+        }
+        assert!(MicTrouble::Blocked.advice().contains("iPhone"));
+    }
 
     #[test]
     fn notes_come_back_whole_and_bad_bytes_are_dropped() {
