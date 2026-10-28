@@ -597,12 +597,14 @@ fn a_guest_who_rejoins_takes_the_hosts_word_for_every_enemy() {
     e.handovers += 5;
     // The host is back: the guest goes online again.
     g.guest.go_online(false);
-    play(&mut g, "", "", 60, |_| {});
-    let (mine, theirs) = (&g.guest.enemies()[0], &g.host.enemies()[0]);
+    let mut host_had = Vec::new();
+    play(&mut g, "", "", 60, |g| host_had.push(g.host.enemies()[0].pos.x));
+    // Where the host had it, the lag (and at most two updates' gap) ago.
+    let shown = g.guest.enemies()[0].pos.x;
+    let n = host_had.len();
+    let recent = &host_had[n - LAG as usize - 2 * SEND_EVERY as usize..=n - LAG as usize];
     assert!(
-        (mine.pos.x - theirs.pos.x).abs() < 1.0,
-        "the guest shows the enemy where the host has it: {} vs {}",
-        mine.pos.x,
-        theirs.pos.x
+        recent.iter().any(|x| (x - shown).abs() < 0.01),
+        "the guest shows the enemy where the host had it: {shown} vs {recent:?}"
     );
 }

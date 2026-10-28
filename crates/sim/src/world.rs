@@ -175,12 +175,21 @@ impl Sim {
     }
 
     /// Take part in a co-op game, as the host (it runs the world) or a guest.
-    /// Solo play never calls this.
+    /// Solo play never calls this. A guest takes the host's word for every
+    /// enemy: its own copies may have gone their own way while it played
+    /// alone (say, while the host's phone slept), so they wait for the host's
+    /// updates.
     pub fn go_online(&mut self, host: bool) {
         self.net = Some(Net {
             host,
             ..Net::default()
         });
+        if !host {
+            for e in &mut self.enemies {
+                e.runner = None;
+                e.handovers = 0;
+            }
+        }
     }
 
     /// In a co-op game?
