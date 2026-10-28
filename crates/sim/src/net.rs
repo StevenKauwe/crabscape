@@ -4,9 +4,11 @@
 //! - **Its own crab** runs here, exactly as in solo, so it never feels the
 //!   lag. Other players' crabs are *remote*: never stepped here, only set from
 //!   their updates ([`Msg::Crab`]).
-//! - **Enemies** run on one device (for now the host's). Everyone else steps
-//!   a copy between updates ([`Msg::Enemy`]), so it moves and strikes on
-//!   time.
+//! - **An enemy** runs on the device of the crab it hunts, so it moves and
+//!   strikes on that crab's real position, as in solo; one hunting nobody
+//!   runs on the host's. When its prey changes, its runner hands it over
+//!   ([`Msg::Handover`]). Everyone else steps a copy between updates
+//!   ([`Msg::Enemy`]), so it moves and strikes on time.
 //! - **The defender decides.** An enemy's blow is judged on the device of the
 //!   crab it reaches, against that device's copy of the enemy: a parry is as
 //!   crisp as in solo, whatever the lag. What happened goes to the enemy's
@@ -61,6 +63,10 @@ pub enum Msg {
     Crab { at: u64, crab: CrabState },
     /// An enemy's state, from the device that runs it (often).
     Enemy { at: u64, enemy: Enemy },
+    /// The device that ran an enemy hands it over (to the device of the crab
+    /// it now hunts, or the host's): its whole state, with the new
+    /// [`Enemy::runner`]. It must arrive.
+    Handover { at: u64, enemy: Enemy },
     /// `by`'s claw reached `enemy` (run elsewhere), from `from_x`.
     HitEnemy {
         by: PlayerId,
@@ -102,7 +108,7 @@ pub struct CrabState {
 /// A device's part in a co-op game (the [`Sim`] has none in solo play).
 #[derive(Clone, Debug, Default)]
 pub struct Net {
-    /// Runs the world: the enemies, for now.
+    /// Runs the world: the enemies that hunt nobody.
     pub host: bool,
     pub(crate) outbox: Vec<Outgoing>,
     /// Events of this device's crabs since their last update.
@@ -110,9 +116,10 @@ pub struct Net {
     /// Messages sent about each enemy run elsewhere, per crab of ours: (enemy,
     /// crab, how many, tick of the latest).
     pub(crate) told: Vec<(u32, PlayerId, u32, u64)>,
-    /// The sender's tick of the newest update applied, per crab and enemy.
+    /// The sender's tick of the newest update applied, per crab, and per
+    /// enemy and hand-over (each runner counts its own ticks).
     pub(crate) crab_at: Vec<(PlayerId, u64)>,
-    pub(crate) enemy_at: Vec<(u32, u64)>,
+    pub(crate) enemy_at: Vec<((u32, u32), u64)>,
 }
 
 impl Net {
