@@ -29,6 +29,7 @@
 //! - [`input`]: keys, controllers and touch buttons become move requests
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
+//! - [`coop`]: playing with friends: the invite link and the connection
 //! - [`critters`]: the snapping shrimp and the moray (placeholder shapes)
 //! - [`deep`]: the depth counter in the pit, and something big in the dark
 //! - [`effects`]: bubbles, sand puffs and marine snow
@@ -48,6 +49,7 @@
 //! - [`view`]: the camera and the HUD text
 
 mod background;
+mod coop;
 mod critters;
 mod deep;
 mod effects;
@@ -107,6 +109,7 @@ fn main() {
         // at most 15 plugins in one group.)
         .add_plugins((
             background::BackgroundPlugin,
+            coop::CoopPlugin,
             replay::ReplayPlugin,
             memory::MemoryPlugin,
             level::LevelPlugin,

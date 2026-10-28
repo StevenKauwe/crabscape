@@ -159,7 +159,7 @@ pub fn browser_key(suffix: &str) -> String {
 
 /// This page's preview folder, if it is a preview build.
 #[cfg(target_arch = "wasm32")]
-fn build_slug() -> Option<String> {
+pub(crate) fn build_slug() -> Option<String> {
     let path = web_sys::window()?.location().pathname().ok()?;
     keys::slug(&path)
 }

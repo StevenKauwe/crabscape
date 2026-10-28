@@ -78,6 +78,10 @@ web-sys = { version = "0.3", features = [
 wasm-bindgen = "0.2"
 # Reflect, to set navigator.audioSession (not in web-sys yet): iPhone sound with the silent switch on.
 js-sys = "0.3"
+# Co-op (src/coop.rs): browser-to-browser connections (WebRTC), introduced by tools/introducer. Web only for now.
+matchbox_socket = "0.14"
+# Runs the connection's background work on the browser's event loop.
+wasm-bindgen-futures = "0.4"
 
 # Development builds: optimise dependencies (Bevy is slow unoptimised) but keep
 # our own code quick to compile.
