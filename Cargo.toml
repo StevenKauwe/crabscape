@@ -10,9 +10,10 @@ default-run = "crabscape"
 
 # The game is the root package. `crates/sim` is the simulation (the game rules with no graphics), which the game
 # uses and which also runs headless (`cargo crabsim`); plain `cargo build` / `cargo test` / the wasm build cover the
-# game and the simulation. The art tools are the other members: `--workspace` or `-p painter` to include them.
+# game and the simulation. The art tools and `crates/listen` (speech to text for spoken reports, its own wasm file,
+# built by tools/build-web.sh) are the other members: `--workspace` or `-p painter` to include them.
 [workspace]
-members = ["crates/sim", "crates/painter", "crates/crabrig", "tools/oil-atlas", "tools/webtest"]
+members = ["crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "tools/oil-atlas", "tools/webtest"]
 default-members = [".", "crates/sim"]
 
 [dependencies]
@@ -80,6 +81,9 @@ web-sys = { version = "0.3", features = [
     "RtcSessionDescriptionInit", "RtcSdpType", "RtcTrackEvent", "RtcRtpTransceiver", "RtcRtpTransceiverInit",
     "RtcRtpTransceiverDirection", "RtcRtpSender", "RtcIceCandidateInit", "AnalyserNode",
     "RtcPeerConnectionState",
+    # Reports (src/report.rs): the form on the page, recording a spoken report, the listener worker, sending it.
+    "HtmlElement", "HtmlTextAreaElement", "DomTokenList", "MediaRecorder", "BlobEvent", "Blob", "OfflineAudioContext",
+    "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "RequestInit", "Response",
 ] }
 wasm-bindgen = "0.2"
 # Reflect, to set navigator.audioSession (not in web-sys yet): iPhone sound with the silent switch on.

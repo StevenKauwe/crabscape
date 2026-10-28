@@ -122,7 +122,9 @@ jobs:
       - name: Build the web game
         run: tools/build-web.sh
       - name: No relaxed SIMD (iPhone/WebKit rejects it)
-        run: wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
+        run: |
+          wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
+          wasm-tools validate --features=-relaxed-simd web/listen/listen_bg.wasm
       - name: Size report (information only)
         run: |
           {

@@ -5,6 +5,8 @@
 # and committing a new copy on every change would bloat the repository fast.
 # web/index.html IS committed: it is hand-written source.
 /web/pkg/
+# The speech-to-text listener's compiled files (web/listen/worker.js is hand-written and committed).
+/web/listen/listen*
 
 # The native build's save file (the web build saves in the browser instead).
 /crabscape-save.json
