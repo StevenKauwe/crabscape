@@ -138,34 +138,37 @@ fn a_friends_crab_moves_only_by_their_updates() {
     assert_eq!(g.host.crab(GUEST).unwrap().mover.pos, NEAR);
 }
 
-/// The guest by the spawn against the fixture at 240, which the host runs.
+/// The guest by the spawn against the fixture at 240. The host starts out
+/// running it and hands it to the guest as soon as it hunts the guest.
 struct GuestDuel {
     /// The guest's crab's events, tick by tick (index 0 = tick 1)...
     guest: Vec<StepEvents>,
     /// ...and what the host shows of them.
     host_saw: Vec<StepEvents>,
-    /// The host's fixture's state, tick by tick.
+    /// The host's copy of the fixture's state, tick by tick.
     host_states: Vec<State>,
-    health: f32,
+    /// The guest's crab's health, tick by tick.
+    health: Vec<f32>,
 }
 
 fn guest_duel(script: &str) -> GuestDuel {
     let mut g = game(NEAR, FakeLink::new(LAG, 3, 0.1, 3), |sim| {
         sim.spawn_enemy(Kind::Fixture, Vec2::new(240.0, 0.0));
     });
-    let (mut guest, mut host_saw, mut host_states) = (Vec::new(), Vec::new(), Vec::new());
+    let mut d = GuestDuel {
+        guest: Vec::new(),
+        host_saw: Vec::new(),
+        host_states: Vec::new(),
+        health: Vec::new(),
+    };
     play(&mut g, "", script, 160, |g| {
-        guest.push(g.guest.crab(GUEST).unwrap().events);
-        host_saw.push(g.host.crab(GUEST).unwrap().events);
-        host_states.push(g.host.enemies()[0].state);
+        let crab = g.guest.crab(GUEST).unwrap();
+        d.guest.push(crab.events);
+        d.health.push(crab.fighter.vitals.health);
+        d.host_saw.push(g.host.crab(GUEST).unwrap().events);
+        d.host_states.push(g.host.enemies()[0].state);
     });
-    let health = g.guest.crab(GUEST).unwrap().fighter.vitals.health;
-    GuestDuel {
-        guest,
-        host_saw,
-        host_states,
-        health,
-    }
+    d
 }
 
 /// The ticks (1 = the first) on which `f` holds.
@@ -184,8 +187,8 @@ fn the_guest_parries_on_their_own_screen_with_the_same_window_as_solo() {
     // (`scenarios.rs`). Over 150 ms of lag, measured on the guest's screen,
     // it's the same.
     let parry = guest_duel(&format!("@{} parry", h - 11));
-    assert_eq!(ticks_where(&parry.guest, |e| e.parried), [h]);
-    assert_eq!(parry.health, 100.0, "no damage");
+    assert_eq!(ticks_where(&parry.guest, |e| e.parried)[0], h);
+    assert_eq!(parry.health[h + 20], 100.0, "no damage");
     // The host hears of it and its fixture reels, a lag later.
     let reels = 1 + parry
         .host_states
@@ -204,9 +207,9 @@ fn the_guest_parries_on_their_own_screen_with_the_same_window_as_solo() {
 
 #[test]
 fn only_the_guests_device_decides_blows_on_the_guest() {
-    // The host's fixture strikes long before the guest sees it; the host
-    // must not judge that blow on its copy of the guest's crab, or the host
-    // would show a hit the guest may have parried.
+    // The host's copy of the fixture strikes long before the guest's does;
+    // the host must not judge that blow on its copy of the guest's crab, or
+    // it would show a hit the guest may have parried.
     let hurt = guest_duel("");
     let h = ticks_where(&hurt.guest, |e| e.hurt)[0];
     let shown = ticks_where(&hurt.host_saw, |e| e.hurt)[0];
@@ -283,4 +286,131 @@ fn a_net_cut_by_one_crab_is_cut_for_everyone() {
     assert!(!g.host.level.nets[0].cut, "not yet: the news takes a while");
     play(&mut g, "", "", u64::from(LAG) + 1, |_| {});
     assert!(g.host.level.nets[0].cut, "the host heard");
+}
+
+// --- Enemies run on the device of the crab they hunt -------------------------
+
+#[test]
+fn an_enemy_runs_where_its_prey_plays_and_never_in_two_places() {
+    // A fixture that gives up once the guest is 300 from its home.
+    let setup = |sim: &mut Sim| {
+        sim.tuning.fixture.notice_range = 300.0;
+        sim.tuning.fixture.give_up_range = 300.0;
+        sim.spawn_enemy(Kind::Fixture, Vec2::new(400.0, 0.0));
+    };
+    let mut g = game(NEAR, FakeLink::new(LAG, 3, 0.1, 5), setup);
+    let mut who = Vec::new();
+    play(&mut g, "", "t=1.5 walk=left", ticks(5.0), |g| {
+        let runs = (g.host.runs(0), g.guest.runs(0));
+        assert!(
+            !(runs.0 && runs.1),
+            "two runners on tick {}",
+            g.host.tick_count()
+        );
+        who.push(runs);
+    });
+    who.dedup();
+    // (host runs it, guest runs it): the host notices the guest at once and
+    // hands it over; a lag later the guest runs it; when the guest walks away
+    // it gives up, and goes back to the host.
+    assert_eq!(
+        who,
+        [(false, false), (false, true), (false, false), (true, false)]
+    );
+}
+
+/// An enemy as the rules see it, leaving out who runs it.
+fn same_animal(a: &crabsim::Enemy, b: &crabsim::Enemy) -> bool {
+    let mut a = a.clone();
+    a.runner = b.runner;
+    a.handovers = b.handovers;
+    a.heard.clone_from(&b.heard);
+    a == *b
+}
+
+#[test]
+fn a_mantis_hunting_the_guest_fights_on_the_guests_device_exactly_as_in_solo() {
+    // The crab on open floor at x 250, the mantis's burrow at 470 (as in
+    // `scenarios.rs`). Its combo follows a landed first strike.
+    const CRAB: Vec2 = Vec2::new(250.0, 0.0);
+    let setup = |sim: &mut Sim| {
+        sim.spawn_enemy(Kind::Mantis, Vec2::new(470.0, 0.0));
+    };
+    let mut alone = solo(CRAB, setup);
+    let (mut solo_mantis, mut solo_health) = (Vec::new(), Vec::new());
+    for _ in 0..400 {
+        alone.tick();
+        solo_mantis.push(alone.enemies()[0].clone());
+        solo_health.push(alone.crab(GUEST).unwrap().fighter.vitals.health);
+    }
+    let mut g = game(CRAB, FakeLink::new(LAG, 3, 0.1, 9), setup);
+    let (mut mantis, mut health, mut runs) = (Vec::new(), Vec::new(), Vec::new());
+    play(&mut g, "", "", 400, |g| {
+        mantis.push(g.guest.enemies()[0].clone());
+        health.push(g.guest.crab(GUEST).unwrap().fighter.vitals.health);
+        runs.push(g.guest.runs(0));
+    });
+    // From the tick the guest takes it over, it plays out as in solo (a lag
+    // later): rear, cocked hold, both strikes of the combo, the recovery.
+    let took = runs.iter().position(|&r| r).expect("the guest runs it");
+    let k = solo_mantis
+        .iter()
+        .position(|m| same_animal(&mantis[took], m))
+        .expect("the same moment exists in solo");
+    let recovered = k + solo_mantis[k..]
+        .windows(2)
+        .position(|w| w[0].state == State::Recover && w[1].state != State::Recover)
+        .expect("it recovers");
+    let strikes = solo_mantis[k..=recovered]
+        .windows(2)
+        .filter(|w| w[0].state != State::Attack && w[1].state == State::Attack)
+        .count();
+    assert_eq!(strikes, 2, "the whole combo is in the stretch compared");
+    for j in 0..=recovered - k {
+        assert!(
+            same_animal(&mantis[took + j], &solo_mantis[k + j]),
+            "{j} ticks after the guest took it over"
+        );
+        assert_eq!(health[took + j], solo_health[k + j]);
+    }
+    assert!(
+        health[took + recovered - k] < 50.0,
+        "two clubs and two bubbles landed"
+    );
+}
+
+#[test]
+fn a_hit_that_crosses_a_hand_over_is_not_lost() {
+    // Half a second each way: the guest's smash leaves for the host before
+    // the host's hand-over reaches the guest. The host passes it on.
+    const SLOW: u32 = 60;
+    const SMASH: &str = "t=0.05 smash";
+    let fixture = |sim: &mut Sim| {
+        sim.spawn_enemy(Kind::Fixture, Vec2::new(240.0, 0.0));
+    };
+    let mut alone = solo(NEAR, |sim| {
+        bag(sim);
+    });
+    let script = Replay::parse(SMASH).unwrap();
+    let mut playback = script.playback();
+    let mut hit_at = None;
+    for _ in 0..ticks(1.0) {
+        alone.set_controls(GUEST, playback.next_controls());
+        alone.tick();
+        let health = alone.enemies()[0].vitals.health;
+        if health < 40.0 && hit_at.is_none() {
+            hit_at = Some((alone.tick_count(), health));
+        }
+    }
+    let (hit_at, after) = hit_at.expect("the smash lands");
+    assert!(
+        hit_at < u64::from(SLOW),
+        "the smash leaves before the hand-over arrives"
+    );
+    let mut g = game(NEAR, FakeLink::new(SLOW, 0, 0.0, 1), fixture);
+    play(&mut g, "", SMASH, ticks(3.0), |_| {});
+    assert!(g.guest.runs(0), "the guest took it over");
+    let health = |sim: &Sim| sim.enemies()[0].vitals.health;
+    assert_eq!(health(&g.guest), after, "the smash counted, once");
+    assert_eq!(health(&g.host), after, "and the host shows it");
 }
