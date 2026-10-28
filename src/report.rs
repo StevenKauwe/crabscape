@@ -105,6 +105,7 @@ mod web {
 
     use crate::coop::LocalId;
     use crate::settings::{Hear, Settings};
+    use crate::voice::{MicTrouble, mic_trouble};
 
     /// The form, and what it's doing.
     #[derive(Default)]
@@ -312,23 +313,29 @@ mod web {
         }
         let Some(devices) = web_sys::window().and_then(|w| w.navigator().media_devices().ok())
         else {
-            note("This browser can't use the microphone here.");
+            note(MicTrouble::Other.advice());
             return;
         };
         let wanted = MediaStreamConstraints::new();
         wanted.set_audio(&JsValue::TRUE);
-        let Ok(ask) = devices.get_user_media_with_constraints(&wanted) else {
-            note("This browser can't use the microphone here.");
-            return;
+        let ask = match devices.get_user_media_with_constraints(&wanted) {
+            Ok(ask) => ask,
+            Err(e) => {
+                note(mic_trouble(&e).advice());
+                return;
+            }
         };
         note("Asking for the microphone...");
         spawn_local(async move {
-            let Some(stream) = JsFuture::from(ask)
-                .await
-                .ok()
-                .and_then(|s| s.dyn_into::<MediaStream>().ok())
-            else {
-                note("No microphone: you can still type.");
+            let stream = match JsFuture::from(ask).await {
+                Ok(s) => s.dyn_into::<MediaStream>().ok(),
+                Err(e) => {
+                    note(mic_trouble(&e).advice());
+                    return;
+                }
+            };
+            let Some(stream) = stream else {
+                note(MicTrouble::Missing.advice());
                 return;
             };
             let Ok(recorder) = MediaRecorder::new_with_media_stream(&stream) else {
