@@ -99,6 +99,7 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Oil-paint the atlas | `tools/paint-oil-crab.sh` |
 | Oil painter | `cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png` |
 | Disk housekeeping | `cargo tidy` (`cargo tidy report` only looks) |
+| Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`; deploy with `fly deploy tools/introducer` (first-time setup in its `src/main.rs`) |
 
 Feel change? Run the same crabsim script on `main` and on your branch and compare the numbers (`cargo crabsim --help`
 lists the script format and flags). Visual change? Attach before/after screenshots.

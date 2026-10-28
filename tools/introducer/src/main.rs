@@ -11,8 +11,21 @@
 //! use and vanish when empty. Only `crabscape-` rooms are allowed.
 //!
 //! Run it here with `cargo run --release` (port 3536, or `PORT`), and point
-//! the game at it with `?introducer=ws://localhost:3536`. It runs on Fly.io
-//! from this folder's `Dockerfile` and `fly.toml`: `fly deploy`.
+//! the game at it with `?introducer=ws://localhost:3536`.
+//!
+//! It runs on Fly.io from this folder's `Dockerfile` and `fly.toml`. Setting
+//! it up the first time (the Fly login stays on that computer; nothing secret
+//! is in this repository):
+//!
+//! ```text
+//! brew install flyctl                   # or see fly.io/docs/flyctl/install
+//! fly auth login
+//! fly apps create crabscape-introducer  # once; a taken name means changing fly.toml and INTRODUCER in src/coop.rs
+//! fly deploy tools/introducer           # again after any change here
+//! ```
+//!
+//! Anyone can reach it, as every browser must, so it lets in only
+//! `crabscape-` rooms and holds nothing but the open connections.
 
 use std::net::{Ipv4Addr, SocketAddr};
 
