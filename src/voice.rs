@@ -489,11 +489,17 @@ mod web {
     #[derive(Component)]
     struct MicLabel;
 
-    /// The Mic button: left of the invite button.
+    /// The Mic button: left of the invite button, or on a narrow screen
+    /// (where the buttons sit lower, level with the health bars) left of
+    /// the settings button, below the bars.
     fn button_rect(window: Vec2) -> Rect {
-        let invite = crate::coop::invite_rect(window);
-        let right = invite.min.x - GAP;
-        Rect::new(right - MIC_WIDTH, invite.min.y, right, invite.max.y)
+        let beside = if window.x < 600.0 {
+            crate::settings::button_rect(window)
+        } else {
+            crate::coop::invite_rect(window)
+        };
+        let right = beside.min.x - GAP;
+        Rect::new(right - MIC_WIDTH, beside.min.y, right, beside.max.y)
     }
 
     fn spawn_button(mut commands: Commands, window: Single<&Window>) {
@@ -643,11 +649,16 @@ mod web {
         (samples.iter().map(|x| x * x).sum::<f32>() / samples.len().max(1) as f32).sqrt()
     }
 
-    /// Keep the button beside the invite button as the window changes.
+    /// Keep the button in place as the window changes (or the phone turns).
     fn place(window: Single<&Window>, mut node: Single<&mut Node, With<MicButton>>) {
-        let top = px(button_rect(window.size()).min.y);
+        let size = window.size();
+        let r = button_rect(size);
+        let (top, right) = (px(r.min.y), px(size.x - r.max.x));
         if node.top != top {
             node.top = top;
+        }
+        if node.right != right {
+            node.right = right;
         }
     }
 }
