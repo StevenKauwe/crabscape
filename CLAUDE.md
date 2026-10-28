@@ -53,7 +53,10 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   https://claude.ai/artifact/PttxVTZCC75dqSEpKXYowf), or one link that lands on the action. Never "go to Settings…".
 - **Taste input** comes from the Studio page and `feedback` issues; `/triage` turns it into tasks.
 - **Always start from the latest `main`.** `git fetch origin` and branch (or make your worktree) from `origin/main` before any change; fetch and rebase again right before pushing.
-- **Small PRs, one issue each.** Work in your own git worktree when other sessions may be active.
+- **One PR per feature, moderate size, one issue each** (owner's call): bundle a feature's parts (rules,
+  connection, buttons, deploy) so it can be play-tested working together, rather than thin layers that each do
+  nothing yet; split by purpose into commits inside it. Work in your own git worktree when other sessions may be
+  active.
 - **Respect the token budget:** pick tasks that fit, stop at a clean point, leave a handoff comment if unfinished.
 - **Progress over perfection.** Nothing is precious; anything can be changed later by anyone's Claude.
 - New or changed decisions go in `docs/design/decisions.md`.
@@ -99,7 +102,8 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Oil-paint the atlas | `tools/paint-oil-crab.sh` |
 | Oil painter | `cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png` |
 | Disk housekeeping | `cargo tidy` (`cargo tidy report` only looks) |
-| Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`; deploy with `fly deploy tools/introducer` (first-time setup in its `src/main.rs`) |
+| Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`. Live: one Fly.io machine, redeployed by `introducer.yml` on `main` (setup and rules in its `src/main.rs`) |
+| Co-op on one computer | Two windows side by side (a hidden tab pauses). A browser that hides local addresses (Chrome's mDNS, often without macOS Local Network access) can't connect them: use headless Chrome with `--disable-features=WebRtcHideLocalIpsWithMdns --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` and each player in its own window (DevTools `Target.createTarget` with `newWindow`), or a phone on cellular. Console lines starting `co-op:` say who connected, met, went silent or rejoined. `data-coop` on the canvas says each tab's co-op status |
 
 Feel change? Run the same crabsim script on `main` and on your branch and compare the numbers (`cargo crabsim --help`
 lists the script format and flags). Visual change? Attach before/after screenshots.

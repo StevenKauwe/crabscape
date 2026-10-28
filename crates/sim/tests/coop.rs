@@ -581,3 +581,32 @@ fn when_a_friend_leaves_their_enemies_go_back_to_the_host() {
     assert_eq!(g.guest.crabs().len(), 1);
     g.guest.tick();
 }
+
+#[test]
+fn a_guest_who_rejoins_takes_the_hosts_word_for_every_enemy() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), |sim| {
+        sim.spawn_enemy(Kind::Fixture, Vec2::new(900.0, 0.0));
+    });
+    play(&mut g, "", "", 60, |_| {});
+    // The host's phone sleeps: the guest plays on alone, and its copy of the
+    // enemy goes its own way (moved, and handed over more often than the
+    // host's copy ever was).
+    g.guest.go_offline();
+    let e = &mut g.guest.enemies_mut()[0];
+    e.pos.x += 300.0;
+    e.handovers += 5;
+    // The host is back: the guest goes online again.
+    g.guest.go_online(false);
+    let mut host_had = Vec::new();
+    play(&mut g, "", "", 60, |g| {
+        host_had.push(g.host.enemies()[0].pos.x)
+    });
+    // Where the host had it, the lag (and at most two updates' gap) ago.
+    let shown = g.guest.enemies()[0].pos.x;
+    let n = host_had.len();
+    let recent = &host_had[n - LAG as usize - 2 * SEND_EVERY as usize..=n - LAG as usize];
+    assert!(
+        recent.iter().any(|x| (x - shown).abs() < 0.01),
+        "the guest shows the enemy where the host had it: {shown} vs {recent:?}"
+    );
+}
