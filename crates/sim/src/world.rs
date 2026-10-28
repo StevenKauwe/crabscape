@@ -30,7 +30,9 @@ use crate::rng::Rng;
 use crate::tuning::Tuning;
 
 /// Identifies a player. Only one exists for now, but co-op will add more.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 pub struct PlayerId(pub u32);
 
@@ -221,6 +223,13 @@ impl Sim {
     /// A message from another device arrives.
     pub fn receive(&mut self, msg: Msg) {
         let host = self.is_host();
+        // A crab we haven't met: a friend who just joined.
+        if let Msg::Crab { crab, .. } = &msg
+            && self.online()
+            && self.crabs.iter().all(|c| c.id != crab.id)
+        {
+            self.add_remote_crab(crab.id, crab.mover.pos);
+        }
         let Some(net) = &mut self.net else {
             return;
         };
@@ -319,6 +328,57 @@ impl Sim {
                 if let Some(n) = self.level.nets.get_mut(i) {
                     n.cut = true;
                 }
+            }
+            Msg::World { nets_cut } => {
+                for (n, cut) in self.level.nets.iter_mut().zip(nets_cut) {
+                    n.cut |= cut;
+                }
+            }
+        }
+    }
+
+    /// The host's word to a device that just joined: how the world stands.
+    pub fn world(&self) -> Msg {
+        Msg::World {
+            nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
+        }
+    }
+
+    /// A friend left: their crab goes, and the host takes over the enemies
+    /// their device ran (it tells everyone). Enemies hunting their crab give
+    /// up the hunt.
+    pub fn remove_crab(&mut self, id: PlayerId) {
+        self.crabs.retain(|c| c.id != id || !c.remote);
+        let host = self.is_host();
+        let tick = self.tick;
+        let Some(net) = &mut self.net else {
+            return;
+        };
+        net.crab_at.retain(|c| c.0 != id);
+        for e in &mut self.enemies {
+            if e.target == Some(id) {
+                e.target = None;
+            }
+            if host && e.runner == Some(id) {
+                e.runner = None;
+                e.handovers += 1;
+                let enemy = e.clone();
+                net.send(To::Everyone, Msg::Handover { at: tick, enemy });
+            }
+        }
+    }
+
+    /// Leave the co-op game (the host went): every other crab goes, and this
+    /// device runs the whole world again, as in solo play.
+    pub fn go_offline(&mut self) {
+        self.net = None;
+        self.crabs.retain(|c| !c.remote);
+        for e in &mut self.enemies {
+            e.runner = None;
+            if e.target
+                .is_some_and(|t| self.crabs.iter().all(|c| c.id != t))
+            {
+                e.target = None;
             }
         }
     }

@@ -77,7 +77,7 @@ impl Controls {
 }
 
 /// Something a crab carries home on its back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Carry {
     /// A lump of wild glowing bacteria: cultured at home into the lantern.
     Culture,
@@ -87,7 +87,7 @@ pub enum Carry {
 
 /// A crab's movement state. (In the game, each crab entity also carries a
 /// copy as a Bevy component, for the animation and camera to read.)
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 pub struct Mover {
     /// Feet position, in world units.
@@ -266,7 +266,7 @@ impl Mover {
 }
 
 /// Things that happened during one step, for the animation and effects.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StepEvents {
     /// Started crouching for a jump.
     pub crouched: bool,
