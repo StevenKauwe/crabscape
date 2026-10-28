@@ -16,7 +16,7 @@ use crate::combat::{self, Hit, Outcome, Source, Vitals};
 use crate::level::Level;
 use crate::physics::STEP;
 use crate::rng::Rng;
-use crate::tuning::{EnemyTuning, Tuning};
+use crate::tuning::{EnemyTuning, GrabTuning, Tuning};
 use crate::world::{PlayerId, SimCrab};
 
 /// What kind of animal it is.
@@ -145,6 +145,9 @@ pub struct Enemy {
     /// the body box grows to it, so the head and neck that show are what a
     /// claw hits.
     pub reach: f32,
+    /// Co-op: how many messages about it (hits, blows) the device running it
+    /// has applied, per crab that sent them (see [`crate::net`]).
+    pub heard: Vec<(PlayerId, u32)>,
 }
 
 impl Enemy {
@@ -171,7 +174,21 @@ impl Enemy {
             cracks: 0,
             scent: 0,
             reach: 0.0,
+            heard: Vec::new(),
         }
+    }
+
+    /// One more message from `crab` about it was applied.
+    pub fn heard(&mut self, crab: PlayerId) {
+        match self.heard.iter_mut().find(|h| h.0 == crab) {
+            Some(h) => h.1 += 1,
+            None => self.heard.push((crab, 1)),
+        }
+    }
+
+    /// How many messages from `crab` about it were applied.
+    pub fn heard_from(&self, crab: PlayerId) -> u32 {
+        self.heard.iter().find(|h| h.0 == crab).map_or(0, |h| h.1)
     }
 
     /// The finer part of its state, for dumps and the drawing: the tell's
@@ -308,14 +325,23 @@ impl Enemy {
     }
 }
 
-/// Advance one enemy by one tick.
-pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng: &mut Rng) {
+/// Advance one enemy by one tick. Its blows reach only crabs that run on
+/// this device (a remote crab's own device judges them). Returns how each
+/// blow that reached a crab went.
+pub fn step(
+    e: &mut Enemy,
+    crabs: &mut [SimCrab],
+    t: &Tuning,
+    level: &Level,
+    rng: &mut Rng,
+) -> Vec<(PlayerId, Outcome)> {
+    let mut blows = Vec::new();
     if e.vitals.hitstop > 0 {
         e.vitals.hitstop -= 1;
-        return;
+        return blows;
     }
     if e.held {
-        return; // in a crab's crusher
+        return blows; // in a crab's crusher
     }
     let k = e.kind.tuning(t).clone();
     e.vitals.tick(&k.vitals);
@@ -383,7 +409,7 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
                 source: Source::Enemy(e.id),
                 ..Hit::default() // can't be blocked or parried
             };
-            if let Some(crab) = crabs.iter_mut().find(|c| c.id == id) {
+            if let Some(crab) = crabs.iter_mut().find(|c| c.id == id && !c.remote) {
                 combat::crab_defends(
                     &mut crab.fighter,
                     &mut crab.mover,
@@ -459,7 +485,7 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
                 want_speed = k.approach_speed;
             }
         }
-        State::Attack => strike(e, crabs, t, &k),
+        State::Attack => strike(e, crabs, t, &k, &mut blows),
         State::Grab => {
             // Holding on: it bites again every so often, until the crab
             // struggles free (or its hold gives out).
@@ -468,7 +494,7 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
                 .find(|c| c.fighter.grabbed.is_some_and(|g| g.by == e.id));
             match (held, k.strike.grab) {
                 (Some(crab), Some(g)) => {
-                    if e.state_tick.is_multiple_of(g.every) {
+                    if !crab.remote && e.state_tick.is_multiple_of(g.every) {
                         let bite = Hit {
                             damage: g.damage,
                             source: Source::Enemy(e.id),
@@ -520,6 +546,7 @@ pub fn step(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, level: &Level, rng
             e.vel_x = 0.0;
         }
     }
+    blows
 }
 
 /// Ticks a lunged head takes to draw back into its crevice.
@@ -531,12 +558,19 @@ const MEND_AFTER: u32 = 240;
 /// The biggest step in the floor an enemy walks up or down in one tick.
 const MAX_STEP: f32 = 8.0;
 
-/// The blow is out: does it reach a crab?
-fn strike(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, k: &EnemyTuning) {
+/// The blow is out: does it reach a crab? (Only crabs run on this device:
+/// the defender decides.)
+fn strike(
+    e: &mut Enemy,
+    crabs: &mut [SimCrab],
+    t: &Tuning,
+    k: &EnemyTuning,
+    blows: &mut Vec<(PlayerId, Outcome)>,
+) {
     let (centre, radius) = e.strike_circle(t);
     let s = &k.strike;
     for crab in crabs.iter_mut() {
-        if e.struck.contains(&crab.id) || crab.fighter.dead.is_some() {
+        if crab.remote || e.struck.contains(&crab.id) || crab.fighter.dead.is_some() {
             continue;
         }
         let body = combat::body(&crab.mover, t);
@@ -566,42 +600,65 @@ fn strike(e: &mut Enemy, crabs: &mut [SimCrab], t: &Tuning, k: &EnemyTuning) {
             t,
             &mut crab.events,
         );
-        match outcome {
-            // Not yet: still in the air for the next active tick.
-            Outcome::Evaded | Outcome::Ignored => continue,
-            Outcome::Parried => {
-                e.struck.push(crab.id);
-                e.vitals.stagger = k.parried_ticks;
-                e.vitals.hitstop = t.parry_hitstop_ticks;
-                e.enter(State::Stagger, k.parried_ticks);
-                e.combo = 0;
-                return;
+        // Not yet: still in the air for the next active tick.
+        if matches!(outcome, Outcome::Evaded | Outcome::Ignored) {
+            continue;
+        }
+        blows.push((crab.id, outcome));
+        if let Some(g) = grabs(k, outcome) {
+            crab.fighter.grabbed = Some(combat::Grabbed {
+                by: e.id,
+                left: g.ticks,
+            });
+            crab.mover.vel = Vec2::ZERO;
+        }
+        if feels(e, crab.id, outcome, t) {
+            return;
+        }
+    }
+}
+
+/// A bite that holds on: only a bite that got through (and didn't kill).
+pub fn grabs(k: &EnemyTuning, outcome: Outcome) -> Option<GrabTuning> {
+    match outcome {
+        Outcome::Hit(took) if !took.died => k.strike.grab,
+        _ => None,
+    }
+}
+
+/// What its blow on `crab` did to the enemy: a parry staggers it, a blow
+/// that got through can start its combo, a bubble or a hold. On the device
+/// that runs it, the outcome may come from the crab's own device
+/// ([`crate::net::Msg::Blow`]). True when this blow is over.
+pub fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning) -> bool {
+    let k = e.kind.tuning(t);
+    let s = &k.strike;
+    match outcome {
+        Outcome::Evaded | Outcome::Ignored => false,
+        Outcome::Parried => {
+            e.struck.push(crab);
+            e.vitals.stagger = k.parried_ticks;
+            e.vitals.hitstop = t.parry_hitstop_ticks;
+            e.enter(State::Stagger, k.parried_ticks);
+            e.combo = 0;
+            true
+        }
+        Outcome::Blocked(_) | Outcome::Hit(_) => {
+            e.struck.push(crab);
+            e.landed |= outcome.landed();
+            e.vitals.hitstop = e.vitals.hitstop.max(if outcome.landed() {
+                s.hitstop_ticks
+            } else {
+                t.block_hitstop_ticks
+            });
+            if let Some(f) = &s.follow_up {
+                e.follow_ups.push((crab, f.delay_ticks));
             }
-            Outcome::Blocked(_) | Outcome::Hit(_) => {
-                e.struck.push(crab.id);
-                e.landed |= outcome.landed();
-                e.vitals.hitstop = e.vitals.hitstop.max(if outcome.landed() {
-                    s.hitstop_ticks
-                } else {
-                    t.block_hitstop_ticks
-                });
-                if let Some(f) = &s.follow_up {
-                    e.follow_ups.push((crab.id, f.delay_ticks));
-                }
-                // A bite that holds on: only a bite that got through.
-                if let Some(g) = s.grab
-                    && outcome.landed()
-                    && crab.fighter.dead.is_none()
-                {
-                    crab.fighter.grabbed = Some(combat::Grabbed {
-                        by: e.id,
-                        left: g.ticks,
-                    });
-                    crab.mover.vel = Vec2::ZERO;
-                    e.enter(State::Grab, 0);
-                    return;
-                }
+            if grabs(k, outcome).is_some() {
+                e.enter(State::Grab, 0);
+                return true;
             }
+            false
         }
     }
 }

@@ -23,6 +23,7 @@ use crate::hash::fnv1a;
 use crate::home::{self, Shelter};
 use crate::level::{EGG_RADIUS, Level};
 use crate::memory::Memory;
+use crate::net::{self, CrabState, Msg, Net, Outgoing, To};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::rng::Rng;
@@ -37,6 +38,9 @@ pub struct PlayerId(pub u32);
 #[derive(Clone, Debug, PartialEq)]
 pub struct SimCrab {
     pub id: PlayerId,
+    /// Runs on another player's device (co-op): never stepped here, only set
+    /// from its updates (see [`crate::net`]).
+    pub remote: bool,
     /// Position, velocity, timers.
     pub mover: Mover,
     /// Where the crab was before the latest tick (the game draws part-way
@@ -88,6 +92,8 @@ pub struct Sim {
     next_enemy: u32,
     /// The only randomness allowed: seeded, part of the state hash.
     rng: Rng,
+    /// This device's part in a co-op game (none in solo play).
+    net: Option<Net>,
 }
 
 /// The seed every world starts with (a replay therefore needs no seed).
@@ -106,6 +112,7 @@ impl Sim {
             enemies: Vec::new(),
             next_enemy: 0,
             rng: Rng::new(SEED),
+            net: None,
         }
     }
 
@@ -140,6 +147,7 @@ impl Sim {
         mover.stamina = mover.strokes(&self.tuning) as f32; // rested
         self.crabs.push(SimCrab {
             id,
+            remote: false,
             mover,
             prev_pos: pos,
             controls: Controls::default(),
@@ -153,6 +161,135 @@ impl Sim {
             safe: pos,
             pending: StepEvents::default(),
         });
+    }
+
+    /// Put another player's crab into the world (co-op): it stands at `pos`
+    /// until its first update arrives, and is never stepped here.
+    pub fn add_remote_crab(&mut self, id: PlayerId, pos: Vec2) {
+        self.add_crab(id, pos);
+        if let Some(crab) = self.crabs.last_mut() {
+            crab.remote = true;
+        }
+    }
+
+    /// Take part in a co-op game, as the host (it runs the world) or a guest.
+    /// Solo play never calls this.
+    pub fn go_online(&mut self, host: bool) {
+        self.net = Some(Net {
+            host,
+            ..Net::default()
+        });
+    }
+
+    /// In a co-op game?
+    pub fn online(&self) -> bool {
+        self.net.is_some()
+    }
+
+    /// Runs the world: in solo play, or as a co-op host.
+    pub fn is_host(&self) -> bool {
+        self.net.as_ref().is_none_or(|n| n.host)
+    }
+
+    /// Does this device run the enemies? (The host's does, for now.)
+    fn runs_enemies(&self) -> bool {
+        self.is_host()
+    }
+
+    /// The messages this device has to send since the last call.
+    pub fn take_outbox(&mut self) -> Vec<Outgoing> {
+        self.net
+            .as_mut()
+            .map(|n| std::mem::take(&mut n.outbox))
+            .unwrap_or_default()
+    }
+
+    /// A message from another device arrives.
+    pub fn receive(&mut self, msg: Msg) {
+        let runs = self.runs_enemies();
+        let Some(net) = &mut self.net else {
+            return;
+        };
+        match msg {
+            Msg::Crab { at, crab: state } => {
+                let Some(crab) = self.crabs.iter_mut().find(|c| c.id == state.id) else {
+                    return;
+                };
+                if crab.remote && Net::newer(&mut net.crab_at, state.id, at) {
+                    crab.mover = state.mover;
+                    crab.fighter = state.fighter;
+                    crab.pending.merge(state.events);
+                }
+            }
+            Msg::Enemy { at, enemy: update } => {
+                let tick = self.tick;
+                let Some(e) = self.enemies.iter_mut().find(|e| e.id == update.id) else {
+                    return;
+                };
+                if runs
+                    || net.holding(&update, tick)
+                    || !Net::newer(&mut net.enemy_at, update.id, at)
+                {
+                    return;
+                }
+                // Bubbles on their way to our own crabs stay as we have them:
+                // they pop here, and only here.
+                let local = |id: &PlayerId| self.crabs.iter().any(|c| c.id == *id && !c.remote);
+                let ours: Vec<_> = e
+                    .follow_ups
+                    .iter()
+                    .filter(|f| local(&f.0))
+                    .copied()
+                    .collect();
+                *e = update;
+                e.follow_ups.retain(|f| !local(&f.0));
+                e.follow_ups.extend(ours);
+            }
+            Msg::HitEnemy {
+                by,
+                enemy,
+                hit,
+                from_x,
+            } => {
+                if let Some(e) = self.enemies.iter_mut().find(|e| e.id == enemy)
+                    && runs
+                {
+                    e.takes(&hit, from_x, &self.tuning);
+                    e.heard(by);
+                }
+            }
+            Msg::Blow {
+                enemy,
+                crab,
+                outcome,
+            } => {
+                if let Some(e) = self.enemies.iter_mut().find(|e| e.id == enemy)
+                    && runs
+                {
+                    e.heard(crab);
+                    let grabs = enemy::grabs(e.kind.tuning(&self.tuning), outcome);
+                    enemy::feels(e, crab, outcome, &self.tuning);
+                    // Held in its jaws over there: hold on here too, until
+                    // the crab's own update says otherwise.
+                    if let Some(g) = grabs
+                        && let Some(c) = self.crabs.iter_mut().find(|c| c.id == crab)
+                    {
+                        c.fighter.grabbed = Some(combat::Grabbed {
+                            by: enemy,
+                            left: g.ticks,
+                        });
+                    }
+                }
+            }
+            Msg::HitCrab { crab, hit } => {
+                self.hit_crab(crab, &hit);
+            }
+            Msg::NetCut(i) => {
+                if let Some(n) = self.level.nets.get_mut(i) {
+                    n.cut = true;
+                }
+            }
+        }
     }
 
     /// Ticks run so far.
@@ -240,6 +377,19 @@ impl Sim {
         let Some(crab) = self.crabs.iter_mut().find(|c| c.id == id) else {
             return Outcome::Ignored;
         };
+        // Another device's crab: it takes the hit there.
+        if crab.remote {
+            if let Some(net) = &mut self.net {
+                net.send(
+                    To::Player(id),
+                    Msg::HitCrab {
+                        crab: id,
+                        hit: *hit,
+                    },
+                );
+            }
+            return Outcome::Ignored;
+        }
         let mut ev = StepEvents::default();
         let outcome = combat::crab_defends(&mut crab.fighter, &mut crab.mover, hit, t, &mut ev);
         crab.pending.merge(ev);
@@ -249,13 +399,17 @@ impl Sim {
     /// Advance the world by one [`STEP`].
     pub fn tick(&mut self) {
         if let Some(rec) = &mut self.recorder
-            && let Some(crab) = self.crabs.iter().find(|c| c.id == PlayerId(0))
+            && let Some(crab) = self.crabs.iter().find(|c| !c.remote)
         {
             rec.note(self.tick, crab.controls);
         }
         for crab in &mut self.crabs {
             crab.prev_pos = crab.mover.pos;
             let mut ev = std::mem::take(&mut crab.pending);
+            if crab.remote {
+                crab.events = ev;
+                continue;
+            }
             // Hit-stop: frozen for a moment as a blow lands. Presses wait.
             let f = &mut crab.fighter;
             if f.vitals.hitstop > 0 {
@@ -359,11 +513,20 @@ impl Sim {
             }
             // A ghost net it presses against: cut, with scissor claws (gone
             // for everyone); without them, it's in the way.
-            for net in self.level.nets.iter_mut().filter(|n| !n.cut) {
+            for (i, net) in self
+                .level
+                .nets
+                .iter_mut()
+                .enumerate()
+                .filter(|(_, n)| !n.cut)
+            {
                 if against(&crab.mover, net.rect, &self.tuning) {
                     if crab.mover.scissor_claw {
                         net.cut = true;
                         crab.events.cut_net = true;
+                        if let Some(n) = &mut self.net {
+                            n.send(To::Everyone, Msg::NetCut(i));
+                        }
                     } else {
                         crab.events.tangled = true;
                     }
@@ -413,15 +576,30 @@ impl Sim {
             }
         }
         self.claws_meet_enemies();
+        let runs = self.runs_enemies();
         for e in &mut self.enemies {
-            enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
+            let blows = enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
+            // Our crabs judged this copy's blows; its runner hears how.
+            if !runs && let Some(net) = &mut self.net {
+                for (crab, outcome) in blows {
+                    net.tell(e.id, crab, self.tick);
+                    net.send(
+                        To::Host,
+                        Msg::Blow {
+                            enemy: e.id,
+                            crab,
+                            outcome,
+                        },
+                    );
+                }
+            }
         }
         // Each crab's memory: what it sees now is seen.
         if self
             .tick
             .is_multiple_of(self.tuning.memory.step_ticks as u64)
         {
-            for c in &mut self.crabs {
+            for c in self.crabs.iter_mut().filter(|c| !c.remote) {
                 let eye = c.mover.pos + Vec2::new(0.0, self.tuning.body_height);
                 c.memory.step(
                     eye,
@@ -433,13 +611,55 @@ impl Sim {
             }
         }
         self.tick += 1;
+        self.send_updates();
+    }
+
+    /// Co-op: note what happened to this device's crabs, and every
+    /// [`net::SEND_EVERY`] ticks send the state of everything it runs.
+    fn send_updates(&mut self) {
+        let runs = self.runs_enemies();
+        let Some(net) = &mut self.net else {
+            return;
+        };
+        for c in self.crabs.iter().filter(|c| !c.remote) {
+            match net.unsent.iter_mut().find(|u| u.0 == c.id) {
+                Some(u) => u.1.merge(c.events),
+                None => net.unsent.push((c.id, c.events)),
+            }
+        }
+        if !self.tick.is_multiple_of(net::SEND_EVERY) {
+            return;
+        }
+        let at = self.tick;
+        for c in self.crabs.iter().filter(|c| !c.remote) {
+            let events = net
+                .unsent
+                .iter_mut()
+                .find(|u| u.0 == c.id)
+                .map(|u| std::mem::take(&mut u.1))
+                .unwrap_or_default();
+            let crab = CrabState {
+                id: c.id,
+                mover: c.mover.clone(),
+                fighter: c.fighter.clone(),
+                events,
+            };
+            net.send(To::Everyone, Msg::Crab { at, crab });
+        }
+        if runs {
+            for e in &self.enemies {
+                let enemy = e.clone();
+                net.send(To::Everyone, Msg::Enemy { at, enemy });
+            }
+        }
     }
 
     /// Each crab's blow, while it is out, reaches the enemies it overlaps
     /// (each once per swing).
     fn claws_meet_enemies(&mut self) {
+        let runs = self.runs_enemies();
         let t = &self.tuning;
-        for crab in &mut self.crabs {
+        for crab in self.crabs.iter_mut().filter(|c| !c.remote) {
             let Some(hitbox) = crab.fighter.hitbox(&crab.mover, t) else {
                 continue;
             };
@@ -470,8 +690,10 @@ impl Sim {
                     hitstop,
                     ..Hit::new(0.0, 0.0, Source::Crab(crab.id))
                 };
-                // A counter smash with a crusher that crushes: it clamps on.
-                if swing.counter
+                // A counter smash with a crusher that crushes: it clamps on
+                // (only an enemy run here; elsewhere it's a plain blow).
+                if runs
+                    && swing.counter
                     && swing.claw == crate::combat::Claw::Crusher
                     && t.crush.is_some()
                     && f.crush.is_none()
@@ -492,6 +714,20 @@ impl Sim {
                     continue;
                 }
                 if e.takes(&hit, crab.mover.pos.x, t).is_some() {
+                    // Run elsewhere: shown here at once, applied there when
+                    // the message arrives.
+                    if !runs && let Some(net) = &mut self.net {
+                        net.tell(e.id, crab.id, self.tick);
+                        net.send(
+                            To::Host,
+                            Msg::HitEnemy {
+                                by: crab.id,
+                                enemy: e.id,
+                                hit,
+                                from_x: crab.mover.pos.x,
+                            },
+                        );
+                    }
                     swing.hits.push(e.id);
                     f.vitals.hitstop = f.vitals.hitstop.max(hitstop);
                     crab.events.struck = true;
@@ -518,7 +754,9 @@ impl Sim {
     /// from a crab standing still.
     pub fn start_recording(&mut self) {
         let start = self
-            .crab(PlayerId(0))
+            .crabs
+            .iter()
+            .find(|c| !c.remote)
             .map_or(crate::level::SPAWN, |c| c.mover.pos);
         let mut rec = Recorder::new(start, self.tick, &self.tuning);
         if self.feel != Feel::default() {

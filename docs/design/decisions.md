@@ -6,7 +6,7 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 | Date | Decision | By |
 |---|---|---|
 | 2026-10-14 | Rust + Bevy; WebAssembly in the browser (WebGL2) and native on PC; must run on iPhone (WebKit); no relaxed-SIMD ever | Owner |
-| 2026-10-14 | Co-op later via matchbox (WebRTC), host-authoritative, 2–8 players, no database, cheating allowed; saves live in each player's browser | Owner |
+| 2026-10-28 | Co-op via matchbox (WebRTC), 2–8 trusted friends, crisp for everyone: each device runs its own crab (no lag on your own moves), the defender decides a blow on their own screen (a parry is as crisp as solo), the attacker sees a hit land at once; the host's browser is the server (runs the world, passes messages on, saves the world), guests talk only to the host; no rollback. A tiny introducer we run (stores nothing) only swaps connection notes; the game stays on GitHub Pages. No database, cheating allowed; each player's crab lives in their own browser (`crates/sim/src/net.rs`, #104–#109) | Owner |
 | 2026-10-14 | Solo is the full game; RuneScape-style economy where rarer resources come from deeper zones; trading optional (Ironman-style solo) | Owner |
 | 2026-10-14 | A hosted shared-world server is far off: refactor then, don't design for it now | Owner |
 | 2026-10-15 | Pillars: cozy, brutal, surreal. Hook: "Feels like Valheim. Plays like Silksong. Grows like RuneScape." | Owner + Claude |

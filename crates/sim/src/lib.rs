@@ -25,6 +25,7 @@
 //! - [`enemy`]: enemies, their state machines and tells
 //! - [`rng`]: the seeded random generator (the only randomness)
 //! - [`world`]: [`Sim`], the whole world, advanced one tick at a time
+//! - [`net`]: co-op: what each device runs, and what it tells the others
 //! - [`replay`]: recording controls, and the little text format for replays
 //!   and input scripts
 //! - [`hash`]: a fixed hash for fingerprints
@@ -42,6 +43,7 @@ pub mod hash;
 pub mod home;
 pub mod level;
 pub mod memory;
+pub mod net;
 pub mod physics;
 pub mod replay;
 pub mod rng;
