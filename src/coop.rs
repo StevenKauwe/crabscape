@@ -234,7 +234,7 @@ mod web {
         };
         sim.go_online(false);
         connect(&code);
-        coop.status = "Joining your friend…".into();
+        coop.status = "Joining your friend...".into();
     }
 
     /// Join `code`'s room at the introducer.
@@ -436,13 +436,13 @@ mod web {
             let n = link.known().count();
             coop.status = if sim.is_host() {
                 match n {
-                    0 => "Waiting for a friend…".into(),
+                    0 => "Waiting for a friend...".into(),
                     n => format!("Playing with {}", friends(n)),
                 }
             } else if link.known().any(|id| id == HOST) {
                 format!("Playing with {}", friends(n))
             } else {
-                "Joining your friend…".into()
+                "Joining your friend...".into()
             };
             None
         });
