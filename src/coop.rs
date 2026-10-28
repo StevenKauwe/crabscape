@@ -122,7 +122,7 @@ fn friends(n: usize) -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web::{in_room, players};
+pub(crate) use web::{in_room, introducer, players};
 
 #[cfg(target_arch = "wasm32")]
 mod web {
@@ -307,12 +307,20 @@ mod web {
         coop.status = "Joining your friend...".into();
     }
 
+    /// The introducer's address: the live one, or `?introducer=` for testing.
+    pub(crate) fn introducer() -> String {
+        query("introducer")
+            .filter(|u| u.starts_with("ws://") || u.starts_with("wss://"))
+            .unwrap_or_else(|| INTRODUCER.into())
+    }
+
     /// Join `code`'s room at the introducer.
     fn connect(code: &str) {
-        let introducer = query("introducer")
-            .filter(|u| u.starts_with("ws://") || u.starts_with("wss://"))
-            .unwrap_or_else(|| INTRODUCER.into());
-        let url = format!("{introducer}/{}", room(save::build_slug().as_deref(), code));
+        let url = format!(
+            "{}/{}",
+            introducer(),
+            room(save::build_slug().as_deref(), code)
+        );
         let (socket, run) = WebRtcSocket::builder(url)
             .add_reliable_channel()
             .add_unreliable_channel()
