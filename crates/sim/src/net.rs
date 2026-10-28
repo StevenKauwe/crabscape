@@ -4,9 +4,11 @@
 //! - **Its own crab** runs here, exactly as in solo, so it never feels the
 //!   lag. Other players' crabs are *remote*: never stepped here, only set from
 //!   their updates ([`Msg::Crab`]).
-//! - **Enemies** run on one device (for now the host's). Everyone else steps
-//!   a copy between updates ([`Msg::Enemy`]), so it moves and strikes on
-//!   time.
+//! - **An enemy** runs on the device of the crab it hunts, so it moves and
+//!   strikes on that crab's real position, as in solo; one hunting nobody
+//!   runs on the host's. When its prey changes, its runner hands it over
+//!   ([`Msg::Handover`]). Everyone else steps a copy between updates
+//!   ([`Msg::Enemy`]), so it moves and strikes on time.
 //! - **The defender decides.** An enemy's blow is judged on the device of the
 //!   crab it reaches, against that device's copy of the enemy: a parry is as
 //!   crisp as in solo, whatever the lag. What happened goes to the enemy's
@@ -106,7 +108,7 @@ pub struct CrabState {
 /// A device's part in a co-op game (the [`Sim`] has none in solo play).
 #[derive(Clone, Debug, Default)]
 pub struct Net {
-    /// Runs the world: the enemies, for now.
+    /// Runs the world: the enemies that hunt nobody.
     pub host: bool,
     pub(crate) outbox: Vec<Outgoing>,
     /// Events of this device's crabs since their last update.
