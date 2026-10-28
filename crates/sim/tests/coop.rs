@@ -581,3 +581,28 @@ fn when_a_friend_leaves_their_enemies_go_back_to_the_host() {
     assert_eq!(g.guest.crabs().len(), 1);
     g.guest.tick();
 }
+
+#[test]
+fn a_guest_who_rejoins_takes_the_hosts_word_for_every_enemy() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), |sim| {
+        sim.spawn_enemy(Kind::Fixture, Vec2::new(900.0, 0.0));
+    });
+    play(&mut g, "", "", 60, |_| {});
+    // The host's phone sleeps: the guest plays on alone, and its copy of the
+    // enemy goes its own way (moved, and handed over more often than the
+    // host's copy ever was).
+    g.guest.go_offline();
+    let e = &mut g.guest.enemies_mut()[0];
+    e.pos.x += 300.0;
+    e.handovers += 5;
+    // The host is back: the guest goes online again.
+    g.guest.go_online(false);
+    play(&mut g, "", "", 60, |_| {});
+    let (mine, theirs) = (&g.guest.enemies()[0], &g.host.enemies()[0]);
+    assert!(
+        (mine.pos.x - theirs.pos.x).abs() < 1.0,
+        "the guest shows the enemy where the host has it: {} vs {}",
+        mine.pos.x,
+        theirs.pos.x
+    );
+}
