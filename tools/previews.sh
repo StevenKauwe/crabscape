@@ -20,6 +20,16 @@ MARKER='<!-- preview-build -->'
 
 short() { printf '%.8s' "$1"; }
 
+# A new build at the same URL must never load a cached old one: Pages lets
+# browsers keep files for 10 minutes. The page itself is checked again on
+# every reload, so it names this build's script, which names its wasm.
+tag_build() {
+  local v; v=$(short "$1")
+  sed -i "s|\./pkg/crabscape\.js|./pkg/crabscape.js?v=$v|" web/index.html
+  sed -i "s|'crabscape_bg\.wasm'|'crabscape_bg.wasm?v=$v'|" web/pkg/crabscape.js
+  grep -q "crabscape_bg.wasm?v=$v" web/pkg/crabscape.js || { echo "tag_build: wasm name not found in crabscape.js" >&2; exit 1; }
+}
+
 # Regenerate /builds/ from the folders in the site directory $1.
 builds_page() {
   local site="$1" d name sha when note
@@ -90,12 +100,12 @@ drop_folder() { rm -rf "${1:?}/$FOLDER"; }
 case "${1:-}" in
   publish)
     FOLDER="$2" SHA="$3"
-    # A new build at the same URL must never load a cached old wasm.
-    sed -i "s|\./pkg/crabscape\.js|./pkg/crabscape.js?v=$(short "$SHA")|" web/index.html
+    tag_build "$SHA"
     store_update "preview: $FOLDER @ $(short "$SHA")" put_folder
     echo "published /$FOLDER/"
     ;;
   publish-main)
+    tag_build "${GITHUB_SHA:-local}"
     store_update "main @ $(short "${GITHUB_SHA:-local}")" put_root
     echo "main build published to the store root"
     ;;
