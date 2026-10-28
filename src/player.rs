@@ -4,20 +4,23 @@
 //! resource holds every crab's state and only changes when it *ticks*, 120
 //! times per second of game time. This module is the bridge between it and
 //! Bevy:
-//! - [`MoveRequest`] *messages* say what each player wants. Today the only
-//!   sender is the local input system; when co-op arrives, requests from other
-//!   players (relayed by the host) will go through exactly the same door.
+//! - [`MoveRequest`] *messages* say what this device's player wants (sent
+//!   by the input system).
 //! - Each frame, `simulate` runs as many ticks as real time needs, then copies
 //!   each crab's state onto its entity, where the animation, effects and
 //!   camera read it. Those never change the simulation.
 //! - The crab is drawn part-way between its last two ticks, so motion stays
 //!   smooth whatever the screen's refresh rate.
+//! - In co-op (`coop.rs`), friends' crabs are in the simulation too, moved
+//!   only by their updates; each gets an entity here, drawn eased towards
+//!   where its last update put it.
 
 use bevy::prelude::*;
 
 use crabsim::physics::{self, Controls, Mover, STEP, StepEvents};
 use crabsim::{Fighter, Level, SPAWN, Sim, Tuning};
 
+use crate::coop::LocalId;
 use crate::feel::FeelLab;
 use crate::save;
 
@@ -52,6 +55,16 @@ pub struct PreviousPos(pub Vec2);
 #[derive(Component, Default, Debug)]
 pub struct FrameEvents(pub StepEvents);
 
+/// A friend's crab (co-op), drawn here: it eases towards where its updates
+/// put it, as they come only a few times per second.
+#[derive(Component, Debug)]
+pub struct Shown(pub Vec2);
+
+/// How fast a friend's crab catches up with its updates (per second).
+const EASE: f32 = 25.0;
+/// Further behind than this, it jumps there instead.
+const JUMP_PAST: f32 = 200.0;
+
 /// Leftover time not yet simulated (less than one [`STEP`]).
 #[derive(Resource, Default)]
 struct StepClock {
@@ -85,7 +98,7 @@ impl Plugin for PlayerPlugin {
             // `chain()` runs these one after another, in this order.
             .add_systems(
                 Update,
-                (apply_requests, simulate, place_crabs)
+                (apply_requests, simulate, follow_friends, place_crabs)
                     .chain()
                     .in_set(GameSet::Simulate),
             );
@@ -93,7 +106,13 @@ impl Plugin for PlayerPlugin {
 }
 
 /// Create this tab's crab, standing where it was saved if that's a fair spot.
-fn spawn_local_crab(mut commands: Commands, mut sim: ResMut<Sim>, lab: Res<FeelLab>) {
+pub fn spawn_local_crab(
+    mut commands: Commands,
+    mut sim: ResMut<Sim>,
+    lab: Res<FeelLab>,
+    me: Res<LocalId>,
+) {
+    let me = me.0;
     // The feel preset first, so the recording starts with it.
     sim.set_feel(lab.feel);
     let saved = save::load();
@@ -102,14 +121,14 @@ fn spawn_local_crab(mut commands: Commands, mut sim: ResMut<Sim>, lab: Res<FeelL
         .map(|(p, _)| *p)
         .filter(|&p| physics::is_valid_spot(p, &sim.tuning, &sim.level))
         .unwrap_or(SPAWN);
-    sim.add_crab(PlayerId(0), pos);
+    sim.add_crab(me, pos);
     // What it remembers comes back with it.
     if let Some(m) = saved
         .and_then(|(_, m)| m)
         .and_then(|m| crabsim::Memory::from_save(&m, &sim.level, &sim.tuning.memory))
-        && let Some(me) = sim.crab_mut(PlayerId(0))
+        && let Some(crab) = sim.crab_mut(me)
     {
-        me.memory = m;
+        crab.memory = m;
     }
     // Always write down what the local player does, so a replay can be saved
     // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
@@ -117,7 +136,7 @@ fn spawn_local_crab(mut commands: Commands, mut sim: ResMut<Sim>, lab: Res<FeelL
     sim.populate();
     commands.spawn((
         Crab,
-        PlayerId(0),
+        me,
         LocalPlayer,
         Mover::new(pos),
         Fighter::new(&sim.tuning),
@@ -177,15 +196,61 @@ fn simulate(
     }
 }
 
+/// Friends' crabs, not this device's.
+type FriendOnly = (With<Crab>, Without<LocalPlayer>);
+
+/// Give each friend's crab that joined an entity (the puppet module dresses
+/// it), and take away the entities of friends who left.
+fn follow_friends(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    friends: Query<(Entity, &PlayerId), FriendOnly>,
+) {
+    for (entity, id) in &friends {
+        if sim.crab(*id).is_none() {
+            commands.entity(entity).despawn();
+        }
+    }
+    for crab in sim.crabs().iter().filter(|c| c.remote) {
+        if friends.iter().all(|(_, id)| *id != crab.id) {
+            let pos = crab.mover.pos;
+            commands.spawn((
+                Crab,
+                crab.id,
+                crab.mover.clone(),
+                crab.fighter.clone(),
+                PreviousPos(pos),
+                FrameEvents::default(),
+                Shown(pos),
+                Transform::from_xyz(pos.x, pos.y, 9.0),
+                Visibility::default(),
+            ));
+        }
+    }
+}
+
 /// Move each crab's `Transform` (where it is drawn) to its simulated
-/// position, blending between the last two ticks.
+/// position: this device's crab part-way between its last two ticks, a
+/// friend's eased towards its last update.
 fn place_crabs(
+    time: Res<Time>,
     clock: Res<StepClock>,
-    mut crabs: Query<(&Mover, &PreviousPos, &mut Transform), With<Crab>>,
+    mut crabs: Query<(&Mover, &PreviousPos, &mut Transform, Option<&mut Shown>), With<Crab>>,
 ) {
     let blend = clock.leftover / STEP;
-    for (mover, prev, mut transform) in &mut crabs {
-        let p = prev.0.lerp(mover.pos, blend);
+    let ease = 1.0 - (-EASE * time.delta_secs()).exp();
+    for (mover, prev, mut transform, shown) in &mut crabs {
+        let p = match shown {
+            Some(mut shown) => {
+                shown.0 = if shown.0.distance(mover.pos) > JUMP_PAST {
+                    mover.pos
+                } else {
+                    shown.0.lerp(mover.pos, ease)
+                };
+                shown.0
+            }
+            None => prev.0.lerp(mover.pos, blend),
+        };
         transform.translation.x = p.x;
         transform.translation.y = p.y;
     }

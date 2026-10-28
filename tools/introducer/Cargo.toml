@@ -1,0 +1,14 @@
+[package]
+name = "introducer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "The co-op introducer: swaps connection notes so browsers can connect to each other. Stores nothing."
+
+# Not part of the game's build: a separate little server with its own `target/` (and the game's CI never builds
+# it). Deployed to Fly.io with `fly deploy` from this folder (see `src/main.rs`).
+[workspace]
+
+[dependencies]
+matchbox_signaling = "0.14"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

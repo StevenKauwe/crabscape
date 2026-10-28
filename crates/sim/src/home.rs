@@ -21,7 +21,7 @@ use crate::physics::{Controls, Mover, StepEvents};
 use crate::tuning::Tuning;
 
 /// Where a crab is with its home shell.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Shelter {
     /// Out in the open.
     #[default]

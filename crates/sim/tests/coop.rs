@@ -414,3 +414,170 @@ fn a_hit_that_crosses_a_hand_over_is_not_lost() {
     assert_eq!(health(&g.guest), after, "the smash counted, once");
     assert_eq!(health(&g.host), after, "and the host shows it");
 }
+
+// --- Messages as bytes, and friends coming and going -------------------------
+
+use crabsim::net::{MAX_BYTES, Msg};
+
+/// Every message a short fight sends, both ways.
+fn fight_messages() -> Vec<Msg> {
+    let mut g = game(NEAR, FakeLink::steady(LAG), |sim| {
+        sim.spawn_enemy(Kind::Mantis, Vec2::new(400.0, 0.0));
+    });
+    let mut all = Vec::new();
+    let script =
+        Replay::parse("t=0.2 smash; t=0.6 jab; t=1 walk=right; t=1.4 parry; t=2 jump").unwrap();
+    let mut playback = script.playback();
+    for _ in 0..ticks(3.0) {
+        g.guest.set_controls(GUEST, playback.next_controls());
+        g.host.tick();
+        g.guest.tick();
+        // Two devices: everything each sends is for the other, at once.
+        let (to_guest, to_host) = (g.host.take_outbox(), g.guest.take_outbox());
+        for out in to_guest {
+            all.push(out.msg.clone());
+            g.guest.receive(out.msg);
+        }
+        for out in to_host {
+            all.push(out.msg.clone());
+            g.host.receive(out.msg);
+        }
+    }
+    all.push(g.host.world());
+    all
+}
+
+#[test]
+fn every_message_comes_back_whole_from_its_bytes_and_stays_small() {
+    let msgs = fight_messages();
+    let kinds = |m: &Msg| {
+        format!("{m:?}")
+            .split([' ', '(', '{'])
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    let mut biggest: Vec<(String, usize)> = Vec::new();
+    for msg in &msgs {
+        let bytes = msg.to_bytes();
+        assert_eq!(Msg::from_bytes(&bytes).as_ref(), Some(msg));
+        let kind = kinds(msg);
+        match biggest.iter_mut().find(|b| b.0 == kind) {
+            Some(b) => b.1 = b.1.max(bytes.len()),
+            None => biggest.push((kind, bytes.len())),
+        }
+    }
+    for (kind, size) in &biggest {
+        eprintln!("{kind}: at most {size} bytes");
+        assert!(*size < MAX_BYTES / 4, "{kind} is {size} bytes");
+    }
+    assert!(biggest.iter().any(|b| b.0 == "Crab") && biggest.iter().any(|b| b.0 == "Enemy"));
+}
+
+#[test]
+fn bad_bytes_are_dropped_never_crash() {
+    let msgs = fight_messages();
+    let mut rng = crabsim::rng::Rng::new(42);
+    // Random junk of every length.
+    for _ in 0..20_000 {
+        let len = rng.range(0, 600) as usize;
+        let junk: Vec<u8> = (0..len).map(|_| rng.range(0, 255) as u8).collect();
+        let _ = Msg::from_bytes(&junk);
+    }
+    // Every real message cut short, and with a byte flipped.
+    for msg in msgs.iter().step_by(7) {
+        let bytes = msg.to_bytes();
+        for cut in 0..bytes.len() {
+            let _ = Msg::from_bytes(&bytes[..cut]);
+            let mut flipped = bytes.clone();
+            flipped[cut] ^= 0xff;
+            let _ = Msg::from_bytes(&flipped);
+        }
+    }
+    // Too long: dropped unread.
+    assert_eq!(Msg::from_bytes(&vec![0; MAX_BYTES + 1]), None);
+    // A crab at a position that isn't a number: dropped.
+    let crab = msgs
+        .iter()
+        .find_map(|m| match m {
+            Msg::Crab { crab, .. } => Some(crab.clone()),
+            _ => None,
+        })
+        .unwrap();
+    for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let mut bad = crab.clone();
+        bad.mover.pos.x = x;
+        let bytes = Msg::Crab { at: 1, crab: bad }.to_bytes();
+        assert_eq!(Msg::from_bytes(&bytes), None, "{x}");
+    }
+}
+
+#[test]
+fn no_name_in_a_message_reads_as_a_broken_number() {
+    // `from_bytes` spots NaN and infinity by how they print; a field or
+    // variant named, say, `inflow` would make every message look broken.
+    for msg in fight_messages() {
+        let text = format!("{msg:?}");
+        assert!(!text.contains("NaN") && !text.contains("inf"), "{text}");
+    }
+}
+
+#[test]
+fn a_friend_who_joins_late_appears_and_learns_the_world() {
+    // The host plays alone, cuts the net, then a guest joins.
+    let mut host = world(&|_| {});
+    let spot = {
+        let net = host.level.nets[0].rect;
+        Vec2::new(
+            net.min.x - host.tuning.body_half_width - 1.0,
+            net.min.y + 40.0,
+        )
+    };
+    host.add_crab(HOST, spot);
+    host.crab_mut(HOST).unwrap().mover.scissor_claw = true;
+    host.tick();
+    assert!(host.level.nets[0].cut);
+    host.go_online(true);
+    let mut guest = world(&|_| {});
+    guest.add_crab(GUEST, NEAR);
+    guest.go_online(false);
+    // The host greets the newcomer; both send their crabs as usual.
+    guest.receive(host.world());
+    let mut link = FakeLink::steady(LAG);
+    for _ in 0..60 {
+        host.tick();
+        guest.tick();
+        link.carry(&mut [&mut host, &mut guest]);
+    }
+    assert!(guest.level.nets[0].cut, "the guest learned the net is cut");
+    assert!(
+        host.crab(GUEST).is_some_and(|c| c.remote),
+        "the host sees the guest"
+    );
+    assert!(
+        guest.crab(HOST).is_some_and(|c| c.remote),
+        "the guest sees the host"
+    );
+}
+
+#[test]
+fn when_a_friend_leaves_their_enemies_go_back_to_the_host() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), |sim| {
+        sim.spawn_enemy(Kind::Fixture, Vec2::new(240.0, 0.0));
+    });
+    play(&mut g, "", "", 60, |_| {});
+    assert!(
+        g.guest.runs(0),
+        "the fixture hunts the guest, on the guest's device"
+    );
+    // The guest's tab closes.
+    g.host.remove_crab(GUEST);
+    assert!(g.host.crab(GUEST).is_none());
+    assert!(g.host.runs(0), "the host runs it again");
+    assert_eq!(g.host.enemies()[0].target, None, "its prey is gone");
+    // The host leaves the guest instead: the guest plays on alone.
+    g.guest.go_offline();
+    assert!(g.guest.runs(0) && !g.guest.online());
+    assert_eq!(g.guest.crabs().len(), 1);
+    g.guest.tick();
+}

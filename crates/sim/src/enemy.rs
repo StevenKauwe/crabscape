@@ -103,7 +103,7 @@ impl State {
 }
 
 /// One enemy in the world.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Enemy {
     pub id: u32,
     pub kind: Kind,

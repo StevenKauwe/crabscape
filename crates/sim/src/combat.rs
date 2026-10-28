@@ -16,7 +16,7 @@ use crate::tuning::{ClawTuning, Tuning, VitalsTuning};
 use crate::world::PlayerId;
 
 /// Who dealt a hit.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Source {
     /// A crab's claw.
     Crab(PlayerId),
@@ -28,7 +28,7 @@ pub enum Source {
 }
 
 /// One blow, the single way damage reaches a fighter.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Hit {
     pub damage: f32,
     pub poise: f32,
@@ -67,7 +67,7 @@ impl Hit {
 }
 
 /// What a hit did to a crab.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Outcome {
     /// Nothing (dead already).
     Ignored,
@@ -89,7 +89,7 @@ impl Outcome {
 }
 
 /// Health ("shell") and poise, for the crab and enemies alike.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 pub struct Vitals {
     pub health: f32,
@@ -103,7 +103,7 @@ pub struct Vitals {
 }
 
 /// What a hit did.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Took {
     /// Poise ran out: staggered.
     pub broke_poise: bool,
@@ -161,7 +161,7 @@ impl Vitals {
 }
 
 /// The crab's two claws.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Claw {
     /// The big claw (the crab's right, screen-left): the heavy smash.
     Crusher,
@@ -204,7 +204,7 @@ impl Phase {
 }
 
 /// A claw strike under way.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Swing {
     pub claw: Claw,
     /// Ticks into the swing: 1 on the tick it was pressed.
@@ -263,7 +263,7 @@ impl Swing {
 }
 
 /// A crab's fighting state.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 pub struct Fighter {
     pub vitals: Vitals,
@@ -310,7 +310,7 @@ pub struct Fighter {
 }
 
 /// Held in a bite (see [`crate::tuning::GrabTuning`]).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Grabbed {
     /// The enemy's id.
     pub by: u32,
@@ -331,7 +331,7 @@ impl Claw {
 }
 
 /// The crusher clamped on an enemy (see [`Tuning::crush`]).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Crush {
     /// The enemy's id.
     pub target: u32,

@@ -22,7 +22,12 @@
 //!   anything that changes an enemy happens on its runner. Shared world bits
 //!   (a cut ghost net) are announced to everyone.
 //!
-//! Friends are trusted: nothing here checks that a device tells the truth.
+//! Friends are trusted *in the game*: nothing here checks that a device tells
+//! the truth about a hit. The bytes are never trusted: [`Msg::from_bytes`]
+//! drops anything too long, cut short, malformed or holding a number that
+//! isn't finite, and never panics.
+
+use serde::{Deserialize, Serialize};
 
 use crate::combat::{Fighter, Hit, Outcome};
 use crate::enemy::Enemy;
@@ -55,8 +60,12 @@ pub struct Outgoing {
     pub msg: Msg,
 }
 
+/// The most bytes one message may take. The biggest, an enemy's state, is a
+/// few hundred; anything longer is dropped unread.
+pub const MAX_BYTES: usize = 4096;
+
 /// What one device tells another.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Msg {
     /// A crab's state, from its own device (often; a newer one replaces it).
     /// `at` is the sender's tick.
@@ -84,6 +93,9 @@ pub enum Msg {
     HitCrab { crab: PlayerId, hit: Hit },
     /// A ghost net (its index in the level) was cut.
     NetCut(usize),
+    /// The host tells a device that just joined how the world stands: which
+    /// ghost nets are cut. (Crabs and enemies arrive in their own updates.)
+    World { nets_cut: Vec<bool> },
 }
 
 impl Msg {
@@ -92,11 +104,31 @@ impl Msg {
     pub fn reliable(&self) -> bool {
         !matches!(self, Msg::Crab { .. } | Msg::Enemy { .. })
     }
+
+    /// The message as bytes, to send.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        postcard::to_allocvec(self).expect("a message always encodes")
+    }
+
+    /// A message from bytes another device sent, or None if they aren't a
+    /// sound one: too long, cut short, malformed, or holding a number that
+    /// isn't finite (a NaN position would freeze the physics). Lists inside
+    /// can't be longer than the bytes, so nothing big is ever allocated.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Msg> {
+        if bytes.len() > MAX_BYTES {
+            return None;
+        }
+        let msg: Msg = postcard::from_bytes(bytes).ok()?;
+        // Every number in it, printed: `{:?}` writes a non-finite one as NaN
+        // or inf, and no name in a message contains either (a test checks).
+        let text = format!("{msg:?}");
+        (!text.contains("NaN") && !text.contains("inf")).then_some(msg)
+    }
 }
 
 /// What other devices need of a crab: where it is and what it's doing, to
 /// draw it and for enemies to hunt it.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CrabState {
     pub id: PlayerId,
     pub mover: Mover,

@@ -12,6 +12,7 @@
 # Copies of assets/ made by tools/build-web.sh, and the tidy tool's build.
 /web/assets/
 /tools/tidy/target/
+/tools/introducer/target/
 
 # Teaser renders: rebuilt by docs/teaser/build.sh into docs/teaser/build/.
 /docs/teaser/build/
