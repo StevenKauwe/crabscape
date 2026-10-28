@@ -102,15 +102,16 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Oil-paint the atlas | `tools/paint-oil-crab.sh` |
 | Oil painter | `cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png` |
 | Disk housekeeping | `cargo tidy` (`cargo tidy report` only looks) |
-| Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`. Live: one Fly.io machine, redeployed by `introducer.yml` on `main` (setup and rules in its `src/main.rs`) |
+| Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`. Live: one Fly.io machine, redeployed by `introducer.yml` on `main` (setup and rules in its `src/main.rs`). It also files player reports (`POST /report`, `src/report.rs`) when the `GITHUB_REPORT_TOKEN` secret is set; locally, `GITHUB_REPORT_TOKEN=$(gh auth token)` files a real issue (close it after) |
+| Spoken reports | `crates/listen` (Moonshine speech to text, built into `web/listen/` by `tools/build-web.sh`). With the model's files in a folder and a 16 kHz WAV: `LISTEN_MODEL=<folder> LISTEN_CLIP=<wav> cargo test -p listen --release -- --ignored`. In headless Chrome, `--use-file-for-fake-audio-capture=<plain wav>` speaks into the microphone, but only with `--disable-features=AudioServiceSandbox,AudioServiceOutOfProcess` (the sandboxed audio service can't read the file) |
 | Co-op on one computer | Two windows side by side (a hidden tab pauses). A browser that hides local addresses (Chrome's mDNS, often without macOS Local Network access) can't connect them: use headless Chrome with `--disable-features=WebRtcHideLocalIpsWithMdns --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` and each player in its own window (DevTools `Target.createTarget` with `newWindow`), or a phone on cellular. Console lines starting `co-op:` say who connected, met, went silent or rejoined. `data-coop` on the canvas says each tab's co-op status. Voice: add `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --mute-audio` (a fake beeping mic, kept off the speakers); `data-voice` says the mic, each friend's call and how many friends are heard |
 
 Feel change? Run the same crabsim script on `main` and on your branch and compare the numbers (`cargo crabsim --help`
 lists the script format and flags). Visual change? Attach before/after screenshots.
 
 Layout: `crates/sim` rules · `src/` the Bevy game (drawing, input, camera, effects) · `crates/crabrig` crab puppet ·
-`crates/painter` oil painter (`crabpaint`) · `assets/` files the game loads · `art/` source art · `tools/` build,
-test and tidy scripts · `web/` the page.
+`crates/painter` oil painter (`crabpaint`) · `crates/listen` speech to text for spoken reports · `assets/` files the
+game loads · `art/` source art · `tools/` build, test and tidy scripts · `web/` the page.
 
 ## Keeping the computer happy
 Bevy builds are big and teammates can't fix a broken computer.
