@@ -64,6 +64,8 @@ impl Plugin for SoundPlugin {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub use backend::{context, recording};
 pub use backend::{sleep, wake};
 
 fn play(mut requests: MessageReader<PlaySfx>) {
@@ -307,6 +309,9 @@ mod backend {
         silent: Option<HtmlAudioElement>,
         /// The page is hidden: sound is asleep until it shows again.
         asleep: bool,
+        /// The microphone is on (voice chat), so the session must allow
+        /// recording too.
+        recording: bool,
     }
 
     thread_local! {
@@ -357,6 +362,7 @@ mod backend {
                 buffers,
                 silent: None,
                 asleep: false,
+                recording: false,
             })
         });
     }
@@ -406,7 +412,7 @@ mod backend {
         /// whenever it is paused: a play outside an activating event is
         /// refused, and hiding the page pauses it.
         fn play_through_silent_switch(&mut self) {
-            set_session("playback");
+            set_session(self.session());
             if self.silent.is_none() {
                 self.silent = HtmlAudioElement::new_with_src(&super::silent_wav_uri()).ok();
                 if let Some(el) = &self.silent {
@@ -446,6 +452,33 @@ mod backend {
                 self.play_through_silent_switch();
             }
         }
+    }
+
+    impl Audio {
+        /// "playback", or "play-and-record" while the microphone is on (a
+        /// "playback" page can't record on an iPhone).
+        fn session(&self) -> &'static str {
+            if self.recording {
+                "play-and-record"
+            } else {
+                "playback"
+            }
+        }
+    }
+
+    /// The game's audio context, which voice chat plays friends through.
+    pub fn context() -> Option<AudioContext> {
+        AUDIO.with(|a| a.borrow().as_ref().map(|a| a.ctx.clone()))
+    }
+
+    /// The microphone went on or off (voice chat).
+    pub fn recording(on: bool) {
+        with(|a| {
+            a.recording = on;
+            if !a.asleep {
+                set_session(a.session());
+            }
+        });
     }
 
     /// iPhones mute Web Audio with the ring/silent switch on, unlike media

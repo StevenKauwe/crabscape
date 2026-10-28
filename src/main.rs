@@ -25,6 +25,7 @@
 //! - [`tuning`]: the camera and lantern numbers
 //! - [`level`]: drawing the test level (sea floor, rocks, spires)
 //! - [`player`]: the crabs, and ticking the simulation each frame
+//! - [`power`]: the battery saver (30 frames a second)
 //! - [`replay`]: F9 saves a replay of this session
 //! - [`input`]: keys, controllers and touch buttons become move requests
 //! - [`puppet`]: the crab's cut-out body parts and their animation
@@ -42,11 +43,13 @@
 //! - [`notes`]: the short notes that float up when something happens
 //! - [`reset`]: the "Start over" button: forget this device's saved data, start fresh
 //! - [`save`]: remembering the crab's position between visits
+//! - [`settings`]: the settings panel: battery saver, how voices carry
 //! - [`secrets`]: places hidden in darkness until a bright lantern comes near
 //! - [`sound`]: impact sounds, synthesised in code, played with Web Audio
 //! - [`stamina`]: the rings over the crab that show its swimming stamina
 //! - [`style`]: the ink or oil-paint art style, and the button to switch
 //! - [`view`]: the camera and the HUD text
+//! - [`voice`]: voice chat with friends in a co-op room
 
 mod background;
 mod coop;
@@ -65,16 +68,19 @@ mod level;
 mod memory;
 mod notes;
 mod player;
+mod power;
 mod puppet;
 mod replay;
 mod reset;
 mod save;
 mod secrets;
+mod settings;
 mod sound;
 mod stamina;
 mod style;
 mod tuning;
 mod view;
+mod voice;
 
 use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
@@ -114,6 +120,8 @@ fn main() {
             memory::MemoryPlugin,
             level::LevelPlugin,
             player::PlayerPlugin,
+            power::PowerPlugin,
+            settings::SettingsPlugin,
             input::InputPlugin,
             puppet::PuppetPlugin,
             lantern::LanternPlugin,
@@ -136,6 +144,7 @@ fn main() {
             secrets::SecretsPlugin,
             sound::SoundPlugin,
             stamina::StaminaPlugin,
+            voice::VoicePlugin,
         ))
         .run();
 }

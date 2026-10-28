@@ -42,6 +42,23 @@ const CODE_MAX: usize = 16;
 /// The longest build name in a room name (the introducer takes 80 in all).
 const BUILD_MAX: usize = 40;
 
+/// The invite button's width, and its gap from the art-style button.
+const INVITE_WIDTH: f32 = 124.0;
+const GAP: f32 = 8.0;
+
+/// The invite button's box: left of the art-style button, on the same row.
+pub(crate) fn invite_rect(window: Vec2) -> Rect {
+    let style = crate::style::button_rect(window);
+    let right = style.min.x - GAP;
+    Rect::new(right - INVITE_WIDTH, style.min.y, right, style.max.y)
+}
+
+/// Where the co-op status line starts: under the settings button, which
+/// sits under the invite button.
+fn status_top(window: Vec2) -> f32 {
+    crate::settings::button_rect(window).max.y + 4.0
+}
+
 /// This device's crab.
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct LocalId(pub PlayerId);
@@ -105,6 +122,9 @@ fn friends(n: usize) -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
+pub(crate) use web::{in_room, players};
+
+#[cfg(target_arch = "wasm32")]
 mod web {
     use std::cell::RefCell;
 
@@ -115,13 +135,17 @@ mod web {
     use matchbox_socket::{Packet, PeerId, PeerState, WebRtcSocket};
     use wasm_bindgen::{JsCast, JsValue};
 
-    use super::{HOST, INTRODUCER, LocalId, clean_code, friends, make_code, param, room};
+    use super::{
+        HOST, INTRODUCER, LocalId, clean_code, friends, make_code, param, room, status_top,
+    };
     use crate::player::{GameSet, spawn_local_crab};
-    use crate::{save, style};
+    use crate::save;
 
-    /// The reliable channel (blows, hand-overs) and the quick one (updates).
+    /// The reliable channel (blows, hand-overs), the quick one (updates),
+    /// and voice chat's notes (`voice.rs`).
     const RELIABLE: usize = 0;
     const QUICK: usize = 1;
+    const VOICE: usize = 2;
     /// Messages kept for a device we can't tell yet (it's just connecting).
     const WAITING_AT_MOST: usize = 256;
     /// How long the button says the link went (seconds).
@@ -137,9 +161,6 @@ mod web {
     /// device sends its crab many times a second, and a dropped connection
     /// isn't always reported, so silence is the sure sign.
     const SILENT_FOR: f32 = 5.0;
-    /// The button's width, and its gap from the art-style button.
-    const WIDTH: f32 = 124.0;
-    const GAP: f32 = 8.0;
 
     /// Where this tab stands in co-op, for the button and its status line.
     #[derive(Resource, Default)]
@@ -169,6 +190,8 @@ mod web {
     /// The connection to the other devices.
     struct Link {
         socket: WebRtcSocket,
+        /// This device's connection id, once the introducer gave it.
+        me: Option<PeerId>,
         peers: Vec<Peer>,
         /// Messages for a player whose device we can't tell yet.
         waiting: Vec<(PlayerId, Packet, usize)>,
@@ -203,6 +226,23 @@ mod web {
         fn known(&self) -> impl Iterator<Item = PlayerId> + '_ {
             self.peers.iter().filter_map(|p| p.player)
         }
+    }
+
+    /// In a co-op room (hosting or joined)?
+    pub(crate) fn in_room() -> bool {
+        LINK.with(|l| l.borrow().is_some())
+    }
+
+    /// Each connected device and its player, once known (for voice volumes).
+    pub(crate) fn players() -> Vec<(PeerId, PlayerId)> {
+        LINK.with(|l| {
+            l.borrow().as_ref().map_or(Vec::new(), |link| {
+                link.peers
+                    .iter()
+                    .filter_map(|p| Some((p.id, p.player?)))
+                    .collect()
+            })
+        })
     }
 
     #[derive(Component)]
@@ -276,6 +316,7 @@ mod web {
         let (socket, run) = WebRtcSocket::builder(url)
             .add_reliable_channel()
             .add_unreliable_channel()
+            .add_reliable_channel()
             .build();
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(e) = run.await {
@@ -285,18 +326,14 @@ mod web {
         LINK.with(|l| {
             *l.borrow_mut() = Some(Link {
                 socket,
+                me: None,
                 peers: Vec::new(),
                 waiting: Vec::new(),
             })
         });
     }
 
-    /// The button's box: left of the art-style button, on the same row.
-    fn button_rect(window: Vec2) -> Rect {
-        let style = style::button_rect(window);
-        let right = style.min.x - GAP;
-        Rect::new(right - WIDTH, style.min.y, right, style.max.y)
-    }
+    pub(crate) use super::invite_rect as button_rect;
 
     fn spawn_button(mut commands: Commands, window: Single<&Window>) {
         let r = button_rect(window.size());
@@ -334,7 +371,7 @@ mod web {
             StatusLine,
             Node {
                 position_type: PositionType::Absolute,
-                top: px(r.max.y + 4.0),
+                top: px(status_top(window.size())),
                 right,
                 ..default()
             },
@@ -429,6 +466,9 @@ mod web {
             let Ok(changes) = link.socket.try_update_peers() else {
                 return false;
             };
+            if link.me.is_none() {
+                link.me = link.socket.id();
+            }
             let mut gone = Vec::new();
             for (peer, state) in changes {
                 match state {
@@ -469,6 +509,14 @@ mod web {
                     sim.receive(msg);
                 }
             }
+            for (peer, bytes) in link.socket.channel_mut(VOICE).receive() {
+                crate::voice::hear(peer, &bytes);
+            }
+            if let Some(me) = link.me {
+                for p in &link.peers {
+                    crate::voice::meet(p.id, me);
+                }
+            }
             for p in &mut link.peers {
                 p.quiet += time.delta_secs();
                 if p.quiet > SILENT_FOR {
@@ -481,6 +529,7 @@ mod web {
                     continue;
                 };
                 info!("co-op: a device left");
+                crate::voice::forget(peer);
                 match link.peers.remove(i).player {
                     // The host went: play on alone until it's back.
                     Some(HOST) => sim.go_offline(),
@@ -519,6 +568,7 @@ mod web {
     /// afresh: whoever is still there, or comes back, meets this device anew.
     fn rejoin(sim: &mut Sim, code: &str, host: bool) {
         info!("co-op: joining the room afresh");
+        crate::voice::forget_all();
         let gone: Vec<PlayerId> = LINK.with(|cell| {
             cell.borrow_mut().take().map_or(Vec::new(), |mut link| {
                 link.socket.close();
@@ -543,6 +593,11 @@ mod web {
             let Some(link) = cell.as_mut() else {
                 return;
             };
+            for (peer, bytes) in crate::voice::outbox() {
+                if link.peers.iter().any(|p| p.id == peer) {
+                    link.send(peer, bytes.into(), VOICE);
+                }
+            }
             for (id, bytes, channel) in std::mem::take(&mut link.waiting) {
                 link.send_to(id, bytes, channel);
             }
@@ -596,7 +651,7 @@ mod web {
         mut line: Single<&mut Node, (With<StatusLine>, Without<InviteButton>)>,
     ) {
         let r = button_rect(window.size());
-        let (top, below) = (px(r.min.y), px(r.max.y + 4.0));
+        let (top, below) = (px(r.min.y), px(status_top(window.size())));
         if button.top != top {
             button.top = top;
         }
