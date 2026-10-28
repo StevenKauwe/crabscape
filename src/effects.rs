@@ -125,7 +125,7 @@ impl Plugin for EffectsPlugin {
 
 /// Make a `size` x `size` white picture whose transparency at each pixel is
 /// `alpha(r)`, where `r` is the distance from the middle (0 to 1 at the edge).
-fn radial_image(size: u32, alpha: impl Fn(f32) -> f32) -> Image {
+pub(crate) fn radial_image(size: u32, alpha: impl Fn(f32) -> f32) -> Image {
     let mut data = Vec::with_capacity((size * size * 4) as usize);
     let half = size as f32 / 2.0;
     for y in 0..size {

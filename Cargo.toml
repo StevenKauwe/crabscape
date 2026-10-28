@@ -74,6 +74,12 @@ web-sys = { version = "0.3", features = [
     "AudioContext", "BaseAudioContext", "AudioContextState", "AudioBuffer", "AudioBufferSourceNode",
     "AudioScheduledSourceNode", "AudioNode", "AudioDestinationNode", "AudioParam", "GainNode",
     "HtmlAudioElement", "HtmlMediaElement",
+    # Voice chat (src/voice.rs): the microphone, an audio connection per friend, their voice into Web Audio.
+    "MediaDevices", "MediaStream", "MediaStreamTrack", "MediaStreamConstraints", "MediaStreamAudioSourceNode",
+    "RtcPeerConnection", "RtcConfiguration", "RtcIceServer", "RtcIceCandidate", "RtcPeerConnectionIceEvent",
+    "RtcSessionDescriptionInit", "RtcSdpType", "RtcTrackEvent", "RtcRtpTransceiver", "RtcRtpTransceiverInit",
+    "RtcRtpTransceiverDirection", "RtcRtpSender", "RtcIceCandidateInit", "AnalyserNode",
+    "RtcPeerConnectionState",
 ] }
 wasm-bindgen = "0.2"
 # Reflect, to set navigator.audioSession (not in web-sys yet): iPhone sound with the silent switch on.

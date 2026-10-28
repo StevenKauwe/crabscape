@@ -16,7 +16,7 @@ use crabsim::{SPAWN, Sim};
 /// units), whatever the screen's shape: on a portrait phone you see more
 /// water above, on a wide screen more level to the sides.
 const VIEW_MIN_WIDTH: f32 = 420.0;
-const VIEW_MIN_HEIGHT: f32 = 340.0;
+pub(crate) const VIEW_MIN_HEIGHT: f32 = 340.0;
 
 /// The deep sea: near-black teal.
 const WATER: Color = Color::srgb(0.012, 0.035, 0.045);
@@ -80,6 +80,9 @@ impl Shake {
 pub struct Zoom {
     pub out: f32,
     want: f32,
+    /// Zoomed out at least this far for now, whatever was asked: the
+    /// settings slider pulls back to show how far the crab hears.
+    pub peek: f32,
     /// The two pinching fingers' distance last frame.
     pinch: Option<f32>,
 }
@@ -92,6 +95,7 @@ impl Default for Zoom {
         Self {
             out: start,
             want: start,
+            peek: 1.0,
             pinch: None,
         }
     }
@@ -156,10 +160,11 @@ fn read_zoom(
     }
     zoom.want = (zoom.want * by).clamp(1.0, ZOOM_MAX);
     // Ease in log space, so every step feels the same size.
-    let (now, want) = (zoom.out.ln(), zoom.want.ln());
+    let target = zoom.want.max(zoom.peek).min(ZOOM_MAX);
+    let (now, want) = (zoom.out.ln(), target.ln());
     zoom.out = (now + (want - now) * (1.0 - (-12.0 * dt).exp())).exp();
-    if (zoom.out - zoom.want).abs() < 1e-3 {
-        zoom.out = zoom.want;
+    if (zoom.out - target).abs() < 1e-3 {
+        zoom.out = target;
     }
 }
 
