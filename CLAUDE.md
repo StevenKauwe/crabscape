@@ -29,7 +29,8 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - **Two targets:** WebAssembly for the browser, native for PC.
 - **Runs on phones and desktop.** iPhone/WebKit: WebGL2 only, **no relaxed-SIMD ever**, keep `RUSTFLAGS` empty.
 - **Multiplayer-ready:** input becomes commands (`MoveRequest`), nothing moves the crab directly; the sim is
-  deterministic; co-op will be host-authoritative.
+  deterministic. Co-op (`crates/sim/src/net.rs`): each device runs its own crab, the defender decides blows, the
+  host's browser runs the world. Anything that changes a crab happens only on its own device; skip `remote` crabs.
 - **Headless deterministic sim:** game rules live in `crates/sim` (fixed 1/120 s ticks, no clocks, randomness only
   from a seeded generator stored in `Sim`), never in Bevy systems. The game only presents it. `cargo crabsim` runs
   it at any speed; replays reproduce bug reports exactly.

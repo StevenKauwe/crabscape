@@ -25,8 +25,9 @@ strange.
 
 ## Solo and co-op
 - **Solo is the full game:** every zone, skill and story beat. Ironman-style: you can make everything yourself.
-- **Co-op is optional,** 2–8 players, peer-to-peer in the browser (WebRTC via matchbox, host-authoritative, a tiny
-  signalling server, no database, cheating allowed among friends). Each player keeps their crab in their own browser.
+- **Co-op is optional,** 2–8 players, peer-to-peer in the browser (WebRTC via matchbox; the host's browser is the
+  server, a tiny introducer, no database, cheating allowed among friends). Crisp for everyone: your own crab never
+  feels the lag, and a parry is judged on your own screen. Each player keeps their crab in their own browser.
 - A hosted shared world may come much later; refactor then rather than design for it now.
 
 ## The loop
