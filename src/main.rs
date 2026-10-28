@@ -27,6 +27,7 @@
 //! - [`player`]: the crabs, and ticking the simulation each frame
 //! - [`power`]: the battery saver (30 frames a second)
 //! - [`replay`]: F9 saves a replay of this session
+//! - [`report`]: report a bug or idea from the game (typed or spoken), with the replay
 //! - [`input`]: keys, controllers and touch buttons become move requests
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
@@ -71,6 +72,7 @@ mod player;
 mod power;
 mod puppet;
 mod replay;
+mod report;
 mod reset;
 mod save;
 mod secrets;
@@ -108,6 +110,11 @@ fn main() {
                         ..default()
                     }),
                     ..default()
+                })
+                // Keep the last log lines for players' bug reports.
+                .set(bevy::log::LogPlugin {
+                    custom_layer: report::keep_log,
+                    ..default()
                 }),
         )
         .init_resource::<tuning::ViewTuning>()
@@ -140,6 +147,7 @@ fn main() {
             home::HomePlugin,
             impact::ImpactPlugin,
             notes::NotesPlugin,
+            report::ReportPlugin,
             reset::ResetPlugin,
             secrets::SecretsPlugin,
             sound::SoundPlugin,

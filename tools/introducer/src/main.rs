@@ -34,29 +34,116 @@
 //!
 //! Anyone can reach it, as every browser must, so it lets in only
 //! `crabscape-` rooms and holds nothing but the open connections.
+//!
+//! It also takes players' bug reports and ideas from the game (`POST
+//! /report`) and files them as GitHub issues: see `report.rs`.
+
+mod report;
 
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+use std::time::Instant;
 
+use axum::extract::{ConnectInfo, DefaultBodyLimit};
+use axum::http::{HeaderMap, StatusCode};
+use axum::routing::post;
 use matchbox_signaling::SignalingServer;
+use tower_http::cors::{Any, CorsLayer};
 
 /// The longest room name accepted (a build name and a short code).
 const MAX_ROOM: usize = 80;
 
 #[tokio::main]
+// matchbox's connection check must answer with a whole HTTP response to refuse.
+#[allow(clippy::result_large_err)]
 async fn main() -> Result<(), matchbox_signaling::Error> {
     let port = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3536);
-    let server = SignalingServer::full_mesh_builder(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))
-        .on_connection_request(|meta| {
-            Ok(meta
-                .path
-                .as_deref()
-                .is_some_and(|room| room.starts_with("crabscape-") && room.len() <= MAX_ROOM))
-        })
-        .cors()
-        .build();
+    let server =
+        SignalingServer::full_mesh_builder(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))
+            .on_connection_request(|meta| {
+                Ok(meta
+                    .path
+                    .as_deref()
+                    .is_some_and(|room| room.starts_with("crabscape-") && room.len() <= MAX_ROOM))
+            })
+            .cors()
+            .build_with(|router| {
+                let limits = report::Shared::default();
+                let token: Option<Arc<str>> =
+                    std::env::var("GITHUB_REPORT_TOKEN").ok().map(Into::into);
+                router
+                    .route(
+                        "/report",
+                        post(move |headers, from, body| {
+                            receive(limits.clone(), token.clone(), headers, from, body)
+                        }),
+                    )
+                    .layer(DefaultBodyLimit::max(report::MAX_BODY))
+                    .layer(
+                        CorsLayer::new()
+                            .allow_origin(Any)
+                            .allow_methods(Any)
+                            .allow_headers(Any),
+                    )
+            });
     println!("introducer listening on port {port}");
     server.serve().await
+}
+
+/// A report from the game: check it, then file it as an issue. Answers the
+/// issue's address, or a short reason the game can show.
+async fn receive(
+    limits: report::Shared,
+    token: Option<Arc<str>>,
+    headers: HeaderMap,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    body: String,
+) -> (StatusCode, String) {
+    let Some(token) = token else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "reports aren't switched on yet".into(),
+        );
+    };
+    let Ok(sent) = serde_json::from_str::<report::Report>(&body) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "that report didn't make sense".into(),
+        );
+    };
+    let (title, text) = match report::issue(&sent) {
+        Ok(issue) => issue,
+        Err(why) => return (StatusCode::BAD_REQUEST, why.into()),
+    };
+    // On Fly.io every request comes through its proxy, which names the sender.
+    let sender = headers
+        .get("fly-client-ip")
+        .and_then(|v| v.to_str().ok())
+        .map_or_else(|| from.ip().to_string(), str::to_string);
+    let allowed = limits
+        .lock()
+        .is_ok_and(|mut l| l.allow(&sender, Instant::now()));
+    if !allowed {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "that's a lot of reports: try again in an hour".into(),
+        );
+    }
+    match tokio::task::spawn_blocking(move || report::file(&token, &title, &text)).await {
+        Ok(Ok(url)) => (StatusCode::OK, url),
+        Ok(Err(e)) => {
+            println!("report not filed: {e}");
+            (
+                StatusCode::BAD_GATEWAY,
+                "GitHub didn't take it: try again later".into(),
+            )
+        }
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "something broke: try again later".into(),
+        ),
+    }
 }

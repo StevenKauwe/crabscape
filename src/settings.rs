@@ -2,7 +2,8 @@
 //! (the battery saver, see `power.rs`), and how friends' voices carry
 //! (see `voice.rs`): from everyone at full volume, or from nearby crabs only,
 //! with a slider for how far. While the slider moves, a ripple around the
-//! crab shows how far it hears. Kept on the device, like the art style.
+//! crab shows how far it hears. Kept on the device, like the art style. At
+//! the bottom, "Report a bug or idea" opens the report form (`report.rs`).
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
@@ -139,6 +140,8 @@ mod panel {
         Saver,
         Everyone,
         Nearby,
+        /// Opens the report form (`report.rs`).
+        Report,
     }
 
     #[derive(Component)]
@@ -174,7 +177,7 @@ mod panel {
     struct Layout {
         button: Rect,
         panel: Rect,
-        choices: [(Choice, Rect); 4],
+        choices: [(Choice, Rect); 5],
         range_label: Rect,
         track: Rect,
     }
@@ -194,14 +197,19 @@ mod panel {
         let y2 = y1 + ROW + PAD + LABEL;
         let y3 = y2 + ROW + PAD;
         let track_y = y3 + LABEL + 8.0;
+        let y4 = track_y + 6.0 + PAD + 8.0;
         Layout {
             button,
-            panel: Rect::new(left, top, right, track_y + 6.0 + PAD + 8.0),
+            panel: Rect::new(left, top, right, y4 + ROW + PAD),
             choices: [
                 (Choice::Smooth, row(y1, false)),
                 (Choice::Saver, row(y1, true)),
                 (Choice::Everyone, row(y2, false)),
                 (Choice::Nearby, row(y2, true)),
+                (
+                    Choice::Report,
+                    Rect::new(left + PAD, y4, right - PAD, y4 + ROW),
+                ),
             ],
             range_label: Rect::new(left + PAD, y3, right - PAD, y3 + LABEL),
             track: Rect::new(left + PAD + 6.0, track_y, right - PAD - 6.0, track_y + 6.0),
@@ -313,6 +321,7 @@ mod panel {
                         Choice::Saver => "Battery saver",
                         Choice::Everyone => "Everyone",
                         Choice::Nearby => "Nearby",
+                        Choice::Report => "Report a bug or idea",
                     };
                     p.spawn((choice, pill(r, o))).with_children(|b| {
                         b.spawn(text(words, 13.0));
@@ -431,6 +440,10 @@ mod panel {
                     Some((Choice::Saver, _)) => settings.saver = true,
                     Some((Choice::Everyone, _)) => settings.hear = Hear::Everyone,
                     Some((Choice::Nearby, _)) => settings.hear = Hear::Nearby,
+                    Some((Choice::Report, _)) => {
+                        open.open = false;
+                        crate::report::ask();
+                    }
                     None => {}
                 }
             }
@@ -484,6 +497,7 @@ mod panel {
                 Choice::Saver => settings.saver,
                 Choice::Everyone => settings.hear == Hear::Everyone,
                 Choice::Nearby => settings.hear == Hear::Nearby,
+                Choice::Report => false,
             };
             bg.set_if_neq(BackgroundColor(if picked {
                 Color::srgba(0.35, 0.55, 0.6, 0.75)

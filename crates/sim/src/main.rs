@@ -143,11 +143,14 @@ fn run() -> Result<(), String> {
     if let Some((x, y)) = o.start {
         o.replay.start = bevy_math::Vec2::new(x, y);
     }
-    let total = o.ticks.unwrap_or(if o.replay.inputs.is_empty() {
-        ticks(5.0)
-    } else {
-        o.replay.length()
-    });
+    // A recording says how long it lasts, even one where the crab never moved.
+    let total = o
+        .ticks
+        .unwrap_or(if o.replay.inputs.is_empty() && o.replay.end.is_none() {
+            ticks(5.0)
+        } else {
+            o.replay.length()
+        });
 
     let mut sim = Sim::with_one_crab(o.replay.start);
     // A feel switch on the first tick is the feel it was recorded with.
