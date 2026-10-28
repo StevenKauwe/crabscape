@@ -3,7 +3,7 @@ name = "introducer"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "The co-op introducer: swaps connection notes so browsers can connect to each other. Stores nothing."
+description = "The co-op introducer: swaps connection notes so browsers can connect to each other, and files players' reports as GitHub issues. Stores nothing."
 
 # Not part of the game's build: a separate little server with its own `target/` (and the game's CI never builds
 # it). Deployed to Fly.io with `fly deploy` from this folder (see `src/main.rs`).
@@ -12,3 +12,12 @@ description = "The co-op introducer: swaps connection notes so browsers can conn
 [dependencies]
 matchbox_signaling = "0.14"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# Player reports (src/report.rs): the /report route on the same server, and the call that files the issue.
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
+# Long replays go into the issue compressed.
+flate2 = "1"
+base64 = "0.22"
