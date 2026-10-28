@@ -1,4 +1,4 @@
-# The co-op introducer on Fly.io (see src/main.rs). Deploy from this folder: `fly deploy`.
+# The co-op introducer on Fly.io (see src/main.rs): exactly one machine, deployed by .github/workflows/introducer.yml.
 # The game connects to wss://<app>.fly.dev, so if this name changes, change INTRODUCER in src/coop.rs too.
 app = "crabscape-introducer"
 primary_region = "sjc"

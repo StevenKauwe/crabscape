@@ -13,16 +13,24 @@
 //! Run it here with `cargo run --release` (port 3536, or `PORT`), and point
 //! the game at it with `?introducer=ws://localhost:3536`.
 //!
-//! It runs on Fly.io from this folder's `Dockerfile` and `fly.toml`. Setting
-//! it up the first time (the Fly login stays on that computer; nothing secret
-//! is in this repository):
+//! It runs on Fly.io (app `crabscape-introducer`, in the owner's own Fly
+//! account) from this folder's `Dockerfile` and `fly.toml`, as exactly **one**
+//! machine: rooms live in its memory, so two machines would each hold half of
+//! them and friends could miss each other. After any change here on `main`,
+//! `.github/workflows/introducer.yml` deploys it (`--ha=false` keeps it to
+//! one). Nothing secret is in this repository; the deploy token is the
+//! `FLY_API_TOKEN` secret. Setting it up the first time:
 //!
 //! ```text
 //! brew install flyctl                   # or see fly.io/docs/flyctl/install
 //! fly auth login
-//! fly apps create crabscape-introducer  # once; a taken name means changing fly.toml and INTRODUCER in src/coop.rs
-//! fly deploy tools/introducer           # again after any change here
+//! fly apps create crabscape-introducer  # a taken name means changing fly.toml and INTRODUCER in src/coop.rs
+//! fly deploy tools/introducer --ha=false
+//! fly tokens create deploy -a crabscape-introducer | gh secret set FLY_API_TOKEN -R StevenKauwe/crabscape
 //! ```
+//!
+//! `fly status -a crabscape-introducer` should list one machine; if it lists
+//! two, `fly scale count 1 -a crabscape-introducer`.
 //!
 //! Anyone can reach it, as every browser must, so it lets in only
 //! `crabscape-` rooms and holds nothing but the open connections.
