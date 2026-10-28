@@ -61,6 +61,10 @@ pub enum Msg {
     Crab { at: u64, crab: CrabState },
     /// An enemy's state, from the device that runs it (often).
     Enemy { at: u64, enemy: Enemy },
+    /// The device that ran an enemy hands it over (to the device of the crab
+    /// it now hunts, or the host's): its whole state, with the new
+    /// [`Enemy::runner`]. It must arrive.
+    Handover { at: u64, enemy: Enemy },
     /// `by`'s claw reached `enemy` (run elsewhere), from `from_x`.
     HitEnemy {
         by: PlayerId,
@@ -110,9 +114,10 @@ pub struct Net {
     /// Messages sent about each enemy run elsewhere, per crab of ours: (enemy,
     /// crab, how many, tick of the latest).
     pub(crate) told: Vec<(u32, PlayerId, u32, u64)>,
-    /// The sender's tick of the newest update applied, per crab and enemy.
+    /// The sender's tick of the newest update applied, per crab, and per
+    /// enemy and hand-over (each runner counts its own ticks).
     pub(crate) crab_at: Vec<(PlayerId, u64)>,
-    pub(crate) enemy_at: Vec<(u32, u64)>,
+    pub(crate) enemy_at: Vec<((u32, u32), u64)>,
 }
 
 impl Net {

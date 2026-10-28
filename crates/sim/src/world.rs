@@ -191,9 +191,23 @@ impl Sim {
         self.net.as_ref().is_none_or(|n| n.host)
     }
 
-    /// Does this device run the enemies? (The host's does, for now.)
-    fn runs_enemies(&self) -> bool {
-        self.is_host()
+    /// Does this device run enemy `id`? An enemy hunting a crab runs on that
+    /// crab's device; one hunting nobody, on the host's. In solo play this
+    /// device runs everything.
+    pub fn runs(&self, id: u32) -> bool {
+        self.enemies
+            .iter()
+            .find(|e| e.id == id)
+            .is_some_and(|e| runs_here(self.is_host(), &self.crabs, e))
+    }
+
+    /// Which enemies this device runs, in the order they step.
+    fn runs_each(&self) -> Vec<bool> {
+        let host = self.is_host();
+        self.enemies
+            .iter()
+            .map(|e| runs_here(host, &self.crabs, e))
+            .collect()
     }
 
     /// The messages this device has to send since the last call.
@@ -206,7 +220,7 @@ impl Sim {
 
     /// A message from another device arrives.
     pub fn receive(&mut self, msg: Msg) {
-        let runs = self.runs_enemies();
+        let host = self.is_host();
         let Some(net) = &mut self.net else {
             return;
         };
@@ -221,16 +235,24 @@ impl Sim {
                     crab.pending.merge(state.events);
                 }
             }
-            Msg::Enemy { at, enemy: update } => {
+            Msg::Enemy { at, enemy: update } | Msg::Handover { at, enemy: update } => {
                 let tick = self.tick;
                 let Some(e) = self.enemies.iter_mut().find(|e| e.id == update.id) else {
                     return;
                 };
-                if runs
-                    || net.holding(&update, tick)
-                    || !Net::newer(&mut net.enemy_at, update.id, at)
+                // Handed over since we last heard: whoever runs it now (maybe
+                // this device) carries on from this state.
+                let fresh = update.handovers > e.handovers;
+                if update.handovers < e.handovers
+                    || !fresh
+                        && (runs_here(host, &self.crabs, e)
+                            || net.holding(&update, tick)
+                            || !Net::newer(&mut net.enemy_at, (update.id, update.handovers), at))
                 {
                     return;
+                }
+                if fresh {
+                    Net::newer(&mut net.enemy_at, (update.id, update.handovers), at);
                 }
                 // Bubbles on their way to our own crabs stay as we have them:
                 // they pop here, and only here.
@@ -251,20 +273,29 @@ impl Sim {
                 hit,
                 from_x,
             } => {
-                if let Some(e) = self.enemies.iter_mut().find(|e| e.id == enemy)
-                    && runs
-                {
-                    e.takes(&hit, from_x, &self.tuning);
-                    e.heard(by);
+                let Some(e) = self.enemies.iter_mut().find(|e| e.id == enemy) else {
+                    return;
+                };
+                // Handed over while this was on its way: pass it on.
+                if !runs_here(host, &self.crabs, e) {
+                    net.send(runner_of(e), msg);
+                    return;
                 }
+                e.takes(&hit, from_x, &self.tuning);
+                e.heard(by);
             }
             Msg::Blow {
                 enemy,
                 crab,
                 outcome,
             } => {
-                if let Some(e) = self.enemies.iter_mut().find(|e| e.id == enemy)
-                    && runs
+                let Some(e) = self.enemies.iter_mut().find(|e| e.id == enemy) else {
+                    return;
+                };
+                if !runs_here(host, &self.crabs, e) {
+                    net.send(runner_of(e), msg);
+                    return;
+                }
                 {
                     e.heard(crab);
                     let grabs = enemy::grabs(e.kind.tuning(&self.tuning), outcome);
@@ -576,15 +607,33 @@ impl Sim {
             }
         }
         self.claws_meet_enemies();
-        let runs = self.runs_enemies();
-        for e in &mut self.enemies {
+        let runs = self.runs_each();
+        for (e, runs) in self.enemies.iter_mut().zip(runs) {
             let blows = enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
-            // Our crabs judged this copy's blows; its runner hears how.
-            if !runs && let Some(net) = &mut self.net {
+            let Some(net) = &mut self.net else {
+                continue;
+            };
+            if runs {
+                // It hunts a crab on another device now, or nobody: that
+                // device (or the host's) runs it from here on.
+                if e.target != e.runner {
+                    e.runner = e.target;
+                    e.handovers += 1;
+                    let enemy = e.clone();
+                    net.send(
+                        To::Everyone,
+                        Msg::Handover {
+                            at: self.tick,
+                            enemy,
+                        },
+                    );
+                }
+            } else {
+                // Our crabs judged this copy's blows; its runner hears how.
                 for (crab, outcome) in blows {
                     net.tell(e.id, crab, self.tick);
                     net.send(
-                        To::Host,
+                        runner_of(e),
                         Msg::Blow {
                             enemy: e.id,
                             crab,
@@ -617,7 +666,7 @@ impl Sim {
     /// Co-op: note what happened to this device's crabs, and every
     /// [`net::SEND_EVERY`] ticks send the state of everything it runs.
     fn send_updates(&mut self) {
-        let runs = self.runs_enemies();
+        let runs = self.runs_each();
         let Some(net) = &mut self.net else {
             return;
         };
@@ -646,18 +695,16 @@ impl Sim {
             };
             net.send(To::Everyone, Msg::Crab { at, crab });
         }
-        if runs {
-            for e in &self.enemies {
-                let enemy = e.clone();
-                net.send(To::Everyone, Msg::Enemy { at, enemy });
-            }
+        for (e, _) in self.enemies.iter().zip(runs).filter(|(_, runs)| *runs) {
+            let enemy = e.clone();
+            net.send(To::Everyone, Msg::Enemy { at, enemy });
         }
     }
 
     /// Each crab's blow, while it is out, reaches the enemies it overlaps
     /// (each once per swing).
     fn claws_meet_enemies(&mut self) {
-        let runs = self.runs_enemies();
+        let runs_each = self.runs_each();
         let t = &self.tuning;
         for crab in self.crabs.iter_mut().filter(|c| !c.remote) {
             let Some(hitbox) = crab.fighter.hitbox(&crab.mover, t) else {
@@ -676,7 +723,7 @@ impl Sim {
             // A harder blow (momentum, a charge) holds the freeze longer.
             let hitstop = (hitstop as f32 * strength).round() as u32;
             let mut landed = false;
-            for e in &mut self.enemies {
+            for (e, &runs) in self.enemies.iter_mut().zip(&runs_each) {
                 if swing.hits.contains(&e.id)
                     || !e.hittable(t)
                     || hitbox.intersect(e.hurtbox(t)).is_empty()
@@ -719,7 +766,7 @@ impl Sim {
                     if !runs && let Some(net) = &mut self.net {
                         net.tell(e.id, crab.id, self.tick);
                         net.send(
-                            To::Host,
+                            runner_of(e),
                             Msg::HitEnemy {
                                 by: crab.id,
                                 enemy: e.id,
@@ -940,6 +987,19 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         s.tick = s.windup_len() + c.active_ticks + 1;
         ev.crushed = true;
     }
+}
+
+/// Does the device with these crabs (the host's, if `host`) run `e`?
+fn runs_here(host: bool, crabs: &[SimCrab], e: &Enemy) -> bool {
+    match e.runner {
+        None => host,
+        Some(id) => crabs.iter().any(|c| c.id == id && !c.remote),
+    }
+}
+
+/// Where messages about `e` go: the device that runs it.
+fn runner_of(e: &Enemy) -> To {
+    e.runner.map_or(To::Host, To::Player)
 }
 
 /// Is the crab's body pressed against (or overlapping) `r`?

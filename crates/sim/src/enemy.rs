@@ -148,6 +148,13 @@ pub struct Enemy {
     /// Co-op: how many messages about it (hits, blows) the device running it
     /// has applied, per crab that sent them (see [`crate::net`]).
     pub heard: Vec<(PlayerId, u32)>,
+    /// Co-op: the device that runs it, by the crab that plays there (None =
+    /// the host's). Only the device running it changes this, when it hands
+    /// it over to the device of the crab it now hunts.
+    pub runner: Option<PlayerId>,
+    /// How many times it has been handed over: an update from before the
+    /// latest hand-over is out of date.
+    pub handovers: u32,
 }
 
 impl Enemy {
@@ -175,6 +182,8 @@ impl Enemy {
             scent: 0,
             reach: 0.0,
             heard: Vec::new(),
+            runner: None,
+            handovers: 0,
         }
     }
 
@@ -376,7 +385,17 @@ pub fn step(
                 let pause = rng.range(k.pause_ticks.0, k.pause_ticks.1).max(1);
                 e.enter(State::Notice, pause);
             }
-            State::Gone => *e = Enemy::new(e.id, e.kind, e.home, t),
+            State::Gone => {
+                // A new animal, but still run where it was, and its messages
+                // still counted.
+                let fresh = Enemy::new(e.id, e.kind, e.home, t);
+                *e = Enemy {
+                    heard: std::mem::take(&mut e.heard),
+                    runner: e.runner,
+                    handovers: e.handovers,
+                    ..fresh
+                };
+            }
             State::Idle | State::Approach | State::Flee | State::Grab => {}
         }
     }
