@@ -20,8 +20,19 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   lump on the crab's back (sponge crabs really carry things on their backs). Brought home, it's cultured into the
   lantern: the light reaches about a third further for each one. The trip home (climb out, cross the basin, the cliff
   steps, the trench) is the challenge.
-- **Skills grow by doing (RuneScape):** the first is **Climbing**. Climbing earns experience; each level climbs a
-  little faster (+8%). One climb out of the pit reaches level 2. A small readout under the stamina bar shows it.
+- **Skills grow by doing (RuneScape):** each earns experience by doing it, and each level needs a little more
+  than the last (level n+1 at n x (n+1) steps). A small row under the stamina bar shows each skill once it has any
+  experience, and a level up says so ("Swimming level 2!"). They're saved with the crab, and only grow on its own
+  device in co-op.
+  - **Climbing:** experience for every bit climbed; each level climbs a little faster (+8%). One climb out of the pit
+    reaches level 2.
+  - **Swimming:** 1 experience per paddle stroke (level 2 at 10 strokes, 3 at 30, 4 at 60: a play of the test level
+    reaches 2 or 3). Each level makes the stroke rhythm and the legs' rest on solid ground 5% shorter, up to level 10
+    (0.30 s and 0.6 s at level 1, 0.165 s and 0.33 s at 10). It never adds strokes or height: eggs still decide
+    which routes are open.
+  - **Fighting:** 0.25 experience per point of damage the claws deal a creature, 15 for beating one (a snapping
+    shrimp is worth 18, the mantis 30, a moray 37.5); level 2 at 50 (two or three creatures), 3 at 150. Each level
+    adds 5% to the claws' damage, up to level 10 (+45%).
 - **The light matters:** halfway down the pit's right wall is an alcove that looks like a solid lump of rock until a
   bright enough lantern comes near (the starting lantern doesn't reach; one brightened with the pit's culture does).
   Inside: a fourth egg and the first clue to the trench mystery, a shed tooth bigger than the crab (sharks shed and

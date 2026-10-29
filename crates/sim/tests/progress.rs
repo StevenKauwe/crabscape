@@ -22,6 +22,8 @@ fn progress_comes_back_in_a_fresh_world() {
         crab.mover.lantern = 1;
         crab.mover.scissor_claw = true;
         crab.mover.climb_xp = 30.0;
+        crab.mover.swim_xp = 12.0;
+        crab.mover.fight_xp = 55.5;
         crab.mover.carrying = Some(Carry::Tooth);
         crab.eaten[0] = true;
         crab.cultures_taken[0] = true;
@@ -40,6 +42,12 @@ fn progress_comes_back_in_a_fresh_world() {
     let mut fresh = Sim::with_one_crab(Vec2::new(160.0, 0.0));
     fresh.restore_progress(P0, &saved);
     assert_eq!(fresh.progress(P0).unwrap(), saved);
+    let m = &fresh.crab(P0).unwrap().mover;
+    assert_eq!(
+        (m.swim_xp, m.fight_xp),
+        (12.0, 55.5),
+        "the skills came back"
+    );
     let crab = fresh.crab(P0).unwrap();
     assert_eq!(
         crab.mover.stamina,
@@ -78,4 +86,17 @@ fn a_save_from_a_different_level_keeps_only_what_the_crab_grew() {
     assert_eq!(crab.mover.lantern, 2);
     assert_eq!(crab.mover.carrying, None);
     assert_eq!(crab.eaten.len(), sim.level.eggs.len());
+}
+
+#[test]
+fn a_save_from_before_swimming_and_fighting_still_loads() {
+    let sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+    let mut saved = sim.progress(P0).unwrap();
+    saved.climb_xp = 42.0;
+    // The save as it was written before these skills: no such fields.
+    let mut json = serde_json::to_value(&saved).unwrap();
+    let fields = json.as_object_mut().unwrap();
+    assert!(fields.remove("swim_xp").is_some() && fields.remove("fight_xp").is_some());
+    let old: Progress = serde_json::from_value(json).expect("an old save loads");
+    assert_eq!((old.climb_xp, old.swim_xp, old.fight_xp), (42.0, 0.0, 0.0));
 }

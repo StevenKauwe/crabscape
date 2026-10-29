@@ -17,6 +17,12 @@ pub struct Progress {
     pub lantern: u32,
     pub scissor_claw: bool,
     pub climb_xp: f32,
+    /// Saves from before the Swimming and Fighting skills have no such
+    /// field: they load as no experience.
+    #[serde(default)]
+    pub swim_xp: f32,
+    #[serde(default)]
+    pub fight_xp: f32,
     pub carrying: Option<Carry>,
     pub eaten: Vec<bool>,
     pub cultures_taken: Vec<bool>,
@@ -36,6 +42,8 @@ impl Sim {
             lantern: m.lantern,
             scissor_claw: m.scissor_claw,
             climb_xp: m.climb_xp,
+            swim_xp: m.swim_xp,
+            fight_xp: m.fight_xp,
             carrying: m.carrying,
             eaten: crab.eaten.clone(),
             cultures_taken: crab.cultures_taken.clone(),
@@ -69,6 +77,8 @@ impl Sim {
         m.lantern = p.lantern;
         m.scissor_claw = p.scissor_claw;
         m.climb_xp = p.climb_xp;
+        m.swim_xp = p.swim_xp;
+        m.fight_xp = p.fight_xp;
         m.stamina = m.strokes(&tuning) as f32;
         if same_level {
             m.carrying = p.carrying;

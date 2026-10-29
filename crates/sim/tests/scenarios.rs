@@ -177,16 +177,28 @@ fn the_paddle_stroke_adds_height() {
         "paddle peak {}",
         double.highest
     );
-    // Mashing doesn't help: presses faster than the stroke rhythm make one
-    // stroke.
+    // Mashing doesn't help: presses faster than the stroke rhythm make
+    // strokes on the rhythm (the press during it waits for it), and climb no
+    // higher than the same strokes pressed on the beat.
     let mashed = run_with(
         strokes(3),
         "t=0 jump; t=0.5 jump; t=0.55 jump; t=0.6 jump; t=0.65 jump",
         3.0,
         |_| false,
     );
-    assert_eq!(mashed.count("paddled"), 1);
-    assert_eq!(mashed.highest, double.highest);
+    let beat = f64::from(Tuning::base().stroke_interval) + 0.01;
+    let on_beat = run_with(
+        strokes(3),
+        &format!("t=0 jump; t=0.5 jump; t={} jump", 0.5 + beat),
+        3.0,
+        |_| false,
+    );
+    println!(
+        "mashed {:.1}, on the beat {:.1}",
+        mashed.highest, on_beat.highest
+    );
+    assert_eq!(mashed.count("paddled"), 2);
+    assert!(mashed.highest <= on_beat.highest + 0.5);
 }
 
 /// Jump, then press jump `presses` times, one per beat of the stroke rhythm.
@@ -240,12 +252,13 @@ fn only_solid_ground_rests_the_paddle_legs() {
     let run2 = |script: &str| run_with(t.clone(), script, 7.0, |_| false);
     let landed = run2(&spend).first("landed").unwrap();
     let all = t.swim_strokes;
-    // Jump again straight after landing: the legs had no rest, so not even
-    // the double jump.
-    let (a, b) = (landed + 0.01, landed + 0.4);
-    let tired = run2(&format!("{spend}; t={a} jump; t={b} jump"));
+    // Jump again straight after landing: the legs had almost no rest, so
+    // only the stroke that rests on touching down (the double jump), not the
+    // rest.
+    let (a, b, c) = (landed + 0.01, landed + 0.4, landed + 0.71);
+    let tired = run2(&format!("{spend}; t={a} jump; t={b} jump; t={c} jump"));
     assert_eq!(tired.count("jumped"), 2);
-    assert_eq!(tired.count("paddled"), all);
+    assert_eq!(tired.count("paddled"), all + 1);
     // Stand for the refill time first: strokes again.
     let rest = landed + f64::from(t.stamina_refill_time) + 0.05;
     let (b, c) = (rest + 0.4, rest + 0.71);
@@ -404,6 +417,45 @@ fn an_early_jump_press_is_buffered_until_landing() {
         "a press {:.3} s early is forgotten",
         landed - too_early
     );
+}
+
+#[test]
+fn a_press_during_the_stroke_rhythm_is_never_dropped() {
+    // Press again any time after a stroke, before the legs are ready for the
+    // next: the press is kept, and the stroke comes when the rhythm allows.
+    let t = strokes(3);
+    let presses = (f64::from(t.stroke_interval) / 0.02) as u32;
+    for k in 1..=presses {
+        let d = 0.02 * f64::from(k);
+        let r = run_with(
+            t.clone(),
+            &format!("t=0 jump; t=0.5 jump; t={} jump", 0.5 + d),
+            3.0,
+            |_| false,
+        );
+        assert_eq!(r.count("paddled"), 2, "a press {d:.2} s after a stroke");
+    }
+}
+
+#[test]
+fn landing_gives_the_double_jump_back_at_once() {
+    // Jump, spend the double jump, land, and hop straight off again: the
+    // double jump is there for the new hop (one stroke rests the moment the
+    // feet touch down).
+    let t = strokes(1);
+    let spend = "t=0 jump; t=0.45 jump";
+    let landed = run_with(t.clone(), spend, 3.0, |_| false)
+        .first("landed")
+        .unwrap();
+    let hop = landed + 0.02;
+    let r = run_with(
+        t,
+        &format!("{spend}; t={hop} jump; t={} jump", hop + 0.45),
+        5.0,
+        |_| false,
+    );
+    assert_eq!(r.count("jumped"), 2);
+    assert_eq!(r.count("paddled"), 2, "the second double jump was dropped");
 }
 
 #[test]

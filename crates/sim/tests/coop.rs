@@ -270,6 +270,20 @@ fn the_guests_hit_shows_at_once_and_lands_on_the_host() {
 }
 
 #[test]
+fn skills_grow_only_on_the_crabs_own_device() {
+    // The guest smashes the bag the host runs: the guest's crab earns the
+    // Fighting experience on the guest's device; the host only learns it from
+    // the guest's updates, and the host's own crab earns nothing.
+    let mut g = game(NEAR, FakeLink::steady(LAG), bag);
+    play(&mut g, "", "t=0.1 smash", ticks(2.0), |_| {});
+    let guest = g.guest.crab(GUEST).unwrap().mover.fight_xp;
+    assert!(guest > 0.0, "the guest's blow earned Fighting");
+    assert_eq!(g.host.crab(GUEST).unwrap().mover.fight_xp, guest);
+    assert_eq!(g.host.crab(HOST).unwrap().mover.fight_xp, 0.0);
+    assert_eq!(g.guest.crab(HOST).unwrap().mover.fight_xp, 0.0);
+}
+
+#[test]
 fn a_net_cut_by_one_crab_is_cut_for_everyone() {
     let at = |sim: &Sim| {
         let net = sim.level.nets[0].rect;

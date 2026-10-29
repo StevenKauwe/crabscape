@@ -135,6 +135,27 @@ pub struct Tuning {
     /// `climb_speed`).
     pub climb_speed_per_level: f32,
 
+    // --- Skills (`crate::skills`): grow by use ----------------------------
+    /// Swimming experience per paddle stroke.
+    pub swim_xp_per_stroke: f32,
+    /// Swimming levels: level n+1 needs n x (n+1) times this much experience
+    /// (with 5: 10 strokes for level 2, 30 for 3, 60 for 4).
+    pub swim_level_xp: f32,
+    /// Per Swimming level above 1, the stroke rhythm and the paddle legs'
+    /// rest on solid ground are this share shorter.
+    pub swim_quicker_per_level: f32,
+    /// Fighting experience per point of damage the claws deal a creature.
+    pub fight_xp_per_damage: f32,
+    /// Fighting experience for beating a creature.
+    pub fight_xp_per_win: f32,
+    /// Fighting levels: level n+1 needs n x (n+1) times this much experience
+    /// (with 25: 50 for level 2, 150 for 3, 300 for 4).
+    pub fight_level_xp: f32,
+    /// Extra claw damage per Fighting level above 1 (a share of the blow).
+    pub fight_damage_per_level: f32,
+    /// Swimming and Fighting stop getting stronger past this level.
+    pub skill_cap: u32,
+
     // --- Landing --------------------------------------------------------
     /// Landing faster than this counts as a heavy landing: big squash, a
     /// puff of sand, and some sideways speed lost.
@@ -546,6 +567,15 @@ impl Tuning {
             climb_xp_per_unit: 0.01, // the whole pit is worth 80
             climb_level_xp: 15.0,    // level 2 at 30, 3 at 90, 4 at 180, 5 at 300
             climb_speed_per_level: 0.08,
+
+            swim_xp_per_stroke: 1.0,
+            swim_level_xp: 5.0, // a normal play of the test level: level 2 or 3
+            swim_quicker_per_level: 0.05,
+            fight_xp_per_damage: 0.25,
+            fight_xp_per_win: 15.0, // a snapper is worth 18, the mantis 30
+            fight_level_xp: 25.0,   // level 2 after beating two or three
+            fight_damage_per_level: 0.05,
+            skill_cap: 10,
 
             heavy_landing_speed: 290.0, // a full jump lands heavy, a tapped hop (~240) not
             heavy_landing_keep: 0.55,

@@ -10,8 +10,8 @@
 //! and comes back by itself, slowly.
 
 use bevy::prelude::*;
-use crabsim::Sim;
 use crabsim::physics::Mover;
+use crabsim::{Sim, Skill};
 
 use crate::effects::SoftTextures;
 use crate::player::{FrameEvents, GameSet, LocalPlayer};
@@ -177,82 +177,97 @@ fn show_reserve(
     }
 }
 
-/// The Climbing skill's readout under the reserve bar: its level and a thin
-/// bar for the way to the next. Hidden until the crab first climbs.
+/// The skills' readout under the reserve bar: one small row per skill the
+/// crab has any experience in (its name and level, and a thin bar for the way
+/// to the next level). Hidden until the crab first earns some.
 #[derive(Component)]
-struct SkillText;
+struct SkillRow(Skill);
 
 #[derive(Component)]
-struct SkillFill;
+struct SkillFill(Skill);
 
 fn spawn_skill(mut commands: Commands) {
     commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(90),
-                left: px(12),
-                flex_direction: FlexDirection::Column,
-                row_gap: px(3),
-                ..default()
-            },
-            Visibility::Hidden,
-            SkillText,
-        ))
-        .with_children(|skill| {
-            skill.spawn((
-                Text::new(""),
-                TextFont {
-                    font_size: FontSize::Px(12.0),
-                    ..default()
-                },
-                TextColor(Color::srgba(0.85, 0.92, 0.95, 0.75)),
-            ));
-            skill
-                .spawn((
-                    Node {
-                        width: px(80),
-                        height: px(3),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.2)),
-                ))
-                .with_child((
-                    SkillFill,
-                    Node {
-                        width: percent(0),
-                        height: percent(100),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.8)),
-                ));
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            top: px(90),
+            left: px(12),
+            flex_direction: FlexDirection::Column,
+            row_gap: px(4),
+            ..default()
+        })
+        .with_children(|column| {
+            for skill in Skill::ALL {
+                column
+                    .spawn((
+                        Node {
+                            display: Display::None,
+                            flex_direction: FlexDirection::Column,
+                            row_gap: px(2),
+                            ..default()
+                        },
+                        SkillRow(skill),
+                    ))
+                    .with_children(|row| {
+                        row.spawn((
+                            Text::new(""),
+                            TextFont {
+                                font_size: FontSize::Px(11.0),
+                                ..default()
+                            },
+                            TextColor(Color::srgba(0.85, 0.92, 0.95, 0.75)),
+                        ));
+                        row.spawn((
+                            Node {
+                                width: px(70),
+                                height: px(2),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.2)),
+                        ))
+                        .with_child((
+                            SkillFill(skill),
+                            Node {
+                                width: percent(0),
+                                height: percent(100),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.8)),
+                        ));
+                    });
+            }
         });
 }
 
 fn show_skill(
     sim: Res<Sim>,
     crab: Query<&Mover, With<LocalPlayer>>,
-    mut readout: Query<(&mut Visibility, &Children), With<SkillText>>,
+    mut rows: Query<(&SkillRow, &mut Node, &Children), Without<SkillFill>>,
     mut texts: Query<&mut Text>,
-    mut fill: Query<&mut Node, With<SkillFill>>,
+    mut fills: Query<(&SkillFill, &mut Node), Without<SkillRow>>,
 ) {
-    let (Ok(mover), Ok((mut shown, children))) = (crab.single(), readout.single_mut()) else {
+    let Ok(mover) = crab.single() else {
         return;
     };
-    if mover.climb_xp <= 0.0 {
-        *shown = Visibility::Hidden;
-        return;
-    }
-    *shown = Visibility::Inherited;
-    let level = mover.climb_level(&sim.tuning);
-    if let Some(mut text) = children.first().and_then(|c| texts.get_mut(*c).ok()) {
-        let line = format!("Climbing {level}");
-        if text.0 != line {
-            text.0 = line;
+    for (row, mut node, children) in &mut rows {
+        let earned = mover.xp(row.0) > 0.0;
+        let display = if earned { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
+        if !earned {
+            continue;
+        }
+        let level = mover.level(row.0, &sim.tuning);
+        if let Some(mut text) = children.first().and_then(|c| texts.get_mut(*c).ok()) {
+            let line = format!("{} {level}", row.0.name());
+            if text.0 != line {
+                text.0 = line;
+            }
         }
     }
-    if let Ok(mut node) = fill.single_mut() {
-        let width = percent(100.0 * mover.climb_progress(&sim.tuning));
+    for (fill, mut node) in &mut fills {
+        let width = percent(100.0 * mover.progress(fill.0, &sim.tuning));
         if node.width != width {
             node.width = width;
         }

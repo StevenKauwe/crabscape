@@ -12,6 +12,7 @@ use bevy_math::{Rect, Vec2};
 
 use crate::home::Shelter;
 use crate::level::Level;
+use crate::skills::Skill;
 use crate::tuning::Tuning;
 
 /// The physics runs in fixed steps of this many seconds. A fixed step makes
@@ -117,8 +118,14 @@ pub struct Mover {
     /// brighter.
     pub lantern: u32,
     /// Climbing experience: it grows with every bit climbed, and each level
-    /// climbs faster (see [`Mover::climb_level`]).
+    /// climbs faster (see [`crate::skills`]).
     pub climb_xp: f32,
+    /// Swimming experience: it grows with every paddle stroke, and each
+    /// level makes the strokes come round and rest quicker.
+    pub swim_xp: f32,
+    /// Fighting experience: it grows with every blow the claws land on a
+    /// creature (more for beating one), and each level hits harder.
+    pub fight_xp: f32,
     /// Paddle strokes left (fractions are strokes still resting). Only
     /// standing on something solid gives them back, and only from the
     /// [`reserve`](Self::reserve).
@@ -128,6 +135,9 @@ pub struct Mover {
     pub reserve: f32,
     /// Time before the paddle legs can make their next stroke (the rhythm).
     pub stroke_rest: f32,
+    /// A press made in the water during the rhythm: the stroke comes as soon
+    /// as the legs are ready (one at most, so mashing queues no more).
+    pub stroke_queued: bool,
     /// Time left in the current dodge (0 = not dodging).
     pub dodge_left: f32,
     /// Time before the next dodge is allowed.
@@ -180,9 +190,12 @@ impl Mover {
             scissor_claw: false,
             lantern: 0,
             climb_xp: 0.0,
+            swim_xp: 0.0,
+            fight_xp: 0.0,
             stamina: 0.0,
             reserve: 1.0,
             stroke_rest: 0.0,
+            stroke_queued: false,
             dodge_left: 0.0,
             dodge_cooldown: 0.0,
             dodge_dir: 1.0,
@@ -212,22 +225,9 @@ impl Mover {
     }
 
     /// The Climbing skill's level, from its experience (see
-    /// [`Tuning::climb_level_xp`]: each level needs a little more than the
-    /// last).
+    /// [`crate::skills`]: each level needs a little more than the last).
     pub fn climb_level(&self, t: &Tuning) -> u32 {
-        let mut level = 1;
-        while level < 99 && self.climb_xp >= t.climb_level_xp * (level * (level + 1)) as f32 {
-            level += 1;
-        }
-        level
-    }
-
-    /// How far through its current Climbing level the crab is, 0 to 1.
-    pub fn climb_progress(&self, t: &Tuning) -> f32 {
-        let level = self.climb_level(t) as f32;
-        let from = t.climb_level_xp * (level - 1.0) * level;
-        let to = t.climb_level_xp * level * (level + 1.0);
-        ((self.climb_xp - from) / (to - from)).clamp(0.0, 1.0)
+        self.level(Skill::Climbing, t)
     }
 
     /// Climbing speed at the crab's Climbing level.
@@ -292,8 +292,8 @@ pub struct StepEvents {
     pub rested: bool,
     /// Brought a culture home: the lantern grew brighter.
     pub delivered: bool,
-    /// The Climbing skill went up a level.
-    pub levelled: bool,
+    /// A skill went up a level: which one.
+    pub levelled: Option<Skill>,
     /// Started a flip (dodge in the water).
     pub flipped: bool,
     /// Found a clue (which one, in [`Level::clues`](crate::Level::clues)).
@@ -361,7 +361,7 @@ impl StepEvents {
         self.came_out |= other.came_out;
         self.rested |= other.rested;
         self.delivered |= other.delivered;
-        self.levelled |= other.levelled;
+        self.levelled = self.levelled.or(other.levelled);
         self.flipped |= other.flipped;
         self.found_clue = self.found_clue.or(other.found_clue);
         self.fitted_scissors |= other.fitted_scissors;
@@ -406,7 +406,7 @@ impl StepEvents {
             (self.came_out, "came out"),
             (self.rested, "rested"),
             (self.delivered, "delivered"),
-            (self.levelled, "levelled"),
+            (self.levelled.is_some(), "levelled"),
             (self.flipped, "flipped"),
             (self.found_clue.is_some(), "found a clue"),
             (self.fitted_scissors, "fitted scissor claws"),
@@ -467,20 +467,18 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     m.reserve = (m.reserve + dt / t.reserve_refill_time).min(1.0);
     if m.grounded {
         m.coyote = t.coyote_time;
-        // Standing on something solid rests the paddle legs, drawing on the
-        // reserve (both counted in strokes). An empty reserve leaves them
-        // tired.
+        // Standing on something solid rests the paddle legs.
         let full = m.strokes(t) as f32;
-        let want = (full * dt / t.stamina_refill_time).min(full - m.stamina);
-        let strokes = want.min(m.reserve * t.stamina_reserve as f32);
-        if strokes > 0.0 {
-            m.stamina = (m.stamina + strokes).min(full);
-            m.reserve = (m.reserve - strokes / t.stamina_reserve as f32).max(0.0);
-        }
+        rest_legs(m, t, full * dt / m.stamina_refill_time(t));
     } else {
         m.coyote = (m.coyote - dt).max(0.0);
     }
     m.stroke_rest = (m.stroke_rest - dt).max(0.0);
+    // A press in the water while the legs are still in their rhythm is kept
+    // until they're ready, so no press is lost.
+    if c.jump_pressed && !m.grounded && m.stroke_rest > 0.0 {
+        m.stroke_queued = true;
+    }
     m.dodge_cooldown = (m.dodge_cooldown - dt).max(0.0);
     if c.dodge_pressed {
         m.dodge_buffer = t.dodge_buffer;
@@ -592,6 +590,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             m.climb_side = -m.climb_side;
         }
         m.jump_buffer = 0.0;
+        m.stroke_queued = false;
         m.dodge_left = 0.0;
         ev.gripped = true;
     }
@@ -605,11 +604,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         };
         m.vel = Vec2::new(shuffle, climb);
         m.rising = false;
-        let (from, was) = (m.pos.y, m.climb_level(t));
+        let from = m.pos.y;
         climb_and_collide(m, t, level, dt);
         // Climbing is a skill: it grows with every bit climbed.
-        m.climb_xp += (m.pos.y - from).abs() * t.climb_xp_per_unit;
-        ev.levelled = m.climb_level(t) > was;
+        let xp = (m.pos.y - from).abs() * t.climb_xp_per_unit;
+        ev.levelled = ev.levelled.or(m.earn(Skill::Climbing, xp, t));
         // Shuffling stops at the edge of the reach; pushing on steps off.
         if let Some(g) = level.climb_at(m.pos, t.climb_reach + 5.0) {
             let edge = t.climb_reach - 0.5;
@@ -666,28 +665,41 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             m.windup = 0.0;
             launch(m, &mut ev);
         }
-    } else if m.jump_buffer > 0.0 {
-        if m.grounded || m.coyote > 0.0 {
-            m.jump_buffer = 0.0;
-            if m.grounded && t.jump_windup > 0.0 {
-                m.windup = t.jump_windup;
-                m.coyote = 0.0;
-                ev.crouched = true;
-            } else {
-                launch(m, &mut ev); // a coyote jump: no floor to crouch on
-            }
-        } else if m.stroke_rest <= 0.0 && m.stamina + 1e-4 >= 1.0 {
-            // In the water with no floor: a paddle stroke instead (the
-            // double jump, then swim strokes), if the legs have one left.
-            // The rhythm spaces them out. (A press during the rhythm stays in
-            // the jump buffer, so a little early counts.)
-            m.jump_buffer = 0.0;
-            m.stamina = (m.stamina - 1.0).max(0.0);
-            m.stroke_rest = t.stroke_interval;
-            m.vel.y = m.vel.y.max(t.paddle_speed);
-            m.rising = true;
-            ev.paddled = true;
+    } else if m.jump_buffer > 0.0 && (m.grounded || m.coyote > 0.0) {
+        m.jump_buffer = 0.0;
+        if m.grounded && t.jump_windup > 0.0 {
+            m.windup = t.jump_windup;
+            m.coyote = 0.0;
+            ev.crouched = true;
+        } else {
+            launch(m, &mut ev); // a coyote jump: no floor to crouch on
         }
+    } else if (m.jump_buffer > 0.0 || m.stroke_queued)
+        && !m.grounded
+        && m.coyote <= 0.0
+        && m.stroke_rest <= 0.0
+        && m.stamina + 1e-4 >= 1.0
+    {
+        // In the water with no floor: a paddle stroke instead (the double
+        // jump, then swim strokes), if the legs have one left. The rhythm
+        // spaces them out; a press during it waits for it (see
+        // `stroke_queued`), so mashing strokes no faster than the rhythm.
+        m.jump_buffer = 0.0;
+        m.stroke_queued = false;
+        m.stamina = (m.stamina - 1.0).max(0.0);
+        m.stroke_rest = m.stroke_interval(t);
+        m.vel.y = m.vel.y.max(t.paddle_speed);
+        m.rising = true;
+        ev.paddled = true;
+        // Swimming is a skill: it grows with every stroke.
+        ev.levelled = ev
+            .levelled
+            .or(m.earn(Skill::Swimming, t.swim_xp_per_stroke, t));
+    }
+    // The legs are ready (or the crab is standing): a press kept for the
+    // rhythm that still made no stroke (no strokes left) is let go.
+    if m.stroke_rest <= 0.0 || m.grounded {
+        m.stroke_queued = false;
     }
     // Let go of jump while rising: cut the jump short.
     if m.rising && !c.jump_held && m.vel.y > 0.0 {
@@ -715,7 +727,24 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
 
     move_and_collide(m, t, level, dt, &mut ev);
+    // Touching down rests one stroke at once (so a hop straight off again
+    // has its double jump); the rest come back while it stands.
+    if ev.landed.is_some() {
+        rest_legs(m, t, 1.0);
+    }
     ev
+}
+
+/// Rest the paddle legs by up to `strokes` strokes, drawing on the reserve
+/// (both counted in strokes). An empty reserve leaves them tired.
+fn rest_legs(m: &mut Mover, t: &Tuning, strokes: f32) {
+    let full = m.strokes(t) as f32;
+    let want = strokes.min(full - m.stamina);
+    let strokes = want.min(m.reserve * t.stamina_reserve as f32);
+    if strokes > 0.0 {
+        m.stamina = (m.stamina + strokes).min(full);
+        m.reserve = (m.reserve - strokes / t.stamina_reserve as f32).max(0.0);
+    }
 }
 
 /// The crab's body while climbing: turned sideways onto the stalk, so as
