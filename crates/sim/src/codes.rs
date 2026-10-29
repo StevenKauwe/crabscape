@@ -1,5 +1,6 @@
 //! Codes: words a player types (Enter on a keyboard, "Enter a code" in the
-//! settings on a phone) that do something wonderful to their own crab.
+//! settings on a phone) that do something wonderful to their own crab. The
+//! box and the phone's prompt list every code with a hint ([`hints`]).
 //!
 //! A code goes through the sim like the controls do: [`Sim::enter_code`]
 //! changes the local crab between two ticks, and a running recording notes
@@ -46,12 +47,27 @@ impl Code {
         }
     }
 
+    /// A few words on what it does, for the hint beside the code box.
+    pub fn hint(self) -> &'static str {
+        match self {
+            Code::Hulk => "bulk up (again: back)",
+            Code::Feast => "shell and strokes full",
+            Code::Glow => "brightest lantern (again: back)",
+        }
+    }
+
     /// The code a player typed, if it is one (spaces and capitals don't
     /// matter).
     pub fn parse(typed: &str) -> Option<Self> {
         let word = typed.trim().to_lowercase();
         ALL.into_iter().find(|c| c.name() == word)
     }
+}
+
+/// Every code and what it does, one per line: "hulk: bulk up (again: back)".
+pub fn hints() -> String {
+    ALL.map(|c| format!("{}: {}", c.name(), c.hint()))
+        .join("\n")
 }
 
 impl Mover {

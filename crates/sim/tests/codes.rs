@@ -199,3 +199,16 @@ fn a_recording_with_codes_replays_to_the_same_hash() {
         "the codes made a difference"
     );
 }
+
+#[test]
+fn the_hint_lists_every_code_by_the_word_to_type() {
+    let hints = crabsim::codes::hints();
+    for code in crabsim::codes::ALL {
+        let line = format!("{}: {}", code.name(), code.hint());
+        assert!(
+            hints.lines().any(|l| l == line),
+            "{line:?} missing from {hints:?}"
+        );
+        assert_eq!(Code::parse(code.name()), Some(code));
+    }
+}
