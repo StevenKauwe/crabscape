@@ -100,6 +100,7 @@ fn reach_the_end(
     window: Single<&Window>,
     crab: Query<(&Transform, &PlayerId), With<LocalPlayer>>,
     mut ending: ResMut<Ending>,
+    mut music: MessageWriter<crate::music::Cue>,
 ) {
     let Ok((at, id)) = crab.single() else {
         return;
@@ -121,6 +122,7 @@ fn reach_the_end(
         Some(_) => {}
     }
     ending.shown = true;
+    music.write(crate::music::Cue(crate::music::Stinger::Ending));
     let (card, buttons) = layout(window.size());
     let text = |words: &str, size: f32, colour: Color| {
         (

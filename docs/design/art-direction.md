@@ -28,14 +28,46 @@ left, holding a jar of yellow glowing bacteria. Side-on play shows its **front**
 
 ## Sound and music
 Everything is made in code at start-up (no sound files): short impact sounds (`src/sound.rs`) and the music
-(`src/music.rs`), all muffled a little, as sound is under water. The music is calm and a bit eerie, and quiet enough
-never to fight the game's sounds: soft pads holding a chord for eight slow beats, fading into the next, and now and
-then a small bell motif with an echo. Where the crab is sets it: warm and fuller at home and in the shallows, lower and
-sparser in the basins, hollow and nearly empty down the pit (D minor swaying to the half-step above), hollow with a
-cold, high motif in the canyon. When something is after the crab the bells stop and a slow muffled heartbeat and a
-held uneasy note come in. It never loops: it is written a beat at a time, from fixed chords and a seeded generator.
-Settings has a slider per kind of sound: Master over Music, Effects and Voices (friends'). To hear it outside the
-game: `MUSIC_WAV=music.wav cargo test music -- --ignored` writes a couple of minutes walking through every place.
+(`src/music.rs`), all muffled a little, as sound is under water. The music is calm, cozy and a bit eerie, and quiet
+enough never to fight the game's sounds. It never loops: it is written a beat at a time (a beat is a second) from
+fixed material and a seeded generator. Settings' Audio tab has a slider per kind of sound (Master over Music, Effects and Voices)
+and a choice of two music tracks, **Themes** (the default) and **Calm**. A change of track waits for the next chord.
+
+**Calm** (`src/music/calm.rs`) is the first music, kept as it was: soft pads holding a chord for eight beats and
+now and then a small bell motif with an echo; warm at home and in the shallows, lower in the basins, hollow down the
+pit and in the canyon; in a fight the bells stop and a muffled heartbeat and a held uneasy note come in.
+
+**Themes** (`src/music/themes.rs`) is one piece built from four motifs (D3 is the home note):
+- **Home theme**: A D E F, then E C A (asking) or E C D (answering). Every place plays it, changed: on the flute or
+  mallet at home, high on the mallet in the shallows, twice as slow on the mallet in the basins, low on the mallet down
+  the pit, on cold glass in the canyon, on the flute at the lights. Its leap (A up to D) rings far off when the shell
+  is nearly broken; its opening runs twice as fast, low on the mallet, in a fight.
+- **Deep motif**: D A B♭ A, the home theme's leap turned upside down plus a sighing step. On the flute in the basins,
+  twice as slow and low down the pit, upside down in the canyon, a fragment at home. Its first two notes sound low when
+  a creature has noticed the crab.
+- **Octopus**: D E♭ C♯ E C D, half-steps coiling out from D and back, low, over fifths sliding a half-step: under its
+  fight only.
+- **The lights**: A D E F♯ G♯ A, the home theme carried on up to the octave: the sea pens answer the home theme's
+  question.
+
+A mode per place colours them: home Dorian (warm), shallows major pentatonic (bright), basins Aeolian, pit Phrygian
+(the half-step above D), canyon whole-tone (cold), lights Lydian (wonder). All keep D, so a new place starts at the
+next chord on its D chord. Music comes in periods of four chords: the lead asks, a second voice answers or rests, the
+lead answers, then a fragment or a rest. **Layers**: the pads and bass always; the tunes while exploring; thinner
+tunes and the deep motif's falling fourth when noticed; heartbeat (fights only), an uneasy held note and the fast
+home theme in a fight; the octopus motif under the octopus; the far-off leap with a nearly broken shell. The heartbeat
+lasts 4 s after a fight and the unease about 10 s more. **Instruments**: pads that slowly brighten and darken with a
+gentle chorus, a bass with its octave (nothing under 55 Hz), a breathy flute with a slow vibrato, a soft marimba-like
+mallet, glassy bells, a light underwater space (two short muffled echoes) and a longer echo on bells and flutes.
+
+**Stingers** (over either track, in the key playing): egg (three quick mallet notes up), level up (the home theme's
+opening on glass, fast), feat ready (the home theme carried to the octave), moult hardened (E C D, settling, on the
+flute), creature beaten (F E D on the mallet over a low D), the canyon found (the deep motif on glass), the lights
+found (their motif on glass), death (D A F D falling on the flute) and the demo's ending card (the home theme
+answering on the flute).
+
+To hear it outside the game: `MUSIC_WAV=music.wav cargo test music -- --ignored` writes about five minutes walking
+through every place, layer and stinger (`MUSIC_TRACK=calm` for the other track), with a `.txt` listing every note.
 
 ## Tools
 Everything is pure Rust and `cargo run`:
