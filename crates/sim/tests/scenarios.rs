@@ -407,6 +407,45 @@ fn an_early_jump_press_is_buffered_until_landing() {
 }
 
 #[test]
+fn a_press_during_the_stroke_rhythm_is_never_dropped() {
+    // Press again any time after a stroke, before the legs are ready for the
+    // next: the press is kept, and the stroke comes when the rhythm allows.
+    let t = strokes(3);
+    let presses = (f64::from(t.stroke_interval) / 0.02) as u32;
+    for k in 1..=presses {
+        let d = 0.02 * f64::from(k);
+        let r = run_with(
+            t.clone(),
+            &format!("t=0 jump; t=0.5 jump; t={} jump", 0.5 + d),
+            3.0,
+            |_| false,
+        );
+        assert_eq!(r.count("paddled"), 2, "a press {d:.2} s after a stroke");
+    }
+}
+
+#[test]
+fn landing_gives_the_double_jump_back_at_once() {
+    // Jump, spend the double jump, land, and hop straight off again: the
+    // double jump is there for the new hop (one stroke rests the moment the
+    // feet touch down).
+    let t = strokes(1);
+    let spend = "t=0 jump; t=0.45 jump";
+    let landed = run_with(t.clone(), spend, 3.0, |_| false)
+        .first("landed")
+        .unwrap();
+    let hop = landed + 0.02;
+    let r = run_with(
+        t,
+        &format!("{spend}; t={hop} jump; t={} jump", hop + 0.45),
+        5.0,
+        |_| false,
+    );
+    assert_eq!(r.count("jumped"), 2);
+    assert_eq!(r.count("paddled"), 2, "the second double jump was dropped");
+}
+
+#[test]
 fn dodge_has_a_cooldown() {
     let t = Tuning::base();
     let wait = f64::from(t.dodge_cooldown);
