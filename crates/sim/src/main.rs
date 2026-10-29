@@ -282,6 +282,7 @@ impl Summary {
                 "jabbed",
                 "hurt",
                 "staggered",
+                "wakes here",
                 "died",
                 "respawned",
                 "recovered",

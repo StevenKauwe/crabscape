@@ -53,7 +53,10 @@ fn at_crevice(i: usize) -> Sim {
 /// Walk into crevice `i`'s den from its doorway, and settle.
 fn rest_in(sim: &mut Sim, id: PlayerId) -> Vec<&'static str> {
     let seen = walk(sim, id, -1.0, 600);
-    assert!(sim.crab(id).unwrap().mover.tucked_in(), "tucked in: {seen:?}");
+    assert!(
+        sim.crab(id).unwrap().mover.tucked_in(),
+        "tucked in: {seen:?}"
+    );
     seen
 }
 
@@ -151,9 +154,11 @@ fn dying_wakes_the_crab_in_the_last_crevice_it_rested_in() {
         crabsim::Mover::new(Vec2::new(next.door.max.x - 5.0, next.den.y));
     rest_in(&mut sim, P0);
     assert_eq!(sim.crab(P0).unwrap().wakes_at, Some(1));
-    // Out, a clam on its back, and killed a little way off.
+    // Out, then a clam on its back, and killed a way off.
     walk(&mut sim, P0, 1.0, 120);
-    sim.crab_mut(P0).unwrap().mover.carrying = Some(Carry::Clam);
+    let mut out = crabsim::Mover::new(Vec2::new(next.door.max.x + 300.0, next.den.y));
+    out.carrying = Some(Carry::Clam);
+    sim.crab_mut(P0).unwrap().mover = out;
     die(&mut sim);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.mover.pos, next.den, "woke in the crevice");
@@ -198,10 +203,18 @@ fn resting_in_a_crevice_mends_and_refills_but_it_is_not_home() {
     }
     let crab = sim.crab(P0).unwrap();
     assert!(seen.contains(&"rested"), "{seen:?}");
-    assert_eq!(crab.fighter.vitals.health, crab.mover.max_shell(&t), "mended");
+    assert_eq!(
+        crab.fighter.vitals.health,
+        crab.mover.max_shell(&t),
+        "mended"
+    );
     assert_eq!((crab.mover.reserve, crab.mover.stamina), (1.0, 2.0));
     // No workbench and no larder out here.
-    assert_eq!(crab.mover.carrying, Some(Carry::Culture), "still on its back");
+    assert_eq!(
+        crab.mover.carrying,
+        Some(Carry::Culture),
+        "still on its back"
+    );
     assert_eq!(crab.mover.lantern, 0);
     assert_eq!(crab.larder, 2);
     assert_eq!(crab.mover.well_fed, 0, "nothing to eat here");
@@ -275,7 +288,10 @@ fn a_replay_that_rested_in_a_crevice_plays_the_same() {
     idle(&mut live, 120);
     walk(&mut live, P0, 1.0, 120);
     // A mantis turns up and beats the crab: it wakes in the crevice.
-    live.spawn_enemy(crabsim::Kind::Mantis, Vec2::new(c.door.max.x + 160.0, c.den.y));
+    live.spawn_enemy(
+        crabsim::Kind::Mantis,
+        Vec2::new(c.door.max.x + 160.0, c.den.y),
+    );
     let mut woke = false;
     for _ in 0..120 * 40 {
         live.tick();

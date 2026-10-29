@@ -41,6 +41,28 @@ pub enum Growth {
     Coral,
 }
 
+/// A crevice under a rock ledge out in the level: a rest stop. A crab
+/// tucks into it the way it tucks into its home shell (see
+/// [`crate::home`]): walking into the doorway, it backs in to the den at the
+/// back, and rests there. The last one it rested in is where it wakes after
+/// dying. Like home, its opening faces right, so in is to the left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Crevice {
+    /// The doorway on the floor: walking left in here, a crab backs in.
+    pub door: Rect,
+    /// Where a crab sits tucked in (its feet), at the back under the rock.
+    pub den: Vec2,
+}
+
+/// A place a crab can tuck into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// Its home shell.
+    Home,
+    /// One of the level's crevices (its index in [`Level::crevices`]).
+    Crevice(usize),
+}
+
 /// A ghost net across a way through: solid until it's cut.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Net {
@@ -72,6 +94,9 @@ pub struct Level {
     /// Where a crab sits tucked into the home shell (its feet), by the
     /// workbench.
     pub home_den: Vec2,
+    /// Crevices under rock out in the level, to rest in on the way (see
+    /// [`Crevice`]).
+    pub crevices: Vec<Crevice>,
     /// Patches of wild glowing bacteria (their middles). A crab that
     /// touches one carries a lump home on its back; cultured there, it makes
     /// the crab's lantern brighter.
@@ -211,6 +236,22 @@ impl Level {
             ],
             home: Rect::new(40.0, -1.0, 150.0, 40.0),
             home_den: Vec2::new(95.0, 0.0),
+            // Rest stops, each at a dead end so no crab walks into one by
+            // the way: past the trench every wall foot on the way home is
+            // already a moray's. One at the foot of the cliff's back, where
+            // a crab drops into the basin (the low ledge above is clear of
+            // it), and one at the bottom of the pit, against its left wall,
+            // away from the coral.
+            crevices: vec![
+                Crevice {
+                    door: Rect::new(2801.0, -701.0, 2880.0, -660.0),
+                    den: Vec2::new(2840.0, -700.0),
+                },
+                Crevice {
+                    door: Rect::new(3301.0, -8701.0, 3390.0, -8660.0),
+                    den: Vec2::new(3340.0, -8700.0),
+                },
+            ],
             // At the bottom of the pit, across from the coral.
             cultures: vec![Vec2::new(3950.0, -8690.0)],
             // In the alcove: a shed tooth bigger than the crab.
@@ -259,6 +300,27 @@ impl Level {
         self.climbs
             .iter()
             .find(|c| (pos.x - c.x).abs() <= reach && pos.y >= c.bottom - 1.0 && pos.y <= c.top)
+    }
+
+    /// The place whose doorway `pos` is in, if any.
+    pub fn place_at(&self, pos: Vec2) -> Option<Place> {
+        if self.home.contains(pos) {
+            return Some(Place::Home);
+        }
+        self.crevices
+            .iter()
+            .position(|c| c.door.contains(pos))
+            .map(Place::Crevice)
+    }
+
+    /// A place's doorway and den (an unknown crevice is home).
+    pub fn door_and_den(&self, place: Place) -> (Rect, Vec2) {
+        match place {
+            Place::Crevice(i) if i < self.crevices.len() => {
+                (self.crevices[i].door, self.crevices[i].den)
+            }
+            _ => (self.home, self.home_den),
+        }
     }
 
     /// The pit in the basin: (left edge x, right edge x, bottom y). Its lip
