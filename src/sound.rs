@@ -64,6 +64,14 @@ impl Plugin for SoundPlugin {
     }
 }
 
+/// What's using the microphone; the session allows recording while any is.
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy)]
+pub enum Mic {
+    Voice = 1,
+    Report = 2,
+}
+
 #[cfg(target_arch = "wasm32")]
 pub use backend::{context, recording};
 pub use backend::{sleep, wake};
@@ -309,9 +317,9 @@ mod backend {
         silent: Option<HtmlAudioElement>,
         /// The page is hidden: sound is asleep until it shows again.
         asleep: bool,
-        /// The microphone is on (voice chat), so the session must allow
-        /// recording too.
-        recording: bool,
+        /// Who has the microphone on (bits of `Mic`), so the session must
+        /// allow recording too.
+        recording: u8,
     }
 
     thread_local! {
@@ -362,7 +370,7 @@ mod backend {
                 buffers,
                 silent: None,
                 asleep: false,
-                recording: false,
+                recording: 0,
             })
         });
     }
@@ -458,7 +466,7 @@ mod backend {
         /// "playback", or "play-and-record" while the microphone is on (a
         /// "playback" page can't record on an iPhone).
         fn session(&self) -> &'static str {
-            if self.recording {
+            if self.recording != 0 {
                 "play-and-record"
             } else {
                 "playback"
@@ -471,10 +479,16 @@ mod backend {
         AUDIO.with(|a| a.borrow().as_ref().map(|a| a.ctx.clone()))
     }
 
-    /// The microphone went on or off (voice chat).
-    pub fn recording(on: bool) {
+    /// `mic` is about to turn the microphone on, or turned it off. Call it
+    /// before asking for the microphone: an iPhone refuses it to a page
+    /// whose session is still "playback".
+    pub fn recording(mic: super::Mic, on: bool) {
         with(|a| {
-            a.recording = on;
+            if on {
+                a.recording |= mic as u8;
+            } else {
+                a.recording &= !(mic as u8);
+            }
             if !a.asleep {
                 set_session(a.session());
             }
