@@ -440,6 +440,16 @@ fn big_on_cast_off(
                 Transform::from_xyz(0.0, 18.0, 0.1),
             ));
         }
+        Carry::Glass => {
+            for (mesh, colour, at, turn) in crate::canyon::glass_parts(0.5) {
+                shell.spawn((
+                    Mesh2d(meshes.add(mesh)),
+                    MeshMaterial2d(materials.add(colour)),
+                    Transform::from_translation(at + Vec3::new(0.0, 16.0, 0.1))
+                        .with_rotation(Quat::from_rotation_z(turn + 1.45)),
+                ));
+            }
+        }
         // Small things cling to it instead (above).
         Carry::Grit | Carry::Clam => {}
     }

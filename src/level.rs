@@ -61,6 +61,9 @@ const KELP_BLADE: Color = Color::srgb(0.26, 0.22, 0.09);
 const KELP_FLOAT: Color = Color::srgb(0.34, 0.28, 0.12);
 const CORAL: Color = Color::srgb(0.30, 0.27, 0.25);
 const CORAL_TIP: Color = Color::srgb(0.55, 0.32, 0.22);
+// Bare rock's pits: a pale crust and the dark holes in it.
+const PITTED: Color = Color::srgb(0.19, 0.22, 0.21);
+const PIT: Color = Color::srgb(0.02, 0.04, 0.05);
 /// Plants sit in front of the rock, behind the crab (~10).
 const PLANT_Z: f32 = 2.0;
 
@@ -204,6 +207,7 @@ fn draw_climbs(
         match c.kind {
             Growth::Kelp => kelp(c, &mut draw),
             Growth::Coral => coral(c, &mut draw),
+            Growth::Rock => bare_rock(c, &mut draw),
         }
     }
 }
@@ -321,6 +325,37 @@ fn coral(c: &Climb, draw: &mut Draw) {
         let tip = crown + up_and_out(lean) * 40.0;
         rod(draw, crown, tip, 7.0, CORAL);
         draw(Circle::new(6.0).into(), CORAL_TIP, tip, 0.0);
+    }
+}
+
+/// Bare, pitted rock (for glass grips only): a pale, rough band down the
+/// face of the wall to the climb's left, pocked with pits and cracks, so it
+/// reads as different rock from the smooth walls around it.
+fn bare_rock(c: &Climb, draw: &mut Draw) {
+    let face = c.x - 22.0;
+    let mut y = c.bottom + 20.0;
+    let mut k = 0;
+    while y < c.top - 10.0 {
+        let j = (k * 7 % 5) as f32;
+        let x = face - 4.0 + j * 2.0;
+        draw(
+            Ellipse::new(5.0 + j, 3.5).into(),
+            PITTED,
+            Vec2::new(x, y),
+            0.0,
+        );
+        draw(
+            Circle::new(2.2).into(),
+            PIT,
+            Vec2::new(x + 1.0, y - 1.0),
+            0.0,
+        );
+        if k % 3 == 1 {
+            let crack = Vec2::new(x - 3.0, y + 14.0);
+            rod(draw, crack, crack + Vec2::new(5.0, 22.0), 2.0, PIT);
+        }
+        y += 34.0 + j * 4.0;
+        k += 1;
     }
 }
 

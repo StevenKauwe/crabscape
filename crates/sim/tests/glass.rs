@@ -111,7 +111,7 @@ fn a_glass_sponge_lies_on_the_canyon_floor_and_makes_glass_grips_at_home() {
     assert_eq!(at.y, level.floor_height(at.x) + 10.0, "lying on the floor");
     // Walking over it puts it on the crab's back.
     let found = run(
-        &format!("start x={} y={}\nt=0 walk=right", at.x - 120.0, at.y - 10.0),
+        &format!("start x={} y={}\nt=0 walk=right", at.x - 80.0, at.y - 10.0),
         1.5,
         Kit::default(),
     );
@@ -178,20 +178,28 @@ fn nothing_else_reaches_the_notch() {
     for k in 0..5 {
         swim += &format!("; t={} jump", 0.55 + 0.31 * f64::from(k));
     }
-    let r = run(&swim, 6.0, Kit {
-        strokes: 5,
-        ..Kit::default()
-    });
+    let r = run(
+        &swim,
+        6.0,
+        Kit {
+            strokes: 5,
+            ..Kit::default()
+        },
+    );
     assert!(r.highest < NOTCH.2 - 300.0, "highest {}", r.highest);
     // Nor riding the flood to its top and swimming on up, at the wall.
     let mut ride = String::from("start x=6900 y=-9400\nt=2.5 jump; t=2.7 release; t=22 walk=left");
     for k in 0..5 {
         ride += &format!("; t={} jump", 22.5 + 0.31 * f64::from(k));
     }
-    let r = run(&ride, 30.0, Kit {
-        strokes: 5,
-        ..Kit::default()
-    });
+    let r = run(
+        &ride,
+        30.0,
+        Kit {
+            strokes: 5,
+            ..Kit::default()
+        },
+    );
     assert!(r.highest < NOTCH.2 - 300.0, "highest {}", r.highest);
     assert!(!r.sim.crabs()[0].cultures_taken[1]);
 }

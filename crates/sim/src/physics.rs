@@ -392,6 +392,8 @@ pub struct StepEvents {
     pub found_clue: Option<usize>,
     /// Brought a tooth home: the workbench fitted it, scissor claws.
     pub fitted_scissors: bool,
+    /// ...or glass grips fitted to its leg tips...
+    pub fitted_grips: bool,
     /// Cut through a ghost net with scissor claws.
     pub cut_net: bool,
     /// Pressed against a ghost net with nothing to cut it.
@@ -473,6 +475,7 @@ impl StepEvents {
         self.flipped |= other.flipped;
         self.found_clue = self.found_clue.or(other.found_clue);
         self.fitted_scissors |= other.fitted_scissors;
+        self.fitted_grips |= other.fitted_grips;
         self.cut_net |= other.cut_net;
         self.tangled |= other.tangled;
         self.dodged |= other.dodged;
@@ -526,6 +529,7 @@ impl StepEvents {
             (self.flipped, "flipped"),
             (self.found_clue.is_some(), "found a clue"),
             (self.fitted_scissors, "fitted scissor claws"),
+            (self.fitted_grips, "fitted glass grips"),
             (self.cut_net, "cut a net"),
             (self.tangled, "tangled"),
             (self.landed.is_some(), "landed"),
@@ -665,7 +669,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     // pushing on past the edge of its reach steps off. Jump with a direction
     // kicks off the stalk that way (free, like a floor jump). Climbing past
     // the top pulls the crab up over it.
-    let grip = level.climb_at(m.pos, t.climb_reach);
+    let grip = level.climb_at(m.pos, t.climb_reach, m.glass_grips);
     let mut shuffle = 0.0;
     if m.climbing {
         if !walking {
@@ -733,7 +737,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         let xp = (m.pos.y - from).abs() * t.climb_xp_per_unit;
         ev.levelled = ev.levelled.or(m.earn(Skill::Climbing, xp, t));
         // Shuffling stops at the edge of the reach; pushing on steps off.
-        if let Some(g) = level.climb_at(m.pos, t.climb_reach + 5.0) {
+        if let Some(g) = level.climb_at(m.pos, t.climb_reach + 5.0, m.glass_grips) {
             let edge = t.climb_reach - 0.5;
             m.pos.x = m.pos.x.clamp(g.x - edge, g.x + edge);
         }

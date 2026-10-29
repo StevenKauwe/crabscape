@@ -600,6 +600,7 @@ impl Sim {
                     upgrades: crab.mover.upgrades,
                     lantern: crab.mover.lantern,
                     scissor_claw: crab.mover.scissor_claw,
+                    glass_grips: crab.mover.glass_grips,
                     climb_xp: crab.mover.climb_xp,
                     swim_xp: crab.mover.swim_xp,
                     fight_xp: crab.mover.fight_xp,
@@ -674,6 +675,13 @@ impl Sim {
             // A shed tooth: the same, to be fitted to the crusher at home.
             for (tooth, taken) in self.level.teeth.iter().zip(&mut crab.teeth_taken) {
                 if !*taken && in_reach(m, *tooth, t) && take_up(m, ev, Carry::Tooth, t) {
+                    *taken = true;
+                }
+            }
+            // A glass sponge's skeleton, a big find for its back: glass
+            // grips at home.
+            for (sponge, taken) in self.level.sponges.iter().zip(&mut crab.sponges_taken) {
+                if !*taken && in_reach(m, *sponge, t) && take_up(m, ev, Carry::Glass, t) {
                     *taken = true;
                 }
             }
@@ -818,7 +826,10 @@ impl Sim {
                             m.clinging.push(Carry::Clam);
                             crab.events.larder_full |= crab.events.tucked_in;
                         }
-                        Carry::Glass => {}
+                        Carry::Glass => {
+                            fit_glass_grips(m);
+                            crab.events.fitted_grips = true;
+                        }
                         Carry::Grit => {
                             crab.home_grit += 1;
                             crab.events.built = true;
@@ -1380,6 +1391,14 @@ fn in_reach(m: &Mover, egg: Vec2, t: &Tuning) -> bool {
         && egg.y <= m.pos.y + t.body_height + reach
 }
 
+/// The workbench's glass grips: a dead glass sponge's skeleton carried home
+/// becomes glass points fitted to the leg tips, so the crab can grip bare,
+/// pitted rock (`Growth::Rock`). One small rule, kept on its own so it can
+/// become a recipe.
+pub fn fit_glass_grips(m: &mut Mover) {
+    m.glass_grips = true;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1410,3 +1429,4 @@ mod tests {
         assert!((sim.time() - 2.0).abs() < 1e-6);
     }
 }
+
