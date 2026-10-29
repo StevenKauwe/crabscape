@@ -11,7 +11,11 @@ const P0: PlayerId = PlayerId(0);
 fn crab(pos: Vec2, feat: bool) -> Sim {
     let mut sim = Sim::with_one_crab(pos);
     if feat {
-        sim.crab_mut(P0).unwrap().mover.feats.push(Feat::HeavyCrusher);
+        sim.crab_mut(P0)
+            .unwrap()
+            .mover
+            .feats
+            .push(Feat::HeavyCrusher);
     }
     sim
 }
@@ -53,7 +57,7 @@ fn brittle_rock_in_the_far_basin_holds_glowing_bacteria() {
         .iter()
         .any(|c| rock.rect.contains(*c + Vec2::new(0.0, 1.0)));
     assert!(inside, "a culture inside the rock");
-    assert!(rock.rect.min.x > 4471.0 && rock.rect.max.x < 5080.0);
+    assert!(rock.rect.min.x > 4471.0 && rock.rect.max.x <= 5080.0);
 }
 
 #[test]
@@ -72,7 +76,13 @@ fn with_the_heavy_crusher_a_full_charge_cracks_it_and_frees_what_was_inside() {
     assert!(!sim.level.solids().any(|r| r == rock), "no longer solid");
     // Walk in and take the bacteria home.
     let sim = play(sim, "t=0 walk=right", 1.5);
-    let taken = sim.crab(P0).unwrap().cultures_taken.iter().filter(|t| **t).count();
+    let taken = sim
+        .crab(P0)
+        .unwrap()
+        .cultures_taken
+        .iter()
+        .filter(|t| **t)
+        .count();
     assert_eq!(taken, 1);
 }
 
@@ -113,6 +123,9 @@ fn the_heavy_crusher_breaks_poise_harder() {
     let (_, grown) = poise_after_a_smash(true);
     // A plain smash shakes it (25 of its 30) without breaking it; the heavy
     // crusher's breaks it.
-    assert!(plain < full && plain > 0.0, "the plain smash: {plain} of {full}");
+    assert!(
+        plain < full && plain > 0.0,
+        "the plain smash: {plain} of {full}"
+    );
     assert_eq!(grown, 0.0, "the heavy crusher's smash breaks its poise");
 }

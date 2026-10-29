@@ -412,9 +412,20 @@ impl Sim {
                     n.cut = true;
                 }
             }
-            Msg::World { nets_cut } => {
+            Msg::RockCracked(i) => {
+                if let Some(b) = self.level.brittle.get_mut(i) {
+                    b.cracked = true;
+                }
+            }
+            Msg::World {
+                nets_cut,
+                rocks_cracked,
+            } => {
                 for (n, cut) in self.level.nets.iter_mut().zip(nets_cut) {
                     n.cut |= cut;
+                }
+                for (b, cracked) in self.level.brittle.iter_mut().zip(rocks_cracked) {
+                    b.cracked |= cracked;
                 }
             }
         }
@@ -424,6 +435,7 @@ impl Sim {
     pub fn world(&self) -> Msg {
         Msg::World {
             nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
+            rocks_cracked: self.level.brittle.iter().map(|b| b.cracked).collect(),
         }
     }
 
@@ -1028,7 +1040,7 @@ impl Sim {
             let f = &mut crab.fighter;
             let swing = f.swing.as_mut().expect("a hitbox means a swing");
             let c = swing.claw.tuning(t);
-            let strength = swing.strength(t);
+            let strength = swing.strength();
             // Bulked up, the crusher hits far harder and throws far further.
             let (hulk, thrown) = if crab.mover.hulk && swing.claw == crate::combat::Claw::Crusher {
                 (t.hulk.smash_damage, t.hulk.smash_knockback)
@@ -1038,6 +1050,26 @@ impl Sim {
             let boost = strength * hulk * if swing.counter { t.counter_damage } else { 1.0 };
             // The Fighting skill: each level hits a little harder.
             let skill = crab.mover.claw_strength(t);
+            // The heavy crusher (a feat): its blows break poise harder, and a
+            // full charge cracks brittle rock (gone for everyone).
+            let heavy = swing.claw == crate::combat::Claw::Crusher
+                && crab.mover.has(crate::moult::Feat::HeavyCrusher);
+            let shake = if heavy {
+                crusher_shake(&crab.mover, t)
+            } else {
+                1.0
+            };
+            if heavy && swing.fully_charged() {
+                for (i, rock) in self.level.brittle.iter_mut().enumerate() {
+                    if !rock.cracked && !hitbox.intersect(rock.rect).is_empty() {
+                        rock.cracked = true;
+                        crab.events.cracked_rock = true;
+                        if let Some(n) = &mut self.net {
+                            n.send(To::Everyone, Msg::RockCracked(i));
+                        }
+                    }
+                }
+            }
             let hitstop = if swing.counter {
                 c.hitstop_ticks.max(t.counter_hitstop_ticks)
             } else {
@@ -1064,7 +1096,7 @@ impl Sim {
                 };
                 let hit = Hit {
                     damage: c.damage * boost * skill * cut,
-                    poise: c.poise * boost,
+                    poise: c.poise * boost * shake,
                     knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1)
                         * strength
                         * thrown,
@@ -1345,12 +1377,12 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         } else {
             (1.0, 1.0)
         };
-        let strength = s.strength(t) * t.counter_damage * hulk;
+        let strength = s.strength() * t.counter_damage * hulk;
         let blow = Hit {
             damage: c.damage * strength * crab.mover.claw_strength(t),
-            poise: c.poise * strength,
+            poise: c.poise * strength * crusher_shake(&crab.mover, t),
             knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1)
-                * s.strength(t)
+                * s.strength()
                 * 1.5
                 * thrown,
             hitstop: t.counter_hitstop_ticks,
@@ -1452,6 +1484,16 @@ fn take_up(m: &mut Mover, ev: &mut StepEvents, thing: Carry, t: &Tuning) -> bool
         ev.shell_full |= thing.small();
     }
     took
+}
+
+/// How many times the poise a crusher blow breaks: more with the heavy
+/// crusher (a feat).
+fn crusher_shake(m: &Mover, t: &Tuning) -> f32 {
+    if m.has(crate::moult::Feat::HeavyCrusher) {
+        t.moult.crusher_poise
+    } else {
+        1.0
+    }
 }
 
 /// Is `egg` touching the crab's body (with a little reach for the claws)?

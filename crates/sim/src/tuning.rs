@@ -341,6 +341,19 @@ pub struct MoultTuning {
     pub soft_claws: f32,
     /// Each moult, hardened, adds this much to what the shell holds.
     pub growth: f32,
+    /// Broad paddles: the flip in the water drives the crab this fast the
+    /// way it pushes (units a second)...
+    pub dash_speed: f32,
+    /// ...for this long (seconds).
+    pub dash_time: f32,
+    /// Heavy crusher: the crusher can be held to charge for this many ticks
+    /// even in a feel without a charge (a longer charge, if the feel has
+    /// one)...
+    pub crusher_charge_ticks: u32,
+    /// ...for at least this much more at full charge...
+    pub crusher_charge_bonus: f32,
+    /// ...and its blows break this many times the poise.
+    pub crusher_poise: f32,
 }
 
 /// The tide in the canyon below the crack. In a real submarine canyon the
@@ -1391,7 +1404,12 @@ impl Tuning {
                 harden_tucked: 3,     // 30 s resting tucked in
                 soft_shell: 0.5,
                 soft_claws: 0.6,
-                growth: 10.0, // a tenth of the starting shell
+                growth: 10.0,             // a tenth of the starting shell
+                dash_speed: 800.0,        // a little faster than the dodge on the floor
+                dash_time: 0.25,          // about 200 further each flip
+                crusher_charge_ticks: 60, // half a second
+                crusher_charge_bonus: 0.5,
+                crusher_poise: 1.5,
             },
         }
     }

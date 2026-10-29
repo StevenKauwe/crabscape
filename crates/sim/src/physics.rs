@@ -186,6 +186,10 @@ pub struct Mover {
     /// (1 = clockwise, towards the right).
     pub flip_left: f32,
     pub flip_dir: f32,
+    /// Time left in a dash: with broad paddles, a flip drives the crab
+    /// sideways the way it turns.
+    #[serde(default)]
+    pub dash_left: f32,
     /// The way the crab was already walking when it gripped (-1, 0 or 1):
     /// only a fresh press sideways steps it off.
     pub climb_dir: f32,
@@ -257,6 +261,7 @@ impl Mover {
             diving: false,
             flip_left: 0.0,
             flip_dir: 1.0,
+            dash_left: 0.0,
             climb_dir: 0.0,
             climb_side: 1.0,
             shelter: Shelter::Out,
@@ -419,6 +424,8 @@ pub struct StepEvents {
     pub fitted_grips: bool,
     /// Cut through a ghost net with scissor claws.
     pub cut_net: bool,
+    /// Cracked brittle rock with a heavy crusher's full charge.
+    pub cracked_rock: bool,
     /// Pressed against a ghost net with nothing to cut it.
     pub tangled: bool,
     /// Landed, at this downward speed.
@@ -511,6 +518,7 @@ impl StepEvents {
         self.fitted_scissors |= other.fitted_scissors;
         self.fitted_grips |= other.fitted_grips;
         self.cut_net |= other.cut_net;
+        self.cracked_rock |= other.cracked_rock;
         self.tangled |= other.tangled;
         self.dodged |= other.dodged;
         self.smashed |= other.smashed;
@@ -569,6 +577,7 @@ impl StepEvents {
             (self.fitted_scissors, "fitted scissor claws"),
             (self.fitted_grips, "fitted glass grips"),
             (self.cut_net, "cut a net"),
+            (self.cracked_rock, "cracked rock"),
             (self.tangled, "tangled"),
             (self.landed.is_some(), "landed"),
             (self.dodged, "dodged"),
@@ -674,8 +683,8 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         ev.dodged = true;
     }
     // In the water (not climbing) dodge is a flip instead: a quick
-    // somersault, towards the way the crab is pushing. Only a flourish for
-    // now: it doesn't move the crab any further.
+    // somersault, towards the way the crab is pushing. A flourish that moves
+    // it no further, until broad paddles (a feat) make it a dash.
     m.flip_left = (m.flip_left - dt).max(0.0);
     if m.dodge_buffer > 0.0
         && !m.grounded
@@ -688,6 +697,13 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.flip_dir = if walking { walk.signum() } else { 1.0 };
         m.dodge_cooldown = t.dodge_cooldown;
         ev.flipped = true;
+        // Broad paddles: the flip drives the crab, the way it pushes.
+        if walking && m.has(Feat::BroadPaddles) {
+            m.dash_left = t.moult.dash_time;
+        }
+    }
+    if m.grounded || m.climbing {
+        m.dash_left = 0.0;
     }
 
     // --- Sprint: keep holding dodge to keep scuttling fast ----------------
@@ -796,6 +812,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     if m.dodge_left > 0.0 {
         m.dodge_left -= dt;
         m.vel.x = m.dodge_dir * t.dodge_speed;
+    } else if m.dash_left > 0.0 {
+        m.dash_left = (m.dash_left - dt).max(0.0);
+        m.vel.x = m.flip_dir * t.moult.dash_speed;
     } else {
         // Pushing a way while sinking: a dive, a little quicker sideways.
         m.diving = !m.grounded && walking && m.vel.y < 0.0;

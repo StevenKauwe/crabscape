@@ -14,7 +14,11 @@ const OVER_THE_TRENCH: Vec2 = Vec2::new(1450.0, 400.0);
 fn crab(pos: Vec2, feat: bool) -> Sim {
     let mut sim = Sim::with_one_crab(pos);
     if feat {
-        sim.crab_mut(P0).unwrap().mover.feats.push(Feat::BroadPaddles);
+        sim.crab_mut(P0)
+            .unwrap()
+            .mover
+            .feats
+            .push(Feat::BroadPaddles);
     }
     sim
 }

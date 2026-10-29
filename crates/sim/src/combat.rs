@@ -11,6 +11,7 @@
 
 use bevy_math::{Rect, Vec2};
 
+use crate::moult::Feat;
 use crate::physics::{Controls, Mover, StepEvents};
 use crate::tuning::{ClawTuning, Tuning, VitalsTuning};
 use crate::world::PlayerId;
@@ -226,6 +227,12 @@ pub struct Swing {
     /// lowered (down, < 0) from straight out, in world units.
     #[serde(default)]
     pub aim: f32,
+    /// How long holding smash can charge it (0: it can't)...
+    #[serde(default)]
+    pub full_charge: u32,
+    /// ...and how much harder it hits at full charge.
+    #[serde(default)]
+    pub charge_bonus: f32,
 }
 
 impl Swing {
@@ -252,13 +259,18 @@ impl Swing {
     }
 
     /// How much harder than plain it hits: momentum, and a charge.
-    pub fn strength(&self, t: &Tuning) -> f32 {
-        let charge = if t.charge_ticks > 0 {
-            t.charge_bonus * self.charged as f32 / t.charge_ticks as f32
+    pub fn strength(&self) -> f32 {
+        let charge = if self.full_charge > 0 {
+            self.charge_bonus * self.charged as f32 / self.full_charge as f32
         } else {
             0.0
         };
         self.power * (1.0 + charge)
+    }
+
+    /// Charged all the way (held to the end of the charge).
+    pub fn fully_charged(&self) -> bool {
+        self.full_charge > 0 && self.charged >= self.full_charge
     }
 
     fn done(&self, t: &Tuning) -> bool {
@@ -697,7 +709,7 @@ pub fn before_step(
         s.tick += 1;
         // Charging: held at the top of the wind-up until let go (or full).
         if s.charging {
-            if !c.smash_held || s.charged >= t.charge_ticks {
+            if !c.smash_held || s.charged >= s.full_charge {
                 s.charging = false;
             } else if s.tick > s.windup_len() {
                 s.charged += 1;
@@ -743,6 +755,16 @@ pub fn before_step(
         let base = ct.windup_ticks.saturating_sub(haste).max(1);
         let overlap = (base / 2).min(turn / 2);
         let speed = (m.vel.x.abs() / t.sprint_speed).min(1.0);
+        // Only the crusher charges: in a feel with a charge, and always with
+        // the heavy crusher (a feat), which can hold it longer and harder.
+        let (full_charge, charge_bonus) = match claw {
+            Claw::Cutter => (0, 0.0),
+            Claw::Crusher if m.has(Feat::HeavyCrusher) => (
+                t.charge_ticks.max(t.moult.crusher_charge_ticks),
+                t.charge_bonus.max(t.moult.crusher_charge_bonus),
+            ),
+            Claw::Crusher => (t.charge_ticks, t.charge_bonus),
+        };
         f.swing = Some(Swing {
             claw,
             tick: 1,
@@ -750,9 +772,11 @@ pub fn before_step(
             counter,
             windup: base + turn - overlap,
             charged: 0,
-            charging: claw == Claw::Crusher && t.charge_ticks > 0 && c.smash_held,
+            charging: full_charge > 0 && c.smash_held,
             power: 1.0 + t.momentum * speed,
             aim: 0.0,
+            full_charge,
+            charge_bonus,
         });
         match claw {
             Claw::Crusher => ev.smashed = true,
@@ -782,7 +806,7 @@ pub fn before_step(
     if let Some(s) = &f.swing {
         let ct = s.claw.tuning(t);
         if ct.lunge > 0.0 && s.tick == s.windup_len() + 1 {
-            let lunge = ct.lunge * s.strength(t);
+            let lunge = ct.lunge * s.strength();
             if m.vel.x * f.facing < lunge {
                 m.vel.x = f.facing * lunge;
             }
