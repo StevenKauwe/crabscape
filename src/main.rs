@@ -45,13 +45,13 @@
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
 //! - [`cling`]: the clams and shell grit clinging to a crab's shell
 //! - [`notes`]: the short notes that float up when something happens
-//! - [`reset`]: the "Start over" button: forget this device's saved data, start fresh
+//! - [`reset`]: starting over: forget this device's saved data, start fresh
 //! - [`save`]: remembering the crab's position between visits
-//! - [`settings`]: the settings panel: battery saver, how voices carry
+//! - [`settings`]: the settings panel: battery saver, art style, how voices carry, start over
 //! - [`secrets`]: places hidden in darkness until a bright lantern comes near
 //! - [`sound`]: impact sounds, synthesised in code, played with Web Audio
 //! - [`stamina`]: the rings over the crab that show its swimming stamina
-//! - [`style`]: the ink or oil-paint art style, and the button to switch
+//! - [`style`]: the ink or oil-paint art style (P switches)
 //! - [`view`]: the camera and the HUD text
 //! - [`voice`]: voice chat with friends in a co-op room
 
@@ -165,7 +165,6 @@ fn main() {
             impact::ImpactPlugin,
             notes::NotesPlugin,
             report::ReportPlugin,
-            reset::ResetPlugin,
             (
                 secrets::SecretsPlugin,
                 canyon::CanyonPlugin,

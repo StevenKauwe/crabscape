@@ -11,8 +11,8 @@
 //! and checks that:
 //! - WebKit accepts the .wasm file (and, as a sanity check, rejects a relaxed-SIMD module, like an iPhone does);
 //! - the game starts with no error message and draws something into the canvas, including warm lantern light;
-//! - the crab's pictures load, the style starts as Oil, and the P key and the on-screen "Style" button switch
-//!   between Oil and Ink (the canvas's `data-style` says which);
+//! - the crab's pictures load, the style starts as Oil, and the P key and the settings panel's Ink and Oil (opened
+//!   by the "Settings" button) switch between them (the canvas's `data-style` says which);
 //! - holding D walks the crab right, Space makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
 //! - next to the mantis shrimp's burrow, it comes out and winds up, and blows land (`data-fight`);
@@ -23,6 +23,7 @@
 //! - its resting position, and the chosen style, are saved in localStorage and survive a reload;
 //! - the feel lab (`?feel`; it shows by itself in preview builds) starts on the recommended preset, and the backtick
 //!   key, backslash and the FEEL button switch preset and juice, kept over a reload (`data-feel`);
+//! - the settings panel's "Start over" wipes nothing on one tap and the saved game on a second;
 //! - nothing went wrong along the way (no error on the page or in the browser console).
 //!
 //! `--feel-shots PREFIX` instead plays a smash on the mantis in slow motion (`?slow=10`) in a few feel presets and
@@ -286,6 +287,18 @@ impl Test<'_> {
             .map(drop)
     }
 
+    /// A click (mouse) or a tap (finger `id`) at CSS pixel (x, y), then a moment for the game to see it.
+    fn tap(&self, x: f64, y: f64, id: u32, touch: bool) -> Result<()> {
+        if !touch {
+            self.pointer("pointermove", x, y, id, 0, false)?;
+        }
+        self.pointer("pointerdown", x, y, id, 1, touch)?;
+        pump(0.15);
+        self.pointer("pointerup", x, y, id, 0, touch)?;
+        pump(0.15);
+        Ok(())
+    }
+
     /// Let the game run for a while, returning the crab's highest point.
     fn hold(&self, seconds: f64, sample: bool) -> Result<f64> {
         let mut top = f64::MIN;
@@ -527,25 +540,26 @@ impl Test<'_> {
             oil_warm > 300 && ink_warm > 300,
             "both styles draw the lit crab",
         );
-        // The style button, top-right (mirrors button_rect() in src/style.rs), clicked with a mouse.
-        let (bx, by) = (w - 10.0 - 52.0, if w < 600.0 { 58.0 } else { 10.0 } + 17.0);
-        self.pointer("pointermove", bx, by, 1, 1, false)?;
-        self.pointer("pointerdown", bx, by, 1, 1, false)?;
-        pump(0.15);
-        self.pointer("pointerup", bx, by, 1, 0, false)?;
+        // The Settings button, top-right, and the panel's "Art style" Ink and Oil (mirrors button_rect() and
+        // layout() in src/settings.rs: the panel opens under the co-op status line, a row lower on a narrow screen).
+        let (sx, sy, ink, oil) = settings_panel(w);
+        self.tap(sx, sy, 1, false)?;
+        self.tap(oil.0, oil.1, 1, false)?;
         let ok = self.wait_for(&style_is("oil"), 5.0)?;
-        self.check(ok, "clicking the Style button switches back to oil");
+        self.check(
+            ok,
+            "clicking Oil in the settings panel switches back to oil",
+        );
         let stored = self.eval(r#"localStorage.getItem("crabscape-style")"#)?;
         self.check(
             stored == "oil",
             "the style choice is stored in localStorage",
         );
-        // A finger tap on the button: to ink, which the reload at the end should keep.
-        self.pointer("pointerdown", bx, by, 9, 1, true)?;
-        pump(0.15);
-        self.pointer("pointerup", bx, by, 9, 0, true)?;
+        // A finger tap on Ink, which the reload at the end should keep; then Settings again closes the panel.
+        self.tap(ink.0, ink.1, 9, true)?;
         let ok = self.wait_for(&style_is("ink"), 5.0)?;
-        self.check(ok, "tapping the Style button switches style");
+        self.check(ok, "tapping Ink in the settings panel switches style");
+        self.tap(sx, sy, 9, true)?;
 
         // --- keyboard ---------------------------------------------------------------------------------------------
         self.key("keydown", "KeyD", "d")?;
@@ -749,17 +763,38 @@ impl Test<'_> {
         self.press("Backslash", "\\")?;
         let ok = self.wait_for(&feel_is("tank off"), 5.0)?;
         self.check(ok, "backslash switches the juice off");
-        // The FEEL button: under Style and Start over (mirrors button_rect() in src/feel.rs), tapped.
-        let top = if w < 600.0 { 58.0 } else { 10.0 } + 2.0 * (34.0 + 8.0);
+        // The FEEL button: under Settings (mirrors button_rect() in src/feel.rs), tapped.
+        let top = if w < 600.0 { 58.0 } else { 10.0 } + (34.0 + 8.0);
         let (fx, fy) = (w - 10.0 - 52.0, top + 17.0);
-        self.pointer("pointerdown", fx, fy, 11, 1, true)?;
-        pump(0.15);
-        self.pointer("pointerup", fx, fy, 11, 0, true)?;
+        self.tap(fx, fy, 11, true)?;
         let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
         self.check(ok, "tapping the FEEL button switches preset");
         self.open("index.html?feel")?;
         let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
         self.check(ok, "the preset and juice are kept over a reload");
+
+        // --- start over -------------------------------------------------------------------------------------------
+        // In the settings panel, last; one tap only asks ("Sure? Start over"), a second wipes this game's saved data
+        // (the ink style chosen above among it) and reloads the page.
+        let (sx, sy, _, _) = settings_panel(w);
+        let (ox, oy) = start_over_centre(w, h);
+        self.tap(sx, sy, 12, true)?;
+        self.tap(ox, oy, 13, true)?;
+        pump(0.5);
+        let stored = self.eval(r#"localStorage.getItem("crabscape-style")"#)?;
+        self.check(stored == "ink", "one tap on Start over wipes nothing");
+        self.tap(ox, oy, 14, true)?;
+        // The page reloads itself; open it afresh rather than asking a page that is mid-reload.
+        pump(2.0);
+        let started = self.open("index.html")?;
+        let style = self.attr("data-style")?;
+        let stored = self.eval(r#"localStorage.getItem("crabscape-style")"#)?;
+        self.check(
+            started && stored.is_null() && style.as_deref() == Some("oil"),
+            format!(
+                "a second tap on \"Sure? Start over\" wipes the saved style (stored {stored}, now {style:?})"
+            ),
+        );
         self.no_error_on_page("at the end")?;
         Ok(())
     }
@@ -994,6 +1029,50 @@ impl Test<'_> {
             format!("no errors in the browser console ({})", errors.len()),
         );
     }
+}
+
+/// The settings panel's top edge, its left edge and the middle of its "Art style" row, in CSS pixels, for a
+/// window `w` wide. Mirrors button_rect() and layout() in src/settings.rs and status_top() in src/coop.rs.
+fn panel_frame(w: f64) -> (f64, f64, f64) {
+    let narrow = w < 600.0;
+    let top = if narrow { 58.0 } else { 10.0 };
+    // The co-op status line: under the button's row, or on a narrow screen the row below it.
+    let status = top + 34.0 + if narrow { 42.0 } else { 0.0 } + 4.0;
+    let panel_top = status + 20.0;
+    // Padding, "Drawing" title, its row, padding, "Art style" title, then half its row.
+    let style_row = panel_top + 10.0 + 18.0 + 30.0 + 10.0 + 18.0 + 15.0;
+    (panel_top, w - 10.0 - 256.0, style_row)
+}
+
+/// The Settings button's middle, and the middles of the panel's Ink and Oil, in CSS pixels.
+#[allow(clippy::type_complexity)]
+fn settings_panel(w: f64) -> (f64, f64, (f64, f64), (f64, f64)) {
+    let top = if w < 600.0 { 58.0 } else { 10.0 };
+    let (_, left, style_row) = panel_frame(w);
+    // Two halves of the 236 inside the padding, 8 apart: 114 each.
+    let ink = (left + 10.0 + 57.0, style_row);
+    let oil = (left + 10.0 + 114.0 + 8.0 + 57.0, style_row);
+    (w - 10.0 - 52.0, top + 17.0, ink, oil)
+}
+
+/// The middle of the panel's "Start over", in a window `w` by `h`: after the friends' section (the voices, the
+/// slider, Report and Enter a code), or, when one column would run off a short window, straight after Art style
+/// with the friends' section in a second column to the left.
+fn start_over_centre(w: f64, h: f64) -> (f64, f64) {
+    let (panel_top, _, _) = panel_frame(w);
+    // Padding, then the Drawing and Art style sections (title, row, padding).
+    let styles = panel_top + 10.0 + 2.0 * (18.0 + 30.0 + 10.0);
+    // The voices (title, row, padding), the slider's label, track and padding, Report and Enter a code.
+    let friends =
+        (18.0 + 30.0 + 10.0) + (18.0 + 8.0 + 6.0 + 10.0 + 8.0) + (30.0 + 8.0) + (30.0 + 10.0);
+    // Then Start over and, under it, the one-line build name (the test serves the live game's path).
+    let one_column = styles + friends + 10.0 + 30.0 + 4.0 + 14.0 + 10.0;
+    let y = if one_column > h - 10.0 {
+        styles
+    } else {
+        styles + friends
+    } + 10.0;
+    (w - 10.0 - 128.0, y + 15.0)
 }
 
 /// Middle of an on-screen button, in CSS pixels. Mirrors button_rects() in src/input.rs.

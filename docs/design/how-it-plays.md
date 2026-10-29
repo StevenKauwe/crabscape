@@ -82,7 +82,7 @@ Held by anything of its, at 1 s it bites with venom (2 a second for 5 s, stackin
 it bites hard (30). **Autotomy:** while held by anything, down + dodge, or holding dodge half a second, drops a
 walking leg and frees the crab at once (8% slower per leg, back after the next wake from death).
 **The combat is preset G** (`Tuning::default`); the feel lab is hidden (`?lab`, or backtick in previews).
-**Feel lab (hidden; `?lab`, or backtick in preview builds):** the presets the combat was chosen from. A FEEL button under "Start over" (or the backtick
+**Feel lab (hidden; `?lab`, or backtick in preview builds):** the presets the combat was chosen from. A FEEL button under "Settings" (or the backtick
 key, or 1–9) cycles nine presets (A Current, B Heavy tank, C Snappy brawler, D Momentum, E Silksong-ish, F Expedition
 timing, and the blends G Momentum + Silksong + Expedition, H Heavy + Silksong + Expedition, I Charge brawler): each a row of swing timings and extras in `crates/sim/src/feel.rs` (lunge, chaining a press late in a
 recovery, recoil, a hop on a hit, charging the smash, momentum, the counter's payoff) and of juice in `src/feel.rs`
@@ -126,9 +126,10 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Go into the home shell or a rest-stop crevice to rest (home also uses what you carried) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
 | Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
-| Art style | P | | "Style" |
+| Art style (Ink or Oil) | P | | Settings, "Art style": Ink / Oil |
 | Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |
 | Enter a code (see Codes) | Enter, type it, Enter (Esc puts it away) | | Settings, "Enter a code" |
+| Start over (wipes this device's saved game) | | | Settings, "Start over", then "Sure? Start over" within 4 s |
 
 ## Codes
 A playful cheat, the owner's idea. Typed codes change only your own crab, go through the sim like the controls (a

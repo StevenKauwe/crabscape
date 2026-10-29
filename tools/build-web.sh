@@ -18,7 +18,12 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 # 1. Compile Rust to WebAssembly. RUSTFLAGS is cleared on purpose so no
 #    extra CPU features (like relaxed SIMD, which iPhones reject) sneak in
-#    from your shell environment.
+#    from your shell environment. The settings panel shows which build this
+#    is ("Build 5d3eb47, Oct 29": the commit and its date; the game reads
+#    CRABSCAPE_BUILD when it is compiled, "dev" without it).
+if build=$(git log -1 --format='%h, %cd' --date=format:'%b %-d' 2>/dev/null); then
+  export CRABSCAPE_BUILD="$build"
+fi
 RUSTFLAGS='' cargo build --release --target wasm32-unknown-unknown
 
 # 2. Generate the JavaScript glue that loads the wasm into a page.
