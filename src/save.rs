@@ -217,12 +217,21 @@ mod keys {
         }
     }
 
-    /// Is `key` one of this build's keys (what "Start over" may wipe)?
+    /// Is `key` one of this build's keys?
     pub fn owned(slug: Option<&str>, key: &str) -> bool {
         match slug {
             None => key.starts_with(PREFIX) && !key.starts_with(&format!("{PREFIX}@")),
             Some(s) => key.starts_with(&format!("{PREFIX}@{s}@")),
         }
+    }
+
+    /// Kept through "Start over": the co-op lobby's code, so a friend's link
+    /// still reaches this device (only Settings' "New link" changes it).
+    const KEPT: [&str; 1] = ["-lobby"];
+
+    /// Does "Start over" wipe `key`? This build's keys, except the kept ones.
+    pub fn wiped(slug: Option<&str>, key: &str) -> bool {
+        owned(slug, key) && !KEPT.iter().any(|k| key == self::key(slug, k))
     }
 }
 
@@ -262,7 +271,7 @@ mod backend {
         let count = storage.length().unwrap_or(0);
         let ours: Vec<String> = (0..count)
             .filter_map(|i| storage.key(i).ok().flatten())
-            .filter(|k| super::keys::owned(slug.as_deref(), k))
+            .filter(|k| super::keys::wiped(slug.as_deref(), k))
             .collect();
         for key in ours {
             let _ = storage.remove_item(&key);
@@ -332,19 +341,27 @@ mod tests {
         let all = [
             "crabscape.save",
             "crabscape-style",
+            "crabscape-lobby",
+            "crabscape-lobby-tab",
             "crabscape@pr-6@.save",
+            "crabscape@pr-6@-lobby",
             "crabscape@pr-60@.save",
             "something-else",
         ];
         let wiped = |slug: Option<&str>| -> Vec<&str> {
             all.iter()
                 .copied()
-                .filter(|k| keys::owned(slug, k))
+                .filter(|k| keys::wiped(slug, k))
                 .collect()
         };
-        assert_eq!(wiped(None), ["crabscape.save", "crabscape-style"]);
+        // The co-op lobby's code stays, so friends' links still work.
+        assert_eq!(
+            wiped(None),
+            ["crabscape.save", "crabscape-style", "crabscape-lobby-tab"]
+        );
         assert_eq!(wiped(Some("pr-6")), ["crabscape@pr-6@.save"]);
         assert_eq!(wiped(Some("pr-60")), ["crabscape@pr-60@.save"]);
+        assert!(keys::owned(None, "crabscape-lobby"));
     }
 
     #[test]
