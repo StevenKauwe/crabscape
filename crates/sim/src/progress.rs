@@ -41,6 +41,19 @@ pub struct Progress {
     pub well_fed: u32,
 }
 
+impl Progress {
+    /// The same progress with its clocks (clam beds growing back, time left
+    /// well fed) reduced to running or not: what's worth saving at once. The
+    /// clocks themselves are saved along with anything else.
+    pub fn ignoring_clocks(&self) -> Progress {
+        Progress {
+            clams: self.clams.iter().map(|&c| c.min(1)).collect(),
+            well_fed: self.well_fed.min(1),
+            ..self.clone()
+        }
+    }
+}
+
 impl Sim {
     /// What a crab that has done nothing yet has, in this level.
     pub fn fresh_progress(&self) -> Progress {
