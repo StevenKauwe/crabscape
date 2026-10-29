@@ -30,7 +30,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::combat::{Fighter, Hit, Outcome};
-use crate::enemy::Enemy;
+use crate::enemy::{Enemy, Part};
 use crate::physics::{Mover, StepEvents};
 use crate::rng::Rng;
 use crate::world::{PlayerId, Sim};
@@ -76,10 +76,11 @@ pub enum Msg {
     /// it now hunts, or the host's): its whole state, with the new
     /// [`Enemy::runner`]. It must arrive.
     Handover { at: u64, enemy: Enemy },
-    /// `by`'s claw reached `enemy` (run elsewhere), from `from_x`.
+    /// `by`'s claw reached `part` of `enemy` (run elsewhere), from `from_x`.
     HitEnemy {
         by: PlayerId,
         enemy: u32,
+        part: Part,
         hit: Hit,
         from_x: f32,
     },

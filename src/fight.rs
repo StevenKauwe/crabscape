@@ -241,6 +241,7 @@ fn hint(kind: Kind) -> Option<&'static str> {
         Kind::Snapper => Some("A snapping shrimp! Jump or dodge its shock"),
         Kind::Mantis => Some("It holds still: GUARD right then to parry"),
         Kind::Moray => Some("A moray coils: dodge, or GUARD to parry"),
+        Kind::Octopus => Some("An arm creeps in: GUARD as it touches, or cut it"),
         Kind::Fixture => None,
     }
 }

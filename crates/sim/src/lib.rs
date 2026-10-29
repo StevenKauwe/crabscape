@@ -23,6 +23,7 @@
 //! - [`home`]: backing into the home shell to rest, and coming out again
 //! - [`combat`]: health, poise, hits, knockback, hit-stop, claw swings
 //! - [`enemy`]: enemies, their state machines and tells
+//! - [`octopus`]: the common octopus, a boss: hidden, pouncing, probing
 //! - [`rng`]: the seeded random generator (the only randomness)
 //! - [`world`]: [`Sim`], the whole world, advanced one tick at a time
 //! - [`skills`]: Climbing, Swimming and Fighting, which grow by use
@@ -48,6 +49,7 @@ pub mod home;
 pub mod level;
 pub mod memory;
 pub mod net;
+pub mod octopus;
 pub mod physics;
 pub mod progress;
 pub mod replay;

@@ -14,6 +14,7 @@ use bevy_math::{Rect, Vec2};
 
 use crate::combat::{self, Hit, Outcome, Source, Vitals};
 use crate::level::Level;
+use crate::octopus::{self, Octopus};
 use crate::physics::STEP;
 use crate::rng::Rng;
 use crate::tuning::{EnemyTuning, GrabTuning, Tuning};
@@ -30,10 +31,18 @@ pub enum Kind {
     Snapper,
     /// A snowflake moray: lunges from a crevice and holds on.
     Moray,
+    /// The common octopus, a boss in its den (`crate::octopus`).
+    Octopus,
 }
 
 /// Every kind, for parsing and lists.
-pub const KINDS: [Kind; 4] = [Kind::Fixture, Kind::Mantis, Kind::Snapper, Kind::Moray];
+pub const KINDS: [Kind; 5] = [
+    Kind::Fixture,
+    Kind::Mantis,
+    Kind::Snapper,
+    Kind::Moray,
+    Kind::Octopus,
+];
 
 impl Kind {
     pub fn tuning(self, t: &Tuning) -> &EnemyTuning {
@@ -42,6 +51,7 @@ impl Kind {
             Kind::Mantis => &t.mantis,
             Kind::Snapper => &t.snapper,
             Kind::Moray => &t.moray,
+            Kind::Octopus => &t.octopus.base,
         }
     }
 
@@ -51,6 +61,7 @@ impl Kind {
             Kind::Mantis => "mantis",
             Kind::Snapper => "snapper",
             Kind::Moray => "moray",
+            Kind::Octopus => "octopus",
         }
     }
 
@@ -77,8 +88,10 @@ pub enum State {
     Recover,
     /// Poise broken or parried: can't act.
     Stagger,
-    /// Holding a crab in its jaws (a moray's bite).
+    /// Holding a crab in its jaws (a moray's bite) or arms (an octopus).
     Grab,
+    /// From its den, feeling for the crab with its arm tips (an octopus).
+    Probe,
     /// Hurt badly: off home to hide.
     Flee,
     /// Health ran out.
@@ -96,10 +109,23 @@ impl State {
             State::Recover => "recover",
             State::Stagger => "stagger",
             State::Grab => "grab",
+            State::Probe => "probe",
             State::Flee => "flee",
             State::Gone => "gone",
         }
     }
+}
+
+/// Which part of an enemy a blow reaches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Part {
+    /// Its body (for most kinds, all there is to hit).
+    #[default]
+    Body,
+    /// An eye (an octopus's: a weak spot).
+    Eye,
+    /// One of an octopus's arms (its index), with its own health.
+    Arm(u8),
 }
 
 /// One enemy in the world.
@@ -158,6 +184,8 @@ pub struct Enemy {
     /// How many times it has died here: with its id, which body lies there
     /// while it's [`State::Gone`] (a crab eats each body once).
     pub deaths: u32,
+    /// An octopus's own state: hidden or found out, and its arms.
+    pub octo: Option<Octopus>,
 }
 
 impl Enemy {
@@ -188,7 +216,26 @@ impl Enemy {
             runner: None,
             handovers: 0,
             deaths: 0,
+            octo: (kind == Kind::Octopus).then(|| Octopus::new(t)),
         }
+    }
+
+    /// Its octopus state, if it is one.
+    pub fn octopus(&self) -> Option<&Octopus> {
+        self.octo.as_ref()
+    }
+
+    pub fn octopus_mut(&mut self) -> Option<&mut Octopus> {
+        self.octo.as_mut()
+    }
+
+    /// All the health it has left: the body's, and an octopus's arms'.
+    pub fn health_left(&self) -> f32 {
+        let arms = self
+            .octo
+            .as_ref()
+            .map_or(0.0, |o| o.arms.iter().map(|a| a.health).sum());
+        self.vitals.health + arms
     }
 
     /// One more message from `crab` about it was applied.
@@ -207,6 +254,9 @@ impl Enemy {
     /// The finer part of its state, for dumps and the drawing: the tell's
     /// last stretch is "cocked" (the hold-still beat before the blow).
     pub fn phase(&self, t: &Tuning) -> &'static str {
+        if let Some(o) = &self.octo {
+            return octopus::phase(self, o);
+        }
         let k = self.kind.tuning(t);
         match self.state {
             State::Tell if self.combo > 0 => "recock",
@@ -219,8 +269,13 @@ impl Enemy {
         }
     }
 
-    /// In its burrow: only its eyes show, and it can't be hit.
+    /// In its burrow: only its eyes show, and it can't be hit. (An octopus
+    /// hides in plain sight as part of the rock: only its eye shows, but a
+    /// claw that finds it still hits it.)
     pub fn hidden(&self, t: &Tuning) -> bool {
+        if let Some(o) = &self.octo {
+            return self.state == State::Idle && !o.revealed;
+        }
         self.kind.tuning(t).burrows
             && self.state == State::Idle
             && (self.pos.x - self.home.x).abs() < 1.0
@@ -228,7 +283,46 @@ impl Enemy {
 
     /// Can it be hit right now?
     pub fn hittable(&self, t: &Tuning) -> bool {
-        self.state != State::Gone && !self.hidden(t)
+        self.state != State::Gone && (self.octo.is_some() || !self.hidden(t))
+    }
+
+    /// Which part of it a claw's box reaches, if any: an octopus's eye before
+    /// its mantle, its mantle before an arm out probing.
+    pub fn meets(&self, hitbox: Rect, t: &Tuning) -> Option<Part> {
+        if !self.hittable(t) {
+            return None;
+        }
+        if self.octo.is_some() {
+            return octopus::meets(self, hitbox, t);
+        }
+        (!hitbox.intersect(self.hurtbox(t)).is_empty()).then_some(Part::Body)
+    }
+
+    /// A blow reaches `part` of it (see [`Enemy::takes`]): an eye counts
+    /// double, an arm takes it on its own health.
+    pub fn takes_at(
+        &mut self,
+        part: Part,
+        hit: &Hit,
+        from_x: f32,
+        t: &Tuning,
+    ) -> Option<combat::Took> {
+        match part {
+            Part::Body => self.takes(hit, from_x, t),
+            Part::Eye => {
+                let hit = Hit {
+                    damage: hit.damage * t.octopus.eye_damage,
+                    ..*hit
+                };
+                self.takes(&hit, from_x, t)
+            }
+            Part::Arm(i) => octopus::arm_takes(self, i as usize, hit, t),
+        }
+    }
+
+    /// An octopus's eye (the middle of its hurtbox circle).
+    pub fn eye(&self, t: &Tuning) -> Vec2 {
+        octopus::eye(self, t)
     }
 
     /// Its body box, out to the head when it has lunged (`reach`).
@@ -274,14 +368,14 @@ impl Enemy {
     }
 
     /// Start a state; the next tick is its first.
-    fn enter(&mut self, state: State, len: u32) {
+    pub(crate) fn enter(&mut self, state: State, len: u32) {
         self.state = state;
         self.state_tick = 0;
         self.state_len = len;
     }
 
     /// Start a state during this tick's work: this tick is its first.
-    fn enter_now(&mut self, state: State, len: u32) {
+    pub(crate) fn enter_now(&mut self, state: State, len: u32) {
         self.enter(state, len);
         self.state_tick = 1;
     }
@@ -291,6 +385,9 @@ impl Enemy {
     pub fn takes(&mut self, hit: &Hit, from_x: f32, t: &Tuning) -> Option<combat::Took> {
         if !self.hittable(t) {
             return None;
+        }
+        if let Some(o) = &mut self.octo {
+            o.revealed = true; // found out
         }
         let k = self.kind.tuning(t);
         let in_front = (from_x - self.pos.x) * self.facing > 0.0;
@@ -311,6 +408,8 @@ impl Enemy {
             self.follow_ups.clear();
         } else if took.broke_poise {
             self.enter(State::Stagger, k.vitals.stagger_ticks);
+        } else if self.octo.is_some() {
+            octopus::struck(self);
         } else if self.vitals.health < k.flee_below * k.vitals.health
             && self.state != State::Flee
             && !self.fled
@@ -325,7 +424,7 @@ impl Enemy {
     /// The nearest living crab it can sense, if any (ties: the first). A
     /// crab tucked into a shell or crevice is out of its reach: it doesn't
     /// count.
-    fn sense(&self, crabs: &[SimCrab], range: f32) -> Option<PlayerId> {
+    pub(crate) fn sense(&self, crabs: &[SimCrab], range: f32) -> Option<PlayerId> {
         self.sense_moving(crabs, range, 0.0)
     }
 
@@ -358,6 +457,9 @@ pub fn step(
     }
     if e.held {
         return blows; // in a crab's crusher
+    }
+    if e.octo.is_some() {
+        return octopus::step(e, crabs, t, level);
     }
     let k = e.kind.tuning(t).clone();
     e.vitals.tick(&k.vitals);
@@ -402,7 +504,7 @@ pub fn step(
                     ..fresh
                 };
             }
-            State::Idle | State::Approach | State::Flee | State::Grab => {}
+            State::Idle | State::Approach | State::Flee | State::Grab | State::Probe => {}
         }
     }
     e.state_tick += 1;
@@ -569,7 +671,7 @@ pub fn step(
                 e.enter_now(State::Idle, 0);
             }
         }
-        State::Recover | State::Stagger | State::Gone => {}
+        State::Recover | State::Stagger | State::Gone | State::Probe => {}
     }
 
     // Move: its own legs, plus any knockback dying away.
@@ -597,25 +699,25 @@ pub fn step(
 
 /// Can a creature hunt this crab? Not a dead one, nor one tucked into a
 /// shell or crevice (its blows can't reach it there either).
-fn huntable(c: &SimCrab) -> bool {
+pub(crate) fn huntable(c: &SimCrab) -> bool {
     c.fighter.dead.is_none() && !c.mover.tucked_in()
 }
 
 /// Ticks a lunged head takes to draw back into its crevice.
-const HEAD_BACK_TICKS: f32 = 24.0;
+pub(crate) const HEAD_BACK_TICKS: f32 = 24.0;
 
 /// The least speed a kind that never walks slips back into its hole at.
 const BACK_IN_SPEED: f32 = 60.0;
 
 /// Ticks unhit, at home with nobody near, before an enemy mends (2 s).
-const MEND_AFTER: u32 = 240;
+pub(crate) const MEND_AFTER: u32 = 240;
 
 /// The biggest step in the floor an enemy walks up or down in one tick.
 const MAX_STEP: f32 = 8.0;
 
 /// The blow is out: does it reach a crab? (Only crabs run on this device:
 /// the defender decides.)
-fn strike(
+pub(crate) fn strike(
     e: &mut Enemy,
     crabs: &mut [SimCrab],
     t: &Tuning,
@@ -664,6 +766,7 @@ fn strike(
             crab.fighter.grabbed = Some(combat::Grabbed {
                 by: e.id,
                 left: g.ticks,
+                struggle: g.struggle,
             });
             crab.mover.vel = Vec2::ZERO;
         }
@@ -686,6 +789,10 @@ pub fn grabs(k: &EnemyTuning, outcome: Outcome) -> Option<GrabTuning> {
 /// that runs it, the outcome may come from the crab's own device
 /// ([`crate::net::Msg::Blow`]). True when this blow is over.
 pub fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning) -> bool {
+    if e.octo.is_some() && e.state == State::Probe {
+        octopus::tip_feels(e, outcome, t);
+        return true;
+    }
     let k = e.kind.tuning(t);
     let s = &k.strike;
     match outcome {
@@ -719,7 +826,7 @@ pub fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning) -> boo
 }
 
 /// Does a circle touch a box?
-fn circle_meets(c: Vec2, r: f32, b: Rect) -> bool {
+pub(crate) fn circle_meets(c: Vec2, r: f32, b: Rect) -> bool {
     let nearest = c.clamp(b.min, b.max);
     nearest.distance_squared(c) <= r * r
 }

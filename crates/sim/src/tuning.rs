@@ -290,6 +290,12 @@ pub struct Tuning {
     /// coils into an S and lunges, and holds on (`creatures/snowflake-moray.md`,
     /// #71).
     pub moray: EnemyTuning,
+    /// The common octopus, a boss in its den: hidden as part of the rock, it
+    /// pounces, then probes with its arm tips (`creatures/common-octopus.md`).
+    pub octopus: OctopusTuning,
+    /// Scissor claws (the shed tooth fitted to the crusher): a jab cuts soft
+    /// parts, like an octopus's arm, this many times as deep.
+    pub scissor_cut: f32,
     /// What a crab sees and remembers (`crate::memory`).
     pub memory: MemoryTuning,
     /// Hulk mode, the `hulk` code (`crate::codes`).
@@ -485,6 +491,69 @@ pub struct EnemyTuning {
     /// never).
     pub respawn_ticks: u32,
     pub strike: StrikeTuning,
+}
+
+/// The common octopus (`crate::octopus`). Its pounce, senses and health are
+/// an ordinary [`EnemyTuning`]; its eyes and arms are its own.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OctopusTuning {
+    /// Health and poise (the mantle), the mantle and head (`body`: an
+    /// ellipse this wide and tall, standing on the floor), sight
+    /// (`notice_range`), and the pounce: its tell (the dark flush), its
+    /// active ticks, its range (`strike_range`, from its front) and blow.
+    pub base: EnemyTuning,
+    /// Each eye's hurtbox, a circle this big...
+    pub eye_radius: f32,
+    /// ...this far ahead of its middle and this high, flattened on the rock
+    /// while hidden...
+    pub eye_hidden: (f32, f32),
+    /// ...and once it has risen.
+    pub eye_up: (f32, f32),
+    /// A blow to an eye counts this many times.
+    pub eye_damage: f32,
+    pub arms: ArmTuning,
+}
+
+/// An octopus's arms: each its own health, probing for the crab.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArmTuning {
+    pub count: usize,
+    /// Each arm's own health: at 0 it is pulled back for the rest of the
+    /// fight.
+    pub health: f32,
+    /// How far an arm reaches from its root.
+    pub length: f32,
+    /// Its hurtbox: a chain of this many circles, root to tip...
+    pub segments: usize,
+    /// ...tapering from the first's radius to the last's.
+    pub radius: (f32, f32),
+    /// The roots, in a ring under the head: this far ahead of its middle
+    /// and this high.
+    pub root: (f32, f32),
+    /// A tip feels along this high above the floor...
+    pub height: f32,
+    /// ...and grabs whatever this circle round it touches.
+    pub tip_radius: f32,
+    /// The tell: a tip slides in for this long, to where it touches the
+    /// crab...
+    pub tell_ticks: u32,
+    /// ...then feels about there this long before drawing back.
+    pub feel_ticks: u32,
+    /// Drawing an arm back in.
+    pub back_ticks: u32,
+    /// A parried tip snaps back in this long, and stays curled, sore, this
+    /// long (counted from the parry).
+    pub snap_ticks: u32,
+    pub recoil_ticks: u32,
+    /// Arms out probing at once...
+    pub at_once: usize,
+    /// ...and the least time between two starting.
+    pub gap_ticks: u32,
+    /// A tip's touch: its damage, poise damage and hit-stop. It grabs with
+    /// the pounce's hold.
+    pub damage: f32,
+    pub poise: f32,
+    pub hitstop_ticks: u32,
 }
 
 /// What a crab perceives and how it remembers (`crate::memory`).
@@ -996,6 +1065,96 @@ impl Tuning {
                     }),
                 },
             },
+            // "Page" = the spec table on `creatures/common-octopus.md`; "real"
+            // = from its sources; everything else is tuned.
+            octopus: OctopusTuning {
+                base: EnemyTuning {
+                    vitals: VitalsTuning {
+                        health: 400.0, // page
+                        poise: 200.0,  // page
+                        poise_refill: 30.0,
+                        poise_delay_ticks: 90,
+                        stagger_ticks: 70,
+                    },
+                    // Mantle 25 cm (real); the mantle and head as the page's
+                    // ellipse, 156 x 110.
+                    body: (156.0, 110.0),
+                    head: 0.0,
+                    head_recover: 1.0,
+                    tail: 0.0,
+                    tail_damage: 1.0,
+                    burrows: false, // hidden in plain sight instead (`crate::octopus`)
+                    notice_range: 400.0, // by sight (page)
+                    notice_ticks: 0,
+                    give_up_range: 900.0,
+                    approach_speed: 0.0, // keeps to its den
+                    // Pounces on a crab passing this close to its front (page).
+                    strike_range: 140.0,
+                    pause_ticks: (0, 0),
+                    tell_ticks: 30, // page: only a dark flush of the skin
+                    cocked_ticks: 0,
+                    recock_ticks: 0,
+                    combo_extra: 0,
+                    active_ticks: 10, // page
+                    recover_ticks: 60,
+                    parried_ticks: 60,
+                    flee_below: 0.0,
+                    flee_speed: 0.0,
+                    hide_ticks: 0,
+                    respawn_ticks: 0, // a boss: no other moves in
+                    notice_moving: 0.0,
+                    scent_ticks: 0,
+                    stalks: false,
+                    strike: StrikeTuning {
+                        damage: 20.0, // page
+                        poise: 40.0,
+                        ahead: 0.0,
+                        height: 30.0,
+                        radius: 40.0, // its body landing on the crab
+                        knockback: (0.0, 0.0),
+                        hitstop_ticks: 10,
+                        parryable: true,
+                        blockable: true,
+                        block_damage: None,
+                        armour_break_ticks: 0,
+                        follow_up: None,
+                        floor_len: 0.0,
+                        lunge: 140.0, // the whole pounce range
+                        // Held up to 240, each dodge press 10 off (page).
+                        grab: Some(GrabTuning {
+                            ticks: 240,
+                            struggle: 10,
+                            every: 0, // no bites yet
+                            damage: 0.0,
+                        }),
+                    },
+                },
+                eye_radius: 12.0, // page
+                eye_hidden: (44.0, 40.0),
+                eye_up: (40.0, 92.0),
+                eye_damage: 2.0,
+                arms: ArmTuning {
+                    count: 8,
+                    health: 40.0,        // page
+                    length: 625.0,       // 1 m (real)
+                    segments: 6,         // page
+                    radius: (14.0, 3.0), // page
+                    root: (55.0, 14.0),
+                    height: 12.0,
+                    tip_radius: 14.0, // page
+                    tell_ticks: 60,   // page
+                    feel_ticks: 120,
+                    back_ticks: 40,
+                    snap_ticks: 10,
+                    recoil_ticks: 150,
+                    at_once: 2, // page
+                    gap_ticks: 45,
+                    damage: 5.0,
+                    poise: 15.0,
+                    hitstop_ticks: 6,
+                },
+            },
+            scissor_cut: 2.0, // `creatures/README.md`: x2 vs soft parts and arms
             memory: MemoryTuning {
                 cell: 32.0, // 5 cm
                 step_ticks: 12,

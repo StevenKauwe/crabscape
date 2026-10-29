@@ -111,7 +111,10 @@ fn hidden_it_pounces_on_a_crab_walking_past_after_only_a_dark_flush() {
     // Where the pounce started: within 140 of its front.
     let front = DEN - r.sim.tuning.octopus.base.body.0 / 2.0;
     let gap = front - r.x[first_flush];
-    assert!(gap <= 140.0 && gap > 130.0, "as soon as it passed 140: {gap}");
+    assert!(
+        gap <= 140.0 && gap > 130.0,
+        "as soon as it passed 140: {gap}"
+    );
 }
 
 #[test]
@@ -155,7 +158,10 @@ fn struck_while_hidden_it_is_found_out_and_its_eye_counts_double() {
     sim.spawn_enemy(Kind::Octopus, Vec2::new(DEN, 0.0));
     let t = sim.tuning.clone();
     let e = &mut sim.enemies_mut()[0];
-    assert!(e.hidden(&t) && e.hittable(&t), "hidden, but a claw still finds it");
+    assert!(
+        e.hidden(&t) && e.hittable(&t),
+        "hidden, but a claw still finds it"
+    );
     e.takes_at(Part::Eye, &Hit::new(10.0, 0.0, Source::World), 300.0, &t);
     assert_eq!(e.vitals.health, 400.0 - 2.0 * 10.0, "the eye: x2");
     assert!(e.octopus().unwrap().revealed, "found out");
@@ -196,7 +202,9 @@ fn each_arm_tip_slides_in_for_60_ticks_then_grabs_on_contact() {
     let r = probe("", 400);
     let h = r.first_hurt();
     assert_eq!(r.enemy[0].0, State::Probe, "the fight is on: it probes");
-    assert_eq!(r.arm_ticks(0, ArmState::Slide, h + 1), 60, "the tell");
+    let start = r.arms.iter().position(|a| a[0] == ArmState::Slide).unwrap();
+    assert_eq!(h - start + 1, 60, "the tell: it touches on its 60th tick");
+    assert_eq!(r.arm_ticks(0, ArmState::Slide, h), 59, "sliding till then");
     let t = &r.sim.tuning;
     assert_eq!(100.0 - r.health[h], t.octopus.arms.damage);
     assert_eq!(r.status[h], "grabbed", "grabbed on contact");
@@ -227,11 +235,19 @@ fn a_parried_probe_tip_recoils_without_grabbing() {
 }
 
 #[test]
-fn a_blocked_tip_is_pushed_back_and_never_grabs() {
+fn a_guard_pushes_tips_back_until_its_poise_gives_out() {
     let r = probe("t=0 guard", 600);
     assert!(r.blocked);
-    assert!(r.status.iter().all(|s| s != "grabbed"));
-    assert!(r.arms.iter().any(|a| a[0] == ArmState::Back));
+    assert!(r.arms.iter().any(|a| a[0] == ArmState::Back), "pushed back");
+    // Each blocked touch drains poise; held up long enough, the guard
+    // breaks and the next tip gets through. Not before.
+    let staggered = r.status.iter().position(|s| s == "staggered");
+    let grabbed = r.status.iter().position(|s| s == "grabbed");
+    let (Some(staggered), Some(grabbed)) = (staggered, grabbed) else {
+        panic!("turtling holds forever: {staggered:?} {grabbed:?}");
+    };
+    assert!(staggered > 240, "it takes a while: {staggered}");
+    assert!(grabbed > staggered);
 }
 
 #[test]
@@ -269,7 +285,10 @@ fn a_hurt_arm_withdraws() {
     let arm = &e.octopus().unwrap().arms[0];
     assert_eq!(arm.health, 35.0);
     assert_eq!(arm.state, ArmState::Back, "pulled back");
-    assert_eq!(e.vitals.health, 400.0, "the arm's own health, not the mantle's");
+    assert_eq!(
+        e.vitals.health, 400.0,
+        "the arm's own health, not the mantle's"
+    );
 }
 
 /// The crab jabs as arm 0's tip comes within its reach (a few ticks before
@@ -279,10 +298,16 @@ fn jab_the_tip(scissors: bool) -> (f32, ArmState) {
     let start = r.arms.iter().position(|a| a[0] == ArmState::Slide).unwrap();
     let windup = Tuning::default().cutter.windup_ticks as usize;
     let press = start + 55 - windup;
-    let r = fight_with(200.0, true, &format!("@{press} jab"), press as u64 + 12, |sim| {
-        let id = sim.crabs()[0].id;
-        sim.crab_mut(id).unwrap().mover.scissor_claw = scissors;
-    });
+    let r = fight_with(
+        200.0,
+        true,
+        &format!("@{press} jab"),
+        press as u64 + 12,
+        |sim| {
+            let id = sim.crabs()[0].id;
+            sim.crab_mut(id).unwrap().mover.scissor_claw = scissors;
+        },
+    );
     let arm = &r.sim.enemies()[0].octopus().unwrap().arms[0];
     (arm.health, arm.state)
 }
@@ -331,4 +356,17 @@ fn its_body_is_its_real_size_at_crab_scale() {
     let arm = cm(t.octopus.arms.length);
     assert!((95.0..=100.0).contains(&arm), "arm {arm}");
     assert_eq!(t.octopus.arms.count, 8);
+}
+
+// --- Co-op --------------------------------------------------------------------
+
+#[test]
+fn an_octopus_mid_probe_fits_in_one_co_op_message() {
+    let r = probe("", 40);
+    let enemy = r.sim.enemies()[0].clone();
+    assert!(enemy.octopus().unwrap().arms.iter().any(|a| a.state == ArmState::Slide));
+    let msg = crabsim::net::Msg::Enemy { at: 40, enemy };
+    let bytes = msg.to_bytes();
+    assert!(bytes.len() <= crabsim::net::MAX_BYTES, "{} bytes", bytes.len());
+    assert_eq!(crabsim::net::Msg::from_bytes(&bytes), Some(msg));
 }

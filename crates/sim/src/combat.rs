@@ -314,8 +314,10 @@ pub struct Fighter {
 pub struct Grabbed {
     /// The enemy's id.
     pub by: u32,
-    /// Ticks left before it lets go (each dodge press takes some off).
+    /// Ticks left before it lets go...
     pub left: u32,
+    /// ...and how many each dodge press takes off.
+    pub struggle: u32,
 }
 
 impl Claw {
@@ -499,7 +501,7 @@ pub fn before_step(
     }
     // Held in a bite: struggle (dodge presses) to get free sooner.
     if let Some(g) = &mut f.grabbed {
-        let struggle = if c.dodge_pressed { 8 } else { 0 };
+        let struggle = if c.dodge_pressed { g.struggle } else { 0 };
         g.left = g.left.saturating_sub(1 + struggle);
         if g.left == 0 {
             f.grabbed = None;
