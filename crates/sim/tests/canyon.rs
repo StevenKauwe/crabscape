@@ -326,7 +326,10 @@ fn a_save_from_before_the_canyon_keeps_what_was_eaten() {
     sim.restore_progress(PlayerId(0), &old);
     let crab = sim.crab(PlayerId(0)).unwrap();
     assert_eq!(crab.eaten[..5], [true, true, true, false, false]);
-    assert!(crab.eaten[5..].iter().all(|e| !e), "eggs added since: not eaten");
+    assert!(
+        crab.eaten[5..].iter().all(|e| !e),
+        "eggs added since: not eaten"
+    );
     assert_eq!(crab.mover.upgrades, 3);
     assert!(crab.mover.scissor_claw);
     // And it saves the longer list from then on.
