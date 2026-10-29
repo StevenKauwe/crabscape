@@ -49,8 +49,10 @@ A skill at level 5 makes a **feat** ready: a new move, grown only at a moult (`w
 Well fed and tucked into the home shell, a "Moult: grow ..." button moults the crab (one feat per moult). It is soft
 for 90 s of play (a third of that tucked in): half the shell, claws at 60%, no eating. Hardened, the feat is on and
 the shell holds 10 more. The feats (their biology: not verified):
-- **Gripping dactyls** (Climbing): the leg tips grip kelp and coral hard enough to brace on, so a kick off a stalk
-  becomes a long leap. (Bare rock is the glass grips' business, a fitted gear, not a feat.) Being built.
+- **Gripping dactyls** (Climbing): the leg tips hold kelp and coral so firmly that the paddle legs rest there, as on
+  solid ground (drawn from the reserve, like standing). A stalk out in the water becomes a place to get the strokes
+  back and swim on up: the coral on the far basin's end wall, and the sixth egg above it, pays off. (Bare rock is the
+  glass grips' business, a fitted gear, not a feat.)
 - **Broad paddles** (Swimming): the flip in the water becomes a real dash that carries the crab. Being built.
 - **Heavy crusher** (Fighting): a charged smash cracks brittle rock and breaks poise harder. Being built.
 
