@@ -73,9 +73,10 @@ impl Shake {
     }
 }
 
-/// How far the view is zoomed out: 1 = the usual view (what the crab
-/// perceives); beyond it the crab's memory shows (`memory.rs`). Pinch on a
-/// touch screen, the mouse wheel or the - and = keys.
+/// How far the view is zoomed out: 1 = the closest view, [`ZOOM_START`] =
+/// the usual view (what the crab perceives); beyond it the crab's memory
+/// shows (`memory.rs`). Pinch on a touch screen, the mouse wheel or the - and
+/// = keys.
 #[derive(Resource)]
 pub struct Zoom {
     pub out: f32,
@@ -91,7 +92,7 @@ impl Default for Zoom {
     fn default() -> Self {
         // `?zoom=4` in the address starts zoomed out (for tests and
         // screenshots); otherwise the usual view.
-        let start = start_zoom().unwrap_or(1.0).clamp(1.0, ZOOM_MAX);
+        let start = start_zoom().unwrap_or(ZOOM_START).clamp(1.0, ZOOM_MAX);
         Self {
             out: start,
             want: start,
@@ -117,6 +118,10 @@ fn start_zoom() -> Option<f32> {
 
 /// Furthest out: the whole level and more.
 const ZOOM_MAX: f32 = 30.0;
+
+/// Where the view starts: four mouse-wheel steps out from the closest view
+/// (the owner's pick), so more of the level shows around the crab.
+const ZOOM_START: f32 = 1.15 * 1.15 * 1.15 * 1.15;
 
 /// Read the zoom controls and ease the zoom towards what they ask for.
 fn read_zoom(
@@ -280,7 +285,7 @@ fn move_parallax(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut layers: Query<(&Parallax, &mut Transform), Without<Camera2d>>,
 ) {
-    let fade = ((zoom.out - 1.0) / 3.0).clamp(0.0, 0.85);
+    let fade = ((zoom.out - ZOOM_START) / 3.0).clamp(0.0, 0.85);
     for (layer, mut tr) in &mut layers {
         let colour = layer.colour.mix(&WATER, fade);
         if materials
