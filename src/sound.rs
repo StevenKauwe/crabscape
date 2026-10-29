@@ -9,7 +9,9 @@
 //! In the browser it plays through the page's Web Audio. Browsers (iPhones
 //! most of all) keep sound off until the page is touched or a key is
 //! pressed, so the first tap or key switches it on (and, on iPhones, lets it
-//! play with the ring/silent switch on, as Listen & Learn does). Native runs are silent
+//! play with the ring/silent switch on, as Listen & Learn does). Every sound
+//! goes through one volume knob, the settings' "Game sound" (friends' voices
+//! don't: they have their own, see `voice.rs`). Native runs are silent
 //! for now (the sounds are still made in tests, so they stay checked).
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
@@ -60,7 +62,7 @@ impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<PlaySfx>()
             .add_systems(Startup, backend::start)
-            .add_systems(Update, play.after(GameSet::Present));
+            .add_systems(Update, (volume, play).chain().after(GameSet::Present));
     }
 }
 
@@ -75,6 +77,13 @@ pub enum Mic {
 #[cfg(target_arch = "wasm32")]
 pub use backend::{context, recording};
 pub use backend::{sleep, wake};
+
+/// The settings' "Game sound", whenever it changes.
+fn volume(settings: Res<crate::settings::Settings>) {
+    if settings.is_changed() {
+        backend::set_volume(settings.game);
+    }
+}
 
 fn play(mut requests: MessageReader<PlaySfx>) {
     for r in requests.read() {
@@ -305,13 +314,15 @@ mod backend {
 
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::{JsCast, JsValue};
-    use web_sys::{AudioBuffer, AudioContext, HtmlAudioElement};
+    use web_sys::{AudioBuffer, AudioContext, GainNode, HtmlAudioElement};
 
     use super::{ALL, Sfx};
 
     struct Audio {
         ctx: AudioContext,
         buffers: Vec<AudioBuffer>,
+        /// Every game sound goes through this: the settings' "Game sound".
+        master: GainNode,
         /// The looping silent `<audio>` that plays through the iPhone's
         /// silent switch (see [`set_session`]), once a touch made it.
         silent: Option<HtmlAudioElement>,
@@ -355,6 +366,10 @@ mod backend {
         if buffers.len() != ALL.len() {
             return;
         }
+        let Ok(master) = ctx.create_gain() else {
+            return;
+        };
+        let _ = master.connect_with_audio_node(&ctx.destination());
         let unlock = Closure::<dyn FnMut()>::new(|| with(Audio::unlock));
         // iPhones only let sound start from these (not a touch's pointerdown).
         if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
@@ -368,10 +383,26 @@ mod backend {
             *a.borrow_mut() = Some(Audio {
                 ctx,
                 buffers,
+                master,
                 silent: None,
                 asleep: false,
                 recording: 0,
             })
+        });
+    }
+
+    /// Every game sound's loudness (0 to 1). The canvas's `data-sound` says
+    /// what the knob is at, for the browser tests.
+    pub fn set_volume(volume: f32) {
+        with(|a| {
+            a.master.gain().set_value(volume);
+            let state = format!("game {:.2}", a.master.gain().value());
+            if let Some(canvas) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id("crabscape"))
+            {
+                let _ = canvas.set_attribute("data-sound", &state);
+            }
         });
     }
 
@@ -519,11 +550,11 @@ mod backend {
                 .borrow()
                 .as_ref()
                 .filter(|a| !a.asleep)
-                .map(|a| (a.ctx.clone(), a.buffers.clone()))
+                .map(|a| (a.ctx.clone(), a.buffers.clone(), a.master.clone()))
             else {
                 return;
             };
-            let (ctx, buffers) = a;
+            let (ctx, buffers, master) = a;
             let i = ALL.iter().position(|s| *s == sfx).unwrap_or(0);
             let (Ok(src), Ok(vol)) = (ctx.create_buffer_source(), ctx.create_gain()) else {
                 return;
@@ -532,7 +563,7 @@ mod backend {
             src.playback_rate().set_value(pitch);
             vol.gain().set_value(gain);
             let _ = src.connect_with_audio_node(&vol);
-            let _ = vol.connect_with_audio_node(&ctx.destination());
+            let _ = vol.connect_with_audio_node(&master);
             let _ = src.start();
         });
     }
@@ -543,6 +574,7 @@ mod backend {
     pub fn start() {}
     pub fn sleep() {}
     pub fn wake() {}
+    pub fn set_volume(_volume: f32) {}
     pub fn play(_sfx: super::Sfx, _gain: f32, _pitch: f32) {}
 }
 
