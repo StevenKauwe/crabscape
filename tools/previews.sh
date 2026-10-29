@@ -20,14 +20,12 @@ MARKER='<!-- preview-build -->'
 
 short() { printf '%.8s' "$1"; }
 
-# A new build at the same URL must never load a cached old one: Pages lets
-# browsers keep files for 10 minutes. The page itself is checked again on
-# every reload, so it names this build's script, which names its wasm.
-tag_build() {
-  local v; v=$(short "$1")
-  sed -i "s|\./pkg/crabscape\.js|./pkg/crabscape.js?v=$v|" web/index.html
-  sed -i "s|'crabscape_bg\.wasm'|'crabscape_bg.wasm?v=$v'|" web/pkg/crabscape.js
-  grep -q "crabscape_bg.wasm?v=$v" web/pkg/crabscape.js || { echo "tag_build: wasm name not found in crabscape.js" >&2; exit 1; }
+# A new build at the same URL must never load a cached old one (Pages lets
+# browsers keep files for 10 minutes, and a reopened tab may reuse an old
+# page). tools/build-web.sh stamps each build in pkg/version.txt, which the
+# page always fetches fresh before loading the glue and wasm with it.
+check_stamp() {
+  [ -s web/pkg/version.txt ] || { echo "web/pkg/version.txt is missing: build with tools/build-web.sh" >&2; exit 1; }
 }
 
 # Regenerate /builds/ from the folders in the site directory $1.
@@ -100,12 +98,12 @@ drop_folder() { rm -rf "${1:?}/$FOLDER"; }
 case "${1:-}" in
   publish)
     FOLDER="$2" SHA="$3"
-    tag_build "$SHA"
+    check_stamp
     store_update "preview: $FOLDER @ $(short "$SHA")" put_folder
     echo "published /$FOLDER/"
     ;;
   publish-main)
-    tag_build "${GITHUB_SHA:-local}"
+    check_stamp
     store_update "main @ $(short "${GITHUB_SHA:-local}")" put_root
     echo "main build published to the store root"
     ;;
