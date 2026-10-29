@@ -175,13 +175,9 @@ pub struct Tuning {
     /// After a hit that doesn't break poise, this many ticks with no walking
     /// control, so the knockback reads (short: a tank shrugs it off).
     pub hit_stun_ticks: u32,
-    /// Ticks after health runs out before the crab is back, at its last safe
-    /// spot (a stand-in until the moult rule, `world.md`).
+    /// Ticks after health runs out before the crab wakes in its home shell
+    /// (leaving its cast-off shell where it fell, `world.md`).
     pub respawn_ticks: u32,
-    /// A spot counts as safe (to come back to after dying) when the crab
-    /// stands on the floor there with no enemy's home or body within its
-    /// notice range plus this.
-    pub safe_distance: f32,
     /// Home mends the shell only after this long unhit (a rest, not a
     /// refuge mid-fight).
     pub home_heal_after_ticks: u32,
@@ -567,7 +563,6 @@ impl Tuning {
             },
             hit_stun_ticks: 10,
             respawn_ticks: 150, // 1.25 s, back near the fight
-            safe_distance: 120.0,
             home_heal_after_ticks: 240,
             home_in_time: 0.45,
             home_out_time: 0.25,

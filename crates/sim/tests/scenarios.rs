@@ -1183,20 +1183,76 @@ fn health_zero_emits_one_died_and_stops_the_crab() {
     let x = sim.crab(P0).unwrap().mover.pos.x;
     idle(&mut sim, 60);
     assert_eq!(sim.crab(P0).unwrap().mover.pos.x, x, "it stopped");
-    // Soon it is back, whole, at its last safe spot: with no enemy about,
-    // where it last stood on the floor (until the moult rule replaces this).
+    // Soon it wakes, whole, tucked in its home shell (Valheim's death).
     idle(&mut sim, 100);
     let crab = sim.crab(P0).unwrap();
-    assert!(
-        crab.mover.pos.distance(crab.safe) < 0.01,
-        "{}",
-        crab.mover.pos
-    );
-    assert!(
-        (crab.mover.pos.x - x).abs() < 5.0,
-        "back near where it fell"
-    );
+    assert_eq!(crab.mover.pos, sim.level.home_den);
+    assert_eq!(crab.mover.shelter, Shelter::In);
     assert_eq!(crab.fighter.vitals.health, 100.0);
+    assert!(
+        crab.cast_offs.is_empty(),
+        "it carried nothing: no shell left"
+    );
+}
+
+#[test]
+fn dying_leaves_what_it_carried_in_its_cast_off_shell_to_dive_back_for() {
+    use crabsim::Carry;
+    // Out on the floor past home, carrying a lump of bacteria home.
+    let fell_at = Vec2::new(400.0, 0.0);
+    let mut sim = sim_a(fell_at);
+    sim.crab_mut(P0).unwrap().mover.carrying = Some(Carry::Culture);
+    for _ in 0..3 {
+        sim.hit_crab(P0, &blow(40.0, 0.0));
+        sim.tick();
+    }
+    assert!(fighter(&sim).dead.is_some());
+    idle(&mut sim, 200);
+    let crab = sim.crab(P0).unwrap();
+    assert_eq!(crab.mover.pos, sim.level.home_den, "woke at home");
+    assert_eq!(crab.mover.carrying, None, "without it");
+    assert_eq!(crab.cast_offs.len(), 1);
+    let shell = crab.cast_offs[0];
+    assert_eq!(shell.carrying, Carry::Culture);
+    assert!(
+        (shell.pos.x - fell_at.x).abs() < 30.0,
+        "where it fell: {shell:?}"
+    );
+    // Rested at home it doesn't brighten the lantern: the lump isn't there.
+    assert_eq!(crab.mover.lantern, 0);
+    // Out and back to the shell: the lump goes on its back again.
+    let mut recovered = false;
+    for _ in 0..600 {
+        let c = sim.crab(P0).unwrap();
+        let walk = if c.mover.carrying.is_none() { 1.0 } else { 0.0 };
+        sim.set_controls(
+            P0,
+            crabsim::Controls {
+                walk,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        recovered |= sim.crab(P0).unwrap().events.recovered;
+        if recovered {
+            break;
+        }
+    }
+    let crab = sim.crab(P0).unwrap();
+    assert!(recovered && crab.mover.carrying == Some(Carry::Culture));
+    assert!(crab.cast_offs.is_empty(), "the shell is empty now");
+    // And home with it, the lantern brightens after all.
+    for _ in 0..900 {
+        sim.set_controls(
+            P0,
+            crabsim::Controls {
+                walk: -1.0,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+    }
+    assert_eq!(sim.crab(P0).unwrap().mover.lantern, 1);
 }
 
 /// The status of the crab on each tick of a script, as `--dump` shows it.
@@ -1960,11 +2016,10 @@ fn the_levels_mantis_waits_on_the_plateau_and_sees_a_crab_coming_up() {
 }
 
 #[test]
-fn the_crab_comes_back_quickly_before_the_burrow_and_the_mantis_mends_at_home() {
+fn the_crab_wakes_at_home_quickly_and_the_mantis_mends_at_home() {
     // Walk along the plateau to the mantis and stand there taking it.
     let mut sim = sim_a(Vec2::new(640.0, 110.0));
     sim.spawn_enemy(Kind::Mantis, Vec2::new(1120.0, 110.0)); // the level's, alone
-    let burrow = sim.enemies()[0].home.x;
     let replay = Replay::parse("t=0 walk=right; t=0.9 walk=stop").unwrap();
     let mut died_at = None;
     let mut back_at = None;
@@ -1984,11 +2039,7 @@ fn the_crab_comes_back_quickly_before_the_burrow_and_the_mantis_mends_at_home() 
         "back in under 1.5 s, not 3 ({})",
         tick - died
     );
-    let gap = burrow - pos.x;
-    assert!(
-        (420.0..800.0).contains(&gap),
-        "back just out of the mantis's reach, not at the far spawn ({gap})"
-    );
+    assert_eq!(pos, sim.level.home_den, "wakes in its home shell");
     // The crab walks right again and dies again; meanwhile the mantis, with
     // nobody near and unhit, mends at home. Hurt it, then leave.
     let mut sim = sim_a(Vec2::new(250.0, 0.0));
