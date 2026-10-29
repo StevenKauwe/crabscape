@@ -71,9 +71,9 @@ fn note_events(
     if ev.fed {
         notes.push(("Ate it: shell mended".into(), YOLK));
     }
-    if ev.levelled {
-        let level = mover.climb_level(&sim.tuning);
-        notes.push((format!("Climbing level {level}!"), GOLD));
+    if let Some(skill) = ev.levelled {
+        let level = mover.level(skill, &sim.tuning);
+        notes.push((format!("{} level {level}!", skill.name()), GOLD));
     }
     if ev.picked_up && !ev.recovered {
         let what = match mover.carrying {
