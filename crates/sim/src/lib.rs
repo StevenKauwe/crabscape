@@ -25,6 +25,7 @@
 //! - [`enemy`]: enemies, their state machines and tells
 //! - [`rng`]: the seeded random generator (the only randomness)
 //! - [`world`]: [`Sim`], the whole world, advanced one tick at a time
+//! - [`progress`]: what a crab has done that lasts, for saving
 //! - [`net`]: co-op: what each device runs, and what it tells the others
 //! - [`replay`]: recording controls, and the little text format for replays
 //!   and input scripts
@@ -45,6 +46,7 @@ pub mod level;
 pub mod memory;
 pub mod net;
 pub mod physics;
+pub mod progress;
 pub mod replay;
 pub mod rng;
 pub mod tuning;
@@ -57,6 +59,7 @@ pub use home::Shelter;
 pub use level::{Level, SPAWN};
 pub use memory::{Memory, MemorySave, Sight, Sighting};
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
+pub use progress::Progress;
 pub use replay::Replay;
 pub use tuning::Tuning;
 pub use world::{CastOff, PlayerId, Sim, SimCrab, Snapshot};

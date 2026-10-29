@@ -78,9 +78,12 @@ fn show_eggs(
         return;
     };
     let now = time.elapsed_secs();
+    // Eggs eaten before a reload are just gone, without the pop.
+    let loading = eaten_at.is_empty();
     eaten_at.resize(sim.level.eggs.len(), None);
     for (when, &eaten) in eaten_at.iter_mut().zip(&me.eaten) {
         match (eaten, *when) {
+            (true, None) if loading => *when = Some(now - POP),
             (true, None) => *when = Some(now),
             (false, Some(_)) => *when = None, // a new session
             _ => {}

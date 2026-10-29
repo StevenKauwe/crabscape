@@ -5,7 +5,8 @@
 //! the current folder. Every player keeps their own save; there is no server
 //! database.
 //!
-//! The crab's position is saved whenever it stands still on the floor. Saves
+//! The crab (where it is, what it remembers, what it grew and took) is
+//! saved whenever it stands still on the floor. Saves
 //! from another format version are ignored and the crab starts at the
 //! beginning.
 //!
@@ -22,7 +23,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::player::{GameSet, LocalPlayer, PlayerId};
-use crabsim::{MemorySave, Mover, Sim};
+use crabsim::{MemorySave, Mover, Progress, Sim};
 
 /// Bump this if the format ever changes, so old saves can be recognised.
 /// (Version 1 had no position.)
@@ -41,6 +42,10 @@ pub struct SaveData {
     /// What the crab has seen and remembers (`crabsim::memory`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemorySave>,
+    /// What it grew, fitted and took (`crabsim::progress`). Saves from
+    /// before it was kept have none, and start without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Progress>,
 }
 
 /// Save the memory at least this often (memory steps, 0.1 s each) while
@@ -55,11 +60,11 @@ impl Plugin for SavePlugin {
     }
 }
 
-/// Load the saved position and memory, if there is a readable save.
-pub fn load() -> Option<(Vec2, Option<MemorySave>)> {
+/// Load the save, if there is a readable one.
+pub fn load() -> Option<SaveData> {
     let text = backend::read()?;
     match serde_json::from_str::<SaveData>(&text) {
-        Ok(data) if data.version == SAVE_VERSION => Some((Vec2::new(data.x, data.y), data.memory)),
+        Ok(data) if data.version == SAVE_VERSION => Some(data),
         Ok(data) => {
             info!("ignoring a save from an older version ({})", data.version);
             None
@@ -72,8 +77,8 @@ pub fn load() -> Option<(Vec2, Option<MemorySave>)> {
     }
 }
 
-/// Save the local crab's position when it is standing still on something,
-/// and has moved since the last save.
+/// Save the local crab when it is standing still on something, and has
+/// moved, seen more or done something lasting since the last save.
 #[allow(clippy::too_many_arguments)]
 fn save_when_resting(
     time: Res<Time>,
@@ -82,6 +87,7 @@ fn save_when_resting(
     mut since_last: Local<f32>,
     mut last_saved: Local<Option<Vec2>>,
     mut memory_saved: Local<u32>,
+    mut progress_saved: Local<Option<Progress>>,
     mut warned: Local<bool>, // `Local` is private memory for this one system
 ) {
     let (crab, id) = *crab;
@@ -91,18 +97,22 @@ fn save_when_resting(
     let resting = crab.grounded && crab.vel.length() < 1.0;
     let moved = last_saved.is_none_or(|p| p.distance(crab.pos) > 1.0);
     let saw = now.saturating_sub(*memory_saved) >= MEMORY_EVERY;
-    if !resting || !(moved || saw) || *since_last < SAVE_EVERY {
+    let progress = sim.progress(*id);
+    let progressed = *progress_saved != progress;
+    if !resting || !(moved || saw || progressed) || *since_last < SAVE_EVERY {
         return;
     }
     *since_last = 0.0;
     *last_saved = Some(crab.pos);
     *memory_saved = now;
+    progress_saved.clone_from(&progress);
     let data = SaveData {
         version: SAVE_VERSION,
         // Whole units are plenty, and keep the save easy to read.
         x: crab.pos.x.round(),
         y: crab.pos.y.round(),
         memory: memory.map(|m| m.to_save()),
+        progress,
     };
     let text = serde_json::to_string(&data).expect("save data always serialises");
     if let Err(e) = backend::write(&text)
@@ -287,6 +297,7 @@ mod tests {
             x: 640.0,
             y: 110.0,
             memory: None,
+            progress: None,
         };
         let text = serde_json::to_string(&data).unwrap();
         assert_eq!(text, r#"{"version":2,"x":640.0,"y":110.0}"#);
