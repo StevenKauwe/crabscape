@@ -219,7 +219,12 @@ mod tests {
 
     #[test]
     fn every_creature_has_an_oil_atlas_the_size_of_its_ink_one() {
-        for name in ["snapping-shrimp", "mantis-shrimp", "snowflake-moray"] {
+        for name in [
+            "snapping-shrimp",
+            "mantis-shrimp",
+            "snowflake-moray",
+            "common-octopus",
+        ] {
             let ink = format!("creatures/{name}-atlas.png");
             let oil = oil_path(&ink);
             assert_eq!(oil, format!("creatures/{name}-atlas-oil.png"));

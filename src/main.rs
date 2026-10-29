@@ -46,6 +46,7 @@
 //! - [`cling`]: the clams and shell grit clinging to a crab's shell
 //! - [`moult`]: the Moult button at home (until the home menu has a Moult row)
 //! - [`notes`]: the short notes that float up when something happens
+//! - [`octopus`]: the common octopus, the boss in its den: its puppet, its tells and its ink
 //! - [`reset`]: starting over: forget this device's saved data, start fresh
 //! - [`save`]: remembering the crab's position between visits
 //! - [`settings`]: the settings panel: battery saver, art style, how voices carry, start over
@@ -81,6 +82,7 @@ mod level;
 mod memory;
 mod moult;
 mod notes;
+mod octopus;
 mod player;
 mod power;
 mod puppet;
@@ -162,6 +164,7 @@ fn main() {
             ),
             feel::FeelPlugin,
             foes::FoesPlugin,
+            octopus::OctopusPlugin,
             fight::FightPlugin,
             home::HomePlugin,
             impact::ImpactPlugin,

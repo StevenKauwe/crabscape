@@ -14,6 +14,9 @@ const MORAY_JSON: &str = include_str!("../../../assets/creatures/snowflake-moray
 const MANTIS_RIG: &str =
     include_str!("../../../art/creatures/mantis-shrimp/mantis-shrimp-parts.svg");
 const MANTIS_JSON: &str = include_str!("../../../assets/creatures/mantis-shrimp-parts.json");
+const OCTOPUS_RIG: &str =
+    include_str!("../../../art/creatures/common-octopus/common-octopus-parts.svg");
+const OCTOPUS_JSON: &str = include_str!("../../../assets/creatures/common-octopus-parts.json");
 
 #[test]
 fn the_puppet_draws_the_committed_rig() {
@@ -165,4 +168,73 @@ fn the_game_mantis_parts_file_matches_its_rig() {
         "assets/creatures/mantis-shrimp-parts.json is out of date: \
          cargo run -p crabrig --profile art -- export --creature mantis-shrimp"
     );
+}
+
+#[test]
+fn the_octopus_draws_its_committed_rig() {
+    // Changed it on purpose: `cargo run -p crabrig --profile art -- parts --creature common-octopus`, then
+    // `-- export --creature common-octopus`.
+    assert!(
+        crabrig::octopus::parts_svg() == OCTOPUS_RIG,
+        "art/creatures/common-octopus/common-octopus-parts.svg is out of date with crates/crabrig"
+    );
+}
+
+#[test]
+fn the_game_octopus_parts_file_matches_its_rig() {
+    let e = crabrig::export::export(
+        OCTOPUS_RIG,
+        &crabrig::export::Options {
+            zoom: 1.0,
+            source_name: "art/creatures/common-octopus/common-octopus-parts.svg".into(),
+            name: "common-octopus".into(),
+        },
+    )
+    .unwrap();
+    // Head, mantle, eye, their two pale copies, the web, the camouflage skin and its eye, and eight arm segments.
+    assert_eq!(e.parts, 16);
+    assert!(
+        e.json == OCTOPUS_JSON,
+        "assets/creatures/common-octopus-parts.json is out of date: \
+         cargo run -p crabrig --profile art -- export --creature common-octopus"
+    );
+}
+
+#[test]
+fn the_octopus_kit_has_every_piece_the_game_poses() {
+    use crabrig::octopus::{SEGMENTS, build, parent_of};
+    let items = build();
+    let piece = |id: &str| {
+        items
+            .iter()
+            .find(|i| i.id == id)
+            .unwrap_or_else(|| panic!("no {id}"))
+    };
+    let mut wanted: Vec<(String, &str)> = [
+        ("head", "root"),
+        ("mantle", "head"),
+        ("eye", "head"),
+        ("head-pale", "head"),
+        ("mantle-pale", "mantle"),
+        ("web", "root"),
+        ("camo", "root"),
+        ("camo-eye", "camo"),
+    ]
+    .into_iter()
+    .map(|(id, parent)| (id.to_string(), parent))
+    .collect();
+    for k in 0..SEGMENTS {
+        wanted.push((format!("arm-{k}"), "root"));
+    }
+    for (id, parent) in &wanted {
+        assert!(piece(id).pv.is_some(), "{id} has a joint");
+        assert_eq!(parent_of(id), *parent, "{id} hangs from {parent}");
+    }
+    // Arm segments start at their joint and run forward, the suckers on their underside (y down).
+    let seg = piece("arm-0");
+    assert_eq!(seg.pv, Some([0.0, 0.0]));
+    let sucker = piece("arm-0-sucker0");
+    assert!(sucker.pts.iter().all(|p| p[1] > 0.0), "suckers underneath");
+    assert_eq!(parent_of("arm-0-sucker0"), "arm-0");
+    assert_eq!(parent_of("arm-7-sucker4"), "arm-7");
 }

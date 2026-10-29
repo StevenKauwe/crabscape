@@ -2140,9 +2140,10 @@ fn the_route_gets_harder_with_room_to_breathe() {
             Kind::Mantis,
             Kind::Moray,
             Kind::Snapper,
-            Kind::Moray
+            Kind::Moray,
+            Kind::Octopus
         ],
-        "easy shrimp first, then the mantis, then morays and a mix"
+        "easy shrimp first, then the mantis, then morays and a mix, and the octopus in its den at the end"
     );
     let xs: Vec<f32> = level.foes.iter().map(|f| f.1.x).collect();
     assert!(

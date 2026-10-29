@@ -60,8 +60,12 @@ into growing: its den.
   at 0 health stops probing; ink at 66% and 33% exactly once each; inside the ink a sight-hunting enemy loses the crab.
 
 ## Built so far
+**Placed** in its den at the end of the far rim (`Level::den`; x 8650, its back to the wall, facing the way in). To try
+it headless: `cargo crabsim --script "start x=8200 y=-1900; @0 spawn=octopus@8650,-1900 walk=right"` (crabsim puts in only the
+enemies a script spawns).
+
 **Simulation** (`crates/sim/src/octopus.rs`, numbers in `tuning.rs` as `octopus`, tests in `crates/sim/tests/octopus.rs`;
-not placed in a level yet, only tests and `cargo crabsim`, e.g. `--script "start x=200 y=0; @0 spawn=octopus@480,0
+also on a flat test floor with `cargo crabsim`, e.g. `--script "start x=200 y=0; @0 spawn=octopus@480,0
 walk=right; @62 parry"`):
 - **Hidden:** a rock; `hidden` until found out (its eye low on the rock). It watches a crab it sees within 400 and
   pounces on one whose middle comes within 140 of its front: `flush` (30 ticks, the tell), `pounce` (10; its body
@@ -106,6 +110,28 @@ walk=right; @62 parry"`):
   the shell, taken by walking onto the den (where the octopus first lived) and built into the home like any grit.
   Judgement call: the bestiary's "big empty sea-snail shell, the next size of shell-home" is shown as grit for growing
   the home you have (4 pieces is most of the way to its last stage); moving into a bigger shell is its own feature.
+
+**Puppet** (`crates/crabrig/src/octopus.rs`, parts `art/creatures/common-octopus/common-octopus-parts.svg`, atlas in
+`assets/creatures/`; drawn by `src/octopus.rs`): a kit like the moray's. The head (held by its arm crown) with the mantle
+hinged at its back and the eye (horizontal bar pupil, eye-horn papilla); a pale copy of head and mantle faded in to
+blanch; the web (stretched by the game); the camouflage skin (the whole animal flat on the rock in rock colours,
+papillae up, its eye its own part so it glints in the dark); one set of eight tapering arm segments, suckers underneath,
+which the game strings from the crown to each arm's tip in the simulation (the far four shaded darker, behind the body).
+Poses from its state:
+- **hidden:** the camouflage skin, arms tucked under; out of the lantern only the eye shows.
+- **flush:** the skin shown, pressed low and darkening.
+- **pounce:** arms thrown forward.
+- **probe/den:** up on its arms, mantle breathing, arms drawn to their tips; a faint mark where a sliding tip will touch.
+- **rise:** it climbs 45 on its arms, which spread in a ring, the web opening like an umbrella; a line on the floor
+  shows the net's 500, firm once the aim locks.
+- **drop:** the web a dome to the floor over that line.
+- **spread:** arms flat on the floor, mantle low.
+- **grab:** arms over the crab's back.
+- **hurt:** blanches pale for a moment.
+- **ink:** a dark cloud (r 160, in front of the crab, which is lost from view inside it), while it jets off pale, arms
+  streaming.
+- **gone:** not drawn.
+Not drawn: the crab's missing legs after autotomy, and venom on the crab.
 
 ## Rig notes
 Parts: mantle, head (with eye and an eye-horn papilla), siphon, web (one deformable part between the arm bases, or 8

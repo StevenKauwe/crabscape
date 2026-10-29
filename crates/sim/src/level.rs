@@ -434,7 +434,9 @@ impl Level {
             // The route, easy to hard, with room to breathe between: snapping
             // shrimp in the shallows rubble, the mantis on the plateau, a
             // moray in a crevice of the trench, and past the trench a shrimp
-            // on the far ledge and a moray guarding the flats.
+            // on the far ledge and a moray guarding the flats. At the very
+            // end, past the canyon, the common octopus in its den: a rock
+            // with its back to the wall, facing the way in.
             foes: vec![
                 (Kind::Snapper, Vec2::new(340.0, 0.0)),
                 (Kind::Snapper, Vec2::new(590.0, 0.0)),
@@ -442,6 +444,7 @@ impl Level {
                 (Kind::Moray, Vec2::new(1760.0, -260.0)),
                 (Kind::Snapper, Vec2::new(2060.0, 110.0)),
                 (Kind::Moray, Vec2::new(2650.0, 20.0)),
+                (Kind::Octopus, Vec2::new(8650.0, -1900.0)),
             ],
             // The tide runs up and down the canyon's middle, from its floor
             // to well above the doorstep, with still water along each wall.

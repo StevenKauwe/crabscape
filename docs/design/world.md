@@ -176,7 +176,9 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
 ### Spots left for creatures (coordinates in world units, `Level::test_level`)
 - **Common octopus den** (`Level::den`): a dead-end chamber under the rock at the end of the far rim, inside
   x 8350–8800, y -1900 (floor) to -1620 (roof), the level's wall at its back; its floor a midden of shells (drawn,
-  `src/canyon.rs`). Empty: the boss (`creatures/common-octopus.md`) moves in later. The common octopus lives above
+  `src/canyon.rs`). Its boss lives there: the common octopus (`creatures/common-octopus.md`), hidden as a rock at
+  x 8650 with its back to the wall, facing the way in. Beaten, it jets off and the midden is shell grit for the home.
+  The common octopus lives above
   ~200 m, so its den is at the canyon's top, not its floor.
 - **Alarm jelly** (`Level::drifting`): open water out of the tide, deep in the canyon: (6305, -6200) by the near
   wall and (7560, -7400) by the far wall, each at least 150 from rock and 100 from the tide.

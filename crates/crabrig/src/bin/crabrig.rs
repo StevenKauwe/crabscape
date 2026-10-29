@@ -4,7 +4,7 @@
 //!     crabrig export [--creature C] [--scale S] [--out DIR] [parts.svg]
 //!                                                                 atlas + <name>-parts.json (default into assets/crab/)
 //!
-//! `--creature snapping-shrimp`, `mantis-shrimp` or `snowflake-moray`: the creature's parts file is art/creatures/<C>/<C>-parts.svg, its export goes into
+//! `--creature snapping-shrimp`, `mantis-shrimp`, `snowflake-moray` or `common-octopus`: the creature's parts file is art/creatures/<C>/<C>-parts.svg, its export goes into
 //! assets/creatures/.
 //!
 //! Run from the repo root: `cargo run -p crabrig --profile art -- <command>`.
@@ -12,11 +12,16 @@
 use crabrig::crab::base_pose;
 
 const USAGE: &str = "usage:
-  crabrig parts  [--creature snapping-shrimp|mantis-shrimp|snowflake-moray] [out.svg]
-  crabrig export [--creature snapping-shrimp|mantis-shrimp|snowflake-moray] [--scale S] [--out DIR] [parts.svg]";
+  crabrig parts  [--creature snapping-shrimp|mantis-shrimp|snowflake-moray|common-octopus] [out.svg]
+  crabrig export [--creature snapping-shrimp|mantis-shrimp|snowflake-moray|common-octopus] [--scale S] [--out DIR] [parts.svg]";
 
 /// The creatures with puppets.
-const CREATURES: [&str; 3] = ["snapping-shrimp", "mantis-shrimp", "snowflake-moray"];
+const CREATURES: [&str; 4] = [
+    "snapping-shrimp",
+    "mantis-shrimp",
+    "snowflake-moray",
+    "common-octopus",
+];
 
 /// Pull `--flag value` out of the arguments.
 fn option(args: &mut Vec<String>, flag: &str) -> Option<String> {
@@ -59,6 +64,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             let svg = match creature.as_deref() {
                 Some("mantis-shrimp") => crabrig::mantis::parts_svg(),
                 Some("snowflake-moray") => crabrig::moray::parts_svg(),
+                Some("common-octopus") => crabrig::octopus::parts_svg(),
                 Some(_) => crabrig::shrimp::parts_svg(),
                 None => crabrig::parts::parts_svg(&base_pose()),
             };
