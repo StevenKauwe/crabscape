@@ -91,7 +91,21 @@ walk=right; @62 parry"`):
   show the missing leg yet.
 - **Hits:** a claw finds the eye (r 12, x2) before the mantle (ellipse 156 x 110, 400 health, 200 poise) before an arm
   that is out. It keeps to its den (blows don't shove it). Left alone 2 s with nobody within 900, it mends (arms too)
-  and is a rock again. Beaten for now = gone (fleeing comes later).
+  and is a rock again, back in its den.
+- **Ink and jet:** the first time a blow takes its mantle to 66% or below, and again at 33%, it inks (a cloud r 160
+  where it was, for 180 ticks) and jets for 30 ticks (`ink`; nothing reaches it), then reappears at least 600 away
+  (away from the crab if there's room: flat floor, no more than 200 above or below, clear of rock; tried at 600 to
+  1000 on each side, else it stays) and fights on from there. One blow past both shares inks once.
+- **Blinded:** a crab whose middle is inside a cloud. Creatures that hunt by sight (`sight` in their tuning: the
+  mantis, the octopus) lose it and can't notice it; smell (moray) and feeling steps (snapping shrimp) still work, and
+  the octopus still feels a crab within its arms' reach. The crab's dump status says `blinded`. Not drawn yet (the
+  screen darkening around the crab in the bestiary would be a full-frame overlay, which the art rules forbid: the
+  cloud will be drawn as a shape instead).
+- **Flee:** at 0 health it jets off for good (`flee`, 30 ticks) and is gone, leaving no body to eat.
+- **Its den:** then open. Its midden of old shells is shell grit: 4 pieces per crab, as many at a time as cling to
+  the shell, taken by walking onto the den (where the octopus first lived) and built into the home like any grit.
+  Judgement call: the bestiary's "big empty sea-snail shell, the next size of shell-home" is shown as grit for growing
+  the home you have (4 pieces is most of the way to its last stage); moving into a bigger shell is its own feature.
 
 ## Rig notes
 Parts: mantle, head (with eye and an eye-horn papilla), siphon, web (one deformable part between the arm bases, or 8
