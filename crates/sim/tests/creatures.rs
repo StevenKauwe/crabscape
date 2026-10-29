@@ -241,3 +241,50 @@ fn every_body_is_its_real_size_at_crab_scale() {
         "moray {depth}"
     );
 }
+
+#[test]
+fn a_moray_hunts_a_crab_again_after_it_died_and_came_back() {
+    let mut sim = Sim::with_one_crab(Vec2::new(290.0, 0.0));
+    sim.spawn_enemy(Kind::Moray, Vec2::new(400.0, 0.0));
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().fighter.vitals.health = 20.0;
+    let (mut died, mut back, mut bitten_after, mut tick) = (None, None, 0, 0u64);
+    let mut states = Vec::new();
+    play(&mut sim, &Replay::parse("").unwrap(), 3000, |s| {
+        let c = &s.crabs()[0];
+        tick += 1;
+        if c.events.died && died.is_none() {
+            died = Some(tick);
+        }
+        if c.events.respawned && back.is_none() {
+            back = Some(tick);
+        }
+        if back.is_some() && c.events.hurt {
+            bitten_after += 1;
+        }
+        let e = &s.enemies()[0];
+        if states.last() != Some(&e.state) {
+            states.push(e.state);
+        }
+    });
+    assert!(
+        died.is_some() && back.is_some(),
+        "died {died:?}, back {back:?}"
+    );
+    assert!(bitten_after > 0, "never bit again: {states:?}");
+}
+
+#[test]
+fn a_moray_knocked_out_of_its_crevice_goes_back_and_hunts_again() {
+    // A claw's knockback shoved it 30 out of its crevice at 400, then the
+    // fight ended (the crab died or left): it must get home and smell again.
+    let mut sim = Sim::with_one_crab(Vec2::new(290.0, 0.0));
+    sim.spawn_enemy(Kind::Moray, Vec2::new(400.0, 0.0));
+    sim.enemies_mut()[0].pos.x = 430.0;
+    let mut hurt = false;
+    play(&mut sim, &Replay::parse("").unwrap(), 900, |s| {
+        hurt |= s.crabs()[0].events.hurt;
+    });
+    let e = &sim.enemies()[0];
+    assert!(hurt, "never noticed the crab: {:?} at {}", e.state, e.pos.x);
+}
