@@ -61,6 +61,11 @@ pub struct SimCrab {
     pub clues_found: Vec<bool>,
     /// Which of the level's shed teeth this crab has taken.
     pub teeth_taken: Vec<bool>,
+    /// Each of the level's clam beds: ticks until it grows a new clam after
+    /// this crab took one (0 = a clam lies there).
+    pub clams: Vec<u32>,
+    /// Clams stored in the larder at home (it stays there through death).
+    pub larder: u32,
     /// Health, poise and claw swings.
     pub fighter: Fighter,
     /// What it has seen and remembers: its own map of the level.
@@ -74,6 +79,8 @@ pub struct SimCrab {
     /// Events from between ticks (a hit from outside), added to the next
     /// tick's.
     pending: StepEvents,
+    /// Ticks tucked in at home so far (0 when not).
+    resting: u32,
 }
 
 /// The shell a crab leaves where it died, holding what it carried: it wakes
@@ -177,11 +184,14 @@ impl Sim {
             cultures_taken: vec![false; self.level.cultures.len()],
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
+            clams: vec![0; self.level.clams.len()],
+            larder: 0,
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
             cast_offs: Vec::new(),
             meals: Vec::new(),
             pending: StepEvents::default(),
+            resting: 0,
         });
     }
 
@@ -530,6 +540,8 @@ impl Sim {
                 crab.events = ev;
                 continue;
             }
+            // Time passes for food whatever the crab is doing.
+            food_timers(crab, &self.tuning, &mut ev);
             // Hit-stop: frozen for a moment as a blow lands. Presses wait.
             let f = &mut crab.fighter;
             if f.vitals.hitstop > 0 {
@@ -635,6 +647,15 @@ impl Sim {
                     crab.events.picked_up = true;
                 }
             }
+            // A clam: the same, for the larder. Its bed grows another in time.
+            for (clam, regrow) in self.level.clams.iter().zip(&mut crab.clams) {
+                let free = crab.mover.carrying.is_none();
+                if *regrow == 0 && free && in_reach(&crab.mover, *clam, &self.tuning) {
+                    *regrow = self.tuning.food.regrow_ticks;
+                    crab.mover.carrying = Some(Carry::Clam);
+                    crab.events.picked_up = true;
+                }
+            }
             // Its cast-off shell, back where it died: what it carried goes on
             // its back again (if its back is free).
             if crab.mover.carrying.is_none()
@@ -665,7 +686,8 @@ impl Sim {
                 }) {
                     crab.meals.push((e.id, e.deaths));
                     let v = &mut crab.fighter.vitals;
-                    v.health = (v.health + self.tuning.meal_mend).min(self.tuning.crab.health);
+                    let whole = crab.mover.max_shell(&self.tuning);
+                    v.health = (v.health + self.tuning.meal_mend).min(whole);
                     crab.mover.reserve = 1.0;
                     crab.events.fed = true;
                 }
@@ -706,18 +728,20 @@ impl Sim {
             }
             // Home: tucked into the shell, the crab rests fully, and what it
             // carried in is put to use: a culture into its lantern, a tooth
-            // fitted to its crusher at the workbench (scissor claws).
+            // fitted to its crusher at the workbench (scissor claws), a clam
+            // into the larder.
             let m = &mut crab.mover;
             if m.tucked_in() {
+                crab.resting = crab.resting.saturating_add(1);
                 let full = m.strokes(&self.tuning) as f32;
+                let whole = m.max_shell(&self.tuning);
                 let v = &mut crab.fighter.vitals;
-                let mend = v.health < self.tuning.crab.health
-                    && v.unhit >= self.tuning.home_heal_after_ticks;
+                let mend = v.health < whole && v.unhit >= self.tuning.home_heal_after_ticks;
                 if m.reserve < 1.0 || m.stamina < full || mend {
                     m.reserve = 1.0;
                     m.stamina = full;
                     if mend {
-                        v.health = self.tuning.crab.health;
+                        v.health = whole;
                     }
                     crab.events.rested = true;
                 }
@@ -730,8 +754,29 @@ impl Sim {
                         m.scissor_claw = true;
                         crab.events.fitted_scissors = true;
                     }
+                    Some(Carry::Clam) if crab.larder < self.tuning.food.larder => {
+                        crab.larder += 1;
+                        crab.events.stored = true;
+                    }
+                    Some(Carry::Clam) => {
+                        m.carrying = Some(Carry::Clam);
+                        crab.events.larder_full |= crab.events.tucked_in;
+                    }
                     None => {}
                 }
+                // Settled in and not well fed, with food in the larder: it
+                // cracks a clam open with its crusher and eats it. A bigger
+                // shell and reserve for a while, both filled.
+                let food = &self.tuning.food;
+                if crab.larder > 0 && m.well_fed == 0 && crab.resting >= food.eat_after_ticks {
+                    crab.larder -= 1;
+                    m.well_fed = food.well_fed_ticks;
+                    m.reserve = 1.0;
+                    v.health = m.max_shell(&self.tuning);
+                    crab.events.ate_clam = true;
+                }
+            } else {
+                crab.resting = 0;
             }
         }
         self.claws_meet_enemies();
@@ -1151,6 +1196,26 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
 fn fought(m: &mut Mover, dealt: f32, took: combat::Took, t: &Tuning) -> Option<Skill> {
     let win = if took.died { t.fight_xp_per_win } else { 0.0 };
     m.earn(Skill::Fighting, dealt * t.fight_xp_per_damage + win, t)
+}
+
+/// The clock on food: taken clam beds grow back, and being well fed wears
+/// off (the shell and reserve shrink back to plain, keeping what they can).
+fn food_timers(crab: &mut SimCrab, t: &Tuning, ev: &mut StepEvents) {
+    for regrow in &mut crab.clams {
+        *regrow = regrow.saturating_sub(1);
+    }
+    let m = &mut crab.mover;
+    if m.well_fed == 0 {
+        return;
+    }
+    let reserve = m.reserve * m.reserve_strokes(t);
+    m.well_fed -= 1;
+    if m.well_fed == 0 {
+        m.reserve = (reserve / m.reserve_strokes(t)).min(1.0);
+        let v = &mut crab.fighter.vitals;
+        v.health = v.health.min(m.max_shell(t));
+        ev.hungry = true;
+    }
 }
 
 /// Does the device with these crabs (the host's, if `host`) run `e`?

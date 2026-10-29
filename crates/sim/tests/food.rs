@@ -68,9 +68,7 @@ fn the_level_has_clams_near_home_and_in_harder_places() {
     let in_pit = clams
         .iter()
         .any(|c| c.x > pit_left && c.x < pit_right && c.y < pit_bottom + 50.0);
-    let past_trench = clams
-        .iter()
-        .any(|c| c.x > trench_right && c.x < 2800.0);
+    let past_trench = clams.iter().any(|c| c.x > trench_right && c.x < 2800.0);
     assert!(near_home >= 2, "{clams:?}");
     assert!(in_pit && past_trench, "{clams:?}");
     // Each lies half-buried on the floor.
@@ -116,13 +114,14 @@ fn a_full_larder_leaves_the_clam_on_its_back() {
 #[test]
 fn resting_at_home_it_eats_one_and_is_well_fed() {
     let mut sim = by_home();
-    let base_shell = sim.tuning.crab.health;
-    let base_reserve = sim.tuning.stamina_reserve as f32;
+    let t = sim.tuning.clone();
+    let base_shell = t.crab.health;
+    let base_reserve = t.stamina_reserve as f32;
     {
         let crab = sim.crab_mut(P0).unwrap();
         crab.larder = 2;
-        assert_eq!(crab.mover.max_shell(&sim.tuning), base_shell);
-        assert_eq!(crab.mover.reserve_strokes(&sim.tuning), base_reserve);
+        assert_eq!(crab.mover.max_shell(&t), base_shell);
+        assert_eq!(crab.mover.reserve_strokes(&t), base_reserve);
     }
     let seen = walk_home(&mut sim);
     assert!(!seen.contains(&"ate a clam"), "not the moment it arrives");
@@ -133,7 +132,6 @@ fn resting_at_home_it_eats_one_and_is_well_fed() {
         ate += u32::from(sim.crab(P0).unwrap().events.ate_clam);
     }
     assert_eq!(ate, 1);
-    let t = sim.tuning.clone();
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.larder, 1);
     assert!(crab.mover.well_fed > 0);
@@ -158,7 +156,8 @@ fn well_fed_wears_off_after_its_time() {
     let mut sim = by_home();
     sim.crab_mut(P0).unwrap().larder = 1;
     walk_home(&mut sim);
-    idle(&mut sim, sim.tuning.food.eat_after_ticks + 1);
+    let eat_after = sim.tuning.food.eat_after_ticks;
+    idle(&mut sim, eat_after + 1);
     let fed_for = sim.crab(P0).unwrap().mover.well_fed;
     assert!(fed_for > 0 && fed_for <= sim.tuning.food.well_fed_ticks);
     // Out of the shell and standing about, a scratch on it.
@@ -187,7 +186,10 @@ fn well_fed_wears_off_after_its_time() {
     assert!(hungry, "it says so");
     assert_eq!(crab.mover.well_fed, 0);
     assert_eq!(crab.mover.max_shell(&t), t.crab.health);
-    assert_eq!(crab.fighter.vitals.health, t.crab.health, "back to a plain shell");
+    assert_eq!(
+        crab.fighter.vitals.health, t.crab.health,
+        "back to a plain shell"
+    );
     assert_eq!(crab.mover.reserve_strokes(&t), t.stamina_reserve as f32);
     assert!(crab.mover.reserve <= 1.0);
 }
@@ -226,7 +228,8 @@ fn dying_with_a_clam_leaves_it_in_the_cast_off_shell_and_keeps_the_larder() {
         sim.tick();
     }
     assert!(sim.crab(P0).unwrap().fighter.dead.is_some());
-    idle(&mut sim, sim.tuning.respawn_ticks + 2);
+    let respawn = sim.tuning.respawn_ticks;
+    idle(&mut sim, respawn + 2);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.mover.shelter, Shelter::In, "woke at home");
     assert_eq!(crab.mover.carrying, None);

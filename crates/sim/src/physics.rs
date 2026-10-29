@@ -84,6 +84,8 @@ pub enum Carry {
     Culture,
     /// A shed tooth: fitted to the crusher at home, making scissor claws.
     Tooth,
+    /// A clam from a clam bed: stored in the larder at home.
+    Clam,
 }
 
 /// A crab's movement state. (In the game, each crab entity also carries a
@@ -178,6 +180,10 @@ pub struct Mover {
     /// The lantern blazing, from the `glow` code (see [`crate::codes`]).
     #[serde(default)]
     pub glow: bool,
+    /// Ticks left of being well fed (0 = not): a bigger shell and reserve
+    /// (see [`Mover::max_shell`], [`Mover::reserve_strokes`]).
+    #[serde(default)]
+    pub well_fed: u32,
 }
 
 impl Mover {
@@ -218,6 +224,7 @@ impl Mover {
             tucked: 0.0,
             hulk: false,
             glow: false,
+            well_fed: 0,
         }
     }
 
@@ -230,6 +237,26 @@ impl Mover {
     /// then swim strokes).
     pub fn strokes(&self, t: &Tuning) -> u32 {
         t.swim_strokes + self.upgrades
+    }
+
+    /// How much the shell holds when whole: more while well fed.
+    pub fn max_shell(&self, t: &Tuning) -> f32 {
+        let bonus = if self.well_fed > 0 {
+            t.food.shell_bonus
+        } else {
+            0.0
+        };
+        t.crab.health * (1.0 + bonus)
+    }
+
+    /// How many strokes the reserve holds when full: more while well fed.
+    pub fn reserve_strokes(&self, t: &Tuning) -> f32 {
+        let bonus = if self.well_fed > 0 {
+            t.food.reserve_bonus
+        } else {
+            0
+        };
+        (t.stamina_reserve + bonus) as f32
     }
 
     /// The Climbing skill's level, from its experience (see
@@ -352,6 +379,14 @@ pub struct StepEvents {
     pub turned: bool,
     /// Struggled free of a bite.
     pub freed: bool,
+    /// Brought a clam home: into the larder.
+    pub stored: bool,
+    /// Brought a clam home to a full larder: it stays on its back.
+    pub larder_full: bool,
+    /// Ate a clam from the larder: well fed.
+    pub ate_clam: bool,
+    /// Being well fed wore off.
+    pub hungry: bool,
 }
 
 impl StepEvents {
@@ -394,6 +429,10 @@ impl StepEvents {
         self.crushed |= other.crushed;
         self.turned |= other.turned;
         self.freed |= other.freed;
+        self.stored |= other.stored;
+        self.larder_full |= other.larder_full;
+        self.ate_clam |= other.ate_clam;
+        self.hungry |= other.hungry;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -440,6 +479,10 @@ impl StepEvents {
             (self.crushed, "crushed"),
             (self.turned, "turned"),
             (self.freed, "freed"),
+            (self.stored, "stored"),
+            (self.larder_full, "larder full"),
+            (self.ate_clam, "ate a clam"),
+            (self.hungry, "hungry"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))
@@ -532,7 +575,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
     m.sprinting = c.dodge_held && walking && m.grounded && !m.winded && m.dodge_left <= 0.0;
     if m.sprinting {
-        let cost = t.sprint_cost * dt / t.stamina_reserve as f32;
+        let cost = t.sprint_cost * dt / m.reserve_strokes(t);
         if m.reserve >= cost {
             m.reserve -= cost;
         } else {
@@ -748,10 +791,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
 fn rest_legs(m: &mut Mover, t: &Tuning, strokes: f32) {
     let full = m.strokes(t) as f32;
     let want = strokes.min(full - m.stamina);
-    let strokes = want.min(m.reserve * t.stamina_reserve as f32);
+    let reserve = m.reserve_strokes(t);
+    let strokes = want.min(m.reserve * reserve);
     if strokes > 0.0 {
         m.stamina = (m.stamina + strokes).min(full);
-        m.reserve = (m.reserve - strokes / t.stamina_reserve as f32).max(0.0);
+        m.reserve = (m.reserve - strokes / reserve).max(0.0);
     }
 }
 

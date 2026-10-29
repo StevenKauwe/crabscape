@@ -1220,6 +1220,8 @@ fn health_zero_emits_one_died_and_stops_the_crab() {
     let r = run("t=0.5 walk=right", 1.0);
     let mut sim = r.sim;
     sim.set_controls(P0, crabsim::Controls::default());
+    // It walked over a clam on the way: empty-handed for this one.
+    sim.crab_mut(P0).unwrap().mover.carrying = None;
     let mut died = 0;
     for n in 0..3 {
         sim.hit_crab(P0, &blow(40.0, 0.0));
@@ -1254,6 +1256,8 @@ fn dying_leaves_what_it_carried_in_its_cast_off_shell_to_dive_back_for() {
     let fell_at = Vec2::new(400.0, 0.0);
     let mut sim = sim_a(fell_at);
     sim.crab_mut(P0).unwrap().mover.carrying = Some(Carry::Culture);
+    // The shallows' clams would fill its back on the way out: none today.
+    sim.crab_mut(P0).unwrap().clams.fill(u32::MAX);
     for _ in 0..3 {
         sim.hit_crab(P0, &blow(40.0, 0.0));
         sim.tick();
