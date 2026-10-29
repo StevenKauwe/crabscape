@@ -105,6 +105,7 @@ mod web {
 
     use crate::coop::LocalId;
     use crate::settings::{Hear, Settings};
+    use crate::sound::Mic;
     use crate::voice::{MicTrouble, mic_trouble};
 
     /// The form, and what it's doing.
@@ -318,10 +319,11 @@ mod web {
         };
         let wanted = MediaStreamConstraints::new();
         wanted.set_audio(&JsValue::TRUE);
+        crate::sound::recording(Mic::Report, true);
         let ask = match devices.get_user_media_with_constraints(&wanted) {
             Ok(ask) => ask,
             Err(e) => {
-                note(mic_trouble(&e).advice());
+                refused(mic_trouble(&e).advice());
                 return;
             }
         };
@@ -330,16 +332,16 @@ mod web {
             let stream = match JsFuture::from(ask).await {
                 Ok(s) => s.dyn_into::<MediaStream>().ok(),
                 Err(e) => {
-                    note(mic_trouble(&e).advice());
+                    refused(mic_trouble(&e).advice());
                     return;
                 }
             };
             let Some(stream) = stream else {
-                note(MicTrouble::Missing.advice());
+                refused(MicTrouble::Missing.advice());
                 return;
             };
             let Ok(recorder) = MediaRecorder::new_with_media_stream(&stream) else {
-                note("This browser can't record here: you can still type.");
+                refused("This browser can't record here: you can still type.");
                 return;
             };
             let on_data = Closure::<dyn FnMut(BlobEvent)>::new(|e: BlobEvent| {
@@ -355,19 +357,27 @@ mod web {
                         t.stop();
                     }
                 }
+                crate::sound::recording(Mic::Report, false);
                 let chunks = with(|f| std::mem::take(&mut f.chunks));
                 spawn_local(write_down(chunks));
             });
             recorder.set_onstop(Some(on_stop.as_ref().unchecked_ref()));
             on_stop.forget();
             if recorder.start().is_err() {
-                note("Couldn't start recording: you can still type.");
+                refused("Couldn't start recording: you can still type.");
                 return;
             }
             with(|f| f.recorder = Some(recorder));
             speak_label("Stop");
             note("Listening... tap Stop when you're done.");
         });
+    }
+
+    /// Speak couldn't start: say why, and let the phone's audio go back to
+    /// playback only.
+    fn refused(words: &str) {
+        crate::sound::recording(Mic::Report, false);
+        note(words);
     }
 
     fn stop_recording() {

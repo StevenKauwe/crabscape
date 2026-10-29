@@ -132,6 +132,7 @@ mod web {
     use crate::coop::LocalId;
     use crate::player::{GameSet, LocalPlayer};
     use crate::settings::Settings;
+    use crate::sound::Mic;
 
     /// The public servers that tell a browser its outside address (the
     /// same ones the co-op connection uses).
@@ -471,7 +472,7 @@ mod web {
             if let Some(mic) = mic {
                 mic.stop();
                 plug(None);
-                crate::sound::recording(false);
+                crate::sound::recording(Mic::Voice, false);
             }
             return;
         }
@@ -489,9 +490,11 @@ mod web {
         }
         let wanted = MediaStreamConstraints::new();
         wanted.set_audio(&audio);
+        crate::sound::recording(Mic::Voice, true);
         let ask = match devices.get_user_media_with_constraints(&wanted) {
             Ok(ask) => ask,
             Err(e) => {
+                crate::sound::recording(Mic::Voice, false);
                 with(|v| v.refused = Some(mic_trouble(&e)));
                 return;
             }
@@ -517,9 +520,9 @@ mod web {
                 v.mic = track.ok();
                 v.mic.clone()
             });
-            if let Some(track) = track {
-                crate::sound::recording(true);
-                plug(Some(&track));
+            match track {
+                Some(track) => plug(Some(&track)),
+                None => crate::sound::recording(Mic::Voice, false),
             }
         });
     }
