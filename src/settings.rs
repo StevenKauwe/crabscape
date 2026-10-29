@@ -339,9 +339,14 @@ mod panel {
 
     pub fn build(app: &mut App) {
         app.init_resource::<Open>()
-            .add_systems(Startup, (spawn_button, spawn_panel, spawn_ring))
+            .add_systems(Startup, (spawn_button, spawn_ring))
             .add_systems(Update, press.in_set(GameSet::Input))
-            .add_systems(Update, (show, place, ring).in_set(GameSet::Present));
+            .add_systems(
+                Update,
+                (lay_out_panel, show, place, ring)
+                    .chain()
+                    .in_set(GameSet::Present),
+            );
     }
 
     fn text(words: &str, size: f32) -> impl Bundle {
@@ -401,8 +406,27 @@ mod panel {
             });
     }
 
-    fn spawn_panel(mut commands: Commands, window: Single<&Window>) {
+    /// The panel, laid out for the window's size, and laid out afresh when
+    /// that changes (a page starts at a default size before it fits the
+    /// screen, and a phone turns): which rows fit in one column depends on it.
+    fn lay_out_panel(
+        mut commands: Commands,
+        window: Single<&Window>,
+        panels: Query<Entity, With<Panel>>,
+        mut laid: Local<Option<Vec2>>,
+    ) {
         let size = window.size();
+        if *laid == Some(size) {
+            return;
+        }
+        *laid = Some(size);
+        for panel in &panels {
+            commands.entity(panel).despawn();
+        }
+        spawn_panel(&mut commands, size);
+    }
+
+    fn spawn_panel(commands: &mut Commands, size: Vec2) {
         let l = layout(size);
         let o = l.panel.min;
         commands
@@ -624,7 +648,7 @@ mod panel {
         settings: Res<Settings>,
         style: Res<ArtStyle>,
         sim: Res<crabsim::Sim>,
-        mut panel: Single<&mut Visibility, (With<Panel>, Without<RangeRow>)>,
+        mut panel: Query<&mut Visibility, (With<Panel>, Without<RangeRow>)>,
         mut range: Query<&mut Visibility, (With<RangeRow>, Without<Panel>)>,
         mut choices: Query<(&Choice, &mut BackgroundColor)>,
         mut label: Query<&mut Text, (With<RangeLabel>, Without<StartOverLabel>)>,
@@ -640,7 +664,9 @@ mod panel {
                 Visibility::Hidden
             }
         };
-        panel.set_if_neq(shown(open.open));
+        for mut panel in &mut panel {
+            panel.set_if_neq(shown(open.open));
+        }
         for mut range in &mut range {
             range.set_if_neq(shown(settings.hear == Hear::Nearby));
         }
@@ -701,19 +727,11 @@ mod panel {
         }
     }
 
-    /// Keep the button and the panel in place as the window changes.
-    fn place(
-        window: Single<&Window>,
-        mut button: Single<&mut Node, (With<SettingsButton>, Without<Panel>)>,
-        mut panel: Single<&mut Node, (With<Panel>, Without<SettingsButton>)>,
-    ) {
-        let l = layout(window.size());
-        let (top, panel_top) = (px(l.button.min.y), px(l.panel.min.y));
+    /// Keep the button in place as the window changes.
+    fn place(window: Single<&Window>, mut button: Single<&mut Node, With<SettingsButton>>) {
+        let top = px(button_rect(window.size()).min.y);
         if button.top != top {
             button.top = top;
-        }
-        if panel.top != panel_top {
-            panel.top = panel_top;
         }
     }
 
