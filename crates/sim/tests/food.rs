@@ -320,3 +320,16 @@ fn a_replay_recorded_after_a_reload_carries_the_food_it_started_with() {
     );
     assert_eq!(replay.hash, Some(again.state_hash()), "{text}");
 }
+
+#[test]
+fn the_feast_code_fills_a_well_fed_shell_to_its_bigger_size() {
+    let mut sim = by_home();
+    sim.crab_mut(P0).unwrap().mover.well_fed = 10_000;
+    sim.hit_crab(P0, &blow(50.0));
+    sim.tick();
+    assert!(sim.enter_code(P0, crabsim::Code::Feast));
+    let t = sim.tuning.clone();
+    let crab = sim.crab(P0).unwrap();
+    assert!(crab.mover.max_shell(&t) > t.crab.health);
+    assert_eq!(crab.fighter.vitals.health, crab.mover.max_shell(&t));
+}
