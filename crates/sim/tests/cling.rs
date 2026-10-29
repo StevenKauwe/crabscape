@@ -90,10 +90,10 @@ fn small_things_cling_to_the_shell_several_at_once() {
     step_onto(&mut sim, clam0);
     step_onto(&mut sim, grit0);
     step_onto(&mut sim, clam1);
-    let crab = sim.crab(P0).unwrap();
-    assert!(crab.clams[0] > 0, "the first clam taken");
-    assert!(crab.grit_taken[0], "the grit taken, with a clam on");
-    assert!(crab.clams[1] > 0, "the second clam taken too");
+    let world = &sim.shared;
+    assert!(world.clams[0] > 0, "the first clam taken");
+    assert!(world.grit_taken[0], "the grit taken, with a clam on");
+    assert!(world.clams[1] > 0, "the second clam taken too");
 
     // Home: all of it comes off at once.
     let seen = go_home(&mut sim);
@@ -120,7 +120,7 @@ fn small_things_never_block_a_big_find_and_a_big_find_never_blocks_them() {
     );
     step_onto(&mut sim, pit_grit);
     assert!(
-        sim.crab(P0).unwrap().grit_taken[4],
+        sim.shared.grit_taken[4],
         "the culture on its back doesn't stop it taking grit"
     );
 
@@ -191,7 +191,7 @@ fn an_old_save_with_a_clam_on_its_back_still_carries_it() {
     // The clam doesn't fill its back: it takes grit too...
     let grit0 = sim.level.grit[0];
     step_onto(&mut sim, grit0);
-    assert!(sim.crab(P0).unwrap().grit_taken[0]);
+    assert!(sim.shared.grit_taken[0]);
     // ...and gets the grit in its cast-off shell back.
     step_onto(&mut sim, fell);
     assert!(sim.crab(P0).unwrap().cast_offs.is_empty());
@@ -219,6 +219,7 @@ fn a_full_shell_leaves_a_small_thing_where_it_lies() {
     }
     assert_eq!(sim.crab(P0).unwrap().mover.clinging.len(), cling);
     let before = sim.crab(P0).unwrap().clone();
+    let world_before = sim.shared.clone();
     step_onto(&mut sim, small[cling]);
     let crab = sim.crab(P0).unwrap();
     assert!(crab.events.shell_full, "it says so");
@@ -226,8 +227,8 @@ fn a_full_shell_leaves_a_small_thing_where_it_lies() {
     assert_eq!(crab.mover.clinging, before.mover.clinging);
     let bare = |clams: &[u32]| clams.iter().map(|&c| c > 0).collect::<Vec<_>>();
     assert_eq!(
-        (bare(&crab.clams), &crab.grit_taken),
-        (bare(&before.clams), &before.grit_taken),
+        (bare(&sim.shared.clams), &sim.shared.grit_taken),
+        (bare(&world_before.clams), &world_before.grit_taken),
         "it lies where it was"
     );
 }

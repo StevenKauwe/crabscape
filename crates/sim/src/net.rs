@@ -21,6 +21,11 @@
 //! - Anything that changes a crab happens only on that crab's device;
 //!   anything that changes an enemy happens on its runner. Shared world bits
 //!   (a cut ghost net) are announced to everyone.
+//! - **The host referees shared things** (a clam, shell grit: see
+//!   [`crate::shared`]). A guest's crab asks for one ([`Msg::Take`]) and gets
+//!   it when the host says it's theirs ([`Msg::Taken`]); the host's own crab
+//!   takes at once. What unlocks progression (eggs and the like) is each
+//!   crab's own and never sent.
 //!
 //! Friends are trusted *in the game*: nothing here checks that a device tells
 //! the truth about a hit. The bytes are never trusted: [`Msg::from_bytes`]
@@ -33,6 +38,7 @@ use crate::combat::{Fighter, Hit, Outcome};
 use crate::enemy::{Enemy, Part};
 use crate::physics::{Mover, StepEvents};
 use crate::rng::Rng;
+use crate::shared::{OwnWorld, Thing};
 use crate::world::{PlayerId, Sim};
 
 /// How often each device sends the state of what it runs: every 4 ticks
@@ -97,13 +103,24 @@ pub enum Msg {
     /// A lump of brittle rock (its index in the level) was cracked.
     RockCracked(usize),
     /// The host tells a device that just joined how the world stands: which
-    /// ghost nets are cut and which brittle rocks cracked. (Crabs and enemies
-    /// arrive in their own updates.)
+    /// ghost nets are cut and which brittle rocks cracked, which clam beds
+    /// are bare, which shell grit and midden pieces are taken and which
+    /// bodies eaten. (Crabs and enemies arrive in their own updates.)
     World {
         nets_cut: Vec<bool>,
-        #[serde(default)]
         rocks_cracked: Vec<bool>,
+        clams_bare: Vec<bool>,
+        grit_taken: Vec<bool>,
+        midden_taken: Vec<bool>,
+        bodies_eaten: Vec<(u32, u32)>,
     },
+    /// A guest's crab `by` reached a shared thing and asks the host for it.
+    Take { by: PlayerId, thing: Thing },
+    /// The host's word on a shared thing: gone, and crab `by` has it (to
+    /// everyone), or it was gone already (`None`, to the crab that asked).
+    Taken { by: Option<PlayerId>, thing: Thing },
+    /// A clam bed (its index in the level) grew a new clam, on the host.
+    Regrown(usize),
 }
 
 impl Msg {
@@ -160,6 +177,10 @@ pub struct Net {
     /// enemy and hand-over (each runner counts its own ticks).
     pub(crate) crab_at: Vec<(PlayerId, u64)>,
     pub(crate) enemy_at: Vec<((u32, u32), u64)>,
+    /// Shared things our crabs asked the host for, not yet answered.
+    pub(crate) asked: Vec<(PlayerId, Thing)>,
+    /// A guest's own world, put aside while it plays in the host's.
+    pub(crate) own: Option<OwnWorld>,
 }
 
 impl Net {
