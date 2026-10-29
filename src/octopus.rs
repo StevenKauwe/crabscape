@@ -29,7 +29,7 @@ use crabsim::octopus::{self, ArmState, Octopus};
 use crabsim::{Kind, Sim};
 
 use crate::creature_art::CreatureArt;
-use crate::effects::SoftTextures;
+use crate::effects::{SoftTextures, radial_image};
 use crate::feel::FeelLab;
 use crate::lantern::LitTint;
 use crate::memory::Known;
@@ -82,12 +82,17 @@ impl Plugin for OctopusPlugin {
 }
 
 #[derive(Resource)]
-struct Art(CreatureArt);
+struct Art {
+    puppet: CreatureArt,
+    /// A disc with a short soft edge: the ink's blots.
+    blot: Handle<Image>,
+}
 
-fn load_art(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_scaled(
-        PARTS, ATLAS, ART_SCALE, &assets,
-    )));
+fn load_art(mut commands: Commands, assets: Res<AssetServer>, mut images: ResMut<Assets<Image>>) {
+    commands.insert_resource(Art {
+        puppet: CreatureArt::load_scaled(PARTS, ATLAS, ART_SCALE, &assets),
+        blot: images.add(radial_image(64, |r| ((1.0 - r) / 0.12).min(1.0))),
+    });
 }
 
 /// One octopus's drawing (the root, at its feet; facing right in its own
@@ -131,7 +136,8 @@ fn spawn_octopuses(
     soft: Res<SoftTextures>,
     drawn: Query<&Drawn>,
 ) {
-    let art = &art.0;
+    let blot = art.blot.clone();
+    let art = &art.puppet;
     for e in sim.enemies() {
         if e.kind != Kind::Octopus || drawn.iter().any(|d| d.id == e.id) {
             continue;
@@ -232,7 +238,7 @@ fn spawn_octopuses(
                 ] {
                     c.spawn((
                         Sprite {
-                            image: soft.disc.clone(),
+                            image: blot.clone(),
                             color: INK.with_alpha(0.0),
                             custom_size: Some(Vec2::splat(1.3 * r)),
                             ..default()
