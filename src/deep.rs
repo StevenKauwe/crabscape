@@ -68,35 +68,32 @@ struct TideText;
 struct Visitor;
 
 fn spawn_depth_counter(mut commands: Commands) {
-    commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            top: px(14),
-            width: percent(100),
-            flex_direction: FlexDirection::Column,
-            align_items: AlignItems::Center,
+    let line = |top: f32| Node {
+        position_type: PositionType::Absolute,
+        top: px(top),
+        width: percent(100),
+        justify_content: JustifyContent::Center,
+        ..default()
+    };
+    commands.spawn(line(14.0)).with_child((
+        DepthText,
+        Text::new(""),
+        TextFont {
+            font_size: FontSize::Px(20.0),
             ..default()
-        })
-        .with_children(|hud| {
-            hud.spawn((
-                DepthText,
-                Text::new(""),
-                TextFont {
-                    font_size: FontSize::Px(20.0),
-                    ..default()
-                },
-                TextColor(Color::NONE),
-            ));
-            hud.spawn((
-                TideText,
-                Text::new(""),
-                TextFont {
-                    font_size: FontSize::Px(14.0),
-                    ..default()
-                },
-                TextColor(Color::NONE),
-            ));
-        });
+        },
+        TextColor(Color::NONE),
+    ));
+    // Under the controls' help and the bars, clear of both.
+    commands.spawn(line(98.0)).with_child((
+        TideText,
+        Text::new(""),
+        TextFont {
+            font_size: FontSize::Px(14.0),
+            ..default()
+        },
+        TextColor(Color::NONE),
+    ));
 }
 
 /// In the canyon, which way its water runs right now (the tide is a rule
