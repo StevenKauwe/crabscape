@@ -42,6 +42,26 @@ fn hulk_smashes_three_times_as_hard_and_throws_further() {
 }
 
 #[test]
+fn hulk_still_smashes_down_to_a_creature_low_on_the_floor() {
+    // A snapping shrimp is only 12 tall; out of its burrow (a crab walked
+    // up) it can be hit. In the game's own feel.
+    for codes in [&[][..], &[Code::Hulk]] {
+        let mut sim = Sim::with_one_crab(SPAWN);
+        for &code in codes {
+            sim.enter_code(P0, code);
+        }
+        sim.spawn_enemy(Kind::Snapper, Vec2::new(340.0, 0.0));
+        let replay =
+            Replay::parse("t=0 walk=right; t=0.25 walk=stop; t=0.9 smash; t=1.6 smash").unwrap();
+        let mut struck = false;
+        play(&mut sim, &replay, ticks(2.2), |s| {
+            struck |= s.crabs()[0].events.struck
+        });
+        assert!(struck, "{codes:?} smash reaches the shrimp");
+    }
+}
+
+#[test]
 fn hulk_again_turns_it_off() {
     let mut sim = sim();
     sim.enter_code(P0, Code::Hulk);
