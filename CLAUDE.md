@@ -14,6 +14,7 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - How it plays (movement, combat, controls): `docs/design/how-it-plays.md`
 - World, zones, economy: `docs/design/world.md` (ecology by depth, food web, creature rules: `docs/design/universe.md`)
 - Enemies (biology, combat spec, rig notes): `docs/design/creatures/` (concept sheets: `art/creatures/`)
+- Co-op promises (what playing together guarantees, and the checks): `docs/design/coop-promises.md`
 - Current decisions: `docs/design/decisions.md`
 
 ## Rules that never bend
@@ -112,6 +113,7 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Coverage report | `cargo llvm-cov --workspace --summary-only` (needs `cargo install --locked cargo-llvm-cov` and `rustup component add llvm-tools`) |
 | Web build into `web/` | `tools/build-web.sh` (serve with any static server, e.g. `python3 -m http.server -d web`) |
 | WebKit (iPhone engine) test | `cargo webtest [--landscape \| --desktop] [--shots /tmp/shot]` (after the web build; needs WebKitGTK 4.1 and `WebKitWebDriver`, Ubuntu `webkitgtk-webdriver`, before 26.04 `webkit2gtk-driver`) |
+| Co-op promises in real browsers | `cargo cooptest [--only join,guest-reload] [--repeat N] [--voice on\|off\|both]` (after the web build and `cargo build --release --manifest-path tools/introducer/Cargo.toml`; needs Chrome). `--stress [--seed S] [--steps K]` does random reloads, Start overs, stalls and introducer restarts (a failure prints its replay line); `--url <site>` plays a deployed site with the real introducer; `--list` names the scenarios (`docs/design/coop-promises.md`) |
 | Headless sim | `cargo crabsim --script "t=0 walk=right; t=1 jump; t=1.45 jump" --seconds 4` |
 | Replay a bug report | `cargo crabsim --inputs replay.txt --dump -` (F9 in the game saves a replay; `?replay` adds a button on the web) |
 | Crab rig → SVG | `cargo run -p crabrig --profile art -- parts` (writes `art/crab/crab-parts.svg`) |
