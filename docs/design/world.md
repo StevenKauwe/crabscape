@@ -48,15 +48,36 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   than the last (level n+1 at n x (n+1) steps). A small row under the stamina bar shows each skill once it has any
   experience, and a level up says so ("Swimming level 2!"). They're saved with the crab, and only grow on its own
   device in co-op.
-  - **Climbing:** experience for every bit climbed; each level climbs a little faster (+8%). One climb out of the pit
-    reaches level 2.
-  - **Swimming:** 1 experience per paddle stroke (level 2 at 10 strokes, 3 at 30, 4 at 60: a play of the test level
-    reaches 2 or 3). Each level makes the stroke rhythm and the legs' rest on solid ground 5% shorter, up to level 10
-    (0.30 s and 0.6 s at level 1, 0.165 s and 0.33 s at 10). It never adds strokes or height: eggs still decide
-    which routes are open.
+  - **Climbing:** experience for every bit climbed (0.01 a unit, up or down); level 2 at 20, 3 at 60, 4 at 120, 5
+    at 200. Each level climbs a little faster (+8%). One climb out of the pit reaches level 3.
+  - **Swimming:** 1 experience per paddle stroke (level 2 at 10 strokes, 3 at 30, 4 at 60, 5 at 100). Each level
+    makes the stroke rhythm and the legs' rest on solid ground 5% shorter, up to level 10 (0.30 s and 0.6 s at
+    level 1, 0.165 s and 0.33 s at 10). It never adds strokes or height: eggs still decide which routes are open.
   - **Fighting:** 0.25 experience per point of damage the claws deal a creature, 15 for beating one (a snapping
-    shrimp is worth 18, the mantis 30, a moray 37.5); level 2 at 50 (two or three creatures), 3 at 150. Each level
-    adds 5% to the claws' damage, up to level 10 (+45%).
+    shrimp is worth 18, the mantis 30, a moray 37.5); level 2 at 40 (two creatures), 3 at 120, 4 at 240, 5 at 400.
+    Each level adds 5% to the claws' damage, up to level 10 (+45%).
+- **Moulting and feats (`crates/sim/src/moult.rs`):** a skill at **level 5** makes its **feat** ready, a new move
+  rather than bigger numbers: Climbing, **gripping dactyls**; Swimming, **broad paddles**; Fighting, **heavy
+  crusher** (what each does: `how-it-plays.md`). But a crab's body only changes at a moult: growth and shape change
+  happen when it sheds its old shell, and a fresh moult is soft ([CQ] in `art/crab/anatomy-notes.md`). The note
+  says so ("Climbing level 5! A feat is ready: moult to grow it.") and the skill row reads "moult ready".
+  - **Getting ready:** be **well fed** (a clam eaten at home). The moult uses the meal up. (That a crab builds
+    reserves before a moult: not verified.)
+  - **Moulting:** tucked into the home shell, well fed, with a feat ready, the crab moults to grow **one** ready
+    feat (one per moult; with several ready, it picks). For now a "Moult: grow ..." button shows at home; the
+    inside-your-home view will have a Moult row instead.
+  - **Soft for a while:** 90 s of play out in the open, a third of that resting tucked in. Soft, the shell holds
+    half as much, the claws hit at 60% and it eats nothing (eggs, clams, bodies: "Too soft to eat yet"). Going out
+    early is allowed, at its own risk; dying soft, it wakes still soft. "Soft shell 1:12" under the shell bar
+    counts down.
+  - **Hardened:** "Your new shell has hardened: gripping dactyls!" The feat is its own, and the shell holds 10 more
+    for each moult (growth). Feats, moults and a moult still hardening are saved with the crab.
+  - **Tuned so** a normal run grows one feat around the middle and can reach all three by the end. Measured on the
+    owner's own run (the replay in #162, played headless): about 12 minutes in, Swimming reaches 5 (the first feat);
+    Climbing gets there after a climb or two out of the pit (it earned 165 by its first climb out); Fighting had
+    265 by the end, so it needs the later fights (more creatures on the trips home, the octopus).
+  - Per crab, as a sim command (`moult=climbing` in a replay, like a code); in co-op a friend's crab is never
+    moulted on your device (a friend can stand guard while you're soft).
 - **The light matters:** halfway down the pit's right wall is an alcove that looks like a solid lump of rock until a
   bright enough lantern comes near (the starting lantern doesn't reach; one brightened with the pit's culture does).
   Inside: a fourth egg and the first clue to the trench mystery, a shed tooth bigger than the crab (sharks shed and
