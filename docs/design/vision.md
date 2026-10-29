@@ -36,3 +36,5 @@ Build (grow the shell-home, set rest stops) → Traverse (dive deeper, survive, 
 
 Touchstones: RuneScape, Hollow Knight / Silksong, Made in Abyss, Subnautica, Dredge, Don't Starve Together, Valheim.
 Play Another Crab's Treasure so CrabScape ends up different, not similar.
+
+<!-- CI demo: a change to words only. This PR is closed, never merged. -->
