@@ -1354,14 +1354,28 @@ impl Sim {
     /// A fingerprint of the whole world's state. Two runs whose fingerprints
     /// match ended up in exactly the same state, down to the last bit of
     /// every number.
+    ///
+    /// The controls handed to the crabs for the next tick are left out: they
+    /// are what the players want, not what the world is, until a tick uses
+    /// them. (The game hands input over after a frame's ticks and can save a
+    /// replay in that same frame; the replay only carries controls a tick
+    /// used.)
     pub fn state_hash(&self) -> u64 {
+        let crabs: Vec<SimCrab> = self
+            .crabs
+            .iter()
+            .map(|c| SimCrab {
+                controls: Controls::default(),
+                ..c.clone()
+            })
+            .collect();
         // `{:?}` prints every field, and prints each `f32` exactly, so
         // formatting is an easy way to "hash everything" that keeps working
         // when fields are added.
         fnv1a(
             format!(
                 "{} {:?} {:?} {:?} {:?}",
-                self.tick, self.crabs, self.enemies, self.rng, self.shared
+                self.tick, crabs, self.enemies, self.rng, self.shared
             )
             .as_bytes(),
         )

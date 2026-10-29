@@ -109,15 +109,14 @@ proptest! {
 
     /// A recording, saved as text, read back and played headless, ends in
     /// exactly the state the live game reached, whatever was pressed and
-    /// however the frames fell. (Bug reports rely on this.) The recording is
-    /// read just after a tick: controls handed over since the last tick are
-    /// not in the replay yet, but they are in the state hash.
+    /// however the frames fell, even when it is saved between ticks with
+    /// controls handed over that no tick has used yet. (Bug reports rely on
+    /// this.)
     #[test]
     fn a_recording_of_any_play_replays_to_the_same_state(session in play_session()) {
         let mut live = Sim::with_one_crab(SPAWN);
         live.start_recording();
         feed(&mut live, &session, |_| {});
-        live.tick();
         let recorded = live.recording().expect("recording was started");
         prop_assert_eq!(recorded.hash, Some(live.state_hash()));
 
