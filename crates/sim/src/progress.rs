@@ -115,10 +115,24 @@ impl Sim {
         }
     }
 
-    /// Crab `id`'s lasting progress, to save.
+    /// Crab `id`'s lasting progress, to save. The world's part (clam beds,
+    /// shell grit, nets and rocks) is this device's own world: a guest
+    /// visiting the host's saves its own, as it will find it on leaving
+    /// (see [`Sim::go_offline`]).
     pub fn progress(&self, id: PlayerId) -> Option<Progress> {
         let crab = self.crab(id)?;
         let m = &crab.mover;
+        let own = self.own_world_aside();
+        let shared = own.map_or(&self.shared, |o| &o.shared);
+        // A net or rock open here or in its own world: open when it's back.
+        let open = |live: Vec<bool>, own: Option<&Vec<bool>>| -> Vec<bool> {
+            let own = own.map_or(&[][..], Vec::as_slice);
+            let mut open = live;
+            for (x, o) in open.iter_mut().zip(own) {
+                *x |= o;
+            }
+            open
+        };
         Some(Progress {
             upgrades: m.upgrades,
             lantern: m.lantern,
@@ -132,14 +146,20 @@ impl Sim {
             cultures_taken: crab.cultures_taken.clone(),
             clues_found: crab.clues_found.clone(),
             teeth_taken: crab.teeth_taken.clone(),
-            nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
-            rocks_cracked: self.level.brittle.iter().map(|b| b.cracked).collect(),
+            nets_cut: open(
+                self.level.nets.iter().map(|n| n.cut).collect(),
+                own.map(|o| &o.nets_cut),
+            ),
+            rocks_cracked: open(
+                self.level.brittle.iter().map(|b| b.cracked).collect(),
+                own.map(|o| &o.rocks_cracked),
+            ),
             cast_offs: crab.cast_offs.clone(),
             larder: crab.larder,
-            clams: crab.clams.clone(),
+            clams: shared.clams.clone(),
             well_fed: m.well_fed,
             wakes_at: crab.wakes_at,
-            grit_taken: crab.grit_taken.clone(),
+            grit_taken: shared.grit_taken.clone(),
             home_grit: crab.home_grit,
             glass_grips: m.glass_grips,
             sponges_taken: crab.sponges_taken.clone(),
@@ -178,6 +198,16 @@ impl Sim {
             }
         }
         let crevices = self.level.crevices.len();
+        if self.crab(id).is_none() {
+            return;
+        }
+        let s = &mut self.shared;
+        if p.clams.len() <= s.clams.len() {
+            keep_start(&mut s.clams, &p.clams);
+        }
+        if p.grit_taken.len() <= s.grit_taken.len() {
+            keep_start(&mut s.grit_taken, &p.grit_taken);
+        }
         let Some(crab) = self.crab_mut(id) else {
             return;
         };
@@ -204,12 +234,6 @@ impl Sim {
             tuning.build.stage(p.home_grit),
             &tuning,
         ));
-        if p.clams.len() <= crab.clams.len() {
-            keep_start(&mut crab.clams, &p.clams);
-        }
-        if p.grit_taken.len() <= crab.grit_taken.len() {
-            keep_start(&mut crab.grit_taken, &p.grit_taken);
-        }
         if p.sponges_taken.len() <= crab.sponges_taken.len() {
             keep_start(&mut crab.sponges_taken, &p.sponges_taken);
         }

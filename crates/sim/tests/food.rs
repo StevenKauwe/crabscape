@@ -77,7 +77,7 @@ fn the_level_has_clams_near_home_and_in_harder_places() {
         let floor = sim.level.floor_height(c.x);
         assert!((c.y - floor).abs() < 10.0, "{c:?} on the floor at {floor}");
     }
-    assert_eq!(sim.crab(P0).unwrap().clams, vec![0; clams.len()]);
+    assert_eq!(sim.shared.clams, vec![0; clams.len()]);
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn a_clam_picked_up_goes_home_into_the_larder() {
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.mover.clinging, vec![Carry::Clam]);
     assert_eq!(crab.events.picked_up, Some(Carry::Clam));
-    assert!(crab.clams[0] > 0, "the bed is bare for a while");
+    assert!(sim.shared.clams[0] > 0, "the bed is bare for a while");
     assert_eq!(crab.larder, 0);
 
     let seen = walk_home(&mut sim);
@@ -202,13 +202,13 @@ fn a_taken_clam_bed_grows_back_after_its_time() {
     let regrow = sim.tuning.food.regrow_ticks;
     // Standing on the bare bed with the clam still on its shell.
     idle(&mut sim, regrow - 2);
-    assert!(sim.crab(P0).unwrap().clams[0] > 0, "not yet");
+    assert!(sim.shared.clams[0] > 0, "not yet");
     idle(&mut sim, 2);
     // Grown back, and with room on its shell it takes the new one too.
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.events.picked_up, Some(Carry::Clam), "grown back");
     assert_eq!(crab.mover.clinging, vec![Carry::Clam, Carry::Clam]);
-    assert_eq!(crab.clams[0], sim.tuning.food.regrow_ticks);
+    assert_eq!(sim.shared.clams[0], sim.tuning.food.regrow_ticks);
 }
 
 #[test]
@@ -243,9 +243,9 @@ fn food_comes_back_after_a_reload() {
     {
         let crab = sim.crab_mut(P0).unwrap();
         crab.larder = 4;
-        crab.clams[1] = 1234;
         crab.mover.well_fed = 5678;
     }
+    sim.shared.clams[1] = 1234;
     let saved = sim.progress(P0).unwrap();
     assert_eq!(saved.larder, 4);
     assert_eq!(saved.well_fed, 5678);
@@ -257,7 +257,7 @@ fn food_comes_back_after_a_reload() {
     assert_eq!(fresh.progress(P0).unwrap(), saved);
     let t = fresh.tuning.clone();
     let crab = fresh.crab(P0).unwrap();
-    assert_eq!(crab.clams[1], 1234);
+    assert_eq!(fresh.shared.clams[1], 1234);
     assert_eq!(
         crab.fighter.vitals.health,
         crab.mover.max_shell(&t),
@@ -280,8 +280,11 @@ fn a_save_from_before_food_still_loads() {
     assert_eq!(crab.mover.upgrades, 1);
     assert!(crab.eaten[0], "the rest of the save still counts");
     assert_eq!(crab.larder, 0);
-    assert!(crab.clams.iter().all(|&c| c == 0), "every clam is there");
-    assert_eq!(crab.clams.len(), sim.level.clams.len());
+    assert!(
+        sim.shared.clams.iter().all(|&c| c == 0),
+        "every clam is there"
+    );
+    assert_eq!(sim.shared.clams.len(), sim.level.clams.len());
 }
 
 #[test]
@@ -338,7 +341,7 @@ fn food_clocks_ticking_alone_are_not_new_progress_to_save() {
     // would make it save all the time (and overwrite a save written from
     // outside, as the browser test does).
     let mut sim = by_home();
-    sim.crab_mut(P0).unwrap().clams[0] = 500;
+    sim.shared.clams[0] = 500;
     sim.crab_mut(P0).unwrap().mover.well_fed = 500;
     let before = sim.progress(P0).unwrap();
     idle(&mut sim, 100);

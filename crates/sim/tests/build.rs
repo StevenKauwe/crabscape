@@ -123,7 +123,7 @@ fn the_level_has_shell_grit_and_more_of_it_deeper() {
         assert!((g.y - floor).abs() < 10.0, "{g:?} on the floor at {floor}");
         assert!(!sim.level.rocks.iter().any(|r| r.contains(*g)), "{g:?}");
     }
-    assert_eq!(sim.crab(P0).unwrap().grit_taken, vec![false; grit.len()]);
+    assert_eq!(sim.shared.grit_taken, vec![false; grit.len()]);
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn grit_picked_up_rides_home_and_is_built_in_at_the_workbench() {
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.mover.clinging, vec![Carry::Grit]);
     assert_eq!(crab.events.picked_up, Some(Carry::Grit));
-    assert!(crab.grit_taken[0]);
+    assert!(sim.shared.grit_taken[0]);
     assert_eq!(crab.home_stage(&sim.tuning), 0);
 
     // Carried home (put by the doorway, still carrying it).
@@ -150,7 +150,7 @@ fn grit_picked_up_rides_home_and_is_built_in_at_the_workbench() {
 }
 
 #[test]
-fn taken_grit_stays_taken_and_each_crab_finds_its_own() {
+fn taken_grit_stays_taken_and_is_gone_for_every_crab() {
     let mut sim = at_grit(0);
     let g = sim.level.grit[0];
     let floor = sim.level.floor_height(g.x);
@@ -160,13 +160,12 @@ fn taken_grit_stays_taken_and_each_crab_finds_its_own() {
     sim.crab_mut(P0).unwrap().mover.clinging.clear();
     idle(&mut sim, 600);
     assert!(sim.crab(P0).unwrap().mover.clinging.is_empty());
-    // The other crab's piece is still there for it.
-    assert!(!sim.crab(PlayerId(1)).unwrap().grit_taken[0]);
+    // Shell grit is shared: gone for the other crab too.
+    assert!(sim.shared.grit_taken[0]);
     sim.crab_mut(PlayerId(1)).unwrap().mover = crabsim::Mover::new(Vec2::new(g.x, floor));
     idle(&mut sim, 1);
     let other = sim.crab(PlayerId(1)).unwrap();
-    assert_eq!(other.mover.clinging, vec![Carry::Grit]);
-    assert_eq!(other.home_grit, 0, "its own home");
+    assert!(other.mover.clinging.is_empty(), "nothing left for it");
 }
 
 #[test]
@@ -291,7 +290,7 @@ fn dying_with_grit_leaves_it_in_the_cast_off_shell_and_keeps_the_home() {
     assert_eq!(crab.home_grit, 2, "the home stays grown");
     assert_eq!(crab.cast_offs.len(), 1);
     assert_eq!(crab.cast_offs[0].carrying, Carry::Grit);
-    assert!(crab.grit_taken[0], "it lies in the cast-off now");
+    assert!(sim.shared.grit_taken[0], "it lies in the cast-off now");
 }
 
 #[test]
@@ -301,12 +300,12 @@ fn the_home_and_the_grit_taken_come_back_after_a_reload() {
     {
         let crab = sim.crab_mut(P0).unwrap();
         crab.home_grit = t.build.stages[1];
-        crab.grit_taken[0] = true;
-        crab.grit_taken[2] = true;
         // A larder bigger than a plain home holds.
         crab.larder = t.food.larder + 2;
         crab.mover.clinging = vec![Carry::Grit];
     }
+    sim.shared.grit_taken[0] = true;
+    sim.shared.grit_taken[2] = true;
     let saved = sim.progress(P0).unwrap();
     assert_eq!(saved.home_grit, t.build.stages[1]);
     let text = serde_json::to_string(&saved).unwrap();
@@ -338,7 +337,7 @@ fn a_save_from_before_building_still_loads() {
         "the rest counts"
     );
     assert_eq!(crab.home_grit, 0);
-    assert_eq!(crab.grit_taken, vec![false; sim.level.grit.len()]);
+    assert_eq!(sim.shared.grit_taken, vec![false; sim.level.grit.len()]);
 }
 
 #[test]

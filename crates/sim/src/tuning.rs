@@ -602,7 +602,7 @@ pub struct InkTuning {
 /// What its den holds once it has fled for good.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DenTuning {
-    /// Pieces of shell grit in its midden (per crab).
+    /// Pieces of shell grit in its midden (shared: taken once in all).
     pub midden: u32,
 }
 

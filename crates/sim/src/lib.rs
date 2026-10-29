@@ -30,6 +30,8 @@
 //! - [`moult`]: feats a skill's milestone opens, grown at a moult
 //! - [`progress`]: what a crab has done that lasts, for saving
 //! - [`net`]: co-op: what each device runs, and what it tells the others
+//! - [`shared`]: what lies in the world for everyone, and what is each
+//!   player's own
 //! - [`codes`]: codes a player types (`hulk`, `feast`, `glow`)
 //! - [`craft`]: the workbench at home: what it keeps, and the recipes
 //! - [`replay`]: recording controls, and the little text format for replays
@@ -58,6 +60,7 @@ pub mod physics;
 pub mod progress;
 pub mod replay;
 pub mod rng;
+pub mod shared;
 pub mod skills;
 pub mod tuning;
 pub mod world;

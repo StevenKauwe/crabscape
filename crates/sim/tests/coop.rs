@@ -90,9 +90,17 @@ fn your_own_crab_moves_exactly_as_in_solo_whatever_the_lag() {
         |g| {
             alone.set_controls(GUEST, playback.next_controls());
             alone.tick();
+            // How it moves; not what it carries. A shared clam it walks over
+            // reaches its shell when the host says it's theirs, a round trip
+            // later (the shared-world tests below).
+            let moves = |sim: &Sim| {
+                let mut m = sim.crab(GUEST).unwrap().mover.clone();
+                m.clinging.clear();
+                m
+            };
             assert_eq!(
-                g.guest.crab(GUEST).unwrap().mover,
-                alone.crab(GUEST).unwrap().mover,
+                moves(&g.guest),
+                moves(&alone),
                 "tick {}",
                 alone.tick_count()
             );
@@ -623,4 +631,374 @@ fn a_guest_who_rejoins_takes_the_hosts_word_for_every_enemy() {
         recent.iter().any(|x| (x - shown).abs() < 0.01),
         "the guest shows the enemy where the host had it: {shown} vs {recent:?}"
     );
+}
+
+// --- Shared things, and each player's own (`crabsim::shared`) --------------
+
+use crabsim::{Carry, Controls, Mover};
+
+/// `p` on the floor below it.
+fn on_floor(sim: &Sim, p: Vec2) -> Vec2 {
+    Vec2::new(p.x, sim.level.floor_height(p.x))
+}
+
+/// Put crab `id` (run on this device) standing at `at`, with what it
+/// carries.
+fn put(sim: &mut Sim, id: PlayerId, at: Vec2) {
+    let m = &mut sim.crab_mut(id).unwrap().mover;
+    *m = Mover {
+        upgrades: m.upgrades,
+        carrying: m.carrying,
+        clinging: std::mem::take(&mut m.clinging),
+        ..Mover::new(at)
+    };
+}
+
+/// How many clams crab `id` has on its shell, on its own device.
+fn clams_on(sim: &Sim, id: PlayerId) -> usize {
+    let m = &sim.crab(id).unwrap().mover;
+    m.clinging.iter().filter(|c| **c == Carry::Clam).count()
+}
+
+/// Run both devices with nobody pressing anything.
+fn wait(g: &mut Game, n: u64) {
+    play(g, "", "", n, |_| {});
+}
+
+#[test]
+fn a_clam_one_player_takes_is_gone_for_both_and_only_the_taker_gets_it() {
+    let base = world(&|_| {});
+    let (bed0, bed1) = (
+        on_floor(&base, base.level.clams[0]),
+        on_floor(&base, base.level.clams[1]),
+    );
+    // The guest takes the first: it reaches the guest's shell once the host
+    // says it's theirs, and is gone on both screens.
+    let mut g = game(bed0, FakeLink::new(LAG, 6, 0.3, 21), |_| {});
+    play(&mut g, "", "", 1, |_| {});
+    assert!(
+        g.guest.shared.clams[0] > 0,
+        "gone on the guest's screen at once"
+    );
+    assert_eq!(
+        clams_on(&g.guest, GUEST),
+        0,
+        "not the guest's until the host says so"
+    );
+    wait(&mut g, 3 * u64::from(LAG));
+    assert_eq!(clams_on(&g.guest, GUEST), 1, "the guest has it");
+    assert_eq!(clams_on(&g.host, HOST), 0, "the host doesn't");
+    assert!(g.host.shared.clams[0] > 0 && g.guest.shared.clams[0] > 0);
+    // The host's crab on the same bed now finds nothing.
+    put(&mut g.host, HOST, bed0);
+    wait(&mut g, 60);
+    assert_eq!(clams_on(&g.host, HOST), 0, "nothing left for the host");
+    // The host takes the second: at once on its shell, gone for the guest
+    // a lag later, and never the guest's.
+    put(&mut g.host, HOST, bed1);
+    wait(&mut g, 1);
+    assert_eq!(clams_on(&g.host, HOST), 1, "the host's at once");
+    assert_eq!(g.guest.shared.clams[1], 0, "the news takes a while");
+    wait(&mut g, 2 * u64::from(LAG));
+    assert!(g.guest.shared.clams[1] > 0, "gone for the guest");
+    put(&mut g.guest, GUEST, bed1);
+    wait(&mut g, 3 * u64::from(LAG));
+    assert_eq!(clams_on(&g.guest, GUEST), 1, "still only the first");
+}
+
+#[test]
+fn two_players_grabbing_the_same_clam_at_once_exactly_one_gets_it() {
+    let base = world(&|_| {});
+    let bed = on_floor(&base, base.level.clams[0]);
+    // The guest is on the bed from the start; the host's crab steps on it
+    // `late` ticks later. Whoever reaches the host first wins: the host's
+    // own crab, or the guest's ask once it arrives.
+    let mut winners = Vec::new();
+    for late in 0..3 * u64::from(LAG) {
+        let mut g = game(bed, FakeLink::new(LAG, 4, 0.5, late), |_| {});
+        play(&mut g, "", "", late, |_| {});
+        put(&mut g.host, HOST, bed);
+        wait(&mut g, 4 * u64::from(LAG));
+        let got = (clams_on(&g.host, HOST), clams_on(&g.guest, GUEST));
+        assert!(
+            got == (1, 0) || got == (0, 1),
+            "the host's crab {late} ticks late: {got:?}"
+        );
+        assert!(
+            g.host.shared.clams[0] > 0 && g.guest.shared.clams[0] > 0,
+            "gone for both"
+        );
+        winners.push(if got.0 == 1 { HOST } else { GUEST });
+    }
+    assert_eq!(winners[0], HOST, "together: the host's crab is there first");
+    assert_eq!(
+        *winners.last().unwrap(),
+        GUEST,
+        "the guest's ask got there first"
+    );
+}
+
+#[test]
+fn a_joining_guest_sees_the_hosts_clams_nets_and_rocks_as_they_are() {
+    // The host played alone: took the first clam and the first shell grit,
+    // cut the ghost net and cracked the brittle rock.
+    let mut host = world(&|_| {});
+    let (clam0, grit0) = (host.level.clams[0], host.level.grit[0]);
+    host.add_crab(HOST, on_floor(&host, clam0));
+    host.tick();
+    let heap = on_floor(&host, grit0);
+    put(&mut host, HOST, heap);
+    host.tick();
+    let net = host.level.nets[0].rect;
+    let by_net = Vec2::new(
+        net.min.x - host.tuning.body_half_width - 1.0,
+        net.min.y + 40.0,
+    );
+    put(&mut host, HOST, by_net);
+    host.crab_mut(HOST).unwrap().mover.scissor_claw = true;
+    host.tick();
+    // (A cracked rock as the heavy crusher leaves it: `heavy_crusher.rs`.)
+    host.level.brittle[0].cracked = true;
+    assert!(host.shared.clams[0] > 0 && host.shared.grit_taken[0] && host.level.nets[0].cut);
+    host.go_online(true);
+    // The guest's own world is otherwise: it took the second clam.
+    let mut guest = world(&|_| {});
+    guest.add_crab(GUEST, on_floor(&guest, guest.level.clams[1]));
+    guest.tick();
+    assert!(guest.shared.clams[1] > 0);
+    put(&mut guest, GUEST, NEAR);
+    guest.go_online(false);
+    // The host's word, through the wire.
+    let hello = Msg::from_bytes(&host.world().to_bytes()).expect("a sound message");
+    guest.receive(hello);
+    let shows = |sim: &Sim| {
+        (
+            sim.shared.clams.iter().map(|&c| c > 0).collect::<Vec<_>>(),
+            sim.shared.grit_taken.clone(),
+            sim.level.nets.iter().map(|n| n.cut).collect::<Vec<_>>(),
+            sim.level
+                .brittle
+                .iter()
+                .map(|b| b.cracked)
+                .collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(
+        shows(&guest),
+        shows(&host),
+        "the guest sees the host's world"
+    );
+    assert_eq!(
+        guest.shared.clams[1], 0,
+        "its own taken clam is there in the host's world"
+    );
+}
+
+#[test]
+fn a_fish_egg_is_each_players_taking_it_in_a_friends_world_grants_you_the_stroke_and_leaves_theirs()
+{
+    let base = world(&|_| {});
+    // Just under the first egg, drifting in the water.
+    let egg = base.level.eggs[0] - Vec2::new(0.0, 10.0);
+    let mut g = game(egg, FakeLink::new(LAG, 6, 0.3, 4), |_| {});
+    wait(&mut g, 1);
+    let guest = g.guest.crab(GUEST).unwrap();
+    assert!(guest.eaten[0], "the guest ate it");
+    assert_eq!(guest.mover.upgrades, 1, "one more swim stroke, at once");
+    wait(&mut g, 2 * u64::from(LAG));
+    assert_eq!(
+        g.host.crab(GUEST).unwrap().mover.upgrades,
+        1,
+        "the host sees it"
+    );
+    // The host's own egg is still there for the host's crab.
+    let host = g.host.crab(HOST).unwrap();
+    assert!(!host.eaten[0] && host.mover.upgrades == 0);
+    put(&mut g.host, HOST, egg);
+    wait(&mut g, 1);
+    let host = g.host.crab(HOST).unwrap();
+    assert!(host.eaten[0], "the host ate its own");
+    assert_eq!(host.mover.upgrades, 1);
+    // And the guest's stroke lasts: back in its own world, saved.
+    g.guest.go_offline();
+    let saved = g.guest.progress(GUEST).unwrap();
+    assert_eq!((saved.upgrades, saved.eaten[0]), (1, true));
+}
+
+#[test]
+fn a_guests_own_world_after_leaving_keeps_what_they_took_and_isnt_overwritten_by_the_hosts() {
+    let base = world(&|_| {});
+    let bed = |i: usize| on_floor(&base, base.level.clams[i]);
+    // The guest, alone, took the second clam.
+    let mut guest = world(&|_| {});
+    guest.add_crab(GUEST, bed(1));
+    guest.tick();
+    assert_eq!(clams_on(&guest, GUEST), 1);
+    let own_regrow = guest.shared.clams[1];
+    // The host, alone, took the fourth.
+    let mut host = world(&|_| {});
+    host.add_crab(HOST, bed(3));
+    host.tick();
+    // Together: the guest takes the first clam in the host's world.
+    host.add_remote_crab(GUEST, NEAR);
+    host.go_online(true);
+    guest.add_remote_crab(HOST, bed(3));
+    guest.go_online(false);
+    guest.receive(host.world());
+    put(&mut guest, GUEST, bed(0));
+    let mut g = Game {
+        host,
+        guest,
+        link: FakeLink::new(LAG, 6, 0.3, 8),
+    };
+    wait(&mut g, 4 * u64::from(LAG));
+    assert_eq!(
+        clams_on(&g.guest, GUEST),
+        2,
+        "the guest has its own and the host's"
+    );
+    assert_eq!(
+        g.guest.shared.clams[1], 0,
+        "the host's second clam was never taken"
+    );
+    // Saved while visiting: its own world, not the host's.
+    let saved = g.guest.progress(GUEST).unwrap();
+    let bare = |c: &[u32]| c.iter().map(|&x| x > 0).collect::<Vec<_>>();
+    let mut own = vec![false; base.level.clams.len()];
+    own[1] = true;
+    assert_eq!(bare(&saved.clams), own, "the save is its own world");
+    // The host goes; the guest plays on alone.
+    g.guest.go_offline();
+    assert_eq!(
+        clams_on(&g.guest, GUEST),
+        2,
+        "what it took stays on its shell"
+    );
+    assert_eq!(
+        bare(&g.guest.shared.clams),
+        own,
+        "its own clam beds, not the host's"
+    );
+    assert!(
+        g.guest.shared.clams[1] < own_regrow,
+        "its own bed kept growing back while it was away"
+    );
+}
+
+#[test]
+fn a_clam_bed_grows_back_on_the_hosts_clock() {
+    let setup = |sim: &mut Sim| sim.tuning.food.regrow_ticks = 300;
+    let base = world(&setup);
+    let bed = on_floor(&base, base.level.clams[0]);
+    let mut g = game(bed, FakeLink::steady(LAG), setup);
+    wait(&mut g, 3 * u64::from(LAG));
+    assert_eq!(clams_on(&g.guest, GUEST), 1);
+    // Off the bed, so it doesn't take the next one.
+    put(&mut g.guest, GUEST, NEAR);
+    let (mut host_back, mut guest_back) = (None, None);
+    for tick in 0..400 {
+        wait(&mut g, 1);
+        if host_back.is_none() && g.host.shared.clams[0] == 0 {
+            host_back = Some(tick);
+        }
+        if guest_back.is_none() && g.guest.shared.clams[0] == 0 {
+            guest_back = Some(tick);
+        }
+    }
+    let (h, gb) = (host_back.expect("grew back"), guest_back.expect("shown"));
+    assert!(
+        gb > h && gb <= h + u64::from(LAG) + 2,
+        "host {h}, guest {gb}"
+    );
+}
+
+#[test]
+fn under_any_lag_and_loss_each_shared_thing_goes_to_at_most_one_crab() {
+    // Two crabs wander over the shallows' two clam beds and heap of grit,
+    // starting on the same bed, over many connections: none grows back, and
+    // their shells hold plenty.
+    let setup = |sim: &mut Sim| {
+        sim.tuning.food.regrow_ticks = u32::MAX / 2;
+        sim.tuning.cling = 64;
+    };
+    let base = world(&setup);
+    let start = on_floor(&base, base.level.clams[0]);
+    let mut rng = crabsim::rng::Rng::new(99);
+    let mut got = [0; 2];
+    for run in 0..32 {
+        let loss = rng.range(0, 90) as f32 / 100.0;
+        let link = FakeLink::new(rng.range(0, 40), rng.range(0, 20), loss, run);
+        let mut g = game(start, link, setup);
+        put(&mut g.host, HOST, start);
+        let mut walk = [0.0f32; 2];
+        for _ in 0..480 {
+            for (i, (sim, id)) in [(&mut g.host, HOST), (&mut g.guest, GUEST)]
+                .into_iter()
+                .enumerate()
+            {
+                let x = sim.crab(id).unwrap().mover.pos.x;
+                if rng.range(0, 40) == 0 {
+                    walk[i] = [-1.0, 0.0, 1.0][rng.range(0, 2) as usize];
+                }
+                if x < 220.0 {
+                    walk[i] = 1.0;
+                } else if x > 540.0 {
+                    walk[i] = -1.0;
+                }
+                sim.set_controls(
+                    id,
+                    Controls {
+                        walk: walk[i],
+                        ..Controls::default()
+                    },
+                );
+            }
+            g.host.tick();
+            g.guest.tick();
+            g.link.carry(&mut [&mut g.host, &mut g.guest]);
+        }
+        wait(&mut g, 4 * 40 + 20);
+        let held = |kind: Carry| {
+            [(&g.host, HOST), (&g.guest, GUEST)]
+                .iter()
+                .map(|(sim, id)| {
+                    sim.crab(*id)
+                        .unwrap()
+                        .mover
+                        .clinging
+                        .iter()
+                        .filter(|c| **c == kind)
+                        .count()
+                })
+                .sum::<usize>()
+        };
+        let clams_gone = g.host.shared.clams.iter().filter(|&&c| c > 0).count();
+        let grit_gone = g.host.shared.grit_taken.iter().filter(|&&t| t).count();
+        assert_eq!(
+            held(Carry::Clam),
+            clams_gone,
+            "run {run}: each clam taken is on exactly one shell"
+        );
+        assert_eq!(held(Carry::Grit), grit_gone, "run {run}: the same for grit");
+        assert!(
+            clams_gone <= 2 && grit_gone <= 1,
+            "run {run}: only the shallows' things"
+        );
+        got[0] += clams_on(&g.host, HOST);
+        got[1] += clams_on(&g.guest, GUEST);
+        let gone = |sim: &Sim| {
+            let s = &sim.shared;
+            (
+                s.clams.iter().map(|&c| c > 0).collect::<Vec<_>>(),
+                s.grit_taken.clone(),
+            )
+        };
+        assert_eq!(
+            gone(&g.guest),
+            gone(&g.host),
+            "run {run}: both see the same world"
+        );
+    }
+    eprintln!("clams won (host, guest): {got:?}");
+    assert!(got[0] > 0 && got[1] > 0, "both crabs won some: {got:?}");
 }

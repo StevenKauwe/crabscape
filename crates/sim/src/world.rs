@@ -28,6 +28,7 @@ use crate::net::{self, CrabState, Msg, Net, Outgoing, To};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::rng::Rng;
+use crate::shared::{self, OwnWorld, Shared, Thing};
 use crate::skills::Skill;
 use crate::tuning::Tuning;
 
@@ -54,6 +55,8 @@ pub struct SimCrab {
     pub controls: Controls,
     /// What happened during the latest tick.
     pub events: StepEvents,
+    // What unlocks progression is each crab's own (`crate::shared`): it
+    // takes its own wherever it is.
     /// Which of the level's eggs this crab has eaten (each crab finds its own).
     pub eaten: Vec<bool>,
     /// Which of the level's bacteria patches this crab has taken a lump of.
@@ -64,19 +67,11 @@ pub struct SimCrab {
     pub teeth_taken: Vec<bool>,
     /// Which of the level's glass sponges it took (each once).
     pub sponges_taken: Vec<bool>,
-    /// Each of the level's clam beds: ticks until it grows a new clam after
-    /// this crab took one (0 = a clam lies there).
-    pub clams: Vec<u32>,
     /// Clams stored in the larder at home (it stays there through death).
     pub larder: u32,
-    /// Which of the level's shell grit this crab has taken.
-    pub grit_taken: Vec<bool>,
     /// Shell grit built into its home so far (it grows in stages: see
     /// [`SimCrab::home_stage`]).
     pub home_grit: u32,
-    /// Pieces of shell grit taken from an octopus's den once it has fled
-    /// (its midden).
-    pub midden: u32,
     /// Health, poise and claw swings.
     pub fighter: Fighter,
     /// What it has seen and remembers: its own map of the level.
@@ -84,9 +79,6 @@ pub struct SimCrab {
     /// Its cast-off shells, each where it died carrying something
     /// (`docs/design/world.md`, Death): touch one to take its load back.
     pub cast_offs: Vec<CastOff>,
-    /// The bodies of beaten creatures it has eaten (creature id, its
-    /// [`Enemy::deaths`]), while they still lie there.
-    pub meals: Vec<(u32, u32)>,
     /// What it keeps at its workbench at home to make things from (see
     /// [`crate::craft`]); it stays there through death, like the larder.
     pub stash: Stash,
@@ -138,6 +130,9 @@ pub struct Sim {
     /// The feel preset the tuning came from (see [`Sim::set_feel`]).
     feel: Feel,
     pub level: Level,
+    /// What lies in the world for everyone: clams, shell grit, bodies (see
+    /// [`crate::shared`]). Ghost nets and brittle rock are in the level.
+    pub shared: Shared,
     /// How many ticks have run.
     tick: u64,
     /// Every crab, always in the order they were added (so every run loops
@@ -163,6 +158,7 @@ impl Sim {
         Self {
             tuning,
             feel: Feel::default(),
+            shared: Shared::new(&level),
             level,
             tick: 0,
             crabs: Vec::new(),
@@ -246,15 +242,11 @@ impl Sim {
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
             sponges_taken: vec![false; self.level.sponges.len()],
-            clams: vec![0; self.level.clams.len()],
             larder: 0,
-            grit_taken: vec![false; self.level.grit.len()],
             home_grit: 0,
-            midden: 0,
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
             cast_offs: Vec::new(),
-            meals: Vec::new(),
             stash: Stash::default(),
             pending: StepEvents::default(),
             resting: 0,
@@ -275,10 +267,23 @@ impl Sim {
     /// Solo play never calls this. A guest takes the host's word for every
     /// enemy: its own copies may have gone their own way while it played
     /// alone (say, while the host's phone slept), so they wait for the host's
-    /// updates.
+    /// updates. A guest puts its own world aside (its clams, shell grit, nets
+    /// and rocks) and shows the host's from the host's word ([`Msg::World`]).
     pub fn go_online(&mut self, host: bool) {
+        let aside = self.net.take().and_then(|n| n.own);
+        let own = match (host, aside) {
+            (true, aside) => {
+                if let Some(own) = aside {
+                    self.come_home(own);
+                }
+                None
+            }
+            (false, Some(own)) => Some(own),
+            (false, None) => Some(self.own_world()),
+        };
         self.net = Some(Net {
             host,
+            own,
             ..Net::default()
         });
         if !host {
@@ -443,15 +448,90 @@ impl Sim {
                     b.cracked = true;
                 }
             }
+            // The host's world, as it stands: a guest shows exactly that
+            // (its own waits aside).
             Msg::World {
                 nets_cut,
                 rocks_cracked,
+                clams_bare,
+                grit_taken,
+                midden_taken,
+                bodies_eaten,
             } => {
+                if host {
+                    return;
+                }
                 for (n, cut) in self.level.nets.iter_mut().zip(nets_cut) {
-                    n.cut |= cut;
+                    n.cut = cut;
                 }
                 for (b, cracked) in self.level.brittle.iter_mut().zip(rocks_cracked) {
-                    b.cracked |= cracked;
+                    b.cracked = cracked;
+                }
+                let s = &mut self.shared;
+                let regrow = self.tuning.food.regrow_ticks.max(1);
+                s.clams.fill(0);
+                for (c, bare) in s.clams.iter_mut().zip(clams_bare) {
+                    *c = if bare { regrow } else { 0 };
+                }
+                s.grit_taken.fill(false);
+                for (g, taken) in s.grit_taken.iter_mut().zip(grit_taken) {
+                    *g = taken;
+                }
+                s.midden_taken.clear();
+                s.bodies_eaten.clear();
+                let t = &self.tuning;
+                let pieces = midden_taken.iter().enumerate().filter(|p| *p.1);
+                for (i, _) in pieces {
+                    s.take(Thing::Midden(i), t);
+                }
+                for (enemy, deaths) in bodies_eaten {
+                    s.take(Thing::Body { enemy, deaths }, t);
+                }
+            }
+            // A guest's crab asks for a shared thing: the host gives it to
+            // the first to ask while it's there, and tells everyone.
+            Msg::Take { by, thing } => {
+                if !host {
+                    return;
+                }
+                if self.shared.there(thing, &self.tuning) {
+                    self.shared.take(thing, &self.tuning);
+                    net.send(
+                        To::Everyone,
+                        Msg::Taken {
+                            by: Some(by),
+                            thing,
+                        },
+                    );
+                } else {
+                    net.send(To::Player(by), Msg::Taken { by: None, thing });
+                }
+            }
+            // The host's word: gone. One of our crabs that asked for it and
+            // is named gets it now (once: its ask is answered).
+            Msg::Taken { by, thing } => {
+                if host {
+                    return;
+                }
+                self.shared.take(thing, &self.tuning);
+                let ours = by.filter(|id| net.asked.contains(&(*id, thing)));
+                net.asked.retain(|a| a.1 != thing);
+                let t = &self.tuning;
+                if let Some(id) = ours
+                    && let Some(c) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote)
+                {
+                    shared::give(
+                        &mut c.mover,
+                        &mut c.fighter.vitals,
+                        &mut c.pending,
+                        thing,
+                        t,
+                    );
+                }
+            }
+            Msg::Regrown(i) => {
+                if !host && let Some(c) = self.shared.clams.get_mut(i) {
+                    *c = 0;
                 }
             }
         }
@@ -459,9 +539,14 @@ impl Sim {
 
     /// The host's word to a device that just joined: how the world stands.
     pub fn world(&self) -> Msg {
+        let s = &self.shared;
         Msg::World {
             nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
             rocks_cracked: self.level.brittle.iter().map(|b| b.cracked).collect(),
+            clams_bare: s.clams.iter().map(|&c| c > 0).collect(),
+            grit_taken: s.grit_taken.clone(),
+            midden_taken: s.midden_taken.clone(),
+            bodies_eaten: s.bodies_eaten.clone(),
         }
     }
 
@@ -490,9 +575,16 @@ impl Sim {
     }
 
     /// Leave the co-op game (the host went): every other crab goes, and this
-    /// device runs the whole world again, as in solo play.
+    /// device runs the whole world again, as in solo play. A guest's own
+    /// world comes back as it left it: what its crab took in the host's
+    /// world stays on the crab, but the host's clam beds and heaps never
+    /// replace its own. Only a ghost net or brittle rock open in the host's
+    /// world stays open (its crab may stand past one, or where one was).
+    /// Shared things asked for and not yet given are never given.
     pub fn go_offline(&mut self) {
-        self.net = None;
+        if let Some(own) = self.net.take().and_then(|n| n.own) {
+            self.come_home(own);
+        }
         self.crabs.retain(|c| !c.remote);
         for e in &mut self.enemies {
             e.runner = None;
@@ -502,6 +594,32 @@ impl Sim {
                 e.target = None;
             }
         }
+    }
+
+    /// This device's world as it stands, to put aside.
+    fn own_world(&self) -> OwnWorld {
+        OwnWorld {
+            shared: self.shared.clone(),
+            nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
+            rocks_cracked: self.level.brittle.iter().map(|b| b.cracked).collect(),
+        }
+    }
+
+    /// Back to its own world after a visit (see [`Sim::go_offline`]).
+    fn come_home(&mut self, own: OwnWorld) {
+        for (n, &cut) in self.level.nets.iter_mut().zip(&own.nets_cut) {
+            n.cut |= cut;
+        }
+        for (b, &cracked) in self.level.brittle.iter_mut().zip(&own.rocks_cracked) {
+            b.cracked |= cracked;
+        }
+        self.shared = own.shared;
+    }
+
+    /// A guest's own world while it visits the host's (None otherwise): what
+    /// it saves.
+    pub(crate) fn own_world_aside(&self) -> Option<&OwnWorld> {
+        self.net.as_ref().and_then(|n| n.own.as_ref())
     }
 
     /// Ticks run so far.
@@ -617,6 +735,21 @@ impl Sim {
         }
         // The canyon's tide turns on the clock, the same for everyone.
         self.level.tide = self.tuning.tide.flow(self.tick);
+        // Clam beds grow back on the clock of the world they lie in: here,
+        // in solo play or on the host (which tells everyone); a guest's own
+        // world, waiting aside, grows its own meanwhile.
+        if self.is_host() {
+            let grown = self.shared.grow();
+            if let Some(n) = &mut self.net {
+                for i in grown {
+                    n.send(To::Everyone, Msg::Regrown(i));
+                }
+            }
+        } else if let Some(own) = self.net.as_mut().and_then(|n| n.own.as_mut()) {
+            own.shared.grow();
+        }
+        self.shared
+            .forget_bodies(|id| self.enemies.iter().find(|e| e.id == id).map(|e| e.deaths));
         for crab in &mut self.crabs {
             crab.prev_pos = crab.mover.pos;
             let mut ev = std::mem::take(&mut crab.pending);
@@ -747,32 +880,34 @@ impl Sim {
                     *taken = true;
                 }
             }
+            // Shared things (`crate::shared`), gone for everyone once taken.
             // A clam, for the larder: it clings to the shell, with room for
             // a few small things whatever is on its back. Its bed grows
             // another in time.
-            for (clam, regrow) in self.level.clams.iter().zip(&mut crab.clams) {
-                if *regrow == 0 && in_reach(m, *clam, t) && take_up(m, ev, Carry::Clam, t) {
-                    *regrow = t.food.regrow_ticks;
+            let mut reached = Vec::new();
+            for (i, clam) in self.level.clams.iter().enumerate() {
+                if in_reach(m, *clam, t) {
+                    reached.push(Thing::Clam(i));
                 }
             }
             // Shell grit: the same, to build into the home. Each heap once.
-            for (grit, taken) in self.level.grit.iter().zip(&mut crab.grit_taken) {
-                if !*taken && in_reach(m, *grit, t) && take_up(m, ev, Carry::Grit, t) {
-                    *taken = true;
+            for (i, grit) in self.level.grit.iter().enumerate() {
+                if in_reach(m, *grit, t) {
+                    reached.push(Thing::Grit(i));
                 }
             }
             // A beaten octopus's den, open now: its midden of old shells is
             // shell grit, a few pieces of it, as many as cling at a time.
             for o in self.enemies.iter().filter_map(|e| e.octopus()) {
-                let at = o.den + Vec2::new(0.0, 4.0);
-                while o.fled
-                    && crab.midden < t.octopus.den.midden
-                    && in_reach(m, at, t)
-                    && take_up(m, ev, Carry::Grit, t)
-                {
-                    crab.midden += 1;
+                if o.fled && in_reach(m, o.den + Vec2::new(0.0, 4.0), t) {
+                    let pieces = t.octopus.den.midden as usize;
+                    reached.extend((0..pieces).map(Thing::Midden));
                 }
             }
+            for thing in reached {
+                reach(crab, thing, &mut self.shared, &mut self.net, t);
+            }
+            let (m, ev) = (&mut crab.mover, &mut crab.events);
             // Its cast-off shell, back where it died: what it carried goes
             // back on (whatever there's room for; the rest waits there).
             if crab.fighter.dead.is_none() {
@@ -784,29 +919,24 @@ impl Sim {
             }
             // A creature it beat lies where it fell: eating it mends the
             // shell and fills the reserve (crabs are scavengers). Each body
-            // once.
-            crab.meals.retain(|&(id, deaths)| {
-                self.enemies
-                    .iter()
-                    .any(|e| e.id == id && e.deaths == deaths && e.state == enemy::State::Gone)
-            });
+            // once, by one crab (shared).
             if crab.fighter.dead.is_none() {
                 let body = combat::body(&crab.mover, &self.tuning);
-                let meal = self.enemies.iter().find(|e| {
-                    e.state == enemy::State::Gone
+                let meal = self.enemies.iter().find_map(|e| {
+                    let it = Thing::Body {
+                        enemy: e.id,
+                        deaths: e.deaths,
+                    };
+                    (e.state == enemy::State::Gone
                         && e.octo.is_none() // an octopus gets away: no body
-                        && !crab.meals.contains(&(e.id, e.deaths))
-                        && !e.hurtbox(&self.tuning).intersect(body).is_empty()
+                        && self.shared.there(it, &self.tuning)
+                        && !e.hurtbox(&self.tuning).intersect(body).is_empty())
+                    .then_some(it)
                 });
                 if meal.is_some() && soft {
                     crab.events.too_soft = true;
-                } else if let Some(e) = meal {
-                    crab.meals.push((e.id, e.deaths));
-                    let v = &mut crab.fighter.vitals;
-                    let whole = crab.mover.max_shell(&self.tuning);
-                    v.health = (v.health + self.tuning.meal_mend).min(whole);
-                    crab.mover.reserve = 1.0;
-                    crab.events.fed = true;
+                } else if let Some(it) = meal {
+                    reach(crab, it, &mut self.shared, &mut self.net, &self.tuning);
                 }
             }
             // A ghost net it presses against: cut, with scissor claws (gone
@@ -1230,8 +1360,8 @@ impl Sim {
         // when fields are added.
         fnv1a(
             format!(
-                "{} {:?} {:?} {:?}",
-                self.tick, self.crabs, self.enemies, self.rng
+                "{} {:?} {:?} {:?} {:?}",
+                self.tick, self.crabs, self.enemies, self.rng, self.shared
             )
             .as_bytes(),
         )
@@ -1453,9 +1583,6 @@ pub fn larder_holds(stage: u32, t: &Tuning) -> u32 {
 /// The clock on food: taken clam beds grow back, and being well fed wears
 /// off (the shell and reserve shrink back to plain, keeping what they can).
 fn food_timers(crab: &mut SimCrab, t: &Tuning, ev: &mut StepEvents) {
-    for regrow in &mut crab.clams {
-        *regrow = regrow.saturating_sub(1);
-    }
     let m = &mut crab.mover;
     if m.well_fed == 0 {
         return;
@@ -1467,6 +1594,39 @@ fn food_timers(crab: &mut SimCrab, t: &Tuning, ev: &mut StepEvents) {
         let v = &mut crab.fighter.vitals;
         v.health = v.health.min(m.max_shell(t));
         ev.hungry = true;
+    }
+}
+
+/// Crab `c` (run here) reaches shared `thing`. In solo play or on the host
+/// it takes it at once if it's there and there's room (a host tells
+/// everyone). A guest's crab asks the host, and gets it only when the host
+/// says it's theirs; it's gone on this screen meanwhile.
+fn reach(c: &mut SimCrab, thing: Thing, shared: &mut Shared, net: &mut Option<Net>, t: &Tuning) {
+    if !shared.there(thing, t) {
+        return;
+    }
+    let small = |th: Thing| th.carry().is_some_and(Carry::small);
+    match net {
+        Some(n) if !n.host => {
+            let waiting = n.asked.iter().filter(|a| a.0 == c.id && small(a.1)).count();
+            if !shared::room(&c.mover, thing, waiting, t) {
+                c.events.shell_full |= small(thing);
+                return;
+            }
+            n.asked.push((c.id, thing));
+            shared.take(thing, t);
+            n.send(To::Host, Msg::Take { by: c.id, thing });
+        }
+        _ => {
+            let (m, v) = (&mut c.mover, &mut c.fighter.vitals);
+            if shared::give(m, v, &mut c.events, thing, t) {
+                shared.take(thing, t);
+                if let Some(n) = net {
+                    let by = Some(c.id);
+                    n.send(To::Everyone, Msg::Taken { by, thing });
+                }
+            }
+        }
     }
 }
 

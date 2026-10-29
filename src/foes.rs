@@ -17,7 +17,7 @@ use crate::creature_art::CreatureArt;
 use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
 use crate::memory::{Known, Remembered};
-use crate::player::{GameSet, LocalPlayer, PlayerId};
+use crate::player::GameSet;
 
 /// In front of the level and the shell-home, behind the crab (10).
 const Z: f32 = 9.0;
@@ -341,7 +341,6 @@ fn pose_foes(
     sim: Res<Sim>,
     known: Res<Known>,
     lab: Res<FeelLab>,
-    me: Query<&PlayerId, With<LocalPlayer>>,
     mut foes: Query<(&mut Foe, &mut Transform, &mut Visibility, &Children)>,
     mut pieces: Query<
         (
@@ -364,7 +363,7 @@ fn pose_foes(
         let k = e.kind.tuning(t);
         let phase = e.phase(t);
         let hidden = e.hidden(t);
-        let body = lies_dead(e, &sim, me.single().ok());
+        let body = lies_dead(e, &sim);
         // Out of the crab's sight it isn't shown (its last sighting is, see
         // `memory.rs`).
         shown.set_if_neq(
@@ -564,13 +563,10 @@ fn pose_foes(
     }
 }
 
-/// A beaten creature's body, lying where it fell until the local crab eats
-/// it (the rule: `crabsim`'s `world.rs`).
-pub fn lies_dead(e: &Enemy, sim: &Sim, me: Option<&PlayerId>) -> bool {
-    e.state == State::Gone
-        && me
-            .and_then(|id| sim.crab(*id))
-            .is_some_and(|c| !c.meals.contains(&(e.id, e.deaths)))
+/// A beaten creature's body, lying where it fell until a crab eats it (any
+/// crab: bodies are shared; the rule: `crabsim`'s `world.rs`).
+pub fn lies_dead(e: &Enemy, sim: &Sim) -> bool {
+    e.state == State::Gone && !sim.shared.bodies_eaten.contains(&(e.id, e.deaths))
 }
 
 /// Belly up on the floor (turned over its own height), or upright.
