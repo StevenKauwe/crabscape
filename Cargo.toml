@@ -15,6 +15,8 @@ default-run = "crabscape"
 [workspace]
 members = ["crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "tools/oil-atlas", "tools/webtest"]
 default-members = [".", "crates/sim"]
+# Third-party code kept here with a fix of ours (see [patch.crates-io] below); not linted or tested as our own.
+exclude = ["vendor"]
 
 [dependencies]
 # The game rules. The `bevy` feature makes its types Bevy components/resources.
@@ -94,6 +96,13 @@ js-sys = "0.3"
 matchbox_socket = "0.14"
 # Runs the connection's background work on the browser's event loop.
 wasm-bindgen-futures = "0.4"
+
+# matchbox_socket 0.14.0 as published, plus one fix in src/webrtc_socket/wasm.rs (marked "CrabScape fix"): a
+# connection still being set up when the socket is dropped (a device joining the room afresh) is closed and its
+# event handlers detached, instead of leaving the browser to call Rust closures that were freed, which crashed the
+# page. Drop this once matchbox itself does that.
+[patch.crates-io]
+matchbox_socket = { path = "vendor/matchbox_socket" }
 
 # Development builds: optimise dependencies (Bevy is slow unoptimised) but keep
 # our own code quick to compile.

@@ -119,6 +119,7 @@ impl Messenger for WasmMessenger {
         debug!("making offer");
 
         let conn = create_rtc_peer_connection(ice_server_config);
+        let guard = HandshakeGuard::new(&conn);
 
         let (data_channel_ready_txs, data_channels_ready_fut) =
             create_data_channels_ready_fut(channel_configs);
@@ -198,6 +199,7 @@ impl Messenger for WasmMessenger {
         )
         .await;
 
+        guard.finished();
         HandshakeResult {
             peer_id: signal_peer.id,
             data_channels,
@@ -215,6 +217,7 @@ impl Messenger for WasmMessenger {
         debug!("handshake_accept");
 
         let conn = create_rtc_peer_connection(ice_server_config);
+        let guard = HandshakeGuard::new(&conn);
 
         let (data_channel_ready_txs, data_channels_ready_fut) =
             create_data_channels_ready_fut(channel_configs);
@@ -303,6 +306,7 @@ impl Messenger for WasmMessenger {
         )
         .await;
 
+        guard.finished();
         HandshakeResult {
             peer_id: signal_peer.id,
             data_channels,
@@ -314,6 +318,40 @@ impl Messenger for WasmMessenger {
         let mut peer_loop_finished_rx = handshake_meta;
         peer_loop_finished_rx.next().await;
         peer_uuid
+    }
+}
+
+// CrabScape fix. When the socket is dropped (say, a game joining its room afresh), the message loop
+// drops every handshake still under way. Their connection lived on and kept calling the Rust
+// closures those futures owned (`onicecandidate` and `onicegatheringstatechange`), which were freed
+// by then: wasm-bindgen throws "closure invoked recursively or after being dropped" into the page.
+// This guard goes down with an unfinished handshake: it detaches those handlers and closes the
+// connection, which also stops the other side waiting on a peer that is gone.
+struct HandshakeGuard {
+    conn: Option<RtcPeerConnection>,
+}
+
+impl HandshakeGuard {
+    fn new(conn: &RtcPeerConnection) -> Self {
+        Self {
+            conn: Some(conn.clone()),
+        }
+    }
+
+    /// The handshake finished: the connection is the peer loop's from here on.
+    fn finished(mut self) {
+        self.conn = None;
+    }
+}
+
+impl Drop for HandshakeGuard {
+    fn drop(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            debug!("handshake dropped before it finished: closing its connection");
+            conn.set_onicecandidate(None);
+            conn.set_onicegatheringstatechange(None);
+            conn.close();
+        }
     }
 }
 
