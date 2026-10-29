@@ -65,6 +65,12 @@ snapping shrimp in the shallows rubble (they feel your steps within 120; creep p
 runs a shock along the floor: jump or dodge it, it can't be parried), the mantis shrimp on the plateau, a snowflake
 moray in a crevice of the trench (it smells you after a second within 260, coils into an S and lunges; an unblocked
 bite holds on: tap dodge to struggle free), and past the trench a shrimp on the far ledge and a moray on the flats.
+**The common octopus** (a boss, `creatures/common-octopus.md`; rules built, not placed yet): a rock that looks back.
+Pass within 140 of it and it flushes dark for a quarter second, then pounces and holds on (dodge, parry or block the
+pounce). Found out, it fights from its den: arm tips slide in for half a second to touch the crab, two at most. Parry
+the touch and the tip recoils; block it and it's pushed back (guarding forever breaks your poise); let it touch and it
+grabs (tap dodge to struggle free). Strike an arm and it pulls back; each arm has its own health, and one cut to 0
+stays out of the fight. Its eye counts double; scissor claws cut arms twice as deep.
 **The combat is preset G** (`Tuning::default`); the feel lab is hidden (`?lab`, or backtick in previews).
 **Feel lab (hidden; `?lab`, or backtick in preview builds):** the presets the combat was chosen from. A FEEL button under "Start over" (or the backtick
 key, or 1–9) cycles nine presets (A Current, B Heavy tank, C Snappy brawler, D Momentum, E Silksong-ish, F Expedition

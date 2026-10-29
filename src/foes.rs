@@ -128,6 +128,9 @@ fn spawn_foes(
             Kind::Mantis | Kind::Fixture => spawn_mantis(&mut commands, e, &art.mantis, &soft),
             // Drawn in critters.rs.
             Kind::Snapper | Kind::Moray => {}
+            // Not drawn yet: it lives in no level until its puppet is made
+            // (the sim, tests and `cargo crabsim` have it already).
+            Kind::Octopus => {}
         }
     }
 }

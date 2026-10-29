@@ -344,6 +344,7 @@ impl Sim {
             Msg::HitEnemy {
                 by,
                 enemy,
+                part,
                 hit,
                 from_x,
             } => {
@@ -355,7 +356,7 @@ impl Sim {
                     net.send(runner_of(e), msg);
                     return;
                 }
-                e.takes(&hit, from_x, &self.tuning);
+                e.takes_at(part, &hit, from_x, &self.tuning);
                 e.heard(by);
             }
             Msg::Blow {
@@ -382,6 +383,7 @@ impl Sim {
                         c.fighter.grabbed = Some(combat::Grabbed {
                             by: enemy,
                             left: g.ticks,
+                            struggle: g.struggle,
                         });
                     }
                 }
@@ -976,14 +978,23 @@ impl Sim {
             let hitstop = (hitstop as f32 * strength).round() as u32;
             let mut landed = false;
             for (e, &runs) in self.enemies.iter_mut().zip(&runs_each) {
-                if swing.hits.contains(&e.id)
-                    || !e.hittable(t)
-                    || hitbox.intersect(e.hurtbox(t)).is_empty()
-                {
+                if swing.hits.contains(&e.id) {
                     continue;
                 }
+                let Some(part) = e.meets(hitbox, t) else {
+                    continue;
+                };
+                // Scissor claws cut soft parts (an octopus's arm) deeper.
+                let cut = if crab.mover.scissor_claw
+                    && swing.claw == crate::combat::Claw::Cutter
+                    && matches!(part, enemy::Part::Arm(_))
+                {
+                    t.scissor_cut
+                } else {
+                    1.0
+                };
                 let hit = Hit {
-                    damage: c.damage * boost * skill,
+                    damage: c.damage * boost * skill * cut,
                     poise: c.poise * boost,
                     knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1)
                         * strength
@@ -998,6 +1009,7 @@ impl Sim {
                     && swing.claw == crate::combat::Claw::Crusher
                     && t.crush.is_some()
                     && f.crush.is_none()
+                    && part == enemy::Part::Body
                 {
                     swing.hits.push(e.id);
                     e.held = true;
@@ -1014,9 +1026,9 @@ impl Sim {
                     crab.mover.vel.x = 0.0; // planted, gripping
                     continue;
                 }
-                let health = e.vitals.health;
-                if let Some(took) = e.takes(&hit, crab.mover.pos.x, t) {
-                    let levelled = fought(&mut crab.mover, health - e.vitals.health, took, t);
+                let health = e.health_left();
+                if let Some(took) = e.takes_at(part, &hit, crab.mover.pos.x, t) {
+                    let levelled = fought(&mut crab.mover, health - e.health_left(), took, t);
                     crab.events.levelled = crab.events.levelled.or(levelled);
                     // Run elsewhere: shown here at once, applied there when
                     // the message arrives.
@@ -1027,6 +1039,7 @@ impl Sim {
                             Msg::HitEnemy {
                                 by: crab.id,
                                 enemy: e.id,
+                                part,
                                 hit,
                                 from_x: crab.mover.pos.x,
                             },
@@ -1143,6 +1156,9 @@ pub struct EnemySnapshot {
     pub poise: f32,
     pub x: f32,
     pub facing: f32,
+    /// An octopus's arms, a letter each (`crate::octopus::ArmState::letter`).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub arms: String,
 }
 
 impl Sim {
@@ -1171,6 +1187,7 @@ impl Sim {
             poise: e.vitals.poise,
             x: e.pos.x,
             facing: e.facing,
+            arms: e.octopus().map(|o| o.arm_letters()).unwrap_or_default(),
         })
     }
 }
