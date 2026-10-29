@@ -46,8 +46,8 @@ go of smash), jab (cutter), block (press and hold: claws up), parry (press block
 let go), guard (hold block, no press), unblock, spawn=<kind>@<x>,<y> (an enemy appears; kinds:
 fixture, mantis, snapper, moray), feel=<preset> (current, heavy, snappy, momentum, silksong, expedition: the
 game's feel lab presets, crates/sim/src/feel.rs), code=<code>, moult=<skill> (moult to grow
-that skill's feat: climbing, swimming, fighting). ';' or a new line
-separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
+that skill's feat: climbing, swimming, fighting), home (go straight home: the Home button).
+';' or a new line separates entries. Example: \"t=0 walk=right; t=0.8 jump; t=1.1 jump; t=1.5 release\".
 ";
 
 /// Everything the command line asked for.
@@ -298,6 +298,7 @@ impl Summary {
                 "moulted",
                 "hardened",
                 "too soft to eat",
+                "went home",
             ]
             .map(|n| (n, 0))
             .to_vec(),

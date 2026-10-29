@@ -506,6 +506,9 @@ pub struct StepEvents {
     /// Made something at the workbench (`crate::craft`).
     #[serde(default)]
     pub made: Option<crate::craft::Recipe>,
+    /// Went straight home (the Home button, `crate::home`).
+    #[serde(default)]
+    pub went_home: bool,
 }
 
 impl StepEvents {
@@ -564,6 +567,7 @@ impl StepEvents {
         self.too_soft |= other.too_soft;
         self.put_away |= other.put_away;
         self.made = self.made.or(other.made);
+        self.went_home |= other.went_home;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -626,6 +630,7 @@ impl StepEvents {
             (self.too_soft, "too soft to eat"),
             (self.put_away, "put away"),
             (self.made.is_some(), "made"),
+            (self.went_home, "went home"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))
