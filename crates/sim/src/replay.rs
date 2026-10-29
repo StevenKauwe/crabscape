@@ -241,10 +241,10 @@ impl Replay {
             if words.is_empty() {
                 continue; // only spawns: no change to the controls
             }
-            let mut c = match replay.inputs.last() {
+            let mut c = match replay.inputs.pop_if(|last| last.tick == tick) {
                 // Two entries on the same tick: the second adds to the first.
-                Some(last) if last.tick == tick => replay.inputs.pop().unwrap().controls,
-                _ => held.held_only(),
+                Some(last) => last.controls,
+                None => held.held_only(),
             };
             for w in words {
                 apply_word(&mut c, w).map_err(|msg| format!("line {line_no}: {msg}"))?;

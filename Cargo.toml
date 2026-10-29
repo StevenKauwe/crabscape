@@ -18,6 +18,22 @@ default-members = [".", "crates/sim"]
 # Third-party code kept here with a fix of ours (see [patch.crates-io] below); not linted or tested as our own.
 exclude = ["vendor"]
 
+# Lints every crate here takes on (`[lints] workspace = true` in each Cargo.toml), on top of clippy's default groups.
+# CI runs clippy with `-D warnings`, so anything clippy warns about fails the check too.
+# The game rules (`crates/sim`) also forbid `unwrap()` outside tests: see the top of its lib.rs and main.rs.
+[workspace.lints.rust]
+# None of our code needs unsafe Rust; the libraries we use carry their own.
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# Debugging leftovers and unfinished code never land.
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[lints]
+workspace = true
+
 [dependencies]
 # The game rules. The `bevy` feature makes its types Bevy components/resources.
 crabsim = { path = "crates/sim", features = ["bevy"] }

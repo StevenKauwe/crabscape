@@ -41,6 +41,11 @@
 //! - No randomness, unless it is a seeded generator stored in the [`Sim`].
 //! - No `HashMap` iteration (its order changes every run): use `Vec`s.
 //! - Nothing about drawing or sound.
+//! - No `unwrap()` outside tests: a panic here stops every player's game.
+//!   Handle the `None`/`Err`, or, where it truly cannot happen, `expect`
+//!   with the reason.
+
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 pub mod codes;
 pub mod combat;

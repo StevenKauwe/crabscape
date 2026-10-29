@@ -22,3 +22,6 @@ web-sys = { version = "0.3", features = [
 ] }
 # candle pulls in rand; in the browser its random numbers come from the page's crypto API.
 getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[lints]
+workspace = true

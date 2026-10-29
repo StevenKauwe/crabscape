@@ -13,3 +13,6 @@ crabsim = { path = "../../crates/sim" }
 serde_json = "1"
 base64 = "0.22"
 png = "0.18"
+
+[lints]
+workspace = true
