@@ -1256,8 +1256,10 @@ fn dying_leaves_what_it_carried_in_its_cast_off_shell_to_dive_back_for() {
     let fell_at = Vec2::new(400.0, 0.0);
     let mut sim = sim_a(fell_at);
     sim.crab_mut(P0).unwrap().mover.carrying = Some(Carry::Culture);
-    // The shallows' clams would fill its back on the way out: none today.
+    // The shallows' clams and shell grit would fill its back on the way
+    // out: none today.
     sim.crab_mut(P0).unwrap().clams.fill(u32::MAX);
+    sim.crab_mut(P0).unwrap().grit_taken.fill(true);
     for _ in 0..3 {
         sim.hit_crab(P0, &blow(40.0, 0.0));
         sim.tick();

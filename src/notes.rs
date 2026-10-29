@@ -79,6 +79,7 @@ fn note_events(
         let what = match mover.carrying {
             Some(Carry::Tooth) => ("Take the tooth home!", PALE),
             Some(Carry::Clam) => ("A clam! Take it home.", YOLK),
+            Some(Carry::Grit) => ("Shell grit for the home", PALE),
             _ => ("Take it home!", WILD_GLOW),
         };
         notes.push((what.0.into(), what.1));
@@ -109,6 +110,20 @@ fn note_events(
     }
     if ev.stored {
         notes.push(("Into the larder".into(), YOLK));
+    }
+    if ev.built
+        && let Some(me) = sim.crab(*id)
+    {
+        let t = &sim.tuning;
+        let stage = me.home_stage(t);
+        let next = t.build.stages.get(stage as usize);
+        notes.push(match (ev.home_grew, stage, next) {
+            (true, 1, _) => ("The home grows: you mend sooner".into(), GOLD),
+            (true, 2, _) => ("The home grows: a bigger larder".into(), GOLD),
+            (true, _, _) => ("The home grows: meals last longer".into(), GOLD),
+            (false, _, Some(n)) => (format!("Built in: {} more to grow", n - me.home_grit), WARM),
+            (false, _, None) => ("Built into the home".into(), WARM),
+        });
     }
     if ev.larder_full {
         notes.push(("The larder is full".into(), PALE));

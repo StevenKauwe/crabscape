@@ -43,6 +43,13 @@ pub struct Progress {
     /// there were any wake at home.
     #[serde(default)]
     pub wakes_at: Option<usize>,
+    /// Which of the level's shell grit it took, and how much it built into
+    /// its home. Saves from before building have neither: nothing taken,
+    /// nothing built.
+    #[serde(default)]
+    pub grit_taken: Vec<bool>,
+    #[serde(default)]
+    pub home_grit: u32,
 }
 
 impl Progress {
@@ -69,6 +76,7 @@ impl Sim {
             teeth_taken: vec![false; l.teeth.len()],
             nets_cut: vec![false; l.nets.len()],
             clams: vec![0; l.clams.len()],
+            grit_taken: vec![false; l.grit.len()],
             ..Progress::default()
         }
     }
@@ -95,6 +103,8 @@ impl Sim {
             clams: crab.clams.clone(),
             well_fed: m.well_fed,
             wakes_at: crab.wakes_at,
+            grit_taken: crab.grit_taken.clone(),
+            home_grit: crab.home_grit,
         })
     }
 
@@ -102,7 +112,8 @@ impl Sim {
     /// level with a different number of things is ignored (the level
     /// changed since), and so is anything left in a cast-off shell then.
     /// Clam beds count on their own: a save from before there were any
-    /// keeps the rest, with every clam in its bed. So does the crevice it
+    /// keeps the rest, with every clam in its bed (and the same for shell
+    /// grit; how much is built into the home is kept whatever the level). So does the crevice it
     /// wakes in: one the level no longer has means home.
     pub fn restore_progress(&mut self, id: PlayerId, p: &Progress) {
         let tuning = self.tuning.clone();
@@ -131,9 +142,16 @@ impl Sim {
         m.well_fed = p.well_fed;
         m.stamina = m.strokes(&tuning) as f32;
         crab.fighter.vitals.health = m.max_shell(&tuning);
-        crab.larder = p.larder.min(tuning.food.larder);
+        crab.home_grit = p.home_grit;
+        crab.larder = p.larder.min(crate::world::larder_holds(
+            tuning.build.stage(p.home_grit),
+            &tuning,
+        ));
         if p.clams.len() == crab.clams.len() {
             crab.clams.clone_from(&p.clams);
+        }
+        if p.grit_taken.len() == crab.grit_taken.len() {
+            crab.grit_taken.clone_from(&p.grit_taken);
         }
         if same_level {
             m.carrying = p.carrying;

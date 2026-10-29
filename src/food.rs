@@ -199,7 +199,9 @@ fn carry_clam(
 struct Stored(u32);
 
 /// The larder: a little pile just inside the home shell's doorway, by the
-/// workbench. Three along the bottom, two on top.
+/// workbench. Three along the bottom, two on top; a home grown to its
+/// second stage holds three more on its grit shelf, behind the crab's
+/// spot (`build.rs`).
 fn spawn_larder(
     mut commands: Commands,
     sim: Res<Sim>,
@@ -213,9 +215,13 @@ fn spawn_larder(
         Vec2::new(36.0, 7.0),
         Vec2::new(16.0, 7.0),
         Vec2::new(56.0, 6.0),
+        Vec2::new(-46.0, 7.0),
+        Vec2::new(-28.0, 7.0),
+        Vec2::new(-37.0, 14.0),
     ];
     let mut paint = |colour: Color| materials.add(colour);
-    let most = (sim.tuning.food.larder as usize).min(spots.len());
+    let holds = sim.tuning.food.larder.max(sim.tuning.build.larder);
+    let most = (holds as usize).min(spots.len());
     for (n, spot) in spots.iter().take(most).enumerate() {
         let tilt = if n % 2 == 0 { 0.15 } else { -0.2 };
         commands

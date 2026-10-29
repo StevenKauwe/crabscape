@@ -296,6 +296,8 @@ pub struct Tuning {
     pub hulk: HulkTuning,
     /// Clams, the larder at home and being well fed (`docs/design/world.md`).
     pub food: FoodTuning,
+    /// Growing the home shell with shell grit (`docs/design/world.md`).
+    pub build: BuildTuning,
 }
 
 /// Hulk mode: the crab bulks up, hits far harder and is hard to shake.
@@ -331,6 +333,30 @@ pub struct FoodTuning {
     pub shell_bonus: f32,
     /// ...and the reserve this many strokes more.
     pub reserve_bonus: u32,
+}
+
+/// Building: shell grit carried home and built into the home shell, which
+/// grows in stages, each felt at home. Times in ticks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildTuning {
+    /// How much grit built in, in all, makes each stage (stage 1 at the
+    /// first, and so on).
+    pub stages: [u32; 3],
+    /// Stage 1, the doorway shored up: tucked in at home, the shell mends
+    /// after this long unhit (instead of `home_heal_after_ticks`).
+    pub mend_after_ticks: u32,
+    /// Stage 2, a shelf of grit inside: the larder holds this many clams.
+    pub larder: u32,
+    /// Stage 3, the lip grown out into a deeper home: a meal eaten there
+    /// keeps the crab well fed this many times as long.
+    pub meal_longer: f32,
+}
+
+impl BuildTuning {
+    /// The stage a home with `grit` built into it has reached (0: none).
+    pub fn stage(&self, grit: u32) -> u32 {
+        self.stages.iter().filter(|&&n| grit >= n).count() as u32
+    }
 }
 
 /// One kind of enemy: its body, senses, state timings and attack. Times in
@@ -936,6 +962,12 @@ impl Tuning {
                 well_fed_ticks: 4 * 60 * 120, // 4 min of play: about one dive
                 shell_bonus: 0.25,
                 reserve_bonus: 3,
+            },
+            build: BuildTuning {
+                stages: [1, 3, 5],
+                mend_after_ticks: 60, // half a second, from 2 s
+                larder: 8,
+                meal_longer: 1.5, // 6 min of play, from 4
             },
         }
     }

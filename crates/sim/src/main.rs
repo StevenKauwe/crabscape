@@ -283,6 +283,8 @@ impl Summary {
                 "hurt",
                 "staggered",
                 "wakes here",
+                "built",
+                "home grew",
                 "died",
                 "respawned",
                 "recovered",

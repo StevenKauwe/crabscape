@@ -86,6 +86,8 @@ pub enum Carry {
     Tooth,
     /// A clam from a clam bed: stored in the larder at home.
     Clam,
+    /// A piece of shell grit (old, broken shells): built into the home.
+    Grit,
 }
 
 /// A crab's movement state. (In the game, each crab entity also carries a
@@ -392,6 +394,10 @@ pub struct StepEvents {
     /// Tucked into a crevice it didn't already wake in: it wakes there now
     /// after dying.
     pub wakes_here: bool,
+    /// Brought shell grit home: built into the home shell...
+    pub built: bool,
+    /// ...and it was enough for the home to grow a stage.
+    pub home_grew: bool,
 }
 
 impl StepEvents {
@@ -439,6 +445,8 @@ impl StepEvents {
         self.ate_clam |= other.ate_clam;
         self.hungry |= other.hungry;
         self.wakes_here |= other.wakes_here;
+        self.built |= other.built;
+        self.home_grew |= other.home_grew;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -490,6 +498,8 @@ impl StepEvents {
             (self.ate_clam, "ate a clam"),
             (self.hungry, "hungry"),
             (self.wakes_here, "wakes here"),
+            (self.built, "built"),
+            (self.home_grew, "home grew"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))

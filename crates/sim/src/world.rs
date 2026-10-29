@@ -66,6 +66,11 @@ pub struct SimCrab {
     pub clams: Vec<u32>,
     /// Clams stored in the larder at home (it stays there through death).
     pub larder: u32,
+    /// Which of the level's shell grit this crab has taken.
+    pub grit_taken: Vec<bool>,
+    /// Shell grit built into its home so far (it grows in stages: see
+    /// [`SimCrab::home_stage`]).
+    pub home_grit: u32,
     /// Health, poise and claw swings.
     pub fighter: Fighter,
     /// What it has seen and remembers: its own map of the level.
@@ -85,6 +90,19 @@ pub struct SimCrab {
     /// in [`Level::crevices`]), or home (None) if it rested at home since,
     /// or never rested out in the level.
     pub wakes_at: Option<usize>,
+}
+
+impl SimCrab {
+    /// How far its home has grown (0: the borrowed shell as found, up to
+    /// the number of stages).
+    pub fn home_stage(&self, t: &Tuning) -> u32 {
+        t.build.stage(self.home_grit)
+    }
+
+    /// How many clams its larder holds (more once the home has grown).
+    pub fn larder_holds(&self, t: &Tuning) -> u32 {
+        larder_holds(self.home_stage(t), t)
+    }
 }
 
 /// The shell a crab leaves where it died, holding what it carried: it wakes
@@ -191,6 +209,8 @@ impl Sim {
             teeth_taken: vec![false; self.level.teeth.len()],
             clams: vec![0; self.level.clams.len()],
             larder: 0,
+            grit_taken: vec![false; self.level.grit.len()],
+            home_grit: 0,
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
             cast_offs: Vec::new(),
@@ -663,6 +683,15 @@ impl Sim {
                     crab.events.picked_up = true;
                 }
             }
+            // Shell grit: the same, to build into the home. Each heap once.
+            for (grit, taken) in self.level.grit.iter().zip(&mut crab.grit_taken) {
+                let free = crab.mover.carrying.is_none();
+                if !*taken && free && in_reach(&crab.mover, *grit, &self.tuning) {
+                    *taken = true;
+                    crab.mover.carrying = Some(Carry::Grit);
+                    crab.events.picked_up = true;
+                }
+            }
             // Its cast-off shell, back where it died: what it carried goes on
             // its back again (if its back is free).
             if crab.mover.carrying.is_none()
@@ -737,7 +766,11 @@ impl Sim {
             // that is where it will wake after dying. At home, what it
             // carried in is put to use: a culture into its lantern, a tooth
             // fitted to its crusher at the workbench (scissor claws), a clam
-            // into the larder. A crevice has no workbench and no larder.
+            // into the larder, shell grit built into the home. A crevice has
+            // no workbench and no larder. How far the home has grown
+            // changes how it rests there.
+            let build = &self.tuning.build;
+            let stage = build.stage(crab.home_grit);
             let m = &mut crab.mover;
             let place = self.level.place_at(m.pos);
             if m.tucked_in()
@@ -748,12 +781,27 @@ impl Sim {
                     crab.wakes_at = Some(i);
                     crab.events.wakes_here = true;
                 }
-                rest(m, &mut crab.fighter.vitals, &self.tuning, &mut crab.events);
+                let mend_after = self.tuning.home_heal_after_ticks;
+                rest(
+                    m,
+                    &mut crab.fighter.vitals,
+                    &self.tuning,
+                    mend_after,
+                    &mut crab.events,
+                );
             } else if m.tucked_in() {
                 crab.resting = crab.resting.saturating_add(1);
                 crab.wakes_at = None;
                 let v = &mut crab.fighter.vitals;
-                rest(m, v, &self.tuning, &mut crab.events);
+                // Stage 1: the doorway shored up, it mends sooner.
+                let mend_after = if stage >= 1 {
+                    build.mend_after_ticks
+                } else {
+                    self.tuning.home_heal_after_ticks
+                };
+                rest(m, v, &self.tuning, mend_after, &mut crab.events);
+                // Stage 2: a shelf of grit inside, a bigger larder.
+                let larder = larder_holds(stage, &self.tuning);
                 match m.carrying.take() {
                     Some(Carry::Culture) => {
                         m.lantern += 1;
@@ -763,13 +811,18 @@ impl Sim {
                         m.scissor_claw = true;
                         crab.events.fitted_scissors = true;
                     }
-                    Some(Carry::Clam) if crab.larder < self.tuning.food.larder => {
+                    Some(Carry::Clam) if crab.larder < larder => {
                         crab.larder += 1;
                         crab.events.stored = true;
                     }
                     Some(Carry::Clam) => {
                         m.carrying = Some(Carry::Clam);
                         crab.events.larder_full |= crab.events.tucked_in;
+                    }
+                    Some(Carry::Grit) => {
+                        crab.home_grit += 1;
+                        crab.events.built = true;
+                        crab.events.home_grew = build.stage(crab.home_grit) > stage;
                     }
                     None => {}
                 }
@@ -779,7 +832,14 @@ impl Sim {
                 let food = &self.tuning.food;
                 if crab.larder > 0 && m.well_fed == 0 && crab.resting >= food.eat_after_ticks {
                     crab.larder -= 1;
-                    m.well_fed = food.well_fed_ticks;
+                    // Stage 3: the home grown deep and snug, a meal there
+                    // lasts longer (Valheim's comfort, which makes resting
+                    // last longer).
+                    m.well_fed = if stage >= 3 {
+                        (food.well_fed_ticks as f32 * build.meal_longer).round() as u32
+                    } else {
+                        food.well_fed_ticks
+                    };
                     m.reserve = 1.0;
                     v.health = m.max_shell(&self.tuning);
                     crab.events.ate_clam = true;
@@ -1219,11 +1279,11 @@ fn fought(m: &mut Mover, dealt: f32, took: combat::Took, t: &Tuning) -> Option<S
 }
 
 /// Tucked in, a crab rests fully: strokes and reserve refilled, and the
-/// shell mended once it has been a moment unhit.
-fn rest(m: &mut Mover, v: &mut combat::Vitals, t: &Tuning, ev: &mut StepEvents) {
+/// shell mended once it has been `mend_after` ticks unhit.
+fn rest(m: &mut Mover, v: &mut combat::Vitals, t: &Tuning, mend_after: u32, ev: &mut StepEvents) {
     let full = m.strokes(t) as f32;
     let whole = m.max_shell(t);
-    let mend = v.health < whole && v.unhit >= t.home_heal_after_ticks;
+    let mend = v.health < whole && v.unhit >= mend_after;
     if m.reserve < 1.0 || m.stamina < full || mend {
         m.reserve = 1.0;
         m.stamina = full;
@@ -1231,6 +1291,15 @@ fn rest(m: &mut Mover, v: &mut combat::Vitals, t: &Tuning, ev: &mut StepEvents) 
             v.health = whole;
         }
         ev.rested = true;
+    }
+}
+
+/// How many clams the larder of a home grown to `stage` holds.
+pub fn larder_holds(stage: u32, t: &Tuning) -> u32 {
+    if stage >= 2 {
+        t.build.larder
+    } else {
+        t.food.larder
     }
 }
 

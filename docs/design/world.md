@@ -64,7 +64,26 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   filled. It ends all at once (the extra shell and reserve go, keeping what fits). Dying ends it too (it wakes
   hungry, as in Valheim), but the larder is at home and stays; a clam on the back drops into the cast-off shell like
   anything carried.
-- Eggs, cultures, skills, gear, cast-off shells and food (the larder, the beds growing back, the time left well fed)
+- **Building (the "Build" step): the home grows with shell grit.** Small heaps of shell grit (pale pieces of old,
+  broken shells) lie on the floor, more of them deeper: one in the shallows by the first snapping shrimp, one on the
+  slope past the trench, one in the basin below the cliff, one in the far basin past the ghost net and two at the
+  bottom of the pit. Walking over one puts a piece on the crab's back (one thing at a time, like the clam); each heap
+  is there once. Brought home, the workbench builds it into the shell. Animals really do this: octopuses dig their
+  dens into beds of discarded shells, which "line and stabilise the shaft-like dens", and arrange shells round the
+  den's edge ([Hing and Godfrey-Smith, The Conversation, "Did they mean to do that? Accident and intent in an
+  octopus's garden"](https://theconversation.com/did-they-mean-to-do-that-accident-and-intent-in-an-octopuses-garden-85462));
+  that a crab builds its shelter this way: not verified. The home grows in three stages, each one felt there:
+  - **1 piece, the doorway shored up** (grit packed round the rim of the opening): tucked in at home, the shell
+    mends after 0.5 s unhit instead of 2 s.
+  - **3 pieces, a grit shelf inside** (and grit heaped along the shell's back): the larder holds 8 clams, not 5.
+  - **5 pieces, the lip grown out** into a broad, pale flare (a snail's shell grows at its opening: not verified),
+    with grit crusted along the top: a meal eaten at home keeps the crab well fed for 6 minutes of play, not 4
+    (Valheim's comfort, which makes resting last longer).
+  The first stage is a stroll from home; the last needs the basin and the pit. A piece on the back drops into the
+  cast-off shell like anything carried; what is built stays built. Each crab grows its own home (in co-op each
+  player's home is in their own game), and it's saved.
+- Eggs, cultures, skills, gear, cast-off shells, food (the larder, the beds growing back, the time left well fed)
+  and the home (the shell grit taken and built in)
   are kept across reloads ("Start over" wipes them).
 
 ## Zones and economy
