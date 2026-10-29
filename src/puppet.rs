@@ -242,6 +242,8 @@ struct PuppetAnim {
     lantern_vel: f32,
     /// Last frame's sideways speed, to work out acceleration.
     prev_vx: f32,
+    /// 0..1 (smoothed): bulked up (the `hulk` code, `crabsim::codes`).
+    hulk: f32,
 }
 
 pub struct PuppetPlugin;
@@ -255,6 +257,7 @@ impl Plugin for PuppetPlugin {
                 build_puppets,
                 restyle,
                 animate,
+                hulk_look,
                 into_the_dark,
                 show_scissors,
             )
@@ -797,6 +800,9 @@ fn animate(
             let r = sim.tuning.respawn_ticks as f32;
             ((d as f32 - 0.45 * r) / (0.4 * r)).clamp(0.0, 1.0)
         });
+        // Bulked up (hulk): bigger all over, swelling up from the feet.
+        a.hulk = ease(a.hulk, f32::from(u8::from(mover.hulk)), 5.0, dt);
+        let bulk = 1.0 + (sim.tuning.hulk.scale - 1.0) * a.hulk;
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
             let edge = if view.abs() < 0.06 {
                 0.06 * view.signum()
@@ -804,7 +810,8 @@ fn animate(
                 view
             };
             tr.scale = Vec3::new(edge * (1.0 + 0.10 * a.squash), 1.0 - 0.20 * a.squash, 1.0)
-                * (1.0 - gone);
+                * (1.0 - gone)
+                * bulk;
             tr.translation.y += -18.0 * gone + 7.0 * turning; // lifted through the spin
         }
         // Seen from behind: the rear of the shell covers the face.
@@ -1003,6 +1010,54 @@ fn animate(
             tr.translation.z = plate_z;
         }
         a.prev_vx = vx;
+    }
+}
+
+/// The shell's colours: a bulked-up crab's shell goes green.
+const SHELL_LIT: Color = Color::srgb(1.0, 0.92, 0.78);
+const HULK_LIT: Color = Color::srgb(0.55, 1.0, 0.42);
+const HULK_UNLIT: Color = Color::srgb(0.70, 1.0, 0.62);
+const BACK_DARK: Color = Color::srgb(0.16, 0.08, 0.07);
+const BACK_BRIGHT: Color = Color::srgb(0.62, 0.24, 0.14);
+const HULK_BACK_DARK: Color = Color::srgb(0.07, 0.15, 0.06);
+const HULK_BACK_BRIGHT: Color = Color::srgb(0.30, 0.62, 0.20);
+
+/// Tint the shell green as the crab bulks up (and back as it shrinks).
+fn hulk_look(
+    crabs: Query<(&Rig, &PuppetAnim)>,
+    mut sprites: Query<&mut Sprite>,
+    mut tints: Query<&mut LitTint>,
+) {
+    for (rig, a) in &crabs {
+        let k = a.hulk;
+        if let Some(shell) = rig.shell
+            && let Ok(mut sprite) = sprites.get_mut(shell)
+        {
+            let colour = Color::WHITE.mix(&HULK_UNLIT, k);
+            if sprite.color != colour {
+                sprite.color = colour;
+            }
+        }
+        let lit = SHELL_LIT.mix(&HULK_LIT, k);
+        let shell = rig.shell_lit.and_then(|e| tints.get_mut(e).ok());
+        if let Some(mut tint) = shell {
+            let want = LitTint {
+                dark: lit.with_alpha(0.0),
+                bright: lit,
+            };
+            if tint.bright != want.bright {
+                *tint = want;
+            }
+        }
+        if let Some(mut tint) = rig.back.and_then(|e| tints.get_mut(e).ok()) {
+            let want = LitTint {
+                dark: BACK_DARK.mix(&HULK_BACK_DARK, k),
+                bright: BACK_BRIGHT.mix(&HULK_BACK_BRIGHT, k),
+            };
+            if tint.bright != want.bright {
+                *tint = want;
+            }
+        }
     }
 }
 

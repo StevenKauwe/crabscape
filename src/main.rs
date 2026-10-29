@@ -53,6 +53,7 @@
 //! - [`voice`]: voice chat with friends in a co-op room
 
 mod background;
+mod codes;
 mod coop;
 mod creature_art;
 mod critters;
@@ -151,7 +152,11 @@ fn main() {
             notes::NotesPlugin,
             report::ReportPlugin,
             reset::ResetPlugin,
-            (secrets::SecretsPlugin, ending::EndingPlugin),
+            (
+                secrets::SecretsPlugin,
+                ending::EndingPlugin,
+                codes::CodesPlugin,
+            ),
             sound::SoundPlugin,
             stamina::StaminaPlugin,
             voice::VoicePlugin,
