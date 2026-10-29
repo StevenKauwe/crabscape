@@ -9,10 +9,14 @@
 //! In the browser it plays through the page's Web Audio. Browsers (iPhones
 //! most of all) keep sound off until the page is touched or a key is
 //! pressed, so the first tap or key switches it on (and, on iPhones, lets it
-//! play with the ring/silent switch on, as Listen & Learn does). Every sound
-//! goes through one volume knob, the settings' "Game sound" (friends' voices
-//! don't: they have their own, see `voice.rs`). Native runs are silent
-//! for now (the sounds are still made in tests, so they stay checked).
+//! play with the ring/silent switch on, as Listen & Learn does).
+//!
+//! Every sound goes through the volume knob of its kind, and those through
+//! one master knob, each a slider in the settings: "Effects" (these sounds:
+//! blows, parries, the slider's tick), "Music" (`music.rs`) and "Voices"
+//! (friends, `voice.rs`), all under "Master". The game has no ambient sounds
+//! of its own yet, so there's no "Ambience" knob. Native runs are silent for
+//! now (the sounds are still made in tests, so they stay checked).
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
@@ -60,7 +64,8 @@ pub struct SoundPlugin;
 
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<PlaySfx>()
+        app.add_plugins(crate::music::MusicPlugin)
+            .add_message::<PlaySfx>()
             .add_systems(Startup, backend::start)
             .add_systems(Update, (volume, play).chain().after(GameSet::Present));
     }
@@ -75,13 +80,13 @@ pub enum Mic {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use backend::{context, recording};
+pub use backend::{context, fade_music_in, mark, music_input, recording, running, voices_input};
 pub use backend::{sleep, wake};
 
-/// The settings' "Game sound", whenever it changes.
+/// The settings' volumes, whenever they change.
 fn volume(settings: Res<crate::settings::Settings>) {
     if settings.is_changed() {
-        backend::set_volume(settings.game);
+        backend::set_volumes(&settings);
     }
 }
 
@@ -168,7 +173,7 @@ pub fn synth(sfx: Sfx, rate: f32) -> Vec<f32> {
 }
 
 /// A sine falling from `from` to `to` Hz, dying away over `secs`.
-fn thump(rate: f32, from: f32, to: f32, secs: f32, gain: f32) -> Vec<f32> {
+pub(crate) fn thump(rate: f32, from: f32, to: f32, secs: f32, gain: f32) -> Vec<f32> {
     let n = (secs * rate) as usize;
     let mut phase = 0.0_f32;
     (0..n)
@@ -298,10 +303,10 @@ impl Noise {
 
 /// A one-pole low-pass filter (muffles above `cutoff`).
 #[derive(Default)]
-struct Lowpass(f32);
+pub(crate) struct Lowpass(f32);
 
 impl Lowpass {
-    fn run(&mut self, x: f32, cutoff: f32, rate: f32) -> f32 {
+    pub(crate) fn run(&mut self, x: f32, cutoff: f32, rate: f32) -> f32 {
         let a = 1.0 - (-std::f32::consts::TAU * cutoff / rate).exp();
         self.0 += a * (x - self.0);
         self.0
@@ -321,8 +326,16 @@ mod backend {
     struct Audio {
         ctx: AudioContext,
         buffers: Vec<AudioBuffer>,
-        /// Every game sound goes through this: the settings' "Game sound".
+        /// Every sound ends here: the settings' "Master".
         master: GainNode,
+        /// Each kind of sound's knob, into the master: "Effects" (the
+        /// sounds above), "Music" and friends' "Voices".
+        effects: GainNode,
+        music: GainNode,
+        voices: GainNode,
+        /// Into the music knob: fades the music in at the start and when
+        /// the page shows again.
+        music_in: GainNode,
         /// The looping silent `<audio>` that plays through the iPhone's
         /// silent switch (see [`set_session`]), once a touch made it.
         silent: Option<HtmlAudioElement>,
@@ -366,10 +379,21 @@ mod backend {
         if buffers.len() != ALL.len() {
             return;
         }
-        let Ok(master) = ctx.create_gain() else {
+        let (Ok(master), Ok(effects), Ok(music), Ok(voices), Ok(music_in)) = (
+            ctx.create_gain(),
+            ctx.create_gain(),
+            ctx.create_gain(),
+            ctx.create_gain(),
+            ctx.create_gain(),
+        ) else {
             return;
         };
         let _ = master.connect_with_audio_node(&ctx.destination());
+        for bus in [&effects, &music, &voices] {
+            let _ = bus.connect_with_audio_node(&master);
+        }
+        music_in.gain().set_value(0.0);
+        let _ = music_in.connect_with_audio_node(&music);
         let unlock = Closure::<dyn FnMut()>::new(|| with(Audio::unlock));
         // iPhones only let sound start from these (not a touch's pointerdown).
         if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
@@ -384,6 +408,10 @@ mod backend {
                 ctx,
                 buffers,
                 master,
+                effects,
+                music,
+                voices,
+                music_in,
                 silent: None,
                 asleep: false,
                 recording: 0,
@@ -391,19 +419,62 @@ mod backend {
         });
     }
 
-    /// Every game sound's loudness (0 to 1). The canvas's `data-sound` says
-    /// what the knob is at, for the browser tests.
-    pub fn set_volume(volume: f32) {
+    /// Each knob from the settings. The canvas's `data-sound` says what the
+    /// knobs are at, for the browser tests.
+    pub fn set_volumes(s: &crate::settings::Settings) {
         with(|a| {
-            a.master.gain().set_value(volume);
-            let state = format!("game {:.2}", a.master.gain().value());
-            if let Some(canvas) = web_sys::window()
-                .and_then(|w| w.document())
-                .and_then(|d| d.get_element_by_id("crabscape"))
-            {
-                let _ = canvas.set_attribute("data-sound", &state);
-            }
+            a.master.gain().set_value(s.master);
+            a.music.gain().set_value(s.music);
+            a.effects.gain().set_value(s.effects);
+            a.voices.gain().set_value(s.voices);
+            let state = format!(
+                "master {:.2} music {:.2} effects {:.2} voices {:.2}",
+                a.master.gain().value(),
+                a.music.gain().value(),
+                a.effects.gain().value(),
+                a.voices.gain().value()
+            );
+            mark("data-sound", &state);
         });
+    }
+
+    /// Set an attribute on the game's canvas (what the sound is doing, for
+    /// the browser tests).
+    pub fn mark(name: &str, value: &str) {
+        if let Some(canvas) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("crabscape"))
+        {
+            let _ = canvas.set_attribute(name, value);
+        }
+    }
+
+    /// The audio context and where music goes in, once sound is set up.
+    pub fn music_input() -> Option<(AudioContext, GainNode)> {
+        AUDIO.with(|a| {
+            a.borrow()
+                .as_ref()
+                .map(|a| (a.ctx.clone(), a.music_in.clone()))
+        })
+    }
+
+    /// Where friends' voices go in (their own knob).
+    pub fn voices_input() -> Option<GainNode> {
+        AUDIO.with(|a| a.borrow().as_ref().map(|a| a.voices.clone()))
+    }
+
+    /// Sound is on (a touch or key switched it on) and the page is in sight.
+    pub fn running() -> bool {
+        AUDIO.with(|a| {
+            a.borrow()
+                .as_ref()
+                .is_some_and(|a| !a.asleep && a.ctx.state() == web_sys::AudioContextState::Running)
+        })
+    }
+
+    /// Fade the music in from silence over `secs`.
+    pub fn fade_music_in(secs: f64) {
+        with(|a| a.fade_music_in(secs));
     }
 
     /// The page was hidden, frozen or left (see `crate::background`).
@@ -472,6 +543,10 @@ mod backend {
         /// running in the background, draining the battery).
         fn sleep(&mut self) {
             self.asleep = true;
+            // Music off now, to fade back in when the page shows again.
+            let gain = self.music_in.gain();
+            let _ = gain.cancel_scheduled_values(0.0);
+            gain.set_value(0.0);
             if let Some(el) = &self.silent {
                 let _ = el.pause();
             }
@@ -486,10 +561,19 @@ mod backend {
                 return;
             }
             self.asleep = false;
+            self.fade_music_in(3.0);
             if self.silent.is_some() {
                 ignore(self.ctx.resume());
                 self.play_through_silent_switch();
             }
+        }
+
+        fn fade_music_in(&self, secs: f64) {
+            let gain = self.music_in.gain();
+            let now = self.ctx.current_time();
+            let _ = gain.cancel_scheduled_values(0.0);
+            let _ = gain.set_value_at_time(0.0, now);
+            let _ = gain.linear_ramp_to_value_at_time(1.0, now + secs);
         }
     }
 
@@ -550,11 +634,11 @@ mod backend {
                 .borrow()
                 .as_ref()
                 .filter(|a| !a.asleep)
-                .map(|a| (a.ctx.clone(), a.buffers.clone(), a.master.clone()))
+                .map(|a| (a.ctx.clone(), a.buffers.clone(), a.effects.clone()))
             else {
                 return;
             };
-            let (ctx, buffers, master) = a;
+            let (ctx, buffers, effects) = a;
             let i = ALL.iter().position(|s| *s == sfx).unwrap_or(0);
             let (Ok(src), Ok(vol)) = (ctx.create_buffer_source(), ctx.create_gain()) else {
                 return;
@@ -563,7 +647,7 @@ mod backend {
             src.playback_rate().set_value(pitch);
             vol.gain().set_value(gain);
             let _ = src.connect_with_audio_node(&vol);
-            let _ = vol.connect_with_audio_node(&master);
+            let _ = vol.connect_with_audio_node(&effects);
             let _ = src.start();
         });
     }
@@ -574,7 +658,7 @@ mod backend {
     pub fn start() {}
     pub fn sleep() {}
     pub fn wake() {}
-    pub fn set_volume(_volume: f32) {}
+    pub fn set_volumes(_settings: &crate::settings::Settings) {}
     pub fn play(_sfx: super::Sfx, _gain: f32, _pitch: f32) {}
 }
 

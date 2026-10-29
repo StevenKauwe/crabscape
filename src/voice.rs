@@ -11,9 +11,9 @@
 //!
 //! A friend's voice plays through the game's own audio (`sound.rs`), at a
 //! volume from the settings: everyone at full volume, or fading with the
-//! distance between the crabs (`settings::Settings::volume_at`), times the
-//! "Friends' voices" slider (up to 3x, to lift quiet voices). The game sound
-//! slider doesn't touch them.
+//! distance between the crabs (`settings::Settings::volume_at`), into the
+//! sound's voices knob: the "Voices" slider (up to 3x, to lift quiet voices),
+//! under "Master" like every other sound.
 //!
 //! The microphone starts off; the Mic button, beside the invite button while
 //! in a room, turns it on (the browser asks first) and off. Web only.
@@ -453,7 +453,14 @@ mod web {
             return;
         };
         let _ = source.connect_with_audio_node(&gain);
-        let _ = gain.connect_with_audio_node(&ctx.destination());
+        match crate::sound::voices_input() {
+            Some(voices) => {
+                let _ = gain.connect_with_audio_node(&voices);
+            }
+            None => {
+                let _ = gain.connect_with_audio_node(&ctx.destination());
+            }
+        }
         let meter = ctx.create_analyser().ok();
         if let Some(m) = &meter {
             let _ = source.connect_with_audio_node(m);
@@ -631,8 +638,8 @@ mod web {
         }
     }
 
-    /// Each friend's voice at the volume the settings give their distance,
-    /// times the friends' voices slider.
+    /// Each friend's voice at the volume the settings give their distance
+    /// (the voices slider is the sound's voices knob, after this).
     fn volumes(
         sim: Res<Sim>,
         settings: Res<Settings>,
@@ -659,7 +666,7 @@ mod web {
                     (Some(a), Some(b)) => settings.volume_at(a.distance(b)),
                     _ => settings.volume_at(0.0),
                 };
-                gain.gain().set_value(volume * settings.voices);
+                gain.gain().set_value(volume);
             }
         });
     }

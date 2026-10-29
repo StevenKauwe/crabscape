@@ -84,6 +84,7 @@ mod lantern;
 mod level;
 mod memory;
 mod moult;
+mod music;
 mod notes;
 mod octopus;
 mod player;
