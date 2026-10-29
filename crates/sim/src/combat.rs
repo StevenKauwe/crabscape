@@ -320,6 +320,8 @@ pub struct Fighter {
     /// Ticks dodge has been held since a press while held (held long enough,
     /// a leg drops).
     pub drop_hold: u32,
+    /// In an ink cloud: creatures that hunt by sight lose it.
+    pub blinded: bool,
 }
 
 /// Held in a bite (see [`crate::tuning::GrabTuning`]).
@@ -382,6 +384,7 @@ impl Fighter {
             venom: Vec::new(),
             legs_lost: 0,
             drop_hold: 0,
+            blinded: false,
         }
     }
 
@@ -415,6 +418,8 @@ impl Fighter {
             "blocking".into()
         } else if !self.venom.is_empty() {
             "envenomed".into()
+        } else if self.blinded {
+            "blinded".into()
         } else {
             String::new()
         }

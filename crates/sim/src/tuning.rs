@@ -496,6 +496,8 @@ pub struct EnemyTuning {
     /// and while it rears (before the cocked hold) it turns after one that
     /// slipped past. Others hold still: backing off makes their blow miss.
     pub stalks: bool,
+    /// Hunts by sight: a crab in an ink cloud (blinded) is lost to it.
+    pub sight: bool,
     /// Below this share of its health it flees home (0 = never)...
     pub flee_below: f32,
     pub flee_speed: f32,
@@ -529,6 +531,32 @@ pub struct OctopusTuning {
     pub webover: WeboverTuning,
     /// Its bites while it holds a crab.
     pub bite: BiteTuning,
+    pub ink: InkTuning,
+    pub den: DenTuning,
+}
+
+/// Hurt, it inks and jets away to fight on from elsewhere.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InkTuning {
+    /// At these shares of its health, once each...
+    pub at: [f32; 2],
+    /// ...it inks and jets for this long (unhittable), then reappears...
+    pub jet_ticks: u32,
+    /// ...at least this far away, on floor no more than `climb` above or
+    /// below its own.
+    pub jet: f32,
+    pub climb: f32,
+    /// The cloud: this big round where it was, for this long. A crab inside
+    /// is blinded.
+    pub radius: f32,
+    pub cloud_ticks: u32,
+}
+
+/// What its den holds once it has fled for good.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DenTuning {
+    /// Pieces of shell grit in its midden (per crab).
+    pub midden: u32,
 }
 
 /// The webover: it rises over a crab close by, its web spread like an
@@ -952,6 +980,7 @@ impl Tuning {
                 notice_moving: 0.0,
                 scent_ticks: 0,
                 stalks: false,
+                sight: true,
                 strike: StrikeTuning {
                     damage: 10.0,
                     poise: 20.0,
@@ -1011,6 +1040,7 @@ impl Tuning {
                 notice_moving: 0.0,
                 scent_ticks: 0,
                 stalks: true, // stalks prey and darts after it (not verified)
+                sight: true,  // a sight hunter (its eyes: `mantis-shrimp.md`)
                 strike: StrikeTuning {
                     damage: 28.0,
                     poise: 60.0,
@@ -1070,6 +1100,7 @@ impl Tuning {
                 notice_moving: 135.0, // half walking speed: creep past it
                 scent_ticks: 0,
                 stalks: false,
+                sight: false, // feels steps
                 strike: StrikeTuning {
                     damage: 6.0,
                     poise: 45.0,
@@ -1125,6 +1156,7 @@ impl Tuning {
                 notice_moving: 0.0,
                 scent_ticks: 120, // hunts by smell (real); light makes no difference
                 stalks: false,
+                sight: false, // hunts by smell
                 strike: StrikeTuning {
                     damage: 15.0,
                     poise: 40.0,
@@ -1188,6 +1220,7 @@ impl Tuning {
                     notice_moving: 0.0,
                     scent_ticks: 0,
                     stalks: false,
+                    sight: true, // hunts by sight (page); in ink, by touch
                     strike: StrikeTuning {
                         damage: 20.0, // page
                         poise: 40.0,
@@ -1256,6 +1289,15 @@ impl Tuning {
                     heavy_at: 200, // page
                     heavy_damage: 30.0,
                 },
+                ink: InkTuning {
+                    at: [0.66, 0.33], // page
+                    jet_ticks: 30,    // page
+                    jet: 600.0,       // page: 600+
+                    climb: 200.0,
+                    radius: 160.0,    // page; about the animal's size (real: Wikipedia)
+                    cloud_ticks: 180, // page
+                },
+                den: DenTuning { midden: 4 },
             },
             scissor_cut: 2.0, // `creatures/README.md`: x2 vs soft parts and arms
             // The octopus's page: slow 50%, 2 damage/s for 5 s, stacks.

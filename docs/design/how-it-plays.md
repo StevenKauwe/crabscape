@@ -81,6 +81,9 @@ it); missed, it lies with its arms spread, open to a punish (arm hits x1.5). It 
 Held by anything of its, at 1 s it bites with venom (2 a second for 5 s, stacking, and half walking speed), at 1.7 s
 it bites hard (30). **Autotomy:** while held by anything, down + dodge, or holding dodge half a second, drops a
 walking leg and frees the crab at once (8% slower per leg, back after the next wake from death).
+Hurt to two-thirds, and again to one-third, it inks and jets away 600 or more to fight on from there; inside the ink
+the crab is *blinded*: things that hunt by sight lose it (the octopus's arms still feel for it close by). Beaten, it
+jets off for good, and its den is open: a midden of old shells, 4 pieces of shell grit for the home.
 **The combat is preset G** (`Tuning::default`); the feel lab is hidden (`?lab`, or backtick in previews).
 **Feel lab (hidden; `?lab`, or backtick in preview builds):** the presets the combat was chosen from. A FEEL button under "Settings" (or the backtick
 key, or 1–9) cycles nine presets (A Current, B Heavy tank, C Snappy brawler, D Momentum, E Silksong-ish, F Expedition

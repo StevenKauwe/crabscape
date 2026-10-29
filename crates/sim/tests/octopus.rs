@@ -676,3 +676,173 @@ fn each_dropped_leg_costs_8_percent_of_walking_until_the_next_moult() {
     }
     assert_eq!(sim.crabs()[0].fighter.legs_lost, 0, "regrown");
 }
+
+// --- Ink and jet, fleeing, and its den -----------------------------------------
+
+/// Beat on its mantle, 10 at a time whenever it can be hit, until it is gone
+/// or `ticks` run out. The crab stands in its arms' reach, made tough.
+/// Returns the run and the mantle's health each time it inked.
+fn beat(ticks: u64) -> (Run, Vec<f32>) {
+    let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+    sim.spawn_enemy(Kind::Octopus, Vec2::new(DEN, 0.0));
+    sim.enemies_mut()[0].octopus_mut().unwrap().revealed = true;
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().fighter.vitals.health = 100_000.0;
+    let t = sim.tuning.clone();
+    let mut r = fight(200.0, true, "", 0);
+    let mut inked = Vec::new();
+    let mut before = State::Idle;
+    for i in 0..ticks {
+        if i % 20 == 0 {
+            let e = &mut sim.enemies_mut()[0];
+            if e.hittable(&t) {
+                e.takes_at(Part::Body, &Hit::new(10.0, 0.0, Source::World), 200.0, &t);
+            }
+        }
+        sim.tick();
+        let e = &sim.enemies()[0];
+        if e.state == State::Flee && before != State::Flee {
+            inked.push(e.vitals.health);
+        }
+        before = e.state;
+        r.enemy.push((e.state, e.phase(&t)));
+        r.x.push(e.pos.x);
+    }
+    r.sim = sim;
+    (r, inked)
+}
+
+#[test]
+fn ink_at_66_and_33_percent_exactly_once_each() {
+    let (r, inked) = beat(9000);
+    assert_eq!(inked.len(), 3, "two inks, then fleeing: {inked:?}");
+    assert!(
+        inked[0] <= 0.66 * 400.0 && inked[0] > 0.66 * 400.0 - 10.0,
+        "{inked:?}"
+    );
+    assert!(
+        inked[1] <= 0.33 * 400.0 && inked[1] > 0.33 * 400.0 - 10.0,
+        "{inked:?}"
+    );
+    assert_eq!(inked[2], 0.0, "at 0 it flees");
+    let ink = r.enemy.iter().filter(|e| e.1 == "ink").count();
+    assert_eq!(ink, 2 * 30, "each ink and jet lasts 30 ticks");
+}
+
+#[test]
+fn after_inking_it_reappears_600_or_more_away() {
+    let (r, _) = beat(9000);
+    let first = r.enemy.iter().position(|e| e.1 == "ink").unwrap();
+    let back = first + r.enemy[first..].iter().position(|e| e.1 != "ink").unwrap();
+    let moved = (r.x[back] - DEN).abs();
+    assert!(moved >= 600.0, "jetted {moved}");
+    let level = &r.sim.level;
+    let e_y = level.floor_height(r.x[back]);
+    assert!(e_y.is_finite());
+    // It fights on from there.
+    assert!(
+        r.enemy[back..]
+            .iter()
+            .any(|e| e.0 == State::Probe || e.0 == State::Idle),
+        "it carries on"
+    );
+}
+
+#[test]
+fn the_ink_cloud_blinds_a_crab_inside_it() {
+    let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+    sim.spawn_enemy(Kind::Octopus, Vec2::new(DEN, 0.0));
+    let t = sim.tuning.clone();
+    sim.enemies_mut()[0].octopus_mut().unwrap().ink = Some(crabsim::octopus::Ink {
+        at: Vec2::new(250.0, 30.0),
+        left: t.octopus.ink.cloud_ticks,
+    });
+    sim.tick();
+    assert!(sim.crabs()[0].fighter.blinded, "inside the cloud");
+    for _ in 0..t.octopus.ink.cloud_ticks {
+        sim.tick();
+    }
+    assert!(!sim.crabs()[0].fighter.blinded, "the cloud is gone");
+    assert!(sim.enemies()[0].octopus().unwrap().ink.is_none());
+}
+
+#[test]
+fn inside_the_ink_a_sight_hunting_enemy_loses_the_crab() {
+    // A mantis (a sight hunter) closes in on the crab...
+    let hunt = |ink: bool, ticks: u32| {
+        let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+        sim.spawn_enemy(Kind::Mantis, Vec2::new(420.0, 0.0));
+        sim.enemies_mut()[0].pos.x = 440.0; // out of its burrow
+        sim.spawn_enemy(Kind::Octopus, Vec2::new(1000.0, 0.0));
+        for _ in 0..30 {
+            sim.tick();
+        }
+        assert!(sim.enemies()[0].target.is_some(), "it has seen the crab");
+        if ink {
+            let left = sim.tuning.octopus.ink.cloud_ticks;
+            sim.enemies_mut()[1].octopus_mut().unwrap().ink = Some(crabsim::octopus::Ink {
+                at: Vec2::new(200.0, 30.0),
+                left,
+            });
+        }
+        let mut hurt = false;
+        for _ in 0..ticks {
+            sim.tick();
+            hurt |= sim.crabs()[0].events.hurt;
+        }
+        (sim.enemies()[0].target, hurt)
+    };
+    let (target, hurt) = hunt(false, 250);
+    assert!(target.is_some() && hurt, "out of the ink it strikes");
+    // (While the cloud lasts: 180 ticks.)
+    let (target, hurt) = hunt(true, 170);
+    assert!(target.is_none(), "...and loses it in the ink");
+    assert!(!hurt, "no strike at a crab it can't see");
+}
+
+#[test]
+fn at_0_health_it_jets_off_for_good_leaving_no_body() {
+    let (r, _) = beat(9000);
+    let e = &r.sim.enemies()[0];
+    assert_eq!(e.state, State::Gone);
+    assert!(e.octopus().unwrap().fled, "it got away");
+    assert_eq!(r.enemy.last().unwrap().1, "gone");
+    assert!(!e.hittable(&r.sim.tuning));
+    // No body to eat where it was.
+    let mut sim = r.sim.clone();
+    let id = sim.crabs()[0].id;
+    let mut fed = false;
+    let x = e.pos.x;
+    sim.crab_mut(id).unwrap().mover.pos.x = x - 50.0;
+    for _ in 0..200 {
+        sim.tick();
+        fed |= sim.crabs()[0].events.fed;
+    }
+    assert!(!fed, "no body parts: it got away");
+}
+
+#[test]
+fn its_den_then_holds_a_midden_of_shell_grit() {
+    let (r, _) = beat(9000);
+    let mut sim = r.sim.clone();
+    let id = sim.crabs()[0].id;
+    let t = sim.tuning.clone();
+    let grit = |sim: &Sim| {
+        let m = &sim.crabs()[0].mover;
+        m.load().filter(|c| *c == crabsim::Carry::Grit).count() as u32
+    };
+    let mut got = 0;
+    for _ in 0..t.octopus.den.midden + 2 {
+        let c = sim.crab_mut(id).unwrap();
+        c.mover.clinging.clear();
+        c.mover.pos = Vec2::new(DEN, 0.0);
+        sim.tick();
+        got += grit(&sim);
+    }
+    assert_eq!(got, t.octopus.den.midden, "a few loads, then it's bare");
+    // Before it has fled, the den gives nothing.
+    let mut sim = Sim::with_one_crab(Vec2::new(DEN, 0.0));
+    sim.spawn_enemy(Kind::Octopus, Vec2::new(DEN, 0.0));
+    sim.tick();
+    assert_eq!(grit(&sim), 0);
+}

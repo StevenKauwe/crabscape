@@ -216,7 +216,7 @@ impl Enemy {
             runner: None,
             handovers: 0,
             deaths: 0,
-            octo: (kind == Kind::Octopus).then(|| Octopus::new(t)),
+            octo: (kind == Kind::Octopus).then(|| Octopus::new(pos, t)),
         }
     }
 
@@ -283,7 +283,11 @@ impl Enemy {
 
     /// Can it be hit right now?
     pub fn hittable(&self, t: &Tuning) -> bool {
-        self.state != State::Gone && (self.octo.is_some() || !self.hidden(t))
+        if self.octo.is_some() {
+            // Gone in its ink, or for good.
+            return !matches!(self.state, State::Gone | State::Flee);
+        }
+        self.state != State::Gone && !self.hidden(t)
     }
 
     /// Which part of it a claw's box reaches, if any: an octopus's eye before
@@ -401,7 +405,9 @@ impl Enemy {
         let took = self.vitals.take(hit.damage * zone, hit.poise, &k.vitals);
         self.vel_x = hit.knockback.x;
         self.vitals.hitstop = self.vitals.hitstop.max(hit.hitstop);
-        if took.died {
+        if took.died && self.octo.is_some() {
+            octopus::away(self, t);
+        } else if took.died {
             self.deaths += 1;
             self.enter(State::Gone, k.respawn_ticks);
             self.vel_x = 0.0;
@@ -418,21 +424,31 @@ impl Enemy {
             self.fled = true;
             self.enter(State::Flee, 0);
         }
+        if self.octo.is_some() && !took.died {
+            octopus::inks(self, t);
+        }
         Some(took)
     }
 
     /// The nearest living crab it can sense, if any (ties: the first). A
     /// crab tucked into a shell or crevice is out of its reach: it doesn't
     /// count.
-    pub(crate) fn sense(&self, crabs: &[SimCrab], range: f32) -> Option<PlayerId> {
-        self.sense_moving(crabs, range, 0.0)
+    pub(crate) fn sense(&self, crabs: &[SimCrab], range: f32, t: &Tuning) -> Option<PlayerId> {
+        self.sense_moving(crabs, range, 0.0, t)
     }
 
     /// The same, counting only crabs moving faster than `moving`.
-    fn sense_moving(&self, crabs: &[SimCrab], range: f32, moving: f32) -> Option<PlayerId> {
+    fn sense_moving(
+        &self,
+        crabs: &[SimCrab],
+        range: f32,
+        moving: f32,
+        t: &Tuning,
+    ) -> Option<PlayerId> {
+        let sight = self.kind.tuning(t).sight;
         crabs
             .iter()
-            .filter(|c| huntable(c) && c.mover.vel.x.abs() >= moving)
+            .filter(|c| huntable(c) && seen(c, sight) && c.mover.vel.x.abs() >= moving)
             .map(|c| (c.id, (c.mover.pos.x - self.pos.x).abs(), c))
             .filter(|(_, d, c)| *d <= range && (c.mover.pos.y - self.pos.y).abs() < 200.0)
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -468,7 +484,11 @@ pub fn step(
     // goes: it gives up.
     let target_x = e
         .target
-        .and_then(|id| crabs.iter().find(|c| c.id == id && huntable(c)))
+        .and_then(|id| {
+            crabs
+                .iter()
+                .find(|c| c.id == id && huntable(c) && seen(c, k.sight))
+        })
         .map(|c| c.mover.pos.x);
 
     // Timed states end, and the next one starts on this same tick.
@@ -572,7 +592,7 @@ pub fn step(
             } else if e.hiding == 0 {
                 // Feeling steps (only a crab moving fast enough), or a smell
                 // that has to build up first.
-                let sensed = e.sense_moving(crabs, k.notice_range, k.notice_moving);
+                let sensed = e.sense_moving(crabs, k.notice_range, k.notice_moving, t);
                 e.scent = if sensed.is_some() {
                     e.scent + 1
                 } else {
@@ -582,7 +602,8 @@ pub fn step(
                     e.scent = 0;
                     e.target = Some(id);
                     e.enter_now(State::Notice, k.notice_ticks);
-                } else if e.sense(crabs, k.notice_range).is_none() && e.vitals.unhit > MEND_AFTER {
+                } else if e.sense(crabs, k.notice_range, t).is_none() && e.vitals.unhit > MEND_AFTER
+                {
                     // Home with nobody near, unhit for a while: the fight is
                     // over. It mends.
                     e.vitals = Vitals::new(&k.vitals);
@@ -699,6 +720,12 @@ pub fn step(
 
 /// Can a creature hunt this crab? Not a dead one, nor one tucked into a
 /// shell or crevice (its blows can't reach it there either).
+/// Can a creature find this crab its way? One that hunts by sight can't see
+/// it in an ink cloud.
+pub(crate) fn seen(c: &SimCrab, sight: bool) -> bool {
+    !(sight && c.fighter.blinded)
+}
+
 pub(crate) fn huntable(c: &SimCrab) -> bool {
     c.fighter.dead.is_none() && !c.mover.tucked_in()
 }
