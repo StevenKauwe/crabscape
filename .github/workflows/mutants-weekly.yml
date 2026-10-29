@@ -40,7 +40,7 @@ jobs:
           key: mutants-weekly
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-mutants
+          tool: cargo-mutants@27.1.0
       - name: Mutants of crates/sim (settings in .cargo/mutants.toml)
         continue-on-error: true
         run: cargo mutants -p crabsim --in-place --shard ${{ matrix.shard }}/12 -o target/mutants-weekly
