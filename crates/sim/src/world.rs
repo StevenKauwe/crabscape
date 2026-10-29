@@ -1429,4 +1429,3 @@ mod tests {
         assert!((sim.time() - 2.0).abs() < 1e-6);
     }
 }
-

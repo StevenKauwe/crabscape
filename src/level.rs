@@ -332,29 +332,36 @@ fn coral(c: &Climb, draw: &mut Draw) {
 /// face of the wall to the climb's left, pocked with pits and cracks, so it
 /// reads as different rock from the smooth walls around it.
 fn bare_rock(c: &Climb, draw: &mut Draw) {
-    let face = c.x - 22.0;
-    let mut y = c.bottom + 20.0;
+    let face = c.x - 24.0;
+    // The rough band itself, along the wall's face...
+    rod(
+        draw,
+        Vec2::new(face - 3.0, c.bottom),
+        Vec2::new(face - 3.0, c.top),
+        7.0,
+        PITTED,
+    );
+    // ...chipped and cracked all the way up, never evenly.
+    let mut y = c.bottom + 12.0;
     let mut k = 0;
     while y < c.top - 10.0 {
         let j = (k * 7 % 5) as f32;
-        let x = face - 4.0 + j * 2.0;
+        let chip = Vec2::new(face - 8.0 + j * 1.5, y);
         draw(
-            Ellipse::new(5.0 + j, 3.5).into(),
+            Rectangle::new(5.0 + j, 3.0).into(),
             PITTED,
-            Vec2::new(x, y),
-            0.0,
+            chip,
+            0.3 * (j - 2.0),
         );
-        draw(
-            Circle::new(2.2).into(),
+        let crack = Vec2::new(face - 4.0 + j, y + 8.0);
+        rod(
+            draw,
+            crack,
+            crack + Vec2::new(4.0 - j * 2.0, 12.0 + j * 3.0),
+            1.5,
             PIT,
-            Vec2::new(x + 1.0, y - 1.0),
-            0.0,
         );
-        if k % 3 == 1 {
-            let crack = Vec2::new(x - 3.0, y + 14.0);
-            rod(draw, crack, crack + Vec2::new(5.0, 22.0), 2.0, PIT);
-        }
-        y += 34.0 + j * 4.0;
+        y += 26.0 + j * 5.0;
         k += 1;
     }
 }

@@ -267,47 +267,52 @@ fn tide_notes(
 const GLASS: Color = Color::srgba(0.80, 0.88, 0.86, 0.85);
 const GLASS_FAINT: Color = Color::srgba(0.70, 0.80, 0.80, 0.45);
 
-/// A glass sponge's skeleton as shapes around its middle: a vase of
-/// crossing glass rods with a ring at its rim (`scale` 1 lying full size).
+/// A glass sponge's skeleton as shapes around its middle: a vase of glass
+/// ribs and rings, narrow at its foot and open at its rim, with a tuft of
+/// glass fibres below (`scale` 1 full size).
 pub fn glass_parts(scale: f32) -> Vec<(Mesh, Color, Vec3, f32)> {
-    let (h, w) = (70.0 * scale, 26.0 * scale);
+    let (h, foot, rim) = (80.0 * scale, 8.0 * scale, 24.0 * scale);
+    let thin = 1.8 * scale.max(0.6);
+    let half_at = |y: f32| foot + (rim - foot) * (y + h / 2.0) / h;
     let mut parts: Vec<(Mesh, Color, Vec3, f32)> = Vec::new();
-    // The lattice: rods leaning both ways, and rings across.
+    // Ribs from the narrow foot up to the wide rim.
     for k in 0..5 {
-        let x = -w + k as f32 * w / 2.0;
-        for lean in [0.35_f32, -0.35] {
-            parts.push((
-                Rectangle::new(1.6 * scale.max(0.6), h).into(),
-                GLASS_FAINT,
-                Vec3::new(x * 0.8, 0.0, 0.0),
-                lean,
-            ));
-        }
-    }
-    for k in 0..4 {
-        let y = -h / 2.0 + (k as f32 + 0.5) * h / 4.0;
+        let f = -1.0 + k as f32 * 0.5;
+        let (a, b) = (Vec2::new(f * foot, -h / 2.0), Vec2::new(f * rim, h / 2.0));
+        let d = b - a;
+        let colour = if k == 0 || k == 4 { GLASS } else { GLASS_FAINT };
         parts.push((
-            Rectangle::new(w * 2.0, 1.6 * scale.max(0.6)).into(),
+            Rectangle::new(thin, d.length()).into(),
+            colour,
+            ((a + b) / 2.0).extend(0.1),
+            -d.x.atan2(d.y),
+        ));
+    }
+    // Rings across it.
+    for k in 0..4 {
+        let y = -h / 2.0 + (k as f32 + 0.6) * h / 4.2;
+        parts.push((
+            Rectangle::new(half_at(y) * 2.0, thin).into(),
             GLASS_FAINT,
             Vec3::new(0.0, y, 0.0),
             0.0,
         ));
     }
-    // Its outline and the frilled rim at the top.
-    for side in [-1.0_f32, 1.0] {
-        parts.push((
-            Rectangle::new(2.5 * scale.max(0.6), h).into(),
-            GLASS,
-            Vec3::new(side * w, 0.0, 0.1),
-            0.0,
-        ));
-    }
+    // The frilled rim, and the tuft of fibres it stood on.
     parts.push((
-        Ellipse::new(w * 1.15, 4.0 * scale).into(),
+        Ellipse::new(rim * 1.1, 3.5 * scale).into(),
         GLASS,
         Vec3::new(0.0, h / 2.0, 0.1),
         0.0,
     ));
+    for lean in [-0.5_f32, 0.0, 0.5] {
+        parts.push((
+            Rectangle::new(thin * 0.7, 14.0 * scale).into(),
+            GLASS_FAINT,
+            Vec3::new(lean * 8.0 * scale, -h / 2.0 - 6.0 * scale, 0.0),
+            lean,
+        ));
+    }
     parts
 }
 
@@ -315,7 +320,7 @@ pub fn glass_parts(scale: f32) -> Vec<(Mesh, Color, Vec3, f32)> {
 #[derive(Component)]
 struct LyingSponge(usize);
 
-/// The skeleton lies on its side on the floor among the sea pens.
+/// The skeleton stands on the floor among the sea pens.
 fn spawn_sponges(
     mut commands: Commands,
     sim: Res<Sim>,
@@ -323,12 +328,13 @@ fn spawn_sponges(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     for (i, at) in sim.level.sponges.iter().enumerate() {
-        let foot = Vec2::new(at.x, sim.level.floor_height(at.x) + 26.0);
+        // Standing as it grew, a little askew, its fibre tuft in the mud.
+        let middle = Vec2::new(at.x, sim.level.floor_height(at.x) + 44.0);
         commands
             .spawn((
                 LyingSponge(i),
-                Transform::from_translation(foot.extend(Z + 0.5))
-                    .with_rotation(Quat::from_rotation_z(1.45)),
+                Transform::from_translation(middle.extend(Z + 0.5))
+                    .with_rotation(Quat::from_rotation_z(-0.12)),
                 Visibility::Hidden,
             ))
             .with_children(|s| {
