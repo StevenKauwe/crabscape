@@ -33,9 +33,9 @@ use crate::world::{PlayerId, Sim, SimCrab};
 /// A new move a skill's milestone opens, grown at a moult.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Feat {
-    /// Climbing: the walking legs' tips (dactyls) grip kelp and coral hard
-    /// enough to brace on, so a kick off a stalk becomes a long leap.
-    /// (Bare rock is the glass grips' business: a fitted gear, not a feat.)
+    /// Climbing: the walking legs' tips (dactyls) hold kelp and coral so
+    /// firmly that the paddle legs rest while the crab hangs there, as on
+    /// solid ground. (Bare rock is the glass grips' business: a fitted gear.)
     GrippingDactyls,
     /// Swimming: broader paddle blades, so the flip in the water becomes a
     /// real dash that carries the crab.
@@ -62,7 +62,7 @@ pub const FEATS: [FeatInfo; 3] = [
         feat: Feat::GrippingDactyls,
         skill: Skill::Climbing,
         name: "gripping dactyls",
-        does: "kick off kelp and coral in a long leap",
+        does: "the paddle legs rest on kelp and coral",
     },
     FeatInfo {
         feat: Feat::BroadPaddles,

@@ -87,7 +87,9 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   the pit's right wall, a passage is blocked by a **ghost net** (a lost fishing net): only a jump and four strokes from
   the alcove's roof reach it, and the scissor claws snap through it (gone for everyone once cut). Beyond: a short tunnel and a coral-lined shaft up to the far part of the basin, where a
   crack at the foot of the end wall shows **lights far below**. The crack is the way down, into the canyon (next
-  section).
+  section). High on the end wall's face, out in the water, a **coral** grows out of the rock (no single stroke from
+  the floor reaches it), and a **sixth egg** drifts four strokes above its top: more than the legs have left on
+  arriving, so only a crab with **gripping dactyls**, resting on the coral, swims on up to it.
 - **Food (the "Prepare" step):** clams lie half-buried in the floor: two in the shallows near home, one in the basin
   below the cliff, and harder ones on the flats past the trench (by the moray) and at the bottom of the pit; three more in the canyon
   (two on its floor, one on the far rim). Walking

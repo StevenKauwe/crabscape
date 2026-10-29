@@ -284,6 +284,9 @@ impl Level {
                 // On the canyon's far shelf: only riding the flood up the
                 // canyon and pushing off it at the right height gets there.
                 Vec2::new(7810.0, -5170.0),
+                // High over the far basin, above the coral on the end wall:
+                // only resting on that coral leaves the strokes to get here.
+                Vec2::new(5460.0, 1490.0),
             ],
             // Up the pit, a little out from the tip of the lip: coral in the
             // dark lower part, then a kelp stalk floating up from its
@@ -340,6 +343,17 @@ impl Level {
                     bottom: -1500.0,
                     top: 560.0,
                     kind: Growth::Rock,
+                },
+                // Coral growing out of the end wall's face, high over the far
+                // basin: no single stroke reaches its foot. An egg drifts four
+                // strokes above its top, more than the legs have left on
+                // arriving: only a crab that rests on the coral (gripping
+                // dactyls) swims on up to it.
+                Climb {
+                    x: 5470.0,
+                    bottom: 110.0,
+                    top: 800.0,
+                    kind: Growth::Coral,
                 },
             ],
             home: Rect::new(40.0, -1.0, 150.0, 40.0),
