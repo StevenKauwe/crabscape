@@ -97,8 +97,9 @@ mod tests {
 
     #[test]
     fn paths_stay_inside_the_root() {
+        // Any crate that includes this file (webtest, cooptest) has a Cargo.toml at its root.
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        assert!(file_for(root, "/src/serve.rs").is_some());
+        assert!(file_for(root, "/Cargo.toml").is_some());
         assert!(file_for(root, "/../webtest/Cargo.toml").is_none());
         assert!(file_for(root, "/nothing-here").is_none());
         assert_eq!(content_type(Path::new("a/b.wasm")), "application/wasm");

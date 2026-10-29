@@ -791,11 +791,6 @@ mod web {
                     if from_host(&msg) && !host && !sim.online() {
                         sim.go_online(false);
                     }
-                    // Only the host sends its world, and it comes first:
-                    // back in its world to hear it.
-                    if matches!(msg, Msg::World { .. }) && !host && !sim.online() {
-                        sim.go_online(false);
-                    }
                     sim.receive(msg);
                 }
             }
