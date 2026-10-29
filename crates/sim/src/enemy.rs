@@ -448,7 +448,15 @@ pub fn step(
             let dx = e.home.x - e.pos.x;
             if dx.abs() >= 1.0 {
                 e.facing = dx.signum();
-                want_speed = k.approach_speed * 0.5;
+                // Half its approach; a kind that never walks out (a moray
+                // or a snapping shrimp a blow knocked off its hole) slips
+                // back in at its flee speed, or it would never get home
+                // and never notice anything again.
+                want_speed = if k.approach_speed > 0.0 {
+                    k.approach_speed * 0.5
+                } else {
+                    k.flee_speed.max(BACK_IN_SPEED)
+                };
                 if dx.abs() < want_speed * STEP {
                     e.pos.x = e.home.x;
                     want_speed = 0.0;
@@ -570,6 +578,9 @@ pub fn step(
 
 /// Ticks a lunged head takes to draw back into its crevice.
 const HEAD_BACK_TICKS: f32 = 24.0;
+
+/// The least speed a kind that never walks slips back into its hole at.
+const BACK_IN_SPEED: f32 = 60.0;
 
 /// Ticks unhit, at home with nobody near, before an enemy mends (2 s).
 const MEND_AFTER: u32 = 240;

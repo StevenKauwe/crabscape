@@ -32,7 +32,8 @@ pub enum Feel {
     /// F: a tighter parry, and a huge, fast counter for getting it right.
     Expedition,
     /// G: D + E + F: run speed and a charged smash, an instant bouncing jab
-    /// and a smash hop, a tight parry with the crush counter. Recommended.
+    /// and a smash hop, a parry a little looser than F's with the crush
+    /// counter. Recommended.
     #[default]
     Hybrid,
     /// H: B's weight and impact, E's quick jab, F's crush counter.
@@ -415,7 +416,7 @@ pub const SPECS: [FeelSpec; 9] = [
         turn_travel: 30.0,
         momentum: 0.8,
         charge: (60, 1.0),
-        parry_window: 6,
+        parry_window: 9, // F's 6 relaxed a fraction: the owner found it too tight
         parry_hitstop: 18,
         counter_ticks: 60,
         counter_damage: 3.0,
