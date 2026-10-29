@@ -127,6 +127,9 @@ fn note_events(
     if ev.cut_net {
         notes.push(("Cut through!".into(), GOLD));
     }
+    if ev.cracked_rock {
+        notes.push(("The rock cracks open!".into(), GOLD));
+    }
     // Pressing on a net says so now and then, not every frame.
     if ev.tangled && now - *last_tangle > 4.0 {
         *last_tangle = now;
