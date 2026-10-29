@@ -172,6 +172,12 @@ pub struct Mover {
     /// How far into the home shell the crab has backed: 0 = out in the
     /// open, 1 = tucked right in.
     pub tucked: f32,
+    /// Hulk mode, from the `hulk` code (see [`crate::codes`]).
+    #[serde(default)]
+    pub hulk: bool,
+    /// The lantern blazing, from the `glow` code (see [`crate::codes`]).
+    #[serde(default)]
+    pub glow: bool,
 }
 
 impl Mover {
@@ -210,6 +216,8 @@ impl Mover {
             climb_side: 1.0,
             shelter: Shelter::Out,
             tucked: 0.0,
+            hulk: false,
+            glow: false,
         }
     }
 

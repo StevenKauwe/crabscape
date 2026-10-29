@@ -44,6 +44,7 @@
 //! | `loose`         | let go of smash (a charged smash strikes)                |
 //! | `spawn=fixture@300,0` | an enemy appears there (tests, crabsim, replays)   |
 //! | `feel=heavy`    | switch to a feel preset (`crabsim::feel`; the game's feel lab) |
+//! | `code=hulk`     | the player typed a code (`crabsim::codes`)               |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
 //! `tap`, `dodge`, `sprint`, `smash`, `jab`, `block`, `parry`) happen on that one tick. Recorded replays also have a
@@ -53,6 +54,7 @@
 
 use bevy_math::Vec2;
 
+use crate::codes::Code;
 use crate::enemy::Kind;
 use crate::feel::Feel;
 use crate::level::SPAWN;
@@ -88,6 +90,8 @@ pub struct Replay {
     pub spawns: Vec<Spawn>,
     /// Switches of feel preset, in tick order (the game's feel lab).
     pub feels: Vec<(u64, Feel)>,
+    /// Codes player 0 typed, in tick order.
+    pub codes: Vec<(u64, Code)>,
 }
 
 /// An enemy appearing at the start of a tick.
@@ -108,6 +112,7 @@ impl Default for Replay {
             hash: None,
             spawns: Vec::new(),
             feels: Vec::new(),
+            codes: Vec::new(),
         }
     }
 }
@@ -184,7 +189,13 @@ impl Replay {
                 let feel = Feel::parse(w).ok_or_else(|| err(format!("no feel preset `{w}`")))?;
                 replay.feels.push((tick, feel));
             }
-            words.retain(|w| !w.starts_with("spawn=") && !w.starts_with("feel="));
+            for w in words.iter().filter_map(|w| w.strip_prefix("code=")) {
+                let code = Code::parse(w).ok_or_else(|| err(format!("no code `{w}`")))?;
+                replay.codes.push((tick, code));
+            }
+            words.retain(|w| {
+                !w.starts_with("spawn=") && !w.starts_with("feel=") && !w.starts_with("code=")
+            });
             if words.is_empty() {
                 continue; // only spawns: no change to the controls
             }
@@ -224,6 +235,9 @@ impl Replay {
         }
         for (tick, feel) in &self.feels {
             out += &format!("@{tick} feel={}\n", feel.name());
+        }
+        for (tick, code) in &self.codes {
+            out += &format!("@{tick} code={}\n", code.name());
         }
         let mut before = Controls::default();
         for input in &self.inputs {
@@ -293,7 +307,8 @@ impl Replay {
     }
 
     /// What happens to the world just before tick number `sim.tick_count()`
-    /// runs: enemies appear, the feel switches.
+    /// runs: enemies appear, the feel switches, codes are entered (for
+    /// player 0).
     pub fn apply_at(&self, sim: &mut crate::Sim) {
         let tick = sim.tick_count();
         for s in self.spawns_at(tick) {
@@ -301,6 +316,9 @@ impl Replay {
         }
         for (_, feel) in self.feels.iter().filter(|(t, _)| *t == tick) {
             sim.set_feel(*feel);
+        }
+        for (_, code) in self.codes.iter().filter(|(t, _)| *t == tick) {
+            sim.enter_code(crate::PlayerId(0), *code);
         }
     }
 
@@ -382,6 +400,11 @@ impl Recorder {
     /// The feel preset switched at `tick`.
     pub fn note_feel(&mut self, tick: u64, feel: Feel) {
         self.replay.feels.push((tick - self.first_tick, feel));
+    }
+
+    /// A code was entered at `tick`.
+    pub fn note_code(&mut self, tick: u64, code: Code) {
+        self.replay.codes.push((tick - self.first_tick, code));
     }
 
     /// An enemy appeared at `tick`.
@@ -552,7 +575,7 @@ mod tests {
     #[test]
     fn text_round_trips_exactly() {
         let r = Replay::parse(
-            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block spawn=fixture@300,0\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\n@210 charge feel=momentum\n@230 loose\n@240 smash\nend @400",
+            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block spawn=fixture@300,0\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\n@210 charge feel=momentum code=hulk\n@230 loose\n@240 smash\nend @400",
         )
         .unwrap();
         let again = Replay::parse(&r.to_text()).unwrap();

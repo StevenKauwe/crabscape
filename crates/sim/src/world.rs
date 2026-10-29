@@ -155,6 +155,13 @@ impl Sim {
         }
     }
 
+    /// A code was entered at `tick`: a running recording notes it.
+    pub(crate) fn note_code(&mut self, tick: u64, code: crate::codes::Code) {
+        if let Some(rec) = &mut self.recorder {
+            rec.note_code(tick, code);
+        }
+    }
+
     /// Put a crab standing still at `pos` into the world.
     pub fn add_crab(&mut self, id: PlayerId, pos: Vec2) {
         let mut mover = Mover::new(pos);
@@ -550,6 +557,8 @@ impl Sim {
                     climb_xp: crab.mover.climb_xp,
                     swim_xp: crab.mover.swim_xp,
                     fight_xp: crab.mover.fight_xp,
+                    hulk: crab.mover.hulk,
+                    glow: crab.mover.glow,
                     shelter: Shelter::In,
                     tucked: 1.0,
                     ..crate::physics::Mover::new(den)
@@ -567,7 +576,12 @@ impl Sim {
             } else {
                 crab.controls
             };
-            let controls = combat::before_step(f, &mut crab.mover, &asked, &self.tuning, &mut ev);
+            let mut controls =
+                combat::before_step(f, &mut crab.mover, &asked, &self.tuning, &mut ev);
+            // Bulked up: a little slower on its feet.
+            if crab.mover.hulk {
+                controls.walk *= self.tuning.hulk.walk;
+            }
             let f = &crab.fighter;
             let free = f.swing.is_none() && !f.blocking && f.knocked == 0;
             if sheltered || home::walks_in(&crab.mover, &controls, free, &self.level) {
@@ -766,7 +780,7 @@ impl Sim {
                 let eye = c.mover.pos + Vec2::new(0.0, self.tuning.body_height);
                 c.memory.step(
                     eye,
-                    c.mover.lantern,
+                    c.mover.lantern_glow(),
                     &self.level,
                     &self.enemies,
                     &self.tuning,
@@ -828,7 +842,13 @@ impl Sim {
             let swing = f.swing.as_mut().expect("a hitbox means a swing");
             let c = swing.claw.tuning(t);
             let strength = swing.strength(t);
-            let boost = strength * if swing.counter { t.counter_damage } else { 1.0 };
+            // Bulked up, the crusher hits far harder and throws far further.
+            let (hulk, thrown) = if crab.mover.hulk && swing.claw == crate::combat::Claw::Crusher {
+                (t.hulk.smash_damage, t.hulk.smash_knockback)
+            } else {
+                (1.0, 1.0)
+            };
+            let boost = strength * hulk * if swing.counter { t.counter_damage } else { 1.0 };
             // The Fighting skill: each level hits a little harder.
             let skill = crab.mover.claw_strength(t);
             let hitstop = if swing.counter {
@@ -849,7 +869,9 @@ impl Sim {
                 let hit = Hit {
                     damage: c.damage * boost * skill,
                     poise: c.poise * boost,
-                    knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1) * strength,
+                    knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1)
+                        * strength
+                        * thrown,
                     hitstop,
                     ..Hit::new(0.0, 0.0, Source::Crab(crab.id))
                 };
@@ -1096,11 +1118,19 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         f.crush = None;
         let Some(s) = &mut f.swing else { return };
         let c = s.claw.tuning(t);
-        let strength = s.strength(t) * t.counter_damage;
+        let (hulk, thrown) = if crab.mover.hulk {
+            (t.hulk.smash_damage, t.hulk.smash_knockback)
+        } else {
+            (1.0, 1.0)
+        };
+        let strength = s.strength(t) * t.counter_damage * hulk;
         let blow = Hit {
             damage: c.damage * strength * crab.mover.claw_strength(t),
             poise: c.poise * strength,
-            knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1) * s.strength(t) * 1.5,
+            knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1)
+                * s.strength(t)
+                * 1.5
+                * thrown,
             hitstop: t.counter_hitstop_ticks,
             ..Hit::new(0.0, 0.0, source)
         };
