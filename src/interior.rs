@@ -826,11 +826,7 @@ fn moult_offer(sim: &Sim, id: crabsim::PlayerId, pick: usize) -> Option<MoultOff
                 .growing
                 .map_or("soft".into(), |f| format!("growing {}", f.name())),
             ready: false,
-            line: format!(
-                "Soft: resting here, it hardens in {}:{:02}.",
-                secs / 60,
-                secs % 60
-            ),
+            line: format!("Hardens in {}:{:02}, resting here.", secs / 60, secs % 60),
             grow: None,
             choice: false,
         });
