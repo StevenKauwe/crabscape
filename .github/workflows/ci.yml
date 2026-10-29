@@ -66,7 +66,7 @@ jobs:
           key: check
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-deny
+          tool: cargo-deny@0.20.2
       # Lints: clippy's defaults plus the shared [workspace.lints] in Cargo.toml (no unsafe code, no dbg!/todo!/
       # unimplemented!, no unwrap() in crates/sim outside tests).
       - name: cargo fmt
@@ -277,7 +277,7 @@ jobs:
             tools/introducer
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-mutants
+          tool: cargo-mutants@27.1.0
       # In place (in this checkout, reusing the cached build) against the base the PR merges into.
       - name: Every mutant on the changed lines is caught
         run: tools/mutants-pr.sh HEAD^1 --in-place
@@ -307,7 +307,7 @@ jobs:
           key: coverage
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-llvm-cov
+          tool: cargo-llvm-cov@0.9.1
       - name: Run the tests with coverage and report it
         continue-on-error: true
         run: |
