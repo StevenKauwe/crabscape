@@ -2,6 +2,8 @@
 # request publishes it as its playable preview, and on main it is deployed to GitHub Pages.
 # A pull request runs only the checks its files can affect (the `changes` job, tools/changes.sh): words alone pass in
 # seconds. A check skipped that way counts as passed for branch protection. Pushes to main run everything.
+# Independent work runs in parallel on its own machine (CLAUDE.md, "CI hygiene"): a code change's required checks
+# take about 7 minutes. Coverage runs on main only (coverage.yml).
 # Actions are pinned to commit SHAs; the comment says which release that is.
 name: CI
 
@@ -213,55 +215,172 @@ jobs:
           path: web/
           retention-days: 14
 
-  browser:
-    name: browser test (WebKit, iPhone size)
-    # Plays the web build from the job above in WebKitGTK (the iPhone's engine) through WebDriver: tools/webtest.
-    # Then co-op in headless Chrome with a local introducer: tools/cooptest (coop.yml goes deeper on main).
-    # Runs whenever the web build ran (skipped with it for a change that can't affect the game).
-    needs: web
-    if: ${{ !cancelled() && needs.web.result == 'success' }}
+  # The browser tests, fanned out: after the web build, WebKit portrait, WebKit landscape, the co-op scenarios in
+  # parts and the frame strips all run at once on their own machines, from one build of the test tools. The
+  # `browser` gate below carries the required check's name.
+  browser-tools:
+    name: browser test tools
+    # webtest, cooptest and the introducer, built once while the web build runs, for the browser jobs below (which
+    # then need no Rust at all). They find web/ and target/ at the same checkout path on every runner.
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Rust (the version, targets and components in rust-toolchain.toml)
         run: rustup toolchain install && rustc --version
-      - name: WebKitGTK, its WebDriver and a virtual display
-        # The WebDriver package is webkitgtk-webdriver since Ubuntu 26.04 (webkit2gtk-driver before).
-        run: |
-          sudo apt-get update -q
-          pkgs="libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11"
-          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver $pkgs \
-            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver $pkgs
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: webtest
           workspaces: |
             . -> target
             tools/introducer -> target
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: crabscape-web-${{ github.sha }}
-          path: web
       - name: Build the browser tests and the introducer
         run: |
           cargo build --profile art --locked -p webtest -p cooptest
           cargo build --release --locked --manifest-path tools/introducer/Cargo.toml
-      - name: Co-op's promises in Chrome, two or three players, each scenario once (docs/design/coop-promises.md)
-        run: cargo cooptest --repeat 1 --logs target/webtest
-      - name: Play it in WebKit (portrait phone)
-        run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --shots target/webtest/portrait
-      - name: Play it in WebKit (landscape phone)
-        run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --landscape --shots target/webtest/landscape
-      - name: Frame strips of a smash in a few feel presets (to look at; never fails the job)
-        continue-on-error: true
-        run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --feel-shots target/webtest/feel
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+          path: |
+            target/art/webtest
+            target/art/cooptest
+            tools/introducer/target/release/introducer
+          if-no-files-found: error
+          retention-days: 3
+
+  webkit:
+    name: WebKit (${{ matrix.phone }} phone)
+    # Plays the web build in WebKitGTK (the iPhone's engine) through WebDriver: tools/webtest.
+    needs: [web, browser-tools]
+    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - phone: portrait
+            args: --shots target/webtest/portrait
+          - phone: landscape
+            args: --landscape --shots target/webtest/landscape
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: WebKitGTK, its WebDriver and a virtual display
+        # The WebDriver package is webkitgtk-webdriver since Ubuntu 26.04 (webkit2gtk-driver before).
+        run: |
+          sudo apt-get update -q
+          pkgs=(libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11)
+          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
+            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+      - name: Play it in WebKit (${{ matrix.phone }} phone)
+        run: |
+          chmod +x target/art/webtest
+          ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- target/art/webtest ${{ matrix.args }}
       - name: Keep the screenshots and browser log
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: webtest-${{ github.sha }}
+          name: webtest-${{ matrix.phone }}-${{ github.sha }}
           path: target/webtest/
           retention-days: 7
+
+  coop:
+    name: co-op promises, part ${{ matrix.part }} of ${{ strategy.job-total }}
+    # Co-op in headless Chrome with a local introducer, each scenario once (docs/design/coop-promises.md;
+    # tools/cooptest; coop.yml goes deeper on main). `--shard` splits the scenarios into parts of about equal time
+    # and puts every scenario, a new one too, in exactly one part. Another part is one more number below.
+    needs: [web, browser-tools]
+    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+      - name: Co-op's promises in Chrome, two or three players, each scenario of this part once
+        run: |
+          chmod +x target/art/cooptest tools/introducer/target/release/introducer
+          target/art/cooptest --repeat 1 --shard ${{ matrix.part }}/${{ strategy.job-total }} --logs target/webtest
+      - name: Keep a failure's browser logs and screenshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cooptest-part-${{ matrix.part }}-${{ github.sha }}
+          path: target/webtest/
+          retention-days: 7
+
+  feel-strips:
+    name: frame strips of a smash (to look at; never fails)
+    # A smash in a few feel presets, as frame strips in the `webtest-feel` download. Information only: never fails
+    # the run, and the `browser` gate doesn't wait for it.
+    needs: [web, browser-tools]
+    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: WebKitGTK, its WebDriver and a virtual display
+        run: |
+          sudo apt-get update -q
+          pkgs=(libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11)
+          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
+            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+      - name: Frame strips of a smash in a few feel presets
+        run: |
+          chmod +x target/art/webtest
+          ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- target/art/webtest --feel-shots target/webtest/feel
+      - name: Keep the frame strips
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webtest-feel-${{ github.sha }}
+          path: target/webtest/
+          retention-days: 7
+
+  browser:
+    name: browser test (WebKit, iPhone size)
+    # The required check's name (branch protection asks for exactly this one), as a gate over the fanned-out browser
+    # jobs: it passes only when the web build, the tools, both WebKit phones and every co-op part passed, or were
+    # skipped (a change that can't affect the game). A failed or cancelled one fails it.
+    needs: [web, browser-tools, webkit, coop]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every browser job passed or was skipped
+        env:
+          RESULTS: web=${{ needs.web.result }} tools=${{ needs.browser-tools.result }} webkit=${{ needs.webkit.result }} coop=${{ needs.coop.result }}
+        run: |
+          echo "$RESULTS"
+          case " $RESULTS " in
+            *=failure* | *=cancelled*) echo "::error::A browser job failed or was cancelled: $RESULTS"; exit 1 ;;
+          esac
 
   mutants:
     name: mutation testing (changed lines)
@@ -296,54 +415,6 @@ jobs:
         with:
           name: mutants-${{ github.sha }}
           path: target/mutants-pr/
-          retention-days: 14
-
-  coverage:
-    name: test coverage (information only)
-    # Which lines the tests run (cargo-llvm-cov), as a table in the job summary and an lcov file. Never fails and
-    # has no threshold: mutation testing above is what holds new code to its tests. Pull requests only.
-    needs: changes
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Rust (the version, targets and components in rust-toolchain.toml), plus llvm-tools
-        run: rustup toolchain install && rustup component add llvm-tools && rustc --version
-      - name: System libraries Bevy needs on Linux
-        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev pkg-config
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: coverage
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
-        with:
-          tool: cargo-llvm-cov@0.9.1
-      - name: Run the tests with coverage and report it
-        continue-on-error: true
-        run: |
-          # Instrumented code runs slower, so a timing test can fail here: the tests themselves are judged by the
-          # check job, and the report covers whatever ran.
-          cargo llvm-cov --workspace --locked --no-report --no-fail-fast \
-            || echo "::warning::Some tests failed under coverage (timing tests run slower instrumented)"
-          cargo llvm-cov report --workspace --lcov --output-path target/lcov.info
-          report=$(cargo llvm-cov report --workspace --summary-only)
-          {
-            echo "### Test coverage (information only)"
-            echo "Lines run by the tests, all crates: **$(echo "$report" | awk '/^TOTAL/ {print $10}')**"
-            echo
-            echo "<details><summary>Per file</summary>"
-            echo
-            echo '```'
-            echo "$report"
-            echo '```'
-            echo
-            echo "</details>"
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Keep the lcov file
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        continue-on-error: true
-        with:
-          name: coverage-${{ github.sha }}
-          path: target/lcov.info
           retention-days: 14
 
   preview:
@@ -450,9 +521,9 @@ jobs:
         # The WebDriver package is webkitgtk-webdriver since Ubuntu 26.04 (webkit2gtk-driver before).
         run: |
           sudo apt-get update -q
-          pkgs="libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11"
-          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver $pkgs \
-            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver $pkgs
+          pkgs=(libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11)
+          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
+            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: webtest
