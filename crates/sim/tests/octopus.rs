@@ -364,9 +364,20 @@ fn its_body_is_its_real_size_at_crab_scale() {
 fn an_octopus_mid_probe_fits_in_one_co_op_message() {
     let r = probe("", 40);
     let enemy = r.sim.enemies()[0].clone();
-    assert!(enemy.octopus().unwrap().arms.iter().any(|a| a.state == ArmState::Slide));
+    assert!(
+        enemy
+            .octopus()
+            .unwrap()
+            .arms
+            .iter()
+            .any(|a| a.state == ArmState::Slide)
+    );
     let msg = crabsim::net::Msg::Enemy { at: 40, enemy };
     let bytes = msg.to_bytes();
-    assert!(bytes.len() <= crabsim::net::MAX_BYTES, "{} bytes", bytes.len());
+    assert!(
+        bytes.len() <= crabsim::net::MAX_BYTES,
+        "{} bytes",
+        bytes.len()
+    );
     assert_eq!(crabsim::net::Msg::from_bytes(&bytes), Some(msg));
 }
