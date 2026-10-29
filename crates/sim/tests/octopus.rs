@@ -381,3 +381,259 @@ fn an_octopus_mid_probe_fits_in_one_co_op_message() {
     );
     assert_eq!(crabsim::net::Msg::from_bytes(&bytes), Some(msg));
 }
+
+// --- Webover, the hold, the bite and autotomy ---------------------------------
+
+/// A fight where the crab stands close, under its web: 200 from its middle.
+const CLOSE: f32 = DEN - 200.0;
+
+/// What a close fight did, tick by tick (the crab's hold and venom too).
+struct Close {
+    run: Run,
+    /// Ticks the crab has been held so far (0 when free).
+    held: Vec<u32>,
+    /// Doses of venom in it.
+    venom: Vec<usize>,
+    /// Walking legs dropped.
+    legs: Vec<u32>,
+    dropped: bool,
+}
+
+fn close(script: &str, ticks: u64, set_up: impl FnOnce(&mut Sim)) -> Close {
+    let replay = Replay::parse(script).unwrap();
+    let mut sim = Sim::with_one_crab(Vec2::new(CLOSE, 0.0));
+    sim.spawn_enemy(Kind::Octopus, Vec2::new(DEN, 0.0));
+    sim.enemies_mut()[0].octopus_mut().unwrap().revealed = true;
+    set_up(&mut sim);
+    let (mut held, mut venom, mut legs, mut dropped) = (vec![], vec![], vec![], false);
+    let mut run = Run {
+        x: vec![],
+        health: vec![],
+        status: vec![],
+        hurt: vec![],
+        parried: false,
+        evaded: false,
+        blocked: false,
+        enemy: vec![],
+        arms: vec![],
+        sim: sim.clone(),
+    };
+    play(&mut sim, &replay, ticks, |s| {
+        let c = &s.crabs()[0];
+        run.x.push(c.mover.pos.x);
+        run.health.push(c.fighter.vitals.health);
+        run.status.push(c.fighter.status(&s.tuning));
+        run.hurt.push(c.events.hurt);
+        run.evaded |= c.events.evaded;
+        held.push(c.fighter.grabbed.map_or(0, |g| g.held));
+        venom.push(c.fighter.venom.len());
+        legs.push(c.fighter.legs_lost);
+        dropped |= c.events.dropped_leg;
+        let e = &s.enemies()[0];
+        run.enemy.push((e.state, e.phase(&s.tuning)));
+        run.arms
+            .push(e.octopus().unwrap().arms.iter().map(|a| a.state).collect());
+    });
+    run.sim = sim;
+    Close {
+        run,
+        held,
+        venom,
+        legs,
+        dropped,
+    }
+}
+
+/// The tick the web starts to drop on a crab standing still under it.
+fn drop_tick() -> usize {
+    let c = close("", 400, |_| {});
+    c.run
+        .enemy
+        .iter()
+        .position(|e| e.1 == "drop")
+        .expect("it drops its web")
+}
+
+#[test]
+fn close_under_its_web_it_rises_then_drops_it_and_caught_crabs_are_grabbed() {
+    let c = close("", 400, |_| {});
+    let r = &c.run;
+    let rise = r.enemy.iter().position(|e| e.1 == "rise").expect("rises");
+    let drop = drop_tick();
+    assert_eq!(drop - rise, 84, "the tell: it rises and spreads its web");
+    let caught = r.status.iter().position(|s| s == "grabbed").expect("caught");
+    assert!(caught > drop && caught < drop + 10, "under the web as it closes");
+    assert_eq!(r.enemy[caught].0, State::Grab);
+    // Not even probing while it rises: its arms gather in.
+    assert!(r.arms[rise + 45].iter().all(|a| *a == ArmState::Curled));
+}
+
+#[test]
+fn dodging_sideways_out_of_the_drop_takes_nothing() {
+    let d = drop_tick();
+    let c = close(&format!("@{} walk=left dodge", d + 2), d as u64 + 40, |_| {});
+    let r = &c.run;
+    assert!(r.evaded, "the dodge's moment of invulnerability");
+    assert!(r.hurt.iter().all(|h| !h), "took nothing");
+    assert!(r.status.iter().all(|s| s != "grabbed"));
+    // Missed: it lies with its arms spread on the floor, open.
+    assert_eq!(r.enemy[d + 12].1, "spread");
+    assert!(r.arms[d + 12].iter().all(|a| *a == ArmState::Spread));
+}
+
+#[test]
+fn a_missed_webover_leaves_its_arms_out_where_hits_count_half_again() {
+    let d = drop_tick();
+    let mut c = close(&format!("@{} walk=left dodge", d + 2), d as u64 + 15, |_| {});
+    let t = c.run.sim.tuning.clone();
+    let e = &mut c.run.sim.enemies_mut()[0];
+    e.takes_at(Part::Arm(3), &Hit::new(10.0, 0.0, Source::World), 300.0, &t);
+    assert_eq!(e.octopus().unwrap().arms[3].health, 40.0 - 15.0, "x1.5");
+    let recover = c.run.enemy.iter().filter(|e| e.1 == "spread").count();
+    assert!(recover > 0);
+    let whole = close(&format!("@{} walk=left dodge", d + 2), d as u64 + 120, |_| {});
+    let spread = whole.run.enemy.iter().filter(|e| e.1 == "spread").count();
+    assert_eq!(spread, 70, "recovering 70 ticks");
+}
+
+#[test]
+fn it_cant_webover_in_a_low_tunnel() {
+    // A roof of rock just over the crab's head where it stands.
+    let c = close("", 600, |sim| {
+        sim.level
+            .rocks
+            .push(bevy_math::Rect::new(CLOSE - 80.0, 120.0, CLOSE + 80.0, 160.0));
+    });
+    assert!(c.run.enemy.iter().all(|e| e.1 != "rise"), "never rises");
+    assert!(
+        c.run.arms.iter().any(|a| a.contains(&ArmState::Slide)),
+        "it probes instead"
+    );
+}
+
+#[test]
+fn the_venom_bite_lands_at_tick_120_of_a_grab_not_before() {
+    let c = close("", 900, |_| {});
+    let r = &c.run;
+    let caught = r.status.iter().position(|s| s == "grabbed").unwrap();
+    let t = &r.sim.tuning;
+    // Hurt by the web, then not again until the bite.
+    let bites: Vec<usize> = (caught + 1..r.hurt.len()).filter(|&i| r.hurt[i]).collect();
+    let venom = bites[0];
+    assert_eq!(c.held[venom], 120, "the venom bite, at 120 held");
+    assert_eq!(c.venom[venom - 1], 0);
+    assert_eq!(c.venom[venom], 1, "venom in");
+    let before = r.health[venom - 1];
+    assert!((before - r.health[venom] - t.octopus.bite.venom_damage).abs() < 0.1);
+    let heavy = bites[1];
+    assert_eq!(c.held[heavy], 200, "the heavy bite, at 200");
+    let lost = r.health[heavy - 1] - r.health[heavy];
+    assert!((lost - 30.0).abs() < 0.1, "30 ({lost})");
+}
+
+#[test]
+fn venom_hurts_2_a_second_for_5_seconds_and_stacks() {
+    let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+    let id = sim.crabs()[0].id;
+    let bite = Hit {
+        venom: true,
+        ..Hit::new(0.0, 0.0, Source::World)
+    };
+    sim.hit_crab(id, &bite);
+    sim.hit_crab(id, &bite);
+    for _ in 0..120 {
+        sim.tick();
+    }
+    let f = &sim.crabs()[0].fighter;
+    assert_eq!(f.venom.len(), 2, "two doses");
+    assert!((100.0 - f.vitals.health - 4.0).abs() < 0.05, "{}", f.vitals.health);
+    for _ in 0..500 {
+        sim.tick();
+    }
+    let f = &sim.crabs()[0].fighter;
+    assert!(f.venom.is_empty(), "worn off after 5 s");
+    assert!((100.0 - f.vitals.health - 20.0).abs() < 0.1, "{}", f.vitals.health);
+}
+
+/// How far the crab walks in a second from standing, with `set_up` done.
+fn walks(set_up: impl FnOnce(&mut Sim)) -> f32 {
+    let mut sim = Sim::with_one_crab(Vec2::new(100.0, 0.0));
+    set_up(&mut sim);
+    play(&mut sim, &Replay::parse("t=0 walk=right").unwrap(), 120, |_| {});
+    sim.crabs()[0].mover.pos.x - 100.0
+}
+
+#[test]
+fn venom_slows_the_crab_to_half() {
+    let plain = walks(|_| {});
+    let slowed = walks(|sim| {
+        let id = sim.crabs()[0].id;
+        let bite = Hit {
+            venom: true,
+            ..Hit::new(0.0, 0.0, Source::World)
+        };
+        sim.hit_crab(id, &bite);
+    });
+    let share = slowed / plain;
+    assert!((0.45..=0.55).contains(&share), "{share}");
+}
+
+#[test]
+fn a_bite_on_raised_claws_carries_no_venom() {
+    let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+    let id = sim.crabs()[0].id;
+    play(&mut sim, &Replay::parse("@0 guard").unwrap(), 5, |_| {});
+    let bite = Hit {
+        venom: true,
+        ..Hit::new(10.0, 0.0, Source::World)
+    };
+    let out = sim.hit_crab(id, &bite);
+    assert!(matches!(out, crabsim::Outcome::Blocked(_)), "{out:?}");
+    assert!(sim.crabs()[0].fighter.venom.is_empty(), "the claw took it");
+}
+
+#[test]
+fn autotomy_frees_at_once() {
+    let caught = close("", 400, |_| {})
+        .run
+        .status
+        .iter()
+        .position(|s| s == "grabbed")
+        .unwrap();
+    // Down + dodge: a walking leg dropped, free on that tick.
+    let at = caught + 20;
+    let c = close(&format!("@{at} down=on dodge"), at as u64 + 5, |_| {});
+    assert_eq!(c.run.status[at - 1], "grabbed");
+    assert_ne!(c.run.status[at], "grabbed", "free at once");
+    assert!(c.dropped);
+    assert_eq!(c.legs[at], 1);
+    // Or (on a phone, with no down) holding dodge for half a second.
+    let held = close(&format!("@{at} sprint"), at as u64 + 80, |_| {});
+    let free = held.run.status[at..]
+        .iter()
+        .position(|s| s != "grabbed")
+        .unwrap();
+    let hold = Tuning::default().autotomy.hold_ticks as usize;
+    assert!((hold - 1..=hold + 1).contains(&free), "after {free}");
+    assert_eq!(*held.legs.last().unwrap(), 1);
+}
+
+#[test]
+fn each_dropped_leg_costs_8_percent_of_walking_until_the_next_moult() {
+    let plain = walks(|_| {});
+    let two = walks(|sim| {
+        let id = sim.crabs()[0].id;
+        sim.crab_mut(id).unwrap().fighter.legs_lost = 2;
+    });
+    let share = two / plain;
+    assert!((0.82..=0.86).contains(&share), "{share}");
+    // Dying is the moult (`world.md`): it wakes with every leg.
+    let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().fighter.legs_lost = 2;
+    sim.hit_crab(id, &Hit::new(1000.0, 0.0, Source::World));
+    for _ in 0..400 {
+        sim.tick();
+    }
+    assert_eq!(sim.crabs()[0].fighter.legs_lost, 0, "regrown");
+}
