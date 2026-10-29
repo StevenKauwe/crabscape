@@ -4,8 +4,8 @@
 //! - **Clams** lie half-buried in the floor: a pale ribbed shell with its
 //!   hinge in the sand, seen through the crab's memory like the level's own
 //!   shapes. A bed the local crab has taken is bare until it grows another.
-//! - A clam being carried home rides on the crab's back, like the lump of
-//!   bacteria and the tooth (`home.rs`).
+//! - A clam being carried home clings to the crab's shell, with any shell
+//!   grit (`cling.rs`).
 //! - **The larder:** a small pile of clams just inside the home shell's
 //!   doorway, one for each stored.
 //!
@@ -13,9 +13,8 @@
 //! sign by the reserve bar in `stamina.rs`.
 
 use bevy::prelude::*;
-use crabsim::{Carry, Mover, Sim};
+use crabsim::Sim;
 
-use crate::home::OUT_OF_SIGHT;
 use crate::memory::{MemoryMaterial, MemoryTexture};
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
@@ -39,14 +38,10 @@ impl Plugin for FoodPlugin {
             Startup,
             (
                 spawn_beds.after(crate::memory::setup_memory_texture),
-                spawn_clam_on_back,
                 spawn_larder,
             ),
         )
-        .add_systems(
-            Update,
-            (show_beds, carry_clam, show_larder).in_set(GameSet::Present),
-        );
+        .add_systems(Update, (show_beds, show_larder).in_set(GameSet::Present));
     }
 }
 
@@ -146,51 +141,6 @@ fn show_beds(
         };
         shown.set_if_neq(want);
     }
-}
-
-/// A clam on the crab's back, being carried home.
-#[derive(Component)]
-struct ClamOnBack;
-
-/// The clam on the crab's back, never the crab (both have a `Transform`).
-type ClamOnly = (With<ClamOnBack>, Without<LocalPlayer>);
-
-fn spawn_clam_on_back(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let mut paint = |colour: Color| materials.add(colour);
-    commands
-        .spawn((ClamOnBack, Transform::default(), Visibility::Hidden))
-        .with_children(|clam| spawn_clam(clam, &mut meshes, &mut paint, false));
-}
-
-/// The clam rides on the crab's back like the lump and the tooth do.
-fn carry_clam(
-    crab: Query<(&Mover, &Transform), With<LocalPlayer>>,
-    mut clam: Query<(&mut Transform, &mut Visibility), ClamOnly>,
-) {
-    let (Ok((mover, at)), Ok((mut clam_at, mut shown))) = (crab.single(), clam.single_mut()) else {
-        return;
-    };
-    shown.set_if_neq(
-        if mover.carrying == Some(Carry::Clam) && mover.tucked < OUT_OF_SIGHT {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        },
-    );
-    let (back, turn) = if mover.climbing {
-        (
-            Vec2::new(50.0 * mover.climb_side, -6.0),
-            -mover.climb_side * 1.2,
-        )
-    } else {
-        (Vec2::new(0.0, 56.0), 0.0)
-    };
-    clam_at.translation = (at.translation.truncate() + back).extend(9.5);
-    clam_at.rotation = Quat::from_rotation_z(turn);
 }
 
 /// One clam in the larder pile: shown while the larder holds more than

@@ -1,4 +1,5 @@
-//! Promises about food (the loop's "Prepare" step): clams carried home go
+//! Promises about food (the loop's "Prepare" step): clams carried home (on
+//! the shell, see `cling.rs`) go
 //! into the larder, a crab resting at home eats one and is well fed for a
 //! while (a bigger shell and reserve), the clam beds grow back, and all of
 //! it is saved.
@@ -84,20 +85,20 @@ fn a_clam_picked_up_goes_home_into_the_larder() {
     let mut sim = at_first_clam();
     idle(&mut sim, 1);
     let crab = sim.crab(P0).unwrap();
-    assert_eq!(crab.mover.carrying, Some(Carry::Clam));
-    assert!(crab.events.picked_up);
+    assert_eq!(crab.mover.clinging, vec![Carry::Clam]);
+    assert_eq!(crab.events.picked_up, Some(Carry::Clam));
     assert!(crab.clams[0] > 0, "the bed is bare for a while");
     assert_eq!(crab.larder, 0);
 
     let seen = walk_home(&mut sim);
     let crab = sim.crab(P0).unwrap();
     assert!(seen.contains(&"stored"), "{seen:?}");
-    assert_eq!(crab.mover.carrying, None);
+    assert!(crab.mover.clinging.is_empty());
     assert_eq!(crab.larder, 1);
 }
 
 #[test]
-fn a_full_larder_leaves_the_clam_on_its_back() {
+fn a_full_larder_leaves_the_clam_on_its_shell() {
     let mut sim = at_first_clam();
     idle(&mut sim, 1);
     let full = sim.tuning.food.larder;
@@ -108,7 +109,7 @@ fn a_full_larder_leaves_the_clam_on_its_back() {
     let crab = sim.crab(P0).unwrap();
     assert!(seen.contains(&"larder full"), "{seen:?}");
     assert_eq!(crab.larder, full);
-    assert_eq!(crab.mover.carrying, Some(Carry::Clam));
+    assert_eq!(crab.mover.clinging, vec![Carry::Clam]);
 }
 
 #[test]
@@ -199,19 +200,15 @@ fn a_taken_clam_bed_grows_back_after_its_time() {
     let mut sim = at_first_clam();
     idle(&mut sim, 1);
     let regrow = sim.tuning.food.regrow_ticks;
-    // Standing on the bare bed with the clam still on its back.
+    // Standing on the bare bed with the clam still on its shell.
     idle(&mut sim, regrow - 2);
     assert!(sim.crab(P0).unwrap().clams[0] > 0, "not yet");
     idle(&mut sim, 2);
+    // Grown back, and with room on its shell it takes the new one too.
     let crab = sim.crab(P0).unwrap();
-    assert_eq!(crab.clams[0], 0, "grown back");
-    assert_eq!(crab.mover.carrying, Some(Carry::Clam), "its back is full");
-    // A free back takes the new one.
-    sim.crab_mut(P0).unwrap().mover.carrying = None;
-    idle(&mut sim, 1);
-    let crab = sim.crab(P0).unwrap();
-    assert_eq!(crab.mover.carrying, Some(Carry::Clam));
-    assert!(crab.clams[0] > 0);
+    assert_eq!(crab.events.picked_up, Some(Carry::Clam), "grown back");
+    assert_eq!(crab.mover.clinging, vec![Carry::Clam, Carry::Clam]);
+    assert_eq!(crab.clams[0], sim.tuning.food.regrow_ticks);
 }
 
 #[test]
@@ -232,7 +229,7 @@ fn dying_with_a_clam_leaves_it_in_the_cast_off_shell_and_keeps_the_larder() {
     idle(&mut sim, respawn + 2);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.mover.shelter, Shelter::In, "woke at home");
-    assert_eq!(crab.mover.carrying, None);
+    assert!(crab.mover.clinging.is_empty());
     assert_eq!(crab.cast_offs.len(), 1);
     assert_eq!(crab.cast_offs[0].carrying, Carry::Clam);
     assert_eq!(crab.larder, 3, "the larder is at home");
@@ -289,11 +286,12 @@ fn a_save_from_before_food_still_loads() {
 
 #[test]
 fn a_replay_recorded_after_a_reload_carries_the_food_it_started_with() {
-    // A reload in the middle of a dive: a clam on the back, a bed bare, well
-    // fed, food in the larder. A bug report from here must play the same.
+    // A reload in the middle of a dive: a clam on the shell, a bed bare,
+    // well fed, food in the larder. A bug report from here must play the
+    // same.
     let mut live = by_home();
     let mut saved = live.progress(P0).unwrap();
-    saved.carrying = Some(Carry::Clam);
+    saved.clinging = vec![Carry::Clam];
     saved.clams[0] = 5000;
     saved.larder = 2;
     saved.well_fed = 9000;

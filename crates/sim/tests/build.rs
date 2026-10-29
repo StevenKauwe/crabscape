@@ -1,6 +1,7 @@
 //! Promises about building (the loop's "Build" step): shell grit lies about
-//! the level, more of it deeper; a crab carries it home on its back one
-//! piece at a time, and the workbench builds it into the home shell. Enough
+//! the level, more of it deeper; a crab carries it home clinging to its
+//! shell (a few pieces at most, see `cling.rs`), and the workbench builds it
+//! into the home shell. Enough
 //! of it and the home grows a stage, each one felt: it mends the crab
 //! sooner, then holds a bigger larder, then makes a meal there last longer.
 //! Each crab grows its own home, and it is saved.
@@ -45,12 +46,12 @@ fn by_home() -> Sim {
 }
 
 /// A crab by home with `built` grit already in its home and a piece of
-/// grit on its back.
+/// grit on its shell.
 fn bringing_grit(built: u32) -> Sim {
     let mut sim = by_home();
     let crab = sim.crab_mut(P0).unwrap();
     crab.home_grit = built;
-    crab.mover.carrying = Some(Carry::Grit);
+    crab.mover.clinging = vec![Carry::Grit];
     sim
 }
 
@@ -118,20 +119,20 @@ fn grit_picked_up_rides_home_and_is_built_in() {
     let mut sim = at_grit(0);
     idle(&mut sim, 1);
     let crab = sim.crab(P0).unwrap();
-    assert_eq!(crab.mover.carrying, Some(Carry::Grit));
-    assert!(crab.events.picked_up);
+    assert_eq!(crab.mover.clinging, vec![Carry::Grit]);
+    assert_eq!(crab.events.picked_up, Some(Carry::Grit));
     assert!(crab.grit_taken[0]);
     assert_eq!(crab.home_stage(&sim.tuning), 0);
 
     // Carried home (put by the doorway, still carrying it).
     let mut m = crabsim::Mover::new(Vec2::new(180.0, 0.0));
-    m.carrying = Some(Carry::Grit);
+    m.clinging = vec![Carry::Grit];
     sim.crab_mut(P0).unwrap().mover = m;
     let seen = walk_home(&mut sim);
     let crab = sim.crab(P0).unwrap();
     assert!(seen.contains(&"built"), "{seen:?}");
     assert!(seen.contains(&"home grew"), "the first piece: {seen:?}");
-    assert_eq!(crab.mover.carrying, None);
+    assert!(crab.mover.clinging.is_empty());
     assert_eq!(crab.home_grit, 1);
     assert_eq!(crab.home_stage(&sim.tuning), 1);
 }
@@ -143,16 +144,16 @@ fn taken_grit_stays_taken_and_each_crab_finds_its_own() {
     let floor = sim.level.floor_height(g.x);
     sim.add_crab(PlayerId(1), Vec2::new(g.x + 400.0, floor));
     idle(&mut sim, 1);
-    // Its back free again, standing on the spot: nothing more to take.
-    sim.crab_mut(P0).unwrap().mover.carrying = None;
+    // Its shell free again, standing on the spot: nothing more to take.
+    sim.crab_mut(P0).unwrap().mover.clinging.clear();
     idle(&mut sim, 600);
-    assert_eq!(sim.crab(P0).unwrap().mover.carrying, None);
+    assert!(sim.crab(P0).unwrap().mover.clinging.is_empty());
     // The other crab's piece is still there for it.
     assert!(!sim.crab(PlayerId(1)).unwrap().grit_taken[0]);
     sim.crab_mut(PlayerId(1)).unwrap().mover = crabsim::Mover::new(Vec2::new(g.x, floor));
     idle(&mut sim, 1);
     let other = sim.crab(PlayerId(1)).unwrap();
-    assert_eq!(other.mover.carrying, Some(Carry::Grit));
+    assert_eq!(other.mover.clinging, vec![Carry::Grit]);
     assert_eq!(other.home_grit, 0, "its own home");
 }
 
@@ -198,7 +199,7 @@ fn stage_two_holds_a_bigger_larder() {
         let crab = sim.crab_mut(P0).unwrap();
         crab.home_grit = grit;
         crab.larder = t.food.larder;
-        crab.mover.carrying = Some(Carry::Clam);
+        crab.mover.clinging = vec![Carry::Clam];
         crab.mover.well_fed = 100_000; // not hungry: it keeps the larder full
         let seen = walk_home(&mut sim);
         (seen, sim.crab(P0).unwrap().larder)
@@ -243,7 +244,7 @@ fn a_crevice_has_no_workbench_to_build_with() {
     let sim = Sim::with_one_crab(Vec2::ZERO);
     let c = sim.level.crevices[0];
     let mut sim = Sim::with_one_crab(Vec2::new(c.door.max.x - 5.0, c.den.y));
-    sim.crab_mut(P0).unwrap().mover.carrying = Some(Carry::Grit);
+    sim.crab_mut(P0).unwrap().mover.clinging = vec![Carry::Grit];
     for _ in 0..600 {
         sim.set_controls(
             P0,
@@ -256,7 +257,7 @@ fn a_crevice_has_no_workbench_to_build_with() {
     }
     let crab = sim.crab(P0).unwrap();
     assert!(crab.mover.tucked_in());
-    assert_eq!(crab.mover.carrying, Some(Carry::Grit));
+    assert_eq!(crab.mover.clinging, vec![Carry::Grit]);
     assert_eq!(crab.home_grit, 0);
 }
 
@@ -274,7 +275,7 @@ fn dying_with_grit_leaves_it_in_the_cast_off_shell_and_keeps_the_home() {
     idle(&mut sim, respawn + 2);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.mover.shelter, Shelter::In, "woke at home");
-    assert_eq!(crab.mover.carrying, None, "not built in on waking");
+    assert!(crab.mover.clinging.is_empty(), "not built in on waking");
     assert_eq!(crab.home_grit, 2, "the home stays grown");
     assert_eq!(crab.cast_offs.len(), 1);
     assert_eq!(crab.cast_offs[0].carrying, Carry::Grit);
@@ -292,7 +293,7 @@ fn the_home_and_the_grit_taken_come_back_after_a_reload() {
         crab.grit_taken[2] = true;
         // A larder bigger than a plain home holds.
         crab.larder = t.food.larder + 2;
-        crab.mover.carrying = Some(Carry::Grit);
+        crab.mover.clinging = vec![Carry::Grit];
     }
     let saved = sim.progress(P0).unwrap();
     assert_eq!(saved.home_grit, t.build.stages[1]);
@@ -305,7 +306,7 @@ fn the_home_and_the_grit_taken_come_back_after_a_reload() {
     let crab = fresh.crab(P0).unwrap();
     assert_eq!(crab.home_stage(&t), 2);
     assert_eq!(crab.larder, t.food.larder + 2, "the bigger larder kept");
-    assert_eq!(crab.mover.carrying, Some(Carry::Grit));
+    assert_eq!(crab.mover.clinging, vec![Carry::Grit]);
 }
 
 #[test]
@@ -330,11 +331,11 @@ fn a_save_from_before_building_still_loads() {
 
 #[test]
 fn a_replay_of_building_plays_the_same() {
-    // A reload with grit on the back (and its spot taken), then home to
+    // A reload with grit on the shell (and its spot taken), then home to
     // build it in: a bug report from here must play the same.
     let mut live = by_home();
     let mut saved = live.progress(P0).unwrap();
-    saved.carrying = Some(Carry::Grit);
+    saved.clinging = vec![Carry::Grit];
     saved.grit_taken[0] = true;
     live.restore_progress(P0, &saved);
     live.start_recording();

@@ -4,8 +4,8 @@
 //! - **Shell grit** lies in small heaps on the floor: pale, broken pieces of
 //!   old shells, seen through the crab's memory like the level's own shapes.
 //!   A heap the local crab took is gone.
-//! - A piece being carried home rides on the crab's back, like the clam and
-//!   the tooth.
+//! - A piece being carried home clings to the crab's shell, with any clams
+//!   (`cling.rs`).
 //! - **The home grows**, each stage drawn onto the shell (`home.rs`) in the
 //!   same flat shapes: stage 1 packs grit round the doorway's rim and banks
 //!   it against the foot of the opening; stage 2 lays a shelf of grit inside
@@ -17,9 +17,9 @@
 //! `notes.rs`.
 
 use bevy::prelude::*;
-use crabsim::{Carry, Mover, Sim};
+use crabsim::Sim;
 
-use crate::home::{OUT_OF_SIGHT, SHELL_SCALE, SHELL_Z};
+use crate::home::{SHELL_SCALE, SHELL_Z};
 use crate::memory::{MemoryMaterial, MemoryTexture};
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
@@ -40,13 +40,12 @@ impl Plugin for BuildPlugin {
             Startup,
             (
                 spawn_heaps.after(crate::memory::setup_memory_texture),
-                spawn_grit_on_back,
                 spawn_home_stages,
             ),
         )
         .add_systems(
             Update,
-            (show_heaps, carry_grit, show_home_stages).in_set(GameSet::Present),
+            (show_heaps, show_home_stages).in_set(GameSet::Present),
         );
     }
 }
@@ -150,51 +149,6 @@ fn show_heaps(
             Visibility::Inherited
         });
     }
-}
-
-/// Shell grit on the crab's back, being carried home.
-#[derive(Component)]
-struct GritOnBack;
-
-/// The grit on the crab's back, never the crab (both have a `Transform`).
-type GritOnly = (With<GritOnBack>, Without<LocalPlayer>);
-
-fn spawn_grit_on_back(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let mut paint = |colour: Color| materials.add(colour);
-    commands
-        .spawn((GritOnBack, Transform::default(), Visibility::Hidden))
-        .with_children(|heap| spawn_heap(heap, &mut meshes, &mut paint));
-}
-
-/// The grit rides on the crab's back like the clam does.
-fn carry_grit(
-    crab: Query<(&Mover, &Transform), With<LocalPlayer>>,
-    mut grit: Query<(&mut Transform, &mut Visibility), GritOnly>,
-) {
-    let (Ok((mover, at)), Ok((mut grit_at, mut shown))) = (crab.single(), grit.single_mut()) else {
-        return;
-    };
-    shown.set_if_neq(
-        if mover.carrying == Some(Carry::Grit) && mover.tucked < OUT_OF_SIGHT {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        },
-    );
-    let (back, turn) = if mover.climbing {
-        (
-            Vec2::new(48.0 * mover.climb_side, -4.0),
-            -mover.climb_side * 1.2,
-        )
-    } else {
-        (Vec2::new(0.0, 50.0), 0.0)
-    };
-    grit_at.translation = (at.translation.truncate() + back).extend(9.5);
-    grit_at.rotation = Quat::from_rotation_z(turn);
 }
 
 /// A part of the home that shows once it has grown to stage `.0`.

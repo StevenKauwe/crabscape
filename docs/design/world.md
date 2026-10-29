@@ -27,8 +27,21 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   larder, no meal. The last place it rested, crevice or home, is where it wakes after dying ("A safe crevice. You'll
   wake here."). Each crab keeps its own, and it's saved. They sit at dead ends on purpose, so a crab walking past
   never backs into one by accident; past the trench every such wall foot is already a moray's.
+- **Carrying: big finds on the back, small things on the shell.** A big find (the lantern culture, the shed tooth) rides
+  on the crab's back, one at a time (sponge crabs really carry things on their backs). Small things (clams, shell grit)
+  cling to its shell instead, up to 4 at once, drawn stuck on the carapace's dome so you see what you carry: decorator
+  crabs really fix bits of their surroundings to their bodies, held mostly by hooked setae (hairs) on the carapace
+  ([Lianos et al. 2022, "Much more than hooked: Setal adaptations for camouflage in *Macrocoeloma trispinosum*",
+  Arthropod Structure & Development 66](https://pubmed.ncbi.nlm.nih.gov/34863064/)); that they carry food home this way:
+  not verified. Neither blocks the other: a clam on the shell never stops the crab taking the culture, nor the
+  culture a clam. With the shell full, a small thing stays where it lies ("No room on your shell"), never swapped.
+  Tucked in at home, everything comes off at once (clams into the larder, grit into the home, the culture into the
+  lantern, the tooth onto the crusher). Four is enough that a small thing never costs a trip of its own (the shallows'
+  two clams and heap fit, and so does the pit's clam and two heaps), and few enough that the larder can't be filled nor
+  the home finished in one trip. Dying leaves all of it in the cast-off shell; walking back over it takes back
+  whatever there's room for.
 - **The lantern culture:** at the bottom of the pit, a patch of wild glowing bacteria (blue-green). Touching it puts a
-  lump on the crab's back (sponge crabs really carry things on their backs). Brought home, it's cultured into the
+  lump on the crab's back. Brought home, it's cultured into the
   lantern: the light reaches about a third further for each one. The trip home (climb out, cross the basin, the cliff
   steps, the trench) is the challenge.
 - **Skills grow by doing (RuneScape):** each earns experience by doing it, and each level needs a little more
@@ -48,7 +61,7 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   bright enough lantern comes near (the starting lantern doesn't reach; one brightened with the pit's culture does).
   Inside: a fourth egg and the first clue to the trench mystery, a shed tooth bigger than the crab (sharks shed and
   regrow teeth all their lives), hinting at the huge shape that passes in the pit.
-- **The tooth makes scissor claws:** the crab carries it home on its back (one thing at a time), and the workbench in
+- **The tooth makes scissor claws:** the crab carries it home on its back (one big find at a time), and the workbench in
   the shell fits its edges along both fingers of the crusher claw (found things as gear): **scissor claws**. Higher up
   the pit's right wall, a passage is blocked by a **ghost net** (a lost fishing net): only a jump and four strokes from
   the alcove's roof reach it, and the scissor claws snap through it (gone for everyone once cut). Beyond: a short tunnel and a coral-lined shaft up to the far part of the basin, where a
@@ -57,18 +70,18 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
 - **Food (the "Prepare" step):** clams lie half-buried in the floor: two in the shallows near home, one in the basin
   below the cliff, and harder ones on the flats past the trench (by the moray) and at the bottom of the pit; three more in the canyon
   (two on its floor, one on the far rim). Walking
-  over one puts it on the crab's back (one thing at a time, like the culture and the tooth); its bed grows a new one
+  over one sticks it to the crab's shell (with room for a few small things, see Carrying); its bed grows a new one
   after 3 minutes of play. There's no fire underwater, so food is prepared, not cooked: brought home, a clam goes
-  into the **larder** (a small pile inside the doorway, up to 5). Settled in at home and not already well fed, the
+  into the **larder** (a small pile inside the doorway, up to 5; a clam with no room stays on the shell). Settled in at home and not already well fed, the
   crab cracks one open with its crusher and eats it (that crabs open clams by crushing or chipping the shell: not
   verified) and is **well fed** for 4 minutes of play: its shell holds 25% more and its reserve 3 strokes more, both
   filled. It ends all at once (the extra shell and reserve go, keeping what fits). Dying ends it too (it wakes
-  hungry, as in Valheim), but the larder is at home and stays; a clam on the back drops into the cast-off shell like
+  hungry, as in Valheim), but the larder is at home and stays; a clam on the shell drops into the cast-off shell like
   anything carried.
 - **Building (the "Build" step): the home grows with shell grit.** Small heaps of shell grit (pale pieces of old,
   broken shells) lie on the floor, more of them deeper: one in the shallows by the first snapping shrimp, one on the
   slope past the trench, one in the basin below the cliff, one in the far basin past the ghost net, two at the
-  bottom of the pit and three in the canyon (one on its shelf, two on its floor). Walking over one puts a piece on the crab's back (one thing at a time, like the clam); each heap
+  bottom of the pit and three in the canyon (one on its shelf, two on its floor). Walking over one sticks a piece to the crab's shell (a small thing, like the clam); each heap
   is there once. Brought home, the workbench builds it into the shell. Animals really do this: octopuses dig their
   dens into beds of discarded shells, which "line and stabilise the shaft-like dens", and arrange shells round the
   den's edge ([Hing and Godfrey-Smith, The Conversation, "Did they mean to do that? Accident and intent in an
@@ -80,7 +93,7 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   - **5 pieces, the lip grown out** into a broad, pale flare (a snail's shell grows at its opening: not verified),
     with grit crusted along the top: a meal eaten at home keeps the crab well fed for 6 minutes of play, not 4
     (Valheim's comfort, which makes resting last longer).
-  The first stage is a stroll from home; the last needs the basin and the pit. A piece on the back drops into the
+  The first stage is a stroll from home; the last needs the basin and the pit. A piece on the shell drops into the
   cast-off shell like anything carried; what is built stays built. Each crab grows its own home (in co-op each
   player's home is in their own game), and it's saved.
 - Eggs, cultures, skills, gear, cast-off shells, food (the larder, the beds growing back, the time left well fed)

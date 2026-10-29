@@ -48,8 +48,9 @@ crusher's **smash** (14-tick wind-up, 6 active, 22 recovery; 12 damage, 25 poise
 (6/4/12; 5 damage, 8 poise). A swing plants the feet (the crab slides to a stop: momentum); dodge cancels its
 recovery. Numbers: `crates/sim/src/tuning.rs`. Dying sinks the crab into the sand and it wakes 1.25 s later tucked in
 its home shell, or in the last crevice it rested in (rest stops, `world.md`), with full health and everything it had grown or fitted (lantern, scissor claws, climbing). What it
-was carrying stays in its **cast-off shell** where it died, drawn pale on the floor with the lump or tooth on it:
-walking back over it picks the load up again ("Got it back!").
+was carrying (the big find on its back and the clams and grit on its shell) stays in its **cast-off shell** where it
+died, drawn pale on the floor with all of it on it: walking back over it picks the load up again, whatever there's
+room for ("Got it back!").
 A beaten creature's body lies where it fell (belly up) until it comes back: walking onto it, the crab eats it, mending
 half its shell and filling its reserve, once per body. Home and the rest-stop crevices are the only other places the
 shell mends, so a fight on the way is worth it. Tucked right in (at home or in a crevice) the crab is out of reach: no

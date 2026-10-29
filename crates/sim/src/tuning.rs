@@ -300,6 +300,10 @@ pub struct Tuning {
     pub memory: MemoryTuning,
     /// Hulk mode, the `hulk` code (`crate::codes`).
     pub hulk: HulkTuning,
+    /// How many small things (clams, shell grit) cling to the crab's shell
+    /// at once, the way a decorator crab wears bits of the floor. A big find
+    /// (a culture, a tooth) rides on its back besides, one at a time.
+    pub cling: usize,
     /// Clams, the larder at home and being well fed (`docs/design/world.md`).
     pub food: FoodTuning,
     /// Growing the home shell with shell grit (`docs/design/world.md`).
@@ -1181,6 +1185,11 @@ impl Tuning {
                 poise_taken: 0.2,
                 walk: 0.8,
             },
+            // Four: a shallows trip (two clams, a heap of grit) fits with
+            // room to spare, and so does the pit (a clam, two heaps), but the
+            // larder (5) can't be filled nor the home (5 grit) finished in
+            // one trip.
+            cling: 4,
             food: FoodTuning {
                 larder: 5,
                 regrow_ticks: 3 * 60 * 120,   // 3 min of play
