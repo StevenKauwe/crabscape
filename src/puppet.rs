@@ -6,7 +6,7 @@
 //! `crabrig export` (crates/crabrig) from the art file. The parts list (small) is
 //! baked into the game; the pictures are loaded at start-up, next to the page
 //! on the web (`assets/crab/crab-atlas.png`, and `crab-atlas-oil.png` for the
-//! oil-painted style, made by `tools/paint-oil-crab.sh`). Keeping pictures out
+//! oil-painted style, made by `tools/paint-oil.sh`). Keeping pictures out
 //! of the `.wasm` keeps it small. Both atlases use the same rectangles.
 //!
 //! # How the puppet hangs together

@@ -157,6 +157,7 @@ fn main() {
                 secrets::SecretsPlugin,
                 ending::EndingPlugin,
                 codes::CodesPlugin,
+                creature_art::CreatureArtPlugin,
             ),
             sound::SoundPlugin,
             stamina::StaminaPlugin,
