@@ -283,6 +283,7 @@ impl Summary {
                 "staggered",
                 "died",
                 "respawned",
+                "recovered",
                 "struck",
                 "blocked",
                 "parried",

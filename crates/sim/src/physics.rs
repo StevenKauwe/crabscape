@@ -316,8 +316,10 @@ pub struct StepEvents {
     pub staggered: bool,
     /// Health ran out.
     pub died: bool,
-    /// Back at the spawn after dying.
+    /// Woke at home after dying.
     pub respawned: bool,
+    /// Took its load back from its cast-off shell.
+    pub recovered: bool,
     /// A claw connected with something.
     pub struck: bool,
     /// Stopped a blow with raised claws.
@@ -369,6 +371,7 @@ impl StepEvents {
         self.staggered |= other.staggered;
         self.died |= other.died;
         self.respawned |= other.respawned;
+        self.recovered |= other.recovered;
         self.struck |= other.struck;
         self.blocked |= other.blocked;
         self.parried |= other.parried;
@@ -413,6 +416,7 @@ impl StepEvents {
             (self.staggered, "staggered"),
             (self.died, "died"),
             (self.respawned, "respawned"),
+            (self.recovered, "recovered"),
             (self.struck, "struck"),
             (self.blocked, "blocked"),
             (self.parried, "parried"),

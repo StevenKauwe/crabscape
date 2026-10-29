@@ -64,12 +64,20 @@ pub struct SimCrab {
     pub fighter: Fighter,
     /// What it has seen and remembers: its own map of the level.
     pub memory: Memory,
-    /// The last safe spot it stood on (where it comes back after dying):
-    /// on the floor, away from every enemy.
-    pub safe: Vec2,
+    /// Its cast-off shells, each where it died carrying something
+    /// (`docs/design/world.md`, Death): touch one to take its load back.
+    pub cast_offs: Vec<CastOff>,
     /// Events from between ticks (a hit from outside), added to the next
     /// tick's.
     pending: StepEvents,
+}
+
+/// The shell a crab leaves where it died, holding what it carried: it wakes
+/// at home without it and has to dive back for it.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CastOff {
+    pub pos: Vec2,
+    pub carrying: Carry,
 }
 
 /// The game world, as far as the rules are concerned. (In the game it is a
@@ -160,7 +168,7 @@ impl Sim {
             teeth_taken: vec![false; self.level.teeth.len()],
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
-            safe: pos,
+            cast_offs: Vec::new(),
             pending: StepEvents::default(),
         });
     }
@@ -517,18 +525,30 @@ impl Sim {
                 crab.events = ev;
                 continue;
             }
-            // Dead: still, until it's back at its last safe spot.
+            // Dead: still, until it wakes tucked in its home shell (Valheim's
+            // death, `world.md`). What it carried stays in its cast-off shell
+            // where it fell; what it is (strokes, lantern, claws, skills) it
+            // keeps.
             if f.dead.is_some_and(|d| d >= self.tuning.respawn_ticks) {
+                if let Some(carrying) = crab.mover.carrying {
+                    crab.cast_offs.push(CastOff {
+                        pos: crab.mover.pos,
+                        carrying,
+                    });
+                }
                 *f = Fighter::new(&self.tuning);
+                let den = self.level.home_den;
                 crab.mover = crate::physics::Mover {
                     upgrades: crab.mover.upgrades,
                     lantern: crab.mover.lantern,
                     scissor_claw: crab.mover.scissor_claw,
                     climb_xp: crab.mover.climb_xp,
-                    ..crate::physics::Mover::new(crab.safe)
+                    shelter: Shelter::In,
+                    tucked: 1.0,
+                    ..crate::physics::Mover::new(den)
                 };
                 crab.mover.stamina = crab.mover.strokes(&self.tuning) as f32;
-                crab.prev_pos = crab.safe;
+                crab.prev_pos = den;
                 ev.respawned = true;
             }
             // In its home shell the claws stay folded (nothing queued comes
@@ -562,23 +582,6 @@ impl Sim {
             }
             combat::after_step(&mut crab.fighter, &crab.mover);
             crush(crab, &mut self.enemies, &self.tuning, &mut ev);
-            // A safe spot to come back to: on the floor, no enemy near.
-            let m = &crab.mover;
-            // (Each enemy's own reach: how far it notices, plus a margin.)
-            let t = &self.tuning;
-            let near = |e: &Enemy, x: f32| {
-                let reach = e.kind.tuning(t).notice_range + t.safe_distance;
-                (x - m.pos.x).abs() < reach
-            };
-            if m.grounded
-                && !m.climbing
-                && crab.fighter.dead.is_none()
-                && !self.enemies.iter().any(|e| {
-                    near(e, e.home.x) || (e.state != enemy::State::Gone && near(e, e.pos.x))
-                })
-            {
-                crab.safe = m.pos;
-            }
             crab.events = ev;
             // A press counts once.
             crab.controls = crab.controls.held_only();
@@ -610,6 +613,19 @@ impl Sim {
                     crab.mover.carrying = Some(Carry::Tooth);
                     crab.events.picked_up = true;
                 }
+            }
+            // Its cast-off shell, back where it died: what it carried goes on
+            // its back again (if its back is free).
+            if crab.mover.carrying.is_none()
+                && crab.fighter.dead.is_none()
+                && let Some(i) = crab
+                    .cast_offs
+                    .iter()
+                    .position(|c| in_reach(&crab.mover, c.pos, &self.tuning))
+            {
+                crab.mover.carrying = Some(crab.cast_offs.remove(i).carrying);
+                crab.events.picked_up = true;
+                crab.events.recovered = true;
             }
             // A ghost net it presses against: cut, with scissor claws (gone
             // for everyone); without them, it's in the way.

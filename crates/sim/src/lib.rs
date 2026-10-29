@@ -59,7 +59,7 @@ pub use memory::{Memory, MemorySave, Sight, Sighting};
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use replay::Replay;
 pub use tuning::Tuning;
-pub use world::{PlayerId, Sim, SimCrab, Snapshot};
+pub use world::{CastOff, PlayerId, Sim, SimCrab, Snapshot};
 
 /// Play `replay` (as player 0) in `sim` for `ticks` ticks, calling
 /// `after_tick` after every tick. Use [`Sim::with_one_crab`] with

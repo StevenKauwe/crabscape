@@ -11,13 +11,16 @@
 //!   strain is yellow).
 //! - While the crab carries a lump of it home, it rides on its back, the way
 //!   sponge crabs carry a sponge.
+//! - Where the crab died, its cast-off shell lies pale on the floor with
+//!   what it was carrying, until it walks back for it.
 
 use bevy::prelude::*;
-use crabsim::{Carry, Mover, Sim};
+use crabsim::{Carry, CastOff, Mover, Sim};
 
 use crate::effects::SoftTextures;
 use crate::memory::Known;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
+use crate::style::ArtStyle;
 
 /// How far the crab has backed into its home shell ([`Mover::tucked`]) when
 /// it's out of sight.
@@ -48,7 +51,14 @@ impl Plugin for HomePlugin {
         )
         .add_systems(
             Update,
-            (glow_cultures, carry_lump, carry_tooth, warm_hearth).in_set(GameSet::Present),
+            (
+                glow_cultures,
+                carry_lump,
+                carry_tooth,
+                warm_hearth,
+                show_cast_offs,
+            )
+                .in_set(GameSet::Present),
         );
     }
 }
@@ -309,3 +319,93 @@ fn carry_tooth(
 
 /// The tooth on the crab's back, never the crab (both have a `Transform`).
 type ToothOnly = (With<ToothOnBack>, Without<LocalPlayer>);
+
+/// A shell the crab left where it died, with what it was carrying on it.
+#[derive(Component)]
+struct CastOffShell;
+
+/// The carapace's place in the crab atlas (`assets/crab/crab-parts.json`),
+/// and that file's pixels per art unit.
+const CARAPACE_RECT: Rect = Rect {
+    min: Vec2::new(3.0, 3.0),
+    max: Vec2::new(399.0, 222.0),
+};
+const ATLAS_PX_PER_UNIT: f32 = 0.6;
+/// Dull and see-through, like a moult: an empty husk, not a crab.
+const CAST_OFF: Color = Color::srgba(0.62, 0.60, 0.58, 0.5);
+
+/// Draw the local crab's cast-off shells, redrawn whenever they change.
+#[allow(clippy::too_many_arguments)]
+fn show_cast_offs(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    style: Res<ArtStyle>,
+    assets: Res<AssetServer>,
+    soft: Res<SoftTextures>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    me: Query<&PlayerId, With<LocalPlayer>>,
+    drawn: Query<Entity, With<CastOffShell>>,
+    mut shown: Local<Option<(Vec<CastOff>, ArtStyle)>>,
+) {
+    let Some(crab) = me.single().ok().and_then(|id| sim.crab(*id)) else {
+        return;
+    };
+    let now = (crab.cast_offs.clone(), *style);
+    if shown.as_ref() == Some(&now) {
+        return;
+    }
+    for e in &drawn {
+        commands.entity(e).despawn();
+    }
+    let atlas = assets.load(match *style {
+        ArtStyle::Ink => "crab/crab-atlas.png",
+        ArtStyle::Oil => "crab/crab-atlas-oil.png",
+    });
+    let size = CARAPACE_RECT.size() / ATLAS_PX_PER_UNIT * crate::puppet::ART_SCALE;
+    for off in &now.0 {
+        // Lying a little askew on the floor where the crab fell.
+        let at = Vec2::new(off.pos.x, off.pos.y + size.y * 0.35);
+        commands
+            .spawn((
+                CastOffShell,
+                Sprite {
+                    image: atlas.clone(),
+                    rect: Some(CARAPACE_RECT),
+                    custom_size: Some(size),
+                    color: CAST_OFF,
+                    ..default()
+                },
+                Transform::from_translation(at.extend(9.0))
+                    .with_rotation(Quat::from_rotation_z(-0.18)),
+            ))
+            .with_children(|shell| match off.carrying {
+                Carry::Culture => {
+                    for (size, alpha) in [(46.0, 0.35), (20.0, 0.9)] {
+                        shell.spawn((
+                            Sprite {
+                                image: soft.dot.clone(),
+                                color: WILD.with_alpha(alpha),
+                                custom_size: Some(Vec2::splat(size)),
+                                ..default()
+                            },
+                            Transform::from_xyz(0.0, 20.0, 0.1),
+                        ));
+                    }
+                }
+                Carry::Tooth => {
+                    let blade = Triangle2d::new(
+                        Vec2::new(-30.0, 0.0),
+                        Vec2::new(18.0, -3.0),
+                        Vec2::new(18.0, 20.0),
+                    );
+                    shell.spawn((
+                        Mesh2d(meshes.add(blade)),
+                        MeshMaterial2d(materials.add(Color::srgb(0.60, 0.56, 0.48))),
+                        Transform::from_xyz(0.0, 18.0, 0.1),
+                    ));
+                }
+            });
+    }
+    *shown = Some(now);
+}
