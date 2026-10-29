@@ -12,3 +12,6 @@ roxmltree = "0.20"
 resvg = { version = "0.45", default-features = false }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde = "1"
+
+[lints]
+workspace = true

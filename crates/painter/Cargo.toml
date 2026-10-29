@@ -21,3 +21,6 @@ gpu = ["brushwork/gpu"]
 [[bin]]
 name = "crabpaint"
 path = "src/bin/crabpaint.rs"
+
+[lints]
+workspace = true

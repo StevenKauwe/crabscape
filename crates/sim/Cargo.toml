@@ -20,3 +20,6 @@ bevy_ecs = { version = "0.20.0", default-features = false, features = ["std"], o
 [features]
 # The game turns this on. The headless runner and the tests leave it off.
 bevy = ["dep:bevy_ecs"]
+
+[lints]
+workspace = true
