@@ -1,16 +1,16 @@
-//! Oil-paint the crab's puppet parts, keeping each part's exact outline.
+//! Oil-paint a puppet's parts (the crab's or a creature's), keeping each part's exact outline.
 //!
 //! The painter (`crabpaint oilphoto`, crates/painter) paints one landscape picture at a
-//! fixed size. A puppet part can't be painted alone (too small) or in place on the assembled crab (parts overlap,
+//! fixed size. A puppet part can't be painted alone (too small) or in place on the assembled puppet (parts overlap,
 //! so a part's hidden end would be painted with its neighbour's colours). So:
 //!
-//! 1. `layout`: take a big copy of the atlas (`crabrig export --scale 2.5 --out DIR`), spread the parts
-//!    over painter-sized sheets with plenty of room around each, and surround each part with a halo of its own edge
-//!    colours fading into a dark neutral ground, so the painter's edge strokes have something sensible to pull.
-//! 2. Paint every sheet (see `tools/paint-oil-crab.sh`).
+//! 1. `layout`: take a big copy of the atlas (`crabrig export [--creature C] --scale Z --out DIR`), spread the
+//!    parts over painter-sized sheets with plenty of room around each, and surround each part with a halo of its own
+//!    edge colours fading into a dark neutral ground, so the painter's edge strokes have something sensible to pull.
+//! 2. Paint every sheet (see `tools/paint-oil.sh`).
 //! 3. `pack`: cut each painted part back out with the game atlas's own alpha (grown by about a pixel and softened,
-//!    so the painted edge survives), shrink it to the game atlas's size, and write `crab-atlas-oil.png` with exactly
-//!    the same rectangles as `crab-atlas.png`, so `crab-parts.json` serves both.
+//!    so the painted edge survives), shrink it to the game atlas's size, and write `<name>-atlas-oil.png` with
+//!    exactly the same rectangles as `<name>-atlas.png`, so `<name>-parts.json` serves both.
 //!
 //! Usage:
 //!
