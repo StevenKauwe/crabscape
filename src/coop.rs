@@ -755,24 +755,12 @@ mod web {
                             link.send(peer, sim.world().to_bytes().into(), RELIABLE);
                         }
                     }
-                    PeerState::Disconnected => gone.push((peer, true)),
+                    PeerState::Disconnected => gone.push(peer),
                 }
             }
+            let mut met = Vec::new();
             for channel in [RELIABLE, QUICK] {
                 for (peer, bytes) in link.socket.channel_mut(channel).receive() {
-                    // A device dropped for going silent (frozen, or its network stalled) whose connection held:
-                    // it's back as soon as it speaks, not when someone next joins the room afresh.
-                    if !link.peers.iter().any(|p| p.id == peer) {
-                        info!("co-op: a silent device is back");
-                        link.peers.push(Peer {
-                            id: peer,
-                            player: None,
-                            quiet: 0.0,
-                        });
-                        if host {
-                            link.send(peer, sim.world().to_bytes().into(), RELIABLE);
-                        }
-                    }
                     let Some(p) = link.peers.iter_mut().find(|p| p.id == peer) else {
                         continue;
                     };
@@ -780,18 +768,26 @@ mod web {
                     let Some(msg) = Msg::from_bytes(&bytes) else {
                         continue;
                     };
+                    // Met for the first time, or again after going silent.
                     if let Msg::Crab { crab, .. } = &msg
                         && p.player.is_none()
                         && crab.id != me.0
                     {
                         p.player = Some(crab.id);
                         info!("co-op: met player {}", crab.id.0);
+                        met.push(peer);
                     }
                     // The host is here (again): back to its world.
                     if from_host(&msg) && !host && !sim.online() {
                         sim.go_online(false);
                     }
                     sim.receive(msg);
+                }
+            }
+            // Met again after a silence: how the world stands now.
+            if host {
+                for peer in met {
+                    link.send(peer, sim.world().to_bytes().into(), RELIABLE);
                 }
             }
             for (peer, bytes) in link.socket.channel_mut(VOICE).receive() {
@@ -802,28 +798,33 @@ mod web {
                     crate::voice::meet(p.id, me);
                 }
             }
+            // A friend who goes silent (its game froze or its network stalled, or it plays alone, waiting for the
+            // host) is no longer played with, but its connection and voice call stay up: it's met again the moment
+            // its crab speaks. Only a connection that ends drops the device.
+            let mut lost = Vec::new();
             for p in &mut link.peers {
                 p.quiet += time.delta_secs();
-                if p.quiet > SILENT_FOR {
+                if p.quiet > SILENT_FOR
+                    && let Some(id) = p.player.take()
+                {
                     info!("co-op: a device went silent");
-                    gone.push((p.id, false));
+                    lost.push(id);
                 }
             }
-            for (peer, hung_up) in gone {
-                // A silent device's call stays up: it may speak again ("a silent device is back") and its side
-                // never hung up. Its call ends when its connection does, or when the room is joined afresh.
-                if hung_up {
-                    crate::voice::forget(peer);
-                }
+            for peer in gone {
+                crate::voice::forget(peer);
                 let Some(i) = link.peers.iter().position(|p| p.id == peer) else {
                     continue;
                 };
                 info!("co-op: a device left");
-                match link.peers.remove(i).player {
+                lost.extend(link.peers.remove(i).player);
+            }
+            for id in lost {
+                if id == HOST {
                     // The host went: play on alone until it's back.
-                    Some(HOST) => sim.go_offline(),
-                    Some(id) => sim.remove_crab(id),
-                    None => {}
+                    sim.go_offline();
+                } else {
+                    sim.remove_crab(id);
                 }
             }
             true

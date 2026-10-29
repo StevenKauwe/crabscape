@@ -718,6 +718,27 @@ pub(crate) mod panel {
                     .chain()
                     .in_set(GameSet::Present),
             );
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Update, tell_tests.in_set(GameSet::Present));
+    }
+
+    /// The canvas's `data-settings`, for the browser tests (which can't read the game's own text): "closed", or the
+    /// open tab, with the choice waiting for its second tap ("Game armed StartOver").
+    #[cfg(target_arch = "wasm32")]
+    fn tell_tests(open: Res<Open>, mut said: Local<String>) {
+        let now = match (open.open, open.arming.filter(|c| open.is_armed(*c))) {
+            (false, _) => "closed".to_string(),
+            (true, None) => format!("{:?}", open.tab),
+            (true, Some(c)) => format!("{:?} armed {c:?}", open.tab),
+        };
+        if *said != now
+            && let Some(canvas) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id("crabscape"))
+        {
+            let _ = canvas.set_attribute("data-settings", &now);
+            *said = now;
+        }
     }
 
     fn text(words: &str, size: f32) -> impl Bundle {
