@@ -498,18 +498,17 @@ fn claw_box(claw: Claw, facing: f32, m: &Mover, t: &Tuning) -> Rect {
 
 /// How far to raise (> 0) or lower (< 0) a claw's blow spanning `claw`
 /// (bottom, top) to strike a body spanning `body`: not at all if it already
-/// strikes it squarely (overlapping half the smaller of the two), else just
-/// far enough to, at most `up` or `down`. None if even that misses it.
+/// strikes it squarely (overlapping half the smaller of the two), else
+/// straight at the body's middle, at most `up` or `down`. None if even that
+/// misses it.
 fn aim_at(claw: (f32, f32), body: (f32, f32), down: f32, up: f32) -> Option<f32> {
     let ((y0, y1), (a, b)) = (claw, body);
     let square = (b - a).min(y1 - y0) / 2.0;
     let overlap = |shift: f32| (y1 + shift).min(b) - (y0 + shift).max(a);
     let shift = if overlap(0.0) >= square {
         0.0
-    } else if a + b < y0 + y1 {
-        (b - square - y0).max(-down) // below: the claw comes down
     } else {
-        (a + square - y1).min(up) // above: the claw comes up
+        ((a + b - y0 - y1) / 2.0).clamp(-down, up)
     };
     (overlap(shift) > 0.0).then_some(shift)
 }

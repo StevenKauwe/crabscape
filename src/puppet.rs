@@ -1224,7 +1224,7 @@ fn fight_pose(
             Claw::Crusher => 0,
             Claw::Cutter => 1,
         };
-        let tilt = (aim / AIM_REACH).clamp(-0.7, 0.7);
+        let tilt = (aim / AIM_REACH).clamp(-0.8, 0.8);
         let out = 0.5 * load + blow;
         pose.claw[side].0 += tilt * out;
         pose.claw[side].1 += 0.4 * tilt * out;
@@ -1260,9 +1260,10 @@ fn fight_pose(
     pose
 }
 
-/// About how far the claw's tip is from its shoulder (world units): aiming
-/// the blow this far up or down turns the claw about a radian.
-const AIM_REACH: f32 = 55.0;
+/// Aiming the blow this far up or down (world units) turns the claw a
+/// radian about its shoulder: a little more than the geometry needs, so a
+/// blow down onto a shrimp reads at phone size.
+const AIM_REACH: f32 = 36.0;
 
 /// How far a dive tilts the crab towards the way it's pushing (radians).
 const DIVE_TILT: f32 = 0.22;
