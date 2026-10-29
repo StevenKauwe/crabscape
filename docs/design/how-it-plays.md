@@ -22,7 +22,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   double jump), the rest over 0.6 s of standing. Small rings above the crab show them, only while tired. Resting draws on a
   deeper **reserve** (6 strokes' worth, a small bar in the top-left corner) that comes back by itself in about 30
   seconds; when it's empty the legs stay tired, so swimming can't be endless. Sprinting drains it too. Floor jumps
-  are free.
+  are free. **Well fed** (a clam eaten at home, `world.md`), the reserve holds 3 strokes more (pale gold segments)
+  and the shell 25% more (a longer shell bar), and "Well fed 3:58" under the shell bar counts down the time left.
 - **Sideways is fast.** Crabs scuttle sideways quickly, so the dodge is a short sideways burst. It goes the way
   you hold and needs a direction: dodge on its own does nothing, so it never goes a way you didn't mean. Keep
   holding dodge to **sprint** (a fast scuttle, between walking and the dodge) on the floor; it drains the reserve,

@@ -98,7 +98,9 @@ fn save_when_resting(
     let moved = last_saved.is_none_or(|p| p.distance(crab.pos) > 1.0);
     let saw = now.saturating_sub(*memory_saved) >= MEMORY_EVERY;
     let progress = sim.progress(*id);
-    let progressed = *progress_saved != progress;
+    // Food clocks counting down are saved with the next save, not each tick.
+    let settled = |p: &Option<Progress>| p.as_ref().map(Progress::ignoring_clocks);
+    let progressed = settled(&progress_saved) != settled(&progress);
     if !resting || !(moved || saw || progressed) || *since_last < SAVE_EVERY {
         return;
     }

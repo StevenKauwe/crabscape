@@ -30,9 +30,45 @@ pub struct Progress {
     pub teeth_taken: Vec<bool>,
     pub nets_cut: Vec<bool>,
     pub cast_offs: Vec<CastOff>,
+    /// Clams in the larder at home.
+    #[serde(default)]
+    pub larder: u32,
+    /// Each clam bed's ticks until it grows back (0 = a clam lies there).
+    #[serde(default)]
+    pub clams: Vec<u32>,
+    /// Ticks left of being well fed.
+    #[serde(default)]
+    pub well_fed: u32,
+}
+
+impl Progress {
+    /// The same progress with its clocks (clam beds growing back, time left
+    /// well fed) reduced to running or not: what's worth saving at once. The
+    /// clocks themselves are saved along with anything else.
+    pub fn ignoring_clocks(&self) -> Progress {
+        Progress {
+            clams: self.clams.iter().map(|&c| c.min(1)).collect(),
+            well_fed: self.well_fed.min(1),
+            ..self.clone()
+        }
+    }
 }
 
 impl Sim {
+    /// What a crab that has done nothing yet has, in this level.
+    pub fn fresh_progress(&self) -> Progress {
+        let l = &self.level;
+        Progress {
+            eaten: vec![false; l.eggs.len()],
+            cultures_taken: vec![false; l.cultures.len()],
+            clues_found: vec![false; l.clues.len()],
+            teeth_taken: vec![false; l.teeth.len()],
+            nets_cut: vec![false; l.nets.len()],
+            clams: vec![0; l.clams.len()],
+            ..Progress::default()
+        }
+    }
+
     /// Crab `id`'s lasting progress, to save.
     pub fn progress(&self, id: PlayerId) -> Option<Progress> {
         let crab = self.crab(id)?;
@@ -51,12 +87,17 @@ impl Sim {
             teeth_taken: crab.teeth_taken.clone(),
             nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
             cast_offs: crab.cast_offs.clone(),
+            larder: crab.larder,
+            clams: crab.clams.clone(),
+            well_fed: m.well_fed,
         })
     }
 
     /// Give crab `id` back its saved progress, rested. A list saved from a
     /// level with a different number of things is ignored (the level
     /// changed since), and so is anything left in a cast-off shell then.
+    /// Clam beds count on their own: a save from before there were any
+    /// keeps the rest, with every clam in its bed.
     pub fn restore_progress(&mut self, id: PlayerId, p: &Progress) {
         let tuning = self.tuning.clone();
         let same_level = p.eaten.len() == self.level.eggs.len()
@@ -79,7 +120,13 @@ impl Sim {
         m.climb_xp = p.climb_xp;
         m.swim_xp = p.swim_xp;
         m.fight_xp = p.fight_xp;
+        m.well_fed = p.well_fed;
         m.stamina = m.strokes(&tuning) as f32;
+        crab.fighter.vitals.health = m.max_shell(&tuning);
+        crab.larder = p.larder.min(tuning.food.larder);
+        if p.clams.len() == crab.clams.len() {
+            crab.clams.clone_from(&p.clams);
+        }
         if same_level {
             m.carrying = p.carrying;
             crab.eaten.clone_from(&p.eaten);

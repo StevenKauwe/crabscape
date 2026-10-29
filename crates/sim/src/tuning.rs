@@ -294,6 +294,8 @@ pub struct Tuning {
     pub memory: MemoryTuning,
     /// Hulk mode, the `hulk` code (`crate::codes`).
     pub hulk: HulkTuning,
+    /// Clams, the larder at home and being well fed (`docs/design/world.md`).
+    pub food: FoodTuning,
 }
 
 /// Hulk mode: the crab bulks up, hits far harder and is hard to shake.
@@ -311,6 +313,24 @@ pub struct HulkTuning {
     pub poise_taken: f32,
     /// Share of its walking (and sprinting) speed.
     pub walk: f32,
+}
+
+/// Food: clams carried home to the larder, eaten resting at home, and the
+/// well-fed time that follows (Valheim's food). Times in ticks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FoodTuning {
+    /// How many clams the larder at home holds.
+    pub larder: u32,
+    /// A taken clam bed grows a new clam after this long.
+    pub regrow_ticks: u32,
+    /// Tucked in at home this long, a crab that isn't well fed eats one.
+    pub eat_after_ticks: u32,
+    /// How long a meal keeps it well fed. It ends all at once.
+    pub well_fed_ticks: u32,
+    /// Well fed, the shell holds this share more (filled when it eats)...
+    pub shell_bonus: f32,
+    /// ...and the reserve this many strokes more.
+    pub reserve_bonus: u32,
 }
 
 /// One kind of enemy: its body, senses, state timings and attack. Times in
@@ -908,6 +928,14 @@ impl Tuning {
                 smash_knockback: 2.5,
                 poise_taken: 0.2,
                 walk: 0.8,
+            },
+            food: FoodTuning {
+                larder: 5,
+                regrow_ticks: 3 * 60 * 120,   // 3 min of play
+                eat_after_ticks: 60,          // half a second settled in
+                well_fed_ticks: 4 * 60 * 120, // 4 min of play: about one dive
+                shell_bonus: 0.25,
+                reserve_bonus: 3,
             },
         }
     }

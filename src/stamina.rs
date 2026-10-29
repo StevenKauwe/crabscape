@@ -7,11 +7,13 @@
 //!
 //! Resting draws on the body's reserve, shown as a small bar in the top-left
 //! corner (one segment per stroke it holds). It empties as the rings refill
-//! and comes back by itself, slowly.
+//! and comes back by itself, slowly. Well fed, it holds a few more (gold
+//! segments, the bar the same length), and a small "Well fed" sign under the
+//! shell bar counts down the time left.
 
 use bevy::prelude::*;
 use crabsim::physics::Mover;
-use crabsim::{Sim, Skill};
+use crabsim::{Sim, Skill, TICKS_PER_SECOND};
 
 use crate::effects::SoftTextures;
 use crate::player::{FrameEvents, GameSet, LocalPlayer};
@@ -37,11 +39,14 @@ pub struct StaminaPlugin;
 
 impl Plugin for StaminaPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_rings, spawn_reserve_bar, spawn_skill))
-            .add_systems(
-                Update,
-                (show_rings, show_reserve, show_skill).in_set(GameSet::Present),
-            );
+        app.add_systems(
+            Startup,
+            (spawn_rings, spawn_reserve_bar, spawn_skill, spawn_well_fed),
+        )
+        .add_systems(
+            Update,
+            (show_rings, show_reserve, show_skill, show_well_fed).in_set(GameSet::Present),
+        );
     }
 }
 
@@ -123,19 +128,33 @@ fn show_rings(
 #[derive(Component)]
 struct ReserveFill(u32);
 
-/// The reserve bar: a row of small segments under the HUD text.
+/// One segment of the reserve bar (its frame).
+#[derive(Component)]
+struct ReserveSegment(u32);
+
+/// The reserve bar's length: its segments share it, however many there are.
+const RESERVE_BAR: f32 = 111.0;
+const RESERVE_GAP: f32 = 3.0;
+/// The well-fed segments and sign: pale gold, apart from the plain reserve.
+const FED: Color = Color::srgb(0.98, 0.93, 0.70);
+
+/// The reserve bar: a row of small segments under the HUD text (enough for
+/// a well-fed reserve; the extra ones show only then).
 fn spawn_reserve_bar(mut commands: Commands, sim: Res<Sim>) {
     commands
         .spawn(Node {
             position_type: PositionType::Absolute,
             top: px(76),
             left: px(12),
-            column_gap: px(3),
+            column_gap: px(RESERVE_GAP),
             ..default()
         })
         .with_children(|bar| {
-            for segment in 0..sim.tuning.stamina_reserve {
+            let plain = sim.tuning.stamina_reserve;
+            for segment in 0..plain + sim.tuning.food.reserve_bonus {
+                let colour = if segment < plain { WARM } else { FED };
                 bar.spawn((
+                    ReserveSegment(segment),
                     Node {
                         width: px(16),
                         height: px(7),
@@ -144,7 +163,7 @@ fn spawn_reserve_bar(mut commands: Commands, sim: Res<Sim>) {
                         overflow: Overflow::clip(),
                         ..default()
                     },
-                    BorderColor::all(WARM.with_alpha(0.45)),
+                    BorderColor::all(colour.with_alpha(0.45)),
                 ))
                 .with_child((
                     ReserveFill(segment),
@@ -153,22 +172,38 @@ fn spawn_reserve_bar(mut commands: Commands, sim: Res<Sim>) {
                         height: percent(100),
                         ..default()
                     },
-                    BackgroundColor(WARM.with_alpha(0.85)),
+                    BackgroundColor(colour.with_alpha(0.85)),
                 ));
             }
         });
 }
 
-/// Fill the reserve bar's segments from the local crab's reserve.
+/// Fill the reserve bar's segments from the local crab's reserve, showing
+/// as many segments as it holds now.
 fn show_reserve(
     sim: Res<Sim>,
     crab: Query<&Mover, With<LocalPlayer>>,
-    mut fills: Query<(&ReserveFill, &mut Node)>,
+    mut segments: Query<(&ReserveSegment, &mut Node), Without<ReserveFill>>,
+    mut fills: Query<(&ReserveFill, &mut Node), Without<ReserveSegment>>,
 ) {
     let Ok(mover) = crab.single() else {
         return;
     };
-    let left = mover.reserve * sim.tuning.stamina_reserve as f32;
+    let holds = mover.reserve_strokes(&sim.tuning);
+    let count = holds as u32;
+    let width = px((RESERVE_BAR - RESERVE_GAP * (holds - 1.0)) / holds);
+    for (segment, mut node) in &mut segments {
+        let display = if segment.0 < count {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display || node.width != width {
+            node.display = display;
+            node.width = width;
+        }
+    }
+    let left = mover.reserve * holds;
     for (fill, mut node) in &mut fills {
         let width = percent(100.0 * (left - fill.0 as f32).clamp(0.0, 1.0));
         if node.width != width {
@@ -271,5 +306,48 @@ fn show_skill(
         if node.width != width {
             node.width = width;
         }
+    }
+}
+
+/// The well-fed sign under the shell bar: hidden unless well fed.
+#[derive(Component)]
+struct WellFed;
+
+fn spawn_well_fed(mut commands: Commands) {
+    commands.spawn((
+        WellFed,
+        Text::new(""),
+        TextFont {
+            font_size: FontSize::Px(12.0),
+            ..default()
+        },
+        TextColor(FED.with_alpha(0.9)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(93),
+            left: px(140),
+            ..default()
+        },
+        Visibility::Hidden,
+    ));
+}
+
+/// "Well fed 3:58": the minutes and seconds of play it has left.
+fn show_well_fed(
+    crab: Query<&Mover, With<LocalPlayer>>,
+    mut sign: Query<(&mut Text, &mut Visibility), With<WellFed>>,
+) {
+    let (Ok(mover), Ok((mut text, mut shown))) = (crab.single(), sign.single_mut()) else {
+        return;
+    };
+    if mover.well_fed == 0 {
+        shown.set_if_neq(Visibility::Hidden);
+        return;
+    }
+    shown.set_if_neq(Visibility::Inherited);
+    let seconds = mover.well_fed.div_ceil(TICKS_PER_SECOND);
+    let line = format!("Well fed {}:{:02}", seconds / 60, seconds % 60);
+    if text.0 != line {
+        text.0 = line;
     }
 }

@@ -44,7 +44,18 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   crack in the end wall shows **lights far below**: the first glimpse of the trench. That's the end of the demo for now: a
   moment after the crab sees them, a card says so, lists what it found, and offers "Keep exploring" or the report
   form ("What did you think?").
-- Eggs, cultures, skills, gear and cast-off shells are kept across reloads ("Start over" wipes them).
+- **Food (the "Prepare" step):** clams lie half-buried in the floor: two in the shallows near home, one in the basin
+  below the cliff, and harder ones on the flats past the trench (by the moray) and at the bottom of the pit. Walking
+  over one puts it on the crab's back (one thing at a time, like the culture and the tooth); its bed grows a new one
+  after 3 minutes of play. There's no fire underwater, so food is prepared, not cooked: brought home, a clam goes
+  into the **larder** (a small pile inside the doorway, up to 5). Settled in at home and not already well fed, the
+  crab cracks one open with its crusher and eats it (that crabs open clams by crushing or chipping the shell: not
+  verified) and is **well fed** for 4 minutes of play: its shell holds 25% more and its reserve 3 strokes more, both
+  filled. It ends all at once (the extra shell and reserve go, keeping what fits). Dying ends it too (it wakes
+  hungry, as in Valheim), but the larder is at home and stays; a clam on the back drops into the cast-off shell like
+  anything carried.
+- Eggs, cultures, skills, gear, cast-off shells and food (the larder, the beds growing back, the time left well fed)
+  are kept across reloads ("Start over" wipes them).
 
 ## Zones and economy
 Like RuneScape, rarer resources come from rarer, more dangerous places: depth is wealth.

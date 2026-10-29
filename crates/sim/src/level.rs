@@ -81,6 +81,9 @@ pub struct Level {
     /// Shed teeth lying about: a crab can carry one home, where the
     /// workbench fits it to the crusher claw (scissor claws).
     pub teeth: Vec<Vec2>,
+    /// Clam beds: a clam half-buried in the floor (its middle). A crab
+    /// carries one home to its larder; a taken bed grows a new one in time.
+    pub clams: Vec<Vec2>,
     /// Ghost nets: lost fishing nets snagged across a way through. Solid
     /// until a crab with scissor claws cuts them (then gone for everyone).
     pub nets: Vec<Net>,
@@ -213,6 +216,17 @@ impl Level {
             // In the alcove: a shed tooth bigger than the crab.
             clues: vec![Vec2::new(4250.0, -5185.0)],
             teeth: vec![Vec2::new(4250.0, -5185.0)],
+            // Clams, half-buried: two in the shallows near home (between
+            // the snapping shrimp) and one in the basin floor below the
+            // cliff; harder ones on the flats past the trench, by the moray,
+            // and at the bottom of the pit.
+            clams: vec![
+                Vec2::new(250.0, 4.0),
+                Vec2::new(480.0, 4.0),
+                Vec2::new(3150.0, -696.0),
+                Vec2::new(2450.0, 24.0),
+                Vec2::new(3720.0, -8696.0),
+            ],
             // Across the passage's mouth, high on the pit's right wall: only
             // a jump and four strokes from the alcove's roof reach it.
             nets: vec![Net {

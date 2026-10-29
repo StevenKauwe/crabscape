@@ -33,6 +33,13 @@ impl Plugin for FightPlugin {
 #[derive(Component)]
 struct ShellFill;
 
+/// The shell bar's frame: longer while the shell holds more (well fed).
+#[derive(Component)]
+struct ShellBack;
+
+/// The shell bar's length for a plain shell.
+const SHELL_BAR: f32 = 120.0;
+
 #[derive(Component)]
 struct PoiseFill;
 
@@ -41,7 +48,7 @@ fn spawn_bars(mut commands: Commands) {
     let bar = |commands: &mut ChildSpawnerCommands, height: f32, colour: Color, fill: bool| {
         let mut back = commands.spawn((
             Node {
-                width: px(120),
+                width: px(SHELL_BAR),
                 height: px(height),
                 border: UiRect::all(px(1)),
                 border_radius: BorderRadius::all(px(3)),
@@ -50,6 +57,9 @@ fn spawn_bars(mut commands: Commands) {
             },
             BorderColor::all(colour.with_alpha(0.45)),
         ));
+        if fill {
+            back.insert(ShellBack);
+        }
         back.with_children(|b| {
             let node = Node {
                 width: percent(100),
@@ -78,13 +88,20 @@ fn spawn_bars(mut commands: Commands) {
         });
 }
 
+/// The shell bar's frame, its fill and the poise bar's fill: each never
+/// one of the others.
+type BackOnly = (With<ShellBack>, Without<ShellFill>, Without<PoiseFill>);
+type ShellOnly = (With<ShellFill>, Without<PoiseFill>, Without<ShellBack>);
+type PoiseOnly = (With<PoiseFill>, Without<ShellFill>, Without<ShellBack>);
+
 fn show_bars(
     sim: Res<Sim>,
-    crab: Query<&Fighter, With<LocalPlayer>>,
-    mut shell: Query<&mut Node, (With<ShellFill>, Without<PoiseFill>)>,
-    mut poise: Query<&mut Node, (With<PoiseFill>, Without<ShellFill>)>,
+    crab: Query<(&Fighter, &Mover), With<LocalPlayer>>,
+    mut back: Query<&mut Node, BackOnly>,
+    mut shell: Query<&mut Node, ShellOnly>,
+    mut poise: Query<&mut Node, PoiseOnly>,
 ) {
-    let Ok(f) = crab.single() else {
+    let Ok((f, mover)) = crab.single() else {
         return;
     };
     let t = &sim.tuning.crab;
@@ -94,8 +111,16 @@ fn show_bars(
             node.width = w;
         }
     };
+    // Well fed, the shell holds more: a longer bar.
+    let whole = mover.max_shell(&sim.tuning);
+    for mut n in &mut back {
+        let w = px(SHELL_BAR * whole / t.health);
+        if n.width != w {
+            n.width = w;
+        }
+    }
     for mut n in &mut shell {
-        set(&mut n, f.vitals.health / t.health);
+        set(&mut n, f.vitals.health / whole);
     }
     for mut n in &mut poise {
         set(&mut n, f.vitals.poise / t.poise);

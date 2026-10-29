@@ -76,11 +76,14 @@ impl Sim {
     /// running recording notes it. Returns false, changing nothing, if `id`
     /// isn't a crab of this device.
     pub fn enter_code(&mut self, id: PlayerId, code: Code) -> bool {
-        let health = self.tuning.crab.health;
         let poise = self.tuning.crab.poise;
         let rested = self
             .crab(id)
             .map_or(0.0, |c| c.mover.strokes(&self.tuning) as f32);
+        // Whole, well fed or not.
+        let health = self
+            .crab(id)
+            .map_or(0.0, |c| c.mover.max_shell(&self.tuning));
         let recorded = self.crabs().iter().find(|c| !c.remote).map(|c| c.id) == Some(id);
         let tick = self.tick_count();
         let Some(crab) = self.crab_mut(id).filter(|c| !c.remote) else {

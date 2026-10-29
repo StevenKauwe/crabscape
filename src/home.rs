@@ -13,6 +13,7 @@
 //!   sponge crabs carry a sponge.
 //! - Where the crab died, its cast-off shell lies pale on the floor with
 //!   what it was carrying, until it walks back for it.
+//! - Clams, the larder and the clam on its back are in `food.rs`.
 
 use bevy::prelude::*;
 use crabsim::{Carry, CastOff, Mover, Sim};
@@ -404,6 +405,16 @@ fn show_cast_offs(
                         MeshMaterial2d(materials.add(Color::srgb(0.60, 0.56, 0.48))),
                         Transform::from_xyz(0.0, 18.0, 0.1),
                     ));
+                }
+                Carry::Clam => {
+                    for (mesh, colour, at, turn) in crate::food::clam_parts(false) {
+                        shell.spawn((
+                            Mesh2d(meshes.add(mesh)),
+                            MeshMaterial2d(materials.add(colour)),
+                            Transform::from_translation(at + Vec3::new(0.0, 14.0, 0.1))
+                                .with_rotation(Quat::from_rotation_z(turn)),
+                        ));
+                    }
                 }
             });
     }

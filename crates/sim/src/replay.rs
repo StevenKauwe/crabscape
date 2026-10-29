@@ -50,7 +50,9 @@
 //! `tap`, `dodge`, `sprint`, `smash`, `jab`, `block`, `parry`) happen on that one tick. Recorded replays also have a
 //! `tuning <code>` line: the fingerprint of the movement numbers they were
 //! recorded with, so the runner can warn when they differ, and a `hash <code>` line: the state hash at the end,
-//! so the runner can say whether it ended in exactly the same state.
+//! so the runner can say whether it ended in exactly the same state. A replay recorded from a crab that already
+//! had progress (a reload) starts with a `progress {...}` line: what it had then, as its save keeps it
+//! ([`crate::Progress`], JSON), given back to player 0 before the first tick.
 
 use bevy_math::Vec2;
 
@@ -59,6 +61,7 @@ use crate::enemy::Kind;
 use crate::feel::Feel;
 use crate::level::SPAWN;
 use crate::physics::{Controls, TICKS_PER_SECOND};
+use crate::progress::Progress;
 use crate::tuning::Tuning;
 
 /// The controls from one tick on.
@@ -92,6 +95,9 @@ pub struct Replay {
     pub feels: Vec<(u64, Feel)>,
     /// Codes player 0 typed, in tick order.
     pub codes: Vec<(u64, Code)>,
+    /// What player 0's crab had already grown, taken and stored when the
+    /// recording started (after a reload), if anything.
+    pub progress: Option<Progress>,
 }
 
 /// An enemy appearing at the start of a tick.
@@ -113,6 +119,7 @@ impl Default for Replay {
             spawns: Vec::new(),
             feels: Vec::new(),
             codes: Vec::new(),
+            progress: None,
         }
     }
 }
@@ -164,6 +171,12 @@ impl Replay {
                         let code = u64::from_str_radix(code, 16)
                             .map_err(|_| err(format!("`{code}` is not a hash")))?;
                         replay.hash = Some(code);
+                    }
+                    "progress" => {
+                        let json = rest.join(" ");
+                        let p = serde_json::from_str(&json)
+                            .map_err(|e| err(format!("`progress` doesn't read: {e}")))?;
+                        replay.progress = Some(p);
                     }
                     "end" => {
                         let when = rest
@@ -221,6 +234,10 @@ impl Replay {
             "# CrabScape replay. Play it without a window: cargo crabsim --inputs <this file>\n",
         );
         out += &format!("start x={} y={}\n", self.start.x, self.start.y);
+        if let Some(p) = &self.progress {
+            let json = serde_json::to_string(p).expect("progress always serialises");
+            out += &format!("progress {json}\n");
+        }
         if let Some(code) = self.tuning {
             out += &format!("tuning {code:016x}\n");
         }
@@ -311,6 +328,11 @@ impl Replay {
     /// player 0).
     pub fn apply_at(&self, sim: &mut crate::Sim) {
         let tick = sim.tick_count();
+        if tick == 0
+            && let Some(p) = &self.progress
+        {
+            sim.restore_progress(crate::PlayerId(0), p);
+        }
         for s in self.spawns_at(tick) {
             sim.spawn_enemy(s.kind, s.pos);
         }
@@ -395,6 +417,11 @@ impl Recorder {
             });
             self.last = c;
         }
+    }
+
+    /// The crab started with this progress (a reload).
+    pub fn note_progress(&mut self, p: Progress) {
+        self.replay.progress = Some(p);
     }
 
     /// The feel preset switched at `tick`.
