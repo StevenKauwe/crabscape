@@ -18,7 +18,7 @@ use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
 use crate::lantern::{LightBlend, Lit};
 use crate::memory::{Known, Remembered};
-use crate::player::GameSet;
+use crate::player::{GameSet, LocalPlayer, PlayerId};
 
 /// In front of the level and the shell-home, behind the crab (10).
 const Z: f32 = 9.0;
@@ -295,6 +295,7 @@ fn pose_foes(
     sim: Res<Sim>,
     known: Res<Known>,
     lab: Res<FeelLab>,
+    me: Query<&PlayerId, With<LocalPlayer>>,
     mut foes: Query<(
         &mut Foe,
         &LightBlend,
@@ -324,10 +325,11 @@ fn pose_foes(
         let k = e.kind.tuning(t);
         let phase = e.phase(t);
         let hidden = e.hidden(t);
+        let body = lies_dead(e, &sim, me.single().ok());
         // Out of the crab's sight it isn't shown (its last sighting is, see
         // `memory.rs`).
         shown.set_if_neq(
-            if e.state == State::Gone || !known.perceives_animal(e.pos) {
+            if (e.state == State::Gone && !body) || !known.perceives_animal(e.pos) {
                 Visibility::Hidden
             } else {
                 Visibility::Inherited
@@ -384,9 +386,10 @@ fn pose_foes(
             if foe.lift < -2.0 { Z_BURIED } else { Z },
         );
         root.scale.x = e.facing.signum();
+        lie(&mut root, body, k.body.1);
 
         let health = e.vitals.health / k.vitals.health;
-        let show_bar = !hidden && (health < 1.0 || e.target.is_some());
+        let show_bar = !hidden && !body && (health < 1.0 || e.target.is_some());
 
         let mut stack: Vec<Entity> = children.iter().collect();
         while let Some(id) = stack.pop() {
@@ -491,5 +494,24 @@ fn pose_foes(
                 tr.translation.x = -25.0 * (1.0 - health) * flip;
             }
         }
+    }
+}
+
+/// A beaten creature's body, lying where it fell until the local crab eats
+/// it (the rule: `crabsim`'s `world.rs`).
+pub fn lies_dead(e: &Enemy, sim: &Sim, me: Option<&PlayerId>) -> bool {
+    e.state == State::Gone
+        && me
+            .and_then(|id| sim.crab(*id))
+            .is_some_and(|c| !c.meals.contains(&(e.id, e.deaths)))
+}
+
+/// Belly up on the floor (turned over its own height), or upright.
+pub fn lie(root: &mut Transform, body: bool, height: f32) {
+    if body {
+        root.rotation = Quat::from_rotation_z(std::f32::consts::PI);
+        root.translation.y += height;
+    } else {
+        root.rotation = Quat::IDENTITY;
     }
 }

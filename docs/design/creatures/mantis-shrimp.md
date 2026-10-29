@@ -37,9 +37,9 @@ Concept sheet: `art/creatures/mantis-shrimp/mantis-shrimp.png`. Shared rules: `R
 |---|---|---|
 | Burrowed | — | Only eyes show; can't be hit. Notices the crab by sight at 300 units in light, 150 in the dark (tuned) |
 | Emerge | 24 | Leaves the burrow |
-| Approach | — | Darts at 260 u/s (tuned; faster than the crab's walk) to strike range 70 |
-| Tell: rumble + rear | 48 | Tuned (real wind-up not measured) |
-| Tell: cocked hold | 30 | Parry window = its last 10 ticks |
+| Approach | — | Darts at 330 u/s (tuned: faster than the crab's walk of 270, slower than its sprint of 480) to strike range 70; chases up to 800 from its burrow |
+| Tell: rumble + rear | 48 | Tuned (real wind-up not measured). It stalks: turns after a crab that slips past and closes in on one that backs out of reach, so walking away doesn't dodge it (not verified) |
+| Tell: cocked hold | 30 | Parry window = its last 10 ticks. Committed to its side, still closing in |
 | Strike (active) | 3 | Tuned (real ≈ 3 ms, under one tick) |
 | Bubble hit | +1 | 1 tick after impact (real 0.4–0.5 ms) |
 | Re-cock (combo) | 24 | 1 more strike if the first connected (capped at two strikes for now) |
