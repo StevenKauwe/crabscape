@@ -10,6 +10,9 @@
 //! (`cargo crabsim` is a shortcut, set up in `.cargo/config.toml`, for
 //! `cargo run --release -p crabsim --`.)
 
+// Like the rules themselves (see lib.rs): no `unwrap()` outside tests.
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::time::{Duration, Instant};

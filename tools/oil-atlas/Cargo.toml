@@ -10,3 +10,6 @@ description = "Lays the crab's parts out for the oil painter, then cuts the pain
 [dependencies]
 png = "0.18"
 serde_json = "1"
+
+[lints]
+workspace = true

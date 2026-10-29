@@ -1,5 +1,7 @@
 # Checks every push and pull request and builds the web game once: the browser test plays that build, a pull
 # request publishes it as its playable preview, and on main it is deployed to GitHub Pages.
+# A pull request runs only the checks its files can affect (the `changes` job, tools/changes.sh): words alone pass in
+# seconds. A check skipped that way counts as passed for branch protection. Pushes to main run everything.
 # Actions are pinned to commit SHAs; the comment says which release that is.
 name: CI
 
@@ -23,8 +25,35 @@ env:
   BINARYEN_VERSION: "133"
 
 jobs:
+  changes:
+    name: what changed
+    # Flags for the jobs below, from the files the pull request changed (tools/changes.sh says which flag means
+    # what). Anything else (a push to main, a run by hand) turns every flag on. If this job itself fails, the jobs
+    # below run anyway (`needs.changes.result != 'success'`): when in doubt, check.
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.flags.outputs.docs_only }}
+      code: ${{ steps.flags.outputs.code }}
+      art: ${{ steps.flags.outputs.art }}
+      introducer: ${{ steps.flags.outputs.introducer }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request is checked out as its merge into the base: its first parent is the base.
+          fetch-depth: 2
+      - id: flags
+        name: Which checks this change needs
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            git diff --name-only HEAD^1 HEAD | tee /dev/stderr | tools/changes.sh | tee -a "$GITHUB_OUTPUT"
+          else
+            printf 'docs_only=false\ncode=true\nart=true\nintroducer=true\n' | tee -a "$GITHUB_OUTPUT"
+          fi
+
   check:
     name: fmt, clippy (native + wasm32), tests
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,6 +64,11 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: check
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-deny@0.20.2
+      # Lints: clippy's defaults plus the shared [workspace.lints] in Cargo.toml (no unsafe code, no dbg!/todo!/
+      # unimplemented!, no unwrap() in crates/sim outside tests).
       - name: cargo fmt
         run: cargo fmt --all --check
       - name: clippy (native, game + art tools)
@@ -42,8 +76,17 @@ jobs:
       # The game only: the art tools never run in a browser.
       - name: clippy (wasm32)
         run: cargo clippy --all-targets --locked --target wasm32-unknown-unknown -- -D warnings
+      # Includes the simulation's property tests (crates/sim/tests/properties.rs).
       - name: tests
         run: cargo test --workspace --locked
+      # Known security advisories, licences, duplicate versions and sources of every dependency (deny.toml). Three
+      # graphs: native PC, the browser, and the introducer (its own workspace and lock file).
+      - name: cargo deny (native)
+        run: cargo deny --workspace --locked check
+      - name: cargo deny (wasm32)
+        run: cargo deny --workspace --locked --target wasm32-unknown-unknown check
+      - name: cargo deny (introducer)
+        run: cargo deny --manifest-path tools/introducer/Cargo.toml --config deny.toml --locked check
       - name: tidy tool (fmt, clippy, tests)
         run: |
           cargo fmt --manifest-path tools/tidy/Cargo.toml --check
@@ -53,6 +96,8 @@ jobs:
   determinism:
     name: native and wasm sims agree
     # The game rules must play out bit for bit the same natively and as WebAssembly (co-op and replays rely on it).
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,7 +109,7 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: wasmtime
-      - name: The simulation's tests, as WebAssembly in wasmtime
+      - name: The simulation's tests (property tests too), as WebAssembly in wasmtime
         run: cargo test -p crabsim --locked --target wasm32-wasip1
       - name: Native and wasm runs match tick for tick, same state hash
         run: tools/determinism.sh
@@ -75,6 +120,8 @@ jobs:
     # deterministic) and fails if the committed files differ: art changes must come with their exports.
     # The oil atlases come out a few bits different on a Mac, so these Linux runs are the reference: on a
     # difference, the files as CI made them are uploaded (`art-as-ci-made-it`) to download and commit.
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.art == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -116,6 +163,8 @@ jobs:
 
   web:
     name: web build, relaxed-SIMD check, size
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -166,7 +215,9 @@ jobs:
   browser:
     name: browser test (WebKit, iPhone size)
     # Plays the web build from the job above in WebKitGTK (the iPhone's engine) through WebDriver: tools/webtest.
+    # Runs whenever the web build ran (skipped with it for a change that can't affect the game).
     needs: web
+    if: ${{ !cancelled() && needs.web.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -202,6 +253,89 @@ jobs:
           name: webtest-${{ github.sha }}
           path: target/webtest/
           retention-days: 7
+
+  mutants:
+    name: mutation testing (changed lines)
+    # cargo-mutants breaks each changed line of the game rules, the game's co-op code and the introducer in small ways
+    # and fails if no test notices (tools/mutants-pr.sh, .cargo/mutants.toml). Pull requests only.
+    needs: changes
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - name: System libraries Bevy needs on Linux (the game's co-op tests)
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev pkg-config
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: mutants
+          workspaces: |
+            .
+            tools/introducer
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-mutants@27.1.0
+      # In place (in this checkout, reusing the cached build) against the base the PR merges into.
+      - name: Every mutant on the changed lines is caught
+        run: tools/mutants-pr.sh HEAD^1 --in-place
+      - name: Keep the mutants' logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants-${{ github.sha }}
+          path: target/mutants-pr/
+          retention-days: 14
+
+  coverage:
+    name: test coverage (information only)
+    # Which lines the tests run (cargo-llvm-cov), as a table in the job summary and an lcov file. Never fails and
+    # has no threshold: mutation testing above is what holds new code to its tests. Pull requests only.
+    needs: changes
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml), plus llvm-tools
+        run: rustup toolchain install && rustup component add llvm-tools && rustc --version
+      - name: System libraries Bevy needs on Linux
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev pkg-config
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: coverage
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - name: Run the tests with coverage and report it
+        continue-on-error: true
+        run: |
+          # Instrumented code runs slower, so a timing test can fail here: the tests themselves are judged by the
+          # check job, and the report covers whatever ran.
+          cargo llvm-cov --workspace --locked --no-report --no-fail-fast \
+            || echo "::warning::Some tests failed under coverage (timing tests run slower instrumented)"
+          cargo llvm-cov report --workspace --lcov --output-path target/lcov.info
+          report=$(cargo llvm-cov report --workspace --summary-only)
+          {
+            echo "### Test coverage (information only)"
+            echo "Lines run by the tests, all crates: **$(echo "$report" | awk '/^TOTAL/ {print $10}')**"
+            echo
+            echo "<details><summary>Per file</summary>"
+            echo
+            echo '```'
+            echo "$report"
+            echo '```'
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the lcov file
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        with:
+          name: coverage-${{ github.sha }}
+          path: target/lcov.info
+          retention-days: 14
 
   preview:
     name: playable preview
@@ -331,7 +465,7 @@ jobs:
     name: report main's health
     # On main only: a failure opens (or adds to) one "main is broken" issue for the next Claude; a green run closes it.
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [check, determinism, art, web, browser, deploy, smoke]
+    needs: [changes, check, determinism, art, web, browser, deploy, smoke]
     runs-on: ubuntu-latest
     permissions:
       issues: write
