@@ -1145,6 +1145,7 @@ impl Sim {
             health: c.fighter.vitals.health,
             poise: c.fighter.vitals.poise,
             combat: c.fighter.status(&self.tuning),
+            aim: c.fighter.swing.as_ref().map_or(0.0, |s| s.aim),
         })
     }
 }
@@ -1228,6 +1229,14 @@ pub struct Snapshot {
     /// ("smash windup"); empty when none.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub combat: String,
+    /// Where a swing's claw is aimed: units up (> 0) or down (< 0); left
+    /// out when straight.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub aim: f32,
+}
+
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
 }
 
 /// The crusher clamped on an enemy: hold it, squeeze cracks into it at

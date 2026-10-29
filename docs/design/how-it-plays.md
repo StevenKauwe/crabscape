@@ -47,7 +47,9 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 In the sim now: the crab's shell (health) and poise, hits with knockback and hit-stop, and the two claws: the
 crusher's **smash** (14-tick wind-up, 6 active, 22 recovery; 12 damage, 25 poise) and the cutter's quick **jab**
 (6/4/12; 5 damage, 8 poise). A swing plants the feet (the crab slides to a stop: momentum); dodge cancels its
-recovery. Numbers: `crates/sim/src/tuning.rs`. Dying sinks the crab into the sand and it wakes 1.25 s later tucked in
+recovery. The claws aim at what they strike: a blow comes down (up to 16 units) onto a creature that is short or a
+step below, or up (up to 28) at one a little above, and anything overlapping the crab's shell is struck too; behind
+the shell, far above or out of reach it misses. Numbers: `crates/sim/src/tuning.rs`. Dying sinks the crab into the sand and it wakes 1.25 s later tucked in
 its home shell, or in the last crevice it rested in (rest stops, `world.md`), with full health and everything it had grown or fitted (lantern, scissor claws, climbing). What it
 was carrying (the big find on its back and the clams and grit on its shell) stays in its **cast-off shell** where it
 died, drawn pale on the floor with all of it on it: walking back over it picks the load up again, whatever there's

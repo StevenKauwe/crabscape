@@ -249,6 +249,9 @@ struct PuppetAnim {
     prev_vx: f32,
     /// 0..1 (smoothed): bulked up (the `hulk` code, `crabsim::codes`).
     hulk: f32,
+    /// Where the swinging claw is aimed (smoothed from the sim's
+    /// `Swing::aim`): world units up (> 0) or down (< 0).
+    aim: f32,
 }
 
 pub struct PuppetPlugin;
@@ -731,7 +734,14 @@ fn animate(
         a.water_push = ease(a.water_push, sink, 6.0, dt);
         // Fighting poses (see `fight_pose`): the crusher rears back over the
         // wind-up and slams down; the cutter jabs; guard raises both claws.
-        let mut fight = fight_pose(fighter, &sim.tuning, a.time, lab.juice());
+        // The claw aims where the sim aimed its blow (down onto something
+        // short, up at something above), easing there so a new target
+        // never snaps it.
+        let aim = fighter
+            .and_then(|f| f.swing.as_ref())
+            .map_or(0.0, |s| s.aim);
+        a.aim = ease(a.aim, aim, 30.0, dt);
+        let mut fight = fight_pose(fighter, &sim.tuning, a.time, a.aim, lab.juice());
         // Backing into its home shell (sim: `Mover::tucked`): its legs fold
         // under it and its claws come up before it as it goes into the dark
         // (`into_the_dark`).
@@ -1116,9 +1126,16 @@ struct FightPose {
 }
 
 /// The fighting pose, straight from the sim's tick counts (so hit-stop
-/// freezes it). `j` is the feel preset's juice: how far the body rears back
-/// and crouches, how early, and how hard it is thrown into the blow.
-fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32, j: &Juice) -> FightPose {
+/// freezes it). `aim` is where the claw is aimed (world units up, smoothed).
+/// `j` is the feel preset's juice: how far the body rears back and
+/// crouches, how early, and how hard it is thrown into the blow.
+fn fight_pose(
+    fighter: Option<&Fighter>,
+    t: &crabsim::Tuning,
+    time: f32,
+    aim: f32,
+    j: &Juice,
+) -> FightPose {
     let mut pose = FightPose {
         lean: 0.0,
         claw: [(0.0, 0.0); 2],
@@ -1200,6 +1217,19 @@ fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32, j: &Jui
                 };
             }
         }
+        // Aimed down or up: the whole claw swings that way about its
+        // shoulder (more as the blow comes out), the body leans down into a
+        // low blow, crouching, or rears up and stretches for a high one.
+        let side = match s.claw {
+            Claw::Crusher => 0,
+            Claw::Cutter => 1,
+        };
+        let tilt = (aim / AIM_REACH).clamp(-0.7, 0.7);
+        let out = 0.5 * load + blow;
+        pose.claw[side].0 += tilt * out;
+        pose.claw[side].1 += 0.4 * tilt * out;
+        pose.lean += facing * 0.18 * tilt * out;
+        pose.squash -= 0.35 * tilt * out;
     }
     // Crushing: the crusher stays out, clamped shut on the target, the whole
     // body straining and squeezing.
@@ -1229,6 +1259,10 @@ fn fight_pose(fighter: Option<&Fighter>, t: &crabsim::Tuning, time: f32, j: &Jui
     }
     pose
 }
+
+/// About how far the claw's tip is from its shoulder (world units): aiming
+/// the blow this far up or down turns the claw about a radian.
+const AIM_REACH: f32 = 55.0;
 
 /// How far a dive tilts the crab towards the way it's pushing (radians).
 const DIVE_TILT: f32 = 0.22;
