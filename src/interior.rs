@@ -673,7 +673,13 @@ fn show_menu(
     }
     for (Needs(recipe), mut t, mut colour) in &mut needs {
         let def = recipe.def();
-        let words = needs_text(&crab.stash, def.needs);
+        // Gear made once: the Fitted button says it all, so no need shows.
+        let fitted = matches!(sim.can_make(id, *recipe), Err(CantMake::Made));
+        let words = if fitted {
+            String::new()
+        } else {
+            needs_text(&crab.stash, def.needs)
+        };
         if t.0 != words {
             t.0 = words;
         }

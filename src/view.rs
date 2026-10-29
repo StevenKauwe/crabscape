@@ -349,8 +349,9 @@ fn spawn_hud(mut commands: Commands) {
         });
 }
 
-/// On touch screens, the keyboard help is replaced by a shorter hint; on
-/// narrow windows a shorter list of keys, so it stays two lines.
+/// On touch screens, the keyboard help is replaced by a shorter hint. A
+/// phone-wide window gets one line only: a second would run under the
+/// Invite and Settings buttons in the top corner.
 fn update_help(
     time: Res<Time<Real>>,
     touch: Res<TouchControls>,
@@ -364,12 +365,14 @@ fn update_help(
     let alpha = 0.6 * ((25.0 - *shown_for) / 5.0).clamp(0.0, 1.0);
     let (text, colour) = &mut *text;
     colour.set_if_neq(TextColor(Color::srgba(0.85, 0.92, 0.95, alpha)));
-    let help = if touch.visible {
-        "JUMP again in the water: swim  Pinch: memory\nGUARD just before a blow: parry"
-    } else if window.width() < 600.0 {
-        "A/D walk  Space jump  Shift dodge\nE smash  Q jab  F guard (tap: parry)"
-    } else {
-        KEYS_HELP
+    let narrow = window.width() < 600.0;
+    let help = match (touch.visible, narrow) {
+        (true, true) => "JUMP again in the water: swim",
+        (true, false) => {
+            "JUMP again in the water: swim  Pinch: memory\nGUARD just before a blow: parry"
+        }
+        (false, true) => "A/D walk  Space jump  E smash  F guard",
+        (false, false) => KEYS_HELP,
     };
     if text.0 != help {
         text.0 = help.to_string();
