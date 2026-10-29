@@ -17,6 +17,7 @@
 //! - holding D walks the crab right, Space makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
 //! - next to the mantis shrimp's burrow, it comes out and winds up, and blows land (`data-fight`);
+//! - mid-fight, a tap on "Home" puts the crab straight into its home shell, and out again, so does the H key;
 //! - while the page is hidden (a pretend `visibilitychange`) the game stands still, its audio context is suspended
 //!   and the silent `<audio>` paused; shown again it walks on, sound resumes, and the replay below spans the gap;
 //! - F9, and the `?replay` page's Replay button, hand out a replay that the headless simulation (linked in) plays
@@ -776,6 +777,31 @@ impl Test<'_> {
             format!("blows land in the fight (shell and mantis: {after})"),
         );
 
+        // --- the Home button ---------------------------------------------------------------------------------------
+        // Still in the fight: one tap and the crab is tucked into its home shell (`crabsim::home`).
+        let home_x = f64::from(crabsim::Level::test_level().home_den.x);
+        let at_home =
+            format!(r#"Math.abs(parseFloat({CANVAS}.getAttribute("data-crab")) - {home_x}) < 1.5"#);
+        let (hx, hy) = home_button(w);
+        self.tap(hx, hy, 15, true)?;
+        let home = self.wait_for(&at_home, 3.0)?;
+        let crab = self.crab()?;
+        self.check(
+            home,
+            format!("a tap on Home, mid-fight, puts the crab in its home shell ({crab:?})"),
+        );
+        // Walked out again, the H key does the same.
+        self.key("keydown", "KeyD", "d")?;
+        self.hold(1.2, false)?;
+        self.key("keyup", "KeyD", "d")?;
+        let out = self.rest()?;
+        self.press("KeyH", "h")?;
+        let home = self.wait_for(&at_home, 3.0)?;
+        self.check(
+            out.0 > home_x + 40.0 && home,
+            format!("out again (x {:.0}), H puts it home", out.0),
+        );
+
         // --- the feel lab -----------------------------------------------------------------------------------------
         let feel_is = |s: &str| format!(r#"{CANVAS}.getAttribute("data-feel") === "{s}""#);
         self.open("index.html?feel")?;
@@ -791,8 +817,8 @@ impl Test<'_> {
         self.press("Backslash", "\\")?;
         let ok = self.wait_for(&feel_is("tank off"), 5.0)?;
         self.check(ok, "backslash switches the juice off");
-        // The FEEL button: under Settings (mirrors button_rect() in src/feel.rs), tapped.
-        let top = if w < 600.0 { 58.0 } else { 10.0 } + (34.0 + 8.0);
+        // The FEEL button: under Settings and Home (mirrors button_rect() in src/feel.rs), tapped.
+        let top = if w < 600.0 { 58.0 } else { 10.0 } + 2.0 * (34.0 + 8.0);
         let (fx, fy) = (w - 10.0 - 52.0, top + 17.0);
         self.tap(fx, fy, 11, true)?;
         let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
@@ -1081,6 +1107,13 @@ fn page_top(w: f64) -> f64 {
 fn settings_button(w: f64) -> (f64, f64) {
     let top = if w < 600.0 { 58.0 } else { 10.0 };
     (w - 10.0 - 52.0, top + 17.0)
+}
+
+/// The middle of the Home button, in CSS pixels: under Settings, the same size (mirrors button_rect() in
+/// src/go_home.rs).
+fn home_button(w: f64) -> (f64, f64) {
+    let (x, y) = settings_button(w);
+    (x, y + 34.0 + 8.0)
 }
 
 /// The middle of a settings tab ("game", "graphics", "audio" or "coop"), in CSS pixels: the tabs share the

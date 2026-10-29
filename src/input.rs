@@ -14,6 +14,7 @@
 //! | Smash  | L, E                    | Y (north button)     | SMASH      |
 //! | Jab    | O, Q                    | X (west button)      | JAB        |
 //! | Guard  | I, F (tap: parry)       | left bumper/trigger  | GUARD      |
+//! | Home   | H, Home                 | Select               | Home (top right, `go_home.rs`) |
 //!
 //! Guard raises the claws while held; pressed just before a blow lands
 //! (within 10 ticks) it is a parry, and a smash right after is a counter.
@@ -137,6 +138,12 @@ fn button_rects(size: Vec2) -> [(TouchAction, Rect); 7] {
             ),
         ),
     ]
+}
+
+/// Every on-screen button's box (for other buttons to keep clear of).
+#[cfg(test)]
+pub(crate) fn touch_rects(size: Vec2) -> [Rect; 7] {
+    button_rects(size).map(|(_, r)| r)
 }
 
 /// Is this point (logical pixels from the top-left) on an on-screen button?
