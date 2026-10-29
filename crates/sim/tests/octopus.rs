@@ -859,7 +859,10 @@ fn it_lives_hidden_in_its_den_at_the_end_of_the_far_rim() {
     let den = level.den;
     let (w, _) = t.octopus.base.body;
     // All of it inside the chamber, on its floor, facing out of it (the wall at its back).
-    assert!(at.x - w / 2.0 >= den.min.x && at.x + w / 2.0 <= den.max.x, "{at}");
+    assert!(
+        at.x - w / 2.0 >= den.min.x && at.x + w / 2.0 <= den.max.x,
+        "{at}"
+    );
     assert_eq!(level.floor_height(at.x), den.min.y);
     // Room over a crab in the chamber to webover.
     assert!(den.max.y - den.min.y >= t.octopus.webover.headroom);
