@@ -58,6 +58,7 @@ mod critters;
 mod deep;
 mod effects;
 mod eggs;
+mod ending;
 mod feel;
 mod fight;
 mod foes;
@@ -149,7 +150,7 @@ fn main() {
             notes::NotesPlugin,
             report::ReportPlugin,
             reset::ResetPlugin,
-            secrets::SecretsPlugin,
+            (secrets::SecretsPlugin, ending::EndingPlugin),
             sound::SoundPlugin,
             stamina::StaminaPlugin,
             voice::VoicePlugin,

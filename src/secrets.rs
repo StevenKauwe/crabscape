@@ -260,7 +260,7 @@ struct FarLight {
 
 /// Where the crack is: in the floor near the far end of the basin, on the
 /// rise (the middle of its mouth, on the floor's surface).
-fn crack_at(sim: &Sim) -> Vec2 {
+pub fn crack_at(sim: &Sim) -> Vec2 {
     let x = sim.level.max_x - 70.0;
     Vec2::new(x, sim.level.floor_height(x))
 }
