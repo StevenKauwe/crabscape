@@ -64,6 +64,7 @@ mod ending;
 mod feel;
 mod fight;
 mod foes;
+mod food;
 mod home;
 mod impact;
 mod input;
@@ -143,7 +144,7 @@ fn main() {
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,
-            eggs::EggsPlugin,
+            (eggs::EggsPlugin, food::FoodPlugin),
             feel::FeelPlugin,
             foes::FoesPlugin,
             fight::FightPlugin,

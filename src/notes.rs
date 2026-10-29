@@ -1,5 +1,5 @@
 //! Short notes that float up above the crab and fade: "+1 stroke",
-//! "Climbing level 2!", "Rested" ... one for each thing worth telling the
+//! "Climbing level 2!", "Rested", "Well fed" ... one for each thing worth telling the
 //! player that just happened to the local crab.
 
 use bevy::prelude::*;
@@ -78,6 +78,7 @@ fn note_events(
     if ev.picked_up && !ev.recovered {
         let what = match mover.carrying {
             Some(Carry::Tooth) => ("Take the tooth home!", PALE),
+            Some(Carry::Clam) => ("A clam! Take it home.", YOLK),
             _ => ("Take it home!", WILD_GLOW),
         };
         notes.push((what.0.into(), what.1));
@@ -106,8 +107,20 @@ fn note_events(
     if ev.delivered {
         notes.push(("Lantern brighter!".into(), WARM));
     }
+    if ev.stored {
+        notes.push(("Into the larder".into(), YOLK));
+    }
+    if ev.larder_full {
+        notes.push(("The larder is full".into(), PALE));
+    }
     if ev.rested {
         notes.push(("Rested".into(), PALE));
+    }
+    if ev.ate_clam {
+        notes.push(("Cracked a clam: well fed".into(), GOLD));
+    }
+    if ev.hungry {
+        notes.push(("The meal wore off".into(), PALE));
     }
     if ev.found_clue == Some(0) {
         notes.push(("A tooth bigger than you.".into(), PALE));
