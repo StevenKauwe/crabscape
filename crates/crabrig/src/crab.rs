@@ -386,13 +386,16 @@ fn shell_margin(front_teeth: f64) -> Vec<([f64; 3], P)> {
         half.push([p0[0], 0.0, p0[1]]);
         half.push([tip[0], -2.6 * amp, tip[1]]);
     }
-    half.extend([
-        [128.0, 0.0, 10.0],
-        [148.0, -3.0, 4.0],
-        [126.0, 0.0, -2.0],
-    ]);
+    half.extend([[128.0, 0.0, 10.0], [148.0, -3.0, 4.0], [126.0, 0.0, -2.0]]);
     let back: Vec<P> = through(
-        &[[126.0, -2.0], [114.0, -22.0], [92.0, -40.0], [62.0, -51.0], [32.0, -55.5], [0.0, -57.0]],
+        &[
+            [126.0, -2.0],
+            [114.0, -22.0],
+            [92.0, -40.0],
+            [62.0, -51.0],
+            [32.0, -55.5],
+            [0.0, -57.0],
+        ],
         3,
         false,
     );
@@ -490,8 +493,13 @@ pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
     };
     let sternum = ring(46.0, 100.0, 40.0, 44.0);
     let st_pts = proj_all(&sternum);
-    out.push(id("underside"), &g, convex(&st_pts), if from_front { "face" } else { "vent" })
-        .shade = true;
+    out.push(
+        id("underside"),
+        &g,
+        convex(&st_pts),
+        if from_front { "face" } else { "vent" },
+    )
+    .shade = true;
     let mut body: Vec<[f64; 3]> = ring(2.0, 122.0, 52.0, 52.0);
     body.extend(ring(36.0, 104.0, 46.0, 42.0));
     if from_front {
@@ -510,7 +518,13 @@ pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
         for s in [-1.0, 1.0] {
             let (x0, x1) = (s * 1.5, s * 17.0);
             let plate: Vec<[f64; 3]> = through(
-                &[[x0, 16.0], [x1 - s * 2.0, 15.0], [x1, 24.0], [x1 - s * 2.0, 36.0], [x0, 38.0]],
+                &[
+                    [x0, 16.0],
+                    [x1 - s * 2.0, 15.0],
+                    [x1, 24.0],
+                    [x1 - s * 2.0, 36.0],
+                    [x0, 38.0],
+                ],
                 3,
                 false,
             )
@@ -523,7 +537,13 @@ pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
     } else {
         // the folded abdomen under the posterior border
         let fold: Vec<[f64; 3]> = through(
-            &[[-20.0, 28.0], [20.0, 28.0], [16.0, 42.0], [0.0, 45.0], [-16.0, 42.0]],
+            &[
+                [-20.0, 28.0],
+                [20.0, 28.0],
+                [16.0, 42.0],
+                [0.0, 45.0],
+                [-16.0, 42.0],
+            ],
             4,
             true,
         )
@@ -539,7 +559,10 @@ pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
     let mut tops: Vec<P> = rim.clone();
     for i in 0..=24 {
         for k in 0..=12 {
-            let (x, z) = (-122.0 + 244.0 * i as f64 / 24.0, -56.0 + 104.0 * k as f64 / 12.0);
+            let (x, z) = (
+                -122.0 + 244.0 * i as f64 / 24.0,
+                -56.0 + 104.0 * k as f64 / 12.0,
+            );
             let y = shell_dome(x, z);
             if y < -0.5 {
                 tops.push(proj([x, y, z]));
@@ -569,7 +592,12 @@ pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
     let near_of = |v: &[usize]| v.iter().map(|&i| depth(margin[i].0)).sum::<f64>() / v.len() as f64;
     let near = if near_of(&a1) > near_of(&a2) { a1 } else { a2 };
     let mut shell = top.clone();
-    shell.extend(near.iter().skip(1).take(near.len().saturating_sub(2)).map(|&i| rim[i]));
+    shell.extend(
+        near.iter()
+            .skip(1)
+            .take(near.len().saturating_sub(2))
+            .map(|&i| rim[i]),
+    );
     let cara = out.push(g.clone(), &g, shell, "shell");
     let bb = bbox(cara.pts.iter());
     cara.pv = Some([bb.x0 + bb.w / 2.0, bb.y0 + bb.h / 2.0]);
@@ -581,7 +609,11 @@ pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
         .collect();
     if brim.len() > 2 {
         let mut sh: Vec<P> = proj_all(&brim);
-        sh.extend(brim.iter().rev().map(|p| proj([p[0] * 0.94, 11.0, p[2] * 0.94])));
+        sh.extend(
+            brim.iter()
+                .rev()
+                .map(|p| proj([p[0] * 0.94, 11.0, p[2] * 0.94])),
+        );
         let it = out.push(id("brim-shadow"), &g, sh, "face");
         it.shade = true;
         it.ink = false;
@@ -602,7 +634,13 @@ pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
             .map(|p| [s * p[0], shell_dome(s * p[0], p[1]), p[1]])
             .collect();
         if groove.len() >= 2 {
-            out.line(id(&format!("groove-{side}")), &g, proj_all(&groove), "ink", 0.5);
+            out.line(
+                id(&format!("groove-{side}")),
+                &g,
+                proj_all(&groove),
+                "ink",
+                0.5,
+            );
         }
     }
     out.0

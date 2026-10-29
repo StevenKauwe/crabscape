@@ -41,9 +41,13 @@ fn the_game_parts_file_matches_the_rig() {
     // 43, plus the two rows of scissor-claw teeth on the crusher (shown in the game once fitted), plus the shell
     // seen from behind (shown once the crab turns its back), plus the gear and feats shown once fitted or grown:
     // a clam-shell guard per claw, glass grips and gripping hooks on the six walking legs' tips, a broad paddle on
-    // each paddle.
-    assert_eq!(e.parts, 62);
+    // each paddle; plus the shell turned part way round (three-quarters from the front, side on, three-quarters
+    // from behind), shown through the turn.
+    assert_eq!(e.parts, 65);
     for part in [
+        "turn45-carapace",
+        "turn90-carapace",
+        "turn135-carapace",
         "cheliped-R-propodus-guard",
         "leg-L3-dactyl-glass",
         "leg-R1-dactyl-hook",
@@ -247,4 +251,33 @@ fn the_octopus_kit_has_every_piece_the_game_poses() {
     assert!(sucker.pts.iter().all(|p| p[1] > 0.0), "suckers underneath");
     assert_eq!(parent_of("arm-0-sucker0"), "arm-0");
     assert_eq!(parent_of("arm-7-sucker4"), "arm-7");
+}
+
+#[test]
+fn the_shell_turned_round_narrows_side_on_and_never_goes_thin() {
+    use crabrig::crab::{TURN_VIEWS, turn_shell};
+    use crabrig::geom::bbox;
+    let pose = base_pose();
+    let shell = |items: Vec<crabrig::item::Item>, id: &str| {
+        let it = items.into_iter().find(|i| i.id == id).expect(id);
+        assert!(
+            id == "carapace" || it.pv.is_some(),
+            "{id} turns about its middle"
+        );
+        bbox(it.pts.iter())
+    };
+    let front = shell(build_front(&pose), "carapace");
+    let widths: Vec<f64> = TURN_VIEWS
+        .iter()
+        .map(|yaw| shell(turn_shell(&pose, *yaw), &format!("turn{yaw}-carapace")).w)
+        .collect();
+    let side = widths[1];
+    assert!(
+        widths[0] < front.w && side < widths[0] && side < widths[2],
+        "{widths:?}"
+    );
+    // Side on it is a crab end-on from its side: narrow, but a solid shape, taller than it is thin.
+    assert!(side > 0.3 * front.w, "side on {side} of {}", front.w);
+    let side_box = shell(turn_shell(&pose, 90), "turn90-carapace");
+    assert!(side_box.h > 0.6 * side_box.w, "{side_box:?}");
 }

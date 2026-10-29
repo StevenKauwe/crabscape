@@ -20,7 +20,9 @@ pub fn parent_of(id: &str) -> String {
     if let Some(m) = re(r"^(cheliped-[RL])-carpus-spine").captures(id) {
         return format!("{}-carpus", &m[1]);
     }
-    if let Some(m) = re(r"^(cheliped-[RL])-(palm-ridge|palm-belly|molar|propodus-fixedfinger)").captures(id) {
+    if let Some(m) =
+        re(r"^(cheliped-[RL])-(palm-ridge|palm-belly|molar|propodus-fixedfinger)").captures(id)
+    {
         return format!("{}-propodus-palm", &m[1]);
     }
     if let Some(m) = re(r"^(cheliped-[RL])-dactyl-tip").captures(id) {
