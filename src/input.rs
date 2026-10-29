@@ -177,6 +177,7 @@ fn read_input(
     gamepads: Query<&Gamepad>,
     window: Single<&Window>,
     local: Single<&PlayerId, With<LocalPlayer>>,
+    settings: Res<crate::settings::panel::Open>,
     mut touch_controls: ResMut<TouchControls>,
     mut held_before: Local<Held>,
     mut requests: MessageWriter<MoveRequest>,
@@ -192,11 +193,13 @@ fn read_input(
     let touch = |a: TouchAction| on_screen.contains(&a);
 
     let any_key = |list: &[KeyCode]| keys.any_pressed(list.iter().copied());
+    // While the settings panel is open, left and right switch its tabs.
+    let arrow = |key: KeyCode| !settings.is_open() && keys.pressed(key);
     let mut walk = 0.0;
-    if any_key(&[KeyCode::KeyA, KeyCode::ArrowLeft]) || touch(TouchAction::Left) {
+    if any_key(&[KeyCode::KeyA]) || arrow(KeyCode::ArrowLeft) || touch(TouchAction::Left) {
         walk -= 1.0;
     }
-    if any_key(&[KeyCode::KeyD, KeyCode::ArrowRight]) || touch(TouchAction::Right) {
+    if any_key(&[KeyCode::KeyD]) || arrow(KeyCode::ArrowRight) || touch(TouchAction::Right) {
         walk += 1.0;
     }
     let mut jump = any_key(&[

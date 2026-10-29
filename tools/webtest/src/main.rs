@@ -12,7 +12,8 @@
 //! - WebKit accepts the .wasm file (and, as a sanity check, rejects a relaxed-SIMD module, like an iPhone does);
 //! - the game starts with no error message and draws something into the canvas, including warm lantern light;
 //! - the crab's pictures load, the style starts as Oil, and the P key and the settings panel's Ink and Oil (opened
-//!   by the "Settings" button) switch between them (the canvas's `data-style` says which);
+//!   by the "Settings" button, on its Graphics tab) switch between them (the canvas's `data-style` says which);
+//! - the settings panel's tab is kept, the arrow keys switch tabs while it is open, and Esc closes it;
 //! - holding D walks the crab right, Space makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
 //! - next to the mantis shrimp's burrow, it comes out and winds up, and blows land (`data-fight`);
@@ -23,7 +24,7 @@
 //! - its resting position, and the chosen style, are saved in localStorage and survive a reload;
 //! - the feel lab (`?feel`; it shows by itself in preview builds) starts on the recommended preset, and the backtick
 //!   key, backslash and the FEEL button switch preset and juice, kept over a reload (`data-feel`);
-//! - the settings panel's "Start over" wipes nothing on one tap and the saved game on a second;
+//! - the settings panel's "Start over" (on its Game tab) wipes nothing on one tap and the saved game on a second;
 //! - nothing went wrong along the way (no error on the page or in the browser console).
 //!
 //! `--feel-shots PREFIX` instead plays a smash on the mantis in slow motion (`?slow=10`) in a few feel presets and
@@ -540,10 +541,18 @@ impl Test<'_> {
             oil_warm > 300 && ink_warm > 300,
             "both styles draw the lit crab",
         );
-        // The Settings button, top-right, and the panel's "Art style" Ink and Oil (mirrors button_rect() and
-        // layout() in src/settings.rs: the panel opens under the co-op status line, a row lower on a narrow screen).
-        let (sx, sy, ink, oil) = settings_panel(w);
+        // The Settings button, top-right, its Graphics tab and that tab's "Art style" Ink and Oil (mirrors
+        // button_rect() and layout_for() in src/settings.rs: the panel opens under the co-op status line, a row
+        // lower on a narrow screen).
+        let (sx, sy) = settings_button(w);
+        let (ink, oil) = ink_and_oil(w);
+        let graphics = settings_tab(w, "graphics");
+        let tab_is =
+            |t: &str| format!(r#"localStorage.getItem("crabscape-settings-tab") === "{t}""#);
         self.tap(sx, sy, 1, false)?;
+        self.tap(graphics.0, graphics.1, 1, false)?;
+        let ok = self.wait_for(&tab_is("graphics"), 5.0)?;
+        self.check(ok, "tapping the Graphics tab picks it, and it is kept");
         self.tap(oil.0, oil.1, 1, false)?;
         let ok = self.wait_for(&style_is("oil"), 5.0)?;
         self.check(
@@ -555,7 +564,26 @@ impl Test<'_> {
             stored == "oil",
             "the style choice is stored in localStorage",
         );
-        // A finger tap on Ink, which the reload at the end should keep; then Settings again closes the panel.
+        // With the panel open, right and left switch tabs, and Esc closes it: a click where Ink was then
+        // changes nothing.
+        self.press("ArrowRight", "ArrowRight")?;
+        let ok = self.wait_for(&tab_is("audio"), 5.0)?;
+        self.check(ok, "the right arrow switches to the next tab (Audio)");
+        self.press("ArrowLeft", "ArrowLeft")?;
+        let ok = self.wait_for(&tab_is("graphics"), 5.0)?;
+        self.check(ok, "the left arrow switches back (Graphics)");
+        self.press("Escape", "Escape")?;
+        pump(0.3);
+        self.tap(ink.0, ink.1, 1, false)?;
+        pump(0.5);
+        let style = self.attr("data-style")?;
+        self.check(
+            style.as_deref() == Some("oil"),
+            format!("Esc closes the settings panel (style after a click where Ink was: {style:?})"),
+        );
+        // Opened again on the Graphics tab, kept from before: a finger tap on Ink, which the reload at the end
+        // should keep; then Settings again closes the panel.
+        self.tap(sx, sy, 9, true)?;
         self.tap(ink.0, ink.1, 9, true)?;
         let ok = self.wait_for(&style_is("ink"), 5.0)?;
         self.check(ok, "tapping Ink in the settings panel switches style");
@@ -774,11 +802,14 @@ impl Test<'_> {
         self.check(ok, "the preset and juice are kept over a reload");
 
         // --- start over -------------------------------------------------------------------------------------------
-        // In the settings panel, last; one tap only asks ("Sure? Start over"), a second wipes this game's saved data
-        // (the ink style chosen above among it) and reloads the page.
-        let (sx, sy, _, _) = settings_panel(w);
-        let (ox, oy) = start_over_centre(w, h);
+        // On the settings panel's Game tab, last; one tap only asks ("Sure? Start over"), a second wipes this
+        // game's saved data (the ink style chosen above among it) and reloads the page. The panel opens on the
+        // tab used last (Graphics, kept over the reload above), so the Game tab first.
+        let (sx, sy) = settings_button(w);
+        let game = settings_tab(w, "game");
+        let (ox, oy) = start_over_centre(w);
         self.tap(sx, sy, 12, true)?;
+        self.tap(game.0, game.1, 12, true)?;
         self.tap(ox, oy, 13, true)?;
         pump(0.5);
         let stored = self.eval(r#"localStorage.getItem("crabscape-style")"#)?;
@@ -1031,52 +1062,68 @@ impl Test<'_> {
     }
 }
 
-/// The settings panel's top edge, its left edge and the middle of its "Art style" row, in CSS pixels, for a
-/// window `w` wide. Mirrors button_rect() and layout() in src/settings.rs and status_top() in src/coop.rs.
-fn panel_frame(w: f64) -> (f64, f64, f64) {
+/// The settings panel's top edge and left edge, in CSS pixels, for a window `w` wide. Mirrors button_rect() and
+/// layout_for() in src/settings.rs and status_top() in src/coop.rs.
+fn panel_frame(w: f64) -> (f64, f64) {
     let narrow = w < 600.0;
     let top = if narrow { 58.0 } else { 10.0 };
     // The co-op status line: under the button's row, or on a narrow screen the row below it.
     let status = top + 34.0 + if narrow { 42.0 } else { 0.0 } + 4.0;
-    let panel_top = status + 20.0;
-    // Padding, "Drawing" title, its row, padding, "Art style" title, then half its row.
-    let style_row = panel_top + 10.0 + 18.0 + 30.0 + 10.0 + 18.0 + 15.0;
-    (panel_top, w - 10.0 - 256.0, style_row)
+    (status + 20.0, w - 10.0 - 280.0)
 }
 
-/// The Settings button's middle, and the middles of the panel's Ink and Oil, in CSS pixels.
-#[allow(clippy::type_complexity)]
-fn settings_panel(w: f64) -> (f64, f64, (f64, f64), (f64, f64)) {
+/// Where the settings panel's tabs end and its pages start: padding, the 36-high tab row, padding.
+fn page_top(w: f64) -> f64 {
+    panel_frame(w).0 + 10.0 + 36.0 + 10.0
+}
+
+/// The Settings button's middle, in CSS pixels.
+fn settings_button(w: f64) -> (f64, f64) {
     let top = if w < 600.0 { 58.0 } else { 10.0 };
-    let (_, left, style_row) = panel_frame(w);
-    // Two halves of the 236 inside the padding, 8 apart: 114 each.
-    let ink = (left + 10.0 + 57.0, style_row);
-    let oil = (left + 10.0 + 114.0 + 8.0 + 57.0, style_row);
-    (w - 10.0 - 52.0, top + 17.0, ink, oil)
+    (w - 10.0 - 52.0, top + 17.0)
 }
 
-/// The middle of the panel's "Start over", in a window `w` by `h`: after the sound section (its title and four
-/// volume rows), the hearing section (whose voices and the hearing slider), Report and Enter a code; or, when one
-/// column would run off a short window, after Art style, Report and Enter a code, with the sound and hearing
-/// sections in a second column to the left.
-fn start_over_centre(w: f64, h: f64) -> (f64, f64) {
-    let (panel_top, _, _) = panel_frame(w);
-    // Padding, then the Drawing and Art style sections (title, row, padding).
-    let styles = panel_top + 10.0 + 2.0 * (18.0 + 30.0 + 10.0);
-    // "Sound", then master, music, effects and voices, a 34-high row each, and a little gap.
-    let sound = 18.0 + 4.0 * 34.0 + 8.0;
-    // Whose voices (title, row, padding), then the hearing slider (label, track and padding).
-    let hearing = (18.0 + 30.0 + 10.0) + (18.0 + 8.0 + 6.0 + 10.0 + 8.0);
-    // Report and Enter a code.
-    let asks = (30.0 + 8.0) + (30.0 + 10.0);
-    // Then Start over and, under it, the one-line build name (the test serves the live game's path).
-    let one_column = styles + sound + hearing + asks + 10.0 + 30.0 + 4.0 + 14.0 + 10.0;
-    let y = if one_column > h - 10.0 {
-        styles + asks
-    } else {
-        styles + sound + hearing + asks
-    } + 10.0;
-    (w - 10.0 - 128.0, y + 15.0)
+/// The middle of a settings tab ("game", "graphics", "audio" or "coop"), in CSS pixels: the tabs share the
+/// panel's top row, 6 apart, each as wide as its name and three letters more.
+fn settings_tab(w: f64, tab: &str) -> (f64, f64) {
+    let (top, left) = panel_frame(w);
+    let tabs = [
+        ("game", 4.0),
+        ("graphics", 8.0),
+        ("audio", 5.0),
+        ("coop", 5.0),
+    ];
+    let total: f64 = tabs.iter().map(|(_, letters)| letters + 3.0).sum();
+    let room = 280.0 - 2.0 * 10.0 - 3.0 * 6.0;
+    let mut x = left + 10.0;
+    for (name, letters) in tabs {
+        let width = room * (letters + 3.0) / total;
+        if name == tab {
+            return (x + width / 2.0, top + 10.0 + 18.0);
+        }
+        x += width + 6.0;
+    }
+    panic!("no settings tab {tab}")
+}
+
+/// The middles of Ink and Oil on the Graphics tab, in CSS pixels: the "Art style" title, then its row.
+#[allow(clippy::type_complexity)]
+fn ink_and_oil(w: f64) -> ((f64, f64), (f64, f64)) {
+    let (_, left) = panel_frame(w);
+    let y = page_top(w) + 18.0 + 18.0;
+    // Two halves of the 260 inside the padding, 8 apart: 126 each.
+    (
+        (left + 10.0 + 63.0, y),
+        (left + 10.0 + 126.0 + 8.0 + 63.0, y),
+    )
+}
+
+/// The middle of "Start over" on the Game tab, in CSS pixels: after "Report a bug or idea" and "Enter a code"
+/// (36 high, 8 apart), and a gap of twice the padding.
+fn start_over_centre(w: f64) -> (f64, f64) {
+    let (_, left) = panel_frame(w);
+    let y = page_top(w) + (36.0 + 8.0) + (36.0 + 20.0) + 18.0;
+    (left + 140.0, y)
 }
 
 /// Middle of an on-screen button, in CSS pixels. Mirrors button_rects() in src/input.rs.
