@@ -9,13 +9,17 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   short wind-up that the water soon brakes; the way down is a slow, steady sink, not a drop (about 0.8 s back down
   from a 0.5 s rise). Heavy landings bleed speed.
 - **Paddle legs give the air moves.** The flattened 5th legs of swimming crabs drive the double jump and swimming,
-  one strong stroke at a time, sinking in between (never hovering). Strokes have a rhythm, so mashing doesn't help.
+  one strong stroke at a time, sinking in between (never hovering). Strokes have a rhythm (0.30 s, quicker with the
+  Swimming skill), so mashing doesn't help: a press during the rhythm is never lost, it waits and strokes the moment
+  the legs are ready (one at most), so mashing strokes exactly on the rhythm and climbs no higher than presses on
+  the beat.
 - **Swimming takes stamina; the way up is the cost.** Sinking is free, climbing back up isn't. Every paddle stroke is
   an upgrade: the crab starts with only the floor jump, and each **fish egg** eaten (drifting beads with a glowing
   yolk) grows one more stroke. The first is the double jump, the rest swim higher. The test level has three eggs,
   each reachable only with the strokes the ones before it give (the first unlocks the double jump the trench and
   the high ledge need). Strokes only rest on something solid, so ledges and rocks are rest stops and
-  high or hidden routes need planning. Small rings above the crab show them, only while tired. Resting draws on a
+  high or hidden routes need planning. Touching down rests one stroke at once (so a hop straight off again has its
+  double jump), the rest over 0.6 s of standing. Small rings above the crab show them, only while tired. Resting draws on a
   deeper **reserve** (6 strokes' worth, a small bar in the top-left corner) that comes back by itself in about 30
   seconds; when it's empty the legs stay tired, so swimming can't be endless. Sprinting drains it too. Floor jumps
   are free.
