@@ -272,13 +272,13 @@ impl Level {
                 Vec2::new(2450.0, 24.0),
                 Vec2::new(3720.0, -8696.0),
             ],
-            // Shell grit, more of it deeper: one heap in the shallows (under
-            // the low ledge, past the first snapping shrimp), one on the
+            // Shell grit, more of it deeper: one heap in the shallows (by
+            // the first snapping shrimp's burrow, clear of the clams), one on the
             // slope past the trench, one in the basin below the cliff, one
             // in the far basin past the ghost net, and two at the bottom of
             // the pit. Finishing the home takes a trip to the deep.
             grit: vec![
-                Vec2::new(430.0, 4.0),
+                Vec2::new(380.0, 4.0),
                 Vec2::new(2200.0, 74.0),
                 Vec2::new(3010.0, -696.0),
                 Vec2::new(4900.0, -696.0),
