@@ -73,6 +73,19 @@ Key poses: **idle** (eyes swivel independently, antennal scales flick); **tell**
 merus swung back, club tight); **strike** (club out flat ahead, one smear frame, bubble flash at the tip);
 **recover** (head down, club drooping); **hurt** (abdomen curls, telson raised toward the attacker).
 
+**Puppet (in the game):** drawn by `crates/crabrig/src/mantis.rs` from the concept sheet (side view, facing right) into
+`art/creatures/mantis-shrimp/mantis-shrimp-parts.svg`, exported to `assets/creatures/` (`cargo run -p crabrig --profile
+art -- parts --creature mantis-shrimp`, then `-- export --creature mantis-shrimp`). Sixteen parts: carapace (with the
+thorax, near walking legs and mouthparts), abdomen (six segments and the swimmerets' fringe), tail fan (telson and
+uropods), and near and far: raptorial arm, club, eye on its stalk, antennule, antennal scale; three far walking legs.
+The game (`src/foes.rs`) rears the body about its hind feet (the abdomen turns back so the tail stays down), swings the
+arm and club through folded, cocked, out and drooping, swivels each eye on its own, sweeps the antennules and flicks
+the scales, curls the abdomen and lifts the tail fan when hit, and sinks it in the burrow so only the eyes and
+antennule tips show. The strike adds a short lunge and stretches the club for a frame so it reaches toward the hit
+circle. The club is drawn bigger and redder than life, with a pale gleam while the latch is set, so the tell reads at
+phone size. Ink style only for now (no oil-painted copy yet); the rig notes' separate abdominal segments, maxilliped
+pair and meral spread are not separate parts yet.
+
 ## Sources
 - [ADW] Animal Diversity Web, *Odontodactylus scyllarus*. <https://animaldiversity.org/accounts/Odontodactylus_scyllarus/>
 - [UCB] UC Berkeley news release (2004), "Mantis shrimp may have swiftest kick". <https://newsarchive.berkeley.edu/news/media/releases/2004/04/21_shrimp.shtml>

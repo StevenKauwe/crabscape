@@ -62,6 +62,12 @@ impl CreatureArt {
         Some(self.to_puppet([p.bbox[0] + p.bbox[2], p.bbox[1] + p.bbox[3] / 2.0]))
     }
 
+    /// A piece's joint at rest, in the puppet's space.
+    pub fn pivot_of(&self, name: &str) -> Option<Vec2> {
+        let p = self.file.parts.iter().find(|p| p.name == name)?;
+        Some(self.to_puppet(p.pivot))
+    }
+
     /// Build the puppet under `holder`; returns each piece's entity by name. A piece's own transform is its
     /// joint: turn it to bend there.
     pub fn spawn(&self, commands: &mut Commands, holder: Entity) -> HashMap<String, Entity> {
