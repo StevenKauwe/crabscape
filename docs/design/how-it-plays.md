@@ -41,6 +41,9 @@ recovery. Numbers: `crates/sim/src/tuning.rs`. Dying sinks the crab into the san
 its home shell, with full health and everything it had grown or fitted (lantern, scissor claws, climbing). What it
 was carrying stays in its **cast-off shell** where it died, drawn pale on the floor with the lump or tooth on it:
 walking back over it picks the load up again ("Got it back!").
+A beaten creature's body lies where it fell (belly up) until it comes back: walking onto it, the crab eats it, mending
+half its shell and filling its reserve, once per body. Home is the only other place the shell mends, so a fight on the
+way is worth it. The mantis stalks: walking past or away doesn't escape it, only a sprint or a fight does.
 **Block** (hold): damage ×0.2, poise in full, walk at 40%. **Parry**: block pressed ≤ 10 ticks before a blow lands
 (a fresh press; a tap counts, a held block never does, and presses closer than 0.2 s apart open no new window):
 no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. **Dodge** (and flip):

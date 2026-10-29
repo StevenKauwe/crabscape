@@ -297,3 +297,102 @@ fn a_moray_knocked_out_of_its_crevice_goes_back_and_hunts_again() {
     let e = &sim.enemies()[0];
     assert!(hurt, "never noticed the crab: {:?} at {}", e.state, e.pos.x);
 }
+
+#[test]
+fn a_crab_cannot_just_walk_past_a_mantis() {
+    // The owner: "no reason to kill them, just run past". On the plateau,
+    // walking past: the mantis turns after it, darts after it and strikes.
+    // Only a sprint (costing the reserve) or a fight gets past.
+    let mut sim = Sim::with_one_crab(Vec2::new(830.0, 110.0));
+    sim.set_feel(crabsim::Feel::Hybrid);
+    sim.spawn_enemy(Kind::Mantis, Vec2::new(950.0, 110.0));
+    let id = sim.crabs()[0].id;
+    let mut hurt = false;
+    // Until just before the trench's edge (1300).
+    while sim.crabs()[0].mover.pos.x < 1270.0 && !hurt {
+        sim.set_controls(
+            id,
+            Controls {
+                walk: 1.0,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        hurt |= sim.crabs()[0].events.hurt;
+    }
+    assert!(hurt, "walked past unhurt");
+}
+
+#[test]
+fn a_sprinting_crab_gets_past_a_mantis() {
+    // Faster than its dart, at the cost of the reserve.
+    let mut sim = Sim::with_one_crab(Vec2::new(830.0, 110.0));
+    sim.set_feel(crabsim::Feel::Hybrid);
+    sim.spawn_enemy(Kind::Mantis, Vec2::new(950.0, 110.0));
+    let id = sim.crabs()[0].id;
+    let mut hurt = false;
+    let mut tick = 0;
+    while sim.crabs()[0].mover.pos.x < 1270.0 && tick < 600 {
+        sim.set_controls(
+            id,
+            Controls {
+                walk: 1.0,
+                dodge_pressed: tick == 0,
+                dodge_held: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        tick += 1;
+        hurt |= sim.crabs()[0].events.hurt;
+    }
+    assert!(!hurt, "caught while sprinting");
+    assert!(sim.crabs()[0].mover.pos.x >= 1270.0, "got past");
+}
+
+#[test]
+fn eating_a_beaten_creature_mends_the_shell_once() {
+    let mut sim = Sim::with_one_crab(Vec2::new(250.0, 0.0));
+    sim.spawn_enemy(Kind::Mantis, Vec2::new(400.0, 0.0));
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().fighter.vitals.health = 30.0;
+    sim.crab_mut(id).unwrap().mover.reserve = 0.2;
+    // Beaten (as by a last smash).
+    let tuning = sim.tuning.clone();
+    let blow = crabsim::Hit {
+        damage: 1000.0,
+        ..Default::default()
+    };
+    sim.enemies_mut()[0].pos.x = 420.0; // out of its burrow
+    sim.enemies_mut()[0].takes(&blow, 380.0, &tuning);
+    assert_eq!(sim.enemies()[0].state, State::Gone);
+    let mut fed = 0;
+    for _ in 0..240 {
+        sim.set_controls(
+            id,
+            Controls {
+                walk: 1.0,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        fed += sim.crabs()[0].events.fed as u32;
+    }
+    let crab = &sim.crabs()[0];
+    assert_eq!(fed, 1, "one body, one meal");
+    assert_eq!(crab.fighter.vitals.health, 80.0, "half a shell mended");
+    assert!(crab.mover.reserve > 0.99, "reserve filled");
+}
+
+#[test]
+fn a_living_creature_is_no_meal() {
+    let mut sim = Sim::with_one_crab(Vec2::new(250.0, 0.0));
+    sim.spawn_enemy(Kind::Fixture, Vec2::new(300.0, 0.0));
+    let id = sim.crabs()[0].id;
+    let mut fed = false;
+    for _ in 0..240 {
+        sim.tick();
+        fed |= sim.crabs()[id.0 as usize].events.fed;
+    }
+    assert!(!fed);
+}

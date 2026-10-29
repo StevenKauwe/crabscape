@@ -21,9 +21,10 @@ use crabsim::{Kind, Sim};
 
 use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
+use crate::foes::{lie, lies_dead};
 use crate::lantern::{Lit, LitTint};
 use crate::memory::{Known, Remembered};
-use crate::player::GameSet;
+use crate::player::{GameSet, LocalPlayer, PlayerId};
 
 /// In front of the level, behind the crab (10).
 const Z: f32 = 9.0;
@@ -281,6 +282,7 @@ fn pose_critters(
     sim: Res<Sim>,
     known: Res<Known>,
     lab: Res<FeelLab>,
+    me: Query<&PlayerId, With<LocalPlayer>>,
     mut critters: Query<(&mut Critter, &mut Transform, &mut Visibility, &Children)>,
     mut parts: Query<
         (
@@ -304,10 +306,11 @@ fn pose_critters(
         } else {
             c.since_strike += dt;
         }
+        let body = lies_dead(e, &sim, me.single().ok());
         // Out of the crab's sight it isn't shown (its last sighting is, see
         // `memory.rs`).
         shown.set_if_neq(
-            if e.state == State::Gone || !known.perceives_animal(e.pos) {
+            if (e.state == State::Gone && !body) || !known.perceives_animal(e.pos) {
                 Visibility::Hidden
             } else {
                 Visibility::Inherited
@@ -325,6 +328,7 @@ fn pose_critters(
         };
         root.translation = Vec3::new(e.pos.x + shiver, e.pos.y, Z);
         root.scale.x = e.facing.signum();
+        lie(&mut root, body, k.body.1);
         let hurt = e.vitals.unhit < 8;
         // The tell's warning line: faint as it starts, firm once cocked.
         let aim = match (e.state, phase) {
@@ -333,7 +337,7 @@ fn pose_critters(
             _ => 0.0,
         };
         let health = e.vitals.health / k.vitals.health;
-        let show_bar = !hidden && (health < 1.0 || e.target.is_some());
+        let show_bar = !hidden && !body && (health < 1.0 || e.target.is_some());
 
         // The moray's head: how far out past its crevice box (local x; the
         // simulation's own reach, so the head shown is the head hit), and

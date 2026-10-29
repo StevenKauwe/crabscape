@@ -68,6 +68,9 @@ fn note_events(
     if ev.ate {
         notes.push(("+1 stroke".into(), YOLK));
     }
+    if ev.fed {
+        notes.push(("Ate it: shell mended".into(), YOLK));
+    }
     if ev.levelled {
         let level = mover.climb_level(&sim.tuning);
         notes.push((format!("Climbing level {level}!"), GOLD));

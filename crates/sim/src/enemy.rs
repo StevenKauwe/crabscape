@@ -155,6 +155,9 @@ pub struct Enemy {
     /// How many times it has been handed over: an update from before the
     /// latest hand-over is out of date.
     pub handovers: u32,
+    /// How many times it has died here: with its id, which body lies there
+    /// while it's [`State::Gone`] (a crab eats each body once).
+    pub deaths: u32,
 }
 
 impl Enemy {
@@ -184,6 +187,7 @@ impl Enemy {
             heard: Vec::new(),
             runner: None,
             handovers: 0,
+            deaths: 0,
         }
     }
 
@@ -301,6 +305,7 @@ impl Enemy {
         self.vel_x = hit.knockback.x;
         self.vitals.hitstop = self.vitals.hitstop.max(hit.hitstop);
         if took.died {
+            self.deaths += 1;
             self.enter(State::Gone, k.respawn_ticks);
             self.vel_x = 0.0;
             self.follow_ups.clear();
@@ -393,6 +398,7 @@ pub fn step(
                     heard: std::mem::take(&mut e.heard),
                     runner: e.runner,
                     handovers: e.handovers,
+                    deaths: e.deaths,
                     ..fresh
                 };
             }
@@ -503,13 +509,26 @@ pub fn step(
             _ => e.enter_now(State::Idle, 0),
         },
         State::Tell => {
-            // Committed: it doesn't turn. Between combo strikes it closes in
-            // again on the crab it just hit.
-            if e.combo > 0
-                && let Some(x) = target_x
-                && (x - e.head_x(t)) * e.facing > k.strike_range * 0.8
-            {
-                want_speed = k.approach_speed;
+            // Committed to its side once cocked. Between combo strikes it
+            // closes in again on the crab it just hit. A stalker also turns
+            // after a crab that slips past while it rears, and closes in on
+            // one that backs out of reach: walking away doesn't dodge its
+            // blow, only out-running it (or getting behind it once cocked).
+            let cocked = e.state_tick > k.tell_ticks.saturating_sub(k.cocked_ticks);
+            if let Some(x) = target_x {
+                if k.stalks && !cocked && e.combo == 0 && (x - e.pos.x) * e.facing < 0.0 {
+                    e.facing = -e.facing;
+                }
+                let keep = if e.combo > 0 {
+                    k.strike_range * 0.8
+                } else if k.stalks {
+                    k.strike_range
+                } else {
+                    f32::INFINITY
+                };
+                if (x - e.head_x(t)) * e.facing > keep {
+                    want_speed = k.approach_speed;
+                }
             }
         }
         State::Attack => strike(e, crabs, t, &k, &mut blows),
