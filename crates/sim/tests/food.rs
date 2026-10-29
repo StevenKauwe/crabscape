@@ -333,3 +333,22 @@ fn the_feast_code_fills_a_well_fed_shell_to_its_bigger_size() {
     assert!(crab.mover.max_shell(&t) > t.crab.health);
     assert_eq!(crab.fighter.vitals.health, crab.mover.max_shell(&t));
 }
+
+#[test]
+fn food_clocks_ticking_alone_are_not_new_progress_to_save() {
+    // The game saves when progress changes; clocks counting down every tick
+    // would make it save all the time (and overwrite a save written from
+    // outside, as the browser test does).
+    let mut sim = by_home();
+    sim.crab_mut(P0).unwrap().clams[0] = 500;
+    sim.crab_mut(P0).unwrap().mover.well_fed = 500;
+    let before = sim.progress(P0).unwrap();
+    idle(&mut sim, 100);
+    let after = sim.progress(P0).unwrap();
+    assert_ne!(before, after, "the clocks did run");
+    assert_eq!(before.ignoring_clocks(), after.ignoring_clocks());
+    // A bed growing back, or the meal wearing off, is news.
+    idle(&mut sim, 400);
+    let grown = sim.progress(P0).unwrap();
+    assert_ne!(after.ignoring_clocks(), grown.ignoring_clocks());
+}
