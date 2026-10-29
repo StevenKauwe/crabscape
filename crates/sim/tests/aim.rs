@@ -111,14 +111,26 @@ fn far_above_far_below_behind_or_out_of_reach_is_missed() {
         for press in ["smash", "jab"] {
             let name = feel.name();
             let far_above = Vec2::new(CRAB_X + 65.0, 110.0);
-            assert!(!hits(feel, press, (60.0, 30.0), far_above), "{name} {press}: far above");
+            assert!(
+                !hits(feel, press, (60.0, 30.0), far_above),
+                "{name} {press}: far above"
+            );
             let far_below = Vec2::new(CRAB_X + 55.0, -60.0);
-            assert!(!hits(feel, press, snapper_box(), far_below), "{name} {press}: far below");
+            assert!(
+                !hits(feel, press, snapper_box(), far_below),
+                "{name} {press}: far below"
+            );
             // Behind the crab, not touching its shell.
             let behind = Vec2::new(CRAB_X - 60.0, 0.0);
-            assert!(!hits(feel, press, snapper_box(), behind), "{name} {press}: behind");
+            assert!(
+                !hits(feel, press, snapper_box(), behind),
+                "{name} {press}: behind"
+            );
             let away = Vec2::new(CRAB_X + 260.0, 0.0);
-            assert!(!hits(feel, press, (60.0, 30.0), away), "{name} {press}: out of reach");
+            assert!(
+                !hits(feel, press, (60.0, 30.0), away),
+                "{name} {press}: out of reach"
+            );
         }
     }
 }
@@ -159,7 +171,12 @@ fn a_jab_reaches_the_real_snapping_shrimp_while_it_tells() {
     });
     let cocked = cocked.expect("it cocks its claw");
     let script = format!("{walk_up}; @{cocked} jab");
-    play(&mut sim, &Replay::parse(&script).unwrap(), cocked + 20, |_| {});
+    play(
+        &mut sim,
+        &Replay::parse(&script).unwrap(),
+        cocked + 20,
+        |_| {},
+    );
     let e = &sim.enemies()[0];
     let full = sim.tuning.snapper.vitals.health;
     assert!(e.vitals.health < full, "the jab struck it: {e:?}");

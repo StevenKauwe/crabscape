@@ -954,13 +954,16 @@ impl Sim {
         }
     }
 
-    /// Each crab's blow, while it is out, reaches the enemies it overlaps
-    /// (each once per swing).
+    /// Each crab's claw aims at what it can reach; its blow, while it is out,
+    /// strikes the enemies it overlaps (each once per swing).
     fn claws_meet_enemies(&mut self) {
         let runs_each = self.runs_each();
         let t = &self.tuning;
         for crab in self.crabs.iter_mut().filter(|c| !c.remote) {
-            let Some(hitbox) = crab.fighter.hitbox(&crab.mover, t) else {
+            let targets = self.enemies.iter().filter(|e| e.hittable(t));
+            crab.fighter
+                .aim(&crab.mover, t, targets.map(|e| (e.id, e.hurtbox(t))));
+            let Some(hitbox) = crab.fighter.strike_area(&crab.mover, t) else {
                 continue;
             };
             let f = &mut crab.fighter;

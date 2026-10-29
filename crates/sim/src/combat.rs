@@ -392,8 +392,6 @@ impl Fighter {
         }
     }
 
-    /// The swing's hitbox, while its blow is out: a box beside the body on
-    /// the facing side.
     /// Inside the dodge's invulnerable ticks?
     pub fn evading(&self, t: &Tuning) -> bool {
         let (from, to) = t.dodge_invulnerable;
@@ -410,28 +408,110 @@ impl Fighter {
                 .is_none_or(|s| s.phase(t) == Phase::Recovery)
     }
 
+    /// The swing's blow, while it is out: a box beside the body on the
+    /// facing side, raised or lowered by the swing's [`Swing::aim`]. (What
+    /// it strikes is [`Fighter::strike_area`].)
     pub fn hitbox(&self, m: &Mover, t: &Tuning) -> Option<Rect> {
         let s = self
             .swing
             .as_ref()
             .filter(|s| s.phase(t) == Phase::Active)?;
-        let c = s.claw.tuning(t);
-        // A bulked-up crab's claws are bigger and reach further and higher,
-        // and still smash right down to the floor.
-        let size = m.size(t);
-        let near = m.pos.x + self.facing * t.body_half_width * size;
-        let far = near + self.facing * c.reach * size;
-        let (low, high) = (
-            (t.body_height - c.height) / 2.0,
-            (t.body_height + c.height) / 2.0,
-        );
-        Some(Rect::new(
-            near.min(far),
-            m.pos.y + low,
-            near.max(far),
-            m.pos.y + high * size,
+        let b = claw_box(s.claw, self.facing, m, t);
+        Some(Rect::from_corners(
+            b.min + Vec2::Y * s.aim,
+            b.max + Vec2::Y * s.aim,
         ))
     }
+
+    /// What the blow strikes: the [`hitbox`](Self::hitbox), and back over
+    /// the body to its far edge, so a creature overlapping the crab is
+    /// struck too. Behind the shell, nothing is.
+    pub fn strike_area(&self, m: &Mover, t: &Tuning) -> Option<Rect> {
+        let b = self.hitbox(m, t)?;
+        Some(b.union(Rect::new(
+            m.pos.x - self.facing * t.body_half_width * m.size(t),
+            b.min.y,
+            m.pos.x,
+            b.max.y,
+        )))
+    }
+
+    /// Aim the swing's claw at the nearest creature it can reach (`targets`:
+    /// each one's id and body box), up or down by at most
+    /// [`Tuning::aim_up`] and [`Tuning::aim_down`]; straight out when there
+    /// is none. Each blow aims until it strikes something, then holds.
+    pub fn aim(&mut self, m: &Mover, t: &Tuning, targets: impl Iterator<Item = (u32, Rect)>) {
+        let facing = self.facing;
+        let Some(s) = self.swing.as_mut() else {
+            return;
+        };
+        if s.phase(t) == Phase::Recovery || !s.hits.is_empty() {
+            return;
+        }
+        let size = m.size(t);
+        let level = claw_box(s.claw, facing, m, t);
+        let back = m.pos.x - facing * t.body_half_width * size;
+        let (left, right) = (level.min.x.min(back), level.max.x.max(back));
+        let mut best: Option<(f32, f32, u32)> = None;
+        for (id, body) in targets.filter(|(id, _)| !s.hits.contains(id)) {
+            if body.max.x <= left || body.min.x >= right {
+                continue;
+            }
+            let Some(aim) = aim_at(
+                (level.min.y, level.max.y),
+                (body.min.y, body.max.y),
+                t.aim_down * size,
+                t.aim_up * size,
+            ) else {
+                continue;
+            };
+            // The nearest; then the least aim; then the first spawned.
+            let near = (body.center().x - m.pos.x).abs();
+            if best.is_none_or(|(n, a, i)| (near, aim.abs(), id) < (n, a.abs(), i)) {
+                best = Some((near, aim, id));
+            }
+        }
+        s.aim = best.map_or(0.0, |(_, aim, _)| aim);
+    }
+}
+
+/// A claw's blow, aimed straight out: a box past the shell on the facing
+/// side, centred on the body's middle height. A bulked-up crab's claws are
+/// bigger and reach further and higher, and still smash right down to the
+/// floor.
+fn claw_box(claw: Claw, facing: f32, m: &Mover, t: &Tuning) -> Rect {
+    let c = claw.tuning(t);
+    let size = m.size(t);
+    let near = m.pos.x + facing * t.body_half_width * size;
+    let far = near + facing * c.reach * size;
+    let (low, high) = (
+        (t.body_height - c.height) / 2.0,
+        (t.body_height + c.height) / 2.0,
+    );
+    Rect::new(
+        near.min(far),
+        m.pos.y + low,
+        near.max(far),
+        m.pos.y + high * size,
+    )
+}
+
+/// How far to raise (> 0) or lower (< 0) a claw's blow spanning `claw`
+/// (bottom, top) to strike a body spanning `body`: not at all if it already
+/// strikes it squarely (overlapping half the smaller of the two), else just
+/// far enough to, at most `up` or `down`. None if even that misses it.
+fn aim_at(claw: (f32, f32), body: (f32, f32), down: f32, up: f32) -> Option<f32> {
+    let ((y0, y1), (a, b)) = (claw, body);
+    let square = (b - a).min(y1 - y0) / 2.0;
+    let overlap = |shift: f32| (y1 + shift).min(b) - (y0 + shift).max(a);
+    let shift = if overlap(0.0) >= square {
+        0.0
+    } else if a + b < y0 + y1 {
+        (b - square - y0).max(-down) // below: the claw comes down
+    } else {
+        (a + square - y1).min(up) // above: the claw comes up
+    };
+    (overlap(shift) > 0.0).then_some(shift)
 }
 
 /// The crab's body box (its hurtbox): bigger when bulked up (its box
