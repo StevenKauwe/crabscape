@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 use crabsim::{Carry, Mover, Sim};
 
-use crate::player::{FrameEvents, GameSet, LocalPlayer};
+use crate::player::{FrameEvents, GameSet, LocalPlayer, PlayerId};
 
 /// How long a note lasts (seconds), and how fast it rises (units/second).
 const LIFE: f32 = 1.8;
@@ -58,9 +58,9 @@ fn note_events(
     time: Res<Time>,
     sim: Res<Sim>,
     mut last_tangle: Local<f32>,
-    crab: Query<(&FrameEvents, &Mover, &Transform), With<LocalPlayer>>,
+    crab: Query<(&FrameEvents, &Mover, &Transform, &PlayerId), With<LocalPlayer>>,
 ) {
-    let Ok((events, mover, at)) = crab.single() else {
+    let Ok((events, mover, at, id)) = crab.single() else {
         return;
     };
     let ev = events.0;
@@ -72,7 +72,7 @@ fn note_events(
         let level = mover.climb_level(&sim.tuning);
         notes.push((format!("Climbing level {level}!"), GOLD));
     }
-    if ev.picked_up {
+    if ev.picked_up && !ev.recovered {
         let what = match mover.carrying {
             Some(Carry::Tooth) => ("Take the tooth home!", PALE),
             _ => ("Take it home!", WILD_GLOW),
@@ -91,6 +91,14 @@ fn note_events(
         *last_tangle = now;
         notes.push(("A ghost net. Something sharp".into(), PALE));
         notes.push(("could cut through it.".into(), PALE));
+    }
+    if ev.recovered {
+        notes.push(("Got it back!".into(), GOLD));
+    }
+    let left_behind = sim.crab(*id).is_some_and(|c| !c.cast_offs.is_empty());
+    if ev.respawned && left_behind {
+        notes.push(("Your old shell lies where you fell,".into(), PALE));
+        notes.push(("with what you carried.".into(), PALE));
     }
     if ev.delivered {
         notes.push(("Lantern brighter!".into(), WARM));

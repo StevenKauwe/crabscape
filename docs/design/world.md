@@ -58,7 +58,7 @@ Like RuneScape, rarer resources come from rarer, more dangerous places: depth is
 | Look | **Hand-drawn ink + painted fills, oil-painted assets**, per-shape variation | The owner's style; fits phones; art can be made in code |
 | Why dive | **To grow:** a bigger, stronger shell-home needs materials from deeper. Plus a quiet mystery: lights far down in the trench, stories at the whale-fall village | Ties economy, building and depth together |
 | Surface | **A small beach and tide-pool hub at the top;** home sits in the sunlit shallows just below | A Valheim-style base; daylight is the safest thing in the game |
-| Death | **Valheim-style:** wake at home or the last rest stop with the gear you wore; what you carried stays in your **cast-off shell** (a moult) where you died, to dive back for | Brutal but fair: you lose time and risk, not hours. Creates rescue dives |
+| Death | **Valheim-style (in the game now: wake at home):** wake at home or the last rest stop with the gear you wore; what you carried stays in your **cast-off shell** (a moult) where you died, to dive back for | Brutal but fair: you lose time and risk, not hours. Creates rescue dives |
 | Neighbours | **A few characterful ones.** Crabs are rare; the whale-fall village is a misfit town of isopods, shrimp, an octopus trader and others | Warmth in the dark; few, so each matters |
 | How surreal | **Real biology, no exaggeration.** No spells, no gods; ancient giants stay unexplained | The real ocean is stranger than anything we could invent |
 

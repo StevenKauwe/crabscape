@@ -792,7 +792,7 @@ fn animate(
             about_middle + Vec2::X * fight.shift,
         );
         // Dead: in the last part of the wait it sinks into the sand and is
-        // gone, to come back at its safe spot (a sand puff, `impact.rs`).
+        // gone, to wake in its home shell (a sand puff, `impact.rs`).
         let gone = fighter.and_then(|f| f.dead).map_or(0.0, |d| {
             let r = sim.tuning.respawn_ticks as f32;
             ((d as f32 - 0.45 * r) / (0.4 * r)).clamp(0.0, 1.0)
