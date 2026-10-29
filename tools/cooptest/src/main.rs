@@ -160,11 +160,17 @@ impl Player {
 
     /// `why`, with a screenshot of what this player saw kept beside the logs.
     fn failed(&mut self, why: String) -> String {
-        let shot = self.dir.join(format!("{}-{}.png", self.name(), now_ms()));
-        match self.b.screenshot(&shot) {
+        let stem = self.dir.join(format!("{}-{}", self.name(), now_ms()));
+        let shot = stem.with_extension("png");
+        let why = match self.b.screenshot(&shot) {
             Ok(()) => format!("{why} (screenshot {})", shot.display()),
             Err(_) => why,
-        }
+        };
+        // What the game said it did, the last few lines here and all of them beside the screenshot.
+        let log = self.b.coop_log();
+        let _ = std::fs::write(stem.with_extension("log"), log.join("\n"));
+        let last = log[log.len().saturating_sub(5)..].join(" | ");
+        format!("{why}\n      {} said: {last}", self.name())
     }
 
     fn name(&self) -> &str {
@@ -278,27 +284,56 @@ impl Player {
         code.ok_or_else(|| "no code".into())
     }
 
-    /// Settings → `tab` → `choice`, twice (it asks "Sure?" first).
-    fn settings_twice(&mut self, tab: (f64, f64), choice: (f64, f64)) -> Result<()> {
-        for (x, y) in [tap::SETTINGS, tab, choice, choice] {
-            self.b.click(x, y)?;
+    /// Settings → `tab` → `choice`, twice (it asks "Sure?" first). Each tap is checked by what the panel says it shows
+    /// (`data-settings`) and made again if a busy page missed it; the last one isn't (the panel closes).
+    fn settings_twice(
+        &mut self,
+        tab: (&str, (f64, f64)),
+        choice: (&str, (f64, f64)),
+    ) -> Result<()> {
+        self.tap_until(tap::SETTINGS, "the settings open", |s| s != "closed")?;
+        self.tap_until(tab.1, tab.0, |s| s.starts_with(tab.0))?;
+        let armed = format!("{} armed {}", tab.0, choice.0);
+        self.tap_until(choice.1, &armed, |s| s == armed)?;
+        let (x, y) = choice.1;
+        self.b.click(x, y)
+    }
+
+    /// Tap at `at` until the settings panel says `ok` (at most 3 taps, 2 s apart).
+    fn tap_until(&mut self, at: (f64, f64), what: &str, ok: impl Fn(&str) -> bool) -> Result<()> {
+        for _ in 0..3 {
+            let shows = |p: &mut Self| ok(&p.b.attr("data-settings").unwrap_or_default());
+            if shows(self) {
+                return Ok(());
+            }
+            self.b.click(at.0, at.1)?;
+            let t = Instant::now();
+            while t.elapsed().as_secs_f64() < 2.0 {
+                if shows(self) {
+                    return Ok(());
+                }
+                sleep(0.1);
+            }
         }
-        Ok(())
+        let now = self.b.attr("data-settings").unwrap_or_default();
+        let why = format!(
+            "{}: tapped 3 times for {what}; settings say \"{now}\"",
+            self.name()
+        );
+        Err(self.failed(why))
     }
 
     /// Settings' Start over (which reloads the page).
     fn start_over(&mut self) -> Result<()> {
         self.mark_page()?;
         let t = Instant::now();
-        self.settings_twice(tap::GAME_TAB, tap::START_OVER)?;
+        self.settings_twice(("Game", tap::GAME_TAB), ("StartOver", tap::START_OVER))?;
         self.gone_and_back(t)
     }
 
     /// Settings' New link.
     fn new_link(&mut self) -> Result<()> {
-        self.settings_twice(tap::COOP_TAB, tap::NEW_LINK)?;
-        // The panel closes itself; tap away from everything if it didn't.
-        Ok(())
+        self.settings_twice(("Coop", tap::COOP_TAB), ("NewLink", tap::NEW_LINK))
     }
 
     /// Turn the mic on (if this run has voice and it's off).
@@ -329,19 +364,18 @@ fn playing_with(n: usize) -> String {
 fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
     let t = Instant::now();
     let n = players.len() - 1;
-    let wants: Vec<String> = (0..players.len())
-        .map(|i| playing_with(if i == 0 { n } else { 1 }))
-        .collect();
+    // Every device connects to every other (host or not), so each plays with all the others.
+    let want = playing_with(n);
     // When the current run of being together began.
     let mut since: Option<f64> = None;
     let met = loop {
         let now = t.elapsed().as_secs_f64();
         let mut all = true;
         let mut says = Vec::new();
-        for (p, want) in players.iter_mut().zip(&wants) {
+        for p in players.iter_mut() {
             p.healthy()?;
             let s = p.coop();
-            all &= s == *want;
+            all &= s == want;
             says.push(format!("{}: \"{s}\"", p.name()));
         }
         since = if all { since.or(Some(now)) } else { None };
@@ -366,20 +400,17 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
     for p in players.iter_mut().skip(1) {
         let w = p.world();
         if !w.is_empty() && w != "guest" {
-            return Err(format!("{}: together but in a {w} world", p.name()));
+            let why = format!("{}: together but in a {w} world", p.name());
+            return Err(p.failed(why));
         }
     }
     if players.iter().any(|p| p.voice) {
         for p in players.iter_mut() {
             p.mic_on()?;
         }
-        let heard = format!("hearing {n}");
-        for (i, p) in players.iter_mut().enumerate() {
-            let want = if i == 0 {
-                heard.clone()
-            } else {
-                "hearing 1".to_string()
-            };
+        // Every call is between two players, so each hears all the others.
+        let want = format!("hearing {n}");
+        for p in players.iter_mut() {
             p.until(limit::VOICE, &format!("voice ({want})"), |p| {
                 p.b.attr("data-voice").is_some_and(|v| v.ends_with(&want))
             })?;
@@ -565,9 +596,20 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 return Ok(found);
             }
             meet(site, &mut host, &mut guest, limit::MEET)?;
+            let before = [host.b.coop_log().len(), guest.b.coop_log().len()];
             restart_introducer(site)?;
             let t = together(&mut [&mut host, &mut guest], limit::INTRODUCER_BACK)?;
-            found.push(format!("back together {t:.1} s after it restarted"));
+            // Whether each game had to join afresh (its connection ended with the introducer) or played straight on.
+            let afresh = [&mut host, &mut guest].map(|p| {
+                p.b.coop_log()
+                    .iter()
+                    .skip(before[usize::from(p.name() == "guest")])
+                    .any(|l| l.contains("afresh"))
+            });
+            found.push(format!(
+                "back together {t:.1} s after it restarted (joined afresh: host {}, friend {})",
+                afresh[0], afresh[1]
+            ));
         }
         "stall" => {
             meet(site, &mut host, &mut guest, limit::MEET)?;

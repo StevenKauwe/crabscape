@@ -34,6 +34,21 @@ const RECORD_ERRORS: &str = r#"(() => {
   // A box asking to copy the link would stop the page until someone answers: count it as trouble instead.
   window.prompt = () => { add("a prompt box opened (copying the link failed)"); return null; };
   addEventListener("unhandledrejection", (e) => add("unhandled rejection: " + ((e.reason && e.reason.message) || e.reason)));
+  // The game's own "co-op:" lines (who connected, met, went silent, rejoined), kept to say what happened.
+  for (const level of ["log", "info", "warn"]) {
+    const real = console[level].bind(console);
+    console[level] = (...args) => {
+      const line = String(args[0] || "").replace(/%c/g, "");
+      if (line.includes("co-op")) {
+        try {
+          const all = JSON.parse(sessionStorage.getItem("cooptest-log") || "[]");
+          all.push(Math.round(performance.now()) + " ms " + line.slice(line.indexOf("co-op"), 200));
+          sessionStorage.setItem("cooptest-log", JSON.stringify(all.slice(-200)));
+        } catch (e) {}
+      }
+      real(...args);
+    };
+  }
 })();"#;
 
 /// The browser of a computer whose network can't reach the public address servers on one of its networks (a
@@ -310,6 +325,14 @@ impl Chrome {
             .as_str()
             .filter(|r| *r != "[]")
             .map(|r| format!("uncaught errors: {r}"))
+    }
+
+    /// The game's "co-op:" lines since this tab first opened the game (the tab keeps them over reloads).
+    pub fn coop_log(&mut self) -> Vec<String> {
+        self.eval(r#"sessionStorage.getItem("cooptest-log")"#)
+            .ok()
+            .and_then(|v| v.as_str().and_then(|s| serde_json::from_str(s).ok()))
+            .unwrap_or_default()
     }
 
     /// A click (a tap) at `x`, `y` (CSS pixels from the top left).
