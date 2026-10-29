@@ -237,7 +237,10 @@ impl Player {
             self.healthy()?;
             if t.elapsed().as_secs_f64() > secs {
                 let now = self.b.attr("data-coop").unwrap_or_default();
-                let why = format!("{}: waited {secs} s for {what}; it says \"{now}\"", self.name());
+                let why = format!(
+                    "{}: waited {secs} s for {what}; it says \"{now}\"",
+                    self.name()
+                );
                 return Err(self.failed(why));
             }
             sleep(0.25);
