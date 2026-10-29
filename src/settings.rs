@@ -3,9 +3,11 @@
 //! Oil, see `style.rs`), and how friends' voices carry (see `voice.rs`): from
 //! everyone at full volume, or from nearby crabs only, with a slider for how
 //! far. While the slider moves, a ripple around the crab shows how far it
-//! hears. Above those, two volume sliders: "Game sound" (0 to 100%, every
-//! game sound, see `sound.rs`) and "Friends' voices" (0 to 300%: past 100%
-//! boosts quiet voices). Kept on the device. Below, "Report a bug or idea"
+//! hears. Above those, under "Sound", a volume slider for each kind of sound
+//! (see `sound.rs`): "Master" (everything, 0 to 100%), "Music" (`music.rs`),
+//! "Effects" (blows, parries and other game sounds) and "Voices" (friends',
+//! 0 to 300%: past 100% boosts quiet voices). Each is a row of its own, its
+//! name and value left of the track. Kept on the device. Below, "Report a bug or idea"
 //! opens the report form (`report.rs`) and "Enter a code" asks for a code
 //! (`codes.rs`; phones have no Enter key). Last, "Start over" (`reset.rs`), which asks for a
 //! second tap ("Sure? Start over") before it wipes anything. Under it, a quiet
@@ -30,9 +32,12 @@ const MARGIN: f32 = 10.0;
 pub const RANGE_MIN: f32 = 250.0;
 pub const RANGE_MAX: f32 = 2500.0;
 const RANGE_START: f32 = 900.0;
-/// Game sound and friends' voices start at (1 = as made), and how far the
-/// voices go. A first guess from "game way too loud, voices too soft".
-const GAME_START: f32 = 0.4;
+/// The volumes' starting points (1 = as made), and how far the voices go. A
+/// first guess from "game way too loud, voices too soft": master 80% of
+/// effects 50% keeps the game's sounds at the 40% they had with one knob.
+const MASTER_START: f32 = 0.8;
+const MUSIC_START: f32 = 0.4;
+const EFFECTS_START: f32 = 0.5;
 const VOICES_START: f32 = 2.0;
 pub const VOICES_MAX: f32 = 3.0;
 
@@ -53,8 +58,12 @@ pub struct Settings {
     pub hear: Hear,
     /// How far a nearby voice carries (world units).
     pub range: f32,
-    /// Every game sound's loudness, 0 to 1.
-    pub game: f32,
+    /// Everything's loudness, 0 to 1: every other volume goes through it.
+    pub master: f32,
+    /// The music's loudness, 0 to 1.
+    pub music: f32,
+    /// The game's sounds' loudness (blows, parries...), 0 to 1.
+    pub effects: f32,
     /// Friends' voices' loudness, 0 to [`VOICES_MAX`] (over 1 boosts them).
     pub voices: f32,
 }
@@ -65,33 +74,42 @@ impl Default for Settings {
             saver: false,
             hear: Hear::Everyone,
             range: RANGE_START,
-            game: GAME_START,
+            master: MASTER_START,
+            music: MUSIC_START,
+            effects: EFFECTS_START,
             voices: VOICES_START,
         }
     }
 }
 
 impl Settings {
-    /// As kept: `saver=1;hear=nearby;range=900;game=40;voices=200` (the
-    /// volumes in percent).
+    /// As kept:
+    /// `saver=1;hear=nearby;range=900;master=80;music=40;effects=50;voices=200`
+    /// (the volumes in percent).
     fn to_text(self) -> String {
         let hear = match self.hear {
             Hear::Everyone => "everyone",
             Hear::Nearby => "nearby",
         };
         format!(
-            "saver={};hear={hear};range={:.0};game={:.0};voices={:.0}",
+            "saver={};hear={hear};range={:.0};master={:.0};music={:.0};effects={:.0};voices={:.0}",
             u8::from(self.saver),
             self.range,
-            self.game * 100.0,
+            self.master * 100.0,
+            self.music * 100.0,
+            self.effects * 100.0,
             self.voices * 100.0
         )
     }
 
     /// Back from [`Settings::to_text`]; anything unknown keeps its default.
+    /// The one "game" volume kept before the music came is the effects'.
     fn from_text(text: &str) -> Self {
         let mut s = Self::default();
+        let percent = |v: &str, max: f32| number(v).map(|p| (p / 100.0).clamp(0.0, max));
         for (k, v) in text.split(';').filter_map(|kv| kv.split_once('=')) {
+            let k = k.trim();
+            let v = v.trim();
             match (k, v) {
                 ("saver", v) => s.saver = v == "1",
                 ("hear", "nearby") => s.hear = Hear::Nearby,
@@ -101,27 +119,21 @@ impl Settings {
                         s.range = r.clamp(RANGE_MIN, RANGE_MAX);
                     }
                 }
-                ("game", v) => {
-                    if let Some(p) = number(v) {
-                        s.game = (p / 100.0).clamp(0.0, 1.0);
-                    }
-                }
-                ("voices", v) => {
-                    if let Some(p) = number(v) {
-                        s.voices = (p / 100.0).clamp(0.0, VOICES_MAX);
-                    }
-                }
+                ("master", v) => s.master = percent(v, 1.0).unwrap_or(s.master),
+                ("music", v) => s.music = percent(v, 1.0).unwrap_or(s.music),
+                ("effects" | "game", v) => s.effects = percent(v, 1.0).unwrap_or(s.effects),
+                ("voices", v) => s.voices = percent(v, VOICES_MAX).unwrap_or(s.voices),
                 _ => {}
             }
         }
         s
     }
 
-    /// For a report: "smooth, voices: everyone, game sound 40%, voice
-    /// volume 200%".
+    /// For a report: "smooth, voices: everyone, master 80%, music 40%,
+    /// effects 50%, voice volume 200%".
     pub fn describe(&self) -> String {
         format!(
-            "{}, voices: {}, game sound {:.0}%, voice volume {:.0}%",
+            "{}, voices: {}, master {:.0}%, music {:.0}%, effects {:.0}%, voice volume {:.0}%",
             if self.saver {
                 "battery saver"
             } else {
@@ -131,7 +143,9 @@ impl Settings {
                 Hear::Everyone => "everyone".to_string(),
                 Hear::Nearby => format!("nearby ({:.0})", self.range),
             },
-            self.game * 100.0,
+            self.master * 100.0,
+            self.music * 100.0,
+            self.effects * 100.0,
             self.voices * 100.0
         )
     }
@@ -281,19 +295,33 @@ pub(crate) mod panel {
     /// The panel's sliders.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     enum Slider {
-        /// Every game sound's loudness.
-        Game,
+        /// Everything's loudness.
+        Master,
+        /// The music's loudness.
+        Music,
+        /// The game's sounds' loudness.
+        Effects,
         /// Friends' voices' loudness.
         Voices,
         /// How far a nearby voice carries (shown only for "Nearby").
         Range,
     }
 
+    /// The volume sliders, in the order they're shown.
+    const VOLUMES: [Slider; 4] = [
+        Slider::Master,
+        Slider::Music,
+        Slider::Effects,
+        Slider::Voices,
+    ];
+
     impl Slider {
         /// Where its knob sits, 0 to 1.
         fn at(self, s: &Settings) -> f32 {
             match self {
-                Slider::Game => s.game,
+                Slider::Master => s.master,
+                Slider::Music => s.music,
+                Slider::Effects => s.effects,
                 Slider::Voices => s.voices / VOICES_MAX,
                 Slider::Range => (s.range - RANGE_MIN) / (RANGE_MAX - RANGE_MIN),
             }
@@ -303,7 +331,9 @@ pub(crate) mod panel {
         fn set(self, s: &mut Settings, t: f32) {
             let step = |max: f32| (t * max * 20.0).round() / 20.0;
             match self {
-                Slider::Game => s.game = step(1.0),
+                Slider::Master => s.master = step(1.0),
+                Slider::Music => s.music = step(1.0),
+                Slider::Effects => s.effects = step(1.0),
                 Slider::Voices => s.voices = step(VOICES_MAX),
                 Slider::Range => s.range = RANGE_MIN + t * (RANGE_MAX - RANGE_MIN),
             }
@@ -311,8 +341,10 @@ pub(crate) mod panel {
 
         fn words(self, s: &Settings, crab_width: f32) -> String {
             match self {
-                Slider::Game => format!("Game sound {:.0}%", s.game * 100.0),
-                Slider::Voices => format!("Friends' voices {:.0}%", s.voices * 100.0),
+                Slider::Master => format!("Master {:.0}%", s.master * 100.0),
+                Slider::Music => format!("Music {:.0}%", s.music * 100.0),
+                Slider::Effects => format!("Effects {:.0}%", s.effects * 100.0),
+                Slider::Voices => format!("Voices {:.0}%", s.voices * 100.0),
                 Slider::Range => {
                     format!("Hear friends up to {:.0} crabs away", s.range / crab_width)
                 }
@@ -418,22 +450,55 @@ pub(crate) mod panel {
     /// Height of a slider, as [`slider`] lays it out.
     const SLIDER: f32 = LABEL + 8.0 + 6.0 + PAD + 8.0;
 
-    /// The game sound and friends' voices volumes, whose voices, the
-    /// hearing slider, "Report a bug or idea" and "Enter a code", in the
-    /// column whose left edge is `left`; returns its end.
-    fn friends(l: &mut Layout, left: f32, y: f32) -> f32 {
-        let y = slider(l, left, y, Slider::Game);
-        let y = slider(l, left, y, Slider::Voices);
+    /// A volume row's height (where a finger moves one is exactly a row, so
+    /// rows never share a touch), and the width of its name and value.
+    const VOLUME: f32 = 34.0;
+    const VOLUME_NAME: f32 = 92.0;
+
+    /// The "Sound" title and a row per volume, in the column whose left
+    /// edge is `left`; returns where the next thing starts.
+    fn sound(l: &mut Layout, left: f32, y: f32) -> f32 {
+        l.labels.push((Vec2::new(left + PAD, y), "Sound"));
+        let mut y = y + LABEL;
+        for which in VOLUMES {
+            let mid = y + VOLUME / 2.0;
+            let label = Rect::new(left + PAD, mid - 8.0, left + PAD + VOLUME_NAME, mid + 8.0);
+            let track = Rect::new(
+                left + PAD + VOLUME_NAME + 6.0,
+                mid - 3.0,
+                left + WIDTH - PAD - 6.0,
+                mid + 3.0,
+            );
+            l.sliders.push((which, label, track));
+            y += VOLUME;
+        }
+        y + 8.0
+    }
+
+    /// Height of the sound section, as [`sound`] lays it out.
+    const SOUND: f32 = LABEL + 4.0 * VOLUME + 8.0;
+
+    /// Whose voices, and the hearing slider; returns where the next thing
+    /// starts.
+    fn hearing(l: &mut Layout, left: f32, y: f32) -> f32 {
         let y = pair(l, left, y, "Whose voices", Choice::Everyone, Choice::Nearby);
-        let y = slider(l, left, y, Slider::Range);
+        slider(l, left, y, Slider::Range)
+    }
+
+    /// Height of the hearing section, as [`hearing`] lays it out.
+    const HEARING: f32 = LABEL + ROW + PAD + SLIDER;
+
+    /// "Report a bug or idea" and "Enter a code"; returns where the next
+    /// thing starts.
+    fn asks(l: &mut Layout, left: f32, y: f32) -> f32 {
         l.choices.push((Choice::Report, whole(left, y)));
         let y = y + ROW + GAP;
         l.choices.push((Choice::Code, whole(left, y)));
         y + ROW + PAD
     }
 
-    /// Height of the friends' section, as [`friends`] lays it out.
-    const FRIENDS: f32 = 2.0 * SLIDER + LABEL + ROW + PAD + SLIDER + ROW + GAP + ROW + PAD;
+    /// Height of the report and code buttons, as [`asks`] lays them out.
+    const ASKS: f32 = ROW + GAP + ROW + PAD;
 
     fn layout(window: Vec2) -> Layout {
         layout_for(window, WEB)
@@ -455,9 +520,9 @@ pub(crate) mod panel {
             build: Vec2::ZERO,
         };
         // One column, unless that runs off the bottom of a short window (a
-        // phone held sideways): then the friends' section goes in a second
-        // column, left of the first.
-        let sections = 2.0 * (LABEL + ROW + PAD) + if web { FRIENDS } else { 0.0 };
+        // phone held sideways): then the sound and hearing sections go in a
+        // second column, left of the first.
+        let sections = 2.0 * (LABEL + ROW + PAD) + if web { SOUND + HEARING + ASKS } else { 0.0 };
         let build = BUILD * super::build_line().lines().count() as f32;
         let one_column = top + PAD + sections + PAD + ROW + 4.0 + build + PAD;
         let two = web && one_column > window.y - super::MARGIN;
@@ -466,9 +531,13 @@ pub(crate) mod panel {
         y = pair(&mut l, first, y, "Art style", Choice::Ink, Choice::Oil);
         let mut bottom = 0.0;
         if two {
-            bottom = friends(&mut l, first - WIDTH, top + PAD);
+            let y2 = sound(&mut l, first - WIDTH, top + PAD);
+            bottom = hearing(&mut l, first - WIDTH, y2);
+            y = asks(&mut l, first, y);
         } else if web {
-            y = friends(&mut l, first, y);
+            y = sound(&mut l, first, y);
+            y = hearing(&mut l, first, y);
+            y = asks(&mut l, first, y);
         }
         // A little apart from the rest: it's the one that wipes things.
         y += PAD;
@@ -809,7 +878,7 @@ pub(crate) mod panel {
             match which {
                 Slider::Range => open.ring = RING_FOR,
                 // A tick at the new loudness, to hear it by.
-                Slider::Game if settings.game != was.game => {
+                Slider::Master | Slider::Effects if *settings != was => {
                     sfx.write(PlaySfx {
                         sfx: Sfx::Click,
                         gain: 0.8,
@@ -966,7 +1035,7 @@ pub(crate) mod panel {
             ];
             for (window, web) in windows.into_iter().flat_map(|w| [(w, true), (w, false)]) {
                 let l = layout_for(window, web);
-                assert_eq!(l.sliders.len(), if web { 3 } else { 0 });
+                assert_eq!(l.sliders.len(), if web { 5 } else { 0 });
                 assert_eq!(l.choices.len(), if web { 9 } else { 5 });
                 let inside = l.panel.inflate(0.5);
                 assert!(
@@ -1019,39 +1088,56 @@ mod tests {
             saver: true,
             hear: Hear::Nearby,
             range: 1234.0,
-            game: 0.65,
+            master: 0.7,
+            music: 0.15,
+            effects: 0.65,
             voices: 2.5,
         };
         assert_eq!(Settings::from_text(&s.to_text()), s);
+        assert_eq!(
+            Settings::default().to_text(),
+            "saver=0;hear=everyone;range=900;master=80;music=40;effects=50;voices=200"
+        );
         assert_eq!(Settings::from_text("nonsense"), Settings::default());
         assert_eq!(Settings::from_text("range=NaN").range, RANGE_START);
         assert_eq!(Settings::from_text("range=99999").range, RANGE_MAX);
         // Kept before the volumes existed: they start at their defaults.
         let old = Settings::from_text("saver=1;hear=nearby;range=900");
         assert!(old.saver && old.hear == Hear::Nearby);
-        assert_eq!((old.game, old.voices), (GAME_START, VOICES_START));
-        let wild = Settings::from_text("game=250;voices=-5;future=1");
-        assert_eq!((wild.game, wild.voices), (1.0, 0.0));
+        let volumes = |s: Settings| (s.master, s.music, s.effects, s.voices);
+        assert_eq!(
+            volumes(old),
+            (MASTER_START, MUSIC_START, EFFECTS_START, VOICES_START)
+        );
+        // Kept with one "game" volume, before the music: it was the effects'.
+        let one_knob = Settings::from_text("saver=0;hear=everyone;range=900;game=65;voices=150");
+        assert_eq!(volumes(one_knob), (MASTER_START, MUSIC_START, 0.65, 1.5));
+        let wild = Settings::from_text("master=250;music=-3;effects=x;voices=-5;future=1");
+        assert_eq!(volumes(wild), (1.0, 0.0, EFFECTS_START, 0.0));
+        assert_eq!(Settings::from_text(" music = 20 ").music, 0.2);
         assert_eq!(Settings::from_text("voices=9000").voices, VOICES_MAX);
-        assert_eq!(Settings::from_text("game=inf").game, GAME_START);
+        assert_eq!(Settings::from_text("master=inf").master, MASTER_START);
     }
 
     #[test]
-    fn a_report_names_the_settings_with_both_volumes() {
+    fn a_report_names_the_settings_with_every_volume() {
         assert_eq!(
             Settings::default().describe(),
-            "smooth, voices: everyone, game sound 40%, voice volume 200%"
+            "smooth, voices: everyone, master 80%, music 40%, effects 50%, voice volume 200%"
         );
         let s = Settings {
             saver: true,
             hear: Hear::Nearby,
             range: 900.0,
-            game: 0.25,
+            master: 1.0,
+            music: 0.0,
+            effects: 0.25,
             voices: 3.0,
         };
         assert_eq!(
             s.describe(),
-            "battery saver, voices: nearby (900), game sound 25%, voice volume 300%"
+            "battery saver, voices: nearby (900), master 100%, music 0%, effects 25%, voice volume \
+             300%"
         );
     }
 

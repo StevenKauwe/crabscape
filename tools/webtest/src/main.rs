@@ -1055,23 +1055,26 @@ fn settings_panel(w: f64) -> (f64, f64, (f64, f64), (f64, f64)) {
     (w - 10.0 - 52.0, top + 17.0, ink, oil)
 }
 
-/// The middle of the panel's "Start over", in a window `w` by `h`: after the friends' section (the two volume
-/// sliders, whose voices, the hearing slider, Report and Enter a code), or, when one column would run off a short
-/// window, straight after Art style with the friends' section in a second column to the left.
+/// The middle of the panel's "Start over", in a window `w` by `h`: after the sound section (its title and four
+/// volume rows), the hearing section (whose voices and the hearing slider), Report and Enter a code; or, when one
+/// column would run off a short window, after Art style, Report and Enter a code, with the sound and hearing
+/// sections in a second column to the left.
 fn start_over_centre(w: f64, h: f64) -> (f64, f64) {
     let (panel_top, _, _) = panel_frame(w);
     // Padding, then the Drawing and Art style sections (title, row, padding).
     let styles = panel_top + 10.0 + 2.0 * (18.0 + 30.0 + 10.0);
-    // Three sliders (label, track and padding: game sound, friends' voices, how far), whose voices (title, row,
-    // padding), Report and Enter a code.
-    let slider = 18.0 + 8.0 + 6.0 + 10.0 + 8.0;
-    let friends = 3.0 * slider + (18.0 + 30.0 + 10.0) + (30.0 + 8.0) + (30.0 + 10.0);
+    // "Sound", then master, music, effects and voices, a 34-high row each, and a little gap.
+    let sound = 18.0 + 4.0 * 34.0 + 8.0;
+    // Whose voices (title, row, padding), then the hearing slider (label, track and padding).
+    let hearing = (18.0 + 30.0 + 10.0) + (18.0 + 8.0 + 6.0 + 10.0 + 8.0);
+    // Report and Enter a code.
+    let asks = (30.0 + 8.0) + (30.0 + 10.0);
     // Then Start over and, under it, the one-line build name (the test serves the live game's path).
-    let one_column = styles + friends + 10.0 + 30.0 + 4.0 + 14.0 + 10.0;
+    let one_column = styles + sound + hearing + asks + 10.0 + 30.0 + 4.0 + 14.0 + 10.0;
     let y = if one_column > h - 10.0 {
-        styles
+        styles + asks
     } else {
-        styles + friends
+        styles + sound + hearing + asks
     } + 10.0;
     (w - 10.0 - 128.0, y + 15.0)
 }

@@ -75,6 +75,8 @@ web-sys = { version = "0.3", features = [
     "AudioContext", "BaseAudioContext", "AudioContextState", "AudioBuffer", "AudioBufferSourceNode",
     "AudioScheduledSourceNode", "AudioNode", "AudioDestinationNode", "AudioParam", "GainNode",
     "HtmlAudioElement", "HtmlMediaElement",
+    # Music (src/music.rs): the echo on its bells.
+    "DelayNode",
     # Voice chat (src/voice.rs): the microphone, an audio connection per friend, their voice into Web Audio.
     "MediaDevices", "MediaStream", "MediaStreamTrack", "MediaStreamConstraints", "MediaStreamAudioSourceNode",
     "RtcPeerConnection", "RtcConfiguration", "RtcIceServer", "RtcIceCandidate", "RtcPeerConnectionIceEvent",

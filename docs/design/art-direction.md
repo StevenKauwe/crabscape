@@ -26,6 +26,17 @@ A composite swimming crab (portunid paddles on the 5th legs), crusher claw on it
 left, holding a jar of yellow glowing bacteria. Side-on play shows its **front**. Anatomy rules and sources:
 `art/crab/anatomy-notes.md` (ten legs, one-plane hinge joints, claws held off the ground, abdomen tucked under).
 
+## Sound and music
+Everything is made in code at start-up (no sound files): short impact sounds (`src/sound.rs`) and the music
+(`src/music.rs`), all muffled a little, as sound is under water. The music is calm and a bit eerie, and quiet enough
+never to fight the game's sounds: soft pads holding a chord for eight slow beats, fading into the next, and now and
+then a small bell motif with an echo. Where the crab is sets it: warm and fuller at home and in the shallows, lower and
+sparser in the basins, hollow and nearly empty down the pit (D minor swaying to the half-step above), hollow with a
+cold, high motif in the canyon. When something is after the crab the bells stop and a slow muffled heartbeat and a
+held uneasy note come in. It never loops: it is written a beat at a time, from fixed chords and a seeded generator.
+Settings has a slider per kind of sound: Master over Music, Effects and Voices (friends'). To hear it outside the
+game: `MUSIC_WAV=music.wav cargo test music -- --ignored` writes a couple of minutes walking through every place.
+
 ## Tools
 Everything is pure Rust and `cargo run`:
 - `crates/crabrig`: the crab as a parametric puppet; writes the SVG rig (`crabrig parts`) and the game's atlas +
