@@ -30,8 +30,10 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   the shell fits its edges along both fingers of the crusher claw (found things as gear): **scissor claws**. Higher up
   the pit's right wall, a passage is blocked by a **ghost net** (a lost fishing net): only a jump and four strokes from
   the alcove's roof reach it, and the scissor claws snap through it (gone for everyone once cut). Beyond: a short tunnel and a coral-lined shaft up to the far part of the basin, where a
-  crack in the end wall shows **lights far below**: the first glimpse of the trench.
-- For now eggs, cultures and skills reset when the page reloads (saving them is a follow-up).
+  crack in the end wall shows **lights far below**: the first glimpse of the trench. That's the end of the demo for now: a
+  moment after the crab sees them, a card says so, lists what it found, and offers "Keep exploring" or the report
+  form ("What did you think?").
+- Eggs, cultures, skills, gear and cast-off shells are kept across reloads ("Start over" wipes them).
 
 ## Zones and economy
 Like RuneScape, rarer resources come from rarer, more dangerous places: depth is wealth.
