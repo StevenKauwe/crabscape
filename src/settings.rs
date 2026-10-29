@@ -6,7 +6,9 @@
 //! hears. Kept on the device. Below, "Report a bug or idea" opens the report
 //! form (`report.rs`) and "Enter a code" asks for a code (`codes.rs`; phones
 //! have no Enter key). Last, "Start over" (`reset.rs`), which asks for a
-//! second tap ("Sure? Start over") before it wipes anything.
+//! second tap ("Sure? Start over") before it wipes anything. Under it, a quiet
+//! line says which build this is ("Build 5d3eb47, Oct 29", and "preview
+//! pr-183" or "branch <name>" for a copy that isn't the live game).
 //!
 //! A desktop build plays solo and has no report form, so its panel has only
 //! the drawing, the art style and "Start over".
@@ -129,6 +131,32 @@ pub fn below(window: Vec2, rows: f32) -> Rect {
     Rect::from_corners(r.min + down, r.max + down)
 }
 
+/// Which build this is, for the panel's last line: the commit and its date,
+/// as `tools/build-web.sh` stamps them ("dev" for a plain `cargo run`), and
+/// on the web which copy of the game it is, from the page's folder.
+pub fn build_line() -> String {
+    let build = option_env!("CRABSCAPE_BUILD").unwrap_or("dev");
+    #[cfg(target_arch = "wasm32")]
+    let copy = crate::save::build_slug();
+    #[cfg(not(target_arch = "wasm32"))]
+    let copy: Option<String> = None;
+    describe_build(build, copy.as_deref())
+}
+
+/// "Build 5d3eb47, Oct 29", then a second line, "preview pr-183" or
+/// "branch my-idea", for a copy that isn't the live game (`slug` as
+/// `save::build_slug` names it).
+fn describe_build(build: &str, slug: Option<&str>) -> String {
+    let copy = match slug {
+        None => String::new(),
+        Some(s) => match s.strip_prefix("branches-") {
+            Some(branch) => format!("\nbranch {branch}"),
+            None => format!("\npreview {s}"),
+        },
+    };
+    format!("Build {build}{copy}")
+}
+
 pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
@@ -158,6 +186,8 @@ mod panel {
     const ROW: f32 = 30.0;
     const LABEL: f32 = 18.0;
     const PAD: f32 = 10.0;
+    /// Each build line's height, under "Start over".
+    const BUILD: f32 = 14.0;
     /// How long the hearing ripple stays after the slider stops (seconds).
     const RING_FOR: f32 = 1.5;
     /// How long "Sure? Start over" waits for the second tap (seconds).
@@ -242,6 +272,8 @@ mod panel {
         labels: Vec<(Vec2, &'static str)>,
         /// The hearing slider's label and track (web only).
         range: Option<(Rect, Rect)>,
+        /// Where the build line starts.
+        build: Vec2,
     }
 
     /// A section title, then a pair of choices side by side, in the column
@@ -312,12 +344,14 @@ mod panel {
             choices: Vec::new(),
             labels: Vec::new(),
             range: None,
+            build: Vec2::ZERO,
         };
         // One column, unless that runs off the bottom of a short window (a
         // phone held sideways): then the friends' section goes in a second
         // column, left of the first.
         let sections = 2.0 * (LABEL + ROW + PAD) + if web { FRIENDS } else { 0.0 };
-        let one_column = top + PAD + sections + PAD + ROW + PAD;
+        let build = BUILD * super::build_line().lines().count() as f32;
+        let one_column = top + PAD + sections + PAD + ROW + 4.0 + build + PAD;
         let two = web && one_column > window.y - super::MARGIN;
         let mut y = top + PAD;
         y = pair(&mut l, first, y, "Drawing", Choice::Smooth, Choice::Saver);
@@ -331,7 +365,9 @@ mod panel {
         // A little apart from the rest: it's the one that wipes things.
         y += PAD;
         l.choices.push((Choice::StartOver, whole(first, y)));
-        y += ROW + PAD;
+        y += ROW + 4.0;
+        l.build = Vec2::new(first + PAD, y);
+        y += build + PAD;
         let left = if two { first - WIDTH } else { first };
         l.panel = Rect::new(left, top, right, y.max(bottom));
         l
@@ -458,6 +494,21 @@ mod panel {
                         text(words, 12.0),
                     ));
                 }
+                p.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(l.build.x - o.x),
+                        top: px(l.build.y - o.y),
+                        width: px(WIDTH - 2.0 * PAD),
+                        ..default()
+                    },
+                    Text::new(super::build_line()),
+                    TextFont {
+                        font_size: FontSize::Px(11.0),
+                        ..default()
+                    },
+                    TextColor(Color::srgba(1.0, 0.9, 0.7, 0.45)),
+                ));
                 for &(choice, r) in &l.choices {
                     p.spawn((choice, pill(r, o))).with_children(|b| {
                         if choice == Choice::StartOver {
@@ -793,6 +844,9 @@ mod panel {
                         assert!(a.intersect(*b).is_empty(), "choices overlap");
                     }
                 }
+                // The build line goes under "Start over", inside the panel.
+                assert!(l.build.y >= r.max.y, "{window}");
+                assert!(l.build.y + BUILD <= l.panel.max.y, "{window}");
             }
         }
     }
@@ -829,6 +883,22 @@ mod tests {
         assert_eq!(near.volume_at(5000.0), 0.0);
         let all = Settings::default();
         assert_eq!(all.volume_at(5000.0), 1.0);
+    }
+
+    #[test]
+    fn the_build_line_names_the_build_and_any_preview_copy() {
+        assert_eq!(
+            describe_build("5d3eb47, Oct 29", None),
+            "Build 5d3eb47, Oct 29"
+        );
+        assert_eq!(
+            describe_build("5d3eb47, Oct 29", Some("pr-183")),
+            "Build 5d3eb47, Oct 29\npreview pr-183"
+        );
+        assert_eq!(
+            describe_build("dev", Some("branches-my-idea")),
+            "Build dev\nbranch my-idea"
+        );
     }
 
     #[test]

@@ -1065,7 +1065,8 @@ fn start_over_centre(w: f64, h: f64) -> (f64, f64) {
     // The voices (title, row, padding), the slider's label, track and padding, Report and Enter a code.
     let friends =
         (18.0 + 30.0 + 10.0) + (18.0 + 8.0 + 6.0 + 10.0 + 8.0) + (30.0 + 8.0) + (30.0 + 10.0);
-    let one_column = styles + friends + 10.0 + 30.0 + 10.0;
+    // Then Start over and, under it, the one-line build name (the test serves the live game's path).
+    let one_column = styles + friends + 10.0 + 30.0 + 4.0 + 14.0 + 10.0;
     let y = if one_column > h - 10.0 {
         styles
     } else {
