@@ -30,7 +30,7 @@ const GRIT: Color = Color::srgb(0.62, 0.58, 0.50);
 const GRIT_LIGHT: Color = Color::srgb(0.78, 0.74, 0.66);
 const GRIT_DARK: Color = Color::srgb(0.42, 0.38, 0.32);
 /// The grown-out lip of stage 3: shell, paler than the old lip.
-const FLARE: Color = Color::srgb(0.50, 0.45, 0.38);
+const FLARE: Color = Color::srgb(0.56, 0.50, 0.41);
 
 pub struct BuildPlugin;
 
@@ -268,9 +268,9 @@ fn spawn_home_stages(
     // top of the shell.
     part(
         3,
-        Mesh::from(Ellipse::new(64.0, 74.0)),
+        Mesh::from(Ellipse::new(64.0 * k, 66.0 * k)),
         FLARE,
-        Vec2::new(6.0, 58.0),
+        Vec2::new(6.0, 62.0),
         0.035,
         0.0,
     );
