@@ -17,6 +17,7 @@ use bevy_math::{Rect, Vec2};
 use serde::Serialize;
 
 use crate::combat::{self, Fighter, Hit, Outcome, Source};
+use crate::craft::{Material, Stash};
 use crate::enemy::{self, Enemy, Kind};
 use crate::feel::Feel;
 use crate::hash::fnv1a;
@@ -86,8 +87,11 @@ pub struct SimCrab {
     /// The bodies of beaten creatures it has eaten (creature id, its
     /// [`Enemy::deaths`]), while they still lie there.
     pub meals: Vec<(u32, u32)>,
-    /// Events from between ticks (a hit from outside, a moult), added to the
-    /// next tick's.
+    /// What it keeps at its workbench at home to make things from (see
+    /// [`crate::craft`]); it stays there through death, like the larder.
+    pub stash: Stash,
+    /// Events from between ticks (a hit from outside, a moult, something
+    /// made), added to the next tick's.
     pub(crate) pending: StepEvents,
     /// Ticks tucked in so far (0 when not).
     resting: u32,
@@ -205,6 +209,14 @@ impl Sim {
         }
     }
 
+    /// Something was made at the workbench at `tick`: a running recording
+    /// notes it.
+    pub(crate) fn note_craft(&mut self, tick: u64, recipe: crate::craft::Recipe) {
+        if let Some(rec) = &mut self.recorder {
+            rec.note_craft(tick, recipe);
+        }
+    }
+
     /// Put a crab standing still at `pos` into the world.
     pub fn add_crab(&mut self, id: PlayerId, pos: Vec2) {
         let mut mover = Mover::new(pos);
@@ -230,6 +242,7 @@ impl Sim {
             memory: Memory::new(&self.level, &self.tuning.memory),
             cast_offs: Vec::new(),
             meals: Vec::new(),
+            stash: Stash::default(),
             pending: StepEvents::default(),
             resting: 0,
             wakes_at: None,
@@ -819,11 +832,10 @@ impl Sim {
             }
             // Tucked in at home or in a crevice, the crab rests fully, and
             // that is where it will wake after dying. At home, what it
-            // carried in is put to use: a culture into its lantern, a tooth
-            // fitted to its crusher at the workbench (scissor claws), a clam
-            // into the larder, shell grit built into the home. A crevice has
-            // no workbench and no larder. How far the home has grown
-            // changes how it rests there.
+            // carried in comes off: a clam into the larder, anything else put
+            // away by the workbench, to make things from when the player
+            // chooses (`crate::craft`). A crevice has no workbench and no
+            // larder. How far the home has grown changes how it rests there.
             let build = &self.tuning.build;
             let stage = build.stage(crab.home_grit);
             let m = &mut crab.mover;
@@ -861,14 +873,6 @@ impl Sim {
                 let load = m.carrying.take().into_iter();
                 for thing in load.chain(std::mem::take(&mut m.clinging)) {
                     match thing {
-                        Carry::Culture => {
-                            m.lantern += 1;
-                            crab.events.delivered = true;
-                        }
-                        Carry::Tooth => {
-                            m.scissor_claw = true;
-                            crab.events.fitted_scissors = true;
-                        }
                         Carry::Clam if crab.larder < larder => {
                             crab.larder += 1;
                             crab.events.stored = true;
@@ -878,13 +882,11 @@ impl Sim {
                             m.clinging.push(Carry::Clam);
                             crab.events.larder_full |= crab.events.tucked_in;
                         }
-                        Carry::Glass => {
-                            fit_glass_grips(m);
-                            crab.events.fitted_grips = true;
-                        }
-                        Carry::Grit => {
-                            crab.home_grit += 1;
-                            crab.events.built = true;
+                        thing => {
+                            if let Some(kept) = Material::kept(thing) {
+                                crab.stash.add(kept, 1);
+                                crab.events.put_away = true;
+                            }
                         }
                     }
                 }
@@ -911,6 +913,9 @@ impl Sim {
                     m.reserve = 1.0;
                     v.health = m.max_shell(&self.tuning);
                     crab.events.ate_clam = true;
+                    // Its two empty valves go to the workbench.
+                    let valves = self.tuning.craft.valves_per_clam;
+                    crab.stash.add(Material::Valve, valves);
                 }
             } else {
                 crab.resting = 0;
@@ -1504,10 +1509,9 @@ fn in_reach(m: &Mover, egg: Vec2, t: &Tuning) -> bool {
         && egg.y <= m.pos.y + t.body_height + reach
 }
 
-/// The workbench's glass grips: a dead glass sponge's skeleton carried home
-/// becomes glass points fitted to the leg tips, so the crab can grip bare,
-/// pitted rock (`Growth::Rock`). One small rule, kept on its own so it can
-/// become a recipe.
+/// The workbench's glass grips (the "Glass grips" recipe, `crate::craft`): a
+/// dead glass sponge's skeleton brought home becomes glass points fitted to
+/// the leg tips, so the crab can grip bare, pitted rock (`Growth::Rock`).
 pub fn fit_glass_grips(m: &mut Mover) {
     m.glass_grips = true;
 }

@@ -29,6 +29,7 @@
 //! - [`replay`]: F9 saves a replay of this session
 //! - [`report`]: report a bug or idea from the game (typed or spoken), with the replay
 //! - [`input`]: keys, controllers and touch buttons become move requests
+//! - [`interior`]: inside the home shell: the cut-away and the crafting menu
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
 //! - [`coop`]: playing with friends: the invite link and the connection
@@ -78,6 +79,7 @@ mod food;
 mod home;
 mod impact;
 mod input;
+mod interior;
 mod lantern;
 mod level;
 mod memory;
@@ -159,6 +161,7 @@ fn main() {
             (
                 eggs::EggsPlugin,
                 food::FoodPlugin,
+                interior::InteriorPlugin,
                 crevices::CrevicesPlugin,
                 build::BuildPlugin,
                 cling::ClingPlugin,

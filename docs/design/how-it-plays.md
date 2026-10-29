@@ -131,7 +131,8 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
   again until it reaches the soft parts (`creatures/mantis-shrimp.md`; that strikes shatter crab shells: TO VERIFY);
   crusher claws are built to break shells (TO VERIFY; heterochely itself: [YDF] in anatomy-notes).
 - **Commit to every hit.** Claw strikes have a clear wind-up, a crushing impact and a recovery. Timing beats speed.
-- **Guard with your claws.** Raised claws and a hard shell block blows, the way real crabs defend.
+- **Guard with your claws.** Raised claws and a hard shell block blows, the way real crabs defend. Clam-shell guards
+  (made at the workbench from two clam valves, `world.md`) halve what a block lets through.
 - **Parry:** block at the last moment and the attacker is thrown off balance, opening a window for a crushing
   counter (Expedition 33-style timing).
 - **Claw upgrades become fighting styles.** Found things fitted to the claws: **cut** (scissor claws, a shed tooth's
@@ -152,8 +153,9 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Jab (cutter) | Q, O | X | JAB |
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
-| Go into the home shell or a rest-stop crevice to rest (home also uses what you carried) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
+| Go into the home shell or a rest-stop crevice to rest (what you carried home is put by the workbench) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
 | Moult (tucked in at home, well fed, a feat ready) | click "Moult: grow ..." | | tap it |
+| Make something at the workbench (tucked in at home, the view goes inside and the menu shows; `world.md`) | click "Make" | | tap "Make" |
 | Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
 | Art style (Ink or Oil) | P | | Settings, "Art style": Ink / Oil |
 | Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |

@@ -1,5 +1,5 @@
 //! Glass grips: a dead glass sponge's skeleton, found on the canyon's
-//! floor, carried home and fitted to the leg tips, lets the crab grip bare,
+//! floor, carried home and fitted to the leg tips at the workbench, lets the crab grip bare,
 //! pitted rock it otherwise slides off. Where that opens a way, and that
 //! nothing else does.
 
@@ -121,8 +121,9 @@ fn a_glass_sponge_lies_on_the_canyon_floor_and_makes_glass_grips_at_home() {
         "(grit nearby clings to the shell too)"
     );
     assert_eq!(found.sim.crabs()[0].sponges_taken, [true]);
-    // At home the workbench fits its glass points to the leg tips.
-    let home = run(
+    // At home it's put away by the workbench, and the player makes glass
+    // grips from it there: its glass points fitted to the leg tips.
+    let mut home = run(
         &format!("start x={} y=0\nt=0 walk=left", SPAWN.x),
         1.5,
         Kit {
@@ -130,9 +131,21 @@ fn a_glass_sponge_lies_on_the_canyon_floor_and_makes_glass_grips_at_home() {
             ..Kit::default()
         },
     );
-    assert_eq!(home.count("fitted glass grips"), 1);
-    assert!(home.crab().glass_grips);
+    assert_eq!(home.count("put away"), 1);
     assert_eq!(home.crab().carrying, None);
+    assert!(!home.crab().glass_grips, "not by itself");
+    assert_eq!(home.sim.crabs()[0].stash.glass, 1);
+    let me = PlayerId(0);
+    assert_eq!(home.sim.make(me, crabsim::Recipe::GlassGrips), Ok(()));
+    assert!(home.crab().glass_grips);
+    assert_eq!(home.sim.crabs()[0].stash.glass, 0);
+    home.sim.tick();
+    assert!(home.sim.crabs()[0].events.fitted_grips);
+    assert_eq!(
+        home.sim.can_make(me, crabsim::Recipe::GlassGrips),
+        Err(crabsim::CantMake::Made),
+        "made once"
+    );
 }
 
 #[test]

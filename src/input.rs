@@ -313,6 +313,7 @@ fn layout_touch_buttons(
     touch_controls: Res<TouchControls>,
     touches: Res<Touches>,
     mouse: Res<ButtonInput<MouseButton>>,
+    inside: Res<crate::interior::Inside>,
     mut buttons: Query<(
         &TouchAction,
         &mut Node,
@@ -324,7 +325,13 @@ fn layout_touch_buttons(
     let rects = button_rects(size);
     let pressed = touched_buttons(size, &touches, &mouse, &window);
     for (action, mut node, mut visibility, mut background) in &mut buttons {
-        let wanted = if touch_controls.visible {
+        // Inside the home shell the claws stay folded: the fighting buttons
+        // make way for the crafting menu.
+        let fighting = matches!(
+            action,
+            TouchAction::Smash | TouchAction::Jab | TouchAction::Guard
+        );
+        let wanted = if touch_controls.visible && !(fighting && inside.on) {
             Visibility::Inherited
         } else {
             Visibility::Hidden

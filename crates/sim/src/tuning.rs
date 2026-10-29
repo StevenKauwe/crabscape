@@ -318,6 +318,8 @@ pub struct Tuning {
     pub food: FoodTuning,
     /// Growing the home shell with shell grit (`docs/design/world.md`).
     pub build: BuildTuning,
+    /// The workbench at home (`crate::craft`).
+    pub craft: CraftTuning,
     /// The canyon's tide: water running up its middle, then down
     /// (`docs/design/world.md`, "The canyon").
     pub tide: TideTuning,
@@ -470,6 +472,18 @@ pub struct BuildTuning {
     /// Stage 3, the lip grown out into a deeper home: a meal eaten there
     /// keeps the crab well fed this many times as long.
     pub meal_longer: f32,
+}
+
+/// The workbench at home: what eating leaves for it, and what its gear
+/// does (`crate::craft`; what each recipe needs is in its table).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CraftTuning {
+    /// Empty valves a clam eaten at home leaves at the workbench (a clam
+    /// has two).
+    pub valves_per_clam: u32,
+    /// With clam-shell guards on the claws, a blocked blow lets this share
+    /// of what a block lets through reach the shell.
+    pub guard_share: f32,
 }
 
 impl BuildTuning {
@@ -1389,6 +1403,13 @@ impl Tuning {
                 mend_after_ticks: 60, // half a second, from 2 s
                 larder: 8,
                 meal_longer: 1.5, // 6 min of play, from 4
+            },
+            // One clam's two valves make the guards. A block then lets 10% of
+            // a blow through instead of 20% (20% instead of 40% with the guard
+            // cracked): noticed over a fight, never a free pass.
+            craft: CraftTuning {
+                valves_per_clam: 2,
+                guard_share: 0.5,
             },
             tide: TideTuning {
                 up_ticks: 24 * 120,   // long enough to ride the whole canyon up

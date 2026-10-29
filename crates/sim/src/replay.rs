@@ -46,6 +46,7 @@
 //! | `feel=heavy`    | switch to a feel preset (`crabsim::feel`; the game's feel lab) |
 //! | `code=hulk`     | the player typed a code (`crabsim::codes`)               |
 //! | `moult=climbing` | the player moulted, growing that skill's feat (`crabsim::moult`) |
+//! | `craft=lantern` | the player made something at the workbench (`crabsim::craft`) |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
 //! `tap`, `dodge`, `sprint`, `smash`, `jab`, `block`, `parry`) happen on that one tick. Recorded replays also have a
@@ -58,6 +59,7 @@
 use bevy_math::Vec2;
 
 use crate::codes::Code;
+use crate::craft::Recipe;
 use crate::enemy::Kind;
 use crate::feel::Feel;
 use crate::level::SPAWN;
@@ -99,6 +101,8 @@ pub struct Replay {
     pub codes: Vec<(u64, Code)>,
     /// Moults player 0 made, in tick order: which skill's feat it grew.
     pub moults: Vec<(u64, Skill)>,
+    /// What player 0 made at its workbench, in tick order.
+    pub crafts: Vec<(u64, Recipe)>,
     /// What player 0's crab had already grown, taken and stored when the
     /// recording started (after a reload), if anything.
     pub progress: Option<Progress>,
@@ -124,6 +128,7 @@ impl Default for Replay {
             feels: Vec::new(),
             codes: Vec::new(),
             moults: Vec::new(),
+            crafts: Vec::new(),
             progress: None,
         }
     }
@@ -216,8 +221,12 @@ impl Replay {
                     .ok_or_else(|| err(format!("no skill `{w}` to moult for")))?;
                 replay.moults.push((tick, skill));
             }
+            for w in words.iter().filter_map(|w| w.strip_prefix("craft=")) {
+                let recipe = Recipe::parse(w).ok_or_else(|| err(format!("no recipe `{w}`")))?;
+                replay.crafts.push((tick, recipe));
+            }
             words.retain(|w| {
-                !["spawn=", "feel=", "code=", "moult="]
+                !["spawn=", "feel=", "code=", "moult=", "craft="]
                     .iter()
                     .any(|p| w.starts_with(p))
             });
@@ -270,6 +279,9 @@ impl Replay {
         }
         for (tick, skill) in &self.moults {
             out += &format!("@{tick} moult={}\n", skill.name().to_lowercase());
+        }
+        for (tick, recipe) in &self.crafts {
+            out += &format!("@{tick} craft={}\n", recipe.def().word);
         }
         let mut before = Controls::default();
         for input in &self.inputs {
@@ -339,8 +351,8 @@ impl Replay {
     }
 
     /// What happens to the world just before tick number `sim.tick_count()`
-    /// runs: enemies appear, the feel switches, codes are entered (for
-    /// player 0).
+    /// runs: enemies appear, the feel switches, codes are entered and
+    /// things are made at the workbench (for player 0).
     pub fn apply_at(&self, sim: &mut crate::Sim) {
         let tick = sim.tick_count();
         if tick == 0
@@ -359,6 +371,10 @@ impl Replay {
         }
         for (_, skill) in self.moults.iter().filter(|(t, _)| *t == tick) {
             sim.moult(crate::PlayerId(0), *skill);
+        }
+        for (_, recipe) in self.crafts.iter().filter(|(t, _)| *t == tick) {
+            // It could be made when recorded, so it can now.
+            let _ = sim.make(crate::PlayerId(0), *recipe);
         }
     }
 
@@ -455,6 +471,11 @@ impl Recorder {
     /// Player 0 moulted at `tick`, growing `skill`'s feat.
     pub fn note_moult(&mut self, tick: u64, skill: Skill) {
         self.replay.moults.push((tick - self.first_tick, skill));
+    }
+
+    /// Something was made at the workbench at `tick`.
+    pub fn note_craft(&mut self, tick: u64, recipe: Recipe) {
+        self.replay.crafts.push((tick - self.first_tick, recipe));
     }
 
     /// An enemy appeared at `tick`.

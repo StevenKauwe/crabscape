@@ -220,7 +220,7 @@ impl Plugin for SettingsPlugin {
     }
 }
 
-mod panel {
+pub(crate) mod panel {
     use bevy::prelude::*;
 
     use super::{GAP, Hear, RANGE_MAX, RANGE_MIN, Settings, VOICES_MAX, button_rect};
@@ -353,10 +353,18 @@ mod panel {
     /// The panel open, seconds the ripple has left, and seconds "Start over"
     /// stays armed for its second tap (0 = not armed).
     #[derive(Resource, Default)]
-    struct Open {
+    pub(crate) struct Open {
         open: bool,
         ring: f32,
         armed: f32,
+    }
+
+    impl Open {
+        /// Is the panel showing? (Other on-screen buttons under it, like
+        /// the workbench menu's, step aside while it is.)
+        pub(crate) fn is_open(&self) -> bool {
+            self.open
+        }
     }
 
     /// Where everything is, in window pixels from the top-left.

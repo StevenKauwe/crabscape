@@ -875,11 +875,15 @@ pub fn crab_defends(
         return Outcome::Parried;
     }
     if hit.blockable && f.blocking {
-        let share = if f.armour_break > 0 {
+        let mut share = if f.armour_break > 0 {
             t.cracked_block_damage
         } else {
             hit.block_damage.unwrap_or(t.block_damage)
         };
+        // Clam-shell guards over the claws take more of it.
+        if m.clam_guards {
+            share *= t.craft.guard_share;
+        }
         let took = f
             .vitals
             .take(hit.damage * share, poise_felt(m, hit, t), &t.crab);

@@ -751,16 +751,17 @@ fn the_crab_backs_into_its_home_shell_rests_there_and_walks_out() {
         backing.crab().carrying.is_some(),
         "used inside, not at the door"
     );
-    // ...and tucked in at the back, it rests fully and the workbench takes
-    // the culture into the lantern. Pushing on moves it no further.
+    // ...and tucked in at the back, it rests fully and puts the culture
+    // away by the workbench. Pushing on moves it no further.
     let inside = play("t=0 walk=left", 2.0);
     let tucked = inside.first("tucked in").expect("tucked in");
     assert!(tucked < 0.6, "settled in {tucked:.2} s");
     assert!(inside.crab().tucked_in());
     assert_eq!(inside.crab().pos.x, den);
-    assert_eq!((inside.count("rested"), inside.count("delivered")), (1, 1));
+    assert_eq!((inside.count("rested"), inside.count("put away")), (1, 1));
     assert_eq!((inside.crab().reserve, inside.crab().stamina), (1.0, 2.0));
-    assert_eq!((inside.crab().carrying, inside.crab().lantern), (None, 1));
+    assert_eq!(inside.crab().carrying, None);
+    assert_eq!(inside.sim.crabs()[0].stash.cultures, 1);
     // Walking right, it comes back out through the doorway quickly, still
     // moving, and walks on (it doesn't go back in).
     let out = play("t=0 walk=left; t=1 walk=right", 2.0);
@@ -814,12 +815,16 @@ fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
     assert_eq!(found.count("picked up"), 2);
     assert_eq!(found.crab().carrying, Some(crabsim::Carry::Culture));
     assert_eq!(found.crab().clinging, vec![crabsim::Carry::Grit]);
-    // Carrying it, walk in at home: it's cultured into the lantern.
+    // Carrying it, walk in at home: it's put away by the workbench, and
+    // grown into the lantern when the player makes it so.
     let carrying = |m: &mut crabsim::Mover| m.carrying = Some(crabsim::Carry::Culture);
-    let home = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, carrying);
-    assert_eq!(home.count("delivered"), 1);
+    let mut home = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, carrying);
+    assert_eq!(home.count("put away"), 1);
     assert_eq!(home.crab().carrying, None);
-    assert_eq!(home.crab().lantern, 1);
+    assert_eq!(home.crab().lantern, 0, "not by itself");
+    assert_eq!(home.sim.crabs()[0].stash.cultures, 1);
+    assert_eq!(home.sim.make(PlayerId(0), crabsim::Recipe::Lantern), Ok(()));
+    assert_eq!(home.sim.crab(PlayerId(0)).unwrap().mover.lantern, 1);
 }
 
 #[test]
@@ -948,11 +953,17 @@ fn the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin() {
     // In the alcove, the tooth goes on the crab's back.
     let found = run("start x=4200 y=-5200; t=0 walk=right", 1.0);
     assert_eq!(found.crab().carrying, Some(crabsim::Carry::Tooth));
-    // At home, the workbench fits it to the crusher: scissor claws.
+    // At home it's put away by the workbench, and made into scissor claws
+    // (fitted to the crusher) from the crafting menu.
     let tooth = |m: &mut crabsim::Mover| m.carrying = Some(crabsim::Carry::Tooth);
-    let home = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, tooth);
-    assert_eq!(home.count("fitted scissor claws"), 1);
-    assert!(home.crab().scissor_claw && home.crab().carrying.is_none());
+    let mut home = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, tooth);
+    assert_eq!(home.count("put away"), 1);
+    assert!(!home.crab().scissor_claw && home.crab().carrying.is_none());
+    let scissors = crabsim::Recipe::ScissorClaws;
+    assert_eq!(home.sim.make(PlayerId(0), scissors), Ok(()));
+    home.sim.tick();
+    let crab = home.sim.crab(PlayerId(0)).unwrap();
+    assert!(crab.events.fitted_scissors && crab.mover.scissor_claw);
     // Beyond the net: grip the shaft's coral, climb, and come out on the
     // far basin's floor.
     let up = run(
@@ -1302,7 +1313,8 @@ fn dying_leaves_what_it_carried_in_its_cast_off_shell_to_dive_back_for() {
     let crab = sim.crab(P0).unwrap();
     assert!(recovered && crab.mover.carrying == Some(Carry::Culture));
     assert!(crab.cast_offs.is_empty(), "the shell is empty now");
-    // And home with it, the lantern brightens after all.
+    // And home with it, it's put away by the workbench after all, for the
+    // lantern.
     for _ in 0..900 {
         sim.set_controls(
             P0,
@@ -1313,7 +1325,7 @@ fn dying_leaves_what_it_carried_in_its_cast_off_shell_to_dive_back_for() {
         );
         sim.tick();
     }
-    assert_eq!(sim.crab(P0).unwrap().mover.lantern, 1);
+    assert_eq!(sim.crab(P0).unwrap().stash.cultures, 1);
 }
 
 /// The status of the crab on each tick of a script, as `--dump` shows it.

@@ -140,6 +140,10 @@ pub struct Mover {
     /// pitted rock can be gripped and climbed like coral.
     #[serde(default)]
     pub glass_grips: bool,
+    /// Clam-shell guards: a clam valve fitted over each claw (made at the
+    /// workbench, `crate::craft`). Blocked blows hurt less.
+    #[serde(default)]
+    pub clam_guards: bool,
     /// How many cultures have been brought home: each makes the lantern
     /// brighter.
     pub lantern: u32,
@@ -243,6 +247,7 @@ impl Mover {
             clinging: Vec::new(),
             scissor_claw: false,
             glass_grips: false,
+            clam_guards: false,
             lantern: 0,
             climb_xp: 0.0,
             swim_xp: 0.0,
@@ -410,7 +415,7 @@ pub struct StepEvents {
     /// Rested, tucked in at home or in a crevice (the stamina bar and rings
     /// refilled).
     pub rested: bool,
-    /// Brought a culture home: the lantern grew brighter.
+    /// Grew a culture into the lantern (at the workbench): brighter.
     pub delivered: bool,
     /// A skill went up a level: which one.
     pub levelled: Option<Skill>,
@@ -418,7 +423,7 @@ pub struct StepEvents {
     pub flipped: bool,
     /// Found a clue (which one, in [`Level::clues`](crate::Level::clues)).
     pub found_clue: Option<usize>,
-    /// Brought a tooth home: the workbench fitted it, scissor claws.
+    /// Fitted a tooth to the crusher at the workbench: scissor claws.
     pub fitted_scissors: bool,
     /// ...or glass grips fitted to its leg tips...
     pub fitted_grips: bool,
@@ -481,7 +486,7 @@ pub struct StepEvents {
     /// Tucked into a crevice it didn't already wake in: it wakes there now
     /// after dying.
     pub wakes_here: bool,
-    /// Brought shell grit home: built into the home shell...
+    /// Built shell grit into the home shell at the workbench...
     pub built: bool,
     /// ...and it was enough for the home to grow a stage.
     pub home_grew: bool,
@@ -494,6 +499,13 @@ pub struct StepEvents {
     /// Touched food (an egg, a clam, a beaten creature) too soft to eat it.
     #[serde(default)]
     pub too_soft: bool,
+    /// Tucked in at home, put what it carried away by the workbench (a
+    /// culture, a tooth, shell grit) to make things from.
+    #[serde(default)]
+    pub put_away: bool,
+    /// Made something at the workbench (`crate::craft`).
+    #[serde(default)]
+    pub made: Option<crate::craft::Recipe>,
 }
 
 impl StepEvents {
@@ -550,6 +562,8 @@ impl StepEvents {
         self.moulted |= other.moulted;
         self.hardened = self.hardened.or(other.hardened);
         self.too_soft |= other.too_soft;
+        self.put_away |= other.put_away;
+        self.made = self.made.or(other.made);
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -610,6 +624,8 @@ impl StepEvents {
             (self.moulted, "moulted"),
             (self.hardened.is_some(), "hardened"),
             (self.too_soft, "too soft to eat"),
+            (self.put_away, "put away"),
+            (self.made.is_some(), "made"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))

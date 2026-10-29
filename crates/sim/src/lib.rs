@@ -31,6 +31,7 @@
 //! - [`progress`]: what a crab has done that lasts, for saving
 //! - [`net`]: co-op: what each device runs, and what it tells the others
 //! - [`codes`]: codes a player types (`hulk`, `feast`, `glow`)
+//! - [`craft`]: the workbench at home: what it keeps, and the recipes
 //! - [`replay`]: recording controls, and the little text format for replays
 //!   and input scripts
 //! - [`hash`]: a fixed hash for fingerprints
@@ -43,6 +44,7 @@
 
 pub mod codes;
 pub mod combat;
+pub mod craft;
 pub mod enemy;
 pub mod feel;
 pub mod hash;
@@ -62,6 +64,7 @@ pub mod world;
 
 pub use codes::Code;
 pub use combat::{Claw, Fighter, Hit, Outcome, Source, Vitals};
+pub use craft::{CantMake, Material, RECIPES, Recipe, RecipeDef, Stash};
 pub use enemy::{Enemy, Kind};
 pub use feel::Feel;
 pub use home::Shelter;

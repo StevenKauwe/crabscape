@@ -229,6 +229,8 @@ fn follow_crab(
     zoom: Res<Zoom>,
     mut shake: ResMut<Shake>,
     mut rest: Local<Option<Vec2>>,
+    inside: Res<crate::interior::Inside>,
+    window: Single<&Window>,
 ) {
     let level = &sim.level;
     let (mover, crab_tr) = *crab;
@@ -236,6 +238,20 @@ fn follow_crab(
     let Projection::Orthographic(ortho) = &mut *projection else {
         return;
     };
+    // Inside the home shell: framing the cut-away, still. Out again, the
+    // camera starts from the crab, not from in there.
+    if inside.on {
+        let size = window.size();
+        let unit_px = size.x * ortho.scale / ortho.area.width().max(1e-3);
+        let (at, scale) = crate::interior::framing(size, unit_px);
+        if ortho.scale != scale {
+            ortho.scale = scale;
+        }
+        cam.translation.x = at.x;
+        cam.translation.y = at.y;
+        *rest = None;
+        return;
+    }
     // Zoomed out, and the zoom punch (scale 1 = the usual view).
     let scale = zoom.out * (1.0 - shake.zoom);
     if ortho.scale != scale {
@@ -244,8 +260,6 @@ fn follow_crab(
     let view = ortho.area.size() / ortho.scale.max(1e-3);
     let seen = view * scale;
     let dt = time.delta_secs();
-    // Follow from where the camera rests, without last frame's shake.
-    let base = rest.get_or_insert(cam.translation.truncate());
 
     let lead = (mover.vel.x * tuning.camera_lead).clamp(-view.x * 0.2, view.x * 0.2);
     let mut target = crab_tr.translation.truncate() + Vec2::new(lead, view.y * 0.12);
@@ -259,6 +273,9 @@ fn follow_crab(
     } else {
         (level.min_x + level.max_x) / 2.0
     };
+    // Follow from where the camera rests, without last frame's shake (from
+    // the crab itself at first, and on coming out of the home shell).
+    let base = rest.get_or_insert(target);
 
     // Exponential smoothing: cover a fixed fraction of the gap per second.
     // Vertically the camera is a little lazier while the crab is in the
