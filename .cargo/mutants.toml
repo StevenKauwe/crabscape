@@ -1,0 +1,26 @@
+# cargo-mutants (mutation testing, https://mutants.rs): it breaks the code on purpose, one small change at a time
+# (a `<` becomes `>=`, a function returns a default), and runs the tests. A change no test notices ("missed") is
+# code the tests don't really check. CI runs it on each PR's changed lines; see CLAUDE.md, "Testing and linting".
+
+# The game rules, and the co-op code of the game that runs natively (its link and voice-note checks).
+examine_globs = ["crates/sim/src/**/*.rs", "src/coop.rs", "src/voice.rs"]
+# The headless runner's command line (`cargo crabsim`): no unit tests; tools/determinism.sh runs it end to end.
+exclude_globs = ["crates/sim/src/main.rs"]
+
+exclude_re = [
+    # Co-op's browser side (WebRTC, the page, its buttons) only compiles for the web: natively a change there
+    # builds and passes untested. The browser test covers it.
+    "web::",
+    # Registering Bevy systems: what they do is tested, not the list.
+    "<impl Plugin for ",
+    # On-screen layout: checked by eye and in the browser test, not by unit tests.
+    "coop.rs:.*(invite_rect|status_top)",
+]
+
+# A broken comparison can loop forever: give each mutant's tests up to 3x the clean run (at least a minute), then
+# count it as caught by the timeout.
+timeout_multiplier = 3.0
+minimum_test_timeout = 60
+
+# A mutant that only trips a lint still compiles and runs.
+cap_lints = true

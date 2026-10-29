@@ -1,0 +1,81 @@
+# Mutation testing of the whole game rules (crates/sim), once a week, for information only: which code no test would
+# notice breaking. It never fails and nothing waits on it; pick a missed line to cover when there's time. Each pull
+# request is held to its own changed lines by CI's "mutation testing (changed lines)" job instead.
+# About 3,500 mutants at roughly half a minute each: split over 12 machines (about 2 hours each), on Sunday night.
+#   gh workflow run mutants-weekly.yml      # run it now
+# Actions are pinned to commit SHAs; the comment says which release that is.
+name: mutants (weekly)
+
+on:
+  schedule:
+    - cron: "17 2 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutants-weekly
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: ""
+
+jobs:
+  shard:
+    name: crates/sim mutants, part ${{ matrix.shard }} of 12
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: mutants-weekly
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-mutants
+      - name: Mutants of crates/sim (settings in .cargo/mutants.toml)
+        continue-on-error: true
+        run: cargo mutants -p crabsim --in-place --shard ${{ matrix.shard }}/12 -o target/mutants-weekly
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants-weekly-${{ matrix.shard }}
+          path: target/mutants-weekly/mutants.out/*.txt
+          retention-days: 30
+
+  summary:
+    name: crates/sim mutants, all parts
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mutants-weekly-*
+          path: parts
+      - name: Totals and the missed list, in the job summary
+        run: |
+          count() { cat parts/*/"$1" 2>/dev/null | grep -c . || true; }
+          {
+            echo "### crates/sim mutation testing (weekly, information only)"
+            echo "| Caught | Missed | Timed out | Didn't build |"
+            echo "|---:|---:|---:|---:|"
+            echo "| $(count caught.txt) | $(count missed.txt) | $(count timeout.txt) | $(count unviable.txt) |"
+            echo
+            echo "<details><summary>Missed: lines no test notices breaking</summary>"
+            echo
+            echo '```'
+            cat parts/*/missed.txt 2>/dev/null | sort
+            echo '```'
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
