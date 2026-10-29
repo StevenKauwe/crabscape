@@ -69,13 +69,20 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 ## Repo practices and CI/CD
 - Branch (`issue-<n>-<slug>`) → PR (`Closes #<n>`, what changed, how verified, screenshots for visual changes) →
   `gh pr merge --squash --auto --delete-branch`. Rebase on `main` and resolve conflicts yourself. Never push to `main`.
-- CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests, the
-  tidy tool's checks, the web build, relaxed-SIMD check, a size report, the browser test (`cargo webtest`, the game
+- CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests,
+  cargo-deny, the tidy tool's checks, mutation testing of a PR's changed lines, a coverage report (see "Testing and
+  linting" below), the web build, relaxed-SIMD check, a size report, the browser test (`cargo webtest`, the game
   played in WebKit), native = wasm determinism (`tools/determinism.sh`, the sim's tests in wasmtime too) and an art
   check (re-exports the rigs and oil atlases; the committed crab and creature art must match; on a Mac, take the
   oil atlases from its `art-as-ci-made-it` download). On `main` it deploys
   `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/), then checks the live site starts
   (`cargo webtest --smoke`). Branch protection requires the check, determinism, art, web and browser jobs.
+- **CI runs what a PR's files can affect** (`tools/changes.sh`, the `changes` job): words only (`*.md`, `docs/`,
+  `.claude/skills/`) skip every heavy job and pass in seconds; the art check runs only for the art pipeline
+  (`crates/crabrig`, `crates/painter`, `tools/oil-atlas`, `tools/paint-oil.sh`, `art/`, `assets/`), Cargo files, the
+  toolchain or CI itself; anything the script doesn't recognise runs everything. Skipping is by job-level `if:` (a
+  skipped required job counts as passed; never use workflow `paths` filters for required jobs: they never report
+  and block the merge). Pushes to `main` always run everything. A new kind of file? Add it to `tools/changes.sh`.
 - **Main is broken?** A failed CI run on `main` opens (or adds to) the `main-broken` issue "main is broken"; a green
   run closes it. Fix it before anything else (`/next-task` picks it first; the session-start check says so too).
 - **Playable previews** (`tools/previews.sh`): CI publishes each PR's web build to `/pr-<n>/` on the Pages site
@@ -99,6 +106,10 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Lint (native) | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Lint (wasm32) | `cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings` |
 | Test | `cargo test --workspace` |
+| Property tests (deeper search) | `PROPTEST_CASES=2000 cargo test -p crabsim --release --test properties` |
+| Dependencies (advisories, licences, duplicates, sources) | `cargo deny --workspace --locked check`, then the same with `--target wasm32-unknown-unknown` (and `deny.toml` has the introducer's) |
+| Mutation testing of your change | `tools/mutants-pr.sh` (changed lines since `origin/main`; needs `cargo install --locked cargo-mutants`) |
+| Coverage report | `cargo llvm-cov --workspace --summary-only` (needs `cargo install --locked cargo-llvm-cov` and `rustup component add llvm-tools`) |
 | Web build into `web/` | `tools/build-web.sh` (serve with any static server, e.g. `python3 -m http.server -d web`) |
 | WebKit (iPhone engine) test | `cargo webtest [--landscape \| --desktop] [--shots /tmp/shot]` (after the web build; needs WebKitGTK 4.1 and `WebKitWebDriver`, Ubuntu `webkitgtk-webdriver`, before 26.04 `webkit2gtk-driver`) |
 | Headless sim | `cargo crabsim --script "t=0 walk=right; t=1 jump; t=1.45 jump" --seconds 4` |
@@ -114,6 +125,27 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 
 Feel change? Run the same crabsim script on `main` and on your branch and compare the numbers (`cargo crabsim --help`
 lists the script format and flags). Visual change? Attach before/after screenshots.
+
+## Testing and linting
+What each automatic check is for (commands in the table above; all in CI):
+- **Lints:** clippy's defaults plus `[workspace.lints]` in `Cargo.toml` (every crate takes them on with
+  `[lints] workspace = true`): no `unsafe` code, no `dbg!`/`todo!`/`unimplemented!`. `crates/sim` also forbids
+  `unwrap()` outside tests (a panic there stops every player's game): handle the `None`/`Err`, or `expect` with the
+  reason it can't happen. Native and wasm32, `-D warnings`.
+- **Tests prove promises:** scenario tests for feel and rules, and **property tests**
+  (`crates/sim/tests/properties.rs`, proptest) for promises that hold for any input: the crab stays in the level with
+  finite numbers, recordings replay exactly, same inputs give the same world, bytes from another device and replay
+  text never crash. Also run as WebAssembly (in wasmtime) by the determinism job.
+- **cargo-deny** (`deny.toml`): fails on a known security advisory, a licence not on the list, or an unknown source;
+  warns on duplicate crate versions (each is downloaded twice in the web build). An ignored advisory says why it
+  can't reach us. Our own crates have no licence and are skipped (never add one).
+- **Mutation testing on the changed lines** (`mutation testing (changed lines)`, `tools/mutants-pr.sh`,
+  `.cargo/mutants.toml`): cargo-mutants breaks each changed line of `crates/sim`, `src/coop.rs`, `src/voice.rs` and
+  `tools/introducer` in small ways; the job fails if no test notices. Fix it with a test of the behaviour the line
+  is for. Browser-only code (`web::`), Bevy plugin wiring, on-screen layout and the `crabsim` command line are left
+  out. A weekly full run of `crates/sim` (`mutants-weekly.yml`) lists the old gaps, for information only.
+- **Coverage** (`test coverage (information only)`): cargo-llvm-cov's table in the job summary. No threshold and it
+  never fails: mutation testing is what holds new code to its tests.
 
 Layout: `crates/sim` rules · `src/` the Bevy game (drawing, input, camera, effects) · `crates/crabrig` crab puppet ·
 `crates/painter` oil painter (`crabpaint`) · `crates/listen` speech to text for spoken reports · `assets/` files the
