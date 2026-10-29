@@ -8,7 +8,7 @@
 
 use bevy_math::Vec2;
 use crabsim::replay::ticks;
-use crabsim::{Feel, Hit, PlayerId, Replay, SPAWN, STEP, Shelter, Sim, Tuning, play};
+use crabsim::{Controls, Feel, Hit, PlayerId, Replay, SPAWN, STEP, Shelter, Sim, Tuning, play};
 
 /// A world with one crab at `start`, on preset A's fighting numbers (the
 /// base numbers these rules were written against; the game plays G, which
@@ -1099,6 +1099,43 @@ fn a_recording_replays_exactly() {
         Some(live.state_hash()),
         "the replay carries the end state hash"
     );
+}
+
+#[test]
+fn a_recording_saved_between_ticks_replays_to_its_hash() {
+    // The game hands input over after a frame's ticks and saves a replay in
+    // that same frame, so the controls the next tick would use are not in
+    // the replay. Saving must not count them against it.
+    let block = Controls {
+        block_pressed: true,
+        block_held: true,
+        ..Controls::default()
+    };
+    let turn_and_jump = Controls {
+        walk: -1.0,
+        jump_pressed: true,
+        jump_held: true,
+        ..Controls::default()
+    };
+    let walk_right = Controls {
+        walk: 1.0,
+        ..Controls::default()
+    };
+    for (ticks_before, last) in [(0, block), (10, turn_and_jump)] {
+        let mut live = Sim::with_one_crab(SPAWN);
+        live.start_recording();
+        for _ in 0..ticks_before {
+            live.set_controls(PlayerId(0), walk_right);
+            live.tick();
+        }
+        live.set_controls(PlayerId(0), last);
+        let text = live.recording().unwrap().to_text();
+        let replay = Replay::parse(&text).unwrap();
+        assert_eq!(replay.length(), ticks_before);
+        let mut again = Sim::with_one_crab(replay.start);
+        play(&mut again, &replay, replay.length(), |_| {});
+        assert_eq!(replay.hash, Some(again.state_hash()), "{text}");
+    }
 }
 
 #[test]
