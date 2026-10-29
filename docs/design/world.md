@@ -16,6 +16,16 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   crevices, empty shells and litter; that they back in claws first: not verified). Tucked in, it rests fully (stamina
   bar and rings, and its shell mends after a moment unhit), and the workbench puts what it carried home to use. Walk
   away (or jump or dodge) and it walks back out. Inside, the claws stay folded.
+- **Rest stops:** two crevices out in the level, a dark hollow under a slab of rock at the foot of a wall: one at the
+  foot of the cliff's back where the crab drops into the basin, one at the bottom of the pit against its left wall.
+  Deep-water crabs really use such places: large rock slabs and rubble give "many crabs small, safe habitats", rock
+  ledges are good crab habitat, and *Bathynectes longispina* is "frequently observed hiding in depressions under
+  exposed rocks" ([Wenner, SC DNR, "Ragged Claws Under Silent Seas: Deep Water Crabs of the Charleston
+  Bump"](https://dnr.sc.gov//marine/sertc/CrabsPhotoDoc.pdf)). The crab tucks in the same way it does at home and
+  rests fully (strokes, reserve, the shell mended after a moment unhit), but a crevice is not home: no workbench, no
+  larder, no meal. The last place it rested, crevice or home, is where it wakes after dying ("A safe crevice. You'll
+  wake here."). Each crab keeps its own, and it's saved. They sit at dead ends on purpose, so a crab walking past
+  never backs into one by accident; past the trench every such wall foot is already a moray's.
 - **The lantern culture:** at the bottom of the pit, a patch of wild glowing bacteria (blue-green). Touching it puts a
   lump on the crab's back (sponge crabs really carry things on their backs). Brought home, it's cultured into the
   lantern: the light reaches about a third further for each one. The trip home (climb out, cross the basin, the cliff
@@ -82,7 +92,7 @@ Like RuneScape, rarer resources come from rarer, more dangerous places: depth is
 | Look | **Hand-drawn ink + painted fills, oil-painted assets**, per-shape variation | The owner's style; fits phones; art can be made in code |
 | Why dive | **To grow:** a bigger, stronger shell-home needs materials from deeper. Plus a quiet mystery: lights far down in the trench, stories at the whale-fall village | Ties economy, building and depth together |
 | Surface | **A small beach and tide-pool hub at the top;** home sits in the sunlit shallows just below | A Valheim-style base; daylight is the safest thing in the game |
-| Death | **Valheim-style (in the game now: wake at home):** wake at home or the last rest stop with the gear you wore; what you carried stays in your **cast-off shell** (a moult) where you died, to dive back for | Brutal but fair: you lose time and risk, not hours. Creates rescue dives |
+| Death | **Valheim-style (in the game now: wake at home or the last crevice rested in):** wake at home or the last rest stop with the gear you wore; what you carried stays in your **cast-off shell** (a moult) where you died, to dive back for | Brutal but fair: you lose time and risk, not hours. Creates rescue dives |
 | Neighbours | **A few characterful ones.** Crabs are rare; the whale-fall village is a misfit town of isopods, shrimp, an octopus trader and others | Warmth in the dark; few, so each matters |
 | How surreal | **Real biology, no exaggeration.** No spells, no gods; ancient giants stay unexplained | The real ocean is stranger than anything we could invent |
 

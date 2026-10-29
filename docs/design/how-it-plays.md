@@ -43,12 +43,12 @@ In the sim now: the crab's shell (health) and poise, hits with knockback and hit
 crusher's **smash** (14-tick wind-up, 6 active, 22 recovery; 12 damage, 25 poise) and the cutter's quick **jab**
 (6/4/12; 5 damage, 8 poise). A swing plants the feet (the crab slides to a stop: momentum); dodge cancels its
 recovery. Numbers: `crates/sim/src/tuning.rs`. Dying sinks the crab into the sand and it wakes 1.25 s later tucked in
-its home shell, with full health and everything it had grown or fitted (lantern, scissor claws, climbing). What it
+its home shell, or in the last crevice it rested in (rest stops, `world.md`), with full health and everything it had grown or fitted (lantern, scissor claws, climbing). What it
 was carrying stays in its **cast-off shell** where it died, drawn pale on the floor with the lump or tooth on it:
 walking back over it picks the load up again ("Got it back!").
 A beaten creature's body lies where it fell (belly up) until it comes back: walking onto it, the crab eats it, mending
-half its shell and filling its reserve, once per body. Home is the only other place the shell mends, so a fight on the
-way is worth it. The mantis stalks: walking past or away doesn't escape it, only a sprint or a fight does.
+half its shell and filling its reserve, once per body. Home and the rest-stop crevices are the only other places the
+shell mends, so a fight on the way is worth it. The mantis stalks: walking past or away doesn't escape it, only a sprint or a fight does.
 **Block** (hold): damage ×0.2, poise in full, walk at 40%. **Parry**: block pressed ≤ 10 ticks before a blow lands
 (a fresh press; a tap counts, a held block never does, and presses closer than 0.2 s apart open no new window):
 no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. **Dodge** (and flip):
@@ -102,7 +102,7 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Jab (cutter) | Q, O | X | JAB |
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
-| Go into the home shell to rest (and use what you carried) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
+| Go into the home shell or a rest-stop crevice to rest (home also uses what you carried) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
 | Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
 | Art style | P | | "Style" |
 | Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |
