@@ -221,6 +221,10 @@ pub struct Swing {
     pub charging: bool,
     /// How hard it was started (momentum): 1 = plain.
     pub power: f32,
+    /// Where the claw is aimed: how far its blow is raised (up, > 0) or
+    /// lowered (down, < 0) from straight out, in world units.
+    #[serde(default)]
+    pub aim: f32,
 }
 
 impl Swing {
@@ -603,6 +607,7 @@ pub fn before_step(
             charged: 0,
             charging: claw == Claw::Crusher && t.charge_ticks > 0 && c.smash_held,
             power: 1.0 + t.momentum * speed,
+            aim: 0.0,
         });
         match claw {
             Claw::Crusher => ev.smashed = true,
