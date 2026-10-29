@@ -118,13 +118,16 @@ pub fn spawn_local_crab(
     let saved = save::load();
     let pos = saved
         .as_ref()
-        .map(|(p, _)| *p)
+        .map(|s| Vec2::new(s.x, s.y))
         .filter(|&p| physics::is_valid_spot(p, &sim.tuning, &sim.level))
         .unwrap_or(SPAWN);
     sim.add_crab(me, pos);
-    // What it remembers comes back with it.
+    // What it grew, took and remembers comes back with it.
+    if let Some(p) = saved.as_ref().and_then(|s| s.progress.as_ref()) {
+        sim.restore_progress(me, p);
+    }
     if let Some(m) = saved
-        .and_then(|(_, m)| m)
+        .and_then(|s| s.memory)
         .and_then(|m| crabsim::Memory::from_save(&m, &sim.level, &sim.tuning.memory))
         && let Some(crab) = sim.crab_mut(me)
     {
