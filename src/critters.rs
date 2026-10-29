@@ -26,7 +26,7 @@ use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
 use crate::foes::{lie, lies_dead};
 use crate::memory::{Known, Remembered};
-use crate::player::{GameSet, LocalPlayer, PlayerId};
+use crate::player::GameSet;
 
 /// In front of the level, behind the crab (10).
 const Z: f32 = 9.0;
@@ -271,7 +271,6 @@ fn pose_critters(
     sim: Res<Sim>,
     known: Res<Known>,
     lab: Res<FeelLab>,
-    me: Query<&PlayerId, With<LocalPlayer>>,
     mut critters: Query<(&mut Critter, &mut Transform, &mut Visibility, &Children)>,
     mut parts: Query<
         (
@@ -296,7 +295,7 @@ fn pose_critters(
         } else {
             c.since_strike += dt;
         }
-        let body = lies_dead(e, &sim, me.single().ok());
+        let body = lies_dead(e, &sim);
         // Out of the crab's sight it isn't shown (its last sighting is, see
         // `memory.rs`).
         shown.set_if_neq(

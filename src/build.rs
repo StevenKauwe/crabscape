@@ -132,17 +132,10 @@ fn spawn_heaps(
     }
 }
 
-/// A heap shows until the local crab takes it.
-fn show_heaps(
-    sim: Res<Sim>,
-    crab: Query<&PlayerId, With<LocalPlayer>>,
-    mut heaps: Query<(&Heap, &mut Visibility)>,
-) {
-    let Some(me) = crab.single().ok().and_then(|id| sim.crab(*id)) else {
-        return;
-    };
+/// A heap shows until a crab takes it (any crab: shell grit is shared).
+fn show_heaps(sim: Res<Sim>, mut heaps: Query<(&Heap, &mut Visibility)>) {
     for (heap, mut shown) in &mut heaps {
-        let taken = me.grit_taken.get(heap.0).copied().unwrap_or(false);
+        let taken = sim.shared.grit_taken.get(heap.0).copied().unwrap_or(false);
         shown.set_if_neq(if taken {
             Visibility::Hidden
         } else {

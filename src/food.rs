@@ -122,18 +122,15 @@ fn spawn_beds(
     }
 }
 
-/// A bed shows its clam unless the local crab took it and it hasn't grown
-/// back yet.
-fn show_beds(
-    sim: Res<Sim>,
-    crab: Query<&PlayerId, With<LocalPlayer>>,
-    mut beds: Query<(&ClamBed, &mut Visibility)>,
-) {
-    let Some(me) = crab.single().ok().and_then(|id| sim.crab(*id)) else {
-        return;
-    };
+/// A bed shows its clam unless a crab took it (any crab: clams are shared)
+/// and it hasn't grown back yet.
+fn show_beds(sim: Res<Sim>, mut beds: Query<(&ClamBed, &mut Visibility)>) {
     for (bed, mut shown) in &mut beds {
-        let there = me.clams.get(bed.0).is_some_and(|&regrow| regrow == 0);
+        let there = sim
+            .shared
+            .clams
+            .get(bed.0)
+            .is_some_and(|&regrow| regrow == 0);
         let want = if there {
             Visibility::Inherited
         } else {
