@@ -124,8 +124,9 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
   16 s**, slack 6 s, each change a 2 s ramp. In it, the crab's drag is against the water, so the flood carries it
   up (it rises about 450 a second with no strokes at all; at the top it bobs until the tide turns) and the ebb drops
   it more than twice as fast as sinking (shelf to floor in 8 s instead of 18), too strong to swim up against. Marine
-  snow streams with the water, which is how you see which way it runs, and a note says when it turns (in the
-  canyon). **Nothing climbs from the canyon's floor:** the flood is the only way up. Ride it and steer off at the
+  snow streams with the water, which is how you see which way it runs; in the canyon a line under the depth counter
+  says it too ("The water: running up", "running down", "still" or "turning"), a note says when it turns, and the
+  first time the crab comes out into the canyon a note says the water moves here. **Nothing climbs from the canyon's floor:** the flood is the only way up. Ride it and steer off at the
   right moment onto the shelf, the doorstep or the far rim.
 - **The glass sponge makes glass grips (the canyon's craft).** Among the sea pens near the far wall lies the
   skeleton of a dead **glass sponge**: a pale lattice of silica. Real: glass sponges are "common only in the deep

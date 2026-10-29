@@ -222,14 +222,41 @@ fn spawn_midden(
     }
 }
 
-/// When the tide turns and the crab is in the canyon, say so (the marine
-/// snow shows which way it runs).
+/// Is `p` in the canyon (out past the crack, below its mouth)?
+pub fn in_canyon(sim: &Sim, p: Vec2) -> bool {
+    p.x > sim.level.crack.x + 150.0 && p.y < sim.level.crack.y - 600.0
+}
+
+/// The first time the crab comes out into the canyon, say the water moves
+/// here; after that, when the tide turns and the crab is in the canyon, say
+/// so (the marine snow shows which way it runs).
 fn tide_notes(
     mut commands: Commands,
     sim: Res<Sim>,
     crab: Query<&Transform, With<LocalPlayer>>,
     mut was: Local<i8>,
+    mut met: Local<bool>,
 ) {
+    if !*met
+        && let Ok(at) = crab.single()
+        && in_canyon(&sim, at.translation.truncate())
+    {
+        *met = true;
+        let above = at.translation.truncate() + Vec2::Y * 135.0;
+        let blue = Color::srgb(0.70, 0.85, 1.0);
+        say(
+            &mut commands,
+            "A canyon. The water moves here:",
+            above + Vec2::Y * 24.0,
+            blue,
+        );
+        say(
+            &mut commands,
+            "it runs up, then down. Watch the snow.",
+            above,
+            blue,
+        );
+    }
     let tide = sim.level.tide;
     let now: i8 = if tide > 0.5 {
         1
@@ -246,8 +273,7 @@ fn tide_notes(
         return;
     };
     let p = at.translation.truncate();
-    let in_canyon = p.x > sim.level.crack.x + 150.0 && p.y < sim.level.crack.y - 600.0;
-    if !in_canyon {
+    if !in_canyon(&sim, p) {
         return;
     }
     let words = match now {
