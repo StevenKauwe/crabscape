@@ -181,6 +181,9 @@ pub struct Tuning {
     /// Home mends the shell only after this long unhit (a rest, not a
     /// refuge mid-fight).
     pub home_heal_after_ticks: u32,
+    /// How much shell eating a beaten creature mends (it fills the reserve
+    /// too): the reason to fight rather than slip past.
+    pub meal_mend: f32,
     /// How long the crab takes to back into its home shell, and to come back
     /// out (seconds; see [`crate::home`]). Out is quicker: crabs dart out.
     pub home_in_time: f32,
@@ -316,6 +319,10 @@ pub struct EnemyTuning {
     /// Notices by smell: a crab must stay in range this long first (ticks;
     /// light makes no difference). 0 = at once (sight).
     pub scent_ticks: u32,
+    /// A stalker: through its tell it closes in on a crab out of reach,
+    /// and while it rears (before the cocked hold) it turns after one that
+    /// slipped past. Others hold still: backing off makes their blow miss.
+    pub stalks: bool,
     /// Below this share of its health it flees home (0 = never)...
     pub flee_below: f32,
     pub flee_speed: f32,
@@ -564,6 +571,7 @@ impl Tuning {
             hit_stun_ticks: 10,
             respawn_ticks: 150, // 1.25 s, back near the fight
             home_heal_after_ticks: 240,
+            meal_mend: 50.0, // half a shell
             home_in_time: 0.45,
             home_out_time: 0.25,
             // Hit-stop 7: about 60 ms, you feel it land. Reach: the claw's
@@ -629,6 +637,7 @@ impl Tuning {
                 respawn_ticks: 0,
                 notice_moving: 0.0,
                 scent_ticks: 0,
+                stalks: false,
                 strike: StrikeTuning {
                     damage: 10.0,
                     poise: 20.0,
@@ -665,8 +674,8 @@ impl Tuning {
                 burrows: true,       // U-shaped burrows (real)
                 notice_range: 300.0, // a sight hunter; in light (the dark rule is #68)
                 notice_ticks: 24,    // emerging
-                give_up_range: 500.0,
-                approach_speed: 260.0, // darts, faster than the crab walks
+                give_up_range: 800.0,
+                approach_speed: 330.0, // darts: faster than the crab walks, not than it sprints
                 strike_range: 70.0,
                 pause_ticks: (20, 50),
                 tell_ticks: 78,   // rumble and rear (48), then the cocked hold (30)
@@ -687,6 +696,7 @@ impl Tuning {
                 respawn_ticks: 2400,
                 notice_moving: 0.0,
                 scent_ticks: 0,
+                stalks: true, // stalks prey and darts after it (not verified)
                 strike: StrikeTuning {
                     damage: 28.0,
                     poise: 60.0,
@@ -745,6 +755,7 @@ impl Tuning {
                 respawn_ticks: 2400,
                 notice_moving: 135.0, // half walking speed: creep past it
                 scent_ticks: 0,
+                stalks: false,
                 strike: StrikeTuning {
                     damage: 6.0,
                     poise: 45.0,
@@ -799,6 +810,7 @@ impl Tuning {
                 respawn_ticks: 2400,
                 notice_moving: 0.0,
                 scent_ticks: 120, // hunts by smell (real); light makes no difference
+                stalks: false,
                 strike: StrikeTuning {
                     damage: 15.0,
                     poise: 40.0,

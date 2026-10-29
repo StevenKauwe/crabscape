@@ -67,6 +67,9 @@ pub struct SimCrab {
     /// Its cast-off shells, each where it died carrying something
     /// (`docs/design/world.md`, Death): touch one to take its load back.
     pub cast_offs: Vec<CastOff>,
+    /// The bodies of beaten creatures it has eaten (creature id, its
+    /// [`Enemy::deaths`]), while they still lie there.
+    pub meals: Vec<(u32, u32)>,
     /// Events from between ticks (a hit from outside), added to the next
     /// tick's.
     pending: StepEvents,
@@ -169,6 +172,7 @@ impl Sim {
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
             cast_offs: Vec::new(),
+            meals: Vec::new(),
             pending: StepEvents::default(),
         });
     }
@@ -626,6 +630,28 @@ impl Sim {
                 crab.mover.carrying = Some(crab.cast_offs.remove(i).carrying);
                 crab.events.picked_up = true;
                 crab.events.recovered = true;
+            }
+            // A creature it beat lies where it fell: eating it mends the
+            // shell and fills the reserve (crabs are scavengers). Each body
+            // once.
+            crab.meals.retain(|&(id, deaths)| {
+                self.enemies
+                    .iter()
+                    .any(|e| e.id == id && e.deaths == deaths && e.state == enemy::State::Gone)
+            });
+            if crab.fighter.dead.is_none() {
+                let body = combat::body(&crab.mover, &self.tuning);
+                if let Some(e) = self.enemies.iter().find(|e| {
+                    e.state == enemy::State::Gone
+                        && !crab.meals.contains(&(e.id, e.deaths))
+                        && !e.hurtbox(&self.tuning).intersect(body).is_empty()
+                }) {
+                    crab.meals.push((e.id, e.deaths));
+                    let v = &mut crab.fighter.vitals;
+                    v.health = (v.health + self.tuning.meal_mend).min(self.tuning.crab.health);
+                    crab.mover.reserve = 1.0;
+                    crab.events.fed = true;
+                }
             }
             // A ghost net it presses against: cut, with scissor claws (gone
             // for everyone); without them, it's in the way.

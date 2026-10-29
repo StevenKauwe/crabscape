@@ -262,6 +262,7 @@ impl Summary {
                 "jumped",
                 "paddled",
                 "ate",
+                "fed",
                 "gripped",
                 "levelled",
                 "picked up",

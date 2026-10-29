@@ -276,6 +276,8 @@ pub struct StepEvents {
     pub paddled: bool,
     /// Ate an egg: one more swim stroke from now on.
     pub ate: bool,
+    /// Ate a beaten creature: shell mended, reserve full.
+    pub fed: bool,
     /// Gripped kelp or coral.
     pub gripped: bool,
     /// Picked up a lump of glowing bacteria to carry home.
@@ -351,6 +353,7 @@ impl StepEvents {
         self.jumped |= other.jumped;
         self.paddled |= other.paddled;
         self.ate |= other.ate;
+        self.fed |= other.fed;
         self.gripped |= other.gripped;
         self.picked_up |= other.picked_up;
         self.went_in |= other.went_in;
@@ -395,6 +398,7 @@ impl StepEvents {
             (self.jumped, "jumped"),
             (self.paddled, "paddled"),
             (self.ate, "ate"),
+            (self.fed, "fed"),
             (self.gripped, "gripped"),
             (self.picked_up, "picked up"),
             (self.went_in, "went in"),

@@ -1920,10 +1920,11 @@ fn hits_on_its_lowered_head_count_more_and_on_its_tail_less() {
     );
     let lowest = |d: &Duel| d.enemy.iter().map(|e| e.3).fold(60.0, f32::min);
     assert_eq!(lowest(&tail), 54.0, "12 x 0.5 on the armoured telson");
-    // Back off before the blow, step in after it and smash the lowered head.
+    // Dodge back before the blow (walking back isn't enough: it stalks),
+    // step in after it and smash the lowered head.
     let head = mantis(
         &format!(
-            "@{} walk=left; @{} walk=right; @{} walk=stop smash",
+            "@{} walk=left dodge; @{} walk=right; @{} walk=stop smash",
             h - 20,
             h,
             h + 26
