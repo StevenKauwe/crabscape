@@ -82,3 +82,4 @@ Failures on `main` (the after-deploy and daily runs) open or add to the `main-br
   (`vendor/matchbox_socket`, see `decisions.md`).
 - An introducer restart ends every game's connection (it was the connection's other end): each joins afresh 5 s
   later and finds the other. The introducer stores nothing, so a restart forgets nothing worth keeping.
+
