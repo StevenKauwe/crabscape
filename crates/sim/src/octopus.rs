@@ -27,7 +27,9 @@
 use bevy_math::{Rect, Vec2};
 
 use crate::combat::{self, Grabbed, Hit, Outcome, Source};
-use crate::enemy::{self, Enemy, HEAD_BACK_TICKS, MEND_AFTER, Part, State, circle_meets, huntable};
+use crate::enemy::{
+    self, Enemy, HEAD_BACK_TICKS, MEND_AFTER, Part, State, circle_meets, huntable, seen,
+};
 use crate::level::Level;
 use crate::tuning::{ArmTuning, Tuning};
 use crate::world::{PlayerId, SimCrab};
@@ -140,10 +142,31 @@ pub struct Octopus {
     pub web_rest: u32,
     /// Bites into the crab it holds so far (venom, then heavy).
     pub bites: u32,
+    /// Its den: where it lives, and what a crab finds there once it has fled.
+    pub den: Vec2,
+    /// Times it has inked (once at each share of its health in
+    /// [`crate::tuning::InkTuning::at`]).
+    pub inks: u32,
+    /// Its ink cloud, while it lasts.
+    pub ink: Option<Ink>,
+    /// Beaten: jetting off for good...
+    pub leaving: bool,
+    /// ...and gone: its den is open.
+    pub fled: bool,
+}
+
+/// An ink cloud: a crab inside it is blinded.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Ink {
+    /// Its middle.
+    pub at: Vec2,
+    /// Ticks before it has thinned away.
+    pub left: u32,
 }
 
 impl Octopus {
-    pub fn new(t: &Tuning) -> Self {
+    /// A fresh octopus, hidden in its den at `den`.
+    pub fn new(den: Vec2, t: &Tuning) -> Self {
         let a = &t.octopus.arms;
         let arm = Arm {
             health: a.health,
@@ -163,6 +186,11 @@ impl Octopus {
             aim: 0.0,
             web_rest: 0,
             bites: 0,
+            den,
+            inks: 0,
+            ink: None,
+            leaving: false,
+            fled: false,
         }
     }
 
@@ -182,6 +210,8 @@ pub fn phase(e: &Enemy, o: &Octopus) -> &'static str {
         State::Attack if o.webover => "drop",
         State::Attack => "pounce",
         State::Recover if o.webover => "spread",
+        State::Flee if o.leaving => "flee",
+        State::Flee => "ink",
         s => s.name(),
     }
 }
@@ -254,6 +284,94 @@ fn ellipse_meets(c: Vec2, half: Vec2, b: Rect) -> bool {
 pub fn struck(e: &mut Enemy) {
     if matches!(e.state, State::Idle | State::Tell) {
         e.enter(State::Probe, 0);
+    }
+}
+
+/// Hurt past one of its shares of health (two-thirds, one-third) for the
+/// first time: it inks where it is and jets off, to fight on from elsewhere.
+/// (Once each: a blow that takes it past both inks once.)
+pub fn inks(e: &mut Enemy, t: &Tuning) {
+    let i = &t.octopus.ink;
+    let whole = t.octopus.base.vitals.health;
+    let health = e.vitals.health;
+    let cloud = mantle(e, t);
+    let Some(o) = e.octo.as_mut() else { return };
+    let past =
+        i.at.iter()
+            .filter(|&&share| health <= share * whole)
+            .count() as u32;
+    if past <= o.inks || o.leaving {
+        return;
+    }
+    o.inks = past;
+    o.ink = Some(Ink {
+        at: cloud,
+        left: i.cloud_ticks,
+    });
+    o.holding = None;
+    o.webover = false;
+    e.enter(State::Flee, i.jet_ticks);
+}
+
+/// Beaten: it jets off for good (animals want to eat, not die). No body is
+/// left: it got away.
+pub fn away(e: &mut Enemy, t: &Tuning) {
+    if let Some(o) = e.octo.as_mut() {
+        o.leaving = true;
+        o.holding = None;
+        o.webover = false;
+    }
+    e.vel_x = 0.0;
+    e.follow_ups.clear();
+    e.enter(State::Flee, t.octopus.ink.jet_ticks);
+}
+
+/// Where it jets to: at least [`crate::tuning::InkTuning::jet`] away, away
+/// from the crab if it can, on floor flat enough for its body, not too far
+/// above or below, clear of rock. Nowhere fits: it stays.
+fn jet_spot(e: &Enemy, crab_x: Option<f32>, level: &Level, t: &Tuning) -> f32 {
+    let i = &t.octopus.ink;
+    let (w, h) = t.octopus.base.body;
+    let half = w / 2.0;
+    let away = match crab_x {
+        Some(x) if x < e.pos.x => 1.0,
+        Some(_) => -1.0,
+        None => -e.facing,
+    };
+    let fits = |x: f32| {
+        let y = level.floor_height(x);
+        let flat = [x - half, x + half]
+            .iter()
+            .all(|&s| (level.floor_height(s) - y).abs() <= 20.0);
+        let body = Rect::new(x - half, y + 1.0, x + half, y + h);
+        x - half >= level.min_x
+            && x + half <= level.max_x
+            && (y - e.pos.y).abs() <= i.climb
+            && flat
+            && level.rocks.iter().all(|r| r.intersect(body).is_empty())
+    };
+    [away, -away]
+        .into_iter()
+        .flat_map(|side| (0..5).map(move |k| e.pos.x + side * (i.jet + 100.0 * k as f32)))
+        .find(|&x| fits(x))
+        .unwrap_or(e.pos.x)
+}
+
+/// The jet ends: it is somewhere else now, its arms curled under it, and
+/// that is where it fights from.
+fn reappear(e: &mut Enemy, o: &mut Octopus, crabs: &[SimCrab], level: &Level, t: &Tuning) {
+    let crab_x = e
+        .target
+        .and_then(|id| crabs.iter().find(|c| c.id == id))
+        .map(|c| c.mover.pos.x);
+    let x = jet_spot(e, crab_x, level, t);
+    e.pos = Vec2::new(x, level.floor_height(x));
+    e.home = e.pos;
+    e.reach = 0.0;
+    let root = root(e, t);
+    for arm in o.arms.iter_mut().filter(|a| a.state != ArmState::Lost) {
+        arm.tip = root;
+        arm.set(ArmState::Curled);
     }
 }
 
@@ -337,6 +455,13 @@ pub fn step(
     e.vitals.tick(&k.vitals);
     // It keeps to its den: a blow doesn't shove it out.
     e.vel_x = 0.0;
+    // Its ink thins away.
+    if let Some(ink) = &mut o.ink {
+        ink.left = ink.left.saturating_sub(1);
+        if ink.left == 0 {
+            o.ink = None;
+        }
+    }
 
     // Timed states end, and the next one starts on this same tick.
     if e.state_len > 0 && e.state_tick >= e.state_len {
@@ -357,6 +482,14 @@ pub fn step(
                 e.enter(State::Recover, w.recover_ticks);
             }
             State::Attack => e.enter(State::Recover, k.recover_ticks),
+            State::Flee if o.leaving => {
+                o.fled = true;
+                e.enter(State::Gone, 0);
+            }
+            State::Flee => {
+                reappear(e, &mut o, crabs, level, t);
+                e.enter(State::Idle, 0);
+            }
             State::Recover | State::Stagger => {
                 if o.webover {
                     o.webover = false;
@@ -387,14 +520,17 @@ pub fn step(
     }
 
     // Whom it watches: a crab it has seen, until that one is gone or far
-    // from its den; else the nearest it sees.
+    // from its den; else the nearest it sees. In ink it can't see, but its
+    // arms still find a crab by touch within their reach.
     let home = e.home.x;
+    let reach_x = root(e, t).x;
+    let felt = |c: &SimCrab| seen(c, k.sight) || (c.mover.pos.x - reach_x).abs() <= a.length;
     let kept = e
         .target
-        .and_then(|id| crabs.iter().find(|c| c.id == id && huntable(c)))
+        .and_then(|id| crabs.iter().find(|c| c.id == id && huntable(c) && felt(c)))
         .filter(|c| (c.mover.pos.x - home).abs() <= k.give_up_range)
         .map(|c| c.id);
-    e.target = kept.or_else(|| e.sense(crabs, k.notice_range));
+    e.target = kept.or_else(|| e.sense(crabs, k.notice_range, t));
     let target = e
         .target
         .and_then(|id| crabs.iter().find(|c| c.id == id))
@@ -429,10 +565,13 @@ pub fn step(
             } else if let Some(p) = target.filter(|p| in_reach(*p)) {
                 e.facing = (p.x - e.pos.x).signum();
                 e.enter_now(State::Probe, 0);
-            } else if e.sense(crabs, k.give_up_range).is_none() && e.vitals.unhit > MEND_AFTER {
-                // The fight is over: it mends, and is a rock again.
+            } else if e.sense(crabs, k.give_up_range, t).is_none() && e.vitals.unhit > MEND_AFTER {
+                // The fight is over: it mends, and is a rock again, back in
+                // its den.
                 e.vitals = combat::Vitals::new(&k.vitals);
-                o = Octopus::new(t);
+                o = Octopus::new(o.den, t);
+                e.pos = o.den;
+                e.home = o.den;
             }
         }
         State::Attack if o.webover => web_drop(e, &mut o, crabs, t, &mut blows),

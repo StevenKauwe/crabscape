@@ -73,6 +73,9 @@ pub struct SimCrab {
     /// Shell grit built into its home so far (it grows in stages: see
     /// [`SimCrab::home_stage`]).
     pub home_grit: u32,
+    /// Pieces of shell grit taken from an octopus's den once it has fled
+    /// (its midden).
+    pub midden: u32,
     /// Health, poise and claw swings.
     pub fighter: Fighter,
     /// What it has seen and remembers: its own map of the level.
@@ -214,6 +217,7 @@ impl Sim {
             larder: 0,
             grit_taken: vec![false; self.level.grit.len()],
             home_grit: 0,
+            midden: 0,
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
             cast_offs: Vec::new(),
@@ -700,6 +704,18 @@ impl Sim {
                     *taken = true;
                 }
             }
+            // A beaten octopus's den, open now: its midden of old shells is
+            // shell grit, a few pieces of it, as many as cling at a time.
+            for o in self.enemies.iter().filter_map(|e| e.octopus()) {
+                let at = o.den + Vec2::new(0.0, 4.0);
+                while o.fled
+                    && crab.midden < t.octopus.den.midden
+                    && in_reach(m, at, t)
+                    && take_up(m, ev, Carry::Grit, t)
+                {
+                    crab.midden += 1;
+                }
+            }
             // Its cast-off shell, back where it died: what it carried goes
             // back on (whatever there's room for; the rest waits there).
             if crab.fighter.dead.is_none() {
@@ -721,6 +737,7 @@ impl Sim {
                 let body = combat::body(&crab.mover, &self.tuning);
                 if let Some(e) = self.enemies.iter().find(|e| {
                     e.state == enemy::State::Gone
+                        && e.octo.is_none() // an octopus gets away: no body
                         && !crab.meals.contains(&(e.id, e.deaths))
                         && !e.hurtbox(&self.tuning).intersect(body).is_empty()
                 }) {
@@ -859,6 +876,20 @@ impl Sim {
             } else {
                 crab.resting = 0;
             }
+        }
+        // A crab in an octopus's ink cloud is blinded.
+        let clouds: Vec<Vec2> = self
+            .enemies
+            .iter()
+            .filter_map(|e| e.octopus()?.ink.map(|i| i.at))
+            .collect();
+        let (r, half) = (
+            self.tuning.octopus.ink.radius,
+            self.tuning.body_height / 2.0,
+        );
+        for c in self.crabs.iter_mut().filter(|c| !c.remote) {
+            let middle = c.mover.pos + Vec2::new(0.0, half);
+            c.fighter.blinded = clouds.iter().any(|at| at.distance(middle) <= r);
         }
         self.claws_meet_enemies();
         let runs = self.runs_each();
