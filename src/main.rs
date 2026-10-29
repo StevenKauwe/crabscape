@@ -44,6 +44,7 @@
 //! - [`impact`]: how a blow lands: shake, kick, zoom, sound, debris
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
 //! - [`cling`]: the clams and shell grit clinging to a crab's shell
+//! - [`moult`]: the Moult button at home (until the home menu has a Moult row)
 //! - [`notes`]: the short notes that float up when something happens
 //! - [`reset`]: starting over: forget this device's saved data, start fresh
 //! - [`save`]: remembering the crab's position between visits
@@ -78,6 +79,7 @@ mod input;
 mod lantern;
 mod level;
 mod memory;
+mod moult;
 mod notes;
 mod player;
 mod power;
@@ -170,6 +172,7 @@ fn main() {
                 canyon::CanyonPlugin,
                 ending::EndingPlugin,
                 codes::CodesPlugin,
+                moult::MoultPlugin,
                 creature_art::CreatureArtPlugin,
             ),
             sound::SoundPlugin,

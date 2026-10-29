@@ -295,7 +295,18 @@ fn show_skill(
         }
         let level = mover.level(row.0, &sim.tuning);
         if let Some(mut text) = children.first().and_then(|c| texts.get_mut(*c).ok()) {
-            let line = format!("{} {level}", row.0.name());
+            // A feat ready to grow at a moult, growing, or grown.
+            let feat = crabsim::Feat::of(row.0);
+            let mark = if mover.growing == Some(feat) {
+                " · growing"
+            } else if mover.has(feat) {
+                " · feat"
+            } else if mover.feat_ready(row.0, &sim.tuning) {
+                " · moult ready"
+            } else {
+                ""
+            };
+            let line = format!("{} {level}{mark}", row.0.name());
             if text.0 != line {
                 text.0 = line;
             }
@@ -340,13 +351,20 @@ fn show_well_fed(
     let (Ok(mover), Ok((mut text, mut shown))) = (crab.single(), sign.single_mut()) else {
         return;
     };
-    if mover.well_fed == 0 {
+    // Soft after a moult (it eats nothing then, so never well fed too): the
+    // time left out in the open (tucked in, it hardens faster).
+    let (word, ticks) = if mover.is_soft() {
+        ("Soft shell", mover.soft)
+    } else {
+        ("Well fed", mover.well_fed)
+    };
+    if ticks == 0 {
         shown.set_if_neq(Visibility::Hidden);
         return;
     }
     shown.set_if_neq(Visibility::Inherited);
-    let seconds = mover.well_fed.div_ceil(TICKS_PER_SECOND);
-    let line = format!("Well fed {}:{:02}", seconds / 60, seconds % 60);
+    let seconds = ticks.div_ceil(TICKS_PER_SECOND);
+    let line = format!("{word} {}:{:02}", seconds / 60, seconds % 60);
     if text.0 != line {
         text.0 = line;
     }

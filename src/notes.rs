@@ -3,7 +3,7 @@
 //! player that just happened to the local crab.
 
 use bevy::prelude::*;
-use crabsim::{Carry, Mover, Sim};
+use crabsim::{Carry, Mover, Sim, moult};
 
 use crate::player::{FrameEvents, GameSet, LocalPlayer, PlayerId};
 
@@ -59,6 +59,7 @@ fn note_events(
     sim: Res<Sim>,
     mut last_tangle: Local<f32>,
     mut last_full: Local<f32>,
+    mut last_soft: Local<f32>,
     crab: Query<(&FrameEvents, &Mover, &Transform, &PlayerId), With<LocalPlayer>>,
 ) {
     let Ok((events, mover, at, id)) = crab.single() else {
@@ -75,7 +76,29 @@ fn note_events(
     }
     if let Some(skill) = ev.levelled {
         let level = mover.level(skill, &sim.tuning);
-        notes.push((format!("{} level {level}!", skill.name()), GOLD));
+        if mover.feat_ready(skill, &sim.tuning) {
+            // "Climbing level 5! A feat is ready: moult to grow it.", in two.
+            let note = moult::ready_note(skill, level);
+            let (first, then) = note.split_once("! ").unwrap_or((&note, ""));
+            notes.push((format!("{first}!"), GOLD));
+            notes.push((then.into(), GOLD));
+        } else {
+            notes.push((format!("{} level {level}!", skill.name()), GOLD));
+        }
+    }
+    if ev.moulted {
+        notes.push(("Moulted: soft for a while.".into(), PALE));
+        notes.push(("Rest tucked in to harden.".into(), PALE));
+    }
+    if let Some(feat) = ev.hardened {
+        let note = moult::hardened_note(feat);
+        let (first, then) = note.split_once(": ").unwrap_or((&note, ""));
+        notes.push((format!("{first}:"), GOLD));
+        notes.push((then.into(), GOLD));
+    }
+    if ev.too_soft && now - *last_soft > 4.0 {
+        *last_soft = now;
+        notes.push(("Too soft to eat yet".into(), PALE));
     }
     if let Some(thing) = ev.picked_up
         && !ev.recovered
