@@ -21,5 +21,11 @@ bevy_ecs = { version = "0.20.0", default-features = false, features = ["std"], o
 # The game turns this on. The headless runner and the tests leave it off.
 bevy = ["dep:bevy_ecs"]
 
+# Property tests (tests/properties.rs): random inputs, shrunk to the smallest failing one. Without the default
+# features that fork processes, so the tests also run as WebAssembly in wasmtime (wasm32-wasip1). Not for the
+# browser target: nothing runs tests there, and its random seed would need JavaScript.
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
+proptest = { version = "1.12", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true
