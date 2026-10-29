@@ -128,6 +128,9 @@ pub struct Mover {
     pub reserve: f32,
     /// Time before the paddle legs can make their next stroke (the rhythm).
     pub stroke_rest: f32,
+    /// A press made in the water during the rhythm: the stroke comes as soon
+    /// as the legs are ready (one at most, so mashing queues no more).
+    pub stroke_queued: bool,
     /// Time left in the current dodge (0 = not dodging).
     pub dodge_left: f32,
     /// Time before the next dodge is allowed.
@@ -183,6 +186,7 @@ impl Mover {
             stamina: 0.0,
             reserve: 1.0,
             stroke_rest: 0.0,
+            stroke_queued: false,
             dodge_left: 0.0,
             dodge_cooldown: 0.0,
             dodge_dir: 1.0,
@@ -467,20 +471,18 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     m.reserve = (m.reserve + dt / t.reserve_refill_time).min(1.0);
     if m.grounded {
         m.coyote = t.coyote_time;
-        // Standing on something solid rests the paddle legs, drawing on the
-        // reserve (both counted in strokes). An empty reserve leaves them
-        // tired.
+        // Standing on something solid rests the paddle legs.
         let full = m.strokes(t) as f32;
-        let want = (full * dt / t.stamina_refill_time).min(full - m.stamina);
-        let strokes = want.min(m.reserve * t.stamina_reserve as f32);
-        if strokes > 0.0 {
-            m.stamina = (m.stamina + strokes).min(full);
-            m.reserve = (m.reserve - strokes / t.stamina_reserve as f32).max(0.0);
-        }
+        rest_legs(m, t, full * dt / t.stamina_refill_time);
     } else {
         m.coyote = (m.coyote - dt).max(0.0);
     }
     m.stroke_rest = (m.stroke_rest - dt).max(0.0);
+    // A press in the water while the legs are still in their rhythm is kept
+    // until they're ready, so no press is lost.
+    if c.jump_pressed && !m.grounded && m.stroke_rest > 0.0 {
+        m.stroke_queued = true;
+    }
     m.dodge_cooldown = (m.dodge_cooldown - dt).max(0.0);
     if c.dodge_pressed {
         m.dodge_buffer = t.dodge_buffer;
@@ -592,6 +594,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             m.climb_side = -m.climb_side;
         }
         m.jump_buffer = 0.0;
+        m.stroke_queued = false;
         m.dodge_left = 0.0;
         ev.gripped = true;
     }
@@ -666,28 +669,37 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             m.windup = 0.0;
             launch(m, &mut ev);
         }
-    } else if m.jump_buffer > 0.0 {
-        if m.grounded || m.coyote > 0.0 {
-            m.jump_buffer = 0.0;
-            if m.grounded && t.jump_windup > 0.0 {
-                m.windup = t.jump_windup;
-                m.coyote = 0.0;
-                ev.crouched = true;
-            } else {
-                launch(m, &mut ev); // a coyote jump: no floor to crouch on
-            }
-        } else if m.stroke_rest <= 0.0 && m.stamina + 1e-4 >= 1.0 {
-            // In the water with no floor: a paddle stroke instead (the
-            // double jump, then swim strokes), if the legs have one left.
-            // The rhythm spaces them out. (A press during the rhythm stays in
-            // the jump buffer, so a little early counts.)
-            m.jump_buffer = 0.0;
-            m.stamina = (m.stamina - 1.0).max(0.0);
-            m.stroke_rest = t.stroke_interval;
-            m.vel.y = m.vel.y.max(t.paddle_speed);
-            m.rising = true;
-            ev.paddled = true;
+    } else if m.jump_buffer > 0.0 && (m.grounded || m.coyote > 0.0) {
+        m.jump_buffer = 0.0;
+        if m.grounded && t.jump_windup > 0.0 {
+            m.windup = t.jump_windup;
+            m.coyote = 0.0;
+            ev.crouched = true;
+        } else {
+            launch(m, &mut ev); // a coyote jump: no floor to crouch on
         }
+    } else if (m.jump_buffer > 0.0 || m.stroke_queued)
+        && !m.grounded
+        && m.coyote <= 0.0
+        && m.stroke_rest <= 0.0
+        && m.stamina + 1e-4 >= 1.0
+    {
+        // In the water with no floor: a paddle stroke instead (the double
+        // jump, then swim strokes), if the legs have one left. The rhythm
+        // spaces them out; a press during it waits for it (see
+        // `stroke_queued`), so mashing strokes no faster than the rhythm.
+        m.jump_buffer = 0.0;
+        m.stroke_queued = false;
+        m.stamina = (m.stamina - 1.0).max(0.0);
+        m.stroke_rest = t.stroke_interval;
+        m.vel.y = m.vel.y.max(t.paddle_speed);
+        m.rising = true;
+        ev.paddled = true;
+    }
+    // The legs are ready (or the crab is standing): a press kept for the
+    // rhythm that still made no stroke (no strokes left) is let go.
+    if m.stroke_rest <= 0.0 || m.grounded {
+        m.stroke_queued = false;
     }
     // Let go of jump while rising: cut the jump short.
     if m.rising && !c.jump_held && m.vel.y > 0.0 {
@@ -715,7 +727,24 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
 
     move_and_collide(m, t, level, dt, &mut ev);
+    // Touching down rests one stroke at once (so a hop straight off again
+    // has its double jump); the rest come back while it stands.
+    if ev.landed.is_some() {
+        rest_legs(m, t, 1.0);
+    }
     ev
+}
+
+/// Rest the paddle legs by up to `strokes` strokes, drawing on the reserve
+/// (both counted in strokes). An empty reserve leaves them tired.
+fn rest_legs(m: &mut Mover, t: &Tuning, strokes: f32) {
+    let full = m.strokes(t) as f32;
+    let want = strokes.min(full - m.stamina);
+    let strokes = want.min(m.reserve * t.stamina_reserve as f32);
+    if strokes > 0.0 {
+        m.stamina = (m.stamina + strokes).min(full);
+        m.reserve = (m.reserve - strokes / t.stamina_reserve as f32).max(0.0);
+    }
 }
 
 /// The crab's body while climbing: turned sideways onto the stalk, so as

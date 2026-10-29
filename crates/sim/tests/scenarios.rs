@@ -177,16 +177,28 @@ fn the_paddle_stroke_adds_height() {
         "paddle peak {}",
         double.highest
     );
-    // Mashing doesn't help: presses faster than the stroke rhythm make one
-    // stroke.
+    // Mashing doesn't help: presses faster than the stroke rhythm make
+    // strokes on the rhythm (the press during it waits for it), and climb no
+    // higher than the same strokes pressed on the beat.
     let mashed = run_with(
         strokes(3),
         "t=0 jump; t=0.5 jump; t=0.55 jump; t=0.6 jump; t=0.65 jump",
         3.0,
         |_| false,
     );
-    assert_eq!(mashed.count("paddled"), 1);
-    assert_eq!(mashed.highest, double.highest);
+    let beat = f64::from(Tuning::base().stroke_interval) + 0.01;
+    let on_beat = run_with(
+        strokes(3),
+        &format!("t=0 jump; t=0.5 jump; t={} jump", 0.5 + beat),
+        3.0,
+        |_| false,
+    );
+    println!(
+        "mashed {:.1}, on the beat {:.1}",
+        mashed.highest, on_beat.highest
+    );
+    assert_eq!(mashed.count("paddled"), 2);
+    assert!(mashed.highest <= on_beat.highest + 0.5);
 }
 
 /// Jump, then press jump `presses` times, one per beat of the stroke rhythm.
@@ -240,12 +252,13 @@ fn only_solid_ground_rests_the_paddle_legs() {
     let run2 = |script: &str| run_with(t.clone(), script, 7.0, |_| false);
     let landed = run2(&spend).first("landed").unwrap();
     let all = t.swim_strokes;
-    // Jump again straight after landing: the legs had no rest, so not even
-    // the double jump.
-    let (a, b) = (landed + 0.01, landed + 0.4);
-    let tired = run2(&format!("{spend}; t={a} jump; t={b} jump"));
+    // Jump again straight after landing: the legs had almost no rest, so
+    // only the stroke that rests on touching down (the double jump), not the
+    // rest.
+    let (a, b, c) = (landed + 0.01, landed + 0.4, landed + 0.71);
+    let tired = run2(&format!("{spend}; t={a} jump; t={b} jump; t={c} jump"));
     assert_eq!(tired.count("jumped"), 2);
-    assert_eq!(tired.count("paddled"), all);
+    assert_eq!(tired.count("paddled"), all + 1);
     // Stand for the refill time first: strokes again.
     let rest = landed + f64::from(t.stamina_refill_time) + 0.05;
     let (b, c) = (rest + 0.4, rest + 0.71);
