@@ -1,7 +1,8 @@
 # Co-op's promises in depth (docs/design/coop-promises.md), after each deploy to main and once a day: every scenario
 # 3 times with voice off and on, a random stress run, and the scenarios on the live site with the real introducer.
-# (Every pull request already plays each scenario once, in ci.yml's co-op parts.) A failure opens or adds to the
-# "main is broken" issue; a green run here never closes it (ci.yml does that).
+# (Every pull request already plays each scenario once, in ci.yml's co-op parts.) A failure on main opens or adds to
+# the "main is broken" issue; a green run here never closes it (ci.yml does that). Run by hand (Actions, "Co-op in
+# depth", or `gh workflow run coop.yml --ref <branch> -f only=join -f repeat=1`) for a shorter check.
 name: Co-op in depth
 
 on:
@@ -12,12 +13,22 @@ on:
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Only these scenarios (comma-separated; empty: all)"
+        default: ""
+      repeat:
+        description: "Times to play each scenario"
+        default: "3"
+      steps:
+        description: "Stress steps"
+        default: "12"
 
 permissions:
   contents: read
 
 concurrency:
-  group: coop-in-depth
+  group: coop-in-depth-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -30,12 +41,29 @@ jobs:
     # After a deploy: only when main's CI passed (so the build was deployed).
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: read
       actions: read
     steps:
+      - name: Which web build (the run that triggered this, else main's latest green CI run)
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -z "$RUN" ]; then
+            read -r RUN SHA < <(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success \
+              --event push --limit 1 --json databaseId,headSha --jq '.[0] | "\(.databaseId) \(.headSha)"')
+          fi
+          echo "CI run $RUN at $SHA"
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      # The test tool as it was at that build (on a run by hand from a branch: the branch's).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || steps.build.outputs.sha }}
       - name: Rust (the version, targets and components in rust-toolchain.toml)
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -44,37 +72,46 @@ jobs:
           workspaces: |
             . -> target
             tools/introducer -> target
-      - name: The web build main's CI made (the one deployed)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN: ${{ github.event.workflow_run.id }}
-        run: |
-          if [ -z "$RUN" ]; then
-            RUN="$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success --limit 1 \
-              --json databaseId --jq '.[0].databaseId')"
-          fi
-          sha="$(gh run view "$RUN" -R "$GITHUB_REPOSITORY" --json headSha --jq .headSha)"
-          echo "CI run $RUN at $sha"
-          # The test tool as it was at that build.
-          git fetch --quiet --depth 1 origin "$sha"
-          git switch --quiet --detach FETCH_HEAD
-          gh run download "$RUN" -R "$GITHUB_REPOSITORY" -n "crabscape-web-$sha" -D web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ steps.build.outputs.sha }}
+          path: web
+          run-id: ${{ steps.build.outputs.run }}
+          github-token: ${{ github.token }}
       - name: Build the introducer and the co-op test
+        id: tool
         run: |
           cargo build --release --locked --manifest-path tools/introducer/Cargo.toml
           cargo build --profile art --locked -p cooptest
       - name: Every scenario 3 times, voice off and on
-        run: cargo cooptest --voice both
+        env:
+          ONLY: ${{ inputs.only }}
+          REPEAT: ${{ inputs.repeat || '3' }}
+        run: cargo cooptest --voice both --repeat "$REPEAT" ${ONLY:+--only "$ONLY"} --logs target/cooptest
       - name: Random stress (the seed is printed; its replay line reruns it)
-        if: always()
-        run: cargo cooptest --stress --steps 12
+        if: ${{ !cancelled() && steps.tool.outcome == 'success' }}
+        env:
+          STEPS: ${{ inputs.steps || '12' }}
+        run: cargo cooptest --stress --steps "$STEPS" --logs target/cooptest
       - name: The live site with the real introducer
-        if: always()
-        run: cargo cooptest --url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" --repeat 1 --voice both
+        if: ${{ !cancelled() && steps.tool.outcome == 'success' }}
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          url="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          cargo cooptest --url "$url" --repeat 1 --voice both ${ONLY:+--only "$ONLY"} --logs target/cooptest
+      - name: Keep the failures' screenshots and logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cooptest-${{ github.run_id }}
+          path: target/cooptest/
+          retention-days: 7
 
   main-health:
     name: report main's health
-    if: always() && needs.coop.result != 'skipped'
+    # Only for main (a run by hand from a branch reports nothing).
+    if: always() && github.ref == 'refs/heads/main' && needs.coop.result != 'skipped'
     needs: [coop]
     runs-on: ubuntu-latest
     permissions:
