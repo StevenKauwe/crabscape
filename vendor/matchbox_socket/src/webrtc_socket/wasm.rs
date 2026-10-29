@@ -8,7 +8,7 @@ use crate::webrtc_socket::{
     messages::PeerSignal, signal_peer::SignalPeer, socket::create_data_channels_ready_fut,
 };
 use async_trait::async_trait;
-use futures::{Future, SinkExt, StreamExt};
+use futures::{Future, FutureExt, SinkExt, StreamExt};
 use futures_channel::mpsc::{Receiver, UnboundedReceiver, UnboundedSender};
 use futures_timer::Delay;
 use futures_util::select;
@@ -505,11 +505,27 @@ async fn wait_for_ice_gathering_complete(conn: RtcPeerConnection) {
 
     conn.set_onicegatheringstatechange(Some(onstatechange.as_ref().unchecked_ref()));
 
-    rx.next().await;
+    // CrabScape fix: wait for the rest of the gathering only so long (see GATHERING_AT_MOST).
+    let mut complete = rx.next().fuse();
+    let mut enough = Delay::new(GATHERING_AT_MOST).fuse();
+    select! {
+        _ = complete => debug!("Ice gathering completed"),
+        _ = enough => debug!(
+            "Ice gathering still going after {GATHERING_AT_MOST:?}: going on with the candidates so far"
+        ),
+    }
 
     conn.set_onicegatheringstatechange(None);
-    debug!("Ice gathering completed");
 }
+
+// CrabScape fix. The offer and the answer each wait for the browser to finish gathering its
+// addresses, but a browser only finishes once every address server has answered on every network
+// it has, and one that can't reach them on some network (a VPN, a virtual machine's network, IPv6
+// with no way out) waits about 40 seconds for each. So one connection took over a minute, and a
+// game that rejoins its room every 15 seconds while alone never let a returning friend through.
+// Its addresses arrive in a moment: here every one came within 0.2 s, and the rest of the 40 s
+// was the wait for "complete". So wait at most this long, then go on with what was gathered.
+const GATHERING_AT_MOST: Duration = Duration::from_secs(3);
 
 fn create_data_channels(
     connection: RtcPeerConnection,
