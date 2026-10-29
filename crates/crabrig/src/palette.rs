@@ -83,6 +83,18 @@ pub fn normal() -> Palette {
     p.insert("mantisEye", tri("#5FA3AC", "#2D6670", "#163840"));
     p.insert("mantisBand", Mat::One("#E9F0C0".into()));
     p.insert("mantisStalk", tri("#C8E0A0", "#8DB86E", "#4E7A3E"));
+    // The common octopus (its concept sheet's palette): reddish-brown skin, darker mottles and web, pale
+    // suckers, a gold eye with a dark bar pupil; its camouflage in the rock's greys.
+    p.insert("octopus", tri("#D27C56", "#AD5A3C", "#6E2E22"));
+    p.insert("octopusDeep", tri("#94463A", "#6E3026", "#421A14"));
+    p.insert("octopusWeb", tri("#A0503C", "#7C362A", "#4E1E16"));
+    p.insert("octopusSucker", tri("#FCE8D8", "#F2CFB8", "#C99C84"));
+    p.insert("octopusPale", tri("#FFF6EE", "#F7E6DA", "#DEC6B4"));
+    p.insert("octopusEye", tri("#F6E79A", "#E8D274", "#B09A40"));
+    p.insert("octopusPupil", tri("#2C2024", "#1A1214", "#0E0A0A"));
+    p.insert("octopusCamo", tri("#ABA690", "#878170", "#5A5648"));
+    p.insert("octopusCamoMottle", tri("#706C5A", "#5A5648", "#3E3B30"));
+    p.insert("octopusCamoEye", tri("#D8CC86", "#BDAE62", "#857636"));
     p
 }
 

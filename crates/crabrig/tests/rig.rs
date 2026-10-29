@@ -191,9 +191,8 @@ fn the_game_octopus_parts_file_matches_its_rig() {
         },
     )
     .unwrap();
-    // Head, mantle, eye, their two pale copies, the web, the camouflage skin and its eye, and eight near and eight
-    // far arm segments.
-    assert_eq!(e.parts, 25);
+    // Head, mantle, eye, their two pale copies, the web, the camouflage skin and its eye, and eight arm segments.
+    assert_eq!(e.parts, 16);
     assert!(
         e.json == OCTOPUS_JSON,
         "assets/creatures/common-octopus-parts.json is out of date: \
@@ -226,7 +225,6 @@ fn the_octopus_kit_has_every_piece_the_game_poses() {
     .collect();
     for k in 0..SEGMENTS {
         wanted.push((format!("arm-{k}"), "root"));
-        wanted.push((format!("far-{k}"), "root"));
     }
     for (id, parent) in &wanted {
         assert!(piece(id).pv.is_some(), "{id} has a joint");
@@ -238,5 +236,5 @@ fn the_octopus_kit_has_every_piece_the_game_poses() {
     let sucker = piece("arm-0-sucker0");
     assert!(sucker.pts.iter().all(|p| p[1] > 0.0), "suckers underneath");
     assert_eq!(parent_of("arm-0-sucker0"), "arm-0");
-    assert_eq!(parent_of("far-7-sucker4"), "far-7");
+    assert_eq!(parent_of("arm-7-sucker4"), "arm-7");
 }

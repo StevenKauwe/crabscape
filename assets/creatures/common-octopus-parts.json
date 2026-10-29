@@ -1,0 +1,505 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/common-octopus/common-octopus-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "common-octopus-atlas.png",
+ "atlas_size": [
+  1024,
+  1024
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  500.0,
+  1130.6
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "web",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    54.0,
+    741.1,
+    892.0,
+    395.5
+   ],
+   "rect": [
+    291,
+    3,
+    536,
+    238
+   ],
+   "z": 0,
+   "members": [
+    "web",
+    "web-rib0",
+    "web-rib1",
+    "web-rib2",
+    "web-rib3",
+    "web-rib4"
+   ]
+  },
+  {
+   "name": "mantle",
+   "parent": "head",
+   "pivot": [
+    564.0,
+    400.6
+   ],
+   "bbox": [
+    152.6,
+    92.3,
+    474.6,
+    397.1
+   ],
+   "rect": [
+    3,
+    3,
+    285,
+    239
+   ],
+   "z": 6,
+   "members": [
+    "mantle",
+    "mantle-mottle0",
+    "mantle-mottle1",
+    "mantle-mottle2",
+    "mantle-mottle3",
+    "mantle-mottle4",
+    "mantle-mottle5",
+    "mantle-mottle6",
+    "mantle-mottle7",
+    "mantle-mottle8"
+   ]
+  },
+  {
+   "name": "mantle-pale",
+   "parent": "mantle",
+   "pivot": [
+    564.0,
+    400.6
+   ],
+   "bbox": [
+    153.9,
+    95.4,
+    473.4,
+    394.5
+   ],
+   "rect": [
+    3,
+    245,
+    285,
+    237
+   ],
+   "z": 16,
+   "members": [
+    "mantle-pale"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": null,
+   "pivot": [
+    668.0,
+    544.6
+   ],
+   "bbox": [
+    513.0,
+    322.0,
+    266.4,
+    255.1
+   ],
+   "rect": [
+    730,
+    245,
+    160,
+    154
+   ],
+   "z": 17,
+   "members": [
+    "head-siphon",
+    "head",
+    "head-mottle0",
+    "head-mottle1",
+    "head-mottle2",
+    "head-mottle3"
+   ]
+  },
+  {
+   "name": "head-pale",
+   "parent": "head",
+   "pivot": [
+    668.0,
+    544.6
+   ],
+   "bbox": [
+    540.8,
+    323.5,
+    237.2,
+    251.0
+   ],
+   "rect": [
+    3,
+    485,
+    143,
+    151
+   ],
+   "z": 23,
+   "members": [
+    "head-pale"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    660.0,
+    400.6
+   ],
+   "bbox": [
+    605.2,
+    318.7,
+    108.9,
+    125.5
+   ],
+   "rect": [
+    149,
+    485,
+    66,
+    76
+   ],
+   "z": 24,
+   "members": [
+    "eye",
+    "eye-pupil",
+    "eye-glint",
+    "eye-horn"
+   ]
+  },
+  {
+   "name": "arm-0",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    437.3,
+    707.9,
+    455.4,
+    124.1
+   ],
+   "rect": [
+    285,
+    485,
+    274,
+    75
+   ],
+   "z": 28,
+   "members": [
+    "arm-0",
+    "arm-0-sucker0",
+    "arm-0-sucker1",
+    "arm-0-sucker2",
+    "arm-0-sucker3",
+    "arm-0-sucker4"
+   ]
+  },
+  {
+   "name": "arm-1",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    444.1,
+    711.3,
+    443.2,
+    114.8
+   ],
+   "rect": [
+    562,
+    485,
+    266,
+    69
+   ],
+   "z": 34,
+   "members": [
+    "arm-1",
+    "arm-1-sucker0",
+    "arm-1-sucker1",
+    "arm-1-sucker2",
+    "arm-1-sucker3",
+    "arm-1-sucker4"
+   ]
+  },
+  {
+   "name": "arm-2",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    448.9,
+    715.7,
+    432.0,
+    104.0
+   ],
+   "rect": [
+    3,
+    639,
+    260,
+    63
+   ],
+   "z": 40,
+   "members": [
+    "arm-2",
+    "arm-2-sucker0",
+    "arm-2-sucker1",
+    "arm-2-sucker2",
+    "arm-2-sucker3",
+    "arm-2-sucker4"
+   ]
+  },
+  {
+   "name": "arm-3",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    456.4,
+    721.0,
+    422.4,
+    93.3
+   ],
+   "rect": [
+    266,
+    639,
+    254,
+    56
+   ],
+   "z": 46,
+   "members": [
+    "arm-3",
+    "arm-3-sucker0",
+    "arm-3-sucker1",
+    "arm-3-sucker2",
+    "arm-3-sucker3",
+    "arm-3-sucker4"
+   ]
+  },
+  {
+   "name": "arm-4",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    460.6,
+    728.8,
+    411.5,
+    81.3
+   ],
+   "rect": [
+    523,
+    639,
+    247,
+    49
+   ],
+   "z": 52,
+   "members": [
+    "arm-4",
+    "arm-4-sucker0",
+    "arm-4-sucker1",
+    "arm-4-sucker2",
+    "arm-4-sucker3",
+    "arm-4-sucker4"
+   ]
+  },
+  {
+   "name": "arm-5",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    467.1,
+    735.0,
+    398.0,
+    69.3
+   ],
+   "rect": [
+    773,
+    639,
+    239,
+    42
+   ],
+   "z": 58,
+   "members": [
+    "arm-5",
+    "arm-5-sucker0",
+    "arm-5-sucker1",
+    "arm-5-sucker2",
+    "arm-5-sucker3",
+    "arm-5-sucker4"
+   ]
+  },
+  {
+   "name": "arm-6",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    473.2,
+    738.3,
+    388.3,
+    60.1
+   ],
+   "rect": [
+    3,
+    705,
+    233,
+    37
+   ],
+   "z": 64,
+   "members": [
+    "arm-6",
+    "arm-6-sucker0",
+    "arm-6-sucker1",
+    "arm-6-sucker2",
+    "arm-6-sucker3",
+    "arm-6-sucker4"
+   ]
+  },
+  {
+   "name": "arm-7",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    475.6,
+    746.2,
+    367.9,
+    45.1
+   ],
+   "rect": [
+    239,
+    705,
+    221,
+    28
+   ],
+   "z": 70,
+   "members": [
+    "arm-7",
+    "arm-7-sucker0",
+    "arm-7-sucker1",
+    "arm-7-sucker2",
+    "arm-7-sucker3",
+    "arm-7-sucker4"
+   ]
+  },
+  {
+   "name": "camo",
+   "parent": null,
+   "pivot": [
+    500.0,
+    768.6
+   ],
+   "bbox": [
+    135.3,
+    461.0,
+    726.3,
+    327.7
+   ],
+   "rect": [
+    291,
+    245,
+    436,
+    197
+   ],
+   "z": 76,
+   "members": [
+    "camo",
+    "camo-mottle0",
+    "camo-mottle1",
+    "camo-mottle2",
+    "camo-mottle3",
+    "camo-mottle4",
+    "camo-mottle5",
+    "camo-mottle6",
+    "camo-mottle7",
+    "camo-mottle8",
+    "camo-mottle9",
+    "camo-mottle10",
+    "camo-mottle11",
+    "camo-mottle12",
+    "camo-mottle13",
+    "camo-mottle14",
+    "camo-mottle15",
+    "camo-papilla0",
+    "camo-papilla1",
+    "camo-papilla2",
+    "camo-papilla3",
+    "camo-papilla4",
+    "camo-papilla5",
+    "camo-papilla6",
+    "camo-papilla7",
+    "camo-curl0",
+    "camo-curl0-sucker0",
+    "camo-curl0-sucker1",
+    "camo-curl0-sucker2",
+    "camo-curl1",
+    "camo-curl1-sucker0",
+    "camo-curl1-sucker1",
+    "camo-curl1-sucker2",
+    "camo-curl2",
+    "camo-curl2-sucker0",
+    "camo-curl2-sucker1",
+    "camo-curl2-sucker2",
+    "camo-curl3",
+    "camo-curl3-sucker0",
+    "camo-curl3-sucker1",
+    "camo-curl3-sucker2"
+   ]
+  },
+  {
+   "name": "camo-eye",
+   "parent": "camo",
+   "pivot": [
+    676.0,
+    608.6
+   ],
+   "bbox": [
+    622.7,
+    527.1,
+    106.3,
+    124.5
+   ],
+   "rect": [
+    218,
+    485,
+    64,
+    75
+   ],
+   "z": 117,
+   "members": [
+    "camo-eye",
+    "camo-eye-pupil",
+    "camo-eye-glint",
+    "camo-eye-horn"
+   ]
+  }
+ ]
+}

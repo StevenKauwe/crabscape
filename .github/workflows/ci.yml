@@ -93,6 +93,8 @@ jobs:
           cargo run --locked -q -p crabrig --profile art -- export --creature snowflake-moray
           cargo run --locked -q -p crabrig --profile art -- parts --creature mantis-shrimp
           cargo run --locked -q -p crabrig --profile art -- export --creature mantis-shrimp
+          cargo run --locked -q -p crabrig --profile art -- parts --creature common-octopus
+          cargo run --locked -q -p crabrig --profile art -- export --creature common-octopus
           tools/paint-oil.sh
       - name: The committed art/crab, assets/crab, art/creatures and assets/creatures match
         run: |
