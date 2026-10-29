@@ -46,8 +46,13 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - **When a human should try it first.** If you judge a change needs a person to play it before it lands (how it
   feels or looks), post its playable preview link to the owner in plain words with a recommendation, and wait for
   their go. Otherwise merge as above.
-- **Ask humans only** for taste/direction calls (how it feels or looks) or outward-facing ones (going public, money,
-  contacting people): briefly, in plain words, with a recommendation.
+- **Decide; don't wait on a human.** Every technical and game-rule call is Claude's: code, testing, CI, co-op and
+  connections, and rules such as what's shared in co-op or how a mechanic works. Pick a sensible answer, record it
+  in `docs/design/decisions.md` with a one-line reason, and mention it afterwards in one plain line anyone can
+  overrule. Choosing and being wrong, then fixing it later, beats waiting (the owner's call: the team is here for
+  taste, not game-dev answers). This goes for helpers too: brief them to decide, not to ask.
+- **Ask humans only** for taste (how it feels or looks) or outward-facing calls (going public, money, contacting
+  people): briefly, in plain words, with a recommendation.
 - **Talking to humans:** plain words, no jargon (say "your change", "the automatic checks", "it's in the game now").
   Anything a human must do comes as one of: a yes/no or one `! command` in chat, a button on an artifact page (Studio:
   https://claude.ai/artifact/PttxVTZCC75dqSEpKXYowf), or one link that lands on the action. Never "go to Settings…".
