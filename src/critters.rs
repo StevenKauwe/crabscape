@@ -1,5 +1,7 @@
-//! Drawing the snapping shrimp and the snowflake moray: placeholder shapes
-//! (their rigs and painted art come later, #69, #71), but their tells read.
+//! Drawing the snapping shrimp and the snowflake moray. The shrimp is a
+//! cut-out puppet (`creature_art.rs`, drawn by `crabrig --creature
+//! snapping-shrimp`); the moray is still placeholder shapes (its rig comes
+//! later), but its tells read.
 //!
 //! - **Snapping shrimp:** peeks from its burrow, then at the mouth swings its
 //!   big claw's finger up and holds it (the cocked claw), and snaps: a white
@@ -19,6 +21,7 @@ use bevy::prelude::*;
 use crabsim::enemy::State;
 use crabsim::{Kind, Sim};
 
+use crate::creature_art::CreatureArt;
 use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
 use crate::foes::{lie, lies_dead};
@@ -29,9 +32,9 @@ use crate::player::{GameSet, LocalPlayer, PlayerId};
 /// In front of the level, behind the crab (10).
 const Z: f32 = 9.0;
 
-// Snapping shrimp: a pale orange-red shrimp with a big snapper claw.
-const SHRIMP: Color = Color::srgb(0.92, 0.48, 0.32);
-const SNAPPER_CLAW: Color = Color::srgb(0.95, 0.62, 0.42);
+/// The snapping shrimp's puppet: its parts file (baked in) and picture.
+const SHRIMP_PARTS: &str = include_str!("../assets/creatures/snapping-shrimp-parts.json");
+const SHRIMP_ATLAS: &str = "creatures/snapping-shrimp-atlas.png";
 // Snowflake moray: white with dark dendritic blotches, yellow eye.
 const MORAY: Color = Color::srgb(0.88, 0.86, 0.78);
 const BLOTCH: Color = Color::srgb(0.18, 0.15, 0.12);
@@ -46,7 +49,7 @@ pub struct CrittersPlugin;
 
 impl Plugin for CrittersPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_systems(Startup, load_art).add_systems(
             Update,
             (spawn_critters, pose_critters)
                 .chain()
@@ -68,11 +71,29 @@ struct Critter {
     reach: f32,
 }
 
+/// The creatures' puppet art.
+#[derive(Resource)]
+struct Art {
+    shrimp: CreatureArt,
+}
+
+fn load_art(mut commands: Commands, sim: Res<Sim>, assets: Res<AssetServer>) {
+    // The drawing runs from the tail fan to the snapper's fingertip: the body box's length.
+    let length = Kind::Snapper.tuning(&sim.tuning).body.0;
+    commands.insert_resource(Art {
+        shrimp: CreatureArt::load(SHRIMP_PARTS, SHRIMP_ATLAS, length, &assets),
+    });
+}
+
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum Part {
     Body,
     /// The snapper's finger, pivoting at the top of its palm.
     Dactyl,
+    /// The shrimp's abdomen and tail fan: flicked under when it's hit.
+    Tail,
+    /// A feeler, sweeping; `phase` is its own beat.
+    Feeler(u8),
     /// The ripple along the floor after a snap.
     Shock,
     /// The moray's head, and each neck segment (0 nearest the head).
@@ -105,6 +126,7 @@ fn lit_sprite(colour: Color, size: Vec2, image: Option<Handle<Image>>) -> impl B
 fn spawn_critters(
     mut commands: Commands,
     sim: Res<Sim>,
+    art: Res<Art>,
     soft: Res<SoftTextures>,
     critters: Query<&Critter>,
 ) {
@@ -146,44 +168,28 @@ fn spawn_critters(
                     Transform::from_xyz(e.home.x, e.home.y + 1.0, 0.2),
                     Remembered(e.home),
                 ));
+                let body = commands
+                    .spawn((
+                        Part::Body,
+                        Transform::default(),
+                        Visibility::default(),
+                        ChildOf(root),
+                    ))
+                    .id();
+                let pieces = art.shrimp.spawn(&mut commands, body);
+                for (name, part) in [
+                    ("dactyl", Part::Dactyl),
+                    ("abdomen", Part::Tail),
+                    ("antenna", Part::Feeler(0)),
+                    ("antennule", Part::Feeler(1)),
+                ] {
+                    if let Some(e) = pieces.get(name) {
+                        commands.entity(*e).insert(part);
+                    }
+                }
+                // The shock runs from the snapper's fingertip.
+                let tip = art.shrimp.front_of("claw").unwrap_or(Vec2::new(17.0, 6.0));
                 commands.entity(root).with_children(|c| {
-                    c.spawn((Part::Body, Transform::default(), Visibility::default()))
-                        .with_children(|b| {
-                            b.spawn((
-                                lit_sprite(SHRIMP, Vec2::new(30.0, 10.0), None),
-                                Transform::from_xyz(-2.0, 6.0, 0.0),
-                            ));
-                            // Tail fan, eye hood, feelers.
-                            b.spawn((
-                                lit_sprite(SHRIMP, Vec2::new(8.0, 9.0), None),
-                                Transform::from_xyz(-19.0, 7.0, 0.05),
-                            ));
-                            b.spawn((
-                                lit_sprite(Color::srgb(0.2, 0.08, 0.06), Vec2::splat(3.0), None),
-                                Transform::from_xyz(11.0, 9.0, 0.1),
-                            ));
-                            b.spawn((
-                                lit_sprite(SHRIMP, Vec2::new(22.0, 1.2), None),
-                                Transform::from_xyz(22.0, 13.0, 0.05)
-                                    .with_rotation(Quat::from_rotation_z(0.25)),
-                            ));
-                            // The big snapper claw: palm, and a finger above it.
-                            b.spawn((
-                                lit_sprite(SNAPPER_CLAW, Vec2::new(12.0, 8.0), None),
-                                Transform::from_xyz(18.0, 4.0, 0.2),
-                            ));
-                            b.spawn((
-                                Part::Dactyl,
-                                Transform::from_xyz(14.0, 8.0, 0.25),
-                                Visibility::default(),
-                            ))
-                            .with_children(|d| {
-                                d.spawn((
-                                    lit_sprite(SNAPPER_CLAW, Vec2::new(12.0, 3.0), None),
-                                    Transform::from_xyz(6.0, 0.0, 0.0),
-                                ));
-                            });
-                        });
                     // The shock along the floor, and its warning line.
                     c.spawn((
                         Part::Shock,
@@ -193,12 +199,12 @@ fn spawn_critters(
                             custom_size: Some(Vec2::new(44.0, 14.0)),
                             ..default()
                         },
-                        Transform::from_xyz(17.0 + 22.0, 6.0, 0.5),
+                        Transform::from_xyz(tip.x + 22.0, tip.y, 0.5),
                     ));
                     c.spawn((
                         Part::Aim,
                         Sprite::from_color(AIM.with_alpha(0.0), Vec2::new(38.0, 2.0)),
-                        Transform::from_xyz(17.0 + 19.0, 1.5, 0.4),
+                        Transform::from_xyz(tip.x + 19.0, 1.5, 0.4),
                     ));
                     bar(c, 26.0);
                 });
@@ -286,10 +292,11 @@ fn pose_critters(
     mut critters: Query<(&mut Critter, &mut Transform, &mut Visibility, &Children)>,
     mut parts: Query<
         (
-            &Part,
+            Option<&Part>,
             &mut Transform,
             Option<&mut Sprite>,
             Option<&mut Visibility>,
+            Option<&Children>,
         ),
         Without<Critter>,
     >,
@@ -356,10 +363,24 @@ fn pose_critters(
             _ => 0.18 + 0.15 * (c.time * 6.0).sin(), // breathing, gaping slowly
         };
 
-        for kid in kids.iter() {
-            let Ok((part, mut tr, sprite, vis)) = parts.get_mut(kid) else {
+        // The shrimp's tail flicks under when it's hit, and while it shoots
+        // back into its burrow.
+        let flick = if e.state == State::Flee {
+            0.55
+        } else {
+            0.55 * (1.0 - e.vitals.unhit as f32 / 30.0).max(0.0)
+        };
+
+        // Every piece, however deep in the puppet.
+        let mut stack: Vec<Entity> = kids.iter().collect();
+        while let Some(kid) = stack.pop() {
+            let Ok((part, mut tr, sprite, vis, below)) = parts.get_mut(kid) else {
                 continue;
             };
+            if let Some(below) = below {
+                stack.extend(below.iter());
+            }
+            let Some(part) = part else { continue };
             match part {
                 Part::Body => {
                     // Snapper: down in its burrow, or up at the mouth.
@@ -406,9 +427,18 @@ fn pose_critters(
                         (State::Tell, "cocked") => 1.75,
                         (State::Tell, _) => 1.75 * (tick / 24.0).min(1.0),
                         (State::Recover, _) => 0.4 * tick / k.recover_ticks as f32,
-                        _ => 0.15,
+                        _ => 0.0,
                     };
                     tr.rotation = Quat::from_rotation_z(up);
+                }
+                Part::Tail => {
+                    let now = tr.rotation.to_euler(EulerRot::XYZ).2;
+                    let to = now + (flick - now) * (1.0 - (-20.0 * dt).exp());
+                    tr.rotation = Quat::from_rotation_z(to);
+                }
+                Part::Feeler(n) => {
+                    let beat = c.time * (1.7 + 0.6 * *n as f32) + *n as f32 * 1.3;
+                    tr.rotation = Quat::from_rotation_z(0.12 * beat.sin());
                 }
                 Part::HealthBack | Part::HealthFill => {
                     if let Some(mut v) = vis {
