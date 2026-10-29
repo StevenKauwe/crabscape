@@ -39,6 +39,10 @@ pub struct Progress {
     /// Ticks left of being well fed.
     #[serde(default)]
     pub well_fed: u32,
+    /// The crevice it wakes in after dying (None: home). Saves from before
+    /// there were any wake at home.
+    #[serde(default)]
+    pub wakes_at: Option<usize>,
 }
 
 impl Progress {
@@ -90,6 +94,7 @@ impl Sim {
             larder: crab.larder,
             clams: crab.clams.clone(),
             well_fed: m.well_fed,
+            wakes_at: crab.wakes_at,
         })
     }
 
@@ -97,7 +102,8 @@ impl Sim {
     /// level with a different number of things is ignored (the level
     /// changed since), and so is anything left in a cast-off shell then.
     /// Clam beds count on their own: a save from before there were any
-    /// keeps the rest, with every clam in its bed.
+    /// keeps the rest, with every clam in its bed. So does the crevice it
+    /// wakes in: one the level no longer has means home.
     pub fn restore_progress(&mut self, id: PlayerId, p: &Progress) {
         let tuning = self.tuning.clone();
         let same_level = p.eaten.len() == self.level.eggs.len()
@@ -110,9 +116,11 @@ impl Sim {
                 net.cut |= cut;
             }
         }
+        let crevices = self.level.crevices.len();
         let Some(crab) = self.crab_mut(id) else {
             return;
         };
+        crab.wakes_at = p.wakes_at.filter(|&i| i < crevices);
         let m = &mut crab.mover;
         m.upgrades = p.upgrades;
         m.lantern = p.lantern;

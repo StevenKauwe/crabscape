@@ -169,7 +169,8 @@ pub struct Mover {
     /// right of it, -1 = to the left. It's the side the crab came from; it
     /// swings round to the other side when something blocks the way.
     pub climb_side: f32,
-    /// Going into its home shell, or coming out (see [`crate::home`]).
+    /// Going into its home shell or a crevice, or coming out (see
+    /// [`crate::home`]).
     pub shelter: Shelter,
     /// How far into the home shell the crab has backed: 0 = out in the
     /// open, 1 = tucked right in.
@@ -228,7 +229,7 @@ impl Mover {
         }
     }
 
-    /// Tucked right into the home shell, resting there.
+    /// Tucked right into the home shell (or a crevice), resting there.
     pub fn tucked_in(&self) -> bool {
         self.shelter == Shelter::In && self.tucked >= 1.0
     }
@@ -317,13 +318,14 @@ pub struct StepEvents {
     pub gripped: bool,
     /// Picked up a lump of glowing bacteria to carry home.
     pub picked_up: bool,
-    /// Started backing into the home shell.
+    /// Started backing into the home shell (or a crevice).
     pub went_in: bool,
-    /// Settled, tucked right into the home shell.
+    /// Settled, tucked right into the home shell (or a crevice).
     pub tucked_in: bool,
-    /// Out of the home shell again.
+    /// Out of the home shell (or a crevice) again.
     pub came_out: bool,
-    /// Rested at home (the stamina bar and rings refilled).
+    /// Rested, tucked in at home or in a crevice (the stamina bar and rings
+    /// refilled).
     pub rested: bool,
     /// Brought a culture home: the lantern grew brighter.
     pub delivered: bool,
@@ -353,7 +355,7 @@ pub struct StepEvents {
     pub staggered: bool,
     /// Health ran out.
     pub died: bool,
-    /// Woke at home after dying.
+    /// Woke after dying (at home, or in the last crevice it rested in).
     pub respawned: bool,
     /// Took its load back from its cast-off shell.
     pub recovered: bool,
@@ -387,6 +389,9 @@ pub struct StepEvents {
     pub ate_clam: bool,
     /// Being well fed wore off.
     pub hungry: bool,
+    /// Tucked into a crevice it didn't already wake in: it wakes there now
+    /// after dying.
+    pub wakes_here: bool,
 }
 
 impl StepEvents {
@@ -433,6 +438,7 @@ impl StepEvents {
         self.larder_full |= other.larder_full;
         self.ate_clam |= other.ate_clam;
         self.hungry |= other.hungry;
+        self.wakes_here |= other.wakes_here;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -483,6 +489,7 @@ impl StepEvents {
             (self.larder_full, "larder full"),
             (self.ate_clam, "ate a clam"),
             (self.hungry, "hungry"),
+            (self.wakes_here, "wakes here"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))

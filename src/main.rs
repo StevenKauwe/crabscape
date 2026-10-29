@@ -56,6 +56,7 @@ mod background;
 mod codes;
 mod coop;
 mod creature_art;
+mod crevices;
 mod critters;
 mod deep;
 mod effects;
@@ -144,7 +145,7 @@ fn main() {
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,
-            (eggs::EggsPlugin, food::FoodPlugin),
+            (eggs::EggsPlugin, food::FoodPlugin, crevices::CrevicesPlugin),
             feel::FeelPlugin,
             foes::FoesPlugin,
             fight::FightPlugin,

@@ -1,5 +1,6 @@
 //! Home: an empty sea-snail shell lying on the floor near the start, and how
-//! a crab goes into it.
+//! a crab goes into it, or into a crevice out in the level (a rest stop:
+//! [`crate::level::Crevice`]), the same way.
 //!
 //! Crabs shelter in crevices, empty shells and litter, and this one goes
 //! right inside. Walking into the doorway on the floor, it backs in, claws to
@@ -15,8 +16,11 @@
 //! - Walking out (or a jump or dodge press) brings it back out through the
 //!   doorway in [`Tuning::home_out_time`], walking on as it steps clear.
 //! - Inside, the claws stay folded: no swings, no guard.
+//!
+//! A crevice is the same in and out, but it has no workbench and no larder:
+//! resting there only mends and refills, and makes it where the crab wakes.
 
-use crate::level::Level;
+use crate::level::{Level, Place};
 use crate::physics::{Controls, Mover, StepEvents};
 use crate::tuning::Tuning;
 
@@ -53,7 +57,7 @@ pub fn walks_in(m: &Mover, c: &Controls, free: bool, level: &Level) -> bool {
         && !c.jump_pressed
         && !c.dodge_pressed
         && c.walk * INWARD > PUSH
-        && level.home.contains(m.pos)
+        && level.place_at(m.pos).is_some()
 }
 
 /// What reaches the fight from a crab in its shell: walking and the jump
@@ -70,9 +74,13 @@ pub fn claws_folded(c: Controls) -> Controls {
 }
 
 /// One step of a crab going into, resting in, or coming out of its home
-/// shell, instead of its physics step: it moves only as this says.
+/// shell (or a crevice), instead of its physics step: it moves only as this
+/// says.
 pub fn step(m: &mut Mover, c: &Controls, level: &Level, t: &Tuning, dt: f32) -> StepEvents {
     let mut ev = StepEvents::default();
+    // Which shelter: the one whose doorway it is in (it never leaves the
+    // doorway while going in or out).
+    let (door, den) = level.door_and_den(level.place_at(m.pos).unwrap_or(Place::Home));
     let walk_in = c.walk * INWARD > PUSH;
     let walk_out = c.walk * INWARD < -PUSH || c.jump_pressed || c.dodge_pressed;
     match m.shelter {
@@ -98,21 +106,21 @@ pub fn step(m: &mut Mover, c: &Controls, level: &Level, t: &Tuning, dt: f32) -> 
     let stride = t.walk_speed * dt;
     if m.shelter == Shelter::In {
         // In to the den at the back, then settling there.
-        m.pos.x = approach(from, level.home_den.x, stride);
+        m.pos.x = approach(from, den.x, stride);
         let was = m.tucked;
         m.tucked = (was + dt / t.home_in_time).min(1.0);
         if m.tucked >= 1.0 {
-            m.pos.x = level.home_den.x;
+            m.pos.x = den.x;
             if was < 1.0 {
                 ev.tucked_in = true;
             }
         }
     } else {
         // Out through the doorway to the doorstep.
-        m.pos.x = approach(from, level.home.max.x, stride);
+        m.pos.x = approach(from, door.max.x, stride);
         m.tucked = (m.tucked - dt / t.home_out_time).max(0.0);
         if m.tucked <= 0.0 {
-            m.pos.x = level.home.max.x;
+            m.pos.x = door.max.x;
             m.shelter = Shelter::Out;
             ev.came_out = true;
         }

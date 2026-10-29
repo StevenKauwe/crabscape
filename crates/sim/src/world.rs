@@ -21,7 +21,7 @@ use crate::enemy::{self, Enemy, Kind};
 use crate::feel::Feel;
 use crate::hash::fnv1a;
 use crate::home::{self, Shelter};
-use crate::level::{EGG_RADIUS, Level};
+use crate::level::{EGG_RADIUS, Level, Place};
 use crate::memory::Memory;
 use crate::net::{self, CrabState, Msg, Net, Outgoing, To};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
@@ -79,12 +79,17 @@ pub struct SimCrab {
     /// Events from between ticks (a hit from outside), added to the next
     /// tick's.
     pending: StepEvents,
-    /// Ticks tucked in at home so far (0 when not).
+    /// Ticks tucked in so far (0 when not).
     resting: u32,
+    /// Where it wakes after dying: the last crevice it rested in (its index
+    /// in [`Level::crevices`]), or home (None) if it rested at home since,
+    /// or never rested out in the level.
+    pub wakes_at: Option<usize>,
 }
 
 /// The shell a crab leaves where it died, holding what it carried: it wakes
-/// at home without it and has to dive back for it.
+/// (at home, or in the last crevice it rested in) without it and has to go
+/// back for it.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CastOff {
     pub pos: Vec2,
@@ -192,6 +197,7 @@ impl Sim {
             meals: Vec::new(),
             pending: StepEvents::default(),
             resting: 0,
+            wakes_at: None,
         });
     }
 
@@ -549,10 +555,10 @@ impl Sim {
                 crab.events = ev;
                 continue;
             }
-            // Dead: still, until it wakes tucked in its home shell (Valheim's
-            // death, `world.md`). What it carried stays in its cast-off shell
-            // where it fell; what it is (strokes, lantern, claws, skills) it
-            // keeps.
+            // Dead: still, until it wakes tucked in its home shell, or in the
+            // last crevice it rested in (Valheim's death and beds, `world.md`).
+            // What it carried stays in its cast-off shell where it fell; what
+            // it is (strokes, lantern, claws, skills) it keeps.
             if f.dead.is_some_and(|d| d >= self.tuning.respawn_ticks) {
                 if let Some(carrying) = crab.mover.carrying {
                     crab.cast_offs.push(CastOff {
@@ -561,7 +567,8 @@ impl Sim {
                     });
                 }
                 *f = Fighter::new(&self.tuning);
-                let den = self.level.home_den;
+                let place = crab.wakes_at.map_or(Place::Home, Place::Crevice);
+                let (_, den) = self.level.door_and_den(place);
                 crab.mover = crate::physics::Mover {
                     upgrades: crab.mover.upgrades,
                     lantern: crab.mover.lantern,
@@ -726,25 +733,27 @@ impl Sim {
                     crab.events.found_clue = Some(i);
                 }
             }
-            // Home: tucked into the shell, the crab rests fully, and what it
+            // Tucked in at home or in a crevice, the crab rests fully, and
+            // that is where it will wake after dying. At home, what it
             // carried in is put to use: a culture into its lantern, a tooth
             // fitted to its crusher at the workbench (scissor claws), a clam
-            // into the larder.
+            // into the larder. A crevice has no workbench and no larder.
             let m = &mut crab.mover;
-            if m.tucked_in() {
+            let place = self.level.place_at(m.pos);
+            if m.tucked_in()
+                && let Some(Place::Crevice(i)) = place
+            {
                 crab.resting = crab.resting.saturating_add(1);
-                let full = m.strokes(&self.tuning) as f32;
-                let whole = m.max_shell(&self.tuning);
-                let v = &mut crab.fighter.vitals;
-                let mend = v.health < whole && v.unhit >= self.tuning.home_heal_after_ticks;
-                if m.reserve < 1.0 || m.stamina < full || mend {
-                    m.reserve = 1.0;
-                    m.stamina = full;
-                    if mend {
-                        v.health = whole;
-                    }
-                    crab.events.rested = true;
+                if crab.wakes_at != Some(i) {
+                    crab.wakes_at = Some(i);
+                    crab.events.wakes_here = true;
                 }
+                rest(m, &mut crab.fighter.vitals, &self.tuning, &mut crab.events);
+            } else if m.tucked_in() {
+                crab.resting = crab.resting.saturating_add(1);
+                crab.wakes_at = None;
+                let v = &mut crab.fighter.vitals;
+                rest(m, v, &self.tuning, &mut crab.events);
                 match m.carrying.take() {
                     Some(Carry::Culture) => {
                         m.lantern += 1;
@@ -1207,6 +1216,22 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
 fn fought(m: &mut Mover, dealt: f32, took: combat::Took, t: &Tuning) -> Option<Skill> {
     let win = if took.died { t.fight_xp_per_win } else { 0.0 };
     m.earn(Skill::Fighting, dealt * t.fight_xp_per_damage + win, t)
+}
+
+/// Tucked in, a crab rests fully: strokes and reserve refilled, and the
+/// shell mended once it has been a moment unhit.
+fn rest(m: &mut Mover, v: &mut combat::Vitals, t: &Tuning, ev: &mut StepEvents) {
+    let full = m.strokes(t) as f32;
+    let whole = m.max_shell(t);
+    let mend = v.health < whole && v.unhit >= t.home_heal_after_ticks;
+    if m.reserve < 1.0 || m.stamina < full || mend {
+        m.reserve = 1.0;
+        m.stamina = full;
+        if mend {
+            v.health = whole;
+        }
+        ev.rested = true;
+    }
 }
 
 /// The clock on food: taken clam beds grow back, and being well fed wears

@@ -116,6 +116,10 @@ fn note_events(
     if ev.rested {
         notes.push(("Rested".into(), PALE));
     }
+    if ev.wakes_here {
+        notes.push(("A safe crevice.".into(), PALE));
+        notes.push(("You'll wake here.".into(), PALE));
+    }
     if ev.ate_clam {
         notes.push(("Cracked a clam: well fed".into(), GOLD));
     }
