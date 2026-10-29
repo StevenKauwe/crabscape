@@ -1,5 +1,9 @@
 # Rust build output (large, and rebuilt from source any time).
 /target/
+# cargo-mutants' results when run without tools/mutants-pr.sh (which writes into target/), and coverage reports.
+mutants.out/
+mutants.out.old/
+/lcov.info
 
 # The compiled web game. tools/build-web.sh recreates it; the .wasm is ~18 MB,
 # and committing a new copy on every change would bloat the repository fast.
