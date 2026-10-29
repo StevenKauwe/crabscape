@@ -566,16 +566,16 @@ mod web {
     struct MicLabel;
 
     /// The Mic button: left of the invite button, or on a narrow screen
-    /// (where the buttons sit lower, level with the health bars) left of
-    /// the settings button, below the bars.
+    /// (where the buttons sit lower, level with the health bars) a row lower,
+    /// under the invite button's right end, below the bars.
     fn button_rect(window: Vec2) -> Rect {
-        let beside = if window.x < 600.0 {
-            crate::settings::button_rect(window)
-        } else {
-            crate::coop::invite_rect(window)
-        };
-        let right = beside.min.x - GAP;
-        Rect::new(right - MIC_WIDTH, beside.min.y, right, beside.max.y)
+        let invite = crate::coop::invite_rect(window);
+        if crate::settings::narrow(window) {
+            let row = crate::settings::below(window, 1.0);
+            return Rect::new(invite.max.x - MIC_WIDTH, row.min.y, invite.max.x, row.max.y);
+        }
+        let right = invite.min.x - GAP;
+        Rect::new(right - MIC_WIDTH, invite.min.y, right, invite.max.y)
     }
 
     fn spawn_button(mut commands: Commands, window: Single<&Window>) {

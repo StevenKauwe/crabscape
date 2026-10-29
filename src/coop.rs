@@ -43,21 +43,27 @@ const CODE_MAX: usize = 16;
 /// The longest build name in a room name (the introducer takes 80 in all).
 const BUILD_MAX: usize = 40;
 
-/// The invite button's width, and its gap from the art-style button.
+/// The invite button's width, and its gap from the settings button.
 const INVITE_WIDTH: f32 = 124.0;
 const GAP: f32 = 8.0;
 
-/// The invite button's box: left of the art-style button, on the same row.
+/// The invite button's box: left of the settings button, on the same row.
 pub(crate) fn invite_rect(window: Vec2) -> Rect {
-    let style = crate::style::button_rect(window);
-    let right = style.min.x - GAP;
-    Rect::new(right - INVITE_WIDTH, style.min.y, right, style.max.y)
+    let settings = crate::settings::button_rect(window);
+    let right = settings.min.x - GAP;
+    Rect::new(right - INVITE_WIDTH, settings.min.y, right, settings.max.y)
 }
 
-/// Where the co-op status line starts: under the settings button, which
-/// sits under the invite button.
-fn status_top(window: Vec2) -> f32 {
-    crate::settings::button_rect(window).max.y + 4.0
+/// Where the co-op status line starts: under the invite button, or on a
+/// narrow screen under the row below it (where the mic button sits, clear of
+/// the health bars). The settings panel opens below it.
+pub(crate) fn status_top(window: Vec2) -> f32 {
+    let rows = if crate::settings::narrow(window) {
+        1.0
+    } else {
+        0.0
+    };
+    crate::settings::below(window, rows).max.y + 4.0
 }
 
 /// This device's crab.

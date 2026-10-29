@@ -1,7 +1,7 @@
 //! The feel lab: try different ways the crab's attacks can feel, side by
 //! side. Hidden in normal play (the game plays G); `?lab` in the address
-//! shows it, and on preview builds (and native runs) the backtick key opens it. A "FEEL" button under "Start
-//! over" (or the backtick key, or 1-9) cycles the presets; a "Juice" button
+//! shows it, and on preview builds (and native runs) the backtick key opens it. A "FEEL" button under
+//! "Settings" (or the backtick key, or 1-9) cycles the presets; a "Juice" button
 //! (or backslash) switches the presentation extras off and on, so you can
 //! feel what they add. The choice is remembered per build.
 //!
@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use crabsim::{Feel, Sim};
 
 use crate::player::GameSet;
-use crate::{reset, save};
+use crate::{save, settings};
 
 /// How a preset looks and sounds. [`Juice::OFF`] is the game's look before
 /// the lab: the old anticipation pose and flash, no shake, debris or sound.
@@ -301,7 +301,6 @@ fn lab_available() -> bool {
 
 /// How long the name and pitch show after a switch (seconds).
 const TOAST: f32 = 2.4;
-const GAP: f32 = 8.0;
 
 pub struct FeelPlugin;
 
@@ -337,15 +336,13 @@ struct Toast;
 #[derive(Component)]
 struct ToastText;
 
-/// The two buttons: under "Start over", the same size, stacked.
+/// The two buttons: under "Settings", the same size, stacked.
 fn button_rect(window: Vec2, which: LabButton) -> Rect {
-    let above = reset::button_rect(window);
     let rows = match which {
         LabButton::Feel => 1.0,
         LabButton::Juice => 2.0,
     };
-    let down = Vec2::Y * (above.height() + GAP) * rows;
-    Rect::from_corners(above.min + down, above.max + down)
+    settings::below(window, rows)
 }
 
 fn spawn_lab(mut commands: Commands, lab: Res<FeelLab>, window: Single<&Window>) {
@@ -580,12 +577,12 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_buttons_sit_under_start_over_and_clear_the_touch_buttons() {
+    fn the_lab_buttons_sit_under_settings_and_clear_the_touch_buttons() {
         for size in [Vec2::new(390.0, 844.0), Vec2::new(844.0, 390.0)] {
-            let reset = reset::button_rect(size);
+            let above = settings::button_rect(size);
             let feel = button_rect(size, LabButton::Feel);
             let juice = button_rect(size, LabButton::Juice);
-            assert!(feel.min.y > reset.max.y && juice.min.y > feel.max.y);
+            assert!(feel.min.y > above.max.y && juice.min.y > feel.max.y);
             assert!(juice.max.y < size.y * 0.5, "{size}: out of the way");
         }
     }
