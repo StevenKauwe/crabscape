@@ -286,3 +286,37 @@ fn a_save_from_before_food_still_loads() {
     assert!(crab.clams.iter().all(|&c| c == 0), "every clam is there");
     assert_eq!(crab.clams.len(), sim.level.clams.len());
 }
+
+#[test]
+fn a_replay_recorded_after_a_reload_carries_the_food_it_started_with() {
+    // A reload in the middle of a dive: a clam on the back, a bed bare, well
+    // fed, food in the larder. A bug report from here must play the same.
+    let mut live = by_home();
+    let mut saved = live.progress(P0).unwrap();
+    saved.carrying = Some(Carry::Clam);
+    saved.clams[0] = 5000;
+    saved.larder = 2;
+    saved.well_fed = 9000;
+    live.restore_progress(P0, &saved);
+    live.start_recording();
+    for _ in 0..240 {
+        live.set_controls(
+            P0,
+            Controls {
+                walk: -1.0,
+                ..Controls::default()
+            },
+        );
+        live.tick();
+    }
+    let text = live.recording().unwrap().to_text();
+    let replay = crabsim::Replay::parse(&text).unwrap();
+    let mut again = Sim::with_one_crab(replay.start);
+    crabsim::play(&mut again, &replay, replay.end.unwrap(), |_| {});
+    assert_eq!(
+        again.progress(P0),
+        live.progress(P0),
+        "the same food, larder and clams"
+    );
+    assert_eq!(replay.hash, Some(again.state_hash()), "{text}");
+}
