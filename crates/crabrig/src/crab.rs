@@ -310,6 +310,36 @@ fn js_num(v: f64) -> String {
     s
 }
 
+/// The shell seen from behind, for the game's turn to strike across: the back view's carapace (posterior border
+/// nearest, the toothed edge as the far skyline), its grooves, the sternum's shadow and the folded abdomen under
+/// the border, renamed `back-...`. `back-carapace` turns about its middle; the rest ride on it. The game shows it
+/// in place of the front's carapace and face once the crab has turned its back.
+pub fn back_shell(pose: &Pose) -> Vec<Item> {
+    let keep = [
+        "underside-sternum",
+        "abdomen-fold",
+        "carapace",
+        "carapace-groove-R",
+        "carapace-groove-L",
+    ];
+    let mut back = *pose;
+    back.view = View::Back;
+    back.gear = Gear::default();
+    build_front(&back)
+        .into_iter()
+        .filter(|it| keep.contains(&it.id.as_str()))
+        .map(|mut it| {
+            if it.id == "carapace" {
+                let b = bbox(it.pts.iter());
+                it.pv = Some([b.x0 + b.w / 2.0, b.y0 + b.h / 2.0]);
+            }
+            it.id = format!("back-{}", it.id);
+            it.g = Some("back-carapace".into());
+            it
+        })
+        .collect()
+}
+
 // ---------- the front / back view puppet ----------
 pub fn build_front(pose: &Pose) -> Vec<Item> {
     let back = pose.view == View::Back;
