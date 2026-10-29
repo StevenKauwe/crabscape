@@ -755,11 +755,24 @@ mod web {
                             link.send(peer, sim.world().to_bytes().into(), RELIABLE);
                         }
                     }
-                    PeerState::Disconnected => gone.push(peer),
+                    PeerState::Disconnected => gone.push((peer, true)),
                 }
             }
             for channel in [RELIABLE, QUICK] {
                 for (peer, bytes) in link.socket.channel_mut(channel).receive() {
+                    // A device dropped for going silent (frozen, or its network stalled) whose connection held:
+                    // it's back as soon as it speaks, not when someone next joins the room afresh.
+                    if !link.peers.iter().any(|p| p.id == peer) {
+                        info!("co-op: a silent device is back");
+                        link.peers.push(Peer {
+                            id: peer,
+                            player: None,
+                            quiet: 0.0,
+                        });
+                        if host {
+                            link.send(peer, sim.world().to_bytes().into(), RELIABLE);
+                        }
+                    }
                     let Some(p) = link.peers.iter_mut().find(|p| p.id == peer) else {
                         continue;
                     };
@@ -798,15 +811,19 @@ mod web {
                 p.quiet += time.delta_secs();
                 if p.quiet > SILENT_FOR {
                     info!("co-op: a device went silent");
-                    gone.push(p.id);
+                    gone.push((p.id, false));
                 }
             }
-            for peer in gone {
+            for (peer, hung_up) in gone {
+                // A silent device's call stays up: it may speak again ("a silent device is back") and its side
+                // never hung up. Its call ends when its connection does, or when the room is joined afresh.
+                if hung_up {
+                    crate::voice::forget(peer);
+                }
                 let Some(i) = link.peers.iter().position(|p| p.id == peer) else {
                     continue;
                 };
                 info!("co-op: a device left");
-                crate::voice::forget(peer);
                 match link.peers.remove(i).player {
                     // The host went: play on alone until it's back.
                     Some(HOST) => sim.go_offline(),
