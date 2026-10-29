@@ -340,6 +340,289 @@ pub fn back_shell(pose: &Pose) -> Vec<Item> {
         .collect()
 }
 
+/// The angles (degrees about the crab's up axis, 0 = facing the camera, 180 = its back to it) the shell is also drawn
+/// at for the turn round, between the front and back views: three-quarters from the front, the side (end-on from
+/// its side: narrow, the front to the right) and three-quarters from behind. Each is turned with the crab's right
+/// (the crusher's side) towards the camera; the game mirrors them for a turn the other way.
+pub const TURN_VIEWS: [u32; 3] = [45, 90, 135];
+
+/// How far the camera looks down onto the crab (the sine of the angle): the front view's own look, the posterior
+/// border higher than the front margin.
+const LOOK_DOWN: f64 = 0.39;
+
+/// The carapace seen from above: its margin at the height of the lateral spines (x across, z forwards with the front
+/// at +z, y down; the front view's units before its carapace scale). The frontal teeth, orbits, six anterolateral
+/// teeth (tips raised a little), the lateral spine, the posterolateral margin and the posterior border, all the way
+/// round. With each point, the way out from the shell there.
+fn shell_margin(front_teeth: f64) -> Vec<([f64; 3], P)> {
+    // The crab's left half (+x), from the front middle back to the posterior middle.
+    let mut half: Vec<[f64; 3]> = vec![];
+    let fz = |z: f64| 57.0 + (z - 57.0) * front_teeth * 2.0;
+    half.extend([
+        [0.0, 0.0, 57.0],
+        [6.0, 0.0, fz(59.5)],
+        [13.0, 0.0, 57.0],
+        [19.0, 0.0, fz(59.5)],
+        [24.0, 0.0, 56.5],
+        [30.0, 0.0, 55.0],
+        [34.0, 0.0, 51.5],
+        [40.0, 0.0, 53.5],
+    ]);
+    let (a, c, b) = ([44.0, 52.0], [104.0, 44.0], [128.0, 10.0]);
+    let q = |t: f64| -> P {
+        [
+            lerp(lerp(a[0], c[0], t), lerp(c[0], b[0], t), t),
+            lerp(lerp(a[1], c[1], t), lerp(c[1], b[1], t), t),
+        ]
+    };
+    let n = 6;
+    for i in 0..n {
+        let (t0, t1) = (i as f64 / n as f64, (i as f64 + 0.55) / n as f64);
+        let (p0, p1) = (q(t0), q(t1));
+        let amp = 1.25 - 0.75 * i as f64 / (n - 1) as f64;
+        let along = norm(sub(p1, p0));
+        let out = [along[1], -along[0]];
+        let tip = add(lerp_p(p0, p1, 0.8), mul(out, 6.0 * amp));
+        half.push([p0[0], 0.0, p0[1]]);
+        half.push([tip[0], -2.6 * amp, tip[1]]);
+    }
+    half.extend([
+        [128.0, 0.0, 10.0],
+        [148.0, -3.0, 4.0],
+        [126.0, 0.0, -2.0],
+    ]);
+    let back: Vec<P> = through(
+        &[[126.0, -2.0], [114.0, -22.0], [92.0, -40.0], [62.0, -51.0], [32.0, -55.5], [0.0, -57.0]],
+        3,
+        false,
+    );
+    half.extend(back.into_iter().skip(1).map(|p| [p[0], 0.0, p[1]]));
+    // Round: the left half forwards, then the right half (mirrored) backwards.
+    let mut ring = half.clone();
+    ring.pop();
+    ring.extend(half.iter().rev().skip(1).map(|p| [-p[0], p[1], p[2]]));
+    ring.pop();
+    let n = ring.len();
+    (0..n)
+        .map(|i| {
+            let (prev, next) = (ring[(i + n - 1) % n], ring[(i + 1) % n]);
+            let along = norm([next[0] - prev[0], next[2] - prev[2]]);
+            let mut out = [along[1], -along[0]];
+            if out[0] * ring[i][0] + out[1] * ring[i][2] < 0.0 {
+                out = mul(out, -1.0);
+            }
+            (ring[i], out)
+        })
+        .collect()
+}
+
+/// The dome of the carapace over its margin: highest a little behind the middle.
+fn shell_dome(x: f64, z: f64) -> f64 {
+    let r = (x / 122.0).powi(2) + ((z + 4.0) / 52.0).powi(2);
+    -30.0 * (1.0 - r).max(0.0).sqrt()
+}
+
+/// Upper convex hull (smallest y, y down) of `pts`, from the leftmost to the rightmost.
+fn upper_hull(pts: &[P]) -> Vec<P> {
+    let mut s: Vec<P> = pts.to_vec();
+    s.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
+    let mut hull: Vec<P> = vec![];
+    for p in s {
+        while hull.len() >= 2 {
+            let (a, b) = (hull[hull.len() - 2], hull[hull.len() - 1]);
+            // keep only clockwise turns on screen (y down): the top of the shape
+            if (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) <= 0.0 {
+                hull.pop();
+            } else {
+                break;
+            }
+        }
+        hull.push(p);
+    }
+    hull
+}
+
+/// The shell drawn turned `yaw` degrees round (see [`TURN_VIEWS`]): a 3D model of the carapace (its toothed margin
+/// and dome) and the body under it, seen from the front view's height. The outline is the dome's top over the margin
+/// on the near side (its teeth), the body under it (warm face from the front, the pale underside from behind, in
+/// shadow), the brim's shadow, the grooves where they face the camera, and from in front the mouthparts. Named
+/// `turn<yaw>-...`; `turn<yaw>-carapace` turns about its middle and the rest ride on it.
+pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
+    let ds = pose.design;
+    let b = pose.body;
+    let body_m = move |p: P| -> P {
+        let q = rot0([p[0] * b.sx, p[1] * b.sy], b.rot);
+        [q[0] + b.dx, q[1] + b.dy]
+    };
+    let csc = ds.cara;
+    let th = yaw as f64 * D;
+    let (st, ct) = th.sin_cos();
+    let ce = (1.0 - LOOK_DOWN * LOOK_DOWN).sqrt();
+    // Nearer the camera is lower on screen; far past the margins the look flattens (so a spine pointing at the
+    // camera doesn't drop below the legs).
+    let depth = move |p: [f64; 3]| -p[0] * st + p[2] * ct;
+    let proj = move |p: [f64; 3]| -> P {
+        let d = depth(p);
+        let d = if d.abs() > 60.0 {
+            d.signum() * (60.0 + (d.abs() - 60.0) * 0.3)
+        } else {
+            d
+        };
+        let x = p[0] * ct + p[2] * st;
+        let y = p[1] * ce + d * LOOK_DOWN - 12.6;
+        body_m([x * csc, (y + 6.0) * csc - 6.0])
+    };
+    let proj_all = |pts: &[[f64; 3]]| -> Vec<P> { pts.iter().map(|p| proj(*p)).collect() };
+    let id = |s: &str| format!("turn{yaw}-{s}");
+    let g = id("carapace");
+    let mut out = Out(vec![]);
+    let from_front = ct > 0.2;
+
+    // The body under the shell: the margin's underside and the sternum, with the face in front.
+    let ring = |y: f64, rx: f64, zf: f64, zb: f64| -> Vec<[f64; 3]> {
+        (0..32)
+            .map(|i| {
+                let a = i as f64 / 32.0 * std::f64::consts::TAU;
+                let z = if a.sin() > 0.0 { zf } else { zb };
+                [a.cos() * rx, y, a.sin() * z]
+            })
+            .collect()
+    };
+    let sternum = ring(46.0, 100.0, 40.0, 44.0);
+    let st_pts = proj_all(&sternum);
+    out.push(id("underside"), &g, convex(&st_pts), if from_front { "face" } else { "vent" })
+        .shade = true;
+    let mut body: Vec<[f64; 3]> = ring(2.0, 122.0, 52.0, 52.0);
+    body.extend(ring(36.0, 104.0, 46.0, 42.0));
+    if from_front {
+        // the mouth's front, between the eyes
+        body.extend([[-36.0, 40.0, 50.0], [36.0, 40.0, 50.0], [0.0, 42.0, 52.0]]);
+    }
+    let it = out.push(
+        id("body"),
+        &g,
+        convex(&proj_all(&body)),
+        if from_front { "face" } else { "vent" },
+    );
+    it.under = true;
+    if from_front {
+        // third maxillipeds: two plates like doors over the mouth, on the front
+        for s in [-1.0, 1.0] {
+            let (x0, x1) = (s * 1.5, s * 17.0);
+            let plate: Vec<[f64; 3]> = through(
+                &[[x0, 16.0], [x1 - s * 2.0, 15.0], [x1, 24.0], [x1 - s * 2.0, 36.0], [x0, 38.0]],
+                3,
+                false,
+            )
+            .into_iter()
+            .map(|p| [p[0], p[1], 50.0])
+            .collect();
+            out.push(id(&format!("maxilliped{s}")), &g, proj_all(&plate), "face")
+                .sw = Some(0.6);
+        }
+    } else {
+        // the folded abdomen under the posterior border
+        let fold: Vec<[f64; 3]> = through(
+            &[[-20.0, 28.0], [20.0, 28.0], [16.0, 42.0], [0.0, 45.0], [-16.0, 42.0]],
+            4,
+            true,
+        )
+        .into_iter()
+        .map(|p| [p[0], p[1], -44.0])
+        .collect();
+        out.push(id("abdomen"), &g, proj_all(&fold), "vent");
+    }
+
+    // The shell: the dome's top, then back along the margin's near side.
+    let margin = shell_margin(ds.front_teeth);
+    let rim: Vec<P> = margin.iter().map(|(p, _)| proj(*p)).collect();
+    let mut tops: Vec<P> = rim.clone();
+    for i in 0..=24 {
+        for k in 0..=12 {
+            let (x, z) = (-122.0 + 244.0 * i as f64 / 24.0, -56.0 + 104.0 * k as f64 / 12.0);
+            let y = shell_dome(x, z);
+            if y < -0.5 {
+                tops.push(proj([x, y, z]));
+            }
+        }
+    }
+    let top = upper_hull(&tops);
+    let (left, right) = (top[0], top[top.len() - 1]);
+    let find = |q: P| {
+        rim.iter()
+            .position(|p| p[0] == q[0] && p[1] == q[1])
+            .unwrap_or(0)
+    };
+    let (il, ir) = (find(left), find(right));
+    let n = rim.len();
+    // the two ways round the margin from right to left; the near one is in front
+    let arc = |step: usize| -> Vec<usize> {
+        let mut v = vec![ir];
+        let mut i = ir;
+        while i != il {
+            i = (i + step) % n;
+            v.push(i);
+        }
+        v
+    };
+    let (a1, a2) = (arc(1), arc(n - 1));
+    let near_of = |v: &[usize]| v.iter().map(|&i| depth(margin[i].0)).sum::<f64>() / v.len() as f64;
+    let near = if near_of(&a1) > near_of(&a2) { a1 } else { a2 };
+    let mut shell = top.clone();
+    shell.extend(near.iter().skip(1).take(near.len().saturating_sub(2)).map(|&i| rim[i]));
+    let cara = out.push(g.clone(), &g, shell, "shell");
+    let bb = bbox(cara.pts.iter());
+    cara.pv = Some([bb.x0 + bb.w / 2.0, bb.y0 + bb.h / 2.0]);
+    // the brim's soft shadow on the body, just under the near margin
+    let brim: Vec<[f64; 3]> = near
+        .iter()
+        .map(|&i| margin[i].0)
+        .filter(|p| p[1] == 0.0)
+        .collect();
+    if brim.len() > 2 {
+        let mut sh: Vec<P> = proj_all(&brim);
+        sh.extend(brim.iter().rev().map(|p| proj([p[0] * 0.94, 11.0, p[2] * 0.94])));
+        let it = out.push(id("brim-shadow"), &g, sh, "face");
+        it.shade = true;
+        it.ink = false;
+        it.op = Some(0.7);
+    }
+    // grooves on the dome (cervical, branchial), where they face the camera
+    let toward = [-st * ce, -LOOK_DOWN, ct * ce];
+    let faces = |x: f64, z: f64| {
+        let h = 0.5;
+        let dx = (shell_dome(x + h, z) - shell_dome(x - h, z)) / (2.0 * h);
+        let dz = (shell_dome(x, z + h) - shell_dome(x, z - h)) / (2.0 * h);
+        dx * toward[0] - toward[1] + dz * toward[2] > 0.15
+    };
+    for (s, side) in [(-1.0, "R"), (1.0, "L")] {
+        let groove: Vec<[f64; 3]> = [[26.0, -20.0], [42.0, -8.0], [70.0, 2.0]]
+            .iter()
+            .filter(|p| faces(s * p[0], p[1]))
+            .map(|p| [s * p[0], shell_dome(s * p[0], p[1]), p[1]])
+            .collect();
+        if groove.len() >= 2 {
+            out.line(id(&format!("groove-{side}")), &g, proj_all(&groove), "ink", 0.5);
+        }
+    }
+    out.0
+}
+
+/// Convex hull of `pts` (a closed outline).
+fn convex(pts: &[P]) -> Vec<P> {
+    let mut top = upper_hull(pts);
+    let flipped: Vec<P> = pts.iter().map(|p| [p[0], -p[1]]).collect();
+    let mut bottom: Vec<P> = upper_hull(&flipped)
+        .into_iter()
+        .map(|p| [p[0], -p[1]])
+        .collect();
+    bottom.reverse();
+    top.pop();
+    bottom.pop();
+    top.extend(bottom);
+    top
+}
+
 // ---------- the front / back view puppet ----------
 pub fn build_front(pose: &Pose) -> Vec<Item> {
     let back = pose.view == View::Back;
