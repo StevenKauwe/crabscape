@@ -60,7 +60,7 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   rather than bigger numbers: Climbing, **gripping dactyls**; Swimming, **broad paddles**; Fighting, **heavy
   crusher** (what each does: `how-it-plays.md`). But a crab's body only changes at a moult: growth and shape change
   happen when it sheds its old shell, and a fresh moult is soft ([CQ] in `art/crab/anatomy-notes.md`). The note
-  says so ("Climbing level 5! A feat is ready: moult to grow it.") and the skill row reads "moult ready".
+  says so ("Climbing level 5! A feat is ready: moult to grow it.") and the skill row reads "Climbing 5: moult" (then "growing" while soft, "feat" once grown).
   - **Getting ready:** be **well fed** (a clam eaten at home). The moult uses the meal up. (That a crab builds
     reserves before a moult: not verified.)
   - **Moulting:** tucked into the home shell, well fed, with a feat ready, the crab moults to grow **one** ready

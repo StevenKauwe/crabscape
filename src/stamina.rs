@@ -295,14 +295,15 @@ fn show_skill(
         }
         let level = mover.level(row.0, &sim.tuning);
         if let Some(mut text) = children.first().and_then(|c| texts.get_mut(*c).ok()) {
-            // A feat ready to grow at a moult, growing, or grown.
+            // A feat ready to grow at a moult, growing, or grown (short: the
+            // row sits beside the well-fed sign).
             let feat = crabsim::Feat::of(row.0);
             let mark = if mover.growing == Some(feat) {
-                " · growing"
+                ": growing"
             } else if mover.has(feat) {
-                " · feat"
+                ": feat"
             } else if mover.feat_ready(row.0, &sim.tuning) {
-                " · moult ready"
+                ": moult"
             } else {
                 ""
             };
