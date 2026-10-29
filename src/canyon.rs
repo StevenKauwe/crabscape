@@ -1,15 +1,19 @@
 //! The canyon below the crack: the lights on its floor (sea pens that glow
-//! blue when something brushes them), the octopus's den with its midden of
-//! shells, and a note when the tide turns. The tide's pull itself is a
+//! blue when something brushes them), the dead glass sponge lying among
+//! them (and riding on the crab's back), the octopus's den with its midden
+//! of shells, and a note when the tide turns. The tide's pull itself is a
 //! rule (`crates/sim`); the marine snow shows it (`effects.rs`).
 
 use bevy::prelude::*;
 use crabsim::Sim;
 
+use crabsim::{Carry, Mover};
+
 use crate::effects::SoftTextures;
+use crate::home::OUT_OF_SIGHT;
 use crate::memory::{Known, Remembered};
 use crate::notes::say;
-use crate::player::{GameSet, LocalPlayer};
+use crate::player::{GameSet, LocalPlayer, PlayerId};
 
 /// Behind the crab (~10), in front of the level.
 const Z: f32 = 3.0;
@@ -31,8 +35,11 @@ pub struct CanyonPlugin;
 
 impl Plugin for CanyonPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_pens, spawn_midden))
-            .add_systems(Update, (glow_pens, tide_notes).in_set(GameSet::Present));
+        app.add_systems(Startup, (spawn_pens, spawn_midden, spawn_sponges))
+            .add_systems(
+                Update,
+                (glow_pens, tide_notes, show_sponges, carry_glass).in_set(GameSet::Present),
+            );
     }
 }
 
@@ -254,4 +261,166 @@ fn tide_notes(
         p + Vec2::Y * 120.0,
         Color::srgb(0.70, 0.85, 1.0),
     );
+}
+
+/// Glass: a dead glass sponge's skeleton, a pale lattice of silica.
+const GLASS: Color = Color::srgba(0.80, 0.88, 0.86, 0.85);
+const GLASS_FAINT: Color = Color::srgba(0.70, 0.80, 0.80, 0.45);
+
+/// A glass sponge's skeleton as shapes around its middle: a vase of glass
+/// ribs and rings, narrow at its foot and open at its rim, with a tuft of
+/// glass fibres below (`scale` 1 full size).
+pub fn glass_parts(scale: f32) -> Vec<(Mesh, Color, Vec3, f32)> {
+    let (h, foot, rim) = (80.0 * scale, 8.0 * scale, 24.0 * scale);
+    let thin = 1.8 * scale.max(0.6);
+    let half_at = |y: f32| foot + (rim - foot) * (y + h / 2.0) / h;
+    let mut parts: Vec<(Mesh, Color, Vec3, f32)> = Vec::new();
+    // Ribs from the narrow foot up to the wide rim.
+    for k in 0..5 {
+        let f = -1.0 + k as f32 * 0.5;
+        let (a, b) = (Vec2::new(f * foot, -h / 2.0), Vec2::new(f * rim, h / 2.0));
+        let d = b - a;
+        let colour = if k == 0 || k == 4 { GLASS } else { GLASS_FAINT };
+        parts.push((
+            Rectangle::new(thin, d.length()).into(),
+            colour,
+            ((a + b) / 2.0).extend(0.1),
+            -d.x.atan2(d.y),
+        ));
+    }
+    // Rings across it.
+    for k in 0..4 {
+        let y = -h / 2.0 + (k as f32 + 0.6) * h / 4.2;
+        parts.push((
+            Rectangle::new(half_at(y) * 2.0, thin).into(),
+            GLASS_FAINT,
+            Vec3::new(0.0, y, 0.0),
+            0.0,
+        ));
+    }
+    // The frilled rim, and the tuft of fibres it stood on.
+    parts.push((
+        Ellipse::new(rim * 1.1, 3.5 * scale).into(),
+        GLASS,
+        Vec3::new(0.0, h / 2.0, 0.1),
+        0.0,
+    ));
+    for lean in [-0.5_f32, 0.0, 0.5] {
+        parts.push((
+            Rectangle::new(thin * 0.7, 14.0 * scale).into(),
+            GLASS_FAINT,
+            Vec3::new(lean * 8.0 * scale, -h / 2.0 - 6.0 * scale, 0.0),
+            lean,
+        ));
+    }
+    parts
+}
+
+/// One glass sponge lying on the canyon's floor (which).
+#[derive(Component)]
+struct LyingSponge(usize);
+
+/// The skeleton stands on the floor among the sea pens.
+fn spawn_sponges(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (i, at) in sim.level.sponges.iter().enumerate() {
+        // Standing as it grew, a little askew, its fibre tuft in the mud.
+        let middle = Vec2::new(at.x, sim.level.floor_height(at.x) + 44.0);
+        commands
+            .spawn((
+                LyingSponge(i),
+                Transform::from_translation(middle.extend(Z + 0.5))
+                    .with_rotation(Quat::from_rotation_z(-0.12)),
+                Visibility::Hidden,
+            ))
+            .with_children(|s| {
+                for (mesh, colour, at, turn) in glass_parts(1.0) {
+                    s.spawn((
+                        Mesh2d(meshes.add(mesh)),
+                        MeshMaterial2d(materials.add(colour)),
+                        Transform::from_translation(at).with_rotation(Quat::from_rotation_z(turn)),
+                    ));
+                }
+            });
+    }
+}
+
+/// A sponge shows where the crab knows the spot, until it takes it.
+fn show_sponges(
+    sim: Res<Sim>,
+    known: Res<Known>,
+    crab: Query<&PlayerId, With<LocalPlayer>>,
+    mut sponges: Query<(&LyingSponge, &mut Visibility)>,
+) {
+    let Some(me) = crab.single().ok().and_then(|id| sim.crab(*id)) else {
+        return;
+    };
+    for (sponge, mut shown) in &mut sponges {
+        let taken = me.sponges_taken.get(sponge.0).copied().unwrap_or(false);
+        let seen = sim
+            .level
+            .sponges
+            .get(sponge.0)
+            .is_some_and(|at| known.knows(*at) > 0.0);
+        shown.set_if_neq(if taken || !seen {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
+    }
+}
+
+/// The skeleton on the crab's back, being carried home.
+#[derive(Component)]
+struct GlassOnBack;
+
+/// The glass on the crab's back, never the crab (both have a `Transform`).
+type GlassOnly = (With<GlassOnBack>, Without<LocalPlayer>);
+
+/// It rides on the crab's back like the grit does (spawned on first use).
+fn carry_glass(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    crab: Query<(&Mover, &Transform), With<LocalPlayer>>,
+    mut glass: Query<(&mut Transform, &mut Visibility), GlassOnly>,
+) {
+    let Ok((mover, at)) = crab.single() else {
+        return;
+    };
+    let Ok((mut glass_at, mut shown)) = glass.single_mut() else {
+        commands
+            .spawn((GlassOnBack, Transform::default(), Visibility::Hidden))
+            .with_children(|s| {
+                for (mesh, colour, at, turn) in glass_parts(0.6) {
+                    s.spawn((
+                        Mesh2d(meshes.add(mesh)),
+                        MeshMaterial2d(materials.add(colour)),
+                        Transform::from_translation(at).with_rotation(Quat::from_rotation_z(turn)),
+                    ));
+                }
+            });
+        return;
+    };
+    shown.set_if_neq(
+        if mover.carrying == Some(Carry::Glass) && mover.tucked < OUT_OF_SIGHT {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        },
+    );
+    let (back, turn) = if mover.climbing {
+        (
+            Vec2::new(50.0 * mover.climb_side, 0.0),
+            -mover.climb_side * 1.2,
+        )
+    } else {
+        (Vec2::new(0.0, 46.0), 1.45)
+    };
+    glass_at.translation = (at.translation.truncate() + back).extend(9.5);
+    glass_at.rotation = Quat::from_rotation_z(turn);
 }

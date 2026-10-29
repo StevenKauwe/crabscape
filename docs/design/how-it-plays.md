@@ -34,7 +34,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 - **Climb kelp and coral.** In the water, press jump while touching a kelp stalk or a coral to grip it instead of
   stroking. With the walking legs (no stamina): hold jump to climb up, hold down (or dodge) to climb down, let go of
   both to hang on. Sideways shuffles along the stalk (fidgeting is safe); pushing on past the edge steps off; jump with a direction kicks off it. The crab turns sideways onto the stalk, on the side it came from (crabs climb sideways), and swings round to the other side if something is in the way; its body box turns with it. Climbing past the top pulls the crab up over it. Slow but free: the
-  way home from the deep when the stamina is spent.
+  way home from the deep when the stamina is spent. **Glass grips** (from a glass sponge, `world.md`) let it grip
+  bare rock the same way: the pale, pitted bands on a few walls, which it otherwise slides off.
 - **Ride the tide.** In the canyon below the crack the water runs up its middle, then down, a minute a round
   (`world.md`): it carries the crab with it (sinking and swimming are against the water), so the flood lifts it
   with no strokes and the ebb drops it fast, too strong to swim up against. Marine snow streams the way it runs.

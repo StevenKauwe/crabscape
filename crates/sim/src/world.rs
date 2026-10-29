@@ -61,6 +61,8 @@ pub struct SimCrab {
     pub clues_found: Vec<bool>,
     /// Which of the level's shed teeth this crab has taken.
     pub teeth_taken: Vec<bool>,
+    /// Which of the level's glass sponges it took (each once).
+    pub sponges_taken: Vec<bool>,
     /// Each of the level's clam beds: ticks until it grows a new clam after
     /// this crab took one (0 = a clam lies there).
     pub clams: Vec<u32>,
@@ -207,6 +209,7 @@ impl Sim {
             cultures_taken: vec![false; self.level.cultures.len()],
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
+            sponges_taken: vec![false; self.level.sponges.len()],
             clams: vec![0; self.level.clams.len()],
             larder: 0,
             grit_taken: vec![false; self.level.grit.len()],
@@ -597,6 +600,7 @@ impl Sim {
                     upgrades: crab.mover.upgrades,
                     lantern: crab.mover.lantern,
                     scissor_claw: crab.mover.scissor_claw,
+                    glass_grips: crab.mover.glass_grips,
                     climb_xp: crab.mover.climb_xp,
                     swim_xp: crab.mover.swim_xp,
                     fight_xp: crab.mover.fight_xp,
@@ -671,6 +675,13 @@ impl Sim {
             // A shed tooth: the same, to be fitted to the crusher at home.
             for (tooth, taken) in self.level.teeth.iter().zip(&mut crab.teeth_taken) {
                 if !*taken && in_reach(m, *tooth, t) && take_up(m, ev, Carry::Tooth, t) {
+                    *taken = true;
+                }
+            }
+            // A glass sponge's skeleton, a big find for its back: glass
+            // grips at home.
+            for (sponge, taken) in self.level.sponges.iter().zip(&mut crab.sponges_taken) {
+                if !*taken && in_reach(m, *sponge, t) && take_up(m, ev, Carry::Glass, t) {
                     *taken = true;
                 }
             }
@@ -814,6 +825,10 @@ impl Sim {
                         Carry::Clam => {
                             m.clinging.push(Carry::Clam);
                             crab.events.larder_full |= crab.events.tucked_in;
+                        }
+                        Carry::Glass => {
+                            fit_glass_grips(m);
+                            crab.events.fitted_grips = true;
                         }
                         Carry::Grit => {
                             crab.home_grit += 1;
@@ -1374,6 +1389,14 @@ fn in_reach(m: &Mover, egg: Vec2, t: &Tuning) -> bool {
     (egg.x - m.pos.x).abs() <= t.body_half_width + reach
         && egg.y >= m.pos.y - reach
         && egg.y <= m.pos.y + t.body_height + reach
+}
+
+/// The workbench's glass grips: a dead glass sponge's skeleton carried home
+/// becomes glass points fitted to the leg tips, so the crab can grip bare,
+/// pitted rock (`Growth::Rock`). One small rule, kept on its own so it can
+/// become a recipe.
+pub fn fit_glass_grips(m: &mut Mover) {
+    m.glass_grips = true;
 }
 
 #[cfg(test)]

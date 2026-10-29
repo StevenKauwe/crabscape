@@ -55,6 +55,12 @@ pub struct Progress {
     pub grit_taken: Vec<bool>,
     #[serde(default)]
     pub home_grit: u32,
+    /// Glass grips fitted, and which glass sponges it took. Saves from before
+    /// have neither.
+    #[serde(default)]
+    pub glass_grips: bool,
+    #[serde(default)]
+    pub sponges_taken: Vec<bool>,
 }
 
 impl Progress {
@@ -82,6 +88,7 @@ impl Sim {
             nets_cut: vec![false; l.nets.len()],
             clams: vec![0; l.clams.len()],
             grit_taken: vec![false; l.grit.len()],
+            sponges_taken: vec![false; l.sponges.len()],
             ..Progress::default()
         }
     }
@@ -111,6 +118,8 @@ impl Sim {
             wakes_at: crab.wakes_at,
             grit_taken: crab.grit_taken.clone(),
             home_grit: crab.home_grit,
+            glass_grips: m.glass_grips,
+            sponges_taken: crab.sponges_taken.clone(),
         })
     }
 
@@ -145,6 +154,7 @@ impl Sim {
         m.upgrades = p.upgrades;
         m.lantern = p.lantern;
         m.scissor_claw = p.scissor_claw;
+        m.glass_grips = p.glass_grips;
         m.climb_xp = p.climb_xp;
         m.swim_xp = p.swim_xp;
         m.fight_xp = p.fight_xp;
@@ -161,6 +171,9 @@ impl Sim {
         }
         if p.grit_taken.len() <= crab.grit_taken.len() {
             keep_start(&mut crab.grit_taken, &p.grit_taken);
+        }
+        if p.sponges_taken.len() <= crab.sponges_taken.len() {
+            keep_start(&mut crab.sponges_taken, &p.sponges_taken);
         }
         if same_level {
             m.carrying = p.carrying.filter(|c| !c.small());

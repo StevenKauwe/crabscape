@@ -276,6 +276,7 @@ impl Summary {
                 "flipped",
                 "found a clue",
                 "fitted scissor claws",
+                "fitted glass grips",
                 "cut a net",
                 "tangled",
                 "smashed",

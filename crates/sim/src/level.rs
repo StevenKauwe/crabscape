@@ -40,6 +40,9 @@ pub enum Growth {
     Kelp,
     /// Deep-sea coral: grows on rock in the dark, no light needed.
     Coral,
+    /// Bare, pitted rock: nothing grows there, and a crab's leg tips slide
+    /// off it. Only a crab with glass grips can climb it.
+    Rock,
 }
 
 /// A crevice under a rock ledge out in the level: a rest stop. A crab
@@ -111,6 +114,10 @@ pub struct Level {
     /// A crab carries one piece at a time home, where the workbench builds
     /// it into the home shell. Each lies there once.
     pub grit: Vec<Vec2>,
+    /// Dead glass sponges' skeletons, lying on the floor (their middles). A
+    /// crab carries one home, where the workbench fits its glass points to
+    /// the leg tips (glass grips).
+    pub sponges: Vec<Vec2>,
     /// Clam beds: a clam half-buried in the floor (its middle). A crab
     /// carries one home to its larder; a taken bed grows a new one in time.
     pub clams: Vec<Vec2>,
@@ -253,7 +260,11 @@ impl Level {
                 // The far basin's end wall, standing over the crack and far
                 // too tall to swim over; under it, the way through to the
                 // doorstep.
-                Rect::new(5500.0, -1300.0, 5640.0, 3000.0),
+                Rect::new(5500.0, -1300.0, 5640.0, 560.0),
+                // High in its canyon face, a notch (dead-ended on the basin's
+                // side): only glass grips climb the bare face to it.
+                Rect::new(5500.0, 560.0, 5540.0, 760.0),
+                Rect::new(5500.0, 760.0, 5640.0, 3000.0),
                 // A shelf jutting from the canyon's far wall, out of the
                 // tide's reach: the fifth egg drifts over it.
                 Rect::new(7700.0, -5230.0, 7900.0, -5200.0),
@@ -314,6 +325,22 @@ impl Level {
                     top: -1450.0,
                     kind: Growth::Coral,
                 },
+                // Bare rock, for glass grips only: the canyon's near wall
+                // from its floor up to the shelf (no waiting for the
+                // flood), and the end wall's canyon face from the doorstep
+                // up to the notch.
+                Climb {
+                    x: 6175.0,
+                    bottom: -9400.0,
+                    top: -3420.0,
+                    kind: Growth::Rock,
+                },
+                Climb {
+                    x: 5664.0,
+                    bottom: -1500.0,
+                    top: 560.0,
+                    kind: Growth::Rock,
+                },
             ],
             home: Rect::new(40.0, -1.0, 150.0, 40.0),
             home_den: Vec2::new(95.0, 0.0),
@@ -340,7 +367,12 @@ impl Level {
                 },
             ],
             // At the bottom of the pit, across from the coral.
-            cultures: vec![Vec2::new(3950.0, -8690.0)],
+            // At the bottom of the pit, and in the notch high in the end
+            // wall's canyon face.
+            cultures: vec![Vec2::new(3950.0, -8690.0), Vec2::new(5590.0, 570.0)],
+            // A dead glass sponge's skeleton on the canyon's floor, among the
+            // sea pens, near its far wall.
+            sponges: vec![Vec2::new(7620.0, -9390.0)],
             // In the alcove: a shed tooth bigger than the crab.
             clues: vec![Vec2::new(4250.0, -5185.0)],
             teeth: vec![Vec2::new(4250.0, -5185.0)],
@@ -414,10 +446,14 @@ impl Level {
 
     /// The climb a crab standing (feet) at `pos` could grip, if any: one it
     /// overlaps sideways (within `reach` of its middle) and between its ends.
-    pub fn climb_at(&self, pos: Vec2, reach: f32) -> Option<&Climb> {
-        self.climbs
-            .iter()
-            .find(|c| (pos.x - c.x).abs() <= reach && pos.y >= c.bottom - 1.0 && pos.y <= c.top)
+    /// Bare rock counts only for a crab with glass grips (`glass`).
+    pub fn climb_at(&self, pos: Vec2, reach: f32, glass: bool) -> Option<&Climb> {
+        self.climbs.iter().find(|c| {
+            (glass || c.kind != Growth::Rock)
+                && (pos.x - c.x).abs() <= reach
+                && pos.y >= c.bottom - 1.0
+                && pos.y <= c.top
+        })
     }
 
     /// The place whose doorway `pos` is in, if any.

@@ -84,6 +84,7 @@ fn note_events(
             Carry::Tooth => ("Take the tooth home!", PALE),
             Carry::Clam => ("A clam! Take it home.", YOLK),
             Carry::Grit => ("Shell grit for the home", PALE),
+            Carry::Glass => ("Glass! Take it home.", PALE),
             Carry::Culture => ("Take it home!", WILD_GLOW),
         };
         notes.push((what.0.into(), what.1));
@@ -96,6 +97,9 @@ fn note_events(
     }
     if ev.fitted_scissors {
         notes.push(("Scissor claws!".into(), GOLD));
+    }
+    if ev.fitted_grips {
+        notes.push(("Glass grips: bare rock holds now".into(), GOLD));
     }
     if ev.cut_net {
         notes.push(("Cut through!".into(), GOLD));

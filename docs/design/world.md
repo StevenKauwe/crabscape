@@ -127,6 +127,20 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
   snow streams with the water, which is how you see which way it runs, and a note says when it turns (in the
   canyon). **Nothing climbs from the canyon's floor:** the flood is the only way up. Ride it and steer off at the
   right moment onto the shelf, the doorstep or the far rim.
+- **The glass sponge makes glass grips (the canyon's craft).** Among the sea pens near the far wall lies the
+  skeleton of a dead **glass sponge**: a pale lattice of silica. Real: glass sponges are "common only in the deep
+  ocean", their skeleton is built of silica pieces called spicules, and it "will often remain intact even after the
+  sponge itself dies" [NOAA-GS]; *Euplectella*'s spicules even carry light like optical fibres [AIZ03]. The crab
+  carries it home on its back (one thing at a time), and the workbench fits its glass points to the leg tips:
+  **glass grips** (that glass points hold a crab on rock: a design call, not a claim). With them the crab grips and
+  climbs **bare rock**: pale, pitted bands down a few walls that its own leg tips slide off (kelp and coral climb the
+  same either way). Two bands in the canyon:
+  - **the near wall from the canyon's floor up to the shelf:** the way up without waiting for the flood (slow, free);
+  - **the end wall's canyon face from the doorstep up to a notch** high above (2,060 above the doorstep; the flood's
+    top and every stroke fall more than 300 short): in it, a second patch of **wild glowing bacteria**, a second
+    culture for the lantern. Nothing else reaches it.
+  The rule is one small function, `fit_glass_grips` (`crates/sim/src/world.rs`), to become a recipe when crafting
+  gets its menu. Fitted grips are kept through death and saved; tests: `crates/sim/tests/glass.rs`.
 - **The far shelf**, out from the canyon's far wall in the still water beside the tide: the **fifth egg** drifts
   over it. Only riding the flood and pushing off it at the right height reaches it (four strokes from the floor in
   still water never do).
@@ -180,5 +194,8 @@ A hardcore option (lose everything on death) can come later.
 - [KPC08] Wang, Lee & Liu (2008), "Observation of internal tidal currents in the Kaoping Canyon off southwestern
   Taiwan", *Estuarine, Coastal and Shelf Science* 80:153–160 (abstract, opened). <https://doi.org/10.1016/j.ecss.2008.07.016>
 - [MC10] USGS, "Currents in Monterey Submarine Canyon" (abstract, opened). <https://pubs.usgs.gov/publication/70034693>
+- [NOAA-GS] NOAA Ocean Exploration, "What are glass sponges?" (opened). <https://oceanexplorer.noaa.gov/facts/glass-sponges.html>
+- [AIZ03] Aizenberg, Sundar, Yablon, Weaver & Chen (2003), "Fibre-optical features of a glass sponge", *Nature*
+  424:899–900 (via search results and a PNAS follow-up's summary, not opened: not verified).
 - [MBARI-GC] MBARI, "Glow-in-the-dark corals light up the deep sea" (2020; Bessho-Uehara, Francis & Haddock 2020,
   *Marine Biology* 167:144). <https://www.mbari.org/glowing-corals/>

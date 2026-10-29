@@ -81,6 +81,9 @@ fn found(sim: &Sim, id: PlayerId) -> String {
     if m.scissor_claw {
         lines.push("Scissor claws: fitted".into());
     }
+    if m.glass_grips {
+        lines.push("Glass grips: fitted".into());
+    }
     let skills: Vec<String> = crabsim::Skill::ALL
         .iter()
         .map(|&s| format!("{} {}", s.name(), m.level(s, &sim.tuning)))
