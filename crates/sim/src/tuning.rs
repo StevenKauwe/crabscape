@@ -129,7 +129,7 @@ pub struct Tuning {
     /// Climbing experience per unit climbed (up or down).
     pub climb_xp_per_unit: f32,
     /// Climbing levels: level n+1 needs n x (n+1) times this much experience
-    /// (with 15: 30 for level 2, 90 for 3, 180 for 4, 300 for 5).
+    /// (with 10: 20 for level 2, 60 for 3, 120 for 4, 200 for 5).
     pub climb_level_xp: f32,
     /// Extra climbing speed per Climbing level above 1 (a share of
     /// `climb_speed`).
@@ -139,7 +139,7 @@ pub struct Tuning {
     /// Swimming experience per paddle stroke.
     pub swim_xp_per_stroke: f32,
     /// Swimming levels: level n+1 needs n x (n+1) times this much experience
-    /// (with 5: 10 strokes for level 2, 30 for 3, 60 for 4).
+    /// (with 5: 10 strokes for level 2, 30 for 3, 60 for 4, 100 for 5).
     pub swim_level_xp: f32,
     /// Per Swimming level above 1, the stroke rhythm and the paddle legs'
     /// rest on solid ground are this share shorter.
@@ -149,7 +149,7 @@ pub struct Tuning {
     /// Fighting experience for beating a creature.
     pub fight_xp_per_win: f32,
     /// Fighting levels: level n+1 needs n x (n+1) times this much experience
-    /// (with 25: 50 for level 2, 150 for 3, 300 for 4).
+    /// (with 20: 40 for level 2, 120 for 3, 240 for 4, 400 for 5).
     pub fight_level_xp: f32,
     /// Extra claw damage per Fighting level above 1 (a share of the blow).
     pub fight_damage_per_level: f32,
@@ -321,6 +321,26 @@ pub struct Tuning {
     /// The canyon's tide: water running up its middle, then down
     /// (`docs/design/world.md`, "The canyon").
     pub tide: TideTuning,
+    /// Feats and moulting (`crate::moult`).
+    pub moult: MoultTuning,
+}
+
+/// Feats and moulting: when a feat is ready, and the soft time after a
+/// moult. Times in ticks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MoultTuning {
+    /// A skill at this level makes its feat ready.
+    pub feat_level: u32,
+    /// How long a crab stays soft after a moult, out in the open...
+    pub soft_ticks: u32,
+    /// ...and tucked in, it hardens this many times as fast.
+    pub harden_tucked: u32,
+    /// Soft, the shell holds this share of what it would...
+    pub soft_shell: f32,
+    /// ...and the claws' blows do this share.
+    pub soft_claws: f32,
+    /// Each moult, hardened, adds this much to what the shell holds.
+    pub growth: f32,
 }
 
 /// The tide in the canyon below the crack. In a real submarine canyon the
@@ -872,15 +892,15 @@ impl Tuning {
             climb_pull_up: 700.0,
             climb_leap: 1300.0,      // about two-thirds of a floor jump's height
             climb_xp_per_unit: 0.01, // the whole pit is worth 80
-            climb_level_xp: 15.0,    // level 2 at 30, 3 at 90, 4 at 180, 5 at 300
+            climb_level_xp: 10.0,    // level 2 at 20, 3 at 60, 4 at 120, 5 at 200
             climb_speed_per_level: 0.08,
 
             swim_xp_per_stroke: 1.0,
-            swim_level_xp: 5.0, // a normal play of the test level: level 2 or 3
+            swim_level_xp: 5.0, // level 5 at 100 strokes: about the middle of a demo run
             swim_quicker_per_level: 0.05,
             fight_xp_per_damage: 0.25,
             fight_xp_per_win: 15.0, // a snapper is worth 18, the mantis 30
-            fight_level_xp: 25.0,   // level 2 after beating two or three
+            fight_level_xp: 20.0,   // level 2 after beating two, 5 at 400
             fight_damage_per_level: 0.05,
             skill_cap: 10,
 
@@ -1364,6 +1384,14 @@ impl Tuning {
                 ramp_ticks: 2 * 120, // one round: a minute
                 up_speed: 800.0,
                 down_speed: 500.0,
+            },
+            moult: MoultTuning {
+                feat_level: 5,
+                soft_ticks: 90 * 120, // 90 s of play out in the open
+                harden_tucked: 3,     // 30 s resting tucked in
+                soft_shell: 0.5,
+                soft_claws: 0.6,
+                growth: 10.0, // a tenth of the starting shell
             },
         }
     }

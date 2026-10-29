@@ -27,6 +27,7 @@
 //! - [`rng`]: the seeded random generator (the only randomness)
 //! - [`world`]: [`Sim`], the whole world, advanced one tick at a time
 //! - [`skills`]: Climbing, Swimming and Fighting, which grow by use
+//! - [`moult`]: feats a skill's milestone opens, grown at a moult
 //! - [`progress`]: what a crab has done that lasts, for saving
 //! - [`net`]: co-op: what each device runs, and what it tells the others
 //! - [`codes`]: codes a player types (`hulk`, `feast`, `glow`)
@@ -48,6 +49,7 @@ pub mod hash;
 pub mod home;
 pub mod level;
 pub mod memory;
+pub mod moult;
 pub mod net;
 pub mod octopus;
 pub mod physics;
@@ -65,6 +67,7 @@ pub use feel::Feel;
 pub use home::Shelter;
 pub use level::{Level, SPAWN};
 pub use memory::{Memory, MemorySave, Sight, Sighting};
+pub use moult::Feat;
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use progress::Progress;
 pub use replay::Replay;

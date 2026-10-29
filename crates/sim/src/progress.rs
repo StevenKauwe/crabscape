@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::moult::Feat;
 use crate::physics::Carry;
 use crate::world::{CastOff, PlayerId, Sim};
 
@@ -61,6 +62,16 @@ pub struct Progress {
     pub glass_grips: bool,
     #[serde(default)]
     pub sponges_taken: Vec<bool>,
+    /// What it grew at its moults, and a moult not yet hardened (see
+    /// [`crate::moult`]). Saves from before moulting have none of it.
+    #[serde(default)]
+    pub feats: Vec<Feat>,
+    #[serde(default)]
+    pub moults: u32,
+    #[serde(default)]
+    pub soft: u32,
+    #[serde(default)]
+    pub growing: Option<Feat>,
 }
 
 impl Progress {
@@ -71,6 +82,7 @@ impl Progress {
         Progress {
             clams: self.clams.iter().map(|&c| c.min(1)).collect(),
             well_fed: self.well_fed.min(1),
+            soft: self.soft.min(1),
             ..self.clone()
         }
     }
@@ -120,6 +132,10 @@ impl Sim {
             home_grit: crab.home_grit,
             glass_grips: m.glass_grips,
             sponges_taken: crab.sponges_taken.clone(),
+            feats: m.feats.clone(),
+            moults: m.moults,
+            soft: m.soft,
+            growing: m.growing,
         })
     }
 
@@ -159,6 +175,10 @@ impl Sim {
         m.swim_xp = p.swim_xp;
         m.fight_xp = p.fight_xp;
         m.well_fed = p.well_fed;
+        m.feats.clone_from(&p.feats);
+        m.moults = p.moults;
+        m.soft = p.soft;
+        m.growing = p.growing;
         m.stamina = m.strokes(&tuning) as f32;
         crab.fighter.vitals.health = m.max_shell(&tuning);
         crab.home_grit = p.home_grit;

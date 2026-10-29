@@ -86,9 +86,9 @@ pub struct SimCrab {
     /// The bodies of beaten creatures it has eaten (creature id, its
     /// [`Enemy::deaths`]), while they still lie there.
     pub meals: Vec<(u32, u32)>,
-    /// Events from between ticks (a hit from outside), added to the next
-    /// tick's.
-    pending: StepEvents,
+    /// Events from between ticks (a hit from outside, a moult), added to the
+    /// next tick's.
+    pub(crate) pending: StepEvents,
     /// Ticks tucked in so far (0 when not).
     resting: u32,
     /// Where it wakes after dying: the last crevice it rested in (its index
@@ -194,6 +194,14 @@ impl Sim {
     pub(crate) fn note_code(&mut self, tick: u64, code: crate::codes::Code) {
         if let Some(rec) = &mut self.recorder {
             rec.note_code(tick, code);
+        }
+    }
+
+    /// A crab moulted at `tick` to grow `skill`'s feat: a running recording
+    /// notes it.
+    pub(crate) fn note_moult(&mut self, tick: u64, skill: Skill) {
+        if let Some(rec) = &mut self.recorder {
+            rec.note_moult(tick, skill);
         }
     }
 
@@ -580,6 +588,7 @@ impl Sim {
             }
             // Time passes for food whatever the crab is doing.
             food_timers(crab, &self.tuning, &mut ev);
+            crate::moult::harden(crab, &self.tuning, &mut ev);
             // Hit-stop: frozen for a moment as a blow lands. Presses wait.
             let f = &mut crab.fighter;
             if f.vitals.hitstop > 0 {
@@ -611,6 +620,11 @@ impl Sim {
                     fight_xp: crab.mover.fight_xp,
                     hulk: crab.mover.hulk,
                     glow: crab.mover.glow,
+                    // Its body: what it grew, and a soft shell still soft.
+                    feats: std::mem::take(&mut crab.mover.feats),
+                    moults: crab.mover.moults,
+                    soft: crab.mover.soft,
+                    growing: crab.mover.growing,
                     shelter: Shelter::In,
                     tucked: 1.0,
                     ..crate::physics::Mover::new(den)
@@ -660,8 +674,13 @@ impl Sim {
             crab.controls = crab.controls.held_only();
             // An egg the crab touches is eaten: one more swim stroke for
             // good, and it comes rested.
+            // Soft after a moult, it eats nothing (it says so).
+            let soft = crab.mover.is_soft();
             for (egg, eaten) in self.level.eggs.iter().zip(&mut crab.eaten) {
-                if !*eaten && in_reach(&crab.mover, *egg, &self.tuning) {
+                let touched = !*eaten && in_reach(&crab.mover, *egg, &self.tuning);
+                if touched && soft {
+                    crab.events.too_soft = true;
+                } else if touched {
                     *eaten = true;
                     crab.mover.upgrades += 1;
                     crab.mover.stamina += 1.0;
@@ -735,12 +754,15 @@ impl Sim {
             });
             if crab.fighter.dead.is_none() {
                 let body = combat::body(&crab.mover, &self.tuning);
-                if let Some(e) = self.enemies.iter().find(|e| {
+                let meal = self.enemies.iter().find(|e| {
                     e.state == enemy::State::Gone
                         && e.octo.is_none() // an octopus gets away: no body
                         && !crab.meals.contains(&(e.id, e.deaths))
                         && !e.hurtbox(&self.tuning).intersect(body).is_empty()
-                }) {
+                });
+                if meal.is_some() && soft {
+                    crab.events.too_soft = true;
+                } else if let Some(e) = meal {
                     crab.meals.push((e.id, e.deaths));
                     let v = &mut crab.fighter.vitals;
                     let whole = crab.mover.max_shell(&self.tuning);
@@ -859,7 +881,12 @@ impl Sim {
                 // cracks a clam open with its crusher and eats it. A bigger
                 // shell and reserve for a while, both filled.
                 let food = &self.tuning.food;
-                if crab.larder > 0 && m.well_fed == 0 && crab.resting >= food.eat_after_ticks {
+                // (Not soft after a moult: it eats nothing then.)
+                if crab.larder > 0
+                    && m.well_fed == 0
+                    && !m.is_soft()
+                    && crab.resting >= food.eat_after_ticks
+                {
                     crab.larder -= 1;
                     // Stage 3: the home grown deep and snug, a meal there
                     // lasts longer (Valheim's comfort, which makes resting

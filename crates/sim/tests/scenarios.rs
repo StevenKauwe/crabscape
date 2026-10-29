@@ -824,7 +824,8 @@ fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
 
 #[test]
 fn climbing_is_a_skill_that_levels_up() {
-    // One climb out of the pit from the bottom: Climbing level 2.
+    // One climb out of the pit from the bottom: Climbing level 3 (level 5,
+    // a feat, takes about that again and the shaft or the canyon's coral).
     let level = crabsim::Level::test_level();
     let (_, _, bottom) = level.pit();
     let climb = run(
@@ -838,8 +839,8 @@ fn climbing_is_a_skill_that_levels_up() {
         crab.climb_xp,
         crab.climb_level(&t)
     );
-    assert_eq!(climb.count("levelled"), 1);
-    assert_eq!(crab.climb_level(&t), 2);
+    assert_eq!(climb.count("levelled"), 2);
+    assert_eq!(crab.climb_level(&t), 3);
     // ...and each level climbs faster.
     assert!(crab.climb_speed(&t) > t.climb_speed);
 }
