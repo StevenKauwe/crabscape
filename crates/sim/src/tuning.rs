@@ -213,6 +213,12 @@ pub struct Tuning {
     pub crusher: ClawTuning,
     /// The cutter's jab: quick and light.
     pub cutter: ClawTuning,
+    /// The claws strike what they're aimed at: a blow comes down this far
+    /// at most onto something short or a step below...
+    pub aim_down: f32,
+    /// ...or up this far at most at something a little above (units; a
+    /// bulked-up crab's reach further).
+    pub aim_up: f32,
     /// Press a claw this many ticks before the current swing ends and it
     /// still comes out.
     pub swing_buffer_ticks: u32,
@@ -814,6 +820,11 @@ impl Tuning {
             crusher: ClawTuning::plain((14, 6, 22), 12.0, 25.0, 44.0, 30.0, (320.0, 0.0), 7),
             // A touch shorter than the crusher (tuned).
             cutter: ClawTuning::plain((6, 4, 12), 5.0, 8.0, 38.0, 24.0, (90.0, 0.0), 3),
+            // Down to a little below the feet (a creature in a dip); up to
+            // a little past the top of the shell (one on a ledge, or
+            // swimming low). Further misses.
+            aim_down: 16.0,
+            aim_up: 28.0,
             swing_buffer_ticks: 12,
             recovery_walk: 0.35,
             turn_ticks: 0,
