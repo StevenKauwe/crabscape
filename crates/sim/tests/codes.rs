@@ -48,7 +48,11 @@ fn hulk_again_turns_it_off() {
     assert!(sim.crab(P0).unwrap().mover.hulk);
     sim.enter_code(P0, Code::Hulk);
     assert!(!sim.crab(P0).unwrap().mover.hulk);
-    assert_eq!(one_smash(&[Code::Hulk, Code::Hulk]).0, 12.0, "back to plain");
+    assert_eq!(
+        one_smash(&[Code::Hulk, Code::Hulk]).0,
+        12.0,
+        "back to plain"
+    );
 }
 
 #[test]

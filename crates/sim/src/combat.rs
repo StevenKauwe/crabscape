@@ -416,7 +416,12 @@ impl Fighter {
         let far = near + self.facing * c.reach * size;
         let mid = m.pos.y + t.body_height * size / 2.0;
         let half = c.height * size / 2.0;
-        Some(Rect::new(near.min(far), mid - half, near.max(far), mid + half))
+        Some(Rect::new(
+            near.min(far),
+            mid - half,
+            near.max(far),
+            mid + half,
+        ))
     }
 }
 
@@ -695,7 +700,9 @@ pub fn crab_defends(
         } else {
             hit.block_damage.unwrap_or(t.block_damage)
         };
-        let took = f.vitals.take(hit.damage * share, poise_felt(m, hit, t), &t.crab);
+        let took = f
+            .vitals
+            .take(hit.damage * share, poise_felt(m, hit, t), &t.crab);
         f.armour_break = f.armour_break.max(hit.armour_break);
         knock(m, hit.knockback * t.block_knockback);
         f.vitals.hitstop = f.vitals.hitstop.max(t.block_hitstop_ticks);
