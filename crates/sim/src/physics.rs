@@ -791,7 +791,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         } else {
             t.water_drag
         };
-        m.vel.y -= drag * m.vel.y * m.vel.y.abs() * dt;
+        // The drag is against the water: in the canyon's tide the water
+        // itself runs up or down, and carries the crab with it.
+        let water = level.water_at(m.pos + Vec2::Y * t.body_height / 2.0, &t.tide);
+        let through = m.vel.y - water;
+        m.vel.y -= drag * through * through.abs() * dt;
     }
 
     move_and_collide(m, t, level, dt, &mut ev);

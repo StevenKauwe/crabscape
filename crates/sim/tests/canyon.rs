@@ -9,8 +9,10 @@ use crabsim::{Feel, PlayerId, Progress, Replay, Sim, Tuning};
 /// What one scripted run did.
 struct Run {
     sim: Sim,
-    /// Every spot the crab stood on (feet), in order.
+    /// Every spot the crab stood on (feet), in order...
     stood: Vec<Vec2>,
+    /// ...and the game time of each.
+    stood_at: Vec<f64>,
     /// Highest point its feet reached.
     highest: f32,
     /// How many times each event happened.
@@ -52,6 +54,7 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, strokes: u32) -> Run {
         highest: replay.start.y,
         sim: sim.clone(),
         stood: Vec::new(),
+        stood_at: Vec::new(),
         counts: Vec::new(),
     };
     let mut playback = replay.playback();
@@ -62,6 +65,7 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, strokes: u32) -> Run {
         run.highest = run.highest.max(crab.mover.pos.y);
         if crab.mover.grounded {
             run.stood.push(crab.mover.pos);
+            run.stood_at.push(sim.time());
         }
         for name in crab.events.names() {
             match run.counts.iter_mut().find(|(n, _)| *n == name) {
@@ -126,7 +130,7 @@ fn the_crack_is_a_way_down_through_the_rock_to_the_doorstep() {
     // the foot of its end wall, and walks on under the wall onto the
     // doorstep, high on the canyon's wall.
     let r = run("start x=5150 y=-700\nt=0 walk=right; t=6 walk=stop", 7.0, 0);
-    assert!(r.stood_on(5381.0, 5500.0, -1500.0), "down the crack");
+    assert!(r.stood_on(5381.0, 5640.0, -1500.0), "down the crack");
     assert!(
         r.stood_on(DOORSTEP.0, DOORSTEP.1, DOORSTEP.2),
         "out on the doorstep: {}",
@@ -141,7 +145,7 @@ fn coral_climbs_back_out_of_the_crack_and_up_from_the_shelf() {
     let crack = run(&format!("start x=5440 y=-1500\n{climb}"), 12.0, 0);
     assert_eq!(crack.count("gripped"), 1);
     assert!(
-        crack.stood_on(5000.0, 5381.0, crack.crab().pos.y) && crack.crab().pos.y > -560.0,
+        crack.crab().grounded && crack.crab().pos.x < 5381.0 && crack.crab().pos.y >= -700.0,
         "back on the far basin's floor: {}",
         crack.crab().pos
     );
@@ -222,46 +226,29 @@ fn the_flood_carries_a_crab_up_the_canyon_to_every_ledge() {
 
 #[test]
 fn the_ebb_drops_a_crab_fast_and_strokes_cannot_beat_it() {
-    // Off the shelf into the middle: in the ebb (from 36 s in), against
-    // still water (at slack, 30 s in).
-    let fall = |at: f64, extra: &str| {
-        run(
-            &format!("start x=6100 y=-3400\nt={at} walk=right; t={} walk=stop{extra}", at + 1.2),
-            at + 30.0,
-            4,
-        )
-    };
-    let time_down = |r: &Run| r.count("landed");
-    let ebb = fall(36.0, "");
-    let slack = fall(29.0, "");
-    assert!(time_down(&ebb) > 0 && time_down(&slack) > 0);
-    // How long each took: tick of the floor landing, from the step off.
-    let down_at = |at: f64| {
-        let replay = format!("start x=6100 y=-3400\nt={at} walk=right; t={} walk=stop", at + 1.2);
-        let mut seconds = 0.0;
-        while seconds < 30.0 {
-            seconds += 0.5;
-            let r = run(&replay, at + seconds, 0);
-            if r.crab().grounded && r.crab().pos.y == FLOOR.2 {
-                return seconds;
-            }
-        }
-        seconds
-    };
-    let (fast, slow) = (down_at(36.0), down_at(28.5));
-    println!("shelf to floor: {fast} s in the ebb, {slow} s in still water");
-    assert!(fast < slow * 0.6, "the ebb is a fast way down");
-    // Swimming up against the ebb with every stroke: still carried down.
-    let fight = fall(36.0, &swim(38.0, 4));
-    assert_eq!(fight.count("paddled"), 4);
-    assert!(fight.stood_on(FLOOR.0, FLOOR.1, FLOOR.2));
-    assert!(
-        !fight
+    // Off the shelf into the canyon's middle once the ebb runs (36 s in),
+    // and the same with the water still: how long to the floor?
+    let off = "start x=6100 y=-3400\nt=36 walk=right; t=37.8 walk=stop";
+    let down = |tuning: Tuning, extra: &str| {
+        let r = run_with(tuning, &format!("{off}{extra}"), 70.0, 4);
+        let landed = r
             .stood
             .iter()
-            .any(|p| p.y > FLOOR.2 && p.x > SHELF.1 && p.y != SHELF.2),
-        "nowhere else on the way"
-    );
+            .position(|p| p.y == FLOOR.2)
+            .map_or(f64::INFINITY, |k| r.stood_at[k] - 36.0);
+        (r, landed)
+    };
+    let (_, fast) = down(Tuning::base(), "");
+    let (_, slow) = down(still_water(), "");
+    println!("shelf to floor: {fast:.1} s in the ebb, {slow:.1} s in still water");
+    assert!(fast < slow * 0.6, "the ebb is a fast way down");
+    // Swimming up against the ebb with every stroke: still carried down,
+    // and nothing to land on but the floor.
+    let (fight, _) = down(Tuning::base(), &swim(38.5, 4));
+    assert_eq!(fight.count("paddled"), 4);
+    let after_shelf: Vec<&Vec2> = fight.stood.iter().filter(|p| p.y != SHELF.2).collect();
+    assert!(!after_shelf.is_empty());
+    assert!(after_shelf.iter().all(|p| p.y == FLOOR.2), "{after_shelf:?}");
 }
 
 #[test]

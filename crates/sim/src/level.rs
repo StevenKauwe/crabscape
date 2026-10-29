@@ -194,10 +194,28 @@ impl Level {
                 Vec2::new(4301.0, -4380.0),
                 Vec2::new(4470.0, -4380.0),
                 // ...that rises to the far part of the basin, past the pit,
-                // rising again at its far end.
+                // rising again at its far end...
                 Vec2::new(4471.0, -700.0),
                 Vec2::new(5200.0, -700.0),
-                Vec2::new(5500.0, -420.0),
+                Vec2::new(5350.0, -560.0),
+                Vec2::new(5380.0, -560.0),
+                // ...to the crack at the foot of its end wall: a slot down
+                // through the rock (a chimney, wide enough for a crab), its
+                // floor running on under the wall and out onto the doorstep,
+                // high on the near wall of a canyon.
+                Vec2::new(5381.0, -1500.0),
+                Vec2::new(5900.0, -1500.0),
+                // The canyon's near wall: a sheer drop to a shelf (coral and
+                // a rest crevice)...
+                Vec2::new(5901.0, -3400.0),
+                Vec2::new(6150.0, -3400.0),
+                // ...and a far longer one to the canyon's floor, where the
+                // lights are.
+                Vec2::new(6151.0, -9400.0),
+                Vec2::new(7900.0, -9400.0),
+                // Its far wall, up to the far rim and an octopus's den.
+                Vec2::new(7901.0, -1900.0),
+                Vec2::new(8800.0, -1900.0),
             ],
             rocks: vec![
                 // A low ledge near the start: one jump gets you up.
@@ -232,6 +250,15 @@ impl Level {
                 Rect::new(4300.0, -4230.0, 4370.0, -700.0),
                 // Past the pit: a pillar.
                 Rect::new(5080.0, -700.0, 5160.0, -300.0),
+                // The far basin's end wall, standing over the crack and far
+                // too tall to swim over; under it, the way through to the
+                // doorstep.
+                Rect::new(5500.0, -1300.0, 5640.0, 3000.0),
+                // A shelf jutting from the canyon's far wall, out of the
+                // tide's reach: the fifth egg drifts over it.
+                Rect::new(7700.0, -5230.0, 7900.0, -5200.0),
+                // The rock over the octopus's den, at the end of the far rim.
+                Rect::new(8350.0, -1620.0, 8800.0, 3000.0),
             ],
             // Each egg needs the paddle strokes the eggs before it give: A a
             // plain jump from the low ledge (it gives the double jump), B over
@@ -243,6 +270,9 @@ impl Level {
                 Vec2::new(2145.0, 810.0),
                 // In the hidden alcove in the pit.
                 Vec2::new(4150.0, -5150.0),
+                // On the canyon's far shelf: only riding the flood up the
+                // canyon and pushing off it at the right height gets there.
+                Vec2::new(7810.0, -5170.0),
             ],
             // Up the pit, a little out from the tip of the lip: coral in the
             // dark lower part, then a kelp stalk floating up from its
@@ -268,6 +298,22 @@ impl Level {
                     top: -650.0,
                     kind: Growth::Coral,
                 },
+                // Up the crack, back out onto the far basin.
+                Climb {
+                    x: 5440.0,
+                    bottom: -1500.0,
+                    top: -590.0,
+                    kind: Growth::Coral,
+                },
+                // Cold-water coral on the canyon's near wall, from the shelf
+                // up to the doorstep. Nothing climbs from the canyon's
+                // floor: the way up from there is the tide.
+                Climb {
+                    x: 6000.0,
+                    bottom: -3400.0,
+                    top: -1450.0,
+                    kind: Growth::Coral,
+                },
             ],
             home: Rect::new(40.0, -1.0, 150.0, 40.0),
             home_den: Vec2::new(95.0, 0.0),
@@ -286,6 +332,12 @@ impl Level {
                     door: Rect::new(3301.0, -8701.0, 3390.0, -8660.0),
                     den: Vec2::new(3340.0, -8700.0),
                 },
+                // At the back of the canyon's shelf, against the wall below
+                // the doorstep (the coral stands clear of it).
+                Crevice {
+                    door: Rect::new(5902.0, -3401.0, 5975.0, -3360.0),
+                    den: Vec2::new(5941.0, -3400.0),
+                },
             ],
             // At the bottom of the pit, across from the coral.
             cultures: vec![Vec2::new(3950.0, -8690.0)],
@@ -302,6 +354,10 @@ impl Level {
                 Vec2::new(3150.0, -696.0),
                 Vec2::new(2450.0, 24.0),
                 Vec2::new(3720.0, -8696.0),
+                // In the canyon: two on its floor, one on the far rim.
+                Vec2::new(6650.0, -9396.0),
+                Vec2::new(7450.0, -9396.0),
+                Vec2::new(8120.0, -1896.0),
             ],
             // Shell grit, more of it deeper: one heap in the shallows (by
             // the first snapping shrimp's burrow, clear of the clams), one on the
@@ -315,6 +371,10 @@ impl Level {
                 Vec2::new(4900.0, -696.0),
                 Vec2::new(3640.0, -8696.0),
                 Vec2::new(4150.0, -8696.0),
+                // The canyon: one on the shelf, two on its floor.
+                Vec2::new(6100.0, -3396.0),
+                Vec2::new(6900.0, -9396.0),
+                Vec2::new(7750.0, -9396.0),
             ],
             // Across the passage's mouth, high on the pit's right wall: only
             // a jump and four strokes from the alcove's roof reach it.
@@ -337,14 +397,18 @@ impl Level {
                 (Kind::Snapper, Vec2::new(2060.0, 110.0)),
                 (Kind::Moray, Vec2::new(2650.0, 20.0)),
             ],
-            currents: vec![],
+            // The tide runs up and down the canyon's middle, from its floor
+            // to well above the doorstep, with still water along each wall.
+            currents: vec![Rect::new(6450.0, -9400.0, 7350.0, -700.0)],
             tide: 0.0,
-            crack: Vec2::new(5430.0, -448.0),
-            lights: Vec2::new(5430.0, -448.0),
-            den: Rect::default(),
-            drifting: vec![],
+            crack: Vec2::new(5440.0, -560.0),
+            lights: Vec2::new(7000.0, -9400.0),
+            // Under the rock at the end of the far rim, back to the wall.
+            den: Rect::new(8350.0, -1900.0, 8800.0, -1620.0),
+            // Still water by each wall, deep in the canyon.
+            drifting: vec![Vec2::new(6305.0, -6200.0), Vec2::new(7560.0, -7400.0)],
             min_x: 0.0,
-            max_x: 5500.0,
+            max_x: 8800.0,
         }
     }
 
@@ -430,7 +494,7 @@ mod tests {
         assert_eq!(level.floor_height(300.0), 0.0); // flat start
         assert!((level.floor_height(670.0) - 55.0).abs() < 0.01); // half-way up the slope
         assert_eq!(level.floor_height(1450.0), -260.0); // bottom of the trench
-        assert_eq!(level.floor_height(9999.0), -420.0); // right of the last point
+        assert_eq!(level.floor_height(9999.0), -1900.0); // right of the last point
     }
 
     #[test]
