@@ -71,7 +71,8 @@ jobs:
 
   art:
     name: committed art matches the rig
-    # Re-runs the crab art pipeline (rig -> parts SVG -> game atlas -> oil-painted atlas; all deterministic) and
+    # Re-runs the crab art pipeline (rig -> parts SVG -> game atlas -> oil-painted atlas; all deterministic), and
+    # the creatures' (rig -> parts SVG -> game atlas), and
     # fails if the committed files differ: art changes must come with their exports.
     runs-on: ubuntu-latest
     steps:
@@ -86,11 +87,13 @@ jobs:
           cargo run --locked -q -p crabrig --profile art -- parts
           cargo run --locked -q -p crabrig --profile art -- export
           tools/paint-oil-crab.sh
-      - name: The committed art/crab and assets/crab match
+          cargo run --locked -q -p crabrig --profile art -- parts --creature snapping-shrimp
+          cargo run --locked -q -p crabrig --profile art -- export --creature snapping-shrimp
+      - name: The committed art/crab, assets/crab, art/creatures and assets/creatures match
         run: |
-          if [ -n "$(git status --porcelain -- art/crab assets/crab)" ]; then
-            git status --short -- art/crab assets/crab
-            echo "::error::The committed crab art differs from what the rig exports. Run the three commands of the step above and commit the result."
+          if [ -n "$(git status --porcelain -- art/crab assets/crab art/creatures assets/creatures)" ]; then
+            git status --short -- art/crab assets/crab art/creatures assets/creatures
+            echo "::error::The committed art differs from what the rigs export. Run the commands of the step above and commit the result."
             exit 1
           fi
 

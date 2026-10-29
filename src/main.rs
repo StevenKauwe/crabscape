@@ -54,6 +54,7 @@
 
 mod background;
 mod coop;
+mod creature_art;
 mod critters;
 mod deep;
 mod effects;

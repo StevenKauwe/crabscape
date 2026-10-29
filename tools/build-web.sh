@@ -71,8 +71,9 @@ fi
 # 5. The pictures the game loads at start-up (they are not baked into the
 #    .wasm, which keeps it small).
 rm -rf web/assets
-mkdir -p web/assets/crab
+mkdir -p web/assets/crab web/assets/creatures
 cp assets/crab/crab-atlas.png assets/crab/crab-atlas-oil.png web/assets/crab/
+cp assets/creatures/*-atlas.png web/assets/creatures/
 
 raw=$(wc -c < "$wasm")
 gz=$(gzip -9 -c "$wasm" | wc -c)

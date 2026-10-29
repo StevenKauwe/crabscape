@@ -61,6 +61,14 @@ Key poses: **idle** (feelers sweep, legs shuffle); **tell** (dactyl swung up ~10
 **snap** (dactyl shut; a white bubble and ring at the claw tip for 6 frames, then a ripple); **recock** (claw lowered,
 dactyl creeping open); **hurt** (tail flick backwards toward the burrow).
 
+**Puppet (in the game):** drawn by `crates/crabrig/src/shrimp.rs` from the concept sheet (side view, facing right)
+into `art/creatures/snapping-shrimp/snapping-shrimp-parts.svg`, exported to `assets/creatures/` (`cargo run -p crabrig
+--profile art -- parts --creature snapping-shrimp`, then `-- export --creature snapping-shrimp`). Nine parts: carapace
+(with the near legs), abdomen and tail fan, snapper claw and its finger, two feelers, two far legs, small claw. The
+game swings the finger (tell, snap, re-cock), flicks the tail when hit or fleeing, and sweeps the feelers
+(`src/critters.rs`). The finger is drawn a little heavier than life so the cocked claw reads at phone size. Ink style
+only for now (no oil-painted copy yet).
+
 ## Sources
 - [HS98] Herberholz & Schmitz (1998), "Role of mechanosensory stimuli in intraspecific agonistic encounters of the snapping shrimp (*Alpheus heterochaelis*)", *Biol. Bull.* 195:156–167. <https://archive.org/download/biostor-10891/biostor-10891.pdf>
 - [VER00] Versluis, Schmitz, von der Heydt & Lohse (2000), "How snapping shrimp snap: through cavitating bubbles", *Science* (not opened; seen in search results, figures via [ALPH]). <https://portal.fis.tum.de/en/publications/how-snapping-shrimp-snap-through-cavitating-bubbles/>

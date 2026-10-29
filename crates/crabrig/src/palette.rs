@@ -57,6 +57,12 @@ pub fn normal() -> Palette {
     p.insert("face", tri("#D98A62", "#B9673F", "#7A3A24"));
     p.insert("belly", tri("#FCE2BC", "#F2BC8C", "#C27F55"));
     p.insert("corneaRim", tri("#8A6A9A", "#5B4470", "#2E2040"));
+    // The snapping shrimp (its concept sheet's stylised olive; colour not verified).
+    p.insert("shrimp", tri("#C9C27E", "#8E8A4E", "#5A5630"));
+    p.insert("shrimpMottle", tri("#6E6A3C", "#5A5630", "#45421F"));
+    p.insert("shrimpClaw", tri("#D9C98A", "#9C8448", "#5E4A26"));
+    p.insert("shrimpLeg", tri("#EBD3A0", "#D4B07A", "#9C7646"));
+    p.insert("shrimpTip", tri("#E5735A", "#C0452F", "#7A2414"));
     p
 }
 

@@ -1,0 +1,251 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/snapping-shrimp/snapping-shrimp-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "snapping-shrimp-atlas.png",
+ "atlas_size": [
+  1024,
+  64
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  197.25,
+  186.8
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "leg-far1",
+   "parent": "carapace",
+   "pivot": [
+    186.0,
+    168.0
+   ],
+   "bbox": [
+    170.6,
+    160.1,
+    23.4,
+    32.7
+   ],
+   "rect": [
+    308,
+    3,
+    15,
+    20
+   ],
+   "z": 0,
+   "members": [
+    "leg-far1"
+   ]
+  },
+  {
+   "name": "leg-far2",
+   "parent": "carapace",
+   "pivot": [
+    206.0,
+    168.0
+   ],
+   "bbox": [
+    191.2,
+    159.8,
+    22.5,
+    32.2
+   ],
+   "rect": [
+    326,
+    3,
+    14,
+    20
+   ],
+   "z": 1,
+   "members": [
+    "leg-far2"
+   ]
+  },
+  {
+   "name": "minor-claw",
+   "parent": "carapace",
+   "pivot": [
+    218.0,
+    164.0
+   ],
+   "bbox": [
+    209.0,
+    154.8,
+    53.8,
+    24.5
+   ],
+   "rect": [
+    384,
+    3,
+    33,
+    15
+   ],
+   "z": 2,
+   "members": [
+    "minor-claw"
+   ]
+  },
+  {
+   "name": "antennule",
+   "parent": "carapace",
+   "pivot": [
+    230.0,
+    138.0
+   ],
+   "bbox": [
+    224.0,
+    112.0,
+    62.0,
+    32.0
+   ],
+   "rect": [
+    343,
+    3,
+    38,
+    20
+   ],
+   "z": 3,
+   "members": [
+    "antennule"
+   ]
+  },
+  {
+   "name": "antenna",
+   "parent": "carapace",
+   "pivot": [
+    228.0,
+    136.0
+   ],
+   "bbox": [
+    222.0,
+    93.6,
+    94.0,
+    48.4
+   ],
+   "rect": [
+    204,
+    3,
+    57,
+    30
+   ],
+   "z": 4,
+   "members": [
+    "antenna"
+   ]
+  },
+  {
+   "name": "abdomen",
+   "parent": "carapace",
+   "pivot": [
+    170.0,
+    156.0
+   ],
+   "bbox": [
+    54.3,
+    120.5,
+    119.8,
+    63.5
+   ],
+   "rect": [
+    58,
+    3,
+    72,
+    39
+   ],
+   "z": 5,
+   "members": [
+    "abdomen-plate6",
+    "abdomen-plate5",
+    "abdomen-plate4",
+    "abdomen-plate3",
+    "abdomen-plate1",
+    "abdomen",
+    "abdomen-mottle0",
+    "abdomen-mottle1",
+    "abdomen-mottle2",
+    "abdomen-uropod",
+    "abdomen-telson"
+   ]
+  },
+  {
+   "name": "carapace",
+   "parent": null,
+   "pivot": [
+    202.9,
+    157.15
+   ],
+   "bbox": [
+    160.1,
+    121.6,
+    85.6,
+    71.1
+   ],
+   "rect": [
+    3,
+    3,
+    52,
+    43
+   ],
+   "z": 16,
+   "members": [
+    "carapace",
+    "carapace-mottle",
+    "carapace-eye",
+    "carapace-hood",
+    "leg-slender",
+    "leg-near1",
+    "leg-near2",
+    "leg-near3"
+   ]
+  },
+  {
+   "name": "claw",
+   "parent": "carapace",
+   "pivot": [
+    226.0,
+    164.0
+   ],
+   "bbox": [
+    222.4,
+    135.1,
+    112.9,
+    49.7
+   ],
+   "rect": [
+    133,
+    3,
+    68,
+    30
+   ],
+   "z": 24,
+   "members": [
+    "claw",
+    "claw-tip"
+   ]
+  },
+  {
+   "name": "dactyl",
+   "parent": "claw",
+   "pivot": [
+    286.0,
+    144.0
+   ],
+   "bbox": [
+    272.2,
+    129.1,
+    68.0,
+    35.7
+   ],
+   "rect": [
+    264,
+    3,
+    41,
+    22
+   ],
+   "z": 26,
+   "members": [
+    "dactyl",
+    "dactyl-tip"
+   ]
+  }
+ ]
+}
