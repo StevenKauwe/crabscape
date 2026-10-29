@@ -76,8 +76,12 @@ fn world() -> Sim {
     sim
 }
 
+/// Cases per property. As WebAssembly (in wasmtime) the sim runs several times slower, and what that run proves is
+/// that the same code holds there too: fewer cases, so it also takes seconds.
+const CASES: u32 = if cfg!(target_family = "wasm") { 16 } else { 48 };
+
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(48))]
+    #![proptest_config(ProptestConfig::with_cases(CASES))]
 
     /// Whatever the player presses, the crab stays between the level's walls,
     /// never falls through the bottom of the world, and every number in the
