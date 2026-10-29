@@ -331,3 +331,58 @@ fn a_replay_recorded_after_a_reload_starts_with_the_saved_wake_point() {
     crabsim::play(&mut again, &replay, 1, |_| {});
     assert_eq!(again.crab(P0).unwrap().wakes_at, Some(1));
 }
+
+#[test]
+fn a_crab_tucked_in_is_out_of_reach_of_blows() {
+    let mut sim = at_crevice(0);
+    rest_in(&mut sim, P0);
+    let outcome = sim.hit_crab(P0, &blow(60.0));
+    assert_eq!(outcome, crabsim::Outcome::Ignored);
+    idle(&mut sim, 1);
+    let crab = sim.crab(P0).unwrap();
+    assert_eq!(crab.fighter.vitals.health, sim.tuning.crab.health);
+    assert!(!crab.events.hurt);
+    // Backing in or coming out, it is still out there to be hit.
+    walk(&mut sim, P0, 1.0, 3);
+    assert!(!sim.crab(P0).unwrap().mover.tucked_in());
+    assert_ne!(sim.hit_crab(P0, &blow(10.0)), crabsim::Outcome::Ignored);
+}
+
+#[test]
+fn a_creature_that_followed_the_crab_to_its_crevice_cannot_kill_it_there() {
+    let mut sim = at_crevice(0);
+    let c = sim.level.crevices[0];
+    rest_in(&mut sim, P0);
+    walk(&mut sim, P0, 1.0, 120);
+    // A mantis turns up and beats the crab: it wakes tucked in the crevice,
+    // with the mantis right there.
+    sim.spawn_enemy(
+        crabsim::Kind::Mantis,
+        Vec2::new(c.door.max.x + 160.0, c.den.y),
+    );
+    let mut woke = false;
+    for _ in 0..120 * 40 {
+        sim.tick();
+        woke |= sim.crab(P0).unwrap().events.respawned;
+        if woke {
+            break;
+        }
+    }
+    assert!(woke, "the mantis won");
+    // It rests in there as long as it likes: the mantis never lands a blow,
+    // and gives up on it.
+    let mut seen = Vec::new();
+    for _ in 0..120 * 30 {
+        sim.tick();
+        seen.extend(sim.crab(P0).unwrap().events.names());
+    }
+    let crab = sim.crab(P0).unwrap();
+    assert!(crab.mover.tucked_in());
+    assert!(
+        !seen.contains(&"hurt") && !seen.contains(&"died"),
+        "{seen:?}"
+    );
+    assert_eq!(crab.fighter.vitals.health, sim.tuning.crab.health);
+    let mantis = &sim.enemies()[0];
+    assert_eq!(mantis.target, None, "lost interest");
+}

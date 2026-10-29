@@ -322,7 +322,9 @@ impl Enemy {
         Some(took)
     }
 
-    /// The nearest living crab it can sense, if any (ties: the first).
+    /// The nearest living crab it can sense, if any (ties: the first). A
+    /// crab tucked into a shell or crevice is out of its reach: it doesn't
+    /// count.
     fn sense(&self, crabs: &[SimCrab], range: f32) -> Option<PlayerId> {
         self.sense_moving(crabs, range, 0.0)
     }
@@ -331,7 +333,7 @@ impl Enemy {
     fn sense_moving(&self, crabs: &[SimCrab], range: f32, moving: f32) -> Option<PlayerId> {
         crabs
             .iter()
-            .filter(|c| c.fighter.dead.is_none() && c.mover.vel.x.abs() >= moving)
+            .filter(|c| huntable(c) && c.mover.vel.x.abs() >= moving)
             .map(|c| (c.id, (c.mover.pos.x - self.pos.x).abs(), c))
             .filter(|(_, d, c)| *d <= range && (c.mover.pos.y - self.pos.y).abs() < 200.0)
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -360,13 +362,11 @@ pub fn step(
     let k = e.kind.tuning(t).clone();
     e.vitals.tick(&k.vitals);
     e.hiding = e.hiding.saturating_sub(1);
+    // A crab that died or tucked itself away is gone, as far as the hunt
+    // goes: it gives up.
     let target_x = e
         .target
-        .and_then(|id| {
-            crabs
-                .iter()
-                .find(|c| c.id == id && c.fighter.dead.is_none())
-        })
+        .and_then(|id| crabs.iter().find(|c| c.id == id && huntable(c)))
         .map(|c| c.mover.pos.x);
 
     // Timed states end, and the next one starts on this same tick.
@@ -593,6 +593,12 @@ pub fn step(
         }
     }
     blows
+}
+
+/// Can a creature hunt this crab? Not a dead one, nor one tucked into a
+/// shell or crevice (its blows can't reach it there either).
+fn huntable(c: &SimCrab) -> bool {
+    c.fighter.dead.is_none() && !c.mover.tucked_in()
 }
 
 /// Ticks a lunged head takes to draw back into its crevice.
