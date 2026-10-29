@@ -350,6 +350,10 @@ impl Player {
     }
 }
 
+/// How long a stalled game freezes: past the 5 s after which a friend that sent nothing counts as gone, so the
+/// stall really cuts them apart.
+const STALL: f64 = 6.0;
+
 /// How long players must stay together to count: longer than a game takes to notice a friend went silent (5 s).
 const STEADY: f64 = 6.0;
 
@@ -472,7 +476,7 @@ const SCENARIOS: [(&str, &str); 11] = [
     ),
     (
         "stall",
-        "a game frozen for 5 s (a dropped connection) is back with its friend",
+        "a game frozen for 6 s (past the 5 s a friend counts as gone) is back with its friend",
     ),
 ];
 
@@ -613,14 +617,14 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
         }
         "stall" => {
             meet(site, &mut host, &mut guest, limit::MEET)?;
-            guest.b.stall(5.0)?;
+            guest.b.stall(STALL)?;
             let t = together(&mut [&mut host, &mut guest], limit::MEET)
                 .map_err(|e| format!("after the friend froze: {e}"))?;
-            found.push(format!("friend frozen 5 s: together {t:.1} s after"));
-            host.b.stall(5.0)?;
+            found.push(format!("friend frozen 6 s: together {t:.1} s after"));
+            host.b.stall(STALL)?;
             let t = together(&mut [&mut host, &mut guest], limit::MEET)
                 .map_err(|e| format!("after the host froze: {e}"))?;
-            found.push(format!("host frozen 5 s: together {t:.1} s after"));
+            found.push(format!("host frozen 6 s: together {t:.1} s after"));
         }
         other => return Err(format!("no scenario called {other} (--list names them)")),
     }
@@ -692,8 +696,8 @@ fn stress(site: &mut Site, seed: u64, steps: usize, voice: bool) -> Result<()> {
         "host reloads",
         "friend starts over",
         "host starts over",
-        "friend frozen 5 s",
-        "host frozen 5 s",
+        "friend frozen 6 s",
+        "host frozen 6 s",
         "introducer restarts",
     ];
     let n = if site.introducer.is_some() {
@@ -714,8 +718,8 @@ fn stress(site: &mut Site, seed: u64, steps: usize, voice: bool) -> Result<()> {
             }
             "friend starts over" => guest.start_over()?,
             "host starts over" => host.start_over()?,
-            "friend frozen 5 s" => guest.b.stall(5.0)?,
-            "host frozen 5 s" => host.b.stall(5.0)?,
+            "friend frozen 6 s" => guest.b.stall(STALL)?,
+            "host frozen 6 s" => host.b.stall(STALL)?,
             _ => {
                 restart_introducer(site)?;
                 limit = limit::INTRODUCER_BACK;

@@ -45,7 +45,7 @@ its own). The link is that code.
 
 | Promise | Limit | Scenario | Fast test |
 |---|---|---|---|
-| A game frozen or cut off for 5 s (a dropped connection, a phone that stalled) is back with its friend | 10 s after | `stall` (each side in turn) | `a_friend_waiting_in_an_empty_lobby_stays_put_and_a_dead_connection_is_redone` (a dead connection); taking a silent device back lives in the browser-only part of `coop.rs`, so the scenario is its check |
+| A game frozen or cut off for a few seconds (a dropped connection, a phone that stalled) is back with its friend | 10 s after | `stall` (each side frozen 6 s in turn, past the 5 s after which a friend counts as gone) | `a_friend_waiting_in_an_empty_lobby_stays_put_and_a_dead_connection_is_redone` (a dead connection); taking a silent device back lives in the browser-only part of `coop.rs`, so the scenario is its check |
 | The introducer restarts or sleeps mid-game: both games carry on alone (nothing freezes or errors), then are back together | 15 s after it's back | `introducer-restart` (local introducer only) | `a_friend_waiting_in_an_empty_lobby_stays_put_and_a_dead_connection_is_redone` |
 | A friend lost with the connection still up (they closed the tab) is looked for again | every 15 s | (part of `new-link`) | `lost_company_is_looked_for_every_15_seconds` |
 | Anything of the above, in any order, any number of times: always back together, never an error | as above | `cargo cooptest --stress` (random steps from a printed seed) | |
