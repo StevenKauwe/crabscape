@@ -114,17 +114,35 @@ impl PartsFile {
     }
 }
 
+/// The middle of the carapace's picture, from the crab's feet (world units,
+/// standing at rest): where a husk lies over it.
+pub fn carapace_middle() -> Vec2 {
+    static MIDDLE: std::sync::LazyLock<Vec2> = std::sync::LazyLock::new(|| {
+        let file = PartsFile::parse();
+        file.parts
+            .iter()
+            .find(|p| p.parent.is_none())
+            .map_or(Vec2::ZERO, |p| {
+                // As `build_puppets` places its picture.
+                let size = Vec2::new(p.rect[2], p.rect[3]) / file.px_per_unit;
+                file.to_puppet([p.bbox[0] + size.x / 2.0, p.bbox[1] + size.y / 2.0])
+            })
+    });
+    *MIDDLE
+}
+
 /// The art, shared by every crab.
 #[derive(Resource)]
 struct CrabArt {
     file: PartsFile,
     /// The atlases as loaded, per style (index: `style_index`).
     sources: [Handle<Image>; 2],
-    /// Once both have loaded (or failed), the two layers per style:
-    /// `[lit, unlit]`. Lit is the parts in full colour; unlit the same parts
-    /// darkened, desaturated and cooled: how they look outside the lantern
-    /// light.
-    layers: Option<[[Handle<Image>; 2]; 2]>,
+    /// Once both have loaded (or failed), the three layers per style:
+    /// `[lit, unlit, pale]`. Lit is the parts in full colour; unlit the same
+    /// parts darkened, desaturated and cooled: how they look outside the
+    /// lantern light; pale the same parts washed towards cream: a soft new
+    /// shell just after a moult, faded in over the lit layer.
+    layers: Option<[[Handle<Image>; 3]; 2]>,
 }
 
 impl CrabArt {
@@ -146,6 +164,7 @@ fn style_index(style: ArtStyle) -> usize {
 enum ArtLayer {
     Lit = 0,
     Unlit = 1,
+    Pale = 2,
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +225,24 @@ pub struct ShellOf(pub Entity);
 struct GearPiece {
     crab: Entity,
     gear: Gear,
+}
+
+/// A piece's pale picture (a soft new shell), of crab `crab`, over the lit
+/// layer `over` and as lit as it.
+#[derive(Component)]
+struct PaleLayer {
+    crab: Entity,
+    over: Entity,
+}
+
+/// How pale a soft crab is drawn: most of the way at the moult, fading back
+/// to its own colours as the new shell hardens.
+pub fn paleness(m: &Mover, t: &crabsim::Tuning) -> f32 {
+    if !m.is_soft() {
+        return 0.0;
+    }
+    let left = m.soft as f32 / t.moult.soft_ticks.max(1) as f32;
+    0.85 * left.clamp(0.0, 1.0).sqrt()
 }
 
 /// What a [`GearPiece`] shows, found from its name in the parts file.
@@ -332,6 +369,7 @@ impl Plugin for PuppetPlugin {
                 shell_look,
                 into_the_dark,
                 show_gear,
+                soft_look,
             )
                 .chain()
                 .in_set(GameSet::Present),
@@ -373,11 +411,11 @@ fn prepare_art(
     if !ok[0] && !ok[1] {
         error!("neither crab picture could be loaded ({ATLAS_INK}, {ATLAS_OIL})");
         art.layers = Some(std::array::from_fn(|_| {
-            [Handle::default(), Handle::default()]
+            [Handle::default(), Handle::default(), Handle::default()]
         }));
         return;
     }
-    let mut layers: [[Handle<Image>; 2]; 2] = Default::default();
+    let mut layers: [[Handle<Image>; 3]; 2] = Default::default();
     for i in 0..2 {
         let from = if ok[i] { i } else { 1 - i };
         if !ok[i] {
@@ -394,7 +432,11 @@ fn prepare_art(
         if let Some(pixels) = unlit.data.as_mut() {
             make_unlit(pixels);
         }
-        layers[i] = [lit, images.add(unlit)];
+        let mut pale = image.clone();
+        if let Some(pixels) = pale.data.as_mut() {
+            make_pale(pixels);
+        }
+        layers[i] = [lit, images.add(unlit), images.add(pale)];
     }
     art.layers = Some(layers);
     #[cfg(target_arch = "wasm32")]
@@ -432,6 +474,20 @@ pub fn make_unlit(rgba: &mut [u8]) {
     }
 }
 
+/// Turn full-colour RGBA pixels into a freshly moulted shell's look: the
+/// colour mostly washed out towards a warm cream, keeping the light and
+/// shade of the drawing (and its ink lines). Transparency is kept.
+pub fn make_pale(rgba: &mut [u8]) {
+    const CREAM: [f32; 3] = [252.0, 236.0, 220.0];
+    for px in rgba.as_chunks_mut::<4>().0 {
+        let [r, g, b] = [px[0], px[1], px[2]].map(f32::from);
+        let shade = 0.35 + 0.65 * (0.30 * r + 0.59 * g + 0.11 * b) / 255.0;
+        for (c, cream) in px.iter_mut().zip(CREAM) {
+            *c = (f32::from(*c) * 0.3 + cream * shade * 0.7).min(255.0) as u8;
+        }
+    }
+}
+
 /// Give every new crab its puppet. (Runs every frame but only does work for
 /// crabs that don't have a [`Rig`] yet.)
 fn build_puppets(
@@ -443,9 +499,10 @@ fn build_puppets(
     crabs: Query<Entity, (With<Crab>, Without<Rig>)>,
 ) {
     // Wait for the pictures.
-    let (Some(lit), Some(unlit)) = (
+    let (Some(lit), Some(unlit), Some(pale)) = (
         art.layer(*style, ArtLayer::Lit),
         art.layer(*style, ArtLayer::Unlit),
+        art.layer(*style, ArtLayer::Pale),
     ) else {
         return;
     };
@@ -511,6 +568,23 @@ fn build_puppets(
                     dark: Color::srgba(1.0, 0.92, 0.78, 0.0),
                     bright: Color::srgba(1.0, 0.92, 0.78, 1.0),
                 },
+            ));
+            // A soft new shell's pale copy, over the lit layer and as lit as
+            // it, faded in while the crab is soft (`soft_look`).
+            let lit_layer = *lit_layers.last().unwrap();
+            commands.spawn((
+                ChildOf(lit_layer),
+                PaleLayer {
+                    crab,
+                    over: lit_layer,
+                },
+                Sprite {
+                    color: Color::NONE,
+                    ..sprite(&pale)
+                },
+                ArtLayer::Pale,
+                anchor,
+                Transform::from_xyz(0.0, 0.0, Z_STEP * 0.1),
             ));
             // Gear (scissor teeth, clam guards, glass grips) and grown feats
             // wait, hidden, until fitted or grown.
@@ -1454,6 +1528,34 @@ const FLIP_MIDDLE: f32 = 30.0;
 /// How far climbing turns the crab, clockwise (radians: nearly a quarter
 /// turn, so it reads as clinging sideways rather than lying flat).
 const CLIMB_TURN: f32 = 1.45;
+
+/// A soft crab's pieces are drawn pale: each pale picture fades in over its
+/// lit one, as lit as it (so it still goes dark out of the light) and the
+/// same size (the carapace shrinks to nothing from behind).
+fn soft_look(
+    sim: Res<Sim>,
+    movers: Query<&Mover>,
+    lits: Query<&Sprite, Without<PaleLayer>>,
+    mut pales: Query<(&PaleLayer, &mut Sprite)>,
+) {
+    for (pale, mut sprite) in &mut pales {
+        let k = movers
+            .get(pale.crab)
+            .map_or(0.0, |m| paleness(m, &sim.tuning));
+        let (alpha, size) = match lits.get(pale.over) {
+            // The lit layer's own alpha is how lit it is (`lantern::LitTint`).
+            Ok(over) if k > 0.0 => (k * over.color.alpha(), over.custom_size),
+            _ => (0.0, sprite.custom_size),
+        };
+        let colour = Color::WHITE.with_alpha(alpha);
+        if sprite.color != colour {
+            sprite.color = colour;
+        }
+        if sprite.custom_size != size {
+            sprite.custom_size = size;
+        }
+    }
+}
 
 /// Show what a crab has fitted and grown: its gear pieces, and a heavy
 /// crusher drawn bigger.
