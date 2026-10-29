@@ -55,6 +55,12 @@ pub struct Progress {
     pub grit_taken: Vec<bool>,
     #[serde(default)]
     pub home_grit: u32,
+    /// Glass grips fitted, and which glass sponges it took. Saves from before
+    /// have neither.
+    #[serde(default)]
+    pub glass_grips: bool,
+    #[serde(default)]
+    pub sponges_taken: Vec<bool>,
 }
 
 impl Progress {
@@ -111,6 +117,8 @@ impl Sim {
             wakes_at: crab.wakes_at,
             grit_taken: crab.grit_taken.clone(),
             home_grit: crab.home_grit,
+            glass_grips: false,
+            sponges_taken: Vec::new(),
         })
     }
 

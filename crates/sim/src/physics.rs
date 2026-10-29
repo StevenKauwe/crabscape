@@ -89,6 +89,9 @@ pub enum Carry {
     Clam,
     /// A piece of shell grit (old, broken shells): built into the home.
     Grit,
+    /// A dead glass sponge's skeleton: its glass points fitted to the leg
+    /// tips at home, making glass grips.
+    Glass,
 }
 
 impl Carry {
@@ -132,6 +135,10 @@ pub struct Mover {
     /// Scissor claws: a shed tooth's edges fitted along both fingers of its
     /// crusher claw (at the workbench at home). They cut through ghost nets.
     pub scissor_claw: bool,
+    /// Glass points fitted to the leg tips (from a glass sponge): bare,
+    /// pitted rock can be gripped and climbed like coral.
+    #[serde(default)]
+    pub glass_grips: bool,
     /// How many cultures have been brought home: each makes the lantern
     /// brighter.
     pub lantern: u32,
@@ -218,6 +225,7 @@ impl Mover {
             carrying: None,
             clinging: Vec::new(),
             scissor_claw: false,
+            glass_grips: false,
             lantern: 0,
             climb_xp: 0.0,
             swim_xp: 0.0,

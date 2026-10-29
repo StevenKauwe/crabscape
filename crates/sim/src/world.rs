@@ -61,6 +61,8 @@ pub struct SimCrab {
     pub clues_found: Vec<bool>,
     /// Which of the level's shed teeth this crab has taken.
     pub teeth_taken: Vec<bool>,
+    /// Which of the level's glass sponges it took (each once).
+    pub sponges_taken: Vec<bool>,
     /// Each of the level's clam beds: ticks until it grows a new clam after
     /// this crab took one (0 = a clam lies there).
     pub clams: Vec<u32>,
@@ -207,6 +209,7 @@ impl Sim {
             cultures_taken: vec![false; self.level.cultures.len()],
             clues_found: vec![false; self.level.clues.len()],
             teeth_taken: vec![false; self.level.teeth.len()],
+            sponges_taken: vec![false; self.level.sponges.len()],
             clams: vec![0; self.level.clams.len()],
             larder: 0,
             grit_taken: vec![false; self.level.grit.len()],
@@ -815,6 +818,7 @@ impl Sim {
                             m.clinging.push(Carry::Clam);
                             crab.events.larder_full |= crab.events.tucked_in;
                         }
+                        Carry::Glass => {}
                         Carry::Grit => {
                             crab.home_grit += 1;
                             crab.events.built = true;
