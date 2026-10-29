@@ -13,7 +13,7 @@
 //!   "Master" (everything, 0 to 100%), "Music" (`music.rs`), "Effects" (blows,
 //!   parries and other game sounds) and "Voices" (friends', 0 to 300%: past
 //!   100% boosts quiet voices), each a row, its name and value left of the
-//!   track.
+//!   track; under Music, which music plays ("Calm" or "Themes", `music.rs`).
 //! - **Co-op**: how friends' voices carry (see `voice.rs`): from everyone at
 //!   full volume, or from nearby crabs only, with a slider for how far. While
 //!   the slider moves, a ripple around the crab shows how far it hears.
@@ -27,6 +27,8 @@
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
+
+use crate::music::Track;
 
 /// Gap between buttons.
 const GAP: f32 = 8.0;
@@ -74,6 +76,8 @@ pub struct Settings {
     pub effects: f32,
     /// Friends' voices' loudness, 0 to [`VOICES_MAX`] (over 1 boosts them).
     pub voices: f32,
+    /// Which music plays.
+    pub track: Track,
 }
 
 impl Default for Settings {
@@ -86,13 +90,14 @@ impl Default for Settings {
             music: MUSIC_START,
             effects: EFFECTS_START,
             voices: VOICES_START,
+            track: Track::default(),
         }
     }
 }
 
 impl Settings {
     /// As kept:
-    /// `saver=1;hear=nearby;range=900;master=80;music=40;effects=50;voices=200`
+    /// `saver=1;hear=nearby;range=900;master=80;music=40;effects=50;voices=200;track=themes`
     /// (the volumes in percent).
     fn to_text(self) -> String {
         let hear = match self.hear {
@@ -100,13 +105,15 @@ impl Settings {
             Hear::Nearby => "nearby",
         };
         format!(
-            "saver={};hear={hear};range={:.0};master={:.0};music={:.0};effects={:.0};voices={:.0}",
+            "saver={};hear={hear};range={:.0};master={:.0};music={:.0};effects={:.0};voices={:.0};\
+             track={}",
             u8::from(self.saver),
             self.range,
             self.master * 100.0,
             self.music * 100.0,
             self.effects * 100.0,
-            self.voices * 100.0
+            self.voices * 100.0,
+            self.track.word()
         )
     }
 
@@ -131,17 +138,18 @@ impl Settings {
                 ("music", v) => s.music = percent(v, 1.0).unwrap_or(s.music),
                 ("effects" | "game", v) => s.effects = percent(v, 1.0).unwrap_or(s.effects),
                 ("voices", v) => s.voices = percent(v, VOICES_MAX).unwrap_or(s.voices),
+                ("track", v) => s.track = Track::from_word(v).unwrap_or(s.track),
                 _ => {}
             }
         }
         s
     }
 
-    /// For a report: "smooth, voices: everyone, master 80%, music 40%,
-    /// effects 50%, voice volume 200%".
+    /// For a report: "smooth, voices: everyone, master 80%, music 40%
+    /// (themes), effects 50%, voice volume 200%".
     pub fn describe(&self) -> String {
         format!(
-            "{}, voices: {}, master {:.0}%, music {:.0}%, effects {:.0}%, voice volume {:.0}%",
+            "{}, voices: {}, master {:.0}%, music {:.0}% ({}), effects {:.0}%, voice volume {:.0}%",
             if self.saver {
                 "battery saver"
             } else {
@@ -153,6 +161,7 @@ impl Settings {
             },
             self.master * 100.0,
             self.music * 100.0,
+            self.track.word(),
             self.effects * 100.0,
             self.voices * 100.0
         )
@@ -245,7 +254,7 @@ impl Plugin for SettingsPlugin {
 pub(crate) mod panel {
     use bevy::prelude::*;
 
-    use super::{GAP, Hear, RANGE_MAX, RANGE_MIN, Settings, VOICES_MAX, button_rect};
+    use super::{GAP, Hear, RANGE_MAX, RANGE_MIN, Settings, Track, VOICES_MAX, button_rect};
     use crate::effects::radial_image;
     use crate::player::{GameSet, LocalPlayer};
     use crate::sound::{PlaySfx, Sfx};
@@ -328,6 +337,9 @@ pub(crate) mod panel {
         Oil,
         Everyone,
         Nearby,
+        /// The music tracks (`music.rs`).
+        Calm,
+        Themes,
         /// Opens the report form (`report.rs`).
         Report,
         /// Asks for a code (`codes.rs`).
@@ -345,6 +357,8 @@ pub(crate) mod panel {
                 Choice::Oil => "Oil",
                 Choice::Everyone => "Everyone",
                 Choice::Nearby => "Nearby",
+                Choice::Calm => "Calm",
+                Choice::Themes => "Themes",
                 Choice::Report => "Report a bug or idea",
                 Choice::Code => "Enter a code",
                 Choice::StartOver => "Start over",
@@ -356,6 +370,7 @@ pub(crate) mod panel {
             match self {
                 Choice::Smooth | Choice::Saver | Choice::Ink | Choice::Oil => Tab::Graphics,
                 Choice::Everyone | Choice::Nearby => Tab::Coop,
+                Choice::Calm | Choice::Themes => Tab::Audio,
                 Choice::Report | Choice::Code | Choice::StartOver => Tab::Game,
             }
         }
@@ -555,7 +570,8 @@ pub(crate) mod panel {
     const VOLUME: f32 = 36.0;
     const VOLUME_NAME: f32 = 100.0;
 
-    /// The Audio tab: a row per volume; returns where the next thing starts.
+    /// The Audio tab: a row per volume, and under Music which music plays;
+    /// returns where the next thing starts.
     fn volumes(l: &mut Layout, left: f32, y: f32) -> f32 {
         let mut y = y;
         for which in VOLUMES {
@@ -569,6 +585,20 @@ pub(crate) mod panel {
             );
             l.sliders.push((which, label, track));
             y += VOLUME;
+            if which == Slider::Music {
+                let mid = y + ROW / 2.0;
+                l.labels
+                    .push((Tab::Audio, Vec2::new(left + PAD, mid - 8.0), "Music track"));
+                let x = left + PAD + VOLUME_NAME;
+                let half = (left + WIDTH - PAD - x - GAP) / 2.0;
+                l.choices
+                    .push((Choice::Calm, Rect::new(x, y, x + half, y + ROW)));
+                l.choices.push((
+                    Choice::Themes,
+                    Rect::new(x + half + GAP, y, x + 2.0 * half + GAP, y + ROW),
+                ));
+                y += ROW;
+            }
         }
         y + PAD
     }
@@ -983,6 +1013,8 @@ pub(crate) mod panel {
                 Some(Choice::Oil) => crate::style::choose(&mut style, ArtStyle::Oil),
                 Some(Choice::Everyone) => settings.hear = Hear::Everyone,
                 Some(Choice::Nearby) => settings.hear = Hear::Nearby,
+                Some(Choice::Calm) => settings.track = Track::Calm,
+                Some(Choice::Themes) => settings.track = Track::Themes,
                 Some(Choice::Report) => {
                     open.open = false;
                     #[cfg(target_arch = "wasm32")]
@@ -1104,6 +1136,8 @@ pub(crate) mod panel {
                 Choice::Oil => *style == ArtStyle::Oil,
                 Choice::Everyone => settings.hear == Hear::Everyone,
                 Choice::Nearby => settings.hear == Hear::Nearby,
+                Choice::Calm => settings.track == Track::Calm,
+                Choice::Themes => settings.track == Track::Themes,
                 Choice::Report | Choice::Code => false,
                 Choice::StartOver => armed,
             };
@@ -1254,7 +1288,7 @@ pub(crate) mod panel {
                 let l = layout_for(window, web, lines);
                 let tabs = tabs_for(web);
                 assert_eq!(l.sliders.len(), if web { 5 } else { 0 }, "{at}");
-                assert_eq!(l.choices.len(), if web { 9 } else { 5 }, "{at}");
+                assert_eq!(l.choices.len(), if web { 11 } else { 5 }, "{at}");
                 // On screen without scrolling, under the button.
                 assert!(
                     l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - super::super::MARGIN,
@@ -1366,6 +1400,8 @@ pub(crate) mod panel {
             assert_eq!(on(Choice::Ink), Tab::Graphics);
             assert_eq!(on(Choice::Saver), Tab::Graphics);
             assert_eq!(on(Choice::Nearby), Tab::Coop);
+            assert_eq!(on(Choice::Calm), Tab::Audio);
+            assert_eq!(on(Choice::Themes), Tab::Audio);
             assert_eq!(on(Choice::Code), Tab::Game);
             assert_eq!(on(Choice::StartOver), Tab::Game);
             for v in VOLUMES {
@@ -1390,12 +1426,18 @@ mod tests {
             music: 0.15,
             effects: 0.65,
             voices: 2.5,
+            track: Track::Calm,
         };
         assert_eq!(Settings::from_text(&s.to_text()), s);
         assert_eq!(
             Settings::default().to_text(),
-            "saver=0;hear=everyone;range=900;master=80;music=40;effects=50;voices=200"
+            "saver=0;hear=everyone;range=900;master=80;music=40;effects=50;voices=200;track=themes"
         );
+        // The music track: forgiving, and Themes unless it says otherwise.
+        assert_eq!(Settings::from_text("track=Calm ").track, Track::Calm);
+        assert_eq!(Settings::from_text("track = calm").track, Track::Calm);
+        assert_eq!(Settings::from_text("track=jazz").track, Track::Themes);
+        assert_eq!(Settings::from_text("music=40").track, Track::Themes);
         assert_eq!(Settings::from_text("nonsense"), Settings::default());
         assert_eq!(Settings::from_text("range=NaN").range, RANGE_START);
         assert_eq!(Settings::from_text("range=99999").range, RANGE_MAX);
@@ -1421,7 +1463,8 @@ mod tests {
     fn a_report_names_the_settings_with_every_volume() {
         assert_eq!(
             Settings::default().describe(),
-            "smooth, voices: everyone, master 80%, music 40%, effects 50%, voice volume 200%"
+            "smooth, voices: everyone, master 80%, music 40% (themes), effects 50%, voice volume \
+             200%"
         );
         let s = Settings {
             saver: true,
@@ -1431,11 +1474,12 @@ mod tests {
             music: 0.0,
             effects: 0.25,
             voices: 3.0,
+            track: Track::Calm,
         };
         assert_eq!(
             s.describe(),
-            "battery saver, voices: nearby (900), master 100%, music 0%, effects 25%, voice volume \
-             300%"
+            "battery saver, voices: nearby (900), master 100%, music 0% (calm), effects 25%, voice \
+             volume 300%"
         );
     }
 
