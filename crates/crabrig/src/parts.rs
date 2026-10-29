@@ -2,7 +2,7 @@
 
 use regex::Regex;
 
-use crate::crab::{Pose, back_shell, build_front};
+use crate::crab::{Pose, TURN_VIEWS, back_shell, build_front, turn_shell};
 use crate::geom::*;
 use crate::item::{Item, Kind, transform_items};
 use crate::palette;
@@ -20,7 +20,9 @@ pub fn parent_of(id: &str) -> String {
     if let Some(m) = re(r"^(cheliped-[RL])-carpus-spine").captures(id) {
         return format!("{}-carpus", &m[1]);
     }
-    if let Some(m) = re(r"^(cheliped-[RL])-(palm-ridge|molar|propodus-fixedfinger)").captures(id) {
+    if let Some(m) =
+        re(r"^(cheliped-[RL])-(palm-ridge|palm-belly|molar|propodus-fixedfinger)").captures(id)
+    {
         return format!("{}-propodus-palm", &m[1]);
     }
     if let Some(m) = re(r"^(cheliped-[RL])-dactyl-tip").captures(id) {
@@ -83,6 +85,14 @@ pub fn parent_of(id: &str) -> String {
             "back-carapace".into()
         };
     }
+    // The shell turned part way round (`crab::turn_shell`): the same.
+    if let Some(m) = re(r"^(turn\d+)-").captures(id) {
+        return if id == format!("{}-carapace", &m[1]) {
+            "carapace".into()
+        } else {
+            format!("{}-carapace", &m[1])
+        };
+    }
     if re(r"^eye-|^antenn|^maxilliped|^face|^underside|^gear-helmet").is_match(id) {
         return "carapace".into();
     }
@@ -93,11 +103,14 @@ pub fn parent_of(id: &str) -> String {
     }
 }
 
-/// `crab-parts.svg` for a pose (the hero pose for the game), with the shell seen from behind last (the game shows
-/// it once the crab turns its back).
+/// `crab-parts.svg` for a pose (the hero pose for the game), with the shell seen from behind and turned part way
+/// round last (the game shows them as the crab turns).
 pub fn parts_svg(pose: &Pose) -> String {
     let mut items = build_front(pose);
     items.extend(back_shell(pose));
+    for yaw in TURN_VIEWS {
+        items.extend(turn_shell(pose, yaw));
+    }
     write(
         items,
         "<!-- CrabScape player crab: rig-ready cut-out parts, front (in-game) view, neutral pose.
@@ -105,7 +118,8 @@ pub fn parts_svg(pose: &Pose) -> String {
   data-parent = the part it hangs from. Draw order = document order. R/L = the crab's own right/left
   (R is screen-left in this view). Legs: 1-3 walking legs, 4 = swimming paddle (the 5th pereiopod).
   back-*: the shell seen from behind (posterior border nearest), shown in the game instead of the carapace and face
-  when the crab turns its back. -->",
+  when the crab turns its back. turn45-*, turn90-*, turn135-*: the shell turned that far round (three-quarters from
+  the front, the side, three-quarters from behind), shown part way through the turn. -->",
         "CrabScape player crab · rig parts (front view)",
         parent_of,
     )
