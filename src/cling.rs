@@ -31,7 +31,7 @@ const SPOTS: [(f32, f32, f32); 6] = [
 const DEPTH: f32 = 0.05;
 /// A clam or a heap of grit, shrunk to a trimming's size.
 const CLAM_SCALE: f32 = 0.6;
-const GRIT_SCALE: f32 = 0.5;
+const GRIT_SCALE: f32 = 0.75;
 
 pub struct ClingPlugin;
 
