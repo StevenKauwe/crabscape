@@ -38,7 +38,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   bare rock the same way: the pale, pitted bands on a few walls, which it otherwise slides off.
 - **Ride the tide.** In the canyon below the crack the water runs up its middle, then down, a minute a round
   (`world.md`): it carries the crab with it (sinking and swimming are against the water), so the flood lifts it
-  with no strokes and the ebb drops it fast, too strong to swim up against. Marine snow streams the way it runs.
+  with no strokes and the ebb drops it fast, too strong to swim up against. Marine snow streams the way it runs, and in the canyon a line under the
+  depth counter says which way ("The water: running up").
   The flood is the only way up off the canyon's floor: steer out of it onto a ledge before it turns.
 - **Most of the sea is faster than you.** Fish and shrimp out-speed you; you out-hit and out-last them.
 - Possible later: wall cling (crabs grip rock with their dactyls).

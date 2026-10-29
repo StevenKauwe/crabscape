@@ -1,5 +1,6 @@
 //! The deep: a depth counter that appears once the crab drops below the
-//! pit's lip or down the crack into the canyon, and something big that passes far behind it in open water
+//! pit's lip or down the crack into the canyon (in the canyon, with a line
+//! under it saying which way the water runs), and something big that passes far behind it in open water
 //! early in each dive, glimpsed through the dark with a glint of an eye.
 
 use bevy::prelude::*;
@@ -38,7 +39,10 @@ impl Plugin for DeepPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dive>()
             .add_systems(Startup, (spawn_depth_counter, spawn_visitor))
-            .add_systems(Update, (show_depth, pass_visitor).in_set(GameSet::Present));
+            .add_systems(
+                Update,
+                (show_depth, show_tide, pass_visitor).in_set(GameSet::Present),
+            );
     }
 }
 
@@ -55,6 +59,10 @@ struct Dive {
 #[derive(Component)]
 struct DepthText;
 
+/// The line under the depth counter in the canyon: which way the water runs.
+#[derive(Component)]
+struct TideText;
+
 /// The big shape (all its parts hang off this entity).
 #[derive(Component)]
 struct Visitor;
@@ -65,18 +73,60 @@ fn spawn_depth_counter(mut commands: Commands) {
             position_type: PositionType::Absolute,
             top: px(14),
             width: percent(100),
-            justify_content: JustifyContent::Center,
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
             ..default()
         })
-        .with_child((
-            DepthText,
-            Text::new(""),
-            TextFont {
-                font_size: FontSize::Px(20.0),
-                ..default()
-            },
-            TextColor(Color::NONE),
-        ));
+        .with_children(|hud| {
+            hud.spawn((
+                DepthText,
+                Text::new(""),
+                TextFont {
+                    font_size: FontSize::Px(20.0),
+                    ..default()
+                },
+                TextColor(Color::NONE),
+            ));
+            hud.spawn((
+                TideText,
+                Text::new(""),
+                TextFont {
+                    font_size: FontSize::Px(14.0),
+                    ..default()
+                },
+                TextColor(Color::NONE),
+            ));
+        });
+}
+
+/// In the canyon, which way its water runs right now (the tide is a rule
+/// in the sim; this only says it): up, down, still, or turning between.
+fn show_tide(
+    sim: Res<Sim>,
+    crab: Query<&Transform, With<LocalPlayer>>,
+    mut text: Query<(&mut Text, &mut TextColor), With<TideText>>,
+) {
+    let (Ok(at), Ok((mut text, mut colour))) = (crab.single(), text.single_mut()) else {
+        return;
+    };
+    if !crate::canyon::in_canyon(&sim, at.translation.truncate()) {
+        colour.0 = Color::NONE;
+        return;
+    }
+    let tide = sim.level.tide;
+    let words = if tide > 0.95 {
+        "The water: running up"
+    } else if tide < -0.95 {
+        "The water: running down"
+    } else if tide.abs() < 0.05 {
+        "The water: still"
+    } else {
+        "The water: turning"
+    };
+    if text.0 != words {
+        text.0 = words.into();
+    }
+    colour.0 = Color::srgba(0.70, 0.85, 1.0, 0.75);
 }
 
 /// How far below the pit's lip the crab is (units), if it is in the pit,
