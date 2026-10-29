@@ -105,9 +105,9 @@ impl MicTrouble {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web::mic_trouble;
-#[cfg(target_arch = "wasm32")]
 pub use web::{forget, forget_all, hear, meet, outbox};
+#[cfg(target_arch = "wasm32")]
+pub(crate) use web::{loudness, mic_trouble};
 
 #[cfg(target_arch = "wasm32")]
 mod web {
@@ -719,7 +719,7 @@ mod web {
     }
 
     /// How loud a voice is right now (root mean square, 0 to 1).
-    fn loudness(meter: &AnalyserNode) -> f32 {
+    pub(crate) fn loudness(meter: &AnalyserNode) -> f32 {
         let mut samples = vec![0.0_f32; meter.fft_size() as usize];
         meter.get_float_time_domain_data(&mut samples);
         (samples.iter().map(|x| x * x).sum::<f32>() / samples.len().max(1) as f32).sqrt()
