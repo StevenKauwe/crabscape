@@ -44,6 +44,16 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 - **Most of the sea is faster than you.** Fish and shrimp out-speed you; you out-hit and out-last them.
 - Possible later: wall cling (crabs grip rock with their dactyls).
 
+## Feats and moulting
+A skill at level 5 makes a **feat** ready: a new move, grown only at a moult (`world.md`, Moulting and feats).
+Well fed and tucked into the home shell, a "Moult: grow ..." button moults the crab (one feat per moult). It is soft
+for 90 s of play (a third of that tucked in): half the shell, claws at 60%, no eating. Hardened, the feat is on and
+the shell holds 10 more. The feats (their biology: not verified):
+- **Gripping dactyls** (Climbing): the leg tips grip kelp and coral hard enough to brace on, so a kick off a stalk
+  becomes a long leap. (Bare rock is the glass grips' business, a fitted gear, not a feat.) Being built.
+- **Broad paddles** (Swimming): the flip in the water becomes a real dash that carries the crab. Being built.
+- **Heavy crusher** (Fighting): a charged smash cracks brittle rock and breaks poise harder. Being built.
+
 ## Combat (being built: issues #64–#68)
 In the sim now: the crab's shell (health) and poise, hits with knockback and hit-stop, and the two claws: the
 crusher's **smash** (14-tick wind-up, 6 active, 22 recovery; 12 damage, 25 poise) and the cutter's quick **jab**
@@ -128,6 +138,7 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Go into the home shell or a rest-stop crevice to rest (home also uses what you carried) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
+| Moult (tucked in at home, well fed, a feat ready) | click "Moult: grow ..." | | tap it |
 | Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
 | Art style (Ink or Oil) | P | | Settings, "Art style": Ink / Oil |
 | Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |

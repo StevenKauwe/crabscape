@@ -12,6 +12,7 @@ use bevy_math::{Rect, Vec2};
 
 use crate::home::Shelter;
 use crate::level::Level;
+use crate::moult::Feat;
 use crate::skills::Skill;
 use crate::tuning::Tuning;
 
@@ -208,6 +209,18 @@ pub struct Mover {
     /// (see [`Mover::max_shell`], [`Mover::reserve_strokes`]).
     #[serde(default)]
     pub well_fed: u32,
+    /// The feats it has grown at its moults (see [`crate::moult`]).
+    #[serde(default)]
+    pub feats: Vec<Feat>,
+    /// How many times it has moulted and hardened: each grows its shell.
+    #[serde(default)]
+    pub moults: u32,
+    /// Ticks left soft after a moult (0 = hard).
+    #[serde(default)]
+    pub soft: u32,
+    /// The feat the soft new body is growing: its own once it hardens.
+    #[serde(default)]
+    pub growing: Option<Feat>,
 }
 
 impl Mover {
@@ -251,6 +264,10 @@ impl Mover {
             hulk: false,
             glow: false,
             well_fed: 0,
+            feats: Vec::new(),
+            moults: 0,
+            soft: 0,
+            growing: None,
         }
     }
 
@@ -292,14 +309,20 @@ impl Mover {
         t.swim_strokes + self.upgrades
     }
 
-    /// How much the shell holds when whole: more while well fed.
+    /// How much the shell holds when whole: more while well fed, more for
+    /// each moult, less while soft after one.
     pub fn max_shell(&self, t: &Tuning) -> f32 {
         let bonus = if self.well_fed > 0 {
             t.food.shell_bonus
         } else {
             0.0
         };
-        t.crab.health * (1.0 + bonus)
+        let soft = if self.is_soft() {
+            t.moult.soft_shell
+        } else {
+            1.0
+        };
+        self.grown_shell(t) * (1.0 + bonus) * soft
     }
 
     /// How many strokes the reserve holds when full: more while well fed.
@@ -455,6 +478,15 @@ pub struct StepEvents {
     pub built: bool,
     /// ...and it was enough for the home to grow a stage.
     pub home_grew: bool,
+    /// Moulted: soft now, growing a feat (see [`crate::moult`]).
+    #[serde(default)]
+    pub moulted: bool,
+    /// The new shell hardened: this feat is its own now.
+    #[serde(default)]
+    pub hardened: Option<Feat>,
+    /// Touched food (an egg, a clam, a beaten creature) too soft to eat it.
+    #[serde(default)]
+    pub too_soft: bool,
 }
 
 impl StepEvents {
@@ -507,6 +539,9 @@ impl StepEvents {
         self.wakes_here |= other.wakes_here;
         self.built |= other.built;
         self.home_grew |= other.home_grew;
+        self.moulted |= other.moulted;
+        self.hardened = self.hardened.or(other.hardened);
+        self.too_soft |= other.too_soft;
         if other.landed.is_some() {
             self.landed = other.landed;
         }
@@ -563,6 +598,9 @@ impl StepEvents {
             (self.wakes_here, "wakes here"),
             (self.built, "built"),
             (self.home_grew, "home grew"),
+            (self.moulted, "moulted"),
+            (self.hardened.is_some(), "hardened"),
+            (self.too_soft, "too soft to eat"),
         ]
         .into_iter()
         .filter_map(|(happened, name)| happened.then_some(name))

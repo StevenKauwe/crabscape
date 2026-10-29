@@ -45,6 +45,7 @@
 //! | `spawn=fixture@300,0` | an enemy appears there (tests, crabsim, replays)   |
 //! | `feel=heavy`    | switch to a feel preset (`crabsim::feel`; the game's feel lab) |
 //! | `code=hulk`     | the player typed a code (`crabsim::codes`)               |
+//! | `moult=climbing` | the player moulted, growing that skill's feat (`crabsim::moult`) |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
 //! `tap`, `dodge`, `sprint`, `smash`, `jab`, `block`, `parry`) happen on that one tick. Recorded replays also have a
@@ -62,6 +63,7 @@ use crate::feel::Feel;
 use crate::level::SPAWN;
 use crate::physics::{Controls, TICKS_PER_SECOND};
 use crate::progress::Progress;
+use crate::skills::Skill;
 use crate::tuning::Tuning;
 
 /// The controls from one tick on.
@@ -95,6 +97,8 @@ pub struct Replay {
     pub feels: Vec<(u64, Feel)>,
     /// Codes player 0 typed, in tick order.
     pub codes: Vec<(u64, Code)>,
+    /// Moults player 0 made, in tick order: which skill's feat it grew.
+    pub moults: Vec<(u64, Skill)>,
     /// What player 0's crab had already grown, taken and stored when the
     /// recording started (after a reload), if anything.
     pub progress: Option<Progress>,
@@ -119,6 +123,7 @@ impl Default for Replay {
             spawns: Vec::new(),
             feels: Vec::new(),
             codes: Vec::new(),
+            moults: Vec::new(),
             progress: None,
         }
     }
@@ -206,8 +211,15 @@ impl Replay {
                 let code = Code::parse(w).ok_or_else(|| err(format!("no code `{w}`")))?;
                 replay.codes.push((tick, code));
             }
+            for w in words.iter().filter_map(|w| w.strip_prefix("moult=")) {
+                let skill = crate::moult::parse_skill(w)
+                    .ok_or_else(|| err(format!("no skill `{w}` to moult for")))?;
+                replay.moults.push((tick, skill));
+            }
             words.retain(|w| {
-                !w.starts_with("spawn=") && !w.starts_with("feel=") && !w.starts_with("code=")
+                !["spawn=", "feel=", "code=", "moult="]
+                    .iter()
+                    .any(|p| w.starts_with(p))
             });
             if words.is_empty() {
                 continue; // only spawns: no change to the controls
@@ -255,6 +267,9 @@ impl Replay {
         }
         for (tick, code) in &self.codes {
             out += &format!("@{tick} code={}\n", code.name());
+        }
+        for (tick, skill) in &self.moults {
+            out += &format!("@{tick} moult={}\n", skill.name().to_lowercase());
         }
         let mut before = Controls::default();
         for input in &self.inputs {
@@ -341,6 +356,9 @@ impl Replay {
         }
         for (_, code) in self.codes.iter().filter(|(t, _)| *t == tick) {
             sim.enter_code(crate::PlayerId(0), *code);
+        }
+        for (_, skill) in self.moults.iter().filter(|(t, _)| *t == tick) {
+            sim.moult(crate::PlayerId(0), *skill);
         }
     }
 
@@ -432,6 +450,11 @@ impl Recorder {
     /// A code was entered at `tick`.
     pub fn note_code(&mut self, tick: u64, code: Code) {
         self.replay.codes.push((tick - self.first_tick, code));
+    }
+
+    /// Player 0 moulted at `tick`, growing `skill`'s feat.
+    pub fn note_moult(&mut self, tick: u64, skill: Skill) {
+        self.replay.moults.push((tick - self.first_tick, skill));
     }
 
     /// An enemy appeared at `tick`.
