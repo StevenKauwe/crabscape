@@ -243,7 +243,7 @@ fn follow_crab(
     if inside.on {
         let size = window.size();
         let unit_px = size.x * ortho.scale / ortho.area.width().max(1e-3);
-        let (at, scale) = crate::interior::framing(size, unit_px);
+        let (at, scale) = crate::interior::framing(size, unit_px, inside.moult_row);
         if ortho.scale != scale {
             ortho.scale = scale;
         }

@@ -338,6 +338,24 @@ const ATLAS_PX_PER_UNIT: f32 = 0.6;
 /// Dull and see-through, like a moult: an empty husk, not a crab.
 const CAST_OFF: Color = Color::srgba(0.62, 0.60, 0.58, 0.5);
 
+/// The crab's carapace on its own, from the crab atlas in `style`, `scale`
+/// times its size on the crab, coloured `colour`: a cast-off shell, a
+/// moult's husk, a keepsake.
+pub fn carapace_sprite(assets: &AssetServer, style: ArtStyle, scale: f32, colour: Color) -> Sprite {
+    let atlas = assets.load(match style {
+        ArtStyle::Ink => "crab/crab-atlas.png",
+        ArtStyle::Oil => "crab/crab-atlas-oil.png",
+    });
+    let size = CARAPACE_RECT.size() / ATLAS_PX_PER_UNIT * crate::puppet::ART_SCALE;
+    Sprite {
+        image: atlas,
+        rect: Some(CARAPACE_RECT),
+        custom_size: Some(size * scale),
+        color: colour,
+        ..default()
+    }
+}
+
 /// Draw the local crab's cast-off shells, redrawn whenever they change.
 #[allow(clippy::too_many_arguments)]
 fn show_cast_offs(
