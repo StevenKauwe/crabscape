@@ -159,10 +159,11 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Moult (tucked in at home, well fed, a feat ready) | click "Moult" in the workbench menu ("Next" for another feat) | | tap "Moult" |
 | Make something at the workbench (tucked in at home, the view goes inside and the menu shows; `world.md`) | click "Make" | | tap "Make" |
 | Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
-| Art style (Ink or Oil) | P | | Settings, "Art style": Ink / Oil |
+| Settings (tabs: Game, Graphics, Audio, Co-op; opens on the last tab used) | left / right switch tabs, Esc closes | | "Settings"; tap a tab; tap outside or "Settings" again to close |
+| Art style (Ink or Oil) | P | | Settings, Graphics: Ink / Oil |
 | Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |
-| Enter a code (see Codes) | Enter, type it, Enter (Esc puts it away) | | Settings, "Enter a code" |
-| Start over (wipes this device's saved game) | | | Settings, "Start over", then "Sure? Start over" within 4 s |
+| Enter a code (see Codes) | Enter, type it, Enter (Esc puts it away) | | Settings, Game: "Enter a code" |
+| Start over (wipes this device's saved game) | | | Settings, Game: "Start over", then "Sure? Start over" within 4 s |
 
 ## Codes
 A playful cheat, the owner's idea. Typed codes change only your own crab, go through the sim like the controls (a
