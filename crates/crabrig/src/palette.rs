@@ -52,6 +52,10 @@ pub fn normal() -> Palette {
     p.insert("glassAmber", tri("#FBD58A", "#D9973A", "#8A5418"));
     p.insert("jarGlass", tri("#EAF2EC", "#C8D8D2", "#8BA19C"));
     p.insert("glow", tri("#FFF3B0", "#FFD45E", "#D89A22"));
+    // The crab's gear: a clam's valve (cream, like the clams on the floor, lighter so it reads on the red claw) and
+    // a glass sponge's spicules (icy, a little blue).
+    p.insert("clamValve", tri("#F4EAD2", "#D2C3A2", "#8C7C5E"));
+    p.insert("glassSponge", tri("#F4FCFF", "#C4E6F2", "#6E9FB4"));
     p.insert("line", Mat::One("#CFC7B2".into()));
     // v0.2: the face sits in the shade of the carapace brim (warm, not pale); pale cream undersides on the claws
     p.insert("face", tri("#D98A62", "#B9673F", "#7A3A24"));

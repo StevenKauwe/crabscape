@@ -3,18 +3,18 @@
  "atlas": "crab-atlas.png",
  "atlas_size": [
   1024,
-  512
+  1024
  ],
  "px_per_unit": 0.6,
  "ground": [
-  582.8,
+  588.85,
   508.1
  ],
  "anchors": {
   "lantern": {
    "part": "cheliped-L-propodus-palm",
    "at": [
-    847.01,
+    853.02,
     188.3
    ]
   }
@@ -24,18 +24,18 @@
    "name": "leg-R4-merus",
    "parent": "carapace",
    "pivot": [
-    359.0,
+    365.0,
     295.3
    ],
    "bbox": [
-    219.7,
+    225.7,
     249.4,
     162.0,
     70.5
    ],
    "rect": [
-    481,
-    422,
+    3,
+    478,
     98,
     43
    ],
@@ -48,17 +48,17 @@
    "name": "leg-R4-carpus",
    "parent": "leg-R4-merus",
    "pivot": [
-    241.8,
+    247.8,
     269.3
    ],
    "bbox": [
-    222.7,
+    228.7,
     206.3,
-    67.4,
+    67.5,
     83.0
    ],
    "rect": [
-    499,
+    853,
     364,
     41,
     50
@@ -72,17 +72,17 @@
    "name": "leg-R4-propodus",
    "parent": "leg-R4-carpus",
    "pivot": [
-    271.0,
+    277.1,
     226.3
    ],
    "bbox": [
-    250.3,
+    256.3,
     158.2,
     75.7,
     88.5
    ],
    "rect": [
-    393,
+    747,
     364,
     46,
     54
@@ -96,18 +96,18 @@
    "name": "leg-R4-dactyl-paddle",
    "parent": "leg-R4-propodus",
    "pivot": [
-    300.3,
+    306.3,
     183.3
    ],
    "bbox": [
-    216.3,
+    222.3,
     125.0,
     97.7,
     75.0
    ],
    "rect": [
-    187,
-    422,
+    689,
+    427,
     59,
     45
    ],
@@ -118,25 +118,51 @@
    ]
   },
   {
+   "name": "leg-R4-paddle-broad",
+   "parent": "leg-R4-dactyl-paddle",
+   "pivot": [
+    306.3,
+    183.3
+   ],
+   "bbox": [
+    208.5,
+    104.5,
+    118.4,
+    102.8
+   ],
+   "rect": [
+    733,
+    228,
+    72,
+    62
+   ],
+   "z": 5,
+   "members": [
+    "leg-R4-paddle-broad",
+    "leg-R4-paddle-broad-rib0",
+    "leg-R4-paddle-broad-rib1"
+   ]
+  },
+  {
    "name": "leg-L4-merus",
    "parent": "carapace",
    "pivot": [
-    807.0,
+    813.0,
     295.3
    ],
    "bbox": [
-    782.4,
+    788.4,
     248.1,
     163.4,
     71.3
    ],
    "rect": [
-    249,
-    422,
+    751,
+    427,
     99,
     43
    ],
-   "z": 5,
+   "z": 8,
    "members": [
     "leg-L4-merus"
    ]
@@ -145,22 +171,22 @@
    "name": "leg-L4-carpus",
    "parent": "leg-L4-merus",
    "pivot": [
-    924.1,
+    930.2,
     269.3
    ],
    "bbox": [
-    875.3,
+    881.3,
     207.3,
     69.8,
     81.5
    ],
    "rect": [
-    543,
+    897,
     364,
     42,
     49
    ],
-   "z": 6,
+   "z": 9,
    "members": [
     "leg-L4-carpus"
    ]
@@ -169,22 +195,22 @@
    "name": "leg-L4-propodus",
    "parent": "leg-L4-carpus",
    "pivot": [
-    894.9,
+    900.9,
     226.3
    ],
    "bbox": [
-    839.2,
+    845.2,
     157.5,
     77.2,
     89.8
    ],
    "rect": [
-    187,
+    541,
     364,
     47,
     54
    ],
-   "z": 7,
+   "z": 10,
    "members": [
     "leg-L4-propodus"
    ]
@@ -193,47 +219,73 @@
    "name": "leg-L4-dactyl-paddle",
    "parent": "leg-L4-propodus",
    "pivot": [
-    865.7,
+    871.7,
     183.3
    ],
    "bbox": [
-    852.6,
+    858.6,
     127.0,
     96.7,
     75.5
    ],
    "rect": [
-    125,
-    422,
+    627,
+    427,
     59,
     46
    ],
-   "z": 8,
+   "z": 11,
    "members": [
     "leg-L4-dactyl-paddle",
     "leg-L4-paddle-rib"
    ]
   },
   {
+   "name": "leg-L4-paddle-broad",
+   "parent": "leg-L4-dactyl-paddle",
+   "pivot": [
+    871.7,
+    183.3
+   ],
+   "bbox": [
+    852.7,
+    112.6,
+    118.7,
+    104.7
+   ],
+   "rect": [
+    543,
+    228,
+    72,
+    63
+   ],
+   "z": 13,
+   "members": [
+    "leg-L4-paddle-broad",
+    "leg-L4-paddle-broad-rib0",
+    "leg-L4-paddle-broad-rib1"
+   ]
+  },
+  {
    "name": "leg-R3-merus",
    "parent": "carapace",
    "pivot": [
-    371.0,
+    377.0,
     319.3
    ],
    "bbox": [
-    195.8,
+    201.8,
     294.1,
     198.2,
     92.6
    ],
    "rect": [
-    829,
-    228,
+    174,
+    364,
     119,
     56
    ],
-   "z": 10,
+   "z": 16,
    "members": [
     "leg-R3-merus"
    ]
@@ -242,22 +294,22 @@
    "name": "leg-R3-carpus",
    "parent": "leg-R3-merus",
    "pivot": [
-    217.9,
+    223.9,
     365.7
    ],
    "bbox": [
-    134.8,
+    140.9,
     347.0,
     104.2,
     57.6
    ],
    "rect": [
-    842,
-    422,
+    551,
+    478,
     63,
     35
    ],
-   "z": 11,
+   "z": 17,
    "members": [
     "leg-R3-carpus"
    ]
@@ -266,22 +318,22 @@
    "name": "leg-R3-propodus",
    "parent": "leg-R3-carpus",
    "pivot": [
-    153.0,
+    159.0,
     385.1
    ],
    "bbox": [
-    68.5,
+    74.6,
     366.7,
     103.6,
     58.5
    ],
    "rect": [
-    711,
-    422,
+    389,
+    478,
     63,
     36
    ],
-   "z": 12,
+   "z": 18,
    "members": [
     "leg-R3-propodus"
    ]
@@ -290,46 +342,94 @@
    "name": "leg-R3-dactyl",
    "parent": "leg-R3-propodus",
    "pivot": [
-    83.0,
+    89.0,
     410.1
    ],
    "bbox": [
-    54.2,
+    60.2,
     393.0,
-    44.8,
+    44.9,
     91.6
    ],
    "rect": [
-    3,
+    357,
     364,
     27,
     55
    ],
-   "z": 13,
+   "z": 19,
    "members": [
     "leg-R3-dactyl"
+   ]
+  },
+  {
+   "name": "leg-R3-dactyl-glass",
+   "parent": "leg-R3-dactyl",
+   "pivot": [
+    89.0,
+    410.1
+   ],
+   "bbox": [
+    54.1,
+    421.4,
+    45.3,
+    77.0
+   ],
+   "rect": [
+    323,
+    427,
+    28,
+    47
+   ],
+   "z": 20,
+   "members": [
+    "leg-R3-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-R3-dactyl-hook",
+   "parent": "leg-R3-dactyl",
+   "pivot": [
+    89.0,
+    410.1
+   ],
+   "bbox": [
+    54.3,
+    437.7,
+    46.0,
+    59.0
+   ],
+   "rect": [
+    327,
+    478,
+    28,
+    36
+   ],
+   "z": 21,
+   "members": [
+    "leg-R3-dactyl-hook"
    ]
   },
   {
    "name": "leg-L3-merus",
    "parent": "carapace",
    "pivot": [
-    795.0,
+    801.0,
     319.3
    ],
    "bbox": [
-    771.1,
+    777.2,
     296.0,
     199.3,
     91.2
    ],
    "rect": [
-    33,
+    387,
     364,
     120,
     55
    ],
-   "z": 14,
+   "z": 22,
    "members": [
     "leg-L3-merus"
    ]
@@ -338,22 +438,22 @@
    "name": "leg-L3-carpus",
    "parent": "leg-L3-merus",
    "pivot": [
-    948.1,
+    954.1,
     365.7
    ],
    "bbox": [
-    926.8,
+    932.8,
     346.8,
     105.3,
     56.1
    ],
    "rect": [
-    908,
-    422,
+    617,
+    478,
     64,
     34
    ],
-   "z": 15,
+   "z": 23,
    "members": [
     "leg-L3-carpus"
    ]
@@ -362,22 +462,22 @@
    "name": "leg-L3-propodus",
    "parent": "leg-L3-carpus",
    "pivot": [
-    1013.0,
+    1019.0,
     385.1
    ],
    "bbox": [
-    995.3,
+    1001.4,
     366.6,
-    101.8,
+    101.7,
     58.5
    ],
    "rect": [
-    777,
-    422,
+    455,
+    478,
     62,
     36
    ],
-   "z": 16,
+   "z": 24,
    "members": [
     "leg-L3-propodus"
    ]
@@ -386,46 +486,94 @@
    "name": "leg-L3-dactyl",
    "parent": "leg-L3-propodus",
    "pivot": [
-    1083.0,
+    1089.0,
     410.1
    ],
    "bbox": [
-    1067.2,
+    1073.2,
     392.8,
     44.4,
     91.9
    ],
    "rect": [
-    982,
-    228,
+    327,
+    364,
     27,
     56
    ],
-   "z": 17,
+   "z": 25,
    "members": [
     "leg-L3-dactyl"
+   ]
+  },
+  {
+   "name": "leg-L3-dactyl-glass",
+   "parent": "leg-L3-dactyl",
+   "pivot": [
+    1089.0,
+    410.1
+   ],
+   "bbox": [
+    1078.7,
+    421.0,
+    45.0,
+    76.9
+   ],
+   "rect": [
+    354,
+    427,
+    27,
+    47
+   ],
+   "z": 26,
+   "members": [
+    "leg-L3-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-L3-dactyl-hook",
+   "parent": "leg-L3-dactyl",
+   "pivot": [
+    1089.0,
+    410.1
+   ],
+   "bbox": [
+    1078.4,
+    438.5,
+    45.9,
+    59.1
+   ],
+   "rect": [
+    296,
+    478,
+    28,
+    36
+   ],
+   "z": 27,
+   "members": [
+    "leg-L3-dactyl-hook"
    ]
   },
   {
    "name": "leg-R2-merus",
    "parent": "carapace",
    "pivot": [
-    395.0,
+    401.0,
     335.3
    ],
    "bbox": [
-    211.3,
+    217.3,
     291.3,
     209.0,
     68.3
    ],
    "rect": [
-    582,
-    422,
+    104,
+    478,
     126,
     41
    ],
-   "z": 18,
+   "z": 28,
    "members": [
     "leg-R2-merus"
    ]
@@ -434,22 +582,22 @@
    "name": "leg-R2-carpus",
    "parent": "leg-R2-merus",
    "pivot": [
-    232.6,
+    238.6,
     312.4
    ],
    "bbox": [
-    164.3,
+    170.3,
     290.7,
-    89.5,
+    89.6,
     89.7
    ],
    "rect": [
-    237,
+    591,
     364,
     54,
     54
    ],
-   "z": 19,
+   "z": 29,
    "members": [
     "leg-R2-carpus"
    ]
@@ -458,22 +606,22 @@
    "name": "leg-R2-propodus",
    "parent": "leg-R2-carpus",
    "pivot": [
-    184.0,
+    190.0,
     360.2
    ],
    "bbox": [
-    119.1,
+    125.1,
     340.4,
     83.8,
     98.6
    ],
    "rect": [
-    658,
-    228,
+    3,
+    364,
     51,
     60
    ],
-   "z": 20,
+   "z": 30,
    "members": [
     "leg-R2-propodus"
    ]
@@ -482,46 +630,94 @@
    "name": "leg-R2-dactyl",
    "parent": "leg-R2-propodus",
    "pivot": [
-    134.1,
+    140.2,
     422.9
    ],
    "bbox": [
-    104.0,
+    110.0,
     405.2,
     46.2,
     96.8
    ],
    "rect": [
-    712,
-    228,
+    57,
+    364,
     28,
     59
    ],
-   "z": 21,
+   "z": 31,
    "members": [
     "leg-R2-dactyl"
+   ]
+  },
+  {
+   "name": "leg-R2-dactyl-glass",
+   "parent": "leg-R2-dactyl",
+   "pivot": [
+    140.2,
+    422.9
+   ],
+   "bbox": [
+    103.3,
+    435.7,
+    46.6,
+    78.6
+   ],
+   "rect": [
+    142,
+    427,
+    28,
+    48
+   ],
+   "z": 32,
+   "members": [
+    "leg-R2-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-R2-dactyl-hook",
+   "parent": "leg-R2-dactyl",
+   "pivot": [
+    140.2,
+    422.9
+   ],
+   "bbox": [
+    103.5,
+    453.1,
+    46.7,
+    60.5
+   ],
+   "rect": [
+    264,
+    478,
+    29,
+    37
+   ],
+   "z": 33,
+   "members": [
+    "leg-R2-dactyl-hook"
    ]
   },
   {
    "name": "leg-L2-merus",
    "parent": "carapace",
    "pivot": [
-    771.0,
+    777.0,
     335.3
    ],
    "bbox": [
-    746.4,
+    752.4,
     290.7,
     210.1,
     71.0
    ],
    "rect": [
-    351,
-    422,
+    853,
+    427,
     127,
     43
    ],
-   "z": 22,
+   "z": 34,
    "members": [
     "leg-L2-merus"
    ]
@@ -530,22 +726,22 @@
    "name": "leg-L2-carpus",
    "parent": "leg-L2-merus",
    "pivot": [
-    933.4,
+    939.4,
     312.4
    ],
    "bbox": [
-    912.4,
+    918.5,
     291.5,
-    89.0,
+    88.9,
     88.1
    ],
    "rect": [
-    442,
+    796,
     364,
     54,
     53
    ],
-   "z": 23,
+   "z": 35,
    "members": [
     "leg-L2-carpus"
    ]
@@ -554,22 +750,22 @@
    "name": "leg-L2-propodus",
    "parent": "leg-L2-carpus",
    "pivot": [
-    981.9,
+    988.0,
     360.2
    ],
    "bbox": [
-    962.7,
+    968.7,
     341.7,
-    84.5,
+    84.6,
     96.0
    ],
    "rect": [
-    743,
-    228,
+    88,
+    364,
     51,
     58
    ],
-   "z": 24,
+   "z": 36,
    "members": [
     "leg-L2-propodus"
    ]
@@ -578,46 +774,94 @@
    "name": "leg-L2-dactyl",
    "parent": "leg-L2-propodus",
    "pivot": [
-    1031.8,
+    1037.8,
     422.9
    ],
    "bbox": [
-    1014.9,
+    1020.9,
     405.4,
     46.7,
     96.0
    ],
    "rect": [
-    797,
-    228,
+    142,
+    364,
     29,
     58
    ],
-   "z": 25,
+   "z": 37,
    "members": [
     "leg-L2-dactyl"
+   ]
+  },
+  {
+   "name": "leg-L2-dactyl-glass",
+   "parent": "leg-L2-dactyl",
+   "pivot": [
+    1037.8,
+    422.9
+   ],
+   "bbox": [
+    1027.3,
+    435.6,
+    46.7,
+    78.7
+   ],
+   "rect": [
+    110,
+    427,
+    29,
+    48
+   ],
+   "z": 38,
+   "members": [
+    "leg-L2-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-L2-dactyl-hook",
+   "parent": "leg-L2-dactyl",
+   "pivot": [
+    1037.8,
+    422.9
+   ],
+   "bbox": [
+    1028.3,
+    453.1,
+    45.6,
+    61.1
+   ],
+   "rect": [
+    233,
+    478,
+    28,
+    37
+   ],
+   "z": 39,
+   "members": [
+    "leg-L2-dactyl-hook"
    ]
   },
   {
    "name": "leg-R1-merus",
    "parent": "carapace",
    "pivot": [
-    427.0,
+    433.0,
     351.3
    ],
    "bbox": [
-    255.7,
+    261.7,
     298.5,
     194.7,
     77.2
    ],
    "rect": [
-    695,
-    364,
+    173,
+    427,
     117,
     47
    ],
-   "z": 26,
+   "z": 40,
    "members": [
     "leg-R1-merus"
    ]
@@ -626,22 +870,22 @@
    "name": "leg-R1-carpus",
    "parent": "leg-R1-merus",
    "pivot": [
-    278.3,
+    284.4,
     319.5
    ],
    "bbox": [
-    223.0,
+    229.0,
     300.2,
     75.3,
     88.8
    ],
    "rect": [
-    294,
+    648,
     364,
     46,
     54
    ],
-   "z": 27,
+   "z": 41,
    "members": [
     "leg-R1-carpus"
    ]
@@ -650,22 +894,22 @@
    "name": "leg-R1-propodus",
    "parent": "leg-R1-carpus",
    "pivot": [
-    240.9,
+    246.9,
     370.6
    ],
    "bbox": [
-    189.6,
+    195.7,
     351.8,
-    69.8,
+    69.7,
     101.0
    ],
    "rect": [
-    519,
+    853,
     228,
     42,
     61
    ],
-   "z": 28,
+   "z": 42,
    "members": [
     "leg-R1-propodus"
    ]
@@ -674,46 +918,94 @@
    "name": "leg-R1-dactyl",
    "parent": "leg-R1-propodus",
    "pivot": [
-    204.9,
+    210.9,
     438.7
    ],
    "bbox": [
-    175.7,
+    181.7,
     422.8,
     45.9,
     90.3
    ],
    "rect": [
-    156,
+    510,
     364,
     28,
     55
    ],
-   "z": 29,
+   "z": 43,
    "members": [
     "leg-R1-dactyl"
+   ]
+  },
+  {
+   "name": "leg-R1-dactyl-glass",
+   "parent": "leg-R1-dactyl",
+   "pivot": [
+    210.9,
+    438.7
+   ],
+   "bbox": [
+    176.5,
+    450.0,
+    44.6,
+    77.1
+   ],
+   "rect": [
+    293,
+    427,
+    27,
+    47
+   ],
+   "z": 44,
+   "members": [
+    "leg-R1-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-R1-dactyl-hook",
+   "parent": "leg-R1-dactyl",
+   "pivot": [
+    210.9,
+    438.7
+   ],
+   "bbox": [
+    176.6,
+    467.0,
+    45.6,
+    58.6
+   ],
+   "rect": [
+    358,
+    478,
+    28,
+    36
+   ],
+   "z": 45,
+   "members": [
+    "leg-R1-dactyl-hook"
    ]
   },
   {
    "name": "leg-L1-merus",
    "parent": "carapace",
    "pivot": [
-    739.0,
+    745.0,
     351.3
    ],
    "bbox": [
-    712.8,
+    718.8,
     299.5,
-    197.3,
+    197.4,
     75.6
    ],
    "rect": [
-    3,
-    422,
+    505,
+    427,
     119,
     46
    ],
-   "z": 30,
+   "z": 46,
    "members": [
     "leg-L1-merus"
    ]
@@ -722,22 +1014,22 @@
    "name": "leg-L1-carpus",
    "parent": "leg-L1-merus",
    "pivot": [
-    887.6,
+    893.6,
     319.5
    ],
    "bbox": [
-    867.0,
+    873.0,
     299.3,
-    76.9,
+    77.0,
     88.8
    ],
    "rect": [
-    343,
+    697,
     364,
     47,
     54
    ],
-   "z": 31,
+   "z": 47,
    "members": [
     "leg-L1-carpus"
    ]
@@ -746,22 +1038,22 @@
    "name": "leg-L1-propodus",
    "parent": "leg-L1-carpus",
    "pivot": [
-    925.1,
+    931.1,
     370.6
    ],
    "bbox": [
-    907.5,
+    913.5,
     352.4,
     69.3,
     101.4
    ],
    "rect": [
-    474,
+    808,
     228,
     42,
     61
    ],
-   "z": 32,
+   "z": 48,
    "members": [
     "leg-L1-propodus"
    ]
@@ -770,37 +1062,85 @@
    "name": "leg-L1-dactyl",
    "parent": "leg-L1-propodus",
    "pivot": [
-    961.0,
+    967.1,
     438.7
    ],
    "bbox": [
-    945.0,
+    951.0,
     421.5,
-    45.3,
+    45.4,
     92.6
    ],
    "rect": [
-    951,
-    228,
+    296,
+    364,
     28,
     56
    ],
-   "z": 33,
+   "z": 49,
    "members": [
     "leg-L1-dactyl"
+   ]
+  },
+  {
+   "name": "leg-L1-dactyl-glass",
+   "parent": "leg-L1-dactyl",
+   "pivot": [
+    967.1,
+    438.7
+   ],
+   "bbox": [
+    957.5,
+    450.5,
+    44.0,
+    75.7
+   ],
+   "rect": [
+    475,
+    427,
+    27,
+    46
+   ],
+   "z": 50,
+   "members": [
+    "leg-L1-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-L1-dactyl-hook",
+   "parent": "leg-L1-dactyl",
+   "pivot": [
+    967.1,
+    438.7
+   ],
+   "bbox": [
+    955.6,
+    466.9,
+    46.2,
+    58.5
+   ],
+   "rect": [
+    520,
+    478,
+    28,
+    36
+   ],
+   "z": 51,
+   "members": [
+    "leg-L1-dactyl-hook"
    ]
   },
   {
    "name": "carapace",
    "parent": null,
    "pivot": [
-    582.8,
+    588.85,
     353.85
    ],
    "bbox": [
-    250.9,
+    256.9,
     169.3,
-    663.8,
+    663.9,
     369.1
    ],
    "rect": [
@@ -809,7 +1149,7 @@
     399,
     222
    ],
-   "z": 34,
+   "z": 52,
    "members": [
     "underside-sternum",
     "face-pterygostomial",
@@ -833,11 +1173,11 @@
    "name": "eye-R-stalk",
    "parent": "carapace",
    "pivot": [
-    502.3,
+    508.4,
     305.2
    ],
    "bbox": [
-    409.7,
+    415.7,
     103.6,
     111.4,
     221.0
@@ -848,7 +1188,7 @@
     67,
     133
    ],
-   "z": 44,
+   "z": 62,
    "members": [
     "eye-R-stalk",
     "eye-R-cornea",
@@ -862,11 +1202,11 @@
    "name": "eye-L-stalk",
    "parent": "carapace",
    "pivot": [
-    663.6,
+    669.6,
     305.2
    ],
    "bbox": [
-    634.1,
+    640.1,
     93.1,
     96.1,
     231.3
@@ -877,7 +1217,7 @@
     58,
     139
    ],
-   "z": 50,
+   "z": 68,
    "members": [
     "eye-L-stalk",
     "eye-L-cornea",
@@ -891,22 +1231,22 @@
    "name": "cheliped-L-merus",
    "parent": "carapace",
    "pivot": [
-    703.0,
+    709.0,
     359.3
    ],
    "bbox": [
-    671.9,
+    677.9,
     329.6,
     173.2,
     79.5
    ],
    "rect": [
-    588,
-    364,
+    3,
+    427,
     104,
     48
    ],
-   "z": 60,
+   "z": 78,
    "members": [
     "cheliped-L-merus",
     "cheliped-L-merus-spine0.35",
@@ -917,22 +1257,22 @@
    "name": "cheliped-L-carpus",
    "parent": "cheliped-L-merus",
    "pivot": [
-    820.5,
+    826.5,
     383.7
    ],
    "bbox": [
-    792.1,
+    798.1,
     352.5,
     146.1,
     76.7
    ],
    "rect": [
-    815,
-    364,
+    384,
+    427,
     88,
     47
    ],
-   "z": 63,
+   "z": 81,
    "members": [
     "cheliped-L-carpus",
     "cheliped-L-carpus-spine"
@@ -942,11 +1282,11 @@
    "name": "cheliped-L-propodus-palm",
    "parent": "cheliped-L-carpus",
    "pivot": [
-    907.0,
+    913.0,
     399.3
    ],
    "bbox": [
-    778.7,
+    784.7,
     155.4,
     162.6,
     261.0
@@ -957,7 +1297,7 @@
     98,
     157
    ],
-   "z": 65,
+   "z": 83,
    "members": [
     "cheliped-L-propodus-fixedfinger",
     "cheliped-L-propodus-fixedfinger-tip",
@@ -966,25 +1306,53 @@
    ]
   },
   {
+   "name": "cheliped-L-propodus-guard",
+   "parent": "cheliped-L-propodus-palm",
+   "pivot": [
+    913.0,
+    399.3
+   ],
+   "bbox": [
+    836.1,
+    265.1,
+    111.9,
+    142.2
+   ],
+   "rect": [
+    411,
+    228,
+    68,
+    86
+   ],
+   "z": 88,
+   "members": [
+    "cheliped-L-propodus-guard",
+    "cheliped-L-propodus-guard-rib0",
+    "cheliped-L-propodus-guard-rib1",
+    "cheliped-L-propodus-guard-rib2",
+    "cheliped-L-propodus-guard-rib3"
+   ]
+  },
+  {
    "name": "cheliped-L-dactyl",
    "parent": "cheliped-L-propodus-palm",
    "pivot": [
-    872.8,
+    878.8,
     268.7
    ],
    "bbox": [
-    821.6,
+    827.6,
     133.7,
     76.5,
     160.9
    ],
    "rect": [
-    249,
+    362,
     228,
     46,
     97
    ],
-   "z": 70,
+   "z": 93,
    "members": [
     "cheliped-L-dactyl",
     "cheliped-L-dactyl-tip"
@@ -994,22 +1362,22 @@
    "name": "cheliped-R-merus",
    "parent": "carapace",
    "pivot": [
-    463.0,
+    469.0,
     359.3
    ],
    "bbox": [
-    314.6,
+    320.6,
     322.6,
-    186.0,
+    186.1,
     103.1
    ],
    "rect": [
-    359,
+    618,
     228,
     112,
     62
    ],
-   "z": 72,
+   "z": 95,
    "members": [
     "cheliped-R-merus",
     "cheliped-R-merus-spine0.35",
@@ -1020,22 +1388,22 @@
    "name": "cheliped-R-carpus",
    "parent": "cheliped-R-merus",
    "pivot": [
-    347.5,
+    353.5,
     391.9
    ],
    "bbox": [
-    286.9,
+    292.9,
     355.4,
     95.4,
     136.4
    ],
    "rect": [
-    298,
+    482,
     228,
     58,
     82
    ],
-   "z": 75,
+   "z": 98,
    "members": [
     "cheliped-R-carpus",
     "cheliped-R-carpus-spine"
@@ -1045,22 +1413,22 @@
    "name": "cheliped-R-propodus-palm",
    "parent": "cheliped-R-carpus",
    "pivot": [
-    323.0,
+    329.0,
     455.3
    ],
    "bbox": [
-    308.2,
+    314.2,
     377.8,
-    288.0,
+    288.1,
     170.3
    ],
    "rect": [
-    73,
+    186,
     228,
     173,
     103
    ],
-   "z": 77,
+   "z": 100,
    "members": [
     "cheliped-R-propodus-fixedfinger",
     "cheliped-R-propodus-fixedfinger-tip",
@@ -1071,25 +1439,53 @@
    ]
   },
   {
+   "name": "cheliped-R-propodus-guard",
+   "parent": "cheliped-R-propodus-palm",
+   "pivot": [
+    329.0,
+    455.3
+   ],
+   "bbox": [
+    320.2,
+    370.9,
+    182.1,
+    171.2
+   ],
+   "rect": [
+    73,
+    228,
+    110,
+    103
+   ],
+   "z": 107,
+   "members": [
+    "cheliped-R-propodus-guard",
+    "cheliped-R-propodus-guard-rib0",
+    "cheliped-R-propodus-guard-rib1",
+    "cheliped-R-propodus-guard-rib2",
+    "cheliped-R-propodus-guard-rib3"
+   ]
+  },
+  {
    "name": "cheliped-R-dactyl",
    "parent": "cheliped-R-propodus-palm",
    "pivot": [
-    488.1,
+    494.1,
     434.0
    ],
    "bbox": [
-    449.8,
+    455.8,
     395.9,
     150.6,
     99.9
    ],
    "rect": [
-    564,
+    898,
     228,
     91,
     60
    ],
-   "z": 84,
+   "z": 112,
    "members": [
     "cheliped-R-dactyl",
     "cheliped-R-dactyl-tip"
@@ -1099,22 +1495,22 @@
    "name": "cheliped-R-propodus-scissor",
    "parent": "cheliped-R-propodus-palm",
    "pivot": [
-    323.0,
+    329.0,
     455.3
    ],
    "bbox": [
-    529.3,
+    535.3,
     485.4,
     59.6,
     28.2
    ],
    "rect": [
-    3,
-    471,
+    722,
+    478,
     36,
     17
    ],
-   "z": 86,
+   "z": 114,
    "members": [
     "cheliped-R-propodus-scissor",
     "cheliped-R-propodus-scissor-tooth1",
@@ -1126,22 +1522,22 @@
    "name": "cheliped-R-dactyl-scissor",
    "parent": "cheliped-R-dactyl",
    "pivot": [
-    488.1,
+    494.1,
     434.0
    ],
    "bbox": [
-    521.0,
+    527.0,
     436.6,
     57.8,
     44.3
    ],
    "rect": [
-    975,
-    422,
+    684,
+    478,
     35,
     27
    ],
-   "z": 90,
+   "z": 118,
    "members": [
     "cheliped-R-dactyl-scissor",
     "cheliped-R-dactyl-scissor-tooth1",
@@ -1153,11 +1549,11 @@
    "name": "back-carapace",
    "parent": "carapace",
    "pivot": [
-    583.0,
+    589.0,
     277.2
    ],
    "bbox": [
-    250.8,
+    256.8,
     177.8,
     665.7,
     225.1
@@ -1168,7 +1564,7 @@
     400,
     136
    ],
-   "z": 94,
+   "z": 122,
    "members": [
     "back-underside-sternum",
     "back-abdomen-fold",

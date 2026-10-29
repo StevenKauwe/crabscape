@@ -39,8 +39,18 @@ fn the_game_parts_file_matches_the_rig() {
     )
     .unwrap();
     // 43, plus the two rows of scissor-claw teeth on the crusher (shown in the game once fitted), plus the shell
-    // seen from behind (shown once the crab turns its back).
-    assert_eq!(e.parts, 46);
+    // seen from behind (shown once the crab turns its back), plus the gear and feats shown once fitted or grown:
+    // a clam-shell guard per claw, glass grips and gripping hooks on the six walking legs' tips, a broad paddle on
+    // each paddle.
+    assert_eq!(e.parts, 62);
+    for part in [
+        "cheliped-R-propodus-guard",
+        "leg-L3-dactyl-glass",
+        "leg-R1-dactyl-hook",
+        "leg-L4-paddle-broad",
+    ] {
+        assert!(e.json.contains(&format!(r#""name": "{part}""#)), "{part}");
+    }
     assert!(e.json.contains(r#""name": "back-carapace""#));
     assert!(
         e.json == GAME_JSON,

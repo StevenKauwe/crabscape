@@ -95,12 +95,14 @@ impl Plugin for LanternPlugin {
         // These run after Bevy has worked out every entity's final world
         // position for this frame (`TransformSystems::Propagate`), so the
         // light matches what is about to be drawn.
-        app.init_resource::<Flicker>().add_systems(
-            PostUpdate,
-            (flicker, measure_light, tint_by_light)
-                .chain()
-                .after(TransformSystems::Propagate),
-        );
+        app.init_resource::<Flicker>()
+            .add_systems(Update, fill_jars)
+            .add_systems(
+                PostUpdate,
+                (flicker, measure_light, tint_by_light)
+                    .chain()
+                    .after(TransformSystems::Propagate),
+            );
     }
 }
 
@@ -110,10 +112,39 @@ const GLASS: Color = Color::srgba(0.80, 0.90, 0.85, 0.35);
 const BRASS: Color = Color::srgb(0.45, 0.32, 0.14);
 const CORE: Color = Color::srgb(1.0, 0.95, 0.65);
 
-/// Hang a lantern from `holder` at `at` (in the holder's space). Returns the
-/// entity to turn to swing it; it pivots at the top of its handle.
+/// A speck of culture in crab `crab`'s jar: the `n`th shows once that many
+/// cultures have grown into the lantern, so a brighter lantern reads as a
+/// fuller jar.
+#[derive(Component)]
+struct JarCulture {
+    crab: Entity,
+    n: u32,
+}
+
+/// The glowing middle of crab `crab`'s jar: bigger with each culture.
+#[derive(Component)]
+struct JarCore {
+    crab: Entity,
+}
+
+/// Where the specks of culture sit in the jar (around its middle), in the
+/// order they grow in; more cultures than specks just glow brighter.
+const SPECKS: [Vec2; 4] = [
+    Vec2::new(-2.0, -13.4),
+    Vec2::new(2.1, -11.8),
+    Vec2::new(-1.7, -8.6),
+    Vec2::new(1.9, -7.4),
+];
+/// The cultures' own sea-green glow (as they grow wild in the world), so the
+/// specks stand out from the jar's warm light.
+const SPECK: Color = Color::srgb(0.45, 1.0, 0.82);
+const CORE_SIZE: f32 = 9.0;
+
+/// Hang crab `crab`'s lantern from `holder` at `at` (in the holder's space).
+/// Returns the entity to turn to swing it; it pivots at the top of its handle.
 pub fn spawn_lantern(
     commands: &mut Commands,
+    crab: Entity,
     holder: Entity,
     at: Vec3,
     soft: &SoftTextures,
@@ -144,14 +175,29 @@ pub fn spawn_lantern(
     commands.spawn((
         ChildOf(pivot),
         LightSource,
+        JarCore { crab },
         Sprite {
             image: soft.dot.clone(),
             color: CORE,
-            custom_size: Some(Vec2::splat(9.0)),
+            custom_size: Some(Vec2::splat(CORE_SIZE)),
             ..default()
         },
         Transform::from_translation(jar_middle + Vec3::Z * 0.015),
     ));
+    for (n, at) in (1..).zip(SPECKS) {
+        commands.spawn((
+            ChildOf(pivot),
+            JarCulture { crab, n },
+            Sprite {
+                image: soft.dot.clone(),
+                color: SPECK,
+                custom_size: Some(Vec2::splat(3.6)),
+                ..default()
+            },
+            Transform::from_translation(at.extend(0.018)),
+            Visibility::Hidden,
+        ));
+    }
     // Behind the crab: drawn at a depth between the sea floor and the crab.
     // (The crab is at depth ~10 and the lantern ~11, so -6 lands near 5.)
     commands.spawn((
@@ -204,6 +250,30 @@ fn flicker(
             .color
             .set_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures));
         sprite.custom_size = Some(Vec2::splat(glow.size * reach));
+    }
+}
+
+/// Each crab's jar shows the cultures grown into its lantern: a speck each,
+/// and a bigger glowing middle.
+fn fill_jars(
+    movers: Query<&Mover>,
+    mut specks: Query<(&JarCulture, &mut Visibility)>,
+    mut cores: Query<(&JarCore, &mut Sprite)>,
+) {
+    let cultures = |crab: Entity| movers.get(crab).map_or(0, |m| m.lantern_glow());
+    for (speck, mut shown) in &mut specks {
+        shown.set_if_neq(if cultures(speck.crab) >= speck.n {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+    for (core, mut sprite) in &mut cores {
+        let n = cultures(core.crab).min(SPECKS.len() as u32) as f32;
+        let size = Some(Vec2::splat(CORE_SIZE * (1.0 + 0.18 * n)));
+        if sprite.custom_size != size {
+            sprite.custom_size = size;
+        }
     }
 }
 

@@ -51,10 +51,10 @@ use crate::lantern::{self, Lit, LitTint};
 use crate::player::{Crab, FrameEvents, GameSet};
 use crate::style::ArtStyle;
 use crate::tuning::ViewTuning;
-use crabsim::Fighter;
 use crabsim::Mover;
 use crabsim::Sim;
 use crabsim::combat::{Claw, Phase};
+use crabsim::{Feat, Fighter};
 
 /// The parts list, baked into the game (it is small).
 const PARTS_JSON: &str = include_str!("../assets/crab/crab-parts.json");
@@ -200,13 +200,61 @@ struct Rig {
 #[derive(Component)]
 pub struct ShellOf(pub Entity);
 
-/// A piece of the crab's art that only shows with scissor claws fitted (the
-/// rows of tooth edges on the crusher's fingers, named `...-scissor`), and
-/// the crab it belongs to.
+/// A piece of the crab's art that only shows once its gear is fitted or its
+/// feat grown, and the crab it belongs to.
 #[derive(Component)]
-struct ScissorPiece {
+struct GearPiece {
     crab: Entity,
+    gear: Gear,
 }
+
+/// What a [`GearPiece`] shows, found from its name in the parts file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Gear {
+    /// Scissor claws: the rows of tooth edges on the crusher's fingers
+    /// (`...-scissor`).
+    Scissors,
+    /// Clam-shell guards: a valve over each palm (`...-propodus-guard`).
+    ClamGuards,
+    /// Glass grips: a glass sheath on each walking leg's tip
+    /// (`...-dactyl-glass`).
+    GlassGrips,
+    /// The Climbing feat, gripping dactyls: hooked leg tips
+    /// (`...-dactyl-hook`).
+    Hooks,
+    /// The Swimming feat, broad paddles: a broader blade over each paddle
+    /// (`...-paddle-broad`).
+    BroadPaddles,
+}
+
+impl Gear {
+    fn of_part(name: &str) -> Option<Gear> {
+        [
+            ("-scissor", Gear::Scissors),
+            ("-propodus-guard", Gear::ClamGuards),
+            ("-dactyl-glass", Gear::GlassGrips),
+            ("-dactyl-hook", Gear::Hooks),
+            ("-paddle-broad", Gear::BroadPaddles),
+        ]
+        .into_iter()
+        .find(|(end, _)| name.ends_with(end))
+        .map(|(_, gear)| gear)
+    }
+
+    fn on(self, m: &Mover) -> bool {
+        match self {
+            Gear::Scissors => m.scissor_claw,
+            Gear::ClamGuards => m.clam_guards,
+            Gear::GlassGrips => m.glass_grips,
+            Gear::Hooks => m.has(Feat::GrippingDactyls),
+            Gear::BroadPaddles => m.has(Feat::BroadPaddles),
+        }
+    }
+}
+
+/// How much bigger the crusher's hand is drawn once the heavy crusher feat
+/// has grown (about its wrist, fingers and gear with it).
+const HEAVY_CRUSHER: f32 = 1.25;
 
 /// How long the scissor snap takes when the claw cuts (seconds).
 const SNAP_TIME: f32 = 0.3;
@@ -283,7 +331,7 @@ impl Plugin for PuppetPlugin {
                 animate,
                 shell_look,
                 into_the_dark,
-                show_scissors,
+                show_gear,
             )
                 .chain()
                 .in_set(GameSet::Present),
@@ -464,11 +512,12 @@ fn build_puppets(
                     bright: Color::srgba(1.0, 0.92, 0.78, 1.0),
                 },
             ));
-            // Scissor-claw teeth wait, hidden, until the tooth is fitted.
-            if part.name.ends_with("-scissor") {
+            // Gear (scissor teeth, clam guards, glass grips) and grown feats
+            // wait, hidden, until fitted or grown.
+            if let Some(gear) = Gear::of_part(&part.name) {
                 commands
                     .entity(entity)
-                    .insert((ScissorPiece { crab }, Visibility::Hidden));
+                    .insert((GearPiece { crab, gear }, Visibility::Hidden));
             }
             by_name.insert(&part.name, entity);
         }
@@ -490,7 +539,7 @@ fn build_puppets(
             let holder_def = file.parts.iter().find(|p| p.name == a.part)?;
             let at = file.to_puppet(a.at) - file.to_puppet(holder_def.pivot);
             let rest = at.extend(0.3);
-            let pivot = lantern::spawn_lantern(&mut commands, *holder, rest, &soft, &tuning);
+            let pivot = lantern::spawn_lantern(&mut commands, crab, *holder, rest, &soft, &tuning);
             // So the swing animation keeps it at the fingertip (see `set`).
             commands.entity(pivot).insert(RestPos(rest));
             Some(pivot)
@@ -1406,15 +1455,33 @@ const FLIP_MIDDLE: f32 = 30.0;
 /// turn, so it reads as clinging sideways rather than lying flat).
 const CLIMB_TURN: f32 = 1.45;
 
-/// Show a crab's scissor-claw teeth once the tooth has been fitted.
-fn show_scissors(movers: Query<&Mover>, mut pieces: Query<(&ScissorPiece, &mut Visibility)>) {
+/// Show what a crab has fitted and grown: its gear pieces, and a heavy
+/// crusher drawn bigger.
+fn show_gear(
+    movers: Query<(&Mover, &Rig)>,
+    mut pieces: Query<(&GearPiece, &mut Visibility)>,
+    mut hands: Query<&mut Transform>,
+) {
     for (piece, mut shown) in &mut pieces {
-        let fitted = movers.get(piece.crab).is_ok_and(|m| m.scissor_claw);
+        let fitted = movers.get(piece.crab).is_ok_and(|(m, _)| piece.gear.on(m));
         shown.set_if_neq(if fitted {
             Visibility::Inherited
         } else {
             Visibility::Hidden
         });
+    }
+    for (m, rig) in &movers {
+        let size = if m.has(Feat::HeavyCrusher) {
+            HEAVY_CRUSHER
+        } else {
+            1.0
+        };
+        if let Some(mut hand) = rig.claws[0].0[2].and_then(|e| hands.get_mut(e).ok()) {
+            let scale = Vec3::new(size, size, 1.0);
+            if hand.scale != scale {
+                hand.scale = scale;
+            }
+        }
     }
 }
 
@@ -1487,6 +1554,31 @@ mod tests {
         for i in 0..=100 {
             let v = at(i as f32 / 100.0).view;
             assert!(v.abs() >= 0.2 - 1e-6, "{v} at {i}%");
+        }
+    }
+
+    #[test]
+    fn every_gear_and_feat_has_its_pieces_where_they_belong() {
+        let file = PartsFile::parse();
+        let on = |gear: Gear| -> Vec<(&str, &str)> {
+            file.parts
+                .iter()
+                .filter(|p| Gear::of_part(&p.name) == Some(gear))
+                .map(|p| (p.name.as_str(), p.parent.as_deref().unwrap_or("")))
+                .collect()
+        };
+        assert_eq!(on(Gear::Scissors).len(), 2, "one row per crusher finger");
+        for (gear, count, parent_ends) in [
+            (Gear::ClamGuards, 2, "-propodus-palm"),
+            (Gear::GlassGrips, 6, "-dactyl"),
+            (Gear::Hooks, 6, "-dactyl"),
+            (Gear::BroadPaddles, 2, "4-dactyl-paddle"),
+        ] {
+            let pieces = on(gear);
+            assert_eq!(pieces.len(), count, "{gear:?}: {pieces:?}");
+            for (name, parent) in pieces {
+                assert!(parent.ends_with(parent_ends), "{name} hangs from {parent}");
+            }
         }
     }
 
