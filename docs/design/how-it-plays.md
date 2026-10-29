@@ -46,9 +46,11 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 
 ## Feats and moulting
 A skill at level 5 makes a **feat** ready: a new move, grown only at a moult (`world.md`, Moulting and feats).
-Well fed and tucked into the home shell, a "Moult: grow ..." button moults the crab (one feat per moult). It is soft
-for 90 s of play (a third of that tucked in): half the shell, claws at 60%, no eating. Hardened, the feat is on and
-the shell holds 10 more. The feats (their biology: not verified):
+Well fed and tucked into the home shell, the Moult row at the top of the workbench menu moults the crab (one feat
+per moult; "Next" picks another when several are ready; hungry, it says "Eat a clam first"). The old shell shows over
+the crab, which backs up and out of it through the split at its back; the husk goes up on the shelf as a keepsake (one
+per moult). It is soft for 90 s of play (a third of that tucked in, the row counts it down), drawn pale: half the
+shell, claws at 60%, no eating. Hardened (a warm glow swells round it), the feat is on and the shell holds 10 more. The feats (their biology: not verified):
 - **Gripping dactyls** (Climbing): the leg tips hold kelp and coral so firmly that the paddle legs rest there, as on
   solid ground (drawn from the reserve, like standing). A stalk out in the water becomes a place to get the strokes
   back and swim on up: the coral on the far basin's end wall, and the sixth egg above it, pays off. (Bare rock is the
@@ -154,7 +156,7 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Go into the home shell or a rest-stop crevice to rest (what you carried home is put by the workbench) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
-| Moult (tucked in at home, well fed, a feat ready) | click "Moult: grow ..." | | tap it |
+| Moult (tucked in at home, well fed, a feat ready) | click "Moult" in the workbench menu ("Next" for another feat) | | tap "Moult" |
 | Make something at the workbench (tucked in at home, the view goes inside and the menu shows; `world.md`) | click "Make" | | tap "Make" |
 | Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
 | Art style (Ink or Oil) | P | | Settings, "Art style": Ink / Oil |

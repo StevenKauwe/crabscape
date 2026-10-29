@@ -66,8 +66,9 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   - **Getting ready:** be **well fed** (a clam eaten at home). The moult uses the meal up. (That a crab builds
     reserves before a moult: not verified.)
   - **Moulting:** tucked into the home shell, well fed, with a feat ready, the crab moults to grow **one** ready
-    feat (one per moult; with several ready, it picks). For now a "Moult: grow ..." button shows at home; the
-    inside-your-home view will have a Moult row instead.
+    feat (one per moult; with several ready, "Next" picks), from the Moult row at the top of the workbench menu.
+    The crab backs out of its old shell, which stays in the home: a **keepsake** on the shelf along the back wall,
+    one per moult. Soft, the crab is drawn pale until the new shell hardens.
   - **Soft for a while:** 90 s of play out in the open, a third of that resting tucked in. Soft, the shell holds
     half as much, the claws hit at 60% and it eats nothing (eggs, clams, bodies: "Too soft to eat yet"). Going out
     early is allowed, at its own risk; dying soft, it wakes still soft. "Soft shell 1:12" under the shell bar

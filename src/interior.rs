@@ -13,10 +13,14 @@
 //! shapes as the home outside; the crab's own puppet is drawn there while it
 //! rests, and the camera frames it in the part of the screen the menu
 //! leaves free.
+//!
+//! The menu's first row is the moult (when a feat is ready, or the crab is
+//! soft from one): pick a feat, moult through the sim ([`Sim::moult`]), and
+//! the shed shells stay on a shelf as keepsakes, one per moult.
 
 use bevy::prelude::*;
 use crabsim::level::Place;
-use crabsim::{CantMake, Material, Mover, RECIPES, Recipe, Shelter, Sim, Stash};
+use crabsim::{CantMake, Feat, Material, Mover, RECIPES, Recipe, Shelter, Sim, Stash};
 
 use crate::effects::SoftTextures;
 use crate::home::OUT_OF_SIGHT;
@@ -58,6 +62,42 @@ const WILD: Color = Color::srgb(0.35, 0.95, 0.80);
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Inside {
     pub on: bool,
+    /// The menu has its moult row (a feat is ready, or the crab is soft).
+    pub moult_row: bool,
+}
+
+/// Which of the ready feats the moult row offers (cycled by its "Next"
+/// button; wraps round the list).
+#[derive(Resource, Default)]
+struct Pick(usize);
+
+/// The keepsakes: each moult's shed shell on the shelf along the back wall,
+/// this much smaller than on the crab, dull and a little see-through.
+pub const KEEPSAKE_SCALE: f32 = 0.45;
+pub const KEEPSAKE: Color = Color::srgba(0.86, 0.78, 0.72, 0.75);
+/// How many keepsakes the shelf shows (two rows); more moults than that
+/// keep the shelf full.
+const KEEPSAKES: usize = 7;
+
+/// Where keepsake `i` sits, in the world: along the back wall, on the
+/// shelf the grit builds there, then a second row above.
+pub fn keepsake_at(i: usize) -> Vec2 {
+    let i = i.min(KEEPSAKES - 1);
+    let (row, n) = if i < 4 { (0, i) } else { (1, i - 4) };
+    let x = -46.0 + n as f32 * 40.0 + row as f32 * 20.0;
+    let y = 128.0 + row as f32 * 30.0 + if n % 2 == 1 { 3.0 } else { 0.0 };
+    ORIGIN + Vec2::new(x, y)
+}
+
+/// How keepsake `i` leans (radians).
+pub fn keepsake_tilt(i: usize) -> f32 {
+    if i.is_multiple_of(2) { -0.12 } else { 0.08 }
+}
+
+/// The moult row is wanted: a feat ready to grow, or a soft crab growing
+/// one (the row says how long until it hardens).
+fn wants_moult_row(m: &Mover, sim: &Sim) -> bool {
+    m.is_soft() || !m.ready_feats(&sim.tuning).is_empty()
 }
 
 pub struct InteriorPlugin;
@@ -65,6 +105,7 @@ pub struct InteriorPlugin;
 impl Plugin for InteriorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Inside>()
+            .init_resource::<Pick>()
             .add_systems(Startup, spawn_scene)
             .add_systems(Update, press.in_set(GameSet::Input))
             // Once the crabs are placed for this frame, before anything is
@@ -78,7 +119,13 @@ impl Plugin for InteriorPlugin {
             )
             .add_systems(
                 Update,
-                (show_scene, fill_scene, lay_out_menu, show_menu)
+                (
+                    show_scene,
+                    fill_scene,
+                    lay_out_menu,
+                    show_menu,
+                    show_moult_row,
+                )
                     .chain()
                     .in_set(GameSet::Present),
             );
@@ -94,8 +141,10 @@ fn inside(mover: &Mover, sim: &Sim) -> bool {
 /// Is the local crab inside? (Everything else here follows this.)
 fn look_inside(sim: Res<Sim>, crab: Query<&Mover, With<LocalPlayer>>, mut state: ResMut<Inside>) {
     let on = crab.single().is_ok_and(|m| inside(m, &sim));
-    if state.on != on {
-        state.on = on;
+    let moult_row = crab.single().is_ok_and(|m| wants_moult_row(m, &sim));
+    let now = Inside { on, moult_row };
+    if *state != now {
+        *state = now;
     }
 }
 
@@ -115,8 +164,8 @@ fn place_crab(inside: Res<Inside>, mut crab: Query<&mut Transform, With<LocalPla
 /// Where the camera looks, and how far it zooms, to frame the cut-away in
 /// the part of a `window`-sized screen the menu leaves free. `unit_px` is
 /// how many pixels a world unit takes at zoom 1.
-pub fn framing(window: Vec2, unit_px: f32) -> (Vec2, f32) {
-    let free = layout(window).scene;
+pub fn framing(window: Vec2, unit_px: f32, moult_row: bool) -> (Vec2, f32) {
+    let free = layout(window, moult_row).scene;
     let k = (free.width() / SCENE_SIZE.x).min(free.height() / SCENE_SIZE.y);
     let scale = unit_px / k.max(1e-3);
     let middle = ORIGIN + SCENE_MIDDLE;
@@ -262,6 +311,8 @@ struct Shown {
     larder: u32,
     stash: Stash,
     stage: u32,
+    keepsakes: usize,
+    style: crate::style::ArtStyle,
 }
 
 /// Redraw the larder, the workbench's things and the home's stages when
@@ -271,6 +322,9 @@ fn fill_scene(
     mut commands: Commands,
     sim: Res<Sim>,
     soft: Res<SoftTextures>,
+    assets: Res<AssetServer>,
+    style: Res<crate::style::ArtStyle>,
+    on_its_way: Res<crate::moult::HuskOnItsWay>,
     me: Query<&PlayerId, With<LocalPlayer>>,
     scene: Query<Entity, With<Scene>>,
     drawn: Query<Entity, With<Changing>>,
@@ -288,6 +342,11 @@ fn fill_scene(
         larder: crab.larder,
         stash: crab.stash,
         stage: crab.home_stage(&sim.tuning),
+        // One per moult, the one still growing too (its husk was shed),
+        // except a husk still on its way to the shelf.
+        keepsakes: (crab.mover.moults as usize + usize::from(crab.mover.growing.is_some()))
+            .saturating_sub(usize::from(on_its_way.0)),
+        style: *style,
     };
     if *shown == Some(now) {
         return;
@@ -392,10 +451,38 @@ fn fill_scene(
         let half = Mesh::from(CircularSector::new(7.0, std::f32::consts::FRAC_PI_2));
         parts.push((half, VALVE, at, 1.2 + i as f32 * 0.01, 0.0));
     }
+    // The keepsakes' ledges: a strip of packed grit under each row in use.
+    let shown_keepsakes = now.keepsakes.min(KEEPSAKES);
+    for (row, first, last) in [(0, 0, 3), (1, 4, KEEPSAKES - 1)] {
+        if shown_keepsakes > first {
+            let a = keepsake_at(first) - ORIGIN;
+            let b = keepsake_at(last.min(shown_keepsakes - 1)) - ORIGIN;
+            let y = 128.0 + row as f32 * 30.0 - 12.0;
+            let middle = Vec2::new((a.x + b.x) / 2.0, y);
+            parts.push(rect(
+                middle,
+                Vec2::new(b.x - a.x + 44.0, 5.0),
+                FLARE,
+                0.44,
+                0.0,
+            ));
+        }
+    }
     commands.entity(scene).with_children(|p| {
         let mut changing = p.spawn((Changing, Transform::default(), Visibility::Inherited));
         changing.with_children(|p| {
             spawn_parts(p, parts, &mut meshes, &mut materials);
+            // Keepsakes: each moult's shed shell on the shelf, a little
+            // askew, the newest last.
+            for i in 0..now.keepsakes.min(KEEPSAKES) {
+                let at = keepsake_at(i) - ORIGIN;
+                let tilt = keepsake_tilt(i);
+                p.spawn((
+                    crate::home::carapace_sprite(&assets, now.style, KEEPSAKE_SCALE, KEEPSAKE),
+                    Transform::from_translation(at.extend(0.45))
+                        .with_rotation(Quat::from_rotation_z(tilt)),
+                ));
+            }
             for i in 0..s.cultures.min(3) {
                 let at = Vec2::new(116.0 + i as f32 * 14.0, 34.0);
                 for (size, alpha) in [(34.0, 0.35), (13.0, 0.95)] {
@@ -422,6 +509,10 @@ const HEADER: f32 = 44.0;
 const PAD: f32 = 10.0;
 const MAKE_W: f32 = 72.0;
 const MAKE_H: f32 = 34.0;
+/// The moult row (in place of the header: a little taller, so its buttons
+/// fit) and its Next button's width.
+const MOULT_ROW: f32 = 50.0;
+const NEXT_W: f32 = 52.0;
 /// The menu's width on a wide screen: as wide as on an upright phone, so
 /// each row's name and needs fit on one line and its description on two.
 const WIDTH: f32 = 410.0;
@@ -430,6 +521,9 @@ const WIDTH: f32 = 410.0;
 /// and the part of the screen left for the cut-away.
 struct Layout {
     panel: Rect,
+    /// The moult row in place of the header, when it shows: the row, its
+    /// Moult button and its Next button (to pick another ready feat).
+    moult: Option<(Rect, Rect, Rect)>,
     /// Each recipe's row and its Make button, in [`RECIPES`]' order.
     rows: Vec<(Rect, Rect)>,
     scene: Rect,
@@ -440,8 +534,9 @@ fn touch_button(window: Vec2) -> f32 {
     (window.min_element() * 0.18).clamp(56.0, 96.0)
 }
 
-fn layout(window: Vec2) -> Layout {
-    let height = HEADER + RECIPES.len() as f32 * ROW + PAD;
+fn layout(window: Vec2, moult_row: bool) -> Layout {
+    let top_row = if moult_row { MOULT_ROW } else { HEADER };
+    let height = top_row + RECIPES.len() as f32 * ROW + PAD;
     let b = touch_button(window);
     let (panel, scene) = if window.x < 600.0 {
         // A phone held upright: across the screen, just above the jump
@@ -454,7 +549,7 @@ fn layout(window: Vec2) -> Layout {
         // HUD's two lines of keys (on a short screen, a phone held sideways,
         // left of the jump and dodge buttons and as high as it fits).
         let (right, top) = if window.y < 520.0 {
-            (window.x - 18.0 - 2.25 * b - 12.0, 60.0)
+            (window.x - 18.0 - 2.25 * b - 12.0, 56.0)
         } else {
             (window.x - 10.0, 76.0)
         };
@@ -463,7 +558,7 @@ fn layout(window: Vec2) -> Layout {
     };
     let rows = (0..RECIPES.len())
         .map(|i| {
-            let y = panel.min.y + HEADER + i as f32 * ROW;
+            let y = panel.min.y + top_row + i as f32 * ROW;
             let row = Rect::new(panel.min.x, y, panel.max.x, y + ROW);
             let make = Rect::new(
                 row.max.x - PAD - MAKE_W,
@@ -474,7 +569,24 @@ fn layout(window: Vec2) -> Layout {
             (row, make)
         })
         .collect();
-    Layout { panel, rows, scene }
+    let moult = moult_row.then(|| {
+        let row = Rect::new(
+            panel.min.x,
+            panel.min.y,
+            panel.max.x,
+            panel.min.y + MOULT_ROW,
+        );
+        let y = row.min.y + (MOULT_ROW - MAKE_H) / 2.0;
+        let go = Rect::new(row.max.x - PAD - MAKE_W, y, row.max.x - PAD, y + MAKE_H);
+        let next = Rect::new(go.min.x - 8.0 - NEXT_W, y, go.min.x - 8.0, y + MAKE_H);
+        (row, go, next)
+    });
+    Layout {
+        panel,
+        moult,
+        rows,
+        scene,
+    }
 }
 
 #[derive(Component)]
@@ -493,6 +605,21 @@ struct Make(Recipe);
 
 #[derive(Component)]
 struct MakeText(Recipe);
+
+/// The moult row's buttons.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum MoultButton {
+    Next,
+    Go,
+}
+
+/// The moult row's words: beside its title, under it, and on a button.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum MoultText {
+    Head,
+    Line,
+    Button(MoultButton),
+}
 
 fn text(words: impl Into<String>, size: f32, colour: Color) -> impl Bundle {
     (
@@ -526,18 +653,19 @@ fn at(r: Rect, origin: Vec2) -> Node {
 fn lay_out_menu(
     mut commands: Commands,
     window: Single<&Window>,
+    inside: Res<Inside>,
     menus: Query<Entity, With<Menu>>,
-    mut laid: Local<Option<Vec2>>,
+    mut laid: Local<Option<(Vec2, bool)>>,
 ) {
     let size = window.size();
-    if *laid == Some(size) {
+    if *laid == Some((size, inside.moult_row)) {
         return;
     }
-    *laid = Some(size);
+    *laid = Some((size, inside.moult_row));
     for m in &menus {
         commands.entity(m).despawn();
     }
-    let l = layout(size);
+    let l = layout(size, inside.moult_row);
     let o = l.panel.min;
     commands
         .spawn((
@@ -552,23 +680,72 @@ fn lay_out_menu(
             Visibility::Hidden,
         ))
         .with_children(|p| {
-            let head = Rect::new(o.x + PAD, o.y + 8.0, l.panel.max.x - PAD, o.y + 26.0);
-            p.spawn((at(head, o), text("The workbench", 15.0, INK)));
-            p.spawn((
-                LarderText,
-                Node {
-                    position_type: PositionType::Absolute,
-                    right: px(PAD),
-                    top: px(10.0),
-                    ..default()
-                },
-                text("", 12.0, DIM),
-            ));
-            let hint = Rect::new(o.x + PAD, o.y + 26.0, l.panel.max.x - PAD, o.y + HEADER);
-            p.spawn((
-                at(hint, o),
-                text("Walk out, jump or dodge to leave.", 11.0, DIM),
-            ));
+            if let Some((row, go, next)) = l.moult {
+                // The moult row, in place of the header: what it would grow
+                // (or why not yet), and the Next and Moult buttons.
+                let words = Rect::new(
+                    row.min.x + PAD,
+                    row.min.y + 7.0,
+                    next.min.x - 8.0,
+                    row.max.y,
+                );
+                p.spawn((Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(2.0),
+                    ..at(words, o)
+                },))
+                    .with_children(|w| {
+                        w.spawn(Node {
+                            flex_direction: FlexDirection::Row,
+                            column_gap: px(8.0),
+                            align_items: AlignItems::Baseline,
+                            ..default()
+                        })
+                        .with_children(|line| {
+                            line.spawn(text("Moult", 15.0, INK));
+                            line.spawn((MoultText::Head, text("", 11.5, DIM)));
+                        });
+                        w.spawn((MoultText::Line, text("", 11.0, DIM)));
+                    });
+                for (button, r, word) in [
+                    (MoultButton::Next, next, "Next"),
+                    (MoultButton::Go, go, "Moult"),
+                ] {
+                    p.spawn((
+                        button,
+                        Node {
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            border: UiRect::all(px(1.5)),
+                            border_radius: BorderRadius::all(px(MAKE_H / 2.0)),
+                            ..at(r, o)
+                        },
+                        BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
+                        BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                    ))
+                    .with_children(|b| {
+                        b.spawn((MoultText::Button(button), text(word, 13.0, INK)));
+                    });
+                }
+            } else {
+                let head = Rect::new(o.x + PAD, o.y + 8.0, l.panel.max.x - PAD, o.y + 26.0);
+                p.spawn((at(head, o), text("The workbench", 15.0, INK)));
+                p.spawn((
+                    LarderText,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        right: px(PAD),
+                        top: px(10.0),
+                        ..default()
+                    },
+                    text("", 12.0, DIM),
+                ));
+                let hint = Rect::new(o.x + PAD, o.y + 26.0, l.panel.max.x - PAD, o.y + HEADER);
+                p.spawn((
+                    at(hint, o),
+                    text("Walk out, jump or dodge to leave.", 11.0, DIM),
+                ));
+            }
             for (def, (row, make)) in RECIPES.iter().zip(&l.rows) {
                 // A faint line between rows.
                 p.spawn((
@@ -619,6 +796,62 @@ fn lay_out_menu(
                 });
             }
         });
+}
+
+/// What the moult row says and offers.
+#[derive(Debug, PartialEq)]
+struct MoultOffer {
+    /// Beside the title, and its colour.
+    head: String,
+    ready: bool,
+    /// The line under it.
+    line: String,
+    /// The feat a press of Moult grows, if it can now.
+    grow: Option<Feat>,
+    /// More than one feat is ready: the Next button picks another.
+    choice: bool,
+}
+
+fn moult_offer(sim: &Sim, id: crabsim::PlayerId, pick: usize) -> Option<MoultOffer> {
+    let crab = sim.crab(id)?;
+    let m = &crab.mover;
+    let t = &sim.tuning;
+    if m.is_soft() {
+        // Resting tucked in, it hardens a few times as fast.
+        let secs = m
+            .soft
+            .div_ceil(t.moult.harden_tucked.max(1) * crabsim::TICKS_PER_SECOND);
+        return Some(MoultOffer {
+            head: m
+                .growing
+                .map_or("soft".into(), |f| format!("growing {}", f.name())),
+            ready: false,
+            line: format!("Hardens in {}:{:02}, resting here.", secs / 60, secs % 60),
+            grow: None,
+            choice: false,
+        });
+    }
+    let ready = m.ready_feats(t);
+    let feat = *ready.get(pick % ready.len().max(1))?;
+    let can = sim.can_moult(id);
+    let line = if can {
+        feat.does().to_string()
+    } else if m.well_fed == 0 {
+        format!(
+            "Eat a clam first, then moult (larder: {} of {}).",
+            crab.larder,
+            crab.larder_holds(t)
+        )
+    } else {
+        feat.does().to_string()
+    };
+    Some(MoultOffer {
+        head: format!("grow {}", feat.name()),
+        ready: can,
+        line,
+        grow: can.then_some(feat),
+        choice: ready.len() > 1,
+    })
 }
 
 /// "shed tooth 1/1, ...": what a recipe needs, against what's at the
@@ -713,8 +946,72 @@ fn show_menu(
     }
 }
 
-/// A tap or click on a Make button: make it, through the sim. Not while
-/// the settings panel is open over the menu.
+/// The moult row's words and buttons, from the sim.
+fn show_moult_row(
+    sim: Res<Sim>,
+    pick: Res<Pick>,
+    me: Query<&PlayerId, With<LocalPlayer>>,
+    mut words: Query<(&MoultText, &mut Text, &mut TextColor)>,
+    mut buttons: Query<(
+        &MoultButton,
+        &mut BackgroundColor,
+        &mut BorderColor,
+        &mut Visibility,
+    )>,
+) {
+    let Some(offer) = me
+        .single()
+        .ok()
+        .and_then(|id| moult_offer(&sim, *id, pick.0))
+    else {
+        return;
+    };
+    for (which, mut t, mut colour) in &mut words {
+        let (w, c) = match which {
+            MoultText::Head => (offer.head.as_str(), if offer.ready { HAVE } else { DIM }),
+            MoultText::Line => (offer.line.as_str(), DIM),
+            MoultText::Button(MoultButton::Next) => ("Next", INK),
+            MoultText::Button(MoultButton::Go) => (
+                "Moult",
+                if offer.ready {
+                    INK
+                } else {
+                    Color::srgba(1.0, 0.9, 0.7, 0.35)
+                },
+            ),
+        };
+        if t.0 != w {
+            t.0 = w.to_string();
+        }
+        colour.set_if_neq(TextColor(c));
+    }
+    for (which, mut bg, mut border, mut shown) in &mut buttons {
+        let (on, show) = match which {
+            MoultButton::Go => (offer.ready, true),
+            MoultButton::Next => (false, offer.choice),
+        };
+        bg.set_if_neq(BackgroundColor(if on {
+            Color::srgba(0.35, 0.55, 0.6, 0.75)
+        } else {
+            Color::srgba(0.05, 0.12, 0.14, 0.45)
+        }));
+        let edge = if on || *which == MoultButton::Next {
+            0.55
+        } else {
+            0.18
+        };
+        border.set_if_neq(BorderColor::all(Color::srgba(1.0, 0.85, 0.55, edge)));
+        shown.set_if_neq(if show {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+}
+
+/// A tap or click on a Make button or the moult row's: make it, or moult,
+/// through the sim. Not while the settings panel is open over the menu.
+#[allow(clippy::too_many_arguments)]
 fn press(
     inside: Res<Inside>,
     settings: Res<crate::settings::panel::Open>,
@@ -722,6 +1019,7 @@ fn press(
     touches: Res<Touches>,
     window: Single<&Window>,
     mut sim: ResMut<Sim>,
+    mut pick: ResMut<Pick>,
     me: Query<&PlayerId, With<LocalPlayer>>,
 ) {
     if !inside.on || settings.is_open() {
@@ -736,8 +1034,21 @@ fn press(
     {
         taps.push(p);
     }
-    let l = layout(window.size());
+    let l = layout(window.size(), inside.moult_row);
     for p in taps {
+        if let Some((_, go, next)) = l.moult
+            && let Some(offer) = moult_offer(&sim, *id, pick.0)
+        {
+            if go.inflate(3.0).contains(p)
+                && let Some(feat) = offer.grow
+            {
+                let done = sim.moult(*id, feat.skill());
+                info!("moult: {} -> {done}", feat.name());
+                pick.0 = 0;
+            } else if offer.choice && next.inflate(3.0).contains(p) {
+                pick.0 += 1;
+            }
+        }
         for (def, (_, make)) in RECIPES.iter().zip(&l.rows) {
             if make.inflate(6.0).contains(p) {
                 let _ = sim.make(*id, def.recipe);
@@ -759,34 +1070,66 @@ mod tests {
             Vec2::new(1024.0, 700.0),
             Vec2::new(1440.0, 900.0),
         ] {
-            let l = layout(window);
-            let screen = Rect::from_corners(Vec2::ZERO, window);
-            assert!(
-                screen.contains(l.panel.min) && screen.contains(l.panel.max),
-                "the menu fits at {window}"
-            );
-            assert!(l.scene.intersect(l.panel).is_empty(), "{window}");
-            assert!(
-                l.scene.height() > 150.0,
-                "room for the cut-away at {window}"
-            );
-            for (row, make) in &l.rows {
+            for moult_row in [false, true] {
+                let l = layout(window, moult_row);
+                let screen = Rect::from_corners(Vec2::ZERO, window);
                 assert!(
-                    make.width() >= 44.0 && make.height() >= 32.0,
-                    "a thumb fits"
+                    screen.contains(l.panel.min) && screen.contains(l.panel.max),
+                    "the menu fits at {window}"
                 );
-                assert!(row.contains(make.min) && row.contains(make.max));
+                assert!(l.scene.intersect(l.panel).is_empty(), "{window}");
+                assert!(
+                    l.scene.height() > 150.0,
+                    "room for the cut-away at {window}"
+                );
+                for (row, make) in &l.rows {
+                    assert!(
+                        make.width() >= 44.0 && make.height() >= 32.0,
+                        "a thumb fits"
+                    );
+                    assert!(row.contains(make.min) && row.contains(make.max));
+                }
+                assert_eq!(l.moult.is_some(), moult_row);
+                if let Some((row, go, next)) = l.moult {
+                    for b in [go, next] {
+                        assert!(b.width() >= 44.0 && b.height() >= 32.0, "a thumb fits");
+                        assert!(row.contains(b.min) && row.contains(b.max));
+                    }
+                    assert!(next.max.x + 6.0 <= go.min.x, "Next and Moult apart");
+                    assert!(row.max.y <= l.rows[0].0.min.y, "above the recipes");
+                }
             }
         }
+    }
+
+    #[test]
+    fn the_moult_row_offers_what_the_sim_allows() {
+        use crabsim::{PlayerId, Skill};
+        let mut sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let id = PlayerId(0);
+        // Nothing ready: no offer to grow anything.
+        assert_eq!(moult_offer(&sim, id, 0), None);
+        let t = sim.tuning.clone();
+        let feat_xp = |s: Skill| crabsim::skills::xp_for(t.moult.feat_level, s.step(&t));
+        let m = &mut sim.crab_mut(id).unwrap().mover;
+        m.climb_xp = feat_xp(Skill::Climbing);
+        m.swim_xp = feat_xp(Skill::Swimming);
+        let hungry = moult_offer(&sim, id, 0).unwrap();
+        assert!(hungry.grow.is_none() && hungry.line.starts_with("Eat a clam first"));
+        assert!(hungry.choice, "two feats ready: Next picks between them");
+        let first = moult_offer(&sim, id, 0).unwrap().head;
+        let second = moult_offer(&sim, id, 1).unwrap().head;
+        assert_ne!(first, second);
+        assert_eq!(moult_offer(&sim, id, 2).unwrap().head, first, "wraps round");
     }
 
     #[test]
     fn the_framing_puts_the_cut_away_in_the_free_part() {
         let window = Vec2::new(430.0, 742.0);
         let unit_px = 1.0;
-        let (centre, scale) = framing(window, unit_px);
+        let (centre, scale) = framing(window, unit_px, false);
         let k = unit_px / scale;
-        let free = layout(window).scene;
+        let free = layout(window, false).scene;
         // Where the scene's middle lands on screen.
         let middle = ORIGIN + SCENE_MIDDLE;
         let px = Vec2::new(
