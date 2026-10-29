@@ -4,7 +4,7 @@ use regex::Regex;
 
 use crate::crab::{Pose, build_front};
 use crate::geom::*;
-use crate::item::{Kind, transform_items};
+use crate::item::{Item, Kind, transform_items};
 use crate::palette;
 use crate::svg::{ItemsOpt, SvgOut, Text, fixed1};
 
@@ -70,7 +70,25 @@ pub fn parent_of(id: &str) -> String {
 
 /// `crab-parts.svg` for a pose (the hero pose for the game).
 pub fn parts_svg(pose: &Pose) -> String {
-    let items = build_front(pose);
+    write(
+        build_front(pose),
+        "<!-- CrabScape player crab: rig-ready cut-out parts, front (in-game) view, neutral pose.
+  One <g> per part. data-pivot = the joint this part rotates about (its proximal end), in this file's pixels.
+  data-parent = the part it hangs from. Draw order = document order. R/L = the crab's own right/left
+  (R is screen-left in this view). Legs: 1-3 walking legs, 4 = swimming paddle (the 5th pereiopod). -->",
+        "CrabScape player crab · rig parts (front view)",
+        parent_of,
+    )
+}
+
+/// A rig-ready parts file: `items` (in their own space) drawn at twice their size, one `<g>` per item with its
+/// parent (`parent_of`) and pivot, under a `comment` and a `title`.
+pub fn write(
+    items: Vec<Item>,
+    comment: &str,
+    title: &str,
+    parent_of: fn(&str) -> String,
+) -> String {
     let b = bbox(
         items
             .iter()
@@ -88,16 +106,11 @@ pub fn parts_svg(pose: &Pose) -> String {
         })
         .collect();
     let mut s = SvgOut::new(w, h, None);
-    s.raw(
-        "<!-- CrabScape player crab: rig-ready cut-out parts, front (in-game) view, neutral pose.
-  One <g> per part. data-pivot = the joint this part rotates about (its proximal end), in this file's pixels.
-  data-parent = the part it hangs from. Draw order = document order. R/L = the crab's own right/left
-  (R is screen-left in this view). Legs: 1-3 walking legs, 4 = swimming paddle (the 5th pereiopod). -->",
-    );
+    s.raw(comment);
     s.text(
         20.0,
         40.0,
-        "CrabScape player crab · rig parts (front view)",
+        title,
         &Text {
             size: 22.0,
             family: "Nimbus Sans, sans-serif",

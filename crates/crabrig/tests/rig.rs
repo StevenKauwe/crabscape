@@ -1,10 +1,13 @@
-//! The puppet still draws the committed rig, the game's parts file matches it, and every view has its limbs.
+//! The puppets still draw the committed rigs, the game's parts files match them, and every view has its limbs.
 
 use crabrig::crab::{View, base_pose, build_front};
 use std::collections::BTreeSet;
 
 const RIG: &str = include_str!("../../../art/crab/crab-parts.svg");
 const GAME_JSON: &str = include_str!("../../../assets/crab/crab-parts.json");
+const SHRIMP_RIG: &str =
+    include_str!("../../../art/creatures/snapping-shrimp/snapping-shrimp-parts.svg");
+const SHRIMP_JSON: &str = include_str!("../../../assets/creatures/snapping-shrimp-parts.json");
 
 #[test]
 fn the_puppet_draws_the_committed_rig() {
@@ -22,6 +25,7 @@ fn the_game_parts_file_matches_the_rig() {
         &crabrig::export::Options {
             zoom: 1.0,
             source_name: "art/crab/crab-parts.svg".into(),
+            name: "crab".into(),
         },
     )
     .unwrap();
@@ -62,4 +66,34 @@ fn ten_legs_in_every_view() {
     // 2 claws + 6 walking legs + 2 swimming paddles
     assert_eq!(counts(View::Front), (8, 2));
     assert_eq!(counts(View::Back), (8, 2));
+}
+
+#[test]
+fn the_shrimp_draws_its_committed_rig() {
+    // Changed it on purpose: `cargo run -p crabrig --profile art -- parts --creature snapping-shrimp`, then
+    // `-- export --creature snapping-shrimp`.
+    assert!(
+        crabrig::shrimp::parts_svg() == SHRIMP_RIG,
+        "art/creatures/snapping-shrimp/snapping-shrimp-parts.svg is out of date with crates/crabrig"
+    );
+}
+
+#[test]
+fn the_game_shrimp_parts_file_matches_its_rig() {
+    let e = crabrig::export::export(
+        SHRIMP_RIG,
+        &crabrig::export::Options {
+            zoom: 1.0,
+            source_name: "art/creatures/snapping-shrimp/snapping-shrimp-parts.svg".into(),
+            name: "snapping-shrimp".into(),
+        },
+    )
+    .unwrap();
+    // Carapace, abdomen, snapper claw and its finger, two feelers, two far legs and the small claw.
+    assert_eq!(e.parts, 9);
+    assert!(
+        e.json == SHRIMP_JSON,
+        "assets/creatures/snapping-shrimp-parts.json is out of date: \
+         cargo run -p crabrig --profile art -- export --creature snapping-shrimp"
+    );
 }

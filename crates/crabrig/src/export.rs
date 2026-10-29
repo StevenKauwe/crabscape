@@ -1,4 +1,4 @@
-//! Export the crab's cut-out puppet parts from the art file into the game.
+//! Export a cut-out puppet's parts (the crab's, a creature's) from the art file into the game.
 //!
 //! Reads `art/crab/crab-parts.svg` (or the file given) and writes:
 //! * `crab-atlas.png`: every moving part, drawn once, packed into one picture (a "texture atlas");
@@ -25,6 +25,8 @@ pub struct Options {
     pub zoom: f64,
     /// The art file's path as written into the JSON's comment (relative to the repo).
     pub source_name: String,
+    /// Whose parts: the atlas is `<name>-atlas.png` ("crab", "snapping-shrimp").
+    pub name: String,
 }
 
 pub struct Export {
@@ -241,18 +243,33 @@ pub fn export(svg_text: &str, o: &Options) -> Result<Export, String> {
     );
     let atlas_png = pix.encode_png().map_err(|e| e.to_string())?;
 
-    // The ground point: midway between the claws, level with the lowest walking-leg tip (the leg dactyls).
+    // The ground point. The crab: midway between the claws, level with the lowest walking-leg tip (the leg
+    // dactyls). Anything else: the middle of its length, level with its lowest point.
     let carapace = parts
         .iter()
         .find(|p| p.parent.is_none())
         .ok_or("no root part")?;
+    let bottom = |p: &Part| p.bbox[1] + p.bbox[3] - STROKE_PAD;
     let feet = Regex::new(r"^leg-[RL][123]-dactyl$").unwrap();
-    let ground_y = parts
-        .iter()
-        .filter(|p| feet.is_match(&p.name))
-        .map(|p| p.bbox[1] + p.bbox[3] - STROKE_PAD)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let ground = [carapace.pivot[0], round2(ground_y)];
+    let ground = if parts.iter().any(|p| feet.is_match(&p.name)) {
+        let ground_y = parts
+            .iter()
+            .filter(|p| feet.is_match(&p.name))
+            .map(bottom)
+            .fold(f64::NEG_INFINITY, f64::max);
+        [carapace.pivot[0], round2(ground_y)]
+    } else {
+        let x0 = parts
+            .iter()
+            .map(|p| p.bbox[0])
+            .fold(f64::INFINITY, f64::min);
+        let x1 = parts
+            .iter()
+            .map(|p| p.bbox[0] + p.bbox[2])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let y = parts.iter().map(bottom).fold(f64::NEG_INFINITY, f64::max);
+        [round2((x0 + x1) / 2.0), round2(y)]
+    };
 
     // Where the lantern hangs: under the tip of the cutter claw (the crab's LEFT claw, which is on screen-right).
     let mut anchors = serde_json::Map::new();
@@ -271,7 +288,7 @@ pub fn export(svg_text: &str, o: &Options) -> Result<Export, String> {
 
     let data = json!({
         "comment": format!("Written by crabrig export (cargo run -p crabrig --profile art -- export) from {}. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).", o.source_name),
-        "atlas": "crab-atlas.png",
+        "atlas": format!("{}-atlas.png", o.name),
         "atlas_size": [atlas_width, atlas_h],
         "px_per_unit": scale,
         "ground": ground,
