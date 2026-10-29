@@ -66,6 +66,11 @@ pub struct SimCrab {
     pub clams: Vec<u32>,
     /// Clams stored in the larder at home (it stays there through death).
     pub larder: u32,
+    /// Which of the level's shell grit this crab has taken.
+    pub grit_taken: Vec<bool>,
+    /// Shell grit built into its home so far (it grows in stages: see
+    /// [`SimCrab::home_stage`]).
+    pub home_grit: u32,
     /// Health, poise and claw swings.
     pub fighter: Fighter,
     /// What it has seen and remembers: its own map of the level.
@@ -85,6 +90,14 @@ pub struct SimCrab {
     /// in [`Level::crevices`]), or home (None) if it rested at home since,
     /// or never rested out in the level.
     pub wakes_at: Option<usize>,
+}
+
+impl SimCrab {
+    /// How far its home has grown (0: the borrowed shell as found, up to
+    /// the number of stages).
+    pub fn home_stage(&self, t: &Tuning) -> u32 {
+        t.build.stage(self.home_grit)
+    }
 }
 
 /// The shell a crab leaves where it died, holding what it carried: it wakes
@@ -191,6 +204,8 @@ impl Sim {
             teeth_taken: vec![false; self.level.teeth.len()],
             clams: vec![0; self.level.clams.len()],
             larder: 0,
+            grit_taken: vec![false; self.level.grit.len()],
+            home_grit: 0,
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
             cast_offs: Vec::new(),
@@ -771,6 +786,7 @@ impl Sim {
                         m.carrying = Some(Carry::Clam);
                         crab.events.larder_full |= crab.events.tucked_in;
                     }
+                    Some(Carry::Grit) => m.carrying = Some(Carry::Grit),
                     None => {}
                 }
                 // Settled in and not well fed, with food in the larder: it

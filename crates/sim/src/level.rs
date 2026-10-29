@@ -106,6 +106,10 @@ pub struct Level {
     /// Shed teeth lying about: a crab can carry one home, where the
     /// workbench fits it to the crusher claw (scissor claws).
     pub teeth: Vec<Vec2>,
+    /// Shell grit: a heap of old, broken shells on the floor (its middle).
+    /// A crab carries one piece at a time home, where the workbench builds
+    /// it into the home shell. Each lies there once.
+    pub grit: Vec<Vec2>,
     /// Clam beds: a clam half-buried in the floor (its middle). A crab
     /// carries one home to its larder; a taken bed grows a new one in time.
     pub clams: Vec<Vec2>,
@@ -267,6 +271,19 @@ impl Level {
                 Vec2::new(3150.0, -696.0),
                 Vec2::new(2450.0, 24.0),
                 Vec2::new(3720.0, -8696.0),
+            ],
+            // Shell grit, more of it deeper: one heap in the shallows (under
+            // the low ledge, past the first snapping shrimp), one on the
+            // slope past the trench, one in the basin below the cliff, one
+            // in the far basin past the ghost net, and two at the bottom of
+            // the pit. Finishing the home takes a trip to the deep.
+            grit: vec![
+                Vec2::new(430.0, 4.0),
+                Vec2::new(2200.0, 74.0),
+                Vec2::new(3010.0, -696.0),
+                Vec2::new(4900.0, -696.0),
+                Vec2::new(3640.0, -8696.0),
+                Vec2::new(4150.0, -8696.0),
             ],
             // Across the passage's mouth, high on the pit's right wall: only
             // a jump and four strokes from the alcove's roof reach it.

@@ -43,6 +43,13 @@ pub struct Progress {
     /// there were any wake at home.
     #[serde(default)]
     pub wakes_at: Option<usize>,
+    /// Which of the level's shell grit it took, and how much it built into
+    /// its home. Saves from before building have neither: nothing taken,
+    /// nothing built.
+    #[serde(default)]
+    pub grit_taken: Vec<bool>,
+    #[serde(default)]
+    pub home_grit: u32,
 }
 
 impl Progress {
@@ -95,6 +102,8 @@ impl Sim {
             clams: crab.clams.clone(),
             well_fed: m.well_fed,
             wakes_at: crab.wakes_at,
+            grit_taken: Vec::new(),
+            home_grit: 0,
         })
     }
 
