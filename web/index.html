@@ -112,6 +112,23 @@
       resize: vertical;
     }
     #report-note { min-height: 1.4em; font-size: 14px; opacity: 0.8; }
+    /* Recording: a red Stop button with a blinking dot, a red edge on the box, and a bar that moves with the voice. */
+    #report button.rec { background: #8c2a24; border-color: #ff7b6e; }
+    #report button.rec::before {
+      content: "";
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      margin-right: 7px;
+      border-radius: 50%;
+      background: #ff5d50;
+      vertical-align: 1px;
+      animation: rec-blink 1s ease-in-out infinite;
+    }
+    @keyframes rec-blink { 50% { opacity: 0.2; } }
+    #report.recording textarea { border-color: #ff7b6e; outline: 2px solid #ff7b6e; outline-offset: -1px; }
+    #report-level { height: 6px; border-radius: 3px; background: #0b1519; overflow: hidden; }
+    #report-level > div { height: 100%; width: 0; background: #ff7b6e; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -121,6 +138,7 @@
   <div id="report" hidden>
     <div class="row"><button id="report-bug" class="on">Bug</button><button id="report-idea">Idea</button></div>
     <textarea id="report-text" maxlength="2000" placeholder="What happened, or what would make it better? Type, or tap Speak."></textarea>
+    <div id="report-level" hidden><div></div></div>
     <div id="report-note" role="status"></div>
     <div class="row">
       <button id="report-speak">Speak</button><span class="grow"></span>

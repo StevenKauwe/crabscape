@@ -79,7 +79,8 @@ impl Plugin for ReportPlugin {
         #[cfg(target_arch = "wasm32")]
         _app.add_systems(
             Update,
-            (web::frame_rate, web::open).in_set(crate::player::GameSet::Present),
+            (web::frame_rate, web::open, web::recording_clock)
+                .in_set(crate::player::GameSet::Present),
         );
     }
 }
@@ -98,9 +99,9 @@ mod web {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::{JsFuture, spawn_local};
     use web_sys::{
-        AudioBuffer, Blob, BlobEvent, Document, HtmlElement, HtmlTextAreaElement, MediaRecorder,
-        MediaStream, MediaStreamConstraints, MessageEvent, OfflineAudioContext, RequestInit,
-        Response, Worker, WorkerOptions, WorkerType,
+        AnalyserNode, AudioBuffer, Blob, BlobEvent, Document, HtmlElement, HtmlTextAreaElement,
+        MediaRecorder, MediaStream, MediaStreamConstraints, MessageEvent, OfflineAudioContext,
+        RequestInit, Response, Worker, WorkerOptions, WorkerType,
     };
 
     use crate::coop::LocalId;
@@ -119,6 +120,10 @@ mod web {
         facts: Vec<(String, String)>,
         replay: String,
         recorder: Option<MediaRecorder>,
+        /// While recording: when it started (seconds), and how loud the
+        /// voice is, for the bar under the box.
+        recording_since: f64,
+        meter: Option<AnalyserNode>,
         chunks: Vec<Blob>,
         worker: Option<Worker>,
         worker_ready: bool,
@@ -344,6 +349,14 @@ mod web {
                 refused("This browser can't record here: you can still type.");
                 return;
             };
+            let meter = crate::sound::context().and_then(|ctx| {
+                let meter = ctx.create_analyser().ok()?;
+                ctx.create_media_stream_source(&stream)
+                    .ok()?
+                    .connect_with_audio_node(&meter)
+                    .ok()?;
+                Some(meter)
+            });
             let on_data = Closure::<dyn FnMut(BlobEvent)>::new(|e: BlobEvent| {
                 if let Some(b) = e.data() {
                     with(|f| f.chunks.push(b));
@@ -367,10 +380,51 @@ mod web {
                 refused("Couldn't start recording: you can still type.");
                 return;
             }
-            with(|f| f.recorder = Some(recorder));
-            speak_label("Stop");
+            with(|f| {
+                f.recorder = Some(recorder);
+                f.recording_since = js_sys::Date::now() / 1000.0;
+                f.meter = meter;
+            });
+            show_recording(true);
             note("Listening... tap Stop when you're done.");
         });
+    }
+
+    /// Make recording plain to see: the button turns red with a blinking
+    /// dot and a clock, the box gets a red edge, and the bar shows.
+    fn show_recording(on: bool) {
+        if let Some(b) = element::<HtmlElement>("report-speak") {
+            let _ = b.class_list().toggle_with_force("rec", on);
+        }
+        if let Some(form) = element::<HtmlElement>("report") {
+            let _ = form.class_list().toggle_with_force("recording", on);
+        }
+        if let Some(level) = element::<HtmlElement>("report-level") {
+            level.set_hidden(!on);
+        }
+        if !on {
+            speak_label("Speak");
+        }
+    }
+
+    /// While recording: the time so far on the button, and the bar following
+    /// the voice.
+    pub fn recording_clock() {
+        let Some((since, meter)) = with(|f| {
+            f.recorder
+                .is_some()
+                .then(|| (f.recording_since, f.meter.clone()))
+        }) else {
+            return;
+        };
+        let secs = (js_sys::Date::now() / 1000.0 - since).max(0.0) as u32;
+        speak_label(&format!("Stop {}:{:02}", secs / 60, secs % 60));
+        let level = meter.as_ref().map_or(0.0, crate::voice::loudness);
+        // Speech is about 0.02-0.2 loud; the root makes quiet talk show too.
+        let width = (level / 0.25).sqrt().min(1.0) * 100.0;
+        if let Some(bar) = document().and_then(|d| d.query_selector("#report-level > div").ok()?) {
+            let _ = bar.set_attribute("style", &format!("width: {width:.0}%"));
+        }
     }
 
     /// Speak couldn't start: say why, and let the phone's audio go back to
@@ -381,10 +435,13 @@ mod web {
     }
 
     fn stop_recording() {
-        if let Some(r) = with(|f| f.recorder.take()) {
+        if let Some(r) = with(|f| {
+            f.meter = None;
+            f.recorder.take()
+        }) {
             let _ = r.stop();
         }
-        speak_label("Speak");
+        show_recording(false);
     }
 
     /// The recording as 16 kHz sound, handed to the listener.
