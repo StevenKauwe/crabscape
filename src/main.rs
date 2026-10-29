@@ -43,6 +43,7 @@
 //! - [`eggs`]: the fish eggs that give the crab more swim strokes
 //! - [`impact`]: how a blow lands: shake, kick, zoom, sound, debris
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
+//! - [`cling`]: the clams and shell grit clinging to a crab's shell
 //! - [`notes`]: the short notes that float up when something happens
 //! - [`reset`]: the "Start over" button: forget this device's saved data, start fresh
 //! - [`save`]: remembering the crab's position between visits
@@ -57,6 +58,7 @@
 mod background;
 mod build;
 mod canyon;
+mod cling;
 mod codes;
 mod coop;
 mod creature_art;
@@ -154,6 +156,7 @@ fn main() {
                 food::FoodPlugin,
                 crevices::CrevicesPlugin,
                 build::BuildPlugin,
+                cling::ClingPlugin,
             ),
             feel::FeelPlugin,
             foes::FoesPlugin,

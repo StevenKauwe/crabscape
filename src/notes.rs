@@ -58,12 +58,14 @@ fn note_events(
     time: Res<Time>,
     sim: Res<Sim>,
     mut last_tangle: Local<f32>,
+    mut last_full: Local<f32>,
     crab: Query<(&FrameEvents, &Mover, &Transform, &PlayerId), With<LocalPlayer>>,
 ) {
     let Ok((events, mover, at, id)) = crab.single() else {
         return;
     };
     let ev = events.0;
+    let now = time.elapsed_secs();
     let mut notes: Vec<(String, Color)> = Vec::new();
     if ev.ate {
         notes.push(("+1 stroke".into(), YOLK));
@@ -75,14 +77,22 @@ fn note_events(
         let level = mover.level(skill, &sim.tuning);
         notes.push((format!("{} level {level}!", skill.name()), GOLD));
     }
-    if ev.picked_up && !ev.recovered {
-        let what = match mover.carrying {
-            Some(Carry::Tooth) => ("Take the tooth home!", PALE),
-            Some(Carry::Clam) => ("A clam! Take it home.", YOLK),
-            Some(Carry::Grit) => ("Shell grit for the home", PALE),
-            _ => ("Take it home!", WILD_GLOW),
+    if let Some(thing) = ev.picked_up
+        && !ev.recovered
+    {
+        let what = match thing {
+            Carry::Tooth => ("Take the tooth home!", PALE),
+            Carry::Clam => ("A clam! Take it home.", YOLK),
+            Carry::Grit => ("Shell grit for the home", PALE),
+            Carry::Culture => ("Take it home!", WILD_GLOW),
         };
         notes.push((what.0.into(), what.1));
+    }
+    // Walking over a small thing with no room on its shell says so now and
+    // then, not every frame.
+    if ev.shell_full && now - *last_full > 4.0 {
+        *last_full = now;
+        notes.push(("No room on your shell".into(), PALE));
     }
     if ev.fitted_scissors {
         notes.push(("Scissor claws!".into(), GOLD));
@@ -91,7 +101,6 @@ fn note_events(
         notes.push(("Cut through!".into(), GOLD));
     }
     // Pressing on a net says so now and then, not every frame.
-    let now = time.elapsed_secs();
     if ev.tangled && now - *last_tangle > 4.0 {
         *last_tangle = now;
         notes.push(("A ghost net. Something sharp".into(), PALE));

@@ -186,6 +186,11 @@ struct Rig {
     shell_lit: Option<Entity>,
 }
 
+/// The carapace of crab `.0`'s puppet: small things it carries are drawn
+/// stuck on it (`cling.rs`).
+#[derive(Component)]
+pub struct ShellOf(pub Entity);
+
 /// A piece of the crab's art that only shows with scissor claws fitted (the
 /// rows of tooth edges on the crusher's fingers, named `...-scissor`), and
 /// the crab it belongs to.
@@ -561,6 +566,10 @@ fn build_puppets(
             },
             PuppetAnim::default(),
         ));
+        // Small things it carries cling to the carapace (`cling.rs`).
+        if let Some(shell) = by_name.get("carapace") {
+            commands.entity(*shell).insert(ShellOf(crab));
+        }
     }
 }
 

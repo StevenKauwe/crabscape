@@ -12,9 +12,11 @@
 //! - While the crab carries a lump of it home, it rides on its back, the way
 //!   sponge crabs carry a sponge.
 //! - Where the crab died, its cast-off shell lies pale on the floor with
-//!   what it was carrying, until it walks back for it.
-//! - Clams, the larder and the clam on its back are in `food.rs`; shell
-//!   grit and the home's stages as it grows, in `build.rs`.
+//!   what it was carrying (its big find on top, the small things clinging
+//!   to it), until it walks back for it.
+//! - Clams and the larder are in `food.rs`; shell grit and the home's
+//!   stages as it grows, in `build.rs`; clams and grit clinging to the
+//!   crab's shell, in `cling.rs`.
 
 use bevy::prelude::*;
 use crabsim::{Carry, CastOff, Mover, Sim};
@@ -365,9 +367,17 @@ fn show_cast_offs(
         ArtStyle::Oil => "crab/crab-atlas-oil.png",
     });
     let size = CARAPACE_RECT.size() / ATLAS_PX_PER_UNIT * crate::puppet::ART_SCALE;
+    // One shell where it fell, holding all it carried there.
+    let mut shells: Vec<(Vec2, Vec<Carry>)> = Vec::new();
     for off in &now.0 {
+        match shells.iter_mut().find(|(pos, _)| *pos == off.pos) {
+            Some((_, load)) => load.push(off.carrying),
+            None => shells.push((off.pos, vec![off.carrying])),
+        }
+    }
+    for (pos, load) in shells {
         // Lying a little askew on the floor where the crab fell.
-        let at = Vec2::new(off.pos.x, off.pos.y + size.y * 0.35);
+        let at = Vec2::new(pos.x, pos.y + size.y * 0.35);
         commands
             .spawn((
                 CastOffShell,
@@ -381,53 +391,56 @@ fn show_cast_offs(
                 Transform::from_translation(at.extend(9.0))
                     .with_rotation(Quat::from_rotation_z(-0.18)),
             ))
-            .with_children(|shell| match off.carrying {
-                Carry::Culture => {
-                    for (size, alpha) in [(46.0, 0.35), (20.0, 0.9)] {
-                        shell.spawn((
-                            Sprite {
-                                image: soft.dot.clone(),
-                                color: WILD.with_alpha(alpha),
-                                custom_size: Some(Vec2::splat(size)),
-                                ..default()
-                            },
-                            Transform::from_xyz(0.0, 20.0, 0.1),
-                        ));
-                    }
+            .with_children(|shell| {
+                let small = load.iter().filter(|c| c.small());
+                for (slot, &kind) in small.enumerate() {
+                    let (meshes, materials) = (&mut *meshes, &mut *materials);
+                    let shown = Visibility::Inherited;
+                    crate::cling::spawn_small(shell, meshes, materials, kind, slot, 0.1, shown);
                 }
-                Carry::Tooth => {
-                    let blade = Triangle2d::new(
-                        Vec2::new(-30.0, 0.0),
-                        Vec2::new(18.0, -3.0),
-                        Vec2::new(18.0, 20.0),
-                    );
-                    shell.spawn((
-                        Mesh2d(meshes.add(blade)),
-                        MeshMaterial2d(materials.add(Color::srgb(0.60, 0.56, 0.48))),
-                        Transform::from_xyz(0.0, 18.0, 0.1),
-                    ));
-                }
-                Carry::Grit => {
-                    for (mesh, colour, at, turn) in crate::build::grit_parts() {
-                        shell.spawn((
-                            Mesh2d(meshes.add(mesh)),
-                            MeshMaterial2d(materials.add(colour)),
-                            Transform::from_translation(at + Vec3::new(0.0, 14.0, 0.1))
-                                .with_rotation(Quat::from_rotation_z(turn)),
-                        ));
-                    }
-                }
-                Carry::Clam => {
-                    for (mesh, colour, at, turn) in crate::food::clam_parts(false) {
-                        shell.spawn((
-                            Mesh2d(meshes.add(mesh)),
-                            MeshMaterial2d(materials.add(colour)),
-                            Transform::from_translation(at + Vec3::new(0.0, 14.0, 0.1))
-                                .with_rotation(Quat::from_rotation_z(turn)),
-                        ));
-                    }
+                for big in load.iter().filter(|c| !c.small()) {
+                    big_on_cast_off(shell, *big, &soft, &mut meshes, &mut materials);
                 }
             });
     }
     *shown = Some(now);
+}
+
+/// A big find (the lump, the tooth) lying on a cast-off shell.
+fn big_on_cast_off(
+    shell: &mut ChildSpawnerCommands,
+    big: Carry,
+    soft: &SoftTextures,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+) {
+    match big {
+        Carry::Culture => {
+            for (size, alpha) in [(46.0, 0.35), (20.0, 0.9)] {
+                shell.spawn((
+                    Sprite {
+                        image: soft.dot.clone(),
+                        color: WILD.with_alpha(alpha),
+                        custom_size: Some(Vec2::splat(size)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 20.0, 0.1),
+                ));
+            }
+        }
+        Carry::Tooth => {
+            let blade = Triangle2d::new(
+                Vec2::new(-30.0, 0.0),
+                Vec2::new(18.0, -3.0),
+                Vec2::new(18.0, 20.0),
+            );
+            shell.spawn((
+                Mesh2d(meshes.add(blade)),
+                MeshMaterial2d(materials.add(Color::srgb(0.60, 0.56, 0.48))),
+                Transform::from_xyz(0.0, 18.0, 0.1),
+            ));
+        }
+        // Small things cling to it instead (above).
+        Carry::Grit | Carry::Clam => {}
+    }
 }
