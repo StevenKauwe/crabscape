@@ -58,6 +58,7 @@
 //! - [`voice`]: voice chat with friends in a co-op room
 
 mod background;
+mod brittle;
 mod build;
 mod canyon;
 mod cling;
@@ -176,6 +177,7 @@ fn main() {
                 ending::EndingPlugin,
                 codes::CodesPlugin,
                 moult::MoultPlugin,
+                brittle::BrittlePlugin,
                 creature_art::CreatureArtPlugin,
             ),
             sound::SoundPlugin,

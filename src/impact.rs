@@ -151,7 +151,7 @@ fn react(
         let heavy = s.claw == Claw::Crusher;
         let weight = if heavy { 1.0 } else { JAB_WEIGHT };
         let payoff = if s.counter { j.counter } else { 1.0 };
-        let power = s.strength(t) * payoff;
+        let power = s.strength() * payoff;
         shake.add(j.shake * weight * power);
         shake.kick(Vec2::new(f.facing, -0.35) * j.kick * weight * power.sqrt());
         if s.counter {

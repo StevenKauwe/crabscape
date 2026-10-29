@@ -35,6 +35,9 @@ pub struct Progress {
     pub clues_found: Vec<bool>,
     pub teeth_taken: Vec<bool>,
     pub nets_cut: Vec<bool>,
+    /// Brittle rocks cracked (saves from before there were any have none).
+    #[serde(default)]
+    pub rocks_cracked: Vec<bool>,
     pub cast_offs: Vec<CastOff>,
     /// Clams in the larder at home.
     #[serde(default)]
@@ -98,6 +101,7 @@ impl Sim {
             clues_found: vec![false; l.clues.len()],
             teeth_taken: vec![false; l.teeth.len()],
             nets_cut: vec![false; l.nets.len()],
+            rocks_cracked: vec![false; l.brittle.len()],
             clams: vec![0; l.clams.len()],
             grit_taken: vec![false; l.grit.len()],
             sponges_taken: vec![false; l.sponges.len()],
@@ -123,6 +127,7 @@ impl Sim {
             clues_found: crab.clues_found.clone(),
             teeth_taken: crab.teeth_taken.clone(),
             nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
+            rocks_cracked: self.level.brittle.iter().map(|b| b.cracked).collect(),
             cast_offs: crab.cast_offs.clone(),
             larder: crab.larder,
             clams: crab.clams.clone(),
@@ -159,6 +164,9 @@ impl Sim {
         if same_level {
             for (net, &cut) in self.level.nets.iter_mut().zip(&p.nets_cut) {
                 net.cut |= cut;
+            }
+            for (rock, &cracked) in self.level.brittle.iter_mut().zip(&p.rocks_cracked) {
+                rock.cracked |= cracked;
             }
         }
         let crevices = self.level.crevices.len();

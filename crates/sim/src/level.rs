@@ -74,6 +74,14 @@ pub struct Net {
     pub cut: bool,
 }
 
+/// A lump of brittle rock: solid until a heavy crusher's full charge cracks
+/// it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Brittle {
+    pub rect: Rect,
+    pub cracked: bool,
+}
+
 /// The shape of the level. The [`Sim`](crate::Sim) owns it; the game draws it
 /// from there.
 #[derive(Clone, Debug, PartialEq)]
@@ -124,6 +132,9 @@ pub struct Level {
     /// Ghost nets: lost fishing nets snagged across a way through. Solid
     /// until a crab with scissor claws cuts them (then gone for everyone).
     pub nets: Vec<Net>,
+    /// Brittle rock: solid until a crab with the heavy crusher (a feat)
+    /// cracks it with a fully charged smash (then gone for everyone).
+    pub brittle: Vec<Brittle>,
     /// Places hidden in darkness: they look like solid rock until a bright
     /// enough lantern comes close (the drawing's job; the rules let a crab
     /// in either way).
@@ -383,7 +394,12 @@ impl Level {
             // At the bottom of the pit, across from the coral.
             // At the bottom of the pit, and in the notch high in the end
             // wall's canyon face.
-            cultures: vec![Vec2::new(3950.0, -8690.0), Vec2::new(5590.0, 570.0)],
+            // And sealed inside the lump of brittle rock in the far basin.
+            cultures: vec![
+                Vec2::new(3950.0, -8690.0),
+                Vec2::new(5590.0, 570.0),
+                Vec2::new(5042.0, -690.0),
+            ],
             // A dead glass sponge's skeleton on the canyon's floor, among the
             // sea pens, near its far wall.
             sponges: vec![Vec2::new(7620.0, -9390.0)],
@@ -427,6 +443,14 @@ impl Level {
             nets: vec![Net {
                 rect: Rect::new(4300.0, -4380.0, 4316.0, -4230.0),
                 cut: false,
+            }],
+            // On the far basin's floor past the ghost net, at the foot of the
+            // pillar, a lump of brittle rock (old coral rubble crusted together) with glowing bacteria
+            // sealed in a hollow inside: only a heavy crusher's full charge
+            // cracks it.
+            brittle: vec![Brittle {
+                rect: Rect::new(5005.0, -700.0, 5080.0, -610.0),
+                cracked: false,
             }],
             secrets: vec![Rect::new(4060.0, -5200.0, 4300.0, -5080.0)],
             // A peacock mantis shrimp's burrow on the plateau, before the
@@ -527,7 +551,13 @@ impl Level {
             is_cliff.then(|| Rect::new(a.x, a.y.min(b.y) - 2000.0, b.x, a.y.max(b.y)))
         });
         let nets = self.nets.iter().filter(|n| !n.cut).map(|n| n.rect);
-        self.rocks.iter().copied().chain(cliffs).chain(nets)
+        let brittle = self.brittle.iter().filter(|b| !b.cracked).map(|b| b.rect);
+        self.rocks
+            .iter()
+            .copied()
+            .chain(cliffs)
+            .chain(nets)
+            .chain(brittle)
     }
 
     /// The trench that needs the double jump: (left edge x, right edge x).

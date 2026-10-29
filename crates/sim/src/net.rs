@@ -94,9 +94,16 @@ pub enum Msg {
     HitCrab { crab: PlayerId, hit: Hit },
     /// A ghost net (its index in the level) was cut.
     NetCut(usize),
+    /// A lump of brittle rock (its index in the level) was cracked.
+    RockCracked(usize),
     /// The host tells a device that just joined how the world stands: which
-    /// ghost nets are cut. (Crabs and enemies arrive in their own updates.)
-    World { nets_cut: Vec<bool> },
+    /// ghost nets are cut and which brittle rocks cracked. (Crabs and enemies
+    /// arrive in their own updates.)
+    World {
+        nets_cut: Vec<bool>,
+        #[serde(default)]
+        rocks_cracked: Vec<bool>,
+    },
 }
 
 impl Msg {

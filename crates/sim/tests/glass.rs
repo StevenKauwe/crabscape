@@ -159,7 +159,7 @@ fn bare_rock_is_gripped_only_with_glass_grips() {
 #[test]
 fn glass_grips_climb_the_end_wall_to_a_notch_with_wild_light_in_it() {
     let level = crabsim::Level::test_level();
-    assert_eq!(level.cultures.len(), 2);
+    assert!(level.cultures.len() >= 2);
     let light = level.cultures[1];
     assert!(light.x > NOTCH.0 && light.x < NOTCH.1 && light.y > NOTCH.2);
     // From the doorstep, up the wall's canyon face and in: a second lump of
@@ -171,7 +171,7 @@ fn glass_grips_climb_the_end_wall_to_a_notch_with_wild_light_in_it() {
         up.crab().pos
     );
     assert_eq!(up.crab().carrying, Some(Carry::Culture));
-    assert_eq!(up.sim.crabs()[0].cultures_taken, [false, true]);
+    assert_eq!(up.sim.crabs()[0].cultures_taken[..2], [false, true]);
 }
 
 #[test]

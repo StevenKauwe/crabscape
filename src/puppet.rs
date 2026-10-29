@@ -1216,7 +1216,7 @@ fn fight_pose(
         };
         // Charging: straining, a tremble that grows.
         let strain = if s.charging {
-            0.04 * (s.charged as f32 / t.charge_ticks.max(1) as f32 + 0.3) * (time * 50.0).sin()
+            0.04 * (s.charged as f32 / s.full_charge.max(1) as f32 + 0.3) * (time * 50.0).sin()
         } else {
             0.0
         };

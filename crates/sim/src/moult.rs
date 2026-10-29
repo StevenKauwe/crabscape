@@ -38,10 +38,10 @@ pub enum Feat {
     /// solid ground. (Bare rock is the glass grips' business: a fitted gear.)
     GrippingDactyls,
     /// Swimming: broader paddle blades, so the flip in the water becomes a
-    /// real dash that carries the crab.
+    /// real dash that carries the crab the way it pushes (sideways only).
     BroadPaddles,
-    /// Fighting: the crusher grows heavier, so a charged smash cracks
-    /// brittle rock and breaks poise harder.
+    /// Fighting: the crusher grows heavier: holding smash charges it, a
+    /// full charge cracks brittle rock, and its blows break poise harder.
     HeavyCrusher,
 }
 
