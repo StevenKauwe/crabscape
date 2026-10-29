@@ -65,6 +65,17 @@ Key poses: **idle** (slow gape cycle ~1 s, nostrils twitch, head sways); **tell*
 **strike** (chain straightens, jaw open wide, pharyngeal jaw forward at the end); **recover** (neck out, jaw working);
 **hurt** (snaps back into the crevice).
 
+**Puppet (in the game):** drawn by `crates/crabrig/src/moray.rs` from the concept sheet (side view, facing right) into
+`art/creatures/snowflake-moray/snowflake-moray-parts.svg`, exported to `assets/creatures/` (`cargo run -p crabrig
+--profile art -- parts --creature snowflake-moray`, then `-- export --creature snowflake-moray`). A kit of seven parts:
+the head (eye, nostril tubes, gill opening, blotches), its lower jaw hinged behind the eye, the inside of the mouth
+(squeezed to the gape so it only shows between the jaws), the throat jaws, and three body segments with different
+snowflake blotches. The game (`src/critters.rs`) builds the head at the simulation's reach (what shows is what hits)
+and strings seven segments from the back of the head to the crevice along a curve; in the tell the head rears and
+tips nose-down, the neck bows up behind it into the crevice, and the mouth shuts. The jaw gapes while it breathes,
+drops wide for the strike, and the throat jaws come forward at the end of the lunge and while it holds on. No tail
+(it never leaves the crevice yet). Ink style only for now (no oil-painted copy yet).
+
 ## Sources
 - [FB-EN] FishBase, *Echidna nebulosa*. <https://www.fishbase.se/summary/Echidna-nebulosa.html>
 - [FB-EN-M] FishBase, morphology summary, *Echidna nebulosa*. <https://www.fishbase.se/physiology/Echidna_nebulosa>

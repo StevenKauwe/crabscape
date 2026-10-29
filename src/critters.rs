@@ -1,7 +1,6 @@
-//! Drawing the snapping shrimp and the snowflake moray. The shrimp is a
-//! cut-out puppet (`creature_art.rs`, drawn by `crabrig --creature
-//! snapping-shrimp`); the moray is still placeholder shapes (its rig comes
-//! later), but its tells read.
+//! Drawing the snapping shrimp and the snowflake moray, both cut-out puppets
+//! (`creature_art.rs`, drawn by `crabrig --creature snapping-shrimp` and
+//! `--creature snowflake-moray`).
 //!
 //! - **Snapping shrimp:** peeks from its burrow, then at the mouth swings its
 //!   big claw's finger up and holds it (the cocked claw), and snaps: a white
@@ -9,13 +8,14 @@
 //!   shows where the shock will run while it is cocked: jump it or dodge.
 //! - **Snowflake moray:** a head poking from a crevice, gaping slowly. It
 //!   pulls back into an S, mouth shut (the tell), then the head shoots out
-//!   along a faint line to where it bites, and holds on. Neck stretched out
-//!   after a lunge: hit it then.
+//!   along a faint line to where it bites, jaws wide, and holds on while its
+//!   throat jaws come forward. Neck stretched out after a lunge: hit it then.
+//!   Its puppet is a kit: the head (with its jaw, mouth and throat jaws) and
+//!   body segments the drawing strings from the head back into the crevice.
 //!
 //! Only reads the simulation; poses come from each enemy's state and state
 //! tick, so hit-stop freezes them too.
 
-use bevy::color::Mix;
 use bevy::prelude::*;
 
 use crabsim::enemy::State;
@@ -25,7 +25,6 @@ use crate::creature_art::CreatureArt;
 use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
 use crate::foes::{lie, lies_dead};
-use crate::lantern::{Lit, LitTint};
 use crate::memory::{Known, Remembered};
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
@@ -35,10 +34,19 @@ const Z: f32 = 9.0;
 /// The snapping shrimp's puppet: its parts file (baked in) and picture.
 const SHRIMP_PARTS: &str = include_str!("../assets/creatures/snapping-shrimp-parts.json");
 const SHRIMP_ATLAS: &str = "creatures/snapping-shrimp-atlas.png";
-// Snowflake moray: white with dark dendritic blotches, yellow eye.
-const MORAY: Color = Color::srgb(0.88, 0.86, 0.78);
-const BLOTCH: Color = Color::srgb(0.18, 0.15, 0.12);
-const MORAY_EYE: Color = Color::srgb(0.95, 0.85, 0.3);
+/// The snowflake moray's puppet. crabrig draws it four units to the world
+/// unit, and its parts file at twice that.
+const MORAY_PARTS: &str = include_str!("../assets/creatures/snowflake-moray-parts.json");
+const MORAY_ATLAS: &str = "creatures/snowflake-moray-atlas.png";
+const MORAY_ART_SCALE: f32 = 1.0 / 8.0;
+/// Its body segments (each with its own blotches), taken in turn.
+const MORAY_SEGMENTS: [&str; 3] = ["segment-a", "segment-b", "segment-c"];
+/// The gape the inside of its mouth is drawn for (crabrig's `MOUTH_GAPE`).
+const MORAY_MOUTH_GAPE: f32 = 0.5;
+/// Body segments strung from its head back into the crevice.
+const NECK: u8 = 7;
+/// How far its throat jaws come forward into the mouth when it holds on.
+const THROAT_REACH: f32 = 13.0;
 const ROCK: Color = Color::srgb(0.07, 0.06, 0.05);
 const AIM: Color = Color::srgb(1.0, 0.6, 0.5);
 /// The middle of the moray's head and neck above the floor: half its body
@@ -75,6 +83,7 @@ struct Critter {
 #[derive(Resource)]
 struct Art {
     shrimp: CreatureArt,
+    moray: CreatureArt,
 }
 
 fn load_art(mut commands: Commands, sim: Res<Sim>, assets: Res<AssetServer>) {
@@ -82,6 +91,7 @@ fn load_art(mut commands: Commands, sim: Res<Sim>, assets: Res<AssetServer>) {
     let length = Kind::Snapper.tuning(&sim.tuning).body.0;
     commands.insert_resource(Art {
         shrimp: CreatureArt::load(SHRIMP_PARTS, SHRIMP_ATLAS, length, &assets),
+        moray: CreatureArt::load_scaled(MORAY_PARTS, MORAY_ATLAS, MORAY_ART_SCALE, &assets),
     });
 }
 
@@ -99,28 +109,16 @@ enum Part {
     /// The moray's head, and each neck segment (0 nearest the head).
     Head,
     Neck(u8),
+    /// Its lower jaw, hinged at the corner of the mouth.
     Jaw,
+    /// The inside of its mouth, squeezed to the gape.
+    Mouth,
+    /// Its throat (pharyngeal) jaws, forward into the mouth while it holds on.
+    Throat,
     /// Where the blow will land, while it tells.
     Aim,
     HealthBack,
     HealthFill,
-}
-
-/// A sprite lit by the lantern, in its own colour.
-fn lit_sprite(colour: Color, size: Vec2, image: Option<Handle<Image>>) -> impl Bundle {
-    (
-        Sprite {
-            image: image.unwrap_or_default(),
-            color: colour,
-            custom_size: Some(size),
-            ..default()
-        },
-        Lit::default(),
-        LitTint {
-            dark: colour.mix(&Color::BLACK, 0.7),
-            bright: colour,
-        },
-    )
 }
 
 fn spawn_critters(
@@ -222,54 +220,39 @@ fn spawn_critters(
                     ),
                     Remembered(e.home),
                 ));
-                commands.entity(root).with_children(|c| {
-                    for n in 0..6u8 {
-                        c.spawn((
+                for n in 0..NECK {
+                    let neck = commands
+                        .spawn((
                             Part::Neck(n),
-                            lit_sprite(MORAY, Vec2::new(26.0, deep - 2.0), Some(soft.disc.clone())),
                             Transform::from_xyz(0.0, MORAY_MID, 0.1 - n as f32 * 0.01),
+                            Visibility::default(),
+                            ChildOf(root),
                         ))
-                        .with_children(|s| {
-                            s.spawn((
-                                lit_sprite(BLOTCH, Vec2::new(6.0, 3.0), None),
-                                Transform::from_xyz(1.0, 3.0, 0.01)
-                                    .with_rotation(Quat::from_rotation_z(0.6 * n as f32)),
-                            ));
-                        });
-                    }
-                    // The head fills the body box the simulation hits
-                    // (`len` x `deep`), its middle at the root.
-                    c.spawn((
+                        .id();
+                    let segment = MORAY_SEGMENTS[n as usize % MORAY_SEGMENTS.len()];
+                    art.moray.spawn_part(&mut commands, neck, segment);
+                }
+                // The head fills the body box the simulation hits (`len` x
+                // `deep`), its middle at the root.
+                let head = commands
+                    .spawn((
                         Part::Head,
                         Transform::from_xyz(0.0, MORAY_MID, 0.2),
                         Visibility::default(),
+                        ChildOf(root),
                     ))
-                    .with_children(|h| {
-                        h.spawn((
-                            lit_sprite(MORAY, Vec2::new(len, deep), Some(soft.disc.clone())),
-                            Transform::default(),
-                        ));
-                        h.spawn((
-                            lit_sprite(BLOTCH, Vec2::new(9.0, 4.0), None),
-                            Transform::from_xyz(-9.0, 6.0, 0.01),
-                        ));
-                        h.spawn((
-                            lit_sprite(MORAY_EYE, Vec2::splat(4.5), Some(soft.disc.clone())),
-                            Transform::from_xyz(10.0, 5.0, 0.02),
-                        ));
-                        // The lower jaw, hinged behind the eye: it gapes.
-                        h.spawn((
-                            Part::Jaw,
-                            Transform::from_xyz(-2.0, -4.0, 0.03),
-                            Visibility::default(),
-                        ))
-                        .with_children(|j| {
-                            j.spawn((
-                                lit_sprite(MORAY, Vec2::new(len / 2.0, 6.0), None),
-                                Transform::from_xyz(len / 4.0 + 2.0, -1.0, 0.0),
-                            ));
-                        });
-                    });
+                    .id();
+                let pieces = art.moray.spawn_part(&mut commands, head, "head");
+                for (name, part) in [
+                    ("jaw", Part::Jaw),
+                    ("mouth", Part::Mouth),
+                    ("throat-jaw", Part::Throat),
+                ] {
+                    if let Some(e) = pieces.get(name) {
+                        commands.entity(*e).insert(part);
+                    }
+                }
+                commands.entity(root).with_children(|c| {
                     c.spawn((
                         Part::Aim,
                         Sprite::from_color(AIM.with_alpha(0.0), Vec2::new(1.0, 2.0)),
@@ -357,10 +340,24 @@ fn pose_critters(
         };
         c.reach += (back - c.reach) * (1.0 - (-6.0 * dt).exp());
         let reach = e.reach + c.reach;
+        // Coiled, it rears: the head up a little and tipped nose-down, the
+        // neck bowed behind it.
+        let head = Vec2::new(
+            reach,
+            MORAY_MID + 7.0 * coil + 2.0 * (c.time * 2.0).sin() * (1.0 - coil),
+        );
+        let head_turn = -0.3 * coil;
+        let crevice = -k.body.0 / 2.0 - 22.0;
         let gape = match e.state {
             State::Tell => 0.0,
             State::Attack | State::Grab => 0.5,
             _ => 0.18 + 0.15 * (c.time * 6.0).sin(), // breathing, gaping slowly
+        };
+        // Its throat jaws: out at the end of the lunge, and while it holds on.
+        let throat = match e.state {
+            State::Attack => (2.0 * tick / k.active_ticks.max(1) as f32 - 1.0).clamp(0.0, 1.0),
+            State::Grab => 1.0,
+            _ => 0.0,
         };
 
         // The shrimp's tail flicks under when it's hit, and while it shoots
@@ -408,18 +405,29 @@ fn pose_critters(
                     s.color = AIM.with_alpha(a + (want - a) * (1.0 - (-18.0 * dt).exp()));
                 }
                 Part::Head => {
-                    tr.translation.x = reach;
-                    tr.translation.y = MORAY_MID + 2.0 * (c.time * 2.0).sin() * (1.0 - coil);
-                    tr.rotation = Quat::from_rotation_z(-0.3 * coil);
+                    tr.translation.x = head.x;
+                    tr.translation.y = head.y;
+                    tr.rotation = Quat::from_rotation_z(head_turn);
                 }
                 Part::Neck(n) => {
-                    let f = (*n as f32 + 1.0) / 7.0;
-                    // Back from the head into the crevice; an S while coiled.
-                    let crevice = -k.body.0 / 2.0 - 12.0;
-                    tr.translation.x = reach * (1.0 - f) + crevice * f;
-                    tr.translation.y = MORAY_MID + coil * 10.0 * (f * std::f32::consts::TAU).sin();
+                    let (at, turn) = neck_at(head, head_turn, crevice, coil, *n);
+                    tr.translation.x = at.x;
+                    tr.translation.y = at.y;
+                    tr.rotation = Quat::from_rotation_z(turn);
                 }
                 Part::Jaw => tr.rotation = Quat::from_rotation_z(-gape),
+                Part::Mouth => {
+                    // Drawn for `MORAY_MOUTH_GAPE` round the shut mouth's
+                    // line: squeezed to the gape and turned to half of it, it
+                    // fills the opening between the jaws.
+                    tr.scale.y = (gape / MORAY_MOUTH_GAPE).max(0.01);
+                    tr.rotation = Quat::from_rotation_z(-gape / 2.0);
+                }
+                Part::Throat => {
+                    let out = THROAT_REACH * throat;
+                    tr.translation.x = out;
+                    tr.translation.y = -out * (gape / 2.0).tan();
+                }
                 Part::Dactyl => {
                     // Swung up ~100 degrees through the tell and held, shut
                     // on the snap, creeping open while it re-cocks.
@@ -459,4 +467,27 @@ fn pose_critters(
             }
         }
     }
+}
+
+/// Where a moray's neck segment `n` (0 nearest the head) lies on the curve
+/// from the back of its head (at `head`, turned by `head_turn`) to where it
+/// goes into the crevice (`crevice_x`, level with the head at rest), and
+/// which way it points. The curve bows up behind the head as it coils
+/// (`coil`). Segments are spread along it, but never closer than 12 (so a
+/// short, bent neck isn't a fan of crowded pieces); those past its end are in
+/// the crevice, stacked at the end.
+fn neck_at(head: Vec2, head_turn: f32, crevice_x: f32, coil: f32, n: u8) -> (Vec2, f32) {
+    let start = head + Vec2::from_angle(head_turn).rotate(Vec2::new(-16.0, 0.0));
+    let end = Vec2::new(crevice_x.min(start.x - 6.0), MORAY_MID);
+    let forward = (start - end).normalize_or(Vec2::X);
+    let bend = (start + end) / 2.0 + forward.perp() * 10.0 * coil;
+    // The curve's length, near enough.
+    let length = (start.distance(bend) + bend.distance(end) + start.distance(end)) / 2.0;
+    let step = (length / NECK as f32).clamp(12.0, 21.0);
+    let f = (step * (n as f32 + 0.5) / length).min(1.0);
+    let g = 1.0 - f;
+    let at = start * g * g + bend * 2.0 * g * f + end * f * f;
+    // Pointing forward, toward the head.
+    let ahead = (start - bend) * g + (bend - end) * f;
+    (at, ahead.to_angle())
 }

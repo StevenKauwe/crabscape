@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::sprite::Anchor;
 
 use crate::lantern::{Lit, LitTint};
-use crate::puppet::PartsFile;
+use crate::puppet::{PartDef, PartsFile};
 
 /// Depth step between pieces (the art lists them back to front).
 const Z_STEP: f32 = 0.005;
@@ -27,21 +27,27 @@ impl CreatureArt {
     /// The parts in `json` with the picture at `atlas` (a path inside `assets/`), scaled so the whole drawing
     /// is `length` world units from end to end.
     pub fn load(json: &str, atlas: &str, length: f32, assets: &AssetServer) -> Self {
-        let file: PartsFile = serde_json::from_str(json).expect("a creature parts file is valid");
-        let x0 = file
-            .parts
+        let mut art = Self::load_scaled(json, atlas, 1.0, assets);
+        let parts = &art.file.parts;
+        let x0 = parts
             .iter()
             .map(|p| p.bbox[0])
             .fold(f32::INFINITY, f32::min);
-        let x1 = file
-            .parts
+        let x1 = parts
             .iter()
             .map(|p| p.bbox[0] + p.bbox[2])
             .fold(f32::NEG_INFINITY, f32::max);
+        art.scale = length / (x1 - x0);
+        art
+    }
+
+    /// The same at a given `scale`: world units per unit of the art file (for a kit of pieces the game strings
+    /// together, where the whole drawing's length means nothing).
+    pub fn load_scaled(json: &str, atlas: &str, scale: f32, assets: &AssetServer) -> Self {
         Self {
-            file,
+            file: serde_json::from_str(json).expect("a creature parts file is valid"),
             image: assets.load(atlas.to_string()),
-            scale: length / (x1 - x0),
+            scale,
         }
     }
 
@@ -59,16 +65,48 @@ impl CreatureArt {
     /// Build the puppet under `holder`; returns each piece's entity by name. A piece's own transform is its
     /// joint: turn it to bend there.
     pub fn spawn(&self, commands: &mut Commands, holder: Entity) -> HashMap<String, Entity> {
+        self.spawn_from(commands, holder, None)
+    }
+
+    /// Build only the piece `name` and what hangs from it under `holder`, with that piece's joint at the
+    /// holder's origin (one piece of a kit, or one of several copies).
+    pub fn spawn_part(
+        &self,
+        commands: &mut Commands,
+        holder: Entity,
+        name: &str,
+    ) -> HashMap<String, Entity> {
+        self.spawn_from(commands, holder, Some(name))
+    }
+
+    fn spawn_from(
+        &self,
+        commands: &mut Commands,
+        holder: Entity,
+        top: Option<&str>,
+    ) -> HashMap<String, Entity> {
         let file = &self.file;
+        let find = |name: &str| file.parts.iter().find(|q| q.name == name);
+        // Is `part` the top piece or hangs from it (every piece when there is no top)?
+        let wanted = |part: &PartDef| {
+            let Some(top) = top else { return true };
+            let mut at = Some(part);
+            while let Some(p) = at {
+                if p.name == top {
+                    return true;
+                }
+                at = p.parent.as_deref().and_then(find);
+            }
+            false
+        };
         let mut by_name = HashMap::new();
-        for part in &file.parts {
-            let parent = part
-                .parent
-                .as_deref()
-                .and_then(|p| file.parts.iter().find(|q| q.name == p));
+        for part in file.parts.iter().filter(|p| wanted(p)) {
+            let is_top = top == Some(part.name.as_str());
+            let parent = part.parent.as_deref().and_then(find).filter(|_| !is_top);
             let here = self.to_puppet(part.pivot);
             let (offset, dz) = match parent {
                 Some(p) => (here - self.to_puppet(p.pivot), part.z - p.z),
+                None if is_top => (Vec2::ZERO, 0.0),
                 None => (here, part.z),
             };
             let [rx, ry, rw, rh] = part.rect;
@@ -100,10 +138,11 @@ impl CreatureArt {
                 .id();
             by_name.insert(part.name.clone(), entity);
         }
-        for part in &file.parts {
+        for part in file.parts.iter().filter(|p| wanted(p)) {
             let parent = part
                 .parent
                 .as_deref()
+                .filter(|_| top != Some(part.name.as_str()))
                 .and_then(|p| by_name.get(p).copied())
                 .unwrap_or(holder);
             commands.entity(by_name[&part.name]).insert(ChildOf(parent));
