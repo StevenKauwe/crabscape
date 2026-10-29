@@ -1019,8 +1019,8 @@ const HULK_LIT: Color = Color::srgb(0.55, 1.0, 0.42);
 const HULK_UNLIT: Color = Color::srgb(0.70, 1.0, 0.62);
 const BACK_DARK: Color = Color::srgb(0.16, 0.08, 0.07);
 const BACK_BRIGHT: Color = Color::srgb(0.62, 0.24, 0.14);
-const HULK_BACK_DARK: Color = Color::srgb(0.07, 0.15, 0.06);
-const HULK_BACK_BRIGHT: Color = Color::srgb(0.30, 0.62, 0.20);
+const HULK_BACK_DARK: Color = Color::srgb(0.08, 0.16, 0.06);
+const HULK_BACK_BRIGHT: Color = Color::srgb(0.40, 0.72, 0.26);
 
 /// Tint the shell green as the crab bulks up (and back as it shrinks).
 fn hulk_look(

@@ -1,5 +1,5 @@
 //! Typing codes (`crabsim::codes`): on a keyboard, Enter opens a little box
-//! at the top of the screen; type a code, Enter tries it, Esc puts it away.
+//! at the bottom of the screen; type a code, Enter tries it, Esc puts it away.
 //! While the box is open the keys only type: the crab stands still. On a
 //! phone, "Enter a code" in the settings asks for one (`settings.rs`).
 //!
@@ -17,8 +17,8 @@ use crate::player::{GameSet, LocalPlayer, PlayerId};
 /// The longest code the box takes.
 const LONGEST: usize = 16;
 
-/// Above the crab's feet, where the note starts.
-const ABOVE: f32 = 150.0;
+/// Above the crab's feet, where the note starts (as `notes.rs`).
+const ABOVE: f32 = 135.0;
 
 const HULK_GREEN: Color = Color::srgb(0.55, 1.0, 0.40);
 const GOLD: Color = Color::srgb(1.0, 0.88, 0.55);
@@ -137,17 +137,18 @@ fn use_codes(
     }
 }
 
-/// The box: a dark pill at the top middle of the screen.
+/// The box: a dark pill at the bottom middle of the screen (clear of the
+/// buttons at the top).
 fn spawn_box(mut commands: Commands) {
     commands
         .spawn((
             BoxPanel,
             Node {
                 position_type: PositionType::Absolute,
-                top: px(64.0),
+                bottom: px(48.0),
                 left: percent(50.0),
-                margin: UiRect::left(px(-130.0)),
-                width: px(260.0),
+                margin: UiRect::left(px(-150.0)),
+                width: px(300.0),
                 padding: UiRect::axes(px(14.0), px(10.0)),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
