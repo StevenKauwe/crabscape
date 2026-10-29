@@ -336,11 +336,12 @@ struct Toast;
 #[derive(Component)]
 struct ToastText;
 
-/// The two buttons: under "Settings", the same size, stacked.
+/// The two buttons: under "Settings" and the Home button under it, the
+/// same size, stacked.
 fn button_rect(window: Vec2, which: LabButton) -> Rect {
     let rows = match which {
-        LabButton::Feel => 1.0,
-        LabButton::Juice => 2.0,
+        LabButton::Feel => 2.0,
+        LabButton::Juice => 3.0,
     };
     settings::below(window, rows)
 }
@@ -579,7 +580,7 @@ mod tests {
     #[test]
     fn the_lab_buttons_sit_under_settings_and_clear_the_touch_buttons() {
         for size in [Vec2::new(390.0, 844.0), Vec2::new(844.0, 390.0)] {
-            let above = settings::button_rect(size);
+            let above = crate::go_home::button_rect(size);
             let feel = button_rect(size, LabButton::Feel);
             let juice = button_rect(size, LabButton::Juice);
             assert!(feel.min.y > above.max.y && juice.min.y > feel.max.y);

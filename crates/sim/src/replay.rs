@@ -47,6 +47,7 @@
 //! | `code=hulk`     | the player typed a code (`crabsim::codes`)               |
 //! | `moult=climbing` | the player moulted, growing that skill's feat (`crabsim::moult`) |
 //! | `craft=lantern` | the player made something at the workbench (`crabsim::craft`) |
+//! | `home`          | the player went straight home (the Home button, `crabsim::home`) |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
 //! `tap`, `dodge`, `sprint`, `smash`, `jab`, `block`, `parry`) happen on that one tick. Recorded replays also have a
@@ -103,6 +104,8 @@ pub struct Replay {
     pub moults: Vec<(u64, Skill)>,
     /// What player 0 made at its workbench, in tick order.
     pub crafts: Vec<(u64, Recipe)>,
+    /// When player 0 went straight home (the Home button), in tick order.
+    pub homes: Vec<u64>,
     /// What player 0's crab had already grown, taken and stored when the
     /// recording started (after a reload), if anything.
     pub progress: Option<Progress>,
@@ -129,6 +132,7 @@ impl Default for Replay {
             codes: Vec::new(),
             moults: Vec::new(),
             crafts: Vec::new(),
+            homes: Vec::new(),
             progress: None,
         }
     }
@@ -225,10 +229,14 @@ impl Replay {
                 let recipe = Recipe::parse(w).ok_or_else(|| err(format!("no recipe `{w}`")))?;
                 replay.crafts.push((tick, recipe));
             }
+            if words.contains(&"home") {
+                replay.homes.push(tick);
+            }
             words.retain(|w| {
-                !["spawn=", "feel=", "code=", "moult=", "craft="]
-                    .iter()
-                    .any(|p| w.starts_with(p))
+                *w != "home"
+                    && !["spawn=", "feel=", "code=", "moult=", "craft="]
+                        .iter()
+                        .any(|p| w.starts_with(p))
             });
             if words.is_empty() {
                 continue; // only spawns: no change to the controls
@@ -282,6 +290,9 @@ impl Replay {
         }
         for (tick, recipe) in &self.crafts {
             out += &format!("@{tick} craft={}\n", recipe.def().word);
+        }
+        for tick in &self.homes {
+            out += &format!("@{tick} home\n");
         }
         let mut before = Controls::default();
         for input in &self.inputs {
@@ -351,8 +362,8 @@ impl Replay {
     }
 
     /// What happens to the world just before tick number `sim.tick_count()`
-    /// runs: enemies appear, the feel switches, codes are entered and
-    /// things are made at the workbench (for player 0).
+    /// runs: enemies appear, the feel switches, codes are entered, things
+    /// are made at the workbench and the crab goes home (for player 0).
     pub fn apply_at(&self, sim: &mut crate::Sim) {
         let tick = sim.tick_count();
         if tick == 0
@@ -375,6 +386,9 @@ impl Replay {
         for (_, recipe) in self.crafts.iter().filter(|(t, _)| *t == tick) {
             // It could be made when recorded, so it can now.
             let _ = sim.make(crate::PlayerId(0), *recipe);
+        }
+        if self.homes.contains(&tick) {
+            sim.go_home(crate::PlayerId(0));
         }
     }
 
@@ -476,6 +490,11 @@ impl Recorder {
     /// Something was made at the workbench at `tick`.
     pub fn note_craft(&mut self, tick: u64, recipe: Recipe) {
         self.replay.crafts.push((tick - self.first_tick, recipe));
+    }
+
+    /// Player 0 went straight home at `tick`.
+    pub fn note_home(&mut self, tick: u64) {
+        self.replay.homes.push(tick - self.first_tick);
     }
 
     /// An enemy appeared at `tick`.
@@ -646,7 +665,7 @@ mod tests {
     #[test]
     fn text_round_trips_exactly() {
         let r = Replay::parse(
-            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block spawn=fixture@300,0\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\n@210 charge feel=momentum code=hulk\n@230 loose\n@240 smash\nend @400",
+            "start x=160.25 y=0\ntuning 00ff00ff00ff00ff\nt=0 walk=0.3\nt=1 tap\nt=1.1 hold smash block spawn=fixture@300,0\n@150 unblock\n@160 parry\n@170 guard\n@200 release dodge walk=left jab unblock\n@210 charge feel=momentum code=hulk\n@220 home\n@230 loose home\n@240 smash\nend @400",
         )
         .unwrap();
         let again = Replay::parse(&r.to_text()).unwrap();

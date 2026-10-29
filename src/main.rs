@@ -40,6 +40,7 @@
 //! - [`effects`]: bubbles, sand puffs and marine snow
 //! - [`feel`]: the feel lab: presets for how attacks feel, and their juice
 //! - [`fight`]: the shell and poise bars, the blow's flash, fight notes
+//! - [`go_home`]: the Home button: straight back into the home shell
 //! - [`foes`]: the enemies (placeholder shapes for now) and their tells
 //! - [`eggs`]: the fish eggs that give the crab more swim strokes
 //! - [`impact`]: how a blow lands: shake, kick, zoom, sound, debris
@@ -76,6 +77,7 @@ mod feel;
 mod fight;
 mod foes;
 mod food;
+mod go_home;
 mod home;
 mod impact;
 mod input;
@@ -183,6 +185,7 @@ fn main() {
                 moult::MoultPlugin,
                 brittle::BrittlePlugin,
                 creature_art::CreatureArtPlugin,
+                go_home::GoHomePlugin,
             ),
             sound::SoundPlugin,
             stamina::StaminaPlugin,

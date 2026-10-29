@@ -112,6 +112,11 @@ impl SimCrab {
     pub fn larder_holds(&self, t: &Tuning) -> u32 {
         larder_holds(self.home_stage(t), t)
     }
+
+    /// Start counting its rest afresh (it was put somewhere new).
+    pub(crate) fn reset_rest(&mut self) {
+        self.resting = 0;
+    }
 }
 
 /// The shell a crab leaves where it died, holding what it carried: it wakes
@@ -214,6 +219,14 @@ impl Sim {
     pub(crate) fn note_craft(&mut self, tick: u64, recipe: crate::craft::Recipe) {
         if let Some(rec) = &mut self.recorder {
             rec.note_craft(tick, recipe);
+        }
+    }
+
+    /// A crab went straight home at `tick` (the Home button): a running
+    /// recording notes it.
+    pub(crate) fn note_home(&mut self, tick: u64) {
+        if let Some(rec) = &mut self.recorder {
+            rec.note_home(tick);
         }
     }
 

@@ -106,6 +106,23 @@ impl MicTrouble {
     }
 }
 
+/// Mic button size, beside the invite button.
+const MIC_WIDTH: f32 = 64.0;
+const GAP: f32 = 8.0;
+
+/// The Mic button: left of the invite button, or on a narrow screen (where
+/// the buttons sit lower, level with the health bars) a row lower, under the
+/// invite button's right end, below the bars.
+pub(crate) fn mic_rect(window: Vec2) -> Rect {
+    let invite = crate::coop::invite_rect(window);
+    if crate::settings::narrow(window) {
+        let row = crate::settings::below(window, 1.0);
+        return Rect::new(invite.max.x - MIC_WIDTH, row.min.y, invite.max.x, row.max.y);
+    }
+    let right = invite.min.x - GAP;
+    Rect::new(right - MIC_WIDTH, invite.min.y, right, invite.max.y)
+}
+
 #[cfg(target_arch = "wasm32")]
 pub use web::{forget, forget_all, hear, meet, outbox};
 #[cfg(target_arch = "wasm32")]
@@ -142,9 +159,6 @@ mod web {
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
     ];
-    /// Mic button size, beside the invite button.
-    const MIC_WIDTH: f32 = 64.0;
-    const GAP: f32 = 8.0;
 
     /// One friend's audio connection.
     struct Line {
@@ -574,18 +588,7 @@ mod web {
     #[derive(Component)]
     struct MicLabel;
 
-    /// The Mic button: left of the invite button, or on a narrow screen
-    /// (where the buttons sit lower, level with the health bars) a row lower,
-    /// under the invite button's right end, below the bars.
-    fn button_rect(window: Vec2) -> Rect {
-        let invite = crate::coop::invite_rect(window);
-        if crate::settings::narrow(window) {
-            let row = crate::settings::below(window, 1.0);
-            return Rect::new(invite.max.x - MIC_WIDTH, row.min.y, invite.max.x, row.max.y);
-        }
-        let right = invite.min.x - GAP;
-        Rect::new(right - MIC_WIDTH, invite.min.y, right, invite.max.y)
-    }
+    use super::mic_rect as button_rect;
 
     fn spawn_button(mut commands: Commands, window: Single<&Window>) {
         let size = window.size();
