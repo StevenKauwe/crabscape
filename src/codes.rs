@@ -180,6 +180,14 @@ fn spawn_box(mut commands: Commands) {
                 },
                 TextColor(Color::srgba(1.0, 0.9, 0.7, 0.55)),
             ));
+            b.spawn((
+                Text::new(crabsim::codes::hints()),
+                TextFont {
+                    font_size: FontSize::Px(11.0),
+                    ..default()
+                },
+                TextColor(Color::srgba(1.0, 0.9, 0.7, 0.55)),
+            ));
         });
 }
 
@@ -206,7 +214,7 @@ fn show_box(
 #[cfg(target_arch = "wasm32")]
 pub fn prompt() -> Option<String> {
     web_sys::window()?
-        .prompt_with_message("Enter a code")
+        .prompt_with_message(&format!("Enter a code\n\n{}", crabsim::codes::hints()))
         .ok()
         .flatten()
 }
