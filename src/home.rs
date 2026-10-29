@@ -407,7 +407,7 @@ fn show_cast_offs(
                     ));
                 }
                 Carry::Clam => {
-                    for (mesh, colour, at, turn) in crate::food::clam_parts() {
+                    for (mesh, colour, at, turn) in crate::food::clam_parts(false) {
                         shell.spawn((
                             Mesh2d(meshes.add(mesh)),
                             MeshMaterial2d(materials.add(colour)),

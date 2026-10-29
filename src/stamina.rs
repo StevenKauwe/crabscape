@@ -135,8 +135,8 @@ struct ReserveSegment(u32);
 /// The reserve bar's length: its segments share it, however many there are.
 const RESERVE_BAR: f32 = 111.0;
 const RESERVE_GAP: f32 = 3.0;
-/// The well-fed segments and sign: yolk-gold, food.
-const FED: Color = Color::srgb(1.0, 0.86, 0.48);
+/// The well-fed segments and sign: pale gold, apart from the plain reserve.
+const FED: Color = Color::srgb(0.98, 0.93, 0.70);
 
 /// The reserve bar: a row of small segments under the HUD text (enough for
 /// a well-fed reserve; the extra ones show only then).

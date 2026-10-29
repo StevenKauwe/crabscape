@@ -52,8 +52,8 @@ impl Plugin for FoodPlugin {
 
 /// One clam's shapes, its hinge at the origin and its flat edge along the
 /// floor: (mesh, colour, offset, turn). The upper half shows; the rest is in
-/// the sand.
-pub fn clam_parts() -> Vec<(Mesh, Color, Vec3, f32)> {
+/// the sand (heaped against it, if `in_sand`).
+pub fn clam_parts(in_sand: bool) -> Vec<(Mesh, Color, Vec3, f32)> {
     // Half a disc, squashed into a clam's shallow arc.
     let half = |r: f32| Mesh::from(CircularSector::new(r, std::f32::consts::FRAC_PI_2));
     let mut parts = vec![
@@ -72,13 +72,14 @@ pub fn clam_parts() -> Vec<(Mesh, Color, Vec3, f32)> {
             turn,
         ));
     }
-    // Sand heaped against its foot.
-    parts.push((
-        Mesh::from(Ellipse::new(17.0, 3.5)),
-        SAND_HEAP,
-        Vec3::new(0.0, 0.0, 0.03),
-        0.0,
-    ));
+    if in_sand {
+        parts.push((
+            Mesh::from(Ellipse::new(17.0, 3.5)),
+            SAND_HEAP,
+            Vec3::new(0.0, 0.0, 0.03),
+            0.0,
+        ));
+    }
     parts
 }
 
@@ -87,8 +88,9 @@ fn spawn_clam<M: Asset + bevy::sprite_render::Material2d>(
     parent: &mut ChildSpawnerCommands,
     meshes: &mut Assets<Mesh>,
     paint: &mut impl FnMut(Color) -> Handle<M>,
+    in_sand: bool,
 ) {
-    for (mesh, colour, at, turn) in clam_parts() {
+    for (mesh, colour, at, turn) in clam_parts(in_sand) {
         parent.spawn((
             Mesh2d(meshes.add(mesh)),
             MeshMaterial2d(paint(colour)),
@@ -121,7 +123,7 @@ fn spawn_beds(
                 Transform::from_translation(foot.extend(BED_Z)),
                 Visibility::Hidden,
             ))
-            .with_children(|bed| spawn_clam(bed, &mut meshes, &mut paint));
+            .with_children(|bed| spawn_clam(bed, &mut meshes, &mut paint, true));
     }
 }
 
@@ -161,7 +163,7 @@ fn spawn_clam_on_back(
     let mut paint = |colour: Color| materials.add(colour);
     commands
         .spawn((ClamOnBack, Transform::default(), Visibility::Hidden))
-        .with_children(|clam| spawn_clam(clam, &mut meshes, &mut paint));
+        .with_children(|clam| spawn_clam(clam, &mut meshes, &mut paint, false));
 }
 
 /// The clam rides on the crab's back like the lump and the tooth do.
@@ -185,7 +187,7 @@ fn carry_clam(
             -mover.climb_side * 1.2,
         )
     } else {
-        (Vec2::new(0.0, 44.0), 0.0)
+        (Vec2::new(0.0, 56.0), 0.0)
     };
     clam_at.translation = (at.translation.truncate() + back).extend(9.5);
     clam_at.rotation = Quat::from_rotation_z(turn);
@@ -224,7 +226,7 @@ fn spawn_larder(
                     .with_scale(Vec3::splat(LARDER_SCALE)),
                 Visibility::Hidden,
             ))
-            .with_children(|clam| spawn_clam(clam, &mut meshes, &mut paint));
+            .with_children(|clam| spawn_clam(clam, &mut meshes, &mut paint, false));
     }
 }
 
