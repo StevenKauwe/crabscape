@@ -105,7 +105,7 @@ mod web {
     };
 
     use crate::coop::LocalId;
-    use crate::settings::{Hear, Settings};
+    use crate::settings::Settings;
     use crate::sound::Mic;
     use crate::voice::{MicTrouble, mic_trouble};
 
@@ -223,21 +223,7 @@ mod web {
                 ),
             ),
             ("Frame rate".into(), format!("{fps:.0} a second")),
-            (
-                "Settings".into(),
-                format!(
-                    "{}, voices: {}",
-                    if settings.saver {
-                        "battery saver"
-                    } else {
-                        "smooth"
-                    },
-                    match settings.hear {
-                        Hear::Everyone => "everyone".to_string(),
-                        Hear::Nearby => format!("nearby ({:.0})", settings.range),
-                    }
-                ),
-            ),
+            ("Settings".into(), settings.describe()),
             ("Zoomed out".into(), format!("{:.2}", zoom.out)),
         ];
         if let Some(crab) = sim.crab(me.0) {
