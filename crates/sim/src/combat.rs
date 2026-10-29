@@ -410,17 +410,20 @@ impl Fighter {
             .as_ref()
             .filter(|s| s.phase(t) == Phase::Active)?;
         let c = s.claw.tuning(t);
-        // A bulked-up crab's claws are bigger and reach further.
+        // A bulked-up crab's claws are bigger and reach further and higher,
+        // and still smash right down to the floor.
         let size = m.size(t);
         let near = m.pos.x + self.facing * t.body_half_width * size;
         let far = near + self.facing * c.reach * size;
-        let mid = m.pos.y + t.body_height * size / 2.0;
-        let half = c.height * size / 2.0;
+        let (low, high) = (
+            (t.body_height - c.height) / 2.0,
+            (t.body_height + c.height) / 2.0,
+        );
         Some(Rect::new(
             near.min(far),
-            mid - half,
+            m.pos.y + low,
             near.max(far),
-            mid + half,
+            m.pos.y + high * size,
         ))
     }
 }
