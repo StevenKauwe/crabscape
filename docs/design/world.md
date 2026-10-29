@@ -151,6 +151,12 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   normally lets 20% of its damage through (40% once the guard is cracked); with the guards, 10% (20%). One clam eaten
   gives exactly enough, so the first meal at home already offers something to make. That a crab would armour its
   claws with clam shells: not verified (the game's idea).
+- **What's fitted shows on the crab** (in the world and inside the home, both art styles): a cream ribbed clam valve
+  over each palm (guards), the tooth's edges along the crusher's fingers (scissors), a pale icy glass sheath on each
+  walking leg's tip (grips), and a jar with a sea-green speck per culture grown in (up to four) round a bigger glowing
+  middle (the lantern). Grown feats show too: a crusher hand a quarter bigger (heavy crusher), broader blades on the
+  paddles (broad paddles) and dark hooks curling in at the leg tips (gripping dactyls). They are rig parts in
+  `crates/crabrig`, hidden until the sim says the crab has them.
 - Eggs, cultures, skills, gear, cast-off shells, food (the larder, the beds growing back, the time left well fed)
   and the home (the shell grit taken and built in)
   are kept across reloads ("Start over" wipes them). A save from before the level grew keeps what it had; the new
