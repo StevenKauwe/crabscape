@@ -90,6 +90,9 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   section). High on the end wall's face, out in the water, a **coral** grows out of the rock (no single stroke from
   the floor reaches it), and a **sixth egg** drifts four strokes above its top: more than the legs have left on
   arriving, so only a crab with **gripping dactyls**, resting on the coral, swims on up to it.
+  At the foot of the pillar, a lump of **brittle rock** (old coral rubble crusted together; that such rubble cracks
+  under a heavy blow: not verified) seals a third patch of **glowing bacteria** in a hollow: only the **heavy
+  crusher**'s full charge cracks it (gone for everyone, and saved).
 - **Food (the "Prepare" step):** clams lie half-buried in the floor: two in the shallows near home, one in the basin
   below the cliff, and harder ones on the flats past the trench (by the moray) and at the bottom of the pit; three more in the canyon
   (two on its floor, one on the far rim). Walking

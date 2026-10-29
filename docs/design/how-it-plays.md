@@ -29,8 +29,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   holding dodge to **sprint** (a fast scuttle, between walking and the dodge) on the floor; it drains the reserve,
   and when the reserve is empty the crab is winded and walks until dodge is let go.
 - **Dive and flip in the water.** Pushing a way while sinking tilts the crab into a dive: streamlined, it sinks a
-  little faster and moves across a little quicker. Dodge in the water is a flip, a quick somersault (a flourish for
-  now; it doesn't carry the crab further, so the trench and the cliff stay fair).
+  little faster and moves across a little quicker. Dodge in the water is a flip, a quick somersault (a flourish:
+  it doesn't carry the crab further, so the trench and the cliff stay fair) until **broad paddles** make it a dash.
 - **Climb kelp and coral.** In the water, press jump while touching a kelp stalk or a coral to grip it instead of
   stroking. With the walking legs (no stamina): hold jump to climb up, hold down (or dodge) to climb down, let go of
   both to hang on. Sideways shuffles along the stalk (fidgeting is safe); pushing on past the edge steps off; jump with a direction kicks off it. The crab turns sideways onto the stalk, on the side it came from (crabs climb sideways), and swings round to the other side if something is in the way; its body box turns with it. Climbing past the top pulls the crab up over it. Slow but free: the
@@ -53,8 +53,13 @@ the shell holds 10 more. The feats (their biology: not verified):
   solid ground (drawn from the reserve, like standing). A stalk out in the water becomes a place to get the strokes
   back and swim on up: the coral on the far basin's end wall, and the sixth egg above it, pays off. (Bare rock is the
   glass grips' business, a fitted gear, not a feat.)
-- **Broad paddles** (Swimming): the flip in the water becomes a real dash that carries the crab. Being built.
-- **Heavy crusher** (Fighting): a charged smash cracks brittle rock and breaks poise harder. Being built.
+- **Broad paddles** (Swimming): a flip in the water, pushing a way, becomes a real dash that way: 800 a second for
+  0.25 s, about 200 further each flip (once per flip, so mashing gets no more). Sideways only: no height, so it never
+  opens a climb.
+- **Heavy crusher** (Fighting): hold smash to charge the crusher (half a second; +50% at full, in any feel), and its
+  blows break 1.5 times the poise. A **full** charge cracks **brittle rock** (pale, lumpy old coral rubble crusted
+  together), gone for everyone. One lump at the foot of the far basin's pillar holds a third patch of glowing
+  bacteria for the lantern.
 
 ## Combat (being built: issues #64–#68)
 In the sim now: the crab's shell (health) and poise, hits with knockback and hit-stop, and the two claws: the
