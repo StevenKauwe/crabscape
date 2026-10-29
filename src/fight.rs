@@ -241,7 +241,7 @@ fn hint(kind: Kind) -> Option<&'static str> {
         Kind::Snapper => Some("A snapping shrimp! Jump or dodge its shock"),
         Kind::Mantis => Some("It holds still: GUARD right then to parry"),
         Kind::Moray => Some("A moray coils: dodge, or GUARD to parry"),
-        Kind::Octopus => Some("An arm creeps in: GUARD as it touches, or cut it"),
+        Kind::Octopus => Some("An octopus! DODGE its pounce and web, GUARD its arm tips"),
         Kind::Fixture => None,
     }
 }
@@ -272,7 +272,7 @@ fn fight_notes(
         let above = at.translation.truncate() + Vec2::Y * 110.0;
         notes::say(
             &mut commands,
-            "Held! Tap DODGE to struggle free",
+            "Held! Tap DODGE to struggle, hold it to drop a leg",
             above,
             SHELL,
         );
@@ -287,6 +287,9 @@ fn fight_notes(
         |text: &str, colour: Color, n: f32| notes::say(&mut commands, text, higher(n), colour);
     if ev.parried {
         say("Parry! Smash now", GOLD, 0.0);
+    }
+    if ev.dropped_leg {
+        say("Dropped a leg! It grows back next moult", SHELL, 0.0);
     }
     if ev.countered {
         say("Counter!", GOLD, 1.0);

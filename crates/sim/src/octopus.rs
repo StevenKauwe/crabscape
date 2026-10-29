@@ -11,6 +11,14 @@
 //!   it recoils, sore; block it and it is pushed back; cut it and it
 //!   withdraws. Each arm has its own health: one at 0 is pulled back for
 //!   the rest of the fight.
+//! - **Webover:** with the crab close (under its web) and room over it, it
+//!   rises for 84 ticks (the tell; its aim follows the crab until the last
+//!   24), then drops the web (10): a net 500 wide, coming down to the floor.
+//!   A dodge's invulnerable moment gets through; claws can't stop a net.
+//!   Missed, it lies 70 ticks with its arms spread on the floor (x1.5).
+//! - **Holding on** (after a pounce, a tip's touch or the web): the venom
+//!   bite at 120 ticks held, the heavy bite at 200. The crab struggles free,
+//!   or drops a leg to get free at once ([`crate::combat`]).
 //!
 //! Its state rides on an [`Enemy`] (`Enemy::octo`), so it is saved, sent to
 //! co-op friends and hashed like any other; it steps here instead of in
@@ -41,6 +49,8 @@ pub enum ArmState {
     Hold,
     /// Hurt to 0: pulled back for the rest of the fight.
     Lost,
+    /// Spread on the floor after a missed webover: open to a blow.
+    Spread,
 }
 
 impl ArmState {
@@ -54,6 +64,7 @@ impl ArmState {
             ArmState::Recoil => 'r',
             ArmState::Hold => 'h',
             ArmState::Lost => 'x',
+            ArmState::Spread => 'w',
         }
     }
 }
@@ -83,7 +94,11 @@ impl Arm {
     /// Out of the body, where a claw can reach it.
     pub fn out(&self, a: &ArmTuning) -> bool {
         match self.state {
-            ArmState::Slide | ArmState::Feel | ArmState::Back | ArmState::Hold => true,
+            ArmState::Slide
+            | ArmState::Feel
+            | ArmState::Back
+            | ArmState::Hold
+            | ArmState::Spread => true,
             ArmState::Recoil => self.tick <= a.snap_ticks,
             ArmState::Curled | ArmState::Lost => false,
         }
@@ -113,8 +128,18 @@ pub struct Octopus {
     pub next_probe: u32,
     /// The arm whose turn it is to probe next (they take turns).
     pub turn: usize,
-    /// The arm holding a crab (None: its body holds it, after a pounce).
+    /// The arm holding a crab (None: its body holds it, after a pounce or
+    /// under its web).
     pub holding: Option<usize>,
+    /// Its tell and blow are a webover (rising, dropping its web), not a
+    /// pounce; in its recovery, its arms lie spread after a miss.
+    pub webover: bool,
+    /// Where the web comes down (its middle).
+    pub aim: f32,
+    /// Ticks before it may webover again.
+    pub web_rest: u32,
+    /// Bites into the crab it holds so far (venom, then heavy).
+    pub bites: u32,
 }
 
 impl Octopus {
@@ -134,6 +159,10 @@ impl Octopus {
             next_probe: 0,
             turn: 0,
             holding: None,
+            webover: false,
+            aim: 0.0,
+            web_rest: 0,
+            bites: 0,
         }
     }
 
@@ -148,8 +177,11 @@ pub fn phase(e: &Enemy, o: &Octopus) -> &'static str {
     match e.state {
         State::Idle if !o.revealed => "hidden",
         State::Idle => "den",
+        State::Tell if o.webover => "rise",
         State::Tell => "flush",
+        State::Attack if o.webover => "drop",
         State::Attack => "pounce",
+        State::Recover if o.webover => "spread",
         s => s.name(),
     }
 }
@@ -163,7 +195,13 @@ pub fn root(e: &Enemy, t: &Tuning) -> Vec2 {
 /// Its eye: low while it lies hidden flat on the rock, up once it has risen.
 pub fn eye(e: &Enemy, t: &Tuning) -> Vec2 {
     let o = &t.octopus;
-    let flat = e.octo.as_ref().is_none_or(|x| !x.revealed) || e.state == State::Tell;
+    // Flat on the rock while hidden or flushing to pounce, and mantle low
+    // with its arms spread after a missed webover.
+    let flat = e.octo.as_ref().is_none_or(|x| {
+        !x.revealed
+            || (e.state == State::Tell && !x.webover)
+            || (e.state == State::Recover && x.webover)
+    });
     let (ahead, high) = if flat { o.eye_hidden } else { o.eye_up };
     Vec2::new(e.pos.x + e.facing * (ahead + e.reach), e.pos.y + high)
 }
@@ -226,7 +264,13 @@ pub fn arm_takes(e: &mut Enemy, i: usize, hit: &Hit, t: &Tuning) -> Option<comba
     let k = &t.octopus.base;
     let o = e.octo.as_mut()?;
     let arm = o.arms.get_mut(i).filter(|a| a.state != ArmState::Lost)?;
-    arm.health = (arm.health - hit.damage).max(0.0);
+    // Spread on the floor after a missed webover, an arm is wide open.
+    let open = if arm.state == ArmState::Spread {
+        t.octopus.webover.arm_damage
+    } else {
+        1.0
+    };
+    arm.health = (arm.health - hit.damage * open).max(0.0);
     arm.set(if arm.health > 0.0 {
         ArmState::Back
     } else {
@@ -281,11 +325,15 @@ pub fn step(
     e: &mut Enemy,
     crabs: &mut [SimCrab],
     t: &Tuning,
-    _level: &Level,
+    level: &Level,
 ) -> Vec<(PlayerId, Outcome)> {
     let mut blows = Vec::new();
     let k = &t.octopus.base;
     let a = &t.octopus.arms;
+    let w = &t.octopus.webover;
+    let Some(mut o) = e.octo.take() else {
+        return blows;
+    };
     e.vitals.tick(&k.vitals);
     // It keeps to its den: a blow doesn't shove it out.
     e.vel_x = 0.0;
@@ -296,24 +344,47 @@ pub fn step(
             State::Tell => {
                 e.landed = false;
                 e.struck.clear();
-                e.enter(State::Attack, k.active_ticks);
+                let active = if o.webover {
+                    w.drop_ticks
+                } else {
+                    k.active_ticks
+                };
+                e.enter(State::Attack, active);
+            }
+            State::Attack if o.webover => {
+                // Missed: it lies with its arms spread on the floor.
+                spread(e, &mut o, level, t);
+                e.enter(State::Recover, w.recover_ticks);
             }
             State::Attack => e.enter(State::Recover, k.recover_ticks),
-            State::Recover | State::Stagger => e.enter(State::Probe, 0),
+            State::Recover | State::Stagger => {
+                if o.webover {
+                    o.webover = false;
+                    o.web_rest = w.rest_ticks;
+                }
+                e.enter(State::Probe, 0);
+            }
             _ => {}
         }
     }
     e.state_tick += 1;
 
-    // The body: out with the pounce, held there while it holds on or
-    // recovers, then drawn back into the den.
+    // The body: out with the pounce, or over the crab with its web, held
+    // there while it holds on or recovers, then drawn back into the den.
     e.reach = match e.state {
+        State::Attack if o.webover => {
+            let out = (o.aim - e.pos.x).abs();
+            out * (e.state_tick as f32 / w.drop_ticks.max(1) as f32).min(1.0)
+        }
         State::Attack => {
             k.strike.lunge * (e.state_tick as f32 / k.active_ticks.max(1) as f32).min(1.0)
         }
         State::Grab | State::Recover | State::Stagger => e.reach,
         _ => (e.reach - k.strike.lunge / HEAD_BACK_TICKS).max(0.0),
     };
+    if e.state != State::Grab {
+        o.bites = 0;
+    }
 
     // Whom it watches: a crab it has seen, until that one is gone or far
     // from its den; else the nearest it sees.
@@ -339,9 +410,6 @@ pub fn step(
         }
     }
 
-    let Some(mut o) = e.octo.take() else {
-        return blows;
-    };
     let root_now = root(e, t);
     let in_reach = |p: Vec2| (p.x - root_now.x).abs() <= a.length && (p.y - e.pos.y).abs() < 200.0;
     match e.state {
@@ -367,6 +435,7 @@ pub fn step(
                 o = Octopus::new(t);
             }
         }
+        State::Attack if o.webover => web_drop(e, &mut o, crabs, t, &mut blows),
         State::Attack => {
             e.octo = Some(o);
             enemy::strike(e, crabs, t, k, &mut blows);
@@ -378,18 +447,31 @@ pub fn step(
                 if p.x != e.pos.x {
                     e.facing = (p.x - e.pos.x).signum();
                 }
-                probe(e, &mut o, crabs, t);
+                o.web_rest = o.web_rest.saturating_sub(1);
+                let under = (p.x - e.pos.x).abs() <= w.range;
+                if o.web_rest == 0 && under && headroom(level, p, t) {
+                    // Close, with room over it: it rises and spreads its web.
+                    o.webover = true;
+                    o.aim = p.x;
+                    e.enter_now(State::Tell, w.rise_ticks);
+                } else {
+                    probe(e, &mut o, crabs, t);
+                }
             }
         },
-        State::Grab => {
-            let held = crabs
-                .iter()
-                .any(|c| c.fighter.grabbed.is_some_and(|g| g.by == e.id));
-            if !held {
-                o.holding = None;
-                e.enter_now(State::Recover, k.recover_ticks);
+        State::Tell if o.webover => {
+            // Its aim follows the crab until the last moment of the rise.
+            if let Some(p) = target
+                && e.state_tick <= w.rise_ticks.saturating_sub(w.lock_ticks)
+            {
+                let most = a.length;
+                o.aim = p.x.clamp(e.pos.x - most, e.pos.x + most);
+                if o.aim != e.pos.x {
+                    e.facing = (o.aim - e.pos.x).signum();
+                }
             }
         }
+        State::Grab => bite(e, &mut o, crabs, t),
         State::Tell
         | State::Recover
         | State::Stagger
@@ -405,6 +487,136 @@ pub fn step(
     }
     e.octo = Some(o);
     blows
+}
+
+/// Is there room over the crab at `p` to webover it (no low roof of rock)?
+fn headroom(level: &Level, p: Vec2, t: &Tuning) -> bool {
+    let w = &t.octopus.webover;
+    let half = t.body_half_width;
+    !level.rocks.iter().any(|r| {
+        r.min.x < p.x + half && r.max.x > p.x - half && r.min.y > p.y && r.min.y < p.y + w.headroom
+    })
+}
+
+/// A missed webover: its arms lie spread on the floor round where the web
+/// came down.
+fn spread(e: &Enemy, o: &mut Octopus, level: &Level, t: &Tuning) {
+    let w = &t.octopus.webover;
+    let n = o.arms.len().max(1) as f32;
+    for (i, arm) in o.arms.iter_mut().enumerate() {
+        if arm.state == ArmState::Lost {
+            continue;
+        }
+        let x = o.aim + (i as f32 + 0.5 - n / 2.0) * w.width / n;
+        let y = level.floor_height(x).max(e.pos.y - 50.0);
+        arm.set(ArmState::Spread);
+        arm.tip = Vec2::new(x, y + t.octopus.arms.height / 2.0);
+    }
+}
+
+/// The web comes down from above the crab to the floor: whatever is under
+/// it when it gets there is caught (only a dodge's moment of
+/// invulnerability gets through; raised claws are no use against a net).
+fn web_drop(
+    e: &mut Enemy,
+    o: &mut Octopus,
+    crabs: &mut [SimCrab],
+    t: &Tuning,
+    blows: &mut Vec<(PlayerId, Outcome)>,
+) {
+    let w = &t.octopus.webover;
+    let down = (e.state_tick as f32 / w.drop_ticks.max(1) as f32).min(1.0);
+    let bottom = e.pos.y + w.height * (1.0 - down);
+    let (left, right) = (o.aim - w.width / 2.0, o.aim + w.width / 2.0);
+    for crab in crabs.iter_mut() {
+        let free = crab.fighter.dead.is_none() && crab.fighter.grabbed.is_none();
+        if crab.remote || !free || e.struck.contains(&crab.id) {
+            continue;
+        }
+        let body = combat::body(&crab.mover, t);
+        let under = body.max.x > left && body.min.x < right;
+        if !under || body.max.y < bottom || body.min.y > e.pos.y + w.height {
+            continue;
+        }
+        let hit = Hit {
+            damage: w.damage,
+            poise: w.poise,
+            source: Source::Enemy(e.id),
+            hitstop: t.octopus.base.strike.hitstop_ticks,
+            ..Hit::default() // a net: no parry, no block
+        };
+        let outcome = combat::crab_defends(
+            &mut crab.fighter,
+            &mut crab.mover,
+            &hit,
+            t,
+            &mut crab.events,
+        );
+        if matches!(outcome, Outcome::Evaded | Outcome::Ignored) {
+            continue; // the web may still catch it next tick
+        }
+        e.struck.push(crab.id);
+        blows.push((crab.id, outcome));
+        if let (Outcome::Hit(took), Some(g)) = (outcome, t.octopus.base.strike.grab)
+            && !took.died
+        {
+            seize(crab, e.id, g);
+            o.holding = None;
+            o.webover = false;
+            o.web_rest = w.rest_ticks;
+            e.enter_now(State::Grab, 0);
+            return;
+        }
+    }
+}
+
+/// It holds a crab fast: `g`'s hold.
+fn seize(crab: &mut SimCrab, by: u32, g: crate::tuning::GrabTuning) {
+    crab.fighter.grabbed = Some(Grabbed {
+        by,
+        left: g.ticks,
+        struggle: g.struggle,
+        held: 0,
+    });
+    crab.mover.vel = Vec2::ZERO;
+}
+
+/// Holding a crab: the venom bite once it has held it long enough, then the
+/// heavy bite. Let go (struggled free, a leg dropped, the hold given out),
+/// it recovers.
+fn bite(e: &mut Enemy, o: &mut Octopus, crabs: &mut [SimCrab], t: &Tuning) {
+    let b = &t.octopus.bite;
+    let held = crabs
+        .iter_mut()
+        .find(|c| c.fighter.grabbed.is_some_and(|g| g.by == e.id));
+    let Some(crab) = held else {
+        o.holding = None;
+        e.enter_now(State::Recover, t.octopus.base.recover_ticks);
+        return;
+    };
+    if crab.remote {
+        return; // its own device feels the bites
+    }
+    let age = crab.fighter.grabbed.map_or(0, |g| g.held);
+    let (damage, venom) = match o.bites {
+        0 if age >= b.venom_at => (b.venom_damage, true),
+        1 if age >= b.heavy_at => (b.heavy_damage, false),
+        _ => return,
+    };
+    o.bites += 1;
+    let hit = Hit {
+        damage,
+        venom,
+        source: Source::Enemy(e.id),
+        ..Hit::default()
+    };
+    combat::crab_takes(
+        &mut crab.fighter,
+        &mut crab.mover,
+        &hit,
+        t,
+        &mut crab.events,
+    );
 }
 
 /// In its den, the crab in reach: send another arm if fewer than two are
@@ -484,6 +696,11 @@ fn move_arms(e: &Enemy, o: &mut Octopus, crabs: &[SimCrab], t: &Tuning) {
                     arm.set(ArmState::Back);
                 }
             }
+            ArmState::Spread => {
+                if e.state != State::Recover {
+                    arm.set(ArmState::Back);
+                }
+            }
             ArmState::Hold => match held.filter(|_| e.state == State::Grab) {
                 Some(p) => arm.tip = p,
                 None => arm.set(ArmState::Back),
@@ -553,12 +770,7 @@ fn touch(
                 Outcome::Blocked(_) => arm.set(ArmState::Back),
                 Outcome::Hit(took) => match grab.filter(|_| !took.died) {
                     Some(g) => {
-                        crab.fighter.grabbed = Some(Grabbed {
-                            by: e.id,
-                            left: g.ticks,
-                            struggle: g.struggle,
-                        });
-                        crab.mover.vel = Vec2::ZERO;
+                        seize(crab, e.id, g);
                         arm.set(ArmState::Hold);
                         o.holding = Some(i);
                         e.enter_now(State::Grab, 0);

@@ -258,6 +258,10 @@ fn an_arm_at_0_health_stops_probing() {
         let e = &mut sim.enemies_mut()[0];
         e.takes_at(Part::Arm(0), &Hit::new(40.0, 0.0, Source::World), 200.0, &t);
         assert_eq!(e.octopus().unwrap().arms[0].health, 0.0);
+        // Tough enough to outlast its holds and bites the whole time (dead,
+        // the crab wakes at home and the octopus, left alone, mends).
+        let id = sim.crabs()[0].id;
+        sim.crab_mut(id).unwrap().fighter.vitals.health = 10_000.0;
     });
     assert!(r.arms.iter().all(|a| a[0] == ArmState::Lost), "never again");
     for i in 1..8 {
@@ -461,8 +465,15 @@ fn close_under_its_web_it_rises_then_drops_it_and_caught_crabs_are_grabbed() {
     let rise = r.enemy.iter().position(|e| e.1 == "rise").expect("rises");
     let drop = drop_tick();
     assert_eq!(drop - rise, 84, "the tell: it rises and spreads its web");
-    let caught = r.status.iter().position(|s| s == "grabbed").expect("caught");
-    assert!(caught > drop && caught < drop + 10, "under the web as it closes");
+    let caught = r
+        .status
+        .iter()
+        .position(|s| s == "grabbed")
+        .expect("caught");
+    assert!(
+        caught > drop && caught < drop + 10,
+        "under the web as it closes"
+    );
     assert_eq!(r.enemy[caught].0, State::Grab);
     // Not even probing while it rises: its arms gather in.
     assert!(r.arms[rise + 45].iter().all(|a| *a == ArmState::Curled));
@@ -471,7 +482,11 @@ fn close_under_its_web_it_rises_then_drops_it_and_caught_crabs_are_grabbed() {
 #[test]
 fn dodging_sideways_out_of_the_drop_takes_nothing() {
     let d = drop_tick();
-    let c = close(&format!("@{} walk=left dodge", d + 2), d as u64 + 40, |_| {});
+    let c = close(
+        &format!("@{} walk=left dodge", d + 2),
+        d as u64 + 40,
+        |_| {},
+    );
     let r = &c.run;
     assert!(r.evaded, "the dodge's moment of invulnerability");
     assert!(r.hurt.iter().all(|h| !h), "took nothing");
@@ -484,14 +499,22 @@ fn dodging_sideways_out_of_the_drop_takes_nothing() {
 #[test]
 fn a_missed_webover_leaves_its_arms_out_where_hits_count_half_again() {
     let d = drop_tick();
-    let mut c = close(&format!("@{} walk=left dodge", d + 2), d as u64 + 15, |_| {});
+    let mut c = close(
+        &format!("@{} walk=left dodge", d + 2),
+        d as u64 + 15,
+        |_| {},
+    );
     let t = c.run.sim.tuning.clone();
     let e = &mut c.run.sim.enemies_mut()[0];
     e.takes_at(Part::Arm(3), &Hit::new(10.0, 0.0, Source::World), 300.0, &t);
     assert_eq!(e.octopus().unwrap().arms[3].health, 40.0 - 15.0, "x1.5");
     let recover = c.run.enemy.iter().filter(|e| e.1 == "spread").count();
     assert!(recover > 0);
-    let whole = close(&format!("@{} walk=left dodge", d + 2), d as u64 + 120, |_| {});
+    let whole = close(
+        &format!("@{} walk=left dodge", d + 2),
+        d as u64 + 120,
+        |_| {},
+    );
     let spread = whole.run.enemy.iter().filter(|e| e.1 == "spread").count();
     assert_eq!(spread, 70, "recovering 70 ticks");
 }
@@ -500,9 +523,12 @@ fn a_missed_webover_leaves_its_arms_out_where_hits_count_half_again() {
 fn it_cant_webover_in_a_low_tunnel() {
     // A roof of rock just over the crab's head where it stands.
     let c = close("", 600, |sim| {
-        sim.level
-            .rocks
-            .push(bevy_math::Rect::new(CLOSE - 80.0, 120.0, CLOSE + 80.0, 160.0));
+        sim.level.rocks.push(bevy_math::Rect::new(
+            CLOSE - 80.0,
+            120.0,
+            CLOSE + 80.0,
+            160.0,
+        ));
     });
     assert!(c.run.enemy.iter().all(|e| e.1 != "rise"), "never rises");
     assert!(
@@ -546,20 +572,33 @@ fn venom_hurts_2_a_second_for_5_seconds_and_stacks() {
     }
     let f = &sim.crabs()[0].fighter;
     assert_eq!(f.venom.len(), 2, "two doses");
-    assert!((100.0 - f.vitals.health - 4.0).abs() < 0.05, "{}", f.vitals.health);
+    assert!(
+        (100.0 - f.vitals.health - 4.0).abs() < 0.05,
+        "{}",
+        f.vitals.health
+    );
     for _ in 0..500 {
         sim.tick();
     }
     let f = &sim.crabs()[0].fighter;
     assert!(f.venom.is_empty(), "worn off after 5 s");
-    assert!((100.0 - f.vitals.health - 20.0).abs() < 0.1, "{}", f.vitals.health);
+    assert!(
+        (100.0 - f.vitals.health - 20.0).abs() < 0.1,
+        "{}",
+        f.vitals.health
+    );
 }
 
 /// How far the crab walks in a second from standing, with `set_up` done.
 fn walks(set_up: impl FnOnce(&mut Sim)) -> f32 {
     let mut sim = Sim::with_one_crab(Vec2::new(100.0, 0.0));
     set_up(&mut sim);
-    play(&mut sim, &Replay::parse("t=0 walk=right").unwrap(), 120, |_| {});
+    play(
+        &mut sim,
+        &Replay::parse("t=0 walk=right").unwrap(),
+        120,
+        |_| {},
+    );
     sim.crabs()[0].mover.pos.x - 100.0
 }
 

@@ -767,6 +767,7 @@ pub(crate) fn strike(
                 by: e.id,
                 left: g.ticks,
                 struggle: g.struggle,
+                held: 0,
             });
             crab.mover.vel = Vec2::ZERO;
         }
