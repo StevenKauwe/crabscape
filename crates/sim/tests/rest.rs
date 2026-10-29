@@ -154,10 +154,10 @@ fn dying_wakes_the_crab_in_the_last_crevice_it_rested_in() {
         crabsim::Mover::new(Vec2::new(next.door.max.x - 5.0, next.den.y));
     rest_in(&mut sim, P0);
     assert_eq!(sim.crab(P0).unwrap().wakes_at, Some(1));
-    // Out, then a clam on its back, and killed a way off.
+    // Out, then a clam on its shell, and killed a way off.
     walk(&mut sim, P0, 1.0, 120);
     let mut out = crabsim::Mover::new(Vec2::new(next.door.max.x + 300.0, next.den.y));
-    out.carrying = Some(Carry::Clam);
+    out.clinging = vec![Carry::Clam];
     sim.crab_mut(P0).unwrap().mover = out;
     die(&mut sim);
     let crab = sim.crab(P0).unwrap();
@@ -165,7 +165,11 @@ fn dying_wakes_the_crab_in_the_last_crevice_it_rested_in() {
     assert_eq!(crab.mover.shelter, Shelter::In);
     assert!(crab.mover.tucked_in());
     assert_eq!(crab.fighter.vitals.health, sim.tuning.crab.health);
-    assert_eq!(crab.cast_offs.len(), 1, "the clam lies where it fell");
+    // (With room on its shell, it took what else lay there as well.)
+    assert!(
+        crab.cast_offs.iter().any(|c| c.carrying == Carry::Clam),
+        "the clam lies where it fell"
+    );
     assert_eq!(crab.wakes_at, Some(1), "and still wakes there");
 }
 

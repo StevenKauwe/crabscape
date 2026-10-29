@@ -581,15 +581,15 @@ impl Sim {
             }
             // Dead: still, until it wakes tucked in its home shell, or in the
             // last crevice it rested in (Valheim's death and beds, `world.md`).
-            // What it carried stays in its cast-off shell where it fell; what
-            // it is (strokes, lantern, claws, skills) it keeps.
+            // What it carried (on its back and its shell) stays in its
+            // cast-off shell where it fell; what it is (strokes, lantern,
+            // claws, skills) it keeps.
             if f.dead.is_some_and(|d| d >= self.tuning.respawn_ticks) {
-                if let Some(carrying) = crab.mover.carrying {
-                    crab.cast_offs.push(CastOff {
-                        pos: crab.mover.pos,
-                        carrying,
-                    });
-                }
+                let m = &crab.mover;
+                crab.cast_offs.extend(m.load().map(|carrying| CastOff {
+                    pos: m.pos,
+                    carrying,
+                }));
                 *f = Fighter::new(&self.tuning);
                 let place = crab.wakes_at.map_or(Place::Home, Place::Crevice);
                 let (_, den) = self.level.door_and_den(place);
@@ -660,54 +660,42 @@ impl Sim {
                 }
             }
             // A patch of glowing bacteria it touches: it takes a lump of it
-            // home on its back (one thing at a time).
+            // home on its back (one big find at a time).
+            let t = &self.tuning;
+            let (m, ev) = (&mut crab.mover, &mut crab.events);
             for (patch, taken) in self.level.cultures.iter().zip(&mut crab.cultures_taken) {
-                let free = crab.mover.carrying.is_none();
-                if !*taken && free && in_reach(&crab.mover, *patch, &self.tuning) {
+                if !*taken && in_reach(m, *patch, t) && take_up(m, ev, Carry::Culture, t) {
                     *taken = true;
-                    crab.mover.carrying = Some(Carry::Culture);
-                    crab.events.picked_up = true;
                 }
             }
             // A shed tooth: the same, to be fitted to the crusher at home.
             for (tooth, taken) in self.level.teeth.iter().zip(&mut crab.teeth_taken) {
-                let free = crab.mover.carrying.is_none();
-                if !*taken && free && in_reach(&crab.mover, *tooth, &self.tuning) {
+                if !*taken && in_reach(m, *tooth, t) && take_up(m, ev, Carry::Tooth, t) {
                     *taken = true;
-                    crab.mover.carrying = Some(Carry::Tooth);
-                    crab.events.picked_up = true;
                 }
             }
-            // A clam: the same, for the larder. Its bed grows another in time.
+            // A clam, for the larder: it clings to the shell, with room for
+            // a few small things whatever is on its back. Its bed grows
+            // another in time.
             for (clam, regrow) in self.level.clams.iter().zip(&mut crab.clams) {
-                let free = crab.mover.carrying.is_none();
-                if *regrow == 0 && free && in_reach(&crab.mover, *clam, &self.tuning) {
-                    *regrow = self.tuning.food.regrow_ticks;
-                    crab.mover.carrying = Some(Carry::Clam);
-                    crab.events.picked_up = true;
+                if *regrow == 0 && in_reach(m, *clam, t) && take_up(m, ev, Carry::Clam, t) {
+                    *regrow = t.food.regrow_ticks;
                 }
             }
             // Shell grit: the same, to build into the home. Each heap once.
             for (grit, taken) in self.level.grit.iter().zip(&mut crab.grit_taken) {
-                let free = crab.mover.carrying.is_none();
-                if !*taken && free && in_reach(&crab.mover, *grit, &self.tuning) {
+                if !*taken && in_reach(m, *grit, t) && take_up(m, ev, Carry::Grit, t) {
                     *taken = true;
-                    crab.mover.carrying = Some(Carry::Grit);
-                    crab.events.picked_up = true;
                 }
             }
-            // Its cast-off shell, back where it died: what it carried goes on
-            // its back again (if its back is free).
-            if crab.mover.carrying.is_none()
-                && crab.fighter.dead.is_none()
-                && let Some(i) = crab
-                    .cast_offs
-                    .iter()
-                    .position(|c| in_reach(&crab.mover, c.pos, &self.tuning))
-            {
-                crab.mover.carrying = Some(crab.cast_offs.remove(i).carrying);
-                crab.events.picked_up = true;
-                crab.events.recovered = true;
+            // Its cast-off shell, back where it died: what it carried goes
+            // back on (whatever there's room for; the rest waits there).
+            if crab.fighter.dead.is_none() {
+                crab.cast_offs.retain(|off| {
+                    let back = in_reach(m, off.pos, t) && take_up(m, ev, off.carrying, t);
+                    ev.recovered |= back;
+                    !back
+                });
             }
             // A creature it beat lies where it fell: eating it mends the
             // shell and fills the reserve (crabs are scavengers). Each body
@@ -806,30 +794,34 @@ impl Sim {
                 rest(m, v, &self.tuning, mend_after, &mut crab.events);
                 // Stage 2: a shelf of grit inside, a bigger larder.
                 let larder = larder_holds(stage, &self.tuning);
-                match m.carrying.take() {
-                    Some(Carry::Culture) => {
-                        m.lantern += 1;
-                        crab.events.delivered = true;
+                // Everything it carries comes off at once.
+                let load = m.carrying.take().into_iter();
+                for thing in load.chain(std::mem::take(&mut m.clinging)) {
+                    match thing {
+                        Carry::Culture => {
+                            m.lantern += 1;
+                            crab.events.delivered = true;
+                        }
+                        Carry::Tooth => {
+                            m.scissor_claw = true;
+                            crab.events.fitted_scissors = true;
+                        }
+                        Carry::Clam if crab.larder < larder => {
+                            crab.larder += 1;
+                            crab.events.stored = true;
+                        }
+                        // No room: it stays on the shell.
+                        Carry::Clam => {
+                            m.clinging.push(Carry::Clam);
+                            crab.events.larder_full |= crab.events.tucked_in;
+                        }
+                        Carry::Grit => {
+                            crab.home_grit += 1;
+                            crab.events.built = true;
+                        }
                     }
-                    Some(Carry::Tooth) => {
-                        m.scissor_claw = true;
-                        crab.events.fitted_scissors = true;
-                    }
-                    Some(Carry::Clam) if crab.larder < larder => {
-                        crab.larder += 1;
-                        crab.events.stored = true;
-                    }
-                    Some(Carry::Clam) => {
-                        m.carrying = Some(Carry::Clam);
-                        crab.events.larder_full |= crab.events.tucked_in;
-                    }
-                    Some(Carry::Grit) => {
-                        crab.home_grit += 1;
-                        crab.events.built = true;
-                        crab.events.home_grew = build.stage(crab.home_grit) > stage;
-                    }
-                    None => {}
                 }
+                crab.events.home_grew |= build.stage(crab.home_grit) > stage;
                 // Settled in and not well fed, with food in the larder: it
                 // cracks a clam open with its crusher and eats it. A bigger
                 // shell and reserve for a while, both filled.
@@ -1362,6 +1354,18 @@ fn against(m: &Mover, r: Rect, t: &Tuning) -> bool {
         && m.pos.x - t.body_half_width - reach < r.max.x
         && m.pos.y + t.body_height > r.min.y
         && m.pos.y < r.max.y
+}
+
+/// Take `thing` up if there's room for it (on its back or its shell), and
+/// say so; a small thing with no room on the shell says that instead.
+fn take_up(m: &mut Mover, ev: &mut StepEvents, thing: Carry, t: &Tuning) -> bool {
+    let took = m.take_up(thing, t);
+    if took {
+        ev.picked_up = ev.picked_up.or(Some(thing));
+    } else {
+        ev.shell_full |= thing.small();
+    }
+    took
 }
 
 /// Is `egg` touching the crab's body (with a little reach for the claws)?

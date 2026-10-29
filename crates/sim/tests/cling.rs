@@ -5,7 +5,7 @@
 //! once; dying leaves all of it in the cast-off shell.
 
 use bevy_math::Vec2;
-use crabsim::{Controls, Hit, PlayerId, Progress, Shelter, Sim};
+use crabsim::{Carry, Controls, Hit, PlayerId, Progress, Shelter, Sim};
 
 const P0: PlayerId = PlayerId(0);
 
@@ -20,20 +20,18 @@ fn by_home() -> Sim {
     Sim::with_one_crab(Vec2::new(180.0, 0.0))
 }
 
-/// Put the crab out on the floor at `at` (keeping what it carries) and let
-/// one tick pass.
+/// Put the crab out at `at` (keeping what it carries) and let one tick
+/// pass.
 fn step_onto(sim: &mut Sim, at: Vec2) {
-    let floor = sim.level.floor_height(at.x);
     let m = &mut sim.crab_mut(P0).unwrap().mover;
-    m.pos = Vec2::new(at.x, floor);
+    m.pos = at;
     m.vel = Vec2::ZERO;
     m.shelter = Shelter::Out;
     m.tucked = 0.0;
     sim.tick();
 }
 
-/// From by the doorway, walk left until tucked in at home. Returns the
-/// events seen on the way, by name.
+/// Put the crab by the doorway, then walk home: see [`walk_home`].
 fn go_home(sim: &mut Sim) -> Vec<&'static str> {
     {
         let m = &mut sim.crab_mut(P0).unwrap().mover;
@@ -42,6 +40,12 @@ fn go_home(sim: &mut Sim) -> Vec<&'static str> {
         m.shelter = Shelter::Out;
         m.tucked = 0.0;
     }
+    walk_home(sim)
+}
+
+/// Walk left (home is at the left end of the shallows) until tucked in.
+/// Returns the events seen on the way, by name.
+fn walk_home(sim: &mut Sim) -> Vec<&'static str> {
     let mut seen = Vec::new();
     for _ in 0..1200 {
         sim.set_controls(
@@ -173,6 +177,15 @@ fn an_old_save_with_a_clam_on_its_back_still_carries_it() {
     );
     let saved: Progress = serde_json::from_value(old).expect("an old save still reads");
     sim.restore_progress(P0, &saved);
+    // The clam moves onto its shell, and saves that way from now on.
+    let crab = sim.crab(P0).unwrap();
+    assert_eq!(crab.mover.carrying, None);
+    assert_eq!(crab.mover.clinging, vec![Carry::Clam]);
+    let resaved = sim.progress(P0).unwrap();
+    assert_eq!(
+        (resaved.carrying, resaved.clinging),
+        (None, vec![Carry::Clam])
+    );
 
     // The clam doesn't fill its back: it takes grit too...
     let grit0 = sim.level.grit[0];
@@ -186,4 +199,73 @@ fn an_old_save_with_a_clam_on_its_back_still_carries_it() {
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.larder, 1);
     assert_eq!(crab.home_grit, 2);
+}
+
+#[test]
+fn a_full_shell_leaves_a_small_thing_where_it_lies() {
+    let mut sim = by_home();
+    let cling = sim.tuning.cling;
+    let small: Vec<Vec2> = sim
+        .level
+        .clams
+        .iter()
+        .chain(&sim.level.grit)
+        .copied()
+        .collect();
+    assert!(small.len() > cling, "more small things lie about than fit");
+    for &at in &small[..cling] {
+        step_onto(&mut sim, at);
+    }
+    assert_eq!(sim.crab(P0).unwrap().mover.clinging.len(), cling);
+    let before = sim.crab(P0).unwrap().clone();
+    step_onto(&mut sim, small[cling]);
+    let crab = sim.crab(P0).unwrap();
+    assert!(crab.events.shell_full, "it says so");
+    assert_eq!(crab.events.picked_up, None, "no swap");
+    assert_eq!(crab.mover.clinging, before.mover.clinging);
+    let bare = |clams: &[u32]| clams.iter().map(|&c| c > 0).collect::<Vec<_>>();
+    assert_eq!(
+        (bare(&crab.clams), &crab.grit_taken),
+        (bare(&before.clams), &before.grit_taken),
+        "it lies where it was"
+    );
+}
+
+#[test]
+fn big_finds_still_ride_on_its_back_one_at_a_time() {
+    let mut sim = by_home();
+    let (culture, tooth) = (sim.level.cultures[0], sim.level.teeth[0]);
+    step_onto(&mut sim, culture);
+    step_onto(&mut sim, tooth);
+    let crab = sim.crab(P0).unwrap();
+    assert_eq!(crab.mover.carrying, Some(Carry::Culture));
+    assert!(crab.mover.clinging.is_empty(), "a big find never clings");
+    assert!(!crab.teeth_taken[0], "the tooth waits for a free back");
+    assert!(!crab.events.shell_full);
+}
+
+#[test]
+fn what_clings_is_saved_and_a_replay_carries_it() {
+    let mut live = by_home();
+    let mut saved = live.progress(P0).unwrap();
+    saved.carrying = Some(Carry::Culture);
+    saved.clinging = vec![Carry::Clam, Carry::Grit];
+    let text = serde_json::to_string(&saved).unwrap();
+    let saved: Progress = serde_json::from_str(&text).unwrap();
+    live.restore_progress(P0, &saved);
+    assert_eq!(live.progress(P0).unwrap(), saved);
+
+    live.start_recording();
+    walk_home(&mut live);
+    idle(&mut live, 30);
+    let crab = live.crab(P0).unwrap();
+    assert_eq!((crab.mover.lantern, crab.larder, crab.home_grit), (1, 1, 1));
+    assert!(crab.mover.load().next().is_none(), "all of it unloaded");
+
+    let text = live.recording().unwrap().to_text();
+    let replay = crabsim::Replay::parse(&text).unwrap();
+    let mut again = Sim::with_one_crab(replay.start);
+    crabsim::play(&mut again, &replay, replay.end.unwrap(), |_| {});
+    assert_eq!(again.progress(P0), live.progress(P0));
+    assert_eq!(replay.hash, Some(again.state_hash()), "{text}");
 }

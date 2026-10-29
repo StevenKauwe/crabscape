@@ -809,9 +809,11 @@ fn a_crab_tucked_in_at_home_mends_its_shell_after_a_moment_unhit() {
 fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
     // At the bottom of the pit, walk over the glowing patch: a lump of it
     // goes on the crab's back.
+    // (Walking on, the shell grit past it clings to its shell too.)
     let found = run("start x=3800 y=-8700; t=0 walk=right", 1.5);
-    assert_eq!(found.count("picked up"), 1);
+    assert_eq!(found.count("picked up"), 2);
     assert_eq!(found.crab().carrying, Some(crabsim::Carry::Culture));
+    assert_eq!(found.crab().clinging, vec![crabsim::Carry::Grit]);
     // Carrying it, walk in at home: it's cultured into the lantern.
     let carrying = |m: &mut crabsim::Mover| m.carrying = Some(crabsim::Carry::Culture);
     let home = run_crab(Tuning::base(), "t=0 walk=left", 1.5, |_| false, carrying);
@@ -1221,7 +1223,7 @@ fn health_zero_emits_one_died_and_stops_the_crab() {
     let mut sim = r.sim;
     sim.set_controls(P0, crabsim::Controls::default());
     // It walked over a clam on the way: empty-handed for this one.
-    sim.crab_mut(P0).unwrap().mover.carrying = None;
+    sim.crab_mut(P0).unwrap().mover.clinging.clear();
     let mut died = 0;
     for n in 0..3 {
         sim.hit_crab(P0, &blow(40.0, 0.0));

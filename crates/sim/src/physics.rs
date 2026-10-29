@@ -77,7 +77,8 @@ impl Controls {
     }
 }
 
-/// Something a crab carries home on its back.
+/// Something a crab carries home: a big find on its back, or a small thing
+/// clinging to its shell (see [`Carry::small`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Carry {
     /// A lump of wild glowing bacteria: cultured at home into the lantern.
@@ -88,6 +89,15 @@ pub enum Carry {
     Clam,
     /// A piece of shell grit (old, broken shells): built into the home.
     Grit,
+}
+
+impl Carry {
+    /// Small things (a clam, a piece of grit) cling to the crab's shell,
+    /// several at once, like a decorator crab's trimmings; big finds (a
+    /// culture, a tooth) ride on its back, one at a time.
+    pub fn small(self) -> bool {
+        matches!(self, Carry::Clam | Carry::Grit)
+    }
 }
 
 /// A crab's movement state. (In the game, each crab entity also carries a
@@ -112,9 +122,13 @@ pub struct Mover {
     /// Paddle strokes the crab has grown (one per egg eaten), on top of
     /// [`Tuning::swim_strokes`]. The first one is the double jump.
     pub upgrades: u32,
-    /// What the crab is carrying home on its back, if anything (one thing
-    /// at a time).
+    /// The big find it is carrying home on its back (a culture or a tooth),
+    /// if any: one at a time.
     pub carrying: Option<Carry>,
+    /// The small things (clams, shell grit) clinging to its shell, in the
+    /// order it took them: up to [`Tuning::cling`] at once, besides the big
+    /// find on its back.
+    pub clinging: Vec<Carry>,
     /// Scissor claws: a shed tooth's edges fitted along both fingers of its
     /// crusher claw (at the workbench at home). They cut through ghost nets.
     pub scissor_claw: bool,
@@ -202,6 +216,7 @@ impl Mover {
             rising: false,
             upgrades: 0,
             carrying: None,
+            clinging: Vec::new(),
             scissor_claw: false,
             lantern: 0,
             climb_xp: 0.0,
@@ -234,6 +249,33 @@ impl Mover {
     /// Tucked right into the home shell (or a crevice), resting there.
     pub fn tucked_in(&self) -> bool {
         self.shelter == Shelter::In && self.tucked >= 1.0
+    }
+
+    /// Is there room for `thing`: a free back for a big find, a free spot
+    /// on the shell for a small one?
+    pub fn room_for(&self, thing: Carry, t: &Tuning) -> bool {
+        if thing.small() {
+            self.clinging.len() < t.cling
+        } else {
+            self.carrying.is_none()
+        }
+    }
+
+    /// Take `thing` up if there's room for it (see [`Mover::room_for`]).
+    pub fn take_up(&mut self, thing: Carry, t: &Tuning) -> bool {
+        let room = self.room_for(thing, t);
+        if room && thing.small() {
+            self.clinging.push(thing);
+        } else if room {
+            self.carrying = Some(thing);
+        }
+        room
+    }
+
+    /// Everything it carries: the big find on its back, then the small
+    /// things on its shell.
+    pub fn load(&self) -> impl Iterator<Item = Carry> + '_ {
+        self.carrying.iter().chain(&self.clinging).copied()
     }
 
     /// How many paddle strokes the legs hold when rested (the double jump,
@@ -318,8 +360,11 @@ pub struct StepEvents {
     pub fed: bool,
     /// Gripped kelp or coral.
     pub gripped: bool,
-    /// Picked up a lump of glowing bacteria to carry home.
-    pub picked_up: bool,
+    /// Took something to carry home (the first, if several): onto its back
+    /// or its shell.
+    pub picked_up: Option<Carry>,
+    /// Walked over a small thing with its shell full: it stays where it is.
+    pub shell_full: bool,
     /// Started backing into the home shell (or a crevice).
     pub went_in: bool,
     /// Settled, tucked right into the home shell (or a crevice).
@@ -409,7 +454,8 @@ impl StepEvents {
         self.ate |= other.ate;
         self.fed |= other.fed;
         self.gripped |= other.gripped;
-        self.picked_up |= other.picked_up;
+        self.picked_up = self.picked_up.or(other.picked_up);
+        self.shell_full |= other.shell_full;
         self.went_in |= other.went_in;
         self.tucked_in |= other.tucked_in;
         self.came_out |= other.came_out;
@@ -461,7 +507,8 @@ impl StepEvents {
             (self.ate, "ate"),
             (self.fed, "fed"),
             (self.gripped, "gripped"),
-            (self.picked_up, "picked up"),
+            (self.picked_up.is_some(), "picked up"),
+            (self.shell_full, "shell full"),
             (self.went_in, "went in"),
             (self.tucked_in, "tucked in"),
             (self.came_out, "came out"),

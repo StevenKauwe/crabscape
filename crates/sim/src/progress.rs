@@ -23,7 +23,12 @@ pub struct Progress {
     pub swim_xp: f32,
     #[serde(default)]
     pub fight_xp: f32,
+    /// The big find on its back. Saves from before small things clung to the
+    /// shell may hold a clam or shell grit here: it loads onto the shell.
     pub carrying: Option<Carry>,
+    /// The small things clinging to its shell (saves from before have none).
+    #[serde(default)]
+    pub clinging: Vec<Carry>,
     pub eaten: Vec<bool>,
     pub cultures_taken: Vec<bool>,
     pub clues_found: Vec<bool>,
@@ -93,6 +98,7 @@ impl Sim {
             swim_xp: m.swim_xp,
             fight_xp: m.fight_xp,
             carrying: m.carrying,
+            clinging: m.clinging.clone(),
             eaten: crab.eaten.clone(),
             cultures_taken: crab.cultures_taken.clone(),
             clues_found: crab.clues_found.clone(),
@@ -157,7 +163,9 @@ impl Sim {
             keep_start(&mut crab.grit_taken, &p.grit_taken);
         }
         if same_level {
-            m.carrying = p.carrying;
+            m.carrying = p.carrying.filter(|c| !c.small());
+            m.clinging = p.carrying.filter(|c| c.small()).into_iter().collect();
+            m.clinging.extend(&p.clinging);
             keep_start(&mut crab.eaten, &p.eaten);
             keep_start(&mut crab.cultures_taken, &p.cultures_taken);
             keep_start(&mut crab.clues_found, &p.clues_found);
