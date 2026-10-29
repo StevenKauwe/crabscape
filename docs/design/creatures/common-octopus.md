@@ -59,6 +59,27 @@ into growing: its den.
   once; the venom bite lands at tick 120 of a grab, not before; a parried probe tip recoils without grabbing; an arm
   at 0 health stops probing; ink at 66% and 33% exactly once each; inside the ink a sight-hunting enemy loses the crab.
 
+## Built so far
+**Simulation** (`crates/sim/src/octopus.rs`, numbers in `tuning.rs` as `octopus`, tests in `crates/sim/tests/octopus.rs`;
+not placed in a level yet, only tests and `cargo crabsim`, e.g. `--script "start x=200 y=0; @0 spawn=octopus@480,0
+walk=right; @62 parry"`):
+- **Hidden:** a rock; `hidden` until found out (its eye low on the rock). It watches a crab it sees within 400 and
+  pounces on one whose middle comes within 140 of its front: `flush` (30 ticks, the tell), `pounce` (10; its body
+  lands 140 out, circle r 40), 20 damage and held. Any blow on it gives it away (it fights from its den instead).
+  Judgement call: "unaware" isn't a crab state; being close is enough, since the crab's claws can't reach it from
+  140 out. The tell is the flush; the answers are dodge, parry (it staggers) or block.
+- **Probe:** found out and the crab within an arm's length (625) of the arm roots, it stays in its den and sends arm
+  tips, two out at most, one every 45 ticks at least, taking turns. A tip slides 60 ticks to where it just touches the
+  crab's near side (so the touch lands on the 60th), then feels there 120 ticks and draws back. On a touch (tip circle
+  r 14): parried, it recoils (snaps in, sore for 150); blocked, pushed back (each block drains 15 poise, so a guard
+  held forever breaks); through, 5 damage and grabbed. Any blow on an arm takes its own health (40) and pulls it back;
+  at 0 it is lost for the fight. Scissor claws' jab cuts an arm x2.
+- **Grabbed:** held up to 240 ticks, each dodge press 10 off (the moray's hold, its struggle now per creature). No
+  bite, venom or autotomy yet: next slice.
+- **Hits:** a claw finds the eye (r 12, x2) before the mantle (ellipse 156 x 110, 400 health, 200 poise) before an arm
+  that is out. It keeps to its den (blows don't shove it). Left alone 2 s with nobody within 900, it mends (arms too)
+  and is a rock again. Beaten for now = gone (fleeing comes later).
+
 ## Rig notes
 Parts: mantle, head (with eye and an eye-horn papilla), siphon, web (one deformable part between the arm bases, or 8
 wedge parts), 8 arms each as a chain of 6–8 tapering segments with the suckers painted on the underside (the inner
