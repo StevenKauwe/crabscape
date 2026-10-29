@@ -1124,6 +1124,7 @@ fn animate(
         );
         let (ys, yc) = a.yaw.sin_cos();
         let strike_reach = turn.as_ref().map_or(0.0, |tn| tn.reach);
+        let strike_raise = turn.as_ref().map_or(0.0, |tn| tn.raise);
         let striking = turn.as_ref().and_then(|tn| tn.claw);
         let round = turn.as_ref().map_or(1.0, |tn| tn.round);
         let rotating = round < 1.0;
@@ -1147,6 +1148,7 @@ fn animate(
             }
         }
         let lift = TURN_LIFT * arc;
+        let from_behind = backlight(a.yaw);
         let squash_target = if crouching { 0.6 } else { 0.0 } + fight.squash;
         let (mut sq, mut sq_vel) = (a.squash, a.squash_vel);
         spring(&mut sq, &mut sq_vel, squash_target, 320.0, 20.0, dt);
@@ -1334,13 +1336,23 @@ fn animate(
                 + s * swing_merus;
             let mut carpus =
                 s * 0.25 * a.claw_raise - s * 0.35 * heave - s * pull + s * swing_carpus;
-            // Struck inside the turn, the claw reaches out along the blow.
+            // Seen from behind, the crusher rides up at the shell's corner,
+            // ready: folded low before the mouth as it is from the front, its
+            // hand would hang out under the shell.
             let mut palm = 0.0;
+            if side == 0 && from_behind > 0.0 {
+                let [m, c, p] = pose_toward(rig.reach[0], BACK_CARRY, from_behind);
+                merus = merus * (1.0 - from_behind) + m;
+                carpus = carpus * (1.0 - from_behind) + c;
+                palm = p;
+            }
+            // Struck inside the turn, the claw reaches out along the blow.
             if striking == Some(side) {
-                let [m, c, p] = reach_pose(rig.reach[side], side, a.aim, strike_reach);
+                let [m, c, p] =
+                    reach_pose(rig.reach[side], side, a.aim, strike_reach, strike_raise);
                 merus = merus * (1.0 - strike_reach) + m;
                 carpus = carpus * (1.0 - strike_reach) + c;
-                palm = p;
+                palm = palm * (1.0 - strike_reach) + p;
             }
             set(&mut parts, claw.0[0], merus, Vec2::ZERO);
             set(&mut parts, claw.0[1], carpus, Vec2::ZERO);
@@ -1791,6 +1803,10 @@ const TURN_LIFT: f32 = 5.0;
 /// and the fill that keeps it easy to see.
 const BACKLIT_SHADE: f32 = 0.25;
 const BACKLIT_FILL: f32 = 0.45;
+/// Seen from behind, the crusher is carried up at the shell's corner, hand
+/// pointing in: its segments' angles (merus, carpus, palm; radians in the
+/// claw's plane, 0 towards the body's middle, up positive).
+const BACK_CARRY: [f32; 3] = [2.7, 1.4, 0.35];
 
 fn depth_of(member: Member) -> f32 {
     match member {
@@ -1897,6 +1913,9 @@ struct Turn {
     claw: Option<usize>,
     /// 0..1: how far that claw reaches out along the blow.
     reach: f32,
+    /// How far the crusher is raised over the shell (1), to slam down onto
+    /// the blow with its streak (`fight.rs`); a touch below 0 just after.
+    raise: f32,
 }
 
 /// The turn round as the sim has it, or `None` when not turning. The turn
@@ -1927,26 +1946,37 @@ fn turn_of(f: &Fighter, t: &crabsim::Tuning) -> Option<Turn> {
             c.active_ticks.max(1) as f32,
             c.recovery_ticks.max(1) as f32,
         );
-        let (round, reach) = match s.phase(t) {
+        // The crusher rises over the shell as the body turns, and slams
+        // down in the first part of the blow, as its streak flares.
+        let (round, reach, raise) = match s.phase(t) {
             Phase::Windup => {
                 let u = smooth((tick / s.windup.max(1) as f32).min(1.0));
-                (STRIKE_ROUND_WINDUP * u, 0.6 * u)
+                (STRIKE_ROUND_WINDUP * u, 0.6 * u, u)
             }
-            Phase::Active => (0.5 + 0.08 * (tick - w - 1.0) / a, 1.0),
+            Phase::Active => {
+                let p = (tick - w - 1.0) / a;
+                let slam = smooth((p / SLAM_SHARE).clamp(0.0, 1.0));
+                (0.5 + 0.08 * p, 1.0, 1.0 - (1.0 + SLAM_PAST) * slam)
+            }
             Phase::Recovery => {
                 let p = ((tick - w - a) / r).clamp(0.0, 1.0);
-                (0.58 + 0.42 * smooth((p / 0.55).min(1.0)), 1.0 - smooth(p))
+                (
+                    0.58 + 0.42 * smooth((p / 0.55).min(1.0)),
+                    1.0 - smooth(p),
+                    -SLAM_PAST * (1.0 - smooth(p)),
+                )
             }
         };
-        let claw = match s.claw {
-            Claw::Crusher => 0,
-            Claw::Cutter => 1,
+        let (claw, raise) = match s.claw {
+            Claw::Crusher => (0, raise),
+            Claw::Cutter => (1, 0.0),
         };
         return Some(Turn {
             yaw: at(round),
             round,
             claw: Some(claw),
             reach,
+            raise,
         });
     }
     (f.turn > 0).then(|| {
@@ -1956,6 +1986,7 @@ fn turn_of(f: &Fighter, t: &crabsim::Tuning) -> Option<Turn> {
             round,
             claw: None,
             reach: 0.0,
+            raise: 0.0,
         }
     })
 }
@@ -1963,15 +1994,23 @@ fn turn_of(f: &Fighter, t: &crabsim::Tuning) -> Option<Turn> {
 /// How far round the turn is as the wind-up ends: just short of side on,
 /// so the blow lands side on.
 const STRIKE_ROUND_WINDUP: f32 = 0.47;
+/// The crusher comes down over this share of the blow's ticks, and ends
+/// this far (of its raise) below straight out, driven into the blow.
+const SLAM_SHARE: f32 = 0.4;
+const SLAM_PAST: f32 = 0.15;
+/// Raised over the shell: each segment's extra angle (merus, carpus, palm;
+/// radians up from straight out along the blow), so the hand points up and
+/// back over the shell.
+const OVERHEAD: [f32; 3] = [1.0, 1.6, 2.0];
 
 /// The striking claw's reach along a blow struck inside a turn, `r` 0..1:
 /// the turns (merus, carpus, palm, from their resting angles `rest`) that
 /// swing it from its rest, low across the front of the body, out straight
 /// along the blow (the merus raised a little, aimed up or down with the
-/// sim's `aim`). In the claw's own plane, where its fingers point towards
-/// the middle of the body; the plane is turned broadside to the camera
-/// while it reaches.
-fn reach_pose(rest: [f32; 3], side: usize, aim: f32, r: f32) -> [f32; 3] {
+/// sim's `aim`), raised over the shell by `raise` (`OVERHEAD`). In the
+/// claw's own plane, where its fingers point towards the middle of the
+/// body; the plane is turned broadside to the camera while it reaches.
+fn reach_pose(rest: [f32; 3], side: usize, aim: f32, r: f32, raise: f32) -> [f32; 3] {
     let tilt = 0.6 * (aim / AIM_REACH).clamp(-0.8, 0.8);
     let (along, up) = if side == 0 {
         (tilt, 1.0)
@@ -1979,12 +2018,21 @@ fn reach_pose(rest: [f32; 3], side: usize, aim: f32, r: f32) -> [f32; 3] {
         (PI - tilt, -1.0)
     };
     let goals = [along + up * 0.35, along - up * 0.1, along];
-    let turns: Vec<f32> = goals
-        .iter()
-        .zip(rest)
-        .map(|(g, a)| r * wrap_angle(g - a))
-        .collect();
-    [turns[0], turns[1] - turns[0], turns[2] - turns[1]]
+    // The raise is added unwrapped, so the claw always goes up and over,
+    // never round underneath.
+    let mut turns = pose_toward(rest, goals, r);
+    turns[0] += up * OVERHEAD[0] * raise;
+    turns[1] += up * (OVERHEAD[1] - OVERHEAD[0]) * raise;
+    turns[2] += up * (OVERHEAD[2] - OVERHEAD[1]) * raise;
+    turns
+}
+
+/// The joint turns (merus, carpus, palm) that take a claw `r` (0..1) of the
+/// way from its resting angles `rest` to the segment angles `goals`, each
+/// the short way round.
+fn pose_toward(rest: [f32; 3], goals: [f32; 3], r: f32) -> [f32; 3] {
+    let [m, c, p] = [0, 1, 2].map(|i| r * wrap_angle(goals[i] - rest[i]));
+    [m, c - m, p - c]
 }
 
 /// How far a dive tilts the crab towards the way it's pushing (radians).
@@ -2118,6 +2166,47 @@ mod tests {
         assert!(names.contains(&lantern.part.as_str()));
     }
 
+    #[test]
+    fn from_behind_the_crusher_is_carried_up_not_hanging() {
+        // The crusher's joints from the parts file, posed as from behind:
+        // its wrist and fingertip end up above its shoulder, not dangling
+        // under the shell as the front's folded pose would.
+        let file = PartsFile::parse();
+        let at = |seg: &str| {
+            let p = file
+                .parts
+                .iter()
+                .find(|p| p.name == format!("cheliped-R-{seg}"));
+            file.to_puppet(p.expect("crusher segment").pivot)
+        };
+        let joints = [at("merus"), at("carpus"), at("propodus-palm"), at("dactyl")];
+        let segs = [0, 1, 2].map(|i| joints[i + 1] - joints[i]);
+        let rest = segs.map(|v| v.to_angle());
+        let posed = |turns: [f32; 3]| {
+            let mut angle = 0.0;
+            let mut tip = joints[0];
+            [0, 1, 2].map(|i| {
+                angle += turns[i];
+                tip += Vec2::from_angle(rest[i] + angle) * segs[i].length();
+                tip
+            })
+        };
+        let shoulder = joints[0].y;
+        let folded = posed([0.0; 3]);
+        assert!(folded[2].y < shoulder, "the front's pose hangs low");
+        let [_, wrist, finger] = posed(pose_toward(rest, BACK_CARRY, 1.0));
+        assert!(
+            wrist.y > shoulder,
+            "wrist {} under shoulder {shoulder}",
+            wrist.y
+        );
+        assert!(
+            finger.y > shoulder,
+            "fingertip {} under shoulder {shoulder}",
+            finger.y
+        );
+    }
+
     /// A crab turned from the front to smash right with the crusher (as the
     /// sim leaves it on the press), `tick` ticks into the swing.
     fn smashing_right(t: &crabsim::Tuning, tick: u32) -> Fighter {
@@ -2180,6 +2269,31 @@ mod tests {
             );
             last = round;
         }
+    }
+
+    #[test]
+    fn the_crusher_slams_down_with_its_streak() {
+        // The streak (`fight.rs`) shows from high over the shell down onto
+        // the blow while the blow is out: the claw is up there as the blow
+        // comes out and down by the middle of it.
+        let t = crabsim::Tuning::default();
+        let at = |tick: u32| turn_of(&smashing_right(&t, tick), &t).expect("turning");
+        let blow = smashing_right(&t, 1).swing.unwrap().windup_len() + 1;
+        assert!(at(1).raise < 0.05, "starts at rest");
+        assert!(
+            at(blow).raise > 0.95,
+            "over the shell as the blow comes out"
+        );
+        let down = blow + t.crusher.active_ticks / 2;
+        assert!(
+            at(down).raise <= 0.0,
+            "down by mid-blow: {}",
+            at(down).raise
+        );
+        // Its raise is up and over: the hand goes back over the shell.
+        let rest = [0.0; 3];
+        let [m, c, p] = reach_pose(rest, 0, 0.0, 1.0, 1.0);
+        assert!(m + c + p > PI / 2.0, "the hand points up and back");
     }
 
     #[test]
