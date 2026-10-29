@@ -33,15 +33,18 @@
 //! two, `fly scale count 1 -a crabscape-introducer`.
 //!
 //! Anyone can reach it, as every browser must, so it lets in only
-//! `crabscape-` rooms and holds nothing but the open connections.
+//! `crabscape-` rooms and holds nothing but the open connections. It logs one
+//! line per player joining or leaving a room (`rooms.rs`; `fly logs -a
+//! crabscape-introducer`), with no addresses.
 //!
 //! It also takes players' bug reports and ideas from the game (`POST
 //! /report`) and files them as GitHub issues: see `report.rs`.
 
 mod report;
+mod rooms;
 
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use axum::extract::{ConnectInfo, DefaultBodyLimit};
@@ -61,13 +64,37 @@ async fn main() -> Result<(), matchbox_signaling::Error> {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3536);
+    let rooms = Arc::new(Mutex::new(rooms::Rooms::default()));
+    let (on_request, on_id, on_leave) = (rooms.clone(), rooms.clone(), rooms);
     let server =
         SignalingServer::full_mesh_builder(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))
-            .on_connection_request(|meta| {
-                Ok(meta
+            .on_connection_request(move |meta| {
+                let room = meta
                     .path
                     .as_deref()
-                    .is_some_and(|room| room.starts_with("crabscape-") && room.len() <= MAX_ROOM))
+                    .filter(|room| room.starts_with("crabscape-") && room.len() <= MAX_ROOM);
+                if let (Some(room), Ok(mut rooms)) = (room, on_request.lock()) {
+                    rooms.asked(meta.origin, room);
+                }
+                Ok(room.is_some())
+            })
+            .on_id_assignment(move |(from, peer)| {
+                if let Some(line) = on_id
+                    .lock()
+                    .ok()
+                    .and_then(|mut r| r.joined(from, &peer.to_string()))
+                {
+                    println!("{line}");
+                }
+            })
+            .on_peer_disconnected(move |peer| {
+                if let Some(line) = on_leave
+                    .lock()
+                    .ok()
+                    .and_then(|mut r| r.left(&peer.to_string()))
+                {
+                    println!("{line}");
+                }
             })
             .cors()
             .build_with(|router| {

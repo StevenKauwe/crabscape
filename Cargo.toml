@@ -97,10 +97,13 @@ matchbox_socket = "0.14"
 # Runs the connection's background work on the browser's event loop.
 wasm-bindgen-futures = "0.4"
 
-# matchbox_socket 0.14.0 as published, plus one fix in src/webrtc_socket/wasm.rs (marked "CrabScape fix"): a
-# connection still being set up when the socket is dropped (a device joining the room afresh) is closed and its
-# event handlers detached, instead of leaving the browser to call Rust closures that were freed, which crashed the
-# page. Drop this once matchbox itself does that.
+# matchbox_socket 0.14.0 as published, plus two fixes in src/webrtc_socket/wasm.rs (marked "CrabScape fix"):
+# - a connection still being set up when the socket is dropped (a device joining the room afresh) is closed and its
+#   event handlers detached, instead of leaving the browser to call Rust closures that were freed, which crashed the
+#   page;
+# - setting up a connection waits at most 3 s for the browser to finish gathering its addresses (not up to ~40 s
+#   on a computer with a network that can't reach the address servers), so a friend who reloads gets back in.
+# Drop this once matchbox itself does both.
 [patch.crates-io]
 matchbox_socket = { path = "vendor/matchbox_socket" }
 
