@@ -214,8 +214,11 @@ struct Rig {
     claws: [Limb; 2],
     /// Walking legs 1 to 3, then the paddle (leg 4), per side.
     legs: [[Limb; 4]; 2],
-    /// The lantern, hanging from the cutter claw.
+    /// The lantern, hanging from the cutter claw: `lantern_hang` sits at the
+    /// fingertip and undoes the claw's turns and its plane's narrowing, so the
+    /// lantern (and its glow) under it stays round and swings in the world.
     lantern: Option<Entity>,
+    lantern_hang: Option<Entity>,
     /// Each limb's plane (see the module notes), in the art's drawing order
     /// from the front.
     planes: Vec<Plane>,
@@ -430,6 +433,10 @@ struct PuppetAnim {
     /// The lantern's claw is in front of the shell (its halo can show over
     /// the crab), not hidden behind it.
     lantern_in_front: bool,
+    /// The drawing order last frame, and whether it changed this frame
+    /// (`resort`).
+    drawn: Vec<i32>,
+    resort: bool,
 }
 
 pub struct PuppetPlugin;
@@ -448,6 +455,7 @@ impl Plugin for PuppetPlugin {
                 into_the_dark,
                 show_gear,
                 soft_look,
+                resort,
             )
                 .chain()
                 .in_set(GameSet::Present),
@@ -808,16 +816,27 @@ fn build_puppets(
         }
 
         // The lantern hangs under the cutter claw's tip.
-        let lantern = file.anchors.get("lantern").and_then(|a| {
-            let holder = by_name.get(a.part.as_str())?;
-            let holder_def = part(&a.part)?;
-            let at = file.to_puppet(a.at) - file.to_puppet(holder_def.pivot);
-            let rest = at.extend(LANTERN_Z);
-            let pivot = lantern::spawn_lantern(&mut commands, crab, *holder, rest, &soft, &tuning);
-            // So the swing animation keeps it at the fingertip (see `set`).
-            commands.entity(pivot).insert(RestPos(rest));
-            Some(pivot)
-        });
+        let (lantern, lantern_hang) = file
+            .anchors
+            .get("lantern")
+            .and_then(|a| {
+                let holder = by_name.get(a.part.as_str())?;
+                let holder_def = part(&a.part)?;
+                let at = file.to_puppet(a.at) - file.to_puppet(holder_def.pivot);
+                let rest = at.extend(LANTERN_Z);
+                let hang = commands
+                    .spawn((
+                        ChildOf(*holder),
+                        RestPos(rest),
+                        Transform::from_translation(rest),
+                        Visibility::default(),
+                    ))
+                    .id();
+                let pivot =
+                    lantern::spawn_lantern(&mut commands, crab, hang, Vec3::ZERO, &soft, &tuning);
+                Some((Some(pivot), Some(hang)))
+            })
+            .unwrap_or_default();
 
         // The shell's drawings: the front shows first, the rest wait hidden.
         let views: Vec<ShellView> = VIEWS
@@ -884,6 +903,7 @@ fn build_puppets(
                     })
                 }),
                 lantern,
+                lantern_hang,
                 planes,
                 views,
                 dorsal,
@@ -1176,9 +1196,8 @@ fn animate(
         a.hulk = ease(a.hulk, f32::from(u8::from(mover.hulk)), 5.0, dt);
         let bulk = 1.0 + (sim.tuning.hulk.scale - 1.0) * a.hulk;
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
-            tr.scale = Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0)
-                * (1.0 - gone)
-                * bulk;
+            tr.scale =
+                Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0) * (1.0 - gone) * bulk;
             tr.translation.y += -18.0 * gone + lift;
         }
 
@@ -1352,15 +1371,15 @@ fn animate(
                 spring(&mut ang, &mut vel, -vx * 0.0006, 45.0, 2.5, dt);
                 a.lantern = ang.clamp(-0.9, 0.9);
                 a.lantern_vel = vel;
-                // Undo the rotations of everything it hangs from. (In a
-                // mirrored plane, seen from behind, turns go the other way.)
-                let world = (a.lantern - lean - roll) * widths[1].signum();
-                set(
-                    &mut parts,
-                    rig.lantern,
-                    world - merus - carpus - palm,
-                    Vec2::ZERO,
-                );
+                // At the fingertip, undo the claw's turns and then its
+                // plane's narrowing (in that order nothing is skewed), so
+                // the lantern under it is upright and round; then swing it,
+                // undoing the body's lean and roll.
+                if let Some(Ok((mut tr, rest))) = rig.lantern_hang.map(|e| parts.get_mut(e)) {
+                    let at = rest.map_or(Vec3::ZERO, |r| r.0);
+                    *tr = upright_at(at, merus + carpus + palm, widths[1]);
+                }
+                set(&mut parts, rig.lantern, a.lantern - lean - roll, Vec2::ZERO);
             }
 
             // --- Eyestalks: lag behind the motion and sway ------------------
@@ -1382,6 +1401,13 @@ fn animate(
             .iter()
             .zip(&order)
             .any(|(p, &slot)| p.member == Member::Claw(1) && slot > 0);
+        let mut drawn = order.clone();
+        drawn.push(i32::from(a.lantern_in_front));
+        if let Ok((tr, _)) = parts.get(rig.root) {
+            drawn.push(tr.translation.z.to_bits() as i32);
+        }
+        a.resort = drawn != a.drawn;
+        a.drawn = drawn;
         let fill = BACKLIT_FILL * a.backlit;
         for &e in &rig.lit {
             if let Ok(mut l) = lits.get_mut(e)
@@ -1515,6 +1541,28 @@ fn halo_depth(
     }
 }
 
+/// Bevy keeps each picture's place in the drawing order from when it was
+/// last queued for drawing, not from where it is now: a picture that only
+/// moves forward or back keeps its old place. So when the crab's limbs change
+/// places in the turn, every picture on it is queued again (its unlit
+/// layers would otherwise stay in front of their lit ones, or behind).
+fn resort(
+    crabs: Query<(&Rig, &PuppetAnim)>,
+    tree: Query<&Children>,
+    mut pictures: Query<&mut Mesh2d>,
+) {
+    for (rig, a) in &crabs {
+        if !a.resort {
+            continue;
+        }
+        for e in tree.iter_descendants(rig.root) {
+            if let Ok(mut picture) = pictures.get_mut(e) {
+                picture.set_changed();
+            }
+        }
+    }
+}
+
 /// Backing into its home shell, the crab goes into the dark: it falls into
 /// shadow, then is gone inside (claws, lantern and all). Turned away from
 /// the camera, it is a touch darker: lit by its lantern from behind.
@@ -1603,10 +1651,7 @@ fn fight_pose(
         // and crouch still come from here.)
         let (load, blow) = match s.phase(t) {
             Phase::Windup if s.charging => (1.0, 0.0),
-            Phase::Windup => (
-                (tick / s.windup as f32).clamp(0.0, 1.0).powf(j.curve),
-                0.0,
-            ),
+            Phase::Windup => ((tick / s.windup as f32).clamp(0.0, 1.0).powf(j.curve), 0.0),
             Phase::Active => (0.0, 1.0),
             Phase::Recovery => {
                 let p = ((tick - w - a) / r).clamp(0.0, 1.0);
@@ -1928,7 +1973,11 @@ const STRIKE_ROUND_WINDUP: f32 = 0.47;
 /// while it reaches.
 fn reach_pose(rest: [f32; 3], side: usize, aim: f32, r: f32) -> [f32; 3] {
     let tilt = 0.6 * (aim / AIM_REACH).clamp(-0.8, 0.8);
-    let (along, up) = if side == 0 { (tilt, 1.0) } else { (PI - tilt, -1.0) };
+    let (along, up) = if side == 0 {
+        (tilt, 1.0)
+    } else {
+        (PI - tilt, -1.0)
+    };
     let goals = [along + up * 0.35, along - up * 0.1, along];
     let turns: Vec<f32> = goals
         .iter()
@@ -2008,6 +2057,17 @@ fn show_gear(
 /// Screen-x direction of each side: the crab's right (index 0) is on the
 /// screen's left.
 const SIDE_SIGN: [f32; 2] = [-1.0, 1.0];
+
+/// Where the lantern hangs at `at` on a claw turned by `claw_turn` (its
+/// joints' turns added up) in a plane narrowed to `width`: the turns undone
+/// first, then the narrowing, so what hangs there is upright and unskewed.
+fn upright_at(at: Vec3, claw_turn: f32, width: f32) -> Transform {
+    Transform {
+        translation: at,
+        rotation: Quat::from_rotation_z(-claw_turn),
+        scale: Vec3::new(1.0 / width, 1.0, 1.0),
+    }
+}
 
 /// Turn a piece to `angle` (radians, counter-clockwise) around its joint and
 /// shift it by `offset` from where it rests.
@@ -2114,7 +2174,10 @@ mod tests {
         let mut last = -1.0;
         for tick in 1..end {
             let round = at(tick).round;
-            assert!(round >= last, "turns one way: {round} after {last} at {tick}");
+            assert!(
+                round >= last,
+                "turns one way: {round} after {last} at {tick}"
+            );
             last = round;
         }
     }
@@ -2241,7 +2304,10 @@ mod tests {
         // Three quarters from the front, the eye stalks still stand in front.
         for yaw in [45.0, -45.0] {
             let slots = slots_at(yaw);
-            assert!(slots["eye-R-stalk"] > 0 && slots["eye-L-stalk"] > 0, "{yaw}");
+            assert!(
+                slots["eye-R-stalk"] > 0 && slots["eye-L-stalk"] > 0,
+                "{yaw}"
+            );
         }
     }
 
@@ -2255,7 +2321,7 @@ mod tests {
         assert_eq!(shell_view(PI).0, VIEWS.len() - 1);
         let (side, mirrored, _) = shell_view(PI / 2.0);
         assert_eq!((side, mirrored), (2, false));
-        assert_eq!(shell_view(-PI / 2.0).1, true, "turned the other way: mirrored");
+        assert!(shell_view(-PI / 2.0).1, "turned the other way: mirrored");
         assert_eq!(shell_view(-3.0 * PI / 4.0).0, 3);
     }
 
@@ -2284,7 +2350,27 @@ mod tests {
         // the darkest a lit piece gets from behind, near nothing else
         let lit = BACKLIT_FILL * (1.0 - BACKLIT_SHADE);
         assert!(lit > 0.3, "easy to see: {lit}");
-        assert!(1.0 - BACKLIT_SHADE < 0.8, "a touch darker");
+        const { assert!(1.0 - BACKLIT_SHADE < 0.8, "a touch darker") };
+    }
+
+    #[test]
+    fn the_lantern_stays_round_on_a_claw_turned_side_on() {
+        // A cutter claw narrowed by the turn, its joints bent; the lantern
+        // swung a little in the world.
+        let (width, joints, swing) = (-0.35, [0.6, -0.9, 0.4], 0.2);
+        let mut world = GlobalTransform::from(Transform::from_scale(Vec3::new(width, 1.0, 1.0)));
+        for turn in joints {
+            world = world.mul_transform(Transform::from_rotation(Quat::from_rotation_z(turn)));
+        }
+        let hang = upright_at(Vec3::new(3.0, -4.0, 0.06), joints.iter().sum(), width);
+        let lantern = world
+            .mul_transform(hang)
+            .mul_transform(Transform::from_rotation(Quat::from_rotation_z(swing)));
+        let m = lantern.affine().matrix3;
+        let (x, y) = (m.x_axis.truncate(), m.y_axis.truncate());
+        let want = Vec2::from_angle(swing);
+        assert!((x - want).length() < 1e-5, "not skewed or squashed: {x:?}");
+        assert!((y - want.perp()).length() < 1e-5, "{y:?}");
     }
 
     #[test]
