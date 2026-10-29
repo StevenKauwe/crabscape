@@ -80,7 +80,8 @@ snapping shrimp in the shallows rubble (they feel your steps within 120; creep p
 runs a shock along the floor: jump or dodge it, it can't be parried), the mantis shrimp on the plateau, a snowflake
 moray in a crevice of the trench (it smells you after a second within 260, coils into an S and lunges; an unblocked
 bite holds on: tap dodge to struggle free), and past the trench a shrimp on the far ledge and a moray on the flats.
-**The common octopus** (a boss, `creatures/common-octopus.md`; rules built, not placed yet): a rock that looks back.
+**The common octopus** (a boss, `creatures/common-octopus.md`), in its den at the end of the far rim past the
+canyon: a rock that looks back. From afar only its gold eye shows; the lantern shows the rest.
 Pass within 140 of it and it flushes dark for a quarter second, then pounces and holds on (dodge, parry or block the
 pounce). Found out, it fights from its den: arm tips slide in for half a second to touch the crab, two at most. Parry
 the touch and the tip recoils; block it and it's pushed back (guarding forever breaks your poise); let it touch and it
@@ -94,6 +95,10 @@ walking leg and frees the crab at once (8% slower per leg, back after the next w
 Hurt to two-thirds, and again to one-third, it inks and jets away 600 or more to fight on from there; inside the ink
 the crab is *blinded*: things that hunt by sight lose it (the octopus's arms still feel for it close by). Beaten, it
 jets off for good, and its den is open: a midden of old shells, 4 pieces of shell grit for the home.
+What to watch for: its skin flushing dark (the pounce); a faint mark on the floor where a sliding arm tip will touch;
+it climbing on its arms with the web opening like an umbrella and a line on the floor where the net will land (firm
+once its aim is fixed: dodge then). A blow blanches it pale. Its ink is a dark cloud in the water that swallows the
+crab from view.
 **The combat is preset G** (`Tuning::default`); the feel lab is hidden (`?lab`, or backtick in previews).
 **Feel lab (hidden; `?lab`, or backtick in preview builds):** the presets the combat was chosen from. A FEEL button under "Settings" (or the backtick
 key, or 1–9) cycles nine presets (A Current, B Heavy tank, C Snappy brawler, D Momentum, E Silksong-ish, F Expedition
