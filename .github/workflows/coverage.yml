@@ -1,0 +1,71 @@
+# Which lines the tests run (cargo-llvm-cov), as a table in the job summary and an lcov file, for information only:
+# after each push to main and once a week (Sunday night, with the weekly mutants). Never fails, has no threshold and
+# isn't run on pull requests (it would only add minutes): mutation testing of each PR's changed lines is what holds
+# new code to its tests.
+#   gh workflow run coverage.yml      # run it now
+# Actions are pinned to commit SHAs; the comment says which release that is.
+name: coverage
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 2 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: ""
+
+jobs:
+  coverage:
+    name: test coverage (information only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml), plus llvm-tools
+        run: rustup toolchain install && rustup component add llvm-tools && rustc --version
+      - name: System libraries Bevy needs on Linux
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev pkg-config
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: coverage
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - name: Run the tests with coverage and report it
+        continue-on-error: true
+        run: |
+          # Instrumented code runs slower, so a timing test can fail here: the tests themselves are judged by CI's
+          # check job, and the report covers whatever ran.
+          cargo llvm-cov --workspace --locked --no-report --no-fail-fast \
+            || echo "::warning::Some tests failed under coverage (timing tests run slower instrumented)"
+          cargo llvm-cov report --workspace --lcov --output-path target/lcov.info
+          report=$(cargo llvm-cov report --workspace --summary-only)
+          {
+            echo "### Test coverage (information only)"
+            echo "Lines run by the tests, all crates: **$(echo "$report" | awk '/^TOTAL/ {print $10}')**"
+            echo
+            echo "<details><summary>Per file</summary>"
+            echo
+            echo '```'
+            echo "$report"
+            echo '```'
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the lcov file
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        with:
+          name: coverage-${{ github.sha }}
+          path: target/lcov.info
+          retention-days: 14

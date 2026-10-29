@@ -28,6 +28,7 @@ cargo cooptest [options]   play co-op in real browsers and check its promises
   --introducer BIN   the introducer to run (default tools/introducer/target/release/introducer)
   --url URL          play this site with its own introducer instead (the live site: no introducer restarts)
   --only A,B         only these scenarios (--list names them)
+  --shard I/N        only part I of N, the parts about equally long (CI plays them on N machines at once)
   --repeat N         play each scenario N times (default 3)
   --voice on|off|both  with voice chat on, off, or each scenario both ways (default off)
   --stress           random reloads, Start overs, lost connections and introducer restarts instead
@@ -119,10 +120,18 @@ impl Drop for Introducer {
     }
 }
 
-/// A free local port.
+/// A free local port for the introducer, below the ports the system hands out by itself (Linux from 32768, macOS
+/// from 49152): a restart leaves it free for 2 s, and no connection of any program (another cooptest running
+/// beside this one, say) may take it meanwhile.
 fn free_port() -> Result<u16> {
-    let l = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    Ok(l.local_addr().map_err(|e| e.to_string())?.port())
+    let mut rng = Rng(now_ms() ^ (u64::from(std::process::id()) << 32));
+    for _ in 0..200 {
+        let port = 20_000 + rng.below(12_000) as u16;
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return Ok(port);
+        }
+    }
+    Err("no free port for the introducer between 20000 and 32000".into())
 }
 
 fn sleep(secs: f64) {
@@ -435,50 +444,81 @@ fn meet(site: &Site, host: &mut Player, guest: &mut Player, setup: f64) -> Resul
 /// What a scenario found: a line for each promise it checked, with the time it took.
 type Found = Vec<String>;
 
-/// The scenarios: their names, what they check, and how many browsers each needs.
-const SCENARIOS: [(&str, &str); 11] = [
-    ("join", "a friend opening your link plays with you"),
+/// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
+/// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
+const SCENARIOS: [(&str, &str, u32); 11] = [
+    ("join", "a friend opening your link plays with you", 22),
     (
         "guest-reload",
         "a friend who reloads is back, though the browsers take 40 s to finish gathering addresses",
+        33,
     ),
     (
         "host-reload",
         "you reload: your lobby opens again and your friend is back",
+        32,
     ),
     (
         "guest-start-over",
         "a friend who presses Start over is back",
+        32,
     ),
     (
         "host-start-over",
         "you press Start over: same link, your friend is back",
+        34,
     ),
     (
         "own-link",
         "your link is the same every time, and opening it yourself makes you the host",
+        24,
     ),
     (
         "waiting-friend",
         "a friend on your link while you're away plays alone, then joins you when you start",
+        25,
     ),
     (
         "two-waiting",
         "two friends waiting play alone (no frozen half-world), then both join you",
+        31,
     ),
     (
         "new-link",
         "after New link the old link no longer reaches you; the new one does",
+        55,
     ),
     (
         "introducer-restart",
         "the introducer restarts mid-game: back together",
+        26,
     ),
     (
         "stall",
         "a game frozen for 6 s (past the 5 s a friend counts as gone) is back with its friend",
+        42,
     ),
 ];
+
+/// The scenarios in part `part` (from 1) of `parts`: longest first, each to the part with the least time so far, so
+/// the parts take about as long and every scenario is in exactly one. In `--list` order.
+fn shard(part: usize, parts: usize) -> Vec<&'static str> {
+    let mut longest_first: Vec<usize> = (0..SCENARIOS.len()).collect();
+    longest_first.sort_by_key(|&i| std::cmp::Reverse(SCENARIOS[i].2));
+    let mut time = vec![0; parts];
+    let mut part_of = vec![0; SCENARIOS.len()];
+    for i in longest_first {
+        let p = (0..parts).min_by_key(|&p| time[p]).unwrap_or(0);
+        time[p] += SCENARIOS[i].2;
+        part_of[i] = p + 1;
+    }
+    SCENARIOS
+        .iter()
+        .zip(part_of)
+        .filter(|&(_, p)| p == part)
+        .map(|(s, _)| s.0)
+        .collect()
+}
 
 fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let o = Options { fake_mic: voice };
@@ -737,6 +777,8 @@ struct Args {
     introducer: PathBuf,
     url: Option<String>,
     only: Vec<String>,
+    /// Part I of N (`--shard I/N`).
+    shard: Option<(usize, usize)>,
     repeat: usize,
     voice: Vec<bool>,
     stress: bool,
@@ -751,6 +793,7 @@ fn args() -> std::result::Result<Args, String> {
         introducer: PathBuf::from("tools/introducer/target/release/introducer"),
         url: None,
         only: Vec::new(),
+        shard: None,
         repeat: 3,
         voice: vec![false],
         stress: false,
@@ -766,6 +809,7 @@ fn args() -> std::result::Result<Args, String> {
             "--introducer" => a.introducer = value()?.into(),
             "--url" => a.url = Some(value()?),
             "--only" => a.only = value()?.split(',').map(str::to_string).collect(),
+            "--shard" => a.shard = Some(parse_shard(&value()?)?),
             "--repeat" => a.repeat = value()?.parse().map_err(|_| "--repeat takes a number")?,
             "--voice" => {
                 a.voice = match value()?.as_str() {
@@ -780,7 +824,7 @@ fn args() -> std::result::Result<Args, String> {
             "--steps" => a.steps = value()?.parse().map_err(|_| "--steps takes a number")?,
             "--logs" => a.logs = Some(value()?.into()),
             "--list" => {
-                for (name, what) in SCENARIOS {
+                for (name, what, _) in SCENARIOS {
                     println!("{name:20} {what}");
                 }
                 std::process::exit(0);
@@ -793,6 +837,17 @@ fn args() -> std::result::Result<Args, String> {
         }
     }
     Ok(a)
+}
+
+/// `I/N`, with 1 <= I <= N.
+fn parse_shard(s: &str) -> std::result::Result<(usize, usize), String> {
+    let bad = || format!("--shard takes I/N, part I of N (got {s})");
+    let (i, n) = s.split_once('/').ok_or_else(bad)?;
+    let (i, n) = (i.parse().map_err(|_| bad())?, n.parse().map_err(|_| bad())?);
+    if i == 0 || i > n {
+        return Err(bad());
+    }
+    Ok((i, n))
 }
 
 fn site(a: &Args, dir: &Path) -> Result<Site> {
@@ -874,17 +929,22 @@ fn main() {
             }
         }
     } else {
+        let part = a.shard.map(|(i, n)| shard(i, n));
         let names: Vec<&str> = SCENARIOS
             .iter()
-            .map(|(n, _)| *n)
+            .map(|(n, _, _)| *n)
             .filter(|n| a.only.is_empty() || a.only.iter().any(|o| o == n))
+            .filter(|n| part.as_ref().is_none_or(|p| p.contains(n)))
             .collect();
         if names.is_empty() {
             eprintln!(
-                "cooptest: no scenario called {:?} (--list names them)",
+                "cooptest: no scenario called {:?} in this part (--list names them)",
                 a.only
             );
             std::process::exit(2);
+        }
+        if let Some((i, n)) = a.shard {
+            println!("part {i} of {n}: {}", names.join(", "));
         }
         for name in names {
             for &voice in &a.voice {
@@ -938,4 +998,48 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(1, |d| d.as_millis() as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seconds(names: &[&str]) -> u32 {
+        names
+            .iter()
+            .map(|n| SCENARIOS.iter().find(|s| s.0 == *n).map_or(0, |s| s.2))
+            .sum()
+    }
+
+    #[test]
+    fn every_scenario_is_in_exactly_one_part() {
+        for parts in 1..=SCENARIOS.len() + 1 {
+            let mut all: Vec<&str> = (1..=parts).flat_map(|p| shard(p, parts)).collect();
+            all.sort_unstable();
+            let mut want: Vec<&str> = SCENARIOS.iter().map(|s| s.0).collect();
+            want.sort_unstable();
+            assert_eq!(all, want, "{parts} parts");
+        }
+    }
+
+    #[test]
+    fn parts_take_about_as_long() {
+        let longest = SCENARIOS.iter().map(|s| s.2).max().unwrap_or(0);
+        for parts in 2..=4 {
+            let times: Vec<u32> = (1..=parts).map(|p| seconds(&shard(p, parts))).collect();
+            let (min, max) = (times.iter().min(), times.iter().max());
+            assert!(
+                max.zip(min).is_some_and(|(max, min)| max - min <= longest),
+                "{parts} parts: {times:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shard_takes_i_of_n() {
+        assert_eq!(parse_shard("2/3"), Ok((2, 3)));
+        for bad in ["0/3", "4/3", "3", "a/b", "1/0"] {
+            assert!(parse_shard(bad).is_err(), "{bad}");
+        }
+    }
 }

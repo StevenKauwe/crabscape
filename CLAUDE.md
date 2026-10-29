@@ -71,9 +71,10 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - Branch (`issue-<n>-<slug>`) → PR (`Closes #<n>`, what changed, how verified, screenshots for visual changes) →
   `gh pr merge --squash --auto --delete-branch`. Rebase on `main` and resolve conflicts yourself. Never push to `main`.
 - CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests,
-  cargo-deny, the tidy tool's checks, mutation testing of a PR's changed lines, a coverage report (see "Testing and
-  linting" below), the web build, relaxed-SIMD check, a size report, the browser test (`cargo webtest`, the game
-  played in WebKit), native = wasm determinism (`tools/determinism.sh`, the sim's tests in wasmtime too) and an art
+  cargo-deny, the tidy tool's checks, mutation testing of a PR's changed lines (and on `main`, a coverage report: see
+  "Testing and linting" below), the web build, relaxed-SIMD check, a size report, the browser tests (after the web
+  build, at once: `cargo webtest` portrait and landscape in WebKit, `cargo cooptest` in three parts, frame strips;
+  the tools are built once beside the web build), native = wasm determinism (`tools/determinism.sh`, the sim's tests in wasmtime too) and an art
   check (re-exports the rigs and oil atlases; the committed crab and creature art must match; on a Mac, take the
   oil atlases from its `art-as-ci-made-it` download). On `main` it deploys
   `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/), then checks the live site starts
@@ -113,7 +114,7 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Coverage report | `cargo llvm-cov --workspace --summary-only` (needs `cargo install --locked cargo-llvm-cov` and `rustup component add llvm-tools`) |
 | Web build into `web/` | `tools/build-web.sh` (serve with any static server, e.g. `python3 -m http.server -d web`) |
 | WebKit (iPhone engine) test | `cargo webtest [--landscape \| --desktop] [--shots /tmp/shot]` (after the web build; needs WebKitGTK 4.1 and `WebKitWebDriver`, Ubuntu `webkitgtk-webdriver`, before 26.04 `webkit2gtk-driver`) |
-| Co-op promises in real browsers | `cargo cooptest [--only join,guest-reload] [--repeat N] [--voice on\|off\|both]` (after the web build and `cargo build --release --manifest-path tools/introducer/Cargo.toml`; needs Chrome). `--stress [--seed S] [--steps K]` does random reloads, Start overs, stalls and introducer restarts (a failure prints its replay line); `--url <site>` plays a deployed site with the real introducer; `--list` names the scenarios (`docs/design/coop-promises.md`) |
+| Co-op promises in real browsers | `cargo cooptest [--only join,guest-reload] [--shard I/N] [--repeat N] [--voice on\|off\|both]` (after the web build and `cargo build --release --manifest-path tools/introducer/Cargo.toml`; needs Chrome). `--stress [--seed S] [--steps K]` does random reloads, Start overs, stalls and introducer restarts (a failure prints its replay line); `--url <site>` plays a deployed site with the real introducer; `--list` names the scenarios (`docs/design/coop-promises.md`) |
 | Headless sim | `cargo crabsim --script "t=0 walk=right; t=1 jump; t=1.45 jump" --seconds 4` |
 | Replay a bug report | `cargo crabsim --inputs replay.txt --dump -` (F9 in the game saves a replay; `?replay` adds a button on the web) |
 | Crab rig → SVG | `cargo run -p crabrig --profile art -- parts` (writes `art/crab/crab-parts.svg`) |
@@ -146,8 +147,23 @@ What each automatic check is for (commands in the table above; all in CI):
   `tools/introducer` in small ways; the job fails if no test notices. Fix it with a test of the behaviour the line
   is for. Browser-only code (`web::`), Bevy plugin wiring, on-screen layout and the `crabsim` command line are left
   out. A weekly full run of `crates/sim` (`mutants-weekly.yml`) lists the old gaps, for information only.
-- **Coverage** (`test coverage (information only)`): cargo-llvm-cov's table in the job summary. No threshold and it
-  never fails: mutation testing is what holds new code to its tests.
+- **Coverage** (`test coverage (information only)`, `coverage.yml`): cargo-llvm-cov's table in the job summary, after
+  each push to `main` and weekly, not on PRs. No threshold and it never fails: mutation testing is what holds new code
+  to its tests.
+
+**CI hygiene** (owner's rule: "testing and CI/CD hygiene are really important, so that changes are buttery smooth and
+fast"):
+- **Time budgets:** a code change's required checks finish in about 8 minutes wall time (7 is the target); a
+  docs-only change in under a minute. A PR that makes CI slower says so and why.
+- **Independent work runs in parallel**, on separate jobs; nothing waits that doesn't depend on something (the
+  browser tests fan out after the web build, and the required `browser test (WebKit, iPhone size)` is a gate over
+  them).
+- **Tests are hermetic and idempotent:** their own ports, profiles, temp dirs and seeds; no shared state; the same
+  seed gives the same result; safe to run side by side and to re-run.
+- **Flaky means broken:** no automatic retries. A flaky test is fixed, or quarantined with an issue, never ignored.
+- **Run what a change needs** (`tools/changes.sh`); `main` runs everything as the safety net.
+- **Long local jobs are bounded:** a time limit, and one blocking wait (`gh run watch <id> --exit-status`), never
+  repeated short polls.
 
 Layout: `crates/sim` rules · `src/` the Bevy game (drawing, input, camera, effects) · `crates/crabrig` crab puppet ·
 `crates/painter` oil painter (`crabpaint`) · `crates/listen` speech to text for spoken reports · `assets/` files the

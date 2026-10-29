@@ -1,6 +1,6 @@
 # Co-op's promises in depth (docs/design/coop-promises.md), after each deploy to main and once a day: every scenario
 # 3 times with voice off and on, a random stress run, and the scenarios on the live site with the real introducer.
-# (Every pull request already plays each scenario once, in ci.yml's browser job.) A failure opens or adds to the
+# (Every pull request already plays each scenario once, in ci.yml's co-op parts.) A failure opens or adds to the
 # "main is broken" issue; a green run here never closes it (ci.yml does that).
 name: Co-op in depth
 

@@ -60,7 +60,7 @@ turns your mic off (the browser asks again); turning it on brings voice back wit
 
 | What | Command | Where |
 |---|---|---|
-| Every scenario once, voice off (CI, every PR) | `cargo cooptest --repeat 1` | the `browser` job |
+| Every scenario once, voice off (CI, every PR) | `cargo cooptest --repeat 1 --shard I/3` | the `co-op promises, part I of 3` jobs, at once (behind the required `browser` check) |
 | Every scenario 3 times, voice off and on, and a stress run | `cargo cooptest --voice both`, `cargo cooptest --stress --steps 12` | `coop.yml`, after each deploy to main and daily, local introducer |
 | The live site and the real introducer | `cargo cooptest --url https://stevenkauwe.github.io/crabscape/` | `coop.yml`, same times |
 | A failed stress seed again | the `replay:` line it printed | anywhere |
