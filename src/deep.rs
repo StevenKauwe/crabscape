@@ -1,5 +1,5 @@
 //! The deep: a depth counter that appears once the crab drops below the
-//! pit's lip, and something big that passes far behind it in open water
+//! pit's lip or down the crack into the canyon, and something big that passes far behind it in open water
 //! early in each dive, glimpsed through the dark with a glint of an eye.
 
 use bevy::prelude::*;
@@ -79,10 +79,15 @@ fn spawn_depth_counter(mut commands: Commands) {
         ));
 }
 
-/// How far below the pit's lip the crab is (units), if it is in the pit.
+/// How far below the pit's lip the crab is (units), if it is in the pit,
+/// or below the crack's mouth, if it is down the crack or in the canyon.
 fn below_lip(sim: &Sim, at: Vec2) -> Option<f32> {
     let (left, right, _) = sim.level.pit();
     let lip = sim.level.floor_height(left - 1.0);
+    let crack = sim.level.crack;
+    if at.x > crack.x - 60.0 {
+        return Some(crack.y - at.y);
+    }
     (at.x > left - 40.0 && at.x < right + 40.0).then_some(lip - at.y)
 }
 

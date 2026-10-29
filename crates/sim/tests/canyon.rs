@@ -248,7 +248,10 @@ fn the_ebb_drops_a_crab_fast_and_strokes_cannot_beat_it() {
     assert_eq!(fight.count("paddled"), 4);
     let after_shelf: Vec<&Vec2> = fight.stood.iter().filter(|p| p.y != SHELF.2).collect();
     assert!(!after_shelf.is_empty());
-    assert!(after_shelf.iter().all(|p| p.y == FLOOR.2), "{after_shelf:?}");
+    assert!(
+        after_shelf.iter().all(|p| p.y == FLOOR.2),
+        "{after_shelf:?}"
+    );
 }
 
 #[test]
@@ -295,7 +298,10 @@ fn drifting_spots_are_open_water_out_of_the_tide() {
     for &p in &level.drifting {
         assert!(canyon.contains(p), "{p} in the canyon");
         assert!(!level.solids().any(|s| s.inflate(150.0).contains(p)));
-        assert!(p.y > level.floor_height(p.x) + 600.0, "{p} well off the floor");
+        assert!(
+            p.y > level.floor_height(p.x) + 600.0,
+            "{p} well off the floor"
+        );
         assert!(!level.currents.iter().any(|c| c.inflate(100.0).contains(p)));
     }
 }

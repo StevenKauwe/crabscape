@@ -16,8 +16,9 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   crevices, empty shells and litter; that they back in claws first: not verified). Tucked in, it rests fully (stamina
   bar and rings, and its shell mends after a moment unhit), and the workbench puts what it carried home to use. Walk
   away (or jump or dodge) and it walks back out. Inside, the claws stay folded.
-- **Rest stops:** two crevices out in the level, a dark hollow under a slab of rock at the foot of a wall: one at the
-  foot of the cliff's back where the crab drops into the basin, one at the bottom of the pit against its left wall.
+- **Rest stops:** three crevices out in the level, a dark hollow under a slab of rock at the foot of a wall: one at the
+  foot of the cliff's back where the crab drops into the basin, one at the bottom of the pit against its left wall,
+  and one on the canyon's shelf (below).
   Deep-water crabs really use such places: large rock slabs and rubble give "many crabs small, safe habitats", rock
   ledges are good crab habitat, and *Bathynectes longispina* is "frequently observed hiding in depressions under
   exposed rocks" ([Wenner, SC DNR, "Ragged Claws Under Silent Seas: Deep Water Crabs of the Charleston
@@ -51,11 +52,11 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   the shell fits its edges along both fingers of the crusher claw (found things as gear): **scissor claws**. Higher up
   the pit's right wall, a passage is blocked by a **ghost net** (a lost fishing net): only a jump and four strokes from
   the alcove's roof reach it, and the scissor claws snap through it (gone for everyone once cut). Beyond: a short tunnel and a coral-lined shaft up to the far part of the basin, where a
-  crack in the end wall shows **lights far below**: the first glimpse of the trench. That's the end of the demo for now: a
-  moment after the crab sees them, a card says so, lists what it found, and offers "Keep exploring" or the report
-  form ("What did you think?").
+  crack at the foot of the end wall shows **lights far below**. The crack is the way down, into the canyon (next
+  section).
 - **Food (the "Prepare" step):** clams lie half-buried in the floor: two in the shallows near home, one in the basin
-  below the cliff, and harder ones on the flats past the trench (by the moray) and at the bottom of the pit. Walking
+  below the cliff, and harder ones on the flats past the trench (by the moray) and at the bottom of the pit; three more in the canyon
+  (two on its floor, one on the far rim). Walking
   over one puts it on the crab's back (one thing at a time, like the culture and the tooth); its bed grows a new one
   after 3 minutes of play. There's no fire underwater, so food is prepared, not cooked: brought home, a clam goes
   into the **larder** (a small pile inside the doorway, up to 5). Settled in at home and not already well fed, the
@@ -66,8 +67,8 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   anything carried.
 - **Building (the "Build" step): the home grows with shell grit.** Small heaps of shell grit (pale pieces of old,
   broken shells) lie on the floor, more of them deeper: one in the shallows by the first snapping shrimp, one on the
-  slope past the trench, one in the basin below the cliff, one in the far basin past the ghost net and two at the
-  bottom of the pit. Walking over one puts a piece on the crab's back (one thing at a time, like the clam); each heap
+  slope past the trench, one in the basin below the cliff, one in the far basin past the ghost net, two at the
+  bottom of the pit and three in the canyon (one on its shelf, two on its floor). Walking over one puts a piece on the crab's back (one thing at a time, like the clam); each heap
   is there once. Brought home, the workbench builds it into the shell. Animals really do this: octopuses dig their
   dens into beds of discarded shells, which "line and stabilise the shaft-like dens", and arrange shells round the
   den's edge ([Hing and Godfrey-Smith, The Conversation, "Did they mean to do that? Accident and intent in an
@@ -84,7 +85,52 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   player's home is in their own game), and it's saved.
 - Eggs, cultures, skills, gear, cast-off shells, food (the larder, the beds growing back, the time left well fed)
   and the home (the shell grit taken and built in)
-  are kept across reloads ("Start over" wipes them).
+  are kept across reloads ("Start over" wipes them). A save from before the level grew keeps what it had; the new
+  things are untouched (the crab's map memory starts over once).
+
+## The canyon (below the crack)
+The far basin ends at the edge of the shelf, where a **submarine canyon** cuts down into the twilight. Real canyons
+are carved into the continental shelf and slope, and the tide runs along them: in Taiwan's Kaoping Canyon "the major
+axis of the tidal currents aligned with the orientation of the canyon, and currents moved up-canyon during flood and
+down-canyon during ebb", strongest towards the canyon's head [KPC08]; in Monterey Canyon tidal currents carry over 90%
+of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-water coral grows on such walls
+(`universe.md`, Twilight Reef).
+- **The crack** is a slot at the foot of the far basin's end wall, just wide enough for a crab: it drops down a
+  chimney through the rock and walks out under the wall onto **the doorstep**, a ledge high on the canyon's near
+  wall. Coral grows up the chimney (the way back out). The end wall is far too tall to swim over.
+- **The shelf**, a sheer drop below the doorstep: cold-water coral climbs from it back up to the doorstep, a heap of
+  shell grit, and a **rest crevice** at its back, against the wall (a dead end, like the others).
+- **The canyon's floor**, a far longer drop below: a meadow of **sea pens** that glow blue where something brushes
+  them. These are **the lights** seen from the crack. Real: MBARI found all nine deep-sea corals it studied make
+  light, sea pens among them; *Funiculina* glows blue "when the stalk or polyps were disturbed" and a bamboo coral
+  sent "brilliant waves of blue light that moved along the stem" [MBARI-GC]. Two clams and two heaps of grit lie
+  there. Getting there ends the demo for now: a moment later a card says so ("The lights were alive."), lists what
+  the crab found (eggs, strokes, lantern, scissor claws, skills), and offers "Keep exploring" or the report form.
+- **The tide** runs up and down the canyon's middle (from its floor to well above the doorstep; still water along
+  each wall). Squeezed from hours to a minute a round: the water runs **up for 24 s**, is slack 6 s, runs **down for
+  16 s**, slack 6 s, each change a 2 s ramp. In it, the crab's drag is against the water, so the flood carries it
+  up (it rises about 450 a second with no strokes at all; at the top it bobs until the tide turns) and the ebb drops
+  it more than twice as fast as sinking (shelf to floor in 8 s instead of 18), too strong to swim up against. Marine
+  snow streams with the water, which is how you see which way it runs, and a note says when it turns (in the
+  canyon). **Nothing climbs from the canyon's floor:** the flood is the only way up. Ride it and steer off at the
+  right moment onto the shelf, the doorstep or the far rim.
+- **The far shelf**, out from the canyon's far wall in the still water beside the tide: the **fifth egg** drifts
+  over it. Only riding the flood and pushing off it at the right height reaches it (four strokes from the floor in
+  still water never do).
+- **The far rim**, at the top of the far wall (the canyon's shallowest end, ~200 m in the real ocean): a clam, and
+  at its end, under the rock, **an octopus's den** (see below).
+- Each thing in it is checked headless in `crates/sim/tests/canyon.rs` (reached with the strokes and the tide there
+  are, and not without them).
+
+### Spots left for creatures (coordinates in world units, `Level::test_level`)
+- **Common octopus den** (`Level::den`): a dead-end chamber under the rock at the end of the far rim, inside
+  x 8350–8800, y -1900 (floor) to -1620 (roof), the level's wall at its back; its floor a midden of shells (drawn,
+  `src/canyon.rs`). Empty: the boss (`creatures/common-octopus.md`) moves in later. The common octopus lives above
+  ~200 m, so its den is at the canyon's top, not its floor.
+- **Alarm jelly** (`Level::drifting`): open water out of the tide, deep in the canyon: (6305, -6200) by the near
+  wall and (7560, -7400) by the far wall, each at least 150 from rock and 100 from the tide.
+- The tide's column is x 6450–7350, y -9400 to -700 (`Level::currents`): anything drifting in it should move with
+  `Level::water_at`.
 
 ## Zones and economy
 Like RuneScape, rarer resources come from rarer, more dangerous places: depth is wealth.
@@ -116,3 +162,10 @@ Like RuneScape, rarer resources come from rarer, more dangerous places: depth is
 | How surreal | **Real biology, no exaggeration.** No spells, no gods; ancient giants stay unexplained | The real ocean is stranger than anything we could invent |
 
 A hardcore option (lose everything on death) can come later.
+
+## Sources (this page)
+- [KPC08] Wang, Lee & Liu (2008), "Observation of internal tidal currents in the Kaoping Canyon off southwestern
+  Taiwan", *Estuarine, Coastal and Shelf Science* 80:153–160 (abstract, opened). <https://doi.org/10.1016/j.ecss.2008.07.016>
+- [MC10] USGS, "Currents in Monterey Submarine Canyon" (abstract, opened). <https://pubs.usgs.gov/publication/70034693>
+- [MBARI-GC] MBARI, "Glow-in-the-dark corals light up the deep sea" (2020; Bessho-Uehara, Francis & Haddock 2020,
+  *Marine Biology* 167:144). <https://www.mbari.org/glowing-corals/>

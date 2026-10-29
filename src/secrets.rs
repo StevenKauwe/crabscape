@@ -1,6 +1,6 @@
 //! Places hidden in darkness, the clues in them, the ghost net across the
-//! passage beyond, and the crack in the floor at the far end of the basin
-//! where lights glow far below.
+//! passage beyond, and the crack at the foot of the far basin's end wall,
+//! where lights glow far below (the way down into the canyon).
 //!
 //! A secret (see `Level::secrets`) is drawn over with rock until a bright
 //! enough lantern comes near: then the darkness lifts and stays lifted. The
@@ -251,43 +251,26 @@ fn cut_nets(
     }
 }
 
-/// The crack in the floor at the far end of the basin, and the lights far
-/// below in it.
+/// Lights glimpsed far down the crack, at the foot of the far basin's end
+/// wall (the canyon's light, through the gap under the wall).
 #[derive(Component)]
 struct FarLight {
     phase: f32,
 }
 
-/// Where the crack is: in the floor near the far end of the basin, on the
-/// rise (the middle of its mouth, on the floor's surface).
+/// The crack's mouth (the middle of the slot, on the floor's surface).
 pub fn crack_at(sim: &Sim) -> Vec2 {
-    let x = sim.level.max_x - 70.0;
-    Vec2::new(x, sim.level.floor_height(x))
+    sim.level.crack
 }
 
-fn spawn_crack(
-    mut commands: Commands,
-    sim: Res<Sim>,
-    soft: Res<SoftTextures>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
+fn spawn_crack(mut commands: Commands, sim: Res<Sim>, soft: Res<SoftTextures>) {
     let mouth = crack_at(&sim);
-    let floor = |dx: f32| Vec2::new(mouth.x + dx, sim.level.floor_height(mouth.x + dx)) - mouth;
-    // A narrow gap down into the ground (only drawn: too narrow for a crab),
-    // the dark of deep water in it.
-    let gap = Triangle2d::new(floor(-30.0), floor(30.0), Vec2::new(4.0, -340.0));
-    commands.spawn((
-        Mesh2d(meshes.add(gap)),
-        MeshMaterial2d(materials.add(Color::srgb(0.004, 0.012, 0.02))),
-        Transform::from_translation(mouth.extend(0.5)),
-    ));
     // Lights far down in it: wild glow, blue-green and violet, faint.
     for (k, (dx, dy, size, colour)) in [
-        (2.0, -90.0, 9.0, Color::srgb(0.45, 0.95, 0.85)),
-        (6.0, -160.0, 7.0, Color::srgb(0.70, 0.55, 1.0)),
-        (1.0, -230.0, 6.0, Color::srgb(0.45, 0.95, 0.85)),
-        (4.0, -290.0, 5.0, Color::srgb(0.70, 0.55, 1.0)),
+        (20.0, -700.0, 9.0, Color::srgb(0.35, 0.65, 1.0)),
+        (-24.0, -790.0, 7.0, Color::srgb(0.45, 0.95, 0.85)),
+        (30.0, -860.0, 6.0, Color::srgb(0.35, 0.65, 1.0)),
+        (-10.0, -910.0, 5.0, Color::srgb(0.70, 0.55, 1.0)),
     ]
     .into_iter()
     .enumerate()
@@ -336,7 +319,7 @@ fn glimpse_lights(
         );
         say(
             &mut commands,
-            "The trench?",
+            "A way down?",
             above,
             Color::srgb(0.70, 0.85, 1.0),
         );
