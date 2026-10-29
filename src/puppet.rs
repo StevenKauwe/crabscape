@@ -21,11 +21,12 @@
 //! is R; the cutter claw (L, screen-right) holds the lantern. Walking left or
 //! right it shows its front. Claws never swap sides: to strike across (the
 //! crusher towards screen-right, the cutter towards screen-left) the crab
-//! pivots round and shows its back: the front view mirrored, the shell's
-//! picture brought forward over what sits on the front of the body (claws,
-//! lantern, eye stalks), the legs' order among themselves reversed, a fill
-//! light, and a
-//! rear plate over the face (painted back-view parts are a later art task).
+//! pivots round and shows its back: the front view mirrored, the shell seen
+//! from behind (`back-carapace`, drawn by `crabrig`) in place of the
+//! carapace and face, over what sits on the front of the body (claws,
+//! lantern, eye stalks), the legs' order among themselves reversed with the
+//! paddles in front, and a fill light. The turn itself coils, snaps round
+//! and lands (`turn_shape`).
 //!
 //! # Light
 //!
@@ -173,17 +174,25 @@ struct Rig {
     legs: [[Limb; 4]; 2],
     /// The lantern, hanging from the cutter claw.
     lantern: Option<Entity>,
-    /// The rear of the carapace, shown over the face when the crab turns
-    /// its back (a stand-in until painted back-view parts).
+    /// The shell seen from behind (`back-carapace`, from `crabrig`): shown
+    /// in place of the carapace and face once the crab turns its back, in
+    /// front of everything on the front of the body.
     back: Option<Entity>,
+    /// Its lit layer (fully lit from behind: the lantern is on the far side).
+    back_lit: Option<Entity>,
+    /// The carapace's two pictures (unlit, lit) and their size: shrunk to
+    /// nothing from behind, so the face never shows round the back shell.
+    shell_pictures: [Option<Entity>; 2],
+    shell_size: Vec2,
     /// Pieces whose depth changes seen from behind, with their depth then
     /// (see `animate`).
     depth: Vec<(Entity, f32)>,
     /// The lit layer of every piece (a fill light from behind).
     lit: Vec<Entity>,
-    /// The carapace's lit layer: from behind it comes forward over
-    /// everything on the front of the body (claws, lantern, eye stalks).
+    /// The carapace's lit layer (it takes the hulk's green).
     shell_lit: Option<Entity>,
+    /// A smear of shell colour behind the body as it spins round.
+    smear: Option<Entity>,
 }
 
 /// The carapace of crab `.0`'s puppet: small things it carries are drawn
@@ -252,6 +261,13 @@ struct PuppetAnim {
     /// Where the swinging claw is aimed (smoothed from the sim's
     /// `Swing::aim`): world units up (> 0) or down (< 0).
     aim: f32,
+    /// Seen from the front (1) or behind (-1), squeezed between through a
+    /// turn (`turn_shape`).
+    view: f32,
+    /// 0..1: how fast it is spinning round (the smear behind it).
+    spin: f32,
+    /// It was turning last frame (so the end of a turn lands).
+    was_turning: bool,
 }
 
 pub struct PuppetPlugin;
@@ -265,7 +281,7 @@ impl Plugin for PuppetPlugin {
                 build_puppets,
                 restyle,
                 animate,
-                hulk_look,
+                shell_look,
                 into_the_dark,
                 show_scissors,
             )
@@ -480,39 +496,36 @@ fn build_puppets(
             Some(pivot)
         });
 
-        // The rear of the shell: a carapace-coloured plate over the face and
-        // mouthparts, only seen from behind (scaled up from nothing then).
-        let back = file.parts.iter().find(|p| p.name == "carapace").map(|c| {
-            let at = file.to_puppet([457.0, 312.0]) - file.to_puppet(c.pivot);
-            let size = Vec2::new(250.0, 95.0) * ART_SCALE;
-            let plate = commands
-                .spawn((
-                    ChildOf(by_name["carapace"]),
-                    Sprite {
-                        image: soft.disc.clone(),
-                        custom_size: Some(size),
-                        ..default()
-                    },
-                    Transform::from_translation(at.extend(Z_STEP * 0.6))
-                        .with_scale(Vec3::splat(0.001)),
-                    Lit::default(),
-                    LitTint {
-                        dark: Color::srgb(0.16, 0.08, 0.07),
-                        bright: Color::srgb(0.62, 0.24, 0.14),
-                    },
-                ))
-                .id();
-            // A darker groove across it: the back edge of the shell.
-            commands.spawn((
-                ChildOf(plate),
-                Sprite::from_color(
-                    Color::srgba(0.1, 0.03, 0.02, 0.55),
-                    Vec2::new(size.x * 0.7, 1.5),
-                ),
-                Transform::from_xyz(0.0, size.y * 0.18, 0.01),
-            ));
-            plate
-        });
+        // The shell seen from behind waits, hidden, until the crab turns its
+        // back (see `animate`).
+        let back = by_name.get("back-carapace").copied();
+        if let Some(b) = back {
+            commands.entity(b).insert(Visibility::Hidden);
+        }
+        let index = |name: &str| file.parts.iter().position(|p| p.name == name);
+        let back_lit = index("back-carapace").map(|i| lit_layers[i]);
+        let shell_size = file
+            .parts
+            .iter()
+            .find(|p| p.name == "carapace")
+            .map_or(Vec2::ZERO, |p| {
+                Vec2::new(p.rect[2], p.rect[3]) / file.px_per_unit * ART_SCALE
+            });
+        // The smear left by the shell as it spins round: shell-coloured, soft,
+        // behind the body, on the crab itself (not the puppet, which is
+        // squeezed edge-on through the turn).
+        let smear = commands
+            .spawn((
+                ChildOf(crab),
+                Sprite {
+                    image: soft.streak.clone(),
+                    color: Color::NONE,
+                    custom_size: Some(Vec2::new(100.0, 40.0)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, FLIP_MIDDLE, -0.2),
+            ))
+            .id();
         // Seen from behind (anatomy-notes.md): what sits on the front of the
         // body (the chelipeds, held before the mouth; the lantern in the
         // cutter; the eye stalks on the front of the shell) goes behind the
@@ -529,7 +542,14 @@ fn build_puppets(
         for p in file.parts.iter().filter(|p| p.parent.is_some()) {
             let e = by_name[p.name.as_str()];
             if p.name.starts_with("leg-") && p.parent.as_deref() == Some("carapace") {
-                depth.push((e, (shell_z - 1.0 - p.z - shell_z) * Z_STEP));
+                // The paddles, raised over the rear corners, come in front of
+                // the shell seen from behind (as the rig's back view draws them).
+                let z = if p.name.ends_with("4-merus") {
+                    BACK_Z + 0.02
+                } else {
+                    (shell_z - 1.0 - p.z - shell_z) * Z_STEP
+                };
+                depth.push((e, z));
             }
         }
         let shell_lit = file
@@ -563,9 +583,13 @@ fn build_puppets(
                 }),
                 lantern,
                 back,
+                back_lit,
+                shell_pictures: [get("carapace".into()), shell_lit],
+                shell_size,
                 depth,
                 lit,
                 shell_lit,
+                smear: Some(smear),
             },
             PuppetAnim::default(),
         ));
@@ -753,28 +777,38 @@ fn animate(
         fight.squash += 0.25 * tuck;
         // Turning round (sim: `Fighter::back`, `turn`): the body spins about
         // its middle to show its back, so a claw strikes across without ever
-        // swapping sides. `view` is 1 from the front, -1 from behind, passing
-        // through 0 (edge-on) mid-turn.
-        let view = fighter.map_or(1.0, |f| {
+        // swapping sides (`turn_shape`). `view` is 1 from the front, -1 from
+        // behind.
+        let shape = fighter.map_or(TurnShape::still(1.0), |f| {
             let to = if f.back { -1.0 } else { 1.0 };
-            let n = sim.tuning.turn_ticks.max(1) as f32;
             if f.turn > 0 {
-                let p = 1.0 - f.turn as f32 / n;
-                -to * (std::f32::consts::PI * p).cos()
+                let p = 1.0 - f.turn as f32 / sim.tuning.turn_ticks.max(1) as f32;
+                turn_shape(p, to)
             } else {
-                to
+                TurnShape::still(to)
             }
         });
-        let turning = fighter.map_or(0.0, |f| {
-            if f.turn > 0 {
-                (std::f32::consts::PI * (1.0 - f.turn as f32 / sim.tuning.turn_ticks.max(1) as f32))
-                    .sin()
-            } else {
-                0.0
-            }
-        });
-        // A turn crouches into the spin.
-        let squash_target = if crouching { 0.6 } else { 0.0 } + fight.squash + 0.35 * turning;
+        let view = shape.view;
+        a.view = view;
+        a.spin = shape.spin;
+        let facing = fighter.map_or(1.0, |f| f.facing);
+        let turning = fighter.is_some_and(|f| f.turn > 0);
+        // Into a blow, the legs scuttle the sidestep under it; the turn ends
+        // planted, the body dropping onto them.
+        if turning && fighter.is_some_and(|f| f.turn_step) {
+            a.walk = a.walk.max(1.0);
+        }
+        if a.was_turning && !turning {
+            a.squash_vel += 6.0;
+        }
+        a.was_turning = turning;
+        // Spinning, the claws pull in tight; the crusher then swings out.
+        for claw in &mut fight.claw {
+            claw.0 -= 0.35 * shape.spin;
+            claw.1 += 0.3 * shape.spin;
+        }
+        fight.lean -= facing * shape.lean;
+        let squash_target = if crouching { 0.6 } else { 0.0 } + fight.squash + shape.squash;
         let (mut sq, mut sq_vel) = (a.squash, a.squash_vel);
         spring(&mut sq, &mut sq_vel, squash_target, 320.0, 20.0, dt);
         a.squash = sq.clamp(-0.8, 1.0);
@@ -823,21 +857,10 @@ fn animate(
         a.hulk = ease(a.hulk, f32::from(u8::from(mover.hulk)), 5.0, dt);
         let bulk = 1.0 + (sim.tuning.hulk.scale - 1.0) * a.hulk;
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
-            let edge = if view.abs() < 0.06 {
-                0.06 * view.signum()
-            } else {
-                view
-            };
-            tr.scale = Vec3::new(edge * (1.0 + 0.10 * a.squash), 1.0 - 0.20 * a.squash, 1.0)
+            tr.scale = Vec3::new(view * (1.0 + 0.10 * a.squash), 1.0 - 0.20 * a.squash, 1.0)
                 * (1.0 - gone)
                 * bulk;
-            tr.translation.y += -18.0 * gone + 7.0 * turning; // lifted through the spin
-        }
-        // Seen from behind: the rear of the shell covers the face.
-        if let Some(back) = rig.back
-            && let Ok((mut tr, _)) = parts.get_mut(back)
-        {
-            tr.scale = Vec3::splat((-view).clamp(0.0, 1.0).sqrt().max(0.001));
+            tr.translation.y += -18.0 * gone + shape.lift; // lifted through the spin
         }
 
         // --- Shell: walking bob and roll, idle breathing -------------------
@@ -1005,28 +1028,16 @@ fn animate(
         }
         // What sits on the front of the body (the claws held before the
         // mouth, the lantern in the cutter, the eye stalks on the front of
-        // the shell) goes behind the shell: its picture comes forward over
-        // them, fully lit, with the rear plate on it.
-        let (shell_z, plate_z) = if behind {
-            (0.75, 0.76)
-        } else {
-            (Z_STEP * 0.3, Z_STEP * 0.6)
-        };
-        if let Some(e) = rig.shell_lit {
-            if let Ok((mut tr, _)) = parts.get_mut(e)
-                && tr.translation.z != shell_z
-            {
-                tr.translation.z = shell_z;
-            }
-            if behind && let Ok(mut l) = lits.get_mut(e) {
-                l.fill = 1.0;
-            }
-        }
+        // the shell) goes behind the shell seen from behind, fully lit
+        // (`shell_look` swaps the pictures).
         if let Some(e) = rig.back
             && let Ok((mut tr, _)) = parts.get_mut(e)
-            && tr.translation.z != plate_z
+            && tr.translation.z != BACK_Z
         {
-            tr.translation.z = plate_z;
+            tr.translation.z = BACK_Z;
+        }
+        if behind && let Some(mut l) = rig.back_lit.and_then(|e| lits.get_mut(e).ok()) {
+            l.fill = 1.0;
         }
         a.prev_vx = vx;
     }
@@ -1036,45 +1047,67 @@ fn animate(
 const SHELL_LIT: Color = Color::srgb(1.0, 0.92, 0.78);
 const HULK_LIT: Color = Color::srgb(0.55, 1.0, 0.42);
 const HULK_UNLIT: Color = Color::srgb(0.70, 1.0, 0.62);
-const BACK_DARK: Color = Color::srgb(0.16, 0.08, 0.07);
-const BACK_BRIGHT: Color = Color::srgb(0.62, 0.24, 0.14);
-const HULK_BACK_DARK: Color = Color::srgb(0.08, 0.16, 0.06);
-const HULK_BACK_BRIGHT: Color = Color::srgb(0.40, 0.72, 0.26);
+/// The smear behind a spinning shell: its own red, faint.
+const SMEAR: Color = Color::srgb(0.85, 0.36, 0.22);
 
-/// Tint the shell green as the crab bulks up (and back as it shrinks).
-fn hulk_look(
-    crabs: Query<(&Rig, &PuppetAnim)>,
+/// The shell: seen from the front or from behind (the carapace and face, or
+/// the back shell; a turn swaps them at its middle), green as the crab bulks
+/// up, and smeared as it spins round.
+fn shell_look(
+    crabs: Query<(&Rig, &PuppetAnim, Option<&Fighter>)>,
     mut sprites: Query<&mut Sprite>,
     mut tints: Query<&mut LitTint>,
+    mut shown: Query<&mut Visibility>,
+    mut places: Query<&mut Transform>,
 ) {
-    for (rig, a) in &crabs {
+    for (rig, a, fighter) in &crabs {
+        let behind = a.view < 0.0;
+        if let Some(mut v) = rig.back.and_then(|e| shown.get_mut(e).ok()) {
+            v.set_if_neq(if behind {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            });
+        }
+        let size = (!behind).then_some(rig.shell_size);
+        for e in rig.shell_pictures.into_iter().flatten() {
+            if let Ok(mut sprite) = sprites.get_mut(e)
+                && sprite.custom_size != size.or(Some(Vec2::ZERO))
+            {
+                sprite.custom_size = size.or(Some(Vec2::ZERO));
+            }
+        }
         let k = a.hulk;
-        if let Some(shell) = rig.shell
-            && let Ok(mut sprite) = sprites.get_mut(shell)
-        {
-            let colour = Color::WHITE.mix(&HULK_UNLIT, k);
-            if sprite.color != colour {
-                sprite.color = colour;
+        let unlit = Color::WHITE.mix(&HULK_UNLIT, k);
+        for e in [rig.shell, rig.back].into_iter().flatten() {
+            if let Ok(mut sprite) = sprites.get_mut(e)
+                && sprite.color != unlit
+            {
+                sprite.color = unlit;
             }
         }
         let lit = SHELL_LIT.mix(&HULK_LIT, k);
-        let shell = rig.shell_lit.and_then(|e| tints.get_mut(e).ok());
-        if let Some(mut tint) = shell {
-            let want = LitTint {
-                dark: lit.with_alpha(0.0),
-                bright: lit,
-            };
-            if tint.bright != want.bright {
+        let want = LitTint {
+            dark: lit.with_alpha(0.0),
+            bright: lit,
+        };
+        for e in [rig.shell_lit, rig.back_lit].into_iter().flatten() {
+            if let Ok(mut tint) = tints.get_mut(e)
+                && tint.bright != want.bright
+            {
                 *tint = want;
             }
         }
-        if let Some(mut tint) = rig.back.and_then(|e| tints.get_mut(e).ok()) {
-            let want = LitTint {
-                dark: BACK_DARK.mix(&HULK_BACK_DARK, k),
-                bright: BACK_BRIGHT.mix(&HULK_BACK_BRIGHT, k),
-            };
-            if tint.bright != want.bright {
-                *tint = want;
+        // The smear: strongest at the fastest part of the spin, trailing the
+        // way the body steps.
+        if let Some(e) = rig.smear {
+            let facing = fighter.map_or(1.0, |f| f.facing);
+            if let Ok(mut sprite) = sprites.get_mut(e) {
+                sprite.color = SMEAR.with_alpha(0.45 * a.spin);
+            }
+            if let Ok(mut tr) = places.get_mut(e) {
+                tr.translation.x = -facing * 24.0 * a.spin;
+                tr.scale = Vec3::new(0.4 + 0.5 * a.spin, 1.0, 1.0);
             }
         }
     }
@@ -1156,10 +1189,23 @@ fn fight_pose(
             c.recovery_ticks as f32,
         );
         // 0..1 up over the wind-up (early or late, by the juice's curve); 1
-        // at the blow, easing back over the recovery.
+        // at the blow, easing back over the recovery. Turning into the blow,
+        // the claw stays tucked through the spin (`turn_shape`) and rears up
+        // once round, so the rear-up reads after the turn rather than lost
+        // inside it.
+        let lead = if f.turn_step {
+            t.turn_ticks.min(s.windup.saturating_sub(1)) as f32
+        } else {
+            0.0
+        };
         let (load, blow) = match s.phase(t) {
             Phase::Windup if s.charging => (1.0, 0.0),
-            Phase::Windup => ((tick / s.windup as f32).min(1.0).powf(j.curve), 0.0),
+            Phase::Windup => (
+                ((tick - lead) / (s.windup as f32 - lead))
+                    .clamp(0.0, 1.0)
+                    .powf(j.curve),
+                0.0,
+            ),
             Phase::Active => (0.0, 1.0),
             Phase::Recovery => {
                 let p = ((tick - w - a) / r).clamp(0.0, 1.0);
@@ -1265,6 +1311,87 @@ fn fight_pose(
 /// blow down onto a shrimp reads at phone size.
 const AIM_REACH: f32 = 36.0;
 
+/// Depth of the shell seen from behind, over the claws, the lantern and the
+/// eye stalks (all children of the carapace, within about 0.65 of it).
+const BACK_Z: f32 = 0.76;
+
+/// How the body looks part way through a turn round (see [`turn_shape`]).
+struct TurnShape {
+    /// 1 from the front, -1 from behind (the puppet's width).
+    view: f32,
+    /// Added to the body's squash (> 0 crouched, < 0 stretched).
+    squash: f32,
+    /// Lifted off its feet (world units).
+    lift: f32,
+    /// Leaning towards the blow (radians; < 0 away from it).
+    lean: f32,
+    /// 0..1: how fast it spins.
+    spin: f32,
+}
+
+impl TurnShape {
+    fn still(view: f32) -> Self {
+        Self {
+            view,
+            squash: 0.0,
+            lift: 0.0,
+            lean: 0.0,
+            spin: 0.0,
+        }
+    }
+}
+
+/// The turn round, `p` from 0 to 1 through the sim's turn, ending seen as
+/// `to` (1 front, -1 back). Anticipation: it crouches and leans away from
+/// the blow, coiling. Then it snaps round, stretched tall and lifted off its
+/// feet, never thinner than a fifth of its width so the middle frames still
+/// read as a crab spinning rather than a sliver. Then it lands wide (an
+/// overshoot past its full width) and squashes onto its legs as it settles.
+fn turn_shape(p: f32, to: f32) -> TurnShape {
+    const COIL: f32 = 0.3;
+    const SNAP: f32 = 0.7;
+    const THINNEST: f32 = 0.2;
+    let smooth = |x: f32| x * x * (3.0 - 2.0 * x);
+    if p < COIL {
+        let k = smooth(p / COIL);
+        TurnShape {
+            view: -to * (1.0 - 0.12 * k),
+            squash: 0.45 * k,
+            lift: 0.0,
+            lean: -0.14 * k,
+            spin: 0.0,
+        }
+    } else if p < SNAP {
+        let k = (p - COIL) / (SNAP - COIL);
+        let e = smooth(k);
+        // From the coil's narrowed width back out to full.
+        let raw = -to * (PI * e).cos() * (0.88 + 0.12 * e);
+        let view = if raw.abs() < THINNEST {
+            THINNEST * if e < 0.5 { -to } else { to }
+        } else {
+            raw
+        };
+        let arc = (PI * k).sin();
+        TurnShape {
+            view,
+            squash: 0.45 * (1.0 - k) * (1.0 - k) - 0.35 * arc,
+            lift: 9.0 * arc,
+            lean: 0.1 * arc,
+            spin: arc,
+        }
+    } else {
+        let k = ((p - SNAP) / (1.0 - SNAP)).min(1.0);
+        let bump = (PI * k).sin();
+        TurnShape {
+            view: to * (1.0 + 0.14 * bump),
+            squash: 0.3 * bump,
+            lift: 0.0,
+            lean: 0.06 * (1.0 - k),
+            spin: 0.0,
+        }
+    }
+}
+
 /// How far a dive tilts the crab towards the way it's pushing (radians).
 const DIVE_TILT: f32 = 0.22;
 /// Height of the crab's middle above its feet: a flip turns about it.
@@ -1337,6 +1464,22 @@ mod tests {
         }
         let lantern = &file.anchors["lantern"];
         assert!(names.contains(&lantern.part.as_str()));
+    }
+
+    #[test]
+    fn a_turn_coils_snaps_round_and_lands_never_a_sliver() {
+        // From the front round to the back.
+        let at = |p: f32| turn_shape(p, -1.0);
+        assert!((at(0.0).view - 1.0).abs() < 1e-6, "starts from the front");
+        assert!(at(0.25).squash > 0.3 && at(0.25).lean < 0.0, "coils");
+        assert!(at(0.5).squash < 0.0 && at(0.5).lift > 0.0, "stretched, lifted");
+        assert!(at(0.5).spin > 0.9, "spinning fastest mid-turn");
+        assert!(at(0.85).view < -1.0, "lands wide");
+        assert!((at(1.0).view + 1.0).abs() < 1e-3, "ends seen from behind");
+        for i in 0..=100 {
+            let v = at(i as f32 / 100.0).view;
+            assert!(v.abs() >= 0.2 - 1e-6, "{v} at {i}%");
+        }
     }
 
     #[test]
