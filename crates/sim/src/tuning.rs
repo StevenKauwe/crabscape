@@ -292,6 +292,25 @@ pub struct Tuning {
     pub moray: EnemyTuning,
     /// What a crab sees and remembers (`crate::memory`).
     pub memory: MemoryTuning,
+    /// Hulk mode, the `hulk` code (`crate::codes`).
+    pub hulk: HulkTuning,
+}
+
+/// Hulk mode: the crab bulks up, hits far harder and is hard to shake.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HulkTuning {
+    /// How much bigger it is drawn, and how much its claws' reach and its
+    /// body box grow in a fight. (Its box against the level stays the same,
+    /// so it still fits through every gap.)
+    pub scale: f32,
+    /// Its smash's damage and poise damage, times this.
+    pub smash_damage: f32,
+    /// Its smash's knockback, times this.
+    pub smash_knockback: f32,
+    /// Share of a blow's poise damage it feels.
+    pub poise_taken: f32,
+    /// Share of its walking (and sprinting) speed.
+    pub walk: f32,
 }
 
 /// One kind of enemy: its body, senses, state timings and attack. Times in
@@ -882,6 +901,13 @@ impl Tuning {
                 // slowly (real): a remembered place keeps some of itself.
                 kept: 0.35,
                 half_life_steps: 1800, // 3 min per visit (tuned: weeks into minutes)
+            },
+            hulk: HulkTuning {
+                scale: 1.5,
+                smash_damage: 3.0,
+                smash_knockback: 2.5,
+                poise_taken: 0.2,
+                walk: 0.8,
             },
         }
     }

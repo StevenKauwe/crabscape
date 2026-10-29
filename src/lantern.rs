@@ -196,7 +196,7 @@ fn flicker(
 ) {
     let t = time.elapsed_secs();
     let wave = 1.0 + 0.03 * (t * 7.3).sin() + 0.02 * (t * 12.9 + 1.0).sin();
-    let cultures = crab.single().map_or(0, |m| m.lantern) as f32;
+    let cultures = crab.single().map_or(0, |m| m.lantern_glow()) as f32;
     let reach = 1.0 + BRIGHTER_PER_CULTURE * cultures; // see `light_reach`
     flicker.0 = wave * reach;
     for (glow, mut sprite) in &mut glows {

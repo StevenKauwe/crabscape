@@ -3,7 +3,8 @@
 //! (see `voice.rs`): from everyone at full volume, or from nearby crabs only,
 //! with a slider for how far. While the slider moves, a ripple around the
 //! crab shows how far it hears. Kept on the device, like the art style. At
-//! the bottom, "Report a bug or idea" opens the report form (`report.rs`).
+//! the bottom, "Report a bug or idea" opens the report form (`report.rs`),
+//! and "Enter a code" asks for a code (`codes.rs`; phones have no Enter key).
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
@@ -142,6 +143,8 @@ mod panel {
         Nearby,
         /// Opens the report form (`report.rs`).
         Report,
+        /// Asks for a code (`codes.rs`).
+        Code,
     }
 
     #[derive(Component)]
@@ -177,7 +180,7 @@ mod panel {
     struct Layout {
         button: Rect,
         panel: Rect,
-        choices: [(Choice, Rect); 5],
+        choices: [(Choice, Rect); 6],
         range_label: Rect,
         track: Rect,
     }
@@ -198,9 +201,10 @@ mod panel {
         let y3 = y2 + ROW + PAD;
         let track_y = y3 + LABEL + 8.0;
         let y4 = track_y + 6.0 + PAD + 8.0;
+        let y5 = y4 + ROW + GAP;
         Layout {
             button,
-            panel: Rect::new(left, top, right, y4 + ROW + PAD),
+            panel: Rect::new(left, top, right, y5 + ROW + PAD),
             choices: [
                 (Choice::Smooth, row(y1, false)),
                 (Choice::Saver, row(y1, true)),
@@ -209,6 +213,10 @@ mod panel {
                 (
                     Choice::Report,
                     Rect::new(left + PAD, y4, right - PAD, y4 + ROW),
+                ),
+                (
+                    Choice::Code,
+                    Rect::new(left + PAD, y5, right - PAD, y5 + ROW),
                 ),
             ],
             range_label: Rect::new(left + PAD, y3, right - PAD, y3 + LABEL),
@@ -322,6 +330,7 @@ mod panel {
                         Choice::Everyone => "Everyone",
                         Choice::Nearby => "Nearby",
                         Choice::Report => "Report a bug or idea",
+                        Choice::Code => "Enter a code",
                     };
                     p.spawn((choice, pill(r, o))).with_children(|b| {
                         b.spawn(text(words, 13.0));
@@ -421,6 +430,7 @@ mod panel {
         window: Single<&Window>,
         mut open: ResMut<Open>,
         mut settings: ResMut<Settings>,
+        mut codes: MessageWriter<crate::codes::Typed>,
     ) {
         open.ring = (open.ring - time.delta_secs()).max(0.0);
         let l = layout(window.size());
@@ -443,6 +453,12 @@ mod panel {
                     Some((Choice::Report, _)) => {
                         open.open = false;
                         crate::report::ask();
+                    }
+                    Some((Choice::Code, _)) => {
+                        open.open = false;
+                        if let Some(text) = crate::codes::prompt() {
+                            codes.write(crate::codes::Typed(text));
+                        }
                     }
                     None => {}
                 }
@@ -497,7 +513,7 @@ mod panel {
                 Choice::Saver => settings.saver,
                 Choice::Everyone => settings.hear == Hear::Everyone,
                 Choice::Nearby => settings.hear == Hear::Nearby,
-                Choice::Report => false,
+                Choice::Report | Choice::Code => false,
             };
             bg.set_if_neq(BackgroundColor(if picked {
                 Color::srgba(0.35, 0.55, 0.6, 0.75)

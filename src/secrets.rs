@@ -92,7 +92,7 @@ fn lift_veils(
     mut veils: Query<(&mut Veil, &MeshMaterial2d<ColorMaterial>)>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let cultures = crab.single().map_or(0, |m| m.lantern);
+    let cultures = crab.single().map_or(0, |m| m.lantern_glow());
     let reach = light_reach(&tuning, cultures) * REVEAL_AT;
     let lanterns: Vec<Vec2> = lights.iter().map(|g| g.translation().truncate()).collect();
     for (mut veil, material) in &mut veils {

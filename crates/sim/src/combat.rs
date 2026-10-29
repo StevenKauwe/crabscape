@@ -410,26 +410,44 @@ impl Fighter {
             .as_ref()
             .filter(|s| s.phase(t) == Phase::Active)?;
         let c = s.claw.tuning(t);
-        let near = m.pos.x + self.facing * t.body_half_width;
-        let far = near + self.facing * c.reach;
-        let mid = m.pos.y + t.body_height / 2.0;
+        // A bulked-up crab's claws are bigger and reach further and higher,
+        // and still smash right down to the floor.
+        let size = m.size(t);
+        let near = m.pos.x + self.facing * t.body_half_width * size;
+        let far = near + self.facing * c.reach * size;
+        let (low, high) = (
+            (t.body_height - c.height) / 2.0,
+            (t.body_height + c.height) / 2.0,
+        );
         Some(Rect::new(
             near.min(far),
-            mid - c.height / 2.0,
+            m.pos.y + low,
             near.max(far),
-            mid + c.height / 2.0,
+            m.pos.y + high * size,
         ))
     }
 }
 
-/// The crab's body box (its hurtbox).
+/// The crab's body box (its hurtbox): bigger when bulked up (its box
+/// against the level stays the same).
 pub fn body(m: &Mover, t: &Tuning) -> Rect {
+    let size = m.size(t);
     Rect::new(
-        m.pos.x - t.body_half_width,
+        m.pos.x - t.body_half_width * size,
         m.pos.y,
-        m.pos.x + t.body_half_width,
-        m.pos.y + t.body_height,
+        m.pos.x + t.body_half_width * size,
+        m.pos.y + t.body_height * size,
     )
+}
+
+/// The poise damage a blow does to this crab: a bulked-up crab is hard to
+/// shake.
+fn poise_felt(m: &Mover, hit: &Hit, t: &Tuning) -> f32 {
+    if m.hulk {
+        hit.poise * t.hulk.poise_taken
+    } else {
+        hit.poise
+    }
 }
 
 /// The crab's side of a tick, before its physics step: timers, stagger,
@@ -685,7 +703,9 @@ pub fn crab_defends(
         } else {
             hit.block_damage.unwrap_or(t.block_damage)
         };
-        let took = f.vitals.take(hit.damage * share, hit.poise, &t.crab);
+        let took = f
+            .vitals
+            .take(hit.damage * share, poise_felt(m, hit, t), &t.crab);
         f.armour_break = f.armour_break.max(hit.armour_break);
         knock(m, hit.knockback * t.block_knockback);
         f.vitals.hitstop = f.vitals.hitstop.max(t.block_hitstop_ticks);
@@ -720,7 +740,7 @@ pub fn crab_takes(
     if f.dead.is_some() {
         return None;
     }
-    let took = f.vitals.take(hit.damage, hit.poise, &t.crab);
+    let took = f.vitals.take(hit.damage, poise_felt(m, hit, t), &t.crab);
     ev.hurt = true;
     knock(m, hit.knockback);
     f.knocked = t.hit_stun_ticks;

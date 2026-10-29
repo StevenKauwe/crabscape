@@ -191,7 +191,7 @@ fn update_known(
     let t = &sim.tuning.memory;
     let m = &me.memory;
     let eye = me.mover.pos + Vec2::new(0.0, sim.tuning.body_height);
-    let sight = Sight::new(eye, me.mover.lantern, t);
+    let sight = Sight::new(eye, me.mover.lantern_glow(), t);
     known.sight = Some(sight);
     // What's in sight changes only on a memory step.
     if known.made_at.is_some_and(|(now, _)| now == m.now) {
