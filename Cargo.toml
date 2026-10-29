@@ -13,7 +13,7 @@ default-run = "crabscape"
 # game and the simulation. The art tools and `crates/listen` (speech to text for spoken reports, its own wasm file,
 # built by tools/build-web.sh) are the other members: `--workspace` or `-p painter` to include them.
 [workspace]
-members = ["crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "tools/oil-atlas", "tools/webtest"]
+members = ["crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "tools/oil-atlas", "tools/webtest", "tools/cooptest"]
 default-members = [".", "crates/sim"]
 # Third-party code kept here with a fix of ours (see [patch.crates-io] below); not linted or tested as our own.
 exclude = ["vendor"]
