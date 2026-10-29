@@ -5,6 +5,7 @@
 # $GITHUB_OUTPUT:
 #   docs_only   every file is words: *.md, docs/, .claude/skills/
 #   code        something besides words and the introducer: the fmt/clippy/tests, determinism, web and browser jobs
+#               (an introducer change runs the web and browser jobs too: the co-op scenarios play through it)
 #   art         the art pipeline, or something this script doesn't know: the art check
 #   introducer  tools/introducer (its own little server and Cargo workspace), or something this script doesn't know
 # Careful on purpose: a path it doesn't recognise turns everything on, and so does an empty list.
@@ -35,10 +36,10 @@ while IFS= read -r path; do
   code=true
   case "$path" in
     # Known, and outside the art pipeline (crabrig, painter, oil-atlas, paint-oil.sh, art/, assets/).
-    src/* | crates/sim/* | crates/listen/* | web/* | tools/webtest/* | tools/tidy/* | vendor/* | \
+    src/* | crates/sim/* | crates/listen/* | web/* | tools/webtest/* | tools/cooptest/* | tools/tidy/* | vendor/* | \
       tools/build-web.sh | tools/determinism.sh | tools/previews.sh | tools/main-health.sh | tools/mutants-pr.sh | \
       deny.toml | .cargo/mutants.toml | .gitignore | .github/workflows/previews.yml | \
-      .github/workflows/mutants-weekly.yml) ;;
+      .github/workflows/mutants-weekly.yml | .github/workflows/coop.yml) ;;
     # The art pipeline, the toolchain, Cargo.toml/Cargo.lock, CI itself, this script, anything new.
     *)
       art=true

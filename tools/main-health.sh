@@ -5,7 +5,8 @@
 #
 # A failed job: open the issue (labelled for the next Claude: /next-task picks it first), or comment on it if it is
 # already open, naming the run and the failing jobs and steps. Everything fine: close it. A cancelled run (a newer
-# push took over) says nothing. Needs gh with GH_TOKEN and GH_REPO, and GitHub's GITHUB_* variables.
+# push took over) says nothing. ONLY_FAILURES=1 (coop.yml, which checks only part of main) never closes it. Needs gh
+# with GH_TOKEN and GH_REPO, and GitHub's GITHUB_* variables.
 set -euo pipefail
 
 TITLE="${MAIN_HEALTH_TITLE:-main is broken}" # (overridable only for testing)
@@ -36,7 +37,7 @@ Fix main first, or revert the change that broke it. This issue closes itself whe
     gh label create "$LABEL" --color B60205 --description "CI is failing on main: fix this first" 2> /dev/null || true
     gh issue create --title "$TITLE" --label "$LABEL,claude-ready,size:S,area:tooling" --body "$body"
   fi
-elif [ -z "$cancelled" ] && [ -n "$open" ]; then
+elif [ -z "$cancelled" ] && [ -n "$open" ] && [ -z "${ONLY_FAILURES:-}" ]; then
   gh issue close "$open" --comment "Main is green again: $RUN_URL"
 else
   echo "nothing to report"

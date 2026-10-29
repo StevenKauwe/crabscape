@@ -164,7 +164,8 @@ jobs:
   web:
     name: web build, relaxed-SIMD check, size
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
+    # Also for an introducer change: the browser job's co-op scenarios play the game through it.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -215,6 +216,7 @@ jobs:
   browser:
     name: browser test (WebKit, iPhone size)
     # Plays the web build from the job above in WebKitGTK (the iPhone's engine) through WebDriver: tools/webtest.
+    # Then co-op in headless Chrome with a local introducer: tools/cooptest (coop.yml goes deeper on main).
     # Runs whenever the web build ran (skipped with it for a change that can't affect the game).
     needs: web
     if: ${{ !cancelled() && needs.web.result == 'success' }}
@@ -233,12 +235,19 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: webtest
+          workspaces: |
+            . -> target
+            tools/introducer -> target
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: crabscape-web-${{ github.sha }}
           path: web
-      - name: Build the browser test
-        run: cargo build --profile art --locked -p webtest
+      - name: Build the browser tests and the introducer
+        run: |
+          cargo build --profile art --locked -p webtest -p cooptest
+          cargo build --release --locked --manifest-path tools/introducer/Cargo.toml
+      - name: Co-op's promises in Chrome, two or three players, each scenario once (docs/design/coop-promises.md)
+        run: cargo cooptest --repeat 1 --logs target/webtest
       - name: Play it in WebKit (portrait phone)
         run: ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- cargo webtest --shots target/webtest/portrait
       - name: Play it in WebKit (landscape phone)

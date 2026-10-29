@@ -1,0 +1,92 @@
+# Co-op's promises in depth (docs/design/coop-promises.md), after each deploy to main and once a day: every scenario
+# 3 times with voice off and on, a random stress run, and the scenarios on the live site with the real introducer.
+# (Every pull request already plays each scenario once, in ci.yml's browser job.) A failure opens or adds to the
+# "main is broken" issue; a green run here never closes it (ci.yml does that).
+name: Co-op in depth
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coop-in-depth
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: ""
+
+jobs:
+  coop:
+    name: co-op promises in depth
+    # After a deploy: only when main's CI passed (so the build was deployed).
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: cooptest
+          workspaces: |
+            . -> target
+            tools/introducer -> target
+      - name: The web build main's CI made (the one deployed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          if [ -z "$RUN" ]; then
+            RUN="$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success --limit 1 \
+              --json databaseId --jq '.[0].databaseId')"
+          fi
+          sha="$(gh run view "$RUN" -R "$GITHUB_REPOSITORY" --json headSha --jq .headSha)"
+          echo "CI run $RUN at $sha"
+          # The test tool as it was at that build.
+          git fetch --quiet --depth 1 origin "$sha"
+          git switch --quiet --detach FETCH_HEAD
+          gh run download "$RUN" -R "$GITHUB_REPOSITORY" -n "crabscape-web-$sha" -D web
+      - name: Build the introducer and the co-op test
+        run: |
+          cargo build --release --locked --manifest-path tools/introducer/Cargo.toml
+          cargo build --profile art --locked -p cooptest
+      - name: Every scenario 3 times, voice off and on
+        run: cargo cooptest --voice both
+      - name: Random stress (the seed is printed; its replay line reruns it)
+        if: always()
+        run: cargo cooptest --stress --steps 12
+      - name: The live site with the real introducer
+        if: always()
+        run: cargo cooptest --url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" --repeat 1 --voice both
+
+  main-health:
+    name: report main's health
+    if: always() && needs.coop.result != 'skipped'
+    needs: [coop]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Add a failure to the "main is broken" issue
+        run: tools/main-health.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NEEDS: ${{ toJSON(needs) }}
+          COMMIT_TITLE: "co-op in depth (${{ github.event_name }})"
+          ONLY_FAILURES: "1"
