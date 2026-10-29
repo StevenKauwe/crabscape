@@ -378,7 +378,10 @@ fn a_creature_that_followed_the_crab_to_its_crevice_cannot_kill_it_there() {
     }
     let crab = sim.crab(P0).unwrap();
     assert!(crab.mover.tucked_in());
-    assert!(!seen.contains(&"hurt") && !seen.contains(&"died"), "{seen:?}");
+    assert!(
+        !seen.contains(&"hurt") && !seen.contains(&"died"),
+        "{seen:?}"
+    );
     assert_eq!(crab.fighter.vitals.health, sim.tuning.crab.health);
     let mantis = &sim.enemies()[0];
     assert_eq!(mantis.target, None, "lost interest");

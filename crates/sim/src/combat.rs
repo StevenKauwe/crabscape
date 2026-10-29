@@ -681,7 +681,7 @@ pub fn crab_defends(
     t: &Tuning,
     ev: &mut StepEvents,
 ) -> Outcome {
-    if f.dead.is_some() {
+    if f.dead.is_some() || m.tucked_in() {
         return Outcome::Ignored;
     }
     if f.evading(t) {
@@ -729,7 +729,8 @@ pub fn crab_defends(
 
 /// A hit reaches a crab. Lowers health and poise by exactly the hit's
 /// numbers, pushes it through the normal physics and freezes it for the
-/// hit-stop. Returns what it did (None: ignored, as when already dead).
+/// hit-stop. Returns what it did (None: ignored, as when already dead, or
+/// tucked into a shell or crevice, where nothing reaches it).
 pub fn crab_takes(
     f: &mut Fighter,
     m: &mut Mover,
@@ -737,7 +738,7 @@ pub fn crab_takes(
     t: &Tuning,
     ev: &mut StepEvents,
 ) -> Option<Took> {
-    if f.dead.is_some() {
+    if f.dead.is_some() || m.tucked_in() {
         return None;
     }
     let took = f.vitals.take(hit.damage, poise_felt(m, hit, t), &t.crab);
