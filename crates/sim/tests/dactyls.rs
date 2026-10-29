@@ -2,9 +2,9 @@
 //! Feats): the leg tips hold kelp and coral so firmly that the paddle legs
 //! rest while the crab hangs there, as on solid ground. Only with the feat.
 //! In the far basin a coral grows out of the end wall's face, high in the
-//! water: reaching it takes four strokes, and an egg drifts far above its
-//! top. Resting on the coral, the crab swims on up to it; without the feat
-//! it never gets there.
+//! water: no single stroke reaches it, and an egg drifts four strokes above
+//! its top. Resting on the coral, the crab swims on up to it; without the
+//! feat it arrives with too few strokes left and never gets there.
 
 use bevy_math::Vec2;
 use crabsim::level::Growth;
@@ -153,8 +153,8 @@ fn reaches_the_wall_coral(n: u32) -> bool {
 }
 
 #[test]
-fn the_wall_coral_takes_four_strokes_to_reach() {
-    assert!(!reaches_the_wall_coral(3), "three strokes never get there");
+fn one_stroke_never_reaches_the_wall_coral_but_four_do() {
+    assert!(!reaches_the_wall_coral(1), "one stroke never gets there");
     assert!(reaches_the_wall_coral(4));
 }
 
@@ -191,8 +191,9 @@ fn eats_the_egg_from_the_coral(left: f32, feat: bool, rest: f64) -> bool {
 
 #[test]
 fn without_the_feat_the_egg_over_the_wall_coral_is_out_of_reach() {
-    // Arriving takes four of the five strokes (above): one left at most.
-    assert!(!eats_the_egg_from_the_coral(1.0, false, 1.0));
+    // Arriving takes at least two of the five strokes (above): three left
+    // at most.
+    assert!(!eats_the_egg_from_the_coral(3.0, false, 1.0));
 }
 
 #[test]

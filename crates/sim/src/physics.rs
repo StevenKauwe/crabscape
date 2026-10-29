@@ -641,6 +641,12 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         rest_legs(m, t, full * dt / m.stamina_refill_time(t));
     } else {
         m.coyote = (m.coyote - dt).max(0.0);
+        // Gripping dactyls: holding kelp or coral that firmly, the paddle
+        // legs rest there as they would on solid ground.
+        if m.climbing && m.has(Feat::GrippingDactyls) {
+            let full = m.strokes(t) as f32;
+            rest_legs(m, t, full * dt / m.stamina_refill_time(t));
+        }
     }
     m.stroke_rest = (m.stroke_rest - dt).max(0.0);
     // A press in the water while the legs are still in their rhythm is kept

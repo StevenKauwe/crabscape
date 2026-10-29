@@ -257,7 +257,7 @@ fn the_ebb_drops_a_crab_fast_and_strokes_cannot_beat_it() {
 #[test]
 fn the_fifth_egg_is_on_a_shelf_only_the_flood_reaches() {
     let level = crabsim::Level::test_level();
-    assert_eq!(level.eggs.len(), 5);
+    assert!(level.eggs.len() >= 5, "the fifth egg is still the fifth");
     let egg = level.eggs[4];
     // Ridden up the flood, pushing right at the right moment: eaten.
     let eaten = (0..60).any(|k| {
@@ -325,10 +325,11 @@ fn a_save_from_before_the_canyon_keeps_what_was_eaten() {
     let mut sim = sim;
     sim.restore_progress(PlayerId(0), &old);
     let crab = sim.crab(PlayerId(0)).unwrap();
-    assert_eq!(crab.eaten, [true, true, true, false, false]);
+    assert_eq!(crab.eaten[..5], [true, true, true, false, false]);
+    assert!(crab.eaten[5..].iter().all(|e| !e), "eggs added since: not eaten");
     assert_eq!(crab.mover.upgrades, 3);
     assert!(crab.mover.scissor_claw);
     // And it saves the longer list from then on.
     let p: Progress = sim.progress(PlayerId(0)).unwrap();
-    assert_eq!(p.eaten.len(), 5);
+    assert_eq!(p.eaten.len(), sim.level.eggs.len());
 }
