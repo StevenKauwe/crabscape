@@ -2,7 +2,7 @@
 
 use regex::Regex;
 
-use crate::crab::{Pose, build_front};
+use crate::crab::{Pose, back_shell, build_front};
 use crate::geom::*;
 use crate::item::{Item, Kind, transform_items};
 use crate::palette;
@@ -58,6 +58,14 @@ pub fn parent_of(id: &str) -> String {
             _ => format!("{}-propodus-palm", &m[1]),
         };
     }
+    // The back view's shell (`crab::back_shell`): its pieces ride on it.
+    if id.starts_with("back-") {
+        return if id == "back-carapace" {
+            "carapace".into()
+        } else {
+            "back-carapace".into()
+        };
+    }
     if re(r"^eye-|^antenn|^maxilliped|^face|^underside|^gear-helmet").is_match(id) {
         return "carapace".into();
     }
@@ -68,14 +76,19 @@ pub fn parent_of(id: &str) -> String {
     }
 }
 
-/// `crab-parts.svg` for a pose (the hero pose for the game).
+/// `crab-parts.svg` for a pose (the hero pose for the game), with the shell seen from behind last (the game shows
+/// it once the crab turns its back).
 pub fn parts_svg(pose: &Pose) -> String {
+    let mut items = build_front(pose);
+    items.extend(back_shell(pose));
     write(
-        build_front(pose),
+        items,
         "<!-- CrabScape player crab: rig-ready cut-out parts, front (in-game) view, neutral pose.
   One <g> per part. data-pivot = the joint this part rotates about (its proximal end), in this file's pixels.
   data-parent = the part it hangs from. Draw order = document order. R/L = the crab's own right/left
-  (R is screen-left in this view). Legs: 1-3 walking legs, 4 = swimming paddle (the 5th pereiopod). -->",
+  (R is screen-left in this view). Legs: 1-3 walking legs, 4 = swimming paddle (the 5th pereiopod).
+  back-*: the shell seen from behind (posterior border nearest), shown in the game instead of the carapace and face
+  when the crab turns its back. -->",
         "CrabScape player crab · rig parts (front view)",
         parent_of,
     )

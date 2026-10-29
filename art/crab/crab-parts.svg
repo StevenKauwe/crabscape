@@ -82,11 +82,16 @@
 <linearGradient id="gp-cheliped-R-dactyl-scissor-tooth1_79" gradientUnits="userSpaceOnUse" x1="542.6" y1="441.2" x2="545.9" y2="454.1"><stop offset="0" stop-color="#F9D4AE"/><stop offset=".48" stop-color="#E7A37A"/><stop offset="1" stop-color="#A6634A"/></linearGradient>
 <linearGradient id="gp-cheliped-R-dactyl-scissor-tooth2_80" gradientUnits="userSpaceOnUse" x1="553.9" y1="450.9" x2="557" y2="463.4"><stop offset="0" stop-color="#F9D4AE"/><stop offset=".48" stop-color="#E7A37A"/><stop offset="1" stop-color="#A6634A"/></linearGradient>
 <linearGradient id="gp-cheliped-R-dactyl-scissor-tooth3_81" gradientUnits="userSpaceOnUse" x1="565.9" y1="463.8" x2="568.9" y2="476"><stop offset="0" stop-color="#F9D4AE"/><stop offset=".48" stop-color="#E7A37A"/><stop offset="1" stop-color="#A6634A"/></linearGradient>
+<linearGradient id="gp-back-underside-sternum_82" gradientUnits="userSpaceOnUse" x1="565.6" y1="297.6" x2="600.4" y2="436.9"><stop offset="0" stop-color="#A6634A"/><stop offset=".48" stop-color="#c07d5d"/><stop offset="1" stop-color="#A6634A"/></linearGradient>
+<linearGradient id="gp-back-abdomen-fold_83" gradientUnits="userSpaceOnUse" x1="575.9" y1="342.4" x2="590" y2="398.7"><stop offset="0" stop-color="#F9D4AE"/><stop offset=".48" stop-color="#E7A37A"/><stop offset="1" stop-color="#A6634A"/></linearGradient>
+<linearGradient id="gp-back-carapace_84" gradientUnits="userSpaceOnUse" x1="541.9" y1="112.8" x2="624.1" y2="441.7"><stop offset="0" stop-color="#F07C4E"/><stop offset=".48" stop-color="#C9452C"/><stop offset="1" stop-color="#7C2418"/></linearGradient>
 </defs>
 <!-- CrabScape player crab: rig-ready cut-out parts, front (in-game) view, neutral pose.
   One <g> per part. data-pivot = the joint this part rotates about (its proximal end), in this file's pixels.
   data-parent = the part it hangs from. Draw order = document order. R/L = the crab's own right/left
-  (R is screen-left in this view). Legs: 1-3 walking legs, 4 = swimming paddle (the 5th pereiopod). -->
+  (R is screen-left in this view). Legs: 1-3 walking legs, 4 = swimming paddle (the 5th pereiopod).
+  back-*: the shell seen from behind (posterior border nearest), shown in the game instead of the carapace and face
+  when the crab turns its back. -->
 <text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >CrabScape player crab · rig parts (front view)</text>
 <g id="leg-R4-merus" data-parent="carapace" data-pivot="359.0,295.3">
 <g>
@@ -685,6 +690,37 @@
 <path d="M572.8 474.1L567.1 464.9L561.7 474.9Z" fill="none" stroke="#2A140F" stroke-width="1.4" stroke-linejoin="round"/>
 </g>
 </g>
+<g id="back-underside-sternum" data-parent="back-carapace">
+<g>
+<path id="p-back-underside-sternum_82" d="M766.2 367.3L759.6 372.5L742 380.1L713.2 387.9L675.1 392.5L630.7 395.4L583 396.9L535.4 394.5L491.2 389.6L453.1 385.5L423.7 380.9L405.4 374.3L398.2 367.3L404.1 358L423.3 352.1L453 348.3L491.1 344L535.4 341.3L583 340.9L630.6 340.4L675.2 341.1L713.3 345.9L742.4 352.9L760.9 359.8Z" fill="url(#gp-back-underside-sternum_82)"/>
+<path d="M766.2 367.3L759.6 372.5L742 380.1L713.2 387.9L675.1 392.5L630.7 395.4L583 396.9L535.4 394.5L491.2 389.6L453.1 385.5L423.7 380.9L405.4 374.3L398.2 367.3L404.1 358L423.3 352.1L453 348.3L491.1 344L535.4 341.3L583 340.9L630.6 340.4L675.2 341.1L713.3 345.9L742.4 352.9L760.9 359.8Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M759.6 372.5L742 380.1L713.2 387.9L675.1 392.5L630.7 395.4L583 396.9L535.4 394.5L491.2 389.6L453.1 385.5L423.7 380.9L405.4 374.3" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="back-abdomen-fold" data-parent="back-carapace">
+<g>
+<path id="p-back-abdomen-fold_83" d="M542.8 354.7L558.9 352.8L583 353L607.1 353L623 355.2L628.1 360.7L627 369.3L620.8 377.2L614.5 382.6L608.5 386.2L600.4 387.8L591.6 389.3L583 390.5L574.4 389.5L565.5 388.3L557.4 386.2L551.7 382.4L545.3 377.1L539.2 369.2L537.8 360.7Z" fill="url(#gp-back-abdomen-fold_83)"/>
+<path d="M542.8 354.7L558.9 352.8L583 353L607.1 353L623 355.2L628.1 360.7L627 369.3L620.8 377.2L614.5 382.6L608.5 386.2L600.4 387.8L591.6 389.3L583 390.5L574.4 389.5L565.5 388.3L557.4 386.2L551.7 382.4L545.3 377.1L539.2 369.2L537.8 360.7Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M627 369.3L620.8 377.2L614.5 382.6L608.5 386.2L600.4 387.8L591.6 389.3L583 390.5L574.4 389.5L565.5 388.3L557.4 386.2L551.7 382.4L545.3 377.1" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="back-carapace" data-parent="carapace" data-pivot="583.0,277.2">
+<g>
+<path id="p-back-carapace_84" d="M256.8 283.1L305.3 287.7L314.1 268.3L326.5 262.6L341.7 246.9L358.9 224.4L377.7 222.3L398.3 212.3L421.8 194.3L448.5 195.8L478.7 190.1L512.8 186L548.3 183.9L583 183.8L617.6 185.7L652.8 189.2L686.9 194.1L716.9 190.8L742.9 206.4L766.9 214.5L787.7 214.6L806.7 233.9L824.1 247.1L839.5 253.7L852 277.2L860.8 287.1L910.5 282.7L865.6 301.6L854.3 307.8L838 316.7L818.8 326L798.6 333.9L776.5 339.8L751.9 344.9L728.1 349.2L708.1 353.2L694.3 356.9L684.7 360.5L675.8 363.7L663.4 366.5L645.9 368.5L625.5 369.6L604 370L583 370.2L562 370.3L540.4 370.2L520 369.9L502.2 368.8L489.3 366.9L479.9 364.2L470.4 360.7L457.1 356.3L437.5 351L414 344.9L389.9 338L368.4 330.8L348.8 322.4L329.7 313.1L313.2 304.9L301.3 299.4Z" fill="url(#gp-back-carapace_84)"/>
+<path d="M256.8 283.1L305.3 287.7L314.1 268.3L326.5 262.6L341.7 246.9L358.9 224.4L377.7 222.3L398.3 212.3L421.8 194.3L448.5 195.8L478.7 190.1L512.8 186L548.3 183.9L583 183.8L617.6 185.7L652.8 189.2L686.9 194.1L716.9 190.8L742.9 206.4L766.9 214.5L787.7 214.6L806.7 233.9L824.1 247.1L839.5 253.7L852 277.2L860.8 287.1L910.5 282.7L865.6 301.6L854.3 307.8L838 316.7L818.8 326L798.6 333.9L776.5 339.8L751.9 344.9L728.1 349.2L708.1 353.2L694.3 356.9L684.7 360.5L675.8 363.7L663.4 366.5L645.9 368.5L625.5 369.6L604 370L583 370.2L562 370.3L540.4 370.2L520 369.9L502.2 368.8L489.3 366.9L479.9 364.2L470.4 360.7L457.1 356.3L437.5 351L414 344.9L389.9 338L368.4 330.8L348.8 322.4L329.7 313.1L313.2 304.9L301.3 299.4Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M865.6 301.6L854.3 307.8L838 316.7L818.8 326L798.6 333.9L776.5 339.8L751.9 344.9L728.1 349.2L708.1 353.2L694.3 356.9L684.7 360.5L675.8 363.7L663.4 366.5L645.9 368.5L625.5 369.6L604 370L583 370.2L562 370.3L540.4 370.2L520 369.9L502.2 368.8L489.3 366.9L479.9 364.2L470.4 360.7L457.1 356.3L437.5 351L414 344.9L389.9 338L368.4 330.8L348.8 322.4L329.7 313.1L313.2 304.9L301.3 299.4" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="back-carapace-groove-R" data-parent="back-carapace">
+<g>
+<path d="M503 239.3L505.9 243L510.1 248.3L514.9 254.5L519.4 261L523 267.3L525.5 273.9L527.4 281.3L528.9 288.6L530.1 294.9L531 299.3" fill="none" stroke="#2A140F" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="back-carapace-groove-L" data-parent="back-carapace">
+<g>
+<path d="M663 239.3L660.1 243L655.8 248.3L651.1 254.5L646.5 261L643 267.3L640.5 273.9L638.5 281.3L637 288.6L635.9 294.9L635 299.3" fill="none" stroke="#2A140F" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
 <g id="pivots" style="display:none">
 <circle cx="359.0" cy="295.3" r="3" fill="#00A0FF"><title>leg-R4-merus</title></circle>
 <circle cx="241.8" cy="269.3" r="3" fill="#00A0FF"><title>leg-R4-carpus</title></circle>
@@ -730,5 +766,6 @@
 <circle cx="488.1" cy="434.0" r="3" fill="#00A0FF"><title>cheliped-R-dactyl</title></circle>
 <circle cx="323.0" cy="455.3" r="3" fill="#00A0FF"><title>cheliped-R-propodus-scissor</title></circle>
 <circle cx="488.1" cy="434.0" r="3" fill="#00A0FF"><title>cheliped-R-dactyl-scissor</title></circle>
+<circle cx="583.0" cy="277.2" r="3" fill="#00A0FF"><title>back-carapace</title></circle>
 </g>
 </svg>

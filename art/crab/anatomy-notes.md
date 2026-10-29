@@ -160,5 +160,7 @@ source, it says so.
   out to match) so the claws reach further in a fight. That swimming crabs' chelipeds are this long relative to the
   carapace is not verified (no source opened for it): TO VERIFY against a specimen photo or plate.
 - The claws never swap sides: the crusher is always the crab's right. Seen from behind (when it turns to strike
-  across), the crab's right is on screen-right. The game shows this with the front parts mirrored and a rear plate
-  over the face; painted back-view parts are a follow-up.
+  across), the crab's right is on screen-right. The game shows this with the front parts mirrored and the rig's
+  back view of the shell (`back-carapace`: posterior border nearest, the toothed edge as the far skyline, the folded
+  abdomen under the border) in place of the carapace and face; the eye stalks peek over it and the paddles come in
+  front of it.

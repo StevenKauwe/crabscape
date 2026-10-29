@@ -23,8 +23,6 @@ pub struct SoftTextures {
     pub ring: Handle<Image>,
     /// A small hard-edged chip (a bit of shell).
     pub chip: Handle<Image>,
-    /// A disc with a short soft edge.
-    pub disc: Handle<Image>,
     /// A tapered streak, faint and thin at its left end, bright and full at
     /// its right: the way a blow travels (flip it for the other way).
     pub streak: Handle<Image>,
@@ -221,7 +219,6 @@ fn make_textures(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         ring: images.add(ring),
         chip: images.add(chip),
         streak: images.add(streak),
-        disc: images.add(radial_image(64, |r| ((1.0 - r) / 0.12).min(1.0))),
     });
 }
 
