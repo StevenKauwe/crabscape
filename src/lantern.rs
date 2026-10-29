@@ -65,6 +65,15 @@ pub struct LitTint {
     pub bright: Color,
 }
 
+/// The small halo round a jar, in front of the crab that holds it (`HALO_Z`
+/// over the jar) unless the crab has turned the lantern behind its shell.
+#[derive(Component)]
+pub struct LanternHalo;
+
+/// How far in front of its jar the halo is drawn: over everything on the
+/// crab.
+pub const HALO_Z: f32 = 0.5;
+
 /// The two glow sprites (so they can flicker with the light).
 #[derive(Component)]
 struct Glow {
@@ -214,9 +223,11 @@ pub fn spawn_lantern(
         },
         Transform::from_translation(jar_middle - Vec3::Z * 6.0),
     ));
-    // In front of everything on the crab: a small halo round the jar.
+    // In front of everything on the crab: a small halo round the jar (kept
+    // behind the shell when the crab turns its back: `LanternHalo`).
     commands.spawn((
         ChildOf(pivot),
+        LanternHalo,
         Glow {
             alpha: 0.45,
             size: 46.0,
@@ -227,7 +238,7 @@ pub fn spawn_lantern(
             custom_size: Some(Vec2::splat(46.0)),
             ..default()
         },
-        Transform::from_translation(jar_middle + Vec3::Z * 0.5),
+        Transform::from_translation(jar_middle + Vec3::Z * HALO_Z),
     ));
     pivot
 }
