@@ -319,7 +319,11 @@ fn a_save_from_before_building_still_loads() {
     let mut sim = by_home();
     sim.restore_progress(P0, &saved);
     let crab = sim.crab(P0).unwrap();
-    assert_eq!((crab.mover.upgrades, crab.larder), (1, 2), "the rest counts");
+    assert_eq!(
+        (crab.mover.upgrades, crab.larder),
+        (1, 2),
+        "the rest counts"
+    );
     assert_eq!(crab.home_grit, 0);
     assert_eq!(crab.grit_taken, vec![false; sim.level.grit.len()]);
 }

@@ -143,7 +143,10 @@ impl Sim {
         m.stamina = m.strokes(&tuning) as f32;
         crab.fighter.vitals.health = m.max_shell(&tuning);
         crab.home_grit = p.home_grit;
-        crab.larder = p.larder.min(crate::world::larder_holds(tuning.build.stage(p.home_grit), &tuning));
+        crab.larder = p.larder.min(crate::world::larder_holds(
+            tuning.build.stage(p.home_grit),
+            &tuning,
+        ));
         if p.clams.len() == crab.clams.len() {
             crab.clams.clone_from(&p.clams);
         }

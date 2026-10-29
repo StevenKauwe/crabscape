@@ -782,7 +782,13 @@ impl Sim {
                     crab.events.wakes_here = true;
                 }
                 let mend_after = self.tuning.home_heal_after_ticks;
-                rest(m, &mut crab.fighter.vitals, &self.tuning, mend_after, &mut crab.events);
+                rest(
+                    m,
+                    &mut crab.fighter.vitals,
+                    &self.tuning,
+                    mend_after,
+                    &mut crab.events,
+                );
             } else if m.tucked_in() {
                 crab.resting = crab.resting.saturating_add(1);
                 crab.wakes_at = None;
