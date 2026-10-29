@@ -14,6 +14,7 @@
 use bevy_math::{Rect, Vec2};
 
 use crate::enemy::Kind;
+use crate::tuning::TideTuning;
 
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
@@ -123,12 +124,42 @@ pub struct Level {
     /// The animals living here, each at its burrow or den (see
     /// [`Sim::populate`](crate::Sim::populate)).
     pub foes: Vec<(Kind, Vec2)>,
+    /// Where the tide runs: the middle of the canyon below the crack, as
+    /// boxes of water that run up and down together (see [`Level::tide`]).
+    pub currents: Vec<Rect>,
+    /// How the tide runs right now, set by the [`Sim`](crate::Sim) every
+    /// tick from [`TideTuning::flow`](crate::tuning::TideTuning::flow): 1 =
+    /// up at full speed, -1 = down, 0 = slack.
+    pub tide: f32,
+    /// The mouth of the crack in the far basin's floor, at the foot of its
+    /// end wall: the way down into the canyon.
+    pub crack: Vec2,
+    /// The lights seen far below from the crack: the middle of the canyon's
+    /// floor. The demo ends when a crab gets there.
+    pub lights: Vec2,
+    /// An octopus's den: a dead-end chamber under the rock at the top of the
+    /// canyon's far wall, its floor a midden of shells (the inside, floor to
+    /// roof). Empty for now: the common octopus moves in later.
+    pub den: Rect,
+    /// Open water out of the tide where something drifting can hang (spots
+    /// for the alarm jelly, when it comes).
+    pub drifting: Vec<Vec2>,
     /// The crab can't go further left or right than this (the level's walls).
     pub min_x: f32,
     pub max_x: f32,
 }
 
 impl Level {
+    /// The water's upward speed at `pos`: the tide's, in its currents, and
+    /// still (0) everywhere else.
+    pub fn water_at(&self, pos: Vec2, tide: &TideTuning) -> f32 {
+        if self.currents.iter().any(|c| c.contains(pos)) {
+            tide.speed(self.tide)
+        } else {
+            0.0
+        }
+    }
+
     /// The level the game uses (for now, the only one).
     pub fn test_level() -> Self {
         Self {
@@ -306,6 +337,12 @@ impl Level {
                 (Kind::Snapper, Vec2::new(2060.0, 110.0)),
                 (Kind::Moray, Vec2::new(2650.0, 20.0)),
             ],
+            currents: vec![],
+            tide: 0.0,
+            crack: Vec2::new(5430.0, -448.0),
+            lights: Vec2::new(5430.0, -448.0),
+            den: Rect::default(),
+            drifting: vec![],
             min_x: 0.0,
             max_x: 5500.0,
         }
