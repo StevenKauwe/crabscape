@@ -73,9 +73,10 @@ Failures on `main` (the after-deploy and daily runs) open or add to the `main-br
   and moves the host to the new room.
 - A guest goes into the host's world only when it hears the host (`take_in`), and back to its own when the host goes:
   friends waiting in an empty lobby play alone.
-- A device that went silent for 5 s (frozen, or its network stalled) is dropped, and taken back the moment it
-  speaks again, with its voice call kept up meanwhile; before, both sides ignored each other until one joined the room
-  afresh 15 s later (found by the `stall` scenario).
+- A device silent for 5 s (frozen, its network stalled, or a friend playing alone while waiting) is no longer played
+  with, but its connection and voice call stay up, and it is met again the moment its crab speaks. Before, it was
+  dropped from the connection list: after a stall both sides waited 15 s for a fresh join, and two friends who waited
+  together never met (found by the `stall` and `two-waiting` scenarios).
 - A device whose connection is dead joins its room afresh after 5 s; one that lost its friends but is still connected
   looks for them every 15 s. A browser's address gathering gets at most 3 s
   (`vendor/matchbox_socket`, see `decisions.md`).
