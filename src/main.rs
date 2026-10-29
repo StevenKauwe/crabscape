@@ -53,6 +53,7 @@
 //! - [`voice`]: voice chat with friends in a co-op room
 
 mod background;
+mod build;
 mod codes;
 mod coop;
 mod creature_art;
@@ -145,7 +146,12 @@ fn main() {
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,
-            (eggs::EggsPlugin, food::FoodPlugin, crevices::CrevicesPlugin),
+            (
+                eggs::EggsPlugin,
+                food::FoodPlugin,
+                crevices::CrevicesPlugin,
+                build::BuildPlugin,
+            ),
             feel::FeelPlugin,
             foes::FoesPlugin,
             fight::FightPlugin,

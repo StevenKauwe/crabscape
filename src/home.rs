@@ -13,7 +13,8 @@
 //!   sponge crabs carry a sponge.
 //! - Where the crab died, its cast-off shell lies pale on the floor with
 //!   what it was carrying, until it walks back for it.
-//! - Clams, the larder and the clam on its back are in `food.rs`.
+//! - Clams, the larder and the clam on its back are in `food.rs`; shell
+//!   grit and the home's stages as it grows, in `build.rs`.
 
 use bevy::prelude::*;
 use crabsim::{Carry, CastOff, Mover, Sim};
@@ -28,9 +29,9 @@ use crate::style::ArtStyle;
 pub const OUT_OF_SIGHT: f32 = 0.8;
 
 /// Behind the crab (~10-11), in front of the level.
-const SHELL_Z: f32 = 3.0;
+pub const SHELL_Z: f32 = 3.0;
 /// The shell's size: its opening big enough for the crab to go in.
-const SHELL_SCALE: f32 = 1.35;
+pub const SHELL_SCALE: f32 = 1.35;
 const SHELL: Color = Color::srgb(0.24, 0.20, 0.16);
 const SHELL_LIP: Color = Color::srgb(0.31, 0.26, 0.20);
 const WHORL: Color = Color::srgb(0.20, 0.17, 0.13);
@@ -405,6 +406,16 @@ fn show_cast_offs(
                         MeshMaterial2d(materials.add(Color::srgb(0.60, 0.56, 0.48))),
                         Transform::from_xyz(0.0, 18.0, 0.1),
                     ));
+                }
+                Carry::Grit => {
+                    for (mesh, colour, at, turn) in crate::build::grit_parts() {
+                        shell.spawn((
+                            Mesh2d(meshes.add(mesh)),
+                            MeshMaterial2d(materials.add(colour)),
+                            Transform::from_translation(at + Vec3::new(0.0, 14.0, 0.1))
+                                .with_rotation(Quat::from_rotation_z(turn)),
+                        ));
+                    }
                 }
                 Carry::Clam => {
                     for (mesh, colour, at, turn) in crate::food::clam_parts(false) {
