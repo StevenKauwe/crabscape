@@ -1,21 +1,29 @@
-//! The settings button, in the top-right corner, and its panel: how smooth
-//! the drawing is (the battery saver, see `power.rs`), the art style (Ink or
-//! Oil, see `style.rs`), and how friends' voices carry (see `voice.rs`): from
-//! everyone at full volume, or from nearby crabs only, with a slider for how
-//! far. While the slider moves, a ripple around the crab shows how far it
-//! hears. Above those, under "Sound", a volume slider for each kind of sound
-//! (see `sound.rs`): "Master" (everything, 0 to 100%), "Music" (`music.rs`),
-//! "Effects" (blows, parries and other game sounds) and "Voices" (friends',
-//! 0 to 300%: past 100% boosts quiet voices). Each is a row of its own, its
-//! name and value left of the track. Kept on the device. Below, "Report a bug or idea"
-//! opens the report form (`report.rs`) and "Enter a code" asks for a code
-//! (`codes.rs`; phones have no Enter key). Last, "Start over" (`reset.rs`), which asks for a
-//! second tap ("Sure? Start over") before it wipes anything. Under it, a quiet
-//! line says which build this is ("Build 5d3eb47, Oct 29", and "preview
-//! pr-183" or "branch <name>" for a copy that isn't the live game).
+//! The settings button, in the top-right corner, and its panel, in tabs as
+//! most games have them: Game, Graphics, Audio, Co-op.
+//!
+//! - **Game**: "Report a bug or idea" opens the report form (`report.rs`),
+//!   "Enter a code" asks for a code (`codes.rs`; phones have no Enter key),
+//!   and last, a little apart, "Start over" (`reset.rs`), which asks for a
+//!   second tap ("Sure? Start over") before it wipes anything. Under it, a
+//!   quiet line says which build this is ("Build 5d3eb47, Oct 29", and
+//!   "preview pr-183" or "branch <name>" for a copy that isn't the live game).
+//! - **Graphics**: the art style (Ink or Oil, see `style.rs`) and how smooth
+//!   the drawing is (the battery saver, see `power.rs`).
+//! - **Audio**: a volume slider for each kind of sound (see `sound.rs`):
+//!   "Master" (everything, 0 to 100%), "Music" (`music.rs`), "Effects" (blows,
+//!   parries and other game sounds) and "Voices" (friends', 0 to 300%: past
+//!   100% boosts quiet voices), each a row, its name and value left of the
+//!   track.
+//! - **Co-op**: how friends' voices carry (see `voice.rs`): from everyone at
+//!   full volume, or from nearby crabs only, with a slider for how far. While
+//!   the slider moves, a ripple around the crab shows how far it hears.
+//!
+//! The settings and the last tab used are kept on the device. The panel is
+//! as tall as its tallest tab, so it keeps its size; a tap outside it, the
+//! Settings button or Esc closes it, and left / right switch tabs.
 //!
 //! A desktop build plays solo, silent, and has no report form, so its panel
-//! has only the drawing, the art style and "Start over".
+//! has only Game ("Start over") and Graphics.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
@@ -244,20 +252,72 @@ pub(crate) mod panel {
     use crate::style::ArtStyle;
     use crate::view::{VIEW_MIN_HEIGHT, Zoom};
 
-    /// The panel's size, and its rows' heights.
-    const WIDTH: f32 = 256.0;
-    const ROW: f32 = 30.0;
+    /// The panel's width, its rows' heights (a fingertip's worth: 36 px)
+    /// and the padding inside it.
+    const WIDTH: f32 = 280.0;
+    const ROW: f32 = 36.0;
     const LABEL: f32 = 18.0;
     const PAD: f32 = 10.0;
+    /// The tabs' height, the gap between two, and their words' size.
+    const TAB: f32 = 36.0;
+    const TAB_GAP: f32 = 6.0;
+    const TAB_TEXT: f32 = 13.0;
     /// Each build line's height, under "Start over".
     const BUILD: f32 = 14.0;
     /// How long the hearing ripple stays after the slider stops (seconds).
     const RING_FOR: f32 = 1.5;
     /// How long "Sure? Start over" waits for the second tap (seconds).
     const ARMED_FOR: f32 = 4.0;
-    /// Friends' voices, reports and codes are the browser's (co-op and the
-    /// report form are web only).
+    /// Friends' voices, sound, reports and codes are the browser's (co-op,
+    /// the sound and the report form are web only).
     const WEB: bool = cfg!(target_arch = "wasm32");
+    /// Where the last tab used is kept.
+    const TAB_KEY: &str = "-settings-tab";
+
+    /// The panel's pages, one per tab.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+    pub(crate) enum Tab {
+        #[default]
+        Game,
+        Graphics,
+        Audio,
+        Coop,
+    }
+
+    /// Every tab, in the order most games show them: the game itself, then
+    /// how it looks, how it sounds, and playing with others last.
+    const TABS: [Tab; 4] = [Tab::Game, Tab::Graphics, Tab::Audio, Tab::Coop];
+
+    /// The tabs a build has: a desktop build is solo and silent, so it has
+    /// no Audio or Co-op.
+    fn tabs_for(web: bool) -> &'static [Tab] {
+        if web { &TABS } else { &TABS[..2] }
+    }
+
+    impl Tab {
+        fn words(self) -> &'static str {
+            match self {
+                Tab::Game => "Game",
+                Tab::Graphics => "Graphics",
+                Tab::Audio => "Audio",
+                Tab::Coop => "Co-op",
+            }
+        }
+
+        /// As kept on the device.
+        fn key(self) -> &'static str {
+            match self {
+                Tab::Game => "game",
+                Tab::Graphics => "graphics",
+                Tab::Audio => "audio",
+                Tab::Coop => "coop",
+            }
+        }
+
+        fn from_key(key: &str) -> Option<Tab> {
+            TABS.into_iter().find(|t| t.key() == key.trim())
+        }
+    }
 
     /// What a tap on the panel can hit.
     #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
@@ -288,6 +348,15 @@ pub(crate) mod panel {
                 Choice::Report => "Report a bug or idea",
                 Choice::Code => "Enter a code",
                 Choice::StartOver => "Start over",
+            }
+        }
+
+        /// The tab it's on.
+        fn tab(self) -> Tab {
+            match self {
+                Choice::Smooth | Choice::Saver | Choice::Ink | Choice::Oil => Tab::Graphics,
+                Choice::Everyone | Choice::Nearby => Tab::Coop,
+                Choice::Report | Choice::Code | Choice::StartOver => Tab::Game,
             }
         }
     }
@@ -354,6 +423,14 @@ pub(crate) mod panel {
         fn shown(self, s: &Settings) -> bool {
             self != Slider::Range || s.hear == Hear::Nearby
         }
+
+        /// The tab it's on.
+        fn tab(self) -> Tab {
+            match self {
+                Slider::Range => Tab::Coop,
+                _ => Tab::Audio,
+            }
+        }
     }
 
     #[derive(Component)]
@@ -361,6 +438,17 @@ pub(crate) mod panel {
 
     #[derive(Component)]
     struct Panel;
+
+    /// A tab, and its words.
+    #[derive(Component)]
+    struct TabButton(Tab);
+
+    #[derive(Component)]
+    struct TabWords(Tab);
+
+    /// A tab's page: everything shown while that tab is picked.
+    #[derive(Component)]
+    struct Page(Tab);
 
     /// A slider's label, track and knob, together (to hide them).
     #[derive(Component)]
@@ -382,41 +470,56 @@ pub(crate) mod panel {
     #[derive(Component)]
     struct Ring;
 
-    /// The panel open, seconds the ripple has left, and seconds "Start over"
-    /// stays armed for its second tap (0 = not armed).
+    /// The panel open (and shut this frame by a tap outside it), its tab,
+    /// seconds the ripple has left, and seconds "Start over" stays armed for
+    /// its second tap (0 = not armed).
     #[derive(Resource, Default)]
     pub(crate) struct Open {
         open: bool,
+        shut: bool,
+        tab: Tab,
         ring: f32,
         armed: f32,
     }
 
     impl Open {
         /// Is the panel showing? (Other on-screen buttons under it, like
-        /// the workbench menu's, step aside while it is.)
+        /// the workbench menu's, step aside while it is, and on the frame a
+        /// tap outside closed it: that tap only closes it.)
         pub(crate) fn is_open(&self) -> bool {
-            self.open
+            self.open || self.shut
+        }
+
+        /// Closed, opening on the tab last used on this device.
+        fn remembered() -> Self {
+            let tab = crate::save::read_key(TAB_KEY)
+                .and_then(|k| Tab::from_key(&k))
+                .filter(|t| tabs_for(WEB).contains(t))
+                .unwrap_or_default();
+            Self { tab, ..default() }
         }
     }
 
-    /// Where everything is, in window pixels from the top-left.
+    /// Where everything is, in window pixels from the top-left. Every tab's
+    /// things are laid out at once; only the picked tab's show and take taps.
     struct Layout {
         button: Rect,
         panel: Rect,
+        tabs: Vec<(Tab, Rect)>,
         choices: Vec<(Choice, Rect)>,
-        /// Section titles: where each starts, and its words.
-        labels: Vec<(Vec2, &'static str)>,
+        /// Section titles: their tab, where each starts, and its words.
+        labels: Vec<(Tab, Vec2, &'static str)>,
         /// Each slider's label and track (web only).
         sliders: Vec<(Slider, Rect, Rect)>,
-        /// Where the build line starts.
+        /// Where the build line starts (on the Game tab).
         build: Vec2,
     }
 
-    /// A section title, then a pair of choices side by side, in the column
+    /// A section title, then a pair of choices side by side, on the panel
     /// whose left edge is `left`; returns where the next section starts.
     fn pair(l: &mut Layout, left: f32, y: f32, title: &'static str, a: Choice, b: Choice) -> f32 {
         let half = (WIDTH - 2.0 * PAD - GAP) / 2.0;
-        l.labels.push((Vec2::new(left + PAD, y), title));
+        l.labels.push((a.tab(), Vec2::new(left + PAD, y), title));
         let y = y + LABEL;
         let x = left + PAD;
         l.choices.push((a, Rect::new(x, y, x + half, y + ROW)));
@@ -427,12 +530,12 @@ pub(crate) mod panel {
         y + ROW + PAD
     }
 
-    /// A choice the column's whole width.
+    /// A choice the panel's whole width.
     fn whole(left: f32, y: f32) -> Rect {
         Rect::new(left + PAD, y, left + WIDTH - PAD, y + ROW)
     }
 
-    /// A slider's label and track, the column's width; returns where the
+    /// A slider's label and track, the panel's width; returns where the
     /// next thing starts.
     fn slider(l: &mut Layout, left: f32, y: f32, which: Slider) -> f32 {
         let label = Rect::new(left + PAD, y, left + WIDTH - PAD, y + LABEL);
@@ -444,22 +547,17 @@ pub(crate) mod panel {
             track_y + 6.0,
         );
         l.sliders.push((which, label, track));
-        y + SLIDER
+        track_y + 6.0 + REACH + PAD
     }
-
-    /// Height of a slider, as [`slider`] lays it out.
-    const SLIDER: f32 = LABEL + 8.0 + 6.0 + PAD + 8.0;
 
     /// A volume row's height (where a finger moves one is exactly a row, so
     /// rows never share a touch), and the width of its name and value.
-    const VOLUME: f32 = 34.0;
-    const VOLUME_NAME: f32 = 92.0;
+    const VOLUME: f32 = 36.0;
+    const VOLUME_NAME: f32 = 100.0;
 
-    /// The "Sound" title and a row per volume, in the column whose left
-    /// edge is `left`; returns where the next thing starts.
-    fn sound(l: &mut Layout, left: f32, y: f32) -> f32 {
-        l.labels.push((Vec2::new(left + PAD, y), "Sound"));
-        let mut y = y + LABEL;
+    /// The Audio tab: a row per volume; returns where the next thing starts.
+    fn volumes(l: &mut Layout, left: f32, y: f32) -> f32 {
+        let mut y = y;
         for which in VOLUMES {
             let mid = y + VOLUME / 2.0;
             let label = Rect::new(left + PAD, mid - 8.0, left + PAD + VOLUME_NAME, mid + 8.0);
@@ -472,91 +570,97 @@ pub(crate) mod panel {
             l.sliders.push((which, label, track));
             y += VOLUME;
         }
-        y + 8.0
+        y + PAD
     }
 
-    /// Height of the sound section, as [`sound`] lays it out.
-    const SOUND: f32 = LABEL + 4.0 * VOLUME + 8.0;
-
-    /// Whose voices, and the hearing slider; returns where the next thing
-    /// starts.
-    fn hearing(l: &mut Layout, left: f32, y: f32) -> f32 {
-        let y = pair(l, left, y, "Whose voices", Choice::Everyone, Choice::Nearby);
-        slider(l, left, y, Slider::Range)
+    /// The Game tab: "Report a bug or idea" and "Enter a code" (web only),
+    /// then "Start over", a little apart (it's the one that wipes things),
+    /// and the build line under it; returns where the next thing starts.
+    fn game(l: &mut Layout, left: f32, y: f32, web: bool, build_lines: usize) -> f32 {
+        let mut y = y;
+        if web {
+            l.choices.push((Choice::Report, whole(left, y)));
+            y += ROW + GAP;
+            l.choices.push((Choice::Code, whole(left, y)));
+            y += ROW + 2.0 * PAD;
+        }
+        l.choices.push((Choice::StartOver, whole(left, y)));
+        y += ROW + 4.0;
+        l.build = Vec2::new(left + PAD, y);
+        y + BUILD * build_lines as f32 + PAD
     }
-
-    /// Height of the hearing section, as [`hearing`] lays it out.
-    const HEARING: f32 = LABEL + ROW + PAD + SLIDER;
-
-    /// "Report a bug or idea" and "Enter a code"; returns where the next
-    /// thing starts.
-    fn asks(l: &mut Layout, left: f32, y: f32) -> f32 {
-        l.choices.push((Choice::Report, whole(left, y)));
-        let y = y + ROW + GAP;
-        l.choices.push((Choice::Code, whole(left, y)));
-        y + ROW + PAD
-    }
-
-    /// Height of the report and code buttons, as [`asks`] lays them out.
-    const ASKS: f32 = ROW + GAP + ROW + PAD;
 
     fn layout(window: Vec2) -> Layout {
-        layout_for(window, WEB)
+        layout_for(window, WEB, super::build_line().lines().count())
     }
 
-    /// The layout with the friends' section (`web`) or without.
-    fn layout_for(window: Vec2, web: bool) -> Layout {
+    /// The layout with the web's tabs (`web`) or only the desktop's, and
+    /// the build line's lines.
+    fn layout_for(window: Vec2, web: bool, build_lines: usize) -> Layout {
         let button = button_rect(window);
         // Below the co-op status line, right-aligned with the button.
         let right = button.max.x;
+        let left = right - WIDTH;
         let top = crate::coop::status_top(window) + 20.0;
-        let first = right - WIDTH;
         let mut l = Layout {
             button,
             panel: Rect::default(),
+            tabs: Vec::new(),
             choices: Vec::new(),
             labels: Vec::new(),
             sliders: Vec::new(),
             build: Vec2::ZERO,
         };
-        // One column, unless that runs off the bottom of a short window (a
-        // phone held sideways): then the sound and hearing sections go in a
-        // second column, left of the first.
-        let sections = 2.0 * (LABEL + ROW + PAD) + if web { SOUND + HEARING + ASKS } else { 0.0 };
-        let build = BUILD * super::build_line().lines().count() as f32;
-        let one_column = top + PAD + sections + PAD + ROW + 4.0 + build + PAD;
-        let two = web && one_column > window.y - super::MARGIN;
-        let mut y = top + PAD;
-        y = pair(&mut l, first, y, "Drawing", Choice::Smooth, Choice::Saver);
-        y = pair(&mut l, first, y, "Art style", Choice::Ink, Choice::Oil);
-        let mut bottom = 0.0;
-        if two {
-            let y2 = sound(&mut l, first - WIDTH, top + PAD);
-            bottom = hearing(&mut l, first - WIDTH, y2);
-            y = asks(&mut l, first, y);
-        } else if web {
-            y = sound(&mut l, first, y);
-            y = hearing(&mut l, first, y);
-            y = asks(&mut l, first, y);
+        // The tabs share the top row, each as wide as its name needs and a
+        // little more.
+        let tabs = tabs_for(web);
+        let share = |t: Tab| t.words().len() as f32 + 3.0;
+        let total: f32 = tabs.iter().map(|t| share(*t)).sum();
+        let room = WIDTH - 2.0 * PAD - TAB_GAP * (tabs.len() as f32 - 1.0);
+        let mut x = left + PAD;
+        let y = top + PAD;
+        for &t in tabs {
+            let w = room * share(t) / total;
+            l.tabs.push((t, Rect::new(x, y, x + w, y + TAB)));
+            x += w + TAB_GAP;
         }
-        // A little apart from the rest: it's the one that wipes things.
-        y += PAD;
-        l.choices.push((Choice::StartOver, whole(first, y)));
-        y += ROW + 4.0;
-        l.build = Vec2::new(first + PAD, y);
-        y += build + PAD;
-        let left = if two { first - WIDTH } else { first };
-        l.panel = Rect::new(left, top, right, y.max(bottom));
+        // Every page starts under the tabs, and the panel is as tall as the
+        // tallest, so it keeps its size whichever tab is showing.
+        let start = y + TAB + PAD;
+        let mut bottom = start;
+        for &t in tabs {
+            let end = match t {
+                Tab::Game => game(&mut l, left, start, web, build_lines),
+                Tab::Graphics => {
+                    let y = pair(&mut l, left, start, "Art style", Choice::Ink, Choice::Oil);
+                    pair(&mut l, left, y, "Drawing", Choice::Smooth, Choice::Saver)
+                }
+                Tab::Audio => volumes(&mut l, left, start),
+                Tab::Coop => {
+                    let y = pair(
+                        &mut l,
+                        left,
+                        start,
+                        "Whose voices",
+                        Choice::Everyone,
+                        Choice::Nearby,
+                    );
+                    slider(&mut l, left, y, Slider::Range)
+                }
+            };
+            bottom = bottom.max(end);
+        }
+        l.panel = Rect::new(left, top, right, bottom);
         l
     }
 
     pub fn build(app: &mut App) {
-        app.init_resource::<Open>()
+        app.insert_resource(Open::remembered())
             .add_systems(Startup, (spawn_button, spawn_ring))
             .add_systems(Update, press.in_set(GameSet::Input))
             .add_systems(
                 Update,
-                (lay_out_panel, show, place, ring)
+                (lay_out_panel, show, show_tab, place, ring)
                     .chain()
                     .in_set(GameSet::Present),
             );
@@ -621,7 +725,7 @@ pub(crate) mod panel {
 
     /// The panel, laid out for the window's size, and laid out afresh when
     /// that changes (a page starts at a default size before it fits the
-    /// screen, and a phone turns): which rows fit in one column depends on it.
+    /// screen, and a phone turns).
     fn lay_out_panel(
         mut commands: Commands,
         window: Single<&Window>,
@@ -660,45 +764,72 @@ pub(crate) mod panel {
                 Visibility::Hidden,
             ))
             .with_children(|p| {
-                for (at, words) in &l.labels {
-                    p.spawn((
-                        Node {
-                            position_type: PositionType::Absolute,
-                            left: px(at.x - o.x),
-                            top: px(at.y - o.y),
-                            ..default()
-                        },
-                        text(words, 12.0),
-                    ));
-                }
-                p.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: px(l.build.x - o.x),
-                        top: px(l.build.y - o.y),
-                        width: px(WIDTH - 2.0 * PAD),
-                        ..default()
-                    },
-                    Text::new(super::build_line()),
-                    TextFont {
-                        font_size: FontSize::Px(11.0),
-                        ..default()
-                    },
-                    TextColor(Color::srgba(1.0, 0.9, 0.7, 0.45)),
-                ));
-                for &(choice, r) in &l.choices {
-                    p.spawn((choice, pill(r, o))).with_children(|b| {
-                        if choice == Choice::StartOver {
-                            b.spawn((StartOverLabel, text(choice.words(), 13.0)));
-                        } else {
-                            b.spawn(text(choice.words(), 13.0));
-                        }
+                for &(tab, r) in &l.tabs {
+                    p.spawn((TabButton(tab), pill(r, o))).with_children(|b| {
+                        b.spawn((TabWords(tab), text(tab.words(), TAB_TEXT)));
                     });
                 }
-                for &(which, label, t) in &l.sliders {
-                    spawn_slider(p, which, label, t, o, l.panel);
+                for &(tab, _) in &l.tabs {
+                    p.spawn((
+                        Page(tab),
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: px(0.0),
+                            top: px(0.0),
+                            width: px(l.panel.width()),
+                            height: px(l.panel.height()),
+                            ..default()
+                        },
+                        Visibility::Hidden,
+                    ))
+                    .with_children(|page| spawn_page(page, tab, &l));
                 }
             });
+    }
+
+    /// One tab's titles, choices and sliders (and the build line, on Game).
+    fn spawn_page(p: &mut ChildSpawnerCommands, tab: Tab, l: &Layout) {
+        let o = l.panel.min;
+        for (_, at, words) in l.labels.iter().filter(|(t, _, _)| *t == tab) {
+            p.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(at.x - o.x),
+                    top: px(at.y - o.y),
+                    ..default()
+                },
+                text(words, 12.0),
+            ));
+        }
+        if tab == Tab::Game {
+            p.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(l.build.x - o.x),
+                    top: px(l.build.y - o.y),
+                    width: px(WIDTH - 2.0 * PAD),
+                    ..default()
+                },
+                Text::new(super::build_line()),
+                TextFont {
+                    font_size: FontSize::Px(11.0),
+                    ..default()
+                },
+                TextColor(Color::srgba(1.0, 0.9, 0.7, 0.45)),
+            ));
+        }
+        for &(choice, r) in l.choices.iter().filter(|(c, _)| c.tab() == tab) {
+            p.spawn((choice, pill(r, o))).with_children(|b| {
+                if choice == Choice::StartOver {
+                    b.spawn((StartOverLabel, text(choice.words(), 13.0)));
+                } else {
+                    b.spawn(text(choice.words(), 13.0));
+                }
+            });
+        }
+        for &(which, label, t) in l.sliders.iter().filter(|(s, _, _)| s.tab() == tab) {
+            spawn_slider(p, which, label, t, o, l.panel);
+        }
     }
 
     /// A slider's label, track, fill and knob, inside the panel.
@@ -794,11 +925,13 @@ pub(crate) mod panel {
         ));
     }
 
-    /// Taps and drags on the settings button and the open panel.
+    /// Taps and drags on the settings button and the open panel, and the
+    /// keys it answers while open: Esc closes it, left / right switch tabs.
     #[allow(clippy::too_many_arguments)]
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables, unused_mut))]
     fn press(
         time: Res<Time>,
+        keys: Res<ButtonInput<KeyCode>>,
         mouse: Res<ButtonInput<MouseButton>>,
         touches: Res<Touches>,
         window: Single<&Window>,
@@ -811,6 +944,7 @@ pub(crate) mod panel {
     ) {
         open.ring = (open.ring - time.delta_secs()).max(0.0);
         open.armed = (open.armed - time.delta_secs()).max(0.0);
+        open.shut = false;
         let l = layout(window.size());
         let mut taps: Vec<Vec2> = touches.iter_just_pressed().map(|t| t.position()).collect();
         if mouse.just_pressed(MouseButton::Left)
@@ -819,45 +953,80 @@ pub(crate) mod panel {
             taps.push(p);
         }
         let before = *settings;
+        let mut tab = open.tab;
         for p in &taps {
             if l.button.inflate(6.0).contains(*p) {
                 open.open = !open.open;
                 open.armed = 0.0;
-            } else if open.open {
-                let hit = l.choices.iter().find(|(_, r)| r.inflate(4.0).contains(*p));
-                match hit.map(|(c, _)| *c) {
-                    Some(Choice::Smooth) => settings.saver = false,
-                    Some(Choice::Saver) => settings.saver = true,
-                    Some(Choice::Ink) => crate::style::choose(&mut style, ArtStyle::Ink),
-                    Some(Choice::Oil) => crate::style::choose(&mut style, ArtStyle::Oil),
-                    Some(Choice::Everyone) => settings.hear = Hear::Everyone,
-                    Some(Choice::Nearby) => settings.hear = Hear::Nearby,
-                    Some(Choice::Report) => {
-                        open.open = false;
-                        #[cfg(target_arch = "wasm32")]
-                        crate::report::ask();
-                    }
-                    Some(Choice::Code) => {
-                        open.open = false;
-                        #[cfg(target_arch = "wasm32")]
-                        if let Some(text) = crate::codes::prompt() {
-                            codes.write(crate::codes::Typed(text));
-                        }
-                    }
-                    Some(Choice::StartOver) if open.armed > 0.0 => {
-                        open.open = false;
-                        open.armed = 0.0;
-                        crate::reset::start_over(&mut sim);
-                    }
-                    Some(Choice::StartOver) => open.armed = ARMED_FOR,
-                    None => {}
-                }
+                continue;
             }
+            if !open.open {
+                continue;
+            }
+            if let Some(&(t, _)) = l.tabs.iter().find(|(_, r)| r.inflate(3.0).contains(*p)) {
+                tab = t;
+                continue;
+            }
+            if !l.panel.contains(*p) {
+                open.open = false;
+                open.shut = true;
+                continue;
+            }
+            let hit = l
+                .choices
+                .iter()
+                .find(|(c, r)| c.tab() == tab && r.inflate(4.0).contains(*p));
+            match hit.map(|(c, _)| *c) {
+                Some(Choice::Smooth) => settings.saver = false,
+                Some(Choice::Saver) => settings.saver = true,
+                Some(Choice::Ink) => crate::style::choose(&mut style, ArtStyle::Ink),
+                Some(Choice::Oil) => crate::style::choose(&mut style, ArtStyle::Oil),
+                Some(Choice::Everyone) => settings.hear = Hear::Everyone,
+                Some(Choice::Nearby) => settings.hear = Hear::Nearby,
+                Some(Choice::Report) => {
+                    open.open = false;
+                    #[cfg(target_arch = "wasm32")]
+                    crate::report::ask();
+                }
+                Some(Choice::Code) => {
+                    open.open = false;
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(text) = crate::codes::prompt() {
+                        codes.write(crate::codes::Typed(text));
+                    }
+                }
+                Some(Choice::StartOver) if open.armed > 0.0 => {
+                    open.open = false;
+                    open.armed = 0.0;
+                    crate::reset::start_over(&mut sim);
+                }
+                Some(Choice::StartOver) => open.armed = ARMED_FOR,
+                None => {}
+            }
+        }
+        if open.open && keys.just_pressed(KeyCode::Escape) {
+            open.open = false;
+        }
+        if open.open {
+            let step = i32::from(keys.just_pressed(KeyCode::ArrowRight))
+                - i32::from(keys.just_pressed(KeyCode::ArrowLeft));
+            if step != 0
+                && let Some(i) = l.tabs.iter().position(|(t, _)| *t == tab)
+            {
+                let n = l.tabs.len() as i32;
+                tab = l.tabs[(i as i32 + step).rem_euclid(n) as usize].0;
+            }
+        }
+        if tab != open.tab {
+            open.tab = tab;
+            open.armed = 0.0;
+            crate::save::write_key(TAB_KEY, tab.key());
         }
         if !open.open {
             open.armed = 0.0;
         }
-        // The sliders: wherever a finger or the held mouse is on one.
+        // The sliders on the open tab: wherever a finger or the held mouse
+        // is on one.
         let mut held: Vec<Vec2> = touches.iter().map(|t| t.position()).collect();
         if mouse.pressed(MouseButton::Left)
             && let Some(p) = window.cursor_position()
@@ -866,7 +1035,7 @@ pub(crate) mod panel {
         }
         let sliders = if open.open { &l.sliders[..] } else { &[] };
         for &(which, _, track) in sliders {
-            if !which.shown(&settings) {
+            if which.tab() != open.tab || !which.shown(&settings) {
                 continue;
             }
             let Some(p) = held.iter().find(|p| reach(track).contains(**p)) else {
@@ -893,10 +1062,14 @@ pub(crate) mod panel {
         }
     }
 
+    /// How far around a slider's track a finger or the mouse still moves
+    /// it: a 6 px track becomes a 36 px strip.
+    const REACH: f32 = 15.0;
+
     /// Where a finger or the mouse moves a slider: its track, and a little
     /// around it.
     fn reach(track: Rect) -> Rect {
-        Rect::from_corners(track.min - 14.0, track.max + 14.0)
+        Rect::from_corners(track.min - REACH, track.max + REACH)
     }
 
     /// The panel's state: open or not, which choices are picked, the slider,
@@ -916,13 +1089,6 @@ pub(crate) mod panel {
         mut knob: Query<(&Knob, &mut Node), Without<Fill>>,
         window: Single<&Window>,
     ) {
-        let shown = |on: bool| {
-            if on {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            }
-        };
         for mut panel in &mut panel {
             panel.set_if_neq(shown(open.open));
         }
@@ -989,6 +1155,49 @@ pub(crate) mod panel {
         }
     }
 
+    fn shown(on: bool) -> Visibility {
+        if on {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        }
+    }
+
+    /// The picked tab's page, and its tab lit: a warm fill, a bright edge
+    /// and bright words; the others quiet.
+    fn show_tab(
+        open: Res<Open>,
+        mut pages: Query<(&Page, &mut Visibility)>,
+        mut tabs: Query<(&TabButton, &mut BackgroundColor, &mut BorderColor)>,
+        mut words: Query<(&TabWords, &mut TextColor)>,
+    ) {
+        for (page, mut visibility) in &mut pages {
+            visibility.set_if_neq(shown(page.0 == open.tab));
+        }
+        for (tab, mut bg, mut border) in &mut tabs {
+            let (fill, edge) = if tab.0 == open.tab {
+                (
+                    Color::srgba(0.55, 0.40, 0.20, 0.85),
+                    Color::srgba(1.0, 0.85, 0.55, 0.9),
+                )
+            } else {
+                (
+                    Color::srgba(0.05, 0.12, 0.14, 0.45),
+                    Color::srgba(1.0, 0.85, 0.55, 0.2),
+                )
+            };
+            bg.set_if_neq(BackgroundColor(fill));
+            border.set_if_neq(BorderColor::all(edge));
+        }
+        for (tab, mut colour) in &mut words {
+            colour.set_if_neq(TextColor(if tab.0 == open.tab {
+                Color::srgba(1.0, 0.95, 0.85, 1.0)
+            } else {
+                Color::srgba(1.0, 0.9, 0.7, 0.55)
+            }));
+        }
+    }
+
     /// Keep the button in place as the window changes.
     fn place(window: Single<&Window>, mut button: Single<&mut Node, With<SettingsButton>>) {
         let top = px(button_rect(window.size()).min.y);
@@ -1025,55 +1234,144 @@ pub(crate) mod panel {
     mod tests {
         use super::*;
 
+        /// The phones and screens the panel must fit: an iPhone, a short
+        /// phone (browser bars showing), one held sideways, a small laptop.
+        const WINDOWS: [Vec2; 4] = [
+            Vec2::new(390.0, 844.0),
+            Vec2::new(430.0, 742.0),
+            Vec2::new(844.0, 390.0),
+            Vec2::new(1024.0, 700.0),
+        ];
+
         #[test]
-        fn the_panel_fits_phones_and_start_over_comes_last_in_its_column() {
-            let windows = [
-                Vec2::new(390.0, 844.0),
-                Vec2::new(430.0, 742.0),
-                Vec2::new(844.0, 390.0),
-                Vec2::new(1024.0, 700.0),
-            ];
-            for (window, web) in windows.into_iter().flat_map(|w| [(w, true), (w, false)]) {
-                let l = layout_for(window, web);
-                assert_eq!(l.sliders.len(), if web { 5 } else { 0 });
-                assert_eq!(l.choices.len(), if web { 9 } else { 5 });
-                let inside = l.panel.inflate(0.5);
+        fn every_tab_fits_phones_with_room_for_a_finger_and_start_over_comes_last() {
+            let cases = WINDOWS
+                .into_iter()
+                .flat_map(|w| [(w, true), (w, false)])
+                .flat_map(|(w, web)| [(w, web, 1), (w, web, 2)]);
+            for (window, web, lines) in cases {
+                let at = format!("{window} web {web} build lines {lines}");
+                let l = layout_for(window, web, lines);
+                let tabs = tabs_for(web);
+                assert_eq!(l.sliders.len(), if web { 5 } else { 0 }, "{at}");
+                assert_eq!(l.choices.len(), if web { 9 } else { 5 }, "{at}");
+                // On screen without scrolling, under the button.
                 assert!(
-                    l.panel.min.x >= 0.0 && l.panel.max.y <= window.y,
-                    "{window}"
+                    l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - super::super::MARGIN,
+                    "{at}"
                 );
-                assert!(l.panel.min.y > button_rect(window).max.y, "{window}");
-                let (last, r) = *l.choices.last().unwrap();
-                assert_eq!(last, Choice::StartOver);
-                for (i, (c, a)) in l.choices.iter().enumerate() {
-                    assert!(inside.contains(a.min) && inside.contains(a.max), "{c:?}");
+                assert!(l.panel.min.y > button_rect(window).max.y, "{at}");
+                let inside = l.panel.inflate(0.5);
+                // The tabs: one row at the top, inside, finger-high, their
+                // words fitting (the font is monospaced, 0.6 em a letter).
+                let tab_row = l.tabs.iter().map(|(_, r)| r.max.y).fold(0.0, f32::max);
+                assert_eq!(
+                    l.tabs.iter().map(|(t, _)| *t).collect::<Vec<_>>(),
+                    tabs,
+                    "{at}"
+                );
+                for (i, (t, r)) in l.tabs.iter().enumerate() {
                     assert!(
-                        *c == last || a.max.y <= r.min.y || a.max.x < r.min.x,
-                        "{c:?} under it"
+                        inside.contains(r.min) && inside.contains(r.max),
+                        "{t:?} {at}"
                     );
-                    for (_, b) in &l.choices[i + 1..] {
-                        assert!(a.intersect(*b).is_empty(), "choices overlap");
+                    assert!(r.height() >= 36.0, "{t:?} {at}");
+                    let words = t.words().len() as f32 * 0.6 * TAB_TEXT;
+                    assert!(r.width() >= words + 12.0, "{t:?}'s name doesn't fit {at}");
+                    for (u, b) in &l.tabs[i + 1..] {
+                        assert!(r.max.x + TAB_GAP - 0.01 <= b.min.x, "{t:?} and {u:?} {at}");
                     }
                 }
-                // Each slider inside the panel, and where a finger moves it
-                // clear of every choice and every other slider.
-                for (i, (s, label, track)) in l.sliders.iter().enumerate() {
-                    let near = reach(*track);
+                for &tab in tabs {
+                    let choices: Vec<_> =
+                        l.choices.iter().filter(|(c, _)| c.tab() == tab).collect();
+                    let sliders: Vec<_> = l
+                        .sliders
+                        .iter()
+                        .filter(|(s, _, _)| s.tab() == tab)
+                        .collect();
                     assert!(
-                        inside.contains(label.min) && inside.contains(near.max),
-                        "{s:?}"
+                        !choices.is_empty() || !sliders.is_empty(),
+                        "{tab:?} is empty {at}"
                     );
-                    for (c, a) in &l.choices {
-                        assert!(near.intersect(*a).is_empty(), "{s:?} reaches {c:?}");
+                    for (i, (c, a)) in choices.iter().enumerate() {
+                        assert!(
+                            inside.contains(a.min) && inside.contains(a.max),
+                            "{c:?} {at}"
+                        );
+                        assert!(a.min.y >= tab_row + PAD, "{c:?} under the tabs {at}");
+                        assert!(a.height() >= 36.0, "{c:?} {at}");
+                        for (d, b) in &choices[i + 1..] {
+                            assert!(a.intersect(*b).is_empty(), "{c:?} and {d:?} {at}");
+                        }
                     }
-                    for (t, _, other) in &l.sliders[i + 1..] {
-                        assert!(near.intersect(reach(*other)).is_empty(), "{s:?} and {t:?}");
+                    // Each slider inside the panel, finger-high, and where a
+                    // finger moves it clear of the tabs, every choice and
+                    // every other slider on its tab.
+                    for (i, (s, label, track)) in sliders.iter().enumerate() {
+                        let near = reach(*track);
+                        assert!(near.height() >= 36.0, "{s:?} {at}");
+                        assert!(
+                            inside.contains(label.min)
+                                && inside.contains(near.min)
+                                && inside.contains(near.max),
+                            "{s:?} {at}"
+                        );
+                        assert!(near.min.y >= tab_row, "{s:?} reaches the tabs {at}");
+                        for (c, a) in &choices {
+                            assert!(near.intersect(*a).is_empty(), "{s:?} reaches {c:?} {at}");
+                        }
+                        for (t, _, other) in &sliders[i + 1..] {
+                            assert!(
+                                near.intersect(reach(*other)).is_empty(),
+                                "{s:?} and {t:?} {at}"
+                            );
+                        }
                     }
                 }
-                // The build line goes under "Start over", inside the panel.
-                assert!(l.build.y >= r.max.y, "{window}");
-                assert!(l.build.y + BUILD <= l.panel.max.y, "{window}");
+                // Game: "Start over" last, the build line under it, inside.
+                let game: Vec<_> = l
+                    .choices
+                    .iter()
+                    .filter(|(c, _)| c.tab() == Tab::Game)
+                    .collect();
+                let (last, r) = **game.last().unwrap();
+                assert_eq!(last, Choice::StartOver, "{at}");
+                for (c, a) in &game {
+                    assert!(*c == last || a.max.y + 2.0 * PAD <= r.min.y, "{c:?} {at}");
+                }
+                assert!(l.build.y >= r.max.y, "{at}");
+                assert!(l.build.y + BUILD * lines as f32 <= l.panel.max.y, "{at}");
             }
+        }
+
+        #[test]
+        fn the_tabs_come_in_the_usual_order_and_a_kept_tab_comes_back() {
+            assert_eq!(
+                tabs_for(true),
+                [Tab::Game, Tab::Graphics, Tab::Audio, Tab::Coop]
+            );
+            assert_eq!(tabs_for(false), [Tab::Game, Tab::Graphics]);
+            for t in TABS {
+                assert_eq!(Tab::from_key(t.key()), Some(t));
+            }
+            assert_eq!(Tab::from_key(" audio "), Some(Tab::Audio));
+            assert_eq!(Tab::from_key("sound"), None);
+            assert_eq!(Tab::default(), Tab::Game);
+        }
+
+        #[test]
+        fn each_setting_is_on_the_tab_named_for_it() {
+            let on = |c: Choice| c.tab();
+            assert_eq!(on(Choice::Ink), Tab::Graphics);
+            assert_eq!(on(Choice::Saver), Tab::Graphics);
+            assert_eq!(on(Choice::Nearby), Tab::Coop);
+            assert_eq!(on(Choice::Code), Tab::Game);
+            assert_eq!(on(Choice::StartOver), Tab::Game);
+            for v in VOLUMES {
+                assert_eq!(v.tab(), Tab::Audio);
+            }
+            assert_eq!(Slider::Range.tab(), Tab::Coop);
         }
     }
 }
