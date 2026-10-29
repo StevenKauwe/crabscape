@@ -68,7 +68,14 @@ else
   echo "(wasm-tools not found: skipping the relaxed-SIMD check)"
 fi
 
-# 5. The pictures the game loads at start-up (they are not baked into the
+# 5. Stamp each module's glue and .wasm together: the page (and the listener's
+#    worker) fetches the stamp fresh and loads both with it in the address, so a
+#    browser never pairs a cached old glue with a new .wasm after an update.
+stamp() { cat "$@" | cksum | awk '{print $1}'; }
+stamp web/pkg/crabscape.js "$wasm" > web/pkg/version.txt
+stamp web/listen/listen.js web/listen/listen_bg.wasm > web/listen/listen-version.txt
+
+# 6. The pictures the game loads at start-up (they are not baked into the
 #    .wasm, which keeps it small).
 rm -rf web/assets
 mkdir -p web/assets/crab web/assets/creatures

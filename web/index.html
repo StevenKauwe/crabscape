@@ -153,9 +153,21 @@
   </div>
 
   <script type="module">
-    // Relative path on purpose: the page also works from a subfolder (GitHub
+    // Relative paths on purpose: the page also works from a subfolder (GitHub
     // Pages) or inside an iframe.
-    import init from "./pkg/crabscape.js";
+    //
+    // The JavaScript glue and the .wasm must come from the same build: a
+    // browser holding an old cached glue with a new .wasm (a tab reopened
+    // after an update) fails with "... is not a function". So the build writes
+    // a stamp of its files to pkg/version.txt, always fetched fresh, and both
+    // are loaded with it in the address. No stamp (an older build): load as is.
+    const stamp = fetch("./pkg/version.txt", { cache: "no-store" })
+      .then((r) => (r.ok ? r.text() : ""), () => "")
+      .then((v) => (v.trim() ? "?v=" + encodeURIComponent(v.trim()) : ""));
+    const init = (q) =>
+      import("./pkg/crabscape.js" + q).then((glue) =>
+        glue.default({ module_or_path: new URL("./pkg/crabscape_bg.wasm" + q, location.href) }),
+      );
 
     const message = document.getElementById("message");
 
@@ -207,7 +219,7 @@
         button.hidden = false;
         button.onclick = () => canvas.setAttribute("data-want-replay", "1");
       }
-      init().then(
+      stamp.then(init).then(
         () => { message.hidden = true; focusGame(); },
         (e) => {
           if (isControlFlow(e)) {
