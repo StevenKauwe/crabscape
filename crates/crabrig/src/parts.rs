@@ -36,6 +36,23 @@ pub fn parent_of(id: &str) -> String {
     if let Some(m) = re(r"^(cheliped-[RL])-propodus-scissor$").captures(id) {
         return format!("{}-propodus-palm", &m[1]);
     }
+    // Gear and feats, each a part riding on what it is fitted to: the clam-shell guard on the palm (its ribs drawn
+    // into it), glass grips and gripping hooks on the leg tips, the broad paddle on the paddle (its ribs too).
+    if let Some(m) = re(r"^(cheliped-[RL])-propodus-guard-rib").captures(id) {
+        return format!("{}-propodus-guard", &m[1]);
+    }
+    if let Some(m) = re(r"^(cheliped-[RL])-propodus-guard$").captures(id) {
+        return format!("{}-propodus-palm", &m[1]);
+    }
+    if let Some(m) = re(r"^(leg-[RL][123])-dactyl-(glass|hook)$").captures(id) {
+        return format!("{}-dactyl", &m[1]);
+    }
+    if let Some(m) = re(r"^(leg-[RL]4)-paddle-broad-rib").captures(id) {
+        return format!("{}-paddle-broad", &m[1]);
+    }
+    if let Some(m) = re(r"^(leg-[RL]4)-paddle-broad$").captures(id) {
+        return format!("{}-dactyl-paddle", &m[1]);
+    }
     if let Some(m) = re(r"^(eye-[RL])-(cornea|glint)").captures(id) {
         return format!("{}-stalk", &m[1]);
     }

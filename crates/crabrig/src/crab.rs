@@ -455,6 +455,46 @@ pub fn build_front(pose: &Pose) -> Vec<Item> {
                 ),
                 pend,
             );
+            // Gear and a feat on the leg tip, each its own part riding on the dactyl; the game shows them only
+            // once fitted or grown. Glass grips: a glass sponge's spicules set over the tip as a pale sheath with
+            // barbs, its point a little past the foot. Gripping dactyls: the tip grows a dark hook curling in
+            // towards the body.
+            let along = norm(sub(ff, pend));
+            let mut inward = perp(along);
+            if inward[0] * s > 0.0 {
+                inward = mul(inward, -1.0);
+            }
+            let at = |t: f64, side: f64| add(lerp_p(pend, ff, t), mul(inward, side));
+            let glass = vec![
+                at(0.30, 5.5 * w),
+                at(0.52, 9.0 * w),
+                at(0.58, 5.0 * w),
+                at(0.80, 6.5 * w),
+                add(ff, mul(along, 7.0)),
+                at(0.80, -6.5 * w),
+                at(0.58, -5.0 * w),
+                at(0.52, -9.0 * w),
+                at(0.30, -5.5 * w),
+            ];
+            let mut push_tip = |id: String, pts: Vec<P>, mat: &str, sw: f64| {
+                let it = out.push(id, &gid, pts, mat);
+                it.pv = Some(pend);
+                it.far = far;
+                it.mid = mid;
+                it.sw = Some(sw);
+            };
+            push_tip(format!("{gid}-dactyl-glass"), glass, "glassSponge", 0.5);
+            let hook = limb(
+                &[
+                    lerp_p(pend, ff, 0.62),
+                    add(ff, mul(along, 2.0)),
+                    add(add(ff, mul(along, 1.0)), mul(inward, 8.0)),
+                    add(add(ff, mul(along, -5.0)), mul(inward, 12.0)),
+                ],
+                |t| 7.5 * (1.0 - t) * w + 1.4,
+                OPEN_END,
+            );
+            push_tip(format!("{gid}-dactyl-hook"), hook, "tip", 0.5);
         } else {
             // swimming paddle (5th pereiopod): propodus + dactyl flattened into an oval blade
             let blade = spec.blade.unwrap_or(70.0) * if back { -1.0 } else { 1.0 };
@@ -524,6 +564,39 @@ pub fn build_front(pose: &Pose) -> Vec<Item> {
                 "ink",
                 0.5,
             );
+            // The Swimming feat, broad paddles: a broader, longer blade over the paddle, its own part riding on
+            // it with two ribs (the game shows it once grown).
+            let (bhalf, bwid) = (half * 1.18, wid * 1.85);
+            let mut broad = vec![];
+            for kk in 0..=16 {
+                let a = kk as f64 / 16.0 * std::f64::consts::PI;
+                broad.push(add(
+                    add(mid, mul(bdir, 3.0)),
+                    add(mul(bdir, -a.cos() * bhalf), mul(n, a.sin() * bwid)),
+                ));
+            }
+            for kk in 1..16 {
+                let a = kk as f64 / 16.0 * std::f64::consts::PI;
+                broad.push(add(
+                    add(mid, mul(bdir, 3.0)),
+                    add(mul(bdir, a.cos() * bhalf), mul(n, -a.sin() * bwid * 0.75)),
+                ));
+            }
+            out.push(format!("{gid}-paddle-broad"), &gid, broad, "leg")
+                .pv = Some(end);
+            for (r, side) in [(0, 0.45), (1, -0.35)] {
+                out.line(
+                    format!("{gid}-paddle-broad-rib{r}"),
+                    &gid,
+                    vec![
+                        lerp_p(end, f, 0.15),
+                        add(lerp_p(end, f, 0.55), mul(n, side * bwid)),
+                        add(lerp_p(end, f, 0.95), mul(n, side * bwid * 0.6)),
+                    ],
+                    "ink",
+                    0.5,
+                );
+            }
         }
     };
 
@@ -750,6 +823,36 @@ pub fn build_front(pose: &Pose) -> Vec<Item> {
             "ink",
             0.55,
         );
+        // Clam-shell guards (made at the workbench from a clam's two valves): a valve strapped over the outside of
+        // the palm, its hinge at the wrist and its ribbed fan opening towards the fingers, which stay free. Its own
+        // part, riding on the palm; the game shows it only once made.
+        let valve_at = |a: f64, r: f64| -> P {
+            let a = a * D;
+            [
+                l * 0.08 + a.cos() * l * 0.86 * r,
+                -h * 0.02 + a.sin() * h * 0.56 * r,
+            ]
+        };
+        let mut valve = vec![valve_at(180.0, 0.12)];
+        for kk in 0..=12 {
+            let a = -78.0 + 150.0 * kk as f64 / 12.0;
+            // A clam's growing edge is a little wavy where each rib ends.
+            let r = if kk % 2 == 0 { 1.0 } else { 0.96 };
+            valve.push(valve_at(a, r));
+        }
+        let guard = format!("{gid}-propodus-guard");
+        let it = out.push(guard.clone(), &prop, hp(&valve), "clamValve");
+        it.pv = Some(w);
+        it.sw = Some(0.6);
+        for (r, a) in [-50.0, -18.0, 14.0, 44.0].into_iter().enumerate() {
+            out.line(
+                format!("{guard}-rib{r}"),
+                &prop,
+                hp(&[valve_at(a, 0.22), valve_at(a, 0.62), valve_at(a, 0.9)]),
+                "ink",
+                0.45,
+            );
+        }
         let dg = format!("{gid}-dactyl");
         out.push(format!("{gid}-dactyl"), &dg, hp(&dact), "leg").pv = Some(ci.to_w(piv));
         out.push(format!("{gid}-dactyl-tip"), &dg, hp(&dtip), "tip")
