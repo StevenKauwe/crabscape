@@ -14,8 +14,9 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
 - **Home** is an empty sea-snail shell on the floor near the start, a warm glow in its doorway. Walk into the doorway
   and the crab goes inside: it backs into the opening, claws to the door, and disappears into the dark (crabs shelter in
   crevices, empty shells and litter; that they back in claws first: not verified). Tucked in, it rests fully (stamina
-  bar and rings, and its shell mends after a moment unhit), and the workbench puts what it carried home to use. Walk
-  away (or jump or dodge) and it walks back out. Inside, the claws stay folded.
+  bar and rings, and its shell mends after a moment unhit), and what it carried home is put by the workbench, for
+  the player to make things from (below). Walk away (or jump or dodge) and it walks back out. Inside, the claws stay
+  folded, and the view goes inside too (below).
 - **Rest stops:** three crevices out in the level, a dark hollow under a slab of rock at the foot of a wall: one at the
   foot of the cliff's back where the crab drops into the basin, one at the bottom of the pit against its left wall,
   and one on the canyon's shelf (below).
@@ -35,14 +36,15 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   Arthropod Structure & Development 66](https://pubmed.ncbi.nlm.nih.gov/34863064/)); that they carry food home this way:
   not verified. Neither blocks the other: a clam on the shell never stops the crab taking the culture, nor the
   culture a clam. With the shell full, a small thing stays where it lies ("No room on your shell"), never swapped.
-  Tucked in at home, everything comes off at once (clams into the larder, grit into the home, the culture into the
-  lantern, the tooth onto the crusher). Four is enough that a small thing never costs a trip of its own (the shallows'
+  Tucked in at home, everything comes off at once (clams into the larder; grit, the culture, the tooth and the glass put by the
+  workbench, to make things from). Four is enough that a small thing never costs a trip of its own (the shallows'
   two clams and heap fit, and so does the pit's clam and two heaps), and few enough that the larder can't be filled nor
   the home finished in one trip. Dying leaves all of it in the cast-off shell; walking back over it takes back
   whatever there's room for.
 - **The lantern culture:** at the bottom of the pit, a patch of wild glowing bacteria (blue-green). Touching it puts a
-  lump on the crab's back. Brought home, it's cultured into the
-  lantern: the light reaches about a third further for each one. The trip home (climb out, cross the basin, the cliff
+  lump on the crab's back. Brought home, it's put by the workbench, and making a **brighter lantern** there
+  cultures it into the lantern: the light reaches about a third further for each one. The trip home (climb out,
+  cross the basin, the cliff
   steps, the trench) is the challenge.
 - **Skills grow by doing (RuneScape):** each earns experience by doing it, and each level needs a little more
   than the last (level n+1 at n x (n+1) steps). A small row under the stamina bar shows each skill once it has any
@@ -82,8 +84,9 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   bright enough lantern comes near (the starting lantern doesn't reach; one brightened with the pit's culture does).
   Inside: a fourth egg and the first clue to the trench mystery, a shed tooth bigger than the crab (sharks shed and
   regrow teeth all their lives), hinting at the huge shape that passes in the pit.
-- **The tooth makes scissor claws:** the crab carries it home on its back (one big find at a time), and the workbench in
-  the shell fits its edges along both fingers of the crusher claw (found things as gear): **scissor claws**. Higher up
+- **The tooth makes scissor claws:** the crab carries it home on its back (one big find at a time), and at the
+  workbench in the shell the player can fit its edges along both fingers of the crusher claw (found things as gear):
+  **scissor claws**. Higher up
   the pit's right wall, a passage is blocked by a **ghost net** (a lost fishing net): only a jump and four strokes from
   the alcove's roof reach it, and the scissor claws snap through it (gone for everyone once cut). Beyond: a short tunnel and a coral-lined shaft up to the far part of the basin, where a
   crack at the foot of the end wall shows **lights far below**. The crack is the way down, into the canyon (next
@@ -103,12 +106,14 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   verified) and is **well fed** for 4 minutes of play: its shell holds 25% more and its reserve 3 strokes more, both
   filled. It ends all at once (the extra shell and reserve go, keeping what fits). Dying ends it too (it wakes
   hungry, as in Valheim), but the larder is at home and stays; a clam on the shell drops into the cast-off shell like
-  anything carried.
+  anything carried. Each clam eaten leaves its two empty **valves** (the two halves of its shell, hence "bivalve")
+  by the workbench, for clam-shell guards (below). Eating stays automatic.
 - **Building (the "Build" step): the home grows with shell grit.** Small heaps of shell grit (pale pieces of old,
   broken shells) lie on the floor, more of them deeper: one in the shallows by the first snapping shrimp, one on the
   slope past the trench, one in the basin below the cliff, one in the far basin past the ghost net, two at the
   bottom of the pit and three in the canyon (one on its shelf, two on its floor). Walking over one sticks a piece to the crab's shell (a small thing, like the clam); each heap
-  is there once. Brought home, the workbench builds it into the shell. Animals really do this: octopuses dig their
+  is there once. Brought home, it's put by the workbench, and making **build into the home** there builds a piece
+  into the shell. Animals really do this: octopuses dig their
   dens into beds of discarded shells, which "line and stabilise the shaft-like dens", and arrange shells round the
   den's edge ([Hing and Godfrey-Smith, The Conversation, "Did they mean to do that? Accident and intent in an
   octopus's garden"](https://theconversation.com/did-they-mean-to-do-that-accident-and-intent-in-an-octopuses-garden-85462));
@@ -122,6 +127,30 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   The first stage is a stroll from home; the last needs the basin and the pit. A piece on the shell drops into the
   cast-off shell like anything carried; what is built stays built. Each crab grows its own home (in co-op each
   player's home is in their own game), and it's saved.
+- **Inside the home: the workbench.** Tucked right in at home, the view goes inside: a cut-away of the snail shell
+  (its wall, the coil of the whorl at the back, the doorway open to the sea on the right) with the crab resting in
+  it, the larder's clams piled at the left, the grit built in so far (round the rim, the shelf, the crust), a hearth
+  glow, and the **workbench**: a flat stone slab on pebbles, with what the crab has brought home lying on it (the
+  tooth, glowing cultures, grit, a glass sponge, clam valves). Beside it, a menu lists each thing the workbench can make: its name,
+  what it needs (have / need, green when there's enough), what it does, and a **Make** button (dim when it can't be
+  made; gear already fitted says "Fitted"). The fight buttons hide while inside; walking out, jumping or dodging
+  leaves as before. Making something is a command to the sim like the controls (a replay carries it as
+  `craft=lantern`), only for your own crab, only tucked in at home, and saved. What comes home waits by the
+  workbench until it's used: nothing is spent without the player choosing to. The recipes (a table in
+  `crates/sim/src/craft.rs`):
+
+  | Make | Needs | Does |
+  |---|---|---|
+  | Scissor claws | 1 shark tooth | Fitted to the crusher: snips through ghost nets (once) |
+  | Glass grips | 1 glass sponge | Fitted to the leg tips: grip and climb bare rock (once) |
+  | Brighter lantern | 1 glowing culture | The lantern reaches about a third further (each time) |
+  | Build into the home | 1 shell grit | The home grows (stages at 1, 3 and 5 built, above) |
+  | Clam-shell guards | 2 clam valves | Fitted to the claws: a block lets through half the damage it would (once) |
+
+  **Clam-shell guards** are the new one: two empty clam valves lashed over the claws as shields. A blocked blow
+  normally lets 20% of its damage through (40% once the guard is cracked); with the guards, 10% (20%). One clam eaten
+  gives exactly enough, so the first meal at home already offers something to make. That a crab would armour its
+  claws with clam shells: not verified (the game's idea).
 - Eggs, cultures, skills, gear, cast-off shells, food (the larder, the beds growing back, the time left well fed)
   and the home (the shell grit taken and built in)
   are kept across reloads ("Start over" wipes them). A save from before the level grew keeps what it had; the new
@@ -158,16 +187,16 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
   skeleton of a dead **glass sponge**: a pale lattice of silica. Real: glass sponges are "common only in the deep
   ocean", their skeleton is built of silica pieces called spicules, and it "will often remain intact even after the
   sponge itself dies" [NOAA-GS]; *Euplectella*'s spicules even carry light like optical fibres [AIZ03]. The crab
-  carries it home on its back (one thing at a time), and the workbench fits its glass points to the leg tips:
-  **glass grips** (that glass points hold a crab on rock: a design call, not a claim). With them the crab grips and
+  carries it home on its back (one big find at a time) and it's put by the workbench, where the player can fit its
+  glass points to the leg tips: **glass grips** (that glass points hold a crab on rock: a design call, not a claim). With them the crab grips and
   climbs **bare rock**: pale, pitted bands down a few walls that its own leg tips slide off (kelp and coral climb the
   same either way). Two bands in the canyon:
   - **the near wall from the canyon's floor up to the shelf:** the way up without waiting for the flood (slow, free);
   - **the end wall's canyon face from the doorstep up to a notch** high above (2,060 above the doorstep; the flood's
     top and every stroke fall more than 300 short): in it, a second patch of **wild glowing bacteria**, a second
     culture for the lantern. Nothing else reaches it.
-  The rule is one small function, `fit_glass_grips` (`crates/sim/src/world.rs`), to become a recipe when crafting
-  gets its menu. Fitted grips are kept through death and saved; tests: `crates/sim/tests/glass.rs`.
+  It's the workbench's "Glass grips" recipe (1 glass sponge, made once; `crates/sim/src/craft.rs`). Fitted grips are
+  kept through death and saved; tests: `crates/sim/tests/glass.rs`.
 - **The far shelf**, out from the canyon's far wall in the still water beside the tide: the **fifth egg** drifts
   over it. Only riding the flood and pushing off it at the right height reaches it (four strokes from the floor in
   still water never do).

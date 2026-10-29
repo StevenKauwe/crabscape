@@ -1,13 +1,14 @@
 //! Promises about building (the loop's "Build" step): shell grit lies about
 //! the level, more of it deeper; a crab carries it home clinging to its
-//! shell (a few pieces at most, see `cling.rs`), and the workbench builds it
-//! into the home shell. Enough
+//! shell (a few pieces at most, see `cling.rs`), puts it away by the
+//! workbench and builds it into the home shell from the crafting menu
+//! (`craft.rs`). Enough
 //! of it and the home grows a stage, each one felt: it mends the crab
 //! sooner, then holds a bigger larder, then makes a meal there last longer.
 //! Each crab grows its own home, and it is saved.
 
 use bevy_math::Vec2;
-use crabsim::{Carry, Controls, Hit, PlayerId, Progress, Shelter, Sim};
+use crabsim::{Carry, Controls, Hit, PlayerId, Progress, Recipe, Shelter, Sim};
 
 const P0: PlayerId = PlayerId(0);
 
@@ -37,6 +38,17 @@ fn walk_home(sim: &mut Sim) -> Vec<&'static str> {
     }
     sim.set_controls(P0, Controls::default());
     assert!(sim.crab(P0).unwrap().mover.tucked_in(), "got home");
+    seen
+}
+
+/// Walk home with grit on the back (it's put away by the workbench), then
+/// build it in from the crafting menu. Returns the events seen, by name.
+fn home_and_build(sim: &mut Sim) -> Vec<&'static str> {
+    let mut seen = walk_home(sim);
+    assert!(seen.contains(&"put away"), "{seen:?}");
+    assert_eq!(sim.make(P0, Recipe::BuildHome), Ok(()));
+    sim.tick();
+    seen.extend(sim.crab(P0).unwrap().events.names());
     seen
 }
 
@@ -115,7 +127,7 @@ fn the_level_has_shell_grit_and_more_of_it_deeper() {
 }
 
 #[test]
-fn grit_picked_up_rides_home_and_is_built_in() {
+fn grit_picked_up_rides_home_and_is_built_in_at_the_workbench() {
     let mut sim = at_grit(0);
     idle(&mut sim, 1);
     let crab = sim.crab(P0).unwrap();
@@ -128,7 +140,7 @@ fn grit_picked_up_rides_home_and_is_built_in() {
     let mut m = crabsim::Mover::new(Vec2::new(180.0, 0.0));
     m.clinging = vec![Carry::Grit];
     sim.crab_mut(P0).unwrap().mover = m;
-    let seen = walk_home(&mut sim);
+    let seen = home_and_build(&mut sim);
     let crab = sim.crab(P0).unwrap();
     assert!(seen.contains(&"built"), "{seen:?}");
     assert!(seen.contains(&"home grew"), "the first piece: {seen:?}");
@@ -166,13 +178,13 @@ fn each_stage_needs_more_grit() {
         // One short: the next piece grows it.
         let mut sim = bringing_grit(needs - 1);
         assert_eq!(sim.crab(P0).unwrap().home_stage(&t), stage as u32);
-        let seen = walk_home(&mut sim);
+        let seen = home_and_build(&mut sim);
         assert!(seen.contains(&"home grew"), "stage {}: {seen:?}", stage + 1);
         assert_eq!(sim.crab(P0).unwrap().home_stage(&t), stage as u32 + 1);
     }
     // A piece that doesn't reach the next stage is still built in.
     let mut sim = bringing_grit(stages[0]);
-    let seen = walk_home(&mut sim);
+    let seen = home_and_build(&mut sim);
     assert!(seen.contains(&"built") && !seen.contains(&"home grew"));
     assert_eq!(sim.crab(P0).unwrap().home_grit, stages[0] + 1);
 }
@@ -339,7 +351,7 @@ fn a_replay_of_building_plays_the_same() {
     saved.grit_taken[0] = true;
     live.restore_progress(P0, &saved);
     live.start_recording();
-    walk_home(&mut live);
+    home_and_build(&mut live);
     idle(&mut live, 30);
     assert_eq!(live.crab(P0).unwrap().home_grit, 1);
 

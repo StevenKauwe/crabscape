@@ -229,6 +229,8 @@ fn follow_crab(
     zoom: Res<Zoom>,
     mut shake: ResMut<Shake>,
     mut rest: Local<Option<Vec2>>,
+    inside: Res<crate::interior::Inside>,
+    window: Single<&Window>,
 ) {
     let level = &sim.level;
     let (mover, crab_tr) = *crab;
@@ -236,6 +238,20 @@ fn follow_crab(
     let Projection::Orthographic(ortho) = &mut *projection else {
         return;
     };
+    // Inside the home shell: framing the cut-away, still. Out again, the
+    // camera starts from the crab, not from in there.
+    if inside.on {
+        let size = window.size();
+        let unit_px = size.x * ortho.scale / ortho.area.width().max(1e-3);
+        let (at, scale) = crate::interior::framing(size, unit_px);
+        if ortho.scale != scale {
+            ortho.scale = scale;
+        }
+        cam.translation.x = at.x;
+        cam.translation.y = at.y;
+        *rest = None;
+        return;
+    }
     // Zoomed out, and the zoom punch (scale 1 = the usual view).
     let scale = zoom.out * (1.0 - shake.zoom);
     if ortho.scale != scale {
@@ -244,8 +260,6 @@ fn follow_crab(
     let view = ortho.area.size() / ortho.scale.max(1e-3);
     let seen = view * scale;
     let dt = time.delta_secs();
-    // Follow from where the camera rests, without last frame's shake.
-    let base = rest.get_or_insert(cam.translation.truncate());
 
     let lead = (mover.vel.x * tuning.camera_lead).clamp(-view.x * 0.2, view.x * 0.2);
     let mut target = crab_tr.translation.truncate() + Vec2::new(lead, view.y * 0.12);
@@ -259,6 +273,9 @@ fn follow_crab(
     } else {
         (level.min_x + level.max_x) / 2.0
     };
+    // Follow from where the camera rests, without last frame's shake (from
+    // the crab itself at first, and on coming out of the home shell).
+    let base = rest.get_or_insert(target);
 
     // Exponential smoothing: cover a fixed fraction of the gap per second.
     // Vertically the camera is a little lazier while the crab is in the
@@ -332,8 +349,9 @@ fn spawn_hud(mut commands: Commands) {
         });
 }
 
-/// On touch screens, the keyboard help is replaced by a shorter hint; on
-/// narrow windows a shorter list of keys, so it stays two lines.
+/// On touch screens, the keyboard help is replaced by a shorter hint. A
+/// phone-wide window gets one line only: a second would run under the
+/// Invite and Settings buttons in the top corner.
 fn update_help(
     time: Res<Time<Real>>,
     touch: Res<TouchControls>,
@@ -347,12 +365,14 @@ fn update_help(
     let alpha = 0.6 * ((25.0 - *shown_for) / 5.0).clamp(0.0, 1.0);
     let (text, colour) = &mut *text;
     colour.set_if_neq(TextColor(Color::srgba(0.85, 0.92, 0.95, alpha)));
-    let help = if touch.visible {
-        "JUMP again in the water: swim  Pinch: memory\nGUARD just before a blow: parry"
-    } else if window.width() < 600.0 {
-        "A/D walk  Space jump  Shift dodge\nE smash  Q jab  F guard (tap: parry)"
-    } else {
-        KEYS_HELP
+    let narrow = window.width() < 600.0;
+    let help = match (touch.visible, narrow) {
+        (true, true) => "JUMP again in the water: swim",
+        (true, false) => {
+            "JUMP again in the water: swim  Pinch: memory\nGUARD just before a blow: parry"
+        }
+        (false, true) => "A/D walk  Space jump  E smash  F guard",
+        (false, false) => KEYS_HELP,
     };
     if text.0 != help {
         text.0 = help.to_string();

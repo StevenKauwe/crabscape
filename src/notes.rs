@@ -3,7 +3,7 @@
 //! player that just happened to the local crab.
 
 use bevy::prelude::*;
-use crabsim::{Carry, Mover, Sim, moult};
+use crabsim::{Carry, Mover, Recipe, Sim, moult};
 
 use crate::player::{FrameEvents, GameSet, LocalPlayer, PlayerId};
 
@@ -40,6 +40,12 @@ struct Note {
 /// Float a note up from `above` (a world position), for anything that isn't
 /// one of the crab's own events.
 pub fn say(commands: &mut Commands, text: &str, above: Vec2, colour: Color) {
+    say_at(commands, text, above.extend(21.0), colour);
+}
+
+/// [`say`], at a depth: in front of whatever is drawn at `at.z` (the home's
+/// cut-away is drawn in front of the level).
+fn say_at(commands: &mut Commands, text: &str, at: Vec3, colour: Color) {
     commands.spawn((
         Note { age: 0.0, colour },
         Text2d::new(text),
@@ -48,7 +54,7 @@ pub fn say(commands: &mut Commands, text: &str, above: Vec2, colour: Color) {
             ..default()
         },
         TextColor(colour),
-        Transform::from_translation(above.extend(21.0)),
+        Transform::from_translation(at),
     ));
 }
 
@@ -164,6 +170,12 @@ fn note_events(
             (false, _, None) => ("Built into the home".into(), WARM),
         });
     }
+    if ev.put_away {
+        notes.push(("Put away by the workbench".into(), PALE));
+    }
+    if ev.made == Some(Recipe::ClamGuards) {
+        notes.push(("Clam-shell guards!".into(), GOLD));
+    }
     if ev.larder_full {
         notes.push(("The larder is full".into(), PALE));
     }
@@ -176,6 +188,7 @@ fn note_events(
     }
     if ev.ate_clam {
         notes.push(("Cracked a clam: well fed".into(), GOLD));
+        notes.push(("Two valves for the workbench".into(), PALE));
     }
     if ev.hungry {
         notes.push(("The meal wore off".into(), PALE));
@@ -188,12 +201,9 @@ fn note_events(
     let count = notes.len();
     for (i, (text, colour)) in notes.into_iter().enumerate() {
         let lift = ABOVE + 24.0 * (count - 1 - i) as f32;
-        say(
-            &mut commands,
-            &text,
-            at.translation.truncate() + Vec2::Y * lift,
-            colour,
-        );
+        let above = at.translation + Vec3::Y * lift;
+        let z = (at.translation.z + 11.0).max(21.0);
+        say_at(&mut commands, &text, above.with_z(z), colour);
     }
 }
 

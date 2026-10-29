@@ -75,6 +75,12 @@ pub struct Progress {
     pub soft: u32,
     #[serde(default)]
     pub growing: Option<Feat>,
+    /// What it keeps at the workbench at home, and the clam-shell guards on
+    /// its claws. Saves from before the workbench kept things have neither.
+    #[serde(default)]
+    pub stash: crate::craft::Stash,
+    #[serde(default)]
+    pub clam_guards: bool,
 }
 
 impl Progress {
@@ -141,6 +147,8 @@ impl Sim {
             moults: m.moults,
             soft: m.soft,
             growing: m.growing,
+            stash: crab.stash,
+            clam_guards: m.clam_guards,
         })
     }
 
@@ -179,6 +187,7 @@ impl Sim {
         m.lantern = p.lantern;
         m.scissor_claw = p.scissor_claw;
         m.glass_grips = p.glass_grips;
+        m.clam_guards = p.clam_guards;
         m.climb_xp = p.climb_xp;
         m.swim_xp = p.swim_xp;
         m.fight_xp = p.fight_xp;
@@ -190,6 +199,7 @@ impl Sim {
         m.stamina = m.strokes(&tuning) as f32;
         crab.fighter.vitals.health = m.max_shell(&tuning);
         crab.home_grit = p.home_grit;
+        crab.stash = p.stash;
         crab.larder = p.larder.min(crate::world::larder_holds(
             tuning.build.stage(p.home_grit),
             &tuning,

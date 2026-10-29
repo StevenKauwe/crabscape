@@ -1116,12 +1116,17 @@ fn shell_look(
 /// Backing into its home shell, the crab goes into the dark: it falls into
 /// shadow, then is gone inside (claws, lantern and all).
 fn into_the_dark(
-    crabs: Query<(&Mover, &Rig)>,
+    crabs: Query<(&Mover, &Rig, Has<crate::player::LocalPlayer>)>,
+    inside: Res<crate::interior::Inside>,
     mut lits: Query<&mut Lit>,
     mut shown: Query<&mut Visibility>,
 ) {
-    for (mover, rig) in &crabs {
-        let shade = mover.tucked * mover.tucked * (3.0 - 2.0 * mover.tucked);
+    for (mover, rig, local) in &crabs {
+        // This device's crab, seen resting inside its home's cut-away, is
+        // in the light of the hearth, not the dark of the doorway.
+        let resting_inside = local && inside.on;
+        let tucked = if resting_inside { 0.0 } else { mover.tucked };
+        let shade = tucked * tucked * (3.0 - 2.0 * tucked);
         for &e in &rig.lit {
             if let Ok(mut l) = lits.get_mut(e)
                 && l.shade != shade
@@ -1129,7 +1134,7 @@ fn into_the_dark(
                 l.shade = shade;
             }
         }
-        let show = if mover.tucked >= home::OUT_OF_SIGHT {
+        let show = if tucked >= home::OUT_OF_SIGHT {
             Visibility::Hidden
         } else {
             Visibility::Inherited
