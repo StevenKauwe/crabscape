@@ -48,7 +48,8 @@ pub struct Hit {
     /// Blocking it cracks the guard for this many ticks (blocks then let
     /// [`Tuning::cracked_block_damage`] through).
     pub armour_break: u32,
-    /// A bite or sting: venom if it isn't blocked (venom itself is #68).
+    /// A bite or sting: venom in the crab if it isn't blocked (see
+    /// [`Tuning::venom`]).
     pub venom: bool,
 }
 
@@ -311,6 +312,14 @@ pub struct Fighter {
     pub calm: u32,
     /// Held in an enemy's jaws: no acting until it struggles free.
     pub grabbed: Option<Grabbed>,
+    /// Venom in it: ticks left of each dose (they stack).
+    pub venom: Vec<u32>,
+    /// Walking legs it has dropped to get free of a hold (autotomy); they
+    /// grow back at the next moult, which in the game is waking after death.
+    pub legs_lost: u32,
+    /// Ticks dodge has been held since a press while held (held long enough,
+    /// a leg drops).
+    pub drop_hold: u32,
 }
 
 /// Held in a bite (see [`crate::tuning::GrabTuning`]).
@@ -322,6 +331,8 @@ pub struct Grabbed {
     pub left: u32,
     /// ...and how many each dodge press takes off.
     pub struggle: u32,
+    /// Ticks held so far (an octopus bites by it).
+    pub held: u32,
 }
 
 impl Claw {
@@ -368,7 +379,22 @@ impl Fighter {
             turn_step: false,
             calm: 0,
             grabbed: None,
+            venom: Vec::new(),
+            legs_lost: 0,
+            drop_hold: 0,
         }
+    }
+
+    /// The share of its walking speed it has: venom slows it, and so does
+    /// each leg it has dropped.
+    pub fn walk_share(&self, t: &Tuning) -> f32 {
+        let venom = if self.venom.is_empty() {
+            1.0
+        } else {
+            t.venom.slow
+        };
+        let legs = 1.0 - t.autotomy.walk_per_leg * self.legs_lost as f32;
+        venom * legs.max(0.0)
     }
 
     /// One word (or two) for logs, dumps and tests.
@@ -387,6 +413,8 @@ impl Fighter {
             "knocked".into()
         } else if self.blocking {
             "blocking".into()
+        } else if !self.venom.is_empty() {
+            "envenomed".into()
         } else {
             String::new()
         }
@@ -549,6 +577,23 @@ pub fn before_step(
         *dead += 1;
         return Controls::default();
     }
+    // Venom works whatever the crab does: each dose hurts until it wears off.
+    if !f.venom.is_empty() {
+        let per_tick = t.venom.per_second / crate::physics::TICKS_PER_SECOND as f32;
+        f.vitals.health = (f.vitals.health - per_tick * f.venom.len() as f32).max(0.0);
+        f.venom.retain_mut(|left| {
+            *left = left.saturating_sub(1);
+            *left > 0
+        });
+        if !f.vitals.alive() {
+            f.dead = Some(0);
+            f.grabbed = None;
+            f.swing = None;
+            m.vel = Vec2::ZERO;
+            ev.died = true;
+            return Controls::default();
+        }
+    }
     let staggered = f.vitals.stagger > 0;
     f.vitals.tick(&t.crab);
     f.knocked = f.knocked.saturating_sub(1);
@@ -582,11 +627,27 @@ pub fn before_step(
         f.blocking = false;
         return Controls::default();
     }
-    // Held in a bite: struggle (dodge presses) to get free sooner.
+    // Held in a bite: struggle (dodge presses) to get free sooner, or drop
+    // a walking leg to get free at once (down + dodge, or dodge held a
+    // moment).
+    f.drop_hold = match f.drop_hold {
+        _ if !c.dodge_held || f.grabbed.is_none() => 0,
+        _ if c.dodge_pressed => 1,
+        0 => 0,
+        n => n + 1,
+    };
     if let Some(g) = &mut f.grabbed {
         let struggle = if c.dodge_pressed { g.struggle } else { 0 };
         g.left = g.left.saturating_sub(1 + struggle);
-        if g.left == 0 {
+        g.held += 1;
+        let drop = (c.dodge_pressed && c.down) || f.drop_hold >= t.autotomy.hold_ticks;
+        if drop && f.legs_lost < t.autotomy.most {
+            f.legs_lost += 1;
+            f.grabbed = None;
+            f.drop_hold = 0;
+            ev.freed = true;
+            ev.dropped_leg = true;
+        } else if g.left == 0 {
             f.grabbed = None;
             ev.freed = true;
         }
@@ -746,6 +807,7 @@ pub fn before_step(
     if f.knocked > 0 {
         out.walk = 0.0;
     }
+    out.walk *= f.walk_share(t);
     out
 }
 
@@ -829,6 +891,9 @@ pub fn crab_takes(
     }
     let took = f.vitals.take(hit.damage, poise_felt(m, hit, t), &t.crab);
     ev.hurt = true;
+    if hit.venom {
+        f.venom.push(t.venom.ticks);
+    }
     knock(m, hit.knockback);
     f.knocked = t.hit_stun_ticks;
     f.vitals.hitstop = f.vitals.hitstop.max(hit.hitstop);

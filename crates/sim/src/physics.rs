@@ -438,6 +438,8 @@ pub struct StepEvents {
     pub turned: bool,
     /// Struggled free of a bite.
     pub freed: bool,
+    /// Dropped a walking leg to get free (autotomy).
+    pub dropped_leg: bool,
     /// Brought a clam home: into the larder.
     pub stored: bool,
     /// Brought a clam home to a full larder: it stays on its back.
@@ -497,6 +499,7 @@ impl StepEvents {
         self.crushed |= other.crushed;
         self.turned |= other.turned;
         self.freed |= other.freed;
+        self.dropped_leg |= other.dropped_leg;
         self.stored |= other.stored;
         self.larder_full |= other.larder_full;
         self.ate_clam |= other.ate_clam;
@@ -552,6 +555,7 @@ impl StepEvents {
             (self.crushed, "crushed"),
             (self.turned, "turned"),
             (self.freed, "freed"),
+            (self.dropped_leg, "dropped a leg"),
             (self.stored, "stored"),
             (self.larder_full, "larder full"),
             (self.ate_clam, "ate a clam"),

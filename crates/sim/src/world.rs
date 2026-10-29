@@ -387,6 +387,7 @@ impl Sim {
                             by: enemy,
                             left: g.ticks,
                             struggle: g.struggle,
+                            held: 0,
                         });
                     }
                 }

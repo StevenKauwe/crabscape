@@ -74,8 +74,21 @@ walk=right; @62 parry"`):
   r 14): parried, it recoils (snaps in, sore for 150); blocked, pushed back (each block drains 15 poise, so a guard
   held forever breaks); through, 5 damage and grabbed. Any blow on an arm takes its own health (40) and pulls it back;
   at 0 it is lost for the fight. Scissor claws' jab cuts an arm x2.
-- **Grabbed:** held up to 240 ticks, each dodge press 10 off (the moray's hold, its struggle now per creature). No
-  bite, venom or autotomy yet: next slice.
+- **Webover:** with the crab's middle within 250 of its own (under its web) and 220 of clear water over the crab (no
+  low roof of rock: it can't webover in a low tunnel), it `rise`s 84 ticks (the tell; its aim follows the crab until
+  the last 24), then `drop`s the web over 10: a net 500 wide coming down from 150 to the floor. Whatever is under it
+  when it gets down to it is caught (8 damage, then held); raised claws don't stop a net, a dodge's invulnerable
+  moment does. Missed, it lies 70 ticks `spread`, arms on the floor and mantle low (eye in reach): an arm hit then
+  counts x1.5. Then 120 ticks before the next webover (it probes meanwhile).
+- **Grabbed** (after a pounce, a tip or the web): held up to 240 ticks, each dodge press 10 off (the moray's hold, its
+  struggle now per creature). At 120 ticks held, the venom bite (10 + *venom*); at 200 the heavy bite (30).
+- **Venom** (the crab's status, for any bite or sting): each dose 2 damage/s for 5 s, doses stack, and the crab walks
+  at half speed while any is in it. A bite on raised claws carries none (the claw takes it); while held the claws
+  can't be raised, so the octopus's bites always carry it.
+- **Autotomy** (any hold): down + dodge, or dodge held for half a second (phones have no down), drops a walking leg:
+  free at once, 8% slower walking per leg (at most 4). They grow back when the crab wakes after dying (its moult in
+  the game, `world.md`) until moulting itself is built (#177), where they should regrow instead. The puppet doesn't
+  show the missing leg yet.
 - **Hits:** a claw finds the eye (r 12, x2) before the mantle (ellipse 156 x 110, 400 health, 200 poise) before an arm
   that is out. It keeps to its den (blows don't shove it). Left alone 2 s with nobody within 900, it mends (arms too)
   and is a rock again. Beaten for now = gone (fleeing comes later).

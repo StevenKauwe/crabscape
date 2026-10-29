@@ -302,6 +302,10 @@ pub struct Tuning {
     /// Scissor claws (the shed tooth fitted to the crusher): a jab cuts soft
     /// parts, like an octopus's arm, this many times as deep.
     pub scissor_cut: f32,
+    /// Venom from a bite or sting that gets through (an octopus's).
+    pub venom: VenomTuning,
+    /// Dropping a walking leg to get free of a hold.
+    pub autotomy: AutotomyTuning,
     /// What a crab sees and remembers (`crate::memory`).
     pub memory: MemoryTuning,
     /// Hulk mode, the `hulk` code (`crate::codes`).
@@ -522,6 +526,70 @@ pub struct OctopusTuning {
     /// A blow to an eye counts this many times.
     pub eye_damage: f32,
     pub arms: ArmTuning,
+    pub webover: WeboverTuning,
+    /// Its bites while it holds a crab.
+    pub bite: BiteTuning,
+}
+
+/// The webover: it rises over a crab close by, its web spread like an
+/// umbrella, and drops it like a net.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeboverTuning {
+    /// It rises when the crab's middle is this close to its own...
+    pub range: f32,
+    /// ...and there is this much clear water over the crab (not in a low
+    /// tunnel).
+    pub headroom: f32,
+    /// The tell: rising, the web spreading. Its aim follows the crab until
+    /// the last `lock_ticks` of it.
+    pub rise_ticks: u32,
+    pub lock_ticks: u32,
+    /// The drop: the web comes down from `height` to the floor over this
+    /// long, this wide, catching what's under it.
+    pub drop_ticks: u32,
+    pub width: f32,
+    pub height: f32,
+    /// What the web does to a crab it catches (then it holds on).
+    pub damage: f32,
+    pub poise: f32,
+    /// Missed: it lies with its arms spread on the floor this long, and a
+    /// blow to an arm then counts this many times.
+    pub recover_ticks: u32,
+    pub arm_damage: f32,
+    /// After a webover, this long before the next.
+    pub rest_ticks: u32,
+}
+
+/// An octopus's bites into the crab it holds, by how long it has held it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BiteTuning {
+    /// The venom bite...
+    pub venom_at: u32,
+    pub venom_damage: f32,
+    /// ...and the heavy one.
+    pub heavy_at: u32,
+    pub heavy_damage: f32,
+}
+
+/// Venom in the crab: each dose for `ticks`, `per_second` damage a dose,
+/// and it walks at `slow` of its speed while any is in it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VenomTuning {
+    pub ticks: u32,
+    pub per_second: f32,
+    pub slow: f32,
+}
+
+/// Autotomy: a crab held fast drops a walking leg to get free at once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AutotomyTuning {
+    /// Holding dodge this long while held drops one too (on a phone, with no
+    /// down to press).
+    pub hold_ticks: u32,
+    /// Each leg gone takes this share off its walking...
+    pub walk_per_leg: f32,
+    /// ...and it can drop at most this many.
+    pub most: u32,
 }
 
 /// An octopus's arms: each its own health, probing for the crab.
@@ -1168,8 +1236,40 @@ impl Tuning {
                     poise: 15.0,
                     hitstop_ticks: 6,
                 },
+                webover: WeboverTuning {
+                    range: 250.0, // half the web
+                    headroom: 220.0,
+                    rise_ticks: 84, // page (real timing not measured)
+                    lock_ticks: 24,
+                    drop_ticks: 10, // page
+                    width: 500.0,   // page
+                    height: 150.0,
+                    damage: 8.0,
+                    poise: 30.0,
+                    recover_ticks: 70, // page
+                    arm_damage: 1.5,   // page
+                    rest_ticks: 120,
+                },
+                bite: BiteTuning {
+                    venom_at: 120, // page
+                    venom_damage: 10.0,
+                    heavy_at: 200, // page
+                    heavy_damage: 30.0,
+                },
             },
             scissor_cut: 2.0, // `creatures/README.md`: x2 vs soft parts and arms
+            // The octopus's page: slow 50%, 2 damage/s for 5 s, stacks.
+            venom: VenomTuning {
+                ticks: 600,
+                per_second: 2.0,
+                slow: 0.5,
+            },
+            // `creatures/README.md`: -8% walking per missing leg.
+            autotomy: AutotomyTuning {
+                hold_ticks: 60,
+                walk_per_leg: 0.08,
+                most: 4,
+            },
             memory: MemoryTuning {
                 cell: 32.0, // 5 cm
                 step_ticks: 12,
