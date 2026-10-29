@@ -1472,7 +1472,10 @@ mod tests {
         let at = |p: f32| turn_shape(p, -1.0);
         assert!((at(0.0).view - 1.0).abs() < 1e-6, "starts from the front");
         assert!(at(0.25).squash > 0.3 && at(0.25).lean < 0.0, "coils");
-        assert!(at(0.5).squash < 0.0 && at(0.5).lift > 0.0, "stretched, lifted");
+        assert!(
+            at(0.5).squash < 0.0 && at(0.5).lift > 0.0,
+            "stretched, lifted"
+        );
         assert!(at(0.5).spin > 0.9, "spinning fastest mid-turn");
         assert!(at(0.85).view < -1.0, "lands wide");
         assert!((at(1.0).view + 1.0).abs() < 1e-3, "ends seen from behind");
