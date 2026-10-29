@@ -118,11 +118,14 @@ poise are the same in all of them: brutal is how a blow lands, not bigger number
 the crusher clamps on, squeezes three cracks into the shell, then lets go with the full blow. Claws never swap sides (the
 crusher is the crab's right, screen-left from the front): to strike across, the crab pivots round and shows its back
 in a sidestep that carries it 20–40 units into the blow (10–16 ticks per preset, the wind-up overlapping its end;
-presses during it are kept). The turn coils (a crouch, leaning away from the blow), snaps round (stretched,
-lifted, a smear of shell behind it) and lands wide and squashed; the crusher stays tucked through the spin and rears
-up once round. From behind it shows the back of its shell (no face; the eye stalks peek over it); what sits on the
-front of the body (claws, lantern, eye stalks) goes behind the shell; the legs stay tucked under its edges, their
-order among themselves reversed, and the paddles come in front. It stays turned until it needs the other side or has been out of the
+presses during it are kept). The turn is drawn as a real rotation about the crab's up axis, with the blow inside
+it: the claw comes across as the body turns (three-quarters round by the end of the wind-up), the blow lands with the
+crab side on (its front, and the striking claw reaching straight out, towards the blow), and the turn finishes into
+the back over the first half of the recovery, the claw folding back in. The shell is drawn at five angles (front,
+three-quarters, side, three-quarters from behind, back); every limb is ordered by its depth after the turn, so from
+behind the claws, lantern and eye stalks are behind the shell (the eye stalks peek over it), the legs stay tucked
+under its edges in reversed order and the paddles come in front. From behind the crab is backlit by its own lantern:
+a touch darker, with a warm rim of light on its edges. It stays turned until it needs the other side or has been out of the
 fight for 2 s. A streak runs along each blow; the mantis shows its strike line while it tells. The game plays **G**; the numbers above are A (`Tuning::default`, what the tests use).
 - **Brutal means bodies break** (a direction, not a spec yet). Hits have located, visible consequences, the same
   rules for the crab and every creature: shells crack, limbs are torn off or dropped, and a damaged part changes what

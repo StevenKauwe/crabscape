@@ -160,7 +160,11 @@ source, it says so.
   out to match) so the claws reach further in a fight. That swimming crabs' chelipeds are this long relative to the
   carapace is not verified (no source opened for it): TO VERIFY against a specimen photo or plate.
 - The claws never swap sides: the crusher is always the crab's right. Seen from behind (when it turns to strike
-  across), the crab's right is on screen-right. The game shows this with the front parts mirrored and the rig's
-  back view of the shell (`back-carapace`: posterior border nearest, the toothed edge as the far skyline, the folded
-  abdomen under the border) in place of the carapace and face; the eye stalks peek over it and the paddles come in
-  front of it.
+  across), the crab's right is on screen-right. The game turns the puppet about its up axis: each limb hangs on the
+  shell at a depth (claws held before the mouth, eye stalks on the front margin, legs from the front pair back to the
+  paddles, which ride raised over the rear corners), and what hides what follows the depth after the turn. The shell
+  is drawn by the rig at 0, 45, 90, 135 and 180 degrees (`carapace`, `turn45-`, `turn90-`, `turn135-carapace`,
+  `back-carapace`), from a 3D model of its margin and dome (`crab::turn_shell`), so it never goes paper-thin. Side on,
+  a crab is end-on from its side: narrow, the near lateral spine pointing at you, eye stalks forward on top. The legs
+  splay forward (front pair) or back (rear pair and paddles) out of the body's plane, which is why side on they fan
+  out along the body. That they splay this way is from photos remembered, not verified against a source.
