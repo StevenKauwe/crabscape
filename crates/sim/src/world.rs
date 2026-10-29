@@ -27,6 +27,7 @@ use crate::net::{self, CrabState, Msg, Net, Outgoing, To};
 use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::rng::Rng;
+use crate::skills::Skill;
 use crate::tuning::Tuning;
 
 /// Identifies a player. Only one exists for now, but co-op will add more.
@@ -547,6 +548,8 @@ impl Sim {
                     lantern: crab.mover.lantern,
                     scissor_claw: crab.mover.scissor_claw,
                     climb_xp: crab.mover.climb_xp,
+                    swim_xp: crab.mover.swim_xp,
+                    fight_xp: crab.mover.fight_xp,
                     shelter: Shelter::In,
                     tucked: 1.0,
                     ..crate::physics::Mover::new(den)
@@ -826,6 +829,8 @@ impl Sim {
             let c = swing.claw.tuning(t);
             let strength = swing.strength(t);
             let boost = strength * if swing.counter { t.counter_damage } else { 1.0 };
+            // The Fighting skill: each level hits a little harder.
+            let skill = crab.mover.claw_strength(t);
             let hitstop = if swing.counter {
                 c.hitstop_ticks.max(t.counter_hitstop_ticks)
             } else {
@@ -842,7 +847,7 @@ impl Sim {
                     continue;
                 }
                 let hit = Hit {
-                    damage: c.damage * boost,
+                    damage: c.damage * boost * skill,
                     poise: c.poise * boost,
                     knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1) * strength,
                     hitstop,
@@ -871,7 +876,10 @@ impl Sim {
                     crab.mover.vel.x = 0.0; // planted, gripping
                     continue;
                 }
-                if e.takes(&hit, crab.mover.pos.x, t).is_some() {
+                let health = e.vitals.health;
+                if let Some(took) = e.takes(&hit, crab.mover.pos.x, t) {
+                    let levelled = fought(&mut crab.mover, health - e.vitals.health, took, t);
+                    crab.events.levelled = crab.events.levelled.or(levelled);
                     // Run elsewhere: shown here at once, applied there when
                     // the message arrives.
                     if !runs && let Some(net) = &mut self.net {
@@ -1073,9 +1081,13 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         e.cracks += 1;
         let squeeze = Hit {
             hitstop: ct.crack_hitstop,
-            ..Hit::new(ct.crack_damage, 0.0, source)
+            ..Hit::new(ct.crack_damage * crab.mover.claw_strength(t), 0.0, source)
         };
-        e.takes(&squeeze, crab.mover.pos.x, t);
+        let health = e.vitals.health;
+        if let Some(took) = e.takes(&squeeze, crab.mover.pos.x, t) {
+            let levelled = fought(&mut crab.mover, health - e.vitals.health, took, t);
+            ev.levelled = ev.levelled.or(levelled);
+        }
         f.vitals.hitstop = f.vitals.hitstop.max(ct.crack_hitstop);
         ev.cracked = true;
     }
@@ -1086,18 +1098,29 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         let c = s.claw.tuning(t);
         let strength = s.strength(t) * t.counter_damage;
         let blow = Hit {
-            damage: c.damage * strength,
+            damage: c.damage * strength * crab.mover.claw_strength(t),
             poise: c.poise * strength,
             knockback: Vec2::new(f.facing * c.knockback.0, c.knockback.1) * s.strength(t) * 1.5,
             hitstop: t.counter_hitstop_ticks,
             ..Hit::new(0.0, 0.0, source)
         };
-        e.takes(&blow, crab.mover.pos.x, t);
+        let health = e.vitals.health;
+        if let Some(took) = e.takes(&blow, crab.mover.pos.x, t) {
+            let levelled = fought(&mut crab.mover, health - e.vitals.health, took, t);
+            ev.levelled = ev.levelled.or(levelled);
+        }
         f.vitals.hitstop = f.vitals.hitstop.max(t.counter_hitstop_ticks);
         // Straight into the recovery.
         s.tick = s.windup_len() + c.active_ticks + 1;
         ev.crushed = true;
     }
+}
+
+/// The Fighting skill grows with a blow that took `dealt` health off a
+/// creature, and more if it beat it. Returns the skill if it went up a level.
+fn fought(m: &mut Mover, dealt: f32, took: combat::Took, t: &Tuning) -> Option<Skill> {
+    let win = if took.died { t.fight_xp_per_win } else { 0.0 };
+    m.earn(Skill::Fighting, dealt * t.fight_xp_per_damage + win, t)
 }
 
 /// Does the device with these crabs (the host's, if `host`) run `e`?

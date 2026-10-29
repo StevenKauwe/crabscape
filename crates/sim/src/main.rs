@@ -357,6 +357,18 @@ impl Summary {
             .map(|(n, c)| format!("{n} {c}"))
             .collect();
         println!("events: {}", counts.join(", "));
+        let skills: Vec<String> = crabsim::Skill::ALL
+            .iter()
+            .map(|&s| {
+                format!(
+                    "{} {} ({:.1} xp)",
+                    s.name(),
+                    m.level(s, &sim.tuning),
+                    m.xp(s)
+                )
+            })
+            .collect();
+        println!("skills: {}", skills.join(", "));
         for line in &self.timeline {
             println!("  {line}");
         }
