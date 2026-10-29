@@ -1,0 +1,224 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/snowflake-moray/snowflake-moray-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "snowflake-moray-atlas.png",
+ "atlas_size": [
+  1024,
+  256
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  560.75,
+  292.6
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "segment-c",
+   "parent": null,
+   "pivot": [
+    186.4,
+    196.0
+   ],
+   "bbox": [
+    54.3,
+    97.5,
+    264.8,
+    194.7
+   ],
+   "rect": [
+    234,
+    3,
+    159,
+    117
+   ],
+   "z": 0,
+   "members": [
+    "segment-c",
+    "segment-c-flake0",
+    "segment-c-flake0-spot",
+    "segment-c-flake1",
+    "segment-c-flake1-spot",
+    "segment-c-flake2",
+    "segment-c-flake2-spot",
+    "segment-c-back",
+    "segment-c-belly"
+   ]
+  },
+  {
+   "name": "segment-b",
+   "parent": null,
+   "pivot": [
+    394.4,
+    196.0
+   ],
+   "bbox": [
+    261.6,
+    98.8,
+    265.6,
+    194.4
+   ],
+   "rect": [
+    396,
+    3,
+    160,
+    117
+   ],
+   "z": 9,
+   "members": [
+    "segment-b",
+    "segment-b-flake0",
+    "segment-b-flake0-spot",
+    "segment-b-flake1",
+    "segment-b-flake1-spot",
+    "segment-b-flake2",
+    "segment-b-flake2-spot",
+    "segment-b-back",
+    "segment-b-belly"
+   ]
+  },
+  {
+   "name": "segment-a",
+   "parent": null,
+   "pivot": [
+    602.4,
+    196.0
+   ],
+   "bbox": [
+    467.8,
+    100.2,
+    268.1,
+    192.6
+   ],
+   "rect": [
+    559,
+    3,
+    161,
+    116
+   ],
+   "z": 18,
+   "members": [
+    "segment-a",
+    "segment-a-flake0",
+    "segment-a-flake0-spot",
+    "segment-a-flake1",
+    "segment-a-flake1-spot",
+    "segment-a-back",
+    "segment-a-belly"
+   ]
+  },
+  {
+   "name": "mouth",
+   "parent": "head",
+   "pivot": [
+    882.4,
+    220.0
+   ],
+   "bbox": [
+    856.8,
+    161.6,
+    199.3,
+    120.2
+   ],
+   "rect": [
+    723,
+    3,
+    120,
+    73
+   ],
+   "z": 25,
+   "members": [
+    "mouth"
+   ]
+  },
+  {
+   "name": "throat-jaw",
+   "parent": "head",
+   "pivot": [
+    874.4,
+    196.0
+   ],
+   "bbox": [
+    820.1,
+    187.7,
+    83.0,
+    65.2
+   ],
+   "rect": [
+    3,
+    130,
+    50,
+    40
+   ],
+   "z": 26,
+   "members": [
+    "throat-jaw",
+    "throat-jaw-tooth0",
+    "throat-jaw-tooth1",
+    "throat-jaw-tooth2",
+    "throat-jaw-tooth3"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": null,
+   "pivot": [
+    874.4,
+    196.0
+   ],
+   "bbox": [
+    688.5,
+    93.2,
+    378.7,
+    205.4
+   ],
+   "rect": [
+    3,
+    3,
+    228,
+    124
+   ],
+   "z": 31,
+   "members": [
+    "head",
+    "head-flake0",
+    "head-flake0-spot",
+    "head-flake1",
+    "head-flake1-spot",
+    "head-gill",
+    "head-outline",
+    "head-nostril0",
+    "head-nostril1",
+    "head-eye",
+    "head-pupil",
+    "head-glint"
+   ]
+  },
+  {
+   "name": "jaw",
+   "parent": "head",
+   "pivot": [
+    882.4,
+    220.0
+   ],
+   "bbox": [
+    845.1,
+    206.4,
+    205.9,
+    82.0
+   ],
+   "rect": [
+    846,
+    3,
+    124,
+    50
+   ],
+   "z": 43,
+   "members": [
+    "jaw",
+    "jaw-flake",
+    "jaw-flake-spot",
+    "jaw-lip"
+   ]
+  }
+ ]
+}

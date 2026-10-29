@@ -63,6 +63,14 @@ pub fn normal() -> Palette {
     p.insert("shrimpClaw", tri("#D9C98A", "#9C8448", "#5E4A26"));
     p.insert("shrimpLeg", tri("#EBD3A0", "#D4B07A", "#9C7646"));
     p.insert("shrimpTip", tri("#E5735A", "#C0452F", "#7A2414"));
+    // The snowflake moray (its concept sheet's palette): cream skin, near-black blotches, yellow eye, nostrils and
+    // spots, a dark red mouth.
+    p.insert("moray", tri("#FFFBEF", "#EDE3C8", "#C9BC98"));
+    p.insert("morayFlake", tri("#3A2E24", "#1E1712", "#120D0A"));
+    p.insert("morayYellow", tri("#F8DC66", "#F2C531", "#B58C1A"));
+    p.insert("morayMouth", tri("#9A3C3A", "#7A2A2A", "#4E1818"));
+    p.insert("morayThroat", tri("#D27676", "#B85656", "#7A3030"));
+    p.insert("morayTooth", tri("#FFFDF4", "#FFF6DE", "#E2D3AE"));
     p
 }
 
