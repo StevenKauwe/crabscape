@@ -42,6 +42,20 @@ pub struct Progress {
 }
 
 impl Sim {
+    /// What a crab that has done nothing yet has, in this level.
+    pub fn fresh_progress(&self) -> Progress {
+        let l = &self.level;
+        Progress {
+            eaten: vec![false; l.eggs.len()],
+            cultures_taken: vec![false; l.cultures.len()],
+            clues_found: vec![false; l.clues.len()],
+            teeth_taken: vec![false; l.teeth.len()],
+            nets_cut: vec![false; l.nets.len()],
+            clams: vec![0; l.clams.len()],
+            ..Progress::default()
+        }
+    }
+
     /// Crab `id`'s lasting progress, to save.
     pub fn progress(&self, id: PlayerId) -> Option<Progress> {
         let crab = self.crab(id)?;

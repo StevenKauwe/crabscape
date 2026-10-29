@@ -992,6 +992,17 @@ impl Sim {
             .find(|c| !c.remote)
             .map_or(crate::level::SPAWN, |c| c.mover.pos);
         let mut rec = Recorder::new(start, self.tick, &self.tuning);
+        // Progress brought back from a save goes with it, so the replay
+        // starts the crab as it was (a fresh crab needs nothing).
+        if let Some(p) = self
+            .crabs
+            .iter()
+            .find(|c| !c.remote)
+            .and_then(|c| self.progress(c.id))
+            && p != self.fresh_progress()
+        {
+            rec.note_progress(p);
+        }
         if self.feel != Feel::default() {
             rec.note_feel(self.tick, self.feel);
         }
