@@ -929,6 +929,8 @@ struct Ears {
     foes: Vec<u32>,
     /// Places found (the canyon, the lights), for their stingers.
     found: Vec<Place>,
+    /// A stinger cued from outside (the ending card), kept until heard.
+    cued: Option<Stinger>,
 }
 
 impl Ears {
@@ -1018,7 +1020,8 @@ fn play(
     };
     // The most important moment this frame.
     let ev = events.0;
-    let mut stinger = cues.read().map(|c| c.0).max();
+    ears.cued = ears.cued.max(cues.read().map(|c| c.0).max());
+    let mut stinger = ears.cued;
     let mut mark = |s: Stinger| stinger = stinger.max(Some(s));
     if ev.ate {
         mark(Stinger::Egg);
@@ -1039,8 +1042,10 @@ fn play(
     if beaten {
         mark(Stinger::Beaten);
     }
-    if matches!(place, Place::Canyon | Place::Lights) && !ears.found.contains(&place) {
-        ears.found.push(place);
+    // A place found counts once its stinger is heard (not while the sound
+    // is still off before the first touch).
+    let found = matches!(place, Place::Canyon | Place::Lights) && !ears.found.contains(&place);
+    if found {
         mark(if place == Place::Lights {
             Stinger::Lights
         } else {
@@ -1048,7 +1053,12 @@ fn play(
         });
     }
     let audible = settings.music > 0.0 && settings.master > 0.0;
-    backend::play(mood, settings.track, audible, stinger);
+    if backend::play(mood, settings.track, audible, stinger) {
+        ears.cued = None;
+        if found {
+            ears.found.push(place);
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1168,12 +1178,13 @@ mod backend {
         })
     }
 
-    pub fn play(mood: Mood, track: Track, audible: bool, stinger: Option<Stinger>) {
+    /// Keep the music going; true if it is playing (so `stinger` was heard).
+    pub fn play(mood: Mood, track: Track, audible: bool, stinger: Option<Stinger>) -> bool {
         MUSIC.with(|m| {
             let mut m = m.borrow_mut();
             if m.is_none() {
                 if !crate::sound::running() {
-                    return;
+                    return false;
                 }
                 *m = start(track);
                 if m.is_some() {
@@ -1182,10 +1193,10 @@ mod backend {
                 }
             }
             let Some(m) = m.as_mut() else {
-                return;
+                return false;
             };
             if !audible || !crate::sound::running() {
-                return;
+                return false;
             }
             let now = m.ctx.current_time();
             // Fell behind (a long frame, or the music was off): start afresh
@@ -1225,7 +1236,8 @@ mod backend {
                     ),
                 );
             }
-        });
+            true
+        })
     }
 
     impl Music {
@@ -1283,7 +1295,8 @@ mod backend {
         _track: super::Track,
         _audible: bool,
         _stinger: Option<super::Stinger>,
-    ) {
+    ) -> bool {
+        false
     }
 }
 
