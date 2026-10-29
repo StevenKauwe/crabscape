@@ -24,9 +24,9 @@ by its environment variable (`OIL_ATTENTION=off` = `--attention off`, `OIL_GROUN
 (or `--release`): unoptimised it is very slow.
 
 ## Bumping brushwork
-Change the tag in `Cargo.toml`, then repaint the atlas (`tools/paint-oil-crab.sh`, after `crabrig parts` and
-`crabrig export`). The art CI job fails if the committed atlas differs: a brushwork release that changes pixels
-comes with the repainted atlas in the same PR.
+Change the tag in `Cargo.toml`, then repaint the atlases (`tools/paint-oil.sh`, after `crabrig parts` and
+`crabrig export`). The art CI job fails if a committed atlas differs: a brushwork release that changes pixels
+comes with the repainted atlases in the same PR.
 
 ## Tests
 `cargo test -p painter` paints the brush port and an oil shape and checks they are deterministic and in place; the

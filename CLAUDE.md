@@ -67,7 +67,8 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests, the
   tidy tool's checks, the web build, relaxed-SIMD check, a size report, the browser test (`cargo webtest`, the game
   played in WebKit), native = wasm determinism (`tools/determinism.sh`, the sim's tests in wasmtime too) and an art
-  check (re-exports the rig and oil atlas; committed `art/crab`, `assets/crab` must match). On `main` it deploys
+  check (re-exports the rigs and oil atlases; the committed crab and creature art must match; on a Mac, take the
+  oil atlases from its `art-as-ci-made-it` download). On `main` it deploys
   `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/), then checks the live site starts
   (`cargo webtest --smoke`). Branch protection requires the check, determinism, art, web and browser jobs.
 - **Main is broken?** A failed CI run on `main` opens (or adds to) the `main-broken` issue "main is broken"; a green
@@ -99,7 +100,7 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Replay a bug report | `cargo crabsim --inputs replay.txt --dump -` (F9 in the game saves a replay; `?replay` adds a button on the web) |
 | Crab rig → SVG | `cargo run -p crabrig --profile art -- parts` (writes `art/crab/crab-parts.svg`) |
 | Rig → game atlas | `cargo run -p crabrig --profile art -- export` (writes `assets/crab/`) |
-| Oil-paint the atlas | `tools/paint-oil-crab.sh` |
+| Oil-paint the atlases (crab and creatures) | `tools/paint-oil.sh [crab \| <creature>...]` |
 | Oil painter | `cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png` |
 | Disk housekeeping | `cargo tidy` (`cargo tidy report` only looks) |
 | Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`. Live: one Fly.io machine, redeployed by `introducer.yml` on `main` (setup and rules in its `src/main.rs`). It also files player reports (`POST /report`, `src/report.rs`) when the `GITHUB_REPORT_TOKEN` secret is set; locally, `GITHUB_REPORT_TOKEN=$(gh auth token)` files a real issue (close it after) |
