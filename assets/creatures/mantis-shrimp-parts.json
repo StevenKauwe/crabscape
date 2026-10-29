@@ -1,0 +1,455 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/mantis-shrimp/mantis-shrimp-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "mantis-shrimp-atlas.png",
+ "atlas_size": [
+  1024,
+  64
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  222.65,
+  213.3
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "far-leg1",
+   "parent": "carapace",
+   "pivot": [
+    250.0,
+    188.0
+   ],
+   "bbox": [
+    234.7,
+    179.7,
+    24.3,
+    38.9
+   ],
+   "rect": [
+    427,
+    3,
+    15,
+    24
+   ],
+   "z": 0,
+   "members": [
+    "far-leg1"
+   ]
+  },
+  {
+   "name": "far-leg2",
+   "parent": "carapace",
+   "pivot": [
+    261.0,
+    188.0
+   ],
+   "bbox": [
+    245.3,
+    179.0,
+    24.4,
+    40.3
+   ],
+   "rect": [
+    367,
+    3,
+    15,
+    25
+   ],
+   "z": 1,
+   "members": [
+    "far-leg2"
+   ]
+  },
+  {
+   "name": "far-leg3",
+   "parent": "carapace",
+   "pivot": [
+    272.0,
+    188.0
+   ],
+   "bbox": [
+    256.7,
+    179.7,
+    24.5,
+    38.9
+   ],
+   "rect": [
+    445,
+    3,
+    15,
+    24
+   ],
+   "z": 2,
+   "members": [
+    "far-leg3"
+   ]
+  },
+  {
+   "name": "far-antennule",
+   "parent": "carapace",
+   "pivot": [
+    338.0,
+    154.0
+   ],
+   "bbox": [
+    332.0,
+    94.0,
+    34.0,
+    66.0
+   ],
+   "rect": [
+    125,
+    3,
+    21,
+    40
+   ],
+   "z": 3,
+   "members": [
+    "far-antennule",
+    "far-antennule-whip0",
+    "far-antennule-whip1",
+    "far-antennule-whip2"
+   ]
+  },
+  {
+   "name": "far-scale",
+   "parent": "carapace",
+   "pivot": [
+    340.0,
+    164.0
+   ],
+   "bbox": [
+    332.8,
+    132.7,
+    38.4,
+    37.6
+   ],
+   "rect": [
+    505,
+    3,
+    24,
+    23
+   ],
+   "z": 7,
+   "members": [
+    "far-scale"
+   ]
+  },
+  {
+   "name": "far-eye",
+   "parent": "carapace",
+   "pivot": [
+    336.0,
+    154.0
+   ],
+   "bbox": [
+    320.3,
+    108.8,
+    33.4,
+    54.4
+   ],
+   "rect": [
+    286,
+    3,
+    21,
+    33
+   ],
+   "z": 8,
+   "members": [
+    "far-eye",
+    "far-eye-ball",
+    "far-eye-band0",
+    "far-eye-band1",
+    "far-eye-pupil"
+   ]
+  },
+  {
+   "name": "far-arm",
+   "parent": "carapace",
+   "pivot": [
+    318.0,
+    176.0
+   ],
+   "bbox": [
+    304.9,
+    163.1,
+    42.6,
+    45.8
+   ],
+   "rect": [
+    310,
+    3,
+    26,
+    28
+   ],
+   "z": 13,
+   "members": [
+    "far-arm",
+    "far-arm-spot"
+   ]
+  },
+  {
+   "name": "far-club",
+   "parent": "far-arm",
+   "pivot": [
+    335.0,
+    197.0
+   ],
+   "bbox": [
+    322.7,
+    175.3,
+    64.2,
+    39.4
+   ],
+   "rect": [
+    385,
+    3,
+    39,
+    24
+   ],
+   "z": 15,
+   "members": [
+    "far-club",
+    "far-club-dactyl",
+    "far-club-ball",
+    "far-club-shine"
+   ]
+  },
+  {
+   "name": "tail",
+   "parent": "abdomen",
+   "pivot": [
+    120.0,
+    172.0
+   ],
+   "bbox": [
+    53.2,
+    135.9,
+    75.6,
+    70.8
+   ],
+   "rect": [
+    76,
+    3,
+    46,
+    43
+   ],
+   "z": 19,
+   "members": [
+    "tail-uropod-far",
+    "tail",
+    "tail-keel",
+    "tail-uropod-near"
+   ]
+  },
+  {
+   "name": "abdomen",
+   "parent": "carapace",
+   "pivot": [
+    244.0,
+    172.0
+   ],
+   "bbox": [
+    105.6,
+    143.0,
+    144.4,
+    65.5
+   ],
+   "rect": [
+    173,
+    3,
+    87,
+    40
+   ],
+   "z": 23,
+   "members": [
+    "abdomen-pleopod0",
+    "abdomen-pleopod1",
+    "abdomen-pleopod2",
+    "abdomen-pleopod3",
+    "abdomen-pleopod4",
+    "abdomen-seg6",
+    "abdomen-band6",
+    "abdomen-seg5",
+    "abdomen-band5",
+    "abdomen-seg4",
+    "abdomen-band4",
+    "abdomen-seg3",
+    "abdomen-band3",
+    "abdomen-seg2",
+    "abdomen-band2",
+    "abdomen",
+    "abdomen-band1"
+   ]
+  },
+  {
+   "name": "carapace",
+   "parent": null,
+   "pivot": [
+    291.75,
+    178.7
+   ],
+   "bbox": [
+    234.1,
+    138.1,
+    115.3,
+    81.2
+   ],
+   "rect": [
+    3,
+    3,
+    70,
+    49
+   ],
+   "z": 40,
+   "members": [
+    "thorax1",
+    "thorax2",
+    "thorax3",
+    "leg1",
+    "leg2",
+    "leg3",
+    "carapace",
+    "carapace-spot0",
+    "carapace-spot1",
+    "carapace-spot2",
+    "carapace-spot3",
+    "carapace-spot4",
+    "carapace-spot5",
+    "carapace-spot6",
+    "maxilliped"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "carapace",
+   "pivot": [
+    341.0,
+    154.0
+   ],
+   "bbox": [
+    330.1,
+    107.5,
+    32.2,
+    55.5
+   ],
+   "rect": [
+    263,
+    3,
+    20,
+    34
+   ],
+   "z": 55,
+   "members": [
+    "eye",
+    "eye-ball",
+    "eye-band0",
+    "eye-band1",
+    "eye-pupil"
+   ]
+  },
+  {
+   "name": "antennule",
+   "parent": "carapace",
+   "pivot": [
+    343.0,
+    156.0
+   ],
+   "bbox": [
+    337.0,
+    96.0,
+    34.0,
+    66.0
+   ],
+   "rect": [
+    149,
+    3,
+    21,
+    40
+   ],
+   "z": 60,
+   "members": [
+    "antennule",
+    "antennule-whip0",
+    "antennule-whip1",
+    "antennule-whip2"
+   ]
+  },
+  {
+   "name": "scale",
+   "parent": "carapace",
+   "pivot": [
+    343.0,
+    166.0
+   ],
+   "bbox": [
+    335.6,
+    137.6,
+    42.2,
+    35.6
+   ],
+   "rect": [
+    532,
+    3,
+    26,
+    22
+   ],
+   "z": 64,
+   "members": [
+    "scale"
+   ]
+  },
+  {
+   "name": "arm",
+   "parent": "carapace",
+   "pivot": [
+    324.0,
+    178.0
+   ],
+   "bbox": [
+    311.2,
+    164.9,
+    41.5,
+    45.5
+   ],
+   "rect": [
+    339,
+    3,
+    25,
+    28
+   ],
+   "z": 65,
+   "members": [
+    "arm",
+    "arm-spot"
+   ]
+  },
+  {
+   "name": "club",
+   "parent": "arm",
+   "pivot": [
+    341.0,
+    199.0
+   ],
+   "bbox": [
+    328.5,
+    177.9,
+    63.6,
+    38.0
+   ],
+   "rect": [
+    463,
+    3,
+    39,
+    23
+   ],
+   "z": 67,
+   "members": [
+    "club",
+    "club-dactyl",
+    "club-ball",
+    "club-shine"
+   ]
+  }
+ ]
+}

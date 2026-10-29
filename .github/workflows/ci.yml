@@ -91,6 +91,8 @@ jobs:
           cargo run --locked -q -p crabrig --profile art -- export --creature snapping-shrimp
           cargo run --locked -q -p crabrig --profile art -- parts --creature snowflake-moray
           cargo run --locked -q -p crabrig --profile art -- export --creature snowflake-moray
+          cargo run --locked -q -p crabrig --profile art -- parts --creature mantis-shrimp
+          cargo run --locked -q -p crabrig --profile art -- export --creature mantis-shrimp
       - name: The committed art/crab, assets/crab, art/creatures and assets/creatures match
         run: |
           if [ -n "$(git status --porcelain -- art/crab assets/crab art/creatures assets/creatures)" ]; then

@@ -11,6 +11,9 @@ const SHRIMP_JSON: &str = include_str!("../../../assets/creatures/snapping-shrim
 const MORAY_RIG: &str =
     include_str!("../../../art/creatures/snowflake-moray/snowflake-moray-parts.svg");
 const MORAY_JSON: &str = include_str!("../../../assets/creatures/snowflake-moray-parts.json");
+const MANTIS_RIG: &str =
+    include_str!("../../../art/creatures/mantis-shrimp/mantis-shrimp-parts.svg");
+const MANTIS_JSON: &str = include_str!("../../../assets/creatures/mantis-shrimp-parts.json");
 
 #[test]
 fn the_puppet_draws_the_committed_rig() {
@@ -128,5 +131,36 @@ fn the_game_moray_parts_file_matches_its_rig() {
         e.json == MORAY_JSON,
         "assets/creatures/snowflake-moray-parts.json is out of date: \
          cargo run -p crabrig --profile art -- export --creature snowflake-moray"
+    );
+}
+
+#[test]
+fn the_mantis_draws_its_committed_rig() {
+    // Changed it on purpose: `cargo run -p crabrig --profile art -- parts --creature mantis-shrimp`, then
+    // `-- export --creature mantis-shrimp`.
+    assert!(
+        crabrig::mantis::parts_svg() == MANTIS_RIG,
+        "art/creatures/mantis-shrimp/mantis-shrimp-parts.svg is out of date with crates/crabrig"
+    );
+}
+
+#[test]
+fn the_game_mantis_parts_file_matches_its_rig() {
+    let e = crabrig::export::export(
+        MANTIS_RIG,
+        &crabrig::export::Options {
+            zoom: 1.0,
+            source_name: "art/creatures/mantis-shrimp/mantis-shrimp-parts.svg".into(),
+            name: "mantis-shrimp".into(),
+        },
+    )
+    .unwrap();
+    // Carapace, abdomen, tail fan, and near and far: raptorial arm and club, eye, antennule, antennal scale; three
+    // far walking legs.
+    assert_eq!(e.parts, 16);
+    assert!(
+        e.json == MANTIS_JSON,
+        "assets/creatures/mantis-shrimp-parts.json is out of date: \
+         cargo run -p crabrig --profile art -- export --creature mantis-shrimp"
     );
 }

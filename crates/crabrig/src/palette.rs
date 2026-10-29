@@ -71,6 +71,18 @@ pub fn normal() -> Palette {
     p.insert("morayMouth", tri("#9A3C3A", "#7A2A2A", "#4E1818"));
     p.insert("morayThroat", tri("#D27676", "#B85656", "#7A3030"));
     p.insert("morayTooth", tri("#FFFDF4", "#FFF6DE", "#E2D3AE"));
+    // The peacock mantis shrimp (its concept sheet's palette).
+    p.insert("mantis", tri("#86BE72", "#5B9452", "#2E5A34"));
+    p.insert("mantisDeep", tri("#3E7444", "#2E5A34", "#1E3E24"));
+    p.insert("mantisLeg", tri("#F8B07A", "#F08A4B", "#A8522A"));
+    p.insert("mantisFan", tri("#F59A5E", "#E07A55", "#B8392C"));
+    p.insert("mantisClub", tri("#F27C8A", "#D8475A", "#8E2235"));
+    p.insert("mantisDactyl", tri("#FFD9CF", "#F7A3A0", "#C26A68"));
+    p.insert("mantisShine", tri("#FFE4DE", "#FFD9CF", "#F7A3A0"));
+    p.insert("mantisMeral", tri("#9A5BD0", "#6A2DA0", "#3C1660"));
+    p.insert("mantisEye", tri("#5FA3AC", "#2D6670", "#163840"));
+    p.insert("mantisBand", Mat::One("#E9F0C0".into()));
+    p.insert("mantisStalk", tri("#C8E0A0", "#8DB86E", "#4E7A3E"));
     p
 }
 
