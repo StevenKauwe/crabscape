@@ -16,7 +16,8 @@
 //! The host's crab is always [`HOST`] (as in solo play); a guest's gets a
 //! random number. A guest finds the host's device by its crab's updates.
 //!
-//! A room lasts as long as the host's page. A device that loses everyone it
+//! A room lasts as long as the host's browser tab: reloading it (or an
+//! iPhone reloading a page it unloaded) hosts the same room again. A device that loses everyone it
 //! played with (a phone slept, the network dropped) joins the same room
 //! afresh every few seconds until they're back; a guest plays on alone in
 //! the meantime, then takes the host's word for the world again.
@@ -255,8 +256,9 @@ mod web {
     struct StatusLine;
 
     pub fn build(app: &mut App) {
-        let code = query("join").and_then(|c| clean_code(&c));
-        let me = if code.is_some() { guest_id() } else { HOST };
+        let invited = query("join").and_then(|c| clean_code(&c));
+        let me = if invited.is_some() { guest_id() } else { HOST };
+        let code = invited.or_else(hosted_before);
         app.insert_resource(LocalId(me))
             .insert_resource(Coop { code, ..default() })
             .add_systems(Startup, (join.after(spawn_local_crab), spawn_button))
@@ -297,14 +299,42 @@ mod web {
         link
     }
 
-    /// Opened from an invite: join the room as a guest.
-    fn join(mut sim: ResMut<Sim>, mut coop: ResMut<Coop>) {
+    /// Opened from an invite: join the room as a guest. Or reloaded while
+    /// hosting: host the same room again, so the link friends have still
+    /// works.
+    fn join(mut sim: ResMut<Sim>, mut coop: ResMut<Coop>, me: Res<LocalId>) {
         let Some(code) = coop.code.clone() else {
             return;
         };
-        sim.go_online(false);
+        let host = me.0 == HOST;
+        sim.go_online(host);
         connect(&code);
-        coop.status = "Joining your friend...".into();
+        coop.status = if host {
+            "Waiting for a friend..."
+        } else {
+            "Joining your friend..."
+        }
+        .into();
+    }
+
+    /// Where a hosting tab keeps its room code, one per build. The tab's own
+    /// storage outlives a reload (an iPhone often reloads a page it unloaded
+    /// in the background, say while the host sends the link) but is never
+    /// shared with another tab or by copying the address, so it can't make
+    /// a second host.
+    fn hosting_key() -> String {
+        let build = save::build_slug();
+        format!("crabscape-hosting-{}", build.as_deref().unwrap_or("live"))
+    }
+
+    fn tab_storage() -> Option<web_sys::Storage> {
+        web_sys::window()?.session_storage().ok()?
+    }
+
+    /// The room this tab hosted before it was reloaded.
+    fn hosted_before() -> Option<String> {
+        let code = tab_storage()?.get_item(&hosting_key()).ok()??;
+        clean_code(&code)
     }
 
     /// The introducer's address: the live one, or `?introducer=` for testing.
@@ -415,6 +445,9 @@ mod web {
         }
         if coop.code.is_none() && me.0 == HOST {
             let code = make_code(js_sys::Math::random);
+            if let Some(storage) = tab_storage() {
+                let _ = storage.set_item(&hosting_key(), &code);
+            }
             sim.go_online(true);
             connect(&code);
             coop.code = Some(code);
