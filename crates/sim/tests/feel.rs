@@ -94,12 +94,13 @@ fn the_presets_are_really_different() {
         // Every preset but A crushes on a counter.
         assert_eq!(t(f).crush.is_some(), f != Feel::Current, "{f:?}");
     }
-    // Expedition (and G, built on it): the tightest parry, the biggest counter.
+    // Expedition: the tightest parry, the biggest counter. G keeps its counter
+    // but its parry is relaxed a fraction (the owner found 6 ticks too tight).
     for f in ALL {
         assert!(t(Feel::Expedition).parry_window_ticks <= t(f).parry_window_ticks);
         assert!(t(Feel::Expedition).counter_damage >= t(f).counter_damage);
     }
-    assert_eq!(t(Feel::Hybrid).parry_window_ticks, 6);
+    assert_eq!(t(Feel::Hybrid).parry_window_ticks, 9);
     // G really is D + E + F: momentum and charge, E's jab and hop, F's parry.
     let g = t(Feel::Hybrid);
     assert_eq!(g.momentum, t(Feel::Momentum).momentum);
