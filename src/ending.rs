@@ -1,21 +1,23 @@
-//! The end of the demo: a little while after the crab first sees the
-//! lights far down the crack at the basin's far end (`secrets.rs`), a card
-//! says that's as far as it goes for now, what this crab found on the way,
-//! and asks what the player thought (the report form, `report.rs`, on the
-//! web). "Keep exploring" puts it away; the crab can carry on playing.
+//! The end of the demo: a little while after the crab reaches the lights
+//! first seen down the crack (the sea pens on the canyon's floor,
+//! `canyon.rs`), a card says that's as far as it goes for now, what this
+//! crab found on the way, and asks what the player thought (the report
+//! form, `report.rs`, on the web). "Keep exploring" puts it away; the crab
+//! can carry on playing.
 
 use bevy::prelude::*;
 use crabsim::Sim;
 
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
-/// How near the crack the crab must come (units), and how long after
-/// before the card shows (seconds): time to read "Lights, far below...".
-const NEAR: f32 = 200.0;
-const AFTER: f32 = 3.5;
+/// How near the lights the crab must come (units: anywhere on the canyon's
+/// floor), and how long after before the card shows (seconds): time to
+/// brush a few sea pens and watch them glow.
+const NEAR: f32 = 900.0;
+const AFTER: f32 = 5.0;
 
 const WIDTH: f32 = 420.0;
-const HEIGHT: f32 = 236.0;
+const HEIGHT: f32 = 270.0;
 const BUTTON_H: f32 = 36.0;
 const GAP: f32 = 10.0;
 const PAD: f32 = 20.0;
@@ -70,6 +72,7 @@ fn found(sim: &Sim, id: PlayerId) -> String {
     let m = &c.mover;
     let eggs = c.eaten.iter().filter(|e| **e).count();
     let mut lines = vec![format!("Eggs eaten: {eggs} of {}", sim.level.eggs.len())];
+    lines.push(format!("Strokes: {}", m.strokes(&sim.tuning)));
     lines.push(if m.lantern > 0 {
         "Lantern: brightened with wild light".into()
     } else {
@@ -103,12 +106,7 @@ fn reach_the_end(
     }
     match ending.since.as_mut() {
         None => {
-            if at
-                .translation
-                .truncate()
-                .distance(crate::secrets::crack_at(&sim))
-                < NEAR
-            {
+            if at.translation.truncate().distance(sim.level.lights) < NEAR {
                 ending.since = Some(0.0);
             }
             return;
@@ -152,9 +150,10 @@ fn reach_the_end(
             GlobalZIndex(10),
         ))
         .with_children(|c| {
-            c.spawn(text("The trench is down there.", 18.0, WARM));
+            c.spawn(text("The lights were alive.", 18.0, WARM));
             c.spawn(text(
-                "That's the end of the demo, for now: what lives below comes next.",
+                "Sea pens, glowing blue where something brushes them. The canyon goes on \
+                 down into the dark: that's the end of the demo, for now.",
                 13.0,
                 FAINT,
             ));

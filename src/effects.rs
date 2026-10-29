@@ -99,6 +99,10 @@ impl Rng {
     }
 }
 
+/// How much of the water's speed the snow shows (all of it streaks past
+/// too fast to read on screen).
+const SNOW_WITH_WATER: f32 = 0.6;
+
 /// Number of marine-snow specks. They wrap around the screen, so this is
 /// the number on screen at any time.
 const SNOW_COUNT: usize = 110;
@@ -454,10 +458,13 @@ fn spawn_snow(mut commands: Commands, soft: Res<SoftTextures>, mut rng: ResMut<R
     }
 }
 
-/// Let the snow drift down, and wrap specks that leave the screen round to
-/// the other side, so the screen always has snow wherever the camera goes.
+/// Let the snow drift down (carried up or down with the water where the
+/// canyon's tide runs, which is how the crab sees which way it goes), and
+/// wrap specks that leave the screen round to the other side, so the screen
+/// always has snow wherever the camera goes.
 fn drift_snow(
     time: Res<Time>,
+    sim: Res<crabsim::Sim>,
     camera: Single<(&Transform, &Projection), With<Camera2d>>,
     mut snow: Query<(&Snow, &mut Transform), Without<Camera2d>>,
 ) {
@@ -474,7 +481,10 @@ fn drift_snow(
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
     for (flake, mut tr) in &mut snow {
-        tr.translation.y -= flake.fall * dt;
+        let water = sim
+            .level
+            .water_at(tr.translation.truncate(), &sim.tuning.tide);
+        tr.translation.y += (water * SNOW_WITH_WATER - flake.fall) * dt;
         tr.translation.x += flake.sway * (t * 0.7 + flake.phase).sin() * dt;
         // Wrap round: `rem_euclid` is a remainder that is never negative.
         tr.translation.x = min.x + (tr.translation.x - min.x).rem_euclid(size.x);

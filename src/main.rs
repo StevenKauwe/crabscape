@@ -33,7 +33,9 @@
 //! - [`lantern`]: the lantern and its cheap fake lighting
 //! - [`coop`]: playing with friends: the invite link and the connection
 //! - [`critters`]: the snapping shrimp and the moray (placeholder shapes)
-//! - [`deep`]: the depth counter in the pit, and something big in the dark
+//! - [`canyon`]: the canyon below the crack: its glowing sea pens, the octopus's den
+//!   and the tide's turns
+//! - [`deep`]: the depth counter in the pit and the canyon, and something big in the dark
 //! - [`effects`]: bubbles, sand puffs and marine snow
 //! - [`feel`]: the feel lab: presets for how attacks feel, and their juice
 //! - [`fight`]: the shell and poise bars, the blow's flash, fight notes
@@ -54,6 +56,7 @@
 
 mod background;
 mod build;
+mod canyon;
 mod codes;
 mod coop;
 mod creature_art;
@@ -162,6 +165,7 @@ fn main() {
             reset::ResetPlugin,
             (
                 secrets::SecretsPlugin,
+                canyon::CanyonPlugin,
                 ending::EndingPlugin,
                 codes::CodesPlugin,
                 creature_art::CreatureArtPlugin,

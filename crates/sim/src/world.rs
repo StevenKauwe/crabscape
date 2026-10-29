@@ -559,6 +559,8 @@ impl Sim {
         {
             rec.note(self.tick, crab.controls);
         }
+        // The canyon's tide turns on the clock, the same for everyone.
+        self.level.tide = self.tuning.tide.flow(self.tick);
         for crab in &mut self.crabs {
             crab.prev_pos = crab.mover.pos;
             let mut ev = std::mem::take(&mut crab.pending);

@@ -64,9 +64,11 @@ want to eat it. Snapping shrimp are not predators of crabs; they defend burrows 
 ## The pull downward
 - **Grow:** a bigger, stronger shell-home needs materials from deeper places (`world.md`). Enemies drop real parts
   (club fragments, scale plates); the octopus's den holds a bigger empty shell.
-- **The mystery:** lights far down in the trench, seen first through the crack in the far basin. What they are stays
-  unexplained for now, and when revealed it must be real biology (bioluminescence, a whale fall, something living).
-  The shed tooth bigger than the crab hints at the giants that pass.
+- **The mystery:** lights far down, seen first through the crack in the far basin. The first answer is real and
+  close: a meadow of sea pens on the canyon's floor below, glowing blue where something brushes them (`world.md`).
+  What lights the trench further down stays unexplained for now, and when revealed it must be real biology
+  (bioluminescence, a whale fall, something living). The shed tooth bigger than the crab hints at the giants that
+  pass.
 
 ## Rules for creatures
 1. **Every creature is its real species.** Diet, hunting style, senses, defences and size come from sources; each

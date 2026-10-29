@@ -110,18 +110,21 @@ impl Sim {
 
     /// Give crab `id` back its saved progress, rested. A list saved from a
     /// level with a different number of things is ignored (the level
-    /// changed since), and so is anything left in a cast-off shell then.
+    /// changed since), and so is anything left in a cast-off shell then,
+    /// unless the level only grew: things added at the end of a list are
+    /// new, so a shorter list keeps what it says and the rest are untouched.
     /// Clam beds count on their own: a save from before there were any
     /// keeps the rest, with every clam in its bed (and the same for shell
     /// grit; how much is built into the home is kept whatever the level). So does the crevice it
     /// wakes in: one the level no longer has means home.
     pub fn restore_progress(&mut self, id: PlayerId, p: &Progress) {
         let tuning = self.tuning.clone();
-        let same_level = p.eaten.len() == self.level.eggs.len()
-            && p.cultures_taken.len() == self.level.cultures.len()
-            && p.clues_found.len() == self.level.clues.len()
-            && p.teeth_taken.len() == self.level.teeth.len()
-            && p.nets_cut.len() == self.level.nets.len();
+        let fits = |saved: usize, now: usize| saved <= now;
+        let same_level = fits(p.eaten.len(), self.level.eggs.len())
+            && fits(p.cultures_taken.len(), self.level.cultures.len())
+            && fits(p.clues_found.len(), self.level.clues.len())
+            && fits(p.teeth_taken.len(), self.level.teeth.len())
+            && fits(p.nets_cut.len(), self.level.nets.len());
         if same_level {
             for (net, &cut) in self.level.nets.iter_mut().zip(&p.nets_cut) {
                 net.cut |= cut;
@@ -147,19 +150,25 @@ impl Sim {
             tuning.build.stage(p.home_grit),
             &tuning,
         ));
-        if p.clams.len() == crab.clams.len() {
-            crab.clams.clone_from(&p.clams);
+        if p.clams.len() <= crab.clams.len() {
+            keep_start(&mut crab.clams, &p.clams);
         }
-        if p.grit_taken.len() == crab.grit_taken.len() {
-            crab.grit_taken.clone_from(&p.grit_taken);
+        if p.grit_taken.len() <= crab.grit_taken.len() {
+            keep_start(&mut crab.grit_taken, &p.grit_taken);
         }
         if same_level {
             m.carrying = p.carrying;
-            crab.eaten.clone_from(&p.eaten);
-            crab.cultures_taken.clone_from(&p.cultures_taken);
-            crab.clues_found.clone_from(&p.clues_found);
-            crab.teeth_taken.clone_from(&p.teeth_taken);
+            keep_start(&mut crab.eaten, &p.eaten);
+            keep_start(&mut crab.cultures_taken, &p.cultures_taken);
+            keep_start(&mut crab.clues_found, &p.clues_found);
+            keep_start(&mut crab.teeth_taken, &p.teeth_taken);
             crab.cast_offs.clone_from(&p.cast_offs);
         }
     }
+}
+
+/// Copy a saved list over the start of the level's (which is at least as
+/// long): what was added to the level since stays as it is.
+fn keep_start<T: Clone>(now: &mut [T], saved: &[T]) {
+    now[..saved.len()].clone_from_slice(saved);
 }

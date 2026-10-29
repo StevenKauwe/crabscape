@@ -35,6 +35,10 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   stroking. With the walking legs (no stamina): hold jump to climb up, hold down (or dodge) to climb down, let go of
   both to hang on. Sideways shuffles along the stalk (fidgeting is safe); pushing on past the edge steps off; jump with a direction kicks off it. The crab turns sideways onto the stalk, on the side it came from (crabs climb sideways), and swings round to the other side if something is in the way; its body box turns with it. Climbing past the top pulls the crab up over it. Slow but free: the
   way home from the deep when the stamina is spent.
+- **Ride the tide.** In the canyon below the crack the water runs up its middle, then down, a minute a round
+  (`world.md`): it carries the crab with it (sinking and swimming are against the water), so the flood lifts it
+  with no strokes and the ebb drops it fast, too strong to swim up against. Marine snow streams the way it runs.
+  The flood is the only way up off the canyon's floor: steer out of it onto a ledge before it turns.
 - **Most of the sea is faster than you.** Fish and shrimp out-speed you; you out-hit and out-last them.
 - Possible later: wall cling (crabs grip rock with their dactyls).
 

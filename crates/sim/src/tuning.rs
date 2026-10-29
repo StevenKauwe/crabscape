@@ -298,6 +298,73 @@ pub struct Tuning {
     pub food: FoodTuning,
     /// Growing the home shell with shell grit (`docs/design/world.md`).
     pub build: BuildTuning,
+    /// The canyon's tide: water running up its middle, then down
+    /// (`docs/design/world.md`, "The canyon").
+    pub tide: TideTuning,
+}
+
+/// The tide in the canyon below the crack. In a real submarine canyon the
+/// tidal current runs along the canyon's axis, up-canyon on the flood and
+/// down-canyon on the ebb (Wang, Lee & Liu 2008, sourced in `world.md`).
+/// Hours squeezed into a minute: one round is up, slack, down, slack, each
+/// change of flow a short ramp. Times in ticks, speeds in units a second.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TideTuning {
+    /// How long the water runs up at full speed...
+    pub up_ticks: u32,
+    /// ...and down.
+    pub down_ticks: u32,
+    /// Still water between the two, after each.
+    pub slack_ticks: u32,
+    /// How long the water takes to speed up or slow down at each change.
+    pub ramp_ticks: u32,
+    /// The water's speed running up (a crab in it rises at this minus its
+    /// sinking speed: about 450 at 800)...
+    pub up_speed: f32,
+    /// ...and running down (it sinks at this plus its sinking speed).
+    pub down_speed: f32,
+}
+
+impl TideTuning {
+    /// Ticks in one round of the tide.
+    pub fn period(&self) -> u32 {
+        self.up_ticks + self.down_ticks + 2 * self.slack_ticks + 4 * self.ramp_ticks
+    }
+
+    /// How the water runs at tick `tick`: 1 = up at full speed, -1 = down,
+    /// 0 = slack. The round starts with the water speeding up to run up.
+    pub fn flow(&self, tick: u64) -> f32 {
+        let period = u64::from(self.period().max(1));
+        let mut t = (tick % period) as f32;
+        let ramp = self.ramp_ticks.max(1) as f32;
+        // Each stretch: (length, flow at its start, flow at its end).
+        let stretches = [
+            (ramp, 0.0, 1.0),
+            (self.up_ticks as f32, 1.0, 1.0),
+            (ramp, 1.0, 0.0),
+            (self.slack_ticks as f32, 0.0, 0.0),
+            (ramp, 0.0, -1.0),
+            (self.down_ticks as f32, -1.0, -1.0),
+            (ramp, -1.0, 0.0),
+            (self.slack_ticks as f32, 0.0, 0.0),
+        ];
+        for (length, from, to) in stretches {
+            if t < length {
+                return from + (to - from) * t / length;
+            }
+            t -= length;
+        }
+        0.0
+    }
+
+    /// The water's upward speed for a flow (see [`TideTuning::flow`]).
+    pub fn speed(&self, flow: f32) -> f32 {
+        if flow >= 0.0 {
+            flow * self.up_speed
+        } else {
+            flow * self.down_speed
+        }
+    }
 }
 
 /// Hulk mode: the crab bulks up, hits far harder and is hard to shake.
@@ -968,6 +1035,14 @@ impl Tuning {
                 mend_after_ticks: 60, // half a second, from 2 s
                 larder: 8,
                 meal_longer: 1.5, // 6 min of play, from 4
+            },
+            tide: TideTuning {
+                up_ticks: 24 * 120,   // long enough to ride the whole canyon up
+                down_ticks: 16 * 120, // a quicker, harder ebb
+                slack_ticks: 6 * 120,
+                ramp_ticks: 2 * 120, // one round: a minute
+                up_speed: 800.0,
+                down_speed: 500.0,
             },
         }
     }
