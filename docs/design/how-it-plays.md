@@ -72,7 +72,12 @@ Pass within 140 of it and it flushes dark for a quarter second, then pounces and
 pounce). Found out, it fights from its den: arm tips slide in for half a second to touch the crab, two at most. Parry
 the touch and the tip recoils; block it and it's pushed back (guarding forever breaks your poise); let it touch and it
 grabs (tap dodge to struggle free). Strike an arm and it pulls back; each arm has its own health, and one cut to 0
-stays out of the fight. Its eye counts double; scissor claws cut arms twice as deep.
+stays out of the fight. Its eye counts double; scissor claws cut arms twice as deep. Close to it with room overhead,
+it rises for most of a second, spreading its web, then drops it like a net: dodge as it comes down (claws can't stop
+it); missed, it lies with its arms spread, open to a punish (arm hits x1.5). It can't do that in a low tunnel.
+Held by anything of its, at 1 s it bites with venom (2 a second for 5 s, stacking, and half walking speed), at 1.7 s
+it bites hard (30). **Autotomy:** while held by anything, down + dodge, or holding dodge half a second, drops a
+walking leg and frees the crab at once (8% slower per leg, back after the next wake from death).
 **The combat is preset G** (`Tuning::default`); the feel lab is hidden (`?lab`, or backtick in previews).
 **Feel lab (hidden; `?lab`, or backtick in preview builds):** the presets the combat was chosen from. A FEEL button under "Start over" (or the backtick
 key, or 1–9) cycles nine presets (A Current, B Heavy tank, C Snappy brawler, D Momentum, E Silksong-ish, F Expedition
