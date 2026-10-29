@@ -346,6 +346,9 @@ pub(crate) mod panel {
         Code,
         /// Wipes this device's progress (`reset.rs`), on a second tap.
         StartOver,
+        /// A new co-op lobby link (`coop.rs`), on a second tap: the old link
+        /// stops reaching this device.
+        NewLink,
     }
 
     impl Choice {
@@ -362,14 +365,20 @@ pub(crate) mod panel {
                 Choice::Report => "Report a bug or idea",
                 Choice::Code => "Enter a code",
                 Choice::StartOver => "Start over",
+                Choice::NewLink => "New link",
             }
+        }
+
+        /// Can't be undone, so it asks for a second tap first ("Sure? ...").
+        fn asks_first(self) -> bool {
+            matches!(self, Choice::StartOver | Choice::NewLink)
         }
 
         /// The tab it's on.
         fn tab(self) -> Tab {
             match self {
                 Choice::Smooth | Choice::Saver | Choice::Ink | Choice::Oil => Tab::Graphics,
-                Choice::Everyone | Choice::Nearby => Tab::Coop,
+                Choice::Everyone | Choice::Nearby | Choice::NewLink => Tab::Coop,
                 Choice::Calm | Choice::Themes => Tab::Audio,
                 Choice::Report | Choice::Code | Choice::StartOver => Tab::Game,
             }
@@ -473,7 +482,7 @@ pub(crate) mod panel {
     struct SliderLabel(Slider);
 
     #[derive(Component)]
-    struct StartOverLabel;
+    struct ArmedLabel(Choice);
 
     #[derive(Component)]
     struct Fill(Slider);
@@ -486,8 +495,9 @@ pub(crate) mod panel {
     struct Ring;
 
     /// The panel open (and shut this frame by a tap outside it), its tab,
-    /// seconds the ripple has left, and seconds "Start over" stays armed for
-    /// its second tap (0 = not armed).
+    /// seconds the ripple has left, and which choice that asks first ("Start
+    /// over", "New link") is armed, and for how many seconds more it waits
+    /// for its second tap (0 = not armed).
     #[derive(Resource, Default)]
     pub(crate) struct Open {
         open: bool,
@@ -495,6 +505,14 @@ pub(crate) mod panel {
         tab: Tab,
         ring: f32,
         armed: f32,
+        arming: Option<Choice>,
+    }
+
+    impl Open {
+        /// Is `choice` waiting for its second tap?
+        fn is_armed(&self, choice: Choice) -> bool {
+            self.armed > 0.0 && self.arming == Some(choice)
+        }
     }
 
     impl Open {
@@ -675,7 +693,13 @@ pub(crate) mod panel {
                         Choice::Everyone,
                         Choice::Nearby,
                     );
-                    slider(&mut l, left, y, Slider::Range)
+                    let y = slider(&mut l, left, y, Slider::Range);
+                    // A little apart: it can't be undone.
+                    l.labels
+                        .push((Tab::Coop, Vec2::new(left + PAD, y), "Your invite link"));
+                    let y = y + LABEL;
+                    l.choices.push((Choice::NewLink, whole(left, y)));
+                    y + ROW + PAD
                 }
             };
             bottom = bottom.max(end);
@@ -694,6 +718,27 @@ pub(crate) mod panel {
                     .chain()
                     .in_set(GameSet::Present),
             );
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Update, tell_tests.in_set(GameSet::Present));
+    }
+
+    /// The canvas's `data-settings`, for the browser tests (which can't read the game's own text): "closed", or the
+    /// open tab, with the choice waiting for its second tap ("Game armed StartOver").
+    #[cfg(target_arch = "wasm32")]
+    fn tell_tests(open: Res<Open>, mut said: Local<String>) {
+        let now = match (open.open, open.arming.filter(|c| open.is_armed(*c))) {
+            (false, _) => "closed".to_string(),
+            (true, None) => format!("{:?}", open.tab),
+            (true, Some(c)) => format!("{:?} armed {c:?}", open.tab),
+        };
+        if *said != now
+            && let Some(canvas) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id("crabscape"))
+        {
+            let _ = canvas.set_attribute("data-settings", &now);
+            *said = now;
+        }
     }
 
     fn text(words: &str, size: f32) -> impl Bundle {
@@ -850,8 +895,8 @@ pub(crate) mod panel {
         }
         for &(choice, r) in l.choices.iter().filter(|(c, _)| c.tab() == tab) {
             p.spawn((choice, pill(r, o))).with_children(|b| {
-                if choice == Choice::StartOver {
-                    b.spawn((StartOverLabel, text(choice.words(), 13.0)));
+                if choice.asks_first() {
+                    b.spawn((ArmedLabel(choice), text(choice.words(), 13.0)));
                 } else {
                     b.spawn(text(choice.words(), 13.0));
                 }
@@ -971,6 +1016,7 @@ pub(crate) mod panel {
         mut sim: ResMut<crabsim::Sim>,
         mut codes: MessageWriter<crate::codes::Typed>,
         mut sfx: MessageWriter<PlaySfx>,
+        mut new_link: MessageWriter<crate::coop::NewLink>,
     ) {
         open.ring = (open.ring - time.delta_secs()).max(0.0);
         open.armed = (open.armed - time.delta_secs()).max(0.0);
@@ -1027,12 +1073,19 @@ pub(crate) mod panel {
                         codes.write(crate::codes::Typed(text));
                     }
                 }
-                Some(Choice::StartOver) if open.armed > 0.0 => {
+                Some(c @ (Choice::StartOver | Choice::NewLink)) if open.is_armed(c) => {
                     open.open = false;
                     open.armed = 0.0;
-                    crate::reset::start_over(&mut sim);
+                    if c == Choice::StartOver {
+                        crate::reset::start_over(&mut sim);
+                    } else {
+                        new_link.write(crate::coop::NewLink);
+                    }
                 }
-                Some(Choice::StartOver) => open.armed = ARMED_FOR,
+                Some(c @ (Choice::StartOver | Choice::NewLink)) => {
+                    open.armed = ARMED_FOR;
+                    open.arming = Some(c);
+                }
                 None => {}
             }
         }
@@ -1115,8 +1168,8 @@ pub(crate) mod panel {
         mut panel: Query<&mut Visibility, (With<Panel>, Without<SliderRow>)>,
         mut rows: Query<(&SliderRow, &mut Visibility), Without<Panel>>,
         mut choices: Query<(&Choice, &mut BackgroundColor)>,
-        mut labels: Query<(&SliderLabel, &mut Text), Without<StartOverLabel>>,
-        mut start_over: Query<(&mut Text, &mut TextColor), With<StartOverLabel>>,
+        mut labels: Query<(&SliderLabel, &mut Text), Without<ArmedLabel>>,
+        mut asks: Query<(&ArmedLabel, &mut Text, &mut TextColor)>,
         mut fill: Query<(&Fill, &mut Node), Without<Knob>>,
         mut knob: Query<(&Knob, &mut Node), Without<Fill>>,
         window: Single<&Window>,
@@ -1127,7 +1180,6 @@ pub(crate) mod panel {
         for (row, mut visibility) in &mut rows {
             visibility.set_if_neq(shown(row.0.shown(&settings)));
         }
-        let armed = open.armed > 0.0;
         for (choice, mut bg) in &mut choices {
             let picked = match choice {
                 Choice::Smooth => !settings.saver,
@@ -1139,23 +1191,26 @@ pub(crate) mod panel {
                 Choice::Calm => settings.track == Track::Calm,
                 Choice::Themes => settings.track == Track::Themes,
                 Choice::Report | Choice::Code => false,
-                Choice::StartOver => armed,
+                Choice::StartOver | Choice::NewLink => open.is_armed(*choice),
             };
-            let colour = match (choice, picked) {
-                (Choice::StartOver, true) => Color::srgba(0.55, 0.22, 0.12, 0.8),
+            let colour = match (choice.asks_first(), picked) {
+                (true, true) => Color::srgba(0.55, 0.22, 0.12, 0.8),
                 (_, true) => Color::srgba(0.35, 0.55, 0.6, 0.75),
                 (_, false) => Color::srgba(0.05, 0.12, 0.14, 0.45),
             };
             bg.set_if_neq(BackgroundColor(colour));
         }
-        let (words, colour) = if armed {
-            ("Sure? Start over", Color::srgba(1.0, 0.8, 0.6, 1.0))
-        } else {
-            ("Start over", Color::srgba(1.0, 0.9, 0.7, 0.8))
-        };
-        for (mut text, mut text_colour) in &mut start_over {
+        for (label, mut text, mut text_colour) in &mut asks {
+            let (words, colour) = if open.is_armed(label.0) {
+                (
+                    format!("Sure? {}", label.0.words()),
+                    Color::srgba(1.0, 0.8, 0.6, 1.0),
+                )
+            } else {
+                (label.0.words().into(), Color::srgba(1.0, 0.9, 0.7, 0.8))
+            };
             if text.0 != words {
-                text.0 = words.into();
+                text.0 = words;
                 text_colour.0 = colour;
             }
         }
@@ -1288,7 +1343,7 @@ pub(crate) mod panel {
                 let l = layout_for(window, web, lines);
                 let tabs = tabs_for(web);
                 assert_eq!(l.sliders.len(), if web { 5 } else { 0 }, "{at}");
-                assert_eq!(l.choices.len(), if web { 11 } else { 5 }, "{at}");
+                assert_eq!(l.choices.len(), if web { 12 } else { 5 }, "{at}");
                 // On screen without scrolling, under the button.
                 assert!(
                     l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - super::super::MARGIN,

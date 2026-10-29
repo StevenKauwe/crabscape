@@ -6,6 +6,8 @@ crabsim = "run --release --quiet -p crabsim --"
 tidy = "run -q --release --offline --manifest-path tools/tidy/Cargo.toml --"
 # `cargo webtest`: play the web build (web/) in WebKit, the iPhone engine, and check it works (see tools/webtest).
 webtest = "run --profile art --quiet -p webtest --"
+# `cargo cooptest`: play co-op in real Chrome browsers and check its promises (docs/design/coop-promises.md).
+cooptest = "run --profile art --quiet -p cooptest --"
 
 # `cargo test -p crabsim --target wasm32-wasip1` runs the simulation's tests as WebAssembly in wasmtime, to prove it
 # plays out bit for bit the same as natively (CI does). Only for that target; the browser build is untouched.

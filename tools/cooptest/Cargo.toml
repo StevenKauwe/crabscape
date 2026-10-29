@@ -1,0 +1,18 @@
+[package]
+name = "cooptest"
+version = "0.1.0"
+edition = "2024"
+authors = ["Steven Kauwe"]
+description = "Plays co-op in two (or three) real Chrome browsers with a local introducer and checks the promises in docs/design/coop-promises.md."
+publish = false
+
+# Chrome is driven through its own DevTools protocol (a WebSocket on localhost, see src/chrome.rs): it reloads pages,
+# freezes them for a few seconds and records errors before the game's scripts run, which plain WebDriver can't.
+[dependencies]
+serde_json = "1"
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+# Screenshots of a failure.
+base64 = "0.22"
+
+[lints]
+workspace = true
