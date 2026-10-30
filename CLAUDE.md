@@ -86,8 +86,7 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - Branch (`issue-<n>-<slug>`) → PR (`Closes #<n>`, what changed, how verified, screenshots for visual changes) →
   `gh pr merge --squash --auto --delete-branch`. Rebase on `main` and resolve conflicts yourself. Never push to `main`.
 - CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests,
-  cargo-deny, the tidy tool's checks, mutation testing of a PR's changed lines (and on `main`, a coverage report: see
-  "Testing and linting" below), the web build, relaxed-SIMD check, a size report, the browser tests (after the web
+  cargo-deny, the tidy tool's checks (and on `main`, a coverage report: see "Testing and linting" below), the web build, relaxed-SIMD check, a size report, the browser tests (after the web
   build, at once: `cargo webtest` portrait and landscape in WebKit, `cargo cooptest` in three parts, frame strips;
   the tools are built once beside the web build), native = wasm determinism (`tools/determinism.sh`, the sim's tests in wasmtime too) and an art
   check (re-exports the rigs and oil atlases; the committed crab and creature art must match; on a Mac, take the
@@ -125,7 +124,7 @@ and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbco
 | Test | `cargo test --workspace` |
 | Property tests (deeper search) | `PROPTEST_CASES=2000 cargo test -p crabsim --release --test properties` |
 | Dependencies (advisories, licences, duplicates, sources) | `cargo deny --workspace --locked check`, then the same with `--target wasm32-unknown-unknown` (and `deny.toml` has the introducer's) |
-| Mutation testing of your change | `tools/mutants-pr.sh` (changed lines since `origin/main`; needs `cargo install --locked cargo-mutants`) |
+| Mutation testing of your change (optional, local) | `tools/mutants-pr.sh` (changed lines since `origin/main`; needs `cargo install --locked cargo-mutants`) |
 | Coverage report | `cargo llvm-cov --workspace --summary-only` (needs `cargo install --locked cargo-llvm-cov` and `rustup component add llvm-tools`) |
 | Web build into `web/` | `tools/build-web.sh` (serve with any static server, e.g. `python3 -m http.server -d web`) |
 | WebKit (iPhone engine) test | `cargo webtest [--landscape \| --desktop] [--shots /tmp/shot]` (after the web build; needs WebKitGTK 4.1 and `WebKitWebDriver`, Ubuntu `webkitgtk-webdriver`, before 26.04 `webkit2gtk-driver`) |
@@ -157,15 +156,12 @@ What each automatic check is for (commands in the table above; all in CI):
 - **cargo-deny** (`deny.toml`): fails on a known security advisory, a licence not on the list, or an unknown source;
   warns on duplicate crate versions (each is downloaded twice in the web build). An ignored advisory says why it
   can't reach us. Our own crates have no licence and are skipped (never add one).
-- **Mutation testing on the changed lines** (`mutation testing (changed lines)`, `tools/mutants-pr.sh`,
-  `.cargo/mutants.toml`): cargo-mutants breaks each changed line of `crates/sim`, `src/coop.rs`, `src/voice.rs`,
-  `src/character.rs` and `tools/introducer` in small ways; the job fails if no test notices. Fix it with a test of
-  the behaviour the line is for. Browser-only code (`web::`), Bevy plugin wiring, on-screen layout and the `crabsim`
-  command line are left out. A weekly full run of `crates/sim` (`mutants-weekly.yml`) lists the old gaps, for
-  information only.
+- **Mutation testing, weekly only** (`mutants-weekly.yml`, settings in `.cargo/mutants.toml`): cargo-mutants breaks
+  the game rules (`crates/sim`) in small ways and lists each break no test noticed, for information only. Not on PRs
+  (owner's call: it took 8 to 18 minutes a change, the slowest check by far). Want it on your own change?
+  `tools/mutants-pr.sh` runs it locally on the changed lines.
 - **Coverage** (`test coverage (information only)`, `coverage.yml`): cargo-llvm-cov's table in the job summary, after
-  each push to `main` and weekly, not on PRs. No threshold and it never fails: mutation testing is what holds new code
-  to its tests.
+  each push to `main` and weekly, not on PRs. No threshold and it never fails.
 
 **CI hygiene** (owner's rule: "testing and CI/CD hygiene are really important, so that changes are buttery smooth and
 fast"):

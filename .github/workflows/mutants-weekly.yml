@@ -1,6 +1,6 @@
 # Mutation testing of the whole game rules (crates/sim), once a week, for information only: which code no test would
-# notice breaking. It never fails and nothing waits on it; pick a missed line to cover when there's time. Each pull
-# request is held to its own changed lines by CI's "mutation testing (changed lines)" job instead.
+# notice breaking. It never fails and nothing waits on it; pick a missed line to cover when there's time. Pull
+# requests don't run it (too slow); tools/mutants-pr.sh runs it locally on a change's own lines.
 # About 3,500 mutants at roughly half a minute each: split over 12 machines (about 2 hours each), on Sunday night.
 #   gh workflow run mutants-weekly.yml      # run it now
 # Actions are pinned to commit SHAs; the comment says which release that is.

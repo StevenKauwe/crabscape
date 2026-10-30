@@ -11,6 +11,8 @@ This is a self-check, not a gate. Nobody approves anything, and never ask a huma
 
 1. **Context.** Read `CLAUDE.md`. `gh pr view <n> --comments` and the linked issue's "Done when".
 2. **Checks.** `gh pr checks <n>`. If CI is missing or red, `gh pr checkout <n>` and run the checks in `CLAUDE.md`.
+   Changed game rules, co-op, voice or the introducer and want to know the tests really cover it? `tools/mutants-pr.sh`
+   (optional, local, a few minutes; CI no longer runs it).
 3. **Read the diff** (`gh pr diff <n>`). Look for, in this order:
    - Does it do what the issue's "Done when" says, and nothing unrelated?
    - Rule breaks: licence files/fields, relaxed-SIMD or `RUSTFLAGS` tricks, air/air-tank/pressure-helmet ideas,
