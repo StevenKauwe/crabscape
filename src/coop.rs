@@ -245,6 +245,52 @@ fn status(host: bool, together: bool, n: usize) -> String {
     }
 }
 
+/// This build's exact version: the commit its web build was made from (`tools/build-web.sh` sets it, and writes it
+/// to `pkg/commit.txt` beside the game), "dev" without it. Co-op friends play only on the same one.
+pub(crate) const VERSION: &str = match option_env!("CRABSCAPE_VERSION") {
+    Some(v) => v,
+    None => "dev",
+};
+
+/// The first word on every co-op connection: "this is CrabScape, at version ...". Its first byte starts no message
+/// of any version (a message's first byte is its kind, a small number), so no game takes it for game data.
+const HELLO: &[u8] = b"\xffcrabscape version ";
+
+/// The hello this game sends: its `version`.
+fn hello(version: &str) -> Vec<u8> {
+    Vec::new()
+}
+
+/// The version in a friend's hello, if `bytes` are one.
+fn read_hello(bytes: &[u8]) -> Option<&str> {
+    None
+}
+
+/// What to do about a friend whose game is on another version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Update {
+    /// Same version: play together.
+    Play,
+    /// This game is the old one: reload the page to get the new one.
+    Reload,
+    /// The friend's game is the old one: it reloads; wait for it.
+    FriendUpdates,
+    /// Can't tell which is new, or a reload didn't bring the new one: no playing together.
+    Different,
+}
+
+/// A friend on version `theirs` met this game, on `mine`. `deployed`: the version the site serves now (None: it
+/// couldn't be read); `reloaded_from`: the version this tab already reloaded away from to update (so a reload that
+/// brought the same version again isn't tried forever). Whichever game isn't the site's version is the old one.
+fn on_version(
+    mine: &str,
+    theirs: &str,
+    deployed: Option<&str>,
+    reloaded_from: Option<&str>,
+) -> Update {
+    Update::Play
+}
+
 /// Is this word from the host? Its crab's updates, or the world it sends a
 /// device that just connected (often before its crab). A guest playing alone
 /// takes the host's world on the first of these; it would drop the world if
@@ -1133,6 +1179,42 @@ mod tests {
         // Before the cap: a browser that can't reach the address servers took ~40 s each way, longer than the
         // host's 15 s, so every attempt was cut off and the friend never got back in.
         assert_eq!(back_together(2.0, 80.0, 300.0), None);
+    }
+
+    #[test]
+    fn friends_on_different_versions_never_read_each_others_messages_and_the_old_game_reloads() {
+        use Update::*;
+        let (old, new) = ("0a1b2c", "9f8e7d");
+        // Same version: play, whatever the site says.
+        assert_eq!(on_version(new, new, None, None), Play);
+        assert_eq!(on_version(new, new, Some(old), Some(new)), Play);
+        // The site serves the friend's version: this game is the old one and reloads.
+        assert_eq!(on_version(old, new, Some(new), None), Reload);
+        // ...or a newer one than both: both reload.
+        assert_eq!(on_version(old, new, Some("777777"), None), Reload);
+        assert_eq!(on_version(new, old, Some("777777"), None), Reload);
+        // An earlier update of this tab, from another version, doesn't stop this one.
+        assert_eq!(on_version(old, new, Some(new), Some("555555")), Reload);
+        // The site serves this game's version: the friend's is the old one, and it updates.
+        assert_eq!(on_version(new, old, Some(new), None), FriendUpdates);
+        // Reloaded already and still on the same version (a stale cache): no reloading again and again.
+        assert_eq!(on_version(old, new, Some(new), Some(old)), Different);
+        // The site's version couldn't be read: no telling which is new.
+        assert_eq!(on_version(old, new, None, None), Different);
+        assert_eq!(on_version(new, old, None, None), Different);
+    }
+
+    #[test]
+    fn a_hello_says_the_version_and_is_never_a_game_message() {
+        let bytes = hello("9f8e7d");
+        assert_eq!(read_hello(&bytes), Some("9f8e7d"));
+        assert_eq!(read_hello(&hello(VERSION)), Some(VERSION));
+        assert!(crabsim::net::Msg::from_bytes(&bytes).is_none());
+        // Game messages and rubbish are not hellos.
+        assert_eq!(read_hello(&crabsim::net::Msg::NetCut(3).to_bytes()), None);
+        assert_eq!(read_hello(b"\xffcrabscape versio"), None);
+        assert_eq!(read_hello(b"\xffcrabscape version \xff\xfe"), None);
+        assert_eq!(read_hello(b""), None);
     }
 
     #[test]
