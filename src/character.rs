@@ -293,10 +293,8 @@ const B64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 fn base64url(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let n = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |n, (k, &b)| n | u32::from(b) << (16 - 8 * k));
+        // The chunk's bytes as one number, the first byte highest.
+        let n = chunk.iter().fold(0u32, |n, &b| (n << 8) + u32::from(b)) << (8 * (3 - chunk.len()));
         for k in 0..=chunk.len() {
             s.push(B64URL[(n >> (18 - 6 * k) & 63) as usize] as char);
         }
@@ -657,7 +655,10 @@ mod web {
         let Some(text) = with(|d| d.pasted.take()) else {
             return;
         };
+        // The file and close buttons give way to "Replace your crab?" while
+        // a crab is ready to load.
         set_hidden("character-confirm", true);
+        set_hidden("character-import", false);
         set_text("character-summary", "");
         with(|d| d.ready = None);
         if text.trim().is_empty() {
@@ -670,6 +671,7 @@ mod web {
                 set_text("character-summary", &summary(&c, &sim));
                 note("");
                 set_hidden("character-confirm", false);
+                set_hidden("character-import", true);
                 tell_tests("ready");
                 with(|d| d.ready = Some(c));
             }

@@ -5,8 +5,8 @@
 //!   "Enter a code" asks for a code (`codes.rs`; phones have no Enter key),
 //!   "Your character": Export and Import, to take the crab to another browser,
 //!   device or build (`character.rs`), and last, a little apart, "Start
-//!   over" (`reset.rs`), which asks for a
-//!   second tap ("Sure? Start over") before it wipes anything. Under it, a
+//!   over" (`reset.rs`), which asks for a second tap ("Sure? Start over")
+//!   before it wipes anything. Under it, a
 //!   quiet line says which build this is ("Build 5d3eb47, Oct 29", and
 //!   "preview pr-183" or "branch <name>" for a copy that isn't the live game).
 //! - **Graphics**: the art style (Ink or Oil, see `style.rs`) and how smooth
