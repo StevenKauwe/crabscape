@@ -445,6 +445,9 @@ struct PuppetAnim {
     prev_vx: f32,
     /// 0..1 (smoothed): bulked up (the `hulk` code, `crabsim::codes`).
     hulk: f32,
+    /// How big it has grown at its moults (smoothed from `Mover::grown`;
+    /// 0 until first drawn).
+    grown: f32,
     /// Where the swinging claw is aimed (smoothed from the sim's
     /// `Swing::aim`): world units up (> 0) or down (< 0).
     aim: f32,
@@ -1301,9 +1304,18 @@ fn animate(
             let r = sim.tuning.respawn_ticks as f32;
             ((d as f32 - 0.45 * r) / (0.4 * r)).clamp(0.0, 1.0)
         });
-        // Bulked up (hulk): bigger all over, swelling up from the feet.
+        // Grown at its moults, and bulked up (hulk): bigger all over, from
+        // the feet. A fresh moult's new shell swells to its size over a
+        // moment; a crab first drawn (a friend's, a loaded save) is already
+        // its size.
+        let size = mover.grown(&sim.tuning);
+        a.grown = if a.grown > 0.0 {
+            ease(a.grown, size, 2.0, dt)
+        } else {
+            size
+        };
         a.hulk = ease(a.hulk, f32::from(u8::from(mover.hulk)), 5.0, dt);
-        let bulk = 1.0 + (sim.tuning.hulk.scale - 1.0) * a.hulk;
+        let bulk = (1.0 + (sim.tuning.hulk.scale - 1.0) * a.hulk) * a.grown;
         if let Ok((mut tr, _)) = parts.get_mut(rig.root) {
             tr.scale =
                 Vec3::new(1.0 + 0.10 * a.squash, 1.0 - 0.20 * a.squash, 1.0) * (1.0 - gone) * bulk;

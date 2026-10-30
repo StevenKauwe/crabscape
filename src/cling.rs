@@ -1,11 +1,11 @@
 //! Small things clinging to a crab's shell, as the player sees them (the
-//! rules are `crabsim`'s: up to `Tuning::cling` clams and pieces of shell
-//! grit at once, besides the big find on its back).
+//! rules are `crabsim`'s: up to `Mover::carries` clams and pieces of shell
+//! grit at once, more on a bigger shell, besides the big find on its back).
 //!
 //! Each one is drawn stuck to the dome of the carapace, the way a decorator
 //! crab wears bits of the floor, so you see what you are carrying: the first
 //! two on its shoulders, then one between the eye stalks, then lower on a
-//! flank. They move with the shell (its bob, lean and turn), and every
+//! flank, and more round the dome on a shell grown bigger at its moults. They move with the shell (its bob, lean and turn), and every
 //! crab wears its own, a friend's too. A cast-off shell shows them the same
 //! way (`home.rs`).
 
@@ -17,15 +17,17 @@ use crate::player::GameSet;
 use crate::puppet::ShellOf;
 
 /// Where each one clings, from the carapace's middle (world units), and its
-/// turn, lying along the dome. More spots than the shell holds, in case
-/// the tuning lets it hold more.
-const SPOTS: [(f32, f32, f32); 6] = [
+/// turn, lying along the dome. As many spots as the biggest shell holds
+/// (`Mover::carries`), and one spare in case the tuning lets it hold more.
+const SPOTS: [(f32, f32, f32); 8] = [
     (-29.0, 13.5, 0.36),
     (29.0, 13.5, -0.36),
     (0.0, 19.0, 0.0),
     (-39.0, 8.0, 0.5),
     (39.0, 8.0, -0.5),
     (-15.0, 18.0, 0.15),
+    (15.0, 18.0, -0.15),
+    (-46.0, 2.0, 0.65),
 ];
 /// In front of the carapace's own layers, behind the eye stalks and claws.
 const DEPTH: f32 = 0.05;
@@ -84,6 +86,14 @@ pub fn spawn_small(
         });
 }
 
+/// How many small things the biggest shell carries (a crab grown as big as
+/// moulting makes it).
+fn most_carried(t: &crabsim::Tuning) -> usize {
+    let mut biggest = Mover::new(Vec2::ZERO);
+    biggest.moults = u32::MAX;
+    biggest.carries(t).max(t.cling)
+}
+
 /// One small thing that can cling to crab `crab`'s shell: shown while the
 /// thing in its slot is of its kind.
 #[derive(Component)]
@@ -93,8 +103,8 @@ struct Clinging {
     kind: Carry,
 }
 
-/// A new crab's carapace gets a clam and a piece of grit in every slot,
-/// hidden until something clings there.
+/// A new crab's carapace gets a clam and a piece of grit in every slot the
+/// biggest shell has, hidden until something clings there.
 fn attach(
     mut commands: Commands,
     sim: Res<Sim>,
@@ -104,7 +114,7 @@ fn attach(
 ) {
     for (shell, of) in &shells {
         commands.entity(shell).with_children(|parent| {
-            for slot in 0..sim.tuning.cling {
+            for slot in 0..most_carried(&sim.tuning) {
                 for kind in [Carry::Clam, Carry::Grit] {
                     let thing = Clinging {
                         crab: of.0,
