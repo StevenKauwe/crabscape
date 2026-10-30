@@ -172,15 +172,15 @@
     #report-voice-box { display: flex; flex-direction: column; gap: 6px; }
     #report-voice-box .warn { font-size: 13px; opacity: 0.85; }
     #report textarea#report-voice { min-height: 70px; max-height: 26vh; font-size: 16px; line-height: 1.35; }
-    /* What players are told about voice chat being written down (src/scribe.rs): low on the screen, between the
-       touch controls, never in the way of a tap. */
+    /* What players are told about voice chat being written down (src/scribe.rs): under the corner buttons and the
+       co-op status line, over the sea above the crab, never in the way of a tap. */
     #voice-note {
       position: fixed;
       left: 50%;
-      bottom: calc(max(14px, env(safe-area-inset-bottom)) + 10vh);
+      top: calc(env(safe-area-inset-top) + 170px);
       transform: translateX(-50%);
       width: max-content;
-      max-width: min(420px, calc(100% - 140px));
+      max-width: min(420px, calc(100% - 32px));
       padding: 8px 14px;
       border-radius: 12px;
       background: #03090cd9;

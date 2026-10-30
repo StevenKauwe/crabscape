@@ -801,8 +801,8 @@ mod tests {
         assert_eq!(plain["kind"], "bug");
         assert_eq!(plain["text"], "stuck");
         assert!(plain.get("voice").is_none(), "not ticked: no voice chat");
-        let with = send(Some("[-0:12] Crab 41: the door won't open\n"));
-        assert_eq!(with["voice"], "[-0:12] Crab 41: the door won't open");
+        let with = send(Some("[14:32:05] Crab 41: the door won't open\n"));
+        assert_eq!(with["voice"], "[14:32:05] Crab 41: the door won't open");
         assert!(
             send(Some("  \n ")).get("voice").is_none(),
             "ticked but all deleted: none"

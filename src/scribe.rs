@@ -10,9 +10,11 @@
 //! the speech-to-text worker the report form's Speak uses (`listener.rs`,
 //! `crates/listen`). The sound never leaves the device; the words do: each
 //! line (the speaker's crab name, when, the words) goes to every friend over
-//! the co-op connection, and every device keeps everyone's lines from the
-//! last [`KEEP_SECS`] seconds, in the tab's own storage (it survives a
-//! reload, and is gone when the tab closes).
+//! the co-op connection the moment it's written down, and every device
+//! keeps everyone's lines from the last [`KEEP_SECS`] seconds in the
+//! browser's storage (it survives a reload; older lines are dropped as the
+//! game opens and with each new line). A report shows them as a chat log,
+//! each line with the clock time it began: "[14:32:05] Crab 41: words".
 //!
 //! Everyone is told, every session: when their microphone turns on and when
 //! a friend joins the call, a plain note says voice chat is written down; a
@@ -121,15 +123,16 @@ impl Transcript {
         self.lines.is_empty()
     }
 
-    /// The lines as text for a report, each with how long before `now` it
-    /// began: "[-3:12] Crab 41: the door won't open". The newest lines that
-    /// fit in `max` characters.
-    pub fn text(&self, now: f64, max: usize) -> String {
+    /// The lines as a chat log for a report, each with the clock time it
+    /// began: "[14:32:05] Crab 41: the door won't open". `ahead` is how many
+    /// seconds the device's clock is ahead of UTC (its time zone). Only lines
+    /// from the last [`KEEP_SECS`] before `now`: the newest that fit in `max`
+    /// characters.
+    pub fn text(&self, now: f64, ahead: i64, max: usize) -> String {
         let mut kept: Vec<String> = Vec::new();
         let mut used = 0;
         for l in self.lines.iter().rev().filter(|l| now - l.at <= KEEP_SECS) {
-            let ago = (now - l.at).max(0.0) as u64;
-            let line = format!("[-{}:{:02}] {}: {}", ago / 60, ago % 60, l.who, l.text);
+            let line = format!("[{}] {}: {}", clock(l.at, ahead), l.who, l.text);
             let len = line.chars().count() + 1;
             if used + len > max {
                 break;
@@ -141,7 +144,7 @@ impl Transcript {
         kept.join("\n")
     }
 
-    /// As kept in the tab's storage.
+    /// As kept in the browser's storage.
     pub fn to_json(&self) -> String {
         serde_json::to_string(&self.lines).unwrap_or_default()
     }
@@ -156,6 +159,13 @@ impl Transcript {
         t.prune(now);
         t
     }
+}
+
+/// The time of day of `at` (seconds since 1970) on a clock `ahead` seconds
+/// ahead of UTC: "14:32:05".
+pub fn clock(at: f64, ahead: i64) -> String {
+    let secs = (at.floor() as i64 + ahead).rem_euclid(24 * 60 * 60);
+    format!("{:02}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60)
 }
 
 /// What this device knows of everyone's writing down: the transcript, and
@@ -261,6 +271,9 @@ const BUSY_FOR: f32 = 10.0;
 /// Watches the frame rate for [`Skip::Busy`].
 #[derive(Default, Debug)]
 pub struct Busy {
+    /// A frame's time, smoothed over the last second or so (single frames
+    /// jitter: a struggling device still has some quick ones).
+    dt: f32,
     slow_for: f32,
     pub seen: bool,
 }
@@ -268,13 +281,22 @@ pub struct Busy {
 impl Busy {
     /// A frame that took `dt` seconds, while writing (or not).
     pub fn frame(&mut self, dt: f32, writing: bool) {
-        if !writing || dt <= 0.0 || 1.0 / dt >= BUSY_FPS {
+        // A long frame (a tab coming back, a hitch) says nothing of the device.
+        if !writing || dt <= 0.0 || dt > 0.25 {
+            self.slow_for = 0.0;
+            return;
+        }
+        self.dt = if self.dt == 0.0 {
+            dt
+        } else {
+            self.dt * 0.95 + 0.05 * dt
+        };
+        if 1.0 / self.dt >= BUSY_FPS {
             self.slow_for = 0.0;
             return;
         }
         self.slow_for += dt;
-        // A single long frame (a tab coming back) isn't a slow device.
-        if self.slow_for >= BUSY_FOR && dt < 0.25 {
+        if self.slow_for >= BUSY_FOR {
             self.seen = true;
         }
     }
@@ -492,7 +514,9 @@ pub(crate) mod web {
     use crate::player::GameSet;
     use crate::settings::Settings;
 
-    /// Where the transcript is kept: the tab's own storage.
+    /// Where the transcript is kept, in the browser's storage (it survives a
+    /// reload or a closed tab; what's over 15 minutes old is dropped as the
+    /// game opens and with each new line).
     const KEY: &str = "-voice-transcript";
     /// How long a note shows (seconds).
     const NOTE_FOR: f64 = 9.0;
@@ -505,7 +529,9 @@ pub(crate) mod web {
 
     /// The microphone's sound, feeding the scribe.
     struct Capture {
-        track: MediaStreamTrack,
+        /// The microphone's id. (Not the track itself: web-sys's `clone` on a
+        /// track is the browser's, which makes a second live microphone.)
+        track: String,
         source: MediaStreamAudioSourceNode,
         node: ScriptProcessorNode,
         sink: GainNode,
@@ -546,14 +572,13 @@ pub(crate) mod web {
         js_sys::Date::now() / 1000.0
     }
 
-    fn storage() -> Option<web_sys::Storage> {
-        web_sys::window()?.session_storage().ok()?
+    fn keep(t: &Transcript) {
+        crate::save::write_key(KEY, &t.to_json());
     }
 
-    fn keep(t: &Transcript) {
-        if let Some(s) = storage() {
-            let _ = s.set_item(&crate::save::browser_key(KEY), &t.to_json());
-        }
+    /// Seconds this device's clock is ahead of UTC.
+    fn ahead() -> i64 {
+        -(js_sys::Date::new_0().get_timezone_offset() as i64) * 60
     }
 
     pub fn build(app: &mut App) {
@@ -563,9 +588,7 @@ pub(crate) mod web {
 
     /// The transcript kept over a reload (what's still recent).
     fn load() {
-        let json = storage()
-            .and_then(|s| s.get_item(&crate::save::browser_key(KEY)).ok().flatten())
-            .unwrap_or_default();
+        let json = crate::save::read_key(KEY).unwrap_or_default();
         let t = Transcript::from_json(&json, now());
         keep(&t);
         with(|s| s.book.transcript = t);
@@ -620,7 +643,7 @@ pub(crate) mod web {
             note(w.words());
         }
         let want = track.filter(|_| why.is_none());
-        let have = with(|s| s.capture.as_ref().map(|c| c.track.id()));
+        let have = with(|s| s.capture.as_ref().map(|c| c.track.clone()));
         if want.as_ref().map(|t| t.id()) != have {
             stop();
             if let Some(track) = want {
@@ -694,7 +717,7 @@ pub(crate) mod web {
         with(|s| {
             s.scribe = Some(Scribe::new(rate));
             s.capture = Some(Capture {
-                track: track.clone(),
+                track: track.id(),
                 source,
                 node,
                 sink,
@@ -743,10 +766,19 @@ pub(crate) mod web {
             return;
         }
         let sound = resample(&utterance, rate, LISTEN_RATE);
-        crate::listener::ask(
+        let asked = crate::listener::ask(
             crate::listener::Job::Voice { at },
             Float32Array::from(sound.as_slice()),
         );
+        if !asked {
+            // No worker in this browser: writing down can't happen here.
+            with(|s| {
+                s.behind = true;
+                if let Some(scribe) = s.scribe.as_mut() {
+                    scribe.pending = scribe.pending.saturating_sub(1);
+                }
+            });
+        }
     }
 
     /// The worker wrote down this player's utterance that began at `at`
@@ -828,7 +860,7 @@ pub(crate) mod web {
     pub fn book_text() -> String {
         with(|s| {
             s.book.transcript.prune(now());
-            s.book.transcript.text(now(), REPORT_MAX)
+            s.book.transcript.text(now(), ahead(), REPORT_MAX)
         })
     }
 
@@ -836,13 +868,14 @@ pub(crate) mod web {
     pub fn state() -> String {
         with(|s| {
             format!(
-                "transcript {}; {}",
+                "transcript {}; {}; at the listener {}",
                 s.book.transcript.lines().len(),
                 match s.skip {
                     None if s.capture.is_some() => "writing".to_string(),
                     None => "ready".to_string(),
                     Some(w) => format!("not writing ({w:?})"),
-                }
+                },
+                s.scribe.as_ref().map_or(0, |sc| sc.pending)
             )
         })
     }
@@ -879,8 +912,8 @@ mod tests {
         assert_eq!(lines[0].text, "the door won't open");
         assert_eq!(lines[0].at, now - 2.5);
         assert_eq!(
-            book.transcript.text(now + 60.0, REPORT_MAX),
-            "[-1:02] Crab 41: the door won't open"
+            book.transcript.text(now + 60.0, 0, REPORT_MAX),
+            "[13:46:37] Crab 41: the door won't open"
         );
     }
 
@@ -924,9 +957,20 @@ mod tests {
         let mut t = Transcript::default();
         t.add(20.0, "B", "later", 20.0);
         t.add(10.0, "A", "earlier", 20.0);
-        assert_eq!(t.text(80.0, 1000), "[-1:10] A: earlier\n[-1:00] B: later");
-        assert_eq!(t.text(80.0, 20), "[-1:00] B: later", "only the newest fits");
-        assert_eq!(t.text(80.0, 5), "");
+        assert_eq!(
+            t.text(80.0, 0, 1000),
+            "[00:00:10] A: earlier\n[00:00:20] B: later"
+        );
+        assert_eq!(
+            t.text(80.0, 0, 22),
+            "[00:00:20] B: later",
+            "only the newest fits"
+        );
+        assert_eq!(t.text(80.0, 0, 5), "");
+        // On the device's own clock: two hours ahead of UTC, or five behind.
+        assert_eq!(t.text(80.0, 2 * 3600, 22), "[02:00:20] B: later");
+        assert_eq!(t.text(80.0, -5 * 3600, 22), "[19:00:20] B: later");
+        assert_eq!(clock(1_761_835_925.7, 0), "14:52:05");
     }
 
     #[test]
@@ -937,8 +981,8 @@ mod tests {
         assert!(!book.friend_writes("Kai", false, 3.0), "told once");
         assert_eq!(book.unwritten(), ["Kai"]);
         assert_eq!(
-            book.transcript.text(2.0, 100),
-            "[-0:00] Kai: (not written down)"
+            book.transcript.text(2.0, 0, 100),
+            "[00:00:02] Kai: (not written down)"
         );
         assert!(book.friend_writes("Kai", true, 4.0));
         assert!(book.unwritten().is_empty());
@@ -1004,6 +1048,16 @@ mod tests {
             busy.frame(1.0 / 30.0, true);
         }
         assert!(busy.seen, "over ten slow seconds while writing is busy");
+        // Jittery frames averaging 36 a second: still too slow.
+        let mut jitter = Busy::default();
+        for i in 0..(36 * 15) {
+            let dt = if i % 3 == 0 { 1.0 / 70.0 } else { 1.0 / 28.0 };
+            jitter.frame(dt, true);
+        }
+        assert!(
+            jitter.seen,
+            "a quick frame now and then doesn't hide a slow device"
+        );
         let mut idle = Busy::default();
         for _ in 0..(30 * 20) {
             idle.frame(1.0 / 30.0, false);

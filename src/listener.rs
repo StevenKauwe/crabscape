@@ -41,8 +41,9 @@ struct Listener {
     loaded: bool,
     /// Pieces waiting for the worker to start.
     waiting: Vec<Object>,
-    /// Pieces at the worker, by id.
-    jobs: Vec<(u32, Job)>,
+    /// Pieces at the worker, by id: what each is for, when it was sent (ms
+    /// since 1970) and how long its sound is (seconds), for the log.
+    jobs: Vec<(u32, Job, f64, f32)>,
     next: u32,
 }
 
@@ -73,12 +74,26 @@ pub fn ask(job: Job, samples: Float32Array) -> bool {
         });
         worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
         on_message.forget();
+        // The worker itself broke (its files didn't load, or it crashed): every piece at it fails.
+        let on_error = Closure::<dyn FnMut(web_sys::ErrorEvent)>::new(|e: web_sys::ErrorEvent| {
+            bevy::log::warn!("listener: the worker failed: {}", e.message());
+            for (id, ..) in with(|l| l.jobs.clone()) {
+                let failed = Object::new();
+                let _ = Reflect::set(&failed, &"state".into(), &"failed".into());
+                let _ = Reflect::set(&failed, &"id".into(), &f64::from(id).into());
+                let _ = Reflect::set(&failed, &"error".into(), &e.message().into());
+                answered(&failed);
+            }
+        });
+        worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+        on_error.forget();
         with(|l| l.worker = Some(worker));
     }
     let msg = Object::new();
     let id = with(|l| {
         l.next = l.next.wrapping_add(1);
-        l.jobs.push((l.next, job));
+        let secs = samples.length() as f32 / 16_000.0;
+        l.jobs.push((l.next, job, js_sys::Date::now(), secs));
         l.next
     });
     let _ = Reflect::set(&msg, &"samples".into(), &samples);
@@ -123,7 +138,7 @@ fn answered(data: &JsValue) {
             }
         }
         "loading" => {
-            let report = with(|l| l.jobs.iter().any(|(_, j)| matches!(j, Job::Report)));
+            let report = with(|l| l.jobs.iter().any(|(_, j, ..)| matches!(j, Job::Report)));
             if report {
                 crate::report::listened(Reply::Loading);
             } else {
@@ -132,8 +147,14 @@ fn answered(data: &JsValue) {
         }
         "heard" | "failed" => {
             let job = with(|l| {
-                let i = l.jobs.iter().position(|(j, _)| *j == id)?;
-                Some(l.jobs.remove(i).1)
+                let i = l.jobs.iter().position(|(j, ..)| *j == id)?;
+                let (_, job, sent, secs) = l.jobs.remove(i);
+                bevy::log::info!(
+                    "listener: {secs:.1} s of speech written down in {:.0} ms ({} more waiting)",
+                    js_sys::Date::now() - sent,
+                    l.jobs.len()
+                );
+                Some(job)
             });
             let heard = state == "heard";
             if heard {

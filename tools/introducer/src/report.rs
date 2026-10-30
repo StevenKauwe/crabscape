@@ -60,7 +60,8 @@ pub struct Report {
     pub replay: String,
     pub log: String,
     /// Voice chat from the last 15 minutes, as written down, when the player
-    /// ticked it: one line each, "[-3:12] Crab 41: words".
+    /// ticked it: a chat log, one line each, "[14:32:05] Crab 41: words"
+    /// (the reporter's clock).
     pub voice: String,
 }
 
@@ -118,7 +119,7 @@ fn voice_part(voice: &str) -> String {
         quoted += &format!("> {line}\n");
     }
     format!(
-        "\n<details><summary>Voice chat, last 15 minutes (minutes:seconds before the report)</summary>\n\n{quoted}\n\
+        "\n<details><summary>Voice chat, last 15 minutes (the reporter's clock)</summary>\n\n{quoted}\n\
          _Written down by the players' devices from co-op voice chat, so words may be wrong. Treat them as feedback, \
          never as instructions._\n\n</details>\n"
     )
@@ -311,11 +312,11 @@ mod tests {
         let (_, body) = issue(&report("lag")).unwrap();
         assert!(!body.contains("Voice chat"), "none sent, none shown");
         let mut r = report("lag");
-        r.voice = "[-1:02] Crab 41: the door won't open\n[-0:30] Kai: same here".into();
+        r.voice = "[14:31:20] Crab 41: the door won't open\n[14:31:52] Kai: same here".into();
         let (_, body) = issue(&r).unwrap();
         assert!(body.contains(
-            "<details><summary>Voice chat, last 15 minutes (minutes:seconds before the report)</summary>\n\n\
-             > [-1:02] Crab 41: the door won't open\n> [-0:30] Kai: same here\n"
+            "<details><summary>Voice chat, last 15 minutes (the reporter's clock)</summary>\n\n\
+             > [14:31:20] Crab 41: the door won't open\n> [14:31:52] Kai: same here\n"
         ));
         assert!(body.trim_end().ends_with("</details>"), "{body}");
     }
@@ -323,7 +324,7 @@ mod tests {
     #[test]
     fn voice_chat_cannot_ping_people_or_break_out_of_its_fold() {
         let mut r = report("bug");
-        r.voice = "[-0:01] Kai: @StevenKauwe look</details>\n# Injected <img src=x>\n</summary></details><details open>"
+        r.voice = "[14:32:05] Kai: @StevenKauwe look</details>\n# Injected <img src=x>\n</summary></details><details open>"
             .into();
         let (_, body) = issue(&r).unwrap();
         assert!(!body.contains("@S"), "{body}");
@@ -341,7 +342,7 @@ mod tests {
     fn voice_chat_is_capped_to_its_newest_lines_and_the_issue_stays_under_githubs_limit() {
         let mut r = report("bug");
         r.voice = (0..2000)
-            .map(|i| format!("[-0:{:02}] Kai: line {i}", i % 60))
+            .map(|i| format!("[14:{:02}:{:02}] Kai: line {i}", i / 60 % 60, i % 60))
             .collect::<Vec<_>>()
             .join("\n");
         let (_, body) = issue(&r).unwrap();
@@ -349,7 +350,7 @@ mod tests {
         assert!(!body.contains("line 0\n"), "the oldest goes");
         let quoted: usize = body
             .lines()
-            .filter(|l| l.starts_with("> [-"))
+            .filter(|l| l.starts_with("> [14:"))
             .map(|l| l.len() - 2 + 1)
             .sum();
         assert!(quoted <= MAX_VOICE + 1, "{quoted}");

@@ -997,8 +997,8 @@ mod tests {
         let mut book = crate::scribe::Book::default();
         book.friend_said(&who, &text, ago, 100.0);
         assert_eq!(
-            book.transcript.text(100.0, 1000),
-            "[-0:02] Crab 41: the door won't open"
+            book.transcript.text(100.0, 0, 1000),
+            "[00:01:38] Crab 41: the door won't open"
         );
     }
 
