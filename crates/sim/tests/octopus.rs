@@ -801,7 +801,7 @@ fn inside_the_ink_a_sight_hunting_enemy_loses_the_crab() {
 }
 
 #[test]
-fn at_0_health_it_jets_off_for_good_leaving_no_body() {
+fn at_0_health_it_jets_off_leaving_no_body_and_its_den_open() {
     let (r, _) = beat(9000);
     let e = &r.sim.enemies()[0];
     assert_eq!(e.state, State::Gone);
@@ -916,7 +916,7 @@ fn at_home(sim: &Sim) -> bool {
         && e.vitals.health == sim.tuning.octopus.base.vitals.health
 }
 
-/// Beat it with blows on its mantle until it has jetted off for good.
+/// Beat it with blows on its mantle until it has jetted off.
 fn beat_it(sim: &mut Sim) {
     let t = sim.tuning.clone();
     let id = sim.crabs()[0].id;

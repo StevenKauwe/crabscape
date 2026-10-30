@@ -21,10 +21,12 @@ pub fn start_over(sim: &mut Sim) {
     }
 }
 
-/// The world as a new game starts it: the crab at the start, recording.
+/// The world as a new game starts it: the crab at the start, recording, and
+/// the level's animals in place (as `player::setup` does).
 fn fresh() -> Sim {
     let mut sim = Sim::with_one_crab(SPAWN);
     sim.start_recording();
+    sim.populate();
     sim
 }
 
