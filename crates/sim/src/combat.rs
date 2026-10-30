@@ -225,13 +225,10 @@ pub struct Swing {
     pub power: f32,
     /// Where the claw is aimed: how far its blow is raised (up, > 0) or
     /// lowered (down, < 0) from straight out, in world units.
-    #[serde(default)]
     pub aim: f32,
     /// How long holding smash can charge it (0: it can't)...
-    #[serde(default)]
     pub full_charge: u32,
     /// ...and how much harder it hits at full charge.
-    #[serde(default)]
     pub charge_bonus: f32,
 }
 

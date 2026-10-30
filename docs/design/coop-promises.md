@@ -51,6 +51,19 @@ its own). The link is that code.
 | A friend lost with the connection still up (they closed the tab) is looked for again | every 15 s | (part of `new-link`) | `lost_company_is_looked_for_every_15_seconds` |
 | Anything of the above, in any order, any number of times: always back together, never an error | as above | `cargo cooptest --stress` (random steps from a printed seed) | |
 
+## Versions
+
+Friends play only on the same version of the game (the commit its web build was made from). Nothing in co-op is
+kept readable by an older game: the older one reloads into the new one. Nothing is lost by it: the save is on the
+device and the link stays the same, so it rejoins as usual. (Saves and character codes are another matter: when a
+change breaks them they get a migration, never a lost crab.)
+
+| Promise | Limit | Scenario | Fast test |
+|---|---|---|---|
+| A game never reads a message from another version as game data, and sends it none | always | `new-version` | `a_hello_says_the_version_and_is_never_a_game_message` |
+| The older game (the one that isn't what the site serves now) shows "A new version of CrabScape is out — updating…" and reloads; then the two play together | 10 s once it's running again | `new-version` (the host on the build before a pretend deploy, its friend on the new one) | `friends_on_different_versions_never_read_each_others_messages_and_the_old_game_reloads` |
+| No reload loop: a game that reloaded and is still on the same version (a stale cache) says "Your friend is on a different version" instead; so does one that can't read the site's version | at once | | same |
+
 ## Voice
 
 Every scenario runs with voice off, or with `--voice on` (both players' mics on, a fake beeping microphone) where it
@@ -81,5 +94,10 @@ Failures on `main` (the after-deploy and daily runs) open or add to the `main-br
 - A device whose connection is dead joins its room afresh after 5 s; one that lost its friends but is still connected
   looks for them every 15 s. A browser's address gathering gets at most 3 s
   (`vendor/matchbox_socket`, see `decisions.md`).
+- Every connection starts with a hello naming the game's version (`CRABSCAPE_VERSION`, set by `tools/build-web.sh`);
+  until a device's hello says this game's own version, nothing it sends is read and nothing is sent to it (a device
+  that sends no hello in 5 s is a game from before hellos). On a mismatch each game fetches `pkg/commit.txt` (the
+  site's version, past any cache): the one that doesn't match it reloads, noting the version it left in the tab's
+  own storage so it never reloads for it twice.
 - An introducer restart ends every game's connection (it was the connection's other end): each joins afresh 5 s
   later and finds the other. The introducer stores nothing, so a restart forgets nothing worth keeping.

@@ -245,6 +245,67 @@ fn status(host: bool, together: bool, n: usize) -> String {
     }
 }
 
+/// This build's exact version: the commit its web build was made from (`tools/build-web.sh` sets it, and writes it
+/// to `pkg/commit.txt` beside the game), "dev" without it. Co-op friends play only on the same one.
+pub(crate) const VERSION: &str = match option_env!("CRABSCAPE_VERSION") {
+    Some(v) => v,
+    None => "dev",
+};
+
+/// The first word on every co-op connection: "this is CrabScape, at version ...". Its first byte starts no message
+/// of any version (a message's first byte is its kind, a small number), so no game takes it for game data.
+const HELLO: &[u8] = b"\xffcrabscape version ";
+
+/// The hello this game sends: its `version`.
+fn hello(version: &str) -> Vec<u8> {
+    [HELLO, version.as_bytes()].concat()
+}
+
+/// The version in a friend's hello, if `bytes` are one.
+fn read_hello(bytes: &[u8]) -> Option<&str> {
+    std::str::from_utf8(bytes.strip_prefix(HELLO)?).ok()
+}
+
+/// What to do about a friend whose game is on another version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Update {
+    /// Same version: play together.
+    Play,
+    /// This game is the old one: reload the page to get the new one.
+    Reload,
+    /// The friend's game is the old one: it reloads; wait for it.
+    FriendUpdates,
+    /// Can't tell which is new, or a reload didn't bring the new one: no playing together.
+    Different,
+}
+
+/// A friend on version `theirs` met this game, on `mine`. `deployed`: the version the site serves now (None: it
+/// couldn't be read); `reloaded_from`: the version this tab already reloaded away from to update (so a reload that
+/// brought the same version again isn't tried forever). Whichever game isn't the site's version is the old one.
+fn on_version(
+    mine: &str,
+    theirs: &str,
+    deployed: Option<&str>,
+    reloaded_from: Option<&str>,
+) -> Update {
+    match deployed {
+        _ if mine == theirs => Update::Play,
+        Some(site) if site == mine => Update::FriendUpdates,
+        Some(_) if reloaded_from != Some(mine) => Update::Reload,
+        _ => Update::Different,
+    }
+}
+
+/// The status line while a friend is on another version (none when it's the same).
+fn update_line(u: Update) -> Option<&'static str> {
+    match u {
+        Update::Play => None,
+        Update::Reload => Some("Updating to the new version..."),
+        Update::FriendUpdates => Some("Your friend is updating to the new version..."),
+        Update::Different => Some("Your friend is on a different version"),
+    }
+}
+
 /// Is this word from the host? Its crab's updates, or the world it sends a
 /// device that just connected (often before its crab). A guest playing alone
 /// takes the host's world on the first of these; it would drop the world if
@@ -273,8 +334,9 @@ mod web {
     use wasm_bindgen::{JsCast, JsValue};
 
     use super::{
-        HOST, INTRODUCER, LocalId, NewLink, Start, Watch, clean_code, from_host, make_code,
-        open_in_other_tab, param, room, start, status, status_top,
+        HOST, INTRODUCER, LocalId, NewLink, Start, Update, VERSION, Watch, clean_code, from_host,
+        hello, make_code, on_version, open_in_other_tab, param, read_hello, room, start, status,
+        status_top, update_line,
     };
     use crate::names::Names;
     use crate::player::{GameSet, spawn_local_crab};
@@ -295,6 +357,10 @@ mod web {
     const SILENT_FOR: f32 = 5.0;
     /// How often the hosting tab renews its "lobby open here" mark (seconds).
     const MARK_EVERY: f32 = 1.0;
+    /// A device that sent no hello this long after connecting is a game from before hellos: another version.
+    const HELLO_WAIT: f32 = 5.0;
+    /// How long the "new version" note shows before the page reloads (seconds).
+    const NOTE_FOR: f32 = 1.5;
 
     /// Where this tab stands in co-op, for the button and its status line.
     #[derive(Resource, Default)]
@@ -309,6 +375,17 @@ mod web {
         watch: Watch,
         /// Seconds until the "lobby open here" mark is renewed.
         mark: f32,
+        /// A friend's version the site's version was last fetched for.
+        asked_for: Option<String>,
+        /// Seconds until the page reloads to get the new version, once it's decided.
+        reload_in: Option<f32>,
+    }
+
+    /// The version the site serves now, fetched fresh when a friend on another version turns up.
+    enum SiteVersion {
+        Asking,
+        /// The answer: None if it couldn't be read.
+        Got(Option<String>),
     }
 
     /// A connected device.
@@ -318,6 +395,16 @@ mod web {
         player: Option<PlayerId>,
         /// Seconds since it last sent anything.
         quiet: f32,
+        /// Its game's version, from its hello. Nothing else it sends is read until it's this game's own.
+        version: Option<String>,
+        /// Seconds since it connected.
+        age: f32,
+    }
+
+    impl Peer {
+        fn same_version(&self) -> bool {
+            self.version.as_deref() == Some(VERSION)
+        }
     }
 
     /// The connection to the other devices.
@@ -333,6 +420,7 @@ mod web {
     thread_local! {
         // The socket lives on the browser's one thread (it isn't `Send`).
         static LINK: RefCell<Option<Link>> = const { RefCell::new(None) };
+        static SITE_VERSION: RefCell<SiteVersion> = const { RefCell::new(SiteVersion::Got(None)) };
     }
 
     impl Link {
@@ -757,21 +845,36 @@ mod web {
                             id: peer,
                             player: None,
                             quiet: 0.0,
+                            version: None,
+                            age: 0.0,
                         });
-                        if host {
-                            link.send(peer, sim.world().to_bytes().into(), RELIABLE);
-                        }
+                        // First of all, on the reliable channel: which version this game is.
+                        link.send(peer, hello(VERSION).into(), RELIABLE);
                     }
                     PeerState::Disconnected => gone.push(peer),
                 }
             }
             let mut met = Vec::new();
+            let mut greet = Vec::new();
             for channel in [RELIABLE, QUICK] {
                 for (peer, bytes) in link.socket.channel_mut(channel).receive() {
                     let Some(p) = link.peers.iter_mut().find(|p| p.id == peer) else {
                         continue;
                     };
                     p.quiet = 0.0;
+                    if let Some(version) = read_hello(&bytes) {
+                        info!("co-op: a device on version {version}");
+                        p.version = Some(version.to_string());
+                        // The same version: the host tells it how the world stands.
+                        if host && p.same_version() {
+                            greet.push(peer);
+                        }
+                        continue;
+                    }
+                    // Another version's messages are never read as game data.
+                    if !p.same_version() {
+                        continue;
+                    }
                     let Some(msg) = Msg::from_bytes(&bytes) else {
                         continue;
                     };
@@ -794,6 +897,12 @@ mod web {
                         sim.go_online(false);
                     }
                     sim.receive(msg);
+                }
+            }
+            // A device on this version said hello: from the host, how the world stands.
+            if host {
+                for peer in greet {
+                    link.send(peer, sim.world().to_bytes().into(), RELIABLE);
                 }
             }
             // Met (again, maybe after a silence): the name we go by, and
@@ -821,6 +930,11 @@ mod web {
             // its crab speaks. Only a connection that ends drops the device.
             let mut lost = Vec::new();
             for p in &mut link.peers {
+                p.age += time.delta_secs();
+                if p.version.is_none() && p.age > HELLO_WAIT {
+                    info!("co-op: a device said no version: a game from before versions");
+                    p.version = Some(String::new());
+                }
                 p.quiet += time.delta_secs();
                 if p.quiet > SILENT_FOR
                     && let Some(id) = p.player.take()
@@ -857,6 +971,107 @@ mod web {
             rejoin(&mut sim, &code, host);
         }
         coop.status = status(host, together, n);
+        let update = versions(&mut coop);
+        if let Some(line) = update.and_then(update_line) {
+            coop.status = line.into();
+        }
+        if update == Some(Update::Reload) && coop.reload_in.is_none() {
+            info!("co-op: a new version is out: updating");
+            note("A new version of CrabScape is out \u{2014} updating\u{2026}");
+            if let Some(s) = tab_storage() {
+                let _ = s.set_item(&save::browser_key(UPDATED_FROM_KEY), VERSION);
+            }
+            coop.reload_in = Some(NOTE_FOR);
+        }
+        if let Some(left) = &mut coop.reload_in {
+            *left -= time.delta_secs();
+            if *left <= 0.0 {
+                *left = f32::INFINITY;
+                if let Some(w) = web_sys::window() {
+                    let _ = w.location().reload();
+                }
+            }
+        }
+    }
+
+    /// Where this tab notes the version it reloaded away from to update (so it never reloads for that again).
+    const UPDATED_FROM_KEY: &str = "-updated-from";
+
+    /// What to do about friends on another version (None: none here, or the site's version is still being
+    /// fetched). The site's version is fetched afresh for each version a friend turns up on.
+    fn versions(coop: &mut Coop) -> Option<Update> {
+        let theirs = LINK.with(|cell| {
+            let cell = cell.borrow();
+            let link = cell.as_ref()?;
+            let mut other = link
+                .peers
+                .iter()
+                .filter_map(|p| p.version.clone())
+                .filter(|v| v != VERSION);
+            other.next()
+        })?;
+        // A game from before versions can't update itself.
+        if theirs.is_empty() {
+            return Some(Update::Different);
+        }
+        if coop.asked_for.as_deref() != Some(&theirs) {
+            coop.asked_for = Some(theirs);
+            ask_site_version();
+            return None;
+        }
+        let site = SITE_VERSION.with(|s| match &*s.borrow() {
+            SiteVersion::Asking => None,
+            SiteVersion::Got(v) => Some(v.clone()),
+        })?;
+        let reloaded_from = tab_storage().and_then(|s| {
+            s.get_item(&save::browser_key(UPDATED_FROM_KEY))
+                .ok()
+                .flatten()
+        });
+        Some(on_version(
+            VERSION,
+            &theirs,
+            site.as_deref(),
+            reloaded_from.as_deref(),
+        ))
+    }
+
+    /// Fetch the version the site serves now (`pkg/commit.txt`, beside this page), past any cache.
+    fn ask_site_version() {
+        use wasm_bindgen_futures::JsFuture;
+        SITE_VERSION.with(|s| *s.borrow_mut() = SiteVersion::Asking);
+        let Some(win) = web_sys::window() else {
+            SITE_VERSION.with(|s| *s.borrow_mut() = SiteVersion::Got(None));
+            return;
+        };
+        let asked = win.fetch_with_str(&format!("pkg/commit.txt?t={}", js_sys::Date::now()));
+        wasm_bindgen_futures::spawn_local(async move {
+            let response = JsFuture::from(asked)
+                .await
+                .ok()
+                .and_then(|r| r.dyn_into::<web_sys::Response>().ok())
+                .filter(web_sys::Response::ok);
+            let text = match response.map(|r| r.text()) {
+                Some(Ok(p)) => JsFuture::from(p).await.ok().and_then(|t| t.as_string()),
+                _ => None,
+            };
+            let site = text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+            info!("co-op: the site serves version {site:?}");
+            SITE_VERSION.with(|s| *s.borrow_mut() = SiteVersion::Got(site));
+        });
+    }
+
+    /// Show `text` over the game (the page's own message box), as it reloads.
+    fn note(text: &str) {
+        let Some(el) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("message"))
+        else {
+            return;
+        };
+        el.set_text_content(Some(text));
+        let _ = el.set_attribute("class", "note");
+        let _ = el.remove_attribute("hidden");
     }
 
     /// Drop the connection (and everyone on it) and join `code`'s room
@@ -913,7 +1128,12 @@ mod web {
                 let bytes: Packet = msg.to_bytes().into();
                 match to {
                     To::Everyone => {
-                        let peers: Vec<PeerId> = link.peers.iter().map(|p| p.id).collect();
+                        let peers: Vec<PeerId> = link
+                            .peers
+                            .iter()
+                            .filter(|p| p.same_version())
+                            .map(|p| p.id)
+                            .collect();
                         for peer in peers {
                             link.send(peer, bytes.clone(), channel);
                         }
@@ -1064,6 +1284,19 @@ mod tests {
         assert_eq!(status(false, false, 0), "Waiting for your friend...");
         assert_eq!(status(true, true, 2), "Playing with 2 friends");
         assert_eq!(status(false, true, 1), "Playing with 1 friend");
+        assert_eq!(update_line(Update::Play), None);
+        assert_eq!(
+            update_line(Update::Reload),
+            Some("Updating to the new version...")
+        );
+        assert_eq!(
+            update_line(Update::FriendUpdates),
+            Some("Your friend is updating to the new version...")
+        );
+        assert_eq!(
+            update_line(Update::Different),
+            Some("Your friend is on a different version")
+        );
     }
 
     /// Run `seconds` of a [`Watch`] with `together` and `alive` as given; the times (seconds) it rejoined.
@@ -1133,6 +1366,42 @@ mod tests {
         // Before the cap: a browser that can't reach the address servers took ~40 s each way, longer than the
         // host's 15 s, so every attempt was cut off and the friend never got back in.
         assert_eq!(back_together(2.0, 80.0, 300.0), None);
+    }
+
+    #[test]
+    fn friends_on_different_versions_never_read_each_others_messages_and_the_old_game_reloads() {
+        use Update::*;
+        let (old, new) = ("0a1b2c", "9f8e7d");
+        // Same version: play, whatever the site says.
+        assert_eq!(on_version(new, new, None, None), Play);
+        assert_eq!(on_version(new, new, Some(old), Some(new)), Play);
+        // The site serves the friend's version: this game is the old one and reloads.
+        assert_eq!(on_version(old, new, Some(new), None), Reload);
+        // ...or a newer one than both: both reload.
+        assert_eq!(on_version(old, new, Some("777777"), None), Reload);
+        assert_eq!(on_version(new, old, Some("777777"), None), Reload);
+        // An earlier update of this tab, from another version, doesn't stop this one.
+        assert_eq!(on_version(old, new, Some(new), Some("555555")), Reload);
+        // The site serves this game's version: the friend's is the old one, and it updates.
+        assert_eq!(on_version(new, old, Some(new), None), FriendUpdates);
+        // Reloaded already and still on the same version (a stale cache): no reloading again and again.
+        assert_eq!(on_version(old, new, Some(new), Some(old)), Different);
+        // The site's version couldn't be read: no telling which is new.
+        assert_eq!(on_version(old, new, None, None), Different);
+        assert_eq!(on_version(new, old, None, None), Different);
+    }
+
+    #[test]
+    fn a_hello_says_the_version_and_is_never_a_game_message() {
+        let bytes = hello("9f8e7d");
+        assert_eq!(read_hello(&bytes), Some("9f8e7d"));
+        assert_eq!(read_hello(&hello(VERSION)), Some(VERSION));
+        assert!(crabsim::net::Msg::from_bytes(&bytes).is_none());
+        // Game messages and rubbish are not hellos.
+        assert_eq!(read_hello(&crabsim::net::Msg::NetCut(3).to_bytes()), None);
+        assert_eq!(read_hello(b"\xffcrabscape versio"), None);
+        assert_eq!(read_hello(b"\xffcrabscape version \xff\xfe"), None);
+        assert_eq!(read_hello(b""), None);
     }
 
     #[test]

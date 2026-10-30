@@ -24,6 +24,12 @@ export PATH="$HOME/.cargo/bin:$PATH"
 if build=$(git log -1 --format='%h, %cd' --date=format:'%b %-d' 2>/dev/null); then
   export CRABSCAPE_BUILD="$build"
 fi
+# Co-op friends must be on the same version: the game says its commit
+# (CRABSCAPE_VERSION) when it meets a friend, and pkg/commit.txt (step 5)
+# tells a game on an older one that the site has moved on.
+if commit=$(git rev-parse HEAD 2>/dev/null); then
+  export CRABSCAPE_VERSION="$commit"
+fi
 RUSTFLAGS='' cargo build --release --target wasm32-unknown-unknown
 
 # 2. Generate the JavaScript glue that loads the wasm into a page.
@@ -79,6 +85,9 @@ fi
 stamp() { cat "$@" | cksum | awk '{print $1}'; }
 stamp web/pkg/crabscape.js "$wasm" > web/pkg/version.txt
 stamp web/listen/listen.js web/listen/listen_bg.wasm > web/listen/listen-version.txt
+# The version this site serves, which a co-op game fetches fresh when it meets a
+# friend on another one: whichever game doesn't match it reloads (src/coop.rs).
+printf '%s' "${CRABSCAPE_VERSION:-dev}" > web/pkg/commit.txt
 
 # 6. The pictures the game loads at start-up (they are not baked into the
 #    .wasm, which keeps it small).

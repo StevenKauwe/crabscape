@@ -138,11 +138,9 @@ pub struct Mover {
     pub scissor_claw: bool,
     /// Glass points fitted to the leg tips (from a glass sponge): bare,
     /// pitted rock can be gripped and climbed like coral.
-    #[serde(default)]
     pub glass_grips: bool,
     /// Clam-shell guards: a clam valve fitted over each claw (made at the
     /// workbench, `crate::craft`). Blocked blows hurt less.
-    #[serde(default)]
     pub clam_guards: bool,
     /// How many cultures have been brought home: each makes the lantern
     /// brighter.
@@ -192,7 +190,6 @@ pub struct Mover {
     pub flip_dir: f32,
     /// Time left in a dash: with broad paddles, a flip drives the crab
     /// sideways the way it turns.
-    #[serde(default)]
     pub dash_left: f32,
     /// The way the crab was already walking when it gripped (-1, 0 or 1):
     /// only a fresh press sideways steps it off.
@@ -208,26 +205,19 @@ pub struct Mover {
     /// open, 1 = tucked right in.
     pub tucked: f32,
     /// Hulk mode, from the `hulk` code (see [`crate::codes`]).
-    #[serde(default)]
     pub hulk: bool,
     /// The lantern blazing, from the `glow` code (see [`crate::codes`]).
-    #[serde(default)]
     pub glow: bool,
     /// Ticks left of being well fed (0 = not): a bigger shell and reserve
     /// (see [`Mover::max_shell`], [`Mover::reserve_strokes`]).
-    #[serde(default)]
     pub well_fed: u32,
     /// The feats it has grown at its moults (see [`crate::moult`]).
-    #[serde(default)]
     pub feats: Vec<Feat>,
     /// How many times it has moulted and hardened: each grows its shell.
-    #[serde(default)]
     pub moults: u32,
     /// Ticks left soft after a moult (0 = hard).
-    #[serde(default)]
     pub soft: u32,
     /// The feat the soft new body is growing: its own once it hardens.
-    #[serde(default)]
     pub growing: Option<Feat>,
 }
 
@@ -491,23 +481,17 @@ pub struct StepEvents {
     /// ...and it was enough for the home to grow a stage.
     pub home_grew: bool,
     /// Moulted: soft now, growing a feat (see [`crate::moult`]).
-    #[serde(default)]
     pub moulted: bool,
     /// The new shell hardened: this feat is its own now.
-    #[serde(default)]
     pub hardened: Option<Feat>,
     /// Touched food (an egg, a clam, a beaten creature) too soft to eat it.
-    #[serde(default)]
     pub too_soft: bool,
     /// Tucked in at home, put what it carried away by the workbench (a
     /// culture, a tooth, shell grit) to make things from.
-    #[serde(default)]
     pub put_away: bool,
     /// Made something at the workbench (`crate::craft`).
-    #[serde(default)]
     pub made: Option<crate::craft::Recipe>,
     /// Went straight home (the Home button, `crate::home`).
-    #[serde(default)]
     pub went_home: bool,
 }
 
