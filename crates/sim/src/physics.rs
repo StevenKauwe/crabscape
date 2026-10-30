@@ -970,12 +970,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         // Sinking through it, a bigger crab is held back less for its
         // weight: it sinks faster. (Its legs grow with it, so a jump or a
         // stroke pushes it up as high.)
-        let drag = if through < 0.0 {
-            drag / (1.0 + t.moult.weight * (m.grown(t) - 1.0))
-        } else {
-            drag
-        };
-        m.vel.y -= drag * through * through.abs() * dt;
+        let heavy = 1.0 + t.moult.weight * (m.grown(t) - 1.0);
+        let (up, down) = (through.max(0.0), through.min(0.0));
+        m.vel.y -= drag * (up * up - down * down / heavy) * dt;
     }
 
     move_and_collide(m, t, level, dt, &mut ev);

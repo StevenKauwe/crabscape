@@ -244,3 +244,45 @@ fn an_old_save_with_moults_loads_at_its_size() {
     // And it is saved the same way.
     assert_eq!(sim.progress(P0).unwrap().moults, 2);
 }
+
+/// A crab grown by `moults`, standing at `start` on the flat start of a
+/// level with one extra rock `rock` (nothing alive in it), walks right for
+/// a second. Was it on the ground every tick, how high did it stand, and
+/// where did it end up?
+fn walk_by(rock: bevy_math::Rect, start: Vec2, moults: u32) -> (bool, f32, Vec2) {
+    let mut level = crabsim::Level::test_level();
+    level.rocks.push(rock);
+    let mut sim = Sim::new(crabsim::Tuning::default(), level);
+    sim.add_crab(P0, start);
+    sim.crab_mut(P0).unwrap().mover.moults = moults;
+    let (mut always, mut stood) = (true, f32::MIN);
+    let walk = Replay::parse("t=0 walk=right").unwrap();
+    play(&mut sim, &walk, ticks(1.0), |s| {
+        let m = &s.crabs()[0].mover;
+        always &= m.grounded;
+        if m.grounded {
+            stood = stood.max(m.pos.y);
+        }
+    });
+    (always, stood, mover(&sim).pos)
+}
+
+#[test]
+fn longer_legs_step_up_higher_and_keep_to_a_floor_that_drops_further() {
+    // A step 16 high: too high for the usual legs (14), not for grown ones.
+    let step = bevy_math::Rect::new(320.0, 0.0, 480.0, 16.0);
+    let (_, plain, at) = walk_by(step, Vec2::new(250.0, 0.0), 0);
+    assert!(
+        plain < 1.0 && at.x < 320.0,
+        "the usual crab is stopped: {at}"
+    );
+    let (_, big, _) = walk_by(step, Vec2::new(250.0, 0.0), 3);
+    assert_eq!(big, 16.0, "a grown crab steps up");
+    // Walking off a ledge 13.5 high: the usual crab's feet lose the floor
+    // (it keeps to one 12 below); a grown crab's keep to it.
+    let ledge = bevy_math::Rect::new(200.0, 0.0, 300.0, 13.5);
+    let (plain, _, _) = walk_by(ledge, Vec2::new(250.0, 13.5), 0);
+    let (big, _, at) = walk_by(ledge, Vec2::new(250.0, 13.5), 3);
+    assert!(!plain, "the usual crab drops off");
+    assert!(big && at.x > 300.0, "a grown crab walks down: {at}");
+}
