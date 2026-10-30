@@ -363,6 +363,20 @@ impl Chrome {
         Ok(())
     }
 
+    /// Hold a key (`code` as in `KeyboardEvent.code`, e.g. "KeyD") for `secs`, as a player does.
+    pub fn hold_key(&mut self, code: &str, secs: f64) -> Result<()> {
+        for kind in ["rawKeyDown", "keyUp"] {
+            self.call(
+                "Input.dispatchKeyEvent",
+                json!({ "type": kind, "code": code }),
+            )?;
+            if kind == "rawKeyDown" {
+                std::thread::sleep(Duration::from_secs_f64(secs));
+            }
+        }
+        Ok(())
+    }
+
     /// Stop the page's scripts for `secs` (as a phone that froze, or a game whose network stopped): nothing it
     /// sends or answers meanwhile, then it carries on.
     pub fn stall(&mut self, secs: f64) -> Result<()> {

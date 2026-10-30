@@ -29,6 +29,7 @@
 //! - [`replay`]: F9 saves a replay of this session
 //! - [`report`]: report a bug or idea from the game (typed or spoken), with the replay
 //! - [`input`]: keys, controllers and touch buttons become move requests
+//! - [`keys`]: the card of what each key does, on a computer with a keyboard
 //! - [`interior`]: inside the home shell: the cut-away and the crafting menu
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
@@ -48,6 +49,7 @@
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
 //! - [`cling`]: the clams and shell grit clinging to a crab's shell
 //! - [`moult`]: the Moult button at home (until the home menu has a Moult row)
+//! - [`names`]: the names over crabs, for playing together
 //! - [`notes`]: the short notes that float up when something happens
 //! - [`octopus`]: the common octopus, the boss in its den: its puppet, its tells and its ink
 //! - [`reset`]: starting over: forget this device's saved data, start fresh
@@ -84,11 +86,13 @@ mod home;
 mod impact;
 mod input;
 mod interior;
+mod keys;
 mod lantern;
 mod level;
 mod memory;
 mod moult;
 mod music;
+mod names;
 mod notes;
 mod octopus;
 mod player;
@@ -188,6 +192,8 @@ fn main() {
                 brittle::BrittlePlugin,
                 creature_art::CreatureArtPlugin,
                 go_home::GoHomePlugin,
+                keys::KeysPlugin,
+                names::NamesPlugin,
                 character::CharacterPlugin,
             ),
             sound::SoundPlugin,

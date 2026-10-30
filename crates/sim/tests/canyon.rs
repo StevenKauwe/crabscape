@@ -4,7 +4,7 @@
 
 use bevy_math::{Rect, Vec2};
 use crabsim::replay::ticks;
-use crabsim::{Feel, PlayerId, Progress, Replay, Sim, Tuning};
+use crabsim::{Controls, Feel, PlayerId, Progress, Replay, Sim, Tuning};
 
 /// What one scripted run did.
 struct Run {
@@ -82,12 +82,13 @@ fn run(script: &str, seconds: f64, strokes: u32) -> Run {
     run_with(Tuning::base(), script, seconds, strokes)
 }
 
-/// The same numbers with the tide stilled: the canyon as it would be with
+/// The same numbers with the tide and the upwelling stilled: the canyon as it would be with
 /// no current at all.
 fn still_water() -> Tuning {
     let mut t = Tuning::base();
     t.tide.up_speed = 0.0;
     t.tide.down_speed = 0.0;
+    t.tide.upwelling_speed = 0.0;
     t
 }
 
@@ -254,6 +255,119 @@ fn the_ebb_drops_a_crab_fast_and_strokes_cannot_beat_it() {
     );
 }
 
+/// The foot of the coral on the shelf, and of the coral up the crack.
+const SHELF_CORAL: f32 = 6000.0;
+const CRACK_CORAL: f32 = 5440.0;
+
+/// A crab on the canyon's floor at `x`, with no strokes at all, waits
+/// `wait` s into the tide's round, then plays its way out the way a player
+/// would: hold left (towards the near wall) until it stands on the shelf,
+/// walk to the coral's foot and climb it to the doorstep, walk under the end
+/// wall to the crack's coral and climb out. How long until it stands on the
+/// far basin's floor (or where it was when `limit` s ran out)?
+fn get_out(x: f32, wait: f64, limit: f64) -> Result<f64, Vec2> {
+    let mut sim = Sim::with_one_crab(Vec2::new(x, FLOOR.2));
+    sim.set_feel(Feel::Current);
+    let m = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
+    m.upgrades = 0;
+    m.stamina = 0.0;
+    for _ in 0..ticks(wait) {
+        sim.set_controls(PlayerId(0), Controls::default());
+        sim.tick();
+    }
+    // Ticks since the climb at the current coral began, if it has.
+    let mut climb: Option<u32> = None;
+    for k in 0..ticks(limit) {
+        let m = &sim.crab(PlayerId(0)).unwrap().mover;
+        let (pos, grounded) = (m.pos, m.grounded);
+        if grounded && pos.x < 5381.0 && pos.y >= -700.0 {
+            return Ok(k as f64 / 120.0);
+        }
+        let foot = if grounded && (pos.y - DOORSTEP.2).abs() < 1.0 && pos.x < DOORSTEP.1 {
+            Some(CRACK_CORAL)
+        } else if grounded && (pos.y - SHELF.2).abs() < 1.0 && pos.x < SHELF.1 {
+            Some(SHELF_CORAL)
+        } else {
+            None
+        };
+        let mut c = Controls {
+            walk: -1.0,
+            ..Controls::default()
+        };
+        // At the foot of the near wall: hop up off the floor, into the water.
+        if grounded && (pos.y - FLOOR.2).abs() < 1.0 && pos.x < FLOOR.0 + 100.0 {
+            c.jump_pressed = true;
+            c.jump_held = true;
+        }
+        match (climb, foot) {
+            // Standing on a ledge: to the coral's foot, then jump to grip it.
+            (None, Some(foot)) if (pos.x - foot).abs() > 12.0 => {
+                c.walk = if pos.x > foot { -1.0 } else { 1.0 };
+            }
+            (None, Some(_)) => climb = Some(0),
+            _ => {}
+        }
+        if let Some(s) = climb {
+            // Jump, let go, then hold jump (climb) pressing towards the rim:
+            // as `coral_climbs_back_out_of_the_crack_and_up_from_the_shelf`.
+            c.walk = if s < 36 { 0.0 } else { -1.0 };
+            c.jump_held = !(24..36).contains(&s);
+            c.jump_pressed = s == 0 || s == 36;
+            climb = Some(s + 1);
+            // Up on the next ledge: the climb is done.
+            if s > 60 && grounded {
+                climb = None;
+            }
+        }
+        sim.set_controls(PlayerId(0), c);
+        sim.tick();
+    }
+    Err(sim.crab(PlayerId(0)).unwrap().mover.pos)
+}
+
+#[test]
+fn the_upwelling_runs_by_the_near_wall_from_the_floor_to_just_above_the_shelf() {
+    let level = crabsim::Level::test_level();
+    let [lane] = level.upwelling[..] else {
+        panic!("one lane: {:?}", level.upwelling);
+    };
+    assert_eq!(lane.min.y, FLOOR.2, "from the floor");
+    assert!(
+        lane.min.x > FLOOR.0 && lane.max.x < 6450.0,
+        "by the near wall"
+    );
+    // A crab hopping into it with no strokes and letting go: carried up
+    // past the shelf, bobbing there, never up to the doorstep.
+    let r = run("start x=6200 y=-9400\nt=0.2 jump; t=0.4 release", 30.0, 0);
+    assert!(
+        r.highest > SHELF.2 + 100.0,
+        "up past the shelf: {}",
+        r.highest
+    );
+    assert!(r.highest < DOORSTEP.2 - 1000.0, "no higher: {}", r.highest);
+    assert!(!r.crab().grounded, "still bobbing: {}", r.crab().pos);
+    // Its water runs up all through the tide's round.
+    let t = Tuning::base().tide;
+    assert_eq!(level.water_at(lane.center(), &t), t.upwelling_speed);
+    assert!(t.upwelling_speed >= t.up_speed, "as strong as the flood");
+}
+
+#[test]
+fn a_crab_on_the_canyon_floor_can_always_get_out() {
+    // From anywhere along the floor, at any point in the tide's round, with
+    // no strokes: out of the canyon and back on the far basin's floor
+    // within a minute and a half. Walking into the near wall's upwelling is
+    // the whole trick; no waiting for the flood.
+    for x in [6200.0, 6700.0, 7100.0, 7500.0, 7850.0] {
+        for wait in [0.0, 12.0, 30.0, 38.0, 48.0] {
+            match get_out(x, wait, 90.0) {
+                Ok(took) => println!("from {x} after {wait} s: out in {took:.1} s"),
+                Err(at) => panic!("from {x} after {wait} s: still in the canyon at {at}"),
+            }
+        }
+    }
+}
+
 #[test]
 fn the_fifth_egg_is_on_a_shelf_only_the_flood_reaches() {
     let level = crabsim::Level::test_level();
@@ -281,7 +395,10 @@ fn the_den_is_a_dead_end_chamber_off_the_far_rim() {
     // Its floor is the far rim's, a roof over it, the level's wall behind.
     assert_eq!(den.min.y, FAR_RIM.2);
     assert_eq!(den.max.x, level.max_x);
-    assert!(den.height() >= 200.0, "room for an octopus");
+    assert!(
+        (200.0..=400.0).contains(&den.height()),
+        "room for an octopus, no more"
+    );
     let roof = Vec2::new(den.center().x, den.max.y + 5.0);
     assert!(level.solids().any(|s| s.contains(roof)), "roofed over");
     // A crab walks in from the far rim and on to the back: a dead end.
@@ -302,7 +419,8 @@ fn drifting_spots_are_open_water_out_of_the_tide() {
             p.y > level.floor_height(p.x) + 600.0,
             "{p} well off the floor"
         );
-        assert!(!level.currents.iter().any(|c| c.inflate(100.0).contains(p)));
+        let moving = level.currents.iter().chain(&level.upwelling);
+        assert!(!moving.into_iter().any(|c| c.inflate(100.0).contains(p)));
     }
 }
 

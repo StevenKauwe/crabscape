@@ -534,6 +534,8 @@ impl Sim {
                     *c = 0;
                 }
             }
+            // Names are the game's to show (`src/names.rs`), not a rule.
+            Msg::Name { .. } => {}
         }
     }
 

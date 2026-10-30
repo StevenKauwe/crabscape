@@ -36,6 +36,7 @@ cargo cooptest [options]   play co-op in real browsers and check its promises
   --seed S           the stress run's seed (default: from the clock; printed either way)
   --steps K          the stress run's steps (default 12)
   --logs DIR         where a failure's browser logs and screenshots go (default: a temporary folder)
+  --shots DIR        keep what each player sees at the end of each scenario (DIR/<scenario>-host.png, -guest.png)
   --list             name the scenarios
 ";
 
@@ -60,6 +61,8 @@ struct Site {
     introducer: Option<Introducer>,
     /// Where the browsers keep their profiles and logs.
     dir: PathBuf,
+    /// Where each scenario's last screens go (`--shots`), if anywhere.
+    shots: Option<PathBuf>,
     /// How many times slower each page runs (`--slow`).
     slow: f64,
 }
@@ -149,7 +152,7 @@ mod tap {
     pub const GAME_TAB: (f64, f64) = (945.0, 96.0);
     pub const COOP_TAB: (f64, f64) = (1151.0, 96.0);
     pub const START_OVER: (f64, f64) = (1050.0, 304.0);
-    pub const NEW_LINK: (f64, f64) = (1050.0, 281.0);
+    pub const NEW_LINK: (f64, f64) = (1050.0, 345.0);
 }
 
 /// One player: a browser, and what this run expects of it.
@@ -467,6 +470,21 @@ fn meet(site: &Site, host: &mut Player, guest: &mut Player, setup: f64) -> Resul
 /// What a scenario found: a line for each promise it checked, with the time it took.
 type Found = Vec<String>;
 
+/// `a` shows `b`'s name over `b`'s crab (`data-names`) within 5 s of meeting. A build from before names (no
+/// `data-name`) is let be.
+fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
+    let Some(name) = b.b.attr("data-name").filter(|n| !n.is_empty()) else {
+        return Ok(format!("{}: a build without names", b.name()));
+    };
+    let t = a.until(5.0, "the friend's name", |p| {
+        p.b.attr("data-names").unwrap_or_default() == name
+    })?;
+    Ok(format!(
+        "{}: {name:?} over the friend's crab, {t:.1} s",
+        a.name()
+    ))
+}
+
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
 const SCENARIOS: [(&str, &str, u32); 11] = [
@@ -562,6 +580,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             guest.open(&site.url(&format!("join={code}")))?;
             let t = together(&mut [&mut host, &mut guest], limit::MEET)?;
             found.push(format!("met {t:.1} s after the friend's game started"));
+            found.push(sees_name(&mut host, &mut guest)?);
+            found.push(sees_name(&mut guest, &mut host)?);
         }
         "guest-reload" => {
             meet(site, &mut host, &mut guest, limit::MEET)?;
@@ -696,6 +716,14 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     }
     host.healthy()?;
     guest.healthy()?;
+    if let Some(dir) = &site.shots {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        // Both crabs start on the same spot: the friend walks a little way right first, so both show apart.
+        guest.b.hold_key("KeyD", 0.5)?;
+        sleep(1.0);
+        host.b.screenshot(&dir.join(format!("{name}-host.png")))?;
+        guest.b.screenshot(&dir.join(format!("{name}-guest.png")))?;
+    }
     Ok(found)
 }
 
@@ -815,6 +843,7 @@ struct Args {
     seed: Option<u64>,
     steps: usize,
     logs: Option<PathBuf>,
+    shots: Option<PathBuf>,
 }
 
 fn args() -> std::result::Result<Args, String> {
@@ -831,6 +860,7 @@ fn args() -> std::result::Result<Args, String> {
         seed: None,
         steps: 12,
         logs: None,
+        shots: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -854,6 +884,7 @@ fn args() -> std::result::Result<Args, String> {
             "--seed" => a.seed = Some(value()?.parse().map_err(|_| "--seed takes a number")?),
             "--steps" => a.steps = value()?.parse().map_err(|_| "--steps takes a number")?,
             "--logs" => a.logs = Some(value()?.into()),
+            "--shots" => a.shots = Some(value()?.into()),
             "--slow" => a.slow = value()?.parse().map_err(|_| "--slow takes a number")?,
             "--list" => {
                 for (name, what, _) in SCENARIOS {
@@ -888,6 +919,7 @@ fn site(a: &Args, dir: &Path) -> Result<Site> {
             page: url.clone(),
             introducer: None,
             dir: dir.into(),
+            shots: a.shots.clone(),
             slow: a.slow,
         });
     }
@@ -917,6 +949,7 @@ fn site(a: &Args, dir: &Path) -> Result<Site> {
         page: format!("{base}/index.html?introducer=ws://127.0.0.1:{port}"),
         introducer: Some(introducer),
         dir: dir.into(),
+        shots: a.shots.clone(),
         slow: a.slow,
     })
 }

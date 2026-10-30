@@ -256,6 +256,12 @@ fn tide_notes(
             above,
             blue,
         );
+        say(
+            &mut commands,
+            "By the near wall it always runs up.",
+            above - Vec2::Y * 24.0,
+            blue,
+        );
     }
     let tide = sim.level.tide;
     let now: i8 = if tide > 0.5 {

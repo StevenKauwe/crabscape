@@ -290,8 +290,9 @@ mod keys {
     }
 
     /// Kept through "Start over": the co-op lobby's code, so a friend's link
-    /// still reaches this device (only Settings' "New link" changes it).
-    const KEPT: [&str; 1] = ["-lobby"];
+    /// still reaches this device (only Settings' "New link" changes it), and
+    /// the name the player goes by (`names.rs`): it's theirs, not the crab's.
+    const KEPT: [&str; 2] = ["-lobby", "-name"];
 
     /// Does "Start over" wipe `key`? This build's keys, except the kept ones.
     pub fn wiped(slug: Option<&str>, key: &str) -> bool {
@@ -413,6 +414,7 @@ mod tests {
             "crabscape-style",
             "crabscape-lobby",
             "crabscape-lobby-tab",
+            "crabscape-name",
             "crabscape@pr-6@.save",
             "crabscape@pr-6@-lobby",
             "crabscape@pr-60@.save",
@@ -424,7 +426,8 @@ mod tests {
                 .filter(|k| keys::wiped(slug, k))
                 .collect()
         };
-        // The co-op lobby's code stays, so friends' links still work.
+        // The co-op lobby's code stays, so friends' links still work, and
+        // the name the player goes by.
         assert_eq!(
             wiped(None),
             ["crabscape.save", "crabscape-style", "crabscape-lobby-tab"]

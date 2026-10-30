@@ -81,11 +81,12 @@ fn run(script: &str, seconds: f64, kit: Kit) -> Run {
     run_with(Tuning::base(), script, seconds, kit)
 }
 
-/// The tide stilled, so only the crab's own legs count.
+/// The tide and the upwelling stilled, so only the crab's own legs count.
 fn still_water() -> Tuning {
     let mut t = Tuning::base();
     t.tide.up_speed = 0.0;
     t.tide.down_speed = 0.0;
+    t.tide.upwelling_speed = 0.0;
     t
 }
 

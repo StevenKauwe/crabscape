@@ -339,7 +339,7 @@ fn spawn_hud(mut commands: Commands) {
             ));
             hud.spawn((
                 HelpText,
-                Text::new(KEYS_HELP),
+                Text::new(""),
                 TextFont {
                     font_size: FontSize::Px(13.0),
                     ..default()
@@ -371,17 +371,13 @@ fn update_help(
         (true, false) => {
             "JUMP again in the water: swim  Pinch: memory\nGUARD just before a blow: parry"
         }
-        (false, true) => "A/D walk  Space jump  E smash  F guard",
-        (false, false) => KEYS_HELP,
+        // The keys card (`keys.rs`) lists every key.
+        (false, _) => "? shows or folds the keys",
     };
     if text.0 != help {
         text.0 = help.to_string();
     }
 }
-
-/// The full keyboard help.
-const KEYS_HELP: &str = "A/D walk  Space jump, again to swim  Shift+dir dodge, hold to sprint\n\
-                         E/L smash  Q/O jab  F/I guard: tap it just before a blow to parry  -/= zoom out (memory)  H home";
 
 /// Browser only: write the crab's position onto the page's `<canvas>` as
 /// `data-crab="x y grounded"` (and the fight as `data-fight`), a few times a

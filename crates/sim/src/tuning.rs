@@ -378,6 +378,10 @@ pub struct TideTuning {
     pub up_speed: f32,
     /// ...and running down (it sinks at this plus its sinking speed).
     pub down_speed: f32,
+    /// The upwelling along the canyon's near wall runs up at this speed all
+    /// the time, whatever the tide does (see
+    /// [`Level::upwelling`](crate::Level::upwelling)).
+    pub upwelling_speed: f32,
 }
 
 impl TideTuning {
@@ -909,9 +913,13 @@ impl Tuning {
             stroke_interval: 0.30,
             stamina_refill_time: 0.6,
             stamina_reserve: 6,
-            reserve_refill_time: 30.0,
+            // A stroke back every 1.7 s: a double jump every few seconds
+            // never runs it dry, and a spent reserve is whole in 10 s.
+            reserve_refill_time: 10.0,
             sprint_speed: 480.0,
-            sprint_cost: 0.7, // a full reserve lasts about 12 s of sprinting
+            // Less than it comes back by: a full reserve lasts about 15 s
+            // of sprinting.
+            sprint_cost: 1.0,
 
             climb_speed: 320.0, // the whole pit in about 25 s
             climb_reach: 48.0,
@@ -1418,6 +1426,7 @@ impl Tuning {
                 ramp_ticks: 2 * 120, // one round: a minute
                 up_speed: 800.0,
                 down_speed: 500.0,
+                upwelling_speed: 800.0, // as strong as the flood
             },
             moult: MoultTuning {
                 feat_level: 5,
