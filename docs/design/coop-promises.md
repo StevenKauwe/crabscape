@@ -21,6 +21,7 @@ pass).
 | Promise | Limit | Scenario | Fast test |
 |---|---|---|---|
 | A friend who opens your link plays with you | 10 s | `join` | `your_own_link_makes_you_host_and_your_lobby_opens_whenever_you_play` |
+| Each of you sees the other's name over their crab (a friend on a game from before names: no name, and still plays with you) | 5 s after meeting | `join` | `a_name_comes_back_whole_from_its_bytes_whatever_it_spells`, `a_message_from_a_newer_game_is_dropped_unread` |
 | A friend who reloads is back with you, even on a network where the browser takes 40 s to finish gathering its addresses (a VPN, a virtual machine's network, IPv6 with no way out) | 10 s | `guest-reload` (slow gathering pretended in both browsers) | `a_friend_who_reloads_is_back_within_10_seconds` |
 | You reload: your lobby opens again by itself and your friend is back | 10 s | `host-reload` | `a_friend_who_reloads_is_back_within_10_seconds` |
 | A friend who presses Start over is back, with no error | 10 s | `guest-start-over` | (Start over is a reload: as above) |

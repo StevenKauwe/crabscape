@@ -84,7 +84,8 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
 - **The light matters:** halfway down the pit's right wall is an alcove that looks like a solid lump of rock until a
   bright enough lantern comes near (the starting lantern doesn't reach; one brightened with the pit's culture does).
   Inside: a fourth egg and the first clue to the trench mystery, a shed tooth bigger than the crab (sharks shed and
-  regrow teeth all their lives), hinting at the huge shape that passes in the pit.
+  regrow teeth all their lives), hinting at the huge shape that passes in the pit: a bluntnose sixgill shark, far
+  behind, rarely (the first dive, then at most once every five minutes), at its own depth and speed (`src/deep.rs`).
 - **The tooth makes scissor claws:** the crab carries it home on its back (one big find at a time), and at the
   workbench in the shell the player can fit its edges along both fingers of the crusher claw (found things as gear):
   **scissor claws**. Higher up
@@ -188,8 +189,16 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
   it more than twice as fast as sinking (shelf to floor in 8 s instead of 18), too strong to swim up against. Marine
   snow streams with the water, which is how you see which way it runs; in the canyon a line under the depth counter
   says it too ("The water: running up", "running down", "still" or "turning"), a note says when it turns, and the
-  first time the crab comes out into the canyon a note says the water moves here. **Nothing climbs from the canyon's floor:** the flood is the only way up. Ride it and steer off at the
+  first time the crab comes out into the canyon a note says the water moves here. **Nothing climbs from the canyon's floor:** the water is the way up. Ride the flood and steer off at the
   right moment onto the shelf, the doorstep or the far rim.
+- **The upwelling: never stuck.** Along the near wall, from the floor to a little above the shelf, a lane of water
+  runs up all the time, as strong as the flood, whatever the tide does: hop into it and it carries the crab up beside
+  the shelf, which it steps onto; the shelf's coral climbs on to the doorstep. Real canyons carry upwelling, deep water
+  running up-canyon onto the shelf while the wind drives it ("cross-isobath flow includes both upwelling and
+  downwelling", driven by wind-driven shelf currents [ADM09]); here it never stops, so a crab on the floor can always
+  get out (about 30 s to the far basin, a test checks from five spots at five points in the tide's round). The flood
+  alone still reaches the fifth egg and the far rim. The note on arriving says it ("By the near wall it always runs
+  up."), and so does the line under the depth counter there.
 - **The glass sponge makes glass grips (the canyon's craft).** Among the sea pens near the far wall lies the
   skeleton of a dead **glass sponge**: a pale lattice of silica. Real: glass sponges are "common only in the deep
   ocean", their skeleton is built of silica pieces called spicules, and it "will often remain intact even after the
@@ -259,6 +268,8 @@ A hardcore option (lose everything on death) can come later.
 - [KPC08] Wang, Lee & Liu (2008), "Observation of internal tidal currents in the Kaoping Canyon off southwestern
   Taiwan", *Estuarine, Coastal and Shelf Science* 80:153–160 (abstract, opened). <https://doi.org/10.1016/j.ecss.2008.07.016>
 - [MC10] USGS, "Currents in Monterey Submarine Canyon" (abstract, opened). <https://pubs.usgs.gov/publication/70034693>
+- [ADM09] Allen & Durrieu de Madron (2009), "A review of the role of submarine canyons in deep-ocean exchange with
+  the shelf", Ocean Science 5, 607-620 (abstract, opened). <https://os.copernicus.org/articles/5/607/2009/>
 - [NOAA-GS] NOAA Ocean Exploration, "What are glass sponges?" (opened). <https://oceanexplorer.noaa.gov/facts/glass-sponges.html>
 - [AIZ03] Aizenberg, Sundar, Yablon, Weaver & Chen (2003), "Fibre-optical features of a glass sponge", *Nature*
   424:899–900 (via search results and a PNAS follow-up's summary, not opened: not verified).

@@ -20,8 +20,10 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   the high ledge need). Strokes only rest on something solid, so ledges and rocks are rest stops and
   high or hidden routes need planning. Touching down rests one stroke at once (so a hop straight off again has its
   double jump), the rest over 0.6 s of standing. Small rings above the crab show them, only while tired. Resting draws on a
-  deeper **reserve** (6 strokes' worth, a small bar in the top-left corner) that comes back by itself in about 30
-  seconds; when it's empty the legs stay tired, so swimming can't be endless. Sprinting drains it too. Floor jumps
+  deeper **reserve** (6 strokes' worth, a small bar in the top-left corner) that comes back by itself in about 10
+  seconds (a stroke every 1.7 s, so a double jump every few seconds never runs it dry); when it's empty the legs
+  stay tired, so swimming can't be endless. Sprinting drains it faster than it comes back (a full reserve sprints
+  for about 15 s). Floor jumps
   are free. **Well fed** (a clam eaten at home, `world.md`), the reserve holds 3 strokes more (pale gold segments)
   and the shell 25% more (a longer shell bar), and "Well fed 3:58" under the shell bar counts down the time left.
 - **Sideways is fast.** Crabs scuttle sideways quickly, so the dodge is a short sideways burst. It goes the way
@@ -168,6 +170,8 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |
 | Enter a code (see Codes) | Enter, type it, Enter (Esc puts it away) | | Settings, Game: "Enter a code" |
 | Start over (wipes this device's saved game) | | | Settings, Game: "Start over", then "Sure? Start over" within 4 s |
+| See what each key does | a card in the bottom-left corner, open the first time; ? or a click folds it to "? Keys" and opens it again | | (not on a touch screen) |
+| Your name, shown over your crab to friends | | | Settings, Co-op: "Your name" |
 
 ## Codes
 A playful cheat, the owner's idea. Typed codes change only your own crab, go through the sim like the controls (a
