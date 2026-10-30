@@ -111,6 +111,9 @@ pub struct Chrome {
 pub struct Options {
     /// A fake microphone that beeps (for voice chat), allowed without asking.
     pub fake_mic: bool,
+    /// Run the page this many times slower (Chrome's CPU throttling; 1 is full speed), as a slow phone or a busy
+    /// CI machine.
+    pub slow: f64,
 }
 
 impl Chrome {
@@ -217,6 +220,9 @@ impl Chrome {
             "Emulation.setDeviceMetricsOverride",
             json!({ "width": WIDTH, "height": HEIGHT, "deviceScaleFactor": 1, "mobile": false }),
         )?;
+        if o.slow > 1.0 {
+            me.call("Emulation.setCPUThrottlingRate", json!({ "rate": o.slow }))?;
+        }
         // A page nobody looks at isn't focused, and only a focused page may copy.
         me.call(
             "Emulation.setFocusEmulationEnabled",
