@@ -2,8 +2,10 @@
 //! "Climbing level 2!", "Rested", "Well fed" ... one for each thing worth telling the
 //! player that just happened to the local crab.
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
-use crabsim::{Carry, Mover, Recipe, Sim, moult};
+use crabsim::{Carry, Fighter, Mover, Recipe, Sim, moult};
 
 use crate::player::{FrameEvents, GameSet, LocalPlayer, PlayerId};
 
@@ -17,6 +19,7 @@ const YOLK: Color = Color::srgb(1.0, 0.80, 0.42);
 const GOLD: Color = Color::srgb(1.0, 0.88, 0.55);
 const WILD_GLOW: Color = Color::srgb(0.45, 0.95, 0.80);
 const WARM: Color = Color::srgb(1.0, 0.78, 0.32);
+const HULK_GREEN: Color = Color::srgb(0.55, 1.0, 0.40);
 const PALE: Color = Color::srgb(0.80, 0.90, 0.92);
 
 pub struct NotesPlugin;
@@ -25,13 +28,15 @@ impl Plugin for NotesPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (note_events, float_notes).chain().in_set(GameSet::Present),
+            (note_events, comic_words, hulk_arrivals, float_notes)
+                .chain()
+                .in_set(GameSet::Present),
         );
     }
 }
 
 /// Comic-book words popped over a blow that lands in hulk mode, with their
-/// colours; picked by the sim's tick, so a replay shows the same ones.
+/// colours; the sim picks which (`StepEvents::hulk_blow`), so a replay and every friend show the same one.
 const COMIC: [(&str, Color); 6] = [
     ("SMASH!", Color::srgb(1.0, 0.85, 0.1)),
     ("WHAM!", Color::srgb(1.0, 0.45, 0.1)),
@@ -216,11 +221,25 @@ fn note_events(
         notes.push(("A tooth bigger than you.".into(), PALE));
         notes.push(("Something huge sheds these.".into(), PALE));
     }
-    // Hulk mode: a comic word over each blow that lands.
-    if ev.struck && mover.hulk {
-        let facing = sim.crab(*id).map_or(1.0, |c| c.fighter.facing);
-        let (word, colour) = COMIC[(sim.tick_count() % COMIC.len() as u64) as usize];
-        let above = at.translation + Vec3::new(facing * 70.0, 60.0, 0.0);
+    // The first note on top, so several read in order.
+    let count = notes.len();
+    for (i, (text, colour)) in notes.into_iter().enumerate() {
+        let lift = ABOVE + 24.0 * (count - 1 - i) as f32;
+        let above = at.translation + Vec3::Y * lift;
+        let z = (at.translation.z + 11.0).max(21.0);
+        say_at(&mut commands, &text, above.with_z(z), colour);
+    }
+}
+
+/// A comic word over each hulk blow that lands, on every crab: a friend's too,
+/// with the word the attacker's device picked, so everyone sees the same one.
+fn comic_words(mut commands: Commands, crabs: Query<(&FrameEvents, &Fighter, &Transform)>) {
+    for (events, fighter, at) in &crabs {
+        let Some(word) = events.0.hulk_blow else {
+            continue;
+        };
+        let (word, colour) = COMIC[usize::from(word) % COMIC.len()];
+        let above = at.translation + Vec3::new(fighter.facing * 70.0, 60.0, 0.0);
         let z = (at.translation.z + 12.0).max(22.0);
         commands.spawn((
             Note { age: 0.0, colour },
@@ -234,13 +253,21 @@ fn note_events(
             Transform::from_translation(above.with_z(z)).with_scale(Vec3::splat(0.2)),
         ));
     }
-    // The first note on top, so several read in order.
-    let count = notes.len();
-    for (i, (text, colour)) in notes.into_iter().enumerate() {
-        let lift = ABOVE + 24.0 * (count - 1 - i) as f32;
-        let above = at.translation + Vec3::Y * lift;
-        let z = (at.translation.z + 11.0).max(21.0);
-        say_at(&mut commands, &text, above.with_z(z), colour);
+}
+
+/// "HULK SMASH!" over a friend who bulks up (the crab's own player sees it
+/// from the code they typed).
+fn hulk_arrivals(
+    mut commands: Commands,
+    mut was: Local<HashMap<PlayerId, bool>>,
+    friends: Query<(&PlayerId, &Mover, &Transform), Without<LocalPlayer>>,
+) {
+    for (id, mover, at) in &friends {
+        let before = was.insert(*id, mover.hulk).unwrap_or(mover.hulk);
+        if mover.hulk && !before {
+            let above = at.translation.truncate() + Vec2::Y * ABOVE;
+            say(&mut commands, "HULK SMASH!", above, HULK_GREEN);
+        }
     }
 }
 

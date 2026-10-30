@@ -20,7 +20,7 @@
 
 //!
 //! hulk also has no stamina limit (the reserve never runs low, strokes cost nothing and never run out) and swims
-//! hard (strokes push 2.5 times as far, twice as often), and has ten times the usual shell (back to normal when toggled off) and nothing can hold the crab: a grab (a moray's bite, an octopus's arms or web) never takes hold. Its blows pop comic words in the game.
+//! hard (strokes push 2.5 times as far, twice as often), and has ten times the usual shell (back to normal when toggled off) and nothing can hold the crab: a grab (a moray's bite, an octopus's arms or web) never takes hold. Its blows pop comic words in the game, over the right crab on every friend's screen too (the attacker's device picks the word).
 
 use crate::physics::Mover;
 use crate::tuning::{EnemyTuning, StrikeTuning, Tuning, VitalsTuning};
@@ -28,6 +28,9 @@ use crate::world::{PlayerId, Sim};
 
 /// How many cultures' worth of light the lantern has with the `glow` code.
 pub const GLOW_CULTURES: u32 = 4;
+
+/// How many comic words a hulk blow can pop (the game has the words).
+pub const COMIC_WORDS: u64 = 6;
 
 /// How many times the usual shell the crab has in hulk mode.
 pub const HULK_SHELL: f32 = 10.0;
