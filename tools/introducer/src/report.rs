@@ -9,9 +9,13 @@
 //! write, then `fly secrets set GITHUB_REPORT_TOKEN=<token> -a crabscape-introducer`.
 //!
 //! Anyone can send, so: each sender (by address) gets [`PER_SENDER`] reports
-//! in five minutes and everyone together [`PER_DAY`] a day; every field has a size
+//! in ten minutes (the owner's call: no daily cap); every field has a size
 //! cap; and the player's words are quoted with `@` mentions defused, under a
 //! note that they are a player's words, not instructions.
+//!
+//! GitHub refuses more than 80 new issues a minute and 500 an hour from one
+//! token, so issues are filed one at a time at least [`GAP`] apart: a burst
+//! of reports queues here instead of being refused there.
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -24,11 +28,10 @@ use serde::Deserialize;
 /// Where reports go.
 const REPO: &str = "StevenKauwe/crabscape";
 /// Reports one sender may make in [`WINDOW`].
-const PER_SENDER: usize = 10;
-const WINDOW: Duration = Duration::from_secs(5 * 60);
-/// Reports everyone together may make a day.
-const PER_DAY: usize = 300;
-const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+const PER_SENDER: usize = 100;
+const WINDOW: Duration = Duration::from_secs(10 * 60);
+/// The least time between two issues filed (under GitHub's 80 a minute).
+const GAP: Duration = Duration::from_secs(1);
 /// The biggest request accepted (bytes); the replay is most of it.
 pub const MAX_BODY: usize = 512 * 1024;
 const MAX_TEXT: usize = 2000;
@@ -57,26 +60,23 @@ pub struct Report {
 #[derive(Default)]
 pub struct Limits {
     senders: HashMap<String, Vec<Instant>>,
-    all: Vec<Instant>,
 }
 
 impl Limits {
     /// May `sender` send one now? Counts it if so.
     pub fn allow(&mut self, sender: &str, now: Instant) -> bool {
-        self.all.retain(|t| now.duration_since(*t) < DAY);
         self.senders.retain(|_, times| {
             times.retain(|t| now.duration_since(*t) < WINDOW);
             !times.is_empty()
         });
         let mine = self.senders.get(sender).map_or(0, Vec::len);
-        if mine >= PER_SENDER || self.all.len() >= PER_DAY {
+        if mine >= PER_SENDER {
             return false;
         }
         self.senders
             .entry(sender.to_string())
             .or_default()
             .push(now);
-        self.all.push(now);
         true
     }
 }
@@ -172,8 +172,28 @@ pub fn issue(r: &Report) -> Result<(String, String), &'static str> {
 /// recover, and the player is left waiting meanwhile, so the tries are few.
 const RETRY_AFTER: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(5)];
 
-/// File the issue; its address, or why not.
+/// When the last issue was filed; held while filing, so they go one at a time.
+static LAST_FILED: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// How long to wait from `now` so a filing comes at least [`GAP`] after `last`.
+fn wait_for_turn(last: Option<Instant>, now: Instant) -> Duration {
+    last.map_or(Duration::ZERO, |l| {
+        GAP.saturating_sub(now.duration_since(l))
+    })
+}
+
+/// File the issue, in turn with any others; its address, or why not.
 pub fn file(token: &str, title: &str, body: &str) -> Result<String, String> {
+    let mut last = LAST_FILED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    std::thread::sleep(wait_for_turn(*last, Instant::now()));
+    let filed = file_now(token, title, body);
+    *last = Some(Instant::now());
+    filed
+}
+
+fn file_now(token: &str, title: &str, body: &str) -> Result<String, String> {
     let mut waits = RETRY_AFTER.iter();
     loop {
         match file_once(token, title, body) {
@@ -205,10 +225,11 @@ fn file_once(token: &str, title: &str, body: &str) -> Result<ureq::Response, ure
         }))
 }
 
-/// A fault worth trying again: GitHub's own (5xx) or no answer at all.
+/// A fault worth trying again: GitHub's own (5xx), "too many" (429), or no
+/// answer at all.
 fn passing(e: &ureq::Error) -> bool {
     match e {
-        ureq::Error::Status(code, _) => *code >= 500,
+        ureq::Error::Status(code, _) => *code >= 500 || *code == 429,
         ureq::Error::Transport(_) => true,
     }
 }
@@ -288,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn each_sender_gets_ten_in_five_minutes() {
+    fn each_sender_gets_a_hundred_in_ten_minutes() {
         let mut limits = Limits::default();
         let t = Instant::now();
         for _ in 0..PER_SENDER {
@@ -296,7 +317,7 @@ mod tests {
         }
         assert!(!limits.allow("a", t), "one too many");
         assert!(limits.allow("b", t), "someone else still can");
-        assert!(limits.allow("a", t + WINDOW), "five minutes later");
+        assert!(limits.allow("a", t + WINDOW), "ten minutes later");
     }
 
     #[test]
@@ -304,7 +325,29 @@ mod tests {
         let status = |code| ureq::Error::Status(code, ureq::Response::new(code, "", "").unwrap());
         assert!(passing(&status(500)));
         assert!(passing(&status(502)));
+        assert!(passing(&status(429)), "too many: wait and try again");
         assert!(!passing(&status(401)), "a bad token won't mend itself");
         assert!(!passing(&status(422)), "nor a refused issue");
+    }
+
+    #[test]
+    fn a_burst_of_reports_is_filed_a_gap_apart() {
+        let t = Instant::now();
+        assert_eq!(
+            wait_for_turn(None, t),
+            Duration::ZERO,
+            "the first goes at once"
+        );
+        assert_eq!(wait_for_turn(Some(t), t), GAP, "the next waits its turn");
+        assert_eq!(wait_for_turn(Some(t), t + GAP / 4), GAP * 3 / 4);
+        assert_eq!(
+            wait_for_turn(Some(t), t + GAP * 2),
+            Duration::ZERO,
+            "a quiet spell"
+        );
+        assert!(
+            GAP >= Duration::from_secs(60) / 80,
+            "under GitHub's 80 a minute"
+        );
     }
 }
