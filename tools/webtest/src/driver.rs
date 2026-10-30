@@ -69,6 +69,12 @@ impl Browser {
             // Software OpenGL: no GPU on CI machines, and some desktop GPU drivers crash WebKit on exit.
             .env("LIBGL_ALWAYS_SOFTWARE", "1")
             .env("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+            // Compile WebAssembly tier-ups while the page waits, not beside it. Each finished tier-up suspends the
+            // main thread with SIGUSR1 (thousands a minute in the game), and WebKit's handler returns with errno
+            // set to EINTR. If that lands inside GLib's g_check_setuid (its errno check runs each time the page
+            // makes an <audio>), GLib aborts the page: "getauxval () failed: Interrupted system call" (#248).
+            // Waiting, the main thread only ever takes those signals while parked.
+            .env("JSC_useConcurrentJIT", "false")
             .stdin(Stdio::null())
             .stdout(out)
             .stderr(err)
