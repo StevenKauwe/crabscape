@@ -82,12 +82,13 @@ fn run(script: &str, seconds: f64, strokes: u32) -> Run {
     run_with(Tuning::base(), script, seconds, strokes)
 }
 
-/// The same numbers with the tide stilled: the canyon as it would be with
+/// The same numbers with the tide and the upwelling stilled: the canyon as it would be with
 /// no current at all.
 fn still_water() -> Tuning {
     let mut t = Tuning::base();
     t.tide.up_speed = 0.0;
     t.tide.down_speed = 0.0;
+    t.tide.upwelling_speed = 0.0;
     t
 }
 
@@ -388,7 +389,8 @@ fn drifting_spots_are_open_water_out_of_the_tide() {
             p.y > level.floor_height(p.x) + 600.0,
             "{p} well off the floor"
         );
-        assert!(!level.currents.iter().any(|c| c.inflate(100.0).contains(p)));
+        let moving = level.currents.iter().chain(&level.upwelling);
+        assert!(!moving.into_iter().any(|c| c.inflate(100.0).contains(p)));
     }
 }
 

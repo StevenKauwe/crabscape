@@ -145,6 +145,13 @@ pub struct Level {
     /// Where the tide runs: the middle of the canyon below the crack, as
     /// boxes of water that run up and down together (see [`Level::tide`]).
     pub currents: Vec<Rect>,
+    /// Where water runs up all the time, whatever the tide does: a lane of
+    /// upwelling along the canyon's near wall, from its floor to above the
+    /// shelf, so no crab is ever stuck down there waiting for the flood.
+    /// Real canyons carry upwelling, deep water flowing up-canyon onto the
+    /// shelf while the wind drives it (Allen & Durrieu de Madron 2009,
+    /// sourced in `world.md`); here it never stops.
+    pub upwelling: Vec<Rect>,
     /// How the tide runs right now, set by the [`Sim`](crate::Sim) every
     /// tick from [`TideTuning::flow`](crate::tuning::TideTuning::flow): 1 =
     /// up at full speed, -1 = down, 0 = slack.
@@ -168,10 +175,12 @@ pub struct Level {
 }
 
 impl Level {
-    /// The water's upward speed at `pos`: the tide's, in its currents, and
-    /// still (0) everywhere else.
+    /// The water's upward speed at `pos`: the upwelling's, in it; the
+    /// tide's, in its currents; and still (0) everywhere else.
     pub fn water_at(&self, pos: Vec2, tide: &TideTuning) -> f32 {
-        if self.currents.iter().any(|c| c.contains(pos)) {
+        if self.upwelling.iter().any(|u| u.contains(pos)) {
+            tide.upwelling_speed
+        } else if self.currents.iter().any(|c| c.contains(pos)) {
             tide.speed(self.tide)
         } else {
             0.0
@@ -332,7 +341,7 @@ impl Level {
                 },
                 // Cold-water coral on the canyon's near wall, from the shelf
                 // up to the doorstep. Nothing climbs from the canyon's
-                // floor: the way up from there is the tide.
+                // floor: the way up from there is the water.
                 Climb {
                     x: 6000.0,
                     bottom: -3400.0,
@@ -473,13 +482,17 @@ impl Level {
             // The tide runs up and down the canyon's middle, from its floor
             // to well above the doorstep, with still water along each wall.
             currents: vec![Rect::new(6450.0, -9400.0, 7350.0, -700.0)],
+            // Against the near wall, from the floor to a little above the
+            // shelf: hop into it and it carries the crab up beside the
+            // shelf, onto which it steps (and the coral climbs on up).
+            upwelling: vec![Rect::new(6152.0, -9400.0, 6400.0, -3150.0)],
             tide: 0.0,
             crack: Vec2::new(5440.0, -560.0),
             lights: Vec2::new(7000.0, -9400.0),
             // Under the rock at the end of the far rim, back to the wall.
             den: Rect::new(8350.0, -1900.0, 8800.0, -1620.0),
-            // Still water by each wall, deep in the canyon.
-            drifting: vec![Vec2::new(6305.0, -6200.0), Vec2::new(7560.0, -7400.0)],
+            // Still water by the far wall, deep in the canyon.
+            drifting: vec![Vec2::new(7600.0, -6500.0), Vec2::new(7560.0, -7400.0)],
             min_x: 0.0,
             max_x: 8800.0,
         }

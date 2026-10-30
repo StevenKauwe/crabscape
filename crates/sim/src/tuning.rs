@@ -378,6 +378,10 @@ pub struct TideTuning {
     pub up_speed: f32,
     /// ...and running down (it sinks at this plus its sinking speed).
     pub down_speed: f32,
+    /// The upwelling along the canyon's near wall runs up at this speed all
+    /// the time, whatever the tide does (see
+    /// [`Level::upwelling`](crate::Level::upwelling)).
+    pub upwelling_speed: f32,
 }
 
 impl TideTuning {
@@ -1422,6 +1426,7 @@ impl Tuning {
                 ramp_ticks: 2 * 120, // one round: a minute
                 up_speed: 800.0,
                 down_speed: 500.0,
+                upwelling_speed: 800.0, // as strong as the flood
             },
             moult: MoultTuning {
                 feat_level: 5,
