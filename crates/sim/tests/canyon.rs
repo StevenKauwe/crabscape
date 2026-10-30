@@ -4,7 +4,7 @@
 
 use bevy_math::{Rect, Vec2};
 use crabsim::replay::ticks;
-use crabsim::{Feel, PlayerId, Progress, Replay, Sim, Tuning};
+use crabsim::{Controls, Feel, PlayerId, Progress, Replay, Sim, Tuning};
 
 /// What one scripted run did.
 struct Run {
@@ -252,6 +252,92 @@ fn the_ebb_drops_a_crab_fast_and_strokes_cannot_beat_it() {
         after_shelf.iter().all(|p| p.y == FLOOR.2),
         "{after_shelf:?}"
     );
+}
+
+/// The foot of the coral on the shelf, and of the coral up the crack.
+const SHELF_CORAL: f32 = 6000.0;
+const CRACK_CORAL: f32 = 5440.0;
+
+/// A crab on the canyon's floor at `x`, with no strokes at all, waits
+/// `wait` s into the tide's round, then plays its way out the way a player
+/// would: hold left (towards the near wall) until it stands on the shelf,
+/// walk to the coral's foot and climb it to the doorstep, walk under the end
+/// wall to the crack's coral and climb out. How long until it stands on the
+/// far basin's floor (or where it was when `limit` s ran out)?
+fn get_out(x: f32, wait: f64, limit: f64) -> Result<f64, Vec2> {
+    let mut sim = Sim::with_one_crab(Vec2::new(x, FLOOR.2));
+    sim.set_feel(Feel::Current);
+    let m = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
+    m.upgrades = 0;
+    m.stamina = 0.0;
+    for _ in 0..ticks(wait) {
+        sim.set_controls(PlayerId(0), Controls::default());
+        sim.tick();
+    }
+    // Ticks since the climb at the current coral began, if it has.
+    let mut climb: Option<u32> = None;
+    for k in 0..ticks(limit) {
+        let m = &sim.crab(PlayerId(0)).unwrap().mover;
+        let (pos, grounded) = (m.pos, m.grounded);
+        if grounded && pos.x < 5381.0 && pos.y >= -700.0 {
+            return Ok(k as f64 / 120.0);
+        }
+        let foot = if grounded && (pos.y - DOORSTEP.2).abs() < 1.0 && pos.x < DOORSTEP.1 {
+            Some(CRACK_CORAL)
+        } else if grounded && (pos.y - SHELF.2).abs() < 1.0 && pos.x < SHELF.1 {
+            Some(SHELF_CORAL)
+        } else {
+            None
+        };
+        let mut c = Controls {
+            walk: -1.0,
+            ..Controls::default()
+        };
+        // At the foot of the near wall: hop up off the floor, into the water.
+        if grounded && (pos.y - FLOOR.2).abs() < 1.0 && pos.x < FLOOR.0 + 100.0 {
+            c.jump_pressed = true;
+            c.jump_held = true;
+        }
+        match (climb, foot) {
+            // Standing on a ledge: to the coral's foot, then jump to grip it.
+            (None, Some(foot)) if (pos.x - foot).abs() > 12.0 => {
+                c.walk = if pos.x > foot { -1.0 } else { 1.0 };
+            }
+            (None, Some(_)) => climb = Some(0),
+            _ => {}
+        }
+        if let Some(s) = climb {
+            // Jump, let go, then hold jump (climb) pressing towards the rim:
+            // as `coral_climbs_back_out_of_the_crack_and_up_from_the_shelf`.
+            c.walk = if s < 36 { 0.0 } else { -1.0 };
+            c.jump_held = s < 24 || s >= 36;
+            c.jump_pressed = s == 0 || s == 36;
+            climb = Some(s + 1);
+            // Up on the next ledge: the climb is done.
+            if s > 60 && grounded {
+                climb = None;
+            }
+        }
+        sim.set_controls(PlayerId(0), c);
+        sim.tick();
+    }
+    Err(sim.crab(PlayerId(0)).unwrap().mover.pos)
+}
+
+#[test]
+fn a_crab_on_the_canyon_floor_can_always_get_out() {
+    // From anywhere along the floor, at any point in the tide's round, with
+    // no strokes: out of the canyon and back on the far basin's floor
+    // within a minute and a half. Walking into the near wall's upwelling is
+    // the whole trick; no waiting for the flood.
+    for x in [6200.0, 6700.0, 7100.0, 7500.0, 7850.0] {
+        for wait in [0.0, 12.0, 30.0, 38.0, 48.0] {
+            match get_out(x, wait, 90.0) {
+                Ok(took) => println!("from {x} after {wait} s: out in {took:.1} s"),
+                Err(at) => panic!("from {x} after {wait} s: still in the canyon at {at}"),
+            }
+        }
+    }
 }
 
 #[test]
