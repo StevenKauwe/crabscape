@@ -127,7 +127,7 @@ fn pose(
     known: Res<Known>,
     lab: Res<FeelLab>,
     mut monkeys: Query<(Entity, &mut Monkey, &mut Transform, &mut Visibility)>,
-    mut parts: Query<&mut Transform, Without<Monkey>>,
+    mut parts: Query<&mut Transform, (Without<Monkey>, Without<Bar>)>,
     mut bars: Query<(&mut Transform, &mut Visibility), (With<Bar>, Without<Monkey>)>,
 ) {
     let dt = time.delta_secs().min(0.05);
