@@ -74,6 +74,11 @@ use crabsim::{Feat, Fighter};
 
 /// The parts list, baked into the game (it is small).
 const PARTS_JSON: &str = include_str!("../assets/crab/crab-parts.json");
+/// The pizza crab's parts list (the same pieces as the crab's, in other places on its own pictures), loaded
+/// only once a crab turns into pizza.
+const PIZZA_PARTS_JSON: &str = include_str!("../assets/creatures/pizza-crab-parts.json");
+const PIZZA_ATLAS_INK: &str = "creatures/pizza-crab-atlas.png";
+const PIZZA_ATLAS_OIL: &str = "creatures/pizza-crab-atlas-oil.png";
 /// The pictures, loaded at start-up (paths inside `assets/`), per style.
 const ATLAS_INK: &str = "crab/crab-atlas.png";
 const ATLAS_OIL: &str = "crab/crab-atlas-oil.png";
@@ -165,6 +170,19 @@ struct CrabArt {
     /// inside each part's edge (white, at half size), for the lantern's light
     /// round the edges from behind.
     layers: Option<[[Handle<Image>; 4]; 2]>,
+    /// Where each piece is on the pizza crab's pictures (by name), once wanted.
+    pizza_rects: HashMap<String, [f32; 4]>,
+    /// The pizza crab's pictures, loading from the first time a crab is pizza, then its layers as above.
+    pizza_sources: Option<[Handle<Image>; 2]>,
+    pizza_layers: Option<[[Handle<Image>; 4]; 2]>,
+}
+
+/// A piece's picture on the red crab and on the pizza one (atlas rectangles, scaled for the layer it is on),
+/// and the crab it belongs to.
+#[derive(Component)]
+struct Skin {
+    crab: Entity,
+    rects: [Rect; 2],
 }
 
 impl CrabArt {
@@ -235,6 +253,8 @@ struct Rig {
     /// Each claw's resting angles (merus, carpus, palm; radians, as seen
     /// from the front), for its reach along a blow (`reach_pose`).
     reach: [[f32; 3]; 2],
+    /// The pizza look's eleventh limb: its arm and its forearm.
+    extra_arm: [Option<Entity>; 2],
 }
 
 /// The angles the shell is drawn at (radians from the front; `crabrig`'s
@@ -338,10 +358,15 @@ enum Gear {
     /// The Swimming feat, broad paddles: a broader blade over each paddle
     /// (`...-paddle-broad`).
     BroadPaddles,
+    /// The eleventh limb of the pizza look (`pizza-arm`, `pizza-fore`).
+    PizzaArm,
 }
 
 impl Gear {
     fn of_part(name: &str) -> Option<Gear> {
+        if name.starts_with("pizza-arm") || name.starts_with("pizza-fore") {
+            return Some(Gear::PizzaArm);
+        }
         [
             ("-scissor", Gear::Scissors),
             ("-propodus-guard", Gear::ClamGuards),
@@ -361,6 +386,7 @@ impl Gear {
             Gear::GlassGrips => m.glass_grips,
             Gear::Hooks => m.has(Feat::GrippingDactyls),
             Gear::BroadPaddles => m.has(Feat::BroadPaddles),
+            Gear::PizzaArm => m.pizza,
         }
     }
 }
@@ -447,6 +473,7 @@ impl Plugin for PuppetPlugin {
             Update,
             (
                 prepare_art,
+                prepare_pizza,
                 build_puppets,
                 restyle,
                 animate,
@@ -467,48 +494,40 @@ impl Plugin for PuppetPlugin {
 // Loading and building
 // ---------------------------------------------------------------------------
 
+/// Each piece's rectangle on the pizza crab's atlas, by name.
+fn pizza_rects() -> HashMap<String, [f32; 4]> {
+    let file: PartsFile =
+        serde_json::from_str(PIZZA_PARTS_JSON).expect("the pizza crab's parts file is valid");
+    file.parts.into_iter().map(|p| (p.name, p.rect)).collect()
+}
+
 /// Start loading both styles' pictures.
 fn load_art(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(CrabArt {
         file: PartsFile::parse(),
         sources: [assets.load(ATLAS_INK), assets.load(ATLAS_OIL)],
         layers: None,
+        pizza_rects: pizza_rects(),
+        pizza_sources: None,
+        pizza_layers: None,
     });
 }
 
-/// Once the pictures have arrived, make each one's dark "unlit" copy. If one
-/// style's picture can't be loaded, that style falls back to the other's.
-fn prepare_art(
-    mut art: ResMut<CrabArt>,
-    assets: Res<AssetServer>,
-    mut images: ResMut<Assets<Image>>,
-) {
-    if art.layers.is_some() {
-        return;
-    }
-    let states = art.sources.clone().map(|h| assets.load_state(&h));
-    if states
-        .iter()
-        .any(|s| s.is_loading() || matches!(s, LoadState::NotLoaded))
-    {
-        return;
-    }
-    let ok = states.map(|s| s.is_loaded());
-    if !ok[0] && !ok[1] {
-        error!("neither crab picture could be loaded ({ATLAS_INK}, {ATLAS_OIL})");
-        art.layers = Some(std::array::from_fn(|_| Default::default()));
-        return;
-    }
+/// The four layers (lit, unlit, pale, rim) of each style's picture; a style whose picture failed (`ok` false)
+/// takes the other's. None while a picture isn't in `images` yet.
+fn make_layers(
+    sources: &[Handle<Image>; 2],
+    ok: [bool; 2],
+    images: &mut Assets<Image>,
+) -> Option<[[Handle<Image>; 4]; 2]> {
     let mut layers: [[Handle<Image>; 4]; 2] = Default::default();
     for i in 0..2 {
         let from = if ok[i] { i } else { 1 - i };
         if !ok[i] {
             warn!("crab picture {i} failed to load; using the other style's");
         }
-        let lit = art.sources[from].clone();
-        let Some(image) = images.get(&lit) else {
-            return;
-        };
+        let lit = sources[from].clone();
+        let image = images.get(&lit)?;
         if image.texture_descriptor.format != TextureFormat::Rgba8UnormSrgb {
             warn!("crab atlas is not RGBA sRGB; the dark layer may look wrong");
         }
@@ -537,6 +556,66 @@ fn prepare_art(
         });
         layers[i] = [lit, images.add(unlit), images.add(pale), images.add(rim)];
     }
+    Some(layers)
+}
+
+/// The first time a crab turns to pizza, start loading the pizza crab's pictures; once they are in, make their
+/// layers. (They aren't fetched for a game that never types the code.)
+fn prepare_pizza(
+    mut art: ResMut<CrabArt>,
+    assets: Res<AssetServer>,
+    mut images: ResMut<Assets<Image>>,
+    movers: Query<&Mover>,
+) {
+    if art.pizza_layers.is_some() || !movers.iter().any(|m| m.pizza) {
+        return;
+    }
+    let sources = art
+        .pizza_sources
+        .get_or_insert_with(|| [assets.load(PIZZA_ATLAS_INK), assets.load(PIZZA_ATLAS_OIL)])
+        .clone();
+    let states = sources.clone().map(|h| assets.load_state(&h));
+    if states
+        .iter()
+        .any(|s| s.is_loading() || matches!(s, LoadState::NotLoaded))
+    {
+        return;
+    }
+    let ok = states.map(|s| s.is_loaded());
+    if !ok[0] && !ok[1] {
+        error!("neither pizza crab picture could be loaded");
+        art.pizza_layers = Some(std::array::from_fn(|_| Default::default()));
+        return;
+    }
+    art.pizza_layers = make_layers(&sources, ok, &mut images);
+}
+
+/// Once the pictures have arrived, make each one's dark "unlit" copy. If one
+/// style's picture can't be loaded, that style falls back to the other's.
+fn prepare_art(
+    mut art: ResMut<CrabArt>,
+    assets: Res<AssetServer>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if art.layers.is_some() {
+        return;
+    }
+    let states = art.sources.clone().map(|h| assets.load_state(&h));
+    if states
+        .iter()
+        .any(|s| s.is_loading() || matches!(s, LoadState::NotLoaded))
+    {
+        return;
+    }
+    let ok = states.map(|s| s.is_loaded());
+    if !ok[0] && !ok[1] {
+        error!("neither crab picture could be loaded ({ATLAS_INK}, {ATLAS_OIL})");
+        art.layers = Some(std::array::from_fn(|_| Default::default()));
+        return;
+    }
+    let Some(layers) = make_layers(&art.sources, ok, &mut images) else {
+        return;
+    };
     art.layers = Some(layers);
     #[cfg(target_arch = "wasm32")]
     if let Some(canvas) = web_sys::window()
@@ -548,14 +627,30 @@ fn prepare_art(
     }
 }
 
-/// When the style changes, swap every crab piece's pictures.
-fn restyle(art: Res<CrabArt>, style: Res<ArtStyle>, mut sprites: Query<(&ArtLayer, &mut Sprite)>) {
-    if !style.is_changed() && !art.is_changed() {
-        return;
-    }
-    for (layer, mut sprite) in &mut sprites {
-        if let Some(image) = art.layer(*style, *layer) {
+/// Show every crab piece's picture in the current style and skin: the red crab's, or the pizza crab's (the
+/// same piece, at its place on the pizza pictures) while its crab is pizza and those have loaded.
+fn restyle(
+    art: Res<CrabArt>,
+    style: Res<ArtStyle>,
+    movers: Query<&Mover>,
+    mut sprites: Query<(&ArtLayer, &Skin, &mut Sprite)>,
+) {
+    for (layer, skin, mut sprite) in &mut sprites {
+        let pizza = movers.get(skin.crab).is_ok_and(|m| m.pizza);
+        let (image, rect) = match art.pizza_layers.as_ref().filter(|_| pizza) {
+            Some(set) => (
+                set[style_index(*style)].get(*layer as usize).cloned(),
+                skin.rects[1],
+            ),
+            None => (art.layer(*style, *layer), skin.rects[0]),
+        };
+        if let Some(image) = image
+            && sprite.image != image
+        {
             sprite.image = image;
+        }
+        if sprite.rect != Some(rect) {
+            sprite.rect = Some(rect);
         }
     }
 }
@@ -698,6 +793,13 @@ fn build_puppets(
                 custom_size: Some(size * ART_SCALE),
                 ..default()
             };
+            // Where the same piece is on the pizza crab's pictures.
+            let pizza = art.pizza_rects.get(&p.name).copied().unwrap_or(p.rect);
+            let skin = |k: f32| Skin {
+                crab,
+                rects: [p.rect, pizza]
+                    .map(|[x, y, w, h]| Rect::new(x * k, y * k, (x + w) * k, (y + h) * k)),
+            };
             // The middle of the picture, relative to the joint (for lighting).
             let middle = Vec2::new(centre.x - p.pivot[0], p.pivot[1] - centre.y) * ART_SCALE;
 
@@ -708,6 +810,7 @@ fn build_puppets(
                     Transform::from_translation(rest),
                     sprite(&unlit, 1.0),
                     ArtLayer::Unlit,
+                    skin(1.0),
                     anchor,
                 ))
                 .id();
@@ -716,6 +819,7 @@ fn build_puppets(
                     ChildOf(entity),
                     sprite(&lit, 1.0),
                     ArtLayer::Lit,
+                    skin(1.0),
                     anchor,
                     // A hair in front of the unlit layer.
                     Transform::from_xyz(0.0, 0.0, Z_STEP * 0.3),
@@ -733,6 +837,7 @@ fn build_puppets(
                     ChildOf(entity),
                     sprite(&rim, 0.5),
                     ArtLayer::Rim,
+                    skin(0.5),
                     anchor,
                     Transform::from_xyz(0.0, 0.0, Z_STEP * 0.6),
                     Lit::at(middle),
@@ -758,6 +863,7 @@ fn build_puppets(
                     ..sprite(&pale, 1.0)
                 },
                 ArtLayer::Pale,
+                skin(1.0),
                 anchor,
                 Transform::from_xyz(0.0, 0.0, Z_STEP * 0.1),
             ));
@@ -910,6 +1016,7 @@ fn build_puppets(
                 lit: lit_layers,
                 rims,
                 reach,
+                extra_arm: [get("pizza-arm".into()), get("pizza-fore".into())],
             },
             PuppetAnim::default(),
         ));
@@ -2075,6 +2182,7 @@ fn soft_look(
 /// Show what a crab has fitted and grown: its gear pieces, and a heavy
 /// crusher drawn bigger.
 fn show_gear(
+    time: Res<Time>,
     movers: Query<(&Mover, &Rig)>,
     mut pieces: Query<(&GearPiece, &mut Visibility)>,
     mut hands: Query<&mut Transform>,
@@ -2093,6 +2201,17 @@ fn show_gear(
         } else {
             1.0
         };
+        // The eleventh limb waves about over the shell.
+        let t = time.elapsed_secs();
+        for (e, (rate, swing, phase)) in rig
+            .extra_arm
+            .into_iter()
+            .zip([(2.1, 0.22, 0.0), (3.3, 0.5, 1.2)])
+        {
+            if let Some(mut arm) = e.and_then(|e| hands.get_mut(e).ok()) {
+                arm.rotation = Quat::from_rotation_z(swing * (t * rate + phase).sin());
+            }
+        }
         if let Some(mut hand) = rig.claws[0].0[2].and_then(|e| hands.get_mut(e).ok()) {
             let scale = Vec3::new(size, size, 1.0);
             if hand.scale != scale {

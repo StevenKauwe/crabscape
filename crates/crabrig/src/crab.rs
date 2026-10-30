@@ -129,6 +129,8 @@ pub struct Pose {
     pub gear: Gear,
     /// 1 = crusher replaced by a small regrowing claw
     pub regrow_r: bool,
+    /// Pepperoni on the shell (the `pizza` look's skin, `parts::pizza_parts_svg`).
+    pub pizza: bool,
 }
 pub fn si(side: char) -> usize {
     if side == 'R' { 0 } else { 1 }
@@ -215,6 +217,7 @@ pub fn base_pose() -> Pose {
         ],
         gear: Gear::default(),
         regrow_r: false,
+        pizza: false,
     }
 }
 
@@ -321,6 +324,10 @@ pub fn back_shell(pose: &Pose) -> Vec<Item> {
         "carapace",
         "carapace-groove-R",
         "carapace-groove-L",
+        "carapace-pepperoni0",
+        "carapace-pepperoni1",
+        "carapace-pepperoni2",
+        "carapace-pepperoni3",
     ];
     let mut back = *pose;
     back.view = View::Back;
@@ -643,6 +650,21 @@ pub fn turn_shell(pose: &Pose, yaw: u32) -> Vec<Item> {
             );
         }
     }
+    if pose.pizza {
+        for (k, (x, z, r)) in PEPPERONI.into_iter().enumerate() {
+            // Only the ones whose middle faces the camera.
+            if !faces(x, z) {
+                continue;
+            }
+            out.push(
+                id(&format!("pepperoni{k}")),
+                &g,
+                pepperoni_on_dome(x, z, r, &proj),
+                "pepperoni",
+            )
+            .sw = Some(0.5);
+        }
+    }
     out.0
 }
 
@@ -659,6 +681,28 @@ fn convex(pts: &[P]) -> Vec<P> {
     bottom.pop();
     top.extend(bottom);
     top
+}
+
+/// Pepperoni slices on the shell, in the dome's own coordinates (x across, z along it, front at +z): where they
+/// sit, and how big (their radius).
+const PEPPERONI: [(f64, f64, f64); 6] = [
+    (-70.0, 6.0, 15.0),
+    (-22.0, 26.0, 13.0),
+    (40.0, 22.0, 16.0),
+    (82.0, -2.0, 13.0),
+    (-34.0, -24.0, 15.0),
+    (30.0, -34.0, 14.0),
+];
+
+/// One pepperoni slice's outline lying on the dome at (`x`, `z`), `r` wide, through `proj`.
+fn pepperoni_on_dome(x: f64, z: f64, r: f64, proj: &dyn Fn([f64; 3]) -> P) -> Vec<P> {
+    (0..16)
+        .map(|i| {
+            let a = i as f64 / 16.0 * std::f64::consts::TAU;
+            let (px, pz) = (x + r * a.cos(), z + 0.7 * r * a.sin());
+            proj([px, shell_dome(px, pz), pz])
+        })
+        .collect()
 }
 
 // ---------- the front / back view puppet ----------
@@ -1627,6 +1671,31 @@ pub fn build_front(pose: &Pose) -> Vec<Item> {
             "ink",
             0.5,
         );
+        if pose.pizza {
+            for (k, (x, y, r)) in [
+                (-70.0, -22.0, 17.0),
+                (-14.0, -34.0, 15.0),
+                (46.0, -26.0, 17.0),
+                (90.0, -12.0, 13.0),
+                (-30.0, -8.0, 13.0),
+                (24.0, -8.0, 14.0),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let slice: Vec<P> = ell(x, y, r, r * 0.62, 16, 0.0)
+                    .into_iter()
+                    .map(cs)
+                    .collect();
+                out.push(
+                    format!("carapace-pepperoni{k}"),
+                    "carapace",
+                    bp(&slice),
+                    "pepperoni",
+                )
+                .sw = Some(0.5);
+            }
+        }
         if pose.gear.helmet {
             helmet(&mut out, &bp, false);
         }
@@ -1702,6 +1771,25 @@ pub fn build_front(pose: &Pose) -> Vec<Item> {
             "ink",
             0.45,
         );
+        if pose.pizza {
+            for (k, (x, y, r)) in [
+                (-56.0, -18.0, 15.0),
+                (0.0, -30.0, 14.0),
+                (56.0, -16.0, 15.0),
+                (6.0, -6.0, 13.0),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                out.push(
+                    format!("carapace-pepperoni{k}"),
+                    "carapace",
+                    bp(&ell(x, y, r, r * 0.6, 16, 0.0)),
+                    "pepperoni",
+                )
+                .sw = Some(0.5);
+            }
+        }
         if pose.gear.helmet {
             helmet(&mut out, &bp, true);
         }

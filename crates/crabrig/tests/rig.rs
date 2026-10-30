@@ -43,7 +43,7 @@ fn the_game_parts_file_matches_the_rig() {
     // a clam-shell guard per claw, glass grips and gripping hooks on the six walking legs' tips, a broad paddle on
     // each paddle; plus the shell turned part way round (three-quarters from the front, side on, three-quarters
     // from behind), shown through the turn.
-    assert_eq!(e.parts, 65);
+    assert_eq!(e.parts, 67); // and the pizza look's eleventh limb: its arm and its forearm
     for part in [
         "turn45-carapace",
         "turn90-carapace",
@@ -280,4 +280,70 @@ fn the_shell_turned_round_narrows_side_on_and_never_goes_thin() {
     assert!(side > 0.3 * front.w, "side on {side} of {}", front.w);
     let side_box = shell(turn_shell(&pose, 90), "turn90-carapace");
     assert!(side_box.h > 0.6 * side_box.w, "{side_box:?}");
+}
+
+const MONKEY_RIG: &str = include_str!("../../../art/creatures/space-monkey/space-monkey-parts.svg");
+const MONKEY_JSON: &str = include_str!("../../../assets/creatures/space-monkey-parts.json");
+const PIZZA_RIG: &str = include_str!("../../../art/creatures/pizza-crab/pizza-crab-parts.svg");
+const PIZZA_JSON: &str = include_str!("../../../assets/creatures/pizza-crab-parts.json");
+
+#[test]
+fn the_monkey_draws_its_committed_rig() {
+    // `cargo run -p crabrig --profile art -- parts --creature space-monkey`, then `export` the same way.
+    assert!(
+        crabrig::monkey::parts_svg() == MONKEY_RIG,
+        "space-monkey-parts.svg is out of date"
+    );
+    let e = crabrig::export::export(
+        MONKEY_RIG,
+        &crabrig::export::Options {
+            zoom: 1.0,
+            source_name: "art/creatures/space-monkey/space-monkey-parts.svg".into(),
+            name: "space-monkey".into(),
+        },
+    )
+    .unwrap();
+    // Body, head, tail, two legs, two arms and two forearms.
+    assert_eq!(e.parts, 9);
+    assert!(
+        e.json == MONKEY_JSON,
+        "assets/creatures/space-monkey-parts.json is out of date"
+    );
+}
+
+#[test]
+fn the_pizza_crab_has_the_crabs_pieces_in_its_own_places() {
+    assert!(
+        crabrig::parts::pizza_parts_svg(&base_pose()) == PIZZA_RIG,
+        "pizza-crab-parts.svg is out of date"
+    );
+    let e = crabrig::export::export(
+        PIZZA_RIG,
+        &crabrig::export::Options {
+            zoom: 1.0,
+            source_name: "art/creatures/pizza-crab/pizza-crab-parts.svg".into(),
+            name: "pizza-crab".into(),
+        },
+    )
+    .unwrap();
+    assert!(
+        e.json == PIZZA_JSON,
+        "assets/creatures/pizza-crab-parts.json is out of date"
+    );
+    // Every piece of the red crab is there, hanging from the same piece (the game swaps pictures piece for piece).
+    let names = |json: &str| -> Vec<(String, Option<String>)> {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        v["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| {
+                (
+                    p["name"].as_str().unwrap().to_string(),
+                    p["parent"].as_str().map(str::to_string),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(names(GAME_JSON), names(PIZZA_JSON));
 }

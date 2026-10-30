@@ -90,6 +90,7 @@ mod keys;
 mod lantern;
 mod level;
 mod memory;
+mod monkeys;
 mod moult;
 mod music;
 mod names;
@@ -164,6 +165,7 @@ fn main() {
             style::StylePlugin,
             view::ViewPlugin,
         ))
+        .add_plugins(monkeys::MonkeysPlugin)
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,
