@@ -510,7 +510,6 @@ pub fn step(
             return blows;
         }
         if e.dropping() {
-            e.state_tick += 1;
             return blows;
         }
     }

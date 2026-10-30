@@ -213,7 +213,7 @@ impl Sim {
                 // holds more than whole coming down.
                 let v = &mut crab.fighter.vitals;
                 if crab.fighter.dead.is_none() {
-                    v.health = if now > was {
+                    v.health = if m.hulk {
                         v.health * now / was.max(1.0)
                     } else {
                         v.health.min(now)

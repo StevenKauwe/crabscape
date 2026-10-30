@@ -3,7 +3,7 @@
 
 use bevy_math::Vec2;
 use crabsim::replay::ticks;
-use crabsim::{Code, Feel, Hit, Kind, PlayerId, Replay, SPAWN, Sim, Source, play};
+use crabsim::{Code, Feel, Hit, Kind, PlayerId, Replay, SPAWN, Sim, Source, Tuning, play};
 
 const P0: PlayerId = PlayerId(0);
 
@@ -423,4 +423,90 @@ fn held_by_moray(hulk: bool) -> bool {
 fn a_grab_does_not_hold_a_hulk_crab() {
     assert!(held_by_moray(false), "a plain crab is held");
     assert!(!held_by_moray(true), "a hulk crab shrugs it off");
+}
+
+#[test]
+fn the_monkeys_times_are_what_they_say() {
+    use crabsim::codes::{MONKEY_DROP, MONKEY_LINGER, MONKEY_STAY};
+    assert_eq!(MONKEY_STAY, 3600, "30 s");
+    assert_eq!(MONKEY_DROP, 90, "0.75 s");
+    assert_eq!(MONKEY_LINGER, 600, "5 s");
+}
+
+#[test]
+fn monkeys_drop_in_spread_round_the_crab_facing_it() {
+    let at = 1000.0;
+    let mut sim = Sim::with_one_crab(Vec2::new(at, 0.0));
+    sim.enter_typed(P0, "monkeys");
+    let found = sim.enemies();
+    assert_eq!(found.len(), 3);
+    for (i, e) in found.iter().enumerate() {
+        let want = at + (i as f32 - 1.0) * 240.0;
+        assert!(
+            (e.pos.x - want).abs() <= 40.0,
+            "monkey {i} at {} not near {want}",
+            e.pos.x
+        );
+        assert_eq!(e.id, i as u32);
+    }
+    assert_eq!(found[0].facing, 1.0, "the left one faces the crab");
+    assert_eq!(found[2].facing, -1.0, "the right one faces the crab");
+    // At the edge of the level they stay in it.
+    let mut edge = Sim::with_one_crab(SPAWN);
+    let (lo, hi) = (edge.level.min_x, edge.level.max_x);
+    edge.crab_mut(P0).unwrap().mover.pos.x = lo;
+    edge.enter_typed(P0, "monkeys");
+    edge.crab_mut(P0).unwrap().mover.pos.x = hi;
+    edge.enter_typed(P0, "monkeys");
+    assert_eq!(edge.enemies().len(), 6);
+    assert!(
+        edge.enemies()
+            .iter()
+            .all(|e| e.pos.x >= lo + 40.0 && e.pos.x <= hi - 40.0)
+    );
+}
+
+#[test]
+fn a_beaten_monkey_lingers_a_while_before_it_is_cleared() {
+    let mut sim = sim();
+    sim.enter_typed(P0, "monkeys");
+    for _ in 0..crabsim::codes::MONKEY_DROP {
+        sim.tick();
+    }
+    let t = sim.tuning.clone();
+    let hit = Hit {
+        damage: 100.0,
+        source: Source::Crab(P0),
+        ..Hit::default()
+    };
+    let e = &mut sim.enemies_mut()[0];
+    e.takes(&hit, e.pos.x - 10.0, &t);
+    for _ in 0..crabsim::codes::MONKEY_LINGER / 2 {
+        sim.tick();
+    }
+    assert_eq!(sim.enemies().len(), 3, "still there half way through");
+}
+
+#[test]
+fn a_friend_meets_only_live_monkeys_from_updates() {
+    let mut guest = Sim::with_one_crab(SPAWN);
+    guest.go_online(false);
+    guest.add_remote_crab(PlayerId(1), SPAWN);
+    let make = |id: u32, kind: Kind| {
+        crabsim::Enemy::new(id, kind, Vec2::new(300.0, 0.0), &Tuning::default())
+    };
+    let msg = |e: crabsim::Enemy| crabsim::net::Msg::Enemy { at: 5, enemy: e };
+    guest.receive(msg(make(7, Kind::Fixture)));
+    assert!(guest.enemies().is_empty(), "other kinds aren't adopted");
+    let mut gone = make(8, Kind::Monkey);
+    gone.state = crabsim::enemy::State::Gone;
+    guest.receive(msg(gone));
+    assert!(guest.enemies().is_empty(), "nor monkeys already gone");
+    guest.receive(msg(make(9, Kind::Monkey)));
+    assert_eq!(guest.enemies().len(), 1);
+    assert_eq!(
+        guest.spawn_enemy(Kind::Fixture, Vec2::new(0.0, 0.0)),
+        10,
+        "ids carry on after it"
+    );
 }
