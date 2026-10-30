@@ -78,8 +78,9 @@ turns your mic off (the browser asks again); turning it on brings voice back wit
 
 Voice chat is written down only on the host's computer (`src/scribe.rs`): the device running the world (the host,
 or a friend standing in for it) writes down everyone, its own player from its mic and each friend from their call as
-it arrives, and sends every line to everyone. With `--voice on`, every scenario also checks that each guest says
-"not writing (Guest)" and the host doesn't, so a guest never listens for speech or starts the model. The rest are
+it arrives, and sends every line to everyone. With `--voice on`, every scenario also checks that each player in a
+guest world says "not writing (Guest)" and the one running the world (the host or a stand-in) doesn't, so a guest
+never listens for speech or starts the model. The rest are
 checked by fast tests (the browser runs can't, without downloading the 110 MB model):
 
 | Promise | Fast test |
