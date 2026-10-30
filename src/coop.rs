@@ -236,6 +236,46 @@ impl Watch {
     }
 }
 
+/// Who hosts the world a device plays in, as that device sees it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Hosting {
+    /// Nobody (yet): this device plays its own world, waiting.
+    #[default]
+    Nobody,
+    /// This device: the link's main host (its owner), or a friend standing in while the main host is away.
+    Me,
+    /// The friend with this crab: it hosts, or is about to.
+    Friend(PlayerId),
+}
+
+/// A device on a link, as its hello says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OnLink {
+    crab: PlayerId,
+    /// Its connection's number, which no other device on the link shares: it settles two crabs with one number.
+    conn: u128,
+    /// It hosts now (the main host always does).
+    hosts: bool,
+    /// It has played with friends on this link since its page loaded.
+    met: bool,
+}
+
+/// How long nobody may host a link with friends on it before one of them stands in (seconds): long enough to hear
+/// every friend's hello, and for a main host who just came to be heard by all.
+const STAND_IN_AFTER: f32 = 2.0;
+
+/// Who hosts, from this device (`me`) and the `friends` on the link (each as its last hello said), after `unhosted`
+/// seconds without anyone hosting. Every device works it out alone from the same hellos, so they agree with no
+/// asking. Whoever hosts keeps it (a newcomer never takes over), except that the lowest crab wins among hosts: the
+/// main host's crab is 0, so the main host always wins, and two friends who both stood in at once (their hellos
+/// crossed) settle on one. With nobody hosting, a friend who played here already goes before a newcomer (so the
+/// one who stayed carries on when the stand-in reloads), then the lowest crab. A friend alone stands in only once
+/// it has played here, so one who has never met anyone simply waits.
+fn who_hosts(me: OnLink, friends: &[OnLink], unhosted: f32) -> Hosting {
+    let _ = (me, friends, unhosted);
+    Hosting::Nobody
+}
+
 /// The line under the invite button (and `data-coop` on the canvas).
 fn status(host: bool, together: bool, n: usize) -> String {
     match (host, together) {
@@ -1402,6 +1442,57 @@ mod tests {
         assert_eq!(read_hello(b"\xffcrabscape versio"), None);
         assert_eq!(read_hello(b"\xffcrabscape version \xff\xfe"), None);
         assert_eq!(read_hello(b""), None);
+    }
+
+    #[test]
+    fn friends_on_a_link_agree_who_hosts_with_no_asking_and_it_sticks() {
+        use Hosting::*;
+        let on = |crab: u32, conn: u128, hosts: bool, met: bool| OnLink {
+            crab: PlayerId(crab),
+            conn,
+            hosts,
+            met,
+        };
+        let a = on(500, 1, false, false);
+        let b = on(90, 2, false, false);
+        // Alone on a link, never met anyone: nobody hosts; this device plays its own world, waiting.
+        assert_eq!(who_hosts(a, &[], 60.0), Nobody);
+        // Two friends and nobody hosting: a moment to hear everyone, then both pick the same one, the lower crab.
+        assert_eq!(who_hosts(a, &[b], 1.0), Nobody);
+        assert_eq!(who_hosts(a, &[b], STAND_IN_AFTER), Friend(PlayerId(90)));
+        assert_eq!(who_hosts(b, &[a], STAND_IN_AFTER), Me);
+        // b stands in. A newcomer with a lower crab follows it; nobody flips over.
+        let b = on(90, 2, true, true);
+        let a = on(500, 1, false, true);
+        let c = on(3, 3, false, false);
+        assert_eq!(who_hosts(c, &[a, b], 9.0), Friend(PlayerId(90)));
+        assert_eq!(who_hosts(a, &[b, c], 9.0), Friend(PlayerId(90)));
+        assert_eq!(who_hosts(b, &[a, c], 9.0), Me);
+        // The main host comes (crab 0, always hosting): everyone goes to it, the stand-in too, at once.
+        let main = on(HOST.0, 4, true, false);
+        assert_eq!(who_hosts(main, &[a, b, c], 0.0), Me);
+        for (me, others) in [(a, [b, c]), (b, [a, c]), (c, [a, b])] {
+            let all = [others[0], others[1], main];
+            assert_eq!(who_hosts(me, &all, 0.0), Friend(HOST), "{me:?}");
+        }
+        // The stand-in leaves (or reloads, and is back as a newcomer): the friend who stayed carries on as the
+        // stand-in, alone or with a newcomer, even one with a lower crab.
+        assert_eq!(who_hosts(a, &[], 1.0), Nobody);
+        assert_eq!(who_hosts(a, &[], STAND_IN_AFTER), Me);
+        let back = on(1, 5, false, false);
+        assert_eq!(who_hosts(a, &[back], STAND_IN_AFTER), Me);
+        assert_eq!(
+            who_hosts(back, &[a], STAND_IN_AFTER),
+            Friend(PlayerId(500))
+        );
+        // Two friends stood in at once (their hellos crossed): both see it the same way, the lower crab keeps it.
+        let (x, y) = (on(700, 6, true, true), on(800, 7, true, true));
+        assert_eq!(who_hosts(x, &[y], 0.0), Me);
+        assert_eq!(who_hosts(y, &[x], 0.0), Friend(PlayerId(700)));
+        // Two crabs with one number: their connections settle it, the same way on both.
+        let (p, q) = (on(42, 8, false, true), on(42, 9, false, true));
+        assert_eq!(who_hosts(p, &[q], STAND_IN_AFTER), Me);
+        assert_ne!(who_hosts(q, &[p], STAND_IN_AFTER), Me);
     }
 
     #[test]
