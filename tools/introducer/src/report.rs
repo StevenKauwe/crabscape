@@ -9,7 +9,7 @@
 //! write, then `fly secrets set GITHUB_REPORT_TOKEN=<token> -a crabscape-introducer`.
 //!
 //! Anyone can send, so: each sender (by address) gets [`PER_SENDER`] reports
-//! an hour and everyone together [`PER_DAY`] a day; every field has a size
+//! in five minutes and everyone together [`PER_DAY`] a day; every field has a size
 //! cap; and the player's words are quoted with `@` mentions defused, under a
 //! note that they are a player's words, not instructions.
 
@@ -24,10 +24,10 @@ use serde::Deserialize;
 /// Where reports go.
 const REPO: &str = "StevenKauwe/crabscape";
 /// Reports one sender may make in [`WINDOW`].
-const PER_SENDER: usize = 5;
-const WINDOW: Duration = Duration::from_secs(60 * 60);
+const PER_SENDER: usize = 10;
+const WINDOW: Duration = Duration::from_secs(5 * 60);
 /// Reports everyone together may make a day.
-const PER_DAY: usize = 100;
+const PER_DAY: usize = 300;
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// The biggest request accepted (bytes); the replay is most of it.
 pub const MAX_BODY: usize = 512 * 1024;
@@ -167,9 +167,32 @@ pub fn issue(r: &Report) -> Result<(String, String), &'static str> {
     Ok((title, body))
 }
 
+/// How long to wait before each new try when GitHub has a passing fault (a
+/// 5xx or no answer): it has been seen to fail a few times in a row and then
+/// recover, and the player is left waiting meanwhile, so the tries are few.
+const RETRY_AFTER: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(5)];
+
 /// File the issue; its address, or why not.
 pub fn file(token: &str, title: &str, body: &str) -> Result<String, String> {
-    let response = ureq::post(&format!("https://api.github.com/repos/{REPO}/issues"))
+    let mut waits = RETRY_AFTER.iter();
+    loop {
+        match file_once(token, title, body) {
+            Err(e) if passing(&e) => match waits.next() {
+                Some(wait) => std::thread::sleep(*wait),
+                None => return Err(e.to_string()),
+            },
+            Err(e) => return Err(e.to_string()),
+            Ok(response) => {
+                let made: serde_json::Value = response.into_json().map_err(|e| e.to_string())?;
+                return Ok(made["html_url"].as_str().unwrap_or_default().to_string());
+            }
+        }
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn file_once(token: &str, title: &str, body: &str) -> Result<ureq::Response, ureq::Error> {
+    ureq::post(&format!("https://api.github.com/repos/{REPO}/issues"))
         .set("Authorization", &format!("Bearer {token}"))
         .set("Accept", "application/vnd.github+json")
         .set("X-GitHub-Api-Version", "2022-11-28")
@@ -180,9 +203,14 @@ pub fn file(token: &str, title: &str, body: &str) -> Result<String, String> {
             "body": body,
             "labels": ["feedback", "player-report"],
         }))
-        .map_err(|e| e.to_string())?;
-    let made: serde_json::Value = response.into_json().map_err(|e| e.to_string())?;
-    Ok(made["html_url"].as_str().unwrap_or_default().to_string())
+}
+
+/// A fault worth trying again: GitHub's own (5xx) or no answer at all.
+fn passing(e: &ureq::Error) -> bool {
+    match e {
+        ureq::Error::Status(code, _) => *code >= 500,
+        ureq::Error::Transport(_) => true,
+    }
 }
 
 #[cfg(test)]
@@ -260,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn each_sender_gets_a_few_an_hour() {
+    fn each_sender_gets_ten_in_five_minutes() {
         let mut limits = Limits::default();
         let t = Instant::now();
         for _ in 0..PER_SENDER {
@@ -268,6 +296,15 @@ mod tests {
         }
         assert!(!limits.allow("a", t), "one too many");
         assert!(limits.allow("b", t), "someone else still can");
-        assert!(limits.allow("a", t + WINDOW), "an hour later");
+        assert!(limits.allow("a", t + WINDOW), "five minutes later");
+    }
+
+    #[test]
+    fn only_githubs_own_faults_are_tried_again() {
+        let status = |code| ureq::Error::Status(code, ureq::Response::new(code, "", "").unwrap());
+        assert!(passing(&status(500)));
+        assert!(passing(&status(502)));
+        assert!(!passing(&status(401)), "a bad token won't mend itself");
+        assert!(!passing(&status(422)), "nor a refused issue");
     }
 }

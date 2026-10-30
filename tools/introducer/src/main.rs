@@ -156,7 +156,7 @@ async fn receive(
     if !allowed {
         return (
             StatusCode::TOO_MANY_REQUESTS,
-            "that's a lot of reports: try again in an hour".into(),
+            "ten reports in five minutes: try again in a few minutes".into(),
         );
     }
     match tokio::task::spawn_blocking(move || report::file(&token, &title, &text)).await {
