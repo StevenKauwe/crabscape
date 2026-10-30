@@ -22,7 +22,7 @@ pub(crate) const KEYS: [(&str, &str); 13] = [
     ("Q O", "jab (the cutter)"),
     ("F I", "guard; tap before a blow: parry"),
     ("H / Home", "go home"),
-    ("- =  or the wheel", "zoom out: the crab's memory"),
+    ("- = / wheel", "zoom out: the crab's memory"),
     ("Enter", "type a code"),
     ("P", "art style: ink or oil"),
     ("F9", "save a replay"),
@@ -34,10 +34,10 @@ const KEPT: &str = "-keys";
 /// Its margin from the window's corner, width, line height, padding, the
 /// keys' column's width and the words' size.
 const MARGIN: f32 = 12.0;
-const WIDTH: f32 = 360.0;
+const WIDTH: f32 = 390.0;
 const LINE: f32 = 17.0;
 const PAD: f32 = 10.0;
-const KEY_COLUMN: f32 = 120.0;
+const KEY_COLUMN: f32 = 130.0;
 const TEXT: f32 = 12.0;
 /// The folded tab's size.
 const TAB: Vec2 = Vec2::new(70.0, 26.0);
@@ -224,9 +224,9 @@ mod tests {
                 let r = card_rect(window, open);
                 assert!(screen.contains(r.min) && screen.contains(r.max), "{window}");
                 assert!(r.min.x < 20.0 && r.max.y > window.y - 20.0, "{window}");
-                // Out of the crab's way (the middle) and clear of the top
+                // Below the crab (drawn in the middle) and clear of the top
                 // corner's buttons.
-                assert!(r.max.x < window.x / 2.0, "{window}");
+                assert!(r.min.y > window.y / 2.0 + 40.0, "{window}");
                 let settings = crate::settings::button_rect(window);
                 assert!(r.intersect(settings).is_empty(), "{window}");
             }
