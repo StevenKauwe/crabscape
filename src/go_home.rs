@@ -104,7 +104,7 @@ fn spawn_question(mut commands: Commands) {
         (
             Text::new(text),
             TextFont {
-                font_size: FontSize::Px(15.0),
+                font_size: FontSize::Px(18.0),
                 ..default()
             },
             TextColor(Color::srgba(1.0, 0.92, 0.78, alpha)),
@@ -125,8 +125,8 @@ fn spawn_question(mut commands: Commands) {
         .with_children(|row| {
             row.spawn((
                 Node {
-                    padding: UiRect::axes(px(16.0), px(10.0)),
-                    column_gap: px(8.0),
+                    padding: UiRect::axes(px(18.0), px(12.0)),
+                    column_gap: px(9.0),
                     align_items: AlignItems::Center,
                     border: UiRect::all(px(1.5)),
                     border_radius: BorderRadius::all(px(12.0)),

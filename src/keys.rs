@@ -97,16 +97,16 @@ pub(crate) fn keycap(label: &str, lit: bool) -> impl Bundle {
     let edge = if lit { 0.75 } else { 0.4 };
     (
         Node {
-            min_width: px(22.0),
-            height: px(22.0),
-            padding: UiRect::horizontal(px(5.0)),
+            min_width: px(26.0),
+            height: px(26.0),
+            padding: UiRect::horizontal(px(6.0)),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             border: UiRect {
                 bottom: px(3.0),
                 ..UiRect::all(px(1.0))
             },
-            border_radius: BorderRadius::all(px(5.0)),
+            border_radius: BorderRadius::all(px(6.0)),
             ..default()
         },
         BorderColor::all(Color::srgba(0.96, 0.91, 0.82, edge)),
@@ -114,7 +114,7 @@ pub(crate) fn keycap(label: &str, lit: bool) -> impl Bundle {
         children![(
             Text::new(label),
             TextFont {
-                font_size: FontSize::Px(13.0),
+                font_size: FontSize::Px(15.0),
                 ..default()
             },
             TextColor(Color::srgb(0.96, 0.91, 0.82)),

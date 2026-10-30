@@ -153,11 +153,13 @@
       background: linear-gradient(#2c3f45, #16252a);
       box-shadow: inset 0 1px 0 #ffffff22;
       color: #f4e7d0;
-      font: 600 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 600 12px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
       text-align: center;
       vertical-align: 1px;
     }
     #report kbd:last-of-type { margin-right: 7px; }
+    /* The symbol keys (a Mac's ⌘ and ⌥, and ↵) read small at the letters' size. */
+    #report.mac kbd.command, #report.mac kbd.alt, #report kbd.enter { font-size: 15px; line-height: 1.16; }
     #report.keys kbd { display: inline-block; }
     #report.keys kbd.alt { display: none; }
     #report.keys:has(#report-text:focus) kbd.alt { display: inline-block; }
@@ -181,7 +183,7 @@
       <button id="report-speak"><kbd class="alt">Alt</kbd><kbd>S</kbd><span class="label">Speak</span></button>
       <span class="grow"></span>
       <button id="report-cancel"><kbd>Esc</kbd>Close</button>
-      <button id="report-send"><kbd class="command">Ctrl</kbd><kbd>&#x21b5;</kbd>Send</button>
+      <button id="report-send"><kbd class="command">Ctrl</kbd><kbd class="enter">&#x21b5;</kbd>Send</button>
     </div>
   </div>
   <div id="character" hidden>

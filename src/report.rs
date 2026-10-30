@@ -333,6 +333,9 @@ mod web {
             .and_then(|w| w.navigator().user_agent().ok())
             .is_some_and(|ua| ua.contains("Mac"));
         if mac {
+            if let Some(form) = element::<HtmlElement>("report") {
+                let _ = form.class_list().add_1("mac");
+            }
             set_all("#report kbd.command", "⌘");
             set_all("#report kbd.alt", "⌥");
         }
