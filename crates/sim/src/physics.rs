@@ -470,6 +470,9 @@ pub struct StepEvents {
     pub recovered: bool,
     /// A claw connected with something.
     pub struck: bool,
+    /// ...in hulk mode: which comic word it earns (see [`crate::codes::COMIC_WORDS`]), picked on the
+    /// attacker's device so every friend's screen shows the same word.
+    pub hulk_blow: Option<u8>,
     /// Stopped a blow with raised claws.
     pub blocked: bool,
     /// Turned a blow aside with a timed block.
@@ -555,6 +558,7 @@ impl StepEvents {
         self.respawned |= other.respawned;
         self.recovered |= other.recovered;
         self.struck |= other.struck;
+        self.hulk_blow = self.hulk_blow.or(other.hulk_blow);
         self.blocked |= other.blocked;
         self.parried |= other.parried;
         self.evaded |= other.evaded;

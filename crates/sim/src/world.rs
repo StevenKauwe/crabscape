@@ -1313,6 +1313,10 @@ impl Sim {
                     f.vitals.hitstop = f.vitals.hitstop.max(c.hitstop_ticks);
                     e.vitals.hitstop = e.vitals.hitstop.max(c.hitstop_ticks);
                     crab.events.struck = true;
+                    crab.events.hulk_blow = crab
+                        .mover
+                        .hulk
+                        .then_some((self.tick % crate::codes::COMIC_WORDS) as u8);
                     crab.events.seized = true;
                     crab.mover.vel.x = 0.0; // planted, gripping
                     continue;
@@ -1339,6 +1343,10 @@ impl Sim {
                     swing.hits.push(e.id);
                     f.vitals.hitstop = f.vitals.hitstop.max(hitstop);
                     crab.events.struck = true;
+                    crab.events.hulk_blow = crab
+                        .mover
+                        .hulk
+                        .then_some((self.tick % crate::codes::COMIC_WORDS) as u8);
                     landed = true;
                 }
             }

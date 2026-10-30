@@ -1279,3 +1279,28 @@ fn a_friend_who_joins_finds_the_octopus_in_its_den_and_after_a_beating_it_comes_
     assert!(octopus_at_home(&host), "host: {:?}", octopus(&host));
     assert!(octopus_at_home(&guest), "guest: {:?}", octopus(&guest));
 }
+
+#[test]
+fn a_friend_sees_the_same_comic_word_for_a_hulk_blow_and_the_hulk_look() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), bag);
+    assert!(g.guest.enter_code(GUEST, crabsim::Code::Hulk));
+    let (mut guest_word, mut host_word, mut host_sees_hulk) = (None, None, false);
+    play(&mut g, "", "t=0.1 smash", ticks(1.5), |g| {
+        guest_word = guest_word.or(g.guest.crab(GUEST).unwrap().events.hulk_blow);
+        host_word = host_word.or(g.host.crab(GUEST).unwrap().events.hulk_blow);
+        host_sees_hulk |= g.host.crab(GUEST).unwrap().mover.hulk;
+    });
+    assert!(guest_word.is_some(), "the hulk's own blow earns a word");
+    assert_eq!(host_word, guest_word, "the friend shows the same word");
+    assert!(host_sees_hulk, "the friend's copy of the crab is bulked up");
+}
+
+#[test]
+fn a_plain_blow_earns_no_comic_word() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), bag);
+    let mut word = None;
+    play(&mut g, "", "t=0.1 smash", ticks(1.5), |g| {
+        word = word.or(g.host.crab(GUEST).unwrap().events.hulk_blow);
+    });
+    assert_eq!(word, None);
+}
