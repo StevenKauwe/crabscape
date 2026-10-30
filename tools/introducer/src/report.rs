@@ -8,8 +8,8 @@
 //! a fine-grained token for `StevenKauwe/crabscape` with Issues: read and
 //! write, then `fly secrets set GITHUB_REPORT_TOKEN=<token> -a crabscape-introducer`.
 //!
-//! Anyone can send, so: each sender (by address) gets [`PER_SENDER`] reports
-//! an hour and everyone together [`PER_DAY`] a day; every field has a size
+//! Anyone can send, so: each sender (by address) gets [`PER_SENDER`] report
+//! a minute and everyone together [`PER_DAY`] a day; every field has a size
 //! cap; and the player's words are quoted with `@` mentions defused, under a
 //! note that they are a player's words, not instructions.
 
@@ -24,10 +24,10 @@ use serde::Deserialize;
 /// Where reports go.
 const REPO: &str = "StevenKauwe/crabscape";
 /// Reports one sender may make in [`WINDOW`].
-const PER_SENDER: usize = 5;
-const WINDOW: Duration = Duration::from_secs(60 * 60);
+const PER_SENDER: usize = 1;
+const WINDOW: Duration = Duration::from_secs(60);
 /// Reports everyone together may make a day.
-const PER_DAY: usize = 100;
+const PER_DAY: usize = 300;
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// The biggest request accepted (bytes); the replay is most of it.
 pub const MAX_BODY: usize = 512 * 1024;
@@ -260,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn each_sender_gets_a_few_an_hour() {
+    fn each_sender_gets_one_a_minute() {
         let mut limits = Limits::default();
         let t = Instant::now();
         for _ in 0..PER_SENDER {
@@ -268,6 +268,6 @@ mod tests {
         }
         assert!(!limits.allow("a", t), "one too many");
         assert!(limits.allow("b", t), "someone else still can");
-        assert!(limits.allow("a", t + WINDOW), "an hour later");
+        assert!(limits.allow("a", t + WINDOW), "a minute later");
     }
 }
