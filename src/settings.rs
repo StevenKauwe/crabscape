@@ -17,7 +17,9 @@
 //!   100% boosts quiet voices), each a row, its name and value left of the
 //!   track; under Music, which music plays ("Calm" or "Themes", `music.rs`).
 //! - **Co-op**: how friends' voices carry (see `voice.rs`): from everyone at
-//!   full volume, or from nearby crabs only, with a slider for how far. While
+//!   full volume, or from nearby crabs only, with a slider for how far; and
+//!   "Your name", the name over your crab (`names.rs`), which asks for a new
+//!   one. While
 //!   the slider moves, a ripple around the crab shows how far it hears.
 //!
 //! The settings and the last tab used are kept on the device. The panel is
@@ -352,6 +354,8 @@ pub(crate) mod panel {
         Import,
         /// Wipes this device's progress (`reset.rs`), on a second tap.
         StartOver,
+        /// Asks for the name shown over your crab (`names.rs`).
+        Name,
         /// A new co-op lobby link (`coop.rs`), on a second tap: the old link
         /// stops reaching this device.
         NewLink,
@@ -374,6 +378,7 @@ pub(crate) mod panel {
                 Choice::Import => "Import",
                 Choice::StartOver => "Start over",
                 Choice::NewLink => "New link",
+                Choice::Name => "Your name",
             }
         }
 
@@ -386,7 +391,7 @@ pub(crate) mod panel {
         fn tab(self) -> Tab {
             match self {
                 Choice::Smooth | Choice::Saver | Choice::Ink | Choice::Oil => Tab::Graphics,
-                Choice::Everyone | Choice::Nearby | Choice::NewLink => Tab::Coop,
+                Choice::Everyone | Choice::Nearby | Choice::Name | Choice::NewLink => Tab::Coop,
                 Choice::Calm | Choice::Themes => Tab::Audio,
                 Choice::Report
                 | Choice::Code
@@ -495,6 +500,10 @@ pub(crate) mod panel {
 
     #[derive(Component)]
     struct ArmedLabel(Choice);
+
+    /// The "Your name" choice's words: the name itself.
+    #[derive(Component)]
+    struct NameWords;
 
     #[derive(Component)]
     struct Fill(Slider);
@@ -709,6 +718,14 @@ pub(crate) mod panel {
                         Choice::Nearby,
                     );
                     let y = slider(&mut l, left, y, Slider::Range);
+                    l.labels.push((
+                        Tab::Coop,
+                        Vec2::new(left + PAD, y),
+                        "Your name (over your crab)",
+                    ));
+                    let y = y + LABEL;
+                    l.choices.push((Choice::Name, whole(left, y)));
+                    let y = y + ROW + PAD;
                     // A little apart: it can't be undone.
                     l.labels
                         .push((Tab::Coop, Vec2::new(left + PAD, y), "Your invite link"));
@@ -729,7 +746,7 @@ pub(crate) mod panel {
             .add_systems(Update, press.in_set(GameSet::Input))
             .add_systems(
                 Update,
-                (lay_out_panel, show, show_tab, place, ring)
+                (lay_out_panel, show, show_name, show_tab, place, ring)
                     .chain()
                     .in_set(GameSet::Present),
             );
@@ -912,6 +929,8 @@ pub(crate) mod panel {
             p.spawn((choice, pill(r, o))).with_children(|b| {
                 if choice.asks_first() {
                     b.spawn((ArmedLabel(choice), text(choice.words(), 13.0)));
+                } else if choice == Choice::Name {
+                    b.spawn((NameWords, text(choice.words(), 13.0)));
                 } else {
                     b.spawn(text(choice.words(), 13.0));
                 }
@@ -1032,6 +1051,7 @@ pub(crate) mod panel {
         mut codes: MessageWriter<crate::codes::Typed>,
         mut sfx: MessageWriter<PlaySfx>,
         mut new_link: MessageWriter<crate::coop::NewLink>,
+        mut names: ResMut<crate::names::Names>,
     ) {
         open.ring = (open.ring - time.delta_secs()).max(0.0);
         open.armed = (open.armed - time.delta_secs()).max(0.0);
@@ -1097,6 +1117,13 @@ pub(crate) mod panel {
                     open.open = false;
                     #[cfg(target_arch = "wasm32")]
                     crate::character::ask_import();
+                }
+                Some(Choice::Name) =>
+                {
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(text) = ask_name(names.mine()) {
+                        names.set_mine(&text);
+                    }
                 }
                 Some(c @ (Choice::StartOver | Choice::NewLink)) if open.is_armed(c) => {
                     open.open = false;
@@ -1215,7 +1242,9 @@ pub(crate) mod panel {
                 Choice::Nearby => settings.hear == Hear::Nearby,
                 Choice::Calm => settings.track == Track::Calm,
                 Choice::Themes => settings.track == Track::Themes,
-                Choice::Report | Choice::Code | Choice::Export | Choice::Import => false,
+                Choice::Report | Choice::Code | Choice::Export | Choice::Import | Choice::Name => {
+                    false
+                }
                 Choice::StartOver | Choice::NewLink => open.is_armed(*choice),
             };
             let colour = match (choice.asks_first(), picked) {
@@ -1267,6 +1296,31 @@ pub(crate) mod panel {
                 knob.left = left;
             }
         }
+    }
+
+    /// "Your name" shows the name itself.
+    fn show_name(names: Res<crate::names::Names>, mut words: Query<&mut Text, With<NameWords>>) {
+        for mut text in &mut words {
+            if text.0 != names.mine() {
+                text.0 = names.mine().to_string();
+            }
+        }
+    }
+
+    /// Asks for a name, starting from the one in use (web only: a desktop
+    /// build plays solo and has no Co-op tab).
+    #[cfg(target_arch = "wasm32")]
+    fn ask_name(now: &str) -> Option<String> {
+        web_sys::window()?
+            .prompt_with_message_and_default(
+                &format!(
+                    "Your name, shown over your crab to friends (up to {} letters)",
+                    crabsim::net::NAME_MAX
+                ),
+                now,
+            )
+            .ok()
+            .flatten()
     }
 
     fn shown(on: bool) -> Visibility {
@@ -1368,7 +1422,7 @@ pub(crate) mod panel {
                 let l = layout_for(window, web, lines);
                 let tabs = tabs_for(web);
                 assert_eq!(l.sliders.len(), if web { 5 } else { 0 }, "{at}");
-                assert_eq!(l.choices.len(), if web { 14 } else { 5 }, "{at}");
+                assert_eq!(l.choices.len(), if web { 15 } else { 5 }, "{at}");
                 // On screen without scrolling, under the button.
                 assert!(
                     l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - super::super::MARGIN,

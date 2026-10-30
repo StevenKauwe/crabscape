@@ -49,6 +49,7 @@
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
 //! - [`cling`]: the clams and shell grit clinging to a crab's shell
 //! - [`moult`]: the Moult button at home (until the home menu has a Moult row)
+//! - [`names`]: the names over crabs, for playing together
 //! - [`notes`]: the short notes that float up when something happens
 //! - [`octopus`]: the common octopus, the boss in its den: its puppet, its tells and its ink
 //! - [`reset`]: starting over: forget this device's saved data, start fresh
@@ -91,6 +92,7 @@ mod level;
 mod memory;
 mod moult;
 mod music;
+mod names;
 mod notes;
 mod octopus;
 mod player;
@@ -191,6 +193,7 @@ fn main() {
                 creature_art::CreatureArtPlugin,
                 go_home::GoHomePlugin,
                 keys::KeysPlugin,
+                names::NamesPlugin,
                 character::CharacterPlugin,
             ),
             sound::SoundPlugin,

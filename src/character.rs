@@ -17,7 +17,8 @@
 //!   URL-safe base64 without padding (letters, digits, `-` and `_`, which
 //!   messages and notes leave alone): the build that made it, the whole save
 //!   (`save::SaveData`: where the crab is, what it remembers, what it grew and
-//!   took, its own world), the settings and the art style.
+//!   took, its own world), the settings, the art style and the name the
+//!   player goes by (`names.rs`; codes from before names have none).
 //! - `checksum`: CRC-32 of everything before it, as 8 hex digits, so a code
 //!   damaged or cut short on the way is refused instead of loaded half.
 //!
@@ -27,13 +28,15 @@
 //! build and the live game both ways.
 //!
 //! What travels: the crab and its own world (the whole save), and the
-//! player's settings: volumes, music, art style, how friends' voices carry.
+//! player's settings: volumes, music, art style, how friends' voices carry,
+//! and the name over the crab.
 //! What stays with the device: the co-op lobby (its invite link: lobbies are
 //! per device), the battery saver (it's about this device's battery), the
 //! settings tab last open and the feel lab's preset (a tool for previews).
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
+use crabsim::net::clean_name;
 use crabsim::{PlayerId, Sim, Skill, skills};
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +67,9 @@ pub struct Character {
     pub save: SaveData,
     pub settings: Settings,
     pub style: ArtStyle,
+    /// The name the player goes by (`names.rs`), if the code carries one:
+    /// codes from before names don't, and importing one keeps the name here.
+    pub name: Option<String>,
 }
 
 impl Character {
@@ -73,6 +79,7 @@ impl Character {
         id: PlayerId,
         settings: Settings,
         style: ArtStyle,
+        name: &str,
         build: &str,
         copy: Option<String>,
     ) -> Option<Self> {
@@ -82,6 +89,7 @@ impl Character {
             save: crate::save::snapshot(sim, id)?,
             settings,
             style,
+            name: clean_name(name),
         })
     }
 }
@@ -99,6 +107,8 @@ struct Body<S> {
     settings: String,
     #[serde(default)]
     style: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
 }
 
 /// Why a code wasn't taken.
@@ -142,6 +152,7 @@ pub fn encode(c: &Character) -> String {
         save: &c.save,
         settings: c.settings.to_text(),
         style: c.style.name().to_string(),
+        name: c.name.clone(),
     };
     let json = serde_json::to_vec(&body).expect("a character always serialises");
     let packed = miniz_oxide::deflate::compress_to_vec(&json, 9);
@@ -207,6 +218,7 @@ pub fn decode(text: &str) -> Result<Character, Refusal> {
         save,
         settings: Settings::from_text(&body.settings),
         style: ArtStyle::from_name(&body.style).unwrap_or_default(),
+        name: body.name.as_deref().and_then(clean_name),
     })
 }
 
@@ -223,14 +235,18 @@ pub fn writes(c: &Character, device_settings: Option<&str>) -> Vec<(&'static str
         saver,
         ..c.settings
     };
-    vec![
+    let mut keys = vec![
         (
             ".save",
             serde_json::to_string(&c.save).expect("save data always serialises"),
         ),
         ("-settings", settings.to_text()),
         ("-style", c.style.name().to_string()),
-    ]
+    ];
+    if let Some(name) = &c.name {
+        keys.push((crate::names::KEPT, name.clone()));
+    }
+    keys
 }
 
 /// What the importer shows before asking "Replace your crab?": its skills,
@@ -494,13 +510,16 @@ mod web {
         me: Res<LocalId>,
         settings: Res<Settings>,
         style: Res<ArtStyle>,
+        names: Res<crate::names::Names>,
     ) {
         if !with(|d| std::mem::take(&mut d.export_asked)) {
             return;
         }
         let build = option_env!("CRABSCAPE_BUILD").unwrap_or("dev");
         let copy = crate::save::build_slug();
-        let Some(c) = Character::of(&sim, me.0, *settings, *style, build, copy.clone()) else {
+        let name = names.mine();
+        let Some(c) = Character::of(&sim, me.0, *settings, *style, name, build, copy.clone())
+        else {
             return;
         };
         let code = encode(&c);
@@ -819,6 +838,7 @@ mod tests {
             PlayerId(0),
             settings,
             ArtStyle::Ink,
+            "  Big   Claw ",
             "5d3eb47, Oct 29",
             Some("pr-183".into()),
         )
@@ -830,6 +850,7 @@ mod tests {
         let c = travelled();
         assert!(c.save.memory.is_some() && c.save.progress.is_some());
         assert_eq!(c.save.x, 1400.0);
+        assert_eq!(c.name.as_deref(), Some("Big Claw"));
         let code = encode(&c);
         assert!(code.starts_with("crab:1:"), "{code}");
         assert!(
@@ -859,6 +880,7 @@ mod tests {
             PlayerId(0),
             Settings::default(),
             ArtStyle::Oil,
+            "Crab 10",
             "dev",
             None,
         )
@@ -900,6 +922,8 @@ mod tests {
         );
         assert!(c.settings.saver);
         assert_eq!(device["-style"], "ink");
+        // The name the player went by comes along, cleaned.
+        assert_eq!(device[crate::names::KEPT], "Big Claw");
         // The lobby, and the rest of what's this device's, untouched.
         assert_eq!(device["-lobby"], "k3m9px");
         assert_eq!(device["-lobby-tab"], "tab7 1700000000");
@@ -910,7 +934,7 @@ mod tests {
         assert!(!Settings::from_text(&fresh[1].1).saver);
         assert_eq!(
             fresh.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
-            [".save", "-settings", "-style"]
+            [".save", "-settings", "-style", "-name"]
         );
         // And no lobby inside the code either.
         let json = unpack(encode(&c).split(':').nth(2).unwrap());
@@ -1070,6 +1094,13 @@ mod tests {
         assert!(p.feats.is_empty() && p.scissor_claw);
         assert_eq!(c.settings.effects, 0.65);
         assert_eq!(c.style, ArtStyle::default());
+        // From before names: none, and importing it leaves the name here be.
+        assert_eq!(c.name, None);
+        assert!(
+            writes(&c, None)
+                .iter()
+                .all(|(k, _)| *k != crate::names::KEPT)
+        );
         // It loads into this level like any save.
         let mut sim = Sim::with_one_crab(Vec2::new(c.save.x, c.save.y));
         sim.restore_progress(PlayerId(0), p);

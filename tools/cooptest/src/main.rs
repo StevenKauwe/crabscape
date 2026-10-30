@@ -467,6 +467,21 @@ fn meet(site: &Site, host: &mut Player, guest: &mut Player, setup: f64) -> Resul
 /// What a scenario found: a line for each promise it checked, with the time it took.
 type Found = Vec<String>;
 
+/// `a` shows `b`'s name over `b`'s crab (`data-names`) within 5 s of meeting. A build from before names (no
+/// `data-name`) is let be.
+fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
+    let Some(name) = b.b.attr("data-name").filter(|n| !n.is_empty()) else {
+        return Ok(format!("{}: a build without names", b.name()));
+    };
+    let t = a.until(5.0, "the friend's name", |p| {
+        p.b.attr("data-names").unwrap_or_default() == name
+    })?;
+    Ok(format!(
+        "{}: {name:?} over the friend's crab, {t:.1} s",
+        a.name()
+    ))
+}
+
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
 const SCENARIOS: [(&str, &str, u32); 11] = [
@@ -562,6 +577,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             guest.open(&site.url(&format!("join={code}")))?;
             let t = together(&mut [&mut host, &mut guest], limit::MEET)?;
             found.push(format!("met {t:.1} s after the friend's game started"));
+            found.push(sees_name(&mut host, &mut guest)?);
+            found.push(sees_name(&mut guest, &mut host)?);
         }
         "guest-reload" => {
             meet(site, &mut host, &mut guest, limit::MEET)?;

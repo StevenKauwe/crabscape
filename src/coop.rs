@@ -276,6 +276,7 @@ mod web {
         HOST, INTRODUCER, LocalId, NewLink, Start, Watch, clean_code, from_host, make_code,
         open_in_other_tab, param, room, start, status, status_top,
     };
+    use crate::names::Names;
     use crate::player::{GameSet, spawn_local_crab};
     use crate::save;
 
@@ -725,7 +726,13 @@ mod web {
     /// What arrived since the last frame: devices that came or went, and
     /// their messages, which go to the simulation. Lost everyone (or the
     /// connection itself)? Join the room afresh every few seconds.
-    fn take_in(time: Res<Time>, mut sim: ResMut<Sim>, mut coop: ResMut<Coop>, me: Res<LocalId>) {
+    fn take_in(
+        time: Res<Time>,
+        mut sim: ResMut<Sim>,
+        mut coop: ResMut<Coop>,
+        mut names: ResMut<Names>,
+        me: Res<LocalId>,
+    ) {
         let Some(code) = coop.code.clone() else {
             return;
         };
@@ -768,6 +775,11 @@ mod web {
                     let Some(msg) = Msg::from_bytes(&bytes) else {
                         continue;
                     };
+                    // A friend's name is the game's to show, not a rule.
+                    if let Msg::Name { crab, name } = &msg {
+                        names.heard(*crab, name);
+                        continue;
+                    }
                     // Met for the first time, or again after going silent.
                     if let Msg::Crab { crab, .. } = &msg
                         && p.player.is_none()
@@ -784,9 +796,15 @@ mod web {
                     sim.receive(msg);
                 }
             }
-            // Met again after a silence: how the world stands now.
-            if host {
-                for peer in met {
+            // Met (again, maybe after a silence): the name we go by, and
+            // from the host how the world stands now.
+            for peer in met {
+                let name = Msg::Name {
+                    crab: me.0,
+                    name: names.mine().to_string(),
+                };
+                link.send(peer, name.to_bytes().into(), RELIABLE);
+                if host {
                     link.send(peer, sim.world().to_bytes().into(), RELIABLE);
                 }
             }
@@ -862,14 +880,26 @@ mod web {
         connect(code);
     }
 
-    /// Send what the simulation wrote this frame.
-    fn send_out(mut sim: ResMut<Sim>) {
+    /// Send what the simulation wrote this frame (and our name, if it just
+    /// changed: friends met later get it when they meet).
+    fn send_out(mut sim: ResMut<Sim>, mut names: ResMut<Names>, me: Res<LocalId>) {
         let out = sim.take_outbox();
+        let renamed = std::mem::take(&mut names.changed).then(|| Msg::Name {
+            crab: me.0,
+            name: names.mine().to_string(),
+        });
         LINK.with(|cell| {
             let mut cell = cell.borrow_mut();
             let Some(link) = cell.as_mut() else {
                 return;
             };
+            if let Some(name) = renamed {
+                let bytes: Packet = name.to_bytes().into();
+                let peers: Vec<PeerId> = link.peers.iter().map(|p| p.id).collect();
+                for peer in peers {
+                    link.send(peer, bytes.clone(), RELIABLE);
+                }
+            }
             for (peer, bytes) in crate::voice::outbox() {
                 if link.peers.iter().any(|p| p.id == peer) {
                     link.send(peer, bytes.into(), VOICE);

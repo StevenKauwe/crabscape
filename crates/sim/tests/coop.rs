@@ -535,6 +535,75 @@ fn bad_bytes_are_dropped_never_crash() {
 }
 
 #[test]
+fn a_name_comes_back_whole_from_its_bytes_whatever_it_spells() {
+    use crabsim::net::NAME_MAX;
+    for name in [
+        "Kai",
+        "Infinity",
+        "NaN Crab",
+        "Ünïcødé 🦀",
+        "sixteen chars ok",
+    ] {
+        assert!(name.chars().count() <= NAME_MAX);
+        let msg = Msg::Name {
+            crab: GUEST,
+            name: name.to_string(),
+        };
+        assert!(msg.reliable(), "a name must arrive");
+        assert_eq!(Msg::from_bytes(&msg.to_bytes()), Some(msg), "{name}");
+    }
+    // A name no game would send (too long, empty, a control character, a
+    // space at either end): dropped.
+    for name in ["seventeen chars!!", "", "a\u{7}b", " Kai", "Kai "] {
+        let msg = Msg::Name {
+            crab: GUEST,
+            name: name.to_string(),
+        };
+        assert_eq!(Msg::from_bytes(&msg.to_bytes()), None, "{name:?}");
+    }
+    // The simulation lets a name go by: it changes nothing.
+    let mut g = game(NEAR, FakeLink::steady(LAG), |_| {});
+    let before = format!("{:?}", g.host.crabs());
+    g.host.receive(Msg::Name {
+        crab: GUEST,
+        name: "Kai".into(),
+    });
+    assert_eq!(format!("{:?}", g.host.crabs()), before);
+}
+
+#[test]
+fn names_are_cleaned_to_sit_over_a_crab() {
+    use crabsim::net::clean_name;
+    let clean = |s: &str| clean_name(s);
+    assert_eq!(clean("  Kai  "), Some("Kai".into()));
+    assert_eq!(clean("Big \t\n  Claw"), Some("Big Claw".into()));
+    assert_eq!(clean("Bell\u{7}e"), Some("Belle".into()));
+    assert_eq!(clean("\u{7} Kai"), Some("Kai".into()));
+    assert_eq!(
+        clean("abcdefghijklmnopqrstuvwxyz"),
+        Some("abcdefghijklmnop".into())
+    );
+    // Cut at the limit on a space: no space left hanging at the end.
+    assert_eq!(clean("fifteen chars x yz"), Some("fifteen chars x".into()));
+    assert_eq!(
+        clean("crab 🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀"),
+        Some("crab 🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀".into())
+    );
+    for nothing in ["", "   ", "\u{7}\u{8}", "\n\t"] {
+        assert_eq!(clean(nothing), None, "{nothing:?}");
+    }
+}
+
+#[test]
+fn a_message_from_a_newer_game_is_dropped_unread() {
+    // A kind of message this game doesn't know (the way a game from before
+    // names sees a name): dropped, never misread as another.
+    for kind in [16u8, 17, 99, 127] {
+        assert_eq!(Msg::from_bytes(&[kind, 1, 2, 3, 4]), None, "{kind}");
+    }
+}
+
+#[test]
 fn no_name_in_a_message_reads_as_a_broken_number() {
     // `from_bytes` spots NaN and infinity by how they print; a field or
     // variant named, say, `inflow` would make every message look broken.

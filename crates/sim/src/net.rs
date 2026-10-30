@@ -121,6 +121,27 @@ pub enum Msg {
     Taken { by: Option<PlayerId>, thing: Thing },
     /// A clam bed (its index in the level) grew a new clam, on the host.
     Regrown(usize),
+    /// The name a player goes by, from its own device, shown over `crab`
+    /// (sent when friends meet and when it changes; the game keeps it, the
+    /// simulation doesn't). Always a [`clean_name`]. A game from before
+    /// names drops it unread, as it does any message it doesn't know.
+    Name { crab: PlayerId, name: String },
+}
+
+/// The longest name, in characters: short enough to sit over a crab.
+pub const NAME_MAX: usize = 16;
+
+/// A name as it may be shown and sent: no control characters, spaces
+/// squeezed to one, at most [`NAME_MAX`] characters; None if nothing is left.
+pub fn clean_name(raw: &str) -> Option<String> {
+    let words: Vec<String> = raw
+        .split_whitespace()
+        .map(|w| w.chars().filter(|c| !c.is_control()).collect())
+        .filter(|w: &String| !w.is_empty())
+        .collect();
+    let name: String = words.join(" ").chars().take(NAME_MAX).collect();
+    let name = name.trim_end().to_string();
+    (!name.is_empty()).then_some(name)
 }
 
 impl Msg {
@@ -144,6 +165,10 @@ impl Msg {
             return None;
         }
         let msg: Msg = postcard::from_bytes(bytes).ok()?;
+        // A name holds no number, and may well hold "inf" ("Infinity").
+        if let Msg::Name { name, .. } = &msg {
+            return (clean_name(name).as_ref() == Some(name)).then_some(msg);
+        }
         // Every number in it, printed: `{:?}` writes a non-finite one as NaN
         // or inf, and no name in a message contains either (a test checks).
         let text = format!("{msg:?}");
