@@ -617,7 +617,7 @@ pub struct InkTuning {
     pub cloud_ticks: u32,
 }
 
-/// What its den holds once it has fled for good.
+/// What its den holds while it is away, beaten.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DenTuning {
     /// Pieces of shell grit in its midden (shared: taken once in all).
@@ -1285,7 +1285,9 @@ impl Tuning {
                     flee_below: 0.0,
                     flee_speed: 0.0,
                     hide_ticks: 0,
-                    respawn_ticks: 0, // a boss: no other moves in
+                    // Beaten, it is away 3 minutes, and back only once no
+                    // crab is by its den: time to take the midden home.
+                    respawn_ticks: 3 * 60 * 120,
                     notice_moving: 0.0,
                     scent_ticks: 0,
                     stalks: false,

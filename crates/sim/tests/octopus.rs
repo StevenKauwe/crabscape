@@ -801,7 +801,7 @@ fn inside_the_ink_a_sight_hunting_enemy_loses_the_crab() {
 }
 
 #[test]
-fn at_0_health_it_jets_off_for_good_leaving_no_body() {
+fn at_0_health_it_jets_off_leaving_no_body_and_its_den_open() {
     let (r, _) = beat(9000);
     let e = &r.sim.enemies()[0];
     assert_eq!(e.state, State::Gone);
@@ -875,4 +875,176 @@ fn it_lives_hidden_in_its_den_at_the_end_of_the_far_rim() {
         .unwrap();
     assert!(e.facing < 0.0, "faces the way in");
     assert!(e.hidden(&sim.tuning));
+}
+
+// --- Always there: back in its den, whatever happened ----------------------------
+
+/// The level as the game starts it: every animal in place, the crab at `at`.
+fn level_world(at: Vec2) -> Sim {
+    let mut sim = Sim::with_one_crab(at);
+    sim.populate();
+    sim
+}
+
+/// The level's octopus.
+fn the_octopus(sim: &Sim) -> &crabsim::Enemy {
+    sim.enemies()
+        .iter()
+        .find(|e| e.kind == Kind::Octopus)
+        .expect("the level's octopus")
+}
+
+/// Where the level's octopus lives.
+fn its_den(sim: &Sim) -> Vec2 {
+    let (_, at) = *sim
+        .level
+        .foes
+        .iter()
+        .find(|(k, _)| *k == Kind::Octopus)
+        .unwrap();
+    Vec2::new(at.x, sim.level.floor_height(at.x))
+}
+
+/// It is there as a crab coming in would find it: hidden in its den, whole.
+fn at_home(sim: &Sim) -> bool {
+    let e = the_octopus(sim);
+    let o = e.octopus().unwrap();
+    e.state == State::Idle
+        && e.pos == its_den(sim)
+        && e.hidden(&sim.tuning)
+        && !o.fled
+        && e.vitals.health == sim.tuning.octopus.base.vitals.health
+}
+
+/// Beat it with blows on its mantle until it has jetted off.
+fn beat_it(sim: &mut Sim) {
+    let t = sim.tuning.clone();
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().fighter.vitals.health = 100_000.0;
+    for i in 0..20_000 {
+        let e = sim
+            .enemies_mut()
+            .iter_mut()
+            .find(|e| e.kind == Kind::Octopus)
+            .unwrap();
+        if e.state == State::Gone {
+            return;
+        }
+        if i % 20 == 0 && e.hittable(&t) {
+            let x = e.pos.x - 100.0;
+            e.takes_at(Part::Body, &Hit::new(40.0, 0.0, Source::World), x, &t);
+        }
+        sim.tick();
+    }
+    panic!("never beaten");
+}
+
+/// Run `secs` seconds of nothing in particular.
+fn wait(sim: &mut Sim, secs: u32) {
+    for _ in 0..secs * 120 {
+        sim.tick();
+    }
+}
+
+#[test]
+fn beaten_it_comes_back_to_its_den_once_crabs_have_left_it_alone() {
+    let den = {
+        let sim = level_world(Vec2::ZERO);
+        its_den(&sim)
+    };
+    let mut sim = level_world(den - Vec2::new(200.0, 0.0));
+    beat_it(&mut sim);
+    assert!(the_octopus(&sim).octopus().unwrap().fled, "it got away");
+    // While a crab stays by its den, the den is open (its midden is there
+    // to take) and it stays away, however long.
+    wait(&mut sim, 6 * 60);
+    assert_eq!(the_octopus(&sim).state, State::Gone, "away while watched");
+    // The crab goes home; a while later the octopus is back, hidden in its
+    // den, whole again, its midden guarded.
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().mover.pos = crabsim::SPAWN;
+    let away = sim.tuning.octopus.base.respawn_ticks;
+    assert!(away > 0, "it comes back");
+    wait(&mut sim, away / 120 + 1);
+    assert!(at_home(&sim), "{:?}", the_octopus(&sim));
+}
+
+#[test]
+fn a_crab_dying_in_its_den_leaves_it_there() {
+    let mut sim = level_world(Vec2::ZERO);
+    let den = its_den(&sim);
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().mover.pos = den - Vec2::new(200.0, 0.0);
+    let mut died = false;
+    for _ in 0..60 * 120 {
+        sim.tick();
+        died |= sim.crabs()[0].fighter.dead.is_some();
+    }
+    assert!(died, "it caught the crab");
+    assert!(
+        sim.crabs()[0].mover.pos.distance(den) > 2000.0,
+        "woke at home"
+    );
+    wait(&mut sim, 10);
+    assert!(at_home(&sim), "{:?}", the_octopus(&sim));
+}
+
+#[test]
+fn it_is_there_again_when_the_game_is_loaded() {
+    // Beaten and its midden taken, then the game reloads: the save brings
+    // the crab back, and the level's animals are put in afresh.
+    let mut sim = level_world(Vec2::ZERO);
+    let den = its_den(&sim);
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().mover.pos = den - Vec2::new(200.0, 0.0);
+    beat_it(&mut sim);
+    sim.crab_mut(id).unwrap().mover.pos = den;
+    sim.tick();
+    let saved = sim.progress(id).unwrap();
+    let mut loaded = Sim::new(Tuning::default(), crabsim::Level::test_level());
+    loaded.add_crab(id, crabsim::SPAWN);
+    loaded.restore_progress(id, &saved);
+    loaded.start_recording();
+    loaded.populate();
+    assert!(at_home(&loaded));
+}
+
+#[test]
+fn monkeys_dropping_into_its_den_leave_it_there() {
+    let mut sim = level_world(Vec2::ZERO);
+    let den = its_den(&sim);
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().mover.pos = den - Vec2::new(500.0, 0.0);
+    sim.crab_mut(id).unwrap().fighter.vitals.health = 100_000.0;
+    assert!(sim.enter_typed(id, "monkeys"));
+    wait(&mut sim, 5);
+    // Every monkey visits and goes; the crab goes home.
+    let stay = (crabsim::codes::MONKEY_STAY + crabsim::codes::MONKEY_LINGER) / 120;
+    wait(&mut sim, stay + 2);
+    assert!(sim.enemies().iter().all(|e| e.kind != Kind::Monkey));
+    sim.crab_mut(id).unwrap().mover.pos = crabsim::SPAWN;
+    wait(&mut sim, 10);
+    assert!(at_home(&sim), "{:?}", the_octopus(&sim));
+}
+
+#[test]
+fn a_hulk_crab_it_cannot_hold_leaves_it_there() {
+    let mut sim = level_world(Vec2::ZERO);
+    let den = its_den(&sim);
+    let id = sim.crabs()[0].id;
+    assert!(sim.enter_typed(id, "hulk"));
+    sim.crab_mut(id).unwrap().mover.pos = den - Vec2::new(200.0, 0.0);
+    // It pounces, webs and probes at a crab it can't hold, for a minute.
+    for _ in 0..60 * 120 {
+        sim.tick();
+        assert!(
+            sim.crabs()[0].fighter.grabbed.is_none(),
+            "nothing holds hulk"
+        );
+    }
+    assert_eq!(the_octopus(&sim).pos, den, "still in its den");
+    assert_ne!(the_octopus(&sim).state, State::Gone);
+    sim.crab_mut(id).unwrap().mover.pos = crabsim::SPAWN;
+    wait(&mut sim, 10);
+    assert!(at_home(&sim), "{:?}", the_octopus(&sim));
 }

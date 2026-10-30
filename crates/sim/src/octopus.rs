@@ -149,9 +149,9 @@ pub struct Octopus {
     pub inks: u32,
     /// Its ink cloud, while it lasts.
     pub ink: Option<Ink>,
-    /// Beaten: jetting off for good...
+    /// Beaten: jetting off...
     pub leaving: bool,
-    /// ...and gone: its den is open.
+    /// ...and gone: its den is open until it comes back.
     pub fled: bool,
 }
 
@@ -313,8 +313,8 @@ pub fn inks(e: &mut Enemy, t: &Tuning) {
     e.enter(State::Flee, i.jet_ticks);
 }
 
-/// Beaten: it jets off for good (animals want to eat, not die). No body is
-/// left: it got away.
+/// Beaten: it jets off (animals want to eat, not die). No body is left: it
+/// got away. Its den stays open a while (see [`step`]).
 pub fn away(e: &mut Enemy, t: &Tuning) {
     if let Some(o) = e.octo.as_mut() {
         o.leaving = true;
@@ -484,7 +484,21 @@ pub fn step(
             State::Attack => e.enter(State::Recover, k.recover_ticks),
             State::Flee if o.leaving => {
                 o.fled = true;
-                e.enter(State::Gone, 0);
+                e.enter(State::Gone, k.respawn_ticks);
+            }
+            // Away long enough, and no crab by its den: it is back, hidden
+            // in its den, whole (dens are taken again; whether by the same
+            // animal, nobody can tell). Until then its den is open.
+            State::Gone if left_alone(o.den, crabs, k.give_up_range) => {
+                let fresh = Enemy::new(e.id, e.kind, o.den, t);
+                *e = Enemy {
+                    heard: std::mem::take(&mut e.heard),
+                    runner: e.runner,
+                    handovers: e.handovers,
+                    deaths: e.deaths,
+                    ..fresh
+                };
+                o = e.octo.take().expect("a fresh octopus is an octopus");
             }
             State::Flee => {
                 reappear(e, &mut o, crabs, level, t);
@@ -626,6 +640,11 @@ pub fn step(
     }
     e.octo = Some(o);
     blows
+}
+
+/// No crab within `range` of its den (one there keeps it away).
+fn left_alone(den: Vec2, crabs: &[SimCrab], range: f32) -> bool {
+    crabs.iter().all(|c| c.mover.pos.distance(den) > range)
 }
 
 /// Is there room over the crab at `p` to webover it (no low roof of rock)?
