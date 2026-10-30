@@ -861,6 +861,12 @@ mod tests {
             meter.tick(f64::from(frame) / 60.0, || 0.0);
         }
         assert!(!meter.heard(), "nothing arrived");
+        let mut faint = Meter::default();
+        faint.tick(0.0, || HEARD);
+        assert!(
+            !faint.heard(),
+            "a hiss no louder than the line counts for nothing"
+        );
         for frame in 0..60 {
             meter.tick(10.0 + f64::from(frame) / 60.0, || 0.3);
         }
