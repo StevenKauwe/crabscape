@@ -641,6 +641,11 @@ pub fn before_step(
         f.blocking = false;
         return Controls::default();
     }
+    // Hulk mode: nothing holds it. A hold it was just caught in breaks at
+    // once.
+    if m.hulk && f.grabbed.take().is_some() {
+        ev.freed = true;
+    }
     // Held in a bite: struggle (dodge presses) to get free sooner, or drop
     // a walking leg to get free at once (down + dodge, or dodge held a
     // moment).

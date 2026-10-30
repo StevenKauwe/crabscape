@@ -208,6 +208,10 @@ pub struct Mover {
     pub hulk: bool,
     /// The lantern blazing, from the `glow` code (see [`crate::codes`]).
     pub glow: bool,
+    /// Drawn as a crab made of pizza, with eleven limbs, from the `pizza`
+    /// code (see [`crate::codes`]): a look only.
+    #[serde(default)]
+    pub pizza: bool,
     /// Ticks left of being well fed (0 = not): a bigger shell and reserve
     /// (see [`Mover::max_shell`], [`Mover::reserve_strokes`]).
     pub well_fed: u32,
@@ -263,6 +267,7 @@ impl Mover {
             tucked: 0.0,
             hulk: false,
             glow: false,
+            pizza: false,
             well_fed: 0,
             feats: Vec::new(),
             moults: 0,
@@ -322,7 +327,12 @@ impl Mover {
         } else {
             1.0
         };
-        self.grown_shell(t) * (1.0 + bonus) * soft
+        let hulk = if self.hulk {
+            crate::codes::HULK_SHELL
+        } else {
+            1.0
+        };
+        self.grown_shell(t) * (1.0 + bonus) * soft * hulk
     }
 
     /// How many strokes the reserve holds when full: more while well fed.

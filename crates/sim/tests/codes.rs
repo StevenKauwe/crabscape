@@ -145,14 +145,147 @@ fn an_unknown_code_changes_nothing() {
 }
 
 #[test]
-fn the_joke_codes_change_nothing_in_the_world() {
-    for (typed, code) in [("pizza", Code::Pizza), ("  MONKEYS ", Code::Monkeys)] {
-        assert_eq!(Code::parse(typed), Some(code));
-        let before = sim();
-        let mut after = sim();
-        assert!(after.enter_typed(P0, typed));
-        assert_eq!(after.state_hash(), before.state_hash(), "{typed}");
+fn the_joke_codes_parse_however_they_are_typed() {
+    assert_eq!(Code::parse("pizza"), Some(Code::Pizza));
+    assert_eq!(Code::parse("  MONKEYS "), Some(Code::Monkeys));
+}
+
+/// Walk, smash and dodge about with or without the pizza look; the crab's
+/// whole state each 20 ticks, with the look set aside.
+fn run_with_pizza(pizza: bool) -> (Vec<u64>, bool) {
+    let mut sim = sim();
+    sim.spawn_enemy(Kind::Fixture, Vec2::new(340.0, 0.0));
+    if pizza {
+        assert!(sim.enter_typed(P0, "pizza"));
     }
+    let script = Replay::parse("t=0 walk=right; t=0.3 walk=stop; t=0.8 smash; t=1.6 jab").unwrap();
+    let mut playback = script.playback();
+    let mut seen = Vec::new();
+    for n in 0..600 {
+        sim.set_controls(P0, playback.next_controls());
+        sim.tick();
+        if n % 20 == 0 {
+            let mut c = sim.crab(P0).unwrap().clone();
+            c.mover.pizza = false;
+            seen.push(crabsim::hash::fnv1a(
+                format!("{c:?} {:?}", sim.enemies()).as_bytes(),
+            ));
+        }
+    }
+    (seen, sim.crab(P0).unwrap().mover.pizza)
+}
+
+#[test]
+fn pizza_toggles_the_look_and_changes_nothing_in_play() {
+    let (plain, plain_look) = run_with_pizza(false);
+    let (pizza, pizza_look) = run_with_pizza(true);
+    assert!(!plain_look && pizza_look);
+    assert_eq!(plain, pizza, "the crab and the creature play out the same");
+    let mut sim = sim();
+    sim.enter_typed(P0, "pizza");
+    assert!(sim.crab(P0).unwrap().mover.pizza);
+    sim.enter_typed(P0, "pizza");
+    assert!(!sim.crab(P0).unwrap().mover.pizza, "again: back");
+}
+
+#[test]
+fn monkeys_drop_in_near_the_crab_and_cannot_be_hit_while_falling() {
+    let mut sim = sim();
+    assert!(sim.enemies().is_empty());
+    assert!(sim.enter_typed(P0, "monkeys"));
+    let found = sim.enemies();
+    assert_eq!(found.len(), 3);
+    assert!(found.iter().all(|e| e.kind == Kind::Monkey));
+    assert!(found.iter().all(|e| (e.pos.x - SPAWN.x).abs() < 400.0));
+    assert!(found.iter().all(|e| e.dropping()));
+    assert!(found.iter().all(|e| !e.hittable(&sim.tuning)));
+    for _ in 0..crabsim::codes::MONKEY_DROP {
+        sim.tick();
+    }
+    assert!(sim.enemies().iter().all(|e| !e.dropping()));
+    assert!(sim.enemies().iter().all(|e| e.hittable(&sim.tuning)));
+}
+
+#[test]
+fn monkeys_swing_at_the_crab_weakly() {
+    let mut sim = sim();
+    sim.enter_typed(P0, "monkeys");
+    let start = sim.crab(P0).unwrap().fighter.vitals.health;
+    let (mut hits, mut biggest) = (0, 0.0_f32);
+    let mut before = start;
+    for _ in 0..ticks(12.0) {
+        sim.tick();
+        let now = sim.crab(P0).unwrap().fighter.vitals.health;
+        if now < before {
+            hits += 1;
+            biggest = biggest.max(before - now);
+        }
+        before = now;
+    }
+    assert!(hits > 0, "they hit");
+    assert!(
+        biggest <= 0.05 * start,
+        "each blow is weak: {biggest} of {start}"
+    );
+}
+
+#[test]
+fn a_monkey_can_be_beaten_and_leaves_no_body() {
+    let mut sim = sim();
+    sim.enter_typed(P0, "monkeys");
+    for _ in 0..crabsim::codes::MONKEY_DROP {
+        sim.tick();
+    }
+    let hit = Hit {
+        damage: 100.0,
+        source: Source::Crab(P0),
+        ..Hit::default()
+    };
+    let id = sim.enemies()[0].id;
+    let t = sim.tuning.clone();
+    let e = sim.enemies_mut().iter_mut().find(|e| e.id == id).unwrap();
+    let took = e.takes(&hit, e.pos.x - 10.0, &t).unwrap();
+    assert!(took.died);
+    assert_eq!(e.state, crabsim::enemy::State::Gone);
+    for _ in 0..crabsim::codes::MONKEY_LINGER + 10 {
+        sim.tick();
+    }
+    assert!(sim.enemies().iter().all(|e| e.id != id), "gone for good");
+    assert_eq!(sim.enemies().len(), 2);
+}
+
+#[test]
+fn monkeys_leave_after_a_while() {
+    let mut sim = sim();
+    sim.enter_typed(P0, "monkeys");
+    for _ in 0..crabsim::codes::MONKEY_STAY + crabsim::codes::MONKEY_LINGER + 600 {
+        sim.tick();
+    }
+    assert!(sim.enemies().is_empty());
+}
+
+#[test]
+fn a_recording_with_the_monkeys_code_replays_to_the_same_hash() {
+    let mut live = sim();
+    live.start_recording();
+    for frame in 0..900 {
+        if frame == 100 {
+            assert!(live.enter_typed(P0, "monkeys"));
+        }
+        if frame == 400 {
+            assert!(live.enter_typed(P0, "pizza"));
+        }
+        live.set_controls(P0, Default::default());
+        live.tick();
+    }
+    assert_eq!(live.enemies().len(), 3);
+    let text = live.recording().unwrap().to_text();
+    assert!(text.contains("code=monkeys"), "{text}");
+    assert!(!text.contains("spawn="), "the code carries them: {text}");
+    let replay = Replay::parse(&text).unwrap();
+    let mut again = sim();
+    play(&mut again, &replay, replay.length(), |_| {});
+    assert_eq!(again.state_hash(), live.state_hash());
 }
 
 #[test]
@@ -238,4 +371,56 @@ fn the_hint_lists_every_code_by_the_word_to_type() {
         );
         assert_eq!(Code::parse(code.name()), Some(code));
     }
+}
+
+#[test]
+fn hulk_has_ten_times_the_shell_and_loses_it_on_toggle_off() {
+    let mut sim = sim();
+    let usual = sim.crab(P0).unwrap().mover.max_shell(&sim.tuning);
+    assert!(sim.enter_code(P0, Code::Hulk));
+    let hulk = sim.crab(P0).unwrap().mover.max_shell(&sim.tuning);
+    assert_eq!(hulk, 10.0 * usual);
+    let health = sim.crab(P0).unwrap().fighter.vitals.health;
+    assert_eq!(health, 10.0 * usual, "a whole shell stays whole");
+    // Hurt in hulk mode, then back to normal: never more than whole.
+    assert!(sim.enter_code(P0, Code::Hulk));
+    let crab = sim.crab(P0).unwrap();
+    assert_eq!(crab.mover.max_shell(&sim.tuning), usual);
+    assert_eq!(crab.fighter.vitals.health, usual);
+}
+
+#[test]
+fn a_hurt_hulk_crab_keeps_its_share_of_shell() {
+    let mut sim = sim();
+    let usual = sim.crab(P0).unwrap().mover.max_shell(&sim.tuning);
+    sim.crab_mut(P0).unwrap().fighter.vitals.health = usual / 2.0;
+    sim.enter_code(P0, Code::Hulk);
+    assert_eq!(sim.crab(P0).unwrap().fighter.vitals.health, 5.0 * usual);
+}
+
+/// The crab in reach of the moray's lunge, with the code on or not; whether
+/// it was ever held.
+fn held_by_moray(hulk: bool) -> bool {
+    let mut sim = Sim::with_one_crab(Vec2::new(290.0, 0.0));
+    sim.set_feel(Feel::Current);
+    if hulk {
+        sim.enter_code(P0, Code::Hulk);
+    }
+    sim.spawn_enemy(Kind::Moray, Vec2::new(400.0, 0.0));
+    let mut held = false;
+    play(
+        &mut sim,
+        &Replay::parse("t=0 walk=stop").unwrap(),
+        ticks(5.0),
+        |s| {
+            held |= s.crabs()[0].fighter.grabbed.is_some();
+        },
+    );
+    held
+}
+
+#[test]
+fn a_grab_does_not_hold_a_hulk_crab() {
+    assert!(held_by_moray(false), "a plain crab is held");
+    assert!(!held_by_moray(true), "a hulk crab shrugs it off");
 }
