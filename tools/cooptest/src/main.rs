@@ -65,6 +65,8 @@ struct Site {
     shots: Option<PathBuf>,
     /// How many times slower each page runs (`--slow`).
     slow: f64,
+    /// The web build served (`--web`).
+    web: PathBuf,
 }
 
 impl Site {
@@ -487,7 +489,7 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 11] = [
+const SCENARIOS: [(&str, &str, u32); 12] = [
     ("join", "a friend opening your link plays with you", 22),
     (
         "guest-reload",
@@ -538,6 +540,11 @@ const SCENARIOS: [(&str, &str, u32); 11] = [
         "stall",
         "a game frozen for 6 s (past the 5 s a friend counts as gone) is back with its friend",
         42,
+    ),
+    (
+        "new-version",
+        "friends on different versions: the older game reloads into the new one, then they play together",
+        35,
     ),
 ];
 
@@ -712,6 +719,39 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 .map_err(|e| format!("after the host froze: {e}"))?;
             found.push(format!("host frozen 6 s: together {t:.1} s after"));
         }
+        "new-version" => {
+            let Some(port) = site.introducer.as_ref().map(|i| i.port) else {
+                found.push("skipped (a deploy is pretended on a local site only)".into());
+                return Ok(found);
+            };
+            // The host plays the build before a deploy; then the new one goes up and the friend opens the link.
+            let served = site.dir.join("site");
+            older_build(&site.web, &served)?;
+            let base = serve::start(&served, chrome::WIDTH as u32, chrome::HEIGHT as u32)
+                .map_err(|e| e.to_string())?;
+            let page = format!("{base}/index.html?introducer=ws://127.0.0.1:{port}");
+            host.open(&page)?;
+            let code = host.invite()?;
+            host.until(5.0, "the lobby open", |p| {
+                p.coop().starts_with("Lobby open")
+            })?;
+            deploy(&site.web, &served)?;
+            host.mark_page()?;
+            let t = Instant::now();
+            guest.open(&format!("{page}&join={code}"))?;
+            host.gone_and_back(t)?;
+            let said = host.b.coop_log();
+            if !said.iter().any(|l| l.contains("a new version is out")) {
+                return Err(host.failed("host: reloaded, but not to update".into()));
+            }
+            found.push(format!(
+                "the older game updated itself, running again {:.1} s after its friend's game started",
+                t.elapsed().as_secs_f64()
+            ));
+            same_code(&mut host, &code)?;
+            let t = together(&mut [&mut host, &mut guest], limit::MEET)?;
+            found.push(format!("together {t:.1} s after"));
+        }
         other => return Err(format!("no scenario called {other} (--list names them)")),
     }
     host.healthy()?;
@@ -733,6 +773,88 @@ fn restart_introducer(site: &mut Site) -> Result<()> {
         intro.stop();
         sleep(2.0);
         intro.start()?;
+    }
+    Ok(())
+}
+
+/// The version a web build says it is (`pkg/commit.txt`, which `tools/build-web.sh` writes), and that version's
+/// bytes in its game.
+fn version_of(web: &Path) -> Result<(String, Vec<u8>)> {
+    let version = std::fs::read_to_string(web.join("pkg/commit.txt")).map_err(|e| {
+        format!(
+            "no pkg/commit.txt in {} ({e}): rebuild with tools/build-web.sh",
+            web.display()
+        )
+    })?;
+    let wasm = std::fs::read(web.join("pkg/crabscape_bg.wasm")).map_err(|e| e.to_string())?;
+    if version.len() < 7 {
+        return Err(format!(
+            "the web build's version is {version:?}: build it in a git checkout"
+        ));
+    }
+    Ok((version, wasm))
+}
+
+/// Another version of the same length: each character swapped for a different one.
+fn other_version(v: &str) -> String {
+    v.chars()
+        .map(|c| if c == '0' { '1' } else { '0' })
+        .collect()
+}
+
+/// Every `from` in `bytes` replaced with `to` (the same length); how many there were.
+fn swap(bytes: &mut [u8], from: &[u8], to: &[u8]) -> usize {
+    let mut n = 0;
+    let mut i = 0;
+    while i + from.len() <= bytes.len() {
+        if &bytes[i..i + from.len()] == from {
+            bytes[i..i + from.len()].copy_from_slice(to);
+            n += 1;
+            i += from.len();
+        } else {
+            i += 1;
+        }
+    }
+    n
+}
+
+/// Into `dir`: the web build `web` as it was before a deploy, an older version of the game (the same game with
+/// another version in it, which is all a version is to co-op).
+fn older_build(web: &Path, dir: &Path) -> Result<()> {
+    let (version, mut wasm) = version_of(web)?;
+    let older = other_version(&version);
+    if swap(&mut wasm, version.as_bytes(), older.as_bytes()) == 0 {
+        return Err(format!("version {version} isn't in the game's .wasm"));
+    }
+    copy_dir(web, dir)?;
+    let pkg = dir.join("pkg");
+    let write =
+        |name: &str, bytes: &[u8]| std::fs::write(pkg.join(name), bytes).map_err(|e| e.to_string());
+    write("crabscape_bg.wasm", &wasm)?;
+    write("commit.txt", older.as_bytes())?;
+    // Its own stamp, so the browser loads it fresh, as after a real deploy.
+    write("version.txt", format!("older-{older}").as_bytes())
+}
+
+/// The deploy: the web build's own game, version and stamp in place of the older one's in `dir`.
+fn deploy(web: &Path, dir: &Path) -> Result<()> {
+    for name in ["crabscape_bg.wasm", "commit.txt", "version.txt"] {
+        std::fs::copy(web.join("pkg").join(name), dir.join("pkg").join(name))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(from).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let (src, dst) = (entry.path(), to.join(entry.file_name()));
+        if src.is_dir() {
+            copy_dir(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst).map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
@@ -921,6 +1043,7 @@ fn site(a: &Args, dir: &Path) -> Result<Site> {
             dir: dir.into(),
             shots: a.shots.clone(),
             slow: a.slow,
+            web: a.web.clone(),
         });
     }
     if !a.web.join("pkg").is_dir() {
@@ -951,6 +1074,7 @@ fn site(a: &Args, dir: &Path) -> Result<Site> {
         dir: dir.into(),
         shots: a.shots.clone(),
         slow: a.slow,
+        web: a.web.clone(),
     })
 }
 
@@ -1100,6 +1224,17 @@ mod tests {
                 "{parts} parts: {times:?}"
             );
         }
+    }
+
+    #[test]
+    fn an_older_build_differs_only_in_its_version() {
+        let v = "f00d0a1b2c";
+        let older = other_version(v);
+        assert_eq!(older.len(), v.len());
+        assert!(older.chars().zip(v.chars()).all(|(a, b)| a != b));
+        let mut game = b"..f00d0a1b2c..f00d0a1b2c.f00d".to_vec();
+        assert_eq!(swap(&mut game, v.as_bytes(), older.as_bytes()), 2);
+        assert_eq!(game, format!("..{older}..{older}.f00d").into_bytes());
     }
 
     #[test]

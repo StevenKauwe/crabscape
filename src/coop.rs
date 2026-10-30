@@ -1055,9 +1055,7 @@ mod web {
                 Some(Ok(p)) => JsFuture::from(p).await.ok().and_then(|t| t.as_string()),
                 _ => None,
             };
-            let site = text
-                .map(|t| t.trim().to_string())
-                .filter(|t| !t.is_empty());
+            let site = text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
             info!("co-op: the site serves version {site:?}");
             SITE_VERSION.with(|s| *s.borrow_mut() = SiteVersion::Got(site));
         });
