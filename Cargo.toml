@@ -77,6 +77,15 @@ bevy = { version = "0.20.0", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# An exported character (src/character.rs): its checksum, and packing it about 4 times smaller. Both already in the
+# build: the PNG decoder uses them.
+crc32fast = "1"
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+
+# Property tests (src/character.rs: any pasted text is answered, never a crash). As in crates/sim: without the
+# default features that fork processes, and not for the browser target, where nothing runs tests.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+proptest = { version = "1.12", default-features = false, features = ["std"] }
 
 # On the desktop, let Bevy use several CPU cores. (The web build stays
 # single-threaded: browser threads need extra server setup.)
@@ -104,6 +113,9 @@ web-sys = { version = "0.3", features = [
     # Reports (src/report.rs): the form on the page, recording a spoken report, the listener worker, sending it.
     "HtmlElement", "HtmlTextAreaElement", "DomTokenList", "MediaRecorder", "BlobEvent", "Blob", "OfflineAudioContext",
     "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "RequestInit", "Response",
+    # Exporting and importing a character (src/character.rs): copy, share or download the code, pick a file.
+    "Clipboard", "ShareData", "File", "FileList", "FilePropertyBag", "HtmlInputElement", "HtmlAnchorElement",
+    "HtmlDocument", "Url",
 ] }
 wasm-bindgen = "0.2"
 # Reflect, to set navigator.audioSession (not in web-sys yet): iPhone sound with the silent switch on.

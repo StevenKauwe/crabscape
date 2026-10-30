@@ -72,8 +72,9 @@
     }
     #replay-box textarea { flex: 1; font: 12px/1.3 ui-monospace, monospace; background: #0b1519; color: inherit; }
     #replay-box button { font: inherit; padding: 6px 14px; }
-    /* The report form (src/report.rs fills it in and sends it). */
-    #report {
+    /* The report form (src/report.rs fills it in and sends it), and the character box (src/character.rs: export
+       and import a crab), which looks the same. */
+    #report, #character {
       position: fixed;
       left: 50%;
       top: max(12px, env(safe-area-inset-top));
@@ -88,9 +89,9 @@
       background: #03090cf2;
       border: 1px solid #f4e7d055;
     }
-    #report .row { display: flex; gap: 8px; align-items: center; }
-    #report .grow { flex: 1; }
-    #report button {
+    #report .row, #character .row { display: flex; gap: 8px; align-items: center; }
+    #report .grow, #character .grow { flex: 1; }
+    #report button, #character button {
       font: inherit;
       font-size: 15px;
       padding: 7px 14px;
@@ -100,7 +101,7 @@
       color: inherit;
     }
     #report button.on { background: #4f7f86; }
-    #report textarea {
+    #report textarea, #character textarea {
       min-height: 110px;
       font: inherit;
       font-size: 16px; /* 16px or more: iPhones don't zoom in on it */
@@ -111,7 +112,14 @@
       border: 1px solid #f4e7d033;
       resize: vertical;
     }
-    #report-note { min-height: 1.4em; font-size: 14px; opacity: 0.8; }
+    #report-note, #character-note { min-height: 1.4em; font-size: 14px; opacity: 0.8; }
+    #character { max-height: calc(100% - 24px); overflow-y: auto; }
+    #character-title { font-weight: 600; }
+    #character-summary { white-space: pre-line; font-size: 14px; }
+    #character-summary:empty { display: none; }
+    #character textarea { min-height: 72px; max-height: 28vh; word-break: break-all; }
+    #character-confirm { display: flex; flex-direction: column; gap: 8px; }
+    #character button.danger { background: #8c2a24; border-color: #ff7b6e; }
     /* Recording: a red Stop button with a blinking dot, a red edge on the box, and a bar that moves with the voice. */
     #report button.rec { background: #8c2a24; border-color: #ff7b6e; }
     #report button.rec::before {
@@ -143,6 +151,29 @@
     <div class="row">
       <button id="report-speak">Speak</button><span class="grow"></span>
       <button id="report-cancel">Close</button><button id="report-send">Send</button>
+    </div>
+  </div>
+  <div id="character" hidden>
+    <div id="character-title"></div>
+    <div id="character-summary"></div>
+    <textarea id="character-code" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"
+      placeholder="Paste a character code here"></textarea>
+    <div id="character-note" role="status"></div>
+    <div class="row" id="character-export">
+      <button id="character-copy">Copy code</button><button id="character-save">Save file</button>
+      <span class="grow"></span><button id="character-close">Close</button>
+    </div>
+    <div class="row" id="character-import">
+      <button id="character-choose">Choose file</button>
+      <input id="character-file" type="file" accept=".crab,text/plain" hidden>
+      <span class="grow"></span><button id="character-close-import">Close</button>
+    </div>
+    <div id="character-confirm" hidden>
+      <div><strong>Replace your crab?</strong> The crab on this device is lost for good.</div>
+      <div class="row">
+        <span class="grow"></span><button id="character-keep">Keep mine</button>
+        <button id="character-replace" class="danger">Replace</button>
+      </div>
     </div>
   </div>
   <button id="replay-button" hidden>Replay</button>
@@ -195,8 +226,8 @@
       // the focus now, and again whenever the page is clicked or tapped.
       const canvas = document.getElementById("crabscape");
       const focusGame = () => canvas.focus({ preventScroll: true });
-      // Not while typing a report: the box keeps the keys.
-      document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#report")) focusGame(); });
+      // Not while typing a report or a character code: the box keeps the keys.
+      document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#report, #character")) focusGame(); });
       // Replays: the game writes the text into data-replay on the canvas
       // (F9, see src/replay.rs); show it in a box to copy. With ?replay in the
       // address there is also a button, for phones, which asks the game for

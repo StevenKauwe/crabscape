@@ -143,9 +143,9 @@ What each automatic check is for (commands in the table above; all in CI):
   warns on duplicate crate versions (each is downloaded twice in the web build). An ignored advisory says why it
   can't reach us. Our own crates have no licence and are skipped (never add one).
 - **Mutation testing on the changed lines** (`mutation testing (changed lines)`, `tools/mutants-pr.sh`,
-  `.cargo/mutants.toml`): cargo-mutants breaks each changed line of `crates/sim`, `src/coop.rs`, `src/voice.rs` and
-  `tools/introducer` in small ways; the job fails if no test notices. Fix it with a test of the behaviour the line
-  is for. Browser-only code (`web::`), Bevy plugin wiring, on-screen layout and the `crabsim` command line are left
+  `.cargo/mutants.toml`): cargo-mutants breaks each changed line of `crates/sim`, `src/coop.rs`, `src/voice.rs`,
+  `src/character.rs` and `tools/introducer` in small ways; the job fails if no test notices. Fix it with a test of
+  the behaviour the line is for. Browser-only code (`web::`), Bevy plugin wiring, on-screen layout and the `crabsim` command line are left
   out. A weekly full run of `crates/sim` (`mutants-weekly.yml`) lists the old gaps, for information only.
 - **Coverage** (`test coverage (information only)`, `coverage.yml`): cargo-llvm-cov's table in the job summary, after
   each push to `main` and weekly, not on PRs. No threshold and it never fails: mutation testing is what holds new code

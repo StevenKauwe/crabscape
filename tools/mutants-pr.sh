@@ -2,7 +2,8 @@
 # Mutation testing on the lines a change touched (cargo-mutants, settings in .cargo/mutants.toml): each small break
 # of a changed line (a `<` made `>=`, a function returning a default) must make some test fail. Fails when one
 # doesn't: that changed line has no test that would notice it breaking. Covers the game rules (crates/sim), the
-# game's natively testable co-op code (src/coop.rs, src/voice.rs) and the introducer (tools/introducer).
+# game's natively testable co-op code (src/coop.rs, src/voice.rs), the character format (src/character.rs) and the
+# introducer (tools/introducer).
 # CI runs it on every pull request; locally, against main:
 #
 #   tools/mutants-pr.sh                      # changes since origin/main (committed or not)

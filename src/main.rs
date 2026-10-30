@@ -34,6 +34,7 @@
 //! - [`lantern`]: the lantern and its cheap fake lighting
 //! - [`coop`]: playing with friends: the invite link and the connection
 //! - [`critters`]: the snapping shrimp and the moray (placeholder shapes)
+//! - [`character`]: exporting your crab as a code or file, and importing one
 //! - [`canyon`]: the canyon below the crack: its glowing sea pens, the octopus's den
 //!   and the tide's turns
 //! - [`deep`]: the depth counter in the pit and the canyon, and something big in the dark
@@ -63,6 +64,7 @@ mod background;
 mod brittle;
 mod build;
 mod canyon;
+mod character;
 mod cling;
 mod codes;
 mod coop;
@@ -186,6 +188,7 @@ fn main() {
                 brittle::BrittlePlugin,
                 creature_art::CreatureArtPlugin,
                 go_home::GoHomePlugin,
+                character::CharacterPlugin,
             ),
             sound::SoundPlugin,
             stamina::StaminaPlugin,
