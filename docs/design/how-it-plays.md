@@ -167,7 +167,7 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Go into the home shell or a rest-stop crevice to rest (what you carried home is put by the workbench) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
-| Go straight home, tucked into the home shell (any time, for now, even mid-fight) | H, Home, or click "Home" (under Settings) | Select | tap "Home" |
+| Go straight home, tucked into the home shell (any time, for now, even mid-fight) | H or Home, then Y ("Go home? Y / N"; anything else says no), or click "Home" (under Settings) | Select | tap "Home" |
 | Moult (tucked in at home, well fed, a feat ready) | click "Moult" in the workbench menu ("Next" for another feat) | | tap "Moult" |
 | Make something at the workbench (tucked in at home, the view goes inside and the menu shows; `world.md`) | click "Make" | | tap "Make" |
 | Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
@@ -175,6 +175,7 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Art style (Ink or Oil) | P | | Settings, Graphics: Ink / Oil |
 | Feel lab: next preset / juice off-on (previews) | backtick (or 1–9) / backslash | | "FEEL" / "Juice" |
 | Enter a code (see Codes) | Enter, type it, Enter (Esc puts it away) | | Settings, Game: "Enter a code" |
+| Report a bug or idea (`src/report.rs`) | R; in the form B Bug, I Idea, S Speak (Alt+ while typing in the box), Ctrl+Enter (Cmd+Enter on a Mac) Send, Esc Close | | Settings, Game: "Report a bug or idea" |
 | Start over (wipes this device's saved game) | | | Settings, Game: "Start over", then "Sure? Start over" within 4 s |
 | See what each key does | a card in the bottom-left corner, open the first time; ? or a click folds it to "? Keys" and opens it again | | (not on a touch screen) |
 | Your name, shown over your crab to friends | | | Settings, Co-op: "Your name" |
