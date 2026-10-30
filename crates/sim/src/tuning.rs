@@ -909,9 +909,13 @@ impl Tuning {
             stroke_interval: 0.30,
             stamina_refill_time: 0.6,
             stamina_reserve: 6,
-            reserve_refill_time: 30.0,
+            // A stroke back every 1.7 s: a double jump every few seconds
+            // never runs it dry, and a spent reserve is whole in 10 s.
+            reserve_refill_time: 10.0,
             sprint_speed: 480.0,
-            sprint_cost: 0.7, // a full reserve lasts about 12 s of sprinting
+            // Less than it comes back by: a full reserve lasts about 15 s
+            // of sprinting.
+            sprint_cost: 1.0,
 
             climb_speed: 320.0, // the whole pit in about 25 s
             climb_reach: 48.0,
