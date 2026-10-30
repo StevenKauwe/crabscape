@@ -937,6 +937,7 @@ mod web {
         mut sim: ResMut<Sim>,
         mut coop: ResMut<Coop>,
         mut names: ResMut<Names>,
+        mut chat: ResMut<crate::chat::Chat>,
         me: Res<LocalId>,
     ) {
         let Some(code) = coop.code.clone() else {
@@ -944,6 +945,7 @@ mod web {
         };
         let owner = me.0 == HOST;
         let dt = time.delta_secs();
+        let now = time.elapsed_secs_f64();
         let hosting = coop.hosting;
         let host = hosts_now(&sim);
         let met_here = coop.watch.met;
@@ -1010,6 +1012,14 @@ mod web {
                     // A friend's name is the game's to show, not a rule.
                     if let Msg::Name { crab, name } = &msg {
                         names.heard(*crab, name);
+                        continue;
+                    }
+                    // Who said a line of chat is the device it came from, never anything in the message.
+                    if let Msg::Chat(line) = &msg {
+                        if let Some(said) = p.said {
+                            let who = names.of(said.crab, me.0).unwrap_or("A friend");
+                            chat.heard(said.crab, who, line, now);
+                        }
                         continue;
                     }
                     let from_host = from_host(&msg, p.said.map(|s| s.crab), hosting);
@@ -1305,8 +1315,15 @@ mod web {
 
     /// Send what the simulation wrote this frame (and our name, if it just
     /// changed: friends met later get it when they meet).
-    fn send_out(mut sim: ResMut<Sim>, mut names: ResMut<Names>, me: Res<LocalId>, coop: Res<Coop>) {
+    fn send_out(
+        mut sim: ResMut<Sim>,
+        mut names: ResMut<Names>,
+        mut chat: ResMut<crate::chat::Chat>,
+        me: Res<LocalId>,
+        coop: Res<Coop>,
+    ) {
         let out = sim.take_outbox();
+        let said = std::mem::take(&mut chat.outbox);
         let renamed = std::mem::take(&mut names.changed).then(|| Msg::Name {
             crab: me.0,
             name: names.mine().to_string(),
@@ -1316,6 +1333,18 @@ mod web {
             let Some(link) = cell.as_mut() else {
                 return;
             };
+            for line in said {
+                let bytes: Packet = Msg::Chat(line).to_bytes().into();
+                let peers: Vec<PeerId> = link
+                    .peers
+                    .iter()
+                    .filter(|p| p.same_version())
+                    .map(|p| p.id)
+                    .collect();
+                for peer in peers {
+                    link.send(peer, bytes.clone(), RELIABLE);
+                }
+            }
             if let Some(name) = renamed {
                 let bytes: Packet = name.to_bytes().into();
                 let peers: Vec<PeerId> = link.peers.iter().map(|p| p.id).collect();

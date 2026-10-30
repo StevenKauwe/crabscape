@@ -1304,3 +1304,88 @@ fn a_plain_blow_earns_no_comic_word() {
     });
     assert_eq!(word, None);
 }
+
+mod chat {
+    use crabsim::PlayerId;
+    use crabsim::net::{CHAT_MAX, ChatLimit, Msg, clean_chat, first_link};
+
+    #[test]
+    fn a_line_of_chat_crosses_the_wire_and_a_forged_one_is_dropped() {
+        let line = "info: meet at the vent";
+        let sent = Msg::Chat(line.into()).to_bytes();
+        assert_eq!(Msg::from_bytes(&sent), Some(Msg::Chat(line.into())));
+        // Words that print like a broken number ("info", "inf") are still chat.
+        // But a line that isn't already clean (a hidden direction mark, a
+        // control character, too long, empty) never reads as one.
+        for bad in [
+            "hi\u{202E}there",
+            "hi\u{0}there",
+            "  two  spaces ",
+            "",
+            &"x".repeat(CHAT_MAX + 1),
+        ] {
+            let bytes = Msg::Chat(bad.into()).to_bytes();
+            assert_eq!(Msg::from_bytes(&bytes), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn cleaning_removes_what_hides_or_reverses_text() {
+        assert_eq!(
+            clean_chat("  hi\u{200B}\u{202E}  there\n\u{7} ").as_deref(),
+            Some("hi there")
+        );
+        assert_eq!(clean_chat("\u{2066}\u{FEFF}"), None);
+        assert_eq!(
+            clean_chat(&"é".repeat(500)).unwrap().chars().count(),
+            CHAT_MAX
+        );
+    }
+
+    #[test]
+    fn only_plain_https_links_are_offered() {
+        let link = |s: &str| first_link(s);
+        assert_eq!(
+            link("grab it https://example.com/a/b.png?x=1#top, ok").as_deref(),
+            Some("https://example.com/a/b.png?x=1#top")
+        );
+        assert_eq!(
+            link("see (https://files.example.org:8443/x)").as_deref(),
+            Some("https://files.example.org:8443/x")
+        );
+        for bad in [
+            "http://example.com",
+            "javascript:alert(1)",
+            "https://google.com@evil.com/",
+            "https://evil.com\\@good.com",
+            "https://localhost/",
+            "https://exаmple.com/",
+            "https://example.com:99999999/",
+            "https://example.com:/",
+            "https://-bad.com/",
+            "https://a..com/",
+            "data:text/html;base64,AAAA",
+            "file:///etc/passwd",
+            "example.com",
+            "https://example.com/<script>",
+            "https://example.com/\"onmouseover=",
+        ] {
+            assert_eq!(link(bad), None, "{bad}");
+        }
+        let long = format!("https://example.com/{}", "a".repeat(200));
+        assert_eq!(link(&long), None);
+    }
+
+    #[test]
+    fn a_friend_cannot_flood_the_screen() {
+        let (a, b) = (PlayerId(1), PlayerId(2));
+        let mut limit = ChatLimit::default();
+        let shown = (0..20)
+            .filter(|i| limit.allow(a, f64::from(*i) * 0.1))
+            .count();
+        assert_eq!(shown, ChatLimit::LINES);
+        assert!(limit.allow(b, 1.0), "another friend is counted apart");
+        assert!(!limit.allow(a, 9.9));
+        assert!(limit.allow(a, 10.1), "a quiet spell frees it");
+    }
+}

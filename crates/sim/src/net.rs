@@ -132,6 +132,10 @@ pub enum Msg {
     Name { crab: PlayerId, name: String },
     /// A guest typed `monkeys`: the host drops them in near this x.
     Monkeys { near_x: f32 },
+    /// A line a player said to their friends, from their own device. Always
+    /// a [`clean_chat`]. Who said it is the device it came from (never a
+    /// name or crab in the message), so nobody can speak as someone else.
+    Chat(String),
 }
 
 /// The longest name, in characters: short enough to sit over a crab.
@@ -148,6 +152,101 @@ pub fn clean_name(raw: &str) -> Option<String> {
     let name: String = words.join(" ").chars().take(NAME_MAX).collect();
     let name = name.trim_end().to_string();
     (!name.is_empty()).then_some(name)
+}
+
+/// The longest line of chat, in characters.
+pub const CHAT_MAX: usize = 140;
+
+/// A line of chat as it may be shown and sent: no control characters, none
+/// that hide or reverse text (zero-width and direction marks), spaces
+/// squeezed to one, at most [`CHAT_MAX`] characters; None if nothing is left.
+pub fn clean_chat(raw: &str) -> Option<String> {
+    let hidden = |c: char| {
+        c.is_control()
+            || matches!(c,
+                '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FEFF}')
+    };
+    let words: Vec<String> = raw
+        .split_whitespace()
+        .map(|w| w.chars().filter(|c| !hidden(*c)).collect())
+        .filter(|w: &String| !w.is_empty())
+        .collect();
+    let line: String = words.join(" ").chars().take(CHAT_MAX).collect();
+    let line = line.trim_end().to_string();
+    (!line.is_empty()).then_some(line)
+}
+
+/// The longest link that is offered to open.
+pub const LINK_MAX: usize = 200;
+
+/// The first link in a line of chat that is safe to offer: `https://`, then a
+/// plain host (ASCII letters, digits, dots and hyphens, with at least one
+/// dot, so no look-alike letters from other alphabets), an optional port, and
+/// a path of ordinary URL characters. Never one with a name and password
+/// before an `@` in the host part (it would show one site and open another).
+/// Words that merely look like links, other schemes (`javascript:`, `data:`,
+/// `file:`) and anything longer than [`LINK_MAX`] are not links.
+pub fn first_link(line: &str) -> Option<String> {
+    line.split_whitespace()
+        .map(|w| {
+            w.trim_start_matches('(')
+                .trim_end_matches(['.', ',', ')', '!', '?', ';', ':'])
+        })
+        .find_map(|w| {
+            let rest = w.strip_prefix("https://")?;
+            let ok = w.len() <= LINK_MAX
+                && w.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-._~:/?#[]!$&'()*+,;=%".contains(c));
+            let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+            let (host, port) = match rest[..end].split_once(':') {
+                Some((h, p)) => (h, Some(p)),
+                None => (&rest[..end], None),
+            };
+            let host_ok = host.contains('.')
+                && !host.starts_with(['.', '-'])
+                && !host.ends_with(['.', '-'])
+                && !host.contains("..")
+                && host
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+            let port_ok = port.is_none_or(|p| {
+                !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit())
+            });
+            (ok && host_ok && port_ok).then(|| w.to_string())
+        })
+}
+
+/// How many lines of chat a device is heard saying (5 in 10 seconds): the
+/// rest are dropped, so a friend's device can't flood this one's screen.
+#[derive(Clone, Debug, Default)]
+pub struct ChatLimit {
+    heard: Vec<(PlayerId, Vec<f64>)>,
+}
+
+impl ChatLimit {
+    pub const LINES: usize = 5;
+    pub const WITHIN: f64 = 10.0;
+
+    /// May `who`'s line, arriving at `now` (seconds), be shown?
+    pub fn allow(&mut self, who: PlayerId, now: f64) -> bool {
+        let at = match self.heard.iter().position(|(id, _)| *id == who) {
+            Some(i) => i,
+            None => {
+                self.heard.push((who, Vec::new()));
+                self.heard.len() - 1
+            }
+        };
+        let times = &mut self.heard[at].1;
+        times.retain(|t| now - *t < Self::WITHIN);
+        if times.len() >= Self::LINES {
+            return false;
+        }
+        times.push(now);
+        true
+    }
 }
 
 impl Msg {
@@ -174,6 +273,10 @@ impl Msg {
         // A name holds no number, and may well hold "inf" ("Infinity").
         if let Msg::Name { name, .. } = &msg {
             return (clean_name(name).as_ref() == Some(name)).then_some(msg);
+        }
+        // Chat is only words, and may well hold "inf" ("info").
+        if let Msg::Chat(line) = &msg {
+            return (clean_chat(line).as_ref() == Some(line)).then_some(msg);
         }
         // Every number in it, printed: `{:?}` writes a non-finite one as NaN
         // or inf, and no name in a message contains either (a test checks).

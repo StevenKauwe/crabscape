@@ -23,7 +23,7 @@ pub(crate) const KEYS: [(&str, &str); 14] = [
     ("F I", "guard; tap before a blow: parry"),
     ("H / Home, then Y", "go home (it asks first)"),
     ("- = / wheel", "zoom out: the crab's memory"),
-    ("Enter", "type a code"),
+    ("Enter", "type a code, or chat"),
     ("R", "report a bug or idea"),
     ("P", "art style: ink or oil"),
     ("F9", "save a replay"),
