@@ -11,8 +11,12 @@
 //! - Then it is **soft** for a while ([`MoultTuning::soft_ticks`]): its shell
 //!   holds half as much, its claws hit weaker and it eats nothing. Resting
 //!   tucked in hardens it faster. Going out early is allowed, at its own risk.
-//! - Hardened, the feat is its own and its shell holds a little more
-//!   ([`MoultTuning::growth`]): each moult grows the crab.
+//! - Each moult grows the crab ([`Mover::grown`]): bigger at once, its
+//!   new shell swelling while soft, by less each moult, up to a cap. Size
+//!   is its body: its box against the level and in a fight, its claws'
+//!   reach, a longer stride, a heavier sink; a shell that holds more, harder
+//!   blows, and more room for small things to cling.
+//! - Hardened, the feat is its own.
 //!
 //! The moult goes through the sim like a code ([`crate::codes`]): it changes
 //! only a crab of this device, between two ticks, and a running recording
@@ -156,10 +160,40 @@ impl Mover {
             .collect()
     }
 
+    /// How big the crab is against a crab that never moulted (1): each
+    /// moult grows it, by less each time, up to [`MoultTuning::most_size`].
+    /// It grows at the moult itself: the new, soft shell is already the
+    /// bigger one. Only the moults it has made decide it, so a save or a
+    /// friend's update carries it with them.
+    ///
+    /// [`MoultTuning::most_size`]: crate::tuning::MoultTuning::most_size
+    pub fn grown(&self, t: &Tuning) -> f32 {
+        let g = &t.moult;
+        let moults = self
+            .moults
+            .saturating_add(u32::from(self.growing.is_some()));
+        let (mut size, mut step) = (1.0, g.first_growth);
+        // The steps shrink, so a few dozen always reach the cap.
+        for _ in 0..moults.min(64) {
+            size += step;
+            step *= g.growth_keep;
+        }
+        size.min(g.most_size)
+    }
+
+    /// How many small things cling to its shell at once: more on a bigger
+    /// shell, by the room on it (its area).
+    pub fn carries(&self, t: &Tuning) -> usize {
+        let g = self.grown(t);
+        // A hair over, so a size that just fits one more isn't lost to
+        // rounding.
+        (t.cling as f32 * g * g + 1e-3) as usize
+    }
+
     /// What its shell holds when whole, before being soft or well fed: the
-    /// crab's own, plus what each moult grew.
+    /// crab's own, grown with the crab.
     pub fn grown_shell(&self, t: &Tuning) -> f32 {
-        t.crab.health + t.moult.growth * self.moults as f32
+        t.crab.health * self.grown(t)
     }
 
     /// What soft claws' blows are multiplied by (1 when hard).

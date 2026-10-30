@@ -129,9 +129,12 @@ impl Mover {
     }
 
     /// What the crab's claw blows are multiplied by at its Fighting level
-    /// (1 at level 1, more after), and weaker while soft after a moult.
+    /// (1 at level 1, more after), by its size (bigger claws, harder blows:
+    /// see [`Mover::grown`]), and weaker while soft after a moult.
     pub fn claw_strength(&self, t: &Tuning) -> f32 {
-        (1.0 + t.fight_damage_per_level * self.levels_gained(Skill::Fighting, t)) * self.softness(t)
+        (1.0 + t.fight_damage_per_level * self.levels_gained(Skill::Fighting, t))
+            * self.grown(t)
+            * self.softness(t)
     }
 }
 

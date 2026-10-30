@@ -2,8 +2,8 @@
 //! skill at its milestone level makes a feat ready, but the body only
 //! changes at a moult. Well fed and tucked in at home, the crab moults to
 //! grow one ready feat; it is soft for a while (half the shell, weaker claws,
-//! no eating), hardening faster tucked in; then the feat is its own, with a
-//! little more shell. The moult goes through the sim like a code, so replays
+//! no eating), hardening faster tucked in; then the feat is its own, in a
+//! bigger shell. The moult goes through the sim like a code, so replays
 //! carry it, and it is saved.
 
 use bevy_math::Vec2;
@@ -143,12 +143,17 @@ fn a_moult_uses_the_meal_and_leaves_the_crab_soft() {
     assert_eq!(m.well_fed, 0, "the moult used up the meal");
     assert_eq!(m.growing, Some(Feat::GrippingDactyls));
     assert!(!m.has(Feat::GrippingDactyls), "not until it hardens");
-    // Fed, the shell held more; soft, it holds half the plain shell.
-    let plain = t.crab.health;
-    assert!(before_shell > plain);
-    assert_eq!(m.max_shell(&t), plain * t.moult.soft_shell);
+    // Fed, the shell held more; soft, it holds half the plain shell of its
+    // new size (it grew at the moult: `tests/growth.rs`), and its bigger
+    // claws hit weaker.
+    let (plain, grown) = (t.crab.health, m.grown(&t));
+    assert!(before_shell > plain && grown > 1.0);
+    assert_eq!(m.max_shell(&t), plain * grown * t.moult.soft_shell);
     assert!(sim.crab(P0).unwrap().fighter.vitals.health <= m.max_shell(&t));
-    assert_eq!(m.claw_strength(&t), before_claws * t.moult.soft_claws);
+    assert_eq!(
+        m.claw_strength(&t),
+        before_claws * grown * t.moult.soft_claws
+    );
     // Only one moult at a time.
     set_level(&mut sim, Skill::Swimming, t.moult.feat_level);
     sim.crab_mut(P0).unwrap().mover.well_fed = t.food.well_fed_ticks;
@@ -217,7 +222,7 @@ fn the_shell_hardens_in_time_and_faster_tucked_in() {
 }
 
 #[test]
-fn hardening_grows_the_feat_and_a_little_more_shell() {
+fn hardening_grows_the_feat_and_a_bigger_shell() {
     let mut sim = ready_at_home();
     let t = sim.tuning.clone();
     let plain = t.crab.health;
@@ -232,7 +237,9 @@ fn hardening_grows_the_feat_and_a_little_more_shell() {
     assert!(m.has(Feat::GrippingDactyls));
     assert_eq!(m.growing, None);
     assert_eq!(m.moults, 1);
-    assert_eq!(m.max_shell(&t), plain + t.moult.growth);
+    // The shell grew with the crab (`tests/growth.rs` has the size).
+    assert!(m.grown(&t) > 1.0);
+    assert_eq!(m.max_shell(&t), plain * m.grown(&t));
     assert!(!m.feat_ready(Skill::Climbing, &t), "grown, not ready again");
     assert_eq!(
         moult::hardened_note(Feat::GrippingDactyls),

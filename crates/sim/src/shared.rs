@@ -159,7 +159,7 @@ pub struct OwnWorld {
 /// it has asked for and not yet been given?
 pub(crate) fn room(m: &Mover, thing: Thing, waiting: usize, t: &Tuning) -> bool {
     match thing.carry() {
-        Some(c) if c.small() => m.clinging.len() + waiting < t.cling,
+        Some(c) if c.small() => m.clinging.len() + waiting < m.carries(t),
         Some(_) => m.carrying.is_none() && waiting == 0,
         None => true,
     }

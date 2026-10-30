@@ -190,7 +190,7 @@ fn update_known(
     };
     let t = &sim.tuning.memory;
     let m = &me.memory;
-    let eye = me.mover.pos + Vec2::new(0.0, sim.tuning.body_height);
+    let eye = me.mover.pos + Vec2::new(0.0, me.mover.height(&sim.tuning));
     let sight = Sight::new(eye, me.mover.lantern_glow(), t);
     known.sight = Some(sight);
     // What's in sight changes only on a memory step.

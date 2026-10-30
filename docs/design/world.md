@@ -73,8 +73,13 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
     half as much, the claws hit at 60% and it eats nothing (eggs, clams, bodies: "Too soft to eat yet"). Going out
     early is allowed, at its own risk; dying soft, it wakes still soft. "Soft shell 1:12" under the shell bar
     counts down.
-  - **Hardened:** "Your new shell has hardened: gripping dactyls!" The feat is its own, and the shell holds 10 more
-    for each moult (growth). Feats, moults and a moult still hardening are saved with the crab.
+  - **Hardened:** "Your new shell has hardened: gripping dactyls!" The feat is its own. Feats, moults and a moult
+    still hardening are saved with the crab.
+  - **Growing:** each moult makes the crab bigger, at once, by less each time (a blue crab grows about a fifth a
+    moult, less as crabs grow: [BM06], [SO02] in `art/crab/anatomy-notes.md`): 1.12, 1.21, 1.28, 1.33, capped at
+    1.35. Bigger is tougher (shell 100 x size), stronger (blows x size), carries more on its shell (4 x size²),
+    strides further and sinks faster (numbers: `how-it-plays.md`, Feats and moulting). The size comes from the
+    moults made, so it needs nothing new saved or sent; a friend's screen draws it from their crab's updates.
   - **Tuned so** a normal run grows one feat around the middle and can reach all three by the end. Measured on the
     owner's own run (the replay in #162, played headless): about 12 minutes in, Swimming reaches 5 (the first feat);
     Climbing gets there after a climb or two out of the pit (it earned 165 by its first climb out); Fighting had

@@ -311,8 +311,10 @@ pub struct Tuning {
     /// Hulk mode, the `hulk` code (`crate::codes`).
     pub hulk: HulkTuning,
     /// How many small things (clams, shell grit) cling to the crab's shell
-    /// at once, the way a decorator crab wears bits of the floor. A big find
-    /// (a culture, a tooth) rides on its back besides, one at a time.
+    /// at once, the way a decorator crab wears bits of the floor, before
+    /// any moult: a bigger shell has room for more, by its area
+    /// ([`Mover::carries`](crate::Mover::carries)). A big find (a culture,
+    /// a tooth) rides on its back besides, one at a time.
     pub cling: usize,
     /// Clams, the larder at home and being well fed (`docs/design/world.md`).
     pub food: FoodTuning,
@@ -341,8 +343,20 @@ pub struct MoultTuning {
     pub soft_shell: f32,
     /// ...and the claws' blows do this share.
     pub soft_claws: f32,
-    /// Each moult, hardened, adds this much to what the shell holds.
-    pub growth: f32,
+    /// The first moult makes the crab this much bigger (0.12: 12% wider
+    /// and taller), at once, while its new shell is still soft...
+    pub first_growth: f32,
+    /// ...and each moult after grows it by this share of the step before
+    /// (less per moult as it grows)...
+    pub growth_keep: f32,
+    /// ...up to this size at most, however many moults.
+    pub most_size: f32,
+    /// A bigger crab's walking and sprinting speed grows by this share of
+    /// its growth (its legs are longer: a longer stride)...
+    pub stride: f32,
+    /// ...and, sinking, the water holds it back less: its drag is divided
+    /// by 1 + this × its growth (heavier for its size: it sinks faster).
+    pub weight: f32,
     /// Broad paddles: the flip in the water drives the crab this fast the
     /// way it pushes (units a second)...
     pub dash_speed: f32,
@@ -1434,9 +1448,16 @@ impl Tuning {
                 harden_tucked: 3,     // 30 s resting tucked in
                 soft_shell: 0.5,
                 soft_claws: 0.6,
-                growth: 10.0,             // a tenth of the starting shell
-                dash_speed: 800.0,        // a little faster than the dodge on the floor
-                dash_time: 0.25,          // about 200 further each flip
+                // A blue crab grows about 20% wider a moult (real), less per
+                // moult as a crab grows (real, in a mangrove crab); a gentler
+                // 12% here so the biggest crab still fits a phone's screen.
+                first_growth: 0.12,
+                growth_keep: 0.75, // 1.12, 1.21, 1.28, 1.33, then the cap
+                most_size: 1.35,
+                stride: 0.5,              // +17% walking at the biggest
+                weight: 1.0, // drag goes with a body's area, its weight with its volume
+                dash_speed: 800.0, // a little faster than the dodge on the floor
+                dash_time: 0.25, // about 200 further each flip
                 crusher_charge_ticks: 60, // half a second
                 crusher_charge_bonus: 0.5,
                 crusher_poise: 1.5,

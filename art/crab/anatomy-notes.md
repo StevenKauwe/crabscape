@@ -17,6 +17,12 @@ source, it says so.
 - **[WP-POR]** Wikipedia, "Portunidae". <https://en.wikipedia.org/wiki/Portunidae>
 - **[WP-CS]** Wikipedia, "Callinectes sapidus" (the blue crab). <https://en.wikipedia.org/wiki/Callinectes_sapidus>
 - **[CQ]** Chesapeake Quarterly, "Glossary of Blue Crab Biology". <https://www.chesapeakequarterly.net/V11N2/side4/>
+- **[BM06]** C. P. Brylawski & T. J. Miller (2006), "Temperature-dependent growth of the blue crab (*Callinectes
+  sapidus*): a molt process approach", Maryland Sea Grant UM-SG-RS-2006-06 (abstract).
+  <https://www.mdsg.umd.edu/research-publications/UM-SG-RS-2006-06>
+- **[SO02]** Z. de Souza Silva & L. M. Y. Oshiro (2002), "Crescimento em *Goniopsis cruentata* (Latreille)
+  (Crustacea, Brachyura, Grapsidae) em laboratório", *Revista Brasileira de Zoologia* 19(3) (English abstract).
+  <https://scielo.br/j/rbzool/a/vyRtYgNFtMXjBmJHGVrDpTB/?lang=pt>
 - **[NHM]** Natural History Museum of Los Angeles crustacean glossary, "maxilliped". <https://research.nhm.org/glossary/define.html?termID=437>
 - **[CALTECH]** G. Berry, "Research in Progress" (a crab with eyes on long stalks), *Engineering & Science*, Caltech.
   <https://calteches.library.caltech.edu/2126/1/research.pdf>
@@ -120,6 +126,13 @@ source, it says so.
   lifetime [WP-CS].
   - *Not verified:* that the new shell looks **paler**. It is widely reported, but I didn't find it in any source I
     opened. Here it is an artistic reading, used because it reads well.
+- [x] **A crab grows at each moult, by less per moult as it grows.** A blue crab's carapace grows by about a fifth
+  at each moult: "A mean growth per molt of 119.5% increase in carapace width was observed" [BM06]. In a mangrove
+  crab, "the mean percentage of molt increment was 6.1 ± 2.7%, for both sexes and it decreased with the animal
+  growth" [SO02]. Males keep moulting and growing all their lives; females stop at maturity, after about 20 moults
+  [CQ]. The game grows the crab 12% at its first moult, then less each time, up to 35% (gentler than a blue crab, so
+  the biggest crab still fits a phone's screen and the level's narrow places).
+  - *Not verified:* that a crab is already its bigger size while the new shell is soft (the game draws it so).
 - [x] **Lost limbs regrow over moults, and the new one is different at first.** In fiddler crabs, regenerated claws
   "were more slender, having smaller dimensions of the manus relative to claw length", and the first moult after the
   loss accounted for most of the change [KM]. A bluecrab.info page on autotomy (HTTP 403) and a search snippet say

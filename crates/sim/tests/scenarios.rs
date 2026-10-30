@@ -16,7 +16,26 @@ use crabsim::{Controls, Feel, Hit, PlayerId, Replay, SPAWN, STEP, Shelter, Sim, 
 fn sim_a(start: Vec2) -> Sim {
     let mut sim = Sim::with_one_crab(start);
     sim.set_feel(Feel::Current);
+    sim.crab_mut(PlayerId(0)).unwrap().mover.moults = MOULTS.get();
     sim
+}
+
+thread_local! {
+    /// How many times the crab in this test's runs has moulted (none, but
+    /// for the route played at the biggest size: see
+    /// [`the_biggest_crab_still_gets_through_the_whole_route`]).
+    static MOULTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Puts the crab back to its usual size when dropped: where tests share a
+/// thread (WebAssembly runs them one after another), the next test must not
+/// inherit the biggest crab, even after a failure.
+struct UsualAfter;
+
+impl Drop for UsualAfter {
+    fn drop(&mut self) {
+        MOULTS.set(0);
+    }
 }
 
 /// What one scripted run did.
@@ -303,6 +322,17 @@ fn each_egg_needs_the_strokes_the_eggs_before_it_give() {
                 k - 1
             );
         }
+    }
+    each_egg_can_be_reached_with_the_strokes_the_eggs_before_it_give();
+}
+
+/// Standing under each egg on its perch, with the strokes the eggs before
+/// it give, the crab reaches it.
+fn each_egg_can_be_reached_with_the_strokes_the_eggs_before_it_give() {
+    let eggs = crabsim::Level::test_level().eggs;
+    let perch_tops = [150.0, 330.0, 330.0];
+    for (k, (egg, top)) in eggs.iter().zip(perch_tops).enumerate() {
+        let k = k as u32;
         assert!(reaches_an_egg(egg.x, top, k), "egg {k} with {k} strokes");
     }
 }
@@ -357,7 +387,11 @@ fn the_trench_needs_jump_and_paddle() {
             r.crab().pos
         );
     }
-    // Jump at the edge and paddle at the top: across.
+    jump_and_paddle_cross_the_trench();
+}
+
+/// Jump at the edge and paddle at the top: across, with decent timing.
+fn jump_and_paddle_cross_the_trench() {
     let mut crossed = 0;
     for k in 0..20 {
         let t = 0.4 + k as f64 * 2.0 * f64::from(STEP);
@@ -932,6 +966,24 @@ fn the_pit_hides_an_alcove_with_an_egg_and_a_clue() {
     assert_eq!(out.crab().pos.y, level.pit().2);
 }
 
+/// Sinking past the alcove's mouth (clear of its roof), some moment to push
+/// right gets the crab in (the egg and the clue), and it can walk out and
+/// sink on to the pit's floor.
+fn the_alcove_can_be_swum_into_and_out_of() {
+    let inside = (0..40)
+        .map(|k| {
+            let push = 0.6 + f64::from(k) * 0.05;
+            run(&format!("start x=4000 y=-4700; t={push} walk=right"), 5.0)
+        })
+        .find(|r| r.crab().pos.y == -5200.0)
+        .expect("some push gets in");
+    assert_eq!(inside.count("ate"), 1, "the fourth egg");
+    assert_eq!(inside.count("found a clue"), 1);
+    let level = crabsim::Level::test_level();
+    let out = run("start x=4200 y=-5200; t=0 walk=left; t=1.2 walk=stop", 20.0);
+    assert_eq!(out.crab().pos.y, level.pit().2);
+}
+
 /// From the alcove's roof, run at the pit's wall and swim up it as hard as
 /// possible with `strokes` strokes, with scissor claws or not. Where does the crab
 /// end up (it keeps pushing right: into the tunnel, if it got in)?
@@ -1006,7 +1058,7 @@ fn the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin() {
     );
     assert_eq!(up.crab().pos.y, -700.0);
     assert!(
-        up.crab().pos.x > 4471.0,
+        up.crab().pos.x > 4490.0,
         "out on the far basin: {}",
         up.crab().pos
     );
@@ -2247,4 +2299,35 @@ fn the_route_gets_harder_with_room_to_breathe() {
     for e in sim.enemies() {
         assert_eq!(e.pos.y, level.floor_height(e.pos.x), "{:?}", e.kind);
     }
+}
+
+/// Moults enough to grow the crab as big as moulting makes it.
+const BIGGEST: u32 = 99;
+
+#[test]
+fn the_biggest_crab_still_gets_through_the_whole_route() {
+    // The route's own promises, played with a crab grown as big as it gets:
+    // every passage still fits it, and every climb and swim still works.
+    let _usual_after = UsualAfter;
+    MOULTS.set(BIGGEST);
+    let sim = sim_a(SPAWN);
+    let t = &sim.tuning;
+    assert_eq!(
+        sim.crab(PlayerId(0)).unwrap().mover.grown(t),
+        t.moult.most_size,
+        "the biggest crab"
+    );
+    walking_from_spawn_reaches_the_slope_quickly();
+    each_egg_can_be_reached_with_the_strokes_the_eggs_before_it_give();
+    jump_and_paddle_cross_the_trench();
+    the_way_out_needs_all_three_strokes();
+    the_basin_has_a_way_back_up();
+    the_pit_is_deep_and_the_climb_gets_you_out();
+    climbing_goes_up_and_down_and_steps_off_sideways();
+    the_crab_clings_on_the_side_it_came_from_and_climbs_round_obstacles();
+    the_crab_backs_into_its_home_shell_rests_there_and_walks_out();
+    a_culture_from_the_pit_bottom_goes_home_into_the_lantern();
+    the_alcove_can_be_swum_into_and_out_of();
+    the_passage_needs_four_strokes_and_scissor_claws();
+    the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin();
 }

@@ -116,10 +116,19 @@ pub fn spawn_local_crab(
     // The feel preset first, so the recording starts with it.
     sim.set_feel(lab.feel);
     let saved = save::load();
+    // How big it has grown decides where it fits.
+    let size = saved
+        .as_ref()
+        .and_then(|s| s.progress.as_ref())
+        .map_or(1.0, |p| {
+            let mut m = Mover::new(SPAWN);
+            (m.moults, m.growing) = (p.moults, p.growing);
+            m.grown(&sim.tuning)
+        });
     let pos = saved
         .as_ref()
         .map(|s| Vec2::new(s.x, s.y))
-        .filter(|&p| physics::is_valid_spot(p, &sim.tuning, &sim.level))
+        .filter(|&p| physics::is_valid_spot(p, size, &sim.tuning, &sim.level))
         .unwrap_or(SPAWN);
     sim.add_crab(me, pos);
     // What it grew, took and remembers comes back with it.

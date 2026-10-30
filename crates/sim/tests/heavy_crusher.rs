@@ -10,6 +10,7 @@ const P0: PlayerId = PlayerId(0);
 
 fn crab(pos: Vec2, feat: bool) -> Sim {
     let mut sim = Sim::with_one_crab(pos);
+    sim.crab_mut(P0).unwrap().mover.moults = MOULTS.get();
     if feat {
         sim.crab_mut(P0)
             .unwrap()
@@ -18,6 +19,23 @@ fn crab(pos: Vec2, feat: bool) -> Sim {
             .push(Feat::HeavyCrusher);
     }
     sim
+}
+
+thread_local! {
+    /// How many times the crab in this test's runs has moulted (none, but
+    /// for the test played at the biggest size, below).
+    static MOULTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Puts the crab back to its usual size when dropped: where tests share a
+/// thread (WebAssembly runs them one after another), the next test must not
+/// inherit the biggest crab, even after a failure.
+struct UsualAfter;
+
+impl Drop for UsualAfter {
+    fn drop(&mut self) {
+        MOULTS.set(0);
+    }
 }
 
 fn play(mut sim: Sim, script: &str, seconds: f64) -> Sim {
@@ -57,7 +75,7 @@ fn brittle_rock_in_the_far_basin_holds_glowing_bacteria() {
         .iter()
         .any(|c| rock.rect.contains(*c + Vec2::new(0.0, 1.0)));
     assert!(inside, "a culture inside the rock");
-    assert!(rock.rect.min.x > 4471.0 && rock.rect.max.x <= 5080.0);
+    assert!(rock.rect.min.x > 4490.0 && rock.rect.max.x <= 5080.0);
 }
 
 #[test]
@@ -128,4 +146,16 @@ fn the_heavy_crusher_breaks_poise_harder() {
         "the plain smash: {plain} of {full}"
     );
     assert_eq!(grown, 0.0, "the heavy crusher's smash breaks its poise");
+}
+
+#[test]
+fn the_biggest_crab_still_cracks_the_rock_and_gets_in() {
+    // Grown as big as moulting makes it.
+    let _usual_after = UsualAfter;
+    MOULTS.set(99);
+    let sim = crab(by_the_rock(), true);
+    let t = &sim.tuning;
+    let grown = sim.crab(P0).unwrap().mover.grown(t);
+    assert_eq!(grown, t.moult.most_size, "the biggest crab");
+    with_the_heavy_crusher_a_full_charge_cracks_it_and_frees_what_was_inside();
 }
