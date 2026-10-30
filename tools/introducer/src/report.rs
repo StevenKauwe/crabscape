@@ -9,7 +9,7 @@
 //! write, then `fly secrets set GITHUB_REPORT_TOKEN=<token> -a crabscape-introducer`.
 //!
 //! Anyone can send, so: each sender (by address) gets [`PER_SENDER`] reports
-//! in ten minutes and everyone together [`PER_DAY`] a day; every field has a size
+//! in ten minutes (the owner's call: no daily cap); every field has a size
 //! cap; and the player's words are quoted with `@` mentions defused, under a
 //! note that they are a player's words, not instructions.
 //!
@@ -30,11 +30,8 @@ const REPO: &str = "StevenKauwe/crabscape";
 /// Reports one sender may make in [`WINDOW`].
 const PER_SENDER: usize = 100;
 const WINDOW: Duration = Duration::from_secs(10 * 60);
-/// Reports everyone together may make a day.
-const PER_DAY: usize = 1000;
 /// The least time between two issues filed (under GitHub's 80 a minute).
 const GAP: Duration = Duration::from_secs(1);
-const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// The biggest request accepted (bytes); the replay is most of it.
 pub const MAX_BODY: usize = 512 * 1024;
 const MAX_TEXT: usize = 2000;
@@ -63,26 +60,23 @@ pub struct Report {
 #[derive(Default)]
 pub struct Limits {
     senders: HashMap<String, Vec<Instant>>,
-    all: Vec<Instant>,
 }
 
 impl Limits {
     /// May `sender` send one now? Counts it if so.
     pub fn allow(&mut self, sender: &str, now: Instant) -> bool {
-        self.all.retain(|t| now.duration_since(*t) < DAY);
         self.senders.retain(|_, times| {
             times.retain(|t| now.duration_since(*t) < WINDOW);
             !times.is_empty()
         });
         let mine = self.senders.get(sender).map_or(0, Vec::len);
-        if mine >= PER_SENDER || self.all.len() >= PER_DAY {
+        if mine >= PER_SENDER {
             return false;
         }
         self.senders
             .entry(sender.to_string())
             .or_default()
             .push(now);
-        self.all.push(now);
         true
     }
 }
