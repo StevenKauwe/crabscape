@@ -553,7 +553,7 @@ impl Sim {
                 }
             }
             // Names are the game's to show (`src/names.rs`), not a rule.
-            Msg::Name { .. } => {}
+            Msg::Name { .. } | Msg::Chat(_) => {}
         }
     }
 
