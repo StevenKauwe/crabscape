@@ -44,8 +44,8 @@ rm -rf web/pkg
 wasm-bindgen --target web --no-typescript --out-dir web/pkg \
   target/wasm32-unknown-unknown/release/crabscape.wasm
 
-# The speech-to-text listener for spoken reports (crates/listen): its own
-# small module, loaded in a background worker only when someone speaks a report.
+# The speech-to-text listener for spoken reports and voice chat (crates/listen):
+# its own small module, loaded in a background worker only when used.
 RUSTFLAGS='' cargo build --release --target wasm32-unknown-unknown -p listen
 rm -f web/listen/listen*
 wasm-bindgen --target web --no-typescript --out-dir web/listen \
@@ -100,4 +100,4 @@ raw=$(wc -c < "$wasm")
 gz=$(gzip -9 -c "$wasm" | wc -c)
 echo "Built web/ — $wasm is $((raw / 1024)) KiB ($((gz / 1024)) KiB gzipped)"
 listen=web/listen/listen_bg.wasm
-echo "  and $listen (spoken reports, loaded only when used) is $(($(wc -c < "$listen") / 1024)) KiB ($(($(gzip -9 -c "$listen" | wc -c) / 1024)) KiB gzipped)"
+echo "  and $listen (spoken reports and voice chat, loaded only when used) is $(($(wc -c < "$listen") / 1024)) KiB ($(($(gzip -9 -c "$listen" | wc -c) / 1024)) KiB gzipped)"

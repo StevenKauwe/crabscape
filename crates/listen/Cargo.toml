@@ -3,7 +3,7 @@ name = "listen"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Speech to text on the player's device (Moonshine tiny), for spoken bug reports. Its own small WebAssembly file, loaded only when someone speaks a report."
+description = "Speech to text on the player's device (Moonshine tiny), for spoken bug reports and voice chat written down. Its own small WebAssembly file, loaded only when used."
 
 [lib]
 crate-type = ["cdylib", "rlib"]
