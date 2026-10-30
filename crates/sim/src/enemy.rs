@@ -33,15 +33,19 @@ pub enum Kind {
     Moray,
     /// The common octopus, a boss in its den (`crate::octopus`).
     Octopus,
+    /// A monkey from outer space with asparagus arms, from the `monkeys`
+    /// code (`crate::codes`): weak, long-armed, and gone after a while.
+    Monkey,
 }
 
 /// Every kind, for parsing and lists.
-pub const KINDS: [Kind; 5] = [
+pub const KINDS: [Kind; 6] = [
     Kind::Fixture,
     Kind::Mantis,
     Kind::Snapper,
     Kind::Moray,
     Kind::Octopus,
+    Kind::Monkey,
 ];
 
 impl Kind {
@@ -52,6 +56,7 @@ impl Kind {
             Kind::Snapper => &t.snapper,
             Kind::Moray => &t.moray,
             Kind::Octopus => &t.octopus.base,
+            Kind::Monkey => crate::codes::monkey_tuning(),
         }
     }
 
@@ -62,6 +67,7 @@ impl Kind {
             Kind::Snapper => "snapper",
             Kind::Moray => "moray",
             Kind::Octopus => "octopus",
+            Kind::Monkey => "monkey",
         }
     }
 
@@ -186,6 +192,10 @@ pub struct Enemy {
     pub deaths: u32,
     /// An octopus's own state: hidden or found out, and its arms.
     pub octo: Option<Octopus>,
+    /// Ticks left of a monkey's visit: it falls in, then leaves when this
+    /// runs out (0 for every other kind: they stay).
+    #[serde(default)]
+    pub stay: u32,
 }
 
 impl Enemy {
@@ -217,7 +227,19 @@ impl Enemy {
             handovers: 0,
             deaths: 0,
             octo: (kind == Kind::Octopus).then(|| Octopus::new(pos, t)),
+            stay: if kind == Kind::Monkey {
+                crate::codes::MONKEY_STAY
+            } else {
+                0
+            },
         }
+    }
+
+    /// A monkey still falling in from above: out of reach and doing nothing.
+    pub fn dropping(&self) -> bool {
+        self.kind == Kind::Monkey
+            && self.state != State::Gone
+            && self.stay > crate::codes::MONKEY_STAY - crate::codes::MONKEY_DROP
     }
 
     /// Its octopus state, if it is one.
@@ -283,6 +305,9 @@ impl Enemy {
 
     /// Can it be hit right now?
     pub fn hittable(&self, t: &Tuning) -> bool {
+        if self.dropping() {
+            return false;
+        }
         if self.octo.is_some() {
             // Gone in its ink, or for good.
             return !matches!(self.state, State::Gone | State::Flee);
@@ -476,6 +501,17 @@ pub fn step(
     }
     if e.octo.is_some() {
         return octopus::step(e, crabs, t, level);
+    }
+    if e.kind == Kind::Monkey && e.state != State::Gone {
+        e.stay = e.stay.saturating_sub(1);
+        if e.stay == 0 {
+            // Its visit is over: off it goes, leaving no body.
+            e.enter(State::Gone, 0);
+            return blows;
+        }
+        if e.dropping() {
+            return blows;
+        }
     }
     let k = e.kind.tuning(t).clone();
     e.vitals.tick(&k.vitals);
@@ -789,7 +825,7 @@ pub(crate) fn strike(
             continue;
         }
         blows.push((crab.id, outcome));
-        if let Some(g) = grabs(k, outcome) {
+        if let Some(g) = grabs(k, outcome).filter(|_| !crab.mover.hulk) {
             crab.fighter.grabbed = Some(combat::Grabbed {
                 by: e.id,
                 left: g.ticks,

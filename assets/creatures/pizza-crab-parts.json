@@ -1,0 +1,1745 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/pizza-crab/pizza-crab-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "pizza-crab-atlas.png",
+ "atlas_size": [
+  1024,
+  1024
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  588.85,
+  688.9
+ ],
+ "anchors": {
+  "lantern": {
+   "part": "cheliped-L-propodus-palm",
+   "at": [
+    853.02,
+    369.0
+   ]
+  }
+ },
+ "parts": [
+  {
+   "name": "leg-R4-merus",
+   "parent": "carapace",
+   "pivot": [
+    365.0,
+    476.0
+   ],
+   "bbox": [
+    225.7,
+    430.1,
+    162.0,
+    70.5
+   ],
+   "rect": [
+    481,
+    594,
+    98,
+    43
+   ],
+   "z": 0,
+   "members": [
+    "leg-R4-merus"
+   ]
+  },
+  {
+   "name": "leg-R4-carpus",
+   "parent": "leg-R4-merus",
+   "pivot": [
+    247.8,
+    450.0
+   ],
+   "bbox": [
+    228.7,
+    387.0,
+    67.5,
+    83.0
+   ],
+   "rect": [
+    315,
+    537,
+    41,
+    50
+   ],
+   "z": 1,
+   "members": [
+    "leg-R4-carpus"
+   ]
+  },
+  {
+   "name": "leg-R4-propodus",
+   "parent": "leg-R4-carpus",
+   "pivot": [
+    277.1,
+    407.0
+   ],
+   "bbox": [
+    256.3,
+    338.9,
+    75.7,
+    88.5
+   ],
+   "rect": [
+    209,
+    537,
+    46,
+    54
+   ],
+   "z": 2,
+   "members": [
+    "leg-R4-propodus"
+   ]
+  },
+  {
+   "name": "leg-R4-dactyl-paddle",
+   "parent": "leg-R4-propodus",
+   "pivot": [
+    306.3,
+    364.0
+   ],
+   "bbox": [
+    222.3,
+    305.7,
+    97.7,
+    75.1
+   ],
+   "rect": [
+    187,
+    594,
+    59,
+    46
+   ],
+   "z": 3,
+   "members": [
+    "leg-R4-dactyl-paddle",
+    "leg-R4-paddle-rib"
+   ]
+  },
+  {
+   "name": "leg-R4-paddle-broad",
+   "parent": "leg-R4-dactyl-paddle",
+   "pivot": [
+    306.3,
+    364.0
+   ],
+   "bbox": [
+    208.5,
+    285.2,
+    118.4,
+    102.8
+   ],
+   "rect": [
+    193,
+    471,
+    72,
+    62
+   ],
+   "z": 5,
+   "members": [
+    "leg-R4-paddle-broad",
+    "leg-R4-paddle-broad-rib0",
+    "leg-R4-paddle-broad-rib1"
+   ]
+  },
+  {
+   "name": "leg-L4-merus",
+   "parent": "carapace",
+   "pivot": [
+    813.0,
+    476.0
+   ],
+   "bbox": [
+    788.4,
+    428.8,
+    163.4,
+    71.3
+   ],
+   "rect": [
+    249,
+    594,
+    99,
+    43
+   ],
+   "z": 8,
+   "members": [
+    "leg-L4-merus"
+   ]
+  },
+  {
+   "name": "leg-L4-carpus",
+   "parent": "leg-L4-merus",
+   "pivot": [
+    930.2,
+    450.0
+   ],
+   "bbox": [
+    881.3,
+    388.0,
+    69.8,
+    81.6
+   ],
+   "rect": [
+    359,
+    537,
+    42,
+    49
+   ],
+   "z": 9,
+   "members": [
+    "leg-L4-carpus"
+   ]
+  },
+  {
+   "name": "leg-L4-propodus",
+   "parent": "leg-L4-carpus",
+   "pivot": [
+    900.9,
+    407.0
+   ],
+   "bbox": [
+    845.2,
+    338.2,
+    77.2,
+    89.8
+   ],
+   "rect": [
+    3,
+    537,
+    47,
+    54
+   ],
+   "z": 10,
+   "members": [
+    "leg-L4-propodus"
+   ]
+  },
+  {
+   "name": "leg-L4-dactyl-paddle",
+   "parent": "leg-L4-propodus",
+   "pivot": [
+    871.7,
+    364.0
+   ],
+   "bbox": [
+    858.6,
+    307.7,
+    96.7,
+    75.5
+   ],
+   "rect": [
+    125,
+    594,
+    59,
+    46
+   ],
+   "z": 11,
+   "members": [
+    "leg-L4-dactyl-paddle",
+    "leg-L4-paddle-rib"
+   ]
+  },
+  {
+   "name": "leg-L4-paddle-broad",
+   "parent": "leg-L4-dactyl-paddle",
+   "pivot": [
+    871.7,
+    364.0
+   ],
+   "bbox": [
+    852.7,
+    293.3,
+    118.7,
+    104.7
+   ],
+   "rect": [
+    3,
+    471,
+    72,
+    63
+   ],
+   "z": 13,
+   "members": [
+    "leg-L4-paddle-broad",
+    "leg-L4-paddle-broad-rib0",
+    "leg-L4-paddle-broad-rib1"
+   ]
+  },
+  {
+   "name": "leg-R3-merus",
+   "parent": "carapace",
+   "pivot": [
+    377.0,
+    500.0
+   ],
+   "bbox": [
+    201.8,
+    474.8,
+    198.2,
+    92.7
+   ],
+   "rect": [
+    623,
+    471,
+    119,
+    56
+   ],
+   "z": 16,
+   "members": [
+    "leg-R3-merus"
+   ]
+  },
+  {
+   "name": "leg-R3-carpus",
+   "parent": "leg-R3-merus",
+   "pivot": [
+    223.9,
+    546.4
+   ],
+   "bbox": [
+    140.9,
+    527.7,
+    104.2,
+    57.6
+   ],
+   "rect": [
+    34,
+    643,
+    63,
+    35
+   ],
+   "z": 17,
+   "members": [
+    "leg-R3-carpus"
+   ]
+  },
+  {
+   "name": "leg-R3-propodus",
+   "parent": "leg-R3-carpus",
+   "pivot": [
+    159.0,
+    565.8
+   ],
+   "bbox": [
+    74.6,
+    547.4,
+    103.6,
+    58.5
+   ],
+   "rect": [
+    867,
+    594,
+    63,
+    36
+   ],
+   "z": 18,
+   "members": [
+    "leg-R3-propodus"
+   ]
+  },
+  {
+   "name": "leg-R3-dactyl",
+   "parent": "leg-R3-propodus",
+   "pivot": [
+    89.0,
+    590.8
+   ],
+   "bbox": [
+    60.2,
+    573.7,
+    44.9,
+    91.6
+   ],
+   "rect": [
+    806,
+    471,
+    27,
+    55
+   ],
+   "z": 19,
+   "members": [
+    "leg-R3-dactyl"
+   ]
+  },
+  {
+   "name": "leg-R3-dactyl-glass",
+   "parent": "leg-R3-dactyl",
+   "pivot": [
+    89.0,
+    590.8
+   ],
+   "bbox": [
+    54.1,
+    602.1,
+    45.3,
+    77.0
+   ],
+   "rect": [
+    724,
+    537,
+    28,
+    47
+   ],
+   "z": 20,
+   "members": [
+    "leg-R3-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-R3-dactyl-hook",
+   "parent": "leg-R3-dactyl",
+   "pivot": [
+    89.0,
+    590.8
+   ],
+   "bbox": [
+    54.3,
+    618.4,
+    46.0,
+    59.0
+   ],
+   "rect": [
+    805,
+    594,
+    28,
+    36
+   ],
+   "z": 21,
+   "members": [
+    "leg-R3-dactyl-hook"
+   ]
+  },
+  {
+   "name": "leg-L3-merus",
+   "parent": "carapace",
+   "pivot": [
+    801.0,
+    500.0
+   ],
+   "bbox": [
+    777.2,
+    476.7,
+    199.3,
+    91.2
+   ],
+   "rect": [
+    836,
+    471,
+    120,
+    55
+   ],
+   "z": 22,
+   "members": [
+    "leg-L3-merus"
+   ]
+  },
+  {
+   "name": "leg-L3-carpus",
+   "parent": "leg-L3-merus",
+   "pivot": [
+    954.1,
+    546.4
+   ],
+   "bbox": [
+    932.8,
+    527.5,
+    105.3,
+    56.1
+   ],
+   "rect": [
+    100,
+    643,
+    64,
+    34
+   ],
+   "z": 23,
+   "members": [
+    "leg-L3-carpus"
+   ]
+  },
+  {
+   "name": "leg-L3-propodus",
+   "parent": "leg-L3-carpus",
+   "pivot": [
+    1019.0,
+    565.8
+   ],
+   "bbox": [
+    1001.4,
+    547.3,
+    101.7,
+    58.5
+   ],
+   "rect": [
+    933,
+    594,
+    62,
+    36
+   ],
+   "z": 24,
+   "members": [
+    "leg-L3-propodus"
+   ]
+  },
+  {
+   "name": "leg-L3-dactyl",
+   "parent": "leg-L3-propodus",
+   "pivot": [
+    1089.0,
+    590.8
+   ],
+   "bbox": [
+    1073.2,
+    573.5,
+    44.4,
+    92.0
+   ],
+   "rect": [
+    776,
+    471,
+    27,
+    56
+   ],
+   "z": 25,
+   "members": [
+    "leg-L3-dactyl"
+   ]
+  },
+  {
+   "name": "leg-L3-dactyl-glass",
+   "parent": "leg-L3-dactyl",
+   "pivot": [
+    1089.0,
+    590.8
+   ],
+   "bbox": [
+    1078.7,
+    601.7,
+    45.0,
+    76.9
+   ],
+   "rect": [
+    755,
+    537,
+    27,
+    47
+   ],
+   "z": 26,
+   "members": [
+    "leg-L3-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-L3-dactyl-hook",
+   "parent": "leg-L3-dactyl",
+   "pivot": [
+    1089.0,
+    590.8
+   ],
+   "bbox": [
+    1078.4,
+    619.2,
+    45.9,
+    59.1
+   ],
+   "rect": [
+    774,
+    594,
+    28,
+    36
+   ],
+   "z": 27,
+   "members": [
+    "leg-L3-dactyl-hook"
+   ]
+  },
+  {
+   "name": "leg-R2-merus",
+   "parent": "carapace",
+   "pivot": [
+    401.0,
+    516.0
+   ],
+   "bbox": [
+    217.3,
+    472.0,
+    209.0,
+    68.3
+   ],
+   "rect": [
+    582,
+    594,
+    126,
+    41
+   ],
+   "z": 28,
+   "members": [
+    "leg-R2-merus"
+   ]
+  },
+  {
+   "name": "leg-R2-carpus",
+   "parent": "leg-R2-merus",
+   "pivot": [
+    238.6,
+    493.1
+   ],
+   "bbox": [
+    170.3,
+    471.4,
+    89.6,
+    89.7
+   ],
+   "rect": [
+    53,
+    537,
+    54,
+    54
+   ],
+   "z": 29,
+   "members": [
+    "leg-R2-carpus"
+   ]
+  },
+  {
+   "name": "leg-R2-propodus",
+   "parent": "leg-R2-carpus",
+   "pivot": [
+    190.0,
+    540.9
+   ],
+   "bbox": [
+    125.1,
+    521.1,
+    83.8,
+    98.6
+   ],
+   "rect": [
+    452,
+    471,
+    51,
+    60
+   ],
+   "z": 30,
+   "members": [
+    "leg-R2-propodus"
+   ]
+  },
+  {
+   "name": "leg-R2-dactyl",
+   "parent": "leg-R2-propodus",
+   "pivot": [
+    140.2,
+    603.6
+   ],
+   "bbox": [
+    110.0,
+    586.0,
+    46.2,
+    96.8
+   ],
+   "rect": [
+    506,
+    471,
+    28,
+    59
+   ],
+   "z": 31,
+   "members": [
+    "leg-R2-dactyl"
+   ]
+  },
+  {
+   "name": "leg-R2-dactyl-glass",
+   "parent": "leg-R2-dactyl",
+   "pivot": [
+    140.2,
+    603.6
+   ],
+   "bbox": [
+    103.3,
+    616.5,
+    46.6,
+    78.6
+   ],
+   "rect": [
+    543,
+    537,
+    28,
+    48
+   ],
+   "z": 32,
+   "members": [
+    "leg-R2-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-R2-dactyl-hook",
+   "parent": "leg-R2-dactyl",
+   "pivot": [
+    140.2,
+    603.6
+   ],
+   "bbox": [
+    103.5,
+    633.8,
+    46.7,
+    60.6
+   ],
+   "rect": [
+    742,
+    594,
+    29,
+    37
+   ],
+   "z": 33,
+   "members": [
+    "leg-R2-dactyl-hook"
+   ]
+  },
+  {
+   "name": "leg-L2-merus",
+   "parent": "carapace",
+   "pivot": [
+    777.0,
+    516.0
+   ],
+   "bbox": [
+    752.4,
+    471.4,
+    210.1,
+    71.0
+   ],
+   "rect": [
+    351,
+    594,
+    127,
+    43
+   ],
+   "z": 34,
+   "members": [
+    "leg-L2-merus"
+   ]
+  },
+  {
+   "name": "leg-L2-carpus",
+   "parent": "leg-L2-merus",
+   "pivot": [
+    939.4,
+    493.1
+   ],
+   "bbox": [
+    918.5,
+    472.2,
+    88.9,
+    88.1
+   ],
+   "rect": [
+    258,
+    537,
+    54,
+    53
+   ],
+   "z": 35,
+   "members": [
+    "leg-L2-carpus"
+   ]
+  },
+  {
+   "name": "leg-L2-propodus",
+   "parent": "leg-L2-carpus",
+   "pivot": [
+    988.0,
+    540.9
+   ],
+   "bbox": [
+    968.7,
+    522.4,
+    84.6,
+    96.0
+   ],
+   "rect": [
+    537,
+    471,
+    51,
+    58
+   ],
+   "z": 36,
+   "members": [
+    "leg-L2-propodus"
+   ]
+  },
+  {
+   "name": "leg-L2-dactyl",
+   "parent": "leg-L2-propodus",
+   "pivot": [
+    1037.8,
+    603.6
+   ],
+   "bbox": [
+    1020.9,
+    586.1,
+    46.7,
+    96.0
+   ],
+   "rect": [
+    591,
+    471,
+    29,
+    58
+   ],
+   "z": 37,
+   "members": [
+    "leg-L2-dactyl"
+   ]
+  },
+  {
+   "name": "leg-L2-dactyl-glass",
+   "parent": "leg-L2-dactyl",
+   "pivot": [
+    1037.8,
+    603.6
+   ],
+   "bbox": [
+    1027.3,
+    616.3,
+    46.7,
+    78.7
+   ],
+   "rect": [
+    511,
+    537,
+    29,
+    48
+   ],
+   "z": 38,
+   "members": [
+    "leg-L2-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-L2-dactyl-hook",
+   "parent": "leg-L2-dactyl",
+   "pivot": [
+    1037.8,
+    603.6
+   ],
+   "bbox": [
+    1028.3,
+    633.8,
+    45.6,
+    61.1
+   ],
+   "rect": [
+    711,
+    594,
+    28,
+    37
+   ],
+   "z": 39,
+   "members": [
+    "leg-L2-dactyl-hook"
+   ]
+  },
+  {
+   "name": "leg-R1-merus",
+   "parent": "carapace",
+   "pivot": [
+    433.0,
+    532.0
+   ],
+   "bbox": [
+    261.7,
+    479.2,
+    194.7,
+    77.2
+   ],
+   "rect": [
+    574,
+    537,
+    117,
+    47
+   ],
+   "z": 40,
+   "members": [
+    "leg-R1-merus"
+   ]
+  },
+  {
+   "name": "leg-R1-carpus",
+   "parent": "leg-R1-merus",
+   "pivot": [
+    284.4,
+    500.2
+   ],
+   "bbox": [
+    229.0,
+    481.0,
+    75.3,
+    88.7
+   ],
+   "rect": [
+    160,
+    537,
+    46,
+    54
+   ],
+   "z": 41,
+   "members": [
+    "leg-R1-carpus"
+   ]
+  },
+  {
+   "name": "leg-R1-propodus",
+   "parent": "leg-R1-carpus",
+   "pivot": [
+    246.9,
+    551.3
+   ],
+   "bbox": [
+    195.7,
+    532.5,
+    69.7,
+    101.0
+   ],
+   "rect": [
+    313,
+    471,
+    42,
+    61
+   ],
+   "z": 42,
+   "members": [
+    "leg-R1-propodus"
+   ]
+  },
+  {
+   "name": "leg-R1-dactyl",
+   "parent": "leg-R1-propodus",
+   "pivot": [
+    210.9,
+    619.4
+   ],
+   "bbox": [
+    181.7,
+    603.5,
+    45.9,
+    90.4
+   ],
+   "rect": [
+    959,
+    471,
+    28,
+    55
+   ],
+   "z": 43,
+   "members": [
+    "leg-R1-dactyl"
+   ]
+  },
+  {
+   "name": "leg-R1-dactyl-glass",
+   "parent": "leg-R1-dactyl",
+   "pivot": [
+    210.9,
+    619.4
+   ],
+   "bbox": [
+    176.5,
+    630.7,
+    44.6,
+    77.1
+   ],
+   "rect": [
+    694,
+    537,
+    27,
+    47
+   ],
+   "z": 44,
+   "members": [
+    "leg-R1-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-R1-dactyl-hook",
+   "parent": "leg-R1-dactyl",
+   "pivot": [
+    210.9,
+    619.4
+   ],
+   "bbox": [
+    176.6,
+    647.7,
+    45.6,
+    58.6
+   ],
+   "rect": [
+    836,
+    594,
+    28,
+    36
+   ],
+   "z": 45,
+   "members": [
+    "leg-R1-dactyl-hook"
+   ]
+  },
+  {
+   "name": "leg-L1-merus",
+   "parent": "carapace",
+   "pivot": [
+    745.0,
+    532.0
+   ],
+   "bbox": [
+    718.8,
+    480.2,
+    197.4,
+    75.6
+   ],
+   "rect": [
+    3,
+    594,
+    119,
+    46
+   ],
+   "z": 46,
+   "members": [
+    "leg-L1-merus"
+   ]
+  },
+  {
+   "name": "leg-L1-carpus",
+   "parent": "leg-L1-merus",
+   "pivot": [
+    893.6,
+    500.2
+   ],
+   "bbox": [
+    873.0,
+    480.0,
+    77.0,
+    88.8
+   ],
+   "rect": [
+    110,
+    537,
+    47,
+    54
+   ],
+   "z": 47,
+   "members": [
+    "leg-L1-carpus"
+   ]
+  },
+  {
+   "name": "leg-L1-propodus",
+   "parent": "leg-L1-carpus",
+   "pivot": [
+    931.1,
+    551.3
+   ],
+   "bbox": [
+    913.5,
+    533.2,
+    69.3,
+    101.4
+   ],
+   "rect": [
+    268,
+    471,
+    42,
+    61
+   ],
+   "z": 48,
+   "members": [
+    "leg-L1-propodus"
+   ]
+  },
+  {
+   "name": "leg-L1-dactyl",
+   "parent": "leg-L1-propodus",
+   "pivot": [
+    967.1,
+    619.4
+   ],
+   "bbox": [
+    951.0,
+    602.2,
+    45.4,
+    92.7
+   ],
+   "rect": [
+    745,
+    471,
+    28,
+    56
+   ],
+   "z": 49,
+   "members": [
+    "leg-L1-dactyl"
+   ]
+  },
+  {
+   "name": "leg-L1-dactyl-glass",
+   "parent": "leg-L1-dactyl",
+   "pivot": [
+    967.1,
+    619.4
+   ],
+   "bbox": [
+    957.5,
+    631.2,
+    44.0,
+    75.7
+   ],
+   "rect": [
+    876,
+    537,
+    27,
+    46
+   ],
+   "z": 50,
+   "members": [
+    "leg-L1-dactyl-glass"
+   ]
+  },
+  {
+   "name": "leg-L1-dactyl-hook",
+   "parent": "leg-L1-dactyl",
+   "pivot": [
+    967.1,
+    619.4
+   ],
+   "bbox": [
+    955.6,
+    647.7,
+    46.2,
+    58.5
+   ],
+   "rect": [
+    3,
+    643,
+    28,
+    36
+   ],
+   "z": 51,
+   "members": [
+    "leg-L1-dactyl-hook"
+   ]
+  },
+  {
+   "name": "carapace",
+   "parent": null,
+   "pivot": [
+    588.85,
+    480.55
+   ],
+   "bbox": [
+    256.9,
+    350.0,
+    663.9,
+    261.1
+   ],
+   "rect": [
+    3,
+    172,
+    399,
+    157
+   ],
+   "z": 52,
+   "members": [
+    "underside-sternum",
+    "face-pterygostomial",
+    "maxilliped3-R",
+    "maxilliped3-R-suture",
+    "maxilliped3-L",
+    "maxilliped3-L-suture",
+    "face-brim-shadow",
+    "carapace",
+    "carapace-groove-R",
+    "carapace-groove-L",
+    "carapace-pepperoni0",
+    "carapace-pepperoni1",
+    "carapace-pepperoni2",
+    "carapace-pepperoni3",
+    "carapace-pepperoni4",
+    "carapace-pepperoni5",
+    "antenna-R-flagellum",
+    "antennule-R",
+    "antenna-L-flagellum",
+    "antennule-L"
+   ]
+  },
+  {
+   "name": "eye-R-stalk",
+   "parent": "carapace",
+   "pivot": [
+    508.4,
+    485.9
+   ],
+   "bbox": [
+    415.7,
+    284.3,
+    111.4,
+    221.0
+   ],
+   "rect": [
+    406,
+    332,
+    67,
+    133
+   ],
+   "z": 68,
+   "members": [
+    "eye-R-stalk",
+    "eye-R-cornea",
+    "eye-R-cornea-rim",
+    "eye-R-cornea-core",
+    "eye-R-glint",
+    "eye-R-glint2"
+   ]
+  },
+  {
+   "name": "eye-L-stalk",
+   "parent": "carapace",
+   "pivot": [
+    669.6,
+    485.9
+   ],
+   "bbox": [
+    640.1,
+    273.8,
+    96.1,
+    231.3
+   ],
+   "rect": [
+    506,
+    172,
+    58,
+    139
+   ],
+   "z": 74,
+   "members": [
+    "eye-L-stalk",
+    "eye-L-cornea",
+    "eye-L-cornea-rim",
+    "eye-L-cornea-core",
+    "eye-L-glint",
+    "eye-L-glint2"
+   ]
+  },
+  {
+   "name": "cheliped-L-merus",
+   "parent": "carapace",
+   "pivot": [
+    709.0,
+    540.0
+   ],
+   "bbox": [
+    677.9,
+    510.3,
+    173.2,
+    79.5
+   ],
+   "rect": [
+    404,
+    537,
+    104,
+    48
+   ],
+   "z": 84,
+   "members": [
+    "cheliped-L-merus",
+    "cheliped-L-merus-spine0.35",
+    "cheliped-L-merus-spine0.65"
+   ]
+  },
+  {
+   "name": "cheliped-L-carpus",
+   "parent": "cheliped-L-merus",
+   "pivot": [
+    826.5,
+    564.4
+   ],
+   "bbox": [
+    798.1,
+    533.2,
+    146.1,
+    76.7
+   ],
+   "rect": [
+    785,
+    537,
+    88,
+    47
+   ],
+   "z": 87,
+   "members": [
+    "cheliped-L-carpus",
+    "cheliped-L-carpus-spine"
+   ]
+  },
+  {
+   "name": "cheliped-L-propodus-palm",
+   "parent": "cheliped-L-carpus",
+   "pivot": [
+    913.0,
+    580.0
+   ],
+   "bbox": [
+    784.7,
+    336.1,
+    162.6,
+    261.0
+   ],
+   "rect": [
+    405,
+    172,
+    98,
+    157
+   ],
+   "z": 89,
+   "members": [
+    "cheliped-L-propodus-fixedfinger",
+    "cheliped-L-propodus-fixedfinger-tip",
+    "cheliped-L-propodus-palm",
+    "cheliped-L-palm-belly",
+    "cheliped-L-palm-ridge"
+   ]
+  },
+  {
+   "name": "cheliped-L-propodus-guard",
+   "parent": "cheliped-L-propodus-palm",
+   "pivot": [
+    913.0,
+    580.0
+   ],
+   "bbox": [
+    836.1,
+    445.8,
+    111.9,
+    142.2
+   ],
+   "rect": [
+    814,
+    332,
+    68,
+    86
+   ],
+   "z": 94,
+   "members": [
+    "cheliped-L-propodus-guard",
+    "cheliped-L-propodus-guard-rib0",
+    "cheliped-L-propodus-guard-rib1",
+    "cheliped-L-propodus-guard-rib2",
+    "cheliped-L-propodus-guard-rib3"
+   ]
+  },
+  {
+   "name": "cheliped-L-dactyl",
+   "parent": "cheliped-L-propodus-palm",
+   "pivot": [
+    878.8,
+    449.4
+   ],
+   "bbox": [
+    827.6,
+    314.4,
+    76.5,
+    161.0
+   ],
+   "rect": [
+    765,
+    332,
+    46,
+    97
+   ],
+   "z": 99,
+   "members": [
+    "cheliped-L-dactyl",
+    "cheliped-L-dactyl-tip"
+   ]
+  },
+  {
+   "name": "cheliped-R-merus",
+   "parent": "carapace",
+   "pivot": [
+    469.0,
+    540.0
+   ],
+   "bbox": [
+    320.6,
+    503.4,
+    186.1,
+    103.0
+   ],
+   "rect": [
+    78,
+    471,
+    112,
+    62
+   ],
+   "z": 101,
+   "members": [
+    "cheliped-R-merus",
+    "cheliped-R-merus-spine0.35",
+    "cheliped-R-merus-spine0.65"
+   ]
+  },
+  {
+   "name": "cheliped-R-carpus",
+   "parent": "cheliped-R-merus",
+   "pivot": [
+    353.5,
+    572.6
+   ],
+   "bbox": [
+    292.9,
+    536.1,
+    95.4,
+    136.4
+   ],
+   "rect": [
+    885,
+    332,
+    58,
+    82
+   ],
+   "z": 104,
+   "members": [
+    "cheliped-R-carpus",
+    "cheliped-R-carpus-spine"
+   ]
+  },
+  {
+   "name": "cheliped-R-propodus-palm",
+   "parent": "cheliped-R-carpus",
+   "pivot": [
+    329.0,
+    636.0
+   ],
+   "bbox": [
+    314.2,
+    558.6,
+    288.1,
+    170.2
+   ],
+   "rect": [
+    589,
+    332,
+    173,
+    103
+   ],
+   "z": 106,
+   "members": [
+    "cheliped-R-propodus-fixedfinger",
+    "cheliped-R-propodus-fixedfinger-tip",
+    "cheliped-R-molar0.45",
+    "cheliped-R-molar0.8",
+    "cheliped-R-propodus-palm",
+    "cheliped-R-palm-belly",
+    "cheliped-R-palm-ridge"
+   ]
+  },
+  {
+   "name": "cheliped-R-propodus-guard",
+   "parent": "cheliped-R-propodus-palm",
+   "pivot": [
+    329.0,
+    636.0
+   ],
+   "bbox": [
+    320.2,
+    551.6,
+    182.1,
+    171.2
+   ],
+   "rect": [
+    476,
+    332,
+    110,
+    103
+   ],
+   "z": 113,
+   "members": [
+    "cheliped-R-propodus-guard",
+    "cheliped-R-propodus-guard-rib0",
+    "cheliped-R-propodus-guard-rib1",
+    "cheliped-R-propodus-guard-rib2",
+    "cheliped-R-propodus-guard-rib3"
+   ]
+  },
+  {
+   "name": "cheliped-R-dactyl",
+   "parent": "cheliped-R-propodus-palm",
+   "pivot": [
+    494.1,
+    614.7
+   ],
+   "bbox": [
+    455.8,
+    576.6,
+    150.6,
+    99.9
+   ],
+   "rect": [
+    358,
+    471,
+    91,
+    60
+   ],
+   "z": 118,
+   "members": [
+    "cheliped-R-dactyl",
+    "cheliped-R-dactyl-tip"
+   ]
+  },
+  {
+   "name": "cheliped-R-propodus-scissor",
+   "parent": "cheliped-R-propodus-palm",
+   "pivot": [
+    329.0,
+    636.0
+   ],
+   "bbox": [
+    535.3,
+    666.1,
+    59.6,
+    28.3
+   ],
+   "rect": [
+    205,
+    643,
+    36,
+    17
+   ],
+   "z": 120,
+   "members": [
+    "cheliped-R-propodus-scissor",
+    "cheliped-R-propodus-scissor-tooth1",
+    "cheliped-R-propodus-scissor-tooth2",
+    "cheliped-R-propodus-scissor-tooth3"
+   ]
+  },
+  {
+   "name": "cheliped-R-dactyl-scissor",
+   "parent": "cheliped-R-dactyl",
+   "pivot": [
+    494.1,
+    614.7
+   ],
+   "bbox": [
+    527.0,
+    617.3,
+    57.8,
+    44.3
+   ],
+   "rect": [
+    167,
+    643,
+    35,
+    27
+   ],
+   "z": 124,
+   "members": [
+    "cheliped-R-dactyl-scissor",
+    "cheliped-R-dactyl-scissor-tooth1",
+    "cheliped-R-dactyl-scissor-tooth2",
+    "cheliped-R-dactyl-scissor-tooth3"
+   ]
+  },
+  {
+   "name": "back-carapace",
+   "parent": "carapace",
+   "pivot": [
+    589.0,
+    457.9
+   ],
+   "bbox": [
+    256.8,
+    358.5,
+    665.7,
+    225.2
+   ],
+   "rect": [
+    3,
+    332,
+    400,
+    136
+   ],
+   "z": 128,
+   "members": [
+    "back-underside-sternum",
+    "back-abdomen-fold",
+    "back-carapace",
+    "back-carapace-groove-R",
+    "back-carapace-groove-L",
+    "back-carapace-pepperoni0",
+    "back-carapace-pepperoni1",
+    "back-carapace-pepperoni2",
+    "back-carapace-pepperoni3"
+   ]
+  },
+  {
+   "name": "turn45-carapace",
+   "parent": "carapace",
+   "pivot": [
+    595.3,
+    434.0
+   ],
+   "bbox": [
+    356.6,
+    346.9,
+    479.1,
+    265.7
+   ],
+   "rect": [
+    171,
+    3,
+    288,
+    160
+   ],
+   "z": 137,
+   "members": [
+    "turn45-underside",
+    "turn45-body",
+    "turn45-maxilliped-1",
+    "turn45-maxilliped1",
+    "turn45-carapace",
+    "turn45-brim-shadow",
+    "turn45-groove-R",
+    "turn45-groove-L",
+    "turn45-pepperoni0",
+    "turn45-pepperoni1",
+    "turn45-pepperoni2",
+    "turn45-pepperoni3",
+    "turn45-pepperoni4"
+   ]
+  },
+  {
+   "name": "turn90-carapace",
+   "parent": "carapace",
+   "pivot": [
+    591.3,
+    435.2
+   ],
+   "bbox": [
+    453.6,
+    341.0,
+    274.0,
+    276.0
+   ],
+   "rect": [
+    3,
+    3,
+    165,
+    166
+   ],
+   "z": 150,
+   "members": [
+    "turn90-underside",
+    "turn90-body",
+    "turn90-abdomen",
+    "turn90-carapace",
+    "turn90-brim-shadow",
+    "turn90-groove-R",
+    "turn90-groove-L",
+    "turn90-pepperoni0",
+    "turn90-pepperoni1",
+    "turn90-pepperoni2",
+    "turn90-pepperoni3",
+    "turn90-pepperoni4",
+    "turn90-pepperoni5"
+   ]
+  },
+  {
+   "name": "turn135-carapace",
+   "parent": "carapace",
+   "pivot": [
+    595.3,
+    435.2
+   ],
+   "bbox": [
+    355.9,
+    348.8,
+    477.8,
+    262.2
+   ],
+   "rect": [
+    462,
+    3,
+    287,
+    158
+   ],
+   "z": 163,
+   "members": [
+    "turn135-underside",
+    "turn135-body",
+    "turn135-abdomen",
+    "turn135-carapace",
+    "turn135-brim-shadow",
+    "turn135-groove-R",
+    "turn135-groove-L",
+    "turn135-pepperoni0",
+    "turn135-pepperoni1",
+    "turn135-pepperoni3",
+    "turn135-pepperoni4",
+    "turn135-pepperoni5"
+   ]
+  },
+  {
+   "name": "pizza-arm",
+   "parent": "carapace",
+   "pivot": [
+    573.0,
+    388.0
+   ],
+   "bbox": [
+    514.5,
+    293.8,
+    74.9,
+    110.8
+   ],
+   "rect": [
+    946,
+    332,
+    45,
+    67
+   ],
+   "z": 175,
+   "members": [
+    "pizza-arm"
+   ]
+  },
+  {
+   "name": "pizza-fore",
+   "parent": "pizza-arm",
+   "pivot": [
+    529.0,
+    308.0
+   ],
+   "bbox": [
+    507.3,
+    93.3,
+    132.2,
+    229.8
+   ],
+   "rect": [
+    567,
+    172,
+    80,
+    138
+   ],
+   "z": 176,
+   "members": [
+    "pizza-fore",
+    "pizza-fore-slice",
+    "pizza-fore-crust",
+    "pizza-fore-pepperoni"
+   ]
+  }
+ ]
+}

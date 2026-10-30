@@ -99,6 +99,37 @@ pub fn normal() -> Palette {
     p.insert("octopusCamo", tri("#ABA690", "#878170", "#5A5648"));
     p.insert("octopusCamoMottle", tri("#706C5A", "#5A5648", "#3E3B30"));
     p.insert("octopusCamoEye", tri("#D8CC86", "#BDAE62", "#857636"));
+    // The space monkey (a cheat-code joke): brown fur, a tan face and belly, asparagus arms (green stalks, a
+    // purple-green bud).
+    p.insert("monkey", tri("#A8794E", "#7E5333", "#4A2E1A"));
+    p.insert("monkeyFace", tri("#EBCB9E", "#D2A774", "#8E6A44"));
+    p.insert("asparagus", tri("#A8D56A", "#6FA83C", "#3D6A1E"));
+    p.insert("asparagusTip", tri("#B49AC2", "#7C5C8E", "#47305A"));
+    // The pizza look (`pizza()`): pepperoni and the slices' own cheese and crust, so the extra arm and the toppings
+    // read the same in either skin.
+    p.insert("pepperoni", tri("#E0553F", "#B5301F", "#6E140C"));
+    p.insert("pizzaCheese", tri("#FFE9A0", "#F4C95A", "#B8862A"));
+    p.insert("pizzaCrust", tri("#EBC089", "#D09A52", "#8A5A26"));
+    p
+}
+
+/// The crab made of pizza: a cheese-gold shell, crust legs, mozzarella underneath, basil eyestalks and black-olive
+/// eyes. The same drawing as the red crab, so every piece lands where the red one's does.
+pub fn pizza() -> Palette {
+    let mut p = normal();
+    let mut set = |k: &'static str, a: &str, b: &str, c: &str| {
+        p.insert(k, tri(a, b, c));
+    };
+    set("shell", "#FFE08A", "#EDB844", "#A5701E");
+    set("leg", "#F0C890", "#D4A058", "#8C5C28");
+    set("vent", "#FFF6DA", "#F6E2A8", "#C9AA66");
+    set("stalk", "#B6DA7A", "#7FB04A", "#47702A");
+    set("cornea", "#3A3A30", "#1E1E18", "#0E0E0A");
+    set("tip", "#7A3A22", "#4A2412", "#2A1208");
+    set("face", "#F4D890", "#DDB264", "#9C7434");
+    set("belly", "#FFF2C8", "#F2D68C", "#BE9A52");
+    set("corneaRim", "#8A8A6A", "#5C5C42", "#2E2E20");
+    p.insert("ink", Mat::One("#4A2A12".into()));
     p
 }
 

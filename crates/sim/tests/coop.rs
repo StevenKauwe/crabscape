@@ -1071,3 +1071,49 @@ fn under_any_lag_and_loss_each_shared_thing_goes_to_at_most_one_crab() {
     eprintln!("clams won (host, guest): {got:?}");
     assert!(got[0] > 0 && got[1] > 0, "both crabs won some: {got:?}");
 }
+
+#[test]
+fn a_guest_typing_monkeys_has_the_host_drop_them_in_for_both_to_see() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), |_| {});
+    assert!(g.guest.enter_typed(GUEST, "monkeys"));
+    assert!(g.guest.enemies().is_empty(), "the host runs the creatures");
+    play(&mut g, "t=0 walk=stop", "t=0 walk=stop", ticks(3.0), |_| {});
+    let list = |sim: &Sim| {
+        sim.enemies()
+            .iter()
+            .map(|e| (e.id, e.kind))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(g.host.enemies().len(), 3);
+    assert!(g.host.enemies().iter().all(|e| e.kind == Kind::Monkey));
+    assert_eq!(
+        list(&g.guest),
+        list(&g.host),
+        "the guest sees the same ones"
+    );
+    assert!(
+        g.guest
+            .enemies()
+            .iter()
+            .all(|e| (e.pos.x - NEAR.x).abs() < 400.0)
+    );
+}
+
+#[test]
+fn a_host_typing_monkeys_shows_them_to_the_guest_too() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), |_| {});
+    assert!(g.host.enter_typed(HOST, "monkeys"));
+    play(&mut g, "t=0 walk=stop", "t=0 walk=stop", ticks(2.0), |_| {});
+    assert_eq!(g.guest.enemies().len(), 3);
+}
+
+#[test]
+fn the_pizza_look_reaches_a_friends_screen() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), |_| {});
+    assert!(g.guest.enter_typed(GUEST, "pizza"));
+    play(&mut g, "t=0 walk=stop", "t=0 walk=stop", ticks(1.0), |_| {});
+    assert!(g.host.crab(GUEST).unwrap().mover.pizza);
+    assert!(g.guest.enter_typed(GUEST, "pizza"));
+    play(&mut g, "t=0 walk=stop", "t=0 walk=stop", ticks(1.0), |_| {});
+    assert!(!g.host.crab(GUEST).unwrap().mover.pizza);
+}

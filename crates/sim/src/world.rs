@@ -294,6 +294,13 @@ impl Sim {
         }
     }
 
+    /// Co-op: send `msg` to the host's device (nothing in solo play).
+    pub(crate) fn send_to_host(&mut self, msg: Msg) {
+        if let Some(net) = &mut self.net {
+            net.send(To::Host, msg);
+        }
+    }
+
     /// In a co-op game?
     pub fn online(&self) -> bool {
         self.net.is_some()
@@ -358,6 +365,12 @@ impl Sim {
             Msg::Enemy { at, enemy: update } | Msg::Handover { at, enemy: update } => {
                 let tick = self.tick;
                 let Some(e) = self.enemies.iter_mut().find(|e| e.id == update.id) else {
+                    // A monkey the host dropped in (the level doesn't have
+                    // it): this device meets it from its update.
+                    if update.kind == Kind::Monkey && update.state != enemy::State::Gone {
+                        self.next_enemy = self.next_enemy.max(update.id + 1);
+                        self.enemies.push(update);
+                    }
                     return;
                 };
                 // Handed over since we last heard: whoever runs it now (maybe
@@ -437,6 +450,11 @@ impl Sim {
             }
             Msg::HitCrab { crab, hit } => {
                 self.hit_crab(crab, &hit);
+            }
+            Msg::Monkeys { near_x } => {
+                if host {
+                    self.drop_monkeys(near_x);
+                }
             }
             Msg::NetCut(i) => {
                 if let Some(n) = self.level.nets.get_mut(i) {
@@ -702,6 +720,24 @@ impl Sim {
         id
     }
 
+    /// A few monkeys from outer space drop in near `near_x` (the `monkeys`
+    /// code). Their spread comes from the sim's own generator. A recording
+    /// notes the code, not the monkeys, so a replay drops the same ones.
+    pub(crate) fn drop_monkeys(&mut self, near_x: f32) {
+        for i in 0..crate::codes::MONKEYS {
+            let spread = (i as f32 - (crate::codes::MONKEYS as f32 - 1.0) / 2.0) * 240.0;
+            let jitter = self.rng.range(0, 80) as f32 - 40.0;
+            let x =
+                (near_x + spread + jitter).clamp(self.level.min_x + 40.0, self.level.max_x - 40.0);
+            let id = self.next_enemy;
+            self.next_enemy += 1;
+            let at = Vec2::new(x, self.level.floor_height(x));
+            let mut m = Enemy::new(id, Kind::Monkey, at, &self.tuning);
+            m.facing = if near_x >= x { 1.0 } else { -1.0 };
+            self.enemies.push(m);
+        }
+    }
+
     /// A hit reaches a crab: the one way damage gets to it (see
     /// [`combat::crab_takes`]). The events show up with the next tick's.
     pub fn hit_crab(&mut self, id: PlayerId, hit: &Hit) -> Outcome {
@@ -931,6 +967,7 @@ impl Sim {
                     };
                     (e.state == enemy::State::Gone
                         && e.octo.is_none() // an octopus gets away: no body
+                        && e.kind != Kind::Monkey // nor does a monkey
                         && self.shared.there(it, &self.tuning)
                         && !e.hurtbox(&self.tuning).intersect(body).is_empty())
                     .then_some(it)
@@ -1117,6 +1154,12 @@ impl Sim {
                 }
             }
         }
+        // A monkey that has gone has gone (its last updates have passed).
+        self.enemies.retain(|e| {
+            !(e.kind == Kind::Monkey
+                && e.state == enemy::State::Gone
+                && e.state_tick >= crate::codes::MONKEY_LINGER)
+        });
         // Each crab's memory: what it sees now is seen.
         if self
             .tick

@@ -30,6 +30,25 @@ impl Plugin for NotesPlugin {
     }
 }
 
+/// Comic-book words popped over a blow that lands in hulk mode, with their
+/// colours; picked by the sim's tick, so a replay shows the same ones.
+const COMIC: [(&str, Color); 6] = [
+    ("SMASH!", Color::srgb(1.0, 0.85, 0.1)),
+    ("WHAM!", Color::srgb(1.0, 0.45, 0.1)),
+    ("POW!", Color::srgb(1.0, 0.25, 0.3)),
+    ("KRAKA-THOOM!", Color::srgb(0.4, 0.95, 0.3)),
+    ("BAM!", Color::srgb(0.3, 0.8, 1.0)),
+    ("KA-BLAM!", Color::srgb(1.0, 0.5, 0.8)),
+];
+
+/// How big a comic word is, and how long its pop (the swell) takes.
+const COMIC_SIZE: f32 = 30.0;
+const POP: f32 = 0.18;
+
+/// A note that swells as it appears.
+#[derive(Component)]
+struct Pop;
+
 /// A note floating up and fading.
 #[derive(Component)]
 struct Note {
@@ -197,6 +216,24 @@ fn note_events(
         notes.push(("A tooth bigger than you.".into(), PALE));
         notes.push(("Something huge sheds these.".into(), PALE));
     }
+    // Hulk mode: a comic word over each blow that lands.
+    if ev.struck && mover.hulk {
+        let facing = sim.crab(*id).map_or(1.0, |c| c.fighter.facing);
+        let (word, colour) = COMIC[(sim.tick_count() % COMIC.len() as u64) as usize];
+        let above = at.translation + Vec3::new(facing * 70.0, 60.0, 0.0);
+        let z = (at.translation.z + 12.0).max(22.0);
+        commands.spawn((
+            Note { age: 0.0, colour },
+            Pop,
+            Text2d::new(word),
+            TextFont {
+                font_size: FontSize::Px(COMIC_SIZE),
+                ..default()
+            },
+            TextColor(colour),
+            Transform::from_translation(above.with_z(z)).with_scale(Vec3::splat(0.2)),
+        ));
+    }
     // The first note on top, so several read in order.
     let count = notes.len();
     for (i, (text, colour)) in notes.into_iter().enumerate() {
@@ -211,14 +248,19 @@ fn note_events(
 fn float_notes(
     mut commands: Commands,
     time: Res<Time>,
-    mut notes: Query<(Entity, &mut Note, &mut Transform, &mut TextColor)>,
+    mut notes: Query<(Entity, &mut Note, &mut Transform, &mut TextColor, Has<Pop>)>,
 ) {
     let dt = time.delta_secs();
-    for (entity, mut note, mut at, mut text) in &mut notes {
+    for (entity, mut note, mut at, mut text, pops) in &mut notes {
         note.age += dt;
         if note.age >= LIFE {
             commands.entity(entity).despawn();
             continue;
+        }
+        if pops {
+            // Swells past full size and settles.
+            let k = (note.age / POP).min(1.0);
+            at.scale = Vec3::splat(0.2 + 1.0 * (1.0 - (1.0 - k) * (1.0 - k)) + 0.15 * (1.0 - k));
         }
         at.translation.y += RISE * dt;
         text.0 = note.colour.with_alpha(1.0 - note.age / LIFE);

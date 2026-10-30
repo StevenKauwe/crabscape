@@ -1,0 +1,261 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/space-monkey/space-monkey-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "space-monkey-atlas.png",
+ "atlas_size": [
+  1024,
+  64
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  165.15,
+  217.8
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "far-arm",
+   "parent": "body",
+   "pivot": [
+    119.9,
+    156.0
+   ],
+   "bbox": [
+    111.0,
+    145.8,
+    78.6,
+    24.4
+   ],
+   "rect": [
+    293,
+    3,
+    48,
+    15
+   ],
+   "z": 0,
+   "members": [
+    "far-arm",
+    "far-arm-scale0",
+    "far-arm-scale1",
+    "far-arm-scale2"
+   ]
+  },
+  {
+   "name": "far-fore",
+   "parent": "far-arm",
+   "pivot": [
+    179.9,
+    160.0
+   ],
+   "bbox": [
+    171.6,
+    140.8,
+    95.6,
+    28.9
+   ],
+   "rect": [
+    232,
+    3,
+    58,
+    18
+   ],
+   "z": 1,
+   "members": [
+    "far-fore",
+    "far-fore-scale0",
+    "far-fore-scale1",
+    "far-fore-scale2",
+    "far-fore-bud",
+    "far-fore-bud-scale0",
+    "far-fore-bud-scale1",
+    "far-fore-bud-scale2"
+   ]
+  },
+  {
+   "name": "tail",
+   "parent": "body",
+   "pivot": [
+    97.9,
+    178.0
+   ],
+   "bbox": [
+    54.7,
+    143.2,
+    52.4,
+    51.1
+   ],
+   "rect": [
+    91,
+    3,
+    32,
+    31
+   ],
+   "z": 12,
+   "members": [
+    "tail"
+   ]
+  },
+  {
+   "name": "far-leg",
+   "parent": "body",
+   "pivot": [
+    105.9,
+    184.0
+   ],
+   "bbox": [
+    95.8,
+    174.2,
+    26.1,
+    49.6
+   ],
+   "rect": [
+    152,
+    3,
+    16,
+    30
+   ],
+   "z": 13,
+   "members": [
+    "far-leg"
+   ]
+  },
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    117.9,
+    164.0
+   ],
+   "bbox": [
+    85.2,
+    128.4,
+    64.3,
+    71.7
+   ],
+   "rect": [
+    3,
+    3,
+    39,
+    44
+   ],
+   "z": 14,
+   "members": [
+    "body",
+    "body-belly"
+   ]
+  },
+  {
+   "name": "leg",
+   "parent": "body",
+   "pivot": [
+    119.9,
+    184.0
+   ],
+   "bbox": [
+    108.9,
+    174.1,
+    37.1,
+    49.7
+   ],
+   "rect": [
+    126,
+    3,
+    23,
+    30
+   ],
+   "z": 16,
+   "members": [
+    "leg",
+    "leg-foot"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    131.9,
+    144.0
+   ],
+   "bbox": [
+    100.3,
+    93.1,
+    71.5,
+    70.4
+   ],
+   "rect": [
+    45,
+    3,
+    43,
+    43
+   ],
+   "z": 18,
+   "members": [
+    "head",
+    "head-ear",
+    "head-muzzle",
+    "head-eye",
+    "head-nose",
+    "head-mouth",
+    "head-helmet",
+    "head-helmet-glint"
+   ]
+  },
+  {
+   "name": "arm",
+   "parent": "body",
+   "pivot": [
+    127.9,
+    154.0
+   ],
+   "bbox": [
+    119.1,
+    143.8,
+    77.0,
+    24.4
+   ],
+   "rect": [
+    344,
+    3,
+    47,
+    15
+   ],
+   "z": 26,
+   "members": [
+    "arm",
+    "arm-scale0",
+    "arm-scale1",
+    "arm-scale2"
+   ]
+  },
+  {
+   "name": "fore",
+   "parent": "arm",
+   "pivot": [
+    187.9,
+    158.0
+   ],
+   "bbox": [
+    179.5,
+    137.7,
+    96.1,
+    30.9
+   ],
+   "rect": [
+    171,
+    3,
+    58,
+    19
+   ],
+   "z": 27,
+   "members": [
+    "fore",
+    "fore-scale0",
+    "fore-scale1",
+    "fore-scale2",
+    "fore-bud",
+    "fore-bud-scale0",
+    "fore-bud-scale1",
+    "fore-bud-scale2"
+   ]
+  }
+ ]
+}

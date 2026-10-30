@@ -127,11 +127,11 @@ fn use_codes(
             (Some(Code::Feast), _) => ("A feast! Shell mended.", GOLD),
             (Some(Code::Glow), Some(m)) if m.glow => ("The lantern blazes!", WARM),
             (Some(Code::Glow), _) => ("The lantern settles.", PALE),
+            (Some(Code::Pizza), Some(m)) if !m.pizza => ("Back to a crab of shell.", PALE),
             (Some(Code::Pizza), _) => ("Eleven arms, all pizza. Delizioso!", PIZZA),
-            (Some(Code::Monkeys), _) => (
-                "Monkeys from outer space! Their asparagus arms can't reach.",
-                MONKEY,
-            ),
+            (Some(Code::Monkeys), _) => {
+                ("Monkeys from outer space! Mind the asparagus arms.", MONKEY)
+            }
             (None, _) => ("Nothing happens.", PALE),
         };
         info!("code: {:?} -> {words}", text.trim());

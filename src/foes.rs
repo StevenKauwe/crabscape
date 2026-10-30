@@ -127,7 +127,7 @@ fn spawn_foes(
         match e.kind {
             Kind::Mantis | Kind::Fixture => spawn_mantis(&mut commands, e, &art.mantis, &soft),
             // Drawn in critters.rs and octopus.rs.
-            Kind::Snapper | Kind::Moray | Kind::Octopus => {}
+            Kind::Snapper | Kind::Moray | Kind::Octopus | Kind::Monkey => {}
         }
     }
 }

@@ -711,6 +711,10 @@ fn web_drop(
 
 /// It holds a crab fast: `g`'s hold.
 fn seize(crab: &mut SimCrab, by: u32, g: crate::tuning::GrabTuning) {
+    // Nothing holds a hulk crab.
+    if crab.mover.hulk {
+        return;
+    }
     crab.fighter.grabbed = Some(Grabbed {
         by,
         left: g.ticks,

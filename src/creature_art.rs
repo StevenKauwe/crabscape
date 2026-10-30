@@ -224,6 +224,8 @@ mod tests {
             "mantis-shrimp",
             "snowflake-moray",
             "common-octopus",
+            "space-monkey",
+            "pizza-crab",
         ] {
             let ink = format!("creatures/{name}-atlas.png");
             let oil = oil_path(&ink);

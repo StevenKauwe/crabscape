@@ -144,6 +144,10 @@ jobs:
           cargo run --locked -q -p crabrig --profile art -- export --creature mantis-shrimp
           cargo run --locked -q -p crabrig --profile art -- parts --creature common-octopus
           cargo run --locked -q -p crabrig --profile art -- export --creature common-octopus
+          cargo run --locked -q -p crabrig --profile art -- parts --creature space-monkey
+          cargo run --locked -q -p crabrig --profile art -- export --creature space-monkey
+          cargo run --locked -q -p crabrig --profile art -- parts --creature pizza-crab
+          cargo run --locked -q -p crabrig --profile art -- export --creature pizza-crab
           tools/paint-oil.sh
       - name: The committed art/crab, assets/crab, art/creatures and assets/creatures match
         run: |

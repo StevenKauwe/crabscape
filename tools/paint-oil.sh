@@ -27,7 +27,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ $# -eq 0 ]; then
-  set -- crab snapping-shrimp mantis-shrimp snowflake-moray common-octopus
+  set -- crab snapping-shrimp mantis-shrimp snowflake-moray common-octopus space-monkey pizza-crab
 fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -41,7 +41,7 @@ for name in "$@"; do
   out=$work/$name
   mkdir -p "$out"
   case $name in
-    snapping-shrimp | mantis-shrimp) zoom=${ZOOM:-4} ;;
+    snapping-shrimp | mantis-shrimp | space-monkey) zoom=${ZOOM:-4} ;;
     *) zoom=${ZOOM:-1.8} ;;
   esac
   if [ "$name" = crab ]; then

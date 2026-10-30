@@ -130,6 +130,8 @@ pub enum Msg {
     /// simulation doesn't). Always a [`clean_name`]. A game from before
     /// names drops it unread, as it does any message it doesn't know.
     Name { crab: PlayerId, name: String },
+    /// A guest typed `monkeys`: the host drops them in near this x.
+    Monkeys { near_x: f32 },
 }
 
 /// The longest name, in characters: short enough to sit over a crab.

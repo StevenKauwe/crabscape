@@ -12,15 +12,17 @@
 use crabrig::crab::base_pose;
 
 const USAGE: &str = "usage:
-  crabrig parts  [--creature snapping-shrimp|mantis-shrimp|snowflake-moray|common-octopus] [out.svg]
-  crabrig export [--creature snapping-shrimp|mantis-shrimp|snowflake-moray|common-octopus] [--scale S] [--out DIR] [parts.svg]";
+  crabrig parts  [--creature snapping-shrimp|mantis-shrimp|snowflake-moray|common-octopus|space-monkey|pizza-crab] [out.svg]
+  crabrig export [--creature snapping-shrimp|mantis-shrimp|snowflake-moray|common-octopus|space-monkey|pizza-crab] [--scale S] [--out DIR] [parts.svg]";
 
 /// The creatures with puppets.
-const CREATURES: [&str; 4] = [
+const CREATURES: [&str; 6] = [
     "snapping-shrimp",
     "mantis-shrimp",
     "snowflake-moray",
     "common-octopus",
+    "space-monkey",
+    "pizza-crab",
 ];
 
 /// Pull `--flag value` out of the arguments.
@@ -65,6 +67,8 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 Some("mantis-shrimp") => crabrig::mantis::parts_svg(),
                 Some("snowflake-moray") => crabrig::moray::parts_svg(),
                 Some("common-octopus") => crabrig::octopus::parts_svg(),
+                Some("space-monkey") => crabrig::monkey::parts_svg(),
+                Some("pizza-crab") => crabrig::parts::pizza_parts_svg(&base_pose()),
                 Some(_) => crabrig::shrimp::parts_svg(),
                 None => crabrig::parts::parts_svg(&base_pose()),
             };
