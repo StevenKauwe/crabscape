@@ -65,6 +65,15 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   active.
 - **Respect the token budget:** pick tasks that fit, stop at a clean point, leave a handoff comment if unfinished.
 - **Progress over perfection.** Nothing is precious; anything can be changed later by anyone's Claude.
+- **Idea to deployed, as fast as possible; nothing is sacred** (owner's call: "in a month, if the game is a
+  cow-farming simulator, I'd be happy"). We never care about breaking changes or keeping past versions working:
+  - **Co-op:** both players must be on the same version; the older one reloads into the new one. Never keep co-op
+    messages readable by an older game, and never test against one.
+  - **Saves and export codes:** when a change would break a saved crab, write a migration (a small function from the
+    old shape to the new). No `#[serde(default)]` habit, no "saves from before…" special cases kept around forever;
+    once nobody can still hold an old save, its migration can go too.
+  - **Anything else** (formats, files, tools, rules, the game itself): change it outright. No shims, flags or
+    deprecation steps.
 - New or changed decisions go in `docs/design/decisions.md`.
 
 ## Repo practices and CI/CD
