@@ -18,9 +18,10 @@
 //! The microphone starts off; the Mic button, beside the invite button while
 //! in a room, turns it on (the browser asks first) and off. Web only.
 //!
-//! What each player says is written down as text by their own device and
-//! sent to every friend over the same notes channel (`scribe.rs`): a pencil
-//! on the Mic button shows while this device writes.
+//! What everyone says is written down as text by the host's computer, from
+//! its own microphone and each friend's call as it arrives, and sent to
+//! every friend over the same notes channel (`scribe.rs`): a pencil on the
+//! Mic button shows while this player's voice is being written down.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
@@ -33,18 +34,22 @@ enum Note {
     Answer(String),
     /// A way to reach this device (an ICE candidate, as the browser's JSON).
     Reach(String),
-    /// What this device's player said, written down (`scribe.rs`): their
-    /// crab's name, the words, and how long ago (seconds) they began.
+    /// What someone said, written down by the host's device (`scribe.rs`):
+    /// their crab's name, the words, and how long ago (seconds) they began.
     Said {
         who: String,
         text: String,
         ago: f32,
     },
-    /// Whether this device writes down its player's voice.
+    /// Whether this device's player wants their voice written down
+    /// (Settings, Co-op).
     Writes {
         who: String,
         on: bool,
     },
+    /// From the host's device: whether it writes down this friend's voice,
+    /// or why it writes nothing.
+    Host(crate::scribe::HostSays),
 }
 
 /// The longest note accepted (a session description is a few kilobytes).
@@ -174,9 +179,11 @@ impl Meter {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use web::{forget, forget_all, hear, meet, outbox};
+pub(crate) use web::{
+    calls, friend_streams, loudness, mic_track, mic_trouble, say_host, say_line, say_writes,
+};
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web::{loudness, mic_track, mic_trouble, say_line, say_writes};
+pub use web::{forget, forget_all, hear, meet, outbox};
 
 #[cfg(target_arch = "wasm32")]
 mod web {
@@ -221,6 +228,8 @@ mod web {
         audio: Option<HtmlAudioElement>,
         /// How loud their voice is arriving (for the browser tests).
         meter: Option<AnalyserNode>,
+        /// Their voice as it arrives, for the host to write down.
+        stream: Option<MediaStream>,
         level: Meter,
         /// Ways to reach them that came before their description could be
         /// applied; added once it is.
@@ -262,7 +271,27 @@ mod web {
         with(|v| v.mic.clone())
     }
 
-    /// Tell every friend on a call what this player said.
+    /// Every friend on a call.
+    pub(crate) fn calls() -> Vec<PeerId> {
+        with(|v| v.lines.iter().map(|l| l.peer).collect())
+    }
+
+    /// Each friend's voice, as it arrives.
+    pub(crate) fn friend_streams() -> Vec<(PeerId, MediaStream)> {
+        with(|v| {
+            v.lines
+                .iter()
+                .filter_map(|l| Some((l.peer, Clone::clone(l.stream.as_ref()?))))
+                .collect()
+        })
+    }
+
+    /// As the host: tell `to` whether its voice is written down.
+    pub(crate) fn say_host(to: PeerId, says: crate::scribe::HostSays) {
+        send(to, &Note::Host(says));
+    }
+
+    /// Tell every friend on a call what someone said.
     pub(crate) fn say_line(who: &str, text: &str, ago: f32) {
         let note = Note::Said {
             who: who.into(),
@@ -274,7 +303,7 @@ mod web {
         }
     }
 
-    /// Tell `to` (or every friend on a call) whether this device writes down its player's voice.
+    /// Tell `to` (or every friend on a call) whether this player wants their voice written down.
     pub(crate) fn say_writes(to: Option<PeerId>, who: &str, on: bool) {
         let note = Note::Writes {
             who: who.into(),
@@ -330,6 +359,7 @@ mod web {
             });
             v.outbox.retain(|(p, _)| *p != peer);
         });
+        scribe::forget(peer);
     }
 
     /// The co-op connection was dropped: hang up every line.
@@ -341,6 +371,7 @@ mod web {
             v.lines.clear();
             v.outbox.clear();
         });
+        scribe::forget_all();
     }
 
     fn hang_up(l: &Line) {
@@ -393,7 +424,8 @@ mod web {
                 }
             }
             Some(Note::Said { who, text, ago }) => scribe::friend_said(&who, &text, ago),
-            Some(Note::Writes { who, on }) => scribe::friend_writes(&who, on),
+            Some(Note::Writes { who, on }) => scribe::friend_writes(peer, &who, on),
+            Some(Note::Host(says)) => scribe::host_says(peer, says),
             None => {}
         }
     }
@@ -522,6 +554,7 @@ mod web {
                 gain: None,
                 audio: None,
                 meter: None,
+                stream: None,
                 level: Meter::default(),
                 early: Vec::new(),
                 described: false,
@@ -569,6 +602,7 @@ mod web {
                 l.gain = Some(gain);
                 l.audio = audio;
                 l.meter = meter;
+                l.stream = Some(Clone::clone(stream));
             }
         });
         scribe::friend_joined(peer);
@@ -1018,6 +1052,14 @@ mod tests {
                 who: "Crab 41".into(),
                 on: false,
             },
+            Note::Host(crate::scribe::HostSays {
+                skip: Some(crate::scribe::Skip::Phone),
+                you: false,
+            }),
+            Note::Host(crate::scribe::HostSays {
+                skip: None,
+                you: true,
+            }),
         ] {
             assert_eq!(Note::from_bytes(&note.to_bytes()), Some(note));
         }

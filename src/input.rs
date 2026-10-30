@@ -85,9 +85,10 @@ impl Plugin for InputPlugin {
     }
 }
 
-/// Does this device have a touch screen? (Browser only; on the desktop we
-/// wait for a touch to show the buttons.)
-fn has_touch_screen() -> bool {
+/// Does this device have a touch screen: a phone or tablet? (Browser only;
+/// on the desktop we wait for a touch to show the buttons.) Such a device
+/// never writes down voice chat (`scribe.rs`).
+pub(crate) fn has_touch_screen() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
         web_sys::window().is_some_and(|w| w.navigator().max_touch_points() > 0)

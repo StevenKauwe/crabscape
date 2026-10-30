@@ -457,6 +457,16 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
             }
             sleep(0.25);
         }
+        // Only the computer running the world (the host, or a friend standing in) writes voice chat down: a guest
+        // never listens for it, so never starts the model.
+        for p in players.iter_mut() {
+            let world = p.world();
+            let v = p.b.attr("data-voice").unwrap_or_default();
+            if (world == "host") == v.contains("not writing (Guest)") {
+                let why = format!("{}: in a {world} world, but its voice says: {v}", p.name());
+                return Err(p.failed(why));
+            }
+        }
     }
     Ok(met)
 }

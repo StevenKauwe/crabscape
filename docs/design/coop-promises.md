@@ -76,14 +76,21 @@ Every scenario runs with voice off, or with `--voice on` (both players' mics on,
 also checks each player hears the other within **15 s** of being together, after every reload or drop. A reload
 turns your mic off (the browser asks again); turning it on brings voice back within the same 15 s.
 
-Voice chat is written down (`src/scribe.rs`); these are promises too, checked by fast tests (the browser runs can't,
-without downloading the 110 MB model):
+Voice chat is written down only on the host's computer (`src/scribe.rs`): the device running the world (the host,
+or a friend standing in for it) writes down everyone, its own player from its mic and each friend from their call as
+it arrives, and sends every line to everyone. With `--voice on`, every scenario also checks that each player in a
+guest world says "not writing (Guest)" and the one running the world (the host or a stand-in) doesn't, so a guest
+never listens for speech or starts the model. The rest are
+checked by fast tests (the browser runs can't, without downloading the 110 MB model):
 
 | Promise | Fast test |
 |---|---|
-| Each device writes down only its own player's voice; a friend's line lands in everyone's transcript with their crab name | `a_line_sent_by_a_friends_device_lands_in_my_transcript_with_their_name` |
+| Only the host writes anything down; a guest writes nothing | `only_the_host_writes` |
+| A phone or tablet never starts the model, host or guest; with a phone hosting nothing is written down, and everyone is told why | `a_phone_never_writes_anything_down_host_or_guest` |
+| A friend's line written by the host carries that friend's crab name, and lands in everyone's transcript | `a_friends_line_written_by_the_host_carries_the_friends_name`, `a_line_sent_by_a_friends_device_lands_in_my_transcript_with_their_name` |
+| "Write down my voice" off: the host skips that player's voice (talk already at the worker too); friends see "(not written down)" | `a_friends_opt_out_is_honoured_by_the_host`, `a_friend_who_doesnt_write_shows_as_not_written_down` |
+| Battery saver, two cores or fewer, a slow frame rate or a worker falling behind on the host: nothing written, everyone told | `why_not_write_battery_saver_weak_busy_behind` |
 | Lines older than 15 minutes drop, on every device, also after a reload | `lines_older_than_15_minutes_drop` |
-| "Write down my voice" off: the device writes nothing and sends no lines; friends see "(not written down)" | `the_write_down_setting_stops_writing_and_sending`, `a_friend_who_doesnt_write_shows_as_not_written_down` |
 | A test microphone's beeps are never speech, so the browser runs never start the model | `silence_clicks_and_a_test_microphones_beeps_are_not_speech` |
 | A report carries voice chat only when ticked; the introducer caps it and nothing in it pings people or escapes its fold | `a_report_carries_voice_chat_only_when_ticked`, `voice_chat_cannot_ping_people_or_break_out_of_its_fold` |
 
