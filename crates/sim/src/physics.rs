@@ -656,8 +656,12 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     } else {
         m.jump_buffer = (m.jump_buffer - dt).max(0.0);
     }
-    // The reserve comes back by itself, slowly.
-    m.reserve = (m.reserve + dt / t.reserve_refill_time).min(1.0);
+    // The reserve comes back by itself, slowly (hulk's never runs low).
+    m.reserve = if m.hulk {
+        1.0
+    } else {
+        (m.reserve + dt / t.reserve_refill_time).min(1.0)
+    };
     if m.grounded {
         m.coyote = t.coyote_time;
         // Standing on something solid rests the paddle legs.
@@ -887,7 +891,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         && !m.grounded
         && m.coyote <= 0.0
         && m.stroke_rest <= 0.0
-        && m.stamina + 1e-4 >= 1.0
+        && (m.hulk || m.stamina + 1e-4 >= 1.0)
     {
         // In the water with no floor: a paddle stroke instead (the double
         // jump, then swim strokes), if the legs have one left. The rhythm
@@ -895,9 +899,18 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         // `stroke_queued`), so mashing strokes no faster than the rhythm.
         m.jump_buffer = 0.0;
         m.stroke_queued = false;
-        m.stamina = (m.stamina - 1.0).max(0.0);
-        m.stroke_rest = m.stroke_interval(t);
-        m.vel.y = m.vel.y.max(t.paddle_speed);
+        let (cost, speedup, push) = if m.hulk {
+            (
+                0.0,
+                crate::codes::HULK_STROKE_SPEEDUP,
+                crate::codes::HULK_SWIM_PUSH,
+            )
+        } else {
+            (1.0, 1.0, 1.0)
+        };
+        m.stamina = (m.stamina - cost).max(0.0);
+        m.stroke_rest = m.stroke_interval(t) / speedup;
+        m.vel.y = m.vel.y.max(t.paddle_speed * push);
         m.rising = true;
         ev.paddled = true;
         // Swimming is a skill: it grows with every stroke.
@@ -1263,6 +1276,32 @@ mod tests {
         run_until_landed(&mut m, Controls::default(), &level, 5.0);
         let again = run(&mut m, HOLD_JUMP, 0.2, &level);
         assert!(again.jumped, "landing restores the jump");
+    }
+
+    #[test]
+    fn hulk_strokes_never_run_out_and_push_harder() {
+        let level = Level::test_level();
+        let t = Tuning::default();
+        let push = |hulk: bool| {
+            let mut m = Mover::new(Vec2::new(SPAWN.x, 3000.0));
+            m.grounded = false;
+            m.hulk = hulk;
+            m.upgrades = 1;
+            m.stamina = 1.0;
+            let mut best = 0.0_f32;
+            let mut strokes = 0;
+            for _ in 0..12 {
+                let ev = run(&mut m, HOLD_JUMP, t.stroke_interval + STEP, &level);
+                strokes += u32::from(ev.paddled);
+                best = best.max(m.vel.y);
+            }
+            (strokes, best)
+        };
+        let (plain, plain_best) = push(false);
+        let (hulk, hulk_best) = push(true);
+        assert_eq!(plain, 1, "a plain crab has one stroke");
+        assert_eq!(hulk, 12, "hulk strokes every time");
+        assert!(hulk_best > 1.3 * plain_best, "{hulk_best} vs {plain_best}");
     }
 
     /// Put a crab walking right at full speed, a few steps from walking off
