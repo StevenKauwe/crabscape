@@ -2,7 +2,9 @@
 # 3 times with voice off and on, a random stress run, and the scenarios on the live site with the real introducer.
 # (Every pull request already plays each scenario once, in ci.yml's co-op parts.) A failure on main opens or adds to
 # the "main is broken" issue; a green run here never closes it (ci.yml does that). Run by hand (Actions, "Co-op in
-# depth", or `gh workflow run coop.yml --ref <branch> -f only=join -f repeat=1`) for a shorter check.
+# depth", or `gh workflow run coop.yml --ref <branch> -f only=join -f repeat=1`) for a shorter check. From a branch
+# other than main it plays that branch's game, from its latest green CI run made by hand
+# (`gh workflow run ci.yml --ref <branch>` first).
 name: Co-op in depth
 
 on:
@@ -46,7 +48,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - name: Which web build (the run that triggered this, else main's latest green CI run)
+      - name: Which web build (the run that triggered this, else the branch's latest green CI run)
         id: build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,8 +56,17 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           if [ -z "$RUN" ]; then
-            read -r RUN SHA < <(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success \
-              --event push --limit 1 --json databaseId,headSha --jq '.[0] | "\(.databaseId) \(.headSha)"')
+            # Main's builds come from pushes; a branch's from a CI run by hand (a pull request's is named after a
+            # merge commit, not the branch).
+            BRANCH=main EVENT=push
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF_NAME" != main ]; then
+              BRANCH=$GITHUB_REF_NAME EVENT=workflow_dispatch
+            fi
+            read -r RUN SHA < <(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" --status success \
+              --event "$EVENT" --limit 1 --json databaseId,headSha --jq '.[0] // empty | "\(.databaseId) \(.headSha)"') || {
+              echo "::error::No green CI run of $BRANCH to play: run 'gh workflow run ci.yml --ref $BRANCH' first"
+              exit 1
+            }
           fi
           echo "CI run $RUN at $SHA"
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
