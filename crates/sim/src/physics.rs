@@ -130,8 +130,8 @@ pub struct Mover {
     /// if any: one at a time.
     pub carrying: Option<Carry>,
     /// The small things (clams, shell grit) clinging to its shell, in the
-    /// order it took them: up to [`Tuning::cling`] at once, besides the big
-    /// find on its back.
+    /// order it took them: up to [`Mover::carries`] at once (more on a
+    /// bigger shell), besides the big find on its back.
     pub clinging: Vec<Carry>,
     /// Scissor claws: a shed tooth's edges fitted along both fingers of its
     /// crusher claw (at the workbench at home). They cut through ghost nets.
@@ -285,7 +285,7 @@ impl Mover {
     /// on the shell for a small one?
     pub fn room_for(&self, thing: Carry, t: &Tuning) -> bool {
         if thing.small() {
-            self.clinging.len() < t.cling
+            self.clinging.len() < self.carries(t)
         } else {
             self.carrying.is_none()
         }
@@ -306,6 +306,23 @@ impl Mover {
     /// things on its shell.
     pub fn load(&self) -> impl Iterator<Item = Carry> + '_ {
         self.carrying.iter().chain(&self.clinging).copied()
+    }
+
+    /// Half the width of its box against the level: its shell, as big as
+    /// it has grown ([`Mover::grown`]).
+    pub fn half_width(&self, t: &Tuning) -> f32 {
+        t.body_half_width * self.grown(t)
+    }
+
+    /// The height of its box against the level, as big as it has grown.
+    pub fn height(&self, t: &Tuning) -> f32 {
+        t.body_height * self.grown(t)
+    }
+
+    /// What its walking (and sprinting) speed is multiplied by: a bigger
+    /// crab's longer legs take a longer stride.
+    pub fn stride(&self, t: &Tuning) -> f32 {
+        1.0 + t.moult.stride * (self.grown(t) - 1.0)
     }
 
     /// How many paddle strokes the legs hold when rested (the double jump,
@@ -837,13 +854,14 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     } else {
         // Pushing a way while sinking: a dive, a little quicker sideways.
         m.diving = !m.grounded && walking && m.vel.y < 0.0;
-        let top = if m.sprinting {
-            t.sprint_speed
-        } else if m.diving {
-            t.walk_speed * t.dive_speed
-        } else {
-            t.walk_speed
-        };
+        let top = m.stride(t)
+            * if m.sprinting {
+                t.sprint_speed
+            } else if m.diving {
+                t.walk_speed * t.dive_speed
+            } else {
+                t.walk_speed
+            };
         let target = walk * top;
         let reversing = walking && m.vel.x.abs() > 1.0 && target.signum() != m.vel.x.signum();
         let too_fast = m.vel.x.abs() > top && !reversing;
@@ -947,8 +965,16 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         };
         // The drag is against the water: in the canyon's tide the water
         // itself runs up or down, and carries the crab with it.
-        let water = level.water_at(m.pos + Vec2::Y * t.body_height / 2.0, &t.tide);
+        let water = level.water_at(m.pos + Vec2::Y * m.height(t) / 2.0, &t.tide);
         let through = m.vel.y - water;
+        // Sinking through it, a bigger crab is held back less for its
+        // weight: it sinks faster. (Its legs grow with it, so a jump or a
+        // stroke pushes it up as high.)
+        let drag = if through < 0.0 {
+            drag / (1.0 + t.moult.weight * (m.grown(t) - 1.0))
+        } else {
+            drag
+        };
         m.vel.y -= drag * through * through.abs() * dt;
     }
 
@@ -978,7 +1004,7 @@ fn rest_legs(m: &mut Mover, t: &Tuning, strokes: f32) {
 /// tall as its shell is wide and sticking out as far as its shell is high,
 /// on the side it clings to (its feet are at the stalk).
 pub fn climb_box(m: &Mover, t: &Tuning) -> Rect {
-    let (out, half_tall) = (t.body_height, t.body_half_width);
+    let (out, half_tall) = (m.height(t), m.half_width(t));
     let (left, right) = if m.climb_side > 0.0 {
         (m.pos.x, m.pos.x + out)
     } else {
@@ -1020,7 +1046,7 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
         }
     }
     let floor = level.floor_height(m.pos.x);
-    if m.pos.y - t.body_half_width <= floor {
+    if m.pos.y - m.half_width(t) <= floor {
         m.pos.y = floor;
         m.vel = Vec2::ZERO;
         m.climbing = false;
@@ -1031,8 +1057,10 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
 /// Move by the velocity, then sort out collisions: sideways first, then up
 /// and down.
 fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut StepEvents) {
-    let hw = t.body_half_width;
-    let h = t.body_height;
+    let hw = m.half_width(t);
+    let h = m.height(t);
+    // Longer legs step up higher and keep to a floor that drops further.
+    let (step_up, ground_snap) = (t.step_up * m.grown(t), t.ground_snap * m.grown(t));
     let was_grounded = m.grounded;
 
     // Sideways.
@@ -1045,7 +1073,7 @@ fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut 
     for r in level.solids() {
         // A rock whose top is within a step of our feet doesn't block: we
         // step up onto it below.
-        if r.max.y <= m.pos.y + t.step_up {
+        if r.max.y <= m.pos.y + step_up {
             continue;
         }
         let overlaps = m.pos.x + hw > r.min.x + EPS
@@ -1083,9 +1111,9 @@ fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut 
     // Moving down or standing: find the highest surface under us, from the
     // floor line (at our middle) or a rock top (anywhere under our shell).
     // While walking (not jumping), we also stick to a floor a little below.
-    let reach_down = if was_grounded { t.ground_snap } else { 0.0 };
+    let reach_down = if was_grounded { ground_snap } else { 0.0 };
     let low = m.pos.y - reach_down;
-    let high = old_y.max(m.pos.y) + t.step_up;
+    let high = old_y.max(m.pos.y) + step_up;
     let mut support: Option<f32> = None;
     let mut consider = |s: f32| {
         if s >= low - EPS && s <= high && support.is_none_or(|best| s > best) {
@@ -1116,21 +1144,22 @@ fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut 
 
     // Safety net: never end up inside the sea floor.
     let floor = level.floor_height(m.pos.x);
-    if m.pos.y < floor - t.step_up {
+    if m.pos.y < floor - step_up {
         m.pos.y = floor;
         m.vel.y = m.vel.y.max(0.0);
     }
 }
 
-/// Is `pos` a fair place for a crab to stand (for example, a loaded save)?
-/// Inside the level's walls, not inside a rock, and not under the floor.
-pub fn is_valid_spot(pos: Vec2, t: &Tuning, level: &Level) -> bool {
-    let hw = t.body_half_width;
+/// Is `pos` a fair place for a crab grown to `size` ([`Mover::grown`]) to
+/// stand (for example, a loaded save)? Inside the level's walls, not inside
+/// a rock, and not under the floor.
+pub fn is_valid_spot(pos: Vec2, size: f32, t: &Tuning, level: &Level) -> bool {
+    let hw = t.body_half_width * size;
     let inside_walls = pos.x >= level.min_x + hw && pos.x <= level.max_x - hw;
     let in_rock = level.solids().any(|r| {
         pos.x + hw > r.min.x + EPS
             && pos.x - hw < r.max.x - EPS
-            && pos.y + t.body_height > r.min.y + EPS
+            && pos.y + t.body_height * size > r.min.y + EPS
             && pos.y < r.max.y - EPS
     });
     inside_walls && !in_rock && pos.y >= level.floor_height(pos.x) - 1.0 && pos.y.is_finite()
@@ -1562,19 +1591,25 @@ mod tests {
     fn valid_spots() {
         let level = Level::test_level();
         let t = Tuning::default();
-        assert!(is_valid_spot(SPAWN, &t, &level));
+        assert!(is_valid_spot(SPAWN, 1.0, &t, &level));
         assert!(
-            !is_valid_spot(Vec2::new(680.0, 50.0), &t, &level),
+            !is_valid_spot(Vec2::new(680.0, 50.0), 1.0, &t, &level),
             "inside the boulder"
         );
         assert!(
-            !is_valid_spot(Vec2::new(-100.0, 0.0), &t, &level),
+            !is_valid_spot(Vec2::new(-100.0, 0.0), 1.0, &t, &level),
             "outside the walls"
         );
         assert!(
-            !is_valid_spot(Vec2::new(300.0, -50.0), &t, &level),
+            !is_valid_spot(Vec2::new(300.0, -50.0), 1.0, &t, &level),
             "under the floor"
         );
-        assert!(!is_valid_spot(Vec2::new(f32::NAN, 0.0), &t, &level));
+        assert!(!is_valid_spot(Vec2::new(f32::NAN, 0.0), 1.0, &t, &level));
+        // Just clear of the boulder for a crab that never moulted; a grown
+        // crab's bigger shell would be inside it.
+        let x = 640.0 - t.body_half_width - 1.0;
+        let beside = Vec2::new(x, level.floor_height(x));
+        assert!(is_valid_spot(beside, 1.0, &t, &level));
+        assert!(!is_valid_spot(beside, t.moult.most_size, &t, &level));
     }
 }

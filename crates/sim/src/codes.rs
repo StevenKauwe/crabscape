@@ -179,9 +179,11 @@ impl Mover {
         }
     }
 
-    /// How big the crab is, against its usual size (bigger in hulk mode).
+    /// How big the crab is drawn and fights, against a crab that never
+    /// moulted: its own size ([`Mover::grown`]), bigger again in hulk mode.
     pub fn size(&self, t: &Tuning) -> f32 {
-        if self.hulk { t.hulk.scale } else { 1.0 }
+        let hulk = if self.hulk { t.hulk.scale } else { 1.0 };
+        self.grown(t) * hulk
     }
 }
 

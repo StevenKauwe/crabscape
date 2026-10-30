@@ -51,6 +51,7 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, kit: Kit) -> Run {
     m.stamina = kit.strokes as f32;
     m.glass_grips = kit.glass;
     m.carrying = kit.carrying;
+    m.moults = MOULTS.get();
     let mut run = Run {
         highest: replay.start.y,
         sim: sim.clone(),
@@ -75,6 +76,12 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, kit: Kit) -> Run {
     }
     run.sim = sim;
     run
+}
+
+thread_local! {
+    /// How many times the crab in this test's runs has moulted (none, but
+    /// for the test played at the biggest size, below).
+    static MOULTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 fn run(script: &str, seconds: f64, kit: Kit) -> Run {
@@ -258,4 +265,15 @@ fn glass_grips_stay_fitted_after_dying() {
     let crab = sim.crab(PlayerId(0)).unwrap();
     assert!(crab.fighter.dead.is_none(), "woke again");
     assert!(crab.mover.glass_grips);
+}
+
+#[test]
+fn the_biggest_crab_still_climbs_bare_rock_into_the_notch() {
+    // Grown as big as moulting makes it, the notch still fits it.
+    MOULTS.set(99);
+    let r = run("start x=5670 y=-1500\nt=0 walk=stop", 0.1, GLASS);
+    let t = &r.sim.tuning;
+    assert_eq!(r.crab().grown(t), t.moult.most_size, "the biggest crab");
+    bare_rock_is_gripped_only_with_glass_grips();
+    glass_grips_climb_the_end_wall_to_a_notch_with_wild_light_in_it();
 }

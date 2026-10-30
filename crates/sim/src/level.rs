@@ -217,20 +217,22 @@ impl Level {
                 Vec2::new(3301.0, -8700.0),
                 Vec2::new(4300.0, -8700.0),
                 // The pit's right wall, up to a passage (its floor), then a
-                // short tunnel to the foot of a shaft...
+                // short tunnel to the foot of a shaft (wide enough for the
+                // biggest crab to climb its coral)...
                 Vec2::new(4301.0, -4380.0),
-                Vec2::new(4470.0, -4380.0),
+                Vec2::new(4489.0, -4380.0),
                 // ...that rises to the far part of the basin, past the pit,
                 // rising again at its far end...
-                Vec2::new(4471.0, -700.0),
+                Vec2::new(4490.0, -700.0),
                 Vec2::new(5200.0, -700.0),
-                Vec2::new(5350.0, -560.0),
-                Vec2::new(5380.0, -560.0),
+                Vec2::new(5340.0, -560.0),
+                Vec2::new(5370.0, -560.0),
                 // ...to the crack at the foot of its end wall: a slot down
-                // through the rock (a chimney, wide enough for a crab), its
+                // through the rock (a chimney, wide enough for the biggest
+                // crab to climb its coral), its
                 // floor running on under the wall and out onto the doorstep,
                 // high on the near wall of a canyon.
-                Vec2::new(5381.0, -1500.0),
+                Vec2::new(5371.0, -1500.0),
                 Vec2::new(5900.0, -1500.0),
                 // The canyon's near wall: a sheer drop to a shelf (coral and
                 // a rest crevice)...

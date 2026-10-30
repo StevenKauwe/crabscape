@@ -1109,12 +1109,9 @@ impl Sim {
             .iter()
             .filter_map(|e| e.octopus()?.ink.map(|i| i.at))
             .collect();
-        let (r, half) = (
-            self.tuning.octopus.ink.radius,
-            self.tuning.body_height / 2.0,
-        );
+        let (r, t) = (self.tuning.octopus.ink.radius, &self.tuning);
         for c in self.crabs.iter_mut().filter(|c| !c.remote) {
-            let middle = c.mover.pos + Vec2::new(0.0, half);
+            let middle = c.mover.pos + Vec2::new(0.0, c.mover.height(t) / 2.0);
             c.fighter.blinded = clouds.iter().any(|at| at.distance(middle) <= r);
         }
         self.claws_meet_enemies();
@@ -1166,7 +1163,7 @@ impl Sim {
             .is_multiple_of(self.tuning.memory.step_ticks as u64)
         {
             for c in self.crabs.iter_mut().filter(|c| !c.remote) {
-                let eye = c.mover.pos + Vec2::new(0.0, self.tuning.body_height);
+                let eye = c.mover.pos + Vec2::new(0.0, c.mover.height(&self.tuning));
                 c.memory.step(
                     eye,
                     c.mover.lantern_glow(),
@@ -1705,9 +1702,10 @@ fn runner_of(e: &Enemy) -> To {
 /// Is the crab's body pressed against (or overlapping) `r`?
 fn against(m: &Mover, r: Rect, t: &Tuning) -> bool {
     let reach = 4.0;
-    m.pos.x + t.body_half_width + reach > r.min.x
-        && m.pos.x - t.body_half_width - reach < r.max.x
-        && m.pos.y + t.body_height > r.min.y
+    let (half, height) = (m.half_width(t), m.height(t));
+    m.pos.x + half + reach > r.min.x
+        && m.pos.x - half - reach < r.max.x
+        && m.pos.y + height > r.min.y
         && m.pos.y < r.max.y
 }
 
@@ -1736,9 +1734,9 @@ fn crusher_shake(m: &Mover, t: &Tuning) -> f32 {
 /// Is `egg` touching the crab's body (with a little reach for the claws)?
 fn in_reach(m: &Mover, egg: Vec2, t: &Tuning) -> bool {
     let reach = EGG_RADIUS + 6.0;
-    (egg.x - m.pos.x).abs() <= t.body_half_width + reach
+    (egg.x - m.pos.x).abs() <= m.half_width(t) + reach
         && egg.y >= m.pos.y - reach
-        && egg.y <= m.pos.y + t.body_height + reach
+        && egg.y <= m.pos.y + m.height(t) + reach
 }
 
 /// The workbench's glass grips (the "Glass grips" recipe, `crate::craft`): a

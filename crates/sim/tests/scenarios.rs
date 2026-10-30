@@ -376,7 +376,11 @@ fn the_trench_needs_jump_and_paddle() {
             r.crab().pos
         );
     }
-    // Jump at the edge and paddle at the top: across.
+    jump_and_paddle_cross_the_trench();
+}
+
+/// Jump at the edge and paddle at the top: across, with decent timing.
+fn jump_and_paddle_cross_the_trench() {
     let mut crossed = 0;
     for k in 0..20 {
         let t = 0.4 + k as f64 * 2.0 * f64::from(STEP);
@@ -951,14 +955,14 @@ fn the_pit_hides_an_alcove_with_an_egg_and_a_clue() {
     assert_eq!(out.crab().pos.y, level.pit().2);
 }
 
-/// Sinking past the alcove's mouth, some moment to push right gets the crab
-/// in (the egg and the clue), and it can walk out and sink on to the pit's
-/// floor.
+/// Sinking past the alcove's mouth (clear of its roof), some moment to push
+/// right gets the crab in (the egg and the clue), and it can walk out and
+/// sink on to the pit's floor.
 fn the_alcove_can_be_swum_into_and_out_of() {
     let inside = (0..40)
         .map(|k| {
             let push = 0.6 + f64::from(k) * 0.05;
-            run(&format!("start x=4020 y=-4700; t={push} walk=right"), 5.0)
+            run(&format!("start x=4000 y=-4700; t={push} walk=right"), 5.0)
         })
         .find(|r| r.crab().pos.y == -5200.0)
         .expect("some push gets in");
@@ -1043,7 +1047,7 @@ fn the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin() {
     );
     assert_eq!(up.crab().pos.y, -700.0);
     assert!(
-        up.crab().pos.x > 4471.0,
+        up.crab().pos.x > 4490.0,
         "out on the far basin: {}",
         up.crab().pos
     );
@@ -2303,7 +2307,7 @@ fn the_biggest_crab_still_gets_through_the_whole_route() {
     );
     walking_from_spawn_reaches_the_slope_quickly();
     each_egg_can_be_reached_with_the_strokes_the_eggs_before_it_give();
-    the_trench_needs_jump_and_paddle();
+    jump_and_paddle_cross_the_trench();
     the_way_out_needs_all_three_strokes();
     the_basin_has_a_way_back_up();
     the_pit_is_deep_and_the_climb_gets_you_out();

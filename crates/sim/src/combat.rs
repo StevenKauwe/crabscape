@@ -518,9 +518,9 @@ impl Fighter {
 }
 
 /// A claw's blow, aimed straight out: a box past the shell on the facing
-/// side, centred on the body's middle height. A bulked-up crab's claws are
-/// bigger and reach further and higher, and still smash right down to the
-/// floor.
+/// side, centred on the body's middle height. A grown or bulked-up crab's
+/// claws are bigger and reach further and higher, and still smash right
+/// down to the floor.
 fn claw_box(claw: Claw, facing: f32, m: &Mover, t: &Tuning) -> Rect {
     let c = claw.tuning(t);
     let size = m.size(t);
@@ -555,8 +555,8 @@ fn aim_at(claw: (f32, f32), body: (f32, f32), down: f32, up: f32) -> Option<f32>
     (overlap(shift) > 0.0).then_some(shift)
 }
 
-/// The crab's body box (its hurtbox): bigger when bulked up (its box
-/// against the level stays the same).
+/// The crab's body box (its hurtbox): as big as it has grown, and bigger
+/// again when bulked up (hulk's box against the level stays the same).
 pub fn body(m: &Mover, t: &Tuning) -> Rect {
     let size = m.size(t);
     Rect::new(

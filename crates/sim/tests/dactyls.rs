@@ -22,10 +22,17 @@ fn crab(pos: Vec2, strokes: u32, feat: bool) -> Sim {
     let m = &mut sim.crab_mut(P0).unwrap().mover;
     m.upgrades = strokes;
     m.stamina = strokes as f32;
+    m.moults = MOULTS.get();
     if feat {
         m.feats.push(Feat::GrippingDactyls);
     }
     sim
+}
+
+thread_local! {
+    /// How many times the crab in this test's runs has moulted (none, but
+    /// for the test played at the biggest size, below).
+    static MOULTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 /// Gripping a stalk at `pos`, its legs spent (`left` strokes).
@@ -200,4 +207,15 @@ fn without_the_feat_the_egg_over_the_wall_coral_is_out_of_reach() {
 fn resting_on_the_wall_coral_the_crab_swims_on_up_to_the_egg() {
     // With the feat, it arrives spent, rests on the coral and goes on up.
     assert!(eats_the_egg_from_the_coral(0.0, true, 1.0));
+}
+
+#[test]
+fn the_biggest_crab_still_reaches_the_wall_coral_and_rests_on_up_to_its_egg() {
+    // Grown as big as moulting makes it.
+    MOULTS.set(99);
+    let sim = crab(Vec2::new(5340.0, -560.0), 4, true);
+    let t = &sim.tuning;
+    assert_eq!(mover(&sim).grown(t), t.moult.most_size, "the biggest crab");
+    assert!(reaches_the_wall_coral(4));
+    resting_on_the_wall_coral_the_crab_swims_on_up_to_the_egg();
 }

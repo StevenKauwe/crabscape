@@ -139,7 +139,7 @@ fn the_crack_is_a_way_down_through_the_rock_to_the_doorstep() {
     // the foot of its end wall, and walks on under the wall onto the
     // doorstep, high on the canyon's wall.
     let r = run("start x=5150 y=-700\nt=0 walk=right; t=6 walk=stop", 7.0, 0);
-    assert!(r.stood_on(5381.0, 5640.0, -1500.0), "down the crack");
+    assert!(r.stood_on(5371.0, 5640.0, -1500.0), "down the crack");
     assert!(
         r.stood_on(DOORSTEP.0, DOORSTEP.1, DOORSTEP.2),
         "out on the doorstep: {}",
@@ -154,7 +154,7 @@ fn coral_climbs_back_out_of_the_crack_and_up_from_the_shelf() {
     let crack = run(&format!("start x=5440 y=-1500\n{climb}"), 12.0, 0);
     assert_eq!(crack.count("gripped"), 1);
     assert!(
-        crack.crab().grounded && crack.crab().pos.x < 5381.0 && crack.crab().pos.y >= -700.0,
+        crack.crab().grounded && crack.crab().pos.x < 5371.0 && crack.crab().pos.y >= -700.0,
         "back on the far basin's floor: {}",
         crack.crab().pos
     );
