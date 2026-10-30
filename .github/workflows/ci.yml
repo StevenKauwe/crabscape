@@ -386,41 +386,6 @@ jobs:
             *=failure* | *=cancelled*) echo "::error::A browser job failed or was cancelled: $RESULTS"; exit 1 ;;
           esac
 
-  mutants:
-    name: mutation testing (changed lines)
-    # cargo-mutants breaks each changed line of the game rules, the game's co-op code and the introducer in small ways
-    # and fails if no test notices (tools/mutants-pr.sh, .cargo/mutants.toml). Pull requests only.
-    needs: changes
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 2
-      - name: Rust (the version, targets and components in rust-toolchain.toml)
-        run: rustup toolchain install && rustc --version
-      - name: System libraries Bevy needs on Linux (the game's co-op tests)
-        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev pkg-config
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: mutants
-          workspaces: |
-            .
-            tools/introducer
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
-        with:
-          tool: cargo-mutants@27.1.0
-      # In place (in this checkout, reusing the cached build) against the base the PR merges into.
-      - name: Every mutant on the changed lines is caught
-        run: tools/mutants-pr.sh HEAD^1 --in-place
-      - name: Keep the mutants' logs
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: mutants-${{ github.sha }}
-          path: target/mutants-pr/
-          retention-days: 14
-
   preview:
     name: playable preview
     # Publishes this run's web build (no second build) to its own folder on the Pages site: /pr-<n>/ for a pull

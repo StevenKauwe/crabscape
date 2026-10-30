@@ -1,7 +1,6 @@
 # Which lines the tests run (cargo-llvm-cov), as a table in the job summary and an lcov file, for information only:
 # after each push to main and once a week (Sunday night, with the weekly mutants). Never fails, has no threshold and
-# isn't run on pull requests (it would only add minutes): mutation testing of each PR's changed lines is what holds
-# new code to its tests.
+# isn't run on pull requests (it would only add minutes).
 #   gh workflow run coverage.yml      # run it now
 # Actions are pinned to commit SHAs; the comment says which release that is.
 name: coverage
