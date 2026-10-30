@@ -1,7 +1,7 @@
 //! The speech-to-text worker (`crates/listen`, started from
 //! `web/listen/worker.js`), shared by the report form's Speak (`report.rs`)
-//! and voice chat written down (`scribe.rs`). One worker for both, so the
-//! model is downloaded and held in memory once. It writes down one piece of
+//! and voice chat written down on the host's computer (`scribe.rs`). One
+//! worker for both, so the model is downloaded and held in memory once. It writes down one piece of
 //! sound at a time; a spoken report goes ahead of voice chat's lines, since
 //! the player is waiting for it.
 //!
@@ -21,8 +21,11 @@ use web_sys::{MessageEvent, Worker, WorkerOptions, WorkerType};
 pub enum Job {
     /// A spoken report.
     Report,
-    /// This player's voice in voice chat, begun at `at` (seconds since 1970).
-    Voice { at: f64 },
+    /// Someone's `voice` in voice chat, begun at `at` (seconds since 1970).
+    Voice {
+        at: f64,
+        voice: crate::scribe::Voice<matchbox_socket::PeerId>,
+    },
 }
 
 /// The worker's answer for a spoken report.
@@ -163,11 +166,11 @@ fn answered(data: &JsValue) {
             match job {
                 Some(Job::Report) if heard => crate::report::listened(Reply::Heard(get("text"))),
                 Some(Job::Report) => crate::report::listened(Reply::Failed(get("error"))),
-                Some(Job::Voice { at }) => {
+                Some(Job::Voice { at, voice }) => {
                     if !heard {
                         bevy::log::warn!("voice: writing down failed: {}", get("error"));
                     }
-                    crate::scribe::web::heard(at, heard.then(|| get("text")));
+                    crate::scribe::web::heard(voice, at, heard.then(|| get("text")));
                 }
                 None => {}
             }

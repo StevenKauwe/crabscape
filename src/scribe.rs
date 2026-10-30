@@ -1,28 +1,35 @@
 //! Voice chat, written down: what friends say in co-op voice chat becomes
 //! text that anyone can attach to a bug report (`report.rs`).
 //!
-//! Each device writes down only its own player's voice, from its own
-//! microphone, while voice chat is on: the work is spread over the devices
-//! and no browser records anyone else's sound. The microphone's sound is cut
-//! into stretches of speech (an utterance: from the first loud moment until
-//! the voice stops for a moment, at most [`UTTERANCE_MAX`] seconds; clicks,
-//! coughs and a test microphone's beeps are left out), and each one goes to
-//! the speech-to-text worker the report form's Speak uses (`listener.rs`,
-//! `crates/listen`). The sound never leaves the device; the words do: each
-//! line (the speaker's crab name, when, the words) goes to every friend over
-//! the co-op connection the moment it's written down, and every device
-//! keeps everyone's lines from the last [`KEEP_SECS`] seconds in the
-//! browser's storage (it survives a reload; older lines are dropped as the
-//! game opens and with each new line). A report shows them as a chat log,
-//! each line with the clock time it began: "[14:32:05] Crab 41: words".
+//! Only the device running the world (the host, or a friend standing in for
+//! it) writes anything down, and only if it's a computer: a phone or tablet
+//! never fetches the speech model or runs it, host or guest, and with a
+//! phone hosting nothing is written down. The host writes down everyone: its
+//! own player from its microphone, and each friend from the sound of their
+//! call as it arrives (each call carries one friend, so every line has the
+//! right crab's name). Each voice is cut into stretches of speech on its own
+//! (an utterance: from the first loud moment until the voice stops for a
+//! moment, at most [`UTTERANCE_MAX`] seconds; clicks, coughs and a test
+//! microphone's beeps are left out), and each one goes to the speech-to-text
+//! worker the report form's Speak uses (`listener.rs`, `crates/listen`). The
+//! sound never leaves the host's device; the words do: each line (the
+//! speaker's crab name, when, the words) goes to every friend over the co-op
+//! connection the moment it's written down, and every device keeps
+//! everyone's lines from the last [`KEEP_SECS`] seconds in the browser's
+//! storage (it survives a reload; older lines are dropped as the game opens
+//! and with each new line), so anyone can attach them to a report. A report
+//! shows them as a chat log, each line with the clock time it began:
+//! "[14:32:05] Crab 41: words".
 //!
-//! Everyone is told, every session: when their microphone turns on and when
-//! a friend joins the call, a plain note says voice chat is written down; a
-//! small pencil sits on the Mic button while this device writes; Settings →
-//! Co-op "Write down my voice" turns it off, and friends then see "(not
-//! written down)" for that player. A device in battery saver, one too weak
-//! or too busy to keep its frame rate, or one whose worker falls behind
-//! skips writing (and says so, once).
+//! Everyone is told, every session: when their microphone turns on, when a
+//! friend joins the call, and when it changes, a plain note says whether
+//! voice chat is written down on the host's computer (or why not: the host
+//! is on a phone, say); a small pencil sits on the Mic button of everyone
+//! whose voice is being written down; Settings → Co-op "Write down my voice"
+//! turns it off for that player (the host skips their voice), and friends
+//! then see "(not written down)" for them. A host in battery saver, one too
+//! weak or too busy to keep its frame rate, or one whose worker falls behind
+//! writes nothing (and everyone is told).
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use serde::{Deserialize, Serialize};
@@ -215,11 +222,13 @@ impl Book {
     }
 }
 
-/// Why this device isn't writing down its player's voice.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why this device writes nothing down.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Skip {
-    /// Settings → Co-op → "Write down my voice" is off.
-    Off,
+    /// It doesn't run the world: the host's device does the writing.
+    Guest,
+    /// A phone or tablet (a touch screen): it never fetches the model.
+    Phone,
     /// The game's battery saver is on.
     Saver,
     /// A device with two cores or fewer.
@@ -230,25 +239,22 @@ pub enum Skip {
     Behind,
 }
 
-impl Skip {
-    /// The player's note, once: why their voice isn't written down.
-    pub fn words(self) -> &'static str {
-        match self {
-            Skip::Off => "Your voice isn't written down (Settings, Co-op).",
-            Skip::Saver => "Battery saver is on, so your voice isn't written down.",
-            Skip::Weak => "This device is too slow to write down your voice, so it doesn't.",
-            Skip::Busy => "The game is running slowly, so your voice isn't written down.",
-            Skip::Behind => "Writing down your voice fell behind, so it stopped.",
-        }
-    }
-}
-
-/// Why this device shouldn't write down its player's voice, if it
-/// shouldn't: the setting (`write`), battery saver, its cores, and whether
-/// it is busy or behind (both stay so for the session once seen).
-pub fn skip(write: bool, saver: bool, cores: u32, busy: bool, behind: bool) -> Option<Skip> {
-    if !write {
-        Some(Skip::Off)
+/// Why this device shouldn't write down voice chat, if it shouldn't: only
+/// the device running the world (`host`) does, never a `phone`, and not in
+/// battery saver, on two cores or fewer, or once it's been `busy` or
+/// `behind` (both stay so for the session once seen).
+pub fn skip(
+    host: bool,
+    phone: bool,
+    saver: bool,
+    cores: u32,
+    busy: bool,
+    behind: bool,
+) -> Option<Skip> {
+    if !host {
+        Some(Skip::Guest)
+    } else if phone {
+        Some(Skip::Phone)
     } else if saver {
         Some(Skip::Saver)
     } else if cores > 0 && cores <= 2 {
@@ -260,6 +266,41 @@ pub fn skip(write: bool, saver: bool, cores: u32, busy: bool, behind: bool) -> O
     } else {
         None
     }
+}
+
+/// What every player is told, every session, when the host's device writes
+/// (`host` None) or why it doesn't; `mine`: this player's "Write down my
+/// voice". None for [`Skip::Guest`]: a guest goes by what the host says.
+pub fn told(host: Option<Skip>, mine: bool) -> Option<String> {
+    let words = match host {
+        None if mine => {
+            "Voice chat is written down as text on the host's computer, for bug reports."
+        }
+        None => {
+            "Voice chat is written down as text on the host's computer, for bug reports, \
+             except your voice (Settings, Co-op)."
+        }
+        Some(Skip::Guest) => return None,
+        Some(Skip::Phone) => "Voice chat is not written down: the host is on a phone.",
+        Some(Skip::Saver) => "Voice chat is not written down: the host's battery saver is on.",
+        Some(Skip::Weak) => "Voice chat is not written down: the host's computer is too slow.",
+        Some(Skip::Busy) => {
+            "Voice chat stopped being written down: the host's game is running slowly."
+        }
+        Some(Skip::Behind) => {
+            "Voice chat stopped being written down: the host's computer fell behind."
+        }
+    };
+    Some(words.to_string())
+}
+
+/// What the host's device tells each friend about writing down voice chat.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct HostSays {
+    /// Why it writes nothing down, if it doesn't.
+    pub skip: Option<Skip>,
+    /// It writes down this friend's voice (the pencil on their Mic button).
+    pub you: bool,
 }
 
 /// Under this many frames a second for [`BUSY_FOR`] seconds while writing,
@@ -429,59 +470,146 @@ pub fn resample(samples: &[f32], from: f32, to: f32) -> Vec<f32> {
         .collect()
 }
 
-/// This device's side: its microphone's sound cut into utterances, and what
-/// was written down of them, while it writes.
+/// Whose voice a stream of sound carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Voice<P> {
+    /// This device's player, from its microphone.
+    Mine,
+    /// A friend, from the sound of their call arriving here (`P`: their
+    /// connection).
+    Friend(P),
+}
+
+/// At most this many utterances wait at the worker; more and it's behind.
+/// A few people can finish a sentence at once.
+pub const PENDING_MAX: usize = 6;
+
+/// The host's desk: every voice it writes down (its own player's and each
+/// friend's), each cut into utterances on its own, and whose is whose.
 #[derive(Debug)]
-pub struct Scribe {
-    chunker: Chunker,
+pub struct Desk<P> {
+    /// Why this device writes nothing now, if it doesn't.
+    pub here: Option<Skip>,
+    /// This player's "Write down my voice".
+    pub mine: bool,
+    /// This player's name.
+    pub me: String,
+    /// Friends' names, by connection (kept after they leave, for their last
+    /// words still at the worker).
+    names: Vec<(P, String)>,
+    /// Friends whose "Write down my voice" is off, as their devices said.
+    off: Vec<P>,
+    /// Each voice being listened to.
+    chunkers: Vec<(Voice<P>, Chunker)>,
     /// Utterances at the worker, not written down yet.
     pub pending: usize,
 }
 
-/// At most this many utterances wait at the worker; more and it's behind.
-pub const PENDING_MAX: usize = 4;
-
-/// A line of this player's, written down: kept here and sent to friends.
-#[derive(Debug, PartialEq)]
-pub struct Said {
-    pub at: f64,
-    pub text: String,
+impl<P: Copy + PartialEq> Default for Desk<P> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-impl Scribe {
-    pub fn new(rate: f32) -> Self {
+impl<P: Copy + PartialEq> Desk<P> {
+    /// A desk that writes nothing until told it runs the world.
+    pub fn new() -> Self {
         Self {
-            chunker: Chunker::new(rate),
+            here: Some(Skip::Guest),
+            mine: true,
+            me: String::new(),
+            names: Vec::new(),
+            off: Vec::new(),
+            chunkers: Vec::new(),
             pending: 0,
         }
     }
 
-    /// Sound from the microphone. An utterance to write down, unless `skip`
-    /// says not to write.
-    pub fn sound(&mut self, samples: &[f32], skip: Option<Skip>) -> Option<Vec<f32>> {
-        if skip.is_some() {
-            self.chunker.finish();
+    /// Is `voice` written down: this device writes, and its player wants it?
+    pub fn writes(&self, voice: Voice<P>) -> bool {
+        self.here.is_none()
+            && match voice {
+                Voice::Mine => self.mine,
+                Voice::Friend(p) => !self.off.contains(&p),
+            }
+    }
+
+    /// The friend on `peer` goes by `name`.
+    pub fn named(&mut self, peer: P, name: &str) {
+        let Some(name) = crabsim::net::clean_name(name) else {
+            return;
+        };
+        match self.names.iter_mut().find(|(p, _)| *p == peer) {
+            Some(known) => known.1 = name,
+            None => self.names.push((peer, name)),
+        }
+    }
+
+    /// The friend on `peer` wants their voice written down, or not.
+    pub fn friend_wants(&mut self, peer: P, on: bool) {
+        self.off.retain(|p| *p != peer);
+        if !on {
+            self.off.push(peer);
+        }
+    }
+
+    /// The friend on `peer` left.
+    pub fn forget(&mut self, peer: P) {
+        self.off.retain(|p| *p != peer);
+        self.chunkers.retain(|(v, _)| *v != Voice::Friend(peer));
+    }
+
+    /// Whose name goes on `voice`'s lines.
+    pub fn who(&self, voice: Voice<P>) -> String {
+        match voice {
+            Voice::Mine => self.me.clone(),
+            Voice::Friend(peer) => self
+                .names
+                .iter()
+                .find(|(p, _)| *p == peer)
+                .map_or_else(|| "A friend".into(), |(_, n)| n.clone()),
+        }
+    }
+
+    /// Start cutting `voice`'s sound, at `rate` samples a second, into
+    /// utterances.
+    pub fn listen(&mut self, voice: Voice<P>, rate: f32) {
+        self.chunkers.retain(|(v, _)| *v != voice);
+        self.chunkers.push((voice, Chunker::new(rate)));
+    }
+
+    /// More of `voice`'s sound: an utterance to write down, if one ended and
+    /// the voice is written down.
+    pub fn sound(&mut self, voice: Voice<P>, samples: &[f32]) -> Option<Vec<f32>> {
+        let writes = self.writes(voice);
+        let (_, chunker) = self.chunkers.iter_mut().find(|(v, _)| *v == voice)?;
+        if !writes {
+            chunker.finish();
             return None;
         }
-        self.chunker.push(samples)
+        chunker.push(samples)
     }
 
-    /// The microphone went off: the utterance in progress, if it was speech.
-    pub fn stop(&mut self, skip: Option<Skip>) -> Option<Vec<f32>> {
-        let u = self.chunker.finish();
-        if skip.is_some() { None } else { u }
+    /// Stop listening to `voice` (its sound went away): the utterance in
+    /// progress, if it was speech and the voice is written down.
+    pub fn stop(&mut self, voice: Voice<P>) -> Option<Vec<f32>> {
+        let writes = self.writes(voice);
+        let i = self.chunkers.iter().position(|(v, _)| *v == voice)?;
+        let (_, mut chunker) = self.chunkers.remove(i);
+        chunker.finish().filter(|_| writes)
     }
 
-    /// The worker wrote down an utterance that began at `at`: the line to
-    /// keep and send, unless writing stopped meanwhile (`skip`) or nothing
-    /// was heard.
-    pub fn written(&mut self, at: f64, text: &str, skip: Option<Skip>) -> Option<Said> {
+    /// The worker wrote down `voice`'s utterance that began at `at`: the
+    /// line to keep and send to everyone, with the speaker's name, unless
+    /// that voice stopped being written meanwhile or nothing was heard.
+    pub fn written(&mut self, voice: Voice<P>, at: f64, text: &str) -> Option<Line> {
         self.pending = self.pending.saturating_sub(1);
-        if skip.is_some() {
+        if !self.writes(voice) {
             return None;
         }
-        Some(Said {
+        Some(Line {
             at,
+            who: self.who(voice),
             text: clean_text(text)?,
         })
     }
@@ -501,6 +629,7 @@ pub(crate) mod web {
     use std::cell::RefCell;
 
     use bevy::prelude::*;
+    use crabsim::Sim;
     use js_sys::Float32Array;
     use matchbox_socket::PeerId;
     use wasm_bindgen::JsCast;
@@ -510,7 +639,11 @@ pub(crate) mod web {
         MediaStreamAudioSourceNode, MediaStreamTrack, ScriptProcessorNode,
     };
 
-    use super::{Book, Busy, PENDING_MAX, REPORT_MAX, Scribe, Skip, Transcript, resample, skip};
+    use super::{
+        Book, Busy, Desk, HostSays, PENDING_MAX, REPORT_MAX, Skip, Transcript, Voice, resample,
+        skip, told,
+    };
+    use crate::coop::LocalId;
     use crate::player::GameSet;
     use crate::settings::Settings;
 
@@ -522,16 +655,24 @@ pub(crate) mod web {
     const NOTE_FOR: f64 = 9.0;
     /// The listener's sample rate (`crates/listen`).
     const LISTEN_RATE: f32 = 16_000.0;
-    /// Samples the microphone hands over at once (about 85 ms at 48 kHz).
+    /// Samples the sound hands over at once (about 85 ms at 48 kHz).
     const BLOCK: u32 = 4096;
-    /// What everyone is told, every session.
-    const TOLD: &str = "Voice chat is written down as text on everyone's device, for bug reports.";
 
-    /// The microphone's sound, feeding the scribe.
+    /// Where a voice's sound comes from.
+    enum Sound {
+        /// This player's microphone.
+        Mic(MediaStreamTrack),
+        /// A friend's call, as it arrives.
+        Call(MediaStream),
+    }
+
+    /// One voice's sound, feeding the desk.
     struct Capture {
-        /// The microphone's id. (Not the track itself: web-sys's `clone` on a
-        /// track is the browser's, which makes a second live microphone.)
-        track: String,
+        voice: Voice<PeerId>,
+        /// The sound's id: the microphone's, or the friend's call's. (Not
+        /// the track itself: web-sys's `clone` on a track is the browser's,
+        /// which makes a second live microphone.)
+        id: String,
         source: MediaStreamAudioSourceNode,
         node: ScriptProcessorNode,
         sink: GainNode,
@@ -543,19 +684,21 @@ pub(crate) mod web {
     #[derive(Default)]
     struct State {
         book: Book,
-        scribe: Option<Scribe>,
-        capture: Option<Capture>,
-        /// Why not writing now, as last worked out.
-        skip: Option<Skip>,
-        /// The reason the player was last told about (each told once).
-        told: Vec<Skip>,
+        desk: Desk<PeerId>,
+        captures: Vec<Capture>,
         busy: Busy,
         behind: bool,
-        /// Whether friends were last told this device writes.
-        sent: Option<bool>,
-        /// This player's name.
-        me: String,
+        /// As the host: what each friend on a call was last told.
+        sent: Vec<(PeerId, HostSays)>,
+        /// This player's "Write down my voice", as friends were last told.
+        sent_mine: Option<bool>,
+        /// As a guest: what the host's device last said, and which it is.
+        host: Option<(PeerId, HostSays)>,
         mic_was_on: bool,
+        /// A friend's call connected since the last frame.
+        call_joined: bool,
+        /// What the note last said of writing down.
+        shown: Option<String>,
         /// When the note hides (seconds since 1970).
         note_until: f64,
     }
@@ -599,56 +742,129 @@ pub(crate) mod web {
         web_sys::window().map_or(0, |w| w.navigator().hardware_concurrency() as u32)
     }
 
-    /// Each frame: whether to write, the microphone wired up or not to
-    /// match, friends told of any change, and the note hidden when its time
-    /// is up.
-    fn follow(time: Res<Time<Real>>, settings: Res<Settings>, names: Res<crate::names::Names>) {
-        let track = crate::voice::mic_track();
-        let mic_on = track.is_some();
-        let (why, joined, changed) = with(|s| {
-            s.me = names.mine().to_string();
-            s.busy.frame(time.delta_secs(), s.capture.is_some());
-            let why = skip(
-                settings.write,
+    /// Each frame: whether this device writes, the voices it writes down
+    /// wired up to match, friends told of any change, the player told what
+    /// happens to voice chat, and the note hidden when its time is up.
+    fn follow(
+        time: Res<Time<Real>>,
+        settings: Res<Settings>,
+        names: Res<crate::names::Names>,
+        me: Res<LocalId>,
+        sim: Res<Sim>,
+    ) {
+        let mic = crate::voice::mic_track();
+        let mic_on = mic.is_some();
+        let room = crate::coop::in_room();
+        // Runs the world: the lobby's host, or a friend standing in for it.
+        let host = room && sim.online() && sim.is_host();
+        let calls = crate::voice::calls();
+        let players = crate::coop::players();
+        let here = with(|s| {
+            s.desk.me = names.mine().to_string();
+            s.desk.mine = settings.write;
+            for (peer, id) in &players {
+                if let Some(name) = names.of(*id, me.0) {
+                    s.desk.named(*peer, name);
+                }
+            }
+            s.busy.frame(time.delta_secs(), !s.captures.is_empty());
+            let here = skip(
+                host,
+                crate::input::has_touch_screen(),
                 settings.saver,
                 cores(),
                 s.busy.seen,
                 s.behind,
             );
-            s.skip = why;
+            s.desk.here = here;
+            here
+        });
+
+        // The voices to write down: this player's and each friend's call.
+        let mut want: Vec<(Voice<PeerId>, String, Sound)> = Vec::new();
+        if here.is_none() {
+            if let Some(track) = mic.filter(|_| settings.write) {
+                want.push((Voice::Mine, track.id(), Sound::Mic(track)));
+            }
+            for (peer, stream) in crate::voice::friend_streams() {
+                if with(|s| s.desk.writes(Voice::Friend(peer))) {
+                    want.push((Voice::Friend(peer), stream.id(), Sound::Call(stream)));
+                }
+            }
+        }
+        let have: Vec<(Voice<PeerId>, String)> =
+            with(|s| s.captures.iter().map(|c| (c.voice, c.id.clone())).collect());
+        for (voice, id) in &have {
+            if !want.iter().any(|(v, i, _)| v == voice && i == id) {
+                stop(*voice);
+            }
+        }
+        for (voice, id, sound) in want {
+            if !have.iter().any(|(v, i)| *v == voice && *i == id) {
+                start(voice, id, &sound);
+            }
+        }
+
+        // As the host: tell each friend on a call whether their voice is
+        // written down, or why nothing is.
+        if here == Some(Skip::Guest) {
+            with(|s| s.sent.clear());
+        } else {
+            for peer in &calls {
+                let says = HostSays {
+                    skip: here,
+                    you: with(|s| s.desk.writes(Voice::Friend(*peer))),
+                };
+                let changed = with(|s| match s.sent.iter_mut().find(|(p, _)| p == peer) {
+                    Some((_, was)) if *was == says => false,
+                    Some((_, was)) => {
+                        *was = says;
+                        true
+                    }
+                    None => {
+                        s.sent.push((*peer, says));
+                        true
+                    }
+                });
+                if changed {
+                    crate::voice::say_host(*peer, says);
+                }
+            }
+            with(|s| {
+                s.sent.retain(|(p, _)| calls.contains(p));
+                s.host = None;
+            });
+        }
+        // Everyone: tell friends whether this player wants their voice
+        // written down (the host skips it if not; the rest show it).
+        if room && with(|s| s.sent_mine != Some(settings.write)) {
+            with(|s| s.sent_mine = Some(settings.write));
+            crate::voice::say_writes(None, names.mine(), settings.write);
+        }
+
+        // The note: when the mic turns on, a friend's call connects, or what
+        // happens to voice chat changes.
+        let words = if here == Some(Skip::Guest) {
+            with(|s| s.host.map(|(_, h)| h.skip)).and_then(|h| told(h, settings.write))
+        } else {
+            told(here, settings.write)
+        };
+        let (mic_joined, call_joined, shown) = with(|s| {
             let joined = mic_on && !s.mic_was_on;
             s.mic_was_on = mic_on;
-            let on = why.is_none();
-            let changed = s.sent != Some(on);
-            s.sent = Some(on);
-            (why, joined, changed)
+            (joined, std::mem::take(&mut s.call_joined), s.shown.clone())
         });
-        if changed && crate::coop::in_room() {
-            crate::voice::say_writes(None, names.mine(), why.is_none());
-        }
-        if joined {
-            match why {
-                None => note(TOLD),
-                Some(w) => note(&format!("{TOLD} {}", w.words())),
-            }
-            if let Some(w) = why {
-                with(|s| s.told.push(w));
-            }
-        } else if let Some(w) = why
-            && mic_on
-            && w != Skip::Off
-            && !with(|s| s.told.contains(&w))
+        if let Some(words) = words
+            && (mic_on || !calls.is_empty())
+            && (mic_joined || call_joined || shown.as_ref() != Some(&words))
         {
-            with(|s| s.told.push(w));
-            note(w.words());
-        }
-        let want = track.filter(|_| why.is_none());
-        let have = with(|s| s.capture.as_ref().map(|c| c.track.clone()));
-        if want.as_ref().map(|t| t.id()) != have {
-            stop();
-            if let Some(track) = want {
-                start(&track);
+            let unwritten = with(|s| s.book.unwritten().join(", "));
+            if call_joined && !unwritten.is_empty() {
+                note(&format!("{words} Not written down: {unwritten}."));
+            } else {
+                note(&words);
             }
+            with(|s| s.shown = Some(words));
         }
         if with(|s| s.note_until > 0.0 && now() > s.note_until) {
             with(|s| s.note_until = 0.0);
@@ -676,17 +892,25 @@ pub(crate) mod web {
         info!("voice note: {words}");
     }
 
-    /// Feed the microphone `track` to the scribe.
-    fn start(track: &MediaStreamTrack) {
+    /// Feed `voice`'s sound (whose id is `id`) to the desk.
+    fn start(voice: Voice<PeerId>, id: String, sound: &Sound) {
         let Some(ctx): Option<AudioContext> = crate::sound::context() else {
             return;
         };
-        let Ok(stream) = MediaStream::new() else {
-            return;
+        let made;
+        let stream = match sound {
+            Sound::Mic(track) => {
+                let Ok(s) = MediaStream::new() else {
+                    return;
+                };
+                s.add_track(track);
+                made = s;
+                &made
+            }
+            Sound::Call(s) => s,
         };
-        stream.add_track(track);
         let (Ok(source), Ok(node), Ok(sink)) = (
-            ctx.create_media_stream_source(&stream),
+            ctx.create_media_stream_source(stream),
             ctx.create_script_processor_with_buffer_size_and_number_of_input_channels_and_number_of_output_channels(
                 BLOCK, 1, 1,
             ),
@@ -700,12 +924,9 @@ pub(crate) mod web {
                 let Ok(samples) = e.input_buffer().and_then(|b| b.get_channel_data(0)) else {
                     return;
                 };
-                let utterance = with(|s| {
-                    let why = s.skip;
-                    s.scribe.as_mut()?.sound(&samples, why)
-                });
+                let utterance = with(|s| s.desk.sound(voice, &samples));
                 if let Some(u) = utterance {
-                    write_down(u, rate);
+                    write_down(voice, u, rate);
                 }
             });
         node.set_onaudioprocess(Some(on_sound.as_ref().unchecked_ref()));
@@ -714,26 +935,29 @@ pub(crate) mod web {
         let _ = source.connect_with_audio_node(&node);
         let _ = node.connect_with_audio_node(&sink);
         let _ = sink.connect_with_audio_node(&ctx.destination());
-        with(|s| {
-            s.scribe = Some(Scribe::new(rate));
-            s.capture = Some(Capture {
-                track: track.id(),
+        let who = with(|s| {
+            s.desk.listen(voice, rate);
+            s.captures.push(Capture {
+                voice,
+                id,
                 source,
                 node,
                 sink,
                 rate,
                 _on_sound: on_sound,
             });
+            s.desk.who(voice)
         });
-        info!("voice: writing down this player's voice ({rate} Hz)");
+        info!("voice: writing down {who}'s voice ({rate} Hz)");
     }
 
-    /// Stop feeding the scribe; what was being said still gets written down.
-    fn stop() {
+    /// Stop feeding `voice` to the desk; what was being said still gets
+    /// written down.
+    fn stop(voice: Voice<PeerId>) {
         let Some((c, last)) = with(|s| {
-            let c = s.capture.take()?;
-            let why = s.skip;
-            let last = s.scribe.as_mut().and_then(|sc| sc.stop(why));
+            let i = s.captures.iter().position(|c| c.voice == voice)?;
+            let c = s.captures.remove(i);
+            let last = s.desk.stop(voice);
             Some((c, last))
         }) else {
             return;
@@ -743,58 +967,57 @@ pub(crate) mod web {
         let _ = c.node.disconnect();
         let _ = c.sink.disconnect();
         if let Some(u) = last {
-            write_down(u, c.rate);
+            write_down(voice, u, c.rate);
         }
     }
 
-    /// An utterance at `rate` to the worker, unless it's behind.
-    fn write_down(utterance: Vec<f32>, rate: f32) {
+    /// `voice`'s utterance at `rate` to the worker, unless it's behind.
+    fn write_down(voice: Voice<PeerId>, utterance: Vec<f32>, rate: f32) {
         let at = now() - f64::from(utterance.len() as f32 / rate);
         let go = with(|s| {
-            let scribe = s.scribe.as_mut()?;
-            if scribe.pending >= PENDING_MAX {
+            if s.desk.pending >= PENDING_MAX {
                 // Only once the model is there does a queue mean it's slow.
                 if crate::listener::ready() {
                     s.behind = true;
                 }
-                return None;
+                return false;
             }
-            scribe.pending += 1;
-            Some(())
+            s.desk.pending += 1;
+            true
         });
-        if go.is_none() {
+        if !go {
             return;
         }
         let sound = resample(&utterance, rate, LISTEN_RATE);
         let asked = crate::listener::ask(
-            crate::listener::Job::Voice { at },
+            crate::listener::Job::Voice { at, voice },
             Float32Array::from(sound.as_slice()),
         );
         if !asked {
             // No worker in this browser: writing down can't happen here.
             with(|s| {
                 s.behind = true;
-                if let Some(scribe) = s.scribe.as_mut() {
-                    scribe.pending = scribe.pending.saturating_sub(1);
-                }
+                s.desk.pending = s.desk.pending.saturating_sub(1);
             });
         }
     }
 
-    /// The worker wrote down this player's utterance that began at `at`
-    /// (None: it couldn't).
-    pub fn heard(at: f64, text: Option<String>) {
+    /// The worker wrote down `voice`'s utterance that began at `at` (None:
+    /// it couldn't): kept, and sent to everyone with the speaker's name.
+    pub fn heard(voice: Voice<PeerId>, at: f64, text: Option<String>) {
         let line = with(|s| {
-            let why = s.skip;
-            let said = s.scribe.as_mut()?.written(at, text.as_deref()?, why)?;
-            let me = s.me.clone();
-            s.book.transcript.add(said.at, &me, &said.text, now());
+            let Some(text) = text else {
+                s.desk.pending = s.desk.pending.saturating_sub(1);
+                return None;
+            };
+            let line = s.desk.written(voice, at, &text)?;
+            s.book.transcript.add(line.at, &line.who, &line.text, now());
             keep(&s.book.transcript);
-            Some((me, said))
+            Some(line)
         });
-        if let Some((me, said)) = line {
-            let ago = (now() - said.at).max(0.0) as f32;
-            crate::voice::say_line(&me, &said.text, ago);
+        if let Some(line) = line {
+            let ago = (now() - line.at).max(0.0) as f32;
+            crate::voice::say_line(&line.who, &line.text, ago);
         }
     }
 
@@ -803,7 +1026,7 @@ pub(crate) mod web {
         note("Getting the voice-to-text model (about 110 MB, only the first time)...");
     }
 
-    /// A friend's line arrived.
+    /// The host's device sent a line.
     pub fn friend_said(who: &str, text: &str, ago: f32) {
         with(|s| {
             s.book.friend_said(who, text, ago, now());
@@ -811,9 +1034,11 @@ pub(crate) mod web {
         });
     }
 
-    /// A friend says whether their device writes down their voice.
-    pub fn friend_writes(who: &str, on: bool) {
+    /// The friend on `peer` (`who`) says whether they want their voice
+    /// written down.
+    pub fn friend_writes(peer: PeerId, who: &str, on: bool) {
         let told = with(|s| {
+            s.desk.friend_wants(peer, on);
             let changed = s.book.friend_writes(who, on, now());
             keep(&s.book.transcript);
             changed
@@ -824,28 +1049,64 @@ pub(crate) mod web {
         }
     }
 
-    /// A friend's call connected: tell the player, and tell the friend
-    /// whether this device writes.
-    pub fn friend_joined(peer: PeerId) {
-        let (me, on, unwritten) = with(|s| {
-            (
-                s.me.clone(),
-                s.skip.is_none(),
-                s.book.unwritten().join(", "),
-            )
-        });
-        crate::voice::say_writes(Some(peer), &me, on);
-        if unwritten.is_empty() {
-            note(TOLD);
-        } else {
-            note(&format!("{TOLD} Not written down: {unwritten}."));
-        }
+    /// The host's device (on `peer`) says what it writes down.
+    pub fn host_says(peer: PeerId, says: HostSays) {
+        with(|s| s.host = Some((peer, says)));
     }
 
-    /// Is this device writing down its player's voice right now (the
-    /// pencil on the Mic button)?
+    /// A friend's call connected: tell them whether this player wants their
+    /// voice written down; the host tells them what it writes next frame.
+    pub fn friend_joined(peer: PeerId) {
+        let (me, mine) = with(|s| {
+            s.call_joined = true;
+            s.sent.retain(|(p, _)| *p != peer);
+            (s.desk.me.clone(), s.desk.mine)
+        });
+        crate::voice::say_writes(Some(peer), &me, mine);
+    }
+
+    /// The friend on `peer` left: their voice stops being listened to (what
+    /// they were saying still gets written down).
+    pub fn forget(peer: PeerId) {
+        stop(Voice::Friend(peer));
+        with(|s| {
+            s.desk.forget(peer);
+            s.sent.retain(|(p, _)| *p != peer);
+            if s.host.is_some_and(|(p, _)| p == peer) {
+                s.host = None;
+            }
+        });
+    }
+
+    /// Every friend left.
+    pub fn forget_all() {
+        let friends: Vec<PeerId> = with(|s| {
+            s.captures
+                .iter()
+                .filter_map(|c| match c.voice {
+                    Voice::Friend(p) => Some(p),
+                    Voice::Mine => None,
+                })
+                .collect()
+        });
+        for peer in friends {
+            forget(peer);
+        }
+        with(|s| {
+            s.sent.clear();
+            s.host = None;
+        });
+    }
+
+    /// Is this player's voice being written down right now (the pencil on
+    /// the Mic button)? On the host, by this device; on a guest, by the
+    /// host's, as it said.
     pub fn writing() -> bool {
-        with(|s| s.capture.is_some())
+        let mic_on = crate::voice::mic_track().is_some();
+        with(|s| match s.desk.here {
+            Some(Skip::Guest) => mic_on && s.host.is_some_and(|(_, h)| h.you && h.skip.is_none()),
+            _ => s.captures.iter().any(|c| c.voice == Voice::Mine),
+        })
     }
 
     /// Is anything written down (from the last 15 minutes)?
@@ -864,18 +1125,19 @@ pub(crate) mod web {
         })
     }
 
-    /// For the browser tests: lines kept, and whether this device writes.
+    /// For the browser tests: lines kept, and whether (and how many voices)
+    /// this device writes down.
     pub fn state() -> String {
         with(|s| {
             format!(
                 "transcript {}; {}; at the listener {}",
                 s.book.transcript.lines().len(),
-                match s.skip {
-                    None if s.capture.is_some() => "writing".to_string(),
-                    None => "ready".to_string(),
+                match s.desk.here {
+                    None if s.captures.is_empty() => "ready".to_string(),
+                    None => format!("writing {}", s.captures.len()),
                     Some(w) => format!("not writing ({w:?})"),
                 },
-                s.scribe.as_ref().map_or(0, |sc| sc.pending)
+                s.desk.pending
             )
         })
     }
@@ -1018,7 +1280,11 @@ mod tests {
         desk.here = skip(true, true, false, 8, false, false);
         for voice in [Voice::Mine, Voice::Friend(7), Voice::Friend(8)] {
             assert!(!desk.writes(voice));
-            assert_eq!(said(&mut desk, voice, &speech), 0, "nothing goes to the model");
+            assert_eq!(
+                said(&mut desk, voice, &speech),
+                0,
+                "nothing goes to the model"
+            );
             assert!(desk.stop(voice).is_none());
         }
         assert_eq!(
@@ -1030,19 +1296,34 @@ mod tests {
     #[test]
     fn only_the_host_writes() {
         assert_eq!(skip(true, false, false, 8, false, false), None);
-        assert_eq!(skip(false, false, false, 8, false, false), Some(Skip::Guest));
+        assert_eq!(
+            skip(false, false, false, 8, false, false),
+            Some(Skip::Guest)
+        );
         let rate = 16_000.0;
         let speech = [talk(1.5, rate), hush(1.0, rate)].concat();
         let mut host = host_desk(rate);
         for voice in [Voice::Mine, Voice::Friend(7), Voice::Friend(8)] {
-            assert_eq!(said(&mut host, voice, &speech), 1, "the host writes down {voice:?}");
+            assert_eq!(
+                said(&mut host, voice, &speech),
+                1,
+                "the host writes down {voice:?}"
+            );
         }
         let mut guest = host_desk(rate);
         guest.here = skip(false, false, false, 8, false, false);
         for voice in [Voice::Mine, Voice::Friend(7), Voice::Friend(8)] {
-            assert_eq!(said(&mut guest, voice, &speech), 0, "a guest writes nothing");
+            assert_eq!(
+                said(&mut guest, voice, &speech),
+                0,
+                "a guest writes nothing"
+            );
         }
-        assert_eq!(told(Some(Skip::Guest), true), None, "a guest goes by the host's word");
+        assert_eq!(
+            told(Some(Skip::Guest), true),
+            None,
+            "a guest goes by the host's word"
+        );
         assert_eq!(
             told(None, true).as_deref(),
             Some("Voice chat is written down as text on the host's computer, for bug reports.")
@@ -1087,7 +1368,11 @@ mod tests {
         assert!(!desk.writes(Voice::Friend(7)));
         assert_eq!(desk.written(Voice::Friend(7), 5.0, "hello"), None);
         assert_eq!(said(&mut desk, Voice::Friend(7), &speech), 0);
-        assert_eq!(said(&mut desk, Voice::Friend(8), &speech), 1, "others still are");
+        assert_eq!(
+            said(&mut desk, Voice::Friend(8), &speech),
+            1,
+            "others still are"
+        );
         assert_eq!(said(&mut desk, Voice::Mine, &speech), 1);
         desk.friend_wants(7, true);
         assert_eq!(said(&mut desk, Voice::Friend(7), &speech), 1);
@@ -1106,6 +1391,7 @@ mod tests {
         desk.mine = true;
         assert!(desk.sound(Voice::Mine, &talk(1.0, rate)).is_none());
         assert!(desk.stop(Voice::Mine).is_some());
+        desk.listen(Voice::Mine, rate);
         assert!(desk.sound(Voice::Mine, &talk(1.0, rate)).is_none());
         desk.mine = false;
         assert!(desk.stop(Voice::Mine).is_none());
@@ -1114,7 +1400,11 @@ mod tests {
     #[test]
     fn why_not_write_battery_saver_weak_busy_behind() {
         assert_eq!(skip(true, false, false, 8, false, false), None);
-        assert_eq!(skip(true, false, false, 0, false, false), None, "cores unknown");
+        assert_eq!(
+            skip(true, false, false, 0, false, false),
+            None,
+            "cores unknown"
+        );
         assert_eq!(skip(true, false, true, 8, false, false), Some(Skip::Saver));
         assert_eq!(skip(true, false, false, 2, false, false), Some(Skip::Weak));
         assert_eq!(skip(true, false, false, 8, true, false), Some(Skip::Busy));

@@ -12,8 +12,8 @@
 //!
 //! After co-op voice chat, "Add the last 15 min of voice chat" (unticked
 //! each time: reports are public) adds what was said, as written down by
-//! each player's device (`scribe.rs`), shown in a box to read, change or cut
-//! before Send.
+//! the host's computer and sent to everyone (`scribe.rs`), shown in a box to
+//! read, change or cut before Send.
 //!
 //! Speak records a few sentences and turns them into text on the device
 //! itself (`crates/listen`, Moonshine tiny, in a background worker shared
