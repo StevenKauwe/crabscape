@@ -31,6 +31,10 @@
 //! the truth about a hit. The bytes are never trusted: [`Msg::from_bytes`]
 //! drops anything too long, cut short, malformed or holding a number that
 //! isn't finite, and never panics.
+//!
+//! Both ends are always the same version of the game: `src/coop.rs` swaps
+//! versions first and never reads another version's messages (the older game
+//! reloads). So messages change freely, with no defaults kept for older games.
 
 use serde::{Deserialize, Serialize};
 
