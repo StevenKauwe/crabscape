@@ -23,6 +23,8 @@ const ABOVE: f32 = 135.0;
 const HULK_GREEN: Color = Color::srgb(0.55, 1.0, 0.40);
 const GOLD: Color = Color::srgb(1.0, 0.88, 0.55);
 const WARM: Color = Color::srgb(1.0, 0.78, 0.32);
+const PIZZA: Color = Color::srgb(1.0, 0.62, 0.25);
+const MONKEY: Color = Color::srgb(0.65, 0.90, 0.45);
 const PALE: Color = Color::srgb(0.80, 0.90, 0.92);
 
 /// Words a player typed as a code (from the box, or the settings).
@@ -125,6 +127,11 @@ fn use_codes(
             (Some(Code::Feast), _) => ("A feast! Shell mended.", GOLD),
             (Some(Code::Glow), Some(m)) if m.glow => ("The lantern blazes!", WARM),
             (Some(Code::Glow), _) => ("The lantern settles.", PALE),
+            (Some(Code::Pizza), _) => ("Eleven arms, all pizza. Delizioso!", PIZZA),
+            (Some(Code::Monkeys), _) => (
+                "Monkeys from outer space! Their asparagus arms can't reach.",
+                MONKEY,
+            ),
             (None, _) => ("Nothing happens.", PALE),
         };
         info!("code: {:?} -> {words}", text.trim());
