@@ -27,6 +27,17 @@ thread_local! {
     static MOULTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
+/// Puts the crab back to its usual size when dropped: where tests share a
+/// thread (WebAssembly runs them one after another), the next test must not
+/// inherit the biggest crab, even after a failure.
+struct UsualAfter;
+
+impl Drop for UsualAfter {
+    fn drop(&mut self) {
+        MOULTS.set(0);
+    }
+}
+
 /// What one scripted run did.
 struct Run {
     sim: Sim,
@@ -2297,6 +2308,7 @@ const BIGGEST: u32 = 99;
 fn the_biggest_crab_still_gets_through_the_whole_route() {
     // The route's own promises, played with a crab grown as big as it gets:
     // every passage still fits it, and every climb and swim still works.
+    let _usual_after = UsualAfter;
     MOULTS.set(BIGGEST);
     let sim = sim_a(SPAWN);
     let t = &sim.tuning;

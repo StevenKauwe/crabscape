@@ -84,6 +84,17 @@ thread_local! {
     static MOULTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
+/// Puts the crab back to its usual size when dropped: where tests share a
+/// thread (WebAssembly runs them one after another), the next test must not
+/// inherit the biggest crab, even after a failure.
+struct UsualAfter;
+
+impl Drop for UsualAfter {
+    fn drop(&mut self) {
+        MOULTS.set(0);
+    }
+}
+
 fn run(script: &str, seconds: f64, kit: Kit) -> Run {
     run_with(Tuning::base(), script, seconds, kit)
 }
@@ -270,6 +281,7 @@ fn glass_grips_stay_fitted_after_dying() {
 #[test]
 fn the_biggest_crab_still_climbs_bare_rock_into_the_notch() {
     // Grown as big as moulting makes it, the notch still fits it.
+    let _usual_after = UsualAfter;
     MOULTS.set(99);
     let r = run("start x=5670 y=-1500\nt=0 walk=stop", 0.1, GLASS);
     let t = &r.sim.tuning;

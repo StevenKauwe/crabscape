@@ -27,6 +27,17 @@ thread_local! {
     static MOULTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
+/// Puts the crab back to its usual size when dropped: where tests share a
+/// thread (WebAssembly runs them one after another), the next test must not
+/// inherit the biggest crab, even after a failure.
+struct UsualAfter;
+
+impl Drop for UsualAfter {
+    fn drop(&mut self) {
+        MOULTS.set(0);
+    }
+}
+
 fn play(mut sim: Sim, script: &str, seconds: f64) -> Sim {
     let replay = Replay::parse(script).expect("the script reads");
     let mut playback = replay.playback();
@@ -140,6 +151,7 @@ fn the_heavy_crusher_breaks_poise_harder() {
 #[test]
 fn the_biggest_crab_still_cracks_the_rock_and_gets_in() {
     // Grown as big as moulting makes it.
+    let _usual_after = UsualAfter;
     MOULTS.set(99);
     let sim = crab(by_the_rock(), true);
     let t = &sim.tuning;
