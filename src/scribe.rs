@@ -988,53 +988,144 @@ mod tests {
         assert!(book.unwritten().is_empty());
     }
 
+    /// A host on a computer, with friends 7 ("Crab 41") and 8 on its calls, each voice being listened to.
+    fn host_desk(rate: f32) -> Desk<u32> {
+        let mut desk = Desk::new();
+        desk.here = skip(true, false, false, 8, false, false);
+        desk.me = "Kai".into();
+        desk.named(7, "Crab 41");
+        for voice in [Voice::Mine, Voice::Friend(7), Voice::Friend(8)] {
+            desk.listen(voice, rate);
+        }
+        desk
+    }
+
+    /// What `voice` said in `speech`, as utterances for the worker.
+    fn said(desk: &mut Desk<u32>, voice: Voice<u32>, speech: &[f32]) -> usize {
+        speech
+            .chunks(4096)
+            .filter_map(|b| desk.sound(voice, b))
+            .count()
+    }
+
     #[test]
-    fn the_write_down_setting_stops_writing_and_sending() {
+    fn a_phone_never_writes_anything_down_host_or_guest() {
+        assert_eq!(skip(true, true, false, 8, false, false), Some(Skip::Phone));
+        assert_eq!(skip(false, true, false, 8, false, false), Some(Skip::Guest));
         let rate = 16_000.0;
-        let mut on = Scribe::new(rate);
-        let mut off = Scribe::new(rate);
         let speech = [talk(1.5, rate), hush(1.0, rate)].concat();
-        let off_says = skip(false, false, 8, false, false);
-        assert_eq!(off_says, Some(Skip::Off));
-        let heard_on: Vec<_> = speech
-            .chunks(4096)
-            .filter_map(|b| on.sound(b, None))
-            .collect();
-        let heard_off: Vec<_> = speech
-            .chunks(4096)
-            .filter_map(|b| off.sound(b, off_says))
-            .collect();
-        assert_eq!(heard_on.len(), 1, "speech is written down");
-        assert!(heard_off.is_empty(), "with the setting off, nothing is");
-        // Turned off while an utterance was at the worker: its line isn't kept or sent.
-        on.pending = 1;
-        assert_eq!(on.written(5.0, "hello", off_says), None);
-        assert_eq!(on.pending, 0);
+        let mut desk = host_desk(rate);
+        desk.here = skip(true, true, false, 8, false, false);
+        for voice in [Voice::Mine, Voice::Friend(7), Voice::Friend(8)] {
+            assert!(!desk.writes(voice));
+            assert_eq!(said(&mut desk, voice, &speech), 0, "nothing goes to the model");
+            assert!(desk.stop(voice).is_none());
+        }
         assert_eq!(
-            on.written(5.0, "hello", None),
-            Some(Said {
-                at: 5.0,
-                text: "hello".into()
+            told(Some(Skip::Phone), true).as_deref(),
+            Some("Voice chat is not written down: the host is on a phone.")
+        );
+    }
+
+    #[test]
+    fn only_the_host_writes() {
+        assert_eq!(skip(true, false, false, 8, false, false), None);
+        assert_eq!(skip(false, false, false, 8, false, false), Some(Skip::Guest));
+        let rate = 16_000.0;
+        let speech = [talk(1.5, rate), hush(1.0, rate)].concat();
+        let mut host = host_desk(rate);
+        for voice in [Voice::Mine, Voice::Friend(7), Voice::Friend(8)] {
+            assert_eq!(said(&mut host, voice, &speech), 1, "the host writes down {voice:?}");
+        }
+        let mut guest = host_desk(rate);
+        guest.here = skip(false, false, false, 8, false, false);
+        for voice in [Voice::Mine, Voice::Friend(7), Voice::Friend(8)] {
+            assert_eq!(said(&mut guest, voice, &speech), 0, "a guest writes nothing");
+        }
+        assert_eq!(told(Some(Skip::Guest), true), None, "a guest goes by the host's word");
+        assert_eq!(
+            told(None, true).as_deref(),
+            Some("Voice chat is written down as text on the host's computer, for bug reports.")
+        );
+    }
+
+    #[test]
+    fn a_friends_line_written_by_the_host_carries_the_friends_name() {
+        let rate = 16_000.0;
+        let mut desk = host_desk(rate);
+        desk.pending = 3;
+        let line = desk.written(Voice::Friend(7), 50.0, "the door won't open");
+        assert_eq!(
+            line,
+            Some(Line {
+                at: 50.0,
+                who: "Crab 41".into(),
+                text: "the door won't open".into()
             })
         );
-        assert_eq!(on.written(5.0, "  ", None), None, "nothing heard");
-        // Talk cut off by the microphone going off is written down unless off.
-        let mut s = Scribe::new(rate);
-        assert!(s.sound(&talk(1.0, rate), None).is_none());
-        assert!(s.stop(None).is_some());
-        assert!(s.sound(&talk(1.0, rate), None).is_none());
-        assert!(s.stop(off_says).is_none());
+        let mine = desk.written(Voice::Mine, 51.0, "coming");
+        assert_eq!(mine.map(|l| l.who).as_deref(), Some("Kai"));
+        let unnamed = desk.written(Voice::Friend(8), 52.0, "hi");
+        assert_eq!(unnamed.map(|l| l.who).as_deref(), Some("A friend"));
+        assert_eq!(desk.pending, 0);
+        // A friend who left while their last words were at the worker still gets their name.
+        desk.forget(7);
+        let late = desk.written(Voice::Friend(7), 53.0, "bye");
+        assert_eq!(late.map(|l| l.who).as_deref(), Some("Crab 41"));
+        assert_eq!(desk.written(Voice::Mine, 54.0, "  "), None, "nothing heard");
+    }
+
+    #[test]
+    fn a_friends_opt_out_is_honoured_by_the_host() {
+        let rate = 16_000.0;
+        let speech = [talk(1.5, rate), hush(1.0, rate)].concat();
+        let mut desk = host_desk(rate);
+        // Talk at the worker when they switch it off: not kept, not sent.
+        assert_eq!(said(&mut desk, Voice::Friend(7), &speech), 1);
+        desk.pending = 1;
+        desk.friend_wants(7, false);
+        assert!(!desk.writes(Voice::Friend(7)));
+        assert_eq!(desk.written(Voice::Friend(7), 5.0, "hello"), None);
+        assert_eq!(said(&mut desk, Voice::Friend(7), &speech), 0);
+        assert_eq!(said(&mut desk, Voice::Friend(8), &speech), 1, "others still are");
+        assert_eq!(said(&mut desk, Voice::Mine, &speech), 1);
+        desk.friend_wants(7, true);
+        assert_eq!(said(&mut desk, Voice::Friend(7), &speech), 1);
+        // The host's own player switching it off: only their voice stops.
+        desk.mine = false;
+        assert_eq!(said(&mut desk, Voice::Mine, &speech), 0);
+        assert_eq!(said(&mut desk, Voice::Friend(8), &speech), 1);
+        assert_eq!(
+            told(None, false).as_deref(),
+            Some(
+                "Voice chat is written down as text on the host's computer, for bug reports, \
+                 except your voice (Settings, Co-op)."
+            )
+        );
+        // Talk cut off by a microphone going off is written down, unless off.
+        desk.mine = true;
+        assert!(desk.sound(Voice::Mine, &talk(1.0, rate)).is_none());
+        assert!(desk.stop(Voice::Mine).is_some());
+        assert!(desk.sound(Voice::Mine, &talk(1.0, rate)).is_none());
+        desk.mine = false;
+        assert!(desk.stop(Voice::Mine).is_none());
     }
 
     #[test]
     fn why_not_write_battery_saver_weak_busy_behind() {
-        assert_eq!(skip(true, false, 8, false, false), None);
-        assert_eq!(skip(true, false, 0, false, false), None, "cores unknown");
-        assert_eq!(skip(true, true, 8, false, false), Some(Skip::Saver));
-        assert_eq!(skip(true, false, 2, false, false), Some(Skip::Weak));
-        assert_eq!(skip(true, false, 8, true, false), Some(Skip::Busy));
-        assert_eq!(skip(true, false, 8, false, true), Some(Skip::Behind));
-        assert_eq!(skip(false, true, 2, true, true), Some(Skip::Off));
+        assert_eq!(skip(true, false, false, 8, false, false), None);
+        assert_eq!(skip(true, false, false, 0, false, false), None, "cores unknown");
+        assert_eq!(skip(true, false, true, 8, false, false), Some(Skip::Saver));
+        assert_eq!(skip(true, false, false, 2, false, false), Some(Skip::Weak));
+        assert_eq!(skip(true, false, false, 8, true, false), Some(Skip::Busy));
+        assert_eq!(skip(true, false, false, 8, false, true), Some(Skip::Behind));
+        assert_eq!(skip(false, true, true, 2, true, true), Some(Skip::Guest));
+        assert_eq!(skip(true, true, true, 2, true, true), Some(Skip::Phone));
+        for why in [Skip::Saver, Skip::Weak, Skip::Busy, Skip::Behind] {
+            let words = told(Some(why), true).unwrap_or_default();
+            assert!(words.starts_with("Voice chat "), "{why:?}: {words}");
+            assert!(words.contains("host"), "{why:?}: {words}");
+        }
         let mut busy = Busy::default();
         for _ in 0..(60 * 20) {
             busy.frame(1.0 / 60.0, true);

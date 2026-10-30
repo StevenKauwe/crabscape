@@ -1018,6 +1018,14 @@ mod tests {
                 who: "Crab 41".into(),
                 on: false,
             },
+            Note::Host(crate::scribe::HostSays {
+                skip: Some(crate::scribe::Skip::Phone),
+                you: false,
+            }),
+            Note::Host(crate::scribe::HostSays {
+                skip: None,
+                you: true,
+            }),
         ] {
             assert_eq!(Note::from_bytes(&note.to_bytes()), Some(note));
         }
