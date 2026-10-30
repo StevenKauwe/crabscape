@@ -304,6 +304,14 @@ impl Chrome {
         Ok(r["result"]["value"].clone())
     }
 
+    /// Frames the page draws in a second, counted now.
+    pub fn frame_rate(&mut self) -> Result<u64> {
+        let count = "new Promise(done => { let n = 0; const t = performance.now(); \
+            const f = () => { n++; if (performance.now() - t < 1000) requestAnimationFrame(f); else done(n); }; \
+            requestAnimationFrame(f); })";
+        Ok(self.eval(count)?.as_u64().unwrap_or(0))
+    }
+
     /// An attribute of the game's canvas (`data-coop`...), if the page has one now.
     pub fn attr(&mut self, name: &str) -> Option<String> {
         let expr = format!(r#"document.getElementById("crabscape")?.getAttribute("{name}")"#);

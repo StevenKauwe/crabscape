@@ -439,8 +439,9 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
             if t.elapsed().as_secs_f64() > limit::VOICE {
                 // Every player's microphone and calls, to tell a mic left off from a call that never came up.
                 let mut why = format!("waited {} s for voice ({want}) both ways:", limit::VOICE);
-                for (p, v) in players.iter().zip(&says) {
-                    why += &format!("\n      {} voice: {v}", p.name());
+                for (p, v) in players.iter_mut().zip(&says) {
+                    let fps = p.b.frame_rate().unwrap_or(0);
+                    why += &format!("\n      {} voice ({fps} frames/s): {v}", p.name());
                 }
                 let mut why = Some(why);
                 for p in players.iter_mut() {
