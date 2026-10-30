@@ -12,10 +12,14 @@
 //! same link. Settings' "New link" swaps the code, so the old link reaches
 //! nobody.
 //!
-//! A friend in the lobby while its owner is away plays alone in their own
-//! world ("Waiting for your friend..."), and takes the host's world the moment
-//! the host's game is there. Friends waiting together don't share a world
-//! nobody runs.
+//! A link is a game world with a main host (the lobby's owner), and anyone on
+//! it can meet up there. A friend alone on the link while the main host is
+//! away plays their own world ("Waiting for your friend..."). Two or more
+//! play together: one of them stands in as host, in its own world, exactly
+//! as the main host would ([`who_hosts`]: every device picks the same one
+//! from the hellos it heard, with no asking). The moment the main host's game
+//! is there, everyone, the stand-in too, goes into the main host's world.
+//! Nobody ever plays half of a world nobody runs.
 //!
 //! Who decides what is the simulation's business (`crabsim::net`): this
 //! module only carries its messages. Each frame it hands the simulation what
@@ -23,8 +27,10 @@
 //! updates (where crabs and enemies are) go on an unreliable channel, where a
 //! late one is simply skipped; the rest (blows, hand-overs) on a reliable one.
 //!
-//! The host's crab is always [`HOST`] (as in solo play); a guest's gets a
-//! random number. A guest finds the host's device by its crab's updates.
+//! The main host's crab is always [`HOST`] (as in solo play); a guest's gets a
+//! random number, which it keeps if it stands in. Each device's hello says
+//! its crab and whether it hosts, so a guest knows which device's word on the
+//! world to take.
 //!
 //! A device that loses everyone it played with (a phone slept, the network
 //! dropped) joins the same room afresh every few seconds until they're back;
@@ -272,16 +278,51 @@ const STAND_IN_AFTER: f32 = 2.0;
 /// one who stayed carries on when the stand-in reloads), then the lowest crab. A friend alone stands in only once
 /// it has played here, so one who has never met anyone simply waits.
 fn who_hosts(me: OnLink, friends: &[OnLink], unhosted: f32) -> Hosting {
-    let _ = (me, friends, unhosted);
-    Hosting::Nobody
+    let all = || friends.iter().copied().chain([me]);
+    let pick = |d: OnLink| {
+        if (d.crab, d.conn) == (me.crab, me.conn) {
+            Hosting::Me
+        } else {
+            Hosting::Friend(d.crab)
+        }
+    };
+    if let Some(host) = all().filter(|d| d.hosts).min_by_key(|d| (d.crab, d.conn)) {
+        return pick(host);
+    }
+    if unhosted < STAND_IN_AFTER || (friends.is_empty() && !me.met) {
+        return Hosting::Nobody;
+    }
+    all()
+        .min_by_key(|d| (!d.met, d.crab, d.conn))
+        .map_or(Hosting::Nobody, pick)
 }
 
-/// The line under the invite button (and `data-coop` on the canvas).
-fn status(host: bool, together: bool, n: usize) -> String {
-    match (host, together) {
-        (_, true) => format!("Playing with {}", friends(n)),
-        (true, false) => "Lobby open: waiting for a friend...".into(),
-        (false, false) => "Waiting for your friend...".into(),
+/// The line under the invite button (and `data-coop` on the canvas): `hosting` as this device sees it, `owner`: the
+/// link is this device's own, `together` with `n` friends, `host_name`: the name of the friend who hosts, if known.
+/// While a friend stands in for the main host, a second line says so.
+fn status(
+    hosting: Hosting,
+    owner: bool,
+    together: bool,
+    n: usize,
+    host_name: Option<&str>,
+) -> String {
+    if !together {
+        let waiting = if owner {
+            "Lobby open: waiting for a friend..."
+        } else {
+            "Waiting for your friend..."
+        };
+        return waiting.into();
+    }
+    let playing = format!("Playing with {}", friends(n));
+    match hosting {
+        Hosting::Me if !owner => format!("{playing}\nYou host until the main host is here"),
+        Hosting::Friend(h) if h != HOST => format!(
+            "{playing}\n{} hosts until the main host is here",
+            host_name.unwrap_or("A friend")
+        ),
+        _ => playing,
     }
 }
 
@@ -296,14 +337,39 @@ pub(crate) const VERSION: &str = match option_env!("CRABSCAPE_VERSION") {
 /// of any version (a message's first byte is its kind, a small number), so no game takes it for game data.
 const HELLO: &[u8] = b"\xffcrabscape version ";
 
-/// The hello this game sends: its `version`.
-fn hello(version: &str) -> Vec<u8> {
-    [HELLO, version.as_bytes()].concat()
+/// The hello this game sends when it meets a device, and again whenever it starts or stops hosting or first plays
+/// with friends: its `version`, then its `crab` and whether it `hosts` and has `met` friends on this link (what
+/// [`who_hosts`] needs).
+fn hello(version: &str, crab: PlayerId, hosts: bool, met: bool) -> Vec<u8> {
+    let flag = |b: bool| if b { '1' } else { '0' };
+    let rest = format!("{version} {} {} {}", crab.0, flag(hosts), flag(met));
+    [HELLO, rest.as_bytes()].concat()
 }
 
-/// The version in a friend's hello, if `bytes` are one.
-fn read_hello(bytes: &[u8]) -> Option<&str> {
-    std::str::from_utf8(bytes.strip_prefix(HELLO)?).ok()
+/// A friend's hello.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Hello<'a> {
+    version: &'a str,
+    /// None from a game that doesn't say (another version: it never plays here).
+    crab: Option<PlayerId>,
+    hosts: bool,
+    met: bool,
+}
+
+/// A friend's hello, if `bytes` are one.
+fn read_hello(bytes: &[u8]) -> Option<Hello<'_>> {
+    let text = std::str::from_utf8(bytes.strip_prefix(HELLO)?).ok()?;
+    let mut words = text.split(' ');
+    let version = words.next()?;
+    let crab = words.next().and_then(|w| w.parse().ok()).map(PlayerId);
+    let hosts = words.next() == Some("1");
+    let met = words.next() == Some("1");
+    Some(Hello {
+        version,
+        crab,
+        hosts,
+        met,
+    })
 }
 
 /// What to do about a friend whose game is on another version.
@@ -346,17 +412,21 @@ fn update_line(u: Update) -> Option<&'static str> {
     }
 }
 
-/// Is this word from the host? Its crab's updates, or the world it sends a
-/// device that just connected (often before its crab). A guest playing alone
-/// takes the host's world on the first of these; it would drop the world if
-/// it waited for the crab.
-fn from_host(msg: &crabsim::net::Msg) -> bool {
+/// Is this word, from the device whose crab is `sender`, from the host this device goes with (`hosting`)? Its crab's
+/// updates, or the world it sends a device that just connected (often before its crab). A guest playing alone takes
+/// the host's world on the first of these; it would drop the world if it waited for the crab. Anyone else's word on
+/// the world (a stand-in that just stepped down for the main host) is never taken.
+fn from_host(msg: &crabsim::net::Msg, sender: Option<PlayerId>, hosting: Hosting) -> bool {
     use crabsim::net::Msg;
-    match msg {
-        Msg::World { .. } => true,
-        Msg::Crab { crab, .. } => crab.id == HOST,
-        _ => false,
-    }
+    let Hosting::Friend(host) = hosting else {
+        return false;
+    };
+    sender == Some(host)
+        && match msg {
+            Msg::World { .. } => true,
+            Msg::Crab { crab, .. } => crab.id == host,
+            _ => false,
+        }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -374,9 +444,9 @@ mod web {
     use wasm_bindgen::{JsCast, JsValue};
 
     use super::{
-        HOST, INTRODUCER, LocalId, NewLink, Start, Update, VERSION, Watch, clean_code, from_host,
-        hello, make_code, on_version, open_in_other_tab, param, read_hello, room, start, status,
-        status_top, update_line,
+        HOST, Hosting, INTRODUCER, LocalId, NewLink, OnLink, Start, Update, VERSION, Watch,
+        clean_code, from_host, hello, make_code, on_version, open_in_other_tab, param, read_hello,
+        room, start, status, status_top, update_line, who_hosts,
     };
     use crate::names::Names;
     use crate::player::{GameSet, spawn_local_crab};
@@ -419,6 +489,12 @@ mod web {
         asked_for: Option<String>,
         /// Seconds until the page reloads to get the new version, once it's decided.
         reload_in: Option<f32>,
+        /// Who hosts the world this device plays in, as it sees it.
+        hosting: Hosting,
+        /// Seconds with friends on the link and nobody hosting.
+        unhosted: f32,
+        /// What this device's last hello said: (it hosts, it has met friends here).
+        said: (bool, bool),
     }
 
     /// The version the site serves now, fetched fresh when a friend on another version turns up.
@@ -439,6 +515,8 @@ mod web {
         version: Option<String>,
         /// Seconds since it connected.
         age: f32,
+        /// What its last hello said, for choosing who hosts.
+        said: Option<OnLink>,
     }
 
     impl Peer {
@@ -680,7 +758,7 @@ mod web {
             sim.go_online(true);
         }
         connect(&code);
-        coop.status = status(host, false, 0);
+        coop.status = status(Hosting::Nobody, host, false, 0, None);
     }
 
     /// The introducer's address: the live one, or `?introducer=` for testing.
@@ -806,7 +884,7 @@ mod web {
             sim.go_online(true);
             connect(&mine);
             coop.code = Some(mine.clone());
-            coop.status = status(true, false, 0);
+            coop.status = status(Hosting::Nobody, true, false, 0, None);
         }
         // A guest shares the lobby it's in; everyone else their own.
         let link = if me.0 == HOST {
@@ -864,14 +942,17 @@ mod web {
         let Some(code) = coop.code.clone() else {
             return;
         };
-        let host = me.0 == HOST;
-        let alive = LINK.with(|cell| {
+        let owner = me.0 == HOST;
+        let dt = time.delta_secs();
+        let hosting = coop.hosting;
+        let host = hosts_now(&sim);
+        let met_here = coop.watch.met;
+        // The connection works: this device's connection number, and each friend on the link as its hello said.
+        let heard = LINK.with(|cell| {
             let mut cell = cell.borrow_mut();
-            let Some(link) = cell.as_mut() else {
-                return false;
-            };
+            let link = cell.as_mut()?;
             let Ok(changes) = link.socket.try_update_peers() else {
-                return false;
+                return None;
             };
             if link.me.is_none() {
                 link.me = link.socket.id();
@@ -887,24 +968,32 @@ mod web {
                             quiet: 0.0,
                             version: None,
                             age: 0.0,
+                            said: None,
                         });
-                        // First of all, on the reliable channel: which version this game is.
-                        link.send(peer, hello(VERSION).into(), RELIABLE);
+                        // First of all, on the reliable channel: which version this game is, and who it is here.
+                        link.send(peer, hello(VERSION, me.0, host, met_here).into(), RELIABLE);
                     }
                     PeerState::Disconnected => gone.push(peer),
                 }
             }
             let mut met = Vec::new();
             let mut greet = Vec::new();
+            let mut again = Vec::new();
             for channel in [RELIABLE, QUICK] {
                 for (peer, bytes) in link.socket.channel_mut(channel).receive() {
                     let Some(p) = link.peers.iter_mut().find(|p| p.id == peer) else {
                         continue;
                     };
                     p.quiet = 0.0;
-                    if let Some(version) = read_hello(&bytes) {
-                        info!("co-op: a device on version {version}");
-                        p.version = Some(version.to_string());
+                    if let Some(h) = read_hello(&bytes) {
+                        info!("co-op: a device on version {}", h.version);
+                        p.version = Some(h.version.to_string());
+                        p.said = h.crab.map(|crab| OnLink {
+                            crab,
+                            conn: peer.0.as_u128(),
+                            hosts: h.hosts,
+                            met: h.met,
+                        });
                         // The same version: the host tells it how the world stands.
                         if host && p.same_version() {
                             greet.push(peer);
@@ -923,6 +1012,11 @@ mod web {
                         names.heard(*crab, name);
                         continue;
                     }
+                    let from_host = from_host(&msg, p.said.map(|s| s.crab), hosting);
+                    // Only the host this device goes with says how the world stands.
+                    if matches!(msg, Msg::World { .. }) && !from_host {
+                        continue;
+                    }
                     // Met for the first time, or again after going silent.
                     if let Msg::Crab { crab, .. } = &msg
                         && p.player.is_none()
@@ -932,9 +1026,11 @@ mod web {
                         info!("co-op: met player {}", crab.id.0);
                         met.push(peer);
                     }
-                    // The host is here (again): back to its world.
-                    if from_host(&msg) && !host && !sim.online() {
+                    // The host is here (again): into its world. A hello again asks it how its world stands, in
+                    // case it met this device already and won't say by itself.
+                    if from_host && !sim.online() {
                         sim.go_online(false);
+                        again.push(peer);
                     }
                     sim.receive(msg);
                 }
@@ -944,6 +1040,9 @@ mod web {
                 for peer in greet {
                     link.send(peer, sim.world().to_bytes().into(), RELIABLE);
                 }
+            }
+            for peer in again {
+                link.send(peer, hello(VERSION, me.0, false, met_here).into(), RELIABLE);
             }
             // Met (again, maybe after a silence): the name we go by, and
             // from the host how the world stands now.
@@ -992,25 +1091,71 @@ mod web {
                 lost.extend(link.peers.remove(i).player);
             }
             for id in lost {
-                if id == HOST {
-                    // The host went: play on alone until it's back.
+                if hosting == Hosting::Friend(id) {
+                    // The host went: play on alone until it's back (or another friend hosts).
                     sim.go_offline();
                 } else {
                     sim.remove_crab(id);
                 }
             }
-            true
+            let friends: Vec<OnLink> = link
+                .peers
+                .iter()
+                .filter(|p| p.same_version())
+                .filter_map(|p| p.said)
+                .collect();
+            Some((link.me.map_or(0, |m| m.0.as_u128()), friends))
         });
-        let (n, with_host) = LINK.with(|cell| {
-            cell.borrow().as_ref().map_or((0, false), |l| {
-                (l.known().count(), l.known().any(|id| id == HOST))
+        let alive = heard.is_some();
+        // Who hosts, worked out afresh while the connection works (a dead one changes nothing until it's redone).
+        if let Some((conn, friends)) = heard {
+            let claimed = host || friends.iter().any(|f| f.hosts);
+            coop.unhosted = if claimed { 0.0 } else { coop.unhosted + dt };
+            let mine = OnLink {
+                crab: me.0,
+                conn,
+                hosts: host,
+                met: met_here,
+            };
+            let now = who_hosts(mine, &friends, coop.unhosted);
+            if now != hosting {
+                change_host(&mut sim, now);
+                coop.hosting = now;
+            }
+        }
+        let (n, known) = LINK.with(|cell| {
+            cell.borrow().as_ref().map_or((0, Vec::new()), |l| {
+                (l.known().count(), l.known().collect::<Vec<_>>())
             })
         });
-        let together = if host { n > 0 } else { with_host };
-        if coop.watch.step(together, alive, time.delta_secs()) {
-            rejoin(&mut sim, &code, host);
+        let together = match coop.hosting {
+            Hosting::Me => n > 0,
+            Hosting::Friend(h) => known.contains(&h),
+            Hosting::Nobody => false,
+        };
+        if coop.watch.step(together, alive, dt) {
+            let hosting = hosts_now(&sim);
+            rejoin(&mut sim, &code, hosting);
         }
-        coop.status = status(host, together, n);
+        // Started or stopped hosting, or played with friends here for the first time: every friend hears so.
+        let say = (hosts_now(&sim), coop.watch.met);
+        if say != coop.said {
+            coop.said = say;
+            LINK.with(|cell| {
+                if let Some(link) = cell.borrow_mut().as_mut() {
+                    let bytes: Packet = hello(VERSION, me.0, say.0, say.1).into();
+                    let peers: Vec<PeerId> = link.peers.iter().map(|p| p.id).collect();
+                    for peer in peers {
+                        link.send(peer, bytes.clone(), RELIABLE);
+                    }
+                }
+            });
+        }
+        let host_name = match coop.hosting {
+            Hosting::Friend(h) => names.of(h, me.0).map(str::to_string),
+            _ => None,
+        };
+        coop.status = status(coop.hosting, owner, together, n, host_name.as_deref());
         let update = versions(&mut coop);
         if let Some(line) = update.and_then(update_line) {
             coop.status = line.into();
@@ -1031,6 +1176,29 @@ mod web {
                     let _ = w.location().reload();
                 }
             }
+        }
+    }
+
+    /// Does this device host a co-op world right now (the main host, or a stand-in)?
+    fn hosts_now(sim: &Sim) -> bool {
+        sim.online() && sim.is_host()
+    }
+
+    /// Someone else hosts now (`now`). Whatever world this device was in, it leaves cleanly: a stand-in stepping
+    /// down keeps the world it hosted as its own, a guest goes back to its own; both play it, whole, until the new
+    /// host's first word (never half of a world nobody runs). Standing in, it hosts its own world from now on.
+    fn change_host(sim: &mut Sim, now: Hosting) {
+        match now {
+            Hosting::Me => info!("co-op: this device hosts"),
+            Hosting::Friend(h) => info!("co-op: player {} hosts", h.0),
+            Hosting::Nobody => info!("co-op: nobody hosts"),
+        }
+        let already = now == Hosting::Me && hosts_now(sim);
+        if sim.online() && !already {
+            sim.go_offline();
+        }
+        if now == Hosting::Me && !already {
+            sim.go_online(true);
         }
     }
 
@@ -1137,7 +1305,7 @@ mod web {
 
     /// Send what the simulation wrote this frame (and our name, if it just
     /// changed: friends met later get it when they meet).
-    fn send_out(mut sim: ResMut<Sim>, mut names: ResMut<Names>, me: Res<LocalId>) {
+    fn send_out(mut sim: ResMut<Sim>, mut names: ResMut<Names>, me: Res<LocalId>, coop: Res<Coop>) {
         let out = sim.take_outbox();
         let renamed = std::mem::take(&mut names.changed).then(|| Msg::Name {
             crab: me.0,
@@ -1178,7 +1346,11 @@ mod web {
                             link.send(peer, bytes.clone(), channel);
                         }
                     }
-                    To::Host => link.send_to(HOST, bytes, channel),
+                    To::Host => {
+                        if let Hosting::Friend(host) = coop.hosting {
+                            link.send_to(host, bytes, channel);
+                        }
+                    }
                     To::Player(id) => link.send_to(id, bytes, channel),
                 }
             }
@@ -1317,13 +1489,38 @@ mod tests {
 
     #[test]
     fn the_status_line_says_where_you_stand() {
+        use Hosting::*;
         assert_eq!(
-            status(true, false, 0),
+            status(Me, true, false, 0, None),
             "Lobby open: waiting for a friend..."
         );
-        assert_eq!(status(false, false, 0), "Waiting for your friend...");
-        assert_eq!(status(true, true, 2), "Playing with 2 friends");
-        assert_eq!(status(false, true, 1), "Playing with 1 friend");
+        assert_eq!(
+            status(Nobody, false, false, 0, None),
+            "Waiting for your friend..."
+        );
+        // A stand-in whose friends left waits like anyone else.
+        assert_eq!(
+            status(Me, false, false, 0, None),
+            "Waiting for your friend..."
+        );
+        assert_eq!(status(Me, true, true, 2, None), "Playing with 2 friends");
+        assert_eq!(
+            status(Friend(HOST), false, true, 1, Some("Kai")),
+            "Playing with 1 friend"
+        );
+        // While the main host is away, a second line says who hosts until it's here.
+        assert_eq!(
+            status(Me, false, true, 1, None),
+            "Playing with 1 friend\nYou host until the main host is here"
+        );
+        assert_eq!(
+            status(Friend(PlayerId(7)), false, true, 2, Some("Crab 07")),
+            "Playing with 2 friends\nCrab 07 hosts until the main host is here"
+        );
+        assert_eq!(
+            status(Friend(PlayerId(7)), false, true, 1, None),
+            "Playing with 1 friend\nA friend hosts until the main host is here"
+        );
         assert_eq!(update_line(Update::Play), None);
         assert_eq!(
             update_line(Update::Reload),
@@ -1433,10 +1630,21 @@ mod tests {
 
     #[test]
     fn a_hello_says_the_version_and_is_never_a_game_message() {
-        let bytes = hello("9f8e7d");
-        assert_eq!(read_hello(&bytes), Some("9f8e7d"));
-        assert_eq!(read_hello(&hello(VERSION)), Some(VERSION));
+        let bytes = hello("9f8e7d", PlayerId(4321), true, false);
+        let said = Hello {
+            version: "9f8e7d",
+            crab: Some(PlayerId(4321)),
+            hosts: true,
+            met: false,
+        };
+        assert_eq!(read_hello(&bytes), Some(said));
+        let mine = hello(VERSION, HOST, false, true);
+        let mine = read_hello(&mine).map(|h| (h.version, h.met));
+        assert_eq!(mine, Some((VERSION, true)));
         assert!(crabsim::net::Msg::from_bytes(&bytes).is_none());
+        // A game that says only its version (another version, which never plays here) still says which.
+        let bare = read_hello(b"\xffcrabscape version 0a1b2c");
+        assert_eq!(bare.map(|h| (h.version, h.crab)), Some(("0a1b2c", None)));
         // Game messages and rubbish are not hellos.
         assert_eq!(read_hello(&crabsim::net::Msg::NetCut(3).to_bytes()), None);
         assert_eq!(read_hello(b"\xffcrabscape versio"), None);
@@ -1481,10 +1689,7 @@ mod tests {
         assert_eq!(who_hosts(a, &[], STAND_IN_AFTER), Me);
         let back = on(1, 5, false, false);
         assert_eq!(who_hosts(a, &[back], STAND_IN_AFTER), Me);
-        assert_eq!(
-            who_hosts(back, &[a], STAND_IN_AFTER),
-            Friend(PlayerId(500))
-        );
+        assert_eq!(who_hosts(back, &[a], STAND_IN_AFTER), Friend(PlayerId(500)));
         // Two friends stood in at once (their hellos crossed): both see it the same way, the lower crab keeps it.
         let (x, y) = (on(700, 6, true, true), on(800, 7, true, true));
         assert_eq!(who_hosts(x, &[y], 0.0), Me);
@@ -1511,15 +1716,28 @@ mod tests {
             .filter(|m| matches!(m, Msg::Crab { .. }))
             .collect();
         assert!(!crabs.is_empty(), "the host sends its crab");
+        let main = Hosting::Friend(HOST);
         // The world comes first, often before the crab: either one is the host.
-        assert!(from_host(&host.world()));
-        assert!(crabs.iter().all(from_host));
-        // Another friend waiting in the lobby is not the host: no taking its world.
+        assert!(from_host(&host.world(), Some(HOST), main));
+        assert!(crabs.iter().all(|m| from_host(m, Some(HOST), main)));
+        // Another friend on the link is not the host: no taking its world.
         let mut other = crabs[0].clone();
         if let Msg::Crab { crab, .. } = &mut other {
             crab.id = PlayerId(7);
         }
-        assert!(!from_host(&other));
-        assert!(!from_host(&Msg::NetCut(0)));
+        assert!(!from_host(&other, Some(PlayerId(7)), main));
+        assert!(!from_host(&host.world(), Some(PlayerId(7)), main));
+        assert!(!from_host(&Msg::NetCut(0), Some(HOST), main));
+        // ...unless it stands in for the main host: then its word is the host's.
+        let stand_in = Hosting::Friend(PlayerId(7));
+        assert!(from_host(&other, Some(PlayerId(7)), stand_in));
+        assert!(from_host(&host.world(), Some(PlayerId(7)), stand_in));
+        // A stand-in that stepped down for the main host: its world is no longer taken.
+        assert!(!from_host(&host.world(), Some(PlayerId(7)), main));
+        // Hosting, or going with nobody: nobody else's world is taken.
+        for hosting in [Hosting::Me, Hosting::Nobody] {
+            assert!(!from_host(&host.world(), Some(HOST), hosting));
+            assert!(!from_host(&crabs[0], Some(HOST), hosting));
+        }
     }
 }
