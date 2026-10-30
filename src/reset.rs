@@ -13,11 +13,39 @@ use crate::save;
 /// the start too), then forget what this device kept and, in a browser, load
 /// the page afresh. (A desktop build just carries on, from the start.)
 pub fn start_over(sim: &mut Sim) {
-    *sim = Sim::with_one_crab(SPAWN);
-    sim.start_recording();
+    *sim = fresh();
     save::wipe();
     #[cfg(target_arch = "wasm32")]
     if let Some(window) = web_sys::window() {
         let _ = window.location().reload();
+    }
+}
+
+/// The world as a new game starts it: the crab at the start, recording.
+fn fresh() -> Sim {
+    let mut sim = Sim::with_one_crab(SPAWN);
+    sim.start_recording();
+    sim
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crabsim::Kind;
+    use crabsim::enemy::State;
+
+    #[test]
+    fn starting_over_puts_every_animal_back_in_place_the_octopus_hidden_in_its_den() {
+        let sim = fresh();
+        let kinds: Vec<Kind> = sim.enemies().iter().map(|e| e.kind).collect();
+        let level: Vec<Kind> = sim.level.foes.iter().map(|f| f.0).collect();
+        assert_eq!(kinds, level, "the level's animals, all there");
+        let o = sim
+            .enemies()
+            .iter()
+            .find(|e| e.kind == Kind::Octopus)
+            .unwrap();
+        assert_eq!(o.state, State::Idle);
+        assert!(o.hidden(&sim.tuning));
     }
 }

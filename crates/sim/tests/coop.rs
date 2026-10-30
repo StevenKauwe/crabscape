@@ -1192,3 +1192,90 @@ fn the_defender_decides_a_blow_on_a_grown_crab_against_its_bigger_shell() {
         "and the host shows that shell"
     );
 }
+
+// --- The octopus, in both worlds ---------------------------------------------
+
+/// The level's octopus on `sim`.
+fn octopus(sim: &Sim) -> &crabsim::Enemy {
+    sim.enemies()
+        .iter()
+        .find(|e| e.kind == Kind::Octopus)
+        .expect("the level's octopus")
+}
+
+/// Hidden in its den, whole: as a crab coming in finds it.
+fn octopus_at_home(sim: &Sim) -> bool {
+    let e = octopus(sim);
+    let (_, at) = *sim
+        .level
+        .foes
+        .iter()
+        .find(|(k, _)| *k == Kind::Octopus)
+        .unwrap();
+    e.state == State::Idle
+        && e.pos.x == at.x
+        && e.hidden(&sim.tuning)
+        && e.vitals.health == sim.tuning.octopus.base.vitals.health
+}
+
+#[test]
+fn a_friend_who_joins_finds_the_octopus_in_its_den_and_after_a_beating_it_comes_back_for_both() {
+    let populated = |sim: &mut Sim| sim.populate();
+    // The host beats the octopus alone, then a guest joins.
+    let mut host = world(&populated);
+    let den = octopus(&host).pos;
+    host.add_crab(HOST, den - Vec2::new(200.0, 0.0));
+    host.crab_mut(HOST).unwrap().fighter.vitals.health = 100_000.0;
+    let t = host.tuning.clone();
+    for i in 0.. {
+        let e = host
+            .enemies_mut()
+            .iter_mut()
+            .find(|e| e.kind == Kind::Octopus)
+            .unwrap();
+        if e.state == State::Gone {
+            break;
+        }
+        assert!(i < 20_000, "never beaten");
+        if i % 20 == 0 && e.hittable(&t) {
+            let x = e.pos.x - 100.0;
+            e.takes_at(
+                crabsim::enemy::Part::Body,
+                &crabsim::Hit::new(40.0, 0.0, crabsim::Source::World),
+                x,
+                &t,
+            );
+        }
+        host.tick();
+    }
+    // Both crabs head home, far from the den.
+    put(&mut host, HOST, FAR);
+    host.go_online(true);
+    let mut guest = world(&populated);
+    guest.add_crab(GUEST, NEAR);
+    guest.go_online(false);
+    assert!(
+        octopus_at_home(&guest),
+        "the guest's own octopus, before the host's word"
+    );
+    guest.receive(host.world());
+    let mut link = FakeLink::steady(LAG);
+    let mut step = |host: &mut Sim, guest: &mut Sim, n: u32| {
+        for _ in 0..n {
+            host.tick();
+            guest.tick();
+            link.carry(&mut [&mut *host, &mut *guest]);
+        }
+    };
+    step(&mut host, &mut guest, 120);
+    assert_eq!(
+        octopus(&guest).state,
+        State::Gone,
+        "the guest sees the host's world: beaten"
+    );
+    // A while later it is back in its den, for both.
+    let away = host.tuning.octopus.base.respawn_ticks;
+    step(&mut host, &mut guest, away + 240);
+    assert!(octopus_at_home(&host), "host: {:?}", octopus(&host));
+    assert!(octopus_at_home(&guest), "guest: {:?}", octopus(&guest));
+}
