@@ -118,6 +118,10 @@ fn size_is_the_body_against_the_level_and_in_a_fight() {
     );
     assert!((b.width() - p.width() * g).abs() < 1e-3);
     assert!((b.height() - p.height() * g).abs() < 1e-3);
+    // And its box against the level.
+    let (m, t) = (mover(&big), &big.tuning);
+    assert!((m.half_width(t) - t.body_half_width * g).abs() < 1e-4);
+    assert!((m.height(t) - t.body_height * g).abs() < 1e-4);
 }
 
 #[test]
