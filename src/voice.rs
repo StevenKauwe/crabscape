@@ -132,12 +132,13 @@ struct Meter {
     read_at: Option<f64>,
 }
 
-/// Samples the meter reads at once.
-const METER_SAMPLES: u32 = 2048;
-/// Seconds between readings (0: every frame).
-const METER_EVERY: f64 = 0.0;
-/// What the loudest reading keeps of itself per reading.
-const METER_HOLD: f32 = 0.98;
+/// Samples the meter reads at once: the most a browser's meter holds, about 0.7 s, longer than the half second
+/// between a test microphone's beeps, so a reading can't fall between two beeps however the frames line up.
+const METER_SAMPLES: u32 = 32768;
+/// Seconds between readings: a reading is a long window, so a few a second cover all the sound.
+const METER_EVERY: f64 = 0.25;
+/// What the loudest reading keeps of itself per reading: a voice that stops counts for about a second more.
+const METER_HOLD: f32 = 0.5;
 /// Louder than this counts as heard.
 const HEARD: f32 = 0.01;
 
