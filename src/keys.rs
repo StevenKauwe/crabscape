@@ -12,8 +12,8 @@ use crate::player::GameSet;
 
 /// The keys and what they do, in the order a new player needs them (the
 /// same keys as `input.rs`, `go_home.rs`, `view.rs`, `codes.rs`,
-/// `style.rs` and `replay.rs` read).
-pub(crate) const KEYS: [(&str, &str); 13] = [
+/// `report.rs`, `style.rs` and `replay.rs` read).
+pub(crate) const KEYS: [(&str, &str); 14] = [
     ("A D / Left Right", "walk"),
     ("Space W Up K", "jump; again in the water: swim"),
     ("Shift J + a way", "dodge; hold it: sprint"),
@@ -21,9 +21,10 @@ pub(crate) const KEYS: [(&str, &str); 13] = [
     ("E L", "smash (the crusher)"),
     ("Q O", "jab (the cutter)"),
     ("F I", "guard; tap before a blow: parry"),
-    ("H / Home", "go home"),
+    ("H / Home, then Y", "go home (it asks first)"),
     ("- = / wheel", "zoom out: the crab's memory"),
     ("Enter", "type a code"),
+    ("R", "report a bug or idea"),
     ("P", "art style: ink or oil"),
     ("F9", "save a replay"),
     ("?", "fold these away"),
@@ -85,6 +86,39 @@ fn words(text: &str, alpha: f32) -> impl Bundle {
             ..default()
         },
         TextColor(Color::srgba(0.88, 0.94, 0.96, alpha)),
+    )
+}
+
+/// A key drawn as a little keycap, like a real keyboard's: a rounded cap
+/// with its letter, lit from above, with a deeper edge underneath (the same
+/// look as the report form's, in `web/index.html`). `lit` is the brighter
+/// one, for the answer a key press gives when in doubt.
+pub(crate) fn keycap(label: &str, lit: bool) -> impl Bundle {
+    let edge = if lit { 0.75 } else { 0.4 };
+    (
+        Node {
+            min_width: px(22.0),
+            height: px(22.0),
+            padding: UiRect::horizontal(px(5.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border: UiRect {
+                bottom: px(3.0),
+                ..UiRect::all(px(1.0))
+            },
+            border_radius: BorderRadius::all(px(5.0)),
+            ..default()
+        },
+        BorderColor::all(Color::srgba(0.96, 0.91, 0.82, edge)),
+        BackgroundColor(Color::srgb(0.11, 0.18, 0.20)),
+        children![(
+            Text::new(label),
+            TextFont {
+                font_size: FontSize::Px(13.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.96, 0.91, 0.82)),
+        )],
     )
 }
 
@@ -238,8 +272,8 @@ mod tests {
     fn every_key_the_game_reads_is_on_the_card() {
         let card: String = KEYS.iter().map(|(k, _)| format!("{k} ")).collect();
         for key in [
-            "A", "D", "Space", "W", "Shift", "J", "S", "E", "L", "Q", "O", "F", "I", "H", "-", "=",
-            "Enter", "P", "F9", "?",
+            "A", "D", "Space", "W", "Shift", "J", "S", "E", "L", "Q", "O", "F", "I", "H", "Y", "-",
+            "=", "Enter", "R", "P", "F9", "?",
         ] {
             assert!(card.split_whitespace().any(|k| k == key), "{key} missing");
         }
