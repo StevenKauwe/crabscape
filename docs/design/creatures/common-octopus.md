@@ -31,7 +31,8 @@ into growing: its den.
 - **Hurt:** at two-thirds and one-third health it **inks and jets** to another spot; the cloud blinds whoever is in it,
   including the crab.
 - **Weaknesses:** the arms (each its own health), the eye; it can't webover in a low tunnel; ink is limited.
-- **Defeat:** it jets away for good (animals want to eat, not die). The den is yours: a midden of shells, many of them
+- **Defeat:** it jets away (animals want to eat, not die). The den is yours while it is away (3 minutes, and until no
+  crab is by the den; then it is back, hidden and whole): a midden of shells, many of them
   crabs' (brutal), and a big empty sea-snail shell, the next size of shell-home (cozy).
 - **Feel:** cozy: the trader in the whale-fall village is a different, deep-living octopus, so meeting this one
   colours that friendship; brutal: the sky closes over you; surreal: a rock that looks back.
@@ -105,7 +106,8 @@ walk=right; @62 parry"`):
   the octopus still feels a crab within its arms' reach. The crab's dump status says `blinded`. Not drawn yet (the
   screen darkening around the crab in the bestiary would be a full-frame overlay, which the art rules forbid: the
   cloud will be drawn as a shape instead).
-- **Flee:** at 0 health it jets off for good (`flee`, 30 ticks) and is gone, leaving no body to eat.
+- **Flee:** at 0 health it jets off (`flee`, 30 ticks) and is gone, leaving no body to eat; it is back in its den,
+  hidden and whole, after 3 minutes once no crab is within 900 of the den.
 - **Its den:** then open. Its midden of old shells is shell grit: 4 pieces per crab, as many at a time as cling to
   the shell, taken by walking onto the den (where the octopus first lived) and built into the home like any grit.
   Judgement call: the bestiary's "big empty sea-snail shell, the next size of shell-home" is shown as grit for growing
