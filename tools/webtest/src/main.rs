@@ -792,16 +792,22 @@ impl Test<'_> {
             home,
             format!("a tap on Home, mid-fight, puts the crab in its home shell ({crab:?})"),
         );
-        // Walked out again, the H key does the same.
+        // Walked out again, the H key asks first ("Go home? Y / N"), and Y goes.
         self.key("keydown", "KeyD", "d")?;
         self.hold(1.2, false)?;
         self.key("keyup", "KeyD", "d")?;
         let out = self.rest()?;
         self.press("KeyH", "h")?;
+        self.hold(0.4, false)?;
+        let asked_only = self.eval(&at_home)?.as_bool() != Some(true);
+        self.press("KeyY", "y")?;
         let home = self.wait_for(&at_home, 3.0)?;
         self.check(
-            out.0 > home_x + 40.0 && home,
-            format!("out again (x {:.0}), H puts it home", out.0),
+            out.0 > home_x + 40.0 && asked_only && home,
+            format!(
+                "out again (x {:.0}), H only asks (stayed out: {asked_only}), then Y puts it home",
+                out.0
+            ),
         );
 
         // --- the feel lab -----------------------------------------------------------------------------------------

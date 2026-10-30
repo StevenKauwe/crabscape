@@ -1,7 +1,8 @@
-//! Report a bug or an idea from inside the game: "Report a bug or idea" in
-//! the settings panel opens a small form (Bug or Idea, a box to type in, a
-//! Speak button, Send). It becomes a public GitHub issue labelled `feedback`
-//! and `player-report`, filed by the introducer (`tools/introducer`, see its
+//! Report a bug or an idea from inside the game: R on a keyboard, or "Report
+//! a bug or idea" in the settings panel, opens a small form (Bug or Idea, a
+//! box to type in, a Speak button, Send). It becomes a public GitHub issue
+//! labelled `feedback` and `player-report`, filed by the introducer
+//! (`tools/introducer`, see its
 //! `report.rs`), so players need no GitHub account.
 //!
 //! Each report carries the game as it was when the form opened: the replay
@@ -14,10 +15,18 @@
 //! sound never leaves it. The model (about 110 MB) downloads the first time
 //! someone speaks a report, then stays in the browser's cache. Phones'
 //! keyboard dictation works in the box too.
+//!
+//! On a keyboard, each of the form's buttons wears its key, drawn as a little
+//! keycap ([`shortcut`] says which key does what). The form opens with the
+//! box ready to type in, so letters type: B, I and S take Alt (Option on a
+//! Mac) while the box has the cursor, and work bare once it hasn't. Send is
+//! Ctrl+Enter (Cmd+Enter on a Mac), so a bare Enter starts a new line; Esc
+//! closes.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use bevy::log::BoxedLayer;
 use bevy::log::tracing::field::{Field, Visit};
@@ -72,21 +81,71 @@ fn log_text() -> String {
         .unwrap_or_default()
 }
 
+/// The key that opens the form.
+pub(crate) const KEY: KeyCode = KeyCode::KeyR;
+
+/// Asked to open (by [`KEY`], the settings panel or the ending card); the
+/// form opens next frame.
+static ASKED: AtomicBool = AtomicBool::new(false);
+
+/// Open the form.
+pub fn ask() {
+    ASKED.store(true, Ordering::Relaxed);
+}
+
+/// Was the form asked for since last time?
+fn take_asked() -> bool {
+    ASKED.swap(false, Ordering::Relaxed)
+}
+
+/// [`KEY`] opens the form. (The keys reach the game only while it has the
+/// focus: typing in the form, or in the code box, never opens it again.)
+fn hotkey(keys: Res<ButtonInput<KeyCode>>) {
+    if keys.just_pressed(KEY) {
+        ask();
+    }
+}
+
+/// What a key does while the form is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Shortcut {
+    Bug,
+    Idea,
+    Speak,
+    Send,
+    Close,
+}
+
+/// The form's key for a key press: `code` is where the key sits on the
+/// keyboard, as the browser names it (`KeyB`, `Enter`...), the same in any
+/// language like the game's own keys; `typing` is whether the text box has
+/// the cursor; `alt` is Alt (Option on a Mac); `command` is Ctrl or Cmd.
+/// Anything else is left alone, so it types.
+pub(crate) fn shortcut(code: &str, typing: bool, alt: bool, command: bool) -> Option<Shortcut> {
+    let letters_free = !command && (alt || !typing);
+    match code {
+        "Escape" => Some(Shortcut::Close),
+        "Enter" | "NumpadEnter" if command => Some(Shortcut::Send),
+        "KeyB" if letters_free => Some(Shortcut::Bug),
+        "KeyI" if letters_free => Some(Shortcut::Idea),
+        "KeyS" if letters_free => Some(Shortcut::Speak),
+        _ => None,
+    }
+}
+
 pub struct ReportPlugin;
 
 impl Plugin for ReportPlugin {
-    fn build(&self, _app: &mut App) {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, hotkey.in_set(crate::player::GameSet::Input));
         #[cfg(target_arch = "wasm32")]
-        _app.add_systems(
+        app.add_systems(
             Update,
             (web::frame_rate, web::open, web::recording_clock)
                 .in_set(crate::player::GameSet::Present),
         );
     }
 }
-
-#[cfg(target_arch = "wasm32")]
-pub use web::ask;
 
 #[cfg(target_arch = "wasm32")]
 mod web {
@@ -99,12 +158,15 @@ mod web {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::{JsFuture, spawn_local};
     use web_sys::{
-        AnalyserNode, AudioBuffer, Blob, BlobEvent, Document, HtmlElement, HtmlTextAreaElement,
-        MediaRecorder, MediaStream, MediaStreamConstraints, MessageEvent, OfflineAudioContext,
-        RequestInit, Response, Worker, WorkerOptions, WorkerType,
+        AnalyserNode, AudioBuffer, Blob, BlobEvent, Document, Element, HtmlElement,
+        HtmlTextAreaElement, KeyboardEvent, MediaRecorder, MediaStream, MediaStreamConstraints,
+        MessageEvent, OfflineAudioContext, RequestInit, Response, Worker, WorkerOptions,
+        WorkerType,
     };
 
+    use super::Shortcut;
     use crate::coop::LocalId;
+    use crate::input::TouchControls;
     use crate::settings::Settings;
     use crate::sound::Mic;
     use crate::voice::{MicTrouble, mic_trouble};
@@ -112,8 +174,6 @@ mod web {
     /// The form, and what it's doing.
     #[derive(Default)]
     struct Form {
-        /// Asked to open (by the settings panel); opens next frame.
-        asked: bool,
         wired: bool,
         idea: bool,
         /// The game when the form opened: facts and the replay.
@@ -140,11 +200,6 @@ mod web {
 
     fn with<R>(f: impl FnOnce(&mut Form) -> R) -> R {
         FORM.with(|form| f(&mut form.borrow_mut()))
-    }
-
-    /// Open the form (the settings panel's "Report a bug or idea").
-    pub fn ask() {
-        with(|f| f.asked = true);
     }
 
     pub fn frame_rate(time: Res<Time<Real>>) {
@@ -184,14 +239,17 @@ mod web {
         me: Res<LocalId>,
         settings: Res<Settings>,
         zoom: Res<crate::view::Zoom>,
+        touch: Res<TouchControls>,
         window: Single<&Window>,
     ) {
-        if !with(|f| std::mem::take(&mut f.asked)) {
+        if !super::take_asked() {
             return;
         }
         let Some(form) = element::<HtmlElement>("report") else {
             return;
         };
+        // The keycaps, on a computer with a keyboard only.
+        let _ = form.class_list().toggle_with_force("keys", !touch.visible);
         let win = web_sys::window();
         let navigator = win.as_ref().map(|w| w.navigator());
         let canvas = document().and_then(|d| d.get_element_by_id("crabscape"));
@@ -270,6 +328,64 @@ mod web {
         on_click("report-speak", speak);
         on_click("report-send", send);
         pick(false);
+        // A Mac's keys are Cmd and Option; the page says Ctrl and Alt.
+        let mac = web_sys::window()
+            .and_then(|w| w.navigator().user_agent().ok())
+            .is_some_and(|ua| ua.contains("Mac"));
+        if mac {
+            if let Some(form) = element::<HtmlElement>("report") {
+                let _ = form.class_list().add_1("mac");
+            }
+            set_all("#report kbd.command", "⌘");
+            set_all("#report kbd.alt", "⌥");
+        }
+        let on_key = Closure::<dyn FnMut(KeyboardEvent)>::new(on_key);
+        if let Some(d) = document() {
+            let _ = d.add_event_listener_with_callback("keydown", on_key.as_ref().unchecked_ref());
+        }
+        on_key.forget();
+    }
+
+    fn set_all(selector: &str, words: &str) {
+        let Some(found) = document().and_then(|d| d.query_selector_all(selector).ok()) else {
+            return;
+        };
+        for i in 0..found.length() {
+            if let Some(n) = found.item(i) {
+                n.set_text_content(Some(words));
+            }
+        }
+    }
+
+    /// A key pressed anywhere on the page while the form is open (not on
+    /// the game, which has its own keys once it has the focus back).
+    fn on_key(e: KeyboardEvent) {
+        if element::<HtmlElement>("report").is_none_or(|f| f.hidden()) {
+            return;
+        }
+        let target = e.target().and_then(|t| t.dyn_into::<Element>().ok());
+        if target.is_some_and(|t| t.id() == "crabscape") {
+            return;
+        }
+        let typing = document()
+            .and_then(|d| d.active_element())
+            .is_some_and(|a| a.id() == "report-text");
+        let command = e.ctrl_key() || e.meta_key();
+        let Some(key) = super::shortcut(&e.code(), typing, e.alt_key(), command) else {
+            return;
+        };
+        // Taken: not typed, and not a click on whichever button has the focus.
+        e.prevent_default();
+        if e.repeat() {
+            return;
+        }
+        match key {
+            Shortcut::Bug => pick(false),
+            Shortcut::Idea => pick(true),
+            Shortcut::Speak => speak(),
+            Shortcut::Send => send(),
+            Shortcut::Close => close(),
+        }
     }
 
     fn pick(idea: bool) {
@@ -291,10 +407,9 @@ mod web {
         }
     }
 
+    /// The Speak button's words (beside its keycaps).
     fn speak_label(words: &str) {
-        if let Some(b) = element::<HtmlElement>("report-speak") {
-            b.set_text_content(Some(words));
-        }
+        set_all("#report-speak .label", words);
     }
 
     /// Speak: start recording, or stop and write down what was said.
@@ -606,5 +721,62 @@ mod web {
                 note(&format!("Not sent: {words}"));
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_report_key_opens_the_form() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update, hotkey);
+        app.update();
+        assert!(!take_asked(), "not before the key");
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KEY);
+        app.update();
+        assert!(take_asked(), "the key asks for the form");
+        // Held down, it doesn't ask again every frame.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear();
+        app.update();
+        assert!(!take_asked());
+        // And it's not a key the game already uses (the keys card lists them).
+        let card: Vec<&str> = crate::keys::KEYS
+            .iter()
+            .flat_map(|(k, _)| k.split_whitespace())
+            .collect();
+        assert!(card.contains(&"R"));
+        assert_eq!(card.iter().filter(|k| **k == "R").count(), 1);
+    }
+
+    #[test]
+    fn in_the_form_the_keys_pick_speak_send_and_close_and_letters_still_type() {
+        use Shortcut::*;
+        // Not typing: the bare letters.
+        assert_eq!(shortcut("KeyB", false, false, false), Some(Bug));
+        assert_eq!(shortcut("KeyI", false, false, false), Some(Idea));
+        assert_eq!(shortcut("KeyS", false, false, false), Some(Speak));
+        // Typing: bare letters type; with Alt (Option) they're the buttons.
+        for code in ["KeyB", "KeyI", "KeyS", "KeyA", "Space"] {
+            assert_eq!(shortcut(code, true, false, false), None, "{code} types");
+        }
+        assert_eq!(shortcut("KeyB", true, true, false), Some(Bug));
+        assert_eq!(shortcut("KeyI", true, true, false), Some(Idea));
+        assert_eq!(shortcut("KeyS", true, true, false), Some(Speak));
+        // Ctrl or Cmd with a letter stays the browser's (copy, paste...).
+        assert_eq!(shortcut("KeyS", false, false, true), None);
+        // Send is Ctrl/Cmd+Enter; a bare Enter is a new line.
+        for typing in [true, false] {
+            assert_eq!(shortcut("Enter", typing, false, true), Some(Send));
+            assert_eq!(shortcut("NumpadEnter", typing, false, true), Some(Send));
+            assert_eq!(shortcut("Enter", typing, false, false), None);
+            assert_eq!(shortcut("Escape", typing, false, false), Some(Close));
+        }
     }
 }
