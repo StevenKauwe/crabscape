@@ -50,6 +50,7 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, strokes: u32) -> Run {
     let m = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
     m.upgrades = strokes;
     m.stamina = strokes as f32;
+    m.moults = MOULTS.get();
     let mut run = Run {
         highest: replay.start.y,
         sim: sim.clone(),
@@ -76,6 +77,13 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, strokes: u32) -> Run {
     }
     run.sim = sim;
     run
+}
+
+thread_local! {
+    /// How many times the crab in this test's runs has moulted (none, but
+    /// for the canyon played at the biggest size: see
+    /// [`the_biggest_crab_still_gets_down_the_canyon_and_back_up`]).
+    static MOULTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 fn run(script: &str, seconds: f64, strokes: u32) -> Run {
@@ -404,7 +412,7 @@ fn the_den_is_a_dead_end_chamber_off_the_far_rim() {
     // A crab walks in from the far rim and on to the back: a dead end.
     let r = run("start x=8000 y=-1900\nt=0 walk=right", 5.0, 0);
     assert!(den.contains(r.crab().pos + Vec2::Y), "{}", r.crab().pos);
-    assert!(r.crab().pos.x >= level.max_x - t.body_half_width - 1.0);
+    assert!(r.crab().pos.x >= level.max_x - r.crab().half_width(&t) - 1.0);
 }
 
 #[test]
@@ -453,4 +461,24 @@ fn a_save_from_before_the_canyon_keeps_what_was_eaten() {
     // And it saves the longer list from then on.
     let p: Progress = sim.progress(PlayerId(0)).unwrap();
     assert_eq!(p.eaten.len(), sim.level.eggs.len());
+}
+
+#[test]
+fn the_biggest_crab_still_gets_down_the_canyon_and_back_up() {
+    // The canyon's own promises, played with a crab grown as big as moulting
+    // makes it: down the crack, out of it again, the shelf's crevice and
+    // coral, the flood up to every ledge and the fifth egg, the ebb, and the
+    // octopus's den.
+    MOULTS.set(99);
+    let r = run("start x=5150 y=-700\nt=0 walk=stop", 0.1, 0);
+    let t = &r.sim.tuning;
+    assert_eq!(r.crab().grown(t), t.moult.most_size, "the biggest crab");
+    the_crack_is_a_way_down_through_the_rock_to_the_doorstep();
+    coral_climbs_back_out_of_the_crack_and_up_from_the_shelf();
+    the_shelf_has_a_rest_crevice_at_its_back();
+    in_still_water_nothing_gets_a_crab_off_the_canyon_floor();
+    the_flood_carries_a_crab_up_the_canyon_to_every_ledge();
+    the_ebb_drops_a_crab_fast_and_strokes_cannot_beat_it();
+    the_fifth_egg_is_on_a_shelf_only_the_flood_reaches();
+    the_den_is_a_dead_end_chamber_off_the_far_rim();
 }

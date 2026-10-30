@@ -1117,3 +1117,78 @@ fn the_pizza_look_reaches_a_friends_screen() {
     play(&mut g, "t=0 walk=stop", "t=0 walk=stop", ticks(1.0), |_| {});
     assert!(!g.host.crab(GUEST).unwrap().mover.pizza);
 }
+
+/// The guest's crab, on the guest's own device, grown by `moults` and whole.
+fn grow_guest(g: &mut Game, moults: u32) {
+    let t = g.guest.tuning.clone();
+    let crab = g.guest.crab_mut(GUEST).unwrap();
+    crab.mover.moults = moults;
+    crab.fighter.vitals.health = crab.mover.max_shell(&t);
+}
+
+#[test]
+fn a_grown_crab_is_its_size_on_a_friends_screen_and_hits_as_hard_there() {
+    const SMASH: &str = "t=0.1 smash";
+    // Solo, the same grown crab's smash on the bag, and an ungrown one's.
+    let smash_alone = |moults: u32| {
+        let mut alone = solo(NEAR, bag);
+        alone.crab_mut(GUEST).unwrap().mover.moults = moults;
+        let script = Replay::parse(SMASH).unwrap();
+        let mut playback = script.playback();
+        for _ in 0..ticks(1.5) {
+            alone.set_controls(GUEST, playback.next_controls());
+            alone.tick();
+        }
+        alone.enemies()[0].vitals.health
+    };
+    let (plain, grown) = (smash_alone(0), smash_alone(3));
+    assert!(
+        grown < plain,
+        "a grown crab hits harder: {grown} vs {plain} left"
+    );
+    // In co-op, grown only on the guest's own device: the host learns its
+    // size from the guest's updates, and the blow lands as hard there.
+    let mut g = game(NEAR, FakeLink::new(LAG, 6, 0.3, 11), bag);
+    grow_guest(&mut g, 3);
+    play(&mut g, "", SMASH, ticks(1.5), |_| {});
+    let t = g.host.tuning.clone();
+    let size = |sim: &Sim| sim.crab(GUEST).unwrap().mover.grown(&t);
+    assert!(size(&g.guest) > 1.0);
+    assert_eq!(size(&g.host), size(&g.guest), "the host shows it grown");
+    assert_eq!(g.host.enemies()[0].vitals.health, grown, "as hard as solo");
+}
+
+#[test]
+fn the_defender_decides_a_blow_on_a_grown_crab_against_its_bigger_shell() {
+    let mut g = game(NEAR, FakeLink::steady(LAG), |sim| {
+        sim.spawn_enemy(Kind::Fixture, Vec2::new(240.0, 0.0));
+    });
+    grow_guest(&mut g, 3);
+    let t = g.guest.tuning.clone();
+    let whole = g.guest.crab(GUEST).unwrap().mover.max_shell(&t);
+    assert!(whole > t.crab.health);
+    let mut hurt_at = None;
+    play(&mut g, "", "", 160, |g| {
+        let crab = g.guest.crab(GUEST).unwrap();
+        if crab.events.hurt && hurt_at.is_none() {
+            hurt_at = Some(crab.fighter.vitals.health);
+        }
+    });
+    let after = hurt_at.expect("the fixture's blow lands");
+    assert_eq!(
+        after,
+        whole - t.fixture.strike.damage,
+        "off the bigger shell"
+    );
+    wait(&mut g, u64::from(LAG) + 2 * SEND_EVERY);
+    let host_view = g.host.crab(GUEST).unwrap();
+    assert_eq!(
+        host_view.fighter.vitals.health,
+        g.guest.crab(GUEST).unwrap().fighter.vitals.health
+    );
+    assert_eq!(
+        host_view.mover.max_shell(&t),
+        whole,
+        "and the host shows that shell"
+    );
+}
