@@ -9,7 +9,7 @@ use crabsim::Sim;
 use crate::player::{GameSet, LocalPlayer};
 
 /// World units per metre: the crab's shell (72 units across) is about 15 cm.
-const UNITS_PER_METRE: f32 = 480.0;
+pub(crate) const UNITS_PER_METRE: f32 = 480.0;
 /// The counter shows once the crab is this far below the lip (units).
 const SHOW_BELOW: f32 = 60.0;
 /// The big shape passes once the crab is this far below the lip (units):

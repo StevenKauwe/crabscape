@@ -2748,8 +2748,11 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "crabsim",
+ "crc32fast",
  "js-sys",
  "matchbox_socket",
+ "miniz_oxide 0.8.9",
+ "proptest",
  "serde",
  "serde_json",
  "wasm-bindgen",

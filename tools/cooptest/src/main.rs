@@ -145,7 +145,7 @@ mod tap {
     pub const SETTINGS: (f64, f64) = (1138.0, 27.0);
     pub const GAME_TAB: (f64, f64) = (945.0, 96.0);
     pub const COOP_TAB: (f64, f64) = (1151.0, 96.0);
-    pub const START_OVER: (f64, f64) = (1050.0, 242.0);
+    pub const START_OVER: (f64, f64) = (1050.0, 304.0);
     pub const NEW_LINK: (f64, f64) = (1050.0, 281.0);
 }
 

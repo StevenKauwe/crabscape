@@ -3,8 +3,10 @@
 //!
 //! - **Game**: "Report a bug or idea" opens the report form (`report.rs`),
 //!   "Enter a code" asks for a code (`codes.rs`; phones have no Enter key),
-//!   and last, a little apart, "Start over" (`reset.rs`), which asks for a
-//!   second tap ("Sure? Start over") before it wipes anything. Under it, a
+//!   "Your character": Export and Import, to take the crab to another browser,
+//!   device or build (`character.rs`), and last, a little apart, "Start
+//!   over" (`reset.rs`), which asks for a second tap ("Sure? Start over")
+//!   before it wipes anything. Under it, a
 //!   quiet line says which build this is ("Build 5d3eb47, Oct 29", and
 //!   "preview pr-183" or "branch <name>" for a copy that isn't the live game).
 //! - **Graphics**: the art style (Ink or Oil, see `style.rs`) and how smooth
@@ -99,7 +101,7 @@ impl Settings {
     /// As kept:
     /// `saver=1;hear=nearby;range=900;master=80;music=40;effects=50;voices=200;track=themes`
     /// (the volumes in percent).
-    fn to_text(self) -> String {
+    pub(crate) fn to_text(self) -> String {
         let hear = match self.hear {
             Hear::Everyone => "everyone",
             Hear::Nearby => "nearby",
@@ -119,7 +121,7 @@ impl Settings {
 
     /// Back from [`Settings::to_text`]; anything unknown keeps its default.
     /// The one "game" volume kept before the music came is the effects'.
-    fn from_text(text: &str) -> Self {
+    pub(crate) fn from_text(text: &str) -> Self {
         let mut s = Self::default();
         let percent = |v: &str, max: f32| number(v).map(|p| (p / 100.0).clamp(0.0, max));
         for (k, v) in text.split(';').filter_map(|kv| kv.split_once('=')) {
@@ -344,6 +346,10 @@ pub(crate) mod panel {
         Report,
         /// Asks for a code (`codes.rs`).
         Code,
+        /// Hands out the crab as a code and a file (`character.rs`).
+        Export,
+        /// Takes a crab from a code or a file (`character.rs`).
+        Import,
         /// Wipes this device's progress (`reset.rs`), on a second tap.
         StartOver,
         /// A new co-op lobby link (`coop.rs`), on a second tap: the old link
@@ -364,6 +370,8 @@ pub(crate) mod panel {
                 Choice::Themes => "Themes",
                 Choice::Report => "Report a bug or idea",
                 Choice::Code => "Enter a code",
+                Choice::Export => "Export",
+                Choice::Import => "Import",
                 Choice::StartOver => "Start over",
                 Choice::NewLink => "New link",
             }
@@ -380,7 +388,11 @@ pub(crate) mod panel {
                 Choice::Smooth | Choice::Saver | Choice::Ink | Choice::Oil => Tab::Graphics,
                 Choice::Everyone | Choice::Nearby | Choice::NewLink => Tab::Coop,
                 Choice::Calm | Choice::Themes => Tab::Audio,
-                Choice::Report | Choice::Code | Choice::StartOver => Tab::Game,
+                Choice::Report
+                | Choice::Code
+                | Choice::Export
+                | Choice::Import
+                | Choice::StartOver => Tab::Game,
             }
         }
     }
@@ -621,16 +633,19 @@ pub(crate) mod panel {
         y + PAD
     }
 
-    /// The Game tab: "Report a bug or idea" and "Enter a code" (web only),
-    /// then "Start over", a little apart (it's the one that wipes things),
-    /// and the build line under it; returns where the next thing starts.
+    /// The Game tab: "Report a bug or idea", "Enter a code" and "Your
+    /// character", Export and Import side by side (web only), then "Start
+    /// over", a little apart (it's the one that wipes things), and the build
+    /// line under it; returns where the next thing starts.
     fn game(l: &mut Layout, left: f32, y: f32, web: bool, build_lines: usize) -> f32 {
         let mut y = y;
         if web {
             l.choices.push((Choice::Report, whole(left, y)));
             y += ROW + GAP;
             l.choices.push((Choice::Code, whole(left, y)));
-            y += ROW + 2.0 * PAD;
+            y += ROW + GAP;
+            y = pair(l, left, y, "Your character", Choice::Export, Choice::Import);
+            y += PAD;
         }
         l.choices.push((Choice::StartOver, whole(left, y)));
         y += ROW + 4.0;
@@ -1073,6 +1088,16 @@ pub(crate) mod panel {
                         codes.write(crate::codes::Typed(text));
                     }
                 }
+                Some(Choice::Export) => {
+                    open.open = false;
+                    #[cfg(target_arch = "wasm32")]
+                    crate::character::ask_export();
+                }
+                Some(Choice::Import) => {
+                    open.open = false;
+                    #[cfg(target_arch = "wasm32")]
+                    crate::character::ask_import();
+                }
                 Some(c @ (Choice::StartOver | Choice::NewLink)) if open.is_armed(c) => {
                     open.open = false;
                     open.armed = 0.0;
@@ -1190,7 +1215,7 @@ pub(crate) mod panel {
                 Choice::Nearby => settings.hear == Hear::Nearby,
                 Choice::Calm => settings.track == Track::Calm,
                 Choice::Themes => settings.track == Track::Themes,
-                Choice::Report | Choice::Code => false,
+                Choice::Report | Choice::Code | Choice::Export | Choice::Import => false,
                 Choice::StartOver | Choice::NewLink => open.is_armed(*choice),
             };
             let colour = match (choice.asks_first(), picked) {
@@ -1343,7 +1368,7 @@ pub(crate) mod panel {
                 let l = layout_for(window, web, lines);
                 let tabs = tabs_for(web);
                 assert_eq!(l.sliders.len(), if web { 5 } else { 0 }, "{at}");
-                assert_eq!(l.choices.len(), if web { 12 } else { 5 }, "{at}");
+                assert_eq!(l.choices.len(), if web { 14 } else { 5 }, "{at}");
                 // On screen without scrolling, under the button.
                 assert!(
                     l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - super::super::MARGIN,
@@ -1431,6 +1456,39 @@ pub(crate) mod panel {
                 }
                 assert!(l.build.y >= r.max.y, "{at}");
                 assert!(l.build.y + BUILD * lines as f32 <= l.panel.max.y, "{at}");
+                // Export and Import: side by side under their title, after the
+                // report and the code, their words fitting.
+                let order: Vec<_> = game.iter().map(|(c, _)| *c).collect();
+                let expected: &[Choice] = if web {
+                    &[
+                        Choice::Report,
+                        Choice::Code,
+                        Choice::Export,
+                        Choice::Import,
+                        Choice::StartOver,
+                    ]
+                } else {
+                    &[Choice::StartOver]
+                };
+                assert_eq!(order, expected, "{at}");
+                if web {
+                    let rect = |c: Choice| game.iter().find(|(d, _)| *d == c).unwrap().1;
+                    let (export, import) = (rect(Choice::Export), rect(Choice::Import));
+                    assert_eq!(export.min.y, import.min.y, "{at}");
+                    assert!(export.max.x < import.min.x, "{at}");
+                    assert!(rect(Choice::Code).max.y < export.min.y, "{at}");
+                    for (c, r) in [(Choice::Export, export), (Choice::Import, import)] {
+                        let words = c.words().len() as f32 * 0.6 * 13.0;
+                        assert!(r.width() >= words + 12.0, "{c:?}'s words {at}");
+                    }
+                    let title = l.labels.iter().find(|(_, _, w)| *w == "Your character");
+                    let (tab, at_title, _) = title.expect("the title");
+                    assert_eq!(*tab, Tab::Game);
+                    assert!(
+                        at_title.y > rect(Choice::Code).max.y && at_title.y < export.min.y,
+                        "{at}"
+                    );
+                }
             }
         }
 
@@ -1458,6 +1516,8 @@ pub(crate) mod panel {
             assert_eq!(on(Choice::Calm), Tab::Audio);
             assert_eq!(on(Choice::Themes), Tab::Audio);
             assert_eq!(on(Choice::Code), Tab::Game);
+            assert_eq!(on(Choice::Export), Tab::Game);
+            assert_eq!(on(Choice::Import), Tab::Game);
             assert_eq!(on(Choice::StartOver), Tab::Game);
             for v in VOLUMES {
                 assert_eq!(v.tab(), Tab::Audio);

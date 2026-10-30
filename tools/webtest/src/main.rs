@@ -25,6 +25,8 @@
 //! - its resting position, and the chosen style, are saved in localStorage and survive a reload;
 //! - the feel lab (`?feel`; it shows by itself in preview builds) starts on the recommended preset, and the backtick
 //!   key, backslash and the FEEL button switch preset and juice, kept over a reload (`data-feel`);
+//! - the settings panel's Export (on its Game tab) puts the crab's code in the character box; Import refuses junk in
+//!   plain words, and takes the code back: the page reloads with the crab where it was;
 //! - the settings panel's "Start over" (on its Game tab) wipes nothing on one tap and the saved game on a second;
 //! - nothing went wrong along the way (no error on the page or in the browser console).
 //!
@@ -827,6 +829,61 @@ impl Test<'_> {
         let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
         self.check(ok, "the preset and juice are kept over a reload");
 
+        // --- export and import a character -----------------------------------------------------------------------
+        // On the Game tab, "Your character": Export puts the crab's code in the character box (`src/character.rs`),
+        // Import refuses junk, and the code put back replaces the crab and reloads the page.
+        let (sx, sy) = settings_button(w);
+        let game = settings_tab(w, "game");
+        let (export, import) = export_and_import(w);
+        let before = self.rest()?;
+        self.tap(sx, sy, 16, true)?;
+        self.tap(game.0, game.1, 16, true)?;
+        self.tap(export.0, export.1, 17, true)?;
+        let state_is = |s: &str| format!(r#"{CANVAS}.getAttribute("data-character") === "{s}""#);
+        let exported = self.wait_for(
+            &format!(r#"/^exported \d+$/.test({CANVAS}.getAttribute("data-character") || "")"#),
+            5.0,
+        )?;
+        let code = self.eval(r#"document.getElementById("character-code").value"#)?;
+        let code = code.as_str().unwrap_or_default().to_string();
+        self.check(
+            exported && code.starts_with("crab:1:"),
+            format!(
+                "Export puts the crab's code in the box ({} letters)",
+                code.len()
+            ),
+        );
+        self.eval(r#"(document.getElementById("character-close").click(), true)"#)?;
+        let paste = |text: &str| {
+            format!(
+                r#"(() => {{ const t = document.getElementById("character-code");
+                    t.value = {text:?}; t.dispatchEvent(new Event("input")); return true; }})()"#
+            )
+        };
+        self.tap(sx, sy, 18, true)?;
+        self.tap(import.0, import.1, 19, true)?;
+        let opened = self.wait_for(&state_is("import"), 5.0)?;
+        self.eval(&paste("hello crab"))?;
+        let refused = self.wait_for(&state_is("refused NotACharacter"), 5.0)?;
+        let note = self.eval(r#"document.getElementById("character-note").textContent"#)?;
+        self.check(
+            opened && refused && note.as_str() == Some("That isn't a CrabScape character."),
+            format!("Import refuses junk in plain words ({note})"),
+        );
+        self.eval(&paste(&code))?;
+        let ready = self.wait_for(&state_is("ready"), 5.0)?;
+        self.eval(r#"(document.getElementById("character-replace").click(), true)"#)?;
+        pump(2.0);
+        let started = self.open(index)?;
+        let after = self.rest()?;
+        self.check(
+            ready
+                && started
+                && (after.0 - before.0).abs() < 2.0
+                && (after.1 - before.1).abs() < 2.0,
+            format!("the code taken back reloads the crab where it was ({before:?} -> {after:?})"),
+        );
+
         // --- start over -------------------------------------------------------------------------------------------
         // On the settings panel's Game tab, last; one tap only asks ("Sure? Start over"), a second wipes this
         // game's saved data (the ink style chosen above among it) and reloads the page. The panel opens on the
@@ -1152,11 +1209,23 @@ fn ink_and_oil(w: f64) -> ((f64, f64), (f64, f64)) {
 }
 
 /// The middle of "Start over" on the Game tab, in CSS pixels: after "Report a bug or idea" and "Enter a code"
-/// (36 high, 8 apart), and a gap of twice the padding.
+/// (36 high, 8 apart), Export and Import under their title, and a gap of twice the padding.
 fn start_over_centre(w: f64) -> (f64, f64) {
     let (_, left) = panel_frame(w);
-    let y = page_top(w) + (36.0 + 8.0) + (36.0 + 20.0) + 18.0;
+    let y = page_top(w) + 2.0 * (36.0 + 8.0) + 18.0 + (36.0 + 20.0) + 18.0;
     (left + 140.0, y)
+}
+
+/// The middles of Export and Import on the Game tab, in CSS pixels: after "Report a bug or idea" and "Enter a code"
+/// (36 high, 8 apart), the "Your character" title, then the two side by side.
+#[allow(clippy::type_complexity)]
+fn export_and_import(w: f64) -> ((f64, f64), (f64, f64)) {
+    let (_, left) = panel_frame(w);
+    let y = page_top(w) + 2.0 * (36.0 + 8.0) + 18.0 + 18.0;
+    (
+        (left + 10.0 + 63.0, y),
+        (left + 10.0 + 126.0 + 8.0 + 63.0, y),
+    )
 }
 
 /// Middle of an on-screen button, in CSS pixels. Mirrors button_rects() in src/input.rs.

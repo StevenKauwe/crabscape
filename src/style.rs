@@ -27,7 +27,7 @@ impl ArtStyle {
         }
     }
 
-    fn from_name(name: &str) -> Option<Self> {
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
         match name {
             "ink" => Some(ArtStyle::Ink),
             "oil" => Some(ArtStyle::Oil),
@@ -89,32 +89,15 @@ fn show_style(style: Res<ArtStyle>) {
     }
 }
 
-/// Remembering the choice. Best-effort: any failure (private browsing, a
-/// sandboxed iframe) is ignored and the default is used.
+/// Remembering the choice (`save::read_key`, so an imported character's
+/// style isn't written over while the page reloads into it).
 mod storage {
-    #[cfg(target_arch = "wasm32")]
-    fn local_storage() -> Option<web_sys::Storage> {
-        web_sys::window()?.local_storage().ok()?
-    }
-
     pub fn read() -> Option<String> {
-        #[cfg(target_arch = "wasm32")]
-        {
-            local_storage()?
-                .get_item(&crate::save::browser_key("-style"))
-                .ok()?
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            None
-        }
+        crate::save::read_key("-style")
     }
 
-    pub fn write(_value: &str) {
-        #[cfg(target_arch = "wasm32")]
-        if let Some(storage) = local_storage() {
-            let _ = storage.set_item(&crate::save::browser_key("-style"), _value);
-        }
+    pub fn write(value: &str) {
+        crate::save::write_key("-style", value);
     }
 }
 

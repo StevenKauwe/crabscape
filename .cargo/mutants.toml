@@ -2,8 +2,9 @@
 # (a `<` becomes `>=`, a function returns a default), and runs the tests. A change no test notices ("missed") is
 # code the tests don't really check. CI runs it on each PR's changed lines; see CLAUDE.md, "Testing and linting".
 
-# The game rules, and the co-op code of the game that runs natively (its link and voice-note checks).
-examine_globs = ["crates/sim/src/**/*.rs", "src/coop.rs", "src/voice.rs"]
+# The game rules, the co-op code of the game that runs natively (its link and voice-note checks), and the exported
+# character's format (what a pasted code is let in as).
+examine_globs = ["crates/sim/src/**/*.rs", "src/coop.rs", "src/voice.rs", "src/character.rs"]
 # The headless runner's command line (`cargo crabsim`): no unit tests; tools/determinism.sh runs it end to end.
 exclude_globs = ["crates/sim/src/main.rs"]
 
