@@ -50,7 +50,8 @@ gh issue comment <n> --body "Claimed by <login>'s Claude."
 
 ## 4. Check
 Run every check in `CLAUDE.md` that applies (fmt, clippy native + wasm32, tests; `tools/build-web.sh` for anything
-that changes the game). Fix failures. For visual changes take before/after screenshots
+that changes the game). Fix failures. Touched tricky rules (`crates/sim`, co-op, voice, the introducer)? Optionally
+run `tools/mutants-pr.sh`: it lists changed lines no test would notice breaking (minutes; not in CI). For visual changes take before/after screenshots
 (`cargo webtest --shots /tmp/issue-<n>` if WebKitGTK and its WebDriver are installed; otherwise describe what to look at).
 
 ## 5. Open the PR and merge it yourself
