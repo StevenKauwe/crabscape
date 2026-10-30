@@ -139,6 +139,30 @@
     #report.recording textarea { border-color: #ff7b6e; outline: 2px solid #ff7b6e; outline-offset: -1px; }
     #report-level { height: 6px; border-radius: 3px; background: #0b1519; overflow: hidden; }
     #report-level > div { height: 100%; width: 0; background: #ff7b6e; }
+    /* On a keyboard (src/report.rs adds .keys), each button wears its key: a small drawn keycap, lit from above with
+       a deeper edge underneath. Alt (Option on a Mac) only shows while the text box has the cursor: then the bare
+       letters type. */
+    #report kbd {
+      display: none;
+      min-width: 1.15em;
+      margin-right: 3px;
+      padding: 0 5px;
+      border-radius: 5px;
+      border: 1px solid #f4e7d066;
+      border-bottom: 3px solid #f4e7d040;
+      background: linear-gradient(#2c3f45, #16252a);
+      box-shadow: inset 0 1px 0 #ffffff22;
+      color: #f4e7d0;
+      font: 600 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-align: center;
+      vertical-align: 1px;
+    }
+    #report kbd:last-of-type { margin-right: 7px; }
+    #report.keys kbd { display: inline-block; }
+    #report.keys kbd.alt { display: none; }
+    #report.keys:has(#report-text:focus) kbd.alt { display: inline-block; }
+    #report button.on kbd { background: linear-gradient(#5d9198, #3d6a70); }
+    #report button.rec kbd { background: linear-gradient(#a8443c, #6e1f1a); }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -146,13 +170,18 @@
   <div id="game"><canvas id="crabscape" tabindex="0"></canvas></div>
   <div id="message" role="status">Loading CrabScape&hellip; 🦀</div>
   <div id="report" hidden>
-    <div class="row"><button id="report-bug" class="on">Bug</button><button id="report-idea">Idea</button></div>
+    <div class="row">
+      <button id="report-bug" class="on"><kbd class="alt">Alt</kbd><kbd>B</kbd>Bug</button>
+      <button id="report-idea"><kbd class="alt">Alt</kbd><kbd>I</kbd>Idea</button>
+    </div>
     <textarea id="report-text" maxlength="2000" placeholder="What happened, or what would make it better? Type, or tap Speak."></textarea>
     <div id="report-level" hidden><div></div></div>
     <div id="report-note" role="status"></div>
     <div class="row">
-      <button id="report-speak">Speak</button><span class="grow"></span>
-      <button id="report-cancel">Close</button><button id="report-send">Send</button>
+      <button id="report-speak"><kbd class="alt">Alt</kbd><kbd>S</kbd><span class="label">Speak</span></button>
+      <span class="grow"></span>
+      <button id="report-cancel"><kbd>Esc</kbd>Close</button>
+      <button id="report-send"><kbd class="command">Ctrl</kbd><kbd>&#x21b5;</kbd>Send</button>
     </div>
   </div>
   <div id="character" hidden>

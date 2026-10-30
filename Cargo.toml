@@ -110,8 +110,10 @@ web-sys = { version = "0.3", features = [
     "RtcSessionDescriptionInit", "RtcSdpType", "RtcTrackEvent", "RtcRtpTransceiver", "RtcRtpTransceiverInit",
     "RtcRtpTransceiverDirection", "RtcRtpSender", "RtcIceCandidateInit", "AnalyserNode",
     "RtcPeerConnectionState",
-    # Reports (src/report.rs): the form on the page, recording a spoken report, the listener worker, sending it.
+    # Reports (src/report.rs): the form on the page and its keys, recording a spoken report, the listener worker,
+    # sending it.
     "HtmlElement", "HtmlTextAreaElement", "DomTokenList", "MediaRecorder", "BlobEvent", "Blob", "OfflineAudioContext",
+    "Event", "UiEvent", "KeyboardEvent", "NodeList",
     "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "RequestInit", "Response",
     # Exporting and importing a character (src/character.rs): copy, share or download the code, pick a file.
     "Clipboard", "ShareData", "File", "FileList", "FilePropertyBag", "HtmlInputElement", "HtmlAnchorElement",
