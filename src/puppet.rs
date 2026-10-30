@@ -1568,6 +1568,7 @@ fn shell_look(
     mut tints: Query<&mut LitTint>,
     mut shown: Query<&mut Visibility>,
     mut places: Query<&mut Transform>,
+    parents: Query<&ChildOf>,
 ) {
     for (rig, a) in &crabs {
         let (pick, mirror, stretch) = shell_view(a.yaw);
@@ -1620,6 +1621,20 @@ fn shell_look(
                 && tint.bright != want.bright
             {
                 *tint = want;
+            }
+        }
+        // The claws and legs go green with the shell (their lit layer and the unlit one under it), and back.
+        for &e in &rig.lit {
+            if let Ok(mut tint) = tints.get_mut(e)
+                && tint.bright != want.bright
+            {
+                *tint = want;
+            }
+            if let Ok(parent) = parents.get(e)
+                && let Ok(mut sprite) = sprites.get_mut(parent.parent())
+                && sprite.color != unlit
+            {
+                sprite.color = unlit;
             }
         }
         for &(e, strength) in &rig.rims {
