@@ -326,6 +326,26 @@ fn get_out(x: f32, wait: f64, limit: f64) -> Result<f64, Vec2> {
 }
 
 #[test]
+fn the_upwelling_runs_by_the_near_wall_from_the_floor_to_just_above_the_shelf() {
+    let level = crabsim::Level::test_level();
+    let [lane] = level.upwelling[..] else {
+        panic!("one lane: {:?}", level.upwelling);
+    };
+    assert_eq!(lane.min.y, FLOOR.2, "from the floor");
+    assert!(lane.min.x > FLOOR.0 && lane.max.x < 6450.0, "by the near wall");
+    // A crab hopping into it with no strokes and letting go: carried up
+    // past the shelf, bobbing there, never up to the doorstep.
+    let r = run("start x=6200 y=-9400\nt=0.2 jump; t=0.4 release", 30.0, 0);
+    assert!(r.highest > SHELF.2 + 100.0, "up past the shelf: {}", r.highest);
+    assert!(r.highest < DOORSTEP.2 - 1000.0, "no higher: {}", r.highest);
+    assert!(!r.crab().grounded, "still bobbing: {}", r.crab().pos);
+    // Its water runs up all through the tide's round.
+    let t = Tuning::base().tide;
+    assert_eq!(level.water_at(lane.center(), &t), t.upwelling_speed);
+    assert!(t.upwelling_speed >= t.up_speed, "as strong as the flood");
+}
+
+#[test]
 fn a_crab_on_the_canyon_floor_can_always_get_out() {
     // From anywhere along the floor, at any point in the tide's round, with
     // no strokes: out of the canyon and back on the far basin's floor
@@ -368,7 +388,7 @@ fn the_den_is_a_dead_end_chamber_off_the_far_rim() {
     // Its floor is the far rim's, a roof over it, the level's wall behind.
     assert_eq!(den.min.y, FAR_RIM.2);
     assert_eq!(den.max.x, level.max_x);
-    assert!(den.height() >= 200.0, "room for an octopus");
+    assert!((200.0..=400.0).contains(&den.height()), "room for an octopus, no more");
     let roof = Vec2::new(den.center().x, den.max.y + 5.0);
     assert!(level.solids().any(|s| s.contains(roof)), "roofed over");
     // A crab walks in from the far rim and on to the back: a dead end.
