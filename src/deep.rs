@@ -56,6 +56,22 @@ struct Dive {
     from_y: f32,
 }
 
+impl Dive {
+    /// The crab is `depth` below the lip (None: not in the deep), the camera
+    /// at height `camera_y`: start a pass if this dive is deep enough and
+    /// hasn't had one. Climbing back out makes the next dive a new one.
+    fn begin(&mut self, depth: Option<f32>, camera_y: f32) {
+        if depth.is_none_or(|d| d < 0.0) {
+            self.visited = false;
+        }
+        if !self.visited && depth.is_some_and(|d| d > VISITOR_BELOW) {
+            self.visited = true;
+            self.pass = Some(0.0);
+            self.from_y = camera_y;
+        }
+    }
+}
+
 #[derive(Component)]
 struct DepthText;
 
@@ -229,14 +245,7 @@ fn pass_visitor(
         return;
     };
     let depth = below_lip(&sim, crab.translation.truncate());
-    if depth.is_none_or(|d| d < 0.0) {
-        dive.visited = false; // back out: a new dive next time
-    }
-    if !dive.visited && depth.is_some_and(|d| d > VISITOR_BELOW) {
-        dive.visited = true;
-        dive.pass = Some(0.0);
-        dive.from_y = camera.translation.y;
-    }
+    dive.begin(depth, camera.translation.y);
     let Some(t) = dive.pass else {
         *shown = Visibility::Hidden;
         return;
@@ -249,13 +258,58 @@ fn pass_visitor(
     }
     dive.pass = Some(t);
     *shown = Visibility::Inherited;
-    // Far away and slowly across, at the depth where the crab met it: as
-    // the crab sinks on, it slides up and out of sight. Never down near the
-    // floor: it swims in open water.
+    let (_, _, floor) = sim.level.pit();
+    let p = visitor_at(t, dive.from_y, camera.translation.truncate(), floor);
+    at.translation = p.extend(VISITOR_Z);
+}
+
+/// Where the big shape is `t` s into its pass, begun with the camera at
+/// height `from_y`, with the camera at `camera` now. Far away and slowly
+/// across, at the depth where the crab met it: as the crab sinks on, it
+/// slides up and out of sight. Never down near the floor (`floor`): it
+/// swims in open water.
+fn visitor_at(t: f32, from_y: f32, camera: Vec2, floor: f32) -> Vec2 {
     let across = PASS_FROM + (PASS_TO - PASS_FROM) * (t / PASS_TIME);
     let drift = 40.0 * (t * 0.4).sin();
-    let (_, _, floor) = sim.level.pit();
-    let follow = (camera.translation.y - dive.from_y) * FOLLOW;
-    let y = (dive.from_y - 300.0 + follow).max(floor + ABOVE_FLOOR) + drift;
-    at.translation = Vec3::new(camera.translation.x + across, y, VISITOR_Z);
+    let follow = (camera.y - from_y) * FOLLOW;
+    let y = (from_y - 300.0 + follow).max(floor + ABOVE_FLOOR) + drift;
+    Vec2::new(camera.x + across, y)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn once_it_starts_the_big_shape_keeps_its_own_path_whatever_the_camera_does() {
+        // The crab sinks on past (the camera goes down) or climbs back (up):
+        // the shape swims on where it was, never chasing the view.
+        let floor = -8700.0;
+        for t in [1.0, 5.0, 9.0, 14.0] {
+            let still = visitor_at(t, -2000.0, Vec2::new(3800.0, -2000.0), floor);
+            for camera in [Vec2::new(3800.0, -3500.0), Vec2::new(3900.0, -1200.0)] {
+                let moved = visitor_at(t, -2000.0, camera, floor);
+                assert_eq!(moved, still, "{t} s in, camera at {camera}");
+            }
+        }
+    }
+
+    #[test]
+    fn dive_after_dive_the_big_shape_is_a_rare_sight() {
+        // Twelve dives down and back out again: it passes once or twice,
+        // not every time.
+        let mut dive = Dive::default();
+        let mut passes = 0;
+        for _ in 0..12 {
+            for depth in [Some(-10.0), Some(500.0), Some(1200.0), Some(3000.0), None] {
+                let was = dive.pass.is_some();
+                dive.begin(depth, -2000.0);
+                if !was && dive.pass.is_some() {
+                    passes += 1;
+                }
+                dive.pass = None; // the pass plays out between dives
+            }
+        }
+        assert!((1..=2).contains(&passes), "{passes} passes in 12 dives");
+    }
 }
