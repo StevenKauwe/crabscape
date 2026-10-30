@@ -392,6 +392,9 @@ fn spawn_shoal(
         });
 }
 
+/// A fish in the shoal (not the shoal itself, the camera or the crab).
+type OneFish = (Without<Shoal>, Without<Camera2d>, Without<LocalPlayer>);
+
 /// Now and then, while the crab is in the canyon, a shoal of lanternfish
 /// crosses behind it, left to right, at its own depth.
 fn pass_shoal(
@@ -401,7 +404,7 @@ fn pass_shoal(
     crab: Query<&Transform, (With<LocalPlayer>, Without<Shoal>)>,
     camera: Query<&Transform, (With<Camera2d>, Without<Shoal>)>,
     mut shoal: Query<(&mut Transform, &mut Visibility, &Children), With<Shoal>>,
-    mut fish: Query<&mut Transform, (Without<Shoal>, Without<Camera2d>, Without<LocalPlayer>)>,
+    mut fish: Query<&mut Transform, OneFish>,
 ) {
     let (Ok(crab), Ok(camera), Ok((mut at, mut shown, children))) =
         (crab.single(), camera.single(), shoal.single_mut())

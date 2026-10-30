@@ -311,7 +311,7 @@ fn get_out(x: f32, wait: f64, limit: f64) -> Result<f64, Vec2> {
             // Jump, let go, then hold jump (climb) pressing towards the rim:
             // as `coral_climbs_back_out_of_the_crack_and_up_from_the_shelf`.
             c.walk = if s < 36 { 0.0 } else { -1.0 };
-            c.jump_held = s < 24 || s >= 36;
+            c.jump_held = !(24..36).contains(&s);
             c.jump_pressed = s == 0 || s == 36;
             climb = Some(s + 1);
             // Up on the next ledge: the climb is done.
