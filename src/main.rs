@@ -29,6 +29,7 @@
 //! - [`replay`]: F9 saves a replay of this session
 //! - [`report`]: report a bug or idea from the game (typed or spoken), with the replay
 //! - [`input`]: keys, controllers and touch buttons become move requests
+//! - [`keys`]: the card of what each key does, on a computer with a keyboard
 //! - [`interior`]: inside the home shell: the cut-away and the crafting menu
 //! - [`puppet`]: the crab's cut-out body parts and their animation
 //! - [`lantern`]: the lantern and its cheap fake lighting
@@ -84,6 +85,7 @@ mod home;
 mod impact;
 mod input;
 mod interior;
+mod keys;
 mod lantern;
 mod level;
 mod memory;
@@ -188,6 +190,7 @@ fn main() {
                 brittle::BrittlePlugin,
                 creature_art::CreatureArtPlugin,
                 go_home::GoHomePlugin,
+                keys::KeysPlugin,
                 character::CharacterPlugin,
             ),
             sound::SoundPlugin,
