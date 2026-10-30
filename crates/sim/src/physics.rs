@@ -1291,7 +1291,8 @@ mod tests {
             let mut best = 0.0_f32;
             let mut strokes = 0;
             for _ in 0..12 {
-                let ev = run(&mut m, HOLD_JUMP, t.stroke_interval + STEP, &level);
+                // Half the plain rhythm: only hulk's legs come round that fast.
+                let ev = run(&mut m, HOLD_JUMP, t.stroke_interval / 2.0 + STEP, &level);
                 strokes += u32::from(ev.paddled);
                 best = best.max(m.vel.y);
             }
