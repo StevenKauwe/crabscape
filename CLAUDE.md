@@ -74,6 +74,12 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
     once nobody can still hold an old save, its migration can go too.
   - **Anything else** (formats, files, tools, rules, the game itself): change it outright. No shims, flags or
     deprecation steps.
+- **How much polish** (owner's call):
+  - **Art:** a decent placeholder that reads clearly in the game; polish only when someone asks for it.
+  - **Mechanics and gameplay:** enough polish that it works and is playable: no dead ends, softlocks, or
+    unreadable moments.
+  - **One quick "does this feel good?" pass before shipping:** play it yourself (`cargo crabsim` numbers, a
+    browser at phone size), fix what feels off, once. Then ship; the humans' play is the next pass.
 - New or changed decisions go in `docs/design/decisions.md`.
 
 ## Repo practices and CI/CD
