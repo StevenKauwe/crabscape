@@ -156,6 +156,21 @@ fn the_joke_codes_change_nothing_in_the_world() {
 }
 
 #[test]
+fn every_code_has_its_own_hint() {
+    assert_eq!(Code::Hulk.hint(), "bulk up (again: back)");
+    assert_eq!(Code::Pizza.hint(), "a crab of many pizzas (just for fun)");
+    assert_eq!(
+        Code::Monkeys.hint(),
+        "monkeys, from outer space (just for fun)"
+    );
+    for a in crabsim::codes::ALL {
+        for b in crabsim::codes::ALL {
+            assert_eq!(a == b, a.hint() == b.hint(), "{a:?} and {b:?}");
+        }
+    }
+}
+
+#[test]
 fn a_friends_crab_is_never_changed_here() {
     let mut sim = sim();
     sim.add_remote_crab(PlayerId(1), SPAWN);
