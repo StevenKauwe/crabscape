@@ -115,6 +115,8 @@ web-sys = { version = "0.3", features = [
     "HtmlElement", "HtmlTextAreaElement", "DomTokenList", "MediaRecorder", "BlobEvent", "Blob", "OfflineAudioContext",
     "Event", "UiEvent", "KeyboardEvent", "NodeList",
     "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "RequestInit", "Response",
+    # Voice chat written down (src/scribe.rs): the microphone's sound, a block at a time; the report's tick box.
+    "ScriptProcessorNode", "AudioProcessingEvent",
     # Exporting and importing a character (src/character.rs): copy, share or download the code, pick a file.
     "Clipboard", "ShareData", "File", "FileList", "FilePropertyBag", "HtmlInputElement", "HtmlAnchorElement",
     "HtmlDocument", "Url",

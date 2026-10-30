@@ -17,10 +17,13 @@
 //!   100% boosts quiet voices), each a row, its name and value left of the
 //!   track; under Music, which music plays ("Calm" or "Themes", `music.rs`).
 //! - **Co-op**: how friends' voices carry (see `voice.rs`): from everyone at
-//!   full volume, or from nearby crabs only, with a slider for how far; and
-//!   "Your name", the name over your crab (`names.rs`), which asks for a new
-//!   one. While
-//!   the slider moves, a ripple around the crab shows how far it hears.
+//!   full volume, or from nearby crabs only, with a slider for how far;
+//!   "Write down my voice" (on unless switched off: voice chat written down
+//!   for bug reports, `scribe.rs`); "Your name", the name over your crab
+//!   (`names.rs`), which asks for a new one; and a new invite link. Each row's
+//!   name sits left of its buttons, as on Audio, so the tab fits a phone held
+//!   sideways. While the slider moves, a ripple around the crab shows how far
+//!   it hears.
 //!
 //! The settings and the last tab used are kept on the device. The panel is
 //! as tall as its tallest tab, so it keeps its size; a tap outside it, the
@@ -82,6 +85,8 @@ pub struct Settings {
     pub voices: f32,
     /// Which music plays.
     pub track: Track,
+    /// Write down this player's voice in voice chat (`scribe.rs`).
+    pub write: bool,
 }
 
 impl Default for Settings {
@@ -95,13 +100,14 @@ impl Default for Settings {
             effects: EFFECTS_START,
             voices: VOICES_START,
             track: Track::default(),
+            write: true,
         }
     }
 }
 
 impl Settings {
     /// As kept:
-    /// `saver=1;hear=nearby;range=900;master=80;music=40;effects=50;voices=200;track=themes`
+    /// `saver=1;hear=nearby;range=900;master=80;music=40;effects=50;voices=200;track=themes;write=1`
     /// (the volumes in percent).
     pub(crate) fn to_text(self) -> String {
         let hear = match self.hear {
@@ -110,14 +116,15 @@ impl Settings {
         };
         format!(
             "saver={};hear={hear};range={:.0};master={:.0};music={:.0};effects={:.0};voices={:.0};\
-             track={}",
+             track={};write={}",
             u8::from(self.saver),
             self.range,
             self.master * 100.0,
             self.music * 100.0,
             self.effects * 100.0,
             self.voices * 100.0,
-            self.track.word()
+            self.track.word(),
+            u8::from(self.write)
         )
     }
 
@@ -143,6 +150,7 @@ impl Settings {
                 ("effects" | "game", v) => s.effects = percent(v, 1.0).unwrap_or(s.effects),
                 ("voices", v) => s.voices = percent(v, VOICES_MAX).unwrap_or(s.voices),
                 ("track", v) => s.track = Track::from_word(v).unwrap_or(s.track),
+                ("write", v) => s.write = v != "0",
                 _ => {}
             }
         }
@@ -150,10 +158,10 @@ impl Settings {
     }
 
     /// For a report: "smooth, voices: everyone, master 80%, music 40%
-    /// (themes), effects 50%, voice volume 200%".
+    /// (themes), effects 50%, voice volume 200%, voice written down".
     pub fn describe(&self) -> String {
         format!(
-            "{}, voices: {}, master {:.0}%, music {:.0}% ({}), effects {:.0}%, voice volume {:.0}%",
+            "{}, voices: {}, master {:.0}%, music {:.0}% ({}), effects {:.0}%, voice volume {:.0}%, voice {}",
             if self.saver {
                 "battery saver"
             } else {
@@ -167,7 +175,12 @@ impl Settings {
             self.music * 100.0,
             self.track.word(),
             self.effects * 100.0,
-            self.voices * 100.0
+            self.voices * 100.0,
+            if self.write {
+                "written down"
+            } else {
+                "not written down"
+            }
         )
     }
 
@@ -359,6 +372,9 @@ pub(crate) mod panel {
         /// A new co-op lobby link (`coop.rs`), on a second tap: the old link
         /// stops reaching this device.
         NewLink,
+        /// Write down this player's voice in voice chat, or don't (`scribe.rs`).
+        WriteOn,
+        WriteOff,
     }
 
     impl Choice {
@@ -379,6 +395,8 @@ pub(crate) mod panel {
                 Choice::StartOver => "Start over",
                 Choice::NewLink => "New link",
                 Choice::Name => "Your name",
+                Choice::WriteOn => "On",
+                Choice::WriteOff => "Off",
             }
         }
 
@@ -391,7 +409,12 @@ pub(crate) mod panel {
         fn tab(self) -> Tab {
             match self {
                 Choice::Smooth | Choice::Saver | Choice::Ink | Choice::Oil => Tab::Graphics,
-                Choice::Everyone | Choice::Nearby | Choice::Name | Choice::NewLink => Tab::Coop,
+                Choice::Everyone
+                | Choice::Nearby
+                | Choice::WriteOn
+                | Choice::WriteOff
+                | Choice::Name
+                | Choice::NewLink => Tab::Coop,
                 Choice::Calm | Choice::Themes => Tab::Audio,
                 Choice::Report
                 | Choice::Code
@@ -584,6 +607,26 @@ pub(crate) mod panel {
         y + ROW + PAD
     }
 
+    /// A row's name on the left (as wide as a volume's), then `choices` side
+    /// by side, filling the rest; returns where the next row starts.
+    fn row(l: &mut Layout, left: f32, y: f32, title: &'static str, choices: &[Choice]) -> f32 {
+        let lines = title.lines().count().max(1) as f32;
+        let mid = y + ROW / 2.0;
+        l.labels.push((
+            choices[0].tab(),
+            Vec2::new(left + PAD, mid - 7.5 * lines),
+            title,
+        ));
+        let x = left + PAD + VOLUME_NAME;
+        let n = choices.len() as f32;
+        let w = (left + WIDTH - PAD - x - GAP * (n - 1.0)) / n;
+        for (i, &c) in choices.iter().enumerate() {
+            let at = x + i as f32 * (w + GAP);
+            l.choices.push((c, Rect::new(at, y, at + w, y + ROW)));
+        }
+        y + ROW + GAP
+    }
+
     /// A choice the panel's whole width.
     fn whole(left: f32, y: f32) -> Rect {
         Rect::new(left + PAD, y, left + WIDTH - PAD, y + ROW)
@@ -709,29 +752,23 @@ pub(crate) mod panel {
                 }
                 Tab::Audio => volumes(&mut l, left, start),
                 Tab::Coop => {
-                    let y = pair(
+                    let y = row(
                         &mut l,
                         left,
                         start,
                         "Whose voices",
-                        Choice::Everyone,
-                        Choice::Nearby,
+                        &[Choice::Everyone, Choice::Nearby],
                     );
                     let y = slider(&mut l, left, y, Slider::Range);
-                    l.labels.push((
-                        Tab::Coop,
-                        Vec2::new(left + PAD, y),
-                        "Your name (over your crab)",
-                    ));
-                    let y = y + LABEL;
-                    l.choices.push((Choice::Name, whole(left, y)));
-                    let y = y + ROW + PAD;
-                    // A little apart: it can't be undone.
-                    l.labels
-                        .push((Tab::Coop, Vec2::new(left + PAD, y), "Your invite link"));
-                    let y = y + LABEL;
-                    l.choices.push((Choice::NewLink, whole(left, y)));
-                    y + ROW + PAD
+                    let y = row(
+                        &mut l,
+                        left,
+                        y,
+                        "Write down\nmy voice",
+                        &[Choice::WriteOn, Choice::WriteOff],
+                    );
+                    let y = row(&mut l, left, y, "Your name", &[Choice::Name]);
+                    row(&mut l, left, y, "Invite link", &[Choice::NewLink]) - GAP + PAD
                 }
             };
             bottom = bottom.max(end);
@@ -1094,6 +1131,8 @@ pub(crate) mod panel {
                 Some(Choice::Oil) => crate::style::choose(&mut style, ArtStyle::Oil),
                 Some(Choice::Everyone) => settings.hear = Hear::Everyone,
                 Some(Choice::Nearby) => settings.hear = Hear::Nearby,
+                Some(Choice::WriteOn) => settings.write = true,
+                Some(Choice::WriteOff) => settings.write = false,
                 Some(Choice::Calm) => settings.track = Track::Calm,
                 Some(Choice::Themes) => settings.track = Track::Themes,
                 Some(Choice::Report) => {
@@ -1240,6 +1279,8 @@ pub(crate) mod panel {
                 Choice::Oil => *style == ArtStyle::Oil,
                 Choice::Everyone => settings.hear == Hear::Everyone,
                 Choice::Nearby => settings.hear == Hear::Nearby,
+                Choice::WriteOn => settings.write,
+                Choice::WriteOff => !settings.write,
                 Choice::Calm => settings.track == Track::Calm,
                 Choice::Themes => settings.track == Track::Themes,
                 Choice::Report | Choice::Code | Choice::Export | Choice::Import | Choice::Name => {
@@ -1441,7 +1482,7 @@ pub(crate) mod panel {
                 let l = layout_for(window, web, lines);
                 let tabs = tabs_for(web);
                 assert_eq!(l.sliders.len(), if web { 5 } else { 0 }, "{at}");
-                assert_eq!(l.choices.len(), if web { 15 } else { 5 }, "{at}");
+                assert_eq!(l.choices.len(), if web { 17 } else { 5 }, "{at}");
                 // On screen without scrolling, under the button.
                 assert!(
                     l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - super::super::MARGIN,
@@ -1586,6 +1627,8 @@ pub(crate) mod panel {
             assert_eq!(on(Choice::Ink), Tab::Graphics);
             assert_eq!(on(Choice::Saver), Tab::Graphics);
             assert_eq!(on(Choice::Nearby), Tab::Coop);
+            assert_eq!(on(Choice::WriteOn), Tab::Coop);
+            assert_eq!(on(Choice::WriteOff), Tab::Coop);
             assert_eq!(on(Choice::Calm), Tab::Audio);
             assert_eq!(on(Choice::Themes), Tab::Audio);
             assert_eq!(on(Choice::Code), Tab::Game);
@@ -1615,12 +1658,17 @@ mod tests {
             effects: 0.65,
             voices: 2.5,
             track: Track::Calm,
+            write: false,
         };
         assert_eq!(Settings::from_text(&s.to_text()), s);
         assert_eq!(
             Settings::default().to_text(),
-            "saver=0;hear=everyone;range=900;master=80;music=40;effects=50;voices=200;track=themes"
+            "saver=0;hear=everyone;range=900;master=80;music=40;effects=50;voices=200;track=themes;\
+             write=1"
         );
+        // Writing down voice chat is on unless switched off.
+        assert!(Settings::from_text("saver=0").write);
+        assert!(!Settings::from_text("write=0").write);
         // The music track: forgiving, and Themes unless it says otherwise.
         assert_eq!(Settings::from_text("track=Calm ").track, Track::Calm);
         assert_eq!(Settings::from_text("track = calm").track, Track::Calm);
@@ -1652,7 +1700,7 @@ mod tests {
         assert_eq!(
             Settings::default().describe(),
             "smooth, voices: everyone, master 80%, music 40% (themes), effects 50%, voice volume \
-             200%"
+             200%, voice written down"
         );
         let s = Settings {
             saver: true,
@@ -1663,11 +1711,12 @@ mod tests {
             effects: 0.25,
             voices: 3.0,
             track: Track::Calm,
+            write: false,
         };
         assert_eq!(
             s.describe(),
             "battery saver, voices: nearby (900), master 100%, music 0% (calm), effects 25%, voice \
-             volume 300%"
+             volume 300%, voice not written down"
         );
     }
 

@@ -17,6 +17,10 @@
 //!
 //! The microphone starts off; the Mic button, beside the invite button while
 //! in a room, turns it on (the browser asks first) and off. Web only.
+//!
+//! What each player says is written down as text by their own device and
+//! sent to every friend over the same notes channel (`scribe.rs`): a pencil
+//! on the Mic button shows while this device writes.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
@@ -29,6 +33,18 @@ enum Note {
     Answer(String),
     /// A way to reach this device (an ICE candidate, as the browser's JSON).
     Reach(String),
+    /// What this device's player said, written down (`scribe.rs`): their
+    /// crab's name, the words, and how long ago (seconds) they began.
+    Said {
+        who: String,
+        text: String,
+        ago: f32,
+    },
+    /// Whether this device writes down its player's voice.
+    Writes {
+        who: String,
+        on: bool,
+    },
 }
 
 /// The longest note accepted (a session description is a few kilobytes).
@@ -160,7 +176,7 @@ impl Meter {
 #[cfg(target_arch = "wasm32")]
 pub use web::{forget, forget_all, hear, meet, outbox};
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web::{loudness, mic_trouble};
+pub(crate) use web::{loudness, mic_track, mic_trouble, say_line, say_writes};
 
 #[cfg(target_arch = "wasm32")]
 mod web {
@@ -184,6 +200,7 @@ mod web {
     use super::{METER_SAMPLES, Meter, MicTrouble, Note};
     use crate::coop::LocalId;
     use crate::player::{GameSet, LocalPlayer};
+    use crate::scribe::web as scribe;
     use crate::settings::Settings;
     use crate::sound::Mic;
 
@@ -238,6 +255,38 @@ mod web {
     fn send(peer: PeerId, note: &Note) {
         let bytes = note.to_bytes();
         with(|v| v.outbox.push((peer, bytes)));
+    }
+
+    /// The microphone, while it is on.
+    pub(crate) fn mic_track() -> Option<MediaStreamTrack> {
+        with(|v| v.mic.clone())
+    }
+
+    /// Tell every friend on a call what this player said.
+    pub(crate) fn say_line(who: &str, text: &str, ago: f32) {
+        let note = Note::Said {
+            who: who.into(),
+            text: text.into(),
+            ago,
+        };
+        for peer in with(|v| v.lines.iter().map(|l| l.peer).collect::<Vec<_>>()) {
+            send(peer, &note);
+        }
+    }
+
+    /// Tell `to` (or every friend on a call) whether this device writes down its player's voice.
+    pub(crate) fn say_writes(to: Option<PeerId>, who: &str, on: bool) {
+        let note = Note::Writes {
+            who: who.into(),
+            on,
+        };
+        let peers = match to {
+            Some(p) => vec![p],
+            None => with(|v| v.lines.iter().map(|l| l.peer).collect()),
+        };
+        for peer in peers {
+            send(peer, &note);
+        }
     }
 
     /// Notes for the co-op connection's voice channel.
@@ -343,6 +392,8 @@ mod web {
                     add_reach(&pc, &json);
                 }
             }
+            Some(Note::Said { who, text, ago }) => scribe::friend_said(&who, &text, ago),
+            Some(Note::Writes { who, on }) => scribe::friend_writes(&who, on),
             None => {}
         }
     }
@@ -520,6 +571,7 @@ mod web {
                 l.meter = meter;
             }
         });
+        scribe::friend_joined(peer);
     }
 
     /// Turn the microphone on (the browser asks the player first) or off.
@@ -622,6 +674,10 @@ mod web {
     #[derive(Component)]
     struct MicLabel;
 
+    /// The pencil on the Mic button: this device writes down its player's voice.
+    #[derive(Component)]
+    struct Pencil;
+
     use super::mic_rect as button_rect;
 
     fn spawn_button(mut commands: Commands, window: Single<&Window>) {
@@ -656,6 +712,36 @@ mod web {
                     },
                     TextColor(Color::srgba(1.0, 0.9, 0.7, 0.7)),
                 ));
+                // A little pencil leaning on the button's top-right edge: a
+                // pale wooden body with a dark lead tip.
+                b.spawn((
+                    Pencil,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: px(-9.0),
+                        right: px(-2.0),
+                        width: px(5.0),
+                        height: px(18.0),
+                        flex_direction: FlexDirection::Column,
+                        justify_content: JustifyContent::FlexEnd,
+                        border_radius: BorderRadius::all(px(1.5)),
+                        ..default()
+                    },
+                    UiTransform::from_rotation(Rot2::degrees(35.0)),
+                    BackgroundColor(Color::srgb(0.98, 0.82, 0.45)),
+                    Visibility::Hidden,
+                ))
+                .with_children(|p| {
+                    p.spawn((
+                        Node {
+                            width: px(5.0),
+                            height: px(4.0),
+                            border_radius: BorderRadius::bottom(px(2.5)),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.18, 0.14, 0.12)),
+                    ));
+                });
             });
     }
 
@@ -711,7 +797,8 @@ mod web {
     /// The Mic button shows in a room, with what the microphone is doing.
     fn show(
         time: Res<Time<Real>>,
-        mut button: Single<&mut Visibility, With<MicButton>>,
+        mut button: Single<&mut Visibility, (With<MicButton>, Without<Pencil>)>,
+        mut pencil: Single<&mut Visibility, (With<Pencil>, Without<MicButton>)>,
         mut label: Single<(&mut Text, &mut TextColor), With<MicLabel>>,
     ) {
         let room = crate::coop::in_room();
@@ -723,6 +810,11 @@ mod web {
         if !room {
             set_mic(false);
         }
+        pencil.set_if_neq(if scribe::writing() {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
         let (words, colour) = with(|v| match (&v.mic, v.asking, v.refused) {
             (Some(_), _, _) => ("Mic on", Color::srgba(0.7, 1.0, 0.8, 1.0)),
             (None, true, _) => ("Mic...", Color::srgba(1.0, 0.9, 0.7, 0.7)),
@@ -755,8 +847,9 @@ mod web {
                 })
                 .collect();
             format!(
-                "{words}; lines {} {lines:?}; hearing {heard}",
-                v.lines.len()
+                "{words}; lines {} {lines:?}; hearing {heard}; {}",
+                v.lines.len(),
+                scribe::state()
             )
         });
         if let Some(canvas) = web_sys::window()
@@ -891,11 +984,39 @@ mod tests {
     }
 
     #[test]
+    fn a_line_sent_by_a_friends_device_lands_in_my_transcript_with_their_name() {
+        let bytes = Note::Said {
+            who: "Crab 41".into(),
+            text: "the door won't open".into(),
+            ago: 2.0,
+        }
+        .to_bytes();
+        let Some(Note::Said { who, text, ago }) = Note::from_bytes(&bytes) else {
+            panic!("a line comes back a line");
+        };
+        let mut book = crate::scribe::Book::default();
+        book.friend_said(&who, &text, ago, 100.0);
+        assert_eq!(
+            book.transcript.text(100.0, 1000),
+            "[-0:02] Crab 41: the door won't open"
+        );
+    }
+
+    #[test]
     fn notes_come_back_whole_and_bad_bytes_are_dropped() {
         for note in [
             Note::Offer("v=0\r\no=- 1 2 IN IP4 127.0.0.1".into()),
             Note::Answer("v=0".into()),
             Note::Reach(r#"{"candidate":"candidate:1 1 udp 1 1.2.3.4 5 typ host"}"#.into()),
+            Note::Said {
+                who: "Crab 41".into(),
+                text: "over here".into(),
+                ago: 3.5,
+            },
+            Note::Writes {
+                who: "Crab 41".into(),
+                on: false,
+            },
         ] {
             assert_eq!(Note::from_bytes(&note.to_bytes()), Some(note));
         }
