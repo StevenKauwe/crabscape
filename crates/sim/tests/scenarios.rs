@@ -560,6 +560,40 @@ fn the_reserve_comes_back_by_itself() {
     assert_eq!(sim.crabs()[0].mover.reserve, 1.0);
 }
 
+#[test]
+fn the_reserve_keeps_up_with_hopping_about() {
+    // A jump and its double jump every 2.5 s for a minute, as a player
+    // bounding along does: every double jump comes, the reserve never runs
+    // dry, and a spent reserve is whole again within 10 s.
+    let t = strokes(1);
+    let mut script = String::new();
+    for k in 0..24 {
+        let t0 = 2.5 * f64::from(k);
+        script += &format!("t={t0} jump; t={} jump; t={} release;", t0 + 0.45, t0 + 1.2);
+    }
+    let r = run_with(t.clone(), &format!("{FAR_FLAT}{script}"), 60.0, |_| false);
+    assert_eq!(r.count("jumped"), 24);
+    assert_eq!(r.count("paddled"), 24, "no double jump missed");
+    assert!(r.crab().reserve > 0.5, "reserve left: {}", r.crab().reserve);
+    assert!(t.reserve_refill_time <= 10.0, "{}", t.reserve_refill_time);
+}
+
+#[test]
+fn a_full_reserve_sprints_for_about_fifteen_seconds() {
+    // Sprinting into the trench's far wall until winded: the reserve comes
+    // back while it's spent, so a sprint lasts longer than the reserve alone.
+    let winded = |sim: &Sim| sim.crabs()[0].mover.winded;
+    let r = run_with(
+        Tuning::base(),
+        "start x=1600 y=-260\nt=0 walk=right sprint",
+        30.0,
+        winded,
+    );
+    let lasted = r.sim.time();
+    assert!(winded(&r.sim), "never winded in 30 s");
+    assert!((13.0..18.0).contains(&lasted), "sprinted for {lasted:.1} s");
+}
+
 /// Play `script` with a crab that has grown `strokes` strokes (rested). Did
 /// it ever stand on top of the shape spanning `left`..`right` at `top`?
 fn stands_on(script: &str, strokes: u32, (left, right, top): (f32, f32, f32)) -> bool {
