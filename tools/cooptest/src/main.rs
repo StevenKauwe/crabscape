@@ -36,6 +36,7 @@ cargo cooptest [options]   play co-op in real browsers and check its promises
   --seed S           the stress run's seed (default: from the clock; printed either way)
   --steps K          the stress run's steps (default 12)
   --logs DIR         where a failure's browser logs and screenshots go (default: a temporary folder)
+  --shots DIR        keep what each player sees at the end of each scenario (DIR/<scenario>-host.png, -guest.png)
   --list             name the scenarios
 ";
 
@@ -60,6 +61,8 @@ struct Site {
     introducer: Option<Introducer>,
     /// Where the browsers keep their profiles and logs.
     dir: PathBuf,
+    /// Where each scenario's last screens go (`--shots`), if anywhere.
+    shots: Option<PathBuf>,
     /// How many times slower each page runs (`--slow`).
     slow: f64,
 }
@@ -713,6 +716,11 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     }
     host.healthy()?;
     guest.healthy()?;
+    if let Some(dir) = &site.shots {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        host.b.screenshot(&dir.join(format!("{name}-host.png")))?;
+        guest.b.screenshot(&dir.join(format!("{name}-guest.png")))?;
+    }
     Ok(found)
 }
 
@@ -832,6 +840,7 @@ struct Args {
     seed: Option<u64>,
     steps: usize,
     logs: Option<PathBuf>,
+    shots: Option<PathBuf>,
 }
 
 fn args() -> std::result::Result<Args, String> {
@@ -848,6 +857,7 @@ fn args() -> std::result::Result<Args, String> {
         seed: None,
         steps: 12,
         logs: None,
+        shots: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -871,6 +881,7 @@ fn args() -> std::result::Result<Args, String> {
             "--seed" => a.seed = Some(value()?.parse().map_err(|_| "--seed takes a number")?),
             "--steps" => a.steps = value()?.parse().map_err(|_| "--steps takes a number")?,
             "--logs" => a.logs = Some(value()?.into()),
+            "--shots" => a.shots = Some(value()?.into()),
             "--slow" => a.slow = value()?.parse().map_err(|_| "--slow takes a number")?,
             "--list" => {
                 for (name, what, _) in SCENARIOS {
@@ -905,6 +916,7 @@ fn site(a: &Args, dir: &Path) -> Result<Site> {
             page: url.clone(),
             introducer: None,
             dir: dir.into(),
+            shots: a.shots.clone(),
             slow: a.slow,
         });
     }
