@@ -847,7 +847,8 @@ mod web {
                 })
                 .collect();
             format!(
-                "{words}; lines {} {lines:?}; hearing {heard}; {}",
+                // "hearing N" last: the co-op tests wait for the line to end with it.
+                "{words}; lines {} {lines:?}; {}; hearing {heard}",
                 v.lines.len(),
                 scribe::state()
             )
