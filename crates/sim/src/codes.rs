@@ -19,7 +19,8 @@
 //! | `monkeys` | a joke, made real: three monkeys from outer space drop in near the crab, with long asparagus arms that hit weakly; they can be fought and beaten, and leave after a while (in co-op the host's device runs them, and a guest's code asks it) |
 
 //!
-//! hulk also gives ten times the usual shell (back to normal when toggled off) and nothing can hold the crab: a grab (a moray's bite, an octopus's arms or web) never takes hold. Its blows pop comic words in the game.
+//! hulk also has no stamina limit (the reserve never runs low, strokes cost nothing and never run out) and swims
+//! hard (strokes push 2.5 times as far, twice as often), and has ten times the usual shell (back to normal when toggled off) and nothing can hold the crab: a grab (a moray's bite, an octopus's arms or web) never takes hold. Its blows pop comic words in the game.
 
 use crate::physics::Mover;
 use crate::tuning::{EnemyTuning, StrikeTuning, Tuning, VitalsTuning};
@@ -30,6 +31,11 @@ pub const GLOW_CULTURES: u32 = 4;
 
 /// How many times the usual shell the crab has in hulk mode.
 pub const HULK_SHELL: f32 = 10.0;
+
+/// Hulk swims hard: each paddle stroke pushes this many times as far, and
+/// the legs come round this many times as fast (and never tire).
+pub const HULK_SWIM_PUSH: f32 = 2.5;
+pub const HULK_STROKE_SPEEDUP: f32 = 2.0;
 
 /// How many monkeys the `monkeys` code drops in.
 pub const MONKEYS: u32 = 3;
