@@ -127,10 +127,11 @@ pub struct NamesPlugin;
 
 impl Plugin for NamesPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(kept_or_first()).add_systems(
-            Update,
-            (tag_crabs, place_tags).chain().in_set(GameSet::Present),
-        );
+        // Placed after every frame's moves (the camera's too), before the
+        // UI is laid out, so a name never trails its crab by a frame.
+        app.insert_resource(kept_or_first())
+            .add_systems(Update, tag_crabs.in_set(GameSet::Present))
+            .add_systems(PostUpdate, place_tags.before(bevy::ui::UiSystems::Prepare));
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Update, tell_tests.in_set(GameSet::Present));
     }
@@ -174,11 +175,14 @@ fn tag_crabs(
 fn place_tags(
     names: Res<Names>,
     me: Res<crate::coop::LocalId>,
-    camera: Single<(&Camera, &GlobalTransform), With<Camera2d>>,
+    camera: Single<(&Camera, &Transform), With<Camera2d>>,
     crabs: Query<(&PlayerId, &Transform, Has<LocalPlayer>), With<Crab>>,
     mut tags: Query<(&Tag, &mut Node, &mut Text, &mut Visibility, &ComputedNode)>,
 ) {
     let (camera, at) = *camera;
+    // This frame's camera (its GlobalTransform is only brought up to date
+    // later in the frame).
+    let at = GlobalTransform::from(*at);
     let friends = crabs.iter().filter(|(_, _, local)| !local).count();
     for (Tag(crab), mut node, mut text, mut shown, size) in &mut tags {
         let Ok((id, crab_at, local)) = crabs.get(*crab) else {
@@ -186,7 +190,7 @@ fn place_tags(
         };
         let name = names.of(*id, me.0).filter(|_| !local || friends > 0);
         let spot = camera
-            .world_to_viewport(at, crab_at.translation + Vec3::Y * LIFT)
+            .world_to_viewport(&at, crab_at.translation + Vec3::Y * LIFT)
             .ok();
         let (Some(name), Some(spot)) = (name, spot) else {
             shown.set_if_neq(Visibility::Hidden);
