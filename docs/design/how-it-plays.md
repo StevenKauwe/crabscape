@@ -52,7 +52,13 @@ Well fed and tucked into the home shell, the Moult row at the top of the workben
 per moult; "Next" picks another when several are ready; hungry, it says "Eat a clam first"). The old shell shows over
 the crab, which backs up and out of it through the split at its back; the husk goes up on the shelf as a keepsake (one
 per moult). It is soft for 90 s of play (a third of that tucked in, the row counts it down), drawn pale: half the
-shell, claws at 60%, no eating. Hardened (a warm glow swells round it), the feat is on and the shell holds 10 more. The feats (their biology: not verified):
+shell, claws at 60%, no eating. Hardened (a warm glow swells round it), the feat is on.
+Each moult also **grows the crab**, at once (the new soft shell is the bigger one): 12% at the first moult, then
+three quarters of the step before each time (1.12, 1.21, 1.28, 1.33), never past 1.35. Size is the body: its box
+against the rocks and in a fight, the claws' reach, a stride 50% of the growth longer, a faster sink (the water holds
+a bigger body back less for its weight; a jump or a stroke pushes it as high); the shell holds 100 x size, the claws
+hit size x harder, and the shell carries 4 x size² small things (5 after one moult, 7 at the biggest). The feats
+(their biology: not verified):
 - **Gripping dactyls** (Climbing): the leg tips hold kelp and coral so firmly that the paddle legs rest there, as on
   solid ground (drawn from the reserve, like standing). A stalk out in the water becomes a place to get the strokes
   back and swim on up: the coral on the far basin's end wall, and the sixth egg above it, pays off. (Bare rock is the
