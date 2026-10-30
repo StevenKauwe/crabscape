@@ -67,6 +67,7 @@ mod brittle;
 mod build;
 mod canyon;
 mod character;
+mod chat;
 mod cling;
 mod codes;
 mod coop;
@@ -199,6 +200,7 @@ fn main() {
                 go_home::GoHomePlugin,
                 keys::KeysPlugin,
                 names::NamesPlugin,
+                chat::ChatPlugin,
                 character::CharacterPlugin,
                 scribe::ScribePlugin,
             ),

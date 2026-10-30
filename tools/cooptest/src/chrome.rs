@@ -377,6 +377,42 @@ impl Chrome {
         Ok(())
     }
 
+    /// Type `text` as a player does in the game's box: Enter, the letters, Enter.
+    pub fn type_line(&mut self, text: &str) -> Result<()> {
+        let press = |me: &mut Self, key: &str, code: &str, text: Option<&str>| -> Result<()> {
+            let mut event = json!({ "type": "keyDown", "key": key, "code": code });
+            if let Some(t) = text {
+                event["text"] = json!(t);
+            }
+            me.call("Input.dispatchKeyEvent", event)?;
+            me.call(
+                "Input.dispatchKeyEvent",
+                json!({ "type": "keyUp", "key": key, "code": code }),
+            )?;
+            std::thread::sleep(Duration::from_millis(15));
+            Ok(())
+        };
+        press(self, "Enter", "Enter", Some("\r"))?;
+        for c in text.chars() {
+            let s = c.to_string();
+            let code = match c {
+                'a'..='z' => format!("Key{}", c.to_ascii_uppercase()),
+                '0'..='9' => format!("Digit{c}"),
+                ' ' => "Space".to_string(),
+                '/' => "Slash".to_string(),
+                '.' => "Period".to_string(),
+                ':' => "Semicolon".to_string(),
+                '(' => "Digit9".to_string(),
+                ')' => "Digit0".to_string(),
+                _ => String::new(),
+            };
+            press(self, &s, &code, Some(&s))?;
+        }
+        press(self, "Enter", "Enter", Some("\r"))?;
+        std::thread::sleep(Duration::from_millis(250));
+        Ok(())
+    }
+
     /// Stop the page's scripts for `secs` (as a phone that froze, or a game whose network stopped): nothing it
     /// sends or answers meanwhile, then it carries on.
     pub fn stall(&mut self, secs: f64) -> Result<()> {

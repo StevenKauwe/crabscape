@@ -567,7 +567,11 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
 const SCENARIOS: [(&str, &str, u32); 13] = [
-    ("join", "a friend opening your link plays with you", 22),
+    (
+        "join",
+        "a friend opening your link plays with you, and chat reaches them",
+        24,
+    ),
     (
         "guest-reload",
         "a friend who reloads is back, though the browsers take 40 s to finish gathering addresses",
@@ -671,6 +675,16 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             found.push(format!("met {t:.1} s after the friend's game started"));
             found.push(sees_name(&mut host, &mut guest)?);
             found.push(sees_name(&mut guest, &mut host)?);
+            // Words typed in the box reach the friend, link and all; a link that isn't https stays plain words.
+            let line = "hello https://example.com/x javascript:alert(1)";
+            guest.b.type_line(line)?;
+            guest.until(5.0, "its own chat line", |p| {
+                p.b.attr("data-chat").unwrap_or_default().ends_with(line)
+            })?;
+            let t = host.until(5.0, "the friend's chat line", |p| {
+                p.b.attr("data-chat").unwrap_or_default().ends_with(line)
+            })?;
+            found.push(format!("chat line arrived {t:.1} s after it was typed"));
         }
         "guest-reload" => {
             meet(site, &mut host, &mut guest, limit::MEET)?;

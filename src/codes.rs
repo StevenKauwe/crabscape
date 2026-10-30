@@ -14,8 +14,8 @@ use crabsim::{Code, Sim};
 use crate::notes::say;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
-/// The longest code the box takes.
-const LONGEST: usize = 16;
+/// The longest line the box takes (a code is far shorter).
+const LONGEST: usize = crabsim::net::CHAT_MAX;
 
 /// Above the crab's feet, where the note starts (as `notes.rs`).
 const ABOVE: f32 = 135.0;
@@ -67,6 +67,9 @@ fn type_code(
     mut code_box: ResMut<CodeBox>,
     mut typed: MessageWriter<Typed>,
 ) {
+    // A line sent in the frame its letters were typed in must not leave them pressed for the game's keys (R opens the
+    // report form): the keys are cleared for every frame the box was open in.
+    let was_open = code_box.open;
     for key in keys_in.read() {
         if key.state != ButtonState::Pressed {
             continue;
@@ -95,7 +98,7 @@ fn type_code(
             }
             _ => {
                 if let Some(t) = &key.text {
-                    for ch in t.chars().filter(|c| c.is_alphanumeric() || *c == ' ') {
+                    for ch in t.chars().filter(|c| !c.is_control()) {
                         if code_box.text.chars().count() < LONGEST {
                             code_box.text.push(ch);
                         }
@@ -104,7 +107,7 @@ fn type_code(
             }
         }
     }
-    if code_box.open {
+    if was_open || code_box.open {
         keys.reset_all();
     }
 }
@@ -115,10 +118,18 @@ fn use_codes(
     mut commands: Commands,
     mut typed: MessageReader<Typed>,
     mut sim: ResMut<Sim>,
+    time: Res<Time>,
+    names: Res<crate::names::Names>,
+    mut chat: ResMut<crate::chat::Chat>,
     crab: Single<(&PlayerId, &Transform), With<LocalPlayer>>,
 ) {
     let (id, at) = *crab;
     for Typed(text) in typed.read() {
+        // Words that aren't a code are said to the friends here, if any.
+        if Code::parse(text).is_none() && sim.crabs().iter().any(|c| c.remote) {
+            chat.say(names.mine(), text, time.elapsed_secs_f64());
+            continue;
+        }
         let code = Code::parse(text).filter(|c| sim.enter_code(*id, *c));
         let mover = sim.crab(*id).map(|c| &c.mover);
         let (words, colour) = match (code, mover) {
@@ -180,7 +191,9 @@ fn spawn_box(mut commands: Commands) {
                 TextColor(Color::srgba(1.0, 0.92, 0.75, 0.95)),
             ));
             b.spawn((
-                Text::new("Enter to try it, Esc to put it away"),
+                Text::new(
+                    "Enter to try it (a code, or words for your friends), Esc to put it away",
+                ),
                 TextFont {
                     font_size: FontSize::Px(11.0),
                     ..default()
@@ -209,7 +222,7 @@ fn show_box(
         Visibility::Hidden
     });
     if code_box.open {
-        let words = format!("Code: {}_", code_box.text);
+        let words = format!("Code or chat: {}_", code_box.text);
         if text.0 != words {
             text.0 = words;
         }
@@ -221,7 +234,10 @@ fn show_box(
 #[cfg(target_arch = "wasm32")]
 pub fn prompt() -> Option<String> {
     web_sys::window()?
-        .prompt_with_message(&format!("Enter a code\n\n{}", crabsim::codes::hints()))
+        .prompt_with_message(&format!(
+            "Enter a code, or say something to your friends\n\n{}",
+            crabsim::codes::hints()
+        ))
         .ok()
         .flatten()
 }
