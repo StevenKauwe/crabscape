@@ -123,6 +123,40 @@ pub(crate) fn mic_rect(window: Vec2) -> Rect {
     Rect::new(right - MIC_WIDTH, invite.min.y, right, invite.max.y)
 }
 
+/// How loud a friend's voice has been lately, for the browser tests ("hearing N").
+#[derive(Default)]
+struct Meter {
+    /// The loudest reading lately, held a while so a pause between sounds still counts.
+    loudest: f32,
+    /// When it was last read (seconds).
+    read_at: Option<f64>,
+}
+
+/// Samples the meter reads at once: the most a browser's meter holds, about 0.7 s, longer than the half second
+/// between a test microphone's beeps, so a reading can't fall between two beeps however the frames line up.
+const METER_SAMPLES: u32 = 32768;
+/// Seconds between readings: a reading is a long window, so a few a second cover all the sound.
+const METER_EVERY: f64 = 0.25;
+/// What the loudest reading keeps of itself per reading: a voice that stops counts for about a second more.
+const METER_HOLD: f32 = 0.5;
+/// Louder than this counts as heard.
+const HEARD: f32 = 0.01;
+
+impl Meter {
+    /// A frame at `now` (seconds): read the voice's level with `level` if it's time.
+    fn tick(&mut self, now: f64, level: impl FnOnce() -> f32) {
+        if self.read_at.is_some_and(|t| now - t < METER_EVERY) {
+            return;
+        }
+        self.read_at = Some(now);
+        self.loudest = (self.loudest * METER_HOLD).max(level());
+    }
+
+    fn heard(&self) -> bool {
+        self.loudest > HEARD
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 pub use web::{forget, forget_all, hear, meet, outbox};
 #[cfg(target_arch = "wasm32")]
@@ -147,7 +181,7 @@ mod web {
         RtcTrackEvent,
     };
 
-    use super::{MicTrouble, Note};
+    use super::{METER_SAMPLES, Meter, MicTrouble, Note};
     use crate::coop::LocalId;
     use crate::player::{GameSet, LocalPlayer};
     use crate::settings::Settings;
@@ -168,10 +202,9 @@ mod web {
         /// some browsers need before a remote voice reaches Web Audio.
         gain: Option<GainNode>,
         audio: Option<HtmlAudioElement>,
-        /// How loud their voice is arriving, and the loudest lately (held
-        /// a moment, so a short sound still counts; for the browser tests).
+        /// How loud their voice is arriving (for the browser tests).
         meter: Option<AnalyserNode>,
-        loudest: f32,
+        level: Meter,
         /// Ways to reach them that came before their description could be
         /// applied; added once it is.
         early: Vec<String>,
@@ -438,7 +471,7 @@ mod web {
                 gain: None,
                 audio: None,
                 meter: None,
-                loudest: 0.0,
+                level: Meter::default(),
                 early: Vec::new(),
                 described: false,
                 _on_reach: on_reach,
@@ -477,6 +510,7 @@ mod web {
         }
         let meter = ctx.create_analyser().ok();
         if let Some(m) = &meter {
+            m.set_fft_size(METER_SAMPLES);
             let _ = source.connect_with_audio_node(m);
         }
         with(|v| {
@@ -676,6 +710,7 @@ mod web {
 
     /// The Mic button shows in a room, with what the microphone is doing.
     fn show(
+        time: Res<Time<Real>>,
         mut button: Single<&mut Visibility, With<MicButton>>,
         mut label: Single<(&mut Text, &mut TextColor), With<MicLabel>>,
     ) {
@@ -700,20 +735,22 @@ mod web {
         }
         // For the browser tests: the mic, lines, and friends heard right now.
         let state = with(|v| {
+            let now = time.elapsed_secs_f64();
             for l in &mut v.lines {
-                let now = l.meter.as_ref().map_or(0.0, loudness);
-                l.loudest = (l.loudest * 0.98).max(now);
+                let meter = l.meter.as_ref();
+                l.level.tick(now, || meter.map_or(0.0, peak));
             }
-            let heard = v.lines.iter().filter(|l| l.loudest > 0.01).count();
+            let heard = v.lines.iter().filter(|l| l.level.heard()).count();
             let lines: Vec<String> = v
                 .lines
                 .iter()
                 .map(|l| {
                     let volume = l.gain.as_ref().map(|g| g.gain().value());
                     format!(
-                        "{:?}{}",
+                        "{:?}{} level {:.3}",
                         l.pc.connection_state(),
-                        volume.map_or(String::new(), |v| format!(" volume {v:.2}"))
+                        volume.map_or(String::new(), |v| format!(" volume {v:.2}")),
+                        l.level.loudest
                     )
                 })
                 .collect();
@@ -736,6 +773,13 @@ mod web {
         let mut samples = vec![0.0_f32; meter.fft_size() as usize];
         meter.get_float_time_domain_data(&mut samples);
         (samples.iter().map(|x| x * x).sum::<f32>() / samples.len().max(1) as f32).sqrt()
+    }
+
+    /// The loudest sample in the meter's window (0 to 1).
+    fn peak(meter: &AnalyserNode) -> f32 {
+        let mut samples = vec![0.0_f32; meter.fft_size() as usize];
+        meter.get_float_time_domain_data(&mut samples);
+        samples.iter().fold(0.0, |m, x| m.max(x.abs()))
     }
 
     /// Keep the button in place as the window changes (or the phone turns).
@@ -769,6 +813,81 @@ mod tests {
             assert_eq!(MicTrouble::from_error(error), trouble, "{error}");
         }
         assert!(MicTrouble::Blocked.advice().contains("iPhone"));
+    }
+
+    /// A browser's test microphone: a 20 ms beep every half second. The level of its sound over the `window` seconds
+    /// before `t`, with the beeps starting at `phase`.
+    fn beeps(t: f64, window: f64, phase: f64) -> f32 {
+        let (every, beep) = (0.5, 0.02);
+        // The last beep to start before `t`; it, or the one before, may reach into the window.
+        let last = phase + ((t - phase) / every).floor() * every;
+        let heard = [last, last - every]
+            .iter()
+            .any(|&start| start <= t && start + beep > t - window);
+        if heard { 0.3 } else { 0.0 }
+    }
+
+    /// The meter's window, at the lowest sample rate an audio context has (44.1 kHz gives a longer one).
+    fn window() -> f64 {
+        f64::from(METER_SAMPLES) / 48_000.0
+    }
+
+    #[test]
+    fn a_beeping_friend_is_heard_however_the_frames_line_up_with_the_beeps() {
+        // A busy computer draws a frame every few screen refreshes (1/60 s), steadily, so the frames can keep landing
+        // at the same moments between two beeps.
+        for refreshes in 2..=30 {
+            let frame = f64::from(refreshes) / 60.0;
+            for ms in 0..500 {
+                let phase = f64::from(ms) / 1000.0;
+                let mut meter = Meter::default();
+                let mut t = 0.0;
+                while t < 15.0 {
+                    meter.tick(t, || beeps(t, window(), phase));
+                    assert!(
+                        t < 1.0 || meter.heard(),
+                        "not heard at {t:.2} s, a frame every {frame:.3} s, beeps from {phase} s"
+                    );
+                    t += frame;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn silence_is_not_heard_and_a_voice_that_stops_is_soon_not_heard() {
+        let mut meter = Meter::default();
+        for frame in 0..600 {
+            meter.tick(f64::from(frame) / 60.0, || 0.0);
+        }
+        assert!(!meter.heard(), "nothing arrived");
+        let mut faint = Meter::default();
+        faint.tick(0.0, || HEARD);
+        assert!(
+            !faint.heard(),
+            "a hiss no louder than the line counts for nothing"
+        );
+        for frame in 0..60 {
+            meter.tick(10.0 + f64::from(frame) / 60.0, || 0.3);
+        }
+        assert!(meter.heard());
+        for frame in 0..180 {
+            meter.tick(11.0 + f64::from(frame) / 60.0, || 0.0);
+        }
+        assert!(!meter.heard(), "still heard 3 s after the voice stopped");
+    }
+
+    #[test]
+    fn the_meter_is_read_four_times_a_second_however_fast_the_frames() {
+        let mut meter = Meter::default();
+        let mut reads = 0;
+        for frame in 0..=100 {
+            meter.tick(f64::from(frame) / 100.0, || {
+                reads += 1;
+                0.0
+            });
+        }
+        assert_eq!(reads, 5, "at 0, 0.25, 0.5, 0.75 and 1 s");
     }
 
     #[test]

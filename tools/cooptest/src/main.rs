@@ -31,6 +31,7 @@ cargo cooptest [options]   play co-op in real browsers and check its promises
   --shard I/N        only part I of N, the parts about equally long (CI plays them on N machines at once)
   --repeat N         play each scenario N times (default 3)
   --voice on|off|both  with voice chat on, off, or each scenario both ways (default off)
+  --slow N           run every page N times slower (Chrome's CPU throttling), as on a busy CI machine
   --stress           random reloads, Start overs, lost connections and introducer restarts instead
   --seed S           the stress run's seed (default: from the clock; printed either way)
   --steps K          the stress run's steps (default 12)
@@ -59,6 +60,8 @@ struct Site {
     introducer: Option<Introducer>,
     /// Where the browsers keep their profiles and logs.
     dir: PathBuf,
+    /// How many times slower each page runs (`--slow`).
+    slow: f64,
 }
 
 impl Site {
@@ -423,10 +426,30 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
         }
         // Every call is between two players, so each hears all the others.
         let want = format!("hearing {n}");
-        for p in players.iter_mut() {
-            p.until(limit::VOICE, &format!("voice ({want})"), |p| {
-                p.b.attr("data-voice").is_some_and(|v| v.ends_with(&want))
-            })?;
+        let t = Instant::now();
+        loop {
+            let mut says = Vec::new();
+            for p in players.iter_mut() {
+                p.healthy()?;
+                says.push(p.b.attr("data-voice").unwrap_or_default());
+            }
+            if says.iter().all(|v| v.ends_with(&want)) {
+                break;
+            }
+            if t.elapsed().as_secs_f64() > limit::VOICE {
+                // Every player's microphone and calls, to tell a mic left off from a call that never came up.
+                let mut why = format!("waited {} s for voice ({want}) both ways:", limit::VOICE);
+                for (p, v) in players.iter_mut().zip(&says) {
+                    let fps = p.b.frame_rate().unwrap_or(0);
+                    why += &format!("\n      {} voice ({fps} frames/s): {v}", p.name());
+                }
+                let mut why = Some(why);
+                for p in players.iter_mut() {
+                    why = why.map(|w| p.failed(w));
+                }
+                return Err(why.unwrap_or_default());
+            }
+            sleep(0.25);
         }
     }
     Ok(met)
@@ -521,7 +544,10 @@ fn shard(part: usize, parts: usize) -> Vec<&'static str> {
 }
 
 fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
-    let o = Options { fake_mic: voice };
+    let o = Options {
+        fake_mic: voice,
+        slow: site.slow,
+    };
     let mut found = Found::new();
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
@@ -726,7 +752,10 @@ impl Rng {
 
 /// Random things happen to two players; after each, they must be back together, with no errors.
 fn stress(site: &mut Site, seed: u64, steps: usize, voice: bool) -> Result<()> {
-    let o = Options { fake_mic: voice };
+    let o = Options {
+        fake_mic: voice,
+        slow: site.slow,
+    };
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     meet(site, &mut host, &mut guest, limit::MEET)?;
@@ -781,6 +810,7 @@ struct Args {
     shard: Option<(usize, usize)>,
     repeat: usize,
     voice: Vec<bool>,
+    slow: f64,
     stress: bool,
     seed: Option<u64>,
     steps: usize,
@@ -796,6 +826,7 @@ fn args() -> std::result::Result<Args, String> {
         shard: None,
         repeat: 3,
         voice: vec![false],
+        slow: 1.0,
         stress: false,
         seed: None,
         steps: 12,
@@ -823,6 +854,7 @@ fn args() -> std::result::Result<Args, String> {
             "--seed" => a.seed = Some(value()?.parse().map_err(|_| "--seed takes a number")?),
             "--steps" => a.steps = value()?.parse().map_err(|_| "--steps takes a number")?,
             "--logs" => a.logs = Some(value()?.into()),
+            "--slow" => a.slow = value()?.parse().map_err(|_| "--slow takes a number")?,
             "--list" => {
                 for (name, what, _) in SCENARIOS {
                     println!("{name:20} {what}");
@@ -856,6 +888,7 @@ fn site(a: &Args, dir: &Path) -> Result<Site> {
             page: url.clone(),
             introducer: None,
             dir: dir.into(),
+            slow: a.slow,
         });
     }
     if !a.web.join("pkg").is_dir() {
@@ -884,6 +917,7 @@ fn site(a: &Args, dir: &Path) -> Result<Site> {
         page: format!("{base}/index.html?introducer=ws://127.0.0.1:{port}"),
         introducer: Some(introducer),
         dir: dir.into(),
+        slow: a.slow,
     })
 }
 
