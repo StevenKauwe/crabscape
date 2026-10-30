@@ -10,9 +10,14 @@
 //! browser, screen, frame rate, where the crab was, co-op, the settings and
 //! the last log lines.
 //!
+//! After co-op voice chat, "Add the last 15 min of voice chat" (unticked
+//! each time: reports are public) adds what was said, as written down by
+//! each player's device (`scribe.rs`), shown in a box to read, change or cut
+//! before Send.
+//!
 //! Speak records a few sentences and turns them into text on the device
-//! itself (`crates/listen`, Moonshine tiny, in a background worker): the
-//! sound never leaves it. The model (about 110 MB) downloads the first time
+//! itself (`crates/listen`, Moonshine tiny, in a background worker shared
+//! with voice chat, `listener.rs`): the sound never leaves it. The model (about 110 MB) downloads the first time
 //! someone speaks a report, then stays in the browser's cache. Phones'
 //! keyboard dictation works in the box too.
 //!
@@ -133,6 +138,32 @@ pub(crate) fn shortcut(code: &str, typing: bool, alt: bool, command: bool) -> Op
     }
 }
 
+/// What the form sends to the introducer (`tools/introducer`'s `Report`):
+/// the voice chat only when the player ticked it and left something in it.
+pub(crate) fn payload(
+    idea: bool,
+    text: &str,
+    facts: &[(String, String)],
+    replay: &str,
+    log: &str,
+    voice: Option<&str>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "kind": if idea { "idea" } else { "bug" },
+        "text": text,
+        "facts": facts,
+        "replay": replay,
+        "log": log,
+    });
+    if let Some(voice) = voice.map(str::trim).filter(|v| !v.is_empty()) {
+        body["voice"] = voice.into();
+    }
+    body
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) use web::listened;
+
 pub struct ReportPlugin;
 
 impl Plugin for ReportPlugin {
@@ -153,20 +184,20 @@ mod web {
 
     use bevy::prelude::*;
     use crabsim::Sim;
-    use js_sys::{Array, Float32Array, Object, Reflect};
+    use js_sys::{Array, Float32Array};
     use wasm_bindgen::JsCast;
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::{JsFuture, spawn_local};
     use web_sys::{
         AnalyserNode, AudioBuffer, Blob, BlobEvent, Document, Element, HtmlElement,
-        HtmlTextAreaElement, KeyboardEvent, MediaRecorder, MediaStream, MediaStreamConstraints,
-        MessageEvent, OfflineAudioContext, RequestInit, Response, Worker, WorkerOptions,
-        WorkerType,
+        HtmlInputElement, HtmlTextAreaElement, KeyboardEvent, MediaRecorder, MediaStream,
+        MediaStreamConstraints, OfflineAudioContext, RequestInit, Response,
     };
 
     use super::Shortcut;
     use crate::coop::LocalId;
     use crate::input::TouchControls;
+    use crate::listener::Reply;
     use crate::settings::Settings;
     use crate::sound::Mic;
     use crate::voice::{MicTrouble, mic_trouble};
@@ -185,10 +216,6 @@ mod web {
         recording_since: f64,
         meter: Option<AnalyserNode>,
         chunks: Vec<Blob>,
-        worker: Option<Worker>,
-        worker_ready: bool,
-        /// Sound waiting for the worker to start.
-        waiting: Option<Float32Array>,
         sending: bool,
         /// Frames a second, smoothed.
         fps: f32,
@@ -303,6 +330,7 @@ mod web {
         });
         wire();
         note("");
+        voice_offer();
         let _ = form.remove_attribute("hidden");
         if let Some(t) = text_box() {
             let _ = t.focus();
@@ -327,6 +355,11 @@ mod web {
         on_click("report-cancel", close);
         on_click("report-speak", speak);
         on_click("report-send", send);
+        if let Some(tick) = element::<HtmlInputElement>("report-voice-on") {
+            let f = Closure::<dyn FnMut()>::new(voice_ticked);
+            tick.set_onchange(Some(f.as_ref().unchecked_ref()));
+            f.forget();
+        }
         pick(false);
         // A Mac's keys are Cmd and Option; the page says Ctrl and Alt.
         let mac = web_sys::window()
@@ -369,7 +402,7 @@ mod web {
         }
         let typing = document()
             .and_then(|d| d.active_element())
-            .is_some_and(|a| a.id() == "report-text");
+            .is_some_and(|a| a.id() == "report-text" || a.id() == "report-voice");
         let command = e.ctrl_key() || e.meta_key();
         let Some(key) = super::shortcut(&e.code(), typing, e.alt_key(), command) else {
             return;
@@ -386,6 +419,43 @@ mod web {
             Shortcut::Send => send(),
             Shortcut::Close => close(),
         }
+    }
+
+    /// The voice chat box: offered (unticked) only when there's something
+    /// written down; reports are public, so it's never ticked for the player.
+    fn voice_offer() {
+        let any = crate::scribe::web::any();
+        if let Some(row) = element::<HtmlElement>("report-voice-row") {
+            row.set_hidden(!any);
+        }
+        if let Some(tick) = element::<HtmlInputElement>("report-voice-on") {
+            tick.set_checked(false);
+        }
+        voice_ticked();
+    }
+
+    /// Ticked: the voice chat that would be sent, shown to read, change or
+    /// cut before Send. Unticked: hidden, and none is sent.
+    fn voice_ticked() {
+        let on = element::<HtmlInputElement>("report-voice-on").is_some_and(|t| t.checked());
+        if let Some(b) = element::<HtmlElement>("report-voice-box") {
+            b.set_hidden(!on);
+        }
+        if let Some(t) = element::<HtmlTextAreaElement>("report-voice") {
+            t.set_value(&if on {
+                crate::scribe::web::book_text()
+            } else {
+                String::new()
+            });
+            t.set_scroll_top(t.scroll_height());
+        }
+    }
+
+    /// The voice chat to send: what's in its box, if ticked.
+    fn voice_to_send() -> Option<String> {
+        let on = element::<HtmlInputElement>("report-voice-on").is_some_and(|t| t.checked());
+        on.then(|| element::<HtmlTextAreaElement>("report-voice").map(|t| t.value()))
+            .flatten()
     }
 
     fn pick(idea: bool) {
@@ -590,69 +660,34 @@ mod web {
         16_000
     }
 
-    /// Hand `samples` to the listener worker, starting it the first time.
+    /// Hand `samples` to the listener worker (`listener.rs`).
     fn listen(samples: Float32Array) {
-        if with(|f| f.worker.is_none()) {
-            let options = WorkerOptions::new();
-            options.set_type(WorkerType::Module);
-            let Ok(worker) = Worker::new_with_options("listen/worker.js", &options) else {
-                note("Couldn't start listening here: you can still type.");
-                return;
-            };
-            let on_message =
-                Closure::<dyn FnMut(MessageEvent)>::new(|e: MessageEvent| heard(&e.data()));
-            worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-            on_message.forget();
-            with(|f| f.worker = Some(worker));
-        }
-        let ready = with(|f| f.worker_ready);
-        if ready {
-            post(&samples);
-        } else {
-            with(|f| f.waiting = Some(samples));
+        if !crate::listener::ask(crate::listener::Job::Report, samples) {
+            note("Couldn't start listening here: you can still type.");
         }
     }
 
-    fn post(samples: &Float32Array) {
-        let msg = Object::new();
-        let _ = Reflect::set(&msg, &"samples".into(), samples);
-        if let Some(w) = with(|f| f.worker.clone()) {
-            let _ = w.post_message(&msg);
-        }
-    }
-
-    /// A message from the listener.
-    fn heard(data: &JsValue) {
-        let get = |k: &str| {
-            Reflect::get(data, &k.into())
-                .ok()
-                .and_then(|v| v.as_string())
-                .unwrap_or_default()
-        };
-        match get("state").as_str() {
-            "ready" => {
-                with(|f| f.worker_ready = true);
-                if let Some(s) = with(|f| f.waiting.take()) {
-                    post(&s);
-                }
+    /// The listener's answer for a spoken report.
+    pub(crate) fn listened(reply: Reply) {
+        match reply {
+            Reply::Loading => {
+                note("Getting the listening model (about 110 MB, only the first time)...")
             }
-            "loading" => note("Getting the listening model (about 110 MB, only the first time)..."),
-            "heard" => {
-                let text = get("text");
-                if text.is_empty() {
-                    note("Didn't catch that: try again, a bit closer to the microphone.");
-                } else if let Some(t) = text_box() {
+            Reply::Heard(text) if text.is_empty() => {
+                note("Didn't catch that: try again, a bit closer to the microphone.")
+            }
+            Reply::Heard(text) => {
+                if let Some(t) = text_box() {
                     let before = t.value();
                     let sep = if before.trim().is_empty() { "" } else { " " };
                     t.set_value(&format!("{}{sep}{text}", before.trim_end()));
                     note("Check it, then Send.");
                 }
             }
-            "failed" => {
-                warn!("report: listening failed: {}", get("error"));
+            Reply::Failed(error) => {
+                warn!("report: listening failed: {error}");
                 note("Couldn't write that down: you can still type.");
             }
-            _ => {}
         }
     }
 
@@ -677,14 +712,16 @@ mod web {
             return;
         }
         stop_recording();
+        let voice = voice_to_send();
         let body = with(|f| {
-            serde_json::json!({
-                "kind": if f.idea { "idea" } else { "bug" },
-                "text": text,
-                "facts": f.facts,
-                "replay": f.replay,
-                "log": super::log_text(),
-            })
+            super::payload(
+                f.idea,
+                &text,
+                &f.facts,
+                &f.replay,
+                &super::log_text(),
+                voice.as_deref(),
+            )
             .to_string()
         });
         note("Sending...");
@@ -716,6 +753,7 @@ mod web {
                 if let Some(t) = text_box() {
                     t.set_value("");
                 }
+                voice_offer();
                 note(&format!("Sent as #{number}. Thank you!"));
             } else {
                 note(&format!("Not sent: {words}"));
@@ -753,6 +791,23 @@ mod tests {
             .collect();
         assert!(card.contains(&"R"));
         assert_eq!(card.iter().filter(|k| **k == "R").count(), 1);
+    }
+
+    #[test]
+    fn a_report_carries_voice_chat_only_when_ticked() {
+        let facts = vec![("Build".to_string(), "live".to_string())];
+        let send = |voice| payload(false, "stuck", &facts, "start", "log", voice);
+        let plain = send(None);
+        assert_eq!(plain["kind"], "bug");
+        assert_eq!(plain["text"], "stuck");
+        assert!(plain.get("voice").is_none(), "not ticked: no voice chat");
+        let with = send(Some("[14:32:05] Crab 41: the door won't open\n"));
+        assert_eq!(with["voice"], "[14:32:05] Crab 41: the door won't open");
+        assert!(
+            send(Some("  \n ")).get("voice").is_none(),
+            "ticked but all deleted: none"
+        );
+        assert_eq!(payload(true, "x", &[], "", "", None)["kind"], "idea");
     }
 
     #[test]

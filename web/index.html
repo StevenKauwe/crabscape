@@ -165,12 +165,38 @@
     #report.keys:has(#report-text:focus) kbd.alt { display: inline-block; }
     #report button.on kbd { background: linear-gradient(#5d9198, #3d6a70); }
     #report button.rec kbd { background: linear-gradient(#a8443c, #6e1f1a); }
+    /* Voice chat written down (src/report.rs): the tick box, and what would be sent, to read, change or cut. */
+    #report { max-height: calc(100% - 24px); overflow-y: auto; }
+    #report label.check { display: flex; gap: 8px; align-items: center; font-size: 15px; }
+    #report label.check input { width: 20px; height: 20px; margin: 0; accent-color: #4f7f86; }
+    #report-voice-box { display: flex; flex-direction: column; gap: 6px; }
+    #report-voice-box .warn { font-size: 13px; opacity: 0.85; }
+    #report textarea#report-voice { min-height: 70px; max-height: 26vh; font-size: 16px; line-height: 1.35; }
+    /* What players are told about voice chat being written down (src/scribe.rs): under the corner buttons and the
+       co-op status line, over the sea above the crab, never in the way of a tap. */
+    #voice-note {
+      position: fixed;
+      left: 50%;
+      top: calc(env(safe-area-inset-top) + 170px);
+      transform: translateX(-50%);
+      width: max-content;
+      max-width: min(420px, calc(100% - 32px));
+      padding: 8px 14px;
+      border-radius: 12px;
+      background: #03090cd9;
+      border: 1px solid #f4e7d055;
+      font-size: 14px;
+      line-height: 1.35;
+      text-align: center;
+      pointer-events: none;
+    }
     [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <div id="game"><canvas id="crabscape" tabindex="0"></canvas></div>
   <div id="message" role="status">Loading CrabScape&hellip; 🦀</div>
+  <div id="voice-note" role="status" hidden></div>
   <div id="report" hidden>
     <div class="row">
       <button id="report-bug" class="on"><kbd class="alt">Alt</kbd><kbd>B</kbd>Bug</button>
@@ -178,6 +204,14 @@
     </div>
     <textarea id="report-text" maxlength="2000" placeholder="What happened, or what would make it better? Type, or tap Speak."></textarea>
     <div id="report-level" hidden><div></div></div>
+    <label id="report-voice-row" class="check" hidden>
+      <input type="checkbox" id="report-voice-on"> Add the last 15 min of voice chat
+    </label>
+    <div id="report-voice-box" hidden>
+      <div class="warn">Reports are <strong>public</strong> on GitHub. This is what goes with yours: change or delete
+        anything first.</div>
+      <textarea id="report-voice" maxlength="12000" spellcheck="false"></textarea>
+    </div>
     <div id="report-note" role="status"></div>
     <div class="row">
       <button id="report-speak"><kbd class="alt">Alt</kbd><kbd>S</kbd><span class="label">Speak</span></button>

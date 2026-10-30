@@ -1,4 +1,5 @@
-//! Speech to text on the player's own device, for spoken bug reports: the
+//! Speech to text on the player's own device, for spoken bug reports and
+//! co-op voice chat written down (the game's `scribe.rs`): the
 //! audio never leaves it.
 //!
 //! The model is Moonshine tiny (Useful Sensors, MIT licence, 27 million
@@ -10,7 +11,8 @@
 //!
 //! On the web this crate is its own small WebAssembly file run in a
 //! background worker (see `web`), downloaded with the weights only when
-//! someone first speaks a report, so the game's own download doesn't grow.
+//! someone first speaks a report or talks in voice chat, so the game's own
+//! download doesn't grow.
 
 use candle_core::{D, DType, Device, Module, Result, Tensor};
 use candle_nn::{

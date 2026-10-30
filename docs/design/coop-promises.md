@@ -70,6 +70,17 @@ Every scenario runs with voice off, or with `--voice on` (both players' mics on,
 also checks each player hears the other within **15 s** of being together, after every reload or drop. A reload
 turns your mic off (the browser asks again); turning it on brings voice back within the same 15 s.
 
+Voice chat is written down (`src/scribe.rs`); these are promises too, checked by fast tests (the browser runs can't,
+without downloading the 110 MB model):
+
+| Promise | Fast test |
+|---|---|
+| Each device writes down only its own player's voice; a friend's line lands in everyone's transcript with their crab name | `a_line_sent_by_a_friends_device_lands_in_my_transcript_with_their_name` |
+| Lines older than 15 minutes drop, on every device, also after a reload | `lines_older_than_15_minutes_drop` |
+| "Write down my voice" off: the device writes nothing and sends no lines; friends see "(not written down)" | `the_write_down_setting_stops_writing_and_sending`, `a_friend_who_doesnt_write_shows_as_not_written_down` |
+| A test microphone's beeps are never speech, so the browser runs never start the model | `silence_clicks_and_a_test_microphones_beeps_are_not_speech` |
+| A report carries voice chat only when ticked; the introducer caps it and nothing in it pings people or escapes its fold | `a_report_carries_voice_chat_only_when_ticked`, `voice_chat_cannot_ping_people_or_break_out_of_its_fold` |
+
 ## Running them
 
 | What | Command | Where |

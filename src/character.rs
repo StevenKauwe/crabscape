@@ -832,6 +832,7 @@ mod tests {
             effects: 0.9,
             voices: 1.5,
             track: Track::Calm,
+            write: false,
         };
         Character::of(
             &sim,

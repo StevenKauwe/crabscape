@@ -89,6 +89,8 @@ mod interior;
 mod keys;
 mod lantern;
 mod level;
+#[cfg(target_arch = "wasm32")]
+mod listener;
 mod memory;
 mod monkeys;
 mod moult;
@@ -103,6 +105,7 @@ mod replay;
 mod report;
 mod reset;
 mod save;
+mod scribe;
 mod secrets;
 mod settings;
 mod sound;
@@ -197,6 +200,7 @@ fn main() {
                 keys::KeysPlugin,
                 names::NamesPlugin,
                 character::CharacterPlugin,
+                scribe::ScribePlugin,
             ),
             sound::SoundPlugin,
             stamina::StaminaPlugin,
