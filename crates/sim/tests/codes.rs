@@ -145,6 +145,17 @@ fn an_unknown_code_changes_nothing() {
 }
 
 #[test]
+fn the_joke_codes_change_nothing_in_the_world() {
+    for (typed, code) in [("pizza", Code::Pizza), ("  MONKEYS ", Code::Monkeys)] {
+        assert_eq!(Code::parse(typed), Some(code));
+        let before = sim();
+        let mut after = sim();
+        assert!(after.enter_typed(P0, typed));
+        assert_eq!(after.state_hash(), before.state_hash(), "{typed}");
+    }
+}
+
+#[test]
 fn a_friends_crab_is_never_changed_here() {
     let mut sim = sim();
     sim.add_remote_crab(PlayerId(1), SPAWN);
@@ -169,6 +180,7 @@ fn a_recording_with_codes_replays_to_the_same_hash() {
                     60 => assert!(live.enter_typed(P0, "hulk")),
                     200 => assert!(live.enter_typed(P0, "glow")),
                     260 => assert!(live.enter_typed(P0, "feast")),
+                    300 => assert!(live.enter_typed(P0, "pizza")),
                     330 => assert!(live.enter_typed(P0, "hulk")),
                     _ => {}
                 }
@@ -184,7 +196,7 @@ fn a_recording_with_codes_replays_to_the_same_hash() {
     let text = live.recording().unwrap().to_text();
     assert_eq!(text.matches("code=hulk").count(), 2, "{text}");
     assert!(
-        text.contains("code=glow") && text.contains("code=feast"),
+        text.contains("code=glow") && text.contains("code=feast") && text.contains("code=pizza"),
         "{text}"
     );
     let replay = Replay::parse(&text).unwrap();

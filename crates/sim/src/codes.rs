@@ -15,6 +15,8 @@
 //! | `hulk`  | bulks up (again: back to normal): bigger, smashes three times as hard and throws much further, poise hard to break, a little slower |
 //! | `feast` | a feast: shell mended, reserve and paddle strokes full            |
 //! | `glow`  | the lantern blazes as bright as it can (again: back to normal)    |
+//! | `pizza` | a joke: a note about the crab being a bug made of pizzas; changes nothing in the world |
+//! | `monkeys` | a joke: a note about monkeys coming from outer space; changes nothing in the world |
 
 use crate::physics::Mover;
 use crate::tuning::Tuning;
@@ -32,10 +34,20 @@ pub enum Code {
     Feast,
     /// The lantern at its brightest (or back to normal).
     Glow,
+    /// A joke: only a note, nothing changes.
+    Pizza,
+    /// A joke: only a note, nothing changes.
+    Monkeys,
 }
 
 /// Every code, in a fixed order.
-pub const ALL: [Code; 3] = [Code::Hulk, Code::Feast, Code::Glow];
+pub const ALL: [Code; 5] = [
+    Code::Hulk,
+    Code::Feast,
+    Code::Glow,
+    Code::Pizza,
+    Code::Monkeys,
+];
 
 impl Code {
     /// The word to type.
@@ -44,6 +56,8 @@ impl Code {
             Code::Hulk => "hulk",
             Code::Feast => "feast",
             Code::Glow => "glow",
+            Code::Pizza => "pizza",
+            Code::Monkeys => "monkeys",
         }
     }
 
@@ -53,6 +67,8 @@ impl Code {
             Code::Hulk => "bulk up (again: back)",
             Code::Feast => "shell and strokes full",
             Code::Glow => "brightest lantern (again: back)",
+            Code::Pizza => "a crab of many pizzas (just for fun)",
+            Code::Monkeys => "monkeys, from outer space (just for fun)",
         }
     }
 
@@ -109,6 +125,8 @@ impl Sim {
         match code {
             Code::Hulk => m.hulk = !m.hulk,
             Code::Glow => m.glow = !m.glow,
+            // Jokes: the game shows a note, the world stays as it is.
+            Code::Pizza | Code::Monkeys => {}
             Code::Feast => {
                 let v = &mut crab.fighter.vitals;
                 if crab.fighter.dead.is_none() {
