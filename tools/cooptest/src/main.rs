@@ -718,6 +718,9 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     guest.healthy()?;
     if let Some(dir) = &site.shots {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        // Both crabs start on the same spot: the friend walks a little way right first, so both show apart.
+        guest.b.hold_key("KeyD", 0.5)?;
+        sleep(1.0);
         host.b.screenshot(&dir.join(format!("{name}-host.png")))?;
         guest.b.screenshot(&dir.join(format!("{name}-guest.png")))?;
     }
@@ -946,6 +949,7 @@ fn site(a: &Args, dir: &Path) -> Result<Site> {
         page: format!("{base}/index.html?introducer=ws://127.0.0.1:{port}"),
         introducer: Some(introducer),
         dir: dir.into(),
+        shots: a.shots.clone(),
         slow: a.slow,
     })
 }
