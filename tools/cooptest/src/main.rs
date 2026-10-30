@@ -152,7 +152,7 @@ mod tap {
     pub const GAME_TAB: (f64, f64) = (945.0, 96.0);
     pub const COOP_TAB: (f64, f64) = (1151.0, 96.0);
     pub const START_OVER: (f64, f64) = (1050.0, 304.0);
-    pub const NEW_LINK: (f64, f64) = (1050.0, 281.0);
+    pub const NEW_LINK: (f64, f64) = (1050.0, 345.0);
 }
 
 /// One player: a browser, and what this run expects of it.

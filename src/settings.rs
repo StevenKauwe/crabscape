@@ -1411,6 +1411,25 @@ pub(crate) mod panel {
             Vec2::new(1024.0, 700.0),
         ];
 
+        /// `cargo cooptest` taps these spots in its 1200 x 800 windows (its
+        /// `tap` module): moving a button means moving its tap there too.
+        #[test]
+        fn the_co_op_tests_taps_land_on_their_buttons() {
+            let l = layout_for(Vec2::new(1200.0, 800.0), true, 1);
+            let tab = |t: Tab| l.tabs.iter().find(|(u, _)| *u == t).map(|(_, r)| *r);
+            let choice = |c: Choice| l.choices.iter().find(|(d, _)| *d == c).map(|(_, r)| *r);
+            let taps = [
+                (tab(Tab::Game), Vec2::new(945.0, 96.0)),
+                (tab(Tab::Coop), Vec2::new(1151.0, 96.0)),
+                (choice(Choice::StartOver), Vec2::new(1050.0, 304.0)),
+                (choice(Choice::NewLink), Vec2::new(1050.0, 345.0)),
+            ];
+            for (rect, at) in taps {
+                let rect = rect.expect("on the panel");
+                assert!(rect.contains(at), "{at} misses {rect:?}");
+            }
+        }
+
         #[test]
         fn every_tab_fits_phones_with_room_for_a_finger_and_start_over_comes_last() {
             let cases = WINDOWS
