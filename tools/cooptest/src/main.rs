@@ -396,8 +396,9 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
         for p in players.iter_mut() {
             p.healthy()?;
             let s = p.coop();
-            all &= s == want;
-            says.push(format!("{}: \"{s}\"", p.name()));
+            // The first line; a second says who hosts while the main host is away.
+            all &= s.lines().next() == Some(want.as_str());
+            says.push(format!("{}: {s:?}", p.name()));
         }
         since = if all { since.or(Some(now)) } else { None };
         if let Some(s) = since
@@ -460,6 +461,72 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
     Ok(met)
 }
 
+/// The second line of the one who stands in for the main host.
+const STANDS_IN: &str = "You host until the main host is here";
+/// The end of the second line of a friend playing in a stand-in's world.
+const IN_STAND_INS: &str = "hosts until the main host is here";
+
+/// Friends on a link while its main host is away: within `secs`, one of them stands in (it hosts its own world, and
+/// says so), and they all play together in its world (each says who hosts). The stand-in's place in `players`, and
+/// the seconds until they were together.
+fn together_with_stand_in(players: &mut [&mut Player], secs: f64) -> Result<(usize, f64)> {
+    let t = Instant::now();
+    let mut found = None;
+    while found.is_none() {
+        for (i, p) in players.iter_mut().enumerate() {
+            p.healthy()?;
+            if p.world() == "host" {
+                found = Some(i);
+            }
+        }
+        if t.elapsed().as_secs_f64() > secs {
+            let says: Vec<String> = players
+                .iter_mut()
+                .map(|p| {
+                    let (world, line) = (p.world(), p.coop());
+                    format!("{}: {world} world, {line:?}", p.name())
+                })
+                .collect();
+            let mut why = Some(format!(
+                "nobody stood in as host within {secs} s: {}",
+                says.join(", ")
+            ));
+            for p in players.iter_mut() {
+                why = why.map(|w| p.failed(w));
+            }
+            return Err(why.unwrap_or_default());
+        }
+        sleep(0.25);
+    }
+    let i = found.unwrap_or(0);
+    players.swap(0, i);
+    let waited = t.elapsed().as_secs_f64();
+    let result = together(players, secs - waited).and_then(|met| {
+        stands_in(players)?;
+        Ok(waited + met)
+    });
+    players.swap(0, i);
+    result.map(|t| (i, t))
+}
+
+/// `players[0]` stands in for the main host, and every other player says who hosts.
+fn stands_in(players: &mut [&mut Player]) -> Result<()> {
+    for (i, p) in players.iter_mut().enumerate() {
+        let (world, line) = (p.world(), p.coop());
+        let second = line.lines().nth(1).unwrap_or_default().to_string();
+        let ok = if i == 0 {
+            world == "host" && second == STANDS_IN
+        } else {
+            world == "guest" && second.ends_with(IN_STAND_INS)
+        };
+        if !ok {
+            let why = format!("{}: a {world} world, saying {line:?}", p.name());
+            return Err(p.failed(why));
+        }
+    }
+    Ok(())
+}
+
 /// Host and guest, met: the start of most scenarios. Returns the lobby code.
 fn meet(site: &Site, host: &mut Player, guest: &mut Player, setup: f64) -> Result<String> {
     host.open(&site.url(""))?;
@@ -489,7 +556,7 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 12] = [
+const SCENARIOS: [(&str, &str, u32); 13] = [
     ("join", "a friend opening your link plays with you", 22),
     (
         "guest-reload",
@@ -523,8 +590,13 @@ const SCENARIOS: [(&str, &str, u32); 12] = [
     ),
     (
         "two-waiting",
-        "two friends waiting play alone (no frozen half-world), then both join you",
-        31,
+        "two friends on your link while you're away play together (one stands in), even when it reloads; then both join you",
+        48,
+    ),
+    (
+        "stand-in-leaves",
+        "the friend standing in for you leaves: the other carries on as stand-in, and a third friend joins it",
+        40,
     ),
     (
         "new-link",
@@ -655,21 +727,65 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
         }
         "two-waiting" => {
             let mut other = Player::new(site, "guest2", o)?;
-            host.open(&site.url(""))?;
-            let code = host.invite()?;
-            host.b.go("about:blank")?;
-            let link = site.url(&format!("join={code}"));
+            let link = away(site, &mut host)?;
             guest.open(&link)?;
             other.open(&link)?;
-            for p in [&mut guest, &mut other] {
-                waits_alone(p, 4.0)?;
-            }
-            found.push("both play alone, waiting".into());
+            let (i, t) = together_with_stand_in(&mut [&mut guest, &mut other], limit::MEET)?;
+            found.push(format!(
+                "together, one standing in, {t:.1} s after the second friend's game started"
+            ));
+            // The stand-in reloads: the friend who stayed carries on as the stand-in, and the other is back with it.
+            let (stand_in, stayed) = if i == 0 {
+                (&mut guest, &mut other)
+            } else {
+                (&mut other, &mut guest)
+            };
+            stand_in.reload()?;
+            let t = together(&mut [&mut *stayed, &mut *stand_in], limit::MEET)?;
+            stands_in(&mut [stayed, stand_in])?;
+            found.push(format!(
+                "stand-in reloaded: back {t:.1} s after, the other standing in"
+            ));
+            // The main host comes: both go into its world (no stand-in any more).
             host.open(&site.url(""))?;
             let t = together(&mut [&mut host, &mut guest, &mut other], limit::MEET)?;
+            for p in [&mut guest, &mut other] {
+                if p.coop() != playing_with(2) {
+                    let line = p.coop();
+                    let why = format!("{}: with the main host, it says {line:?}", p.name());
+                    return Err(p.failed(why));
+                }
+            }
             found.push(format!(
-                "all three together {t:.1} s after the host's game started"
+                "all three in the main host's world {t:.1} s after its game started"
             ));
+        }
+        "stand-in-leaves" => {
+            let mut other = Player::new(site, "guest2", o)?;
+            let mut third = Player::new(site, "guest3", o)?;
+            let link = away(site, &mut host)?;
+            guest.open(&link)?;
+            other.open(&link)?;
+            let (i, _) = together_with_stand_in(&mut [&mut guest, &mut other], limit::MEET)?;
+            let (stand_in, stayed) = if i == 0 {
+                (&mut guest, &mut other)
+            } else {
+                (&mut other, &mut guest)
+            };
+            stand_in.b.go("about:blank")?;
+            // The friend who stayed carries on alone, hosting its own world, then a third friend joins it there.
+            let t = stayed.until(limit::MEET, "standing in, alone", |p| p.world() == "host")?;
+            waits_alone(stayed, 4.0)?;
+            found.push(format!(
+                "stand-in left: the other standing in alone {t:.1} s after"
+            ));
+            third.open(&link)?;
+            let t = together(&mut [&mut *stayed, &mut third], limit::MEET)?;
+            stands_in(&mut [stayed, &mut third])?;
+            found.push(format!(
+                "a third friend joined it {t:.1} s after its game started"
+            ));
+            third.healthy()?;
         }
         "new-link" => {
             let old = meet(site, &mut host, &mut guest, limit::MEET)?;
@@ -679,8 +795,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 new = p.lobby().unwrap_or_default();
                 !new.is_empty() && new != old
             })?;
-            // The friend on the old link loses the host and plays alone; it never finds the host there again.
-            guest.until(limit::MEET, "playing alone", |p| p.world() == "solo")?;
+            // The friend on the old link loses the host and plays its own world; it never finds the host there again.
+            guest.until(limit::MEET, "playing alone", |p| p.world() != "guest")?;
             waits_alone(&mut guest, 20.0)?;
             found.push("old link: friend alone for 20 s".into());
             guest.open(&site.url(&format!("join={new}")))?;
@@ -859,6 +975,14 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The main host shares its link and goes away (closes the game). The link.
+fn away(site: &Site, host: &mut Player) -> Result<String> {
+    host.open(&site.url(""))?;
+    let code = host.invite()?;
+    host.b.go("about:blank")?;
+    Ok(site.url(&format!("join={code}")))
+}
+
 /// The lobby code is still `code`.
 fn same_code(p: &mut Player, code: &str) -> Result<()> {
     match p.lobby() {
@@ -870,12 +994,13 @@ fn same_code(p: &mut Player, code: &str) -> Result<()> {
     }
 }
 
-/// For `secs`, the player plays in its own world, waiting for its friend (never half of someone else's).
+/// For `secs`, the player plays in its own world (alone, or hosting it for whoever comes), waiting for its friend:
+/// never half of someone else's.
 fn waits_alone(p: &mut Player, secs: f64) -> Result<()> {
     let t = Instant::now();
     while t.elapsed().as_secs_f64() < secs {
         let (world, coop) = (p.world(), p.coop());
-        if world != "solo" || !coop.starts_with("Waiting for your friend") {
+        if world == "guest" || !coop.starts_with("Waiting for your friend") {
             let why = format!(
                 "{}: waiting for a friend who isn't there, it plays a {world} world and says \"{coop}\"",
                 p.name()

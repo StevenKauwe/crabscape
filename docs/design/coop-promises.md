@@ -29,8 +29,11 @@ pass).
 
 ## The lobby
 
-Each device has one lobby code, made the first time it presses Invite and kept for good with the save (each build has
-its own). The link is that code.
+The link is a game world with a main host (you, its owner), and anyone on it can meet up there. Each device has one
+lobby code, made the first time it presses Invite and kept for good with the save (each build has its own). The link is
+that code. While you're away, the friends on your link play together in one friend's world: that friend stands in as
+host until you come (its line says "You host until the main host is here", the others' "Crab 07 hosts until the main
+host is here"). When you come, it's your world again.
 
 | Promise | Limit | Scenario | Fast test |
 |---|---|---|---|
@@ -38,8 +41,11 @@ its own). The link is that code.
 | Once you've shared it, your lobby opens whenever you play, with "Lobby open: waiting for a friend..." under the button | at start | `own-link` | `your_own_link_makes_you_host_and_your_lobby_opens_whenever_you_play` |
 | Opening your own link makes you the host | at start | `own-link` | same |
 | A second tab on the same device plays alone instead of opening the lobby twice | at start | (one device, two tabs: fast test only) | `a_tab_knows_when_another_tab_has_the_lobby_open` |
-| A friend on your link while you're away plays alone ("Waiting for your friend..."), then joins you when you start | 10 s after you start | `waiting-friend` | `a_friend_waiting_in_an_empty_lobby_stays_put_and_a_dead_connection_is_redone`, `a_waiting_friend_takes_the_hosts_world_from_its_first_word` |
-| Two friends waiting each play alone: never one frozen half of the other's world; both join you when you start | 10 s after you start | `two-waiting` | `a_waiting_friend_takes_the_hosts_world_from_its_first_word` (another waiting friend is not the host) |
+| A friend alone on your link while you're away plays their own world ("Waiting for your friend..."), then joins you when you start | 10 s after you start | `waiting-friend` | `a_friend_waiting_in_an_empty_lobby_stays_put_and_a_dead_connection_is_redone`, `a_waiting_friend_takes_the_hosts_world_from_its_first_word` |
+| Two friends on your link while you're away play together (one stands in as host, in its own world); when you start, both join you | together 10 s after the second arrives; with you 10 s after you start | `two-waiting` | `friends_on_a_link_agree_who_hosts_with_no_asking_and_it_sticks`, `a_waiting_friend_takes_the_hosts_world_from_its_first_word` (only the host a friend goes with is taken at its word) |
+| The stand-in reloads: the friend who stayed carries on as stand-in, and the one who reloaded is back with it | 10 s after its game started again | `two-waiting` | `friends_on_a_link_agree_who_hosts_with_no_asking_and_it_sticks` |
+| The stand-in leaves: the friend who stayed carries on as stand-in, alone (no error, its own world), and a friend who comes later joins it | 10 s each | `stand-in-leaves` | same |
+| Moving to a new host (you came, or the stand-in changed) never shows a frozen half-world or an error: a friend plays its own whole world until the new host's first word | always | `two-waiting`, `stand-in-leaves` | `a_waiting_friend_takes_the_hosts_world_from_its_first_word` |
 | After "New link" (Settings, Co-op, asked twice), the old link no longer reaches you and the new one does | at once | `new-link` (a friend on the old link is alone for 20 s) | (the code is random: no pure rule) |
 
 ## When things go wrong
@@ -96,8 +102,13 @@ Failures on `main` (the after-deploy and daily runs) open or add to the `main-br
 
 - The lobby code lives in the save (`-lobby`, `src/coop.rs`); Start over keeps it (`save.rs`); "New link" replaces it
   and moves the host to the new room.
-- A guest goes into the host's world only when it hears the host (`take_in`), and back to its own when the host goes:
-  friends waiting in an empty lobby play alone.
+- Who hosts (`who_hosts`, `src/coop.rs`): every device works it out alone from the hellos it already swaps (each says
+  its crab, whether it hosts, and whether it has played here yet), so all agree with no asking. Whoever hosts keeps it;
+  among hosts the lowest crab wins, and the main host's crab is 0, so it always wins. With friends on the link and
+  nobody hosting for 2 s, one stands in: a friend who has played here before a newcomer, then the lowest crab, then
+  the connection's number (no ties). A friend who has never met anyone and is alone just waits.
+- A guest goes into the host's world only when it hears the host it goes with (`take_in`), and back to its own when
+  the host goes or changes; nobody else's word on the world is taken.
 - A device silent for 5 s (frozen, its network stalled, or a friend playing alone while waiting) is no longer played
   with, but its connection and voice call stay up, and it is met again the moment its crab speaks. Before, it was
   dropped from the connection list: after a stall both sides waited 15 s for a fresh join, and two friends who waited
