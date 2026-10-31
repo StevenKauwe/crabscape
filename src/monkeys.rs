@@ -63,6 +63,7 @@ fn spawn(mut commands: Commands, sim: Res<Sim>, art: Res<Art>, drawn: Query<&Mon
         }
         let root = commands
             .spawn((
+                crate::creature_art::ScentRoot(e.id),
                 Transform::from_xyz(e.pos.x, e.pos.y, Z),
                 Visibility::default(),
             ))
@@ -140,7 +141,7 @@ fn pose(
         m.time += dt;
         let k = e.kind.tuning(&sim.tuning);
         shown.set_if_neq(
-            if e.state == State::Gone || !known.perceives_animal(e.pos) {
+            if e.state == State::Gone || !known.senses_animal(&sim, e.pos) {
                 Visibility::Hidden
             } else {
                 Visibility::Inherited

@@ -24,7 +24,7 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{Material2d, Material2dPlugin};
 
-use crabsim::memory::ANIMAL_EYE_LINE;
+use crabsim::memory::{ANIMAL_EYE_LINE, Scent, scent_at};
 use crabsim::{Kind, Memory, Sight, Sim};
 
 use crate::effects::SoftTextures;
@@ -40,7 +40,12 @@ impl Plugin for MemoryPlugin {
             .add_systems(Startup, setup_memory_texture)
             .add_systems(
                 Update,
-                (update_known, show_sightings, hide_unknown)
+                (
+                    update_known,
+                    show_sightings,
+                    show_scent_directions,
+                    hide_unknown,
+                )
                     .chain()
                     .in_set(GameSet::Present),
             );
@@ -183,6 +188,25 @@ impl Known {
         self.perceives(feet + ANIMAL_EYE_LINE)
     }
 
+    /// The local crab's scent of an animal, independent of obstacles.
+    pub fn scent(&self, sim: &Sim, feet: Vec2) -> Scent {
+        let Some(sight) = self.sight else {
+            return Scent::None;
+        };
+        let current = sim.level.water_at(sight.eye, &sim.tuning.tide);
+        scent_at(
+            sight.eye,
+            feet + ANIMAL_EYE_LINE,
+            current,
+            &sim.tuning.memory,
+        )
+    }
+
+    /// A live animal can be seen or smelled nearby.
+    pub fn senses_animal(&self, sim: &Sim, feet: Vec2) -> bool {
+        self.perceives_animal(feet) || self.scent(sim, feet) == Scent::Animal
+    }
+
     /// How well it knows this point: 1 in sight, its memory's clarity
     /// elsewhere, 0 never seen.
     pub fn knows(&self, p: Vec2) -> f32 {
@@ -316,7 +340,12 @@ fn show_sightings(
             continue;
         };
         // In sight, the live animal (or its absence) is what shows.
-        let show = !known.perceives_animal(s.pos);
+        let smelled_now = sim.enemies().iter().any(|e| {
+            e.id == s.id
+                && e.state != crabsim::enemy::State::Gone
+                && known.scent(&sim, e.pos) == Scent::Animal
+        });
+        let show = !known.perceives_animal(s.pos) && !smelled_now;
         shown.set_if_neq(if show {
             Visibility::Inherited
         } else {
@@ -341,6 +370,55 @@ fn show_sightings(
                 ..default()
             },
             Transform::from_translation(s.pos.extend(8.8)),
+            Visibility::Hidden,
+        ));
+    }
+}
+
+/// A direction cue for a distant scent, kept separate for each enemy.
+#[derive(Component)]
+struct ScentWisp(u32);
+
+fn show_scent_directions(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    known: Res<Known>,
+    soft: Res<SoftTextures>,
+    time: Res<Time>,
+    mut wisps: Query<(Entity, &ScentWisp, &mut Transform, &mut Visibility)>,
+) {
+    let Some(sight) = known.sight else { return };
+    for (entity, wisp, mut at, mut shown) in &mut wisps {
+        let Some(enemy) = sim.enemies().iter().find(|e| e.id == wisp.0) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        let show = enemy.state != crabsim::enemy::State::Gone
+            && !known.perceives_animal(enemy.pos)
+            && known.scent(&sim, enemy.pos) == Scent::Direction;
+        shown.set_if_neq(if show {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+        let direction = (enemy.pos + ANIMAL_EYE_LINE - sight.eye).normalize_or_zero();
+        let drift = (time.elapsed_secs() * 2.0 + enemy.id as f32).sin() * 3.0;
+        at.translation = (sight.eye + direction * 105.0 + direction.perp() * drift).extend(9.5);
+        at.rotation = Quat::from_rotation_z(direction.to_angle());
+    }
+    for enemy in sim.enemies() {
+        if wisps.iter().any(|(_, w, ..)| w.0 == enemy.id) {
+            continue;
+        }
+        commands.spawn((
+            ScentWisp(enemy.id),
+            Sprite {
+                image: soft.dot.clone(),
+                color: Color::srgba(0.55, 0.78, 0.78, 0.5),
+                custom_size: Some(Vec2::new(23.0, 5.0)),
+                ..default()
+            },
+            Transform::default(),
             Visibility::Hidden,
         ));
     }

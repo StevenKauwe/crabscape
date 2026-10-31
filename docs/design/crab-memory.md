@@ -8,6 +8,10 @@ the world. Rules: `crates/sim/src/memory.rs` (numbers in `Tuning::memory`); draw
   the usual zoom looks as before. Tuned: the lantern lights only ~18 cm; beyond that the crab gets dim shapes.
 - Rock and the sea floor block sight: open water (and any animal in it) counts only with a clear line from the eyes,
   checked on the memory grid. A rock's or the floor's own shape reads whole once it is inside the circle.
+- Scent crosses that visual obstruction: within 550 units the live animal's own puppet shows slightly soft and
+  desaturated; within 800 units a wisp near the lantern points towards it. In a current, the range reaches 1.5 times
+  as far upstream. These numbers and the visible cues are tuned game abstractions, not measured smell distances.
+  Each crab senses independently; a smelled animal updates its own last-known location.
 - Crab vision is limited and topographic: what a crab can perceive bounds what it can know and care about [ZH06].
   Deep-sea crab eyes are tuned to blue light, likely for spotting bioluminescence [FJC12, not verified].
 
@@ -31,3 +35,5 @@ the world. Rules: `crates/sim/src/memory.rs` (numbers in `Tuning::memory`); draw
 - [LBD03] Layne, Barnes & Duncan (2003), "Mechanisms of homing in the fiddler crab *Uca rapax*. 1. Spatial and temporal characteristics of a system of small-scale navigation", *J. Exp. Biol.* 206:4413–4423 (abstract snippet via PubMed only). <https://pubmed.ncbi.nlm.nih.gov/14610027/>
 - [ZH06] Zeil & Hemmi (2006), "The visual ecology of fiddler crabs", *J. Comp. Physiol. A* (abstract). <https://openresearch-repository.anu.edu.au/items/4b9c6c28-641a-4300-bcdd-49777fb1e1a7>
 - [FJC12] Frank, Johnsen & Cronin (2012), "Light and vision in the deep-sea benthos: II. Vision in deep-sea crustaceans", *J. Exp. Biol.* 215:3344–3353 (seen in search results, not opened). <https://mdsoar.org/handle/11603/13394>
+- [PAGE] Page, Dickman, Webster & Weissburg, SICB meeting abstract: blue crabs respond to odour at their antennules
+  while tracking a plume upstream. <https://sicb.org/abstracts/simultaneous-correlation-of-odor-plume-structure-and-behavior-i-three-dimensional-plume-structure-at-antennules-affects-speed-and-sensor-height-in-tracking-blue-crabs/>

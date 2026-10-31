@@ -235,7 +235,10 @@ fn rock_hides_what_is_behind_it_but_not_itself() {
     );
     let seen: Vec<u32> = memory(&sim).sightings.iter().map(|s| s.id).collect();
     assert!(seen.contains(&open));
-    assert!(!seen.contains(&behind), "an animal behind rock isn't seen");
+    assert!(
+        seen.contains(&behind),
+        "a nearby animal behind rock can be smelled"
+    );
     // The same spot with no wall is seen.
     let mut sim = walled();
     sim.level.rocks.clear();
@@ -243,6 +246,46 @@ fn rock_hides_what_is_behind_it_but_not_itself() {
     fresh.add_crab(ME, Vec2::new(480.0, 0.0));
     run(&mut fresh, 1.0);
     assert!(clarity(&fresh, Vec2::new(720.0, 60.0)) > 0.5);
+}
+
+#[test]
+fn scent_updates_each_crabs_own_memory_through_rock() {
+    let mut sim = walled();
+    sim.add_crab(PlayerId(1), Vec2::new(1800.0, 0.0));
+    let id = sim.spawn_enemy(Kind::Fixture, Vec2::new(720.0, 0.0));
+    run(&mut sim, 0.2);
+    assert!(memory(&sim).sightings.iter().any(|s| s.id == id));
+    assert!(
+        sim.crab(PlayerId(1))
+            .unwrap()
+            .memory
+            .sightings
+            .iter()
+            .all(|s| s.id != id)
+    );
+    sim.enemies_mut()
+        .iter_mut()
+        .find(|e| e.id == id)
+        .unwrap()
+        .pos
+        .x = 820.0;
+    run(&mut sim, 0.2);
+    assert!(
+        memory(&sim)
+            .sightings
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .pos
+            .x
+            > 750.0,
+        "the remembered location follows an animal close enough to smell"
+    );
+    assert_eq!(
+        clarity(&sim, Vec2::new(720.0, 60.0)),
+        UNSEEN,
+        "scent does not reveal the water behind the wall"
+    );
 }
 
 #[test]
