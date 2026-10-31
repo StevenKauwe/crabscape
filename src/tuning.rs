@@ -25,6 +25,9 @@ pub struct ViewTuning {
     pub light_inner: f32,
     /// Beyond this distance, everything is in the dark.
     pub light_outer: f32,
+    /// How lit and unlit colours mix: the light's blend raised to this power. 1 mixes straight (things at the edge
+    /// of the light look washed out); 2 keeps the dark deeper for longer, so they fade into it.
+    pub light_ease: f32,
 }
 
 impl Default for ViewTuning {
@@ -35,6 +38,7 @@ impl Default for ViewTuning {
 
             light_inner: 8.0,
             light_outer: 115.0,
+            light_ease: 2.0,
         }
     }
 }
