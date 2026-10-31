@@ -17,8 +17,10 @@ use crate::memory::{MemoryMaterial, MemoryTexture};
 
 /// How far down the sea floor is drawn below its surface.
 const FLOOR_DEPTH: f32 = 10000.0;
-/// A distant visual landmark above the shallows, not a collision surface.
-const WATER_SURFACE_Y: f32 = 1500.0;
+/// The shallows' surface, 2.4 m above home at the creature scale (625
+/// units/m). This starting depth is a gameplay choice, not a measurement.
+/// Larger depth zones are compressed; see `docs/design/universe.md`.
+const WATER_SURFACE_Y: f32 = 2.4 * 625.0;
 
 /// Marks the level's shapes (so they could be found and removed later).
 #[derive(Component)]
@@ -81,8 +83,10 @@ fn draw_level(
     mut remembered: ResMut<Assets<MemoryMaterial>>,
 ) {
     let level = &sim.level;
-    // Seen from underwater: a thin, uneven band of light at the surface.
-    // This is scenery; it does not change the crab's swimming or the level.
+    let mut palette = Palette::default();
+    let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
+    // A thin, uneven surface seen through the crab's memory, not a physical
+    // boundary. Unknown water stays water, even when zoomed out.
     let points: Vec<Vec2> = (0..=200)
         .map(|i| {
             let x = level.min_x + (level.max_x - level.min_x) * i as f32 / 200.0;
@@ -94,11 +98,9 @@ fn draw_level(
         .collect();
     commands.spawn((
         Mesh2d(meshes.add(floor_mesh(&points, 0.0, 5.0))),
-        MeshMaterial2d(materials.add(Color::srgb(0.12, 0.27, 0.28))),
+        MeshMaterial2d(paint(Color::srgb(0.12, 0.27, 0.28))),
         Transform::from_xyz(0.0, 0.0, -30.0),
     ));
-    let mut palette = Palette::default();
-    let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
     // The sea floor: one mesh. Each floor segment becomes a four-cornered
     // shape from the surface down to FLOOR_DEPTH.
     let floor = meshes.add(floor_mesh(&level.floor, 0.0, FLOOR_DEPTH));
