@@ -60,7 +60,11 @@ fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
     // The terrain palette was painted for a dark seabed; its unlit colours
     // alone are too dim to read when the yellow wash is removed. Lift the
     // shape's own colour in the lantern, without tinting or softening it.
-    return c * mix(daylight, 3.0, brightness);
+    let exposure = mix(daylight, 3.0, brightness);
+    let strongest_channel = max(max(c.r, c.g), max(c.b, 0.0001));
+    // Preserve the shape's colour even for pale shells: never clip one
+    // channel before the others when lifting its brightness.
+    return c * min(exposure, 1.0 / strongest_channel);
 }
 
 @fragment
