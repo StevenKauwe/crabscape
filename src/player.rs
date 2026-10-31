@@ -127,7 +127,15 @@ pub fn spawn_local_crab(
         });
     let pos = saved
         .as_ref()
-        .map(|s| Vec2::new(s.x, s.y))
+        .filter(|s| s.x.is_finite() && s.y.is_finite())
+        // A save from before the surface existed may be above it. Bring
+        // that crab back into the water rather than discarding its position.
+        .map(|s| {
+            Vec2::new(
+                s.x,
+                s.y.min(crabsim::level::WATER_SURFACE_Y - sim.tuning.body_height * size),
+            )
+        })
         .filter(|&p| physics::is_valid_spot(p, size, &sim.tuning, &sim.level))
         .unwrap_or(SPAWN);
     sim.add_crab(me, pos);
