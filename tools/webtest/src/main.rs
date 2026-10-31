@@ -932,7 +932,11 @@ impl Test<'_> {
         // Record both a distant scent and a nearby animal behind the boulder.
         // This uses the isolated test browser's save, not a gameplay debug hook.
         if let Some(prefix) = self.o.shots.clone() {
-            for (name, x, y, zoom) in [("weak", 160, 0, 2.0), ("close", 760, 100, 1.5)] {
+            for (name, x, y, zoom) in [
+                ("weak", 160, 0, 2.0),
+                ("close", 760, 100, 1.5),
+                ("moray", 1500, 0, 1.5),
+            ] {
                 self.eval(&format!(
                     r#"(localStorage.clear(), localStorage.setItem("crabscape-keys", "folded"), localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: {x}, y: {y}}})), true)"#
                 ))?;
