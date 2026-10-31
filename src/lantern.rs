@@ -12,7 +12,7 @@
 //!   close up. The crab's full-colour layer, for example, goes from fully
 //!   transparent to fully visible over its dark copy, so red returns in the
 //!   light and is black outside it.
-//! - A very faint glow marks the jar itself; the level's shapes are lit in
+//! - A tiny faint halo marks the jar itself; the level's shapes are lit in
 //!   their own shader, rather than by a yellow wash over the scene.
 //!
 //! Later, painted lit and unlit sprites can use the same blend factor.
@@ -74,7 +74,7 @@ pub struct LanternHalo;
 /// crab.
 pub const HALO_Z: f32 = 0.5;
 
-/// The two glow sprites (so they can flicker with the light).
+/// The small jar halo (so it can flicker with the light).
 #[derive(Component)]
 struct Glow {
     crab: Entity,
@@ -158,7 +158,6 @@ pub fn spawn_lantern(
     holder: Entity,
     at: Vec3,
     soft: &SoftTextures,
-    tuning: &ViewTuning,
 ) -> Entity {
     let pivot = commands
         .spawn((
@@ -208,23 +207,6 @@ pub fn spawn_lantern(
             Visibility::Hidden,
         ));
     }
-    // Behind the crab: drawn at a depth between the sea floor and the crab.
-    // (The crab is at depth ~10 and the lantern ~11, so -6 lands near 5.)
-    commands.spawn((
-        ChildOf(pivot),
-        Glow {
-            crab,
-            alpha: 0.015,
-            size: tuning.light_outer * 2.8,
-        },
-        Sprite {
-            image: soft.dot.clone(),
-            color: WARM.with_alpha(0.015),
-            custom_size: Some(Vec2::splat(tuning.light_outer * 2.8)),
-            ..default()
-        },
-        Transform::from_translation(jar_middle - Vec3::Z * 6.0),
-    ));
     // In front of everything on the crab: a small halo round the jar (kept
     // behind the shell when the crab turns its back: `LanternHalo`).
     commands.spawn((
@@ -232,12 +214,12 @@ pub fn spawn_lantern(
         LanternHalo,
         Glow {
             crab,
-            alpha: 0.12,
+            alpha: 0.03,
             size: 46.0,
         },
         Sprite {
             image: soft.dot.clone(),
-            color: WARM.with_alpha(0.12),
+            color: WARM.with_alpha(0.03),
             custom_size: Some(Vec2::splat(46.0)),
             ..default()
         },
