@@ -392,6 +392,7 @@ fn show_sightings(
 #[derive(Component)]
 struct ScentWisp(u32);
 
+#[allow(clippy::too_many_arguments)] // Bevy system parameters
 fn show_scent_directions(
     mut commands: Commands,
     sim: Res<Sim>,
