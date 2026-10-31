@@ -8,10 +8,15 @@
 
 use std::collections::HashMap;
 
+use bevy::asset::AssetId;
 use bevy::prelude::*;
+use bevy::render::render_resource::TextureFormat;
 use bevy::sprite::Anchor;
+use crabsim::Sim;
+use crabsim::memory::Scent;
 
 use crate::lantern::{Lit, LitTint};
+use crate::memory::Known;
 use crate::puppet::{PartDef, PartsFile};
 use crate::style::ArtStyle;
 
@@ -31,6 +36,10 @@ impl Plugin for CreatureArtPlugin {
 #[derive(Component)]
 struct Styled([Handle<Image>; 2]);
 
+/// The root of an animated enemy puppet, used to choose its scent look.
+#[derive(Component)]
+pub struct ScentRoot(pub u32);
+
 fn style_index(style: ArtStyle) -> usize {
     match style {
         ArtStyle::Ink => 0,
@@ -49,16 +58,99 @@ fn oil_path(ink: &str) -> String {
 fn restyle(
     style: Res<ArtStyle>,
     assets: Res<AssetServer>,
-    mut pieces: Query<(&Styled, &mut Sprite)>,
+    sim: Res<Sim>,
+    known: Res<Known>,
+    parents: Query<&ChildOf>,
+    roots: Query<&ScentRoot>,
+    mut images: ResMut<Assets<Image>>,
+    mut softened: Local<HashMap<AssetId<Image>, Handle<Image>>>,
+    mut pieces: Query<(Entity, &Styled, &mut Sprite)>,
 ) {
     let i = style_index(*style);
-    for (styled, mut sprite) in &mut pieces {
+    for (entity, styled, mut sprite) in &mut pieces {
         let failed = i != 0 && assets.load_state(&styled.0[i]).is_failed();
         let want = &styled.0[if failed { 0 } else { i }];
-        if sprite.image != *want {
-            sprite.image = want.clone();
+        let mut ancestor = entity;
+        let mut sensed = false;
+        while let Ok(parent) = parents.get(ancestor) {
+            ancestor = parent.parent();
+            if let Ok(root) = roots.get(ancestor) {
+                sensed = sim
+                    .enemies()
+                    .iter()
+                    .find(|e| e.id == root.0)
+                    .is_some_and(|e| {
+                        !known.perceives_animal(e.pos) && known.scent(&sim, e.pos) == Scent::Animal
+                    });
+                break;
+            }
+        }
+        let shown = if sensed {
+            let id = want.id();
+            if !softened.contains_key(&id) {
+                if let Some(image) = images.get(want).and_then(soften_image) {
+                    softened.insert(id, images.add(image));
+                }
+            }
+            softened.get(&id).unwrap_or(want)
+        } else {
+            want
+        };
+        if sprite.image != *shown {
+            sprite.image = shown.clone();
         }
     }
+}
+
+/// Make one cached, gently softened atlas per source, preserving each puppet
+/// part and animation. Alpha-weighted colour avoids dark fringes on edges.
+fn soften_image(source: &Image) -> Option<Image> {
+    if !matches!(
+        source.texture_descriptor.format,
+        TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb
+    ) {
+        return None;
+    }
+    let size = source.texture_descriptor.size;
+    let data = source.data.as_ref()?;
+    let width = size.width as usize;
+    let height = size.height as usize;
+    if data.len() != width * height * 4 || width == 0 || height == 0 {
+        return None;
+    }
+    let mut output = vec![0; data.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let mut alpha = 0u32;
+            let mut rgb = [0u32; 3];
+            for (nx, ny, weight) in [
+                (x, y, 4u32),
+                (x.saturating_sub(1), y, 1),
+                ((x + 1).min(width - 1), y, 1),
+                (x, y.saturating_sub(1), 1),
+                (x, (y + 1).min(height - 1), 1),
+            ] {
+                let i = (ny * width + nx) * 4;
+                let a = u32::from(data[i + 3]) * weight;
+                alpha += a;
+                for c in 0..3 {
+                    rgb[c] += u32::from(data[i + c]) * a;
+                }
+            }
+            let i = (y * width + x) * 4;
+            output[i + 3] = (alpha / 8) as u8;
+            if alpha > 0 {
+                let rgb = rgb.map(|v| v / alpha);
+                let grey = (30 * rgb[0] + 59 * rgb[1] + 11 * rgb[2]) / 100;
+                for c in 0..3 {
+                    output[i + c] = ((4 * rgb[c] + grey) / 5) as u8;
+                }
+            }
+        }
+    }
+    let mut image = source.clone();
+    image.data = Some(output);
+    Some(image)
 }
 
 /// One creature's art.
@@ -208,6 +300,42 @@ impl CreatureArt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scent_texture_softens_edges_and_reduces_saturation() {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::render::render_resource::{Extent3d, TextureDimension};
+
+        let mut image = Image::new_fill(
+            Extent3d {
+                width: 3,
+                height: 3,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &[0, 0, 0, 0],
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::default(),
+        );
+        let original = image.data.as_mut().unwrap();
+        original[16..20].copy_from_slice(&[255, 0, 0, 255]);
+        let softened = soften_image(&image).unwrap();
+        let pixels = softened.data.unwrap();
+        assert!(
+            pixels[19] > pixels[7],
+            "centre stays stronger than its edge"
+        );
+        assert!(pixels[7] > 0, "the edge is softened");
+        assert!(
+            pixels[17] > 0 && pixels[16] < 255,
+            "colour is less saturated"
+        );
+        assert_eq!(
+            pixels[0..4],
+            [0, 0, 0, 0],
+            "distant transparent pixels stay clear"
+        );
+    }
 
     /// A PNG's width and height, from its header.
     fn png_size(path: &str) -> [u32; 2] {

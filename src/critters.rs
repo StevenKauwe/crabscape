@@ -134,6 +134,7 @@ fn spawn_critters(
         }
         let root = commands
             .spawn((
+                crate::creature_art::ScentRoot(e.id),
                 Critter {
                     id: e.id,
                     time: 0.0,
@@ -299,7 +300,7 @@ fn pose_critters(
         // Out of the crab's sight it isn't shown (its last sighting is, see
         // `memory.rs`).
         shown.set_if_neq(
-            if (e.state == State::Gone && !body) || !known.perceives_animal(e.pos) {
+            if (e.state == State::Gone && !body) || !known.senses_animal(&sim, e.pos) {
                 Visibility::Hidden
             } else {
                 Visibility::Inherited

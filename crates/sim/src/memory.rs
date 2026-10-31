@@ -294,11 +294,14 @@ impl Memory {
             *last = self.now;
         }
         self.refresh_home();
-        // Animals: where they are now if in sight; a remembered one whose
-        // spot is in sight but who isn't there any more is forgotten.
+        // Animals in sight or close enough to smell update their last known
+        // position. Only sight can confirm that an old spot is empty.
         let sees = |m: &Self, p: Vec2| sight.sees(p) && m.clear_line(eye, p, t);
+        let current = level.water_at(eye, &tuning.tide);
         for e in enemies {
-            let here = e.state != State::Gone && sees(self, e.pos + ANIMAL_EYE_LINE);
+            let point = e.pos + ANIMAL_EYE_LINE;
+            let here = e.state != State::Gone
+                && (sees(self, point) || scent_at(eye, point, current, t) == Scent::Animal);
             let known = self.sightings.iter().position(|s| s.id == e.id);
             if here {
                 let s = Sighting {
