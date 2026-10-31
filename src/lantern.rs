@@ -24,7 +24,7 @@ use bevy::transform::TransformSystems;
 use crabsim::Mover;
 
 use crate::effects::SoftTextures;
-use crate::memory::MemoryMaterial;
+use crate::memory::{MemoryMaterial, depth_factor};
 use crate::tuning::ViewTuning;
 
 /// The light itself (the middle of the jar).
@@ -289,9 +289,7 @@ pub fn light_at(distance: f32, tuning: &ViewTuning, flicker: f32) -> f32 {
 /// few screens below home. These are art-direction values, not a depth meter
 /// or measured irradiance. Keep the same curve in `memory.wgsl`.
 fn daylight(at: Vec2) -> f32 {
-    let vertical = ((1000.0 - at.y) / 10000.0).clamp(0.0, 1.0);
-    let canyon = smoothstep(5350.0, 6150.0, at.x) * (1.0 - smoothstep(-1500.0, 1000.0, at.y));
-    0.75 + (0.08 - 0.75) * vertical.max(0.85 * canyon)
+    (1.0 - depth_factor(at)).powi(2)
 }
 
 /// The strongest light wins: a brighter friend's lantern can reach farther
@@ -393,8 +391,8 @@ mod tests {
         let canyon_floor = daylight(Vec2::new(7000.0, -9400.0));
         assert!(home > rim && rim > canyon_floor);
         assert!(home > pit && pit >= canyon_floor);
-        assert_eq!(daylight(Vec2::new(0.0, 2000.0)), 0.75);
-        assert!((daylight(Vec2::new(7000.0, -10000.0)) - 0.08).abs() < 1e-6);
+        assert_eq!(daylight(Vec2::new(0.0, 2000.0)), 1.0);
+        assert_eq!(daylight(Vec2::new(7000.0, -10000.0)), 0.0);
     }
 
     #[test]
