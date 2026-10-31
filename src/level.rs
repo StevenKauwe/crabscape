@@ -86,14 +86,15 @@ fn draw_level(
     let level = &sim.level;
     let mut palette = Palette::default();
     let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
-    // Air above the water, visible only as the crab sees or remembers it.
+    // The sky is open air above the surface, not a remembered underwater
+    // object: draw it as a continuous background instead of fogging its edge.
     let sky_height = 20000.0;
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(
             level.max_x - level.min_x + 1200.0,
             sky_height,
         ))),
-        MeshMaterial2d(paint(Color::srgb(0.48, 0.70, 0.82))),
+        MeshMaterial2d(materials.add(Color::srgb(0.48, 0.70, 0.82))),
         Transform::from_xyz(
             (level.min_x + level.max_x) / 2.0,
             WATER_SURFACE_Y + sky_height / 2.0,
