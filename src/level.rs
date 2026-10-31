@@ -11,12 +11,16 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use crabsim::Sim;
-use crabsim::level::{Climb, Growth};
+use crabsim::level::{Climb, Growth, WATER_SURFACE_Y};
 
 use crate::memory::{MemoryMaterial, MemoryTexture};
 
 /// How far down the sea floor is drawn below its surface.
 const FLOOR_DEPTH: f32 = 10000.0;
+
+/// The surface moves as one shape: its ripples drift without a screen overlay.
+#[derive(Component)]
+struct WaterSurface;
 
 /// Marks the level's shapes (so they could be found and removed later).
 #[derive(Component)]
@@ -41,7 +45,8 @@ impl Plugin for LevelPlugin {
         app.add_systems(
             Startup,
             draw_level.after(crate::memory::setup_memory_texture),
-        );
+        )
+        .add_systems(Update, move_water_surface);
     }
 }
 
@@ -81,6 +86,36 @@ fn draw_level(
     let level = &sim.level;
     let mut palette = Palette::default();
     let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
+    // Air above the water, visible only as the crab sees or remembers it.
+    let sky_height = 20000.0;
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(
+            level.max_x - level.min_x + 1200.0,
+            sky_height,
+        ))),
+        MeshMaterial2d(paint(Color::srgb(0.48, 0.70, 0.82))),
+        Transform::from_xyz(
+            (level.min_x + level.max_x) / 2.0,
+            WATER_SURFACE_Y + sky_height / 2.0,
+            -31.0,
+        ),
+    ));
+    // The visible ripples sit just above the physical water boundary.
+    let points: Vec<Vec2> = (0..=200)
+        .map(|i| {
+            let x = level.min_x + (level.max_x - level.min_x) * i as f32 / 200.0;
+            Vec2::new(
+                x,
+                WATER_SURFACE_Y + 12.0 + 5.0 * (x / 95.0).sin() + 2.0 * (x / 29.0).sin(),
+            )
+        })
+        .collect();
+    commands.spawn((
+        WaterSurface,
+        Mesh2d(meshes.add(floor_mesh(&points, 0.0, 5.0))),
+        MeshMaterial2d(paint(Color::srgb(0.12, 0.27, 0.28))),
+        Transform::from_xyz(0.0, 0.0, -30.0),
+    ));
     // The sea floor: one mesh. Each floor segment becomes a four-cornered
     // shape from the surface down to FLOOR_DEPTH.
     let floor = meshes.add(floor_mesh(&level.floor, 0.0, FLOOR_DEPTH));
@@ -163,6 +198,13 @@ fn draw_level(
                 Transform::from_xyz(x, -250.0, 0.0).with_scale(Vec3::new(w, h, 1.0)),
             ));
         }
+    }
+}
+
+/// Move the rippled surface gently; all the ripples stay in their own shape.
+fn move_water_surface(time: Res<Time>, mut surface: Query<&mut Transform, With<WaterSurface>>) {
+    for mut transform in &mut surface {
+        transform.translation.x = (time.elapsed_secs() * 0.55).sin() * 12.0;
     }
 }
 

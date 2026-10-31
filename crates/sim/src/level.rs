@@ -19,6 +19,10 @@ use crate::tuning::TideTuning;
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
 
+/// The water's surface, eight metres above the starting floor at creature
+/// scale. The player remains underwater until above-water play is designed.
+pub const WATER_SURFACE_Y: f32 = 5000.0;
+
 /// Size of a fish egg. A crab eats one when it touches its body (with a
 /// little reach for the claws).
 pub const EGG_RADIUS: f32 = 14.0;
@@ -315,6 +319,14 @@ impl Level {
             // holdfast on the shelf to just above the lip, so climbing out
             // pulls the crab up beside it.
             climbs: vec![
+                // A shallow-water kelp brings the surface into reach from
+                // the plateau without altering the deep canyon routes.
+                Climb {
+                    x: 900.0,
+                    bottom: 110.0,
+                    top: WATER_SURFACE_Y - 20.0,
+                    kind: Growth::Kelp,
+                },
                 Climb {
                     x: 3500.0,
                     bottom: -8700.0,
