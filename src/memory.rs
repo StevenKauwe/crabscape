@@ -14,6 +14,7 @@
 //!   spot.
 
 use bevy::asset::{RenderAssetUsages, embedded_asset, embedded_path};
+use bevy::color::Mix;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
@@ -46,8 +47,29 @@ impl Plugin for MemoryPlugin {
     }
 }
 
-/// The deep sea's colour (the camera's background): what fog is.
+/// The deep sea's colour at the start's height (the camera's background):
+/// what fog is.
 pub const WATER: Color = Color::srgb(0.012, 0.035, 0.045);
+/// The water at the top of the level, nearer the daylight.
+const SHALLOW_WATER: Color = Color::srgb(0.035, 0.10, 0.115);
+/// The water at the bottom of the pit.
+const ABYSS_WATER: Color = Color::srgb(0.005, 0.016, 0.022);
+/// Heights (world units, the start is 0) where the water reaches those
+/// colours: the top of the level, and the pit's floor.
+const SHALLOW_AT: f32 = 1500.0;
+const ABYSS_AT: f32 = -8500.0;
+
+/// The water's colour at height `y`: lighter higher up, darker deeper down,
+/// as daylight fades with depth (red first: [NOAA] in
+/// `docs/design/ocean-shaped.md`). The background and every fog use it, so
+/// an unseen shape never shows against the water.
+pub fn water_at(y: f32) -> Color {
+    if y >= 0.0 {
+        WATER.mix(&SHALLOW_WATER, (y / SHALLOW_AT).clamp(0.0, 1.0))
+    } else {
+        WATER.mix(&ABYSS_WATER, (y / ABYSS_AT).clamp(0.0, 1.0))
+    }
+}
 
 #[derive(ShaderType, Clone, Debug)]
 pub struct MemoryUniform {
@@ -64,6 +86,13 @@ pub struct MemoryMaterial {
     #[texture(1)]
     #[sampler(2)]
     memory: Handle<Image>,
+}
+
+impl MemoryMaterial {
+    /// The fog's colour: the water's at the view's height ([`water_at`]).
+    pub fn set_water(&mut self, water: Color) {
+        self.uniform.water = LinearRgba::from(water).to_vec4();
+    }
 }
 
 impl Material2d for MemoryMaterial {
@@ -314,5 +343,42 @@ fn show_sightings(
             Transform::from_translation(s.pos.extend(8.8)),
             Visibility::Hidden,
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// How bright a colour is (its three sRGB channels added up).
+    fn light(c: Color) -> f32 {
+        let c = c.to_srgba();
+        c.red + c.green + c.blue
+    }
+
+    #[test]
+    fn water_is_lighter_higher_up() {
+        assert_eq!(
+            water_at(0.0),
+            WATER,
+            "the start keeps the deep sea's colour"
+        );
+        let heights = [
+            -9400.0, -8500.0, -4000.0, -500.0, 0.0, 400.0, 1000.0, 1500.0, 3000.0,
+        ];
+        for pair in heights.windows(2) {
+            let (low, high) = (water_at(pair[0]), water_at(pair[1]));
+            assert!(
+                light(low) <= light(high),
+                "{} is no lighter than {}",
+                pair[1],
+                pair[0]
+            );
+        }
+        assert!(light(water_at(1500.0)) > 2.0 * light(WATER));
+        assert!(light(water_at(-8500.0)) < light(WATER));
+        // Beyond the level's ends it stops changing.
+        assert_eq!(water_at(3000.0), water_at(SHALLOW_AT));
+        assert_eq!(water_at(-9400.0), water_at(ABYSS_AT));
     }
 }

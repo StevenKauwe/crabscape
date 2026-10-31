@@ -7,6 +7,7 @@ use bevy::prelude::*;
 
 use crate::input::TouchControls;
 use crate::level::Parallax;
+use crate::memory::{MemoryMaterial, WATER, water_at};
 use crate::player::{GameSet, LocalPlayer};
 use crate::tuning::ViewTuning;
 use crabsim::Mover;
@@ -17,9 +18,6 @@ use crabsim::{SPAWN, Sim};
 /// water above, on a wide screen more level to the sides.
 const VIEW_MIN_WIDTH: f32 = 420.0;
 pub(crate) const VIEW_MIN_HEIGHT: f32 = 340.0;
-
-/// The deep sea: near-black teal.
-const WATER: Color = Color::srgb(0.012, 0.035, 0.045);
 
 /// Marks the HUD's help line so it can be changed for touch screens.
 #[derive(Component)]
@@ -182,7 +180,13 @@ impl Plugin for ViewPlugin {
             .add_systems(Startup, (spawn_camera, spawn_hud))
             .add_systems(
                 Update,
-                (read_zoom, follow_crab, move_parallax, update_help)
+                (
+                    read_zoom,
+                    follow_crab,
+                    tint_water,
+                    move_parallax,
+                    update_help,
+                )
                     .chain()
                     .in_set(GameSet::Present),
             );
@@ -293,6 +297,26 @@ fn follow_crab(
     cam.translation.y = at.y;
 }
 
+/// The water lightens as the view rises and darkens as it sinks
+/// ([`water_at`]): the background, and the fog every remembered shape fades
+/// into. Materials are only touched when the colour really changes.
+fn tint_water(
+    mut camera: Single<(&Transform, &mut Camera), With<Camera2d>>,
+    mut fogs: ResMut<Assets<MemoryMaterial>>,
+    mut was: Local<Option<[u8; 4]>>,
+) {
+    let water = water_at(camera.0.translation.y);
+    let bytes = water.to_srgba().to_u8_array();
+    if *was == Some(bytes) {
+        return;
+    }
+    *was = Some(bytes);
+    camera.1.clear_color = ClearColorConfig::Custom(water);
+    for (_, fog) in fogs.iter_mut() {
+        fog.set_water(water);
+    }
+}
+
 /// Far-away layers follow the camera part of the way, so they seem distant.
 /// Zoomed out into the crab's memory they sink into the water: scenery it
 /// only half remembers.
@@ -304,7 +328,7 @@ fn move_parallax(
 ) {
     let fade = ((zoom.out - ZOOM_START) / 3.0).clamp(0.0, 0.85);
     for (layer, mut tr) in &mut layers {
-        let colour = layer.colour.mix(&WATER, fade);
+        let colour = layer.colour.mix(&water_at(camera.translation.y), fade);
         if materials
             .get(&layer.material)
             .is_some_and(|m| m.color != colour)
