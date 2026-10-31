@@ -11,16 +11,12 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use crabsim::Sim;
-use crabsim::level::{Climb, Growth};
+use crabsim::level::{Climb, Growth, WATER_SURFACE_Y};
 
 use crate::memory::{MemoryMaterial, MemoryTexture};
 
 /// How far down the sea floor is drawn below its surface.
 const FLOOR_DEPTH: f32 = 10000.0;
-/// The shallows' surface, 2.4 m above home at the creature scale (625
-/// units/m). This starting depth is a gameplay choice, not a measurement.
-/// Larger depth zones are compressed; see `docs/design/universe.md`.
-const WATER_SURFACE_Y: f32 = 2.4 * 625.0;
 
 /// The surface moves as one shape: its ripples drift without a screen overlay.
 #[derive(Component)]
@@ -90,14 +86,27 @@ fn draw_level(
     let level = &sim.level;
     let mut palette = Palette::default();
     let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
-    // A thin, uneven surface seen through the crab's memory, not a physical
-    // boundary. Unknown water stays water, even when zoomed out.
+    // Air above the water, visible only as the crab sees or remembers it.
+    let sky_height = 20000.0;
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(
+            level.max_x - level.min_x + 1200.0,
+            sky_height,
+        ))),
+        MeshMaterial2d(paint(Color::srgb(0.48, 0.70, 0.82))),
+        Transform::from_xyz(
+            (level.min_x + level.max_x) / 2.0,
+            WATER_SURFACE_Y + sky_height / 2.0,
+            -31.0,
+        ),
+    ));
+    // The visible ripples sit just above the physical water boundary.
     let points: Vec<Vec2> = (0..=200)
         .map(|i| {
             let x = level.min_x + (level.max_x - level.min_x) * i as f32 / 200.0;
             Vec2::new(
                 x,
-                WATER_SURFACE_Y + 5.0 * (x / 95.0).sin() + 2.0 * (x / 29.0).sin(),
+                WATER_SURFACE_Y + 12.0 + 5.0 * (x / 95.0).sin() + 2.0 * (x / 29.0).sin(),
             )
         })
         .collect();

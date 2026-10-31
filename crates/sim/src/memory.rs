@@ -93,6 +93,13 @@ impl std::fmt::Debug for Memory {
 
 /// The level's extent, padded: every place the crab can be or see.
 fn bounds(level: &Level) -> Rect {
+    let mut r = bounds_before_surface(level);
+    r.max.y = r.max.y.max(crate::level::WATER_SURFACE_Y + 800.0);
+    r
+}
+
+/// The original grid extent, kept for migrating existing saved memories.
+fn bounds_before_surface(level: &Level) -> Rect {
     let mut r = Rect::new(level.min_x, 0.0, level.max_x, 0.0);
     let mut grow = |p: Vec2| r = r.union_point(p);
     level.floor.iter().for_each(|p| grow(*p));
@@ -101,6 +108,10 @@ fn bounds(level: &Level) -> Rect {
         grow(b.max);
     }
     for c in &level.climbs {
+        // The surface kelp was added after existing memories were saved.
+        if c.kind == crate::level::Growth::Kelp && c.top == crate::level::WATER_SURFACE_Y - 20.0 {
+            continue;
+        }
         grow(Vec2::new(c.x, c.bottom));
         grow(Vec2::new(c.x, c.top));
     }
@@ -345,7 +356,12 @@ impl Memory {
     /// Back from a save (None if it doesn't fit this level).
     pub fn from_save(s: &MemorySave, level: &Level, t: &MemoryTuning) -> Option<Self> {
         let mut m = Self::new(level, t);
-        if (s.cols, s.rows) != (m.cols, m.rows) || s.nets.len() != m.nets.len() {
+        let previous = bounds_before_surface(level);
+        let previous_rows = (previous.height() / t.cell).ceil() as u32;
+        if s.cols != m.cols
+            || (s.rows != m.rows && s.rows != previous_rows)
+            || s.nets.len() != m.nets.len()
+        {
             return None;
         }
         m.now = s.now;
@@ -353,7 +369,10 @@ impl Memory {
         let mut at = 0;
         let mut i = 0u32;
         while at < bytes.len() {
-            i += read_varint(&bytes, &mut at)?;
+            i = i.checked_add(read_varint(&bytes, &mut at)?)?;
+            if i >= s.cols.checked_mul(s.rows)? {
+                return None;
+            }
             let v = *bytes.get(at)?;
             at += 1;
             let age = read_varint(&bytes, &mut at)?;
@@ -459,6 +478,27 @@ fn unbase64(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_memory_survives_a_taller_surface_grid() {
+        let level = Level::test_level();
+        let tuning = &Tuning::default().memory;
+        let mut original = Memory::new(&level, tuning);
+        let remembered = original.cell_at(Vec2::new(400.0, 20.0), tuning).unwrap();
+        original.visits[remembered as usize] = 2;
+        original.now = 50;
+        original.last[remembered as usize] = 30;
+        let mut old = original.to_save();
+        old.rows = (bounds_before_surface(&level).height() / tuning.cell).ceil() as u32;
+        assert!(old.rows < original.rows);
+        let restored = Memory::from_save(&old, &level, tuning).unwrap();
+        assert_eq!(restored.visits(remembered), 2);
+        assert_eq!(restored.age(remembered), 20);
+        let near_surface = restored
+            .cell_at(Vec2::new(400.0, crate::level::WATER_SURFACE_Y), tuning)
+            .unwrap();
+        assert_eq!(restored.clarity(near_surface, tuning), UNSEEN);
+    }
 
     #[test]
     fn base64_and_varints_round_trip() {
