@@ -88,7 +88,8 @@ fn found(sim: &Sim, id: PlayerId) -> String {
         .iter()
         .map(|&s| format!("{} {}", s.name(), m.level(s, &sim.tuning)))
         .collect();
-    lines.push(skills.join(" · "));
+    // Commas, as on the skills row: the game's font has no middle dot (it drew a box, #187).
+    lines.push(skills.join(", "));
     lines.join("\n")
 }
 
@@ -221,5 +222,25 @@ fn press(
             None => continue,
         }
         return;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crabsim::{Level, Tuning};
+
+    #[test]
+    fn the_card_uses_only_letters_the_font_draws() {
+        let mut sim = Sim::new(Tuning::default(), Level::test_level());
+        let me = PlayerId(0);
+        sim.add_crab(me, Vec2::ZERO);
+        let text = found(&sim, me);
+        assert!(
+            text.contains("Climbing 1, Swimming 1, Fighting 1"),
+            "{text}"
+        );
+        // The game's built-in font is plain ASCII: anything else draws as a box.
+        assert!(text.is_ascii(), "{text}");
     }
 }
