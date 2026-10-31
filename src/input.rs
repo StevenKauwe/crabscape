@@ -176,6 +176,46 @@ fn touched_buttons(
         .collect()
 }
 
+/// What one controller asks for this frame (its part of the table at the top).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct PadWants {
+    /// -1 (left) to 1 (right), before adding the other devices.
+    walk: f32,
+    down: bool,
+    jump: bool,
+    dodge: bool,
+    smash: bool,
+    jab: bool,
+    guard: bool,
+}
+
+/// A controller's left `stick` and its buttons (`pressed`) as moves. A stick
+/// pushed less than a quarter of the way is ignored, so a worn stick that
+/// doesn't centre doesn't walk the crab.
+fn pad_wants(stick: Vec2, pressed: impl Fn(GamepadButton) -> bool) -> PadWants {
+    let any = |buttons: &[GamepadButton]| buttons.iter().any(|&b| pressed(b));
+    let mut walk = if stick.x.abs() > 0.25 { stick.x } else { 0.0 };
+    if pressed(GamepadButton::DPadLeft) {
+        walk -= 1.0;
+    }
+    if pressed(GamepadButton::DPadRight) {
+        walk += 1.0;
+    }
+    PadWants {
+        walk,
+        down: stick.y < -0.5 || pressed(GamepadButton::DPadDown),
+        jump: pressed(GamepadButton::South),
+        dodge: any(&[
+            GamepadButton::East,
+            GamepadButton::RightTrigger,
+            GamepadButton::RightTrigger2,
+        ]),
+        smash: pressed(GamepadButton::North),
+        jab: pressed(GamepadButton::West),
+        guard: any(&[GamepadButton::LeftTrigger, GamepadButton::LeftTrigger2]),
+    }
+}
+
 /// Read every device and send one [`MoveRequest`] for the local crab.
 #[allow(clippy::too_many_arguments)] // Bevy systems often need many inputs
 fn read_input(
@@ -225,29 +265,14 @@ fn read_input(
     let mut guard = any_key(&[KeyCode::KeyI, KeyCode::KeyF]) || touch(TouchAction::Guard);
 
     for pad in &gamepads {
-        let stick = pad.left_stick().x;
-        if stick.abs() > 0.25 {
-            walk += stick;
-        }
-        down |= pad.left_stick().y < -0.5 || pad.pressed(GamepadButton::DPadDown);
-        if pad.pressed(GamepadButton::DPadLeft) {
-            walk -= 1.0;
-        }
-        if pad.pressed(GamepadButton::DPadRight) {
-            walk += 1.0;
-        }
-        jump |= pad.pressed(GamepadButton::South);
-        dodge |= [
-            GamepadButton::East,
-            GamepadButton::RightTrigger,
-            GamepadButton::RightTrigger2,
-        ]
-        .into_iter()
-        .any(|b| pad.pressed(b));
-        smash |= pad.pressed(GamepadButton::North);
-        jab |= pad.pressed(GamepadButton::West);
-        guard |=
-            pad.pressed(GamepadButton::LeftTrigger) || pad.pressed(GamepadButton::LeftTrigger2);
+        let wants = pad_wants(pad.left_stick(), |b| pad.pressed(b));
+        walk += wants.walk;
+        down |= wants.down;
+        jump |= wants.jump;
+        dodge |= wants.dodge;
+        smash |= wants.smash;
+        jab |= wants.jab;
+        guard |= wants.guard;
     }
 
     // A "press" is held now but wasn't last frame.
@@ -368,6 +393,60 @@ fn layout_touch_buttons(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A controller with only `held` pressed and the stick at `stick`.
+    fn pad(stick: Vec2, held: &[GamepadButton]) -> PadWants {
+        pad_wants(stick, |b| held.contains(&b))
+    }
+
+    #[test]
+    fn a_resting_controller_asks_for_nothing() {
+        assert_eq!(pad(Vec2::ZERO, &[]), PadWants::default());
+        // A stick that doesn't quite centre is ignored.
+        assert_eq!(pad(Vec2::new(0.2, -0.4), &[]), PadWants::default());
+    }
+
+    #[test]
+    fn the_stick_and_d_pad_walk_and_climb_down() {
+        assert_eq!(pad(Vec2::new(0.6, 0.0), &[]).walk, 0.6);
+        assert_eq!(pad(Vec2::new(-1.0, 0.0), &[]).walk, -1.0);
+        assert_eq!(pad(Vec2::ZERO, &[GamepadButton::DPadLeft]).walk, -1.0);
+        assert_eq!(pad(Vec2::ZERO, &[GamepadButton::DPadRight]).walk, 1.0);
+        assert!(pad(Vec2::new(0.0, -0.6), &[]).down);
+        assert!(pad(Vec2::ZERO, &[GamepadButton::DPadDown]).down);
+        assert!(
+            !pad(Vec2::new(0.0, 0.6), &[]).down,
+            "up on the stick isn't down"
+        );
+    }
+
+    #[test]
+    fn each_button_does_its_move() {
+        use GamepadButton as B;
+        let only = |b: B| pad(Vec2::ZERO, &[b]);
+        assert!(only(B::South).jump);
+        for b in [B::East, B::RightTrigger, B::RightTrigger2] {
+            assert!(only(b).dodge, "{b:?} dodges");
+        }
+        assert!(only(B::North).smash);
+        assert!(only(B::West).jab);
+        for b in [B::LeftTrigger, B::LeftTrigger2] {
+            assert!(only(b).guard, "{b:?} guards");
+        }
+        // Each button does only its own move.
+        assert_eq!(
+            only(B::South),
+            PadWants {
+                jump: true,
+                ..default()
+            }
+        );
+        assert_eq!(
+            only(B::Select),
+            PadWants::default(),
+            "Select is Home (go_home.rs)"
+        );
+    }
 
     #[test]
     fn buttons_fit_on_screen_and_do_not_overlap() {
