@@ -413,6 +413,55 @@ impl Sight {
     }
 }
 
+/// How strongly the crab senses an animal's scent. A current carries scent
+/// from upstream, so the sensed area reaches further against the flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scent {
+    None,
+    Direction,
+    Animal,
+}
+
+/// `current` is the signed vertical water speed at the crab (positive is up).
+/// Scent passes obstacles, but has a finite range in still water too.
+pub fn scent_at(eye: Vec2, animal: Vec2, current: f32, tuning: &MemoryTuning) -> Scent {
+    let mut offset = animal - eye;
+    if current.abs() > f32::EPSILON && offset.y * current < 0.0 {
+        offset.y /= tuning.smell_upstream.max(1.0);
+    }
+    let distance = offset.length();
+    if distance <= tuning.smell_radius {
+        Scent::Animal
+    } else if distance <= tuning.smell_direction_radius {
+        Scent::Direction
+    } else {
+        Scent::None
+    }
+}
+
+#[cfg(test)]
+mod scent_tests {
+    use super::*;
+
+    #[test]
+    fn scent_is_local_and_reaches_further_upstream() {
+        let eye = Vec2::ZERO;
+        let t = &Tuning::default().memory;
+        assert_eq!(scent_at(eye, Vec2::new(500.0, 0.0), 0.0, t), Scent::Animal);
+        assert_eq!(
+            scent_at(eye, Vec2::new(700.0, 0.0), 0.0, t),
+            Scent::Direction
+        );
+        assert_eq!(scent_at(eye, Vec2::new(900.0, 0.0), 0.0, t), Scent::None);
+        assert_eq!(scent_at(eye, Vec2::new(0.0, -700.0), 1.0, t), Scent::Animal);
+        assert_eq!(
+            scent_at(eye, Vec2::new(0.0, 700.0), 1.0, t),
+            Scent::Direction
+        );
+        assert_eq!(scent_at(eye, Vec2::new(0.0, 700.0), -1.0, t), Scent::Animal);
+    }
+}
+
 /// A crab's memory as it is saved (JSON, with the character).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemorySave {
