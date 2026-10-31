@@ -68,7 +68,7 @@ fn restyle(
     mut images: ResMut<Assets<Image>>,
     mut softened: Local<ScentAtlases>,
     mut pending: Local<Vec<Softening>>,
-    mut pieces: Query<(Entity, &Styled, &mut Sprite)>,
+    mut pieces: Query<(Entity, &Styled, &mut Sprite, &mut Lit)>,
 ) {
     // Do a small fixed amount each frame, rather than freezing a phone when
     // it first smells an animal with a large atlas. Keep the original puppet
@@ -85,7 +85,7 @@ fn restyle(
         }
     }
     let i = style_index(*style);
-    for (entity, styled, mut sprite) in &mut pieces {
+    for (entity, styled, mut sprite, mut light) in &mut pieces {
         let failed = i != 0 && assets.load_state(&styled.0[i]).is_failed();
         let want = &styled.0[if failed { 0 } else { i }];
         let mut ancestor = entity;
@@ -120,6 +120,9 @@ fn restyle(
         } else {
             want
         };
+        // A sensed shape has to remain readable beyond the lantern. This is
+        // a perception cue on the animal itself, not light cast on the scene.
+        light.fill = if scent_level.is_some() { 0.55 } else { 0.0 };
         if sprite.image != *shown {
             sprite.image = shown.clone();
         }
@@ -500,6 +503,7 @@ mod tests {
                     ..default()
                 },
                 Styled([source.clone(), source.clone()]),
+                Lit::at(Vec2::ZERO),
                 ChildOf(root),
             ))
             .id();
@@ -507,6 +511,7 @@ mod tests {
         app.update(); // finishes and applies it
         let shown = &app.world().get::<Sprite>(piece).unwrap().image;
         assert_ne!(shown, &source, "scent uses the softened atlas");
+        assert_eq!(app.world().get::<Lit>(piece).unwrap().fill, 0.55);
         app.world_mut().resource_mut::<Known>().sight = None;
         app.update();
         assert_eq!(
@@ -514,6 +519,7 @@ mod tests {
             &source,
             "normal art returns when the scent ends"
         );
+        assert_eq!(app.world().get::<Lit>(piece).unwrap().fill, 0.0);
     }
 
     /// A PNG's width and height, from its header.
