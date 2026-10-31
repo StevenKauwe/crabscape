@@ -65,8 +65,23 @@ fn restyle(
     roots: Query<&ScentRoot>,
     mut images: ResMut<Assets<Image>>,
     mut softened: Local<HashMap<AssetId<Image>, Handle<Image>>>,
+    mut pending: Local<Vec<Softening>>,
     mut pieces: Query<(Entity, &Styled, &mut Sprite)>,
 ) {
+    // Do a small fixed amount each frame, rather than freezing a phone when
+    // it first smells an animal with a large atlas. Keep the original puppet
+    // until the softened copy is ready.
+    if let Some(job) = pending.first_mut()
+        && let Some(source) = images.get(&job.source)
+        && job.advance(source)
+    {
+        let job = pending.remove(0);
+        if let Some(source) = images.get(&job.source) {
+            let mut image = source.clone();
+            image.data = Some(job.output);
+            softened.insert(job.source.id(), images.add(image));
+        }
+    }
     let i = style_index(*style);
     for (entity, styled, mut sprite) in &mut pieces {
         let failed = i != 0 && assets.load_state(&styled.0[i]).is_failed();
@@ -88,10 +103,13 @@ fn restyle(
         }
         let shown = if sensed {
             let id = want.id();
-            if let std::collections::hash_map::Entry::Vacant(entry) = softened.entry(id)
-                && let Some(image) = images.get(want).and_then(soften_image)
+            if !softened.contains_key(&id)
+                && !pending.iter().any(|job| job.source.id() == id)
+                && let Some(job) = images
+                    .get(want)
+                    .and_then(|image| Softening::new(want.clone(), image))
             {
-                entry.insert(images.add(image));
+                pending.push(job);
             }
             softened.get(&id).unwrap_or(want)
         } else {
@@ -103,24 +121,61 @@ fn restyle(
     }
 }
 
-/// Make one cached, gently softened atlas per source, preserving each puppet
-/// part and animation. Alpha-weighted colour avoids dark fringes on edges.
-fn soften_image(source: &Image) -> Option<Image> {
-    if !matches!(
-        source.texture_descriptor.format,
-        TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb
-    ) {
-        return None;
+/// A small, bounded slice of atlas preparation per frame. Alpha-weighted
+/// colour avoids dark fringes while preserving each animated puppet part.
+const SCENT_ROWS_PER_FRAME: usize = 32;
+
+struct Softening {
+    source: Handle<Image>,
+    output: Vec<u8>,
+    row: usize,
+}
+
+impl Softening {
+    fn new(source: Handle<Image>, image: &Image) -> Option<Self> {
+        if !matches!(
+            image.texture_descriptor.format,
+            TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb
+        ) {
+            return None;
+        }
+        let size = image.texture_descriptor.size;
+        let width = size.width as usize;
+        let height = size.height as usize;
+        let data = image.data.as_ref()?;
+        if width == 0 || height == 0 || data.len() != width * height * 4 {
+            return None;
+        }
+        Some(Self {
+            source,
+            output: vec![0; data.len()],
+            row: 0,
+        })
     }
-    let size = source.texture_descriptor.size;
-    let data = source.data.as_ref()?;
-    let width = size.width as usize;
-    let height = size.height as usize;
-    if data.len() != width * height * 4 || width == 0 || height == 0 {
-        return None;
+
+    fn advance(&mut self, image: &Image) -> bool {
+        let size = image.texture_descriptor.size;
+        let width = size.width as usize;
+        let height = size.height as usize;
+        let Some(data) = image.data.as_ref() else {
+            return false;
+        };
+        let end = (self.row + SCENT_ROWS_PER_FRAME).min(height);
+        soften_rows(data, &mut self.output, width, height, self.row, end);
+        self.row = end;
+        end == height
     }
-    let mut output = vec![0; data.len()];
-    for y in 0..height {
+}
+
+fn soften_rows(
+    data: &[u8],
+    output: &mut [u8],
+    width: usize,
+    height: usize,
+    start: usize,
+    end: usize,
+) {
+    for y in start..end {
         for x in 0..width {
             let mut alpha = 0u32;
             let mut rgb = [0u32; 3];
@@ -149,9 +204,6 @@ fn soften_image(source: &Image) -> Option<Image> {
             }
         }
     }
-    let mut image = source.clone();
-    image.data = Some(output);
-    Some(image)
 }
 
 /// One creature's art.
@@ -320,8 +372,9 @@ mod tests {
         );
         let original = image.data.as_mut().unwrap();
         original[16..20].copy_from_slice(&[255, 0, 0, 255]);
-        let softened = soften_image(&image).unwrap();
-        let pixels = softened.data.unwrap();
+        let mut job = Softening::new(Handle::default(), &image).unwrap();
+        assert!(job.advance(&image));
+        let pixels = job.output;
         assert!(
             pixels[19] > pixels[7],
             "centre stays stronger than its edge"
@@ -336,6 +389,30 @@ mod tests {
             [0, 0, 0, 0],
             "distant transparent pixels stay clear"
         );
+    }
+
+    #[test]
+    fn scent_atlas_work_is_spread_across_frames() {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::render::render_resource::{Extent3d, TextureDimension};
+        let image = Image::new_fill(
+            Extent3d {
+                width: 1,
+                height: 65,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &[200, 100, 25, 255],
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::default(),
+        );
+        let mut job = Softening::new(Handle::default(), &image).unwrap();
+        assert!(!job.advance(&image));
+        assert_eq!(job.row, 32);
+        assert!(!job.advance(&image));
+        assert_eq!(job.row, 64);
+        assert!(job.advance(&image));
+        assert_eq!(job.row, 65);
     }
 
     /// A PNG's width and height, from its header.
