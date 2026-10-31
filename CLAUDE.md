@@ -113,7 +113,9 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 ## Setup and commands
 Setup: Rust from https://rustup.rs (it installs the pinned version and targets in `rust-toolchain.toml` by itself),
 `cargo install wasm-bindgen-cli --version <wasm-bindgen version in Cargo.lock>`, optionally `cargo install wasm-tools`
-and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbcommon-dev pkg-config`.
+and binaryen's `wasm-opt`. Linux also needs `libudev-dev libwayland-dev libxkbcommon-dev pkg-config`. Build cache:
+`cargo install sccache --locked` and `[build]` / `rustc-wrapper = "sccache"` in your own `~/.cargo/config.toml` (not
+the project's: CI and anyone without sccache must still build), so worktrees share compiled libraries.
 
 | Job | Command |
 |---|---|
@@ -184,7 +186,11 @@ game loads · `art/` source art · `tools/` build, test and tidy scripts · `web
 ## Keeping the computer happy
 Bevy builds are big and teammates can't fix a broken computer.
 - `cargo tidy` runs at session start (`.claude/settings.json`) and cleans build files when `target/` passes 8 GB or the
-  disk has under 10 GB free.
+  disk has under 10 GB free. It also removes finished side copies in `.claude/worktrees/` (work merged or none made,
+  nothing unsaved, untouched for an hour), clears the build files of ones untouched for a week, and deletes local
+  branches whose work is merged.
+- Make side copies (git worktrees) under `.claude/worktrees/`, so the tidy-up can find them.
 - Anything broken (disk full, tools missing, git stuck, odd errors)? Run `/doctor`.
 - Before a big build, render or video job, check space with `cargo tidy report`; stop under ~10 GB free.
-- Delete your scratch files and merged worktrees before you finish.
+- Delete your scratch files before you finish; after merging, remove your own side copy if you can (`git worktree
+  remove <path>`), else the tidy-up does it.
