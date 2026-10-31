@@ -36,10 +36,11 @@ The rule cuts both ways: if ink blinds a predator, it blinds the player too. If 
 enough shell blocks it.
 
 ## Real behaviours that suggest mechanics
-**Status: TO VERIFY WITH SOURCES.** Rows without a source each need a real, opened source added
-(see the research issues) before it becomes lore or a mechanic. Write sources as `[KEY] author, title, link`.
+**Status: sourced.** Every row has a real, opened source (listed under Sources at the end); what a source doesn't
+back is marked "not verified" and isn't lore or a mechanic until it is. Write new sources as `[KEY] author, title,
+link` in that list.
 
-| # | Real biology (unverified) | What it could become | Source |
+| # | Real biology | What it could become | Source |
 |---|---|---|---|
 | 1 | Hermit crabs form **vacancy chains**: around an empty shell too big for them, they wait and queue from largest to smallest, then swap shells in sequence, each into the one just left. In a *synchronous* chain the whole line "fires off in seconds" after hours of queuing (*Coenobita clypeatus*); chains can also be asynchronous, one crab at a time over days. Oh no way: waiting crabs **piggyback**, riding on a bigger crab's shell | Shell trading; the home-growing economy | [TUFTS-VC], [WP-VC] |
 | 2 | Crabs **moult** and stay soft and vulnerable until the new shell hardens: blue crabs are "particularly susceptible when they are soft" and prefer seclusion; the shell is parchment-like after a few hours and fully hard in two or three days ([CQ]: about four days). Oh no way: the moult itself takes only minutes, and the limp, wrinkled crab swells 25–35% bigger before hardening | Growing up is a risk: hide somewhere safe while soft | [SCDNR-BC], [CQ] |
@@ -49,11 +50,11 @@ enough shell blocks it.
 | 6 | **Boxer crabs** (*Lybia*) hold a small sea anemone in each claw, threatening attackers with its stinging tentacles and using it to collect food particles, since the claws can't feed the crab. Oh no way: a crab that loses one anemone tears the other in two, and both halves regrow into whole anemones; crabs without any fight to steal them | Living tools and weapons instead of metal swords | [SCHNYTZER-2017], [WP-LT] |
 | 7 | **Decorator crabs** stick sponges, algae and other living things onto Velcro-like hooked hairs (setae) on their shells for camouflage; some choose noxious or stinging ones, which predators avoid (octopuses in tanks left decorated crabs alone). Oh no way: moved somewhere new, a spider crab had redecorated itself with local material after one night | Cosmetic and functional costumes from biology | [WP-DC] |
 | 8 | **Yeti crabs** farm bacteria on their hairy claws: *Kiwa puravida* waves its claws in the fluid rising from a methane seep (1,000 m deep, off Costa Rica), and the bacteria growing on them are its main food, harvested with comb-like hairs on a mouthpart. (The row said hydrothermal vents; this source is a cold seep, and vent yeti crabs farming is not verified.) Oh no way: the paper calls it "dancing for food" | Food farming in the deep | [THURBER-2011] |
-| 9 | **Whale falls** pass through stages over years: scavengers → bone-eating *Osedax* worms → bacteria | The whale-fall village changes over time | — |
-| 10 | **Brine pools** on the sea floor are hypersaline lakes that kill animals that wander in | A real environmental hazard | — |
+| 9 | **Whale falls** pass through overlapping stages: mobile scavengers (hagfish, sleeper sharks) strip the soft tissue for months up to 1.5 years; enrichment opportunists settle on the bones and enriched mud for months up to 4.5 years, with bone-eating *Osedax* worms dissolving bone with acid; then sulfophilic bacteria break down the lipids inside the bones for 50, possibly 100 years; some propose a last reef stage of bare bones. Oh no way: the first whale-fall specialist found was a new mussel, taken from floating whale blubber in 1854 | The whale-fall village changes over time | [WP-WF] |
+| 10 | **Brine pools** on the sea floor are lakes of brine three to eight times saltier than the sea, from buried salt dissolving; salty and without oxygen, they are toxic to animals that wander in, and the dead are kept without decay for years. Oh no way: underwater landslides can slosh waves of brine out over the sea floor, and mussel beds ring the pool's shore | A real environmental hazard | [WP-BP] |
 | 11 | **Diel vertical migration:** each night huge numbers of animals rise to feed, then sink at dawn | Day and night change which creatures are where (`universe.md`) | [WHOI-DVM] WHOI news release (2022), https://www.whoi.edu/press-room/news-release/whoi-leads-multi-ship-study-of-northwest-atlantic/ |
-| 12 | The **oxygen minimum zone**, roughly 200–1,000 m in many oceans, holds very little dissolved oxygen | The real breathing limit for a crab | — |
-| 13 | Deep-sea animals accumulate **TMAO**, which counters pressure's effect on proteins | Depth tolerance you build by adapting | — |
+| 12 | The **oxygen minimum zone**, about 200 to 1,500 m deep depending on the place (the row said 1,000), holds very little dissolved oxygen: below 2 mg/L against a normal 4–6, sometimes none at all. OMZs are found worldwide, mostly along continents' western coasts. Oh no way: giant red mysids live there on gills with a huge surface | The real breathing limit for a crab | [WP-OMZ] |
+| 13 | Deep-sea animals accumulate **TMAO**, which counters pressure's effect on proteins: in bony fishes it rises from 40 to 261 mmol/kg between 0 and 4,850 m, and deep crabs carry more too (*Chionoecetes*: 22 shallow, 164 at bathyal depth). Oh no way: extrapolated, a fish would reach the sea's own saltiness at about 8,200 m, which may be why no fish lives deeper | Depth tolerance you build by adapting | [YANCEY-2014], [KELLY-1999] |
 
 A research log of papers and sources backs every creature and mechanic. Anatomy for the player crab is already
 sourced in `art/crab/anatomy-notes.md`; keep its "not verified" flags honest.
@@ -87,3 +88,15 @@ Each opened and checked against the row it backs.
   Stachowicz 2011, Cott 1940, Bateson 1889). <https://en.wikipedia.org/wiki/Decorator_crab>
 - **[THURBER-2011]** Thurber, Jones & Schnabel, "Dancing for food in the deep sea: bacterial farming by a new species
   of yeti crab", *PLOS ONE* 6(11): e26243 (2011). <https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0026243>
+- **[WP-WF]** Wikipedia, "Whale fall" (stages and durations citing Aguzzi et al. 2018, Little 2010, Smith et al. 2015).
+  <https://en.wikipedia.org/wiki/Whale_fall>
+- **[WP-BP]** Wikipedia, "Brine pool" (citing NOAA Ocean Explorer 2002, Kvitek 1998, Sawyer et al. 2019, Smith et al.
+  2000). <https://en.wikipedia.org/wiki/Brine_pool>
+- **[WP-OMZ]** Wikipedia, "Oxygen minimum zone" (citing Lalli & Parsons 1993, Childress & Seibel 1998).
+  <https://en.wikipedia.org/wiki/Oxygen_minimum_zone>
+- **[YANCEY-2014]** Yancey, Gerringer, Drazen, Rowden & Jamieson, "Marine fish may be biochemically constrained from
+  inhabiting the deepest ocean depths", *PNAS* 111(12): 4461–4465 (2014). Abstract:
+  <https://pubmed.ncbi.nlm.nih.gov/24591588/>
+- **[KELLY-1999]** Kelly & Yancey, "High contents of trimethylamine oxide correlating with depth in deep-sea teleost
+  fishes, skates, and decapod crustaceans", *Biological Bulletin* 196(1) (1999). Abstract:
+  <https://pubmed.ncbi.nlm.nih.gov/25575382/>
