@@ -8,8 +8,8 @@ publish = false
 
 [dependencies]
 # The painter itself lives upstream in brushwork (MIT, https://github.com/StevenKauwe/brushwork).
-brushwork = { git = "https://github.com/StevenKauwe/brushwork", tag = "v0.1.0" }
-brushwork-kit = { git = "https://github.com/StevenKauwe/brushwork", tag = "v0.1.0" }
+brushwork = { git = "https://github.com/StevenKauwe/brushwork", tag = "v0.4.1" }
+brushwork-kit = { git = "https://github.com/StevenKauwe/brushwork", tag = "v0.4.1" }
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
