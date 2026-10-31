@@ -38,6 +38,14 @@ source, it says so.
 - **[DAUB]** S. C. Daubner et al. (1987), "Yellow light emission of *Vibrio fischeri* strain Y-1…", *PNAS* 84:8912–8916.
   <https://pmc.ncbi.nlm.nih.gov/articles/PMC299661>
 - **[WP-AF]** Wikipedia, "Aliivibrio fischeri". <https://en.wikipedia.org/wiki/Aliivibrio_fischeri>
+- **[SS81]** J. L. Simonson & P. Steele (1981), "Cheliped asymmetry in the stone crab, *Menippe mercenaria*, with notes
+  on claw reversal and regeneration", *Northeast Gulf Science* 5(1) (abstract, opened 2026-10-31).
+  <https://aquila.usm.edu/goms/vol5/iss1/3>
+- **[AMB07]** J. Ambler (2007), "Limb regeneration after multiple autotomy and coxae removal in the blue crab
+  *Callinectes sapidus*", MS thesis, Old Dominion University (abstract, opened 2026-10-31).
+  <https://digitalcommons.odu.edu/oeas_etds/344>
+- **[SCDNR-BC]** J. D. Whitaker, South Carolina Department of Natural Resources, "Blue Crab" (opened 2026-10-31).
+  <https://dnr.sc.gov/marine/pub/seascience/bluecrab.html>
 
 ## Checklist
 
@@ -79,9 +87,11 @@ source, it says so.
 - [x] **Unequal claws (heterochely) are real.** Many crabs have a heavy crusher claw and a slimmer cutter claw. The green
   crab has both: "The mechanical advantages of C. maenas crusher and cutter claws are 0.37 and 0.30" [YDF]. In the
   stone crab the "pincers [are] distinctly unequal… fingers meeting only at tips, more gaping in larger hand" [FAO-TC].
-  - *Not verified:* a search snippet said the crusher is usually on the right. I could not open that paper
-    (JEB 218:3658, HTTP 403), so the claim stays unverified. Putting our crusher on the crab's right is a design
-    choice.
+  - *Partly verified:* in the stone crab, about 80% of adults are right-handed (crusher on the right), and a
+    juvenile that loses its crusher often reverses after the next moult; adults reverse less readily [SS81]. For
+    swimming crabs like ours it stays not verified: the blue-crab study (Hamilton et al. 1976) and JEB 218:3658 could
+    not be opened (a scanned PDF with no readable text; HTTP 403). Putting our crusher on the crab's right matches the
+    stone crab's majority.
 
 ### Head end
 - [x] **Eyes on stalks, in sockets (orbits) in the front edge.** FAO labels the eyestalk, cornea and orbit [FAO-TC].
@@ -125,24 +135,29 @@ source, it says so.
   [CQ]. It reaches paper shell at 9–12 h and buckram (semi-hard) at 12–24 h [CQ]. Blue crabs moult about 25 times in a
   lifetime [WP-CS].
   - *Not verified:* that the new shell looks **paler**. It is widely reported, but I didn't find it in any source I
-    opened. Here it is an artistic reading, used because it reads well.
+    opened (2026-10-31: [SCDNR-BC] and [CQ] describe soft crabs without mentioning colour; bluecrab.info's moulting
+    page answers HTTP 403). Here it is an artistic reading, used because it reads well.
 - [x] **A crab grows at each moult, by less per moult as it grows.** A blue crab's carapace grows by about a fifth
   at each moult: "A mean growth per molt of 119.5% increase in carapace width was observed" [BM06]. In a mangrove
   crab, "the mean percentage of molt increment was 6.1 ± 2.7%, for both sexes and it decreased with the animal
   growth" [SO02]. Males keep moulting and growing all their lives; females stop at maturity, after about 20 moults
   [CQ]. The game grows the crab 12% at its first moult, then less each time, up to 35% (gentler than a blue crab, so
   the biggest crab still fits a phone's screen and the level's narrow places).
-  - *Not verified:* that a crab is already its bigger size while the new shell is soft (the game draws it so).
+  - [x] A crab is already its bigger size while the new shell is soft (the game draws it so): "The resulting soft
+    crab, limp and wrinkled, swells to normal shape and usually increases in size by 25 to 35%", and is fully hardened
+    two or three days later [SCDNR-BC].
 - [x] **Lost limbs regrow over moults, and the new one is different at first.** In fiddler crabs, regenerated claws
   "were more slender, having smaller dimensions of the manus relative to claw length", and the first moult after the
-  loss accounted for most of the change [KM]. A bluecrab.info page on autotomy (HTTP 403) and a search snippet say
-  the new limb starts as a small "limb bud" and needs 1–3 moults to reach full size. That part is not verified from a
-  page I read.
+  loss accounted for most of the change [KM]. In the blue crab the new limb grows as a regenerative bud, and "full limb length was
+  recovered within three molts" (when the limb's base, the coxa, was left intact) [AMB07]. So 1–3 moults holds for
+  the blue crab; the bluecrab.info autotomy page still answers HTTP 403.
   The drawing shows a small, slender claw in place of the crusher. One step is shown, and the stages after it are not
   drawn.
 - [~] **Threat display: claws raised and spread wide.** It is widely described. The study I found (Royal Holloway
   repository; it failed the TLS check) said in a snippet that "chelipeds are extended and raised, and strikes come
-  only from that position". I could not open it, so this counts as partly verified.
+  only from that position". I could not open it, so this counts as partly verified. Tried again 2026-10-31: a
+  Smithsonian repository paper on crab agonistic displays answered HTTP 403, and the only open page found on blue
+  crabs raising their claws was not a reliable source. Still partly verified.
 
 ### Light and colour
 - [x] **Red goes black at depth.** "Red light is quickly filtered from water as depth increases… At 100 meters, red light
