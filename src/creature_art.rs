@@ -55,6 +55,7 @@ fn oil_path(ink: &str) -> String {
 
 /// Show each creature piece in the current style. If that style's picture can't be loaded, the piece shows the
 /// ink one (like the crab, which falls back to the other style).
+#[allow(clippy::too_many_arguments)] // Bevy system parameters
 fn restyle(
     style: Res<ArtStyle>,
     assets: Res<AssetServer>,
@@ -87,10 +88,10 @@ fn restyle(
         }
         let shown = if sensed {
             let id = want.id();
-            if !softened.contains_key(&id) {
-                if let Some(image) = images.get(want).and_then(soften_image) {
-                    softened.insert(id, images.add(image));
-                }
+            if let std::collections::hash_map::Entry::Vacant(entry) = softened.entry(id)
+                && let Some(image) = images.get(want).and_then(soften_image)
+            {
+                entry.insert(images.add(image));
             }
             softened.get(&id).unwrap_or(want)
         } else {
