@@ -31,8 +31,9 @@ If `cargo` itself is missing, skip to step 2. Disk still nearly full afterwards?
 "I can clear all of the project's build files to free about N GB; the next build will take a few minutes longer.
 OK?"). If it is still full after that, the space is used outside the project: say so plainly and suggest they
 empty the bin/trash or remove big downloads. Never delete their files yourself.
-Also list other side copies: `git worktree list`. Old ones under `.claude/worktrees/` whose work is merged or
-pushed can go (`git worktree remove <path>`); ones with unsaved changes stay.
+`cargo tidy` also removes finished side copies under `.claude/worktrees/` (work merged or none made, no unsaved
+changes), clears the build files of ones untouched for a week, and deletes local branches whose work is merged;
+`cargo tidy report` says what it would do. Anything else in `git worktree list` stays unless its owner says so.
 
 ## 2. Tools
 Check each; fix what's missing.
@@ -44,6 +45,7 @@ Check each; fix what's missing.
 | `cargo --version`, `rustup show` | No Rust: ask yes/no, then install from <https://rustup.rs> (Windows: `winget install --id Rustlang.Rustup -e`). Build errors that mention a newer Rust edition or "requires rustc 1.xx": `rustup update stable`. If the repo has a `rust-toolchain`/`rust-toolchain.toml` file, `rustup show` installs that version. |
 | `rustup target list --installed` has `wasm32-unknown-unknown` | `rustup target add wasm32-unknown-unknown` |
 | `wasm-bindgen --version` equals the `wasm-bindgen` version in `Cargo.lock` | `cargo install wasm-bindgen-cli --version <that version> --locked` (needed for `tools/build-web.sh`) |
+| `sccache --version`, and `~/.cargo/config.toml` (Windows: `%USERPROFILE%\.cargo\config.toml`) has `rustc-wrapper = "sccache"` under `[build]` | `cargo install sccache --locked`, then add those two lines to that file (create it if missing). Side copies of the project then share the libraries they compile instead of each building Bevy from scratch; its cache stays under 10 GB by itself. |
 | Art work only: the painter builds (`cargo build -p painter --profile art --bin crabpaint`) | Read the error; usually one of the rows above. |
 | Linux only, build fails linking or mentions `alsa`, `udev`, `wayland`, `xkbcommon`, `pkg-config` | Ask yes/no, then install the system libraries Bevy needs (Debian/Ubuntu: `libudev-dev libwayland-dev libxkbcommon-dev pkg-config`; `libasound2-dev` if audio). |
 

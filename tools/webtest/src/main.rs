@@ -916,6 +916,19 @@ impl Test<'_> {
             ),
         );
         self.no_error_on_page("at the end")?;
+        // Capture the new surface in the ordinary phone-sized screenshots.
+        // A slow sim gives the camera and memory time to settle before the
+        // crab, loaded in water by the kelp, sinks away from the surface.
+        if let Some(prefix) = self.o.shots.clone() {
+            self.eval(
+                r#"(localStorage.clear(), localStorage.setItem("crabscape.save", JSON.stringify({version: 2, x: 900, y: 4920})), true)"#,
+            )?;
+            let started = self.open("index.html?slow=10")?;
+            self.check(started, "the game starts near the water surface");
+            pump(1.0);
+            self.shot(PathBuf::from(format!("{prefix}-surface.png")), true)?;
+            self.no_error_on_page("at the water surface")?;
+        }
         Ok(())
     }
 
