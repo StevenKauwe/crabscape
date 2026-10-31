@@ -144,6 +144,7 @@ fn spawn_octopuses(
         }
         let root = commands
             .spawn((
+                crate::creature_art::ScentRoot(e.id),
                 Drawn {
                     id: e.id,
                     time: 0.0,
@@ -513,7 +514,7 @@ fn pose_octopuses(
         d.time += dt;
         let now = d.time;
         shown.set_if_neq(
-            if e.state == State::Gone || !known.perceives_animal(e.pos) {
+            if e.state == State::Gone || !known.senses_animal(&sim, e.pos) {
                 Visibility::Hidden
             } else {
                 Visibility::Inherited

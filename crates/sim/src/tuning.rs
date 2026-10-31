@@ -740,6 +740,11 @@ pub struct MemoryTuning {
     pub sight_tall: f32,
     /// ...and how much wider per culture in the lantern.
     pub sight_per_culture: f32,
+    /// Scent shows the animal within this range, and its direction further out.
+    pub smell_radius: f32,
+    pub smell_direction_radius: f32,
+    /// Range multiplier against the current.
+    pub smell_upstream: f32,
     /// Out of sight this many steps, a place seen again is one more visit.
     pub visit_gap_steps: u32,
     /// How well a place is known after 1, 2 and 3+ visits (0..1).
@@ -1393,6 +1398,9 @@ impl Tuning {
                 sight: 360.0,
                 sight_tall: 1.0,
                 sight_per_culture: 40.0,
+                smell_radius: 550.0,
+                smell_direction_radius: 800.0,
+                smell_upstream: 1.5,
                 visit_gap_steps: 300, // away 30 s, back again: one more visit
                 // Shore crabs ran a maze without error by the third run (real);
                 // a place is learned the same way.
