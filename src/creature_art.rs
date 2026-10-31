@@ -415,6 +415,65 @@ mod tests {
         assert_eq!(job.row, 65);
     }
 
+    #[test]
+    fn scented_puppet_uses_its_softened_art_then_restores_the_original() {
+        use bevy::asset::{AssetApp, AssetPlugin, RenderAssetUsages};
+        use bevy::render::render_resource::{Extent3d, TextureDimension};
+        use crabsim::Sight;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        let mut sim = Sim::with_one_crab(Vec2::ZERO);
+        let enemy = sim.spawn_enemy(crabsim::Kind::Fixture, Vec2::new(100.0, 0.0));
+        let mut known = Known::default();
+        known.sight = Some(Sight {
+            eye: Vec2::ZERO,
+            radii: Vec2::splat(360.0),
+        });
+        app.insert_resource(sim)
+            .insert_resource(known)
+            .insert_resource(ArtStyle::Ink);
+        app.add_systems(Update, restyle);
+        let source = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(Image::new_fill(
+                Extent3d {
+                    width: 3,
+                    height: 3,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                &[200, 100, 25, 255],
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::default(),
+            ));
+        let root = app.world_mut().spawn(ScentRoot(enemy)).id();
+        let piece = app
+            .world_mut()
+            .spawn((
+                Sprite {
+                    image: source.clone(),
+                    ..default()
+                },
+                Styled([source.clone(), source.clone()]),
+                ChildOf(root),
+            ))
+            .id();
+        app.update(); // queues the softened atlas
+        app.update(); // finishes and applies it
+        let shown = &app.world().get::<Sprite>(piece).unwrap().image;
+        assert_ne!(shown, &source, "scent uses the softened atlas");
+        app.world_mut().resource_mut::<Known>().sight = None;
+        app.update();
+        assert_eq!(
+            &app.world().get::<Sprite>(piece).unwrap().image,
+            &source,
+            "normal art returns when the scent ends"
+        );
+    }
+
     /// A PNG's width and height, from its header.
     fn png_size(path: &str) -> [u32; 2] {
         let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
