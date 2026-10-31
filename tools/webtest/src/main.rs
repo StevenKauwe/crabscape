@@ -932,13 +932,18 @@ impl Test<'_> {
         // Record both a distant scent and a nearby animal behind the boulder.
         // This uses the isolated test browser's save, not a gameplay debug hook.
         if let Some(prefix) = self.o.shots.clone() {
-            for (name, x, y) in [("weak", 160, 0), ("close", 760, 85)] {
+            for (name, x, y) in [("weak", 160, 0), ("close", 760, 100)] {
                 self.eval(&format!(
-                    r#"(localStorage.clear(), localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: {x}, y: {y}}})), true)"#
+                    r#"(localStorage.clear(), localStorage.setItem("crabscape-keys", "folded"), localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: {x}, y: {y}}})), true)"#
                 ))?;
                 let started = self.open("index.html?slow=10&zoom=3")?;
                 self.check(started, format!("the {name} scent screenshot starts"));
                 pump(3.0);
+                let at = self.crab()?;
+                self.check(
+                    at.is_some_and(|(actual, _, _)| (actual - f64::from(x)).abs() < 5.0),
+                    format!("the {name} scent screenshot is at x={x} ({at:?})"),
+                );
                 self.shot(PathBuf::from(format!("{prefix}-scent-{name}.png")), true)?;
                 self.no_error_on_page("during the scent screenshot")?;
             }
