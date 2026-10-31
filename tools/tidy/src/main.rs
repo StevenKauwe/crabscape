@@ -21,8 +21,18 @@
 //! 2. outdated copies in `deps/`: when a library is rebuilt with different settings, Cargo keeps the old copy too;
 //! 3. only if the disk is short of space or the files are huge anyway: everything (like `cargo clean`), after which
 //!    the next build takes a few minutes longer.
+//!
+//! Every run (`report` only says what it would do) also tidies Claude's side copies, so finished work never sits on
+//! the disk (each copy's `target/` grows to several GB):
+//! - a side copy whose work is merged (its commit is the head of a merged pull request, asked with `gh`) or that has
+//!   nothing beyond `origin/main` is removed with `git worktree remove`, once it has no unsaved changes and nobody
+//!   has touched it for a while ([`MERGED_IDLE`], [`EMPTY_IDLE`]);
+//! - a side copy nobody has touched for [`ABANDONED_IDLE`] keeps its work but loses its build files;
+//! - local branches whose commit is the head of a merged pull request, and that no copy has checked out, are deleted.
+//!
+//! It never removes the copy it runs in, a locked copy, one with unsaved changes or one a build is using.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -41,6 +51,12 @@ const GB: u64 = 1_000_000_000;
 const LOCK_FILES: [&str; 3] = [".cargo-lock", ".cargo-build-lock", ".cargo-artifact-lock"];
 /// An outdated copy must be at least this old before step 2 removes it.
 const STALE_AGE: Duration = Duration::from_secs(2 * 24 * 3600);
+/// A side copy whose pull request is merged goes once it has sat untouched this long (its session may be wrapping up).
+const MERGED_IDLE: Duration = Duration::from_secs(3600);
+/// A side copy with nothing beyond `origin/main` goes after this long untouched (a session may not have started yet).
+const EMPTY_IDLE: Duration = Duration::from_secs(2 * 24 * 3600);
+/// A side copy untouched this long keeps its work but loses its build files.
+const ABANDONED_IDLE: Duration = Duration::from_secs(7 * 24 * 3600);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
@@ -136,37 +152,52 @@ fn main() {
 /// Session start: did main's latest finished CI run fail? Asks GitHub with `gh`; returns the run's link. Says
 /// nothing (None) when `gh` is missing, signed out, offline or slow.
 fn main_ci_failed(root: &Path) -> Option<String> {
-    let mut child = Command::new("gh")
-        .args([
-            "run",
-            "list",
-            "--branch",
-            "main",
-            "--workflow",
-            "ci.yml",
-            "--event",
-            "push",
-        ])
-        .args([
-            "--status",
-            "completed",
-            "--limit",
-            "1",
-            "--json",
-            "conclusion,url",
-        ])
-        .args(["--jq", r#".[0] | "\(.conclusion) \(.url)""#])
-        .current_dir(root)
+    let mut gh = Command::new("gh");
+    gh.args([
+        "run",
+        "list",
+        "--branch",
+        "main",
+        "--workflow",
+        "ci.yml",
+        "--event",
+        "push",
+    ])
+    .args([
+        "--status",
+        "completed",
+        "--limit",
+        "1",
+        "--json",
+        "conclusion,url",
+    ])
+    .args(["--jq", r#".[0] | "\(.conclusion) \(.url)""#])
+    .current_dir(root);
+    let out = output_within(&mut gh, Duration::from_secs(8))?;
+    let (conclusion, url) = out.trim().split_once(' ')?;
+    (conclusion == "failure").then(|| url.to_string())
+}
+
+/// Runs `cmd` and returns what it printed, or None if it is missing, fails or takes longer than `limit` (offline, a
+/// network that hangs). Nothing is read from the terminal.
+fn output_within(cmd: &mut Command, limit: Duration) -> Option<String> {
+    let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let deadline = Instant::now() + Duration::from_secs(8);
+    // Read while it runs, so a long answer can't fill the pipe and stall it.
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut out = String::new();
+        stdout.read_to_string(&mut out).map(|_| out)
+    });
+    let deadline = Instant::now() + limit;
     loop {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => break,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -174,10 +205,222 @@ fn main_ci_failed(root: &Path) -> Option<String> {
             }
         }
     }
-    let mut out = String::new();
-    child.stdout.take()?.read_to_string(&mut out).ok()?;
-    let (conclusion, url) = out.trim().split_once(' ')?;
-    (conclusion == "failure").then(|| url.to_string())
+    reader.join().ok()?.ok()
+}
+
+/// A local git command in `dir`; its output, or None if it failed.
+fn git(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// One entry of `git worktree list --porcelain`.
+#[derive(Debug, PartialEq)]
+struct Worktree {
+    path: PathBuf,
+    head: String,
+    /// The branch's short name; None when detached.
+    branch: Option<String>,
+    /// Locked (`git worktree lock`) or its folder is gone: never touched.
+    keep: bool,
+}
+
+fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
+    let mut v = Vec::new();
+    for block in porcelain.split("\n\n") {
+        let mut wt = Worktree {
+            path: PathBuf::new(),
+            head: String::new(),
+            branch: None,
+            keep: false,
+        };
+        for line in block.lines() {
+            let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+            match key {
+                "worktree" => wt.path = PathBuf::from(value),
+                "HEAD" => wt.head = value.into(),
+                "branch" => wt.branch = Some(value.trim_start_matches("refs/heads/").into()),
+                "locked" | "prunable" => wt.keep = true,
+                _ => {}
+            }
+        }
+        if !wt.path.as_os_str().is_empty() {
+            v.push(wt);
+        }
+    }
+    v
+}
+
+/// Is this one of Claude's side copies (`<project>/.claude/worktrees/<name>`)?
+fn is_side_copy(path: &Path) -> bool {
+    let parts: Vec<_> = path.components().map(|c| c.as_os_str()).collect();
+    parts
+        .windows(2)
+        .any(|w| w[0] == ".claude" && w[1] == "worktrees")
+}
+
+/// The commits that were the head of a merged pull request (asked with `gh`; empty when it can't say).
+fn merged_heads(root: &Path) -> HashSet<String> {
+    let mut gh = Command::new("gh");
+    gh.args(["pr", "list", "--state", "merged", "--limit", "300"])
+        .args(["--json", "headRefOid", "--jq", ".[].headRefOid"])
+        .current_dir(root);
+    output_within(&mut gh, Duration::from_secs(10))
+        .map(|out| out.split_whitespace().map(String::from).collect())
+        .unwrap_or_default()
+}
+
+/// When a side copy was last touched: its last commit or checkout, staged change, or edited file.
+fn last_touched(wt: &Path, changed_files: &str) -> Option<SystemTime> {
+    let git_dir = PathBuf::from(git(wt, &["rev-parse", "--absolute-git-dir"])?.trim());
+    let mut paths = vec![git_dir.join("index"), git_dir.join("logs").join("HEAD")];
+    // `git status --porcelain` lines: two status letters, a space, the path.
+    paths.extend(
+        changed_files
+            .lines()
+            .filter_map(|l| l.get(3..))
+            .map(|f| wt.join(f.trim_matches('"'))),
+    );
+    paths
+        .iter()
+        .filter_map(|p| p.metadata().and_then(|m| m.modified()).ok())
+        .max()
+}
+
+/// Is a build using any of the copy's build folders right now?
+fn building(wt: &Path) -> bool {
+    let mut probe = Cleaner::default();
+    for p in profile_dirs(&wt.join("target")) {
+        probe.with_lock(&p, |_| {});
+    }
+    probe.busy > 0
+}
+
+/// Tidies Claude's side copies and merged local branches (see the top of this file). Returns what to tell the person.
+fn tidy_side_copies(root: &Path, mode: Mode, now: SystemTime) -> Vec<String> {
+    let act = mode != Mode::Report;
+    // Learn which branches GitHub deleted and how far main has moved; quietly skipped offline.
+    let mut fetch = Command::new("git");
+    fetch
+        .args(["fetch", "--prune", "--quiet", "origin"])
+        .current_dir(root);
+    let _ = output_within(&mut fetch, Duration::from_secs(15));
+    let Some(list) = git(root, &["worktree", "list", "--porcelain"]) else {
+        return Vec::new();
+    };
+    let worktrees = parse_worktrees(&list);
+    let side: Vec<&Worktree> = worktrees
+        .iter()
+        .filter(|w| is_side_copy(&w.path) && !w.keep)
+        .filter(|w| w.path.canonicalize().is_ok_and(|p| p != root))
+        .collect();
+    let merged = if side.is_empty() && mode == Mode::Hook {
+        HashSet::new()
+    } else {
+        merged_heads(root)
+    };
+
+    let (mut removed, mut removed_bytes, mut cleared, mut cleared_bytes) = (0, 0, 0, 0);
+    let mut freed_branches = Vec::new();
+    for wt in side {
+        let Some(changes) = git(&wt.path, &["status", "--porcelain"]) else {
+            continue;
+        };
+        let Some(idle) = last_touched(&wt.path, &changes).and_then(|t| now.duration_since(t).ok())
+        else {
+            continue;
+        };
+        if building(&wt.path) {
+            continue;
+        }
+        let is_merged = merged.contains(&wt.head);
+        let empty = git(&wt.path, &["rev-list", "--count", "origin/main..HEAD"])
+            .is_some_and(|n| n.trim() == "0");
+        let finished = changes.trim().is_empty()
+            && ((is_merged && idle > MERGED_IDLE) || (empty && idle > EMPTY_IDLE));
+        if finished {
+            let size = tree_size(&wt.path);
+            let path = wt.path.to_string_lossy();
+            if !act || git(root, &["worktree", "remove", &path]).is_some() {
+                removed += 1;
+                removed_bytes += size;
+                if let Some(b) = &wt.branch {
+                    freed_branches.push(b.clone());
+                }
+            }
+        } else if idle > ABANDONED_IDLE && wt.path.join("target").is_dir() {
+            let mut cleaner = Cleaner::default();
+            let size = tree_size(&wt.path.join("target"));
+            if act {
+                cleaner.remove(&wt.path.join("target"));
+            }
+            cleared += 1;
+            cleared_bytes += if act { cleaner.freed } else { size };
+        }
+    }
+
+    // Local branches whose work is merged and that no copy has checked out (the ones just freed included).
+    let mut branches = 0;
+    if let Some(refs) = git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short) %(objectname) %(worktreepath)",
+            "refs/heads",
+        ],
+    ) {
+        for line in refs.lines() {
+            let mut f = line.split(' ');
+            let (Some(name), Some(oid)) = (f.next(), f.next()) else {
+                continue;
+            };
+            let checked_out = f.next().is_some_and(|p| !p.is_empty());
+            // In a report the finished copies are still there, holding their branches.
+            let would_be_free = !act && freed_branches.iter().any(|b| b == name);
+            if name == "main" || !merged.contains(oid) || (checked_out && !would_be_free) {
+                continue;
+            }
+            if !act || git(root, &["branch", "-D", name]).is_some() {
+                branches += 1;
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    if removed > 0 {
+        out.push(format!(
+            "{} {removed} finished side cop{} of the project (work merged or none made), {}.",
+            if act { "Removed" } else { "Would remove" },
+            if removed == 1 { "y" } else { "ies" },
+            human(removed_bytes)
+        ));
+    }
+    if cleared > 0 {
+        out.push(format!(
+            "{} the build files of {cleared} side cop{} nobody has touched for a week (the work in {} is kept), {}.",
+            if act { "Cleared" } else { "Would clear" },
+            if cleared == 1 { "y" } else { "ies" },
+            if cleared == 1 { "it" } else { "them" },
+            human(cleared_bytes)
+        ));
+    }
+    if branches > 0 {
+        out.push(format!(
+            "{} {branches} local branch{} whose work is merged.",
+            if act { "Deleted" } else { "Would delete" },
+            if branches == 1 { "" } else { "es" }
+        ));
+    }
+    out
 }
 
 fn is_crabscape(root: &Path) -> bool {
@@ -186,13 +429,14 @@ fn is_crabscape(root: &Path) -> bool {
 
 /// Does the work and returns what to tell the person (for the hook: only when there is news).
 fn run(root: &Path, mode: Mode, max_target: u64, min_free: u64) -> Vec<String> {
+    // Finished side copies go first: removing one frees its build files too.
+    let mut out = tidy_side_copies(root, mode, SystemTime::now());
     let targets = target_dirs(root);
     let size_of_targets = |t: &[PathBuf]| t.iter().map(|d| tree_size(d)).sum::<u64>();
     let before = size_of_targets(&targets);
     let free_before = free_space(root);
     let low = |free: Option<u64>| free.is_some_and(|f| f < min_free);
 
-    let mut out = Vec::new();
     let worktrees = targets.len() > 1;
     let where_ = if worktrees {
         " (including Claude's side copies of the project)"
@@ -612,6 +856,116 @@ mod tests {
     #[test]
     fn escapes_json() {
         assert_eq!(json_escape("a \"b\" \\ c\n"), "a \\\"b\\\" \\\\ c\\u000a");
+    }
+
+    #[test]
+    fn reads_the_worktree_list() {
+        let list = "worktree /p\nHEAD aaa\nbranch refs/heads/main\n\n\
+                    worktree /p/.claude/worktrees/x\nHEAD bbb\ndetached\n\n\
+                    worktree /p/.claude/worktrees/y\nHEAD ccc\nbranch refs/heads/issue-1-y\nlocked\n";
+        let w = parse_worktrees(list);
+        assert_eq!(w.len(), 3);
+        assert_eq!(w[0].branch.as_deref(), Some("main"));
+        assert_eq!(
+            (w[1].head.as_str(), &w[1].branch, w[1].keep),
+            ("bbb", &None, false)
+        );
+        assert_eq!(w[2].branch.as_deref(), Some("issue-1-y"));
+        assert!(w[2].keep);
+        assert!(!is_side_copy(&w[0].path));
+        assert!(is_side_copy(&w[1].path));
+        assert!(!is_side_copy(Path::new("/p/worktrees/.claude/x")));
+    }
+
+    /// A real project copy with three side copies: one finished (nothing beyond main), one with unsaved work and one
+    /// with unpushed commits. Only the finished one goes, and only once it has sat untouched long enough.
+    #[test]
+    fn removes_only_finished_side_copies() {
+        let dir = std::env::temp_dir().join(format!("tidy-wt-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let run = |cwd: &Path, args: &[&str]| {
+            let ok = Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "init.defaultBranch=main",
+                ])
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        run(&dir, &["init", "-q", "--bare", "origin.git"]);
+        run(&dir, &["clone", "-q", "origin.git", "p"]);
+        let root = dir.join("p").canonicalize().unwrap();
+        // Build files are ignored, as in the real project.
+        fs::write(root.join(".gitignore"), "/target/\n/.claude/worktrees/\n").unwrap();
+        run(&root, &["add", ".gitignore"]);
+        run(&root, &["commit", "-q", "-m", "start"]);
+        run(&root, &["push", "-q", "origin", "main"]);
+        for name in ["done", "dirty", "ahead"] {
+            run(
+                &root,
+                &[
+                    "worktree",
+                    "add",
+                    "-q",
+                    "-b",
+                    name,
+                    &format!(".claude/worktrees/{name}"),
+                ],
+            );
+        }
+        let wt = root.join(".claude").join("worktrees");
+        fs::write(wt.join("dirty").join("notes.txt"), "unsaved").unwrap();
+        run(
+            &wt.join("ahead"),
+            &["commit", "-q", "--allow-empty", "-m", "mine"],
+        );
+        fs::create_dir_all(wt.join("done").join("target").join("debug")).unwrap();
+        fs::write(
+            wt.join("done").join("target").join("debug").join("big"),
+            vec![0u8; 5000],
+        )
+        .unwrap();
+
+        // Just touched: nothing goes.
+        assert!(tidy_side_copies(&root, Mode::Normal, SystemTime::now()).is_empty());
+        // Three days later: a report only says what it would do.
+        let later = SystemTime::now() + Duration::from_secs(3 * 24 * 3600);
+        let said = tidy_side_copies(&root, Mode::Report, later);
+        assert!(
+            said[0].starts_with("Would remove 1 finished side copy"),
+            "{said:?}"
+        );
+        assert!(wt.join("done").exists());
+        // Then for real.
+        let said = tidy_side_copies(&root, Mode::Normal, later);
+        assert!(
+            said[0].starts_with("Removed 1 finished side copy"),
+            "{said:?}"
+        );
+        assert!(!wt.join("done").exists());
+        assert!(wt.join("dirty").join("notes.txt").exists());
+        assert!(wt.join("ahead").exists());
+        // A week and more on, the copies with work keep it but lose their build files.
+        fs::create_dir_all(wt.join("ahead").join("target").join("debug")).unwrap();
+        let much_later = SystemTime::now() + Duration::from_secs(8 * 24 * 3600);
+        let said = tidy_side_copies(&root, Mode::Normal, much_later);
+        assert!(
+            said[0].starts_with("Cleared the build files of 1 side copy"),
+            "{said:?}"
+        );
+        assert!(!wt.join("ahead").join("target").exists());
+        assert!(wt.join("ahead").exists());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
