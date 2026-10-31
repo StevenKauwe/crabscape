@@ -1038,6 +1038,11 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
     }
     let before = m.pos.y;
     m.pos.y += m.vel.y * dt;
+    let ceiling = crate::level::WATER_SURFACE_Y - m.half_width(t);
+    if m.pos.y > ceiling {
+        m.pos.y = ceiling;
+        m.vel.y = m.vel.y.min(0.0);
+    }
     if climb_blocked(m, t, level) {
         m.climb_side = -m.climb_side;
         if climb_blocked(m, t, level) {
@@ -1095,6 +1100,12 @@ fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut 
     // Up and down.
     let old_y = m.pos.y;
     m.pos.y += m.vel.y * dt;
+    let ceiling = crate::level::WATER_SURFACE_Y - h;
+    if m.pos.y > ceiling {
+        m.pos.y = ceiling;
+        m.vel.y = m.vel.y.min(0.0);
+        m.rising = false;
+    }
     let over = |r: &Rect, x: f32| x + hw > r.min.x + EPS && x - hw < r.max.x - EPS;
     if m.vel.y > 0.0 {
         // Bump our shell on the underside of a rock.
@@ -1163,7 +1174,11 @@ pub fn is_valid_spot(pos: Vec2, size: f32, t: &Tuning, level: &Level) -> bool {
             && pos.y + t.body_height * size > r.min.y + EPS
             && pos.y < r.max.y - EPS
     });
-    inside_walls && !in_rock && pos.y >= level.floor_height(pos.x) - 1.0 && pos.y.is_finite()
+    inside_walls
+        && !in_rock
+        && pos.y >= level.floor_height(pos.x) - 1.0
+        && pos.y + t.body_height * size <= crate::level::WATER_SURFACE_Y
+        && pos.y.is_finite()
 }
 
 #[cfg(test)]
