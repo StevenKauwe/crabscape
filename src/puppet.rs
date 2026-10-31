@@ -66,7 +66,6 @@ use crate::home;
 use crate::lantern::{self, Lit, LitTint};
 use crate::player::{Crab, FrameEvents, GameSet};
 use crate::style::ArtStyle;
-use crate::tuning::ViewTuning;
 use crabsim::Mover;
 use crabsim::Sim;
 use crabsim::combat::{Claw, Phase};
@@ -744,7 +743,6 @@ fn build_puppets(
     art: Res<CrabArt>,
     style: Res<ArtStyle>,
     soft: Res<SoftTextures>,
-    tuning: Res<ViewTuning>,
     crabs: Query<Entity, (With<Crab>, Without<Rig>)>,
 ) {
     // Wait for the pictures.
@@ -941,8 +939,7 @@ fn build_puppets(
                         Visibility::default(),
                     ))
                     .id();
-                let pivot =
-                    lantern::spawn_lantern(&mut commands, crab, hang, Vec3::ZERO, &soft, &tuning);
+                let pivot = lantern::spawn_lantern(&mut commands, crab, hang, Vec3::ZERO, &soft);
                 Some((Some(pivot), Some(hang)))
             })
             .unwrap_or_default();

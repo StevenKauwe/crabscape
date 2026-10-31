@@ -47,28 +47,31 @@ impl Plugin for MemoryPlugin {
     }
 }
 
-/// The deep sea's colour at the start's height (the camera's background):
-/// what fog is.
-pub const WATER: Color = Color::srgb(0.012, 0.035, 0.045);
-/// The water at the top of the level, nearer the daylight.
-const SHALLOW_WATER: Color = Color::srgb(0.035, 0.10, 0.115);
+/// Sunlit water at home, used for the camera background and unknown places.
+pub const WATER: Color = Color::srgb(0.07, 0.22, 0.26);
+/// The water close to the surface, nearer the daylight.
+const SHALLOW_WATER: Color = Color::srgb(0.16, 0.38, 0.44);
 /// The water at the bottom of the pit.
 const ABYSS_WATER: Color = Color::srgb(0.005, 0.016, 0.022);
-/// Heights (world units, the start is 0) where the water reaches those
-/// colours: the top of the level, and the pit's floor.
-const SHALLOW_AT: f32 = 1500.0;
-const ABYSS_AT: f32 = -8500.0;
+/// Approximate depth through the compressed zones (0 = sunlit, 1 = deep).
+/// The canyon represents twilight, even though its rim is only a few screens
+/// below home. This is art tuning, not a measured depth or irradiance.
+pub fn depth_factor(at: Vec2) -> f32 {
+    let smooth = |a: f32, b: f32, x: f32| {
+        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let vertical = (-at.y / 9000.0).clamp(0.0, 1.0);
+    let canyon = smooth(5350.0, 6150.0, at.x) * (1.0 - smooth(-1500.0, 1000.0, at.y));
+    vertical.max(0.75 * canyon)
+}
 
-/// The water's colour at height `y`: lighter higher up, darker deeper down,
-/// as daylight fades with depth (red first: [NOAA] in
-/// `docs/design/ocean-shaped.md`). The background and every fog use it, so
-/// an unseen shape never shows against the water.
-pub fn water_at(y: f32) -> Color {
-    if y >= 0.0 {
-        WATER.mix(&SHALLOW_WATER, (y / SHALLOW_AT).clamp(0.0, 1.0))
-    } else {
-        WATER.mix(&ABYSS_WATER, (y / ABYSS_AT).clamp(0.0, 1.0))
-    }
+/// The water's colour at the view: sunlit in the shallows, darker in the
+/// pit and canyon. Fog uses the same colour, so unknown shapes stay hidden.
+pub fn water_at(at: Vec2) -> Color {
+    let surface = (at.y / 5000.0).clamp(0.0, 1.0);
+    let shallow = WATER.mix(&SHALLOW_WATER, surface);
+    shallow.mix(&ABYSS_WATER, depth_factor(at))
 }
 
 #[derive(ShaderType, Clone, Debug)]
@@ -76,6 +79,7 @@ pub struct MemoryUniform {
     color: Vec4,
     water: Vec4,
     grid: Vec4,
+    lights: [Vec4; 8],
 }
 
 /// A level shape's colour, shown through the local crab's memory.
@@ -89,9 +93,13 @@ pub struct MemoryMaterial {
 }
 
 impl MemoryMaterial {
-    /// The fog's colour: the water's at the view's height ([`water_at`]).
+    /// The fog's colour: the water's at the view ([`water_at`]).
     pub fn set_water(&mut self, water: Color) {
         self.uniform.water = LinearRgba::from(water).to_vec4();
+    }
+
+    pub fn set_lights(&mut self, lights: [Vec4; 8]) {
+        self.uniform.lights = lights;
     }
 }
 
@@ -120,6 +128,7 @@ impl MemoryTexture {
                 color: LinearRgba::from(colour).to_vec4(),
                 water: LinearRgba::from(WATER).to_vec4(),
                 grid: self.grid,
+                lights: [Vec4::ZERO; 8],
             },
             memory: self.image.clone(),
         }
@@ -358,16 +367,13 @@ mod tests {
 
     #[test]
     fn water_is_lighter_higher_up() {
-        assert_eq!(
-            water_at(0.0),
-            WATER,
-            "the start keeps the deep sea's colour"
-        );
-        let heights = [
-            -9400.0, -8500.0, -4000.0, -500.0, 0.0, 400.0, 1000.0, 1500.0, 3000.0,
-        ];
+        assert_eq!(water_at(Vec2::ZERO), WATER);
+        let heights = [-9400.0, -8500.0, -4000.0, -500.0, 0.0, 1000.0, 5000.0];
         for pair in heights.windows(2) {
-            let (low, high) = (water_at(pair[0]), water_at(pair[1]));
+            let (low, high) = (
+                water_at(Vec2::new(0.0, pair[0])),
+                water_at(Vec2::new(0.0, pair[1])),
+            );
             assert!(
                 light(low) <= light(high),
                 "{} is no lighter than {}",
@@ -375,10 +381,9 @@ mod tests {
                 pair[0]
             );
         }
-        assert!(light(water_at(1500.0)) > 2.0 * light(WATER));
-        assert!(light(water_at(-8500.0)) < light(WATER));
-        // Beyond the level's ends it stops changing.
-        assert_eq!(water_at(3000.0), water_at(SHALLOW_AT));
-        assert_eq!(water_at(-9400.0), water_at(ABYSS_AT));
+        assert!(light(water_at(Vec2::new(0.0, 5000.0))) > light(WATER));
+        assert!(
+            light(water_at(Vec2::new(7000.0, -1500.0))) < light(water_at(Vec2::new(0.0, -1500.0)))
+        );
     }
 }

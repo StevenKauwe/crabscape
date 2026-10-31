@@ -297,15 +297,15 @@ fn follow_crab(
     cam.translation.y = at.y;
 }
 
-/// The water lightens as the view rises and darkens as it sinks
-/// ([`water_at`]): the background, and the fog every remembered shape fades
-/// into. Materials are only touched when the colour really changes.
+/// Water follows the view's approximate ocean zone ([`water_at`]): the
+/// background and the fog every remembered shape fades into use the same
+/// colour. Materials are only touched when the colour really changes.
 fn tint_water(
     mut camera: Single<(&Transform, &mut Camera), With<Camera2d>>,
     mut fogs: ResMut<Assets<MemoryMaterial>>,
     mut was: Local<Option<[u8; 4]>>,
 ) {
-    let water = water_at(camera.0.translation.y);
+    let water = water_at(camera.0.translation.truncate());
     let bytes = water.to_srgba().to_u8_array();
     if *was == Some(bytes) {
         return;
@@ -328,7 +328,9 @@ fn move_parallax(
 ) {
     let fade = ((zoom.out - ZOOM_START) / 3.0).clamp(0.0, 0.85);
     for (layer, mut tr) in &mut layers {
-        let colour = layer.colour.mix(&water_at(camera.translation.y), fade);
+        let colour = layer
+            .colour
+            .mix(&water_at(camera.translation.truncate()), fade);
         if materials
             .get(&layer.material)
             .is_some_and(|m| m.color != colour)
