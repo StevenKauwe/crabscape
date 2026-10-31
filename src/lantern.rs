@@ -318,10 +318,21 @@ fn measure_light(
     }
 }
 
+/// How much of the bright colour a sprite with this `blend` shows: eased by
+/// `power` (`light_ease`), so the edge of the light fades into the dark.
+pub fn eased(blend: f32, power: f32) -> f32 {
+    blend.clamp(0.0, 1.0).powf(power)
+}
+
 /// Colour sprites by how lit they are.
-fn tint_by_light(mut sprites: Query<(&LightBlend, &LitTint, &mut Sprite)>) {
+fn tint_by_light(
+    tuning: Res<ViewTuning>,
+    mut sprites: Query<(&LightBlend, &LitTint, &mut Sprite)>,
+) {
     for (blend, tint, mut sprite) in &mut sprites {
-        sprite.color = tint.dark.mix(&tint.bright, blend.0);
+        sprite.color = tint
+            .dark
+            .mix(&tint.bright, eased(blend.0, tuning.light_ease));
     }
 }
 
@@ -338,5 +349,16 @@ mod tests {
         assert!((0.4..0.6).contains(&half));
         assert_eq!(light_at(t.light_outer, &t, 1.0), 0.0);
         assert_eq!(light_at(10_000.0, &t, 1.0), 0.0);
+    }
+
+    #[test]
+    fn the_edge_of_the_light_eases_into_the_dark() {
+        let power = ViewTuning::default().light_ease;
+        assert_eq!(power, 2.0);
+        assert_eq!(eased(0.0, power), 0.0);
+        assert_eq!(eased(0.5, power), 0.25);
+        assert_eq!(eased(1.0, power), 1.0);
+        // Straight mixing is still there for anyone who wants it.
+        assert_eq!(eased(0.5, 1.0), 0.5);
     }
 }
