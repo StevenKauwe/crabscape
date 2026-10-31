@@ -8,8 +8,8 @@
 //!   the water as the memory fades; never seen, it is only water (fog). The
 //!   memory is a small texture, one texel per 5 cm cell, written from the
 //!   simulation's memory a few times a second ([`MemoryTexture`]).
-//! - **Animals** out of sight are hidden; the crab's last sighting of each
-//!   shows instead, a faint blurred shape where it was, fading with time.
+//! - **Animals** out of sight are shown by scent nearby; further away the
+//!   crab's last sighting shows as a faint shape, fading with time.
 //! - **Small things** (eggs, nets) ask [`Known`] how well the crab knows their
 //!   spot.
 
@@ -341,8 +341,12 @@ fn show_sightings(
         };
         // In sight, the live animal (or its absence) is what shows.
         let smelled_now = sim.enemies().iter().any(|e| {
+            let has_body = matches!(
+                e.kind,
+                Kind::Mantis | Kind::Snapper | Kind::Moray | Kind::Fixture
+            ) && crate::foes::lies_dead(e, &sim);
             e.id == s.id
-                && e.state != crabsim::enemy::State::Gone
+                && (e.state != crabsim::enemy::State::Gone || has_body)
                 && known.scent(&sim, e.pos) == Scent::Animal
         });
         let show = !known.perceives_animal(s.pos) && !smelled_now;
@@ -385,9 +389,13 @@ fn show_scent_directions(
     known: Res<Known>,
     soft: Res<SoftTextures>,
     time: Res<Time>,
+    view_tuning: Res<crate::tuning::ViewTuning>,
+    crab: Query<&crabsim::Mover, With<LocalPlayer>>,
     mut wisps: Query<(Entity, &ScentWisp, &mut Transform, &mut Visibility)>,
 ) {
     let Some(sight) = known.sight else { return };
+    let cultures = crab.single().map_or(0, |m| m.lantern_glow());
+    let cue_radius = crate::lantern::light_reach(&view_tuning, cultures) * 0.9;
     for (entity, wisp, mut at, mut shown) in &mut wisps {
         let Some(enemy) = sim.enemies().iter().find(|e| e.id == wisp.0) else {
             commands.entity(entity).despawn();
@@ -403,7 +411,8 @@ fn show_scent_directions(
         });
         let direction = (enemy.pos + ANIMAL_EYE_LINE - sight.eye).normalize_or_zero();
         let drift = (time.elapsed_secs() * 2.0 + enemy.id as f32).sin() * 3.0;
-        at.translation = (sight.eye + direction * 105.0 + direction.perp() * drift).extend(9.5);
+        at.translation =
+            (sight.eye + direction * cue_radius + direction.perp() * drift).extend(9.5);
         at.rotation = Quat::from_rotation_z(direction.to_angle());
     }
     for enemy in sim.enemies() {

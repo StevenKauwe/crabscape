@@ -365,8 +365,7 @@ fn pose_foes(
         let phase = e.phase(t);
         let hidden = e.hidden(t);
         let body = lies_dead(e, &sim);
-        // Out of the crab's sight it isn't shown (its last sighting is, see
-        // `memory.rs`).
+        // Out of sight, a nearby scent can still reveal the live puppet.
         shown.set_if_neq(
             if (e.state == State::Gone && !body) || !known.senses_animal(&sim, e.pos) {
                 Visibility::Hidden
