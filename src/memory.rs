@@ -76,6 +76,7 @@ pub struct MemoryUniform {
     color: Vec4,
     water: Vec4,
     grid: Vec4,
+    lights: [Vec4; 8],
 }
 
 /// A level shape's colour, shown through the local crab's memory.
@@ -92,6 +93,10 @@ impl MemoryMaterial {
     /// The fog's colour: the water's at the view's height ([`water_at`]).
     pub fn set_water(&mut self, water: Color) {
         self.uniform.water = LinearRgba::from(water).to_vec4();
+    }
+
+    pub fn set_lights(&mut self, lights: [Vec4; 8]) {
+        self.uniform.lights = lights;
     }
 }
 
@@ -120,6 +125,7 @@ impl MemoryTexture {
                 color: LinearRgba::from(colour).to_vec4(),
                 water: LinearRgba::from(WATER).to_vec4(),
                 grid: self.grid,
+                lights: [Vec4::ZERO; 8],
             },
             memory: self.image.clone(),
         }

@@ -12,6 +12,8 @@ struct MemoryUniform {
     water: vec4<f32>,
     // The grid in world units: left, bottom, width, height.
     grid: vec4<f32>,
+    // Each light: position, inner radius, outer radius. Zero radius is unused.
+    lights: array<vec4<f32>, 8>,
 };
 
 @group(2) @binding(0) var<uniform> material: MemoryUniform;
@@ -40,6 +42,18 @@ fn noise(p: vec2<f32>) -> f32 {
     );
 }
 
+fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
+    var brightness = 0.0;
+    for (var i = 0; i < 8; i += 1) {
+        let light = material.lights[i];
+        if light.w > light.z {
+            let amount = 1.0 - smoothstep(light.z, light.w, distance(p, light.xy));
+            brightness = max(brightness, amount);
+        }
+    }
+    return c * mix(0.3, 1.0, brightness);
+}
+
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let p = in.world_position.xy;
@@ -57,7 +71,7 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     );
     let c = material.color.rgb;
     if m >= 0.995 {
-        return vec4<f32>(c, 1.0);
+        return vec4<f32>(lit(c, p), 1.0);
     }
     if m < 0.004 {
         return vec4<f32>(material.water.rgb, 1.0);
@@ -67,6 +81,6 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let k = clamp(m + (n - 0.5) * 0.6 * min(m * 4.0, 1.0) * (1.0 - m), 0.0, 1.0);
     let grey = vec3<f32>(dot(c, vec3<f32>(0.3, 0.59, 0.11)));
     let faded = mix(grey, c, k * k);
-    let shown = mix(material.water.rgb, faded, smoothstep(0.04, 0.95, k));
+    let shown = mix(material.water.rgb, lit(faded, p), smoothstep(0.04, 0.95, k));
     return vec4<f32>(shown, 1.0);
 }

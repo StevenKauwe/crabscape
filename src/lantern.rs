@@ -24,6 +24,7 @@ use bevy::transform::TransformSystems;
 use crabsim::Mover;
 
 use crate::effects::SoftTextures;
+use crate::memory::MemoryMaterial;
 use crate::player::LocalPlayer;
 use crate::tuning::ViewTuning;
 
@@ -108,7 +109,7 @@ impl Plugin for LanternPlugin {
             .add_systems(Update, fill_jars)
             .add_systems(
                 PostUpdate,
-                (flicker, measure_light, tint_by_light)
+                (flicker, measure_light, tint_by_light, light_level)
                     .chain()
                     .after(TransformSystems::Propagate),
             );
@@ -212,12 +213,12 @@ pub fn spawn_lantern(
     commands.spawn((
         ChildOf(pivot),
         Glow {
-            alpha: 0.26,
+            alpha: 0.015,
             size: tuning.light_outer * 2.8,
         },
         Sprite {
             image: soft.dot.clone(),
-            color: WARM.with_alpha(0.26),
+            color: WARM.with_alpha(0.015),
             custom_size: Some(Vec2::splat(tuning.light_outer * 2.8)),
             ..default()
         },
@@ -229,12 +230,12 @@ pub fn spawn_lantern(
         ChildOf(pivot),
         LanternHalo,
         Glow {
-            alpha: 0.45,
+            alpha: 0.12,
             size: 46.0,
         },
         Sprite {
             image: soft.dot.clone(),
-            color: WARM.with_alpha(0.45),
+            color: WARM.with_alpha(0.12),
             custom_size: Some(Vec2::splat(46.0)),
             ..default()
         },
@@ -322,6 +323,31 @@ fn measure_light(
 fn tint_by_light(mut sprites: Query<(&LightBlend, &LitTint, &mut Sprite)>) {
     for (blend, tint, mut sprite) in &mut sprites {
         sprite.color = tint.dark.mix(&tint.bright, blend.0);
+    }
+}
+
+/// Light the level's own shapes without drawing a coloured haze over them.
+fn light_level(
+    tuning: Res<ViewTuning>,
+    flicker: Res<Flicker>,
+    lights: Query<&GlobalTransform, With<LightSource>>,
+    camera: Query<&GlobalTransform, With<Camera2d>>,
+    mut materials: ResMut<Assets<MemoryMaterial>>,
+) {
+    let centre = camera
+        .single()
+        .map_or(Vec2::ZERO, |c| c.translation().truncate());
+    let mut positions: Vec<Vec2> = lights.iter().map(|l| l.translation().truncate()).collect();
+    positions.sort_by(|a, b| {
+        a.distance_squared(centre)
+            .total_cmp(&b.distance_squared(centre))
+    });
+    let mut lamps = [Vec4::ZERO; 8];
+    for (slot, p) in lamps.iter_mut().zip(positions) {
+        *slot = Vec4::new(p.x, p.y, tuning.light_inner, tuning.light_outer * flicker.0);
+    }
+    for (_, material) in materials.iter_mut() {
+        material.set_lights(lamps);
     }
 }
 
