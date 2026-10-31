@@ -51,7 +51,16 @@ fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
             brightness = max(brightness, amount);
         }
     }
-    return c * mix(0.3, 1.0, brightness);
+    // Match lantern.rs `daylight`: the canyon represents the twilight
+    // zone although the game's vertical distances are compressed.
+    let vertical = clamp((1000.0 - p.y) / 10000.0, 0.0, 1.0);
+    let canyon = smoothstep(5350.0, 6150.0, p.x)
+        * (1.0 - smoothstep(-1500.0, 1000.0, p.y));
+    let daylight = mix(0.75, 0.08, max(vertical, 0.85 * canyon));
+    // The terrain palette was painted for a dark seabed; its unlit colours
+    // alone are too dim to read when the yellow wash is removed. Lift the
+    // shape's own colour in the lantern, without tinting or softening it.
+    return c * mix(daylight, 3.0, brightness);
 }
 
 @fragment
