@@ -22,6 +22,10 @@ const FLOOR_DEPTH: f32 = 10000.0;
 /// Larger depth zones are compressed; see `docs/design/universe.md`.
 const WATER_SURFACE_Y: f32 = 2.4 * 625.0;
 
+/// The surface moves as one shape: its ripples drift without a screen overlay.
+#[derive(Component)]
+struct WaterSurface;
+
 /// Marks the level's shapes (so they could be found and removed later).
 #[derive(Component)]
 struct LevelShape;
@@ -45,7 +49,8 @@ impl Plugin for LevelPlugin {
         app.add_systems(
             Startup,
             draw_level.after(crate::memory::setup_memory_texture),
-        );
+        )
+        .add_systems(Update, move_water_surface);
     }
 }
 
@@ -97,6 +102,7 @@ fn draw_level(
         })
         .collect();
     commands.spawn((
+        WaterSurface,
         Mesh2d(meshes.add(floor_mesh(&points, 0.0, 5.0))),
         MeshMaterial2d(paint(Color::srgb(0.12, 0.27, 0.28))),
         Transform::from_xyz(0.0, 0.0, -30.0),
@@ -183,6 +189,13 @@ fn draw_level(
                 Transform::from_xyz(x, -250.0, 0.0).with_scale(Vec3::new(w, h, 1.0)),
             ));
         }
+    }
+}
+
+/// Move the rippled surface gently; all the ripples stay in their own shape.
+fn move_water_surface(time: Res<Time>, mut surface: Query<&mut Transform, With<WaterSurface>>) {
+    for mut transform in &mut surface {
+        transform.translation.x = (time.elapsed_secs() * 0.55).sin() * 12.0;
     }
 }
 
