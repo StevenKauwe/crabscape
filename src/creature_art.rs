@@ -55,6 +55,8 @@ fn oil_path(ink: &str) -> String {
 
 /// Show each creature piece in the current style. If that style's picture can't be loaded, the piece shows the
 /// ink one (like the crab, which falls back to the other style).
+type ScentAtlases = HashMap<(AssetId<Image>, u8), Handle<Image>>;
+
 #[allow(clippy::too_many_arguments)] // Bevy system parameters
 fn restyle(
     style: Res<ArtStyle>,
@@ -64,7 +66,7 @@ fn restyle(
     parents: Query<&ChildOf>,
     roots: Query<&ScentRoot>,
     mut images: ResMut<Assets<Image>>,
-    mut softened: Local<HashMap<AssetId<Image>, Handle<Image>>>,
+    mut softened: Local<ScentAtlases>,
     mut pending: Local<Vec<Softening>>,
     mut pieces: Query<(Entity, &Styled, &mut Sprite)>,
 ) {
@@ -79,7 +81,7 @@ fn restyle(
         if let Some(source) = images.get(&job.source) {
             let mut image = source.clone();
             image.data = Some(job.output);
-            softened.insert(job.source.id(), images.add(image));
+            softened.insert((job.source.id(), job.level), images.add(image));
         }
     }
     let i = style_index(*style);
@@ -87,31 +89,34 @@ fn restyle(
         let failed = i != 0 && assets.load_state(&styled.0[i]).is_failed();
         let want = &styled.0[if failed { 0 } else { i }];
         let mut ancestor = entity;
-        let mut sensed = false;
+        let mut scent_level = None;
         while let Ok(parent) = parents.get(ancestor) {
             ancestor = parent.parent();
             if let Ok(root) = roots.get(ancestor) {
-                sensed = sim
+                scent_level = sim
                     .enemies()
                     .iter()
                     .find(|e| e.id == root.0)
-                    .is_some_and(|e| {
+                    .filter(|e| {
                         !known.perceives_animal(e.pos) && known.scent(&sim, e.pos) == Scent::Animal
-                    });
+                    })
+                    .map(|e| scent_blur_level(known.scent_strength(&sim, e.pos)));
                 break;
             }
         }
-        let shown = if sensed {
-            let id = want.id();
-            if !softened.contains_key(&id)
-                && !pending.iter().any(|job| job.source.id() == id)
+        let shown = if let Some(level) = scent_level {
+            let key = (want.id(), level);
+            if !softened.contains_key(&key)
+                && !pending
+                    .iter()
+                    .any(|job| (job.source.id(), job.level) == key)
                 && let Some(job) = images
                     .get(want)
-                    .and_then(|image| Softening::new(want.clone(), image))
+                    .and_then(|image| Softening::new(want.clone(), image, level))
             {
                 pending.push(job);
             }
-            softened.get(&id).unwrap_or(want)
+            softened.get(&key).unwrap_or(want)
         } else {
             want
         };
@@ -123,16 +128,28 @@ fn restyle(
 
 /// A small, bounded slice of atlas preparation per frame. Alpha-weighted
 /// colour avoids dark fringes while preserving each animated puppet part.
-const SCENT_ROWS_PER_FRAME: usize = 32;
+const SCENT_ROWS_PER_FRAME: usize = 16;
+
+/// Weak scents are less certain: three cached looks avoid rebuilding each frame.
+fn scent_blur_level(strength: f32) -> u8 {
+    if strength > 0.66 {
+        1
+    } else if strength > 0.33 {
+        2
+    } else {
+        3
+    }
+}
 
 struct Softening {
     source: Handle<Image>,
     output: Vec<u8>,
     row: usize,
+    level: u8,
 }
 
 impl Softening {
-    fn new(source: Handle<Image>, image: &Image) -> Option<Self> {
+    fn new(source: Handle<Image>, image: &Image, level: u8) -> Option<Self> {
         if !matches!(
             image.texture_descriptor.format,
             TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb
@@ -150,6 +167,7 @@ impl Softening {
             source,
             output: vec![0; data.len()],
             row: 0,
+            level,
         })
     }
 
@@ -161,7 +179,15 @@ impl Softening {
             return false;
         };
         let end = (self.row + SCENT_ROWS_PER_FRAME).min(height);
-        soften_rows(data, &mut self.output, width, height, self.row, end);
+        soften_rows(
+            data,
+            &mut self.output,
+            width,
+            height,
+            self.row,
+            end,
+            self.level,
+        );
         self.row = end;
         end == height
     }
@@ -174,17 +200,23 @@ fn soften_rows(
     height: usize,
     start: usize,
     end: usize,
+    level: u8,
 ) {
+    let radius = usize::from(level) * 2;
     for y in start..end {
         for x in 0..width {
             let mut alpha = 0u32;
             let mut rgb = [0u32; 3];
             for (nx, ny, weight) in [
                 (x, y, 4u32),
-                (x.saturating_sub(1), y, 1),
-                ((x + 1).min(width - 1), y, 1),
-                (x, y.saturating_sub(1), 1),
-                (x, (y + 1).min(height - 1), 1),
+                (x.saturating_sub(radius / 2), y, 1),
+                ((x + radius / 2).min(width - 1), y, 1),
+                (x, y.saturating_sub(radius / 2), 1),
+                (x, (y + radius / 2).min(height - 1), 1),
+                (x.saturating_sub(radius), y, 1),
+                ((x + radius).min(width - 1), y, 1),
+                (x, y.saturating_sub(radius), 1),
+                (x, (y + radius).min(height - 1), 1),
             ] {
                 let i = (ny * width + nx) * 4;
                 let a = u32::from(data[i + 3]) * weight;
@@ -194,12 +226,13 @@ fn soften_rows(
                 }
             }
             let i = (y * width + x) * 4;
-            output[i + 3] = (alpha / 8) as u8;
+            output[i + 3] = (alpha / 12) as u8;
             if alpha > 0 {
                 let rgb = rgb.map(|v| v / alpha);
                 let grey = (30 * rgb[0] + 59 * rgb[1] + 11 * rgb[2]) / 100;
                 for c in 0..3 {
-                    output[i + c] = ((4 * rgb[c] + grey) / 5) as u8;
+                    let grey_share = u32::from(level) + 1;
+                    output[i + c] = (((6 - grey_share) * rgb[c] + grey_share * grey) / 6) as u8;
                 }
             }
         }
@@ -361,8 +394,8 @@ mod tests {
 
         let mut image = Image::new_fill(
             Extent3d {
-                width: 3,
-                height: 3,
+                width: 7,
+                height: 7,
                 depth_or_array_layers: 1,
             },
             TextureDimension::D2,
@@ -371,17 +404,17 @@ mod tests {
             RenderAssetUsages::default(),
         );
         let original = image.data.as_mut().unwrap();
-        original[16..20].copy_from_slice(&[255, 0, 0, 255]);
-        let mut job = Softening::new(Handle::default(), &image).unwrap();
+        original[96..100].copy_from_slice(&[255, 0, 0, 255]);
+        let mut job = Softening::new(Handle::default(), &image, 1).unwrap();
         assert!(job.advance(&image));
         let pixels = job.output;
         assert!(
-            pixels[19] > pixels[7],
+            pixels[99] > pixels[41],
             "centre stays stronger than its edge"
         );
-        assert!(pixels[7] > 0, "the edge is softened");
+        assert!(pixels[41] > 0, "the edge is softened");
         assert!(
-            pixels[17] > 0 && pixels[16] < 255,
+            pixels[97] > 0 && pixels[96] < 255,
             "colour is less saturated"
         );
         assert_eq!(
@@ -406,13 +439,22 @@ mod tests {
             TextureFormat::Rgba8UnormSrgb,
             RenderAssetUsages::default(),
         );
-        let mut job = Softening::new(Handle::default(), &image).unwrap();
+        let mut job = Softening::new(Handle::default(), &image, 1).unwrap();
+        assert!(!job.advance(&image));
+        assert_eq!(job.row, 16);
         assert!(!job.advance(&image));
         assert_eq!(job.row, 32);
         assert!(!job.advance(&image));
-        assert_eq!(job.row, 64);
+        assert!(!job.advance(&image));
         assert!(job.advance(&image));
         assert_eq!(job.row, 65);
+    }
+
+    #[test]
+    fn weaker_scent_gets_a_stronger_blur() {
+        assert_eq!(scent_blur_level(0.9), 1);
+        assert_eq!(scent_blur_level(0.5), 2);
+        assert_eq!(scent_blur_level(0.1), 3);
     }
 
     #[test]

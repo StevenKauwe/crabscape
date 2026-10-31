@@ -428,11 +428,7 @@ pub enum Scent {
 /// `current` is the signed vertical water speed at the crab (positive is up).
 /// Scent passes obstacles, but has a finite range in still water too.
 pub fn scent_at(eye: Vec2, animal: Vec2, current: f32, tuning: &MemoryTuning) -> Scent {
-    let mut offset = animal - eye;
-    if current.abs() > f32::EPSILON && offset.y * current < 0.0 {
-        offset.y /= tuning.smell_upstream.max(1.0);
-    }
-    let distance = offset.length();
+    let distance = scent_distance(eye, animal, current, tuning);
     if distance <= tuning.smell_radius {
         Scent::Animal
     } else if distance <= tuning.smell_direction_radius {
@@ -440,6 +436,15 @@ pub fn scent_at(eye: Vec2, animal: Vec2, current: f32, tuning: &MemoryTuning) ->
     } else {
         Scent::None
     }
+}
+
+/// Distance through the tuned scent field, including the upstream stretch.
+pub fn scent_distance(eye: Vec2, animal: Vec2, current: f32, tuning: &MemoryTuning) -> f32 {
+    let mut offset = animal - eye;
+    if current.abs() > f32::EPSILON && offset.y * current < 0.0 {
+        offset.y /= tuning.smell_upstream.max(1.0);
+    }
+    offset.length()
 }
 
 #[cfg(test)]

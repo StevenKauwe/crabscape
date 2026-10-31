@@ -24,7 +24,7 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{Material2d, Material2dPlugin};
 
-use crabsim::memory::{ANIMAL_EYE_LINE, Scent, scent_at};
+use crabsim::memory::{ANIMAL_EYE_LINE, Scent, scent_at, scent_distance};
 use crabsim::{Kind, Memory, Sight, Sim};
 
 use crate::effects::SoftTextures;
@@ -209,6 +209,19 @@ impl Known {
             current,
             &sim.tuning.memory,
         )
+    }
+
+    /// Approximate scent strength, from 1 at the crab to 0 at the scent limit.
+    pub fn scent_strength(&self, sim: &Sim, feet: Vec2) -> f32 {
+        let Some(sight) = self.sight else { return 0.0 };
+        let current = sim.level.water_at(sight.eye, &sim.tuning.tide);
+        let distance = scent_distance(
+            sight.eye,
+            feet + ANIMAL_EYE_LINE,
+            current,
+            &sim.tuning.memory,
+        );
+        (1.0 - distance / sim.tuning.memory.smell_radius).clamp(0.0, 1.0)
     }
 
     /// A live animal can be seen or smelled nearby.
