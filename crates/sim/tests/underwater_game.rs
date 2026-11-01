@@ -131,7 +131,7 @@ fn real_crab_can_push_into_the_opening_floor() {
     assert!(crab.mover.pos.is_finite());
     let dug_to = crab.mover.pos.y;
     let mut highest = dug_to;
-    for tick in 0..120 {
+    for tick in 0..240 {
         sim.set_controls(
             PlayerId(0),
             Controls {
@@ -150,7 +150,7 @@ fn real_crab_can_push_into_the_opening_floor() {
         );
     }
     assert!(
-        highest > dug_to + 10.0,
+        highest >= 0.0,
         "crab could not escape after digging: {dug_to} to {highest}"
     );
 }

@@ -990,6 +990,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             m.vel.y = -70.0;
             m.grounded = false;
         }
+        // A crab under the original surface can always work upward out of
+        // loosened sediment, even if it has spent its swimming strokes.
+        if c.jump_held && m.pos.y < level.floor_height(m.pos.x) - 2.0 {
+            m.vel.y = m.vel.y.max(110.0);
+        }
     }
     move_and_collide(m, t, level, dt, &mut ev);
     // Touching down rests one stroke at once (so a hop straight off again

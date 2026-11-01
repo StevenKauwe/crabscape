@@ -166,7 +166,7 @@ fn spawn_card(mut commands: Commands) {
                 let does = if crate::cellular::enabled() && keys == "S / Down" {
                     "climb down; Shift + Down digs"
                 } else if crate::cellular::enabled() && keys == "F9" {
-                    "replays unavailable in this experiment"
+                    "replay unavailable here"
                 } else {
                     does
                 };
