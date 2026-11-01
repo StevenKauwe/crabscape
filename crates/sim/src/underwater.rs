@@ -8,7 +8,7 @@ pub const HEIGHT: usize = 360;
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
 /// A nearby surface for the opening-area experiment.
-pub const GAME_SURFACE: f32 = 300.0;
+pub const GAME_SURFACE: f32 = 900.0;
 const GIANT_ROOT: i32 = 70;
 const GIANT_PARTS: usize = 64;
 const CRAB_HALF_X: i32 = 12;
@@ -68,8 +68,9 @@ impl World {
             .map(|n| {
                 (
                     20.0 + ((n * 137) % (WIDTH - 40)) as f32,
-                    ((world.giant_base - GAME_BOTTOM) / GAME_CELL + (n * 37 % 120) as f32)
-                        .min((GAME_SURFACE - GAME_BOTTOM) / GAME_CELL - 1.0),
+                    (world.giant_base - GAME_BOTTOM) / GAME_CELL
+                        + ((n * 37 % 223) as f32 / 223.0)
+                            * ((GAME_SURFACE - world.giant_base) / GAME_CELL - 1.0),
                 )
             })
             .collect();
@@ -974,16 +975,14 @@ impl World {
         if self.game {
             let surface_y = ((GAME_SURFACE - GAME_BOTTOM) / GAME_CELL) as i32;
             for x in 0..WIDTH as i32 {
-                for dy in 0..2 {
-                    if let Some(i) = Self::index(x, surface_y + dy) {
-                        let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
-                        out[p..p + 4].copy_from_slice(&[
-                            123,
-                            194,
-                            191,
-                            if dy == 0 { 210 } else { 90 },
-                        ]);
-                    }
+                // Small, broken glints suggest ripples without drawing an
+                // opaque line across the whole world like a ceiling.
+                let phase = (x as u64 + self.tick / 12) % 47;
+                if phase < 17
+                    && let Some(i) = Self::index(x, surface_y)
+                {
+                    let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                    out[p..p + 4].copy_from_slice(&[145, 194, 187, 105]);
                 }
             }
             for (x, y) in &self.bubbles {
@@ -1068,7 +1067,7 @@ mod tests {
     fn opening_current_varies_with_depth_and_time_and_sways_kelp() {
         let mut world = World::from_level(&crate::Level::test_level());
         let low = ((100.0 - GAME_BOTTOM) / GAME_CELL) as i32;
-        let high = ((260.0 - GAME_BOTTOM) / GAME_CELL) as i32;
+        let high = ((800.0 - GAME_BOTTOM) / GAME_CELL) as i32;
         let mut max_difference = 0.0_f32;
         let (mut min_flow, mut max_flow) = (f32::MAX, f32::MIN);
         let (mut min_tip, mut max_tip) = (f32::MAX, f32::MIN);
@@ -1079,7 +1078,7 @@ mod tests {
             max_difference = max_difference.max((lower - upper).abs());
             min_flow = min_flow.min(upper);
             max_flow = max_flow.max(upper);
-            let tip = world.giant_kelp_x(260.0);
+            let tip = world.giant_kelp_x(800.0);
             min_tip = min_tip.min(tip);
             max_tip = max_tip.max(tip);
         }

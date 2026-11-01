@@ -162,7 +162,7 @@ fn moving_experimental_kelp_can_be_climbed_to_the_nearby_surface() {
     let surface = sim.level.water_surface_at(280.0);
     let initial_x = sim.level.cells.as_ref().unwrap().giant_kelp_x(200.0);
     let mut climbed = false;
-    for tick in 0..240 {
+    for tick in 0..600 {
         sim.set_controls(
             PlayerId(0),
             Controls {
