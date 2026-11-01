@@ -42,7 +42,7 @@
 //! happens inside the turn: the claw comes across as the body turns, the
 //! blow lands side on, and the turn finishes into the back over the
 //! recovery (`turn_of`). Seen from behind the crab is backlit by its own
-//! lantern: a touch darker, with a warm rim on its edges.
+//! lantern: a touch darker, with a subtle rim on its edges.
 //!
 //! # Light
 //!
@@ -688,7 +688,7 @@ pub fn make_pale(rgba: &mut [u8]) {
 
 /// The rim-light picture of RGBA pixels `w` × `h` (even): at half the size,
 /// white where a band just inside each part's edge is (past its ink line,
-/// fading inwards), clear elsewhere. Lit warm from behind, it is the
+/// fading inwards), clear elsewhere. Lit from behind, it is the
 /// lantern's light catching the crab's edges.
 pub fn make_rim(rgba: &[u8], w: usize, h: usize) -> Vec<u8> {
     let (hw, hh) = (w / 2, h / 2);
@@ -1573,8 +1573,8 @@ fn animate(
 const SHELL_LIT: Color = Color::srgb(1.0, 0.92, 0.78);
 const HULK_LIT: Color = Color::srgb(0.55, 1.0, 0.42);
 const HULK_UNLIT: Color = Color::srgb(0.70, 1.0, 0.62);
-/// The lantern's light catching the crab's edges from behind.
-const RIM: Color = Color::srgb(1.0, 0.80, 0.45);
+/// A faint, neutral highlight where light catches the crab from behind.
+const RIM: Color = Color::srgb(0.92, 0.96, 1.0);
 
 /// The shell: the drawing nearest the crab's turn (mirrored for a turn the
 /// other way, stretched a little towards the next), green as the crab bulks
@@ -1656,7 +1656,7 @@ fn shell_look(
             }
         }
         for &(e, strength) in &rig.rims {
-            let bright = RIM.with_alpha(strength * a.backlit);
+            let bright = RIM.with_alpha(0.45 * strength * a.backlit);
             if let Ok(mut tint) = tints.get_mut(e)
                 && tint.bright != bright
             {
