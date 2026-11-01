@@ -41,6 +41,14 @@ struct LevelShape;
 
 /// Art above the cell field follows the same sampled stalk as the grip.
 #[derive(Component)]
+struct LocalKelpPiece {
+    blade: usize,
+    segment: usize,
+    leaf: bool,
+    side: f32,
+}
+
+#[derive(Component)]
 struct FlowKelpPiece {
     lower_y: f32,
     upper_y: f32,
@@ -68,7 +76,10 @@ impl Plugin for LevelPlugin {
             Startup,
             draw_level.after(crate::memory::setup_memory_texture),
         )
-        .add_systems(Update, (move_water_surface, move_high_kelp));
+        .add_systems(
+            Update,
+            (move_water_surface, move_high_kelp, move_local_kelp),
+        );
     }
 }
 
@@ -164,15 +175,30 @@ fn draw_level(
     for r in &level.rocks {
         let size = r.size();
         let centre = r.center();
+        // Only rocks meeting the original seabed get a buried foundation;
+        // intentionally floating ledges retain their separate silhouette.
+        let floor = level.floor_height(centre.x);
+        if r.min.y <= floor + 30.0 && r.max.y > floor {
+            let bottom = floor.min(r.min.y) - 120.0;
+            let height = r.min.y - bottom;
+            if height > 0.0 {
+                commands.spawn((
+                    LevelShape,
+                    Mesh2d(meshes.add(rock_mesh(Vec2::new(size.x, height)))),
+                    MeshMaterial2d(rock.clone()),
+                    Transform::from_xyz(centre.x, bottom + height * 0.5, 0.2),
+                ));
+            }
+        }
         commands.spawn((
             LevelShape,
-            Mesh2d(meshes.add(Rectangle::new(size.x, size.y))),
+            Mesh2d(meshes.add(rock_mesh(size))),
             MeshMaterial2d(rock.clone()),
             Transform::from_xyz(centre.x, centre.y, 1.0),
         ));
         commands.spawn((
             LevelShape,
-            Mesh2d(meshes.add(Rectangle::new(size.x, 5.0))),
+            Mesh2d(meshes.add(rock_mesh(Vec2::new(size.x * 0.72, 5.0)))),
             MeshMaterial2d(rock_top.clone()),
             Transform::from_xyz(centre.x, r.max.y - 2.5, 1.1),
         ));
@@ -196,12 +222,36 @@ fn draw_level(
         level.cells.is_some(),
     );
 
+    // Small stalks use the same drawn shapes as the long climbable kelp,
+    // while their joints follow the cellular water field.
+    if level.cells.is_some() {
+        for blade in 1..6 {
+            for segment in 0..12 {
+                for (leaf, size, colour) in [
+                    (false, Vec2::new(5.0, 28.0), KELP),
+                    (true, Vec2::new(11.0, 34.0), KELP_BLADE),
+                ] {
+                    let side = if segment % 2 == 0 { 1.0 } else { -1.0 };
+                    commands.spawn((
+                        LevelShape,
+                        LocalKelpPiece {
+                            blade,
+                            segment,
+                            leaf,
+                            side,
+                        },
+                        Mesh2d(meshes.add(Ellipse::new(size.x * 0.5, size.y * 0.5))),
+                        MeshMaterial2d(paint(colour)),
+                        Transform::from_xyz(0.0, 0.0, PLANT_Z),
+                        Visibility::Hidden,
+                    ));
+                }
+            }
+        }
+    }
+
     // Background spires, two layers. Triangles of different sizes.
-    let spire = meshes.add(Triangle2d::new(
-        Vec2::new(-0.5, 0.0),
-        Vec2::new(0.5, 0.0),
-        Vec2::new(0.08, 1.0),
-    ));
+    let spire = meshes.add(spire_mesh());
     for (layer, colour, factor, z) in [(0, SPIRE_FAR, 0.7, -20.0), (1, SPIRE_NEAR, 0.45, -10.0)] {
         let material = materials.add(colour);
         let parent = commands
@@ -229,6 +279,62 @@ fn draw_level(
             ));
         }
     }
+}
+
+/// Irregular distant rock, drawn as one silhouette rather than a triangle.
+fn spire_mesh() -> Mesh {
+    let points: [[f32; 3]; 8] = [
+        [-0.5, 0.0, 0.0],
+        [0.5, 0.0, 0.0],
+        [0.4, 0.30, 0.0],
+        [0.3, 0.42, 0.0],
+        [0.25, 0.65, 0.0],
+        [0.08, 1.0, 0.0],
+        [-0.05, 0.66, 0.0],
+        [-0.30, 0.34, 0.0],
+    ];
+    let mut indices = Vec::new();
+    for i in 1..points.len() - 1 {
+        indices.extend([0, i as u32, i as u32 + 1]);
+    }
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, points.to_vec())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; points.len()])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; points.len()])
+    .with_inserted_indices(Indices::U32(indices))
+}
+
+/// A small hand-cut silhouette; collision remains the original rock box.
+fn rock_mesh(size: Vec2) -> Mesh {
+    let points = [
+        (-0.5, -0.5),
+        (0.5, -0.5),
+        (0.50, 0.32),
+        (0.40, 0.47),
+        (0.15, 0.50),
+        (-0.08, 0.46),
+        (-0.30, 0.50),
+        (-0.47, 0.38),
+    ];
+    let positions: Vec<[f32; 3]> = points
+        .iter()
+        .map(|&(x, y)| [x * size.x, y * size.y, 0.0])
+        .collect();
+    let mut indices = Vec::new();
+    for i in 1..points.len() - 1 {
+        indices.extend([0, i as u32, i as u32 + 1]);
+    }
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; points.len()])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; points.len()])
+    .with_inserted_indices(Indices::U32(indices))
 }
 
 /// Animate the shared boundary so there is never a straight seam above waves.
@@ -372,7 +478,7 @@ fn draw_climbs(
         if experimental_kelp {
             // Distant stalk segments are sampled from the ambient current;
             // the same position is used for climbing in the simulation.
-            let mut y = crabsim::underwater::GAME_KELP_TOP;
+            let mut y = c.bottom;
             while y < c.top {
                 let next = (y + 70.0).min(c.top);
                 commands.spawn((
@@ -435,6 +541,31 @@ fn move_high_kelp(sim: Res<Sim>, mut pieces: Query<(&FlowKelpPiece, &mut Transfo
             .leaf_angle
             .unwrap_or_else(|| -(b - a).atan2(piece.upper_y - piece.lower_y));
         transform.rotation = Quat::from_rotation_z(angle);
+    }
+}
+
+fn move_local_kelp(
+    sim: Res<Sim>,
+    mut pieces: Query<(&LocalKelpPiece, &mut Transform, &mut Visibility)>,
+) {
+    let Some(cells) = &sim.level.cells else {
+        return;
+    };
+    for (piece, mut transform, mut visibility) in &mut pieces {
+        let Some((ax, ay)) = cells.game_kelp_point(piece.blade, piece.segment) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let Some((bx, by)) = cells.game_kelp_point(piece.blade, piece.segment + 1) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let angle = -(bx - ax).atan2(by - ay);
+        transform.translation.x = (ax + bx) * 0.5 + if piece.leaf { piece.side * 8.0 } else { 0.0 };
+        transform.translation.y = (ay + by) * 0.5 + if piece.leaf { 7.0 } else { 0.0 };
+        transform.rotation =
+            Quat::from_rotation_z(angle - if piece.leaf { piece.side * 0.6 } else { 0.0 });
+        *visibility = Visibility::Inherited;
     }
 }
 

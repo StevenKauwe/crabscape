@@ -261,11 +261,21 @@ fn follow_friends(
 fn place_crabs(
     time: Res<Time>,
     clock: Res<StepClock>,
-    mut crabs: Query<(&Mover, &PreviousPos, &mut Transform, Option<&mut Shown>), With<Crab>>,
+    sim: Res<Sim>,
+    mut crabs: Query<
+        (
+            &Mover,
+            &crabsim::PlayerId,
+            &PreviousPos,
+            &mut Transform,
+            Option<&mut Shown>,
+        ),
+        With<Crab>,
+    >,
 ) {
     let blend = clock.leftover / STEP;
     let ease = 1.0 - (-EASE * time.delta_secs()).exp();
-    for (mover, prev, mut transform, shown) in &mut crabs {
+    for (mover, id, prev, mut transform, shown) in &mut crabs {
         let p = match shown {
             Some(mut shown) => {
                 shown.0 = if shown.0.distance(mover.pos) > JUMP_PAST {
@@ -279,5 +289,31 @@ fn place_crabs(
         };
         transform.translation.x = p.x;
         transform.translation.y = p.y;
+        let digging = sim.crab(*id).is_some_and(|crab| crab.controls.dig_held);
+        let slope = if mover.grounded && !digging {
+            sim.level
+                .cells
+                .as_ref()
+                .and_then(|cells| {
+                    let half = mover.half_width(&sim.tuning);
+                    let offset = half * 0.6;
+                    let ceiling = mover.pos.y + half + sim.tuning.step_up;
+                    let left =
+                        cells.game_surface_below(mover.pos.x - offset, half * 0.22, ceiling)?;
+                    let right =
+                        cells.game_surface_below(mover.pos.x + offset, half * 0.22, ceiling)?;
+                    if left < mover.pos.y - half || right < mover.pos.y - half {
+                        return None;
+                    }
+                    Some((right - left).atan2(offset * 2.0).clamp(-0.5, 0.5))
+                })
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let target = Quat::from_rotation_z(slope);
+        transform.rotation = transform
+            .rotation
+            .slerp(target, 1.0 - (-10.0 * time.delta_secs()).exp());
     }
 }

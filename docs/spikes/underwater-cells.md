@@ -1,5 +1,7 @@
 # Underwater cells: disposable draft
 
+See the [physics design and current limitations](underwater-physics-design.md) for the shared model, approximations, and next steps.
+
 This is an opt-in, single-player experiment using the actual CrabScape game and crab. On a computer:
 
 ```sh

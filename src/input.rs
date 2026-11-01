@@ -336,8 +336,8 @@ fn read_input(
     // A "press" is held now but wasn't last frame.
     let controls = Controls {
         walk: walk.clamp(-1.0, 1.0),
-        jump_held: jump,
-        jump_pressed: jump && !held_before.jump,
+        jump_held: jump && !digging,
+        jump_pressed: jump && !digging && !held_before.jump,
         dodge_pressed: dodge && !held_before.dodge,
         dodge_held: dodge,
         dig_held: digging,

@@ -403,6 +403,8 @@ struct PuppetAnim {
     time: f32,
     /// Where in the walk cycle the legs are (radians, keeps growing).
     walk_phase: f32,
+    /// Fold and work the legs while digging into the substrate.
+    dig: f32,
     /// 0 = standing, 1 = walking at full speed (smoothed).
     walk: f32,
     /// 0 = on the floor, 1 = in the water (smoothed).
@@ -1078,6 +1080,7 @@ fn animate(
     lab: Res<FeelLab>,
     mut crabs: Query<(
         &Mover,
+        &crabsim::PlayerId,
         Option<&Fighter>,
         &FrameEvents,
         &Rig,
@@ -1087,7 +1090,7 @@ fn animate(
     mut lits: Query<&mut Lit>,
 ) {
     let dt = time.delta_secs().min(0.05);
-    for (mover, fighter, events, rig, mut a) in &mut crabs {
+    for (mover, id, fighter, events, rig, mut a) in &mut crabs {
         let ev = events.0;
         let vx = mover.vel.x;
         let vy = mover.vel.y;
@@ -1139,6 +1142,15 @@ fn animate(
         // --- Smoothed states ---------------------------------------------
         let speed = (vx.abs() / sim.tuning.walk_speed).min(1.0);
         let grounded = mover.grounded;
+        let digging = sim.level.cells.is_some()
+            && sim.crab(*id).is_some_and(|crab| {
+                let c = crab.controls;
+                c.dig_held
+                    && (c.down || c.dig_up || c.walk.abs() > 0.1)
+                    && !c.block_held
+                    && !c.smash_held
+            });
+        a.dig = ease(a.dig, if digging { 1.0 } else { 0.0 }, 9.0, dt);
         // Climbing is walking, turned sideways onto the stalk: the legs step
         // along it at the climbing speed.
         let climbing = mover.climbing;
@@ -1157,14 +1169,20 @@ fn animate(
         } else {
             0.0
         };
-        a.walk = ease(a.walk, stepping, 12.0, dt);
+        a.walk = ease(a.walk, stepping.max(a.dig * 0.7), 12.0, dt);
         a.air = ease(
             a.air,
-            if grounded || climbing { 0.0 } else { 1.0 },
+            if grounded || climbing || digging {
+                0.0
+            } else {
+                1.0
+            },
             10.0,
             dt,
         );
-        if grounded {
+        if digging {
+            a.walk_phase += dt * (7.5 - (mover.dig_load / 180.0).clamp(0.0, 2.0));
+        } else if grounded {
             a.walk_phase += vx.abs() * dt / STRIDE * TAU;
         } else if climbing {
             a.walk_phase += vy.abs() * dt / STRIDE * TAU;
@@ -1385,7 +1403,7 @@ fn animate(
                 // "up" for a leg is +s (its tip rises), "down" is -s. The
                 // carpus folds in with -s and straightens with +s.
                 let k = n as f32;
-                let fold = a.streamline.max(tuck);
+                let fold = a.streamline.max(tuck).max(a.dig * 0.65);
                 let water = a.water_push;
                 // Caught in the current: a quick, uneven tremble.
                 let flutter = water * (t * 17.0 + 2.3 * k + 1.1 * side as f32).sin();
@@ -1449,9 +1467,11 @@ fn animate(
                 - s * 0.75 * heave
                 + s * strain
                 - s * reach
-                + s * swing_merus;
-            let mut carpus =
-                s * 0.25 * a.claw_raise - s * 0.35 * heave - s * pull + s * swing_carpus;
+                + s * swing_merus
+                - s * a.dig * (0.18 + 0.16 * (phase + side as f32 * PI).sin());
+            let mut carpus = s * 0.25 * a.claw_raise - s * 0.35 * heave - s * pull
+                + s * swing_carpus
+                - s * a.dig * (0.18 - 0.12 * (phase + side as f32 * PI).sin());
             // Seen from behind, the crusher rides up at the shell's corner,
             // ready: folded low before the mouth as it is from the front, its
             // hand would hang out under the shell.

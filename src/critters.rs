@@ -49,10 +49,6 @@ const NECK: u8 = 7;
 const THROAT_REACH: f32 = 13.0;
 const ROCK: Color = Color::srgb(0.07, 0.06, 0.05);
 const AIM: Color = Color::srgb(1.0, 0.6, 0.5);
-/// The middle of the moray's head and neck above the floor: half its body
-/// box (`Tuning::moray.body`, 24 deep).
-const MORAY_MID: f32 = 12.0;
-
 pub struct CrittersPlugin;
 
 impl Plugin for CrittersPlugin {
@@ -91,7 +87,12 @@ fn load_art(mut commands: Commands, sim: Res<Sim>, assets: Res<AssetServer>) {
     let length = Kind::Snapper.tuning(&sim.tuning).body.0;
     commands.insert_resource(Art {
         shrimp: CreatureArt::load(SHRIMP_PARTS, SHRIMP_ATLAS, length, &assets),
-        moray: CreatureArt::load_scaled(MORAY_PARTS, MORAY_ATLAS, MORAY_ART_SCALE, &assets),
+        moray: CreatureArt::load_scaled(
+            MORAY_PARTS,
+            MORAY_ATLAS,
+            MORAY_ART_SCALE * sim.tuning.moray.body.0 / 44.0,
+            &assets,
+        ),
     });
 }
 
@@ -126,6 +127,8 @@ fn spawn_critters(
     sim: Res<Sim>,
     art: Res<Art>,
     soft: Res<SoftTextures>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     critters: Query<&Critter>,
 ) {
     for e in sim.enemies() {
@@ -209,23 +212,51 @@ fn spawn_critters(
                 });
             }
             _ => {
-                // The crevice it lives in: a dark opening behind its head,
-                // a little deeper than the moray.
+                // A layered rock mouth behind the neck: the dark hollow and
+                // uneven lip read as a cave even when the eel is hiding.
                 let (len, deep) = e.kind.tuning(&sim.tuning).body;
-                commands.spawn((
-                    Sprite::from_color(ROCK, Vec2::new(40.0, deep + 10.0)),
-                    Transform::from_xyz(
-                        e.home.x - e.facing * (len / 2.0 + 16.0),
-                        e.home.y + (deep + 10.0) / 2.0,
+                let mouth = Vec2::new(
+                    e.home.x - e.facing * (len / 2.0 + 16.0),
+                    e.home.y + deep * 0.48,
+                );
+                for (offset, size, colour, z) in [
+                    (
+                        Vec2::new(0.0, 0.0),
+                        Vec2::new(len * 0.95, deep * 1.65),
+                        Color::srgb(0.16, 0.20, 0.19),
+                        8.45,
+                    ),
+                    (
+                        Vec2::new(0.0, -deep * 0.02),
+                        Vec2::new(len * 0.69, deep * 1.24),
+                        ROCK,
                         8.5,
                     ),
-                    Remembered(e.home),
-                ));
+                    (
+                        Vec2::new(e.facing * -len * 0.25, deep * 0.48),
+                        Vec2::new(len * 0.57, deep * 0.36),
+                        Color::srgb(0.24, 0.27, 0.23),
+                        8.52,
+                    ),
+                    (
+                        Vec2::new(e.facing * -len * 0.33, -deep * 0.40),
+                        Vec2::new(len * 0.52, deep * 0.24),
+                        Color::srgb(0.20, 0.23, 0.20),
+                        8.52,
+                    ),
+                ] {
+                    commands.spawn((
+                        Mesh2d(meshes.add(Ellipse::new(size.x * 0.5, size.y * 0.5))),
+                        MeshMaterial2d(materials.add(colour)),
+                        Transform::from_translation((mouth + offset).extend(z)),
+                        Remembered(e.home),
+                    ));
+                }
                 for n in 0..NECK {
                     let neck = commands
                         .spawn((
                             Part::Neck(n),
-                            Transform::from_xyz(0.0, MORAY_MID, 0.1 - n as f32 * 0.01),
+                            Transform::from_xyz(0.0, deep * 0.5, 0.1 - n as f32 * 0.01),
                             Visibility::default(),
                             ChildOf(root),
                         ))
@@ -238,7 +269,7 @@ fn spawn_critters(
                 let head = commands
                     .spawn((
                         Part::Head,
-                        Transform::from_xyz(0.0, MORAY_MID, 0.2),
+                        Transform::from_xyz(0.0, deep * 0.5, 0.2),
                         Visibility::default(),
                         ChildOf(root),
                     ))
@@ -257,7 +288,7 @@ fn spawn_critters(
                     c.spawn((
                         Part::Aim,
                         Sprite::from_color(AIM.with_alpha(0.0), Vec2::new(1.0, 2.0)),
-                        Transform::from_xyz(0.0, MORAY_MID, 0.05),
+                        Transform::from_xyz(0.0, deep * 0.5, 0.05),
                     ));
                     bar(c, deep + 16.0);
                 });
@@ -341,9 +372,11 @@ fn pose_critters(
         let reach = e.reach + c.reach;
         // Coiled, it rears: the head up a little and tipped nose-down, the
         // neck bowed behind it.
+        let moray_scale = t.moray.body.0 / 44.0;
+        let moray_mid = t.moray.body.1 * 0.5;
         let head = Vec2::new(
             reach,
-            MORAY_MID + 7.0 * coil + 2.0 * (c.time * 2.0).sin() * (1.0 - coil),
+            moray_mid + moray_scale * (7.0 * coil + 2.0 * (c.time * 2.0).sin() * (1.0 - coil)),
         );
         let head_turn = -0.3 * coil;
         let crevice = -k.body.0 / 2.0 - 22.0;
@@ -409,7 +442,8 @@ fn pose_critters(
                     tr.rotation = Quat::from_rotation_z(head_turn);
                 }
                 Part::Neck(n) => {
-                    let (at, turn) = neck_at(head, head_turn, crevice, coil, *n);
+                    let (at, turn) =
+                        neck_at(head, head_turn, crevice, coil, *n, moray_mid, moray_scale);
                     tr.translation.x = at.x;
                     tr.translation.y = at.y;
                     tr.rotation = Quat::from_rotation_z(turn);
@@ -423,7 +457,7 @@ fn pose_critters(
                     tr.rotation = Quat::from_rotation_z(-gape / 2.0);
                 }
                 Part::Throat => {
-                    let out = THROAT_REACH * throat;
+                    let out = THROAT_REACH * moray_scale * throat;
                     tr.translation.x = out;
                     tr.translation.y = -out * (gape / 2.0).tan();
                 }
@@ -475,14 +509,22 @@ fn pose_critters(
 /// (`coil`). Segments are spread along it, but never closer than 12 (so a
 /// short, bent neck isn't a fan of crowded pieces); those past its end are in
 /// the crevice, stacked at the end.
-fn neck_at(head: Vec2, head_turn: f32, crevice_x: f32, coil: f32, n: u8) -> (Vec2, f32) {
-    let start = head + Vec2::from_angle(head_turn).rotate(Vec2::new(-16.0, 0.0));
-    let end = Vec2::new(crevice_x.min(start.x - 6.0), MORAY_MID);
+fn neck_at(
+    head: Vec2,
+    head_turn: f32,
+    crevice_x: f32,
+    coil: f32,
+    n: u8,
+    mid: f32,
+    scale: f32,
+) -> (Vec2, f32) {
+    let start = head + Vec2::from_angle(head_turn).rotate(Vec2::new(-16.0 * scale, 0.0));
+    let end = Vec2::new(crevice_x.min(start.x - 6.0 * scale), mid);
     let forward = (start - end).normalize_or(Vec2::X);
-    let bend = (start + end) / 2.0 + forward.perp() * 10.0 * coil;
+    let bend = (start + end) / 2.0 + forward.perp() * 10.0 * scale * coil;
     // The curve's length, near enough.
     let length = (start.distance(bend) + bend.distance(end) + start.distance(end)) / 2.0;
-    let step = (length / NECK as f32).clamp(12.0, 21.0);
+    let step = (length / NECK as f32).clamp(12.0 * scale, 21.0 * scale);
     let f = (step * (n as f32 + 0.5) / length).min(1.0);
     let g = 1.0 - f;
     let at = start * g * g + bend * 2.0 * g * f + end * f * f;

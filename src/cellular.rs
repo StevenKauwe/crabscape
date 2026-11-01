@@ -4,7 +4,9 @@ use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use crabsim::Sim;
-use crabsim::underwater::{GAME_BOTTOM, GAME_BUBBLES, GAME_CELL, GAME_TRACERS, HEIGHT, WIDTH};
+use crabsim::underwater::{
+    GAME_BOTTOM, GAME_BUBBLES, GAME_CELL, GAME_PEBBLES, GAME_SILT, GAME_TRACERS, HEIGHT, WIDTH,
+};
 
 use crate::player::GameSet;
 
@@ -56,6 +58,12 @@ mod tests {
 #[derive(Component)]
 struct WaterParticle(usize);
 
+#[derive(Component)]
+struct Pebble(usize);
+
+#[derive(Component)]
+struct SiltParticle(usize);
+
 #[derive(Resource)]
 struct CellImage {
     handle: Handle<Image>,
@@ -71,7 +79,12 @@ impl Plugin for CellularPlugin {
         }
     }
 }
-fn setup(mut commands: Commands, sim: Res<Sim>, mut images: ResMut<Assets<Image>>) {
+fn setup(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    mut images: ResMut<Assets<Image>>,
+    soft: Res<crate::effects::SoftTextures>,
+) {
     let Some(cells) = &sim.level.cells else {
         return;
     };
@@ -113,6 +126,33 @@ fn setup(mut commands: Commands, sim: Res<Sim>, mut images: ResMut<Assets<Image>
             Visibility::Hidden,
         ));
     }
+    for index in 0..GAME_PEBBLES {
+        commands.spawn((
+            Pebble(index),
+            Sprite {
+                image: soft.chip.clone(),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::splat(6.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, 0.5),
+            Visibility::Hidden,
+        ));
+    }
+    for index in 0..GAME_SILT {
+        let size = 1.2 + (index % 4) as f32 * 0.35;
+        commands.spawn((
+            SiltParticle(index),
+            Sprite {
+                image: soft.dot.clone(),
+                color: Color::srgba(0.68, 0.64, 0.49, 0.25),
+                custom_size: Some(Vec2::splat(size)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, 0.6),
+            Visibility::Hidden,
+        ));
+    }
     commands.insert_resource(CellImage {
         handle,
         tick: cells.tick_count(),
@@ -122,7 +162,18 @@ fn draw(
     sim: Res<Sim>,
     mut output: ResMut<CellImage>,
     mut images: ResMut<Assets<Image>>,
-    mut particles: Query<(&WaterParticle, &mut Transform, &mut Visibility)>,
+    mut particles: Query<
+        (&WaterParticle, &mut Transform, &mut Visibility),
+        (Without<Pebble>, Without<SiltParticle>),
+    >,
+    mut pebble_sprites: Query<
+        (&Pebble, &mut Transform, &mut Sprite, &mut Visibility),
+        (Without<WaterParticle>, Without<SiltParticle>),
+    >,
+    mut silt_sprites: Query<
+        (&SiltParticle, &mut Transform, &mut Sprite, &mut Visibility),
+        (Without<WaterParticle>, Without<Pebble>),
+    >,
 ) {
     let Some(cells) = &sim.level.cells else {
         return;
@@ -135,6 +186,29 @@ fn draw(
             if let Some((x, y, _)) = cells.game_particle(particle.0) {
                 transform.translation.x = x;
                 transform.translation.y = y;
+                visibility.set_if_neq(Visibility::Inherited);
+            } else {
+                visibility.set_if_neq(Visibility::Hidden);
+            }
+        }
+        let pebbles = cells.game_pebbles();
+        for (pebble, mut transform, mut sprite, mut visibility) in &mut pebble_sprites {
+            if let Some(&(x, y, size, grain)) = pebbles.get(pebble.0) {
+                transform.translation.x = x;
+                transform.translation.y = y;
+                sprite.custom_size = Some(Vec2::splat(size));
+                let shade = f32::from(grain - 248) * 0.025;
+                sprite.color = Color::srgb(0.42 + shade, 0.46 + shade, 0.40 + shade);
+                visibility.set_if_neq(Visibility::Inherited);
+            } else {
+                visibility.set_if_neq(Visibility::Hidden);
+            }
+        }
+        for (silt, mut transform, mut sprite, mut visibility) in &mut silt_sprites {
+            if let Some((x, y, fade)) = cells.game_silt(silt.0) {
+                transform.translation.x = x;
+                transform.translation.y = y;
+                sprite.color = Color::srgba(0.68, 0.64, 0.49, 0.30 * fade);
                 visibility.set_if_neq(Visibility::Inherited);
             } else {
                 visibility.set_if_neq(Visibility::Hidden);

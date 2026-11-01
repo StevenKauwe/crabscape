@@ -155,7 +155,18 @@ pub const SEED: u64 = 0x00c0_ffee_c4ab_5eed;
 impl Sim {
     /// Enable the draft's single-player material experiment in the opening area.
     pub fn enable_underwater_cells(&mut self) {
-        self.level.cells = Some(crate::underwater::World::from_level(&self.level));
+        if self.level.cells.is_some() {
+            return;
+        }
+        self.level.cells = Some(crate::underwater::World::from_level_settled(&self.level));
+        // A larger individual reads clearly against the player crab; keep
+        // its hurtbox and bite aligned with the scaled puppet.
+        Self::scale_experimental_moray(&mut self.tuning);
+        for crab in &mut self.crabs {
+            let pos = Self::surface_spawn(&self.level, &self.tuning, crab.mover.pos);
+            crab.mover.pos = pos;
+            crab.prev_pos = pos;
+        }
         let root_floor = self.level.floor_height(280.0);
         if let Some(kelp) = self.level.climbs.first_mut() {
             kelp.x = 280.0;
@@ -200,9 +211,19 @@ impl Sim {
     pub fn set_feel(&mut self, feel: Feel) {
         self.feel = feel;
         self.tuning = feel.tuning();
+        if self.level.cells.is_some() {
+            Self::scale_experimental_moray(&mut self.tuning);
+        }
         if let Some(rec) = &mut self.recorder {
             rec.note_feel(self.tick, feel);
         }
+    }
+
+    fn scale_experimental_moray(tuning: &mut Tuning) {
+        tuning.moray.body.0 *= 1.75;
+        tuning.moray.body.1 *= 1.75;
+        tuning.moray.strike.height *= 1.75;
+        tuning.moray.strike.radius *= 1.75;
     }
 
     /// A code was entered at `tick`: a running recording notes it.
@@ -238,6 +259,7 @@ impl Sim {
 
     /// Put a crab standing still at `pos` into the world.
     pub fn add_crab(&mut self, id: PlayerId, pos: Vec2) {
+        let pos = Self::surface_spawn(&self.level, &self.tuning, pos);
         let mut mover = Mover::new(pos);
         mover.stamina = mover.strokes(&self.tuning) as f32; // rested
         self.crabs.push(SimCrab {
@@ -262,6 +284,29 @@ impl Sim {
             resting: 0,
             wakes_at: None,
         });
+    }
+
+    fn surface_spawn(level: &Level, tuning: &Tuning, pos: Vec2) -> Vec2 {
+        let Some(cells) = &level.cells else {
+            return pos;
+        };
+        // Only adjust an old surface spawn, not a deliberately underground
+        // save or a crab already swimming above the floor.
+        if pos.y < level.floor_height(pos.x) - 4.0 {
+            return pos;
+        }
+        let Some(surface) = cells.game_surface_below(
+            pos.x,
+            tuning.body_half_width * 0.8,
+            pos.y + tuning.body_height,
+        ) else {
+            return pos;
+        };
+        if surface > pos.y && surface <= pos.y + tuning.body_height {
+            Vec2::new(pos.x, surface)
+        } else {
+            pos
+        }
     }
 
     /// Put another player's crab into the world (co-op): it stands at `pos`
@@ -781,15 +826,12 @@ impl Sim {
         // The material experiment advances at 30 Hz inside the fixed-step
         // simulation. Only the local crab participates; co-op is disabled by
         // the experimental entry point until terrain can be synchronized.
-        let original_floor = self.level.cells.as_ref().and_then(|_| {
-            self.crabs
-                .iter()
-                .find(|c| !c.remote)
-                .map(|c| self.level.floor_height(c.mover.pos.x))
-        });
         if let Some(cells) = self.level.cells.as_mut() {
-            if let Some(crab) = self.crabs.iter().find(|c| !c.remote) {
-                let m = &crab.mover;
+            // Do not leave an invisible crab-shaped exclusion behind when
+            // the player leaves the experimental cell field.
+            cells.clear_game_crab();
+            if let Some(crab) = self.crabs.iter_mut().find(|c| !c.remote) {
+                let m = &mut crab.mover;
                 let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
                 if crate::underwater::World::game_contains(center.x, center.y) {
                     let (x, y) = crate::underwater::World::game_cell(center.x, center.y);
@@ -799,60 +841,64 @@ impl Sim {
                         m.half_width(&self.tuning) / 4.0,
                         m.height(&self.tuning) / 8.0,
                     );
-                    let walk = crab.controls.walk.clamp(-1.0, 1.0);
-                    let vertical = if crab.controls.down {
-                        -1.0
-                    } else if crab.controls.jump_held || crab.controls.dig_up {
-                        1.0
-                    } else {
-                        0.0
-                    };
-                    let half_width = m.half_width(&self.tuning);
-                    let left = m.pos.x - half_width + 0.01;
-                    let right = m.pos.x + half_width - 0.01;
-                    // Nudge a lone grain out of the way rather than treating
-                    // it as a floor or a wall. A broad bed still supports.
-                    if cells.game_solid(left, m.pos.y - 1.0, right, m.pos.y - 0.01)
-                        && !cells.game_surface_support(left, right, m.pos.y)
-                    {
-                        cells.push_for_crab(x, y - 1.0, 0, -1, 48);
+                    if crab.events.jumped {
+                        let (_, foot_y) = crate::underwater::World::game_cell(m.pos.x, m.pos.y);
+                        cells.react_to_jump(x, foot_y);
                     }
+                    let walk = crab.controls.walk.clamp(-1.0, 1.0);
                     let digging = crab.controls.dig_held;
+                    if self.tick.is_multiple_of(4) {
+                        let (dx, dy) = if digging && crab.controls.dig_up {
+                            (0, 1)
+                        } else if digging && crab.controls.down {
+                            (0, -1)
+                        } else if digging && walk.abs() > 0.1 {
+                            (walk.signum() as i32, 0)
+                        } else {
+                            (0, 0)
+                        };
+                        let target = cells.game_dig_load(x, y, dx, dy);
+                        // Smooth changing contact over a few material steps,
+                        // so a shifting pebble does not make speed flicker.
+                        m.dig_load += (target - m.dig_load) * 0.3;
+                    }
                     if ((digging && crab.controls.dig_up)
-                        || (crab.controls.jump_held
-                            && original_floor.is_some_and(|floor| m.pos.y < floor - 2.0)))
+                        || (!digging && (crab.controls.jump_held || crab.controls.jump_pressed))
+                        || m.vel.y > 0.0)
                         && !cells.clear_for_crab(x, y + 4.0)
                     {
                         cells.push_for_crab(x, y + 4.0, 0, 1, 48);
                     } else if self.tick.is_multiple_of(4) && digging && crab.controls.down {
-                        cells.push_for_crab(x, y - 1.0, 0, -1, 48);
+                        cells.swoop_dig_pebbles(48);
+                        // Probe two cells ahead: a layer of sand over a
+                        // pebble must not hide the pebble from the push.
+                        cells.push_for_crab(x, y - 2.0, 0, -1, 48);
                     } else if self.tick.is_multiple_of(4) && digging && walk.abs() > 0.1 {
                         cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
-                    } else if walk.abs() > 0.1 {
-                        let next_x = m.pos.x + walk.signum() * 4.0;
-                        if cells.game_only_loose_grains(
-                            next_x - half_width + 0.01,
-                            m.pos.y + 0.01,
-                            next_x + half_width - 0.01,
-                            m.pos.y + m.height(&self.tuning) - 0.01,
-                        ) {
-                            cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
-                        }
+                    }
+                    if self.tick.is_multiple_of(4) && !digging && m.grounded && walk.abs() > 0.1 {
+                        cells.brush_walking_sand(walk.signum() as i32);
                     }
                     if self.tick.is_multiple_of(4) {
-                        cells.react_to_motion(
+                        // Walking stirs the water, but footsteps should not
+                        // excavate the bed underneath the crab.
+                        // Scale the wake with actual speed, so a sprint or
+                        // dodge stirs more water than a slow step or a
+                        // crab pushing against an immovable obstacle.
+                        let wake_x = (m.vel.x / self.tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+                        let wake_y = (m.vel.y / self.tuning.walk_speed).clamp(-2.5, 2.5);
+                        cells.react_to_swim(x, y, wake_x, wake_y);
+                        cells.stir(
                             x,
                             y,
-                            walk,
-                            vertical,
-                            m.vel.x * STEP / 4.0,
-                            m.vel.y * STEP / 4.0,
+                            m.vel.x * STEP / 4.0 * 0.45,
+                            m.vel.y * STEP / 4.0 * 0.45,
                         );
                     }
                 }
             }
             if self.tick.is_multiple_of(4) {
-                cells.step(0.7);
+                cells.step(0.35);
             }
         }
         if let Some(rec) = &mut self.recorder
@@ -1215,8 +1261,8 @@ impl Sim {
                 let movement = (e.pos - previous) / crate::underwater::GAME_CELL;
                 if movement.length_squared() > 0.0025 {
                     let (x, y) = crate::underwater::World::game_cell(e.pos.x, e.pos.y);
-                    cells.react_to_swim(x, y, movement.x, movement.y);
-                    cells.stir(x, y, movement.x * 0.12, movement.y * 0.12);
+                    cells.react_to_swim(x, y, movement.x * 2.0, movement.y * 2.0);
+                    cells.stir(x, y, movement.x * 0.45, movement.y * 0.45);
                 }
             }
             let Some(net) = &mut self.net else {

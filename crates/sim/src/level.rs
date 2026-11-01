@@ -590,7 +590,14 @@ impl Level {
         let cliffs = self.floor.windows(2).filter_map(|pair| {
             let (a, b) = (pair[0], pair[1]);
             let is_cliff = (b.x - a.x) < 2.0 && (b.y - a.y).abs() > 1.0;
-            is_cliff.then(|| Rect::new(a.x, a.y.min(b.y) - 2000.0, b.x, a.y.max(b.y)))
+            // The material field supplies its own terrain here. Retaining
+            // the old invisible cliff walls creates phantom pillars when
+            // the visible cells have moved or been dug away.
+            let in_cells = self.cells.is_some()
+                && a.x >= 0.0
+                && b.x <= crate::underwater::WIDTH as f32 * crate::underwater::GAME_CELL;
+            (is_cliff && !in_cells)
+                .then(|| Rect::new(a.x, a.y.min(b.y) - 2000.0, b.x, a.y.max(b.y)))
         });
         let nets = self.nets.iter().filter(|n| !n.cut).map(|n| n.rect);
         let brittle = self.brittle.iter().filter(|b| !b.cracked).map(|b| b.rect);
