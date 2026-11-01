@@ -156,10 +156,10 @@ fn real_crab_can_push_into_the_opening_floor() {
 }
 
 #[test]
-fn moving_experimental_kelp_can_be_climbed_to_the_nearby_surface() {
+fn moving_experimental_kelp_can_be_climbed_toward_the_existing_surface() {
     let mut sim = Sim::with_one_crab(Vec2::new(280.0, 0.0));
     sim.enable_underwater_cells();
-    let surface = sim.level.water_surface_at(280.0);
+    let surface = crabsim::underwater::GAME_KELP_TOP;
     let initial_x = sim.level.cells.as_ref().unwrap().giant_kelp_x(200.0);
     let mut climbed = false;
     for tick in 0..600 {
@@ -191,9 +191,15 @@ fn moving_experimental_kelp_can_be_climbed_to_the_nearby_surface() {
         "crab did not climb toward the surface: {}",
         mover.pos.y
     );
-    assert!(mover.pos.y < surface, "crab passed the water surface");
-    assert_eq!(
-        sim.level.water_surface_at(3000.0),
-        crabsim::level::WATER_SURFACE_Y
-    );
+    let grip = sim
+        .level
+        .climb_at(Vec2::new(swaying_x, 1500.0), 50.0, false)
+        .expect("stalk continues above the cell field");
+    assert_eq!(grip.top, crabsim::level::WATER_SURFACE_Y - 20.0);
+    assert!(crabsim::physics::is_valid_spot(
+        Vec2::new(280.0, 1500.0),
+        1.0,
+        &sim.tuning,
+        &sim.level
+    ));
 }

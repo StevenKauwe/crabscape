@@ -160,7 +160,7 @@ impl Sim {
         if let Some(kelp) = self.level.climbs.first_mut() {
             kelp.x = 280.0;
             kelp.bottom = root_floor;
-            kelp.top = crate::underwater::GAME_SURFACE;
+            kelp.top = crate::level::WATER_SURFACE_Y - 20.0;
         }
     }
     /// An empty world: no crabs yet.

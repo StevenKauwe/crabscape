@@ -539,17 +539,6 @@ impl Level {
             })
     }
 
-    /// The experimental opening has its own nearby water surface.
-    pub fn water_surface_at(&self, x: f32) -> f32 {
-        if self.cells.is_some()
-            && (0.0..crate::underwater::WIDTH as f32 * crate::underwater::GAME_CELL).contains(&x)
-        {
-            crate::underwater::GAME_SURFACE
-        } else {
-            WATER_SURFACE_Y
-        }
-    }
-
     /// The place whose doorway `pos` is in, if any.
     pub fn place_at(&self, pos: Vec2) -> Option<Place> {
         if self.home.contains(pos) {

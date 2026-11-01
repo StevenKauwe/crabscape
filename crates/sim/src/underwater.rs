@@ -7,8 +7,8 @@ pub const HEIGHT: usize = 360;
 /// World units per cell and the position of the experiment's lower edge.
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
-/// A nearby surface for the opening-area experiment.
-pub const GAME_SURFACE: f32 = 900.0;
+/// Upper extent of the experimental cell field, not the ocean surface.
+pub const GAME_KELP_TOP: f32 = GAME_BOTTOM + HEIGHT as f32 * GAME_CELL - GAME_CELL;
 const GIANT_ROOT: i32 = 70;
 const GIANT_PARTS: usize = 64;
 const CRAB_HALF_X: i32 = 12;
@@ -70,7 +70,7 @@ impl World {
                     20.0 + ((n * 137) % (WIDTH - 40)) as f32,
                     (world.giant_base - GAME_BOTTOM) / GAME_CELL
                         + ((n * 37 % 223) as f32 / 223.0)
-                            * ((GAME_SURFACE - world.giant_base) / GAME_CELL - 1.0),
+                            * ((GAME_KELP_TOP - world.giant_base) / GAME_CELL - 1.0),
                 )
             })
             .collect();
@@ -102,7 +102,7 @@ impl World {
     }
     /// The swaying centre of the climbable stalk at this world height.
     pub fn giant_kelp_x(&self, y: f32) -> f32 {
-        let u = ((y - self.giant_base) / (GAME_SURFACE - self.giant_base) * GIANT_PARTS as f32)
+        let u = ((y - self.giant_base) / (GAME_KELP_TOP - self.giant_base) * GIANT_PARTS as f32)
             .clamp(0.0, GIANT_PARTS as f32 - 0.001);
         let i = u as usize;
         (GIANT_ROOT as f32
@@ -826,7 +826,7 @@ impl World {
         if self.game {
             for segment in 1..=GIANT_PARTS {
                 let y = (self.giant_base - GAME_BOTTOM
-                    + (GAME_SURFACE - self.giant_base) * segment as f32 / GIANT_PARTS as f32)
+                    + (GAME_KELP_TOP - self.giant_base) * segment as f32 / GIANT_PARTS as f32)
                     / GAME_CELL;
                 let x = GIANT_ROOT + self.giant_kelp[segment] as i32;
                 let flow = self.flow_at(x, y as i32).0;
@@ -835,7 +835,7 @@ impl World {
                 let target = (self.giant_kelp[segment - 1] * 0.8 + drag * 0.2).clamp(-10.0, 10.0);
                 self.giant_kelp[segment] += (target - self.giant_kelp[segment]) * 0.045;
             }
-            let surface = (GAME_SURFACE - GAME_BOTTOM) / GAME_CELL;
+            let surface = (GAME_KELP_TOP - GAME_BOTTOM) / GAME_CELL;
             let base = (self.giant_base - GAME_BOTTOM) / GAME_CELL;
             for (n, bubble) in self.bubbles.iter_mut().enumerate() {
                 if let Some(i) = Self::index(bubble.0 as i32, bubble.1 as i32) {
@@ -973,18 +973,7 @@ impl World {
             }
         }
         if self.game {
-            let surface_y = ((GAME_SURFACE - GAME_BOTTOM) / GAME_CELL) as i32;
-            for x in 0..WIDTH as i32 {
-                // Small, broken glints suggest ripples without drawing an
-                // opaque line across the whole world like a ceiling.
-                let phase = (x as u64 + self.tick / 12) % 47;
-                if phase < 17
-                    && let Some(i) = Self::index(x, surface_y)
-                {
-                    let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
-                    out[p..p + 4].copy_from_slice(&[145, 194, 187, 105]);
-                }
-            }
+            let surface_y = ((GAME_KELP_TOP - GAME_BOTTOM) / GAME_CELL) as i32;
             for (x, y) in &self.bubbles {
                 if let Some(i) = Self::index(*x as i32, *y as i32)
                     && self.cells[i] == Cell::Water

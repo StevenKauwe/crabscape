@@ -359,9 +359,7 @@ fn draw_climbs(
     cells_enabled: bool,
 ) {
     for c in climbs {
-        if cells_enabled && c.kind == Growth::Kelp && c.x == 280.0 {
-            continue;
-        }
+        let experimental_kelp = cells_enabled && c.kind == Growth::Kelp && c.x == 280.0;
         let mut draw = |mesh: Mesh, colour: Color, at: Vec2, angle: f32| {
             commands.spawn((
                 LevelShape,
@@ -371,6 +369,32 @@ fn draw_climbs(
                     .with_rotation(Quat::from_rotation_z(angle)),
             ));
         };
+        if experimental_kelp {
+            // The cell simulation ends here. Continue the climb line to the
+            // real surface with simple artwork; only its lower part sways.
+            let mut y = crabsim::underwater::GAME_KELP_TOP;
+            while y < c.top {
+                let next = (y + 70.0).min(c.top);
+                rod(
+                    &mut draw,
+                    Vec2::new(c.x, y),
+                    Vec2::new(c.x, next),
+                    8.0,
+                    KELP,
+                );
+                if next < c.top {
+                    let side = if (y as i32 / 70) % 2 == 0 { 1.0 } else { -1.0 };
+                    draw(
+                        Ellipse::new(8.0, 28.0).into(),
+                        KELP_BLADE,
+                        Vec2::new(c.x + side * 20.0, next),
+                        -side * 0.6,
+                    );
+                }
+                y = next;
+            }
+            continue;
+        }
         match c.kind {
             Growth::Kelp => kelp(c, &mut draw),
             Growth::Coral => coral(c, &mut draw),
