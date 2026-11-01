@@ -467,11 +467,32 @@ fn pose_critters(
                     tr.rotation = Quat::from_rotation_z(head_turn);
                 }
                 Part::Neck(n) => {
-                    let (at, turn) =
-                        neck_at(head, head_turn, crevice, coil, *n, moray_mid, moray_scale);
-                    tr.translation.x = at.x;
-                    tr.translation.y = at.y;
-                    tr.rotation = Quat::from_rotation_z(turn);
+                    if sim.level.cells.is_some() {
+                        // A swimming body trails the head in a travelling
+                        // wave. Segments still inside the cave are hidden.
+                        let out = e.pos.distance(e.home) + e.reach + 22.0 * moray_scale;
+                        let distance = (f32::from(*n) + 0.5) * 12.0 * moray_scale;
+                        if let Some(mut visible) = vis {
+                            *visible = if distance < out {
+                                Visibility::Inherited
+                            } else {
+                                Visibility::Hidden
+                            };
+                        }
+                        let moving = ((e.pos.distance(e.home) + e.reach) / (55.0 * moray_scale))
+                            .clamp(0.0, 1.0);
+                        let phase = c.time * 6.0 - distance / (20.0 * moray_scale);
+                        let wave = phase.sin() * 5.0 * moray_scale * moving;
+                        tr.translation.x = head.x - 16.0 * moray_scale - distance;
+                        tr.translation.y = head.y + wave;
+                        tr.rotation = Quat::from_rotation_z(-phase.cos() * 0.25 * moving);
+                    } else {
+                        let (at, turn) =
+                            neck_at(head, head_turn, crevice, coil, *n, moray_mid, moray_scale);
+                        tr.translation.x = at.x;
+                        tr.translation.y = at.y;
+                        tr.rotation = Quat::from_rotation_z(turn);
+                    }
                 }
                 Part::Jaw => tr.rotation = Quat::from_rotation_z(-gape),
                 Part::Mouth => {

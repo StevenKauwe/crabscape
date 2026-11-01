@@ -224,6 +224,11 @@ impl Sim {
         tuning.moray.body.1 *= 1.75;
         tuning.moray.strike.height *= 1.75;
         tuning.moray.strike.radius *= 1.75;
+        // The experimental eel swims out to its prey instead of stretching
+        // an implausibly long head and neck from a fixed point.
+        tuning.moray.approach_speed = 115.0;
+        tuning.moray.strike_range = 65.0;
+        tuning.moray.strike.lunge = 45.0;
     }
 
     /// A code was entered at `tick`: a running recording notes it.
@@ -1264,14 +1269,17 @@ impl Sim {
         for (e, runs) in self.enemies.iter_mut().zip(runs) {
             let previous = e.pos;
             let blows = enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
-            // A moray is anchored to its crevice. Keep that anchor at the
-            // supported seabed as sediment settles or is dug away.
+            // The crevice stays on its own seabed while the moray swims.
             if e.kind == Kind::Moray
-                && self.level.cells.is_some()
-                && crate::underwater::World::game_contains(e.pos.x, e.pos.y)
-                && e.state != enemy::State::Gone
+                && self.tick.is_multiple_of(4)
+                && let Some(cells) = self.level.cells.as_ref()
+                && let Some(surface) = cells.game_surface_below(
+                    e.home.x,
+                    self.tuning.moray.body.0 * 0.5,
+                    e.home.y + 80.0,
+                )
             {
-                e.home.y = e.pos.y;
+                e.home.y = surface;
             }
             if self.tick.is_multiple_of(4)
                 && let Some(cells) = self.level.cells.as_mut()

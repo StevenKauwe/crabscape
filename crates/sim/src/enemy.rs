@@ -301,6 +301,7 @@ impl Enemy {
         self.kind.tuning(t).burrows
             && self.state == State::Idle
             && (self.pos.x - self.home.x).abs() < 1.0
+            && (self.pos.y - self.home.y).abs() < 8.0
     }
 
     /// Can it be hit right now?
@@ -527,6 +528,12 @@ pub fn step(
         })
         .map(|c| c.mover.pos.x);
 
+    let swimming_moray = e.kind == Kind::Moray && level.cells.is_some();
+    let target_y = e
+        .target
+        .and_then(|id| crabs.iter().find(|c| c.id == id && huntable(c)))
+        .map(|c| c.mover.pos.y);
+
     // Timed states end, and the next one starts on this same tick.
     if e.state_len > 0 && e.state_tick >= e.state_len {
         match e.state {
@@ -625,7 +632,7 @@ pub fn step(
                     e.pos.x = e.home.x;
                     want_speed = 0.0;
                 }
-            } else if e.hiding == 0 {
+            } else if e.hiding == 0 && (!swimming_moray || (e.pos.y - e.home.y).abs() < 8.0) {
                 // Feeling steps (only a crab moving fast enough), or a smell
                 // that has to build up first.
                 let sensed = e.sense_moving(crabs, k.notice_range, k.notice_moving, t);
@@ -658,10 +665,12 @@ pub fn step(
                 if x != e.pos.x {
                     e.facing = (x - e.pos.x).signum();
                 }
-                if (x - e.head_x(t)).abs() <= k.strike_range {
+                let level_with_target =
+                    !swimming_moray || target_y.is_some_and(|y| (y - e.pos.y).abs() < k.body.1);
+                if (x - e.head_x(t)).abs() <= k.strike_range && level_with_target {
                     e.combo = 0;
                     e.enter_now(State::Tell, k.tell_ticks);
-                } else {
+                } else if !swimming_moray || (x - e.head_x(t)).abs() > k.strike_range * 0.7 {
                     want_speed = k.approach_speed;
                 }
             }
@@ -742,22 +751,60 @@ pub fn step(
         let half = k.body.0 / 2.0;
         let x = (e.pos.x + (e.vel_x + e.facing * want_speed) * STEP)
             .clamp(level.min_x + half, level.max_x - half);
-        // A drop or a wall (a big step in the floor) stops it: it walks the
-        // floor, it doesn't fall off cliffs.
-        let dynamic_surface = level
-            .cells
-            .as_ref()
-            .and_then(|cells| cells.game_surface_below(x, half, e.pos.y + MAX_STEP));
-        let y = dynamic_surface.unwrap_or_else(|| level.floor_height(x));
-        if (y - e.pos.y).abs() <= MAX_STEP {
-            e.pos = Vec2::new(x, y);
-        } else if dynamic_surface.is_some() && y < e.pos.y {
-            // When the experimental seabed moves away under an animal,
-            // let it sink toward the next supported surface over time.
-            e.pos.y = (e.pos.y - 250.0 * STEP).max(y);
-            e.vel_x = 0.0;
+        if swimming_moray {
+            // It leaves its crevice and moves through water toward the crab,
+            // then returns to the fixed home. Solid terrain still blocks it.
+            let goal_y = match e.state {
+                State::Approach => target_y
+                    .unwrap_or(e.home.y)
+                    .clamp(e.home.y, e.home.y + 180.0),
+                State::Idle | State::Flee => e.home.y,
+                _ => e.pos.y,
+            };
+            let y = e.pos.y + (goal_y - e.pos.y).clamp(-100.0 * STEP, 100.0 * STEP);
+            let blocked = |x: f32, y: f32| {
+                let left = x - half * 0.65;
+                let right = x + half * 0.65;
+                let bottom = y + 1.0;
+                let top = y + k.body.1 * 0.85;
+                let solid = level.rocks.iter().any(|r| {
+                    r.min.x < right && r.max.x > left && r.min.y < top && r.max.y > bottom
+                });
+                let sediment = level.cells.as_ref().is_some_and(|cells| {
+                    crate::underwater::World::game_contains(x, y)
+                        && cells.game_movement_blocked(left, bottom, right, top, 0.0)
+                });
+                let floor =
+                    !crate::underwater::World::game_contains(x, y) && y < level.floor_height(x);
+                solid || sediment || floor
+            };
+            if !blocked(x, y) {
+                e.pos = Vec2::new(x, y);
+            } else if !blocked(e.pos.x, y) {
+                e.pos.y = y;
+            } else if !blocked(x, e.pos.y) {
+                e.pos.x = x;
+            } else {
+                e.vel_x = 0.0;
+            }
         } else {
-            e.vel_x = 0.0;
+            // A drop or a wall (a big step in the floor) stops it: it walks the
+            // floor, it doesn't fall off cliffs.
+            let dynamic_surface = level
+                .cells
+                .as_ref()
+                .and_then(|cells| cells.game_surface_below(x, half, e.pos.y + MAX_STEP));
+            let y = dynamic_surface.unwrap_or_else(|| level.floor_height(x));
+            if (y - e.pos.y).abs() <= MAX_STEP {
+                e.pos = Vec2::new(x, y);
+            } else if dynamic_surface.is_some() && y < e.pos.y {
+                // When the experimental seabed moves away under an animal,
+                // let it sink toward the next supported surface over time.
+                e.pos.y = (e.pos.y - 250.0 * STEP).max(y);
+                e.vel_x = 0.0;
+            } else {
+                e.vel_x = 0.0;
+            }
         }
     }
     blows

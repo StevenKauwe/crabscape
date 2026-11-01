@@ -2598,6 +2598,58 @@ mod tests {
     }
 
     #[test]
+    fn experimental_moray_swims_toward_crab_and_returns_to_its_cave() {
+        use crate::enemy::State;
+        use crate::{Kind, PlayerId, Sim};
+        use bevy_math::Vec2;
+        let mut sim = Sim::with_one_crab(Vec2::new(230.0, 40.0));
+        sim.enable_underwater_cells();
+        let cells = sim.level.cells.as_mut().unwrap();
+        cells.cells.fill(Cell::Water);
+        cells.pebble_owner.fill(0);
+        cells.pebbles.clear();
+        cells.pebble_motion.clear();
+        for x in 1..WIDTH - 1 {
+            for y in 68..=70 {
+                cells.cells[World::index(x as i32, y).unwrap()] = Cell::Rock;
+            }
+        }
+        let id = sim.spawn_enemy(Kind::Moray, Vec2::new(400.0, 0.0));
+        let home = sim.enemies()[0].home;
+        sim.enemies_mut()[0].state = State::Approach;
+        sim.enemies_mut()[0].target = Some(PlayerId(0));
+        for _ in 0..100 {
+            let crab = sim.crab_mut(PlayerId(0)).unwrap();
+            crab.mover.pos = Vec2::new(230.0, 40.0);
+            crab.mover.vel = Vec2::ZERO;
+            sim.tick();
+        }
+        let eel = sim.enemies().iter().find(|e| e.id == id).unwrap();
+        assert!(
+            eel.pos.x < home.x - 30.0 && eel.pos.y > home.y + 25.0,
+            "eel did not swim out: {eel:?}"
+        );
+        assert!(
+            (eel.home - home).length() < 1.0,
+            "cave moved with swimming eel"
+        );
+        sim.enemies_mut()[0].state = State::Idle;
+        sim.enemies_mut()[0].target = None;
+        for _ in 0..320 {
+            let crab = sim.crab_mut(PlayerId(0)).unwrap();
+            crab.mover.pos = Vec2::new(20.0, 100.0);
+            crab.mover.vel = Vec2::ZERO;
+            sim.tick();
+        }
+        let eel = sim.enemies().iter().find(|e| e.id == id).unwrap();
+        assert!(
+            eel.pos.distance(home) < 10.0,
+            "eel did not return to its cave: {:?}",
+            eel.pos
+        );
+    }
+
+    #[test]
     fn falling_grain_slides_off_the_crab_instead_of_hovering() {
         let mut w = World::new();
         w.cells.fill(Cell::Water);
