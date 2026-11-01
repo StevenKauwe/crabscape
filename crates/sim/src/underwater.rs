@@ -2858,6 +2858,107 @@ mod tests {
     }
 
     #[test]
+    fn moray_routes_over_wall_to_reach_shrimp_without_crossing_rock() {
+        use crate::{Kind, PlayerId, Sim};
+        use bevy_math::{Rect, Vec2};
+        let mut sim = Sim::with_one_crab(Vec2::new(20.0, 1000.0));
+        sim.enable_underwater_cells();
+        sim.level.rocks.clear();
+        sim.level.rocks.push(Rect::new(320.0, -76.0, 344.0, 40.0));
+        let cells = sim.level.cells.as_mut().unwrap();
+        cells.cells.fill(Cell::Water);
+        cells.pebble_owner.fill(0);
+        cells.pebbles.clear();
+        cells.pebble_motion.clear();
+        for x in 1..WIDTH - 1 {
+            for y in 68..=70 {
+                cells.cells[World::index(x as i32, y).unwrap()] = Cell::Rock;
+            }
+        }
+        let moray = sim.spawn_enemy(Kind::Moray, Vec2::new(400.0, 0.0));
+        let shrimp = sim.spawn_enemy(Kind::Snapper, Vec2::new(250.0, 0.0));
+        let health = sim
+            .enemies()
+            .iter()
+            .find(|e| e.id == shrimp)
+            .unwrap()
+            .vitals
+            .health;
+        let mut max_y = -1000.0_f32;
+        let mut hit_wall = false;
+        for _ in 0..1200 {
+            let crab = sim.crab_mut(PlayerId(0)).unwrap();
+            crab.mover.pos = Vec2::new(20.0, 1000.0);
+            crab.mover.vel = Vec2::ZERO;
+            sim.tick();
+            let eel = sim.enemies().iter().find(|e| e.id == moray).unwrap();
+            max_y = max_y.max(eel.pos.y);
+            let half = sim.tuning.moray.body.0 * 0.5 * 0.65;
+            if eel.pos.x + half > 320.0 && eel.pos.x - half < 344.0 && eel.pos.y < 39.0 {
+                hit_wall = true;
+            }
+        }
+        let prey = sim.enemies().iter().find(|e| e.id == shrimp).unwrap();
+        assert!(!hit_wall, "moray crossed the solid wall");
+        assert!(
+            max_y >= 40.0,
+            "moray did not swim over the wall; highest {max_y}"
+        );
+        assert!(
+            prey.vitals.health < health,
+            "moray did not reach shrimp: {prey:?}"
+        );
+    }
+
+    #[test]
+    fn ground_animals_step_over_low_lips_but_not_through_tall_walls() {
+        use crate::enemy::State;
+        use crate::{Kind, PlayerId, Sim};
+        use bevy_math::{Rect, Vec2};
+        for (height, should_cross) in [(6.0, true), (70.0, false)] {
+            let mut sim = Sim::with_one_crab(Vec2::new(220.0, -76.0));
+            sim.enable_underwater_cells();
+            sim.level.rocks.clear();
+            sim.level
+                .rocks
+                .push(Rect::new(320.0, -76.0, 344.0, -76.0 + height));
+            let cells = sim.level.cells.as_mut().unwrap();
+            cells.cells.fill(Cell::Water);
+            cells.pebble_owner.fill(0);
+            cells.pebbles.clear();
+            cells.pebble_motion.clear();
+            for x in 1..WIDTH - 1 {
+                for y in 68..=70 {
+                    cells.cells[World::index(x as i32, y).unwrap()] = Cell::Rock;
+                }
+            }
+            sim.spawn_enemy(Kind::Mantis, Vec2::new(400.0, 0.0));
+            sim.enemies_mut()[0].state = State::Approach;
+            sim.enemies_mut()[0].target = Some(PlayerId(0));
+            let mut leftmost = 400.0_f32;
+            for _ in 0..240 {
+                let crab = sim.crab_mut(PlayerId(0)).unwrap();
+                crab.mover.pos = Vec2::new(220.0, -76.0);
+                crab.mover.vel = Vec2::ZERO;
+                sim.tick();
+                leftmost = leftmost.min(sim.enemies()[0].pos.x);
+            }
+            if should_cross {
+                assert!(
+                    leftmost < 344.0,
+                    "mantis failed to step over low lip: {leftmost}"
+                );
+            } else {
+                let half = sim.tuning.mantis.body.0 * 0.5 * 0.65;
+                assert!(
+                    leftmost - half >= 343.0,
+                    "mantis walked through wall: {leftmost}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn falling_grain_slides_off_the_crab_instead_of_hovering() {
         let mut w = World::new();
         w.cells.fill(Cell::Water);

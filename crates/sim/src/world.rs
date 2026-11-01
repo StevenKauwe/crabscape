@@ -1306,7 +1306,24 @@ impl Sim {
                     .and_then(|id| animals.iter().find(|a| a.id == id))
             {
                 let (centre, radius) = e.strike_circle(&self.tuning);
-                if enemy::circle_meets(centre, radius, prey.body) {
+                let clear = crate::navigation::clear_line(e.pos, prey.pos, &|p| {
+                    enemy::swimmer_blocked(
+                        &self.level,
+                        p,
+                        self.tuning.moray.body.0 * 0.5,
+                        self.tuning.moray.body.1,
+                    )
+                });
+                // Test the mouth's starting position as well as its lunge:
+                // a close prey can overlap the jaws before they extend.
+                let mouth = Vec2::new(
+                    e.head_x(&self.tuning),
+                    e.pos.y + self.tuning.moray.strike.height,
+                );
+                if clear
+                    && (enemy::circle_meets(centre, radius, prey.body)
+                        || enemy::circle_meets(mouth, radius, prey.body))
+                {
                     e.animal_struck = true;
                     let strike = &self.tuning.moray.strike;
                     let hit = Hit {
@@ -1388,8 +1405,21 @@ impl Sim {
                     let notice = prey.kind.tuning(&self.tuning).notice_ticks;
                     prey.enter_now(enemy::State::Notice, notice);
                 }
-                let landed = prey.takes(&hit, from_x, &self.tuning).is_some();
-                if landed && let Some(hunter) = self.enemies.iter_mut().find(|e| e.id == attacker) {
+                let result = prey.takes(&hit, from_x, &self.tuning);
+                if result.is_some_and(|took| took.died) {
+                    // The moray eats its catch: use the same shared body
+                    // bookkeeping as a crab, so no duplicate meal is left.
+                    self.shared.take(
+                        Thing::Body {
+                            enemy: victim,
+                            deaths: prey.deaths,
+                        },
+                        &self.tuning,
+                    );
+                }
+                if result.is_some()
+                    && let Some(hunter) = self.enemies.iter_mut().find(|e| e.id == attacker)
+                {
                     hunter.landed = true;
                     hunter.vitals.hitstop = hunter.vitals.hitstop.max(hit.hitstop);
                 }

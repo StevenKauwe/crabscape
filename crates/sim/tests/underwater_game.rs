@@ -492,3 +492,47 @@ fn crab_settles_on_the_visible_floor_above_the_trench_moray() {
         "unexpected support above the visible bed: {pos:?}, bed {surface}"
     );
 }
+
+#[test]
+fn first_moray_hunts_and_eats_the_nearby_starting_shrimp() {
+    use crabsim::Kind;
+    let mut sim = Sim::with_one_crab(Vec2::new(100.0, 1000.0));
+    sim.enable_underwater_cells();
+    sim.populate();
+    let eel_id = sim
+        .enemies()
+        .iter()
+        .find(|e| e.kind == Kind::Moray && e.home.x < 2000.0)
+        .unwrap()
+        .id;
+    let shrimp_id = sim
+        .enemies()
+        .iter()
+        .find(|e| e.kind == Kind::Snapper && e.home.x > 1900.0)
+        .unwrap()
+        .id;
+    let mut locked = false;
+    let mut crossed_ledge = false;
+    for _ in 0..3600 {
+        let c = sim.crab_mut(PlayerId(0)).unwrap();
+        c.mover.pos = Vec2::new(100.0, 1000.0);
+        c.mover.vel = Vec2::ZERO;
+        sim.tick();
+        let eel = sim.enemies().iter().find(|e| e.id == eel_id).unwrap();
+        locked |= eel.animal_target == Some(shrimp_id);
+        crossed_ledge |= eel.pos.x > 1820.0 && eel.pos.y > 110.0;
+        if sim
+            .shared
+            .bodies_eaten
+            .iter()
+            .any(|(id, _)| *id == shrimp_id)
+        {
+            assert!(locked, "moray never locked onto the starting shrimp");
+            assert!(crossed_ledge, "moray did not navigate over the ledge");
+            return;
+        }
+    }
+    let eel = sim.enemies().iter().find(|e| e.id == eel_id).unwrap();
+    let shrimp = sim.enemies().iter().find(|e| e.id == shrimp_id).unwrap();
+    panic!("moray did not eat starting shrimp: locked {locked}, eel {eel:?}, shrimp {shrimp:?}");
+}
