@@ -382,7 +382,8 @@ fn pose_critters(
             _ => 0.0,
         };
         let health = e.vitals.health / k.vitals.health;
-        let show_bar = !hidden && !body && (health < 1.0 || e.target.is_some());
+        let show_bar =
+            !hidden && !body && (health < 1.0 || e.target.is_some() || e.animal_target.is_some());
 
         // The moray's head: how far out past its crevice box (local x; the
         // simulation's own reach, so the head shown is the head hit), and

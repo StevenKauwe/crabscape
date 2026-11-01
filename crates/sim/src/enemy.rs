@@ -154,6 +154,10 @@ pub struct Enemy {
     pub state_len: u32,
     /// The crab it is after.
     pub target: Option<PlayerId>,
+    /// Non-player animal currently being hunted by an experimental moray.
+    pub animal_target: Option<u32>,
+    /// Whether this attack already struck its animal target.
+    pub animal_struck: bool,
     /// Strikes so far in this combo (0 = the first).
     pub combo: u32,
     /// The current strike got through to a body.
@@ -212,6 +216,8 @@ impl Enemy {
             state_tick: 0,
             state_len: 0,
             target: None,
+            animal_target: None,
+            animal_struck: false,
             combo: 0,
             landed: false,
             struck: Vec::new(),
@@ -476,10 +482,25 @@ impl Enemy {
             .iter()
             .filter(|c| huntable(c) && seen(c, sight) && c.mover.vel.x.abs() >= moving)
             .map(|c| (c.id, (c.mover.pos.x - self.pos.x).abs(), c))
-            .filter(|(_, d, c)| *d <= range && (c.mover.pos.y - self.pos.y).abs() < 200.0)
+            .filter(|(_, d, c)| {
+                let vertical = if self.kind == Kind::Moray && t.moray.approach_speed > 0.0 {
+                    420.0
+                } else {
+                    200.0
+                };
+                *d <= range && (c.mover.pos.y - self.pos.y).abs() < vertical
+            })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(id, _, _)| id)
     }
+}
+
+/// Stable start-of-tick view of another animal for single-player predation.
+#[derive(Clone, Copy)]
+pub struct AnimalPrey {
+    pub id: u32,
+    pub pos: Vec2,
+    pub body: Rect,
 }
 
 /// Advance one enemy by one tick. Its blows reach only crabs that run on
@@ -491,6 +512,7 @@ pub fn step(
     t: &Tuning,
     level: &Level,
     rng: &mut Rng,
+    animals: &[AnimalPrey],
 ) -> Vec<(PlayerId, Outcome)> {
     let mut blows = Vec::new();
     if e.vitals.hitstop > 0 {
@@ -519,20 +541,26 @@ pub fn step(
     e.hiding = e.hiding.saturating_sub(1);
     // A crab that died or tucked itself away is gone, as far as the hunt
     // goes: it gives up.
-    let target_x = e
+    let swimming_moray = e.kind == Kind::Moray && level.cells.is_some();
+    let animal_pos = e
+        .animal_target
+        .and_then(|id| animals.iter().find(|a| a.id == id))
+        .map(|a| a.pos);
+    let crab_pos = e
         .target
         .and_then(|id| {
             crabs
                 .iter()
                 .find(|c| c.id == id && huntable(c) && seen(c, k.sight))
         })
-        .map(|c| c.mover.pos.x);
-
-    let swimming_moray = e.kind == Kind::Moray && level.cells.is_some();
-    let target_y = e
-        .target
-        .and_then(|id| crabs.iter().find(|c| c.id == id && huntable(c)))
-        .map(|c| c.mover.pos.y);
+        .map(|c| c.mover.pos);
+    let target_pos = if e.animal_target.is_some() {
+        animal_pos
+    } else {
+        crab_pos
+    };
+    let target_x = target_pos.map(|p| p.x);
+    let target_y = target_pos.map(|p| p.y);
 
     // Timed states end, and the next one starts on this same tick.
     if e.state_len > 0 && e.state_tick >= e.state_len {
@@ -540,6 +568,7 @@ pub fn step(
             State::Notice => e.enter(State::Approach, 0),
             State::Tell => {
                 e.landed = false;
+                e.animal_struck = false;
                 e.struck.clear();
                 e.enter(State::Attack, k.active_ticks);
             }
@@ -616,6 +645,7 @@ pub fn step(
     match e.state {
         State::Idle => {
             e.target = None;
+            e.animal_target = None;
             let dx = e.home.x - e.pos.x;
             if dx.abs() >= 1.0 {
                 e.facing = dx.signum();
@@ -636,14 +666,38 @@ pub fn step(
                 // Feeling steps (only a crab moving fast enough), or a smell
                 // that has to build up first.
                 let sensed = e.sense_moving(crabs, k.notice_range, k.notice_moving, t);
-                e.scent = if sensed.is_some() {
+                let animal = if swimming_moray {
+                    animals
+                        .iter()
+                        .filter(|a| {
+                            a.id != e.id
+                                && a.pos.distance_squared(e.pos) <= k.notice_range * k.notice_range
+                        })
+                        .min_by(|a, b| {
+                            a.pos
+                                .distance_squared(e.pos)
+                                .total_cmp(&b.pos.distance_squared(e.pos))
+                        })
+                } else {
+                    None
+                };
+                let crab_distance = sensed
+                    .and_then(|id| crabs.iter().find(|c| c.id == id))
+                    .map_or(f32::INFINITY, |c| c.mover.pos.distance_squared(e.pos));
+                let choose_animal =
+                    animal.is_some_and(|a| a.pos.distance_squared(e.pos) < crab_distance);
+                e.scent = if sensed.is_some() || animal.is_some() {
                     e.scent + 1
                 } else {
                     e.scent.saturating_sub(2)
                 };
-                if let Some(id) = sensed.filter(|_| e.scent >= k.scent_ticks) {
+                if e.scent >= k.scent_ticks && (sensed.is_some() || animal.is_some()) {
                     e.scent = 0;
-                    e.target = Some(id);
+                    if choose_animal {
+                        e.animal_target = animal.map(|a| a.id);
+                    } else {
+                        e.target = sensed;
+                    }
                     e.enter_now(State::Notice, k.notice_ticks);
                 } else if e.sense(crabs, k.notice_range, t).is_none() && e.vitals.unhit > MEND_AFTER
                 {
@@ -661,7 +715,11 @@ pub fn step(
             }
         }
         State::Approach => match target_x {
-            Some(x) if (x - e.home.x).abs() <= k.give_up_range => {
+            Some(x)
+                if (x - e.home.x).abs() <= k.give_up_range
+                    && (!swimming_moray
+                        || target_y.is_some_and(|y| (y - e.home.y).abs() <= k.give_up_range)) =>
+            {
                 if x != e.pos.x {
                     e.facing = (x - e.pos.x).signum();
                 }
@@ -757,7 +815,7 @@ pub fn step(
             let goal_y = match e.state {
                 State::Approach => target_y
                     .unwrap_or(e.home.y)
-                    .clamp(e.home.y - 180.0, e.home.y + 180.0),
+                    .clamp(e.home.y - 420.0, e.home.y + 420.0),
                 State::Idle | State::Flee => e.home.y,
                 _ => e.pos.y,
             };

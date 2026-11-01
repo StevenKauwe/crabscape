@@ -227,8 +227,8 @@ impl Sim {
         // The experimental eel swims out to its prey instead of stretching
         // an implausibly long head and neck from a fixed point.
         tuning.moray.approach_speed = 155.0;
-        tuning.moray.notice_range = 300.0;
-        tuning.moray.give_up_range = 400.0;
+        tuning.moray.notice_range = 460.0;
+        tuning.moray.give_up_range = 580.0;
         tuning.moray.strike_range = 65.0;
         tuning.moray.strike.lunge = 45.0;
     }
@@ -1267,10 +1267,58 @@ impl Sim {
             c.fighter.blinded = clouds.iter().any(|at| at.distance(middle) <= r);
         }
         self.claws_meet_enemies();
+        let animals: Vec<enemy::AnimalPrey> = if self.level.cells.is_some() {
+            self.enemies
+                .iter()
+                .filter(|e| {
+                    e.kind != Kind::Fixture
+                        && e.state != enemy::State::Gone
+                        && !e.held
+                        && !e.dropping()
+                })
+                .map(|e| enemy::AnimalPrey {
+                    id: e.id,
+                    pos: e.pos,
+                    body: e.hurtbox(&self.tuning),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut animal_bites = Vec::new();
         let runs = self.runs_each();
         for (e, runs) in self.enemies.iter_mut().zip(runs) {
             let previous = e.pos;
-            let blows = enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
+            let blows = enemy::step(
+                e,
+                &mut self.crabs,
+                &self.tuning,
+                &self.level,
+                &mut self.rng,
+                &animals,
+            );
+            if self.level.cells.is_some()
+                && e.kind == Kind::Moray
+                && e.state == enemy::State::Attack
+                && !e.animal_struck
+                && let Some(prey) = e
+                    .animal_target
+                    .and_then(|id| animals.iter().find(|a| a.id == id))
+            {
+                let (centre, radius) = e.strike_circle(&self.tuning);
+                if enemy::circle_meets(centre, radius, prey.body) {
+                    e.animal_struck = true;
+                    let strike = &self.tuning.moray.strike;
+                    let hit = Hit {
+                        damage: strike.damage,
+                        poise: strike.poise,
+                        source: Source::Enemy(e.id),
+                        hitstop: strike.hitstop_ticks,
+                        ..Hit::default()
+                    };
+                    animal_bites.push((e.id, prey.id, e.pos.x, hit));
+                }
+            }
             // The crevice stays on its own seabed while the moray swims.
             if e.kind == Kind::Moray
                 && self.tick.is_multiple_of(4)
@@ -1324,6 +1372,26 @@ impl Sim {
                             outcome,
                         },
                     );
+                }
+            }
+        }
+        // Resolve predator bites after the stable iteration, so an animal can
+        // be both a hunter and prey without aliasing or order-dependent scans.
+        for (attacker, victim, from_x, hit) in animal_bites {
+            if let Some(prey) = self
+                .enemies
+                .iter_mut()
+                .find(|e| e.id == victim && e.state != enemy::State::Gone)
+            {
+                // A concealed animal reacts as the predator reaches its hole.
+                if prey.hidden(&self.tuning) {
+                    let notice = prey.kind.tuning(&self.tuning).notice_ticks;
+                    prey.enter_now(enemy::State::Notice, notice);
+                }
+                let landed = prey.takes(&hit, from_x, &self.tuning).is_some();
+                if landed && let Some(hunter) = self.enemies.iter_mut().find(|e| e.id == attacker) {
+                    hunter.landed = true;
+                    hunter.vitals.hitstop = hunter.vitals.hitstop.max(hit.hitstop);
                 }
             }
         }

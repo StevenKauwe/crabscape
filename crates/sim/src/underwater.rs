@@ -2761,7 +2761,7 @@ mod tests {
         sim.enemies_mut()[0].target = None;
         for _ in 0..320 {
             let crab = sim.crab_mut(PlayerId(0)).unwrap();
-            crab.mover.pos = Vec2::new(20.0, 100.0);
+            crab.mover.pos = Vec2::new(20.0, 1000.0);
             crab.mover.vel = Vec2::ZERO;
             sim.tick();
         }
@@ -2774,6 +2774,87 @@ mod tests {
         assert!(eel.hidden(&sim.tuning), "eel did not fully hide on return");
         assert_eq!(eel.facing, -1.0, "eel faces away from its cave opening");
         assert_eq!(eel.reach, 0.0, "eel left its head extended after returning");
+    }
+
+    #[test]
+    fn moray_locks_onto_and_bites_a_nearby_shrimp() {
+        use crate::{Kind, PlayerId, Sim};
+        use bevy_math::Vec2;
+        let mut sim = Sim::with_one_crab(Vec2::new(20.0, 1000.0));
+        sim.enable_underwater_cells();
+        let cells = sim.level.cells.as_mut().unwrap();
+        cells.cells.fill(Cell::Water);
+        cells.pebble_owner.fill(0);
+        cells.pebbles.clear();
+        cells.pebble_motion.clear();
+        for x in 1..WIDTH - 1 {
+            for y in 68..=70 {
+                cells.cells[World::index(x as i32, y).unwrap()] = Cell::Rock;
+            }
+        }
+        let moray = sim.spawn_enemy(Kind::Moray, Vec2::new(400.0, 0.0));
+        let shrimp = sim.spawn_enemy(Kind::Snapper, Vec2::new(260.0, 0.0));
+        let health = sim
+            .enemies()
+            .iter()
+            .find(|e| e.id == shrimp)
+            .unwrap()
+            .vitals
+            .health;
+        let mut locked = false;
+        for _ in 0..800 {
+            let crab = sim.crab_mut(PlayerId(0)).unwrap();
+            crab.mover.pos = Vec2::new(20.0, 1000.0);
+            crab.mover.vel = Vec2::ZERO;
+            sim.tick();
+            locked |= sim
+                .enemies()
+                .iter()
+                .find(|e| e.id == moray)
+                .unwrap()
+                .animal_target
+                == Some(shrimp);
+        }
+        let prey = sim.enemies().iter().find(|e| e.id == shrimp).unwrap();
+        assert!(locked, "moray never locked onto shrimp");
+        assert!(
+            prey.vitals.health < health,
+            "moray did not damage its prey: {prey:?}"
+        );
+    }
+
+    #[test]
+    fn moray_can_detect_and_swim_towards_crab_far_above() {
+        use crate::{Kind, PlayerId, Sim};
+        use bevy_math::Vec2;
+        let mut sim = Sim::with_one_crab(Vec2::new(300.0, 250.0));
+        sim.enable_underwater_cells();
+        let cells = sim.level.cells.as_mut().unwrap();
+        cells.cells.fill(Cell::Water);
+        cells.pebble_owner.fill(0);
+        cells.pebbles.clear();
+        cells.pebble_motion.clear();
+        for x in 1..WIDTH - 1 {
+            for y in 68..=70 {
+                cells.cells[World::index(x as i32, y).unwrap()] = Cell::Rock;
+            }
+        }
+        sim.spawn_enemy(Kind::Moray, Vec2::new(400.0, 0.0));
+        let home = sim.enemies()[0].home;
+        let mut locked = false;
+        for _ in 0..400 {
+            let crab = sim.crab_mut(PlayerId(0)).unwrap();
+            crab.mover.pos = Vec2::new(300.0, 250.0);
+            crab.mover.vel = Vec2::ZERO;
+            sim.tick();
+            locked |= sim.enemies()[0].target == Some(PlayerId(0));
+        }
+        assert!(locked, "moray did not detect the elevated crab");
+        assert!(
+            sim.enemies()[0].pos.y > home.y + 100.0,
+            "moray did not pursue upward: {:?}",
+            sim.enemies()[0].pos
+        );
     }
 
     #[test]
