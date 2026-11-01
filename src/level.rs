@@ -179,7 +179,13 @@ fn draw_level(
         ));
     }
 
-    draw_climbs(&mut commands, &level.climbs, &mut meshes, &mut paint);
+    draw_climbs(
+        &mut commands,
+        &level.climbs,
+        &mut meshes,
+        &mut paint,
+        level.cells.is_some(),
+    );
 
     // Background spires, two layers. Triangles of different sizes.
     let spire = meshes.add(Triangle2d::new(
@@ -350,8 +356,12 @@ fn draw_climbs(
     climbs: &[Climb],
     meshes: &mut Assets<Mesh>,
     paint: &mut impl FnMut(Color) -> Handle<MemoryMaterial>,
+    cells_enabled: bool,
 ) {
     for c in climbs {
+        if cells_enabled && c.kind == Growth::Kelp && c.x == 280.0 {
+            continue;
+        }
         let mut draw = |mesh: Mesh, colour: Color, at: Vec2, angle: f32| {
             commands.spawn((
                 LevelShape,

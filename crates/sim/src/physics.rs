@@ -1055,7 +1055,7 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
     }
     let before = m.pos.y;
     m.pos.y += m.vel.y * dt;
-    let ceiling = crate::level::WATER_SURFACE_Y - m.half_width(t);
+    let ceiling = level.water_surface_at(m.pos.x) - m.half_width(t);
     if m.pos.y > ceiling {
         m.pos.y = ceiling;
         m.vel.y = m.vel.y.min(0.0);
@@ -1124,7 +1124,7 @@ fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut 
     // Up and down.
     let old_y = m.pos.y;
     m.pos.y += m.vel.y * dt;
-    let ceiling = crate::level::WATER_SURFACE_Y - h;
+    let ceiling = level.water_surface_at(m.pos.x) - h;
     if m.pos.y > ceiling {
         m.pos.y = ceiling;
         m.vel.y = m.vel.y.min(0.0);
@@ -1240,7 +1240,7 @@ fn move_and_collide_cells(
     let mut touched = false;
     for _ in 0..ysteps {
         let candidate = m.pos + Vec2::Y * (dy / ysteps as f32);
-        if candidate.y + height > crate::level::WATER_SURFACE_Y || blocked(candidate) {
+        if candidate.y + height > level.water_surface_at(candidate.x) || blocked(candidate) {
             touched = dy < 0.0;
             m.vel.y = 0.0;
             if dy > 0.0 {
@@ -1271,7 +1271,7 @@ pub fn is_valid_spot(pos: Vec2, size: f32, t: &Tuning, level: &Level) -> bool {
     inside_walls
         && !in_rock
         && pos.y >= level.floor_height(pos.x) - 1.0
-        && pos.y + t.body_height * size <= crate::level::WATER_SURFACE_Y
+        && pos.y + t.body_height * size <= level.water_surface_at(pos.x)
         && pos.y.is_finite()
 }
 

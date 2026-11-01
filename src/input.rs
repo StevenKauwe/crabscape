@@ -62,6 +62,7 @@ const ACTIONS: [TouchAction; 8] = [
 #[derive(Resource)]
 pub struct TouchControls {
     pub visible: bool,
+    pub dig_touch: Option<u64>,
 }
 
 /// Which buttons were held last frame, to notice new presses.
@@ -80,6 +81,7 @@ impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(TouchControls {
             visible: has_touch_screen(),
+            dig_touch: None,
         })
         .add_systems(Startup, spawn_touch_buttons)
         .add_systems(Update, read_input.in_set(GameSet::Input))
@@ -166,9 +168,13 @@ fn touched_buttons(
     touches: &Touches,
     mouse: &ButtonInput<MouseButton>,
     window: &Window,
-    cells_enabled: bool,
+    dig_touch: Option<u64>,
 ) -> Vec<TouchAction> {
-    let mut points: Vec<Vec2> = touches.iter().map(|t| t.position()).collect();
+    let mut points: Vec<Vec2> = touches
+        .iter()
+        .filter(|t| Some(t.id()) != dig_touch)
+        .map(|t| t.position())
+        .collect();
     if mouse.pressed(MouseButton::Left)
         && let Some(cursor) = window.cursor_position()
     {
@@ -178,11 +184,7 @@ fn touched_buttons(
         .into_iter()
         // A slightly bigger hit area than the drawn button: thumbs are imprecise.
         .filter(|(a, r)| {
-            (*a != TouchAction::Dig || cells_enabled)
-                && points.iter().any(|p| {
-                    r.inflate(if *a == TouchAction::Dig { 3.0 } else { 10.0 })
-                        .contains(*p)
-                })
+            *a != TouchAction::Dig && points.iter().any(|p| r.inflate(10.0).contains(*p))
         })
         .map(|(a, _)| a)
         .collect()
@@ -246,13 +248,35 @@ fn read_input(
     if touches.any_just_pressed() && !touch_controls.visible {
         touch_controls.visible = true;
     }
+    let cells_enabled = sim.level.cells.is_some();
+    let dig_rect = button_rects(window.size())[0].1;
+    if !cells_enabled
+        || touch_controls
+            .dig_touch
+            .is_some_and(|id| touches.get_pressed(id).is_none())
+    {
+        touch_controls.dig_touch = None;
+    }
+    if cells_enabled && touch_controls.dig_touch.is_none() {
+        touch_controls.dig_touch = touches
+            .iter_just_pressed()
+            .find(|t| dig_rect.inflate(3.0).contains(t.position()))
+            .map(|t| t.id());
+    }
+    let dig_vector = touch_controls
+        .dig_touch
+        .and_then(|id| touches.get_pressed(id))
+        .map(|t| {
+            ((t.position() - dig_rect.center()) / (dig_rect.width() * 0.38)).clamp_length_max(1.0)
+        })
+        .unwrap_or(Vec2::ZERO);
     let on_screen = if touch_controls.visible {
         touched_buttons(
             window.size(),
             &touches,
             &mouse,
             &window,
-            sim.level.cells.is_some(),
+            touch_controls.dig_touch,
         )
     } else {
         Vec::new()
@@ -277,11 +301,20 @@ fn read_input(
     ]) || touch(TouchAction::Jump);
     let mut dodge = any_key(&[KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ])
         || touch(TouchAction::Dodge);
-    // DIG burrows down, or sideways while a direction is held.
-    let digging = touch(TouchAction::Dig);
+    // The captured finger can leave the pad without becoming a walk button.
+    let digging = dig_vector.length() > 0.2;
+    if digging {
+        walk += if dig_vector.x.abs() > 0.2 {
+            dig_vector.x
+        } else {
+            0.0
+        };
+    }
+    jump |= digging && dig_vector.y < -0.35;
     dodge |= digging;
     // Down climbs down kelp or coral. (On a phone, holding DODGE does too.)
-    let mut down = any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]) || (digging && walk == 0.0);
+    let mut down =
+        any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]) || (digging && dig_vector.y > 0.35);
     let mut smash = any_key(&[KeyCode::KeyL, KeyCode::KeyE]) || touch(TouchAction::Smash);
     let mut jab = any_key(&[KeyCode::KeyO, KeyCode::KeyQ]) || touch(TouchAction::Jab);
     let mut guard = any_key(&[KeyCode::KeyI, KeyCode::KeyF]) || touch(TouchAction::Guard);
@@ -324,6 +357,9 @@ fn read_input(
     });
 }
 
+#[derive(Component)]
+struct DigKnob;
+
 /// The on-screen buttons: Bevy UI boxes, placed by [`layout_touch_buttons`].
 fn spawn_touch_buttons(mut commands: Commands) {
     for action in ACTIONS {
@@ -360,13 +396,34 @@ fn spawn_touch_buttons(mut commands: Commands) {
                         ..default()
                     },
                     TextColor(Color::srgba(1.0, 0.9, 0.7, 0.8)),
+                    if action == TouchAction::Dig {
+                        Node {
+                            position_type: PositionType::Absolute,
+                            top: px(2),
+                            ..default()
+                        }
+                    } else {
+                        Node::default()
+                    },
                 ));
+                if action == TouchAction::Dig {
+                    b.spawn((
+                        DigKnob,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            border_radius: BorderRadius::all(percent(50)),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgba(1.0, 0.85, 0.55, 0.55)),
+                    ));
+                }
             });
     }
 }
 
 /// Keep the buttons where [`button_rects`] says (the window can be resized or
 /// the phone rotated at any time), and light up the ones being pressed.
+#[allow(clippy::too_many_arguments)] // Bevy systems gather independent input and UI resources.
 fn layout_touch_buttons(
     window: Single<&Window>,
     touch_controls: Res<TouchControls>,
@@ -374,16 +431,34 @@ fn layout_touch_buttons(
     mouse: Res<ButtonInput<MouseButton>>,
     inside: Res<crate::interior::Inside>,
     sim: Res<crabsim::Sim>,
-    mut buttons: Query<(
-        &TouchAction,
-        &mut Node,
-        &mut Visibility,
-        &mut BackgroundColor,
-    )>,
+    mut buttons: Query<
+        (
+            &TouchAction,
+            &mut Node,
+            &mut Visibility,
+            &mut BackgroundColor,
+        ),
+        Without<DigKnob>,
+    >,
+    mut knobs: Query<&mut Node, (With<DigKnob>, Without<TouchAction>)>,
 ) {
     let size = window.size();
     let rects = button_rects(size);
-    let pressed = touched_buttons(size, &touches, &mouse, &window, sim.level.cells.is_some());
+    let pressed = touched_buttons(size, &touches, &mouse, &window, touch_controls.dig_touch);
+    let rect = rects[0].1;
+    let vector = touch_controls
+        .dig_touch
+        .and_then(|id| touches.get_pressed(id))
+        .map(|t| ((t.position() - rect.center()) / (rect.width() * 0.38)).clamp_length_max(1.0))
+        .unwrap_or(Vec2::ZERO);
+    for mut knob in &mut knobs {
+        let width = rect.width();
+        let diameter = width * 0.32;
+        knob.width = px(diameter);
+        knob.height = px(diameter);
+        knob.left = px((width - diameter) * 0.5 + vector.x * width * 0.28);
+        knob.top = px((width - diameter) * 0.5 + vector.y * width * 0.28);
+    }
     for (action, mut node, mut visibility, mut background) in &mut buttons {
         // Inside the home shell the claws stay folded: the fighting buttons
         // make way for the crafting menu.
@@ -412,7 +487,13 @@ fn layout_touch_buttons(
             node.width = w;
             node.height = h;
         }
-        let alpha = if pressed.contains(action) { 0.7 } else { 0.35 };
+        let alpha = if pressed.contains(action)
+            || (*action == TouchAction::Dig && touch_controls.dig_touch.is_some())
+        {
+            0.7
+        } else {
+            0.35
+        };
         background.set_if_neq(BackgroundColor(Color::srgba(0.05, 0.12, 0.14, alpha)));
     }
 }

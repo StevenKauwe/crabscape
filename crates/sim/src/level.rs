@@ -518,13 +518,36 @@ impl Level {
     /// The climb a crab standing (feet) at `pos` could grip, if any: one it
     /// overlaps sideways (within `reach` of its middle) and between its ends.
     /// Bare rock counts only for a crab with glass grips (`glass`).
-    pub fn climb_at(&self, pos: Vec2, reach: f32, glass: bool) -> Option<&Climb> {
-        self.climbs.iter().find(|c| {
-            (glass || c.kind != Growth::Rock)
-                && (pos.x - c.x).abs() <= reach
-                && pos.y >= c.bottom - 1.0
-                && pos.y <= c.top
-        })
+    pub fn climb_at(&self, pos: Vec2, reach: f32, glass: bool) -> Option<Climb> {
+        self.climbs
+            .iter()
+            .copied()
+            .map(|mut c| {
+                if let Some(cells) = &self.cells
+                    && c.kind == Growth::Kelp
+                    && c.x == 280.0
+                {
+                    c.x = cells.giant_kelp_x(pos.y);
+                }
+                c
+            })
+            .find(|c| {
+                (glass || c.kind != Growth::Rock)
+                    && (pos.x - c.x).abs() <= reach
+                    && pos.y >= c.bottom - 1.0
+                    && pos.y <= c.top
+            })
+    }
+
+    /// The experimental opening has its own nearby water surface.
+    pub fn water_surface_at(&self, x: f32) -> f32 {
+        if self.cells.is_some()
+            && (0.0..crate::underwater::WIDTH as f32 * crate::underwater::GAME_CELL).contains(&x)
+        {
+            crate::underwater::GAME_SURFACE
+        } else {
+            WATER_SURFACE_Y
+        }
     }
 
     /// The place whose doorway `pos` is in, if any.

@@ -156,6 +156,12 @@ impl Sim {
     /// Enable the draft's single-player material experiment in the opening area.
     pub fn enable_underwater_cells(&mut self) {
         self.level.cells = Some(crate::underwater::World::from_level(&self.level));
+        let root_floor = self.level.floor_height(280.0);
+        if let Some(kelp) = self.level.climbs.first_mut() {
+            kelp.x = 280.0;
+            kelp.bottom = root_floor;
+            kelp.top = crate::underwater::GAME_SURFACE;
+        }
     }
     /// An empty world: no crabs yet.
     pub fn new(tuning: Tuning, level: Level) -> Self {

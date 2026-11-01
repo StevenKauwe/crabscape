@@ -154,3 +154,46 @@ fn real_crab_can_push_into_the_opening_floor() {
         "crab could not escape after digging: {dug_to} to {highest}"
     );
 }
+
+#[test]
+fn moving_experimental_kelp_can_be_climbed_to_the_nearby_surface() {
+    let mut sim = Sim::with_one_crab(Vec2::new(280.0, 0.0));
+    sim.enable_underwater_cells();
+    let surface = sim.level.water_surface_at(280.0);
+    let initial_x = sim.level.cells.as_ref().unwrap().giant_kelp_x(200.0);
+    let mut climbed = false;
+    for tick in 0..240 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                jump_held: tick != 14,
+                jump_pressed: tick == 0 || tick == 15,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        climbed |= sim.crab(PlayerId(0)).unwrap().mover.climbing;
+    }
+    let swaying_x = sim.level.cells.as_ref().unwrap().giant_kelp_x(200.0);
+    assert!(
+        (swaying_x - initial_x).abs() > 0.01,
+        "kelp did not move with the water"
+    );
+    let grip = sim
+        .level
+        .climb_at(Vec2::new(swaying_x, 200.0), 0.1, false)
+        .expect("grip follows the stalk");
+    assert!((grip.x - swaying_x).abs() < 0.01);
+    let mover = &sim.crab(PlayerId(0)).unwrap().mover;
+    assert!(climbed, "crab never gripped the moving kelp");
+    assert!(
+        mover.pos.y > surface - 160.0,
+        "crab did not climb toward the surface: {}",
+        mover.pos.y
+    );
+    assert!(mover.pos.y < surface, "crab passed the water surface");
+    assert_eq!(
+        sim.level.water_surface_at(3000.0),
+        crabsim::level::WATER_SURFACE_Y
+    );
+}

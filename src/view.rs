@@ -127,6 +127,7 @@ fn read_zoom(
     keys: Res<ButtonInput<KeyCode>>,
     mut wheel: MessageReader<MouseWheel>,
     touches: Res<Touches>,
+    touch_controls: Res<TouchControls>,
     window: Single<&Window>,
     mut zoom: ResMut<Zoom>,
 ) {
@@ -149,6 +150,7 @@ fn read_zoom(
     let size = Vec2::new(window.width(), window.height());
     let fingers: Vec<Vec2> = touches
         .iter()
+        .filter(|t| Some(t.id()) != touch_controls.dig_touch)
         .map(|t| t.position())
         .filter(|p| !crate::input::on_a_button(size, *p))
         .collect();

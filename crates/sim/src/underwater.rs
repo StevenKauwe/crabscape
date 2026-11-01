@@ -7,6 +7,10 @@ pub const HEIGHT: usize = 360;
 /// World units per cell and the position of the experiment's lower edge.
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
+/// A nearby surface for the opening-area experiment.
+pub const GAME_SURFACE: f32 = 300.0;
+const GIANT_ROOT: i32 = 70;
+const GIANT_PARTS: usize = 64;
 const CRAB_HALF_X: i32 = 12;
 const CRAB_HALF_Y: i32 = 8;
 const KELP_ROOTS: [i32; 6] = [72, 160, 240, 420, 520, 580];
@@ -42,6 +46,10 @@ pub struct World {
     tracers: Vec<(f32, f32)>,
     silt: Vec<Silt>,
     kelp: [[f32; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
+    giant_kelp: [f32; GIANT_PARTS + 1],
+    giant_base: f32,
+    bubbles: Vec<(f32, f32)>,
+    game: bool,
     tick: u64,
 }
 
@@ -54,6 +62,17 @@ impl World {
     /// Make the opening section of the campaign from its existing floor.
     pub fn from_level(level: &crate::Level) -> Self {
         let mut world = Self::new();
+        world.game = true;
+        world.giant_base = level.floor_height(GIANT_ROOT as f32 * GAME_CELL);
+        world.bubbles = (0..48)
+            .map(|n| {
+                (
+                    20.0 + ((n * 137) % (WIDTH - 40)) as f32,
+                    ((world.giant_base - GAME_BOTTOM) / GAME_CELL + (n * 37 % 120) as f32)
+                        .min((GAME_SURFACE - GAME_BOTTOM) / GAME_CELL - 1.0),
+                )
+            })
+            .collect();
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 let wx = (x as f32 + 0.5) * GAME_CELL;
@@ -79,6 +98,16 @@ impl World {
             }
         }
         world
+    }
+    /// The swaying centre of the climbable stalk at this world height.
+    pub fn giant_kelp_x(&self, y: f32) -> f32 {
+        let u = ((y - self.giant_base) / (GAME_SURFACE - self.giant_base) * GIANT_PARTS as f32)
+            .clamp(0.0, GIANT_PARTS as f32 - 0.001);
+        let i = u as usize;
+        (GIANT_ROOT as f32
+            + (self.giant_kelp[i] * (1.0 - (u - i as f32))
+                + self.giant_kelp[i + 1] * (u - i as f32)))
+            * GAME_CELL
     }
     pub fn game_contains(x: f32, y: f32) -> bool {
         x >= 0.0
@@ -209,6 +238,10 @@ impl World {
                 .collect(),
             silt: Vec::new(),
             kelp: [[0.0; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
+            giant_kelp: [0.0; GIANT_PARTS + 1],
+            giant_base: 0.0,
+            bubbles: Vec::new(),
+            game: false,
             tick: 0,
         };
         for y in 0..HEIGHT {
@@ -762,6 +795,9 @@ impl World {
         // Each blade follows the local water with drag. Neighboring points
         // pull one another along slowly; no periodic spring animation.
         for (blade, root) in KELP_ROOTS.iter().copied().enumerate() {
+            if self.game && blade == 0 {
+                continue;
+            }
             let Some(base) = (12..120).find(|&y| {
                 self.cell(root, y) == Cell::Water && self.cell(root, y - 1) != Cell::Water
             }) else {
@@ -774,6 +810,28 @@ impl World {
                 let flow = self.flow_at(x, y).0;
                 let target = (self.kelp[blade][segment - 1] + flow * 1.7).clamp(-35.0, 35.0);
                 self.kelp[blade][segment] += (target - self.kelp[blade][segment]) * 0.07;
+            }
+        }
+        if self.game {
+            for segment in 1..=GIANT_PARTS {
+                let y = (self.giant_base - GAME_BOTTOM
+                    + (GAME_SURFACE - self.giant_base) * segment as f32 / GIANT_PARTS as f32)
+                    / GAME_CELL;
+                let x = GIANT_ROOT + self.giant_kelp[segment] as i32;
+                let flow = self.flow_at(x, y as i32).0;
+                let target = (self.giant_kelp[segment - 1] + flow * 0.45).clamp(-8.0, 8.0);
+                self.giant_kelp[segment] += (target - self.giant_kelp[segment]) * 0.045;
+            }
+            let surface = (GAME_SURFACE - GAME_BOTTOM) / GAME_CELL;
+            let base = (self.giant_base - GAME_BOTTOM) / GAME_CELL;
+            for (n, bubble) in self.bubbles.iter_mut().enumerate() {
+                if let Some(i) = Self::index(bubble.0 as i32, bubble.1 as i32) {
+                    bubble.0 = (bubble.0 + self.flow[i].0 * 0.14).clamp(1.0, WIDTH as f32 - 2.0);
+                }
+                bubble.1 += 0.42 + (n % 5) as f32 * 0.035;
+                if bubble.1 >= surface {
+                    bubble.1 = base + (n % 14) as f32;
+                }
             }
         }
         for p in &mut self.tracers {
@@ -901,9 +959,60 @@ impl World {
                 ]);
             }
         }
+        if self.game {
+            let surface_y = ((GAME_SURFACE - GAME_BOTTOM) / GAME_CELL) as i32;
+            for x in 0..WIDTH as i32 {
+                for dy in 0..2 {
+                    if let Some(i) = Self::index(x, surface_y + dy) {
+                        let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                        out[p..p + 4].copy_from_slice(&[
+                            123,
+                            194,
+                            191,
+                            if dy == 0 { 210 } else { 90 },
+                        ]);
+                    }
+                }
+            }
+            for (x, y) in &self.bubbles {
+                if let Some(i) = Self::index(*x as i32, *y as i32)
+                    && self.cells[i] == Cell::Water
+                {
+                    let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                    out[p..p + 4].copy_from_slice(&[181, 220, 215, 210]);
+                }
+            }
+            let base = ((self.giant_base - GAME_BOTTOM) / GAME_CELL) as i32;
+            for y in base..surface_y {
+                let wy = GAME_BOTTOM + y as f32 * GAME_CELL;
+                let x = (self.giant_kelp_x(wy) / GAME_CELL) as i32;
+                for dx in -1..=1 {
+                    if let Some(i) = Self::index(x + dx, y)
+                        && self.cells[i] == Cell::Water
+                    {
+                        let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                        out[p..p + 4].copy_from_slice(&[112, 147, 53, 255]);
+                    }
+                }
+                if (y - base) % 16 < 6 {
+                    let side = if ((y - base) / 16) % 2 == 0 { 1 } else { -1 };
+                    for dx in 2..=10 {
+                        if let Some(i) = Self::index(x + side * dx, y + dx / 3)
+                            && self.cells[i] == Cell::Water
+                        {
+                            let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                            out[p..p + 4].copy_from_slice(&[126, 158, 63, 255]);
+                        }
+                    }
+                }
+            }
+        }
         // Kelp is decorative and rooted in the original seabed; its blade
         // bends with the local current. It does not yet collide or grow.
         for (blade, root) in KELP_ROOTS.iter().copied().enumerate() {
+            if self.game && blade == 0 {
+                continue;
+            }
             let Some(base) = (12..120).find(|&y| {
                 self.cell(root, y) == Cell::Water && self.cell(root, y - 1) != Cell::Water
             }) else {
