@@ -491,17 +491,20 @@ impl World {
             self.opening_edge_opened = true;
         }
         let (cx, cy) = self.local_cell(x, y);
-        // Retain the opening while the player remains inside it; when an
-        // edge is reached, recenter in one operation even after a teleport.
-        let margin = 16.0;
+        // Bring unseen terrain into the simulation well before the crab
+        // reaches it, giving deposits time to settle outside the usual view.
+        // Sleeping chunks still resume their saved state; this is not a
+        // fast-forward of their missing history.
+        let margin_x = 160.0;
+        let margin_y = 80.0;
         let gx = (x / GAME_CELL).floor() as i32;
         let gy = ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32;
-        let target_x = if cx > WIDTH as f32 - margin || (cx < margin && self.origin.0 > 0) {
+        let target_x = if cx > WIDTH as f32 - margin_x || (cx < margin_x && self.origin.0 > 0) {
             ((gx - WIDTH as i32 / 2).div_euclid(64) * 64).max(0)
         } else {
             self.origin.0
         };
-        let target_y = if cy > HEIGHT as f32 - margin || cy < margin {
+        let target_y = if cy > HEIGHT as f32 - margin_y || cy < margin_y {
             (gy - HEIGHT as i32 / 2).div_euclid(64) * 64
         } else {
             self.origin.1
@@ -2123,8 +2126,10 @@ impl World {
         }
         // Bottom-up prevents a grain moving more than one cell in a tick.
         let mut moved_cells = vec![false; WIDTH * HEIGHT];
-        for y in 1..HEIGHT - 1 {
-            for n in 1..WIDTH - 1 {
+        // The top and side rows must also fall. They can be visible near a
+        // streaming boundary and otherwise leave grains frozen in mid-water.
+        for y in 1..HEIGHT {
+            for n in 0..WIDTH {
                 let x = if reverse { WIDTH - 1 - n } else { n };
                 let i = y * WIDTH + x;
                 if self.pebble_owner[i] != 0 {
@@ -2579,6 +2584,33 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_grains_fall_at_the_active_window_edges() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        let positions = [(0, 100), (WIDTH as i32 - 1, 100), (300, HEIGHT as i32 - 1)];
+        for &(x, y) in &positions {
+            world.cells[World::index(x, y).unwrap()] = Cell::Sand;
+        }
+        for _ in 0..4 {
+            world.step(0.0);
+        }
+        for &(x, y) in &positions {
+            assert_eq!(world.cell(x, y), Cell::Water, "grain stuck at {x},{y}");
+        }
+        assert_eq!(world.cells.iter().filter(|&&c| c == Cell::Sand).count(), 3);
+    }
+
+    #[test]
+    fn streaming_loads_a_buffer_before_the_player_reaches_the_edge() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        assert!(!world.follow_player(&level, 160.0, 0.0));
+        assert!(world.follow_player(&level, 1930.0, 0.0));
+        let (left, _, width, _) = world.game_bounds();
+        assert!(left + width - 1930.0 > 1000.0);
+    }
 
     #[test]
     fn scooping_grain_uses_open_water_and_never_crosses_rock() {
@@ -3378,7 +3410,7 @@ mod tests {
         sim.enemies_mut()[0].target = None;
         for _ in 0..320 {
             let crab = sim.crab_mut(PlayerId(0)).unwrap();
-            crab.mover.pos = Vec2::new(20.0, 1000.0);
+            crab.mover.pos = Vec2::new(20.0, 700.0);
             crab.mover.vel = Vec2::ZERO;
             sim.tick();
         }
@@ -3397,7 +3429,7 @@ mod tests {
     fn moray_locks_onto_and_bites_a_nearby_shrimp() {
         use crate::{Kind, PlayerId, Sim};
         use bevy_math::Vec2;
-        let mut sim = Sim::with_one_crab(Vec2::new(20.0, 1000.0));
+        let mut sim = Sim::with_one_crab(Vec2::new(20.0, 700.0));
         sim.enable_underwater_cells();
         let cells = sim.level.cells.as_mut().unwrap();
         cells.cells.fill(Cell::Water);
@@ -3421,7 +3453,7 @@ mod tests {
         let mut locked = false;
         for _ in 0..800 {
             let crab = sim.crab_mut(PlayerId(0)).unwrap();
-            crab.mover.pos = Vec2::new(20.0, 1000.0);
+            crab.mover.pos = Vec2::new(20.0, 700.0);
             crab.mover.vel = Vec2::ZERO;
             sim.tick();
             locked |= sim
@@ -3478,7 +3510,7 @@ mod tests {
     fn moray_routes_over_wall_to_reach_shrimp_without_crossing_rock() {
         use crate::{Kind, PlayerId, Sim};
         use bevy_math::{Rect, Vec2};
-        let mut sim = Sim::with_one_crab(Vec2::new(20.0, 1000.0));
+        let mut sim = Sim::with_one_crab(Vec2::new(20.0, 700.0));
         sim.enable_underwater_cells();
         sim.level.rocks.clear();
         sim.level.rocks.push(Rect::new(320.0, -76.0, 344.0, 40.0));
@@ -3505,7 +3537,7 @@ mod tests {
         let mut hit_wall = false;
         for _ in 0..1200 {
             let crab = sim.crab_mut(PlayerId(0)).unwrap();
-            crab.mover.pos = Vec2::new(20.0, 1000.0);
+            crab.mover.pos = Vec2::new(20.0, 700.0);
             crab.mover.vel = Vec2::ZERO;
             sim.tick();
             let eel = sim.enemies().iter().find(|e| e.id == moray).unwrap();
