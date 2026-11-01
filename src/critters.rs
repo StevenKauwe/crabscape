@@ -87,6 +87,15 @@ fn cave_rock_at(level: &crabsim::Level, p: Vec2) -> bool {
     crabsim::underwater::initial_terrain_cell(level, x, y) == crabsim::underwater::Cell::Rock
 }
 
+/// The straight animated tail is only visible until it meets hard terrain.
+fn moray_tail_clear(level: &crabsim::Level, start: Vec2, end: Vec2) -> bool {
+    let steps = (start.distance(end) / 4.0).ceil().max(1.0) as u32;
+    (1..=steps).all(|i| {
+        let p = start.lerp(end, i as f32 / steps as f32);
+        !level.solids().any(|rock| rock.contains(p)) && !cave_rock_at(level, p)
+    })
+}
+
 /// Build a naturally irregular opening out of rock cells only. Sand and open
 /// water never receive cave art, and no physical terrain is removed.
 fn moray_cave_mesh(level: &crabsim::Level, home: Vec2, offset: Vec2, size: Vec2) -> Mesh {
@@ -539,13 +548,6 @@ fn pose_critters(
                         // wave. Segments still inside the cave are hidden.
                         let out = e.pos.distance(e.home) + e.reach + 22.0 * moray_scale;
                         let distance = (f32::from(*n) + 0.5) * 12.0 * moray_scale;
-                        if let Some(mut visible) = vis {
-                            *visible = if distance < out {
-                                Visibility::Inherited
-                            } else {
-                                Visibility::Hidden
-                            };
-                        }
                         let moving = ((e.pos.distance(e.home) + e.reach) / (55.0 * moray_scale))
                             .clamp(0.0, 1.0);
                         let phase = c.time * 6.0 - distance / (20.0 * moray_scale);
@@ -553,6 +555,18 @@ fn pose_critters(
                         tr.translation.x = head.x - 16.0 * moray_scale - distance;
                         tr.translation.y = head.y + wave;
                         tr.rotation = Quat::from_rotation_z(-phase.cos() * 0.25 * moving);
+                        if let Some(mut visible) = vis {
+                            let origin = e.pos + Vec2::new(0.0, head.y);
+                            let segment =
+                                e.pos + Vec2::new(e.facing * tr.translation.x, tr.translation.y);
+                            *visible = if distance < out
+                                && moray_tail_clear(&sim.level, origin, segment)
+                            {
+                                Visibility::Inherited
+                            } else {
+                                Visibility::Hidden
+                            };
+                        }
                     } else {
                         let (at, turn) =
                             neck_at(head, head_turn, crevice, coil, *n, moray_mid, moray_scale);

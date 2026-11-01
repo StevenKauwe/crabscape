@@ -393,7 +393,9 @@ impl Enemy {
     pub fn strike_circle(&self, t: &Tuning) -> (Vec2, f32) {
         let k = self.kind.tuning(t);
         let s = &k.strike;
-        let out = if self.state == State::Attack && k.active_ticks > 0 {
+        let out = if self.kind == Kind::Moray && self.state == State::Attack {
+            self.reach
+        } else if self.state == State::Attack && k.active_ticks > 0 {
             s.lunge * (self.state_tick as f32 / k.active_ticks as f32).min(1.0)
         } else {
             0.0
@@ -708,6 +710,25 @@ pub fn step(
         State::Grab | State::Recover | State::Stagger => e.reach,
         _ => (e.reach - k.strike.lunge / HEAD_BACK_TICKS).max(0.0),
     };
+    if swimming_moray && e.reach > 0.0 {
+        // A lunge moves the head, not just the hit circle. Sweep its body
+        // along that movement so neither the visible head nor its bite can
+        // jump across a thin wall in a single tick.
+        let steps = (e.reach / 4.0).ceil() as u32;
+        let wanted = e.reach;
+        for i in 1..=steps {
+            let distance = wanted * i as f32 / steps as f32;
+            if swimmer_blocked(
+                level,
+                e.pos + Vec2::new(e.facing * distance, 0.0),
+                k.body.0 * 0.5 / 0.65,
+                k.body.1,
+            ) {
+                e.reach = wanted * (i - 1) as f32 / steps as f32;
+                break;
+            }
+        }
+    }
 
     // Follow-up hits (the bubble) pop when their time comes.
     let mut due = Vec::new();
@@ -903,7 +924,7 @@ pub fn step(
                     })
                 });
             if clear {
-                strike(e, crabs, t, &k, &mut blows);
+                strike(e, crabs, t, &k, &mut blows, swimming_moray.then_some(level));
             }
         }
         State::Grab => {
@@ -1120,6 +1141,7 @@ pub(crate) fn strike(
     t: &Tuning,
     k: &EnemyTuning,
     blows: &mut Vec<(PlayerId, Outcome)>,
+    obstacle_level: Option<&Level>,
 ) {
     let (centre, radius) = e.strike_circle(t);
     let s = &k.strike;
@@ -1128,6 +1150,13 @@ pub(crate) fn strike(
             continue;
         }
         let body = combat::body(&crab.mover, t);
+        if obstacle_level.is_some_and(|level| {
+            !crate::navigation::clear_line(e.pos, crab.mover.pos, &|p| {
+                swimmer_blocked(level, p, k.body.0 * 0.5, k.body.1)
+            })
+        }) {
+            continue;
+        }
         let meets = match e.shock_box(t) {
             Some(shock) => !shock.intersect(body).is_empty(),
             None => circle_meets(centre, radius, body),

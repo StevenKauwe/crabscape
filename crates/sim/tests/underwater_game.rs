@@ -494,6 +494,35 @@ fn crab_settles_on_the_visible_floor_above_the_trench_moray() {
 }
 
 #[test]
+fn moray_lunge_and_bite_do_not_cross_a_rock_wall() {
+    use crabsim::{Kind, enemy::State};
+
+    let mut sim = Sim::with_one_crab(Vec2::new(550.0, 400.0));
+    sim.level.rocks.push(Rect::new(490.0, 300.0, 500.0, 500.0));
+    sim.enable_underwater_cells();
+    let eel_id = sim.spawn_enemy(Kind::Moray, Vec2::new(450.0, 400.0));
+    let health = sim.crab(PlayerId(0)).unwrap().fighter.vitals.health;
+    let eel = sim
+        .enemies_mut()
+        .iter_mut()
+        .find(|e| e.id == eel_id)
+        .unwrap();
+    eel.pos = Vec2::new(450.0, 400.0);
+    eel.facing = 1.0;
+    eel.target = Some(PlayerId(0));
+    eel.state = State::Attack;
+    eel.state_len = 100;
+    eel.state_tick = 7;
+    sim.tick();
+    let eel = sim.enemies().iter().find(|e| e.id == eel_id).unwrap();
+    assert!(
+        eel.head_x(&sim.tuning) + eel.reach <= 490.0,
+        "head crossed wall: {eel:?}"
+    );
+    assert_eq!(sim.crab(PlayerId(0)).unwrap().fighter.vitals.health, health);
+}
+
+#[test]
 fn first_moray_hunts_and_eats_the_nearby_starting_shrimp() {
     use crabsim::Kind;
     let mut sim = Sim::with_one_crab(Vec2::new(100.0, 1000.0));
