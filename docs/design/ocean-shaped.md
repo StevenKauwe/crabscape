@@ -55,12 +55,15 @@ link` in that list.
 | 11 | **Diel vertical migration:** each night huge numbers of animals rise to feed, then sink at dawn | Day and night change which creatures are where (`universe.md`) | [WHOI-DVM] WHOI news release (2022), https://www.whoi.edu/press-room/news-release/whoi-leads-multi-ship-study-of-northwest-atlantic/ |
 | 12 | The **oxygen minimum zone**, about 200 to 1,500 m deep depending on the place (the row said 1,000), holds very little dissolved oxygen: below 2 mg/L against a normal 4–6, sometimes none at all. OMZs are found worldwide, mostly along continents' western coasts. Oh no way: giant red mysids live there on gills with a huge surface | The real breathing limit for a crab | [WP-OMZ] |
 | 13 | Deep-sea animals accumulate **TMAO**, which counters pressure's effect on proteins: in bony fishes it rises from 40 to 261 mmol/kg between 0 and 4,850 m, and deep crabs carry more too (*Chionoecetes*: 22 shallow, 164 at bathyal depth). Oh no way: extrapolated, a fish would reach the sea's own saltiness at about 8,200 m, which may be why no fish lives deeper | Depth tolerance you build by adapting | [YANCEY-2014], [KELLY-1999] |
+| 14 | Blue crabs respond to chemical signals detected at their antennules while tracking a plume upstream; they also change height as the plume changes | Nearby scent cues, stretching upstream with the water; the drawn shapes and distances are game choices, not measurements | [PAGE] |
 
 A research log of papers and sources backs every creature and mechanic. Anatomy for the player crab is already
 sourced in `art/crab/anatomy-notes.md`; keep its "not verified" flags honest.
 
 ## Sources
 Each opened and checked against the row it backs.
+- **[PAGE]** Page, Dickman, Webster & Weissburg, "Simultaneous correlation of odor-plume structure and behavior I",
+  SICB meeting abstract. <https://sicb.org/abstracts/simultaneous-correlation-of-odor-plume-structure-and-behavior-i-three-dimensional-plume-structure-at-antennules-affects-speed-and-sensor-height-in-tracking-blue-crabs/>
 - **[TUFTS-VC]** Tufts Now, "Social Networking Helps Hermit Crabs Find Homes" (2010), on Rotjan, Chabot & Lewis,
   "Social context of shell acquisition in *Coenobita clypeatus* hermit crabs", *Behavioral Ecology* 21(3) (2010).
   <https://now.tufts.edu/2010/04/26/social-networking-helps-hermit-crabs-find-homes>

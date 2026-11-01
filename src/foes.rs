@@ -150,6 +150,7 @@ fn spawn_mantis(commands: &mut Commands, e: &Enemy, art: &CreatureArt, soft: &So
     let dot = soft.dot.clone();
     let root = commands
         .spawn((
+            crate::creature_art::ScentRoot(e.id),
             Foe {
                 id: e.id,
                 rear: 0.0,
@@ -364,10 +365,9 @@ fn pose_foes(
         let phase = e.phase(t);
         let hidden = e.hidden(t);
         let body = lies_dead(e, &sim);
-        // Out of the crab's sight it isn't shown (its last sighting is, see
-        // `memory.rs`).
+        // Out of sight, a nearby scent can still reveal the live puppet.
         shown.set_if_neq(
-            if (e.state == State::Gone && !body) || !known.perceives_animal(e.pos) {
+            if (e.state == State::Gone && !body) || !known.senses_animal(&sim, e.pos) {
                 Visibility::Hidden
             } else {
                 Visibility::Inherited

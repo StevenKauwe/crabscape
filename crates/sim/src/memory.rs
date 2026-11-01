@@ -294,11 +294,14 @@ impl Memory {
             *last = self.now;
         }
         self.refresh_home();
-        // Animals: where they are now if in sight; a remembered one whose
-        // spot is in sight but who isn't there any more is forgotten.
+        // Animals in sight or close enough to smell update their last known
+        // position. Only sight can confirm that an old spot is empty.
         let sees = |m: &Self, p: Vec2| sight.sees(p) && m.clear_line(eye, p, t);
+        let current = level.water_at(eye, &tuning.tide);
         for e in enemies {
-            let here = e.state != State::Gone && sees(self, e.pos + ANIMAL_EYE_LINE);
+            let point = e.pos + ANIMAL_EYE_LINE;
+            let here = e.state != State::Gone
+                && (sees(self, point) || scent_at(eye, point, current, t) == Scent::Animal);
             let known = self.sightings.iter().position(|s| s.id == e.id);
             if here {
                 let s = Sighting {
@@ -410,6 +413,60 @@ impl Sight {
 
     fn bounds(&self) -> Rect {
         Rect::from_center_half_size(self.eye, self.radii)
+    }
+}
+
+/// How strongly the crab senses an animal's scent. A current carries scent
+/// from upstream, so the sensed area reaches further against the flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scent {
+    None,
+    Direction,
+    Animal,
+}
+
+/// `current` is the signed vertical water speed at the crab (positive is up).
+/// Scent passes obstacles, but has a finite range in still water too.
+pub fn scent_at(eye: Vec2, animal: Vec2, current: f32, tuning: &MemoryTuning) -> Scent {
+    let distance = scent_distance(eye, animal, current, tuning);
+    if distance <= tuning.smell_radius {
+        Scent::Animal
+    } else if distance <= tuning.smell_direction_radius {
+        Scent::Direction
+    } else {
+        Scent::None
+    }
+}
+
+/// Distance through the tuned scent field, including the upstream stretch.
+pub fn scent_distance(eye: Vec2, animal: Vec2, current: f32, tuning: &MemoryTuning) -> f32 {
+    let mut offset = animal - eye;
+    if current.abs() > f32::EPSILON && offset.y * current < 0.0 {
+        offset.y /= tuning.smell_upstream.max(1.0);
+    }
+    offset.length()
+}
+
+#[cfg(test)]
+mod scent_tests {
+    use super::*;
+
+    #[test]
+    fn scent_is_local_and_reaches_further_upstream() {
+        let eye = Vec2::ZERO;
+        let t = &Tuning::default().memory;
+        assert_eq!(scent_at(eye, Vec2::new(500.0, 0.0), 0.0, t), Scent::Animal);
+        assert_eq!(
+            scent_at(eye, Vec2::new(700.0, 0.0), 0.0, t),
+            Scent::Direction
+        );
+        assert_eq!(scent_at(eye, Vec2::new(900.0, 0.0), 0.0, t), Scent::None);
+        assert_eq!(scent_at(eye, Vec2::new(0.0, -700.0), 1.0, t), Scent::Animal);
+        assert_eq!(
+            scent_at(eye, Vec2::new(0.0, 700.0), 1.0, t),
+            Scent::Direction
+        );
+        assert_eq!(scent_at(eye, Vec2::new(0.0, 700.0), -1.0, t), Scent::Animal);
     }
 }
 
