@@ -175,6 +175,41 @@ fn real_crab_can_push_into_the_opening_floor() {
 }
 
 #[test]
+fn dig_joystick_can_push_up_out_of_the_seabed_without_jumping() {
+    let mut sim = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+    sim.enable_underwater_cells();
+    for _ in 0..90 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                down: true,
+                dig_held: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+    }
+    assert!(sim.crab(PlayerId(0)).unwrap().mover.pos.y < -2.0);
+    let mut highest = f32::MIN;
+    for _ in 0..240 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                dig_held: true,
+                dig_up: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        highest = highest.max(sim.crab(PlayerId(0)).unwrap().mover.pos.y);
+    }
+    assert!(
+        highest >= 0.0,
+        "upward digging could not reach the surface: {highest}"
+    );
+}
+
+#[test]
 fn moving_experimental_kelp_can_be_climbed_toward_the_existing_surface() {
     let mut sim = Sim::with_one_crab(Vec2::new(280.0, 0.0));
     sim.enable_underwater_cells();
