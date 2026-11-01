@@ -2618,12 +2618,18 @@ mod tests {
         let home = sim.enemies()[0].home;
         sim.enemies_mut()[0].state = State::Approach;
         sim.enemies_mut()[0].target = Some(PlayerId(0));
-        for _ in 0..100 {
+        let mut attacked = false;
+        let mut hit = false;
+        for _ in 0..190 {
             let crab = sim.crab_mut(PlayerId(0)).unwrap();
             crab.mover.pos = Vec2::new(230.0, 40.0);
             crab.mover.vel = Vec2::ZERO;
             sim.tick();
+            attacked |= matches!(sim.enemies()[0].state, State::Attack | State::Grab);
+            hit |= sim.crab(PlayerId(0)).unwrap().events.hurt;
         }
+        assert!(attacked, "swimming moray never attempted its bite");
+        assert!(hit, "swimming moray failed to hit an in-range crab");
         let eel = sim.enemies().iter().find(|e| e.id == id).unwrap();
         assert!(
             eel.pos.x < home.x - 30.0 && eel.pos.y > home.y + 25.0,
