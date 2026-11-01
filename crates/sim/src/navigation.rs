@@ -61,7 +61,7 @@ pub(crate) fn swim_route(
             (1, -1),
         ] {
             let (nx, ny) = (x + dx, y + dy);
-            if nx < 0 || nx >= SIDE || ny < 0 || ny >= SIDE {
+            if !(0..SIDE).contains(&nx) || !(0..SIDE).contains(&ny) {
                 continue;
             }
             let q = point(nx, ny);

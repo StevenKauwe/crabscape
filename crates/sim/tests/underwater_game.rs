@@ -592,3 +592,72 @@ fn moray_keeps_hunting_and_eats_mantis_across_trench_lip() {
     let shrimp = sim.enemies().iter().find(|e| e.id == shrimp_id).unwrap();
     panic!("moray did not finish the mantis: eel {eel:?}, shrimp {shrimp:?}");
 }
+
+#[test]
+fn mantis_recovers_from_trench_rocks_and_returns_home() {
+    use crabsim::Kind;
+    for start in [
+        Vec2::new(1350.0, -180.0),
+        Vec2::new(1450.0, -180.0),
+        Vec2::new(1320.0, -160.0),
+    ] {
+        let mut sim = Sim::with_one_crab(Vec2::new(100.0, 1000.0));
+        sim.enable_underwater_cells();
+        let id = sim.spawn_enemy(Kind::Mantis, Vec2::new(1120.0, 0.0));
+        let home = sim.enemies()[0].home;
+        sim.enemies_mut()[0].pos = start;
+        for _ in 0..1200 {
+            let crab = sim.crab_mut(PlayerId(0)).unwrap();
+            crab.mover.pos = Vec2::new(100.0, 1000.0);
+            crab.mover.vel = Vec2::ZERO;
+            sim.tick();
+        }
+        let animal = sim.enemies().iter().find(|e| e.id == id).unwrap();
+        assert!(
+            animal.pos.distance(home) < 10.0,
+            "mantis failed to escape from {start:?}: {:?}",
+            animal.pos
+        );
+        assert!(animal.hidden(&sim.tuning), "mantis did not settle at home");
+    }
+}
+
+#[test]
+fn moray_and_embedded_mantis_do_not_remain_stuck_in_trench() {
+    use crabsim::Kind;
+    let mut sim = Sim::with_one_crab(Vec2::new(100.0, 1000.0));
+    sim.enable_underwater_cells();
+    let eel_id = sim.spawn_enemy(Kind::Moray, Vec2::new(1760.0, 0.0));
+    let shrimp_id = sim.spawn_enemy(Kind::Mantis, Vec2::new(1120.0, 0.0));
+    sim.enemies_mut()
+        .iter_mut()
+        .find(|e| e.id == shrimp_id)
+        .unwrap()
+        .pos = Vec2::new(1350.0, -180.0);
+    let mut locked = false;
+    let mut shrimp_escaped = false;
+    for _ in 0..3000 {
+        let crab = sim.crab_mut(PlayerId(0)).unwrap();
+        crab.mover.pos = Vec2::new(100.0, 1000.0);
+        crab.mover.vel = Vec2::ZERO;
+        sim.tick();
+        let eel = sim.enemies().iter().find(|e| e.id == eel_id).unwrap();
+        let shrimp = sim.enemies().iter().find(|e| e.id == shrimp_id).unwrap();
+        locked |= eel.animal_target == Some(shrimp_id);
+        shrimp_escaped |= shrimp.pos.y > -120.0;
+        if sim
+            .shared
+            .bodies_eaten
+            .iter()
+            .any(|&(id, _)| id == shrimp_id)
+        {
+            assert!(locked && shrimp_escaped, "hunt skipped the trapped prey");
+            return;
+        }
+    }
+    let eel = sim.enemies().iter().find(|e| e.id == eel_id).unwrap();
+    let shrimp = sim.enemies().iter().find(|e| e.id == shrimp_id).unwrap();
+    panic!(
+        "trench encounter did not resolve: locked {locked}, escaped {shrimp_escaped}, eel {eel:?}, shrimp {shrimp:?}"
+    );
+}

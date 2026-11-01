@@ -533,6 +533,66 @@ pub(crate) fn swimmer_blocked(level: &Level, p: Vec2, half: f32, height: f32) ->
     solid || sediment || floor || p.x < level.min_x + half || p.x > level.max_x - half
 }
 
+/// Move an already interpenetrating animal toward the nearest clear water.
+/// It may only decrease rock overlap; it cannot use this to enter a wall.
+/// This is a bounded recovery for bad contacts, not normal locomotion.
+pub(crate) fn recover_from_rock(e: &mut Enemy, level: &Level, t: &Tuning) -> bool {
+    let (width, height) = e.kind.tuning(t).body;
+    let half = width * 0.5;
+    let rock_overlap = |p: Vec2| -> f32 {
+        let (left, right, bottom, top) = (
+            p.x - half * 0.65,
+            p.x + half * 0.65,
+            p.y + 1.0,
+            p.y + height * 0.85,
+        );
+        let rect_area: f32 = level
+            .solids()
+            .map(|r| {
+                (right.min(r.max.x) - left.max(r.min.x)).max(0.0)
+                    * (top.min(r.max.y) - bottom.max(r.min.y)).max(0.0)
+            })
+            .sum();
+        let cells = level
+            .cells
+            .as_ref()
+            .map_or(0, |c| c.game_rock_overlap(left, bottom, right, top));
+        rect_area + cells as f32 * 16.0
+    };
+    let overlap = rock_overlap(e.pos);
+    if overlap <= 0.0 {
+        return false;
+    }
+    let mut best: Option<(f32, Vec2)> = None;
+    for direction in [Vec2::Y, -Vec2::X, Vec2::X, -Vec2::Y] {
+        let mut previous = overlap;
+        for n in 1..=64 {
+            let distance = n as f32 * 4.0;
+            let p = e.pos + direction * distance;
+            let next_overlap = rock_overlap(p);
+            if next_overlap > previous + 32.0 {
+                break;
+            }
+            previous = next_overlap;
+            if next_overlap <= 0.0 && !swimmer_blocked(level, p, half, height) {
+                if best.is_none_or(|(old, _)| distance < old) {
+                    best = Some((distance, p));
+                }
+                break;
+            }
+        }
+    }
+    if let Some((distance, destination)) = best {
+        let step = (160.0 * STEP).min(distance);
+        e.pos += (destination - e.pos).normalize_or_zero() * step;
+        e.vel_x = 0.0;
+        e.swim_path.clear();
+        true
+    } else {
+        false
+    }
+}
+
 /// Advance one enemy by one tick. Its blows reach only crabs that run on
 /// this device (a remote crab's own device judges them). Returns how each
 /// blow that reached a crab went.
@@ -894,7 +954,11 @@ pub fn step(
         let half = k.body.0 / 2.0;
         let x = (e.pos.x + (e.vel_x + e.facing * want_speed) * STEP)
             .clamp(level.min_x + half, level.max_x - half);
-        if swimming_moray {
+        let escaping_mantis = e.kind == Kind::Mantis
+            && level.cells.is_some()
+            && matches!(e.state, State::Idle | State::Flee)
+            && (e.pos.y < e.home.y - MAX_STEP || !e.swim_path.is_empty());
+        if swimming_moray || escaping_mantis {
             // It leaves its crevice and moves through water toward the crab,
             // then returns to the fixed home. Solid terrain still blocks it.
             let goal = match e.state {
@@ -925,16 +989,27 @@ pub fn step(
                     && (horizontal_blocked || line_blocked || blocked(direct))
                 {
                     e.swim_goal = goal;
-                    e.swim_path =
-                        crate::navigation::swim_route(e.pos, goal, k.strike_range * 0.85, blocked)
-                            .unwrap_or_default();
+                    e.swim_path = crate::navigation::swim_route(
+                        e.pos,
+                        goal,
+                        if escaping_mantis {
+                            24.0
+                        } else {
+                            k.strike_range * 0.85
+                        },
+                        blocked,
+                    )
+                    .unwrap_or_default();
                     e.swim_retry = 45;
                 }
                 if let Some(&waypoint) = e.swim_path.first() {
                     let d = waypoint - e.pos;
                     let next = e.pos
                         + Vec2::new(
-                            d.x.clamp(-k.approach_speed * STEP, k.approach_speed * STEP),
+                            d.x.clamp(
+                                -k.approach_speed.min(160.0) * STEP,
+                                k.approach_speed.min(160.0) * STEP,
+                            ),
                             d.y.clamp(-100.0 * STEP, 100.0 * STEP),
                         );
                     if !blocked(next) {
@@ -960,7 +1035,7 @@ pub fn step(
             } else {
                 e.swim_path.clear();
             }
-            if e.state == State::Idle && e.pos.distance(e.home) < 4.0 {
+            if swimming_moray && e.state == State::Idle && e.pos.distance(e.home) < 4.0 {
                 e.pos = e.home;
                 e.vel_x = 0.0;
                 e.reach = 0.0;

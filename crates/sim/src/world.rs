@@ -1290,14 +1290,45 @@ impl Sim {
         let runs = self.runs_each();
         for (e, runs) in self.enemies.iter_mut().zip(runs) {
             let previous = e.pos;
-            let blows = enemy::step(
-                e,
-                &mut self.crabs,
-                &self.tuning,
-                &self.level,
-                &mut self.rng,
-                &animals,
-            );
+            // Correct existing rock overlaps without allowing normal travel
+            // through walls; move loose grains rather than deleting them.
+            let local_animal = self.level.cells.is_some()
+                && matches!(e.kind, Kind::Mantis | Kind::Snapper | Kind::Moray)
+                && crate::underwater::World::game_contains(e.pos.x, e.pos.y)
+                && e.state != enemy::State::Gone
+                && !e.held
+                && e.vitals.hitstop == 0;
+            let recovering = local_animal && enemy::recover_from_rock(e, &self.level, &self.tuning);
+            if local_animal
+                && !recovering
+                && self.tick.is_multiple_of(4)
+                && let Some(cells) = self.level.cells.as_mut()
+            {
+                let (width, height) = e.kind.tuning(&self.tuning).body;
+                let half = width * 0.325;
+                let embedded = cells.game_movement_blocked(
+                    e.pos.x - half,
+                    e.pos.y + 1.0,
+                    e.pos.x + half,
+                    e.pos.y + height * 0.85,
+                    0.0,
+                );
+                if embedded && cells.clear_animal_upward(e.pos.x, e.pos.y, half, height * 0.85) {
+                    e.pos.y += crate::underwater::GAME_CELL;
+                }
+            }
+            let blows = if recovering {
+                Vec::new()
+            } else {
+                enemy::step(
+                    e,
+                    &mut self.crabs,
+                    &self.tuning,
+                    &self.level,
+                    &mut self.rng,
+                    &animals,
+                )
+            };
             if self.level.cells.is_some()
                 && e.kind == Kind::Moray
                 && e.state == enemy::State::Attack

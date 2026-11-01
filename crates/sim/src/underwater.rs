@@ -508,6 +508,28 @@ impl World {
         false
     }
 
+    /// Amount of immutable rock overlapping a body, in cells. Used only to
+    /// recover animals already embedded by terrain or a knockback.
+    pub(crate) fn game_rock_overlap(
+        &self,
+        min_x: f32,
+        min_y: f32,
+        max_x: f32,
+        max_y: f32,
+    ) -> usize {
+        let (x0, y0) = Self::game_cell(min_x, min_y);
+        let (x1, y1) = Self::game_cell(max_x, max_y);
+        let mut count = 0;
+        for y in y0.floor() as i32..=y1.floor() as i32 {
+            for x in x0.floor() as i32..=x1.floor() as i32 {
+                if Self::index(x, y).is_some_and(|i| self.cells[i] == Cell::Rock) {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     /// Require a little surrounding loose material to brace against while
     /// digging; isolated motes in open water are not a surface to climb.
     pub fn game_dig_support(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
@@ -939,8 +961,9 @@ impl World {
             for col in 0..side {
                 let ox = if dx > 0 { side - 1 - col } else { col };
                 let oy = if dy > 0 { side - 1 - row } else { row };
-                let from = Self::index(p.x + ox, p.y + oy).unwrap();
-                let to = Self::index(p.x + ox + dx, p.y + oy + dy).unwrap();
+                let from = Self::index(p.x + ox, p.y + oy).expect("pebble source was checked");
+                let to = Self::index(p.x + ox + dx, p.y + oy + dy)
+                    .expect("pebble destination was checked");
                 self.swap_cells(from, to);
             }
         }
@@ -1200,9 +1223,18 @@ impl World {
                     Cell::Rock => break,
                     Cell::Sand | Cell::Mud => {
                         // A walking leg pushes down and backward against the bed.
-                        self.push_column(foot_x, sy, -thrust_x.signum() as i32, 0, force, None);
+                        self.push_column(
+                            foot_x,
+                            sy,
+                            -thrust_x.signum() as i32,
+                            0,
+                            force,
+                            None,
+                            false,
+                            None,
+                        );
                         if matches!(self.cell(foot_x, sy), Cell::Sand | Cell::Mud) {
-                            self.push_column(foot_x, sy, 0, -1, force, None);
+                            self.push_column(foot_x, sy, 0, -1, force, None, false, None);
                         }
                         disturbed = true;
                         break;
@@ -1330,6 +1362,30 @@ impl World {
         }
     }
 
+    /// Try to clear a small upward movement for an animal embedded in loose
+    /// sediment. The ordinary crab reservation is restored afterward and is
+    /// never replaced when the two bodies overlap. Rock is never displaced.
+    pub fn clear_animal_upward(&mut self, x: f32, feet: f32, half_width: f32, height: f32) -> bool {
+        let (cx, cy) = Self::game_cell(x, feet + height * 0.5);
+        let hx = (half_width / GAME_CELL).floor().max(1.0) as i32;
+        // Do not round the lower edge down into the floor beneath its feet.
+        let hy = (height * 0.5 / GAME_CELL).floor().max(1.0) as i32;
+        let previous = (self.crab, self.crab_half_x, self.crab_half_y);
+        if let Some((px, py)) = self.crab
+            && (cx as i32 - px).abs() <= hx + self.crab_half_x + 2
+            && (cy as i32 - py).abs() <= hy + self.crab_half_y + 2
+        {
+            return false;
+        }
+        self.crab = Some((cx as i32, cy as i32));
+        self.crab_half_x = hx;
+        self.crab_half_y = hy;
+        let protected = previous.0.map(|(x, y)| (x, y, previous.1, previous.2));
+        let cleared = self.push_body(cx, cy + 1.0, 0, 1, 48, true, protected);
+        (self.crab, self.crab_half_x, self.crab_half_y) = previous;
+        cleared
+    }
+
     /// During downward digging the claws sweep pebbles beside the shell
     /// upward, opening space for displaced sand to leave around the crab.
     pub fn swoop_dig_pebbles(&mut self, force: usize) {
@@ -1364,6 +1420,20 @@ impl World {
     /// one unit of force per cell and cohesive mud costs two. Grains can
     /// move sideways toward an opening as well as straight ahead.
     pub fn push_for_crab(&mut self, x: f32, y: f32, dx: i32, dy: i32, force: usize) -> bool {
+        self.push_body(x, y, dx, dy, force, false, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_body(
+        &mut self,
+        x: f32,
+        y: f32,
+        dx: i32,
+        dy: i32,
+        force: usize,
+        through_body: bool,
+        protected: Option<(i32, i32, i32, i32)>,
+    ) -> bool {
         if dx.abs() + dy.abs() != 1 {
             return false;
         }
@@ -1385,6 +1455,11 @@ impl World {
                     if matches!(self.cell(sx, sy), Cell::Sand | Cell::Mud) {
                         let owner = Self::index(sx, sy).map_or(0, |i| self.pebble_owner[i]);
                         if owner != 0 {
+                            // Whole-pebble planning uses the crab reservation;
+                            // avoid it while an independent animal is pushing.
+                            if through_body {
+                                continue;
+                            }
                             let pebble = self.pebbles[owner as usize - 1];
                             let mid_x = pebble.x + i32::from(pebble.side) / 2;
                             let mid_y = pebble.y + i32::from(pebble.side) / 2;
@@ -1404,7 +1479,16 @@ impl World {
                                 }
                             }
                         } else {
-                            self.push_column(sx, sy, dx, dy, force, Some((cx, cy)));
+                            self.push_column(
+                                sx,
+                                sy,
+                                dx,
+                                dy,
+                                force,
+                                Some((cx, cy)),
+                                through_body,
+                                protected,
+                            );
                         }
                         moved_this_pass |= self.cell(sx, sy) == Cell::Water;
                     }
@@ -1450,6 +1534,7 @@ impl World {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn push_column(
         &mut self,
         x: i32,
@@ -1458,6 +1543,8 @@ impl World {
         dy: i32,
         force: usize,
         target: Option<(i32, i32)>,
+        through_body: bool,
+        protected: Option<(i32, i32, i32, i32)>,
     ) {
         let Some(start) = Self::index(x, y) else {
             return;
@@ -1511,10 +1598,16 @@ impl World {
                     continue;
                 }
                 let Some(ln) = local(n) else { continue };
-                if self.crab.is_some_and(|(cx, cy)| {
-                    ((n % WIDTH) as i32 - cx).abs() <= self.crab_half_x
-                        && ((n / WIDTH) as i32 - cy).abs() <= self.crab_half_y
-                }) {
+                if (!through_body
+                    && self.crab.is_some_and(|(cx, cy)| {
+                        ((n % WIDTH) as i32 - cx).abs() <= self.crab_half_x
+                            && ((n / WIDTH) as i32 - cy).abs() <= self.crab_half_y
+                    }))
+                    || protected.is_some_and(|(cx, cy, hx, hy)| {
+                        ((n % WIDTH) as i32 - cx).abs() <= hx
+                            && ((n / WIDTH) as i32 - cy).abs() <= hy
+                    })
+                {
                     continue;
                 }
                 let cost = match self.cells[n] {
@@ -1547,7 +1640,7 @@ impl World {
                 queue.push_back(n);
             }
         }
-        if let Some(target) = target {
+        if !through_body && let Some(target) = target {
             self.scoop_around_crab(start, dx, dy, force, target);
         }
     }
@@ -1764,11 +1857,9 @@ impl World {
                 {
                     self.swap_cells(i, to);
                     self.suspended[to] = properties.suspension_ticks.saturating_sub(
-                        if properties.suspension_density_divisor == 0 {
-                            0
-                        } else {
-                            density / properties.suspension_density_divisor
-                        },
+                        density
+                            .checked_div(properties.suspension_density_divisor)
+                            .unwrap_or(0),
                     );
                     if material == Cell::Mud && density < 100 {
                         self.emit_silt(x as f32, y as f32 + 1.0);
@@ -2211,6 +2302,37 @@ mod tests {
         assert_eq!(sample(5000.0, 20.0), Cell::Sand);
         assert_eq!(sample(7000.0, 20.0), Cell::Mud);
         assert_eq!(sample(7000.0, 120.0), Cell::Rock);
+    }
+
+    #[test]
+    fn embedded_animal_moves_sand_without_touching_crab_or_rock() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.set_game_crab(120.0, 100.0, 3.0, 3.0);
+        for x in 95..=105 {
+            for y in 98..=103 {
+                world.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        world.cells[World::index(110, 98).unwrap()] = Cell::Rock;
+        let count = |w: &World, kind: Cell| w.cells.iter().filter(|&&c| c == kind).count();
+        let (sand, rock) = (count(&world, Cell::Sand), count(&world, Cell::Rock));
+        let reservation = (world.crab, world.crab_half_x, world.crab_half_y);
+        let feet = GAME_BOTTOM + 98.0 * GAME_CELL;
+        assert!(world.clear_animal_upward(100.0 * GAME_CELL, feet, 20.0, 16.0));
+        assert_eq!(count(&world, Cell::Sand), sand);
+        assert_eq!(count(&world, Cell::Rock), rock);
+        assert_eq!(
+            (world.crab, world.crab_half_x, world.crab_half_y),
+            reservation
+        );
+        assert!(
+            world.clear_for_crab(120.0, 100.0),
+            "grains entered the crab"
+        );
     }
 
     /// Rebuild after changing the opening terrain or the cellular rules:
@@ -3114,11 +3236,11 @@ mod tests {
         sand.grain[i] = 30;
         let mut pebble = sand.clone();
         pebble.grain[i] = 255;
-        sand.push_column(100, 100, 1, 0, 1, None);
-        pebble.push_column(100, 100, 1, 0, 1, None);
+        sand.push_column(100, 100, 1, 0, 1, None, false, None);
+        pebble.push_column(100, 100, 1, 0, 1, None, false, None);
         assert_eq!(sand.cell(100, 100), Cell::Water);
         assert_eq!(pebble.cell(100, 100), Cell::Sand);
-        pebble.push_column(100, 100, 1, 0, 12, None);
+        pebble.push_column(100, 100, 1, 0, 12, None, false, None);
         assert_eq!(pebble.cell(100, 100), Cell::Water);
     }
 
@@ -3758,13 +3880,13 @@ mod tests {
         }
         let opening = World::index(13, 10).expect("in bounds");
         w.cells[opening] = Cell::Water;
-        w.push_column(10, 10, 1, 0, 2, None);
+        w.push_column(10, 10, 1, 0, 2, None, false, None);
         assert_eq!(w.cell(10, 10), Cell::Sand);
-        w.push_column(10, 10, 1, 0, 3, None);
+        w.push_column(10, 10, 1, 0, 3, None, false, None);
         assert_eq!(w.cell(10, 10), Cell::Water);
         assert_eq!(w.cell(13, 10), Cell::Sand);
         w.cells[World::index(10, 10).expect("in bounds")] = Cell::Rock;
-        w.push_column(11, 10, 1, 0, 24, None);
+        w.push_column(11, 10, 1, 0, 24, None, false, None);
         assert_eq!(w.cell(14, 10), Cell::Rock);
         assert_eq!(w.cell(11, 10), Cell::Sand);
     }
