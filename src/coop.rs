@@ -465,8 +465,8 @@ mod web {
 
     use super::{
         HOST, Hosting, INTRODUCER, LocalId, NewLink, OnLink, Start, Update, VERSION, Watch,
-        clean_code, from_host, hello, make_code, on_version, open_in_other_tab, param, read_hello,
-        room, start, status, status_top, update_line, who_hosts,
+        clean_code, from_host, hello, in_shared_world, make_code, on_version, open_in_other_tab,
+        param, read_hello, room, start, status, status_top, update_line, who_hosts,
     };
     use crate::names::Names;
     use crate::player::{GameSet, spawn_local_crab};
