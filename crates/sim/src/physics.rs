@@ -1138,12 +1138,36 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
             m.vel.y = 0.0;
         }
     }
-    let floor = level.floor_height(m.pos.x);
-    if m.pos.y - m.half_width(t) <= floor {
-        m.pos.y = floor;
-        m.vel = Vec2::ZERO;
-        m.climbing = false;
-        m.grounded = true;
+    if let Some(cells) = level
+        .cells
+        .as_ref()
+        .filter(|c| c.contains_world(m.pos.x, m.pos.y))
+    {
+        // The old heightmap is no longer the floor after digging. Only land
+        // on a supported material surface while climbing down; isolated
+        // grains and an old floor above an excavated bed cannot release grip.
+        let bottom_before = before - m.half_width(t);
+        if m.vel.y < 0.0
+            && let Some(floor) = cells.game_footing_height(
+                m.pos.x,
+                m.height(t) * 0.5,
+                bottom_before + crate::underwater::GAME_CELL,
+            )
+            && m.pos.y - m.half_width(t) <= floor
+        {
+            m.pos.y = floor;
+            m.vel = Vec2::ZERO;
+            m.climbing = false;
+            m.grounded = true;
+        }
+    } else {
+        let floor = level.floor_height(m.pos.x);
+        if m.pos.y - m.half_width(t) <= floor {
+            m.pos.y = floor;
+            m.vel = Vec2::ZERO;
+            m.climbing = false;
+            m.grounded = true;
+        }
     }
 }
 

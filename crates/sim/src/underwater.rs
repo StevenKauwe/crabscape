@@ -2586,6 +2586,94 @@ mod tests {
     use super::*;
 
     #[test]
+    fn climbing_above_dug_out_bed_is_not_stopped_by_old_floor_or_loose_grains() {
+        use crate::{
+            Controls, Tuning,
+            physics::{Mover, step},
+        };
+        use bevy_math::Vec2;
+
+        let mut level = crate::Level::test_level();
+        let mut cells = World::from_level_settled(&level);
+        for x in 55..85 {
+            for y in 70..120 {
+                cells.cells[World::index(x, y).unwrap()] = Cell::Water;
+            }
+        }
+        for (x, y) in [(70, 98), (73, 99), (68, 100)] {
+            cells.cells[World::index(x, y).unwrap()] = Cell::Sand;
+        }
+        level.climbs[0].x = 280.0;
+        level.climbs[0].bottom = -100.0;
+        level.cells = Some(cells);
+        let tuning = Tuning::default();
+        let mut crab = Mover::new(Vec2::new(280.0, 10.0));
+        crab.grounded = false;
+        crab.climbing = true;
+        for _ in 0..30 {
+            step(
+                &mut crab,
+                &Controls {
+                    jump_held: true,
+                    ..Default::default()
+                },
+                &tuning,
+                &level,
+                1.0 / 120.0,
+            );
+        }
+        assert!(crab.climbing, "released kelp above dug-out bed");
+        assert!(crab.pos.y > 20.0, "failed to climb: {:?}", crab.pos);
+    }
+
+    #[test]
+    fn climbing_down_ignores_a_floating_grain_and_lands_on_the_current_bed() {
+        use crate::{
+            Controls, Tuning,
+            physics::{Mover, step},
+        };
+        use bevy_math::Vec2;
+
+        let mut level = crate::Level::test_level();
+        let mut cells = World::from_level_settled(&level);
+        for x in 55..85 {
+            for y in 70..120 {
+                cells.cells[World::index(x, y).unwrap()] =
+                    if y < 75 { Cell::Rock } else { Cell::Water };
+            }
+        }
+        cells.cells[World::index(70, 90).unwrap()] = Cell::Sand;
+        level.climbs[0].x = 280.0;
+        level.climbs[0].bottom = -150.0;
+        level.cells = Some(cells);
+        let tuning = Tuning::default();
+        let mut crab = Mover::new(Vec2::new(280.0, 80.0));
+        crab.grounded = false;
+        crab.climbing = true;
+        for _ in 0..500 {
+            step(
+                &mut crab,
+                &Controls {
+                    down: true,
+                    ..Default::default()
+                },
+                &tuning,
+                &level,
+                1.0 / 120.0,
+            );
+            if crab.grounded {
+                break;
+            }
+        }
+        assert!(crab.grounded, "did not land: {:?}", crab.pos);
+        assert!(
+            (crab.pos.y + 60.0).abs() < 5.0,
+            "landed on floating grain or old floor: {:?}",
+            crab.pos
+        );
+    }
+
+    #[test]
     fn unsupported_grains_fall_at_the_active_window_edges() {
         let mut world = World::new();
         world.cells.fill(Cell::Water);
