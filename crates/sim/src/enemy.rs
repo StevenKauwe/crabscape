@@ -757,7 +757,7 @@ pub fn step(
             let goal_y = match e.state {
                 State::Approach => target_y
                     .unwrap_or(e.home.y)
-                    .clamp(e.home.y, e.home.y + 180.0),
+                    .clamp(e.home.y - 180.0, e.home.y + 180.0),
                 State::Idle | State::Flee => e.home.y,
                 _ => e.pos.y,
             };
@@ -786,6 +786,13 @@ pub fn step(
                 e.pos.x = x;
             } else {
                 e.vel_x = 0.0;
+            }
+            if e.state == State::Idle && e.pos.distance(e.home) < 4.0 {
+                e.pos = e.home;
+                e.vel_x = 0.0;
+                e.reach = 0.0;
+                // The cave artwork has a fixed opening, facing left.
+                e.facing = -1.0;
             }
         } else {
             // A drop or a wall (a big step in the floor) stops it: it walks the

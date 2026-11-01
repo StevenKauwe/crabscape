@@ -47,6 +47,68 @@ pub enum Cell {
     Mud,
 }
 
+/// Fixed world-space chunk coordinates for the planned full-map simulation.
+/// Negative coordinates use Euclidean division, so boundaries agree on both
+/// sides of the origin. These describe terrain only; streaming is not enabled.
+pub const TERRAIN_CHUNK_CELLS: i32 = 64;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TerrainChunkId {
+    pub x: i32,
+    pub y: i32,
+}
+impl TerrainChunkId {
+    pub fn at_world(x: f32, y: f32) -> Self {
+        let cell_x = (x / GAME_CELL).floor() as i32;
+        let cell_y = ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+        Self {
+            x: cell_x.div_euclid(TERRAIN_CHUNK_CELLS),
+            y: cell_y.div_euclid(TERRAIN_CHUNK_CELLS),
+        }
+    }
+    pub fn origin_cell(self) -> (i32, i32) {
+        (self.x * TERRAIN_CHUNK_CELLS, self.y * TERRAIN_CHUNK_CELLS)
+    }
+}
+
+/// Initial terrain at an absolute cell coordinate. Used to seed the live
+/// opening and, eventually, chunks elsewhere; this does not advance or
+/// reproduce any disturbances that occurred while a region was inactive.
+pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> Cell {
+    let wx = (cell_x as f32 + 0.5) * GAME_CELL;
+    let wy = GAME_BOTTOM + (cell_y as f32 + 0.5) * GAME_CELL;
+    let floor = level.floor_height(wx);
+    if wy < floor - 100.0
+        || level
+            .rocks
+            .iter()
+            .any(|r| r.contains(bevy_math::Vec2::new(wx, wy)))
+    {
+        Cell::Rock
+    } else if wy < floor {
+        // The far basin is a sandy shelf; the trench and canyon retain finer mud.
+        if wx <= 1650.0 || (4490.0..5900.0).contains(&wx) {
+            Cell::Sand
+        } else {
+            Cell::Mud
+        }
+    } else {
+        Cell::Water
+    }
+}
+
+/// Build a chunk independently of its neighbours. The fixed world-space
+/// sampler makes its edge cells identical regardless of generation order.
+pub fn initial_terrain_chunk(level: &crate::Level, id: TerrainChunkId) -> Vec<Cell> {
+    let (x, y) = id.origin_cell();
+    let mut cells = Vec::with_capacity((TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize);
+    for dy in 0..TERRAIN_CHUNK_CELLS {
+        for dx in 0..TERRAIN_CHUNK_CELLS {
+            cells.push(initial_terrain_cell(level, x + dx, y + dy));
+        }
+    }
+    cells
+}
+
 /// Gameplay parameters for a sediment type. Density is a per-grain class;
 /// the bias shifts that distribution without making all grains identical.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -215,31 +277,39 @@ impl World {
                 rest: (n * 7 % 45) as u16,
             })
             .collect();
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let wx = (x as f32 + 0.5) * GAME_CELL;
-                let wy = GAME_BOTTOM + (y as f32 + 0.5) * GAME_CELL;
-                let floor = level.floor_height(wx);
-                let i = y * WIDTH + x;
-                let in_rock = level
-                    .rocks
-                    .iter()
-                    .any(|r| r.contains(bevy_math::Vec2::new(wx, wy)));
-                world.cells[i] = if y == 0 || wy < floor - 100.0 || in_rock {
-                    Cell::Rock
-                } else if wy < floor {
-                    if wx > 1650.0 { Cell::Mud } else { Cell::Sand }
-                } else {
-                    Cell::Water
-                };
-                world.flow[i] = if world.cells[i] == Cell::Water {
-                    (
-                        0.35 + (y as f32 * 0.055).sin() * 0.375 + (y as f32 * 0.021).sin() * 0.15,
-                        0.0,
-                    )
-                } else {
-                    (0.0, 0.0)
-                };
+        let chunk_side = TERRAIN_CHUNK_CELLS as usize;
+        for cy in 0..HEIGHT.div_ceil(chunk_side) {
+            for cx in 0..WIDTH.div_ceil(chunk_side) {
+                let chunk = initial_terrain_chunk(
+                    level,
+                    TerrainChunkId {
+                        x: cx as i32,
+                        y: cy as i32,
+                    },
+                );
+                for ly in 0..chunk_side {
+                    for lx in 0..chunk_side {
+                        let (x, y) = (cx * chunk_side + lx, cy * chunk_side + ly);
+                        if x >= WIDTH || y >= HEIGHT {
+                            continue;
+                        }
+                        let i = y * WIDTH + x;
+                        world.cells[i] = if y == 0 {
+                            Cell::Rock
+                        } else {
+                            chunk[ly * chunk_side + lx]
+                        };
+                        world.flow[i] = if world.cells[i] == Cell::Water {
+                            (
+                                0.35 + (y as f32 * 0.055).sin() * 0.375
+                                    + (y as f32 * 0.021).sin() * 0.15,
+                                0.0,
+                            )
+                        } else {
+                            (0.0, 0.0)
+                        };
+                    }
+                }
             }
         }
         world
@@ -2095,6 +2165,54 @@ mod tests {
         assert!(world.clear_for_crab(100.0, 99.0));
     }
 
+    #[test]
+    fn world_chunks_have_stable_coordinates_and_match_seabed_materials() {
+        let level = crate::Level::test_level();
+        for (x, y) in [
+            (100.0, 0.0),
+            (1760.0, -260.0),
+            (3500.0, -8700.0),
+            (5000.0, -700.0),
+            (7000.0, -9400.0),
+            (-1.0, -361.0),
+        ] {
+            let chunk = TerrainChunkId::at_world(x, y);
+            let (origin_x, origin_y) = chunk.origin_cell();
+            let generated = initial_terrain_chunk(&level, chunk);
+            let cell_x = (x / GAME_CELL).floor() as i32;
+            let cell_y = ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+            assert!((origin_x..origin_x + TERRAIN_CHUNK_CELLS).contains(&cell_x));
+            assert!((origin_y..origin_y + TERRAIN_CHUNK_CELLS).contains(&cell_y));
+            let local_x = (cell_x - origin_x) as usize;
+            let local_y = (cell_y - origin_y) as usize;
+            assert_eq!(
+                generated[local_y * TERRAIN_CHUNK_CELLS as usize + local_x],
+                initial_terrain_cell(&level, cell_x, cell_y)
+            );
+            assert_eq!(
+                initial_terrain_cell(&level, cell_x, cell_y),
+                initial_terrain_cell(
+                    &level,
+                    origin_x + (cell_x - origin_x),
+                    origin_y + (cell_y - origin_y)
+                )
+            );
+        }
+        let sample = |x: f32, below: f32| {
+            let y = level.floor_height(x) - below;
+            initial_terrain_cell(
+                &level,
+                (x / GAME_CELL).floor() as i32,
+                ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32,
+            )
+        };
+        assert_eq!(sample(100.0, 20.0), Cell::Sand);
+        assert_eq!(sample(1760.0, 20.0), Cell::Mud);
+        assert_eq!(sample(5000.0, 20.0), Cell::Sand);
+        assert_eq!(sample(7000.0, 20.0), Cell::Mud);
+        assert_eq!(sample(7000.0, 120.0), Cell::Rock);
+    }
+
     /// Rebuild after changing the opening terrain or the cellular rules:
     /// cargo test -p crabsim --lib bake_opening_snapshot -- --ignored
     #[test]
@@ -2653,6 +2771,9 @@ mod tests {
             "eel did not return to its cave: {:?}",
             eel.pos
         );
+        assert!(eel.hidden(&sim.tuning), "eel did not fully hide on return");
+        assert_eq!(eel.facing, -1.0, "eel faces away from its cave opening");
+        assert_eq!(eel.reach, 0.0, "eel left its head extended after returning");
     }
 
     #[test]

@@ -226,7 +226,9 @@ impl Sim {
         tuning.moray.strike.radius *= 1.75;
         // The experimental eel swims out to its prey instead of stretching
         // an implausibly long head and neck from a fixed point.
-        tuning.moray.approach_speed = 115.0;
+        tuning.moray.approach_speed = 155.0;
+        tuning.moray.notice_range = 300.0;
+        tuning.moray.give_up_range = 400.0;
         tuning.moray.strike_range = 65.0;
         tuning.moray.strike.lunge = 45.0;
     }
