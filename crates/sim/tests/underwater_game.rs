@@ -661,3 +661,73 @@ fn moray_and_embedded_mantis_do_not_remain_stuck_in_trench() {
         "trench encounter did not resolve: locked {locked}, escaped {shrimp_escaped}, eel {eel:?}, shrimp {shrimp:?}"
     );
 }
+
+#[test]
+fn active_material_window_follows_the_crab_across_the_full_demo() {
+    let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+    sim.enable_underwater_cells();
+    // The far shelf, deep pit, canyon floor, and the return to the opening.
+    for (x, floor) in [
+        (5000.0, -700.0),
+        (3500.0, -8700.0),
+        (7000.0, -9400.0),
+        (160.0, 0.0),
+    ] {
+        {
+            let crab = sim.crab_mut(PlayerId(0)).unwrap();
+            crab.mover.pos = Vec2::new(x, floor + 80.0);
+            crab.mover.vel = Vec2::ZERO;
+            crab.mover.grounded = false;
+        }
+        sim.tick();
+        let cells = sim.level.cells.as_ref().expect("material world");
+        assert!(
+            cells.contains_world(x, floor + 80.0),
+            "active window missed {x}, {floor}"
+        );
+        assert!(
+            cells.game_solid(x - 4.0, floor - 20.0, x + 4.0, floor - 12.0),
+            "no physical substrate at {x}, {floor}"
+        );
+        let before = cells.game_bounds();
+        sim.tick();
+        assert_eq!(
+            sim.level.cells.as_ref().unwrap().game_bounds(),
+            before,
+            "teleport caused repeated window shifts"
+        );
+    }
+}
+
+#[test]
+fn crab_can_dig_in_the_new_far_sandy_shelf() {
+    let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+    sim.enable_underwater_cells();
+    {
+        let crab = sim.crab_mut(PlayerId(0)).unwrap();
+        crab.mover.pos = Vec2::new(4700.0, -650.0);
+        crab.mover.vel = Vec2::ZERO;
+        crab.mover.grounded = false;
+    }
+    for _ in 0..180 {
+        sim.tick();
+    }
+    let start = sim.crab(PlayerId(0)).unwrap().mover.pos.y;
+    let mut low = start;
+    for _ in 0..300 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                dig_held: true,
+                down: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        low = low.min(sim.crab(PlayerId(0)).unwrap().mover.pos.y);
+    }
+    assert!(
+        low < start - 5.0,
+        "far shelf was not diggable: start {start}, low {low}"
+    );
+}

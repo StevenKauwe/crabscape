@@ -7,9 +7,13 @@
 //! World coordinates: x grows to the right, y grows UP (Bevy's convention),
 //! and the flat sea floor where the crab starts is at y = 0.
 
-use bevy::asset::RenderAssetUsages;
+use bevy::asset::{RenderAssetUsages, embedded_asset, embedded_path};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::reflect::TypePath;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
+use bevy::sprite_render::{Material2d, Material2dPlugin};
 use crabsim::Sim;
 use crabsim::level::{Climb, Growth, WATER_SURFACE_Y};
 
@@ -38,6 +42,13 @@ const SURFACE_SEGMENTS: usize = 400;
 /// Marks the level's shapes (so they could be found and removed later).
 #[derive(Component)]
 struct LevelShape;
+
+/// A floor band is redrawn only when the detailed material window moves.
+#[derive(Component)]
+struct FloorBand {
+    top_offset: f32,
+    depth: f32,
+}
 
 /// Art above the cell field follows the same sampled stalk as the grip.
 #[derive(Component)]
@@ -68,17 +79,40 @@ pub struct Parallax {
     pub colour: Color,
 }
 
+/// The ocean is a world-space backdrop: each depth keeps its own colour
+/// even when the camera sees several zones at once.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+struct DepthWaterMaterial {
+    #[uniform(0)]
+    opacity: f32,
+}
+impl Material2d for DepthWaterMaterial {
+    fn fragment_shader() -> ShaderRef {
+        ShaderRef::Path(
+            bevy::asset::AssetPath::from_path_buf(embedded_path!("depth_water.wgsl"))
+                .with_source("embedded"),
+        )
+    }
+}
+
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
+        embedded_asset!(app, "depth_water.wgsl");
+        app.add_plugins(Material2dPlugin::<DepthWaterMaterial>::default());
         app.add_systems(
             Startup,
             draw_level.after(crate::memory::setup_memory_texture),
         )
         .add_systems(
             Update,
-            (move_water_surface, move_high_kelp, move_local_kelp),
+            (
+                move_water_surface,
+                move_high_kelp,
+                move_local_kelp,
+                refresh_floor,
+            ),
         );
     }
 }
@@ -115,10 +149,19 @@ fn draw_level(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut remembered: ResMut<Assets<MemoryMaterial>>,
+    mut water_materials: ResMut<Assets<DepthWaterMaterial>>,
 ) {
     let level = &sim.level;
     let mut palette = Palette::default();
     let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
+    // This is the water itself, behind all scenery; it is not an overlay on
+    // the art. The sky surface is drawn over its upper edge as before.
+    let water_width = level.max_x - level.min_x + 12000.0;
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(water_width, 28000.0))),
+        MeshMaterial2d(water_materials.add(DepthWaterMaterial { opacity: 1.0 })),
+        Transform::from_xyz((level.min_x + level.max_x) * 0.5, -4000.0, -100.0),
+    ));
     // Air and water share the same animated, wavy boundary. The pale edge
     // and broken glints are individual shapes, never a screen-wide filter.
     let (left, right) = (level.min_x - 600.0, level.max_x + 600.0);
@@ -137,37 +180,29 @@ fn draw_level(
     }
     // The sea floor: one mesh. Each floor segment becomes a four-cornered
     // shape from the surface down to FLOOR_DEPTH.
-    let floor = meshes.add(floor_mesh(
-        &level.floor,
-        0.0,
-        FLOOR_DEPTH,
-        level.cells.is_some(),
-    ));
+    let bounds = level.cells.as_ref().map(|cells| cells.game_bounds());
+    let floor = meshes.add(floor_mesh(&level.floor, 0.0, FLOOR_DEPTH, bounds));
     commands.spawn((
         LevelShape,
+        FloorBand {
+            top_offset: 0.0,
+            depth: FLOOR_DEPTH,
+        },
         Mesh2d(floor),
         MeshMaterial2d(paint(SAND)),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
-    // A thin lighter band along the top: the surface of the sand.
-    let lip = meshes.add(floor_mesh(&level.floor, 0.0, 5.0, level.cells.is_some()));
+    let lip = meshes.add(floor_mesh(&level.floor, 0.0, 5.0, bounds));
     commands.spawn((
         LevelShape,
+        FloorBand {
+            top_offset: 0.0,
+            depth: 5.0,
+        },
         Mesh2d(lip),
         MeshMaterial2d(paint(SAND_TOP)),
         Transform::from_xyz(0.0, 0.0, 0.1),
     ));
-
-    if level.cells.is_some() {
-        let width = crabsim::underwater::WIDTH as f32 * crabsim::underwater::GAME_CELL;
-        let bottom = crabsim::underwater::GAME_BOTTOM;
-        commands.spawn((
-            LevelShape,
-            Mesh2d(meshes.add(Rectangle::new(width, FLOOR_DEPTH))),
-            MeshMaterial2d(paint(ROCK)),
-            Transform::from_xyz(width / 2.0, bottom - FLOOR_DEPTH / 2.0, -0.1),
-        ));
-    }
 
     // Rocks: a dark box with a lighter top edge.
     let rock = paint(ROCK);
@@ -742,50 +777,165 @@ fn bare_rock(c: &Climb, draw: &mut Draw) {
 
 /// A mesh for the band between the floor line and `depth` below it, made of
 /// one quad per floor segment. (`top_offset` lifts the top edge.)
-fn floor_mesh(points: &[Vec2], top_offset: f32, depth: f32, omit_cell_area: bool) -> Mesh {
+/// Clip a polygon against one half-plane, preserving vertex order.
+fn clip_floor(poly: &[Vec2], axis: usize, value: f32, keep_greater: bool) -> Vec<Vec2> {
+    if poly.is_empty() {
+        return Vec::new();
+    }
+    let coord = |p: Vec2| if axis == 0 { p.x } else { p.y };
+    let inside = |p: Vec2| {
+        if keep_greater {
+            coord(p) >= value
+        } else {
+            coord(p) <= value
+        }
+    };
+    let mut out = Vec::new();
+    let mut a = *poly.last().expect("nonempty polygon");
+    for &b in poly {
+        let (ain, bin) = (inside(a), inside(b));
+        if ain != bin {
+            let t = (value - coord(a)) / (coord(b) - coord(a));
+            out.push(a.lerp(b, t));
+        }
+        if bin {
+            out.push(b);
+        }
+        a = b;
+    }
+    out
+}
+
+/// Draw the original floor outside the current cell window. Subtracting the
+/// full rectangle, rather than only an x range, preserves deep cliffs when
+/// the player is above or below them.
+fn floor_mesh(
+    points: &[Vec2],
+    top_offset: f32,
+    depth: f32,
+    bounds: Option<(f32, f32, f32, f32)>,
+) -> Mesh {
     let mut positions = Vec::new();
     let mut indices = Vec::new();
-    for pair in points.windows(2) {
-        let (mut a, b) = (pair[0], pair[1]);
-        if omit_cell_area {
-            let end = crabsim::underwater::WIDTH as f32 * crabsim::underwater::GAME_CELL;
-            if b.x <= end {
-                continue;
-            }
-            if a.x < end {
-                let t = (end - a.x) / (b.x - a.x);
-                a = a.lerp(b, t);
-            }
-        }
-        let i = positions.len() as u32;
-        positions.push([a.x, a.y + top_offset, 0.0]);
-        positions.push([b.x, b.y + top_offset, 0.0]);
-        positions.push([b.x, b.y - depth, 0.0]);
-        positions.push([a.x, a.y - depth, 0.0]);
-        // Two triangles, counter-clockwise.
-        indices.extend([i, i + 3, i + 2, i, i + 2, i + 1]);
-    }
-    // Extend the floor past both walls so no gap ever shows at the edges.
     let first = points[0];
     let last = points[points.len() - 1];
-    for (a, b) in [
-        (Vec2::new(first.x - 600.0, first.y), first),
-        (last, Vec2::new(last.x + 600.0, last.y)),
-    ] {
-        let i = positions.len() as u32;
-        positions.push([a.x, a.y + top_offset, 0.0]);
-        positions.push([b.x, b.y + top_offset, 0.0]);
-        positions.push([b.x, b.y - depth, 0.0]);
-        positions.push([a.x, a.y - depth, 0.0]);
-        indices.extend([i, i + 3, i + 2, i, i + 2, i + 1]);
+    let segments = std::iter::once((Vec2::new(first.x - 600.0, first.y), first))
+        .chain(points.windows(2).map(|p| (p[0], p[1])))
+        .chain(std::iter::once((last, Vec2::new(last.x + 600.0, last.y))));
+    for (a, b) in segments {
+        let quad = vec![
+            Vec2::new(a.x, a.y + top_offset),
+            Vec2::new(a.x, a.y - depth),
+            Vec2::new(b.x, b.y - depth),
+            Vec2::new(b.x, b.y + top_offset),
+        ];
+        let regions = if let Some((left, bottom, width, height)) = bounds {
+            let right = left + width;
+            let top = bottom + height;
+            let middle = clip_floor(&clip_floor(&quad, 0, left, true), 0, right, false);
+            vec![
+                clip_floor(&quad, 0, left, false),
+                clip_floor(&quad, 0, right, true),
+                clip_floor(&middle, 1, bottom, false),
+                clip_floor(&middle, 1, top, true),
+            ]
+        } else {
+            vec![quad]
+        };
+        for poly in regions {
+            if poly.len() < 3 {
+                continue;
+            }
+            let base = positions.len() as u32;
+            positions.extend(poly.iter().map(|p| [p.x, p.y, 0.0]));
+            for i in 1..poly.len() - 1 {
+                indices.extend([base, base + i as u32, base + i as u32 + 1]);
+            }
+        }
     }
     let count = positions.len();
     Mesh::new(
         PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; count])
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
     .with_inserted_indices(Indices::U32(indices))
+}
+
+fn refresh_floor(
+    sim: Res<Sim>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    bands: Query<(&FloorBand, &Mesh2d)>,
+    mut previous: Local<Option<(f32, f32, f32, f32)>>,
+) {
+    let Some(cells) = &sim.level.cells else {
+        return;
+    };
+    let bounds = cells.game_bounds();
+    if *previous == Some(bounds) {
+        return;
+    }
+    *previous = Some(bounds);
+    for (band, handle) in &bands {
+        if let Some(mut mesh) = meshes.get_mut(&handle.0) {
+            *mesh = floor_mesh(&sim.level.floor, band.top_offset, band.depth, Some(bounds));
+        }
+    }
+}
+
+#[cfg(test)]
+mod streamed_floor_tests {
+    use super::*;
+    use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn active_window_is_cut_from_sloping_floor_without_dropping_the_rest() {
+        let floor = [Vec2::new(0.0, 0.0), Vec2::new(200.0, 100.0)];
+        let bounds = (50.0, -20.0, 100.0, 80.0);
+        let mesh = floor_mesh(&floor, 0.0, 100.0, Some(bounds));
+        let VertexAttributeValues::Float32x3(positions) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION).expect("positions")
+        else {
+            panic!("unexpected vertex format")
+        };
+        let indices: Vec<u32> = mesh
+            .indices()
+            .expect("triangles")
+            .iter()
+            .map(|i| i as u32)
+            .collect();
+        assert!(!indices.is_empty());
+        let mut saw_left = false;
+        let mut saw_right = false;
+        let mut saw_below = false;
+        for triangle in indices.as_chunks::<3>().0 {
+            let a = Vec2::new(
+                positions[triangle[0] as usize][0],
+                positions[triangle[0] as usize][1],
+            );
+            let b = Vec2::new(
+                positions[triangle[1] as usize][0],
+                positions[triangle[1] as usize][1],
+            );
+            let c = Vec2::new(
+                positions[triangle[2] as usize][0],
+                positions[triangle[2] as usize][1],
+            );
+            let center = (a + b + c) / 3.0;
+            assert!(
+                !(center.x > bounds.0 + 0.01
+                    && center.x < bounds.0 + bounds.2 - 0.01
+                    && center.y > bounds.1 + 0.01
+                    && center.y < bounds.1 + bounds.3 - 0.01),
+                "floor covers material window at {center:?}"
+            );
+            saw_left |= center.x < bounds.0;
+            saw_right |= center.x > bounds.0 + bounds.2;
+            saw_below |=
+                center.x > bounds.0 && center.x < bounds.0 + bounds.2 && center.y < bounds.1;
+        }
+        assert!(saw_left && saw_right && saw_below);
+    }
 }

@@ -16,6 +16,8 @@
 //! Only reads the simulation; poses come from each enemy's state and state
 //! tick, so hit-stop freezes them too.
 
+use bevy::asset::RenderAssetUsages;
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
 use crabsim::enemy::State;
@@ -62,21 +64,96 @@ impl Plugin for CrittersPlugin {
     }
 }
 
+/// A dark opening cut visually into existing hard rock. Collision remains
+/// the underlying rock; the eel's head rests at the exposed mouth.
 #[derive(Component)]
-struct MorayCavePiece {
+struct MorayCave {
     enemy: u32,
     offset: Vec2,
+    size: Vec2,
+    last_cell: (i32, i32),
+    last_bounds: Option<(i32, i32)>,
+}
+
+fn cave_rock_at(level: &crabsim::Level, p: Vec2) -> bool {
+    if let Some(cells) = &level.cells
+        && cells.contains_world(p.x, p.y)
+    {
+        return cells.game_rock_at(p.x, p.y);
+    }
+    let cell = crabsim::underwater::GAME_CELL;
+    let x = (p.x / cell).floor() as i32;
+    let y = ((p.y - crabsim::underwater::GAME_BOTTOM) / cell).floor() as i32;
+    crabsim::underwater::initial_terrain_cell(level, x, y) == crabsim::underwater::Cell::Rock
+}
+
+/// Build a naturally irregular opening out of rock cells only. Sand and open
+/// water never receive cave art, and no physical terrain is removed.
+fn moray_cave_mesh(level: &crabsim::Level, home: Vec2, offset: Vec2, size: Vec2) -> Mesh {
+    let cell = crabsim::underwater::GAME_CELL;
+    let centre = home + offset;
+    let left = ((centre.x - size.x * 0.5) / cell).floor() as i32;
+    let right = ((centre.x + size.x * 0.5) / cell).ceil() as i32;
+    let bottom = ((centre.y - size.y * 0.5) / cell).floor() as i32;
+    let top = ((centre.y + size.y * 0.5) / cell).ceil() as i32;
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    for y in bottom..=top {
+        for x in left..=right {
+            let p = Vec2::new((x as f32 + 0.5) * cell, (y as f32 + 0.5) * cell);
+            let q = (p - centre) / (size * 0.5);
+            // A broken edge resembles a crevice, rather than a round ring.
+            let edge = 0.84 + 0.08 * (q.y * 9.0).sin() + 0.05 * (q.x * 13.0).sin();
+            if q.length_squared() > edge || !cave_rock_at(level, p) {
+                continue;
+            }
+            let lower = p - home - Vec2::splat(cell * 0.5);
+            let i = vertices.len() as u32;
+            vertices.extend([
+                [lower.x, lower.y, 0.0],
+                [lower.x + cell, lower.y, 0.0],
+                [lower.x + cell, lower.y + cell, 0.0],
+                [lower.x, lower.y + cell, 0.0],
+            ]);
+            indices.extend([i, i + 1, i + 2, i, i + 2, i + 3]);
+        }
+    }
+    let count = vertices.len();
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; count])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
+    .with_inserted_indices(Indices::U32(indices))
 }
 
 fn move_moray_caves(
     sim: Res<Sim>,
-    mut caves: Query<(&MorayCavePiece, &mut Transform, &mut Remembered)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut caves: Query<(&mut MorayCave, &Mesh2d, &mut Transform, &mut Remembered)>,
 ) {
-    for (piece, mut transform, mut remembered) in &mut caves {
-        if let Some(e) = sim.enemies().iter().find(|e| e.id == piece.enemy) {
-            let at = e.home + piece.offset;
-            transform.translation.x = at.x;
-            transform.translation.y = at.y;
+    for (mut cave, mesh, mut transform, mut remembered) in &mut caves {
+        if let Some(e) = sim.enemies().iter().find(|e| e.id == cave.enemy) {
+            let cell = crabsim::underwater::GAME_CELL;
+            let position = (
+                (e.home.x / cell).floor() as i32,
+                (e.home.y / cell).floor() as i32,
+            );
+            let bounds = sim.level.cells.as_ref().map(|w| {
+                let (x, y, _, _) = w.game_bounds();
+                ((x / cell).round() as i32, (y / cell).round() as i32)
+            });
+            if position != cave.last_cell || bounds != cave.last_bounds {
+                if let Some(mut mesh) = meshes.get_mut(&mesh.0) {
+                    *mesh = moray_cave_mesh(&sim.level, e.home, cave.offset, cave.size);
+                }
+                cave.last_cell = position;
+                cave.last_bounds = bounds;
+            }
+            transform.translation.x = e.home.x;
+            transform.translation.y = e.home.y;
             remembered.0 = e.home;
         }
     }
@@ -142,6 +219,7 @@ enum Part {
     HealthFill,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_critters(
     mut commands: Commands,
     sim: Res<Sim>,
@@ -233,50 +311,34 @@ fn spawn_critters(
                 });
             }
             _ => {
-                // A layered rock mouth behind the neck: the dark hollow and
-                // uneven lip read as a cave even when the eel is hiding.
+                // The opening is clipped to actual rock, not a free-floating
+                // ring. The idle head peeks out; the body stays in its den.
                 let (len, deep) = e.kind.tuning(&sim.tuning).body;
-                let mouth = Vec2::new(
-                    e.home.x - e.facing * (len / 2.0 + 16.0),
-                    e.home.y + deep * 0.48,
+                let offset = Vec2::new(-e.facing * (len / 2.0 + 16.0), deep * 0.48);
+                let size = Vec2::new(len * 1.15, deep * 1.65);
+                let cave_mesh = moray_cave_mesh(&sim.level, e.home, offset, size);
+                let cell = crabsim::underwater::GAME_CELL;
+                let last_cell = (
+                    (e.home.x / cell).floor() as i32,
+                    (e.home.y / cell).floor() as i32,
                 );
-                for (offset, size, colour, z) in [
-                    (
-                        Vec2::new(0.0, 0.0),
-                        Vec2::new(len * 0.95, deep * 1.65),
-                        Color::srgb(0.16, 0.20, 0.19),
-                        0.24,
-                    ),
-                    (
-                        Vec2::new(0.0, -deep * 0.02),
-                        Vec2::new(len * 0.69, deep * 1.24),
-                        ROCK,
-                        0.25,
-                    ),
-                    (
-                        Vec2::new(e.facing * -len * 0.25, deep * 0.48),
-                        Vec2::new(len * 0.57, deep * 0.36),
-                        Color::srgb(0.24, 0.27, 0.23),
-                        0.26,
-                    ),
-                    (
-                        Vec2::new(e.facing * -len * 0.33, -deep * 0.40),
-                        Vec2::new(len * 0.52, deep * 0.24),
-                        Color::srgb(0.20, 0.23, 0.20),
-                        0.26,
-                    ),
-                ] {
-                    commands.spawn((
-                        Mesh2d(meshes.add(Ellipse::new(size.x * 0.5, size.y * 0.5))),
-                        MeshMaterial2d(materials.add(tex.material(colour))),
-                        Transform::from_translation((mouth + offset).extend(z)),
-                        MorayCavePiece {
-                            enemy: e.id,
-                            offset: mouth + offset - e.home,
-                        },
-                        Remembered(e.home),
-                    ));
-                }
+                let last_bounds = sim.level.cells.as_ref().map(|w| {
+                    let (x, y, _, _) = w.game_bounds();
+                    ((x / cell).round() as i32, (y / cell).round() as i32)
+                });
+                commands.spawn((
+                    Mesh2d(meshes.add(cave_mesh)),
+                    MeshMaterial2d(materials.add(tex.material(ROCK))),
+                    Transform::from_translation(e.home.extend(1.2)),
+                    MorayCave {
+                        enemy: e.id,
+                        offset,
+                        size,
+                        last_cell,
+                        last_bounds,
+                    },
+                    Remembered(e.home),
+                ));
                 for n in 0..NECK {
                     let neck = commands
                         .spawn((
@@ -582,4 +644,46 @@ fn neck_at(
     // Pointing forward, toward the head.
     let ahead = (start - bend) * g + (bend - end) * f;
     (at, ahead.to_angle())
+}
+
+#[cfg(test)]
+mod cave_tests {
+    use super::*;
+    use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn moray_opening_is_drawn_only_inside_hard_rock() {
+        let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+        sim.enable_underwater_cells();
+        sim.spawn_enemy(Kind::Moray, Vec2::new(1760.0, -260.0));
+        let eel = &sim.enemies()[0];
+        let (len, deep) = sim.tuning.moray.body;
+        let offset = Vec2::new(-eel.facing * (len / 2.0 + 16.0), deep * 0.48);
+        let mesh = moray_cave_mesh(
+            &sim.level,
+            eel.home,
+            offset,
+            Vec2::new(len * 1.15, deep * 1.65),
+        );
+        let Some(VertexAttributeValues::Float32x3(vertices)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("cave mesh must have positions");
+        };
+        assert!(
+            !vertices.is_empty(),
+            "the trench moray has no visible rock opening"
+        );
+        for quad in vertices.as_chunks::<4>().0 {
+            let centre = eel.home
+                + Vec2::new(
+                    (quad[0][0] + quad[2][0]) * 0.5,
+                    (quad[0][1] + quad[2][1]) * 0.5,
+                );
+            assert!(
+                cave_rock_at(&sim.level, centre),
+                "cave covered non-rock at {centre:?}"
+            );
+        }
+    }
 }

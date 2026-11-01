@@ -1029,7 +1029,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             m.vel.y = m.vel.y.min(0.0);
         }
     }
-    if level.cells.is_some() && crate::underwater::World::game_contains(m.pos.x, m.pos.y) {
+    if level
+        .cells
+        .as_ref()
+        .is_some_and(|cells| cells.contains_world(m.pos.x, m.pos.y))
+    {
         if c.down && c.dig_held {
             let digging_velocity = -70.0 * dig_speed;
             if m.grounded {
@@ -1154,8 +1158,8 @@ fn move_and_collide(
     digging: bool,
 ) {
     if let Some(cells) = &level.cells
-        && crate::underwater::World::game_contains(m.pos.x, m.pos.y)
-        && crate::underwater::World::game_contains(m.pos.x, m.pos.y + m.height(t))
+        && cells.contains_world(m.pos.x, m.pos.y)
+        && cells.contains_world(m.pos.x, m.pos.y + m.height(t))
     {
         move_and_collide_cells(m, t, level, cells, dt, ev, digging);
         return;

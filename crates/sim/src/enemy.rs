@@ -526,10 +526,13 @@ pub(crate) fn swimmer_blocked(level: &Level, p: Vec2, half: f32, height: f32) ->
         .solids()
         .any(|r| r.min.x < right && r.max.x > left && r.min.y < top && r.max.y > bottom);
     let sediment = level.cells.as_ref().is_some_and(|cells| {
-        crate::underwater::World::game_contains(p.x, p.y)
-            && cells.game_movement_blocked(left, bottom, right, top, 0.0)
+        cells.contains_world(p.x, p.y) && cells.game_movement_blocked(left, bottom, right, top, 0.0)
     });
-    let floor = !crate::underwater::World::game_contains(p.x, p.y) && p.y < level.floor_height(p.x);
+    let floor = !level
+        .cells
+        .as_ref()
+        .is_some_and(|cells| cells.contains_world(p.x, p.y))
+        && p.y < level.floor_height(p.x);
     solid || sediment || floor || p.x < level.min_x + half || p.x > level.max_x - half
 }
 

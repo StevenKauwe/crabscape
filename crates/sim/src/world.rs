@@ -840,6 +840,13 @@ impl Sim {
 
     /// Advance the world by one [`STEP`].
     pub fn tick(&mut self) {
+        // Move the detailed window before simulating, independent of camera.
+        if let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
+            && let Some(mut cells) = self.level.cells.take()
+        {
+            cells.follow_player(&self.level, pos.x, pos.y);
+            self.level.cells = Some(cells);
+        }
         // The material experiment advances at 30 Hz inside the fixed-step
         // simulation. Only the local crab participates; co-op is disabled by
         // the experimental entry point until terrain can be synchronized.
@@ -850,8 +857,8 @@ impl Sim {
             if let Some(crab) = self.crabs.iter_mut().find(|c| !c.remote) {
                 let m = &mut crab.mover;
                 let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
-                if crate::underwater::World::game_contains(center.x, center.y) {
-                    let (x, y) = crate::underwater::World::game_cell(center.x, center.y);
+                if cells.contains_world(center.x, center.y) {
+                    let (x, y) = cells.local_cell(center.x, center.y);
                     cells.set_game_crab(
                         x,
                         y,
@@ -859,7 +866,7 @@ impl Sim {
                         m.height(&self.tuning) / 8.0,
                     );
                     if crab.events.jumped {
-                        let (_, foot_y) = crate::underwater::World::game_cell(m.pos.x, m.pos.y);
+                        let (_, foot_y) = cells.local_cell(m.pos.x, m.pos.y);
                         cells.react_to_jump(x, foot_y);
                     }
                     let walk = crab.controls.walk.clamp(-1.0, 1.0);
@@ -1294,7 +1301,11 @@ impl Sim {
             // through walls; move loose grains rather than deleting them.
             let local_animal = self.level.cells.is_some()
                 && matches!(e.kind, Kind::Mantis | Kind::Snapper | Kind::Moray)
-                && crate::underwater::World::game_contains(e.pos.x, e.pos.y)
+                && self
+                    .level
+                    .cells
+                    .as_ref()
+                    .is_some_and(|cells| cells.contains_world(e.pos.x, e.pos.y))
                 && e.state != enemy::State::Gone
                 && !e.held
                 && e.vitals.hitstop == 0;
@@ -1382,11 +1393,11 @@ impl Sim {
             }
             if self.tick.is_multiple_of(4)
                 && let Some(cells) = self.level.cells.as_mut()
-                && crate::underwater::World::game_contains(e.pos.x, e.pos.y)
+                && cells.contains_world(e.pos.x, e.pos.y)
             {
                 let movement = (e.pos - previous) / crate::underwater::GAME_CELL;
                 if movement.length_squared() > 0.0025 {
-                    let (x, y) = crate::underwater::World::game_cell(e.pos.x, e.pos.y);
+                    let (x, y) = cells.local_cell(e.pos.x, e.pos.y);
                     cells.react_to_swim(x, y, movement.x * 2.0, movement.y * 2.0);
                     cells.stir(x, y, movement.x * 0.45, movement.y * 0.45);
                 }

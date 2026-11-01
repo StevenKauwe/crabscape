@@ -68,6 +68,18 @@ fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
     return c * min(exposure, 1.0 / strongest_channel);
 }
 
+fn water_colour(p: vec2<f32>) -> vec3<f32> {
+    let surface = clamp(p.y / 5000.0, 0.0, 1.0);
+    let vertical = clamp(-p.y / 9000.0, 0.0, 1.0);
+    let canyon = smoothstep(5350.0, 6150.0, p.x)
+        * (1.0 - smoothstep(-1500.0, 1000.0, p.y));
+    let depth = max(vertical, 0.75 * canyon);
+    let shallow = mix(vec3<f32>(0.07, 0.22, 0.26), vec3<f32>(0.16, 0.38, 0.44), surface);
+    let c = mix(shallow, vec3<f32>(0.005, 0.016, 0.022), depth);
+    return select(c / 12.92, pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c > vec3<f32>(0.04045));
+}
+
+
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let p = in.world_position.xy;
@@ -88,13 +100,13 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
         return vec4<f32>(lit(c, p), 1.0);
     }
     if m < 0.004 {
-        return vec4<f32>(material.water.rgb, 1.0);
+        return vec4<f32>(water_colour(p), 1.0);
     }
     // Noise only where there is memory, most at its fading edge.
     let n = noise(p / 30.0) * 0.6 + noise(p / 9.0) * 0.4;
     let k = clamp(m + (n - 0.5) * 0.6 * min(m * 4.0, 1.0) * (1.0 - m), 0.0, 1.0);
     let grey = vec3<f32>(dot(c, vec3<f32>(0.3, 0.59, 0.11)));
     let faded = mix(grey, c, k * k);
-    let shown = mix(material.water.rgb, lit(faded, p), smoothstep(0.04, 0.95, k));
+    let shown = mix(water_colour(p), lit(faded, p), smoothstep(0.04, 0.95, k));
     return vec4<f32>(shown, 1.0);
 }

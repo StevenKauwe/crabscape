@@ -258,6 +258,7 @@ fn follow_friends(
 /// Move each crab's `Transform` (where it is drawn) to its simulated
 /// position: this device's crab part-way between its last two ticks, a
 /// friend's eased towards its last update.
+#[allow(clippy::type_complexity)]
 fn place_crabs(
     time: Res<Time>,
     clock: Res<StepClock>,

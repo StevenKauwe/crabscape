@@ -467,6 +467,22 @@ mod tests {
     }
 
     #[test]
+    fn terrain_and_cell_fog_use_the_same_world_depth_as_the_water_backdrop() {
+        fn water_function(shader: &str) -> &str {
+            let start = shader
+                .find("fn water_colour(")
+                .expect("water function exists");
+            let end = shader[start..]
+                .find("\n@fragment")
+                .expect("fragment follows water function");
+            shader[start..start + end].trim()
+        }
+        let background = water_function(include_str!("depth_water.wgsl"));
+        assert_eq!(water_function(include_str!("memory.wgsl")), background);
+        assert_eq!(water_function(include_str!("cellular.wgsl")), background);
+    }
+
+    #[test]
     fn water_is_lighter_higher_up() {
         assert_eq!(water_at(Vec2::ZERO), WATER);
         let heights = [-9400.0, -8500.0, -4000.0, -500.0, 0.0, 1000.0, 5000.0];

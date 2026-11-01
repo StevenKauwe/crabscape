@@ -8,9 +8,7 @@ use bevy::render::render_resource::{AsBindGroup, Extent3d, TextureDimension, Tex
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{Material2d, Material2dPlugin};
 use crabsim::Sim;
-use crabsim::underwater::{
-    GAME_BOTTOM, GAME_BUBBLES, GAME_CELL, GAME_PEBBLES, GAME_SILT, GAME_TRACERS, HEIGHT, WIDTH,
-};
+use crabsim::underwater::{GAME_BUBBLES, GAME_PEBBLES, GAME_SILT, GAME_TRACERS, HEIGHT, WIDTH};
 
 use crate::player::GameSet;
 
@@ -91,6 +89,9 @@ impl Material2d for CellMaterial {
 }
 
 #[derive(Component)]
+struct CellField;
+
+#[derive(Component)]
 struct WaterParticle(usize);
 
 #[derive(Component)]
@@ -103,6 +104,7 @@ struct SiltParticle(usize);
 struct CellImage {
     handle: Handle<Image>,
     tick: u64,
+    bounds: (f32, f32, f32, f32),
 }
 
 pub struct CellularPlugin;
@@ -141,18 +143,18 @@ fn setup(
     );
     image.sampler = ImageSampler::nearest();
     let handle = images.add(image);
-    let width = WIDTH as f32 * GAME_CELL;
-    let height = HEIGHT as f32 * GAME_CELL;
+    let (left, bottom, width, height) = cells.game_bounds();
     let material = CellMaterial {
         uniform: memory.material(Color::WHITE).uniform,
         memory: memory.image.clone(),
-        bounds: Vec4::new(0.0, GAME_BOTTOM, width, height),
+        bounds: Vec4::new(left, bottom, width, height),
         cells: handle.clone(),
     };
     commands.spawn((
+        CellField,
         Mesh2d(meshes.add(Rectangle::new(width, height))),
         MeshMaterial2d(materials.add(material)),
-        Transform::from_xyz(width * 0.5, GAME_BOTTOM + height * 0.5, 0.3),
+        Transform::from_xyz(left + width * 0.5, bottom + height * 0.5, 0.3),
     ));
     for index in 0..GAME_TRACERS + GAME_BUBBLES {
         let bubble = index >= GAME_TRACERS;
@@ -200,30 +202,48 @@ fn setup(
     commands.insert_resource(CellImage {
         handle,
         tick: cells.tick_count(),
+        bounds: cells.game_bounds(),
     });
 }
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
     sim: Res<Sim>,
     known: Res<crate::memory::Known>,
     mut output: ResMut<CellImage>,
     mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<CellMaterial>>,
+    mut field: Query<(&mut Transform, &MeshMaterial2d<CellMaterial>), With<CellField>>,
     mut particles: Query<
         (&WaterParticle, &mut Transform, &mut Visibility),
-        (Without<Pebble>, Without<SiltParticle>),
+        (Without<Pebble>, Without<SiltParticle>, Without<CellField>),
     >,
     mut pebble_sprites: Query<
         (&Pebble, &mut Transform, &mut Sprite, &mut Visibility),
-        (Without<WaterParticle>, Without<SiltParticle>),
+        (
+            Without<WaterParticle>,
+            Without<SiltParticle>,
+            Without<CellField>,
+        ),
     >,
     mut silt_sprites: Query<
         (&SiltParticle, &mut Transform, &mut Sprite, &mut Visibility),
-        (Without<WaterParticle>, Without<Pebble>),
+        (Without<WaterParticle>, Without<Pebble>, Without<CellField>),
     >,
 ) {
     let Some(cells) = &sim.level.cells else {
         return;
     };
-    if cells.tick_count() != output.tick {
+    let bounds = cells.game_bounds();
+    if bounds != output.bounds
+        && let Ok((mut transform, handle)) = field.single_mut()
+    {
+        transform.translation.x = bounds.0 + bounds.2 * 0.5;
+        transform.translation.y = bounds.1 + bounds.3 * 0.5;
+        if let Some(mut material) = materials.get_mut(&handle.0) {
+            material.bounds = Vec4::new(bounds.0, bounds.1, bounds.2, bounds.3);
+        }
+    }
+    if cells.tick_count() != output.tick || bounds != output.bounds {
         if let Some(mut image) = images.get_mut(&output.handle) {
             image.data = Some(cells.game_pixels());
         }
@@ -273,5 +293,6 @@ fn draw(
             }
         }
         output.tick = cells.tick_count();
+        output.bounds = bounds;
     }
 }

@@ -96,6 +96,12 @@ pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> C
     }
 }
 
+fn initial_grain(cell_x: i32, cell_y: i32) -> u8 {
+    let x = i64::from(cell_x);
+    let y = i64::from(cell_y);
+    (x * 73 + y * 151 + (x ^ y) * 17).rem_euclid(248) as u8
+}
+
 /// Build a chunk independently of its neighbours. The fixed world-space
 /// sampler makes its edge cells identical regardless of generation order.
 pub fn initial_terrain_chunk(level: &crate::Level, id: TerrainChunkId) -> Vec<Cell> {
@@ -174,6 +180,28 @@ struct Pebble {
     shade: u8,
 }
 
+/// State retained for cells that have left the active window. Sleeping
+/// cells do not advance; reactivation restores exactly this stored state.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SleepingCell {
+    cell: Cell,
+    flow: (f32, f32),
+    suspended: u8,
+    grain: u8,
+    owner: u16,
+}
+#[derive(Clone, Debug, PartialEq)]
+struct SleepingChunk {
+    cells: Vec<Option<SleepingCell>>,
+}
+impl Default for SleepingChunk {
+    fn default() -> Self {
+        Self {
+            cells: vec![None; (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize],
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct World {
     cells: Vec<Cell>,
@@ -201,6 +229,16 @@ pub struct World {
     bubbles: Vec<Bubble>,
     game: bool,
     tick: u64,
+    // The bundled opening snapshot predates streaming. These fields are
+    // runtime-only; leaving/reloading a game still resets the experiment.
+    #[serde(skip)]
+    origin: (i32, i32),
+    #[serde(skip)]
+    sleeping: std::collections::BTreeMap<(i32, i32), SleepingChunk>,
+    #[serde(skip)]
+    opening_edge_opened: bool,
+    #[serde(skip)]
+    pebble_seeded: std::collections::BTreeSet<(i32, i32)>,
 }
 
 mod giant_array {
@@ -250,12 +288,21 @@ impl World {
     /// Custom levels still initialize from their own terrain.
     pub fn from_level_settled(level: &crate::Level) -> Self {
         let original = crate::Level::test_level();
-        if level.floor == original.floor && level.rocks == original.rocks {
+        let mut world: Self = if level.floor == original.floor && level.rocks == original.rocks {
             postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
                 .expect("the bundled opening snapshot is valid")
         } else {
             Self::from_level(level)
+        };
+        // The old opening-only bake had an artificial bottom boundary.
+        // Remove it before the world is exposed to game rules or tests.
+        for col in 0..WIDTH {
+            if world.pebble_owner[col] == 0 {
+                world.cells[col] = initial_terrain_cell(level, col as i32, 0);
+            }
         }
+        world.opening_edge_opened = true;
+        world
     }
 
     /// Make the opening section of the campaign from its existing floor.
@@ -324,7 +371,7 @@ impl World {
             let floor = level.floor_height((x as f32 + 0.5) * GAME_CELL);
             let top = ((floor - GAME_BOTTOM) / GAME_CELL).floor() as i32;
             for y in [top - 8, top - 4] {
-                self.add_pebble(x as i32, y, 4, 248 + ((x / 4) % 8) as u8);
+                self.add_pebble(x, y, 4, 248 + ((x / 4) % 8) as u8);
             }
         }
         // Leave the initial crab spawn clear. The deposits begin just beyond
@@ -354,8 +401,8 @@ impl World {
             let floor = level.floor_height((x as f32 + 0.5) * GAME_CELL);
             let top = ((floor - GAME_BOTTOM) / GAME_CELL).floor() as i32;
             self.add_pebble(
-                x as i32,
-                top + 10 + ((x / 8) % 3) as i32 * 5,
+                x,
+                top + 10 + ((x / 8) % 3) * 5,
                 4,
                 248 + ((x / 4) % 8) as u8,
             );
@@ -364,16 +411,22 @@ impl World {
     /// Points on the small decorative stalks, in world coordinates. Their
     /// sway comes from the same local water used by the material simulation.
     pub fn game_kelp_point(&self, blade: usize, segment: usize) -> Option<(f32, f32)> {
-        let root = *KELP_ROOTS.get(blade)?;
+        let world_root = *KELP_ROOTS.get(blade)?;
         if blade == 0 || segment > KELP_SEGMENTS {
             return None;
         }
-        let base = (12..120).find(|&y| {
+        let root = world_root - self.origin.0;
+        if !(1..WIDTH as i32 - 1).contains(&root) {
+            return None;
+        }
+        let lo = (12 - self.origin.1).clamp(1, HEIGHT as i32 - 1);
+        let hi = (120 - self.origin.1).clamp(1, HEIGHT as i32 - 1);
+        let base = (lo..hi).find(|&y| {
             self.cell(root, y) == Cell::Water && self.cell(root, y - 1) != Cell::Water
         })?;
         Some((
-            (root as f32 + self.kelp[blade][segment]) * GAME_CELL,
-            GAME_BOTTOM + (base + segment as i32 * 6) as f32 * GAME_CELL,
+            (world_root as f32 + self.kelp[blade][segment]) * GAME_CELL,
+            GAME_BOTTOM + (self.origin.1 + base + segment as i32 * 6) as f32 * GAME_CELL,
         ))
     }
 
@@ -401,14 +454,270 @@ impl World {
     pub fn game_cell(x: f32, y: f32) -> (f32, f32) {
         (x / GAME_CELL, (y - GAME_BOTTOM) / GAME_CELL)
     }
+    /// World rectangle occupied by the active detailed simulation.
+    pub fn game_bounds(&self) -> (f32, f32, f32, f32) {
+        (
+            self.origin.0 as f32 * GAME_CELL,
+            GAME_BOTTOM + self.origin.1 as f32 * GAME_CELL,
+            WIDTH as f32 * GAME_CELL,
+            HEIGHT as f32 * GAME_CELL,
+        )
+    }
+    pub fn contains_world(&self, x: f32, y: f32) -> bool {
+        let (left, bottom, width, height) = self.game_bounds();
+        x >= left && x < left + width && y >= bottom && y < bottom + height
+    }
+    pub fn local_cell(&self, x: f32, y: f32) -> (f32, f32) {
+        let (left, bottom, _, _) = self.game_bounds();
+        ((x - left) / GAME_CELL, (y - bottom) / GAME_CELL)
+    }
+
+    /// Shift a 64-cell-overlapping active window as the local player moves.
+    /// Cells outside it sleep with their exact state; they are not simulated
+    /// or analytically fast-forwarded while asleep.
+    pub fn follow_player(&mut self, level: &crate::Level, x: f32, y: f32) -> bool {
+        if !self.game {
+            return false;
+        }
+        if !self.opening_edge_opened {
+            // The old opening-only field had an artificial solid bottom row.
+            // Replace that seam with the actual demo terrain before streaming.
+            for col in 0..WIDTH {
+                let i = col;
+                if self.pebble_owner[i] == 0 {
+                    self.cells[i] = initial_terrain_cell(level, col as i32, 0);
+                }
+            }
+            self.opening_edge_opened = true;
+        }
+        let (cx, cy) = self.local_cell(x, y);
+        // Retain the opening while the player remains inside it; when an
+        // edge is reached, recenter in one operation even after a teleport.
+        let margin = 16.0;
+        let gx = (x / GAME_CELL).floor() as i32;
+        let gy = ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+        let target_x = if cx > WIDTH as f32 - margin || (cx < margin && self.origin.0 > 0) {
+            ((gx - WIDTH as i32 / 2).div_euclid(64) * 64).max(0)
+        } else {
+            self.origin.0
+        };
+        let target_y = if cy > HEIGHT as f32 - margin || cy < margin {
+            (gy - HEIGHT as i32 / 2).div_euclid(64) * 64
+        } else {
+            self.origin.1
+        };
+        if (target_x, target_y) == self.origin {
+            return false;
+        }
+        // Never cut a pebble aggregate at the edge of the next window.
+        let choose = |old: i32, wanted: i32, extent: i32, horizontal: bool| -> Option<i32> {
+            if wanted == old {
+                return Some(old);
+            }
+            for offset in 0..=64 {
+                for candidate in [wanted + offset, wanted - offset] {
+                    let proposed = if horizontal {
+                        candidate.max(0)
+                    } else {
+                        candidate
+                    };
+                    if proposed == old {
+                        continue;
+                    }
+                    let safe = self.pebbles.iter().all(|p| {
+                        let start = if horizontal {
+                            p.x + self.origin.0
+                        } else {
+                            p.y + self.origin.1
+                        };
+                        let end = start + i32::from(p.side);
+                        [proposed, proposed + extent]
+                            .into_iter()
+                            .all(|edge| !(start < edge && end > edge))
+                    });
+                    if safe {
+                        return Some(proposed);
+                    }
+                }
+            }
+            None
+        };
+        let nx = choose(self.origin.0, target_x, WIDTH as i32, true).unwrap_or(self.origin.0);
+        let ny = choose(self.origin.1, target_y, HEIGHT as i32, false).unwrap_or(self.origin.1);
+        if (nx, ny) == self.origin {
+            return false;
+        }
+        self.shift_window(level, (nx, ny));
+        self.seed_far_pebbles(level);
+        true
+    }
+
+    /// Seed individual aggregates only in previously unseen, completely
+    /// active chunks on the far sandy shelf. A chunk is seeded once per run.
+    fn seed_far_pebbles(&mut self, level: &crate::Level) {
+        let side = TERRAIN_CHUNK_CELLS;
+        let first_x = (self.origin.0 + side - 1).div_euclid(side);
+        let last_x = (self.origin.0 + WIDTH as i32).div_euclid(side);
+        let first_y = (self.origin.1 + side - 1).div_euclid(side);
+        let last_y = (self.origin.1 + HEIGHT as i32).div_euclid(side);
+        for cy in first_y..last_y {
+            for cx in first_x..last_x {
+                if !self.pebble_seeded.insert((cx, cy)) {
+                    continue;
+                }
+                for offset in (4..side - 4).step_by(8) {
+                    let gx = cx * side + offset;
+                    let wx = (gx as f32 + 2.0) * GAME_CELL;
+                    if !(4490.0..5900.0).contains(&wx) {
+                        continue;
+                    }
+                    let ground =
+                        ((level.floor_height(wx) - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+                    let gy = ground - 4 - ((gx.div_euclid(8)).rem_euclid(3)) * 4;
+                    if gy < cy * side || gy + 4 > (cy + 1) * side {
+                        continue;
+                    }
+                    let x = gx - self.origin.0;
+                    let y = gy - self.origin.1;
+                    let pristine = (0..4).all(|oy| {
+                        (0..4).all(|ox| {
+                            let Some(i) = Self::index(x + ox, y + oy) else {
+                                return false;
+                            };
+                            self.cells[i] == Cell::Sand
+                                && self.pebble_owner[i] == 0
+                                && self.suspended[i] == 0
+                                && self.grain[i] == initial_grain(gx + ox, gy + oy)
+                                && initial_terrain_cell(level, gx + ox, gy + oy) == Cell::Sand
+                        })
+                    });
+                    if pristine {
+                        let shade = 248 + gx.div_euclid(8).rem_euclid(8) as u8;
+                        self.add_pebble(x, y, 4, shade);
+                    }
+                }
+            }
+        }
+    }
+
+    fn shift_window(&mut self, level: &crate::Level, next_origin: (i32, i32)) {
+        let old = self.origin;
+        let dx = next_origin.0 - old.0;
+        let dy = next_origin.1 - old.1;
+        let inside = |x: i32, y: i32, origin: (i32, i32)| {
+            x >= origin.0
+                && x < origin.0 + WIDTH as i32
+                && y >= origin.1
+                && y < origin.1 + HEIGHT as i32
+        };
+        let locate = |x: i32, y: i32| {
+            let side = TERRAIN_CHUNK_CELLS;
+            let key = (x.div_euclid(side), y.div_euclid(side));
+            let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
+            (key, slot)
+        };
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let (gx, gy) = (old.0 + x as i32, old.1 + y as i32);
+                if inside(gx, gy, next_origin) {
+                    continue;
+                }
+                let i = y * WIDTH + x;
+                let (key, slot) = locate(gx, gy);
+                self.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
+                    cell: self.cells[i],
+                    flow: self.flow[i],
+                    suspended: self.suspended[i],
+                    grain: self.grain[i],
+                    owner: self.pebble_owner[i],
+                });
+            }
+        }
+        let mut cells = vec![Cell::Water; WIDTH * HEIGHT];
+        let mut flow = vec![(0.0, 0.0); WIDTH * HEIGHT];
+        let mut suspended = vec![0; WIDTH * HEIGHT];
+        let mut grain = vec![0; WIDTH * HEIGHT];
+        let mut owner = vec![0; WIDTH * HEIGHT];
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let (gx, gy) = (next_origin.0 + x as i32, next_origin.1 + y as i32);
+                let i = y * WIDTH + x;
+                let value = if inside(gx, gy, old) {
+                    let j = (gy - old.1) as usize * WIDTH + (gx - old.0) as usize;
+                    SleepingCell {
+                        cell: self.cells[j],
+                        flow: self.flow[j],
+                        suspended: self.suspended[j],
+                        grain: self.grain[j],
+                        owner: self.pebble_owner[j],
+                    }
+                } else {
+                    let (key, slot) = locate(gx, gy);
+                    self.sleeping
+                        .get_mut(&key)
+                        .and_then(|chunk| chunk.cells[slot].take())
+                        .unwrap_or_else(|| {
+                            let cell = initial_terrain_cell(level, gx, gy);
+                            let shade = initial_grain(gx, gy);
+                            let water = if cell == Cell::Water {
+                                ambient_current(
+                                    GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL,
+                                    self.tick * 4,
+                                )
+                            } else {
+                                (0.0, 0.0)
+                            };
+                            SleepingCell {
+                                cell,
+                                flow: water,
+                                suspended: 0,
+                                grain: shade,
+                                owner: 0,
+                            }
+                        })
+                };
+                cells[i] = value.cell;
+                flow[i] = value.flow;
+                suspended[i] = value.suspended;
+                grain[i] = value.grain;
+                owner[i] = value.owner;
+            }
+        }
+        self.sleeping
+            .retain(|_, chunk| chunk.cells.iter().any(Option::is_some));
+        self.cells = cells;
+        self.flow = flow;
+        self.suspended = suspended;
+        self.grain = grain;
+        self.pebble_owner = owner;
+        self.origin = next_origin;
+        for p in &mut self.pebbles {
+            p.x -= dx;
+            p.y -= dy;
+        }
+        for p in &mut self.tracers {
+            p.0 -= dx as f32;
+            p.1 -= dy as f32;
+        }
+        for p in &mut self.silt {
+            p.x -= dx as f32;
+            p.y -= dy as f32;
+        }
+        for p in &mut self.bubbles {
+            p.x -= dx as f32;
+            p.y -= dy as f32;
+        }
+        self.crab = None;
+    }
+
     pub fn tick_count(&self) -> u64 {
         self.tick
     }
     /// Water for the entire map. Inside the fine field this includes local
     /// disturbances; elsewhere it is the directly sampled ambient current.
     pub fn game_water_at(&self, x: f32, y: f32) -> (f32, f32) {
-        if Self::game_contains(x, y) {
-            let (cx, cy) = Self::game_cell(x, y);
+        if self.contains_world(x, y) {
+            let (cx, cy) = self.local_cell(x, y);
             self.flow_at(cx as i32, cy as i32)
         } else {
             ambient_current(y, self.tick * 4)
@@ -446,8 +755,8 @@ impl World {
         };
         let i = Self::index(x as i32, y as i32)?;
         (self.cells[i] == Cell::Water).then_some((
-            x * GAME_CELL,
-            GAME_BOTTOM + y * GAME_CELL,
+            (x + self.origin.0 as f32) * GAME_CELL,
+            GAME_BOTTOM + (y + self.origin.1 as f32) * GAME_CELL,
             bubble,
         ))
     }
@@ -457,8 +766,8 @@ impl World {
         let p = self.silt.get(index)?;
         let i = Self::index(p.x as i32, p.y as i32)?;
         (self.cells[i] == Cell::Water).then_some((
-            p.x * GAME_CELL,
-            GAME_BOTTOM + p.y * GAME_CELL,
+            (p.x + self.origin.0 as f32) * GAME_CELL,
+            GAME_BOTTOM + (p.y + self.origin.1 as f32) * GAME_CELL,
             (p.life as f32 / 40.0).clamp(0.0, 1.0),
         ))
     }
@@ -478,8 +787,8 @@ impl World {
             if exposed {
                 let size = side as f32 * GAME_CELL;
                 pebbles.push((
-                    (p.x as f32 * GAME_CELL) + size * 0.5,
-                    GAME_BOTTOM + (p.y as f32 * GAME_CELL) + size * 0.5,
+                    ((p.x + self.origin.0) as f32 * GAME_CELL) + size * 0.5,
+                    GAME_BOTTOM + ((p.y + self.origin.1) as f32 * GAME_CELL) + size * 0.5,
                     size,
                     p.shade,
                 ));
@@ -491,10 +800,19 @@ impl World {
         pebbles
     }
 
+    /// Whether the active material window has immutable rock at a world point.
+    pub fn game_rock_at(&self, x: f32, y: f32) -> bool {
+        if !self.contains_world(x, y) {
+            return false;
+        }
+        let (cx, cy) = self.local_cell(x, y);
+        self.cell(cx.floor() as i32, cy.floor() as i32) == Cell::Rock
+    }
+
     /// Test the interior of a game-world rectangle against material cells.
     pub fn game_solid(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
-        let (x0, y0) = Self::game_cell(min_x, min_y);
-        let (x1, y1) = Self::game_cell(max_x, max_y);
+        let (x0, y0) = self.local_cell(min_x, min_y);
+        let (x1, y1) = self.local_cell(max_x, max_y);
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
                 // Outside the bounded experiment the regular level handles collision.
@@ -517,8 +835,8 @@ impl World {
         max_x: f32,
         max_y: f32,
     ) -> usize {
-        let (x0, y0) = Self::game_cell(min_x, min_y);
-        let (x1, y1) = Self::game_cell(max_x, max_y);
+        let (x0, y0) = self.local_cell(min_x, min_y);
+        let (x1, y1) = self.local_cell(max_x, max_y);
         let mut count = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
@@ -533,8 +851,8 @@ impl World {
     /// Require a little surrounding loose material to brace against while
     /// digging; isolated motes in open water are not a surface to climb.
     pub fn game_dig_support(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
-        let (x0, y0) = Self::game_cell(min_x, min_y);
-        let (x1, y1) = Self::game_cell(max_x, max_y);
+        let (x0, y0) = self.local_cell(min_x, min_y);
+        let (x1, y1) = self.local_cell(max_x, max_y);
         let mut grains = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
@@ -637,8 +955,8 @@ impl World {
     /// Extra resistance under the feet, derived from the same per-grain
     /// push cost used when digging. Sand is the zero-resistance reference.
     pub fn game_foot_resistance(&self, x: f32, half_width: f32, feet_y: f32) -> f32 {
-        let (x0, y0) = Self::game_cell(x - half_width, feet_y - GAME_CELL * 2.0);
-        let (x1, y1) = Self::game_cell(x + half_width, feet_y - 0.1);
+        let (x0, y0) = self.local_cell(x - half_width, feet_y - GAME_CELL * 2.0);
+        let (x1, y1) = self.local_cell(x + half_width, feet_y - 0.1);
         let (mut cost, mut grains) = (0usize, 0usize);
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
@@ -672,8 +990,8 @@ impl World {
         if self.game_only_loose_grains(min_x, min_y, max_x, max_y) {
             return false;
         }
-        let (x0, y0) = Self::game_cell(min_x, min_y);
-        let (x1, y1) = Self::game_cell(max_x, max_y);
+        let (x0, y0) = self.local_cell(min_x, min_y);
+        let (x1, y1) = self.local_cell(max_x, max_y);
         let (left, right) = (x0.floor() as i32, x1.floor() as i32);
         for y in y0.floor() as i32..=y1.floor() as i32 {
             let mut grains = 0;
@@ -689,7 +1007,7 @@ impl World {
                 }
             }
             if grains > 0 {
-                let cell_top = GAME_BOTTOM + (y + 1) as f32 * GAME_CELL;
+                let cell_top = GAME_BOTTOM + (y + 1 + self.origin.1) as f32 * GAME_CELL;
                 let sparse_bump = cell_top <= min_y + smooth_height && grains * 3 < columns;
                 if !sparse_bump {
                     return true;
@@ -702,8 +1020,8 @@ impl World {
     /// A single loose grain cannot support a crab. Solid rock or a broad
     /// enough patch of sediment can; the caller can displace loose grains.
     pub fn game_surface_support(&self, min_x: f32, max_x: f32, feet_y: f32) -> bool {
-        let (x0, y) = Self::game_cell(min_x, feet_y - 0.5);
-        let (x1, _) = Self::game_cell(max_x, feet_y - 0.5);
+        let (x0, y) = self.local_cell(min_x, feet_y - 0.5);
+        let (x1, _) = self.local_cell(max_x, feet_y - 0.5);
         let mut columns = 0;
         let mut grains = 0;
         for x in x0.floor() as i32..=x1.floor() as i32 {
@@ -724,13 +1042,14 @@ impl World {
     /// Find a supported surface below an animal, filtering small pebbles
     /// using the same footprint test as the crab.
     pub fn game_surface_below(&self, x: f32, half_width: f32, ceiling: f32) -> Option<f32> {
-        if !Self::game_contains(x, ceiling) {
+        if !self.contains_world(x, ceiling) {
             return None;
         }
-        let first =
-            (((ceiling - GAME_BOTTOM) / GAME_CELL).floor() as i32 - 1).clamp(0, HEIGHT as i32 - 1);
+        let first = (((ceiling - GAME_BOTTOM) / GAME_CELL - self.origin.1 as f32).floor() as i32
+            - 1)
+        .clamp(0, HEIGHT as i32 - 1);
         for row in (0..=first).rev() {
-            let surface = GAME_BOTTOM + (row + 1) as f32 * GAME_CELL;
+            let surface = GAME_BOTTOM + (row + 1 + self.origin.1) as f32 * GAME_CELL;
             if self.game_surface_support(x - half_width, x + half_width, surface) {
                 return Some(surface);
             }
@@ -770,15 +1089,16 @@ impl World {
         if self.game_only_loose_grains(min_x, min_y, max_x, max_y) {
             return false;
         }
-        let (x0, y0) = Self::game_cell(min_x, min_y);
-        let (x1, y1) = Self::game_cell(max_x, max_y);
+        let (x0, y0) = self.local_cell(min_x, min_y);
+        let (x1, y1) = self.local_cell(max_x, max_y);
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
                 if let Some(i) = Self::index(x, y) {
                     match self.cells[i] {
                         Cell::Rock => return true,
                         Cell::Sand | Cell::Mud
-                            if GAME_BOTTOM + (y + 1) as f32 * GAME_CELL > min_y + leg_reach =>
+                            if GAME_BOTTOM + (y + 1 + self.origin.1) as f32 * GAME_CELL
+                                > min_y + leg_reach =>
                         {
                             return true;
                         }
@@ -793,8 +1113,8 @@ impl World {
     /// A few loose grains do not obstruct the crab; a rock or a larger
     /// sediment mass remains an obstacle unless digging.
     pub fn game_only_loose_grains(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
-        let (x0, y0) = Self::game_cell(min_x, min_y);
-        let (x1, y1) = Self::game_cell(max_x, max_y);
+        let (x0, y0) = self.local_cell(min_x, min_y);
+        let (x1, y1) = self.local_cell(max_x, max_y);
         let mut grains = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
@@ -849,6 +1169,10 @@ impl World {
             bubbles: Vec::new(),
             game: false,
             tick: 0,
+            origin: (0, 0),
+            sleeping: std::collections::BTreeMap::new(),
+            opening_edge_opened: false,
+            pebble_seeded: std::collections::BTreeSet::new(),
         };
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
@@ -882,7 +1206,6 @@ impl World {
         }
     }
 
-    #[cfg(test)]
     fn add_pebble(&mut self, x: i32, y: i32, side: u8, shade: u8) -> bool {
         for oy in 0..i32::from(side) {
             for ox in 0..i32::from(side) {
@@ -902,7 +1225,7 @@ impl World {
         };
         for oy in 0..i32::from(side) {
             for ox in 0..i32::from(side) {
-                let i = Self::index(x + ox, y + oy).unwrap();
+                let i = Self::index(x + ox, y + oy).expect("pebble footprint was checked");
                 self.cells[i] = Cell::Sand;
                 self.grain[i] = shade;
                 self.pebble_owner[i] = id;
@@ -1366,7 +1689,7 @@ impl World {
     /// sediment. The ordinary crab reservation is restored afterward and is
     /// never replaced when the two bodies overlap. Rock is never displaced.
     pub fn clear_animal_upward(&mut self, x: f32, feet: f32, half_width: f32, height: f32) -> bool {
-        let (cx, cy) = Self::game_cell(x, feet + height * 0.5);
+        let (cx, cy) = self.local_cell(x, feet + height * 0.5);
         let hx = (half_width / GAME_CELL).floor().max(1.0) as i32;
         // Do not round the lower edge down into the floor beneath its feet.
         let hy = (height * 0.5 / GAME_CELL).floor().max(1.0) as i32;
@@ -1721,9 +2044,10 @@ impl World {
             // Broad slow layers preserve the fine simulation's established
             // motion until it is coupled to the world-wide baseline.
             let time = self.tick as f32;
+            let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
             let shear = if self.game {
-                (y as f32 * 0.055 + time * 0.006).sin() * 0.375
-                    + (y as f32 * 0.021 - time * 0.0027).sin() * 0.15
+                (world_y * 0.055 + time * 0.006).sin() * 0.375
+                    + (world_y * 0.021 - time * 0.0027).sin() * 0.15
             } else {
                 0.0
             };
@@ -1736,8 +2060,9 @@ impl World {
                 // Broad, slow eddies make the current less uniform while
                 // retaining its overall direction and stable boundaries.
                 let t = self.tick as f32 * 0.018;
-                let eddy = (x as f32 * 0.047 + y as f32 * 0.023 + t).sin();
-                let cross = (x as f32 * 0.027 - y as f32 * 0.041 - t * 0.7).sin();
+                let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
+                let eddy = (world_x * 0.047 + world_y * 0.023 + t).sin();
+                let cross = (world_x * 0.027 - world_y * 0.041 - t * 0.7).sin();
                 let feed = if self.game { 0.12 } else { 0.035 };
                 let mut vx = (current + shear + eddy * 0.08) * feed;
                 let mut vy = cross * 0.002;
@@ -1768,6 +2093,14 @@ impl World {
             };
             let id = (index + 1) as u16;
             let p = self.pebbles[index];
+            let side_cells = i32::from(p.side);
+            if p.x < 0
+                || p.y < 0
+                || p.x + side_cells > WIDTH as i32
+                || p.y + side_cells > HEIGHT as i32
+            {
+                continue;
+            }
             let (vx, vy, remaining) = self.pebble_motion[index];
             if remaining > 0 {
                 self.pebble_motion[index].2 -= 1;
@@ -1998,7 +2331,25 @@ impl World {
             if self.game && blade == 0 {
                 continue;
             }
-            let Some(base) = (12..120).find(|&y| {
+            let root = if self.game {
+                root - self.origin.0
+            } else {
+                root
+            };
+            if !(1..WIDTH as i32 - 1).contains(&root) {
+                continue;
+            }
+            let lo = if self.game {
+                (12 - self.origin.1).clamp(1, HEIGHT as i32 - 1)
+            } else {
+                12
+            };
+            let hi = if self.game {
+                (120 - self.origin.1).clamp(1, HEIGHT as i32 - 1)
+            } else {
+                120
+            };
+            let Some(base) = (lo..hi).find(|&y| {
                 self.cell(root, y) == Cell::Water && self.cell(root, y - 1) != Cell::Water
             }) else {
                 continue;
@@ -2014,11 +2365,10 @@ impl World {
         }
         if self.game {
             for segment in 1..=GIANT_PARTS {
-                let y = (self.giant_base - GAME_BOTTOM
-                    + (GAME_KELP_TOP - self.giant_base) * segment as f32 / GIANT_PARTS as f32)
-                    / GAME_CELL;
-                let x = GIANT_ROOT + self.giant_kelp[segment] as i32;
-                let flow = self.flow_at(x, y as i32).0;
+                let world_y = self.giant_base
+                    + (GAME_KELP_TOP - self.giant_base) * segment as f32 / GIANT_PARTS as f32;
+                let world_x = (GIANT_ROOT as f32 + self.giant_kelp[segment]) * GAME_CELL;
+                let flow = self.game_water_at(world_x, world_y).0;
                 let height = segment as f32 / GIANT_PARTS as f32;
                 let below = self.giant_kelp[segment - 1];
                 let above = self.giant_kelp[(segment + 1).min(GIANT_PARTS)];
@@ -2032,8 +2382,8 @@ impl World {
                 self.giant_kelp_velocity[segment] = v.clamp(-0.8, 0.8);
                 self.giant_kelp[segment] = (self.giant_kelp[segment] + v).clamp(-14.0, 14.0);
             }
-            let surface = (GAME_KELP_TOP - GAME_BOTTOM) / GAME_CELL;
-            let base = (self.giant_base - GAME_BOTTOM) / GAME_CELL;
+            let surface = (GAME_KELP_TOP - GAME_BOTTOM) / GAME_CELL - self.origin.1 as f32;
+            let base = (self.giant_base - GAME_BOTTOM) / GAME_CELL - self.origin.1 as f32;
             for (n, bubble) in self.bubbles.iter_mut().enumerate() {
                 if bubble.life == 0 {
                     bubble.rest = bubble.rest.saturating_sub(1);
@@ -2333,6 +2683,151 @@ mod tests {
             world.clear_for_crab(120.0, 100.0),
             "grains entered the crab"
         );
+    }
+
+    #[test]
+    fn streamed_window_restores_cells_and_aggregate_ids_after_return() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.follow_player(&level, 160.0, 0.0);
+        // Displace a real grain before leaving, then allow only the far
+        // window to advance. The sleeping disturbance must come back intact.
+        let sand = world
+            .cells
+            .iter()
+            .enumerate()
+            .find(|(i, c)| **c == Cell::Sand && world.pebble_owner[*i] == 0)
+            .map(|(i, _)| i)
+            .expect("sand");
+        let water = world
+            .cells
+            .iter()
+            .position(|&c| c == Cell::Water)
+            .expect("water");
+        world.swap_cells(sand, water);
+        let before = world.clone();
+        assert!(world.follow_player(&level, 4400.0, -700.0));
+        assert!(world.contains_world(4400.0, -700.0));
+        for _ in 0..5 {
+            world.step(0.35);
+        }
+        assert!(world.follow_player(&level, 160.0, 0.0));
+        assert!(world.contains_world(160.0, 0.0));
+        world.shift_window(&level, (0, 0));
+        assert_eq!(world.cells, before.cells);
+        assert_eq!(world.flow, before.flow);
+        assert_eq!(world.suspended, before.suspended);
+        assert_eq!(world.grain, before.grain);
+        assert_eq!(world.pebble_owner, before.pebble_owner);
+        assert_eq!(&world.pebbles[..before.pebbles.len()], &before.pebbles);
+        assert_eq!(
+            &world.pebble_motion[..before.pebble_motion.len()],
+            &before.pebble_motion
+        );
+    }
+
+    #[test]
+    fn walking_over_a_window_seam_preserves_shared_world_cells() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.follow_player(&level, 160.0, 0.0);
+        let gx = WIDTH as i32 - 20;
+        let gy = 100_i32;
+        let before_i = World::index(gx, gy).expect("in original window");
+        let before = (
+            world.cells[before_i],
+            world.grain[before_i],
+            world.pebble_owner[before_i],
+            world.flow[before_i],
+        );
+        let at = (
+            (WIDTH as f32 - 15.0) * GAME_CELL,
+            GAME_BOTTOM + gy as f32 * GAME_CELL,
+        );
+        assert!(world.follow_player(&level, at.0, at.1));
+        let (x, y) = world.local_cell(gx as f32 * GAME_CELL, GAME_BOTTOM + gy as f32 * GAME_CELL);
+        let after_i = World::index(x as i32, y as i32).expect("in shifted overlap");
+        assert_eq!(
+            (
+                world.cells[after_i],
+                world.grain[after_i],
+                world.pebble_owner[after_i],
+                world.flow[after_i]
+            ),
+            before
+        );
+        assert!(world.follow_player(&level, 160.0, 0.0));
+        assert_eq!(
+            (
+                world.cells[before_i],
+                world.grain[before_i],
+                world.pebble_owner[before_i],
+                world.flow[before_i]
+            ),
+            before
+        );
+    }
+
+    #[test]
+    fn streaming_teleport_recenters_once_and_keeps_pebbles_whole() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        assert!(world.follow_player(&level, 7000.0, -9000.0));
+        assert!(world.contains_world(7000.0, -9000.0));
+        assert!(!world.follow_player(&level, 7000.0, -9000.0));
+        for p in &world.pebbles {
+            let side = i32::from(p.side);
+            let full =
+                p.x >= 0 && p.y >= 0 && p.x + side <= WIDTH as i32 && p.y + side <= HEIGHT as i32;
+            let out =
+                p.x + side <= 0 || p.y + side <= 0 || p.x >= WIDTH as i32 || p.y >= HEIGHT as i32;
+            assert!(full || out, "pebble was sliced by a window boundary: {p:?}");
+        }
+        world.step(0.35); // Sleeping pebble IDs must not index outside the grid.
+    }
+
+    #[test]
+    fn distant_sandy_shelf_seeds_pebbles_only_once_across_window_changes() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        let old_count = world.pebbles.len();
+        assert!(world.follow_player(&level, 5000.0, -650.0));
+        let after_first = world.pebbles.len();
+        assert!(after_first > old_count, "sandy shelf has no pebbles");
+        assert!(world.follow_player(&level, 160.0, 0.0));
+        assert!(world.follow_player(&level, 5000.0, -650.0));
+        assert_eq!(
+            world.pebbles.len(),
+            after_first,
+            "pebbles duplicated on return"
+        );
+        for (n, p) in world.pebbles.iter().enumerate() {
+            let side = i32::from(p.side);
+            if p.x >= 0 && p.y >= 0 && p.x + side <= WIDTH as i32 && p.y + side <= HEIGHT as i32 {
+                for y in p.y..p.y + side {
+                    for x in p.x..p.x + side {
+                        assert_eq!(
+                            world.pebble_owner[World::index(x, y).expect("inside")],
+                            (n + 1) as u16
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn local_kelp_stays_world_anchored_across_a_window_shift() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        let p = world.game_kelp_point(1, 1).expect("opening kelp");
+        // Small shift retains this root inside the window.
+        world.shift_window(&level, (64, 0));
+        let q = world.game_kelp_point(1, 1).expect("root remains in window");
+        assert_eq!(p, q);
+        world.shift_window(&level, (640, 0));
+        assert!(world.game_kelp_point(1, 1).is_none());
+        assert!((world.giant_kelp_x(300.0) - 280.0).abs() < 100.0);
     }
 
     /// Rebuild after changing the opening terrain or the cellular rules:

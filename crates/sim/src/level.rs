@@ -593,9 +593,10 @@ impl Level {
             // The material field supplies its own terrain here. Retaining
             // the old invisible cliff walls creates phantom pillars when
             // the visible cells have moved or been dug away.
-            let in_cells = self.cells.is_some()
-                && a.x >= 0.0
-                && b.x <= crate::underwater::WIDTH as f32 * crate::underwater::GAME_CELL;
+            let in_cells = self.cells.as_ref().is_some_and(|cells| {
+                let (left, _, width, _) = cells.game_bounds();
+                a.x >= left && b.x <= left + width
+            });
             (is_cliff && !in_cells)
                 .then(|| Rect::new(a.x, a.y.min(b.y) - 2000.0, b.x, a.y.max(b.y)))
         });

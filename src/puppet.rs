@@ -1074,6 +1074,7 @@ fn paddle_curve(t: f32) -> f32 {
 }
 
 /// Pose every crab puppet from its movement state.
+#[allow(clippy::type_complexity)]
 fn animate(
     time: Res<Time>,
     sim: Res<Sim>,
