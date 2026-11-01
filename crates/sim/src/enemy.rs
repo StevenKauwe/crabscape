@@ -744,9 +744,18 @@ pub fn step(
             .clamp(level.min_x + half, level.max_x - half);
         // A drop or a wall (a big step in the floor) stops it: it walks the
         // floor, it doesn't fall off cliffs.
-        let y = level.floor_height(x);
+        let dynamic_surface = level
+            .cells
+            .as_ref()
+            .and_then(|cells| cells.game_surface_below(x, half, e.pos.y + MAX_STEP));
+        let y = dynamic_surface.unwrap_or_else(|| level.floor_height(x));
         if (y - e.pos.y).abs() <= MAX_STEP {
             e.pos = Vec2::new(x, y);
+        } else if dynamic_surface.is_some() && y < e.pos.y {
+            // When the experimental seabed moves away under an animal,
+            // let it sink toward the next supported surface over time.
+            e.pos.y = (e.pos.y - 250.0 * STEP).max(y);
+            e.vel_x = 0.0;
         } else {
             e.vel_x = 0.0;
         }

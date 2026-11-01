@@ -153,6 +153,10 @@ pub struct Sim {
 pub const SEED: u64 = 0x00c0_ffee_c4ab_5eed;
 
 impl Sim {
+    /// Enable the draft's single-player material experiment in the opening area.
+    pub fn enable_underwater_cells(&mut self) {
+        self.level.cells = Some(crate::underwater::World::from_level(&self.level));
+    }
     /// An empty world: no crabs yet.
     pub fn new(tuning: Tuning, level: Level) -> Self {
         Self {
@@ -766,6 +770,82 @@ impl Sim {
 
     /// Advance the world by one [`STEP`].
     pub fn tick(&mut self) {
+        // The material experiment advances at 30 Hz inside the fixed-step
+        // simulation. Only the local crab participates; co-op is disabled by
+        // the experimental entry point until terrain can be synchronized.
+        let original_floor = self.level.cells.as_ref().and_then(|_| {
+            self.crabs
+                .iter()
+                .find(|c| !c.remote)
+                .map(|c| self.level.floor_height(c.mover.pos.x))
+        });
+        if let Some(cells) = self.level.cells.as_mut() {
+            if let Some(crab) = self.crabs.iter().find(|c| !c.remote) {
+                let m = &crab.mover;
+                let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
+                if crate::underwater::World::game_contains(center.x, center.y) {
+                    let (x, y) = crate::underwater::World::game_cell(center.x, center.y);
+                    cells.set_game_crab(
+                        x,
+                        y,
+                        m.half_width(&self.tuning) / 4.0,
+                        m.height(&self.tuning) / 8.0,
+                    );
+                    let walk = crab.controls.walk.clamp(-1.0, 1.0);
+                    let vertical = if crab.controls.down {
+                        -1.0
+                    } else if crab.controls.jump_held {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    let half_width = m.half_width(&self.tuning);
+                    let left = m.pos.x - half_width + 0.01;
+                    let right = m.pos.x + half_width - 0.01;
+                    // Nudge a lone grain out of the way rather than treating
+                    // it as a floor or a wall. A broad bed still supports.
+                    if cells.game_solid(left, m.pos.y - 1.0, right, m.pos.y - 0.01)
+                        && !cells.game_surface_support(left, right, m.pos.y)
+                    {
+                        cells.push_for_crab(x, y - 1.0, 0, -1, 48);
+                    }
+                    let digging = crab.controls.dodge_held;
+                    if crab.controls.jump_held
+                        && (digging || original_floor.is_some_and(|floor| m.pos.y < floor - 2.0))
+                        && !cells.clear_for_crab(x, y + 4.0)
+                    {
+                        cells.push_for_crab(x, y + 4.0, 0, 1, 48);
+                    } else if self.tick.is_multiple_of(4) && digging && crab.controls.down {
+                        cells.push_for_crab(x, y - 1.0, 0, -1, 48);
+                    } else if self.tick.is_multiple_of(4) && digging && walk.abs() > 0.1 {
+                        cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
+                    } else if walk.abs() > 0.1 {
+                        let next_x = m.pos.x + walk.signum() * 4.0;
+                        if cells.game_only_loose_grains(
+                            next_x - half_width + 0.01,
+                            m.pos.y + 0.01,
+                            next_x + half_width - 0.01,
+                            m.pos.y + m.height(&self.tuning) - 0.01,
+                        ) {
+                            cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
+                        }
+                    }
+                    if self.tick.is_multiple_of(4) {
+                        cells.react_to_motion(
+                            x,
+                            y,
+                            walk,
+                            vertical,
+                            m.vel.x * STEP / 4.0,
+                            m.vel.y * STEP / 4.0,
+                        );
+                    }
+                }
+            }
+            if self.tick.is_multiple_of(4) {
+                cells.step(0.7);
+            }
+        }
         if let Some(rec) = &mut self.recorder
             && let Some(crab) = self.crabs.iter().find(|c| !c.remote)
         {
@@ -1117,7 +1197,19 @@ impl Sim {
         self.claws_meet_enemies();
         let runs = self.runs_each();
         for (e, runs) in self.enemies.iter_mut().zip(runs) {
+            let previous = e.pos;
             let blows = enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
+            if self.tick.is_multiple_of(4)
+                && let Some(cells) = self.level.cells.as_mut()
+                && crate::underwater::World::game_contains(e.pos.x, e.pos.y)
+            {
+                let movement = (e.pos - previous) / crate::underwater::GAME_CELL;
+                if movement.length_squared() > 0.0025 {
+                    let (x, y) = crate::underwater::World::game_cell(e.pos.x, e.pos.y);
+                    cells.react_to_swim(x, y, movement.x, movement.y);
+                    cells.stir(x, y, movement.x * 0.12, movement.y * 0.12);
+                }
+            }
             let Some(net) = &mut self.net else {
                 continue;
             };
@@ -1422,13 +1514,14 @@ impl Sim {
         // `{:?}` prints every field, and prints each `f32` exactly, so
         // formatting is an easy way to "hash everything" that keeps working
         // when fields are added.
-        fnv1a(
-            format!(
-                "{} {:?} {:?} {:?} {:?}",
-                self.tick, crabs, self.enemies, self.rng, self.shared
-            )
-            .as_bytes(),
-        )
+        let mut state = format!(
+            "{} {:?} {:?} {:?} {:?}",
+            self.tick, crabs, self.enemies, self.rng, self.shared
+        );
+        if let Some(cells) = &self.level.cells {
+            state.push_str(&format!(" {cells:?}"));
+        }
+        fnv1a(state.as_bytes())
     }
 
     /// One line of state per crab, for the headless runner's `--dump`.

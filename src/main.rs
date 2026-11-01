@@ -66,6 +66,7 @@ mod background;
 mod brittle;
 mod build;
 mod canyon;
+mod cellular;
 mod character;
 mod chat;
 mod cling;
@@ -170,6 +171,7 @@ fn main() {
             view::ViewPlugin,
         ))
         .add_plugins(monkeys::MonkeysPlugin)
+        .add_plugins(cellular::CellularPlugin)
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,

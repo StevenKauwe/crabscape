@@ -117,7 +117,12 @@ fn draw_level(
     }
     // The sea floor: one mesh. Each floor segment becomes a four-cornered
     // shape from the surface down to FLOOR_DEPTH.
-    let floor = meshes.add(floor_mesh(&level.floor, 0.0, FLOOR_DEPTH));
+    let floor = meshes.add(floor_mesh(
+        &level.floor,
+        0.0,
+        FLOOR_DEPTH,
+        level.cells.is_some(),
+    ));
     commands.spawn((
         LevelShape,
         Mesh2d(floor),
@@ -125,13 +130,24 @@ fn draw_level(
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
     // A thin lighter band along the top: the surface of the sand.
-    let lip = meshes.add(floor_mesh(&level.floor, 0.0, 5.0));
+    let lip = meshes.add(floor_mesh(&level.floor, 0.0, 5.0, level.cells.is_some()));
     commands.spawn((
         LevelShape,
         Mesh2d(lip),
         MeshMaterial2d(paint(SAND_TOP)),
         Transform::from_xyz(0.0, 0.0, 0.1),
     ));
+
+    if level.cells.is_some() {
+        let width = crabsim::underwater::WIDTH as f32 * crabsim::underwater::GAME_CELL;
+        let bottom = crabsim::underwater::GAME_BOTTOM;
+        commands.spawn((
+            LevelShape,
+            Mesh2d(meshes.add(Rectangle::new(width, FLOOR_DEPTH))),
+            MeshMaterial2d(paint(ROCK)),
+            Transform::from_xyz(width / 2.0, bottom - FLOOR_DEPTH / 2.0, -0.1),
+        ));
+    }
 
     // Rocks: a dark box with a lighter top edge.
     let rock = paint(ROCK);
@@ -509,11 +525,21 @@ fn bare_rock(c: &Climb, draw: &mut Draw) {
 
 /// A mesh for the band between the floor line and `depth` below it, made of
 /// one quad per floor segment. (`top_offset` lifts the top edge.)
-fn floor_mesh(points: &[Vec2], top_offset: f32, depth: f32) -> Mesh {
+fn floor_mesh(points: &[Vec2], top_offset: f32, depth: f32, omit_cell_area: bool) -> Mesh {
     let mut positions = Vec::new();
     let mut indices = Vec::new();
     for pair in points.windows(2) {
-        let (a, b) = (pair[0], pair[1]);
+        let (mut a, b) = (pair[0], pair[1]);
+        if omit_cell_area {
+            let end = crabsim::underwater::WIDTH as f32 * crabsim::underwater::GAME_CELL;
+            if b.x <= end {
+                continue;
+            }
+            if a.x < end {
+                let t = (end - a.x) / (b.x - a.x);
+                a = a.lerp(b, t);
+            }
+        }
         let i = positions.len() as u32;
         positions.push([a.x, a.y + top_offset, 0.0]);
         positions.push([b.x, b.y + top_offset, 0.0]);

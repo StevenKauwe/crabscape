@@ -979,6 +979,18 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.vel.y -= drag * (up * up - down * down / heavy) * dt;
     }
 
+    if let Some(cells) = &level.cells
+        && crate::underwater::World::game_contains(m.pos.x, m.pos.y)
+    {
+        let (x, y) = crate::underwater::World::game_cell(m.pos.x, m.pos.y + m.height(t) * 0.5);
+        let (vx, vy) = cells.flow_at(x as i32, y as i32);
+        m.vel.x += (vx * 35.0 - m.vel.x) * 0.08 * dt;
+        m.vel.y += vy * 12.0 * dt;
+        if c.down && c.dodge_held && m.grounded {
+            m.vel.y = -70.0;
+            m.grounded = false;
+        }
+    }
     move_and_collide(m, t, level, dt, &mut ev);
     // Touching down rests one stroke at once (so a hop straight off again
     // has its double jump); the rest come back while it stands.
@@ -1063,6 +1075,13 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
 /// Move by the velocity, then sort out collisions: sideways first, then up
 /// and down.
 fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut StepEvents) {
+    if let Some(cells) = &level.cells
+        && crate::underwater::World::game_contains(m.pos.x, m.pos.y)
+        && crate::underwater::World::game_contains(m.pos.x, m.pos.y + m.height(t))
+    {
+        move_and_collide_cells(m, t, level, cells, dt, ev);
+        return;
+    }
     let hw = m.half_width(t);
     let h = m.height(t);
     // Longer legs step up higher and keep to a floor that drops further.
@@ -1159,6 +1178,76 @@ fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut 
     if m.pos.y < floor - step_up {
         m.pos.y = floor;
         m.vel.y = m.vel.y.max(0.0);
+    }
+}
+
+/// Draft-only collision with the material grid and the existing solid rocks.
+fn move_and_collide_cells(
+    m: &mut Mover,
+    t: &Tuning,
+    level: &Level,
+    cells: &crate::underwater::World,
+    dt: f32,
+    ev: &mut StepEvents,
+) {
+    let hw = m.half_width(t);
+    let height = m.height(t);
+    let blocked = |pos: Vec2| {
+        let (left, right) = (pos.x - hw + EPS, pos.x + hw - EPS);
+        let (bottom, top) = (pos.y + EPS, pos.y + height - EPS);
+        cells.game_solid(left, bottom, right, top)
+            || level
+                .solids()
+                .any(|r| right > r.min.x && left < r.max.x && top > r.min.y && bottom < r.max.y)
+    };
+    let was_grounded = m.grounded;
+    let dx = m.vel.x * dt;
+    let xsteps = (dx.abs() / 2.0).ceil().max(1.0) as usize;
+    for _ in 0..xsteps {
+        let candidate = Vec2::new(
+            (m.pos.x + dx / xsteps as f32).clamp(level.min_x + hw, level.max_x - hw),
+            m.pos.y,
+        );
+        if !blocked(candidate) {
+            m.pos = candidate;
+        } else if was_grounded {
+            let mut stepped = false;
+            for rise in 1..=(t.step_up * m.grown(t)) as usize {
+                let raised = candidate + Vec2::Y * rise as f32;
+                if !blocked(raised) {
+                    m.pos = raised;
+                    stepped = true;
+                    break;
+                }
+            }
+            if !stepped {
+                m.vel.x = 0.0;
+                break;
+            }
+        } else {
+            m.vel.x = 0.0;
+            break;
+        }
+    }
+    let dy = m.vel.y * dt;
+    let ysteps = (dy.abs() / 2.0).ceil().max(1.0) as usize;
+    let impact = -m.vel.y;
+    let mut touched = false;
+    for _ in 0..ysteps {
+        let candidate = m.pos + Vec2::Y * (dy / ysteps as f32);
+        if candidate.y + height > crate::level::WATER_SURFACE_Y || blocked(candidate) {
+            touched = dy < 0.0;
+            m.vel.y = 0.0;
+            if dy > 0.0 {
+                m.rising = false;
+            }
+            break;
+        }
+        m.pos = candidate;
+    }
+    m.grounded = touched || (dy <= 0.0 && blocked(m.pos - Vec2::Y * 1.0));
+    if m.grounded && !was_grounded {
+        ev.landed = Some(impact.max(0.0));
     }
 }
 

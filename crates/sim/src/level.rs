@@ -90,6 +90,8 @@ pub struct Brittle {
 /// from there.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Level {
+    /// Optional, disposable material simulation for the opening section.
+    pub cells: Option<crate::underwater::World>,
     /// The sea floor's surface, as points from left to right. Between two
     /// points the floor is a straight line. Two points at (almost) the same x
     /// make a cliff.
@@ -194,6 +196,7 @@ impl Level {
     /// The level the game uses (for now, the only one).
     pub fn test_level() -> Self {
         Self {
+            cells: None,
             floor: vec![
                 Vec2::new(0.0, 0.0),
                 Vec2::new(520.0, 0.0),

@@ -87,8 +87,12 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        let mut sim = Sim::new(Tuning::default(), Level::test_level());
+        if crate::cellular::enabled() {
+            sim.enable_underwater_cells();
+        }
         app.add_message::<MoveRequest>()
-            .insert_resource(Sim::new(Tuning::default(), Level::test_level()))
+            .insert_resource(sim)
             .init_resource::<StepClock>()
             .configure_sets(
                 Update,
@@ -152,7 +156,9 @@ pub fn spawn_local_crab(
     }
     // Always write down what the local player does, so a replay can be saved
     // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
-    sim.start_recording();
+    if !crate::cellular::enabled() {
+        sim.start_recording();
+    }
     sim.populate();
     commands.spawn((
         Crab,

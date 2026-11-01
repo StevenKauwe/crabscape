@@ -163,6 +163,13 @@ fn spawn_card(mut commands: Commands) {
                 TextColor(Color::srgb(1.0, 0.75, 0.35)),
             ));
             for (keys, does) in KEYS {
+                let does = if crate::cellular::enabled() && keys == "S / Down" {
+                    "climb down; Shift + Down digs"
+                } else if crate::cellular::enabled() && keys == "F9" {
+                    "replays unavailable in this experiment"
+                } else {
+                    does
+                };
                 card.spawn(Node {
                     height: px(LINE),
                     flex_direction: FlexDirection::Row,
