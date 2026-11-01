@@ -18,9 +18,22 @@ use crate::memory::{MemoryMaterial, MemoryTexture};
 /// How far down the sea floor is drawn below its surface.
 const FLOOR_DEPTH: f32 = 10000.0;
 
-/// The surface moves as one shape: its ripples drift without a screen overlay.
-#[derive(Component)]
-struct WaterSurface;
+/// The air, water edge and glints share a moving boundary.
+#[derive(Component, Clone, Copy)]
+struct WaterSurface {
+    part: SurfacePart,
+    left: f32,
+    right: f32,
+}
+
+#[derive(Clone, Copy)]
+enum SurfacePart {
+    Sky,
+    Edge,
+    Glints,
+}
+
+const SURFACE_SEGMENTS: usize = 400;
 
 /// Marks the level's shapes (so they could be found and removed later).
 #[derive(Component)]
@@ -86,37 +99,22 @@ fn draw_level(
     let level = &sim.level;
     let mut palette = Palette::default();
     let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
-    // The sky is open air above the surface, not a remembered underwater
-    // object: draw it as a continuous background instead of fogging its edge.
-    let sky_height = 20000.0;
-    commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(
-            level.max_x - level.min_x + 1200.0,
-            sky_height,
-        ))),
-        MeshMaterial2d(materials.add(Color::srgb(0.48, 0.70, 0.82))),
-        Transform::from_xyz(
-            (level.min_x + level.max_x) / 2.0,
-            WATER_SURFACE_Y + sky_height / 2.0,
-            -31.0,
-        ),
-    ));
-    // The visible ripples sit just above the physical water boundary.
-    let points: Vec<Vec2> = (0..=200)
-        .map(|i| {
-            let x = level.min_x + (level.max_x - level.min_x) * i as f32 / 200.0;
-            Vec2::new(
-                x,
-                WATER_SURFACE_Y + 12.0 + 5.0 * (x / 95.0).sin() + 2.0 * (x / 29.0).sin(),
-            )
-        })
-        .collect();
-    commands.spawn((
-        WaterSurface,
-        Mesh2d(meshes.add(floor_mesh(&points, 0.0, 5.0))),
-        MeshMaterial2d(paint(Color::srgb(0.12, 0.27, 0.28))),
-        Transform::from_xyz(0.0, 0.0, -30.0),
-    ));
+    // Air and water share the same animated, wavy boundary. The pale edge
+    // and broken glints are individual shapes, never a screen-wide filter.
+    let (left, right) = (level.min_x - 600.0, level.max_x + 600.0);
+    let surface_material = materials.add(Color::WHITE);
+    for (part, z) in [
+        (SurfacePart::Sky, -31.0),
+        (SurfacePart::Edge, -30.0),
+        (SurfacePart::Glints, -29.9),
+    ] {
+        commands.spawn((
+            WaterSurface { part, left, right },
+            Mesh2d(meshes.add(surface_mesh(part, left, right, 0.0))),
+            MeshMaterial2d(surface_material.clone()),
+            Transform::from_xyz(0.0, 0.0, z),
+        ));
+    }
     // The sea floor: one mesh. Each floor segment becomes a four-cornered
     // shape from the surface down to FLOOR_DEPTH.
     let floor = meshes.add(floor_mesh(&level.floor, 0.0, FLOOR_DEPTH));
@@ -202,10 +200,110 @@ fn draw_level(
     }
 }
 
-/// Move the rippled surface gently; all the ripples stay in their own shape.
-fn move_water_surface(time: Res<Time>, mut surface: Query<&mut Transform, With<WaterSurface>>) {
-    for mut transform in &mut surface {
-        transform.translation.x = (time.elapsed_secs() * 0.55).sin() * 12.0;
+/// Animate the shared boundary so there is never a straight seam above waves.
+fn move_water_surface(
+    time: Res<Time>,
+    surface: Query<(&WaterSurface, &Mesh2d, Option<&ViewVisibility>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    for (surface, mesh, visible) in &surface {
+        if visible.is_some_and(|visible| !visible.get()) {
+            continue;
+        }
+        if let Some(mut mesh) = meshes.get_mut(&mesh.0) {
+            mesh.insert_attribute(
+                Mesh::ATTRIBUTE_POSITION,
+                surface_positions(
+                    surface.part,
+                    surface.left,
+                    surface.right,
+                    time.elapsed_secs(),
+                ),
+            );
+        }
+    }
+}
+
+fn surface_wave(x: f32, time: f32) -> f32 {
+    WATER_SURFACE_Y + 8.0 * (x / 75.0 - time * 0.8).sin() + 3.0 * (x / 29.0 + time * 1.1).sin()
+}
+
+/// Two rows for water, three for sky (the extra row makes a soft horizon).
+fn surface_positions(part: SurfacePart, left: f32, right: f32, time: f32) -> Vec<[f32; 3]> {
+    let mut positions = Vec::new();
+    for i in 0..=SURFACE_SEGMENTS {
+        let x = left + (right - left) * i as f32 / SURFACE_SEGMENTS as f32;
+        let y = surface_wave(x, time);
+        match part {
+            SurfacePart::Sky => {
+                positions.extend([[x, y, 0.0], [x, y + 350.0, 0.0], [x, y + 20000.0, 0.0]])
+            }
+            SurfacePart::Edge => positions.extend([[x, y - 16.0, 0.0], [x, y, 0.0]]),
+            SurfacePart::Glints => positions.extend([[x, y - 4.0, 0.0], [x, y - 1.0, 0.0]]),
+        }
+    }
+    positions
+}
+
+fn surface_mesh(part: SurfacePart, left: f32, right: f32, time: f32) -> Mesh {
+    let rows = if matches!(part, SurfacePart::Sky) {
+        3
+    } else {
+        2
+    };
+    let positions = surface_positions(part, left, right, time);
+    let colours: Vec<[f32; 4]> = (0..=SURFACE_SEGMENTS)
+        .flat_map(|_| {
+            (0..rows).map(|row| {
+                let colour = match part {
+                    SurfacePart::Sky if row == 0 => Color::srgb(0.66, 0.82, 0.86),
+                    SurfacePart::Sky => Color::srgb(0.39, 0.66, 0.80),
+                    SurfacePart::Edge if row == 0 => Color::srgb(0.16, 0.38, 0.44),
+                    SurfacePart::Edge => Color::srgb(0.38, 0.68, 0.70),
+                    SurfacePart::Glints => Color::srgb(0.72, 0.88, 0.86),
+                };
+                LinearRgba::from(colour).to_vec4().to_array()
+            })
+        })
+        .collect();
+    let mut indices = Vec::new();
+    for i in 0..SURFACE_SEGMENTS {
+        // Short, separated glints, rather than a white line across the sea.
+        if matches!(part, SurfacePart::Glints) && i % 7 > 1 {
+            continue;
+        }
+        for row in 0..rows - 1 {
+            let a = (i * rows + row) as u32;
+            let b = a + rows as u32;
+            indices.extend([a, b, b + 1, a, b + 1, a + 1]);
+        }
+    }
+    let count = positions.len();
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; count])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
+    .with_inserted_indices(Indices::U32(indices))
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    #[test]
+    fn sky_and_water_share_a_moving_edge() {
+        for time in [0.0, 1.25, 10.0] {
+            let sky = surface_positions(SurfacePart::Sky, 0.0, 1000.0, time);
+            let water = surface_positions(SurfacePart::Edge, 0.0, 1000.0, time);
+            for i in 0..=SURFACE_SEGMENTS {
+                assert_eq!(sky[3 * i], water[2 * i + 1]);
+            }
+        }
+        assert_ne!(surface_wave(50.0, 0.0), surface_wave(50.0, 1.25));
     }
 }
 
