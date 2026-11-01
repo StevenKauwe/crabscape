@@ -42,7 +42,7 @@
 //! happens inside the turn: the claw comes across as the body turns, the
 //! blow lands side on, and the turn finishes into the back over the
 //! recovery (`turn_of`). Seen from behind the crab is backlit by its own
-//! lantern: a touch darker, with a subtle rim on its edges.
+//! lantern: a touch darker, with the original inked outlines.
 //!
 //! # Light
 //!
@@ -204,7 +204,6 @@ enum ArtLayer {
     Lit = 0,
     Unlit = 1,
     Pale = 2,
-    Rim = 3,
 }
 
 // ---------------------------------------------------------------------------
@@ -247,8 +246,6 @@ struct Rig {
     dorsal: Entity,
     /// The lit layer of every piece.
     lit: Vec<Entity>,
-    /// The rim layer of every piece, and how strong its rim is.
-    rims: Vec<(Entity, f32)>,
     /// Each claw's resting angles (merus, carpus, palm; radians, as seen
     /// from the front), for its reach along a blow (`reach_pose`).
     reach: [[f32; 3]; 2],
@@ -748,11 +745,10 @@ fn build_puppets(
     crabs: Query<Entity, (With<Crab>, Without<Rig>)>,
 ) {
     // Wait for the pictures.
-    let (Some(lit), Some(unlit), Some(pale), Some(rim)) = (
+    let (Some(lit), Some(unlit), Some(pale)) = (
         art.layer(*style, ArtLayer::Lit),
         art.layer(*style, ArtLayer::Unlit),
         art.layer(*style, ArtLayer::Pale),
-        art.layer(*style, ArtLayer::Rim),
     ) else {
         return;
     };
@@ -766,7 +762,6 @@ fn build_puppets(
         // Pass 1: one entity per piece, its layers on it.
         let mut by_name: HashMap<&str, Entity> = HashMap::new();
         let mut lit_layers: Vec<Entity> = Vec::new();
-        let mut rims: Vec<(Entity, f32)> = Vec::new();
         let mut layers: HashMap<&str, [Option<Entity>; 3]> = HashMap::new();
         for p in &file.parts {
             let parent = p.parent.as_deref().and_then(part);
@@ -834,25 +829,7 @@ fn build_puppets(
                 ))
                 .id();
             lit_layers.push(lit_layer);
-            // The rim light, over the lit layer, shown from behind.
-            let rim_layer = commands
-                .spawn((
-                    ChildOf(entity),
-                    sprite(&rim, 0.5),
-                    ArtLayer::Rim,
-                    skin(0.5),
-                    anchor,
-                    Transform::from_xyz(0.0, 0.0, Z_STEP * 0.6),
-                    Lit::at(middle),
-                    LitTint {
-                        dark: RIM.with_alpha(0.0),
-                        bright: RIM.with_alpha(0.0),
-                    },
-                ))
-                .id();
-            let shell_view = VIEWS.iter().any(|(_, name)| *name == p.name);
-            rims.push((rim_layer, if shell_view { 0.75 } else { 0.5 }));
-            layers.insert(&p.name, [Some(entity), Some(lit_layer), Some(rim_layer)]);
+            layers.insert(&p.name, [Some(entity), Some(lit_layer), None]);
             // A soft new shell's pale copy, over the lit layer and as lit as
             // it, faded in while the crab is soft (`soft_look`).
             commands.spawn((
@@ -1016,7 +993,6 @@ fn build_puppets(
                 views,
                 dorsal,
                 lit: lit_layers,
-                rims,
                 reach,
                 extra_arm: [get("pizza-arm".into()), get("pizza-fore".into())],
             },
@@ -1542,7 +1518,7 @@ fn animate(
             set(&mut parts, rig.eyes[side], a.eye[side], Vec2::ZERO);
         }
         // Backlit: turned away, the crab is lit by its lantern from behind
-        // (`into_the_dark` darkens it a touch; `shell_look` rims it). A soft
+        // (`into_the_dark` darkens it a touch). A soft
         // fill keeps it easy to read.
         a.backlit = backlight(a.yaw);
         a.lantern_in_front = rig
@@ -1573,12 +1549,9 @@ fn animate(
 const SHELL_LIT: Color = Color::srgb(1.0, 0.92, 0.78);
 const HULK_LIT: Color = Color::srgb(0.55, 1.0, 0.42);
 const HULK_UNLIT: Color = Color::srgb(0.70, 1.0, 0.62);
-/// A faint, neutral highlight where light catches the crab from behind.
-const RIM: Color = Color::srgb(0.92, 0.96, 1.0);
-
 /// The shell: the drawing nearest the crab's turn (mirrored for a turn the
 /// other way, stretched a little towards the next), green as the crab bulks
-/// up; the rim light from behind; and what clings to the dome turned with
+/// up; and what clings to the dome turned with
 /// it.
 fn shell_look(
     crabs: Query<(&Rig, &PuppetAnim)>,
@@ -1653,14 +1626,6 @@ fn shell_look(
                 && sprite.color != unlit
             {
                 sprite.color = unlit;
-            }
-        }
-        for &(e, strength) in &rig.rims {
-            let bright = RIM.with_alpha(0.45 * strength * a.backlit);
-            if let Ok(mut tint) = tints.get_mut(e)
-                && tint.bright != bright
-            {
-                tint.bright = bright;
             }
         }
     }
