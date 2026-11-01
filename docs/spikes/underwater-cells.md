@@ -6,7 +6,7 @@ This is an opt-in, single-player experiment using the actual CrabScape game and 
 cargo run --release --bin crabscape -- --cells
 ```
 
-On the draft's browser preview, add `?cells` to the URL. The normal game remains the default. The opening section (x = 0–2560 world units) uses a 640 × 360 material grid at four world units per cell. Its initial floor and fixed rocks come from the existing level. Hold Shift/dodge and a direction to dig; Shift + Down digs into loose ground, and jump pushes back out. The remaining level uses its original terrain and physics.
+On the draft's browser preview, add `?cells` to the URL. The normal game remains the default. The opening section (x = 0–2560 world units) uses a 640 × 360 material grid at four world units per cell. Its initial floor and fixed rocks come from the existing level. Hold Shift/dodge and a direction to dig; Shift + Down digs into loose ground, and jump pushes back out. On a touch screen, hold DIG to burrow down; hold DIG and a direction (or DODGE and a direction) to burrow sideways. Hold JUMP to escape. The remaining level uses its original terrain and physics.
 
 The real crab samples the current, moves loose material and creates wakes. Sand and mixed-density mud fall, slide, and can be carried by the current; light mud lifts more easily and neighboring mud grains cohere. Fine visual silt does not add to the material count. Kelp in the grid is a flexible visual experiment; it is not the game's existing climbable kelp. Water fills empty cells. The fluid field, lift, cohesion, reaction forces and crab collision are approximations, not a conservation-accurate fluid or rigid-body solver.
 
