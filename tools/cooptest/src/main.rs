@@ -393,11 +393,20 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
         let now = t.elapsed().as_secs_f64();
         let mut all = true;
         let mut says = Vec::new();
-        for p in players.iter_mut() {
+        for (i, p) in players.iter_mut().enumerate() {
             p.healthy()?;
-            let s = p.coop();
+            // Read both attributes in one browser turn: a reconnect can
+            // change the world between two separate DevTools requests.
+            let pair = p.b.eval(r#"(() => { const c = document.getElementById("crabscape"); return [c?.getAttribute("data-coop") || "", c?.getAttribute("data-world") || ""]; })()"#).unwrap_or_default();
+            let s = pair[0].as_str().unwrap_or_default().to_string();
+            let world = pair[1].as_str().unwrap_or_default();
             // The first line; a second says who hosts while the main host is away.
-            all &= s.lines().next() == Some(want.as_str());
+            let playing = s.lines().next() == Some(want.as_str());
+            if i > 0 && playing && !world.is_empty() && world != "guest" {
+                let why = format!("{}: together but in a {world} world", p.name());
+                return Err(p.failed(why));
+            }
+            all &= playing;
             says.push(format!("{}: {s:?}", p.name()));
         }
         since = if all { since.or(Some(now)) } else { None };
@@ -419,13 +428,6 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
         }
         sleep(0.25);
     };
-    for p in players.iter_mut().skip(1) {
-        let w = p.world();
-        if !w.is_empty() && w != "guest" {
-            let why = format!("{}: together but in a {w} world", p.name());
-            return Err(p.failed(why));
-        }
-    }
     if players.iter().any(|p| p.voice) {
         for p in players.iter_mut() {
             p.mic_on()?;
