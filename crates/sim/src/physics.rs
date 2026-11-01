@@ -979,13 +979,12 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.vel.y -= drag * (up * up - down * down / heavy) * dt;
     }
 
-    if let Some(cells) = &level.cells
-        && crate::underwater::World::game_contains(m.pos.x, m.pos.y)
-    {
-        let (x, y) = crate::underwater::World::game_cell(m.pos.x, m.pos.y + m.height(t) * 0.5);
-        let (vx, vy) = cells.flow_at(x as i32, y as i32);
+    if let Some(cells) = &level.cells {
+        let (vx, vy) = cells.game_water_at(m.pos.x, m.pos.y + m.height(t) * 0.5);
         m.vel.x += (vx * 35.0 - m.vel.x) * 0.08 * dt;
         m.vel.y += vy * 12.0 * dt;
+    }
+    if level.cells.is_some() && crate::underwater::World::game_contains(m.pos.x, m.pos.y) {
         if c.down && c.dodge_held && m.grounded {
             m.vel.y = -70.0;
             m.grounded = false;

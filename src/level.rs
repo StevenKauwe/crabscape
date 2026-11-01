@@ -39,6 +39,15 @@ const SURFACE_SEGMENTS: usize = 400;
 #[derive(Component)]
 struct LevelShape;
 
+/// Art above the cell field follows the same sampled stalk as the grip.
+#[derive(Component)]
+struct FlowKelpPiece {
+    lower_y: f32,
+    upper_y: f32,
+    side_offset: f32,
+    leaf_angle: Option<f32>,
+}
+
 /// The far-away rock spires behind the level. They move slower than the
 /// camera, which makes them look distant ("parallax").
 #[derive(Component)]
@@ -59,7 +68,7 @@ impl Plugin for LevelPlugin {
             Startup,
             draw_level.after(crate::memory::setup_memory_texture),
         )
-        .add_systems(Update, move_water_surface);
+        .add_systems(Update, (move_water_surface, move_high_kelp));
     }
 }
 
@@ -360,6 +369,43 @@ fn draw_climbs(
 ) {
     for c in climbs {
         let experimental_kelp = cells_enabled && c.kind == Growth::Kelp && c.x == 280.0;
+        if experimental_kelp {
+            // Distant stalk segments are sampled from the ambient current;
+            // the same position is used for climbing in the simulation.
+            let mut y = crabsim::underwater::GAME_KELP_TOP;
+            while y < c.top {
+                let next = (y + 70.0).min(c.top);
+                commands.spawn((
+                    LevelShape,
+                    FlowKelpPiece {
+                        lower_y: y,
+                        upper_y: next,
+                        side_offset: 0.0,
+                        leaf_angle: None,
+                    },
+                    Mesh2d(meshes.add(Rectangle::new(8.0, next - y + 4.0))),
+                    MeshMaterial2d(paint(KELP)),
+                    Transform::from_xyz(c.x, (y + next) * 0.5, PLANT_Z),
+                ));
+                if next < c.top {
+                    let side = if (y as i32 / 70) % 2 == 0 { 1.0 } else { -1.0 };
+                    commands.spawn((
+                        LevelShape,
+                        FlowKelpPiece {
+                            lower_y: next,
+                            upper_y: next,
+                            side_offset: side * 20.0,
+                            leaf_angle: Some(-side * 0.6),
+                        },
+                        Mesh2d(meshes.add(Ellipse::new(8.0, 28.0))),
+                        MeshMaterial2d(paint(KELP_BLADE)),
+                        Transform::from_xyz(c.x + side * 20.0, next, PLANT_Z),
+                    ));
+                }
+                y = next;
+            }
+            continue;
+        }
         let mut draw = |mesh: Mesh, colour: Color, at: Vec2, angle: f32| {
             commands.spawn((
                 LevelShape,
@@ -369,37 +415,26 @@ fn draw_climbs(
                     .with_rotation(Quat::from_rotation_z(angle)),
             ));
         };
-        if experimental_kelp {
-            // The cell simulation ends here. Continue the climb line to the
-            // real surface with simple artwork; only its lower part sways.
-            let mut y = crabsim::underwater::GAME_KELP_TOP;
-            while y < c.top {
-                let next = (y + 70.0).min(c.top);
-                rod(
-                    &mut draw,
-                    Vec2::new(c.x, y),
-                    Vec2::new(c.x, next),
-                    8.0,
-                    KELP,
-                );
-                if next < c.top {
-                    let side = if (y as i32 / 70) % 2 == 0 { 1.0 } else { -1.0 };
-                    draw(
-                        Ellipse::new(8.0, 28.0).into(),
-                        KELP_BLADE,
-                        Vec2::new(c.x + side * 20.0, next),
-                        -side * 0.6,
-                    );
-                }
-                y = next;
-            }
-            continue;
-        }
         match c.kind {
             Growth::Kelp => kelp(c, &mut draw),
             Growth::Coral => coral(c, &mut draw),
             Growth::Rock => bare_rock(c, &mut draw),
         }
+    }
+}
+
+fn move_high_kelp(sim: Res<Sim>, mut pieces: Query<(&FlowKelpPiece, &mut Transform)>) {
+    let Some(cells) = &sim.level.cells else {
+        return;
+    };
+    for (piece, mut transform) in &mut pieces {
+        let a = cells.giant_kelp_x(piece.lower_y);
+        let b = cells.giant_kelp_x(piece.upper_y);
+        transform.translation.x = (a + b) * 0.5 + piece.side_offset;
+        let angle = piece
+            .leaf_angle
+            .unwrap_or_else(|| -(b - a).atan2(piece.upper_y - piece.lower_y));
+        transform.rotation = Quat::from_rotation_z(angle);
     }
 }
 

@@ -16,6 +16,24 @@ const CRAB_HALF_Y: i32 = 8;
 const KELP_ROOTS: [i32; 6] = [72, 160, 240, 420, 520, 580];
 const KELP_SEGMENTS: usize = 12;
 
+/// Background water at an absolute world height and simulation tick. This
+/// part has no history: a sleeping area can sample its exact current at any
+/// future tick without replaying the intervening ticks. Local disturbances
+/// still need a real simulation and cannot be reconstructed this way.
+pub fn ambient_current(world_y: f32, tick: u64) -> (f32, f32) {
+    fn wave(phase: i64, period: i64) -> f32 {
+        let p = phase.rem_euclid(period);
+        let triangle = if p < period / 2 { p } else { period - p };
+        (triangle * 4 - period) as f32 / period as f32
+    }
+    let y = (world_y / GAME_CELL).floor() as i64;
+    let time = (tick % 9_216) as i64;
+    let layer = wave(y * 13 + time, 1536);
+    let slow = wave(y * 5 - time / 2, 1536);
+    let vertical = wave(y * 9 + time / 3, 1536);
+    (0.7 + layer * 0.75 + slow * 0.3, vertical * 0.1)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cell {
     Water,
@@ -105,10 +123,15 @@ impl World {
         let u = ((y - self.giant_base) / (GAME_KELP_TOP - self.giant_base) * GIANT_PARTS as f32)
             .clamp(0.0, GIANT_PARTS as f32 - 0.001);
         let i = u as usize;
-        (GIANT_ROOT as f32
+        let fine_x = (GIANT_ROOT as f32
             + (self.giant_kelp[i] * (1.0 - (u - i as f32))
                 + self.giant_kelp[i + 1] * (u - i as f32)))
-            * GAME_CELL
+            * GAME_CELL;
+        // Above the fine grid, a stateless approximation follows the same
+        // ambient water the crab feels. Blend from the fine tip so the
+        // stalk and its climb grip remain continuous at the boundary.
+        let blend = ((y - GAME_KELP_TOP) / 240.0).clamp(0.0, 1.0);
+        fine_x + ambient_current(y, self.tick * 4).0 * 24.0 * blend
     }
     pub fn game_contains(x: f32, y: f32) -> bool {
         x >= 0.0
@@ -121,6 +144,16 @@ impl World {
     }
     pub fn tick_count(&self) -> u64 {
         self.tick
+    }
+    /// Water for the entire map. Inside the fine field this includes local
+    /// disturbances; elsewhere it is the directly sampled ambient current.
+    pub fn game_water_at(&self, x: f32, y: f32) -> (f32, f32) {
+        if Self::game_contains(x, y) {
+            let (cx, cy) = Self::game_cell(x, y);
+            self.flow_at(cx as i32, cy as i32)
+        } else {
+            ambient_current(y, self.tick * 4)
+        }
     }
     /// Transparent water lets the campaign's own background show through.
     pub fn game_pixels(&self) -> Vec<u8> {
@@ -591,8 +624,8 @@ impl World {
         // Solid neighbors redirect a small part of the flow vertically.
         let mut next = self.flow.clone();
         for y in 1..HEIGHT - 1 {
-            // Slow layers of water slide past one another. Their phase changes
-            // with depth and time, and all materials sample the resulting flow.
+            // Broad slow layers preserve the fine simulation's established
+            // motion until it is coupled to the world-wide baseline.
             let time = self.tick as f32;
             let shear = if self.game {
                 (y as f32 * 0.055 + time * 0.006).sin() * 0.75
@@ -1051,6 +1084,41 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distant_background_current_can_skip_time_without_changing_its_value() {
+        let mut continuous = World::from_level(&crate::Level::test_level());
+        let mut sleeping = continuous.clone();
+        // Only the ambient current is stateless; the local cells are not.
+        for _ in 0..96 {
+            continuous.step(0.7);
+        }
+        sleeping.tick = 96;
+        for (x, y) in [(3000.0, 500.0), (6000.0, -8000.0), (100.0, 4000.0)] {
+            assert_eq!(continuous.game_water_at(x, y), sleeping.game_water_at(x, y));
+            assert_eq!(sleeping.game_water_at(x, y), ambient_current(y, 96 * 4));
+        }
+        let later = 9_000_000_000;
+        assert_eq!(
+            ambient_current(-7000.0, later),
+            ambient_current(-7000.0, later + 9216)
+        );
+        assert_ne!(
+            ambient_current(500.0, later),
+            ambient_current(-7000.0, later)
+        );
+        assert_ne!(
+            ambient_current(500.0, later),
+            ambient_current(500.0, later + 500)
+        );
+        // The upper stalk's shape and climb grip agree, and join the fine
+        // stalk without a position jump at the field boundary.
+        let at_edge = sleeping.giant_kelp_x(GAME_KELP_TOP);
+        assert!((sleeping.giant_kelp_x(GAME_KELP_TOP + 0.01) - at_edge).abs() < 0.01);
+        let before = sleeping.giant_kelp_x(2000.0);
+        sleeping.tick += 100;
+        assert_ne!(before, sleeping.giant_kelp_x(2000.0));
+    }
 
     #[test]
     fn opening_current_varies_with_depth_and_time_and_sways_kelp() {
