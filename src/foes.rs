@@ -441,7 +441,8 @@ fn pose_foes(
         lie(&mut root, body, k.body.1);
 
         let health = e.vitals.health / k.vitals.health;
-        let show_bar = !hidden && !body && (health < 1.0 || e.target.is_some());
+        let show_bar =
+            !hidden && !body && (health < 1.0 || e.target.is_some() || e.predator_alert > 0);
 
         // Every piece, however deep in the puppet.
         let mut stack: Vec<Entity> = children.iter().collect();

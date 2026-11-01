@@ -536,3 +536,59 @@ fn first_moray_hunts_and_eats_the_nearby_starting_shrimp() {
     let shrimp = sim.enemies().iter().find(|e| e.id == shrimp_id).unwrap();
     panic!("moray did not eat starting shrimp: locked {locked}, eel {eel:?}, shrimp {shrimp:?}");
 }
+
+#[test]
+fn moray_keeps_hunting_and_eats_mantis_across_trench_lip() {
+    use crabsim::Kind;
+    use crabsim::enemy::State;
+    let mut sim = Sim::with_one_crab(Vec2::new(100.0, 1000.0));
+    sim.enable_underwater_cells();
+    let eel_id = sim.spawn_enemy(Kind::Moray, Vec2::new(1760.0, 0.0));
+    let shrimp_id = sim.spawn_enemy(Kind::Mantis, Vec2::new(1120.0, 0.0));
+    // The already-engaged encounter from the trench side of the ledge.
+    let eel = sim
+        .enemies_mut()
+        .iter_mut()
+        .find(|e| e.id == eel_id)
+        .unwrap();
+    eel.pos = Vec2::new(1380.0, -100.0);
+    eel.state = State::Approach;
+    eel.animal_target = Some(shrimp_id);
+    let mut previous_health = sim.tuning.mantis.vitals.health;
+    let mut bitten = false;
+    for _ in 0..3000 {
+        let crab = sim.crab_mut(PlayerId(0)).unwrap();
+        crab.mover.pos = Vec2::new(100.0, 1000.0);
+        crab.mover.vel = Vec2::ZERO;
+        sim.tick();
+        let eel = sim.enemies().iter().find(|e| e.id == eel_id).unwrap();
+        let shrimp = sim.enemies().iter().find(|e| e.id == shrimp_id).unwrap();
+        if shrimp.state != State::Gone {
+            assert!(
+                shrimp.vitals.health <= previous_health,
+                "prey healed while hunted"
+            );
+            if eel.animal_target == Some(shrimp_id) && shrimp.predator_alert > 0 {
+                assert!(
+                    !shrimp.hidden(&sim.tuning),
+                    "hunted mantis hid between bites"
+                );
+            }
+            previous_health = shrimp.vitals.health;
+            bitten |= shrimp.vitals.health < sim.tuning.mantis.vitals.health;
+        }
+        if sim
+            .shared
+            .bodies_eaten
+            .iter()
+            .any(|&(id, _)| id == shrimp_id)
+        {
+            assert!(bitten, "mantis was not visibly bitten before being eaten");
+            assert_eq!(shrimp.state, State::Gone);
+            return;
+        }
+    }
+    let eel = sim.enemies().iter().find(|e| e.id == eel_id).unwrap();
+    let shrimp = sim.enemies().iter().find(|e| e.id == shrimp_id).unwrap();
+    panic!("moray did not finish the mantis: eel {eel:?}, shrimp {shrimp:?}");
+}

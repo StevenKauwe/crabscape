@@ -156,6 +156,8 @@ pub struct Enemy {
     pub target: Option<PlayerId>,
     /// Non-player animal currently being hunted by an experimental moray.
     pub animal_target: Option<u32>,
+    /// Time a nearby predator keeps this animal exposed and alert.
+    pub predator_alert: u16,
     /// Whether this attack already struck its animal target.
     pub animal_struck: bool,
     /// Bounded local route around an obstruction, in world coordinates.
@@ -221,6 +223,7 @@ impl Enemy {
             state_len: 0,
             target: None,
             animal_target: None,
+            predator_alert: 0,
             animal_struck: false,
             swim_path: Vec::new(),
             swim_goal: pos,
@@ -312,6 +315,7 @@ impl Enemy {
             return self.state == State::Idle && !o.revealed;
         }
         self.kind.tuning(t).burrows
+            && self.predator_alert == 0
             && self.state == State::Idle
             && (self.pos.x - self.home.x).abs() < 1.0
             && (self.pos.y - self.home.y).abs() < 8.0
@@ -508,6 +512,7 @@ pub struct AnimalPrey {
     pub id: u32,
     pub pos: Vec2,
     pub body: Rect,
+    pub animal_target: Option<u32>,
 }
 
 pub(crate) fn swimmer_blocked(level: &Level, p: Vec2, half: f32, height: f32) -> bool {
@@ -563,6 +568,11 @@ pub fn step(
     }
     let k = e.kind.tuning(t).clone();
     e.vitals.tick(&k.vitals);
+    if level.cells.is_some() && animals.iter().any(|a| a.animal_target == Some(e.id)) {
+        e.predator_alert = 240;
+    } else {
+        e.predator_alert = e.predator_alert.saturating_sub(1);
+    }
     e.hiding = e.hiding.saturating_sub(1);
     // A crab that died or tucked itself away is gone, as far as the hunt
     // goes: it gives up.
@@ -724,7 +734,9 @@ pub fn step(
                         e.target = sensed;
                     }
                     e.enter_now(State::Notice, k.notice_ticks);
-                } else if e.sense(crabs, k.notice_range, t).is_none() && e.vitals.unhit > MEND_AFTER
+                } else if e.predator_alert == 0
+                    && e.sense(crabs, k.notice_range, t).is_none()
+                    && e.vitals.unhit > MEND_AFTER
                 {
                     // Home with nobody near, unhit for a while: the fight is
                     // over. It mends.

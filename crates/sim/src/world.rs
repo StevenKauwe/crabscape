@@ -228,7 +228,7 @@ impl Sim {
         // an implausibly long head and neck from a fixed point.
         tuning.moray.approach_speed = 155.0;
         tuning.moray.notice_range = 460.0;
-        tuning.moray.give_up_range = 580.0;
+        tuning.moray.give_up_range = 760.0;
         tuning.moray.strike_range = 65.0;
         tuning.moray.strike.lunge = 45.0;
     }
@@ -1280,6 +1280,7 @@ impl Sim {
                     id: e.id,
                     pos: e.pos,
                     body: e.hurtbox(&self.tuning),
+                    animal_target: e.animal_target,
                 })
                 .collect()
         } else {
