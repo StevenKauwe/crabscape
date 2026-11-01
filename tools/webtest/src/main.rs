@@ -935,7 +935,7 @@ impl Test<'_> {
             for (name, x, y, zoom) in [
                 ("weak", 160, 0, 2.0),
                 ("close", 760, 100, 1.5),
-                ("moray", 1320, 0, 2.0),
+                ("moray", 1350, 0, 2.0),
             ] {
                 // Stop the previous game before writing the next fixture;
                 // otherwise its autosave can overwrite the new position.
