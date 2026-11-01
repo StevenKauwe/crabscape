@@ -1,8 +1,12 @@
 //! Opt-in, single-player material simulation for the opening of the campaign.
-use bevy::asset::RenderAssetUsages;
+use crate::memory::{MemoryTexture, MemoryUniform};
+use bevy::asset::{RenderAssetUsages, embedded_asset, embedded_path};
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::reflect::TypePath;
+use bevy::render::render_resource::{AsBindGroup, Extent3d, TextureDimension, TextureFormat};
+use bevy::shader::ShaderRef;
+use bevy::sprite_render::{Material2d, Material2dPlugin};
 use crabsim::Sim;
 use crabsim::underwater::{
     GAME_BOTTOM, GAME_BUBBLES, GAME_CELL, GAME_PEBBLES, GAME_SILT, GAME_TRACERS, HEIGHT, WIDTH,
@@ -55,6 +59,37 @@ mod tests {
     }
 }
 
+/// Cell colors pass through the same memory and lantern rules as level art.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct CellMaterial {
+    #[uniform(0)]
+    uniform: MemoryUniform,
+    #[texture(1)]
+    #[sampler(2)]
+    memory: Handle<Image>,
+    #[uniform(3)]
+    bounds: Vec4,
+    #[texture(4)]
+    #[sampler(5)]
+    cells: Handle<Image>,
+}
+impl CellMaterial {
+    pub fn set_water(&mut self, water: Color) {
+        self.uniform.water = LinearRgba::from(water).to_vec4();
+    }
+    pub fn set_lights(&mut self, lights: [Vec4; 8]) {
+        self.uniform.lights = lights;
+    }
+}
+impl Material2d for CellMaterial {
+    fn fragment_shader() -> ShaderRef {
+        ShaderRef::Path(
+            bevy::asset::AssetPath::from_path_buf(embedded_path!("cellular.wgsl"))
+                .with_source("embedded"),
+        )
+    }
+}
+
 #[derive(Component)]
 struct WaterParticle(usize);
 
@@ -73,8 +108,10 @@ struct CellImage {
 pub struct CellularPlugin;
 impl Plugin for CellularPlugin {
     fn build(&self, app: &mut App) {
+        embedded_asset!(app, "cellular.wgsl");
+        app.add_plugins(Material2dPlugin::<CellMaterial>::default());
         if enabled() {
-            app.add_systems(Startup, setup)
+            app.add_systems(Startup, setup.after(crate::memory::setup_memory_texture))
                 .add_systems(Update, draw.in_set(GameSet::Present));
         }
     }
@@ -83,6 +120,9 @@ fn setup(
     mut commands: Commands,
     sim: Res<Sim>,
     mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<CellMaterial>>,
+    memory: Res<MemoryTexture>,
     soft: Res<crate::effects::SoftTextures>,
 ) {
     let Some(cells) = &sim.level.cells else {
@@ -101,14 +141,18 @@ fn setup(
     );
     image.sampler = ImageSampler::nearest();
     let handle = images.add(image);
+    let width = WIDTH as f32 * GAME_CELL;
+    let height = HEIGHT as f32 * GAME_CELL;
+    let material = CellMaterial {
+        uniform: memory.material(Color::WHITE).uniform,
+        memory: memory.image.clone(),
+        bounds: Vec4::new(0.0, GAME_BOTTOM, width, height),
+        cells: handle.clone(),
+    };
     commands.spawn((
-        Sprite::from_image(handle.clone()),
-        Transform::from_xyz(
-            WIDTH as f32 * GAME_CELL / 2.0,
-            GAME_BOTTOM + HEIGHT as f32 * GAME_CELL / 2.0,
-            0.3,
-        )
-        .with_scale(Vec3::splat(GAME_CELL)),
+        Mesh2d(meshes.add(Rectangle::new(width, height))),
+        MeshMaterial2d(materials.add(material)),
+        Transform::from_xyz(width * 0.5, GAME_BOTTOM + height * 0.5, 0.3),
     ));
     for index in 0..GAME_TRACERS + GAME_BUBBLES {
         let bubble = index >= GAME_TRACERS;
@@ -160,6 +204,7 @@ fn setup(
 }
 fn draw(
     sim: Res<Sim>,
+    known: Res<crate::memory::Known>,
     mut output: ResMut<CellImage>,
     mut images: ResMut<Assets<Image>>,
     mut particles: Query<
@@ -186,7 +231,11 @@ fn draw(
             if let Some((x, y, _)) = cells.game_particle(particle.0) {
                 transform.translation.x = x;
                 transform.translation.y = y;
-                visibility.set_if_neq(Visibility::Inherited);
+                visibility.set_if_neq(if known.perceives(Vec2::new(x, y)) {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                });
             } else {
                 visibility.set_if_neq(Visibility::Hidden);
             }
@@ -198,8 +247,13 @@ fn draw(
                 transform.translation.y = y;
                 sprite.custom_size = Some(Vec2::splat(size));
                 let shade = f32::from(grain - 248) * 0.025;
-                sprite.color = Color::srgb(0.42 + shade, 0.46 + shade, 0.40 + shade);
-                visibility.set_if_neq(Visibility::Inherited);
+                let clarity = known.knows(Vec2::new(x, y));
+                sprite.color = Color::srgba(0.42 + shade, 0.46 + shade, 0.40 + shade, clarity);
+                visibility.set_if_neq(if clarity > 0.01 {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                });
             } else {
                 visibility.set_if_neq(Visibility::Hidden);
             }
@@ -209,7 +263,11 @@ fn draw(
                 transform.translation.x = x;
                 transform.translation.y = y;
                 sprite.color = Color::srgba(0.68, 0.64, 0.49, 0.30 * fade);
-                visibility.set_if_neq(Visibility::Inherited);
+                visibility.set_if_neq(if known.perceives(Vec2::new(x, y)) {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                });
             } else {
                 visibility.set_if_neq(Visibility::Hidden);
             }

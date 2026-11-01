@@ -81,17 +81,17 @@ pub fn water_at(at: Vec2) -> Color {
 
 #[derive(ShaderType, Clone, Debug)]
 pub struct MemoryUniform {
-    color: Vec4,
-    water: Vec4,
-    grid: Vec4,
-    lights: [Vec4; 8],
+    pub(crate) color: Vec4,
+    pub(crate) water: Vec4,
+    pub(crate) grid: Vec4,
+    pub(crate) lights: [Vec4; 8],
 }
 
 /// A level shape's colour, shown through the local crab's memory.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct MemoryMaterial {
     #[uniform(0)]
-    uniform: MemoryUniform,
+    pub(crate) uniform: MemoryUniform,
     #[texture(1)]
     #[sampler(2)]
     memory: Handle<Image>,

@@ -529,22 +529,31 @@ fn draw_climbs(
     }
 }
 
-fn move_high_kelp(sim: Res<Sim>, mut pieces: Query<(&FlowKelpPiece, &mut Transform)>) {
+fn move_high_kelp(
+    time: Res<Time>,
+    sim: Res<Sim>,
+    mut pieces: Query<(&FlowKelpPiece, &mut Transform)>,
+) {
     let Some(cells) = &sim.level.cells else {
         return;
     };
     for (piece, mut transform) in &mut pieces {
         let a = cells.giant_kelp_x(piece.lower_y);
         let b = cells.giant_kelp_x(piece.upper_y);
-        transform.translation.x = (a + b) * 0.5 + piece.side_offset;
+        let blend = 1.0 - (-16.0 * time.delta_secs()).exp();
+        let target_x = (a + b) * 0.5 + piece.side_offset;
+        transform.translation.x += (target_x - transform.translation.x) * blend;
         let angle = piece
             .leaf_angle
             .unwrap_or_else(|| -(b - a).atan2(piece.upper_y - piece.lower_y));
-        transform.rotation = Quat::from_rotation_z(angle);
+        transform.rotation = transform
+            .rotation
+            .slerp(Quat::from_rotation_z(angle), blend);
     }
 }
 
 fn move_local_kelp(
+    time: Res<Time>,
     sim: Res<Sim>,
     mut pieces: Query<(&LocalKelpPiece, &mut Transform, &mut Visibility)>,
 ) {
@@ -561,10 +570,18 @@ fn move_local_kelp(
             continue;
         };
         let angle = -(bx - ax).atan2(by - ay);
-        transform.translation.x = (ax + bx) * 0.5 + if piece.leaf { piece.side * 8.0 } else { 0.0 };
-        transform.translation.y = (ay + by) * 0.5 + if piece.leaf { 7.0 } else { 0.0 };
-        transform.rotation =
+        let x = (ax + bx) * 0.5 + if piece.leaf { piece.side * 8.0 } else { 0.0 };
+        let y = (ay + by) * 0.5 + if piece.leaf { 7.0 } else { 0.0 };
+        let target = Vec3::new(x, y, transform.translation.z);
+        let rotation =
             Quat::from_rotation_z(angle - if piece.leaf { piece.side * 0.6 } else { 0.0 });
+        let blend = if *visibility == Visibility::Hidden {
+            1.0
+        } else {
+            1.0 - (-12.0 * time.delta_secs()).exp()
+        };
+        transform.translation = transform.translation.lerp(target, blend);
+        transform.rotation = transform.rotation.slerp(rotation, blend);
         *visibility = Visibility::Inherited;
     }
 }

@@ -25,7 +25,7 @@ use crate::creature_art::CreatureArt;
 use crate::effects::SoftTextures;
 use crate::feel::FeelLab;
 use crate::foes::{lie, lies_dead};
-use crate::memory::{Known, Remembered};
+use crate::memory::{Known, MemoryMaterial, MemoryTexture, Remembered};
 use crate::player::GameSet;
 
 /// In front of the level, behind the crab (10).
@@ -55,10 +55,30 @@ impl Plugin for CrittersPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, load_art).add_systems(
             Update,
-            (spawn_critters, pose_critters)
+            (spawn_critters, move_moray_caves, pose_critters)
                 .chain()
                 .in_set(GameSet::Present),
         );
+    }
+}
+
+#[derive(Component)]
+struct MorayCavePiece {
+    enemy: u32,
+    offset: Vec2,
+}
+
+fn move_moray_caves(
+    sim: Res<Sim>,
+    mut caves: Query<(&MorayCavePiece, &mut Transform, &mut Remembered)>,
+) {
+    for (piece, mut transform, mut remembered) in &mut caves {
+        if let Some(e) = sim.enemies().iter().find(|e| e.id == piece.enemy) {
+            let at = e.home + piece.offset;
+            transform.translation.x = at.x;
+            transform.translation.y = at.y;
+            remembered.0 = e.home;
+        }
     }
 }
 
@@ -128,7 +148,8 @@ fn spawn_critters(
     art: Res<Art>,
     soft: Res<SoftTextures>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    tex: Res<MemoryTexture>,
+    mut materials: ResMut<Assets<MemoryMaterial>>,
     critters: Query<&Critter>,
 ) {
     for e in sim.enemies() {
@@ -224,31 +245,35 @@ fn spawn_critters(
                         Vec2::new(0.0, 0.0),
                         Vec2::new(len * 0.95, deep * 1.65),
                         Color::srgb(0.16, 0.20, 0.19),
-                        8.45,
+                        0.24,
                     ),
                     (
                         Vec2::new(0.0, -deep * 0.02),
                         Vec2::new(len * 0.69, deep * 1.24),
                         ROCK,
-                        8.5,
+                        0.25,
                     ),
                     (
                         Vec2::new(e.facing * -len * 0.25, deep * 0.48),
                         Vec2::new(len * 0.57, deep * 0.36),
                         Color::srgb(0.24, 0.27, 0.23),
-                        8.52,
+                        0.26,
                     ),
                     (
                         Vec2::new(e.facing * -len * 0.33, -deep * 0.40),
                         Vec2::new(len * 0.52, deep * 0.24),
                         Color::srgb(0.20, 0.23, 0.20),
-                        8.52,
+                        0.26,
                     ),
                 ] {
                     commands.spawn((
                         Mesh2d(meshes.add(Ellipse::new(size.x * 0.5, size.y * 0.5))),
-                        MeshMaterial2d(materials.add(colour)),
+                        MeshMaterial2d(materials.add(tex.material(colour))),
                         Transform::from_translation((mouth + offset).extend(z)),
+                        MorayCavePiece {
+                            enemy: e.id,
+                            offset: mouth + offset - e.home,
+                        },
                         Remembered(e.home),
                     ));
                 }

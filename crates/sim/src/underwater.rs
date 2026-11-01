@@ -1847,7 +1847,7 @@ impl World {
                 let y = base + segment as i32 * 6;
                 let x = root + self.kelp[blade][segment] as i32;
                 let flow = self.flow_at(x, y).0;
-                let target = (self.kelp[blade][segment - 1] + flow * 1.7).clamp(-35.0, 35.0);
+                let target = (self.kelp[blade][segment - 1] + flow * 2.8).clamp(-35.0, 35.0);
                 self.kelp[blade][segment] += (target - self.kelp[blade][segment]) * 0.07;
             }
         }
@@ -1866,7 +1866,7 @@ impl World {
                 // flexible continuous stalk without a rigid upright spring.
                 let v = self.giant_kelp_velocity[segment] * 0.94
                     + tension * 0.045
-                    + flow * (0.004 + height * 0.012)
+                    + flow * (0.006 + height * 0.019)
                     - self.giant_kelp[segment] * 0.0005;
                 self.giant_kelp_velocity[segment] = v.clamp(-0.8, 0.8);
                 self.giant_kelp[segment] = (self.giant_kelp[segment] + v).clamp(-14.0, 14.0);
@@ -2559,6 +2559,44 @@ mod tests {
             "animal stayed on the old invisible floor"
         );
     }
+    #[test]
+    fn moray_and_crevice_follow_the_supported_seabed() {
+        use crate::{Kind, Sim};
+        use bevy_math::Vec2;
+        let mut sim = Sim::with_one_crab(Vec2::new(40.0, 200.0));
+        sim.enable_underwater_cells();
+        let cells = sim.level.cells.as_mut().unwrap();
+        cells.cells.fill(Cell::Water);
+        cells.pebble_owner.fill(0);
+        cells.pebbles.clear();
+        cells.pebble_motion.clear();
+        for x in 70..=130 {
+            for y in 68..=70 {
+                cells.cells[World::index(x, y).unwrap()] = Cell::Rock;
+            }
+            for y in 80..90 {
+                cells.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        let id = sim.spawn_enemy(Kind::Moray, Vec2::new(400.0, 0.0));
+        let initial = sim.enemies().iter().find(|e| e.id == id).unwrap().home.y;
+        let cells = sim.level.cells.as_mut().unwrap();
+        for y in 80..90 {
+            for x in 70..=130 {
+                cells.cells[World::index(x, y).unwrap()] = Cell::Water;
+            }
+        }
+        for _ in 0..120 {
+            sim.tick();
+        }
+        let eel = sim.enemies().iter().find(|e| e.id == id).unwrap();
+        assert!(eel.pos.y < initial - 8.0, "moray remained above dug seabed");
+        assert!(
+            (eel.home.y - eel.pos.y).abs() < 0.01,
+            "crevice separated from moray"
+        );
+    }
+
     #[test]
     fn falling_grain_slides_off_the_crab_instead_of_hovering() {
         let mut w = World::new();

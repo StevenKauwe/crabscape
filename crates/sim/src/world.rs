@@ -769,7 +769,17 @@ impl Sim {
     pub fn spawn_enemy(&mut self, kind: Kind, pos: Vec2) -> u32 {
         let id = self.next_enemy;
         self.next_enemy += 1;
-        let at = Vec2::new(pos.x, self.level.floor_height(pos.x));
+        let floor = self.level.floor_height(pos.x);
+        let half = kind.tuning(&self.tuning).body.0 * 0.5;
+        let surface = self
+            .level
+            .cells
+            .as_ref()
+            .and_then(|cells| {
+                cells.game_surface_below(pos.x, half, floor + self.tuning.body_height * 2.0)
+            })
+            .unwrap_or(floor);
+        let at = Vec2::new(pos.x, surface);
         self.enemies.push(Enemy::new(id, kind, at, &self.tuning));
         if let Some(rec) = &mut self.recorder {
             rec.note_spawn(self.tick, kind, pos);
@@ -1254,6 +1264,15 @@ impl Sim {
         for (e, runs) in self.enemies.iter_mut().zip(runs) {
             let previous = e.pos;
             let blows = enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
+            // A moray is anchored to its crevice. Keep that anchor at the
+            // supported seabed as sediment settles or is dug away.
+            if e.kind == Kind::Moray
+                && self.level.cells.is_some()
+                && crate::underwater::World::game_contains(e.pos.x, e.pos.y)
+                && e.state != enemy::State::Gone
+            {
+                e.home.y = e.pos.y;
+            }
             if self.tick.is_multiple_of(4)
                 && let Some(cells) = self.level.cells.as_mut()
                 && crate::underwater::World::game_contains(e.pos.x, e.pos.y)
