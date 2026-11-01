@@ -297,6 +297,26 @@ fn who_hosts(me: OnLink, friends: &[OnLink], unhosted: f32) -> Hosting {
         .map_or(Hosting::Nobody, pick)
 }
 
+/// A live connection alone is not enough to claim that players share a world:
+/// a guest can still be waiting for the host's first world, or rejoining.
+#[cfg(any(target_arch = "wasm32", test))]
+fn in_shared_world(
+    hosting: Hosting,
+    connected: bool,
+    rejoining: bool,
+    online: bool,
+    is_host: bool,
+) -> bool {
+    connected
+        && !rejoining
+        && online
+        && match hosting {
+            Hosting::Me => is_host,
+            Hosting::Friend(_) => !is_host,
+            Hosting::Nobody => false,
+        }
+}
+
 /// The line under the invite button (and `data-coop` on the canvas): `hosting` as this device sees it, `owner`: the
 /// link is this device's own, `together` with `n` friends, `host_name`: the name of the friend who hosts, if known.
 /// While a friend stands in for the main host, a second line says so.
@@ -445,8 +465,8 @@ mod web {
 
     use super::{
         HOST, Hosting, INTRODUCER, LocalId, NewLink, OnLink, Start, Update, VERSION, Watch,
-        clean_code, from_host, hello, make_code, on_version, open_in_other_tab, param, read_hello,
-        room, start, status, status_top, update_line, who_hosts,
+        clean_code, from_host, hello, in_shared_world, make_code, on_version, open_in_other_tab,
+        param, read_hello, room, start, status, status_top, update_line, who_hosts,
     };
     use crate::names::Names;
     use crate::player::{GameSet, spawn_local_crab};
@@ -1143,7 +1163,8 @@ mod web {
             Hosting::Friend(h) => known.contains(&h),
             Hosting::Nobody => false,
         };
-        if coop.watch.step(together, alive, dt) {
+        let rejoining = coop.watch.step(together, alive, dt);
+        if rejoining {
             let hosting = hosts_now(&sim);
             rejoin(&mut sim, &code, hosting);
         }
@@ -1165,7 +1186,14 @@ mod web {
             Hosting::Friend(h) => names.of(h, me.0).map(str::to_string),
             _ => None,
         };
-        coop.status = status(coop.hosting, owner, together, n, host_name.as_deref());
+        let playing = in_shared_world(
+            coop.hosting,
+            together,
+            rejoining,
+            sim.online(),
+            sim.is_host(),
+        );
+        coop.status = status(coop.hosting, owner, playing, n, host_name.as_deref());
         let update = versions(&mut coop);
         if let Some(line) = update.and_then(update_line) {
             coop.status = line.into();
@@ -1563,6 +1591,19 @@ mod tests {
             update_line(Update::Different),
             Some("Your friend is on a different version")
         );
+    }
+
+    #[test]
+    fn reconnect_never_claims_the_guest_shares_a_solo_world() {
+        use Hosting::*;
+        let guest = Friend(HOST);
+        assert!(!in_shared_world(guest, true, true, false, false));
+        assert!(!in_shared_world(guest, true, false, false, false));
+        assert!(in_shared_world(guest, true, false, true, false));
+        assert!(!in_shared_world(guest, false, false, true, false));
+        assert!(!in_shared_world(Me, true, true, true, true));
+        assert!(in_shared_world(Me, true, false, true, true));
+        assert!(!in_shared_world(Nobody, true, false, true, true));
     }
 
     /// Run `seconds` of a [`Watch`] with `together` and `alive` as given; the times (seconds) it rejoined.
