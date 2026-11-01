@@ -590,6 +590,15 @@ impl World {
         // Solid neighbors redirect a small part of the flow vertically.
         let mut next = self.flow.clone();
         for y in 1..HEIGHT - 1 {
+            // Slow layers of water slide past one another. Their phase changes
+            // with depth and time, and all materials sample the resulting flow.
+            let time = self.tick as f32;
+            let shear = if self.game {
+                (y as f32 * 0.055 + time * 0.006).sin() * 0.75
+                    + (y as f32 * 0.021 - time * 0.0027).sin() * 0.3
+            } else {
+                0.0
+            };
             for x in 1..WIDTH - 1 {
                 let i = y * WIDTH + x;
                 if self.cells[i] != Cell::Water {
@@ -601,9 +610,10 @@ impl World {
                 let t = self.tick as f32 * 0.018;
                 let eddy = (x as f32 * 0.047 + y as f32 * 0.023 + t).sin();
                 let cross = (x as f32 * 0.027 - y as f32 * 0.041 - t * 0.7).sin();
-                let mut vx = (current + eddy * 0.16) * 0.035;
+                let feed = if self.game { 0.12 } else { 0.035 };
+                let mut vx = (current + shear + eddy * 0.16) * feed;
                 let mut vy = cross * 0.004;
-                let mut weight = 0.035;
+                let mut weight = feed;
                 for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
                     let n = (y as i32 + dy) as usize * WIDTH + (x as i32 + dx) as usize;
                     if self.cells[n] == Cell::Water {
@@ -819,7 +829,9 @@ impl World {
                     / GAME_CELL;
                 let x = GIANT_ROOT + self.giant_kelp[segment] as i32;
                 let flow = self.flow_at(x, y as i32).0;
-                let target = (self.giant_kelp[segment - 1] + flow * 0.45).clamp(-8.0, 8.0);
+                let height = segment as f32 / GIANT_PARTS as f32;
+                let drag = flow * (2.0 + 7.0 * height);
+                let target = (self.giant_kelp[segment - 1] * 0.8 + drag * 0.2).clamp(-10.0, 10.0);
                 self.giant_kelp[segment] += (target - self.giant_kelp[segment]) * 0.045;
             }
             let surface = (GAME_SURFACE - GAME_BOTTOM) / GAME_CELL;
@@ -1051,6 +1063,43 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_current_varies_with_depth_and_time_and_sways_kelp() {
+        let mut world = World::from_level(&crate::Level::test_level());
+        let low = ((100.0 - GAME_BOTTOM) / GAME_CELL) as i32;
+        let high = ((260.0 - GAME_BOTTOM) / GAME_CELL) as i32;
+        let mut max_difference = 0.0_f32;
+        let (mut min_flow, mut max_flow) = (f32::MAX, f32::MIN);
+        let (mut min_tip, mut max_tip) = (f32::MAX, f32::MIN);
+        for _ in 0..720 {
+            world.step(0.7);
+            let lower = world.flow_at(GIANT_ROOT, low).0;
+            let upper = world.flow_at(GIANT_ROOT, high).0;
+            max_difference = max_difference.max((lower - upper).abs());
+            min_flow = min_flow.min(upper);
+            max_flow = max_flow.max(upper);
+            let tip = world.giant_kelp_x(260.0);
+            min_tip = min_tip.min(tip);
+            max_tip = max_tip.max(tip);
+        }
+        assert!(
+            max_difference > 0.1,
+            "layers barely differ: {max_difference}"
+        );
+        assert!(
+            max_flow - min_flow > 0.2,
+            "current barely varies: {min_flow}..{max_flow}"
+        );
+        assert!(
+            max_tip - min_tip > 10.0,
+            "kelp barely sways: {min_tip}..{max_tip}"
+        );
+        assert_eq!(
+            world.giant_kelp_x(world.giant_base),
+            GIANT_ROOT as f32 * GAME_CELL
+        );
+    }
     #[test]
     fn one_grain_does_not_define_the_surface() {
         let mut w = World::new();
