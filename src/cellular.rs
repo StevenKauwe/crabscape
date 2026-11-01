@@ -8,7 +8,8 @@ use crabsim::underwater::{GAME_BOTTOM, GAME_CELL, HEIGHT, WIDTH};
 
 use crate::player::GameSet;
 
-/// `--cells` on desktop, `?cells` in a browser preview.
+/// The dedicated draft preview starts the experiment automatically.
+/// Elsewhere use `--cells` on desktop or `?cells` in the browser.
 pub fn enabled() -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -16,13 +17,39 @@ pub fn enabled() -> bool {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        web_sys::window()
-            .and_then(|w| w.location().search().ok())
-            .is_some_and(|s| {
-                s.trim_start_matches('?')
-                    .split('&')
-                    .any(|p| p == "cells" || p == "cells=1")
-            })
+        web_sys::window().is_some_and(|w| {
+            let location = w.location();
+            let path = location.pathname().unwrap_or_default();
+            let search = location.search().unwrap_or_default();
+            browser_cells_enabled(&path, &search)
+        })
+    }
+}
+
+/// Only this disposable draft's preview defaults to the experiment. The
+/// rest of the site and browser tests keep their usual default.
+#[cfg(any(test, target_arch = "wasm32"))]
+fn browser_cells_enabled(path: &str, search: &str) -> bool {
+    let explicit = search
+        .trim_start_matches('?')
+        .split('&')
+        .any(|part| part == "cells" || part == "cells=1");
+    explicit || path.split('/').any(|part| part == "pr-345")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::browser_cells_enabled;
+
+    #[test]
+    fn only_this_draft_preview_enables_cells_without_a_query() {
+        assert!(browser_cells_enabled("/crabscape/pr-345/", ""));
+        assert!(browser_cells_enabled("/crabscape/pr-345", "?zoom=2"));
+        assert!(!browser_cells_enabled("/crabscape/pr-3450/", ""));
+        assert!(!browser_cells_enabled("/crabscape/", ""));
+        assert!(!browser_cells_enabled("/crabscape/pr-346/", ""));
+        assert!(browser_cells_enabled("/crabscape/", "?zoom=2&cells"));
+        assert!(browser_cells_enabled("/crabscape/", "?cells=1"));
     }
 }
 
