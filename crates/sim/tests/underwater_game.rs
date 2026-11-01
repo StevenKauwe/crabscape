@@ -36,6 +36,25 @@ fn down_alone_keeps_the_crab_on_the_surface() {
 }
 
 #[test]
+fn dodge_and_down_do_not_dig() {
+    let mut sim = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+    sim.enable_underwater_cells();
+    for tick in 0..90 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                down: true,
+                dodge_held: true,
+                dodge_pressed: tick == 0,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+    }
+    assert!(sim.crab(PlayerId(0)).unwrap().mover.pos.y > -4.0);
+}
+
+#[test]
 fn ordinary_walking_remains_close_to_the_original_on_flat_ground() {
     let mut original = Sim::with_one_crab(Vec2::new(200.0, 0.0));
     let mut experiment = Sim::with_one_crab(Vec2::new(200.0, 0.0));
@@ -116,7 +135,7 @@ fn real_crab_can_push_into_the_opening_floor() {
             PlayerId(0),
             Controls {
                 down: true,
-                dodge_held: true,
+                dig_held: true,
                 ..Default::default()
             },
         );

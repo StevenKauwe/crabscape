@@ -302,19 +302,22 @@ fn read_input(
     let mut dodge = any_key(&[KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ])
         || touch(TouchAction::Dodge);
     // The captured finger can leave the pad without becoming a walk button.
-    let digging = dig_vector.length() > 0.2;
-    if digging {
+    let stick_digging = dig_vector.length() > 0.2;
+    let digging = sim.level.cells.is_some() && (keys.pressed(KeyCode::KeyC) || stick_digging);
+    let dig_up = digging
+        && (dig_vector.y < -0.35
+            || (keys.pressed(KeyCode::KeyC)
+                && any_key(&[KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::Space])));
+    if stick_digging {
         walk += if dig_vector.x.abs() > 0.2 {
             dig_vector.x
         } else {
             0.0
         };
     }
-    jump |= digging && dig_vector.y < -0.35;
-    dodge |= digging;
     // Down climbs down kelp or coral. (On a phone, holding DODGE does too.)
     let mut down =
-        any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]) || (digging && dig_vector.y > 0.35);
+        any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]) || (stick_digging && dig_vector.y > 0.35);
     let mut smash = any_key(&[KeyCode::KeyL, KeyCode::KeyE]) || touch(TouchAction::Smash);
     let mut jab = any_key(&[KeyCode::KeyO, KeyCode::KeyQ]) || touch(TouchAction::Jab);
     let mut guard = any_key(&[KeyCode::KeyI, KeyCode::KeyF]) || touch(TouchAction::Guard);
@@ -337,6 +340,8 @@ fn read_input(
         jump_pressed: jump && !held_before.jump,
         dodge_pressed: dodge && !held_before.dodge,
         dodge_held: dodge,
+        dig_held: digging,
+        dig_up,
         down,
         smash_pressed: smash && !held_before.smash,
         smash_held: smash,

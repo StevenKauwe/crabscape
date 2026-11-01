@@ -4,7 +4,7 @@ use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use crabsim::Sim;
-use crabsim::underwater::{GAME_BOTTOM, GAME_CELL, HEIGHT, WIDTH};
+use crabsim::underwater::{GAME_BOTTOM, GAME_BUBBLES, GAME_CELL, GAME_TRACERS, HEIGHT, WIDTH};
 
 use crate::player::GameSet;
 
@@ -53,6 +53,9 @@ mod tests {
     }
 }
 
+#[derive(Component)]
+struct WaterParticle(usize);
+
 #[derive(Resource)]
 struct CellImage {
     handle: Handle<Image>,
@@ -94,18 +97,48 @@ fn setup(mut commands: Commands, sim: Res<Sim>, mut images: ResMut<Assets<Image>
         )
         .with_scale(Vec3::splat(GAME_CELL)),
     ));
+    for index in 0..GAME_TRACERS + GAME_BUBBLES {
+        let bubble = index >= GAME_TRACERS;
+        commands.spawn((
+            WaterParticle(index),
+            Sprite::from_color(
+                if bubble {
+                    Color::srgba(0.65, 0.85, 0.82, 0.48)
+                } else {
+                    Color::srgba(0.44, 0.67, 0.65, 0.26)
+                },
+                Vec2::splat(if bubble { 1.8 } else { 1.3 }),
+            ),
+            Transform::from_xyz(0.0, 0.0, 0.4),
+            Visibility::Hidden,
+        ));
+    }
     commands.insert_resource(CellImage {
         handle,
         tick: cells.tick_count(),
     });
 }
-fn draw(sim: Res<Sim>, mut output: ResMut<CellImage>, mut images: ResMut<Assets<Image>>) {
+fn draw(
+    sim: Res<Sim>,
+    mut output: ResMut<CellImage>,
+    mut images: ResMut<Assets<Image>>,
+    mut particles: Query<(&WaterParticle, &mut Transform, &mut Visibility)>,
+) {
     let Some(cells) = &sim.level.cells else {
         return;
     };
     if cells.tick_count() != output.tick {
         if let Some(mut image) = images.get_mut(&output.handle) {
             image.data = Some(cells.game_pixels());
+        }
+        for (particle, mut transform, mut visibility) in &mut particles {
+            if let Some((x, y, _)) = cells.game_particle(particle.0) {
+                transform.translation.x = x;
+                transform.translation.y = y;
+                visibility.set_if_neq(Visibility::Inherited);
+            } else {
+                visibility.set_if_neq(Visibility::Hidden);
+            }
         }
         output.tick = cells.tick_count();
     }

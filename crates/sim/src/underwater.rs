@@ -11,6 +11,9 @@ pub const GAME_BOTTOM: f32 = -360.0;
 pub const GAME_KELP_TOP: f32 = GAME_BOTTOM + HEIGHT as f32 * GAME_CELL - GAME_CELL;
 const GIANT_ROOT: i32 = 70;
 const GIANT_PARTS: usize = 64;
+/// Small independently rendered water particles in the game view.
+pub const GAME_TRACERS: usize = 128;
+pub const GAME_BUBBLES: usize = 24;
 const CRAB_HALF_X: i32 = 12;
 const CRAB_HALF_Y: i32 = 8;
 const KELP_ROOTS: [i32; 6] = [72, 160, 240, 420, 520, 580];
@@ -52,6 +55,14 @@ struct Silt {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+struct Bubble {
+    x: f32,
+    y: f32,
+    life: u16,
+    rest: u16,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct World {
     cells: Vec<Cell>,
     flow: Vec<(f32, f32)>,
@@ -65,8 +76,9 @@ pub struct World {
     silt: Vec<Silt>,
     kelp: [[f32; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
     giant_kelp: [f32; GIANT_PARTS + 1],
+    giant_kelp_velocity: [f32; GIANT_PARTS + 1],
     giant_base: f32,
-    bubbles: Vec<(f32, f32)>,
+    bubbles: Vec<Bubble>,
     game: bool,
     tick: u64,
 }
@@ -82,14 +94,18 @@ impl World {
         let mut world = Self::new();
         world.game = true;
         world.giant_base = level.floor_height(GIANT_ROOT as f32 * GAME_CELL);
-        world.bubbles = (0..48)
-            .map(|n| {
-                (
-                    20.0 + ((n * 137) % (WIDTH - 40)) as f32,
-                    (world.giant_base - GAME_BOTTOM) / GAME_CELL
-                        + ((n * 37 % 223) as f32 / 223.0)
-                            * ((GAME_KELP_TOP - world.giant_base) / GAME_CELL - 1.0),
-                )
+        world.bubbles = (0..GAME_BUBBLES)
+            .map(|n| Bubble {
+                x: 20.0 + ((n * 137) % (WIDTH - 40)) as f32,
+                y: (world.giant_base - GAME_BOTTOM) / GAME_CELL
+                    + ((n * 37 % 223) as f32 / 223.0)
+                        * ((GAME_KELP_TOP - world.giant_base) / GAME_CELL - 1.0),
+                life: if n % 3 == 0 {
+                    0
+                } else {
+                    30 + (n * 31 % 120) as u16
+                },
+                rest: (n * 7 % 45) as u16,
             })
             .collect();
         for y in 0..HEIGHT {
@@ -172,6 +188,27 @@ impl World {
         }
         pixels
     }
+    /// Fine particles are separate sprites so they can be smaller than one
+    /// material cell without increasing the cost of the whole grid.
+    pub fn game_particle(&self, index: usize) -> Option<(f32, f32, bool)> {
+        let (x, y, bubble) = if index < GAME_TRACERS {
+            let &(x, y) = self.tracers.get(index)?;
+            (x, y, false)
+        } else {
+            let b = self.bubbles.get(index - GAME_TRACERS)?;
+            if b.life == 0 {
+                return None;
+            }
+            (b.x, b.y, true)
+        };
+        let i = Self::index(x as i32, y as i32)?;
+        (self.cells[i] == Cell::Water).then_some((
+            x * GAME_CELL,
+            GAME_BOTTOM + y * GAME_CELL,
+            bubble,
+        ))
+    }
+
     /// Test the interior of a game-world rectangle against material cells.
     pub fn game_solid(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
         let (x0, y0) = Self::game_cell(min_x, min_y);
@@ -188,6 +225,44 @@ impl World {
         }
         false
     }
+    /// Broad support blocks the body, while shallow, narrow loose bumps are
+    /// displaced under the feet instead of behaving like miniature walls.
+    /// Rocks remain solid regardless of their size.
+    pub fn game_movement_blocked(
+        &self,
+        min_x: f32,
+        min_y: f32,
+        max_x: f32,
+        max_y: f32,
+        smooth_height: f32,
+    ) -> bool {
+        let (x0, y0) = Self::game_cell(min_x, min_y);
+        let (x1, y1) = Self::game_cell(max_x, max_y);
+        let (left, right) = (x0.floor() as i32, x1.floor() as i32);
+        for y in y0.floor() as i32..=y1.floor() as i32 {
+            let mut grains = 0;
+            let mut columns = 0;
+            for x in left..=right {
+                if let Some(i) = Self::index(x, y) {
+                    columns += 1;
+                    match self.cells[i] {
+                        Cell::Rock => return true,
+                        Cell::Sand | Cell::Mud => grains += 1,
+                        Cell::Water => {}
+                    }
+                }
+            }
+            if grains > 0 {
+                let cell_top = GAME_BOTTOM + (y + 1) as f32 * GAME_CELL;
+                let sparse_bump = cell_top <= min_y + smooth_height && grains * 3 < columns;
+                if !sparse_bump {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// A single loose grain cannot support a crab. Solid rock or a broad
     /// enough patch of sediment can; the caller can displace loose grains.
     pub fn game_surface_support(&self, min_x: f32, max_x: f32, feet_y: f32) -> bool {
@@ -273,6 +348,7 @@ impl World {
             silt: Vec::new(),
             kelp: [[0.0; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
             giant_kelp: [0.0; GIANT_PARTS + 1],
+            giant_kelp_velocity: [0.0; GIANT_PARTS + 1],
             giant_base: 0.0,
             bubbles: Vec::new(),
             game: false,
@@ -344,6 +420,14 @@ impl World {
         let strength = (thrust_x * thrust_x + thrust_y * thrust_y).sqrt().min(1.0);
         if strength < 0.05 {
             return;
+        }
+        if self.game
+            && self.tick.is_multiple_of(16)
+            && let Some(bubble) = self.bubbles.iter_mut().find(|b| b.life == 0 && b.rest == 0)
+        {
+            bubble.x = wake_x;
+            bubble.y = wake_y;
+            bubble.life = 35 + (self.tick % 45) as u16;
         }
         // A stroke also spreads a weaker disturbance sideways and forward.
         // Its roughly symmetric radial part has no preferred direction;
@@ -864,19 +948,38 @@ impl World {
                 let x = GIANT_ROOT + self.giant_kelp[segment] as i32;
                 let flow = self.flow_at(x, y as i32).0;
                 let height = segment as f32 / GIANT_PARTS as f32;
-                let drag = flow * (2.0 + 7.0 * height);
-                let target = (self.giant_kelp[segment - 1] * 0.8 + drag * 0.2).clamp(-10.0, 10.0);
-                self.giant_kelp[segment] += (target - self.giant_kelp[segment]) * 0.045;
+                let below = self.giant_kelp[segment - 1];
+                let above = self.giant_kelp[(segment + 1).min(GIANT_PARTS)];
+                let tension = (below + above) * 0.5 - self.giant_kelp[segment];
+                // Water pushes each section; weak tension and buoyancy keep a
+                // flexible continuous stalk without a rigid upright spring.
+                let v = self.giant_kelp_velocity[segment] * 0.94
+                    + tension * 0.045
+                    + flow * (0.004 + height * 0.012)
+                    - self.giant_kelp[segment] * 0.0005;
+                self.giant_kelp_velocity[segment] = v.clamp(-0.8, 0.8);
+                self.giant_kelp[segment] = (self.giant_kelp[segment] + v).clamp(-14.0, 14.0);
             }
             let surface = (GAME_KELP_TOP - GAME_BOTTOM) / GAME_CELL;
             let base = (self.giant_base - GAME_BOTTOM) / GAME_CELL;
             for (n, bubble) in self.bubbles.iter_mut().enumerate() {
-                if let Some(i) = Self::index(bubble.0 as i32, bubble.1 as i32) {
-                    bubble.0 = (bubble.0 + self.flow[i].0 * 0.14).clamp(1.0, WIDTH as f32 - 2.0);
+                if bubble.life == 0 {
+                    bubble.rest = bubble.rest.saturating_sub(1);
+                    if bubble.rest == 0 && (self.tick + n as u64 * 23).is_multiple_of(97) {
+                        bubble.x = (20 + ((n * 137 + self.tick as usize) % (WIDTH - 40))) as f32;
+                        bubble.y = base + (n % 30) as f32;
+                        bubble.life = 50 + (n % 7) as u16 * 13;
+                    }
+                    continue;
                 }
-                bubble.1 += 0.42 + (n % 5) as f32 * 0.035;
-                if bubble.1 >= surface {
-                    bubble.1 = base + (n % 14) as f32;
+                bubble.life -= 1;
+                if let Some(i) = Self::index(bubble.x as i32, bubble.y as i32) {
+                    bubble.x = (bubble.x + self.flow[i].0 * 0.14).clamp(1.0, WIDTH as f32 - 2.0);
+                }
+                bubble.y += 0.32 + (n % 5) as f32 * 0.035;
+                if bubble.y >= surface || bubble.life == 0 {
+                    bubble.life = 0;
+                    bubble.rest = 30 + (n % 8) as u16 * 7;
                 }
             }
         }
@@ -983,6 +1086,9 @@ impl World {
         // Suspended motes sample the actual velocity field, so wakes and
         // eddies are visible without drawing artificial straight streaks.
         for (number, &(x, y)) in self.tracers.iter().enumerate() {
+            if self.game {
+                break;
+            }
             if let Some(i) = Self::index(x as i32, y as i32)
                 && self.cells[i] == Cell::Water
             {
@@ -1007,14 +1113,6 @@ impl World {
         }
         if self.game {
             let surface_y = ((GAME_KELP_TOP - GAME_BOTTOM) / GAME_CELL) as i32;
-            for (x, y) in &self.bubbles {
-                if let Some(i) = Self::index(*x as i32, *y as i32)
-                    && self.cells[i] == Cell::Water
-                {
-                    let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
-                    out[p..p + 4].copy_from_slice(&[181, 220, 215, 210]);
-                }
-            }
             let base = ((self.giant_base - GAME_BOTTOM) / GAME_CELL) as i32;
             for y in base..surface_y {
                 let wy = GAME_BOTTOM + y as f32 * GAME_CELL;
@@ -1121,6 +1219,40 @@ mod tests {
     }
 
     #[test]
+    fn turbulence_can_make_a_bubble_that_then_disappears() {
+        let mut w = World::from_level(&crate::Level::test_level());
+        for b in &mut w.bubbles {
+            b.life = 0;
+            b.rest = 0;
+        }
+        w.tick = 16;
+        w.react_to_swim(90.0, 150.0, 1.0, 0.0);
+        assert!(w.bubbles[0].life > 0);
+        assert!(w.game_particle(GAME_TRACERS).is_some());
+        w.bubbles[0].life = 1;
+        w.step(0.7);
+        assert_eq!(w.bubbles[0].life, 0);
+        assert!(w.game_particle(GAME_TRACERS).is_none());
+    }
+
+    #[test]
+    fn buoyant_kelp_bends_along_its_length() {
+        let mut w = World::from_level(&crate::Level::test_level());
+        let mut largest_bend = 0.0_f32;
+        for _ in 0..360 {
+            w.step(0.7);
+            let middle = w.giant_kelp[GIANT_PARTS / 2];
+            let tip = w.giant_kelp[GIANT_PARTS];
+            largest_bend = largest_bend.max((middle - tip * 0.5).abs());
+        }
+        assert!(
+            largest_bend > 1.0,
+            "the stalk moved like a rigid pole: {largest_bend}"
+        );
+        assert_eq!(w.giant_kelp[0], 0.0);
+    }
+
+    #[test]
     fn opening_current_varies_with_depth_and_time_and_sways_kelp() {
         let mut world = World::from_level(&crate::Level::test_level());
         let low = ((100.0 - GAME_BOTTOM) / GAME_CELL) as i32;
@@ -1168,6 +1300,72 @@ mod tests {
         }
         assert!(w.game_surface_support(195.0 * GAME_CELL, 205.0 * GAME_CELL, feet));
     }
+    #[test]
+    fn shallow_sparse_hills_do_not_block_but_rocks_and_banks_do() {
+        let mut w = World::new();
+        w.cells.fill(Cell::Water);
+        let y = 100;
+        let bottom = GAME_BOTTOM + y as f32 * GAME_CELL;
+        for x in 198..201 {
+            for row in y..y + 4 {
+                w.cells[World::index(x, row).unwrap()] = Cell::Sand;
+            }
+        }
+        let blocked = |w: &World| {
+            w.game_movement_blocked(
+                195.0 * GAME_CELL,
+                bottom,
+                205.0 * GAME_CELL,
+                bottom + 40.0,
+                22.0,
+            )
+        };
+        assert!(!blocked(&w), "a narrow low mound should not be a wall");
+        w.cells[World::index(199, y + 1).unwrap()] = Cell::Rock;
+        assert!(blocked(&w), "rock must stay solid");
+        w.cells[World::index(199, y + 1).unwrap()] = Cell::Sand;
+        for x in 195..=205 {
+            w.cells[World::index(x, y + 1).unwrap()] = Cell::Sand;
+        }
+        assert!(blocked(&w), "a broad bed must still support the crab");
+    }
+
+    #[test]
+    fn crab_walks_over_a_small_loose_mound() {
+        use crate::{Controls, PlayerId, Sim};
+        use bevy_math::Vec2;
+        let mut sim = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        sim.enable_underwater_cells();
+        let cells = sim.level.cells.as_mut().unwrap();
+        cells.cells.fill(Cell::Water);
+        for x in 0..200 {
+            cells.cells[World::index(x, 85).unwrap()] = Cell::Rock;
+            for y in 86..90 {
+                cells.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        for x in 120..123 {
+            for y in 90..94 {
+                cells.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        for _ in 0..160 {
+            sim.set_controls(
+                PlayerId(0),
+                Controls {
+                    walk: 1.0,
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+        }
+        let p = sim.crab(PlayerId(0)).unwrap().mover.pos;
+        assert!(
+            p.x > 500.0 && p.y > -20.0,
+            "blocked by a small mound: {p:?}"
+        );
+    }
+
     #[test]
     fn creature_surface_ignores_a_lone_floating_grain() {
         let mut w = World::new();

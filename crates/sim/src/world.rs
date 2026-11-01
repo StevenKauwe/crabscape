@@ -687,6 +687,8 @@ impl Sim {
             c.walk = new.walk;
             c.jump_held = new.jump_held;
             c.dodge_held = new.dodge_held;
+            c.dig_held = new.dig_held;
+            c.dig_up = new.dig_up;
             c.down = new.down;
             c.jump_pressed |= new.jump_pressed;
             c.dodge_pressed |= new.dodge_pressed;
@@ -800,7 +802,7 @@ impl Sim {
                     let walk = crab.controls.walk.clamp(-1.0, 1.0);
                     let vertical = if crab.controls.down {
                         -1.0
-                    } else if crab.controls.jump_held {
+                    } else if crab.controls.jump_held || crab.controls.dig_up {
                         1.0
                     } else {
                         0.0
@@ -815,9 +817,10 @@ impl Sim {
                     {
                         cells.push_for_crab(x, y - 1.0, 0, -1, 48);
                     }
-                    let digging = crab.controls.dodge_held;
-                    if crab.controls.jump_held
-                        && (digging || original_floor.is_some_and(|floor| m.pos.y < floor - 2.0))
+                    let digging = crab.controls.dig_held;
+                    if ((digging && crab.controls.dig_up)
+                        || (crab.controls.jump_held
+                            && original_floor.is_some_and(|floor| m.pos.y < floor - 2.0)))
                         && !cells.clear_for_crab(x, y + 4.0)
                     {
                         cells.push_for_crab(x, y + 4.0, 0, 1, 48);
