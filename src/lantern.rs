@@ -12,8 +12,8 @@
 //!   close up. The crab's full-colour layer, for example, goes from fully
 //!   transparent to fully visible over its dark copy, so red returns in the
 //!   light and is black outside it.
-//! - Two soft glow sprites around the jar (a big faint one behind the crab,
-//!   a small bright one in front) light up the water and the sea floor.
+//! - A tiny faint halo marks the jar itself; the level's shapes are lit in
+//!   their own shader, rather than by a yellow wash over the scene.
 //!
 //! Later, painted lit and unlit sprites can use the same blend factor.
 
@@ -24,7 +24,7 @@ use bevy::transform::TransformSystems;
 use crabsim::Mover;
 
 use crate::effects::SoftTextures;
-use crate::player::LocalPlayer;
+use crate::memory::{MemoryMaterial, depth_factor};
 use crate::tuning::ViewTuning;
 
 /// The light itself (the middle of the jar).
@@ -74,9 +74,10 @@ pub struct LanternHalo;
 /// crab.
 pub const HALO_Z: f32 = 0.5;
 
-/// The two glow sprites (so they can flicker with the light).
+/// The small jar halo (so it can flicker with the light).
 #[derive(Component)]
 struct Glow {
+    crab: Entity,
     /// Full brightness (alpha).
     alpha: f32,
     /// Size with the starting culture.
@@ -108,7 +109,7 @@ impl Plugin for LanternPlugin {
             .add_systems(Update, fill_jars)
             .add_systems(
                 PostUpdate,
-                (flicker, measure_light, tint_by_light)
+                (flicker, measure_light, tint_by_light, light_level)
                     .chain()
                     .after(TransformSystems::Propagate),
             );
@@ -157,7 +158,6 @@ pub fn spawn_lantern(
     holder: Entity,
     at: Vec3,
     soft: &SoftTextures,
-    tuning: &ViewTuning,
 ) -> Entity {
     let pivot = commands
         .spawn((
@@ -207,34 +207,19 @@ pub fn spawn_lantern(
             Visibility::Hidden,
         ));
     }
-    // Behind the crab: drawn at a depth between the sea floor and the crab.
-    // (The crab is at depth ~10 and the lantern ~11, so -6 lands near 5.)
-    commands.spawn((
-        ChildOf(pivot),
-        Glow {
-            alpha: 0.26,
-            size: tuning.light_outer * 2.8,
-        },
-        Sprite {
-            image: soft.dot.clone(),
-            color: WARM.with_alpha(0.26),
-            custom_size: Some(Vec2::splat(tuning.light_outer * 2.8)),
-            ..default()
-        },
-        Transform::from_translation(jar_middle - Vec3::Z * 6.0),
-    ));
     // In front of everything on the crab: a small halo round the jar (kept
     // behind the shell when the crab turns its back: `LanternHalo`).
     commands.spawn((
         ChildOf(pivot),
         LanternHalo,
         Glow {
-            alpha: 0.45,
+            crab,
+            alpha: 0.03,
             size: 46.0,
         },
         Sprite {
             image: soft.dot.clone(),
-            color: WARM.with_alpha(0.45),
+            color: WARM.with_alpha(0.03),
             custom_size: Some(Vec2::splat(46.0)),
             ..default()
         },
@@ -248,15 +233,15 @@ pub fn spawn_lantern(
 fn flicker(
     time: Res<Time>,
     mut flicker: ResMut<Flicker>,
-    crab: Query<&Mover, With<LocalPlayer>>,
+    crabs: Query<&Mover>,
     mut glows: Query<(&Glow, &mut Sprite)>,
 ) {
     let t = time.elapsed_secs();
     let wave = 1.0 + 0.03 * (t * 7.3).sin() + 0.02 * (t * 12.9 + 1.0).sin();
-    let cultures = crab.single().map_or(0, |m| m.lantern_glow()) as f32;
-    let reach = 1.0 + BRIGHTER_PER_CULTURE * cultures; // see `light_reach`
-    flicker.0 = wave * reach;
+    flicker.0 = wave;
     for (glow, mut sprite) in &mut glows {
+        let cultures = crabs.get(glow.crab).map_or(0, |m| m.lantern_glow()) as f32;
+        let reach = 1.0 + BRIGHTER_PER_CULTURE * cultures;
         sprite
             .color
             .set_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures));
@@ -299,22 +284,45 @@ pub fn light_at(distance: f32, tuning: &ViewTuning, flicker: f32) -> f32 {
     1.0 - smoothstep(tuning.light_inner, tuning.light_outer * flicker, distance)
 }
 
-/// Work out every [`Lit`] thing's [`LightBlend`] from its distance to the
-/// nearest lantern.
+/// Approximate daylight in the vertically compressed demo. The canyon's
+/// rim represents the edge of the twilight zone, even though it is only a
+/// few screens below home. These are art-direction values, not a depth meter
+/// or measured irradiance. Keep the same curve in `memory.wgsl`.
+fn daylight(at: Vec2) -> f32 {
+    (1.0 - depth_factor(at)).powi(2)
+}
+
+/// The strongest light wins: a brighter friend's lantern can reach farther
+/// than the closest one.
+fn strongest_light(at: Vec2, lights: &[(Vec2, f32)], tuning: &ViewTuning) -> f32 {
+    lights
+        .iter()
+        .map(|(position, reach)| light_at(position.distance(at), tuning, *reach))
+        .fold(0.0, f32::max)
+}
+
+/// Work out every [`Lit`] thing's [`LightBlend`] from all nearby lanterns.
 fn measure_light(
     tuning: Res<ViewTuning>,
     flicker: Res<Flicker>,
-    lights: Query<&GlobalTransform, With<LightSource>>,
+    lights: Query<(&GlobalTransform, &JarCore), With<LightSource>>,
+    crabs: Query<&Mover>,
     mut lit: Query<(&Lit, &GlobalTransform, &mut LightBlend)>,
 ) {
-    let lights: Vec<Vec2> = lights.iter().map(|g| g.translation().truncate()).collect();
+    let lights: Vec<(Vec2, f32)> = lights
+        .iter()
+        .map(|(g, core)| {
+            let cultures = crabs.get(core.crab).map_or(0, |m| m.lantern_glow());
+            (
+                g.translation().truncate(),
+                light_reach(&tuning, cultures) / tuning.light_outer * flicker.0,
+            )
+        })
+        .collect();
     for (thing, global, mut blend) in &mut lit {
         let at = global.transform_point(thing.centre.extend(0.0)).truncate();
-        let nearest = lights
-            .iter()
-            .map(|l| l.distance(at))
-            .fold(f32::INFINITY, f32::min);
-        blend.0 = light_at(nearest, &tuning, flicker.0).max(thing.fill) * (1.0 - thing.shade);
+        let lantern = strongest_light(at, &lights, &tuning);
+        blend.0 = lantern.max(daylight(at)).max(thing.fill) * (1.0 - thing.shade);
     }
 }
 
@@ -322,6 +330,41 @@ fn measure_light(
 fn tint_by_light(mut sprites: Query<(&LightBlend, &LitTint, &mut Sprite)>) {
     for (blend, tint, mut sprite) in &mut sprites {
         sprite.color = tint.dark.mix(&tint.bright, blend.0);
+    }
+}
+
+/// Light the level's own shapes without drawing a coloured haze over them.
+fn light_level(
+    tuning: Res<ViewTuning>,
+    flicker: Res<Flicker>,
+    lights: Query<(&GlobalTransform, &JarCore), With<LightSource>>,
+    crabs: Query<&Mover>,
+    camera: Query<&GlobalTransform, With<Camera2d>>,
+    mut materials: ResMut<Assets<MemoryMaterial>>,
+) {
+    let centre = camera
+        .single()
+        .map_or(Vec2::ZERO, |c| c.translation().truncate());
+    let mut positions: Vec<(Vec2, f32)> = lights
+        .iter()
+        .map(|(l, core)| {
+            let cultures = crabs.get(core.crab).map_or(0, |m| m.lantern_glow());
+            (
+                l.translation().truncate(),
+                light_reach(&tuning, cultures) * flicker.0,
+            )
+        })
+        .collect();
+    positions.sort_by(|a, b| {
+        a.0.distance_squared(centre)
+            .total_cmp(&b.0.distance_squared(centre))
+    });
+    let mut lamps = [Vec4::ZERO; 8];
+    for (slot, (p, reach)) in lamps.iter_mut().zip(positions) {
+        *slot = Vec4::new(p.x, p.y, tuning.light_inner, reach);
+    }
+    for (_, material) in materials.iter_mut() {
+        material.set_lights(lamps);
     }
 }
 
@@ -338,5 +381,31 @@ mod tests {
         assert!((0.4..0.6).contains(&half));
         assert_eq!(light_at(t.light_outer, &t, 1.0), 0.0);
         assert_eq!(light_at(10_000.0, &t, 1.0), 0.0);
+    }
+
+    #[test]
+    fn daylight_fades_with_depth_and_through_the_canyon() {
+        let home = daylight(Vec2::ZERO);
+        let pit = daylight(Vec2::new(3800.0, -8700.0));
+        let rim = daylight(Vec2::new(8200.0, -1900.0));
+        let canyon_floor = daylight(Vec2::new(7000.0, -9400.0));
+        assert!(home > rim && rim > canyon_floor);
+        assert!(home > pit && pit >= canyon_floor);
+        assert_eq!(daylight(Vec2::new(0.0, 2000.0)), 1.0);
+        assert_eq!(daylight(Vec2::new(7000.0, -10000.0)), 0.0);
+    }
+
+    #[test]
+    fn farther_lantern_can_be_the_stronger_light() {
+        let t = ViewTuning::default();
+        let weak = (Vec2::new(100.0, 0.0), 1.0);
+        let strong = (Vec2::new(130.0, 0.0), 2.0);
+        assert!(
+            strongest_light(Vec2::ZERO, &[strong], &t) > strongest_light(Vec2::ZERO, &[weak], &t)
+        );
+        assert_eq!(
+            strongest_light(Vec2::ZERO, &[weak, strong], &t),
+            strongest_light(Vec2::ZERO, &[strong], &t)
+        );
     }
 }

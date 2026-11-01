@@ -12,6 +12,8 @@ struct MemoryUniform {
     water: vec4<f32>,
     // The grid in world units: left, bottom, width, height.
     grid: vec4<f32>,
+    // Each light: position, inner radius, outer radius. Zero radius is unused.
+    lights: array<vec4<f32>, 8>,
 };
 
 @group(2) @binding(0) var<uniform> material: MemoryUniform;
@@ -40,6 +42,32 @@ fn noise(p: vec2<f32>) -> f32 {
     );
 }
 
+fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
+    var brightness = 0.0;
+    for (var i = 0; i < 8; i += 1) {
+        let light = material.lights[i];
+        if light.w > light.z {
+            let amount = 1.0 - smoothstep(light.z, light.w, distance(p, light.xy));
+            brightness = max(brightness, amount);
+        }
+    }
+    // Match lantern.rs `daylight`: the canyon represents the twilight
+    // zone although the game's vertical distances are compressed.
+    let vertical = clamp(-p.y / 9000.0, 0.0, 1.0);
+    let canyon = smoothstep(5350.0, 6150.0, p.x)
+        * (1.0 - smoothstep(-1500.0, 1000.0, p.y));
+    let depth = max(vertical, 0.75 * canyon);
+    let daylight = mix(0.12, 6.0, (1.0 - depth) * (1.0 - depth));
+    // The terrain palette was painted for a dark seabed; its unlit colours
+    // alone are too dim to read when the yellow wash is removed. Lift the
+    // shape's own colour in the lantern, without tinting or softening it.
+    let exposure = max(daylight, mix(daylight, 3.0, brightness));
+    let strongest_channel = max(max(c.r, c.g), max(c.b, 0.0001));
+    // Preserve the shape's colour even for pale shells: never clip one
+    // channel before the others when lifting its brightness.
+    return c * min(exposure, 1.0 / strongest_channel);
+}
+
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let p = in.world_position.xy;
@@ -57,7 +85,7 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     );
     let c = material.color.rgb;
     if m >= 0.995 {
-        return vec4<f32>(c, 1.0);
+        return vec4<f32>(lit(c, p), 1.0);
     }
     if m < 0.004 {
         return vec4<f32>(material.water.rgb, 1.0);
@@ -67,6 +95,6 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let k = clamp(m + (n - 0.5) * 0.6 * min(m * 4.0, 1.0) * (1.0 - m), 0.0, 1.0);
     let grey = vec3<f32>(dot(c, vec3<f32>(0.3, 0.59, 0.11)));
     let faded = mix(grey, c, k * k);
-    let shown = mix(material.water.rgb, faded, smoothstep(0.04, 0.95, k));
+    let shown = mix(material.water.rgb, lit(faded, p), smoothstep(0.04, 0.95, k));
     return vec4<f32>(shown, 1.0);
 }
