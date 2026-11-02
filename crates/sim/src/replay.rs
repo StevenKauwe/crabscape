@@ -58,6 +58,8 @@
 //! so the runner can say whether it ended in exactly the same state. A replay recorded from a crab that already
 //! had progress (a reload) starts with a `progress {...}` line: what it had then, as its save keeps it
 //! ([`crate::Progress`], JSON), given back to player 0 before the first tick.
+//! A resumed cellular recording also includes its bounded starting terrain,
+//! simulation clock, and saved map memory.
 
 use bevy_math::Vec2;
 
@@ -66,6 +68,7 @@ use crate::craft::Recipe;
 use crate::enemy::Kind;
 use crate::feel::Feel;
 use crate::level::SPAWN;
+use crate::memory::MemorySave;
 use crate::physics::{Controls, TICKS_PER_SECOND};
 use crate::progress::Progress;
 use crate::skills::Skill;
@@ -73,6 +76,9 @@ use crate::tuning::Tuning;
 
 mod cell_start;
 use cell_start::CellStart;
+
+/// An upper bound on saved map data accepted or emitted with a replay.
+const MAX_START_MEMORY: usize = 1024 * 1024;
 
 /// The controls from one tick on.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,6 +99,8 @@ pub struct Replay {
     pub cellular: bool,
     /// Complete starting terrain and the absolute clock for a loaded world.
     pub(crate) cell_start: Option<CellStart>,
+    /// The loaded crab's remembered map, when replaying a saved cellular game.
+    pub(crate) memory: Option<MemorySave>,
     /// The [`Tuning::fingerprint`] it was recorded with, if known.
     pub tuning: Option<u64>,
     /// When the controls change, in tick order (at most one per tick).
@@ -134,6 +142,7 @@ impl Default for Replay {
             start: SPAWN,
             cellular: false,
             cell_start: None,
+            memory: None,
             tuning: None,
             inputs: Vec::new(),
             end: None,
@@ -218,6 +227,20 @@ impl Replay {
                             .map_err(|e| err(format!("`progress` doesn't read: {e}")))?;
                         replay.progress = Some(p);
                     }
+                    "memory" => {
+                        let len = rest
+                            .iter()
+                            .try_fold(0usize, |size, word| size.checked_add(word.len() + 1))
+                            .ok_or_else(|| err("saved memory is too large".into()))?;
+                        if len > MAX_START_MEMORY || replay.memory.is_some() {
+                            return Err(err("duplicate or oversized saved memory".into()));
+                        }
+                        let json = rest.join(" ");
+                        replay.memory = Some(
+                            serde_json::from_str(&json)
+                                .map_err(|e| err(format!("`memory` doesn't read: {e}")))?,
+                        );
+                    }
                     "end" => {
                         let when = rest
                             .first()
@@ -278,6 +301,15 @@ impl Replay {
             held = c;
             replay.inputs.push(Input { tick, controls: c });
         }
+        if replay.memory.is_some() {
+            if !replay.has_cell_start() {
+                return Err("saved memory requires a cellular checkpoint".into());
+            }
+            let mut sim = crate::Sim::new(Tuning::default(), crate::Level::test_level());
+            if !replay.prepare_start(&mut sim) {
+                return Err("saved memory or its cellular checkpoint is invalid".into());
+            }
+        }
         Ok(replay)
     }
 
@@ -298,6 +330,10 @@ impl Replay {
         if let Some(p) = &self.progress {
             let json = serde_json::to_string(p).expect("progress always serialises");
             out += &format!("progress {json}\n");
+        }
+        if let Some(memory) = &self.memory {
+            let json = serde_json::to_string(memory).expect("memory always serialises");
+            out += &format!("memory {json}\n");
         }
         if let Some(code) = self.tuning {
             out += &format!("tuning {code:016x}\n");
@@ -421,6 +457,17 @@ impl Replay {
             restored.set_feel(*feel);
         }
         restored.add_crab(crate::PlayerId(0), self.start);
+        if let Some(saved) = &self.memory {
+            let Some(memory) =
+                crate::Memory::from_save(saved, &restored.level, &restored.tuning.memory)
+            else {
+                return false;
+            };
+            let Some(crab) = restored.crab_mut(crate::PlayerId(0)) else {
+                return false;
+            };
+            crab.memory = memory;
+        }
         *sim = restored;
         true
     }
@@ -544,6 +591,15 @@ impl Recorder {
         };
         self.replay.cell_start = Some(start);
         self.replay.cellular = true;
+        true
+    }
+
+    pub(crate) fn note_memory(&mut self, memory: &crate::Memory) -> bool {
+        let saved = memory.to_save();
+        if serde_json::to_vec(&saved).map_or(true, |json| json.len() > MAX_START_MEMORY) {
+            return false;
+        }
+        self.replay.memory = Some(saved);
         true
     }
 

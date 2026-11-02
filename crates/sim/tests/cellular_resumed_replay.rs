@@ -5,17 +5,25 @@
 
 use bevy_math::Vec2;
 use crabsim::{
-    Controls, Feel, Level, PlayerId, Progress, Replay, Sim, Tuning,
+    Controls, Feel, Level, Memory, MemorySave, PlayerId, Progress, Replay, Sim, Tuning,
     enemy::Kind,
     underwater::{World, WorldCheckpoint},
 };
 
-fn start_from_save(terrain: World, tick: u64, pos: Vec2, progress: &Progress) -> Sim {
+fn start_from_save(
+    terrain: World,
+    tick: u64,
+    pos: Vec2,
+    progress: &Progress,
+    memory: &MemorySave,
+) -> Sim {
     let mut sim = Sim::new(Tuning::default(), Level::test_level());
     assert!(sim.restore_cellular_terrain(terrain, tick));
     sim.set_feel(Feel::Heavy);
     sim.add_crab(PlayerId(0), pos);
     sim.restore_progress(PlayerId(0), progress);
+    let memory = Memory::from_save(memory, &sim.level, &sim.tuning.memory).unwrap();
+    sim.crab_mut(PlayerId(0)).unwrap().memory = memory;
     sim
 }
 
@@ -38,6 +46,11 @@ fn saved_terrain_player_and_absolute_clock_replay_with_relative_events() {
     let tick = before_save.tick_count();
     assert!(!tick.is_multiple_of(4), "exercise the material-step phase");
     let pos = before_save.crab(PlayerId(0)).unwrap().mover.pos;
+    let saved_memory = before_save.crab(PlayerId(0)).unwrap().memory.to_save();
+    assert!(
+        !saved_memory.cells.is_empty(),
+        "the saved map contains explored terrain"
+    );
     let mut progress = before_save.progress(PlayerId(0)).unwrap();
     progress.lantern = 1;
     let checkpoint = before_save.level.cells.as_ref().unwrap().checkpoint();
@@ -47,7 +60,7 @@ fn saved_terrain_player_and_absolute_clock_replay_with_relative_events() {
         checkpoint.into_world().unwrap()
     };
 
-    let mut live = start_from_save(restore_terrain(), tick, pos, &progress);
+    let mut live = start_from_save(restore_terrain(), tick, pos, &progress, &saved_memory);
     let started = std::time::Instant::now();
     live.start_recording();
     eprintln!("resumed replay capture: {:?}", started.elapsed());
@@ -83,7 +96,31 @@ fn saved_terrain_player_and_absolute_clock_replay_with_relative_events() {
     crabsim::play(&mut restored, &replay, replay.length(), |_| {});
     assert_eq!(live.tick_count(), restored.tick_count());
     assert_eq!(live.state_hash(), restored.state_hash());
+    assert_eq!(
+        live.crab(PlayerId(0)).unwrap().memory,
+        restored.crab(PlayerId(0)).unwrap().memory
+    );
+    assert_eq!(
+        live.crab(PlayerId(0)).unwrap().memory.fingerprint(),
+        restored.crab(PlayerId(0)).unwrap().memory.fingerprint()
+    );
     assert_eq!(replay.hash, Some(restored.state_hash()));
+
+    let original_memory_line = replay_text
+        .lines()
+        .find(|line| line.starts_with("memory "))
+        .unwrap();
+    let mut incompatible_memory = saved_memory.clone();
+    incompatible_memory.cols = 0;
+    let bad_memory_line = format!(
+        "memory {}",
+        serde_json::to_string(&incompatible_memory).unwrap()
+    );
+    let bad_replay = replay_text.replacen(original_memory_line, &bad_memory_line, 1);
+    assert!(
+        Replay::parse(&bad_replay).is_err(),
+        "an incompatible remembered map is rejected"
+    );
 
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -126,4 +163,6 @@ fn corrupted_and_invalid_replay_checkpoint_is_rejected() {
     ] {
         assert!(Replay::parse(text).is_err(), "{text}");
     }
+    let oversized = format!("memory {}\n", "x".repeat(1024 * 1024 + 1));
+    assert!(Replay::parse(&oversized).is_err());
 }

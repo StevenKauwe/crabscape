@@ -1755,7 +1755,7 @@ impl Sim {
                 self.recorder = None;
                 return;
             };
-            if !rec.note_cell_start(terrain, self.tick) {
+            if !rec.note_cell_start(terrain, self.tick) || !rec.note_memory(&self.crabs[0].memory) {
                 self.recorder = None;
                 return;
             }
@@ -1764,7 +1764,9 @@ impl Sim {
             let replay = rec.replay(self.tick);
             let mut restored = Sim::with_one_crab(start);
             replay.apply_at(&mut restored);
-            if restored.state_hash() != self.state_hash() {
+            if restored.state_hash() != self.state_hash()
+                || restored.crabs[0].memory != self.crabs[0].memory
+            {
                 self.recorder = None;
                 return;
             }
