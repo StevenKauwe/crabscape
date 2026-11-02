@@ -14,6 +14,8 @@ use crate::save::{SAVE_VERSION, SaveData};
 pub mod browser;
 #[cfg(target_arch = "wasm32")]
 pub mod browser_system;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod work;
 // Desktop uses a different decoder and has not yet received the browser's
 // deserialization-time allocation bounds. Keep migration preparation off
 // that production path until it has equivalent limits.

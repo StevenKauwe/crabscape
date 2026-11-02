@@ -136,6 +136,7 @@ pub(crate) fn private_save(
     SESSION.with(|slot| {
         let s = slot.borrow();
         let solo = s.solo.as_ref()?;
+        let _profile = crate::cell_save::work::begin("cell-private-save");
         let id = s.guest?;
         let mut saved = crate::save::snapshot(solo, id)?;
         if s.phase == Phase::Guest {
@@ -172,22 +173,17 @@ pub(crate) fn owner_save(
         let mut session = slot.borrow_mut();
         let regional = session.regional.as_mut()?;
         regional.owner.as_ref()?;
+        let _profile = crate::cell_save::work::begin("cell-owner-save");
         let result = (|| {
             let local = regional.kernel.as_ref().ok_or(Error::Damaged)?;
             let owner = regional.owner.as_mut().ok_or(Error::Damaged)?;
-            let remote = owner
-                .remote
-                .as_ref()
-                .map(|journal| journal.base_kernel())
-                .transpose()
-                .map_err(|_| Error::Damaged)?;
             let prepared = crate::cell_save::regional::prepare_owner_save(
                 view,
                 &mut owner.terrain,
                 &mut owner.entities,
                 local.id,
                 local.epoch,
-                remote.as_ref(),
+                None,
             )?;
             regional.owner_save_dirty = false;
             Ok(prepared)

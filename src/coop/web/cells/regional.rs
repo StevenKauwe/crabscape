@@ -7,6 +7,7 @@ use crabsim::underwater::{
     region_store::{RegionEpoch, RegionId, TerrainStore},
 };
 use crabsim::world::regions::{EntityArchive, RegionFrame, RegionKernel, journal::RegionJournal};
+mod moving;
 
 #[derive(Default, PartialEq)]
 enum Stage {
@@ -45,6 +46,8 @@ pub(super) struct State {
     backup_serial: u64,
     last_backup_tick: u64,
     pub(super) owner_save_dirty: bool,
+    moving: Option<moving::Transfer>,
+    move_serial: u64,
 }
 struct Backup {
     transfer: u64,
@@ -95,12 +98,15 @@ fn share_region(host: Vec2, guest: Vec2, shared: bool) -> Result<bool, String> {
     Ok(a.overlaps(b))
 }
 fn near_edge(b: CellRegion, p: Vec2) -> bool {
+    edge_margin(b, p, 64.0)
+}
+fn edge_margin(b: CellRegion, p: Vec2, margin: f32) -> bool {
     let x = p.x / GAME_CELL;
     let y = (p.y - GAME_BOTTOM) / GAME_CELL;
-    (b.x > 0 && x < b.x as f32 + 64.0)
-        || x > (b.x + b.width as i32) as f32 - 64.0
-        || y < b.y as f32 + 64.0
-        || y > (b.y + b.height as i32) as f32 - 64.0
+    (b.x > 0 && x < b.x as f32 + margin)
+        || x > (b.x + b.width as i32) as f32 - margin
+        || y < b.y as f32 + margin
+        || y > (b.y + b.height as i32) as f32 - margin
 }
 fn needs_change(r: &State, sim: &Sim, guest_id: PlayerId) -> Result<bool, String> {
     let host = point(sim, HOST)?;
@@ -154,6 +160,7 @@ fn store_kernel(owner: &mut Owner, kernel: RegionKernel) -> Result<(), String> {
     owner.entities.absorb(kernel).map_err(fault)
 }
 fn collect(r: &mut State, sim: &mut Sim) -> Result<(), String> {
+    moving::cancel(r)?;
     let owner = r.owner.as_mut().ok_or("Missing lobby owner")?;
     // Validate/recover the remote history before moving the visible simulation.
     // A failed recovery must leave both the journal and the local crab available.
@@ -327,6 +334,9 @@ fn request_stop(s: &mut Session, r: &mut State, sim: &Sim) {
     );
 }
 fn acknowledge_stop(s: &mut Session, r: &mut State, sim: &Sim) {
+    if moving::return_pending(r) {
+        return;
+    }
     r.stage = Stage::Stopped;
     send(
         s,
@@ -349,21 +359,20 @@ fn flush(s: &mut Session, r: &mut State, sim: &Sim, local: PlayerId) -> Result<(
             .map_err(fault)?;
     }
     let pos = point(sim, local)?;
-    send(
-        s,
-        RegionMsg::Batch {
-            region: kernel.id.0,
-            epoch: kernel.epoch.0,
-            frames: Box::new(frames),
-            pos: [pos.x, pos.y],
-        },
-    );
+    let msg = RegionMsg::Batch {
+        region: kernel.id.0,
+        epoch: kernel.epoch.0,
+        frames: Box::new(frames),
+        pos: [pos.x, pos.y],
+    };
+    moving::send_batch(s, r, msg);
     Ok(())
 }
 fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Result<(), String> {
     if !matches!(r.stage, Stage::Running | Stage::Stopping) {
         return Ok(());
     }
+    moving::step(s, r, sim, local)?;
     let follows = local != HOST && r.shared;
     if follows {
         if let Some(frame) = r.frames.pop_front() {
@@ -541,6 +550,11 @@ fn receive_inner(
     msg: RegionMsg,
 ) -> Result<(), String> {
     match msg {
+        msg @ (RegionMsg::MoveBegin { .. }
+        | RegionMsg::MovePiece(_)
+        | RegionMsg::MoveAck { .. }
+        | RegionMsg::MoveReady { .. }
+        | RegionMsg::MoveApply { .. }) => moving::receive(s, r, sim, local, msg)?,
         RegionMsg::NeedRegion {
             region,
             epoch,
@@ -605,13 +619,36 @@ fn receive_inner(
                     .and_then(|o| o.remote.as_mut())
                     .filter(|j| j.id() == incoming.region && j.epoch() == incoming.epoch)
                 {
-                    journal
-                        .advance_checkpoint(
+                    let _profile = crate::cell_save::work::begin("cell-backup-accept");
+                    let state = journal
+                        .advance_checkpoint_retain(
                             s.guest.ok_or("Missing visitor")?,
                             incoming.epoch,
                             bytes,
                         )
                         .map_err(fault)?;
+                    if r.remote_bounds == Some(state.bounds())
+                        && r.owner
+                            .as_ref()
+                            .and_then(|o| o.terrain.revision(state.id, state.epoch))
+                            == Some(state.revision())
+                    {
+                        let owner = r.owner.as_mut().ok_or("Missing owner")?;
+                        owner
+                            .terrain
+                            .commit(
+                                state.id,
+                                state.epoch,
+                                state
+                                    .sim
+                                    .level
+                                    .cells
+                                    .as_ref()
+                                    .ok_or("Missing backup terrain")?,
+                            )
+                            .map_err(fault)?;
+                        owner.entities.merge_resources(&state.sim).map_err(fault)?;
+                    }
                     r.owner_save_dirty = true;
                 }
                 r.incoming_backup = None;
@@ -651,6 +688,7 @@ fn receive_inner(
             r.frames.clear();
             r.partial.clear();
             r.backup = None;
+            r.moving = None;
         }
         RegionMsg::Piece(bytes) if local != HOST && r.stage == Stage::Receiving => {
             let (transfer, piece) = fragment_identity(&bytes).map_err(fault)?;
@@ -829,13 +867,18 @@ fn update_inner(
     sim: &mut Sim,
     local: PlayerId,
 ) -> Result<(), String> {
+    moving::update(s, r, sim, local)?;
     if local != HOST
         && !r.shared
         && r.stage == Stage::Running
         && r.partial.is_empty()
         && r.backup.is_none()
+        // The owner must receive the move event before a checkpoint from
+        // the new revision. Returning strips precede all later batches.
+        && !moving::return_pending(r)
         && sim.tick_count().saturating_sub(r.last_backup_tick) >= 600
     {
+        let _profile = crate::cell_save::work::begin("cell-backup-capture");
         let kernel = r.kernel.as_mut().ok_or("Missing regional kernel")?;
         let bytes = kernel.checkpoint_view(sim).map_err(fault)?;
         r.backup_serial += 1;
@@ -889,6 +932,7 @@ fn update_inner(
         );
         if let Some(k) = &r.kernel {
             let _ = canvas.set_attribute("data-cell-region-id", &k.id.0.to_string());
+            let _ = canvas.set_attribute("data-cell-region-revision", &k.revision().to_string());
         }
     }
     if r.stage == Stage::Running
@@ -898,13 +942,13 @@ fn update_inner(
             .as_ref()
             .is_some_and(|j| j.pending_ticks() >= 3600)
     {
+        let _profile = crate::cell_save::work::begin("cell-journal-compact");
         let k = r.kernel.as_mut().ok_or("Missing kernel")?;
-        let bytes = k.checkpoint_view(sim).map_err(fault)?;
         let authority = if r.shared { HOST } else { local };
         r.journal
             .as_mut()
             .expect("checked journal")
-            .replace_checkpoint(authority, k.epoch, bytes)
+            .replace_from_local_view(authority, k, sim)
             .map_err(fault)?;
     }
     if local == HOST && r.stage == Stage::Running && r.partial.is_empty() {

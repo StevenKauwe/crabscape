@@ -35,6 +35,7 @@ pub fn save_periodically(
     let Some(generation) = super::browser::reserve_save(time.delta_secs()) else {
         return;
     };
+    let _profile = super::work::begin("cell-save-capture");
     if let Some(owner_save) = crate::coop::cells_owner_save(&sim) {
         match owner_save {
             Ok(prepared) => super::browser::submit_save(generation, prepared),
