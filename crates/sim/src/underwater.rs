@@ -2352,18 +2352,22 @@ impl World {
         let Some(body) = self.contact_reservation(other) else {
             return false;
         };
-        if !matches!(direction,-1 | 1) { return false; }
+        if !matches!(direction, -1 | 1) {
+            return false;
+        }
         if self.pebbles.is_empty() {
             // The validated separation exceeds the brush's full reach, so
             // loose grains cannot enter the other body's actual footprint.
             if guest {
-                let old = (self.crab,self.crab_half_x,self.crab_half_y);
-                self.crab = Some((body.x,body.y));
+                let old = (self.crab, self.crab_half_x, self.crab_half_y);
+                self.crab = Some((body.x, body.y));
                 self.crab_half_x = body.half_x;
                 self.crab_half_y = body.half_y;
                 self.brush_walking_sand(direction);
-                (self.crab,self.crab_half_x,self.crab_half_y) = old;
-            } else { self.brush_walking_sand(direction); }
+                (self.crab, self.crab_half_x, self.crab_half_y) = old;
+            } else {
+                self.brush_walking_sand(direction);
+            }
             return true;
         }
         let mut chunks = chunk_flow::ChunkFlow::from_world(self);
