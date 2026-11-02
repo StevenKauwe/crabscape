@@ -239,4 +239,3 @@ mod tests {
         assert!(attempts.get() <= 129, "serialization must stop at the cap");
     }
 }
-
