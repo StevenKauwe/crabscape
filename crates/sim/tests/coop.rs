@@ -598,7 +598,32 @@ fn names_are_cleaned_to_sit_over_a_crab() {
 fn a_message_from_a_newer_game_is_dropped_unread() {
     // A kind of message this game doesn't know (the way a game from before
     // names sees a name): dropped, never misread as another.
-    for kind in [16u8, 17, 99, 127] {
+    // Experimental cellular input has its own known kind and still round-trips.
+    let input = Msg::CellWalkInput {
+        epoch: 1,
+        tick: 0,
+        sequence: 0,
+        player: GUEST,
+        walk: 0.5,
+        dig: true,
+    };
+    assert_eq!(Msg::from_bytes(&input.to_bytes()), Some(input));
+    let down = Msg::CellDownInput {
+        epoch: 1,
+        tick: 0,
+        sequence: 0,
+        player: GUEST,
+    };
+    assert_eq!(Msg::from_bytes(&down.to_bytes()), Some(down));
+    let up = Msg::CellUpInput {
+        epoch: 1,
+        tick: 0,
+        sequence: 0,
+        player: GUEST,
+        up: true,
+    };
+    assert_eq!(Msg::from_bytes(&up.to_bytes()), Some(up));
+    for kind in [99u8, 120, 127] {
         assert_eq!(Msg::from_bytes(&[kind, 1, 2, 3, 4]), None, "{kind}");
     }
 }

@@ -484,7 +484,7 @@ fn switch(
         }
     }
     let juice = lab.juice_on ^ (keys.just_pressed(KeyCode::Backslash) || hit(LabButton::Juice));
-    if feel != lab.feel {
+    if feel != lab.feel && !crate::coop::cells_active() {
         lab.feel = feel;
         lab.toast = TOAST;
         sim.set_feel(feel);

@@ -15,3 +15,6 @@ pub use webrtc_socket::{
     RtcIceServerConfig, Signaller, SignallerBuilder, WebRtcChannel, WebRtcSocket,
     WebRtcSocketBuilder, error::ChannelError,
 };
+
+#[cfg(feature = "probe-ingress")]
+pub mod probe_ingress;

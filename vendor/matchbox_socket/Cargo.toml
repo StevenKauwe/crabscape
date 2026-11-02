@@ -40,6 +40,7 @@ repository = "https://github.com/johanhelsing/matchbox"
 resolver = "2"
 
 [features]
+probe-ingress = []
 ggrs = [
     "dep:bincode",
     "dep:ggrs",

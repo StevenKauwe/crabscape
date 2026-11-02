@@ -13,6 +13,9 @@
 //! - the headless runner (`cargo crabsim`), as fast as the computer can,
 //! - the tests, the same way.
 
+pub mod cell_session;
+pub mod regions;
+
 use bevy_math::{Rect, Vec2};
 use serde::Serialize;
 
@@ -40,7 +43,7 @@ use crate::tuning::Tuning;
 pub struct PlayerId(pub u32);
 
 /// One crab inside the simulation.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SimCrab {
     pub id: PlayerId,
     /// Runs on another player's device (co-op): never stepped here, only set
@@ -145,14 +148,48 @@ pub struct Sim {
     next_enemy: u32,
     /// The only randomness allowed: seeded, part of the state hash.
     rng: Rng,
+    /// Independent NPC streams retained when a regional session returns to solo.
+    owned_rng: Option<std::collections::BTreeMap<u32, Rng>>,
     /// This device's part in a co-op game (none in solo play).
     net: Option<Net>,
+    empty_shared_base: Option<u64>,
 }
 
 /// The seed every world starts with (a replay therefore needs no seed).
 pub const SEED: u64 = 0x00c0_ffee_c4ab_5eed;
 
+#[cfg(test)]
+thread_local! {
+    static STATE_HASH_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 impl Sim {
+    /// A shared input stream supersedes the single-player recorder.
+    pub fn stop_recording(&mut self) {
+        self.recorder = None;
+    }
+    /// Install validated saved terrain and its simulation clock before the
+    /// player or creatures are spawned. A running simulation cannot safely
+    /// swap its underlying world out from under its entities.
+    pub fn restore_cellular_terrain(
+        &mut self,
+        terrain: crate::underwater::World,
+        tick: u64,
+    ) -> bool {
+        if self.tick != 0
+            || !self.crabs.is_empty()
+            || !self.enemies.is_empty()
+            || !terrain.is_game_world()
+            || tick > u64::MAX - 1_000_000
+        {
+            return false;
+        }
+        self.enable_underwater_cells();
+        self.level.cells = Some(terrain);
+        self.tick = tick;
+        true
+    }
+
     /// Enable the draft's single-player material experiment in the opening area.
     pub fn enable_underwater_cells(&mut self) {
         if self.level.cells.is_some() {
@@ -187,7 +224,9 @@ impl Sim {
             enemies: Vec::new(),
             next_enemy: 0,
             rng: Rng::new(SEED),
+            owned_rng: None,
             net: None,
+            empty_shared_base: None,
         }
     }
 
@@ -332,6 +371,7 @@ impl Sim {
     /// updates. A guest puts its own world aside (its clams, shell grit, nets
     /// and rocks) and shows the host's from the host's word ([`Msg::World`]).
     pub fn go_online(&mut self, host: bool) {
+        self.empty_shared_base = None;
         let aside = self.net.take().and_then(|n| n.own);
         let own = match (host, aside) {
             (true, aside) => {
@@ -615,7 +655,20 @@ impl Sim {
                 }
             }
             // Names are the game's to show (`src/names.rs`), not a rule.
-            Msg::Name { .. } | Msg::Chat(_) => {}
+            // Terrain transfer has no world-install path yet. Until host
+            // authority and complete checkpoint validation are wired up,
+            // receiving a fragment cannot change the simulation.
+            Msg::Name { .. }
+            | Msg::Chat(_)
+            | Msg::CellTerrain(_)
+            | Msg::CellFrame(_)
+            | Msg::CellTerrainAck { .. }
+            | Msg::CellFrameAck { .. }
+            | Msg::CellProbeReady
+            | Msg::CellWalkInput { .. }
+            | Msg::CellDownInput { .. }
+            | Msg::CellUpInput { .. }
+            | Msg::CellUpFrame { .. } => {}
         }
     }
 
@@ -664,6 +717,7 @@ impl Sim {
     /// world stays open (its crab may stand past one, or where one was).
     /// Shared things asked for and not yet given are never given.
     pub fn go_offline(&mut self) {
+        self.empty_shared_base = None;
         if let Some(own) = self.net.take().and_then(|n| n.own) {
             self.come_home(own);
         }
@@ -684,6 +738,7 @@ impl Sim {
             shared: self.shared.clone(),
             nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
             rocks_cracked: self.level.brittle.iter().map(|b| b.cracked).collect(),
+            cells: self.level.cells.clone(),
         }
     }
 
@@ -696,6 +751,7 @@ impl Sim {
             b.cracked |= cracked;
         }
         self.shared = own.shared;
+        self.level.cells = own.cells;
     }
 
     /// A guest's own world while it visits the host's (None otherwise): what
@@ -840,21 +896,458 @@ impl Sim {
 
     /// Advance the world by one [`STEP`].
     pub fn tick(&mut self) {
+        let _ = self.tick_inner(false, None);
+    }
+
+    /// Capture the sole stationary host crab for the isolated spectator-frame
+    /// experiment. Any movement, action, creature, or ambiguous local/remote
+    /// ownership is rejected; this does not enable playable co-op.
+    pub fn idle_shared_cell_force(&self) -> Option<crate::underwater::HostPlayerForce> {
+        if !self.online()
+            || !self.is_host()
+            || self.crabs.len() != 1
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || !self.tick.is_multiple_of(4)
+        {
+            return None;
+        }
+        let crab = &self.crabs[0];
+        if crab.remote
+            || crab.controls != Controls::default()
+            || crab.events.jumped
+            || crab.mover.vel != Vec2::ZERO
+        {
+            return None;
+        }
+        let half_height = crab.mover.height(&self.tuning) * 0.5;
+        let half_width = crab.mover.half_width(&self.tuning);
+        let center = crab.mover.pos + Vec2::Y * half_height;
+        if !center.is_finite() || !half_width.is_finite() || !half_height.is_finite() {
+            return None;
+        }
+        Some(crate::underwater::HostPlayerForce {
+            player: crab.id,
+            x: center.x,
+            y: center.y,
+            half_width,
+            half_height,
+            wake_x: 0.0,
+            wake_y: 0.0,
+            walking: 0,
+            grounded: crab.mover.grounded,
+            jumped: false,
+            dig: None,
+        })
+    }
+
+    /// Capture a single host crab's horizontal walking terrain effects for
+    /// the guarded spectator experiment. Other actions and upward motion are
+    /// rejected; the real game continues to own player physics.
+    pub fn walking_shared_cell_force(&self) -> Option<crate::underwater::HostPlayerForce> {
+        if !self.online() || !self.is_host() || self.crabs.len() != 1 {
+            return None;
+        }
+        self.local_shared_walking_force()
+    }
+
+    /// Capture a single local walker's forces for the guarded two-player prototype.
+    pub fn local_shared_walking_force(&self) -> Option<crate::underwater::HostPlayerForce> {
+        if !self.tick.is_multiple_of(4) {
+            return None;
+        }
+        self.local_shared_walking_force_any_tick()
+            .filter(|force| force.dig.is_none_or(|dig| dig.dy != 1))
+    }
+
+    pub(crate) fn local_shared_walking_force_any_tick(
+        &self,
+    ) -> Option<crate::underwater::HostPlayerForce> {
+        if !self.online()
+            || self.crabs.len() > 2
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.crabs.iter().filter(|c| !c.remote).count() != 1
+        {
+            return None;
+        }
+        let crab = self.crabs.iter().find(|c| !c.remote)?;
+        let mut remaining = crab.controls;
+        let walk = remaining.walk;
+        let digging = remaining.dig_held;
+        let down = digging && remaining.down;
+        let up = digging && remaining.dig_up;
+        remaining.walk = 0.0;
+        remaining.dig_held = false;
+        if down {
+            remaining.down = false;
+        }
+        if up {
+            remaining.dig_up = false;
+        }
+        let velocity = crab.mover.vel;
+        if crab.remote
+            || remaining != Controls::default()
+            || !walk.is_finite()
+            || !(-1.0..=1.0).contains(&walk)
+            || (digging && !down && !up && walk.abs() <= 0.1)
+            || (up && (down || walk != 0.0))
+            || crab.events.jumped
+            || !velocity.is_finite()
+            || (velocity.y > 0.0 && !up)
+            || velocity.x.abs() > 1000.0
+            || velocity.y.abs() > 1000.0
+        {
+            return None;
+        }
+        let half_height = crab.mover.height(&self.tuning) * 0.5;
+        let half_width = crab.mover.half_width(&self.tuning);
+        let center = crab.mover.pos + Vec2::Y * half_height;
+        if !center.is_finite() || !half_width.is_finite() || !half_height.is_finite() {
+            return None;
+        }
+        Some(crate::underwater::HostPlayerForce {
+            player: crab.id,
+            x: center.x,
+            y: center.y,
+            half_width,
+            half_height,
+            wake_x: velocity.x,
+            wake_y: velocity.y,
+            walking: if walk.abs() > 0.1 {
+                walk.signum() as i8
+            } else {
+                0
+            },
+            grounded: crab.mover.grounded,
+            jumped: false,
+            dig: digging.then_some(crate::underwater::HostDig {
+                dx: if down || up { 0 } else { walk.signum() as i8 },
+                dy: if up {
+                    1
+                } else if down {
+                    -1
+                } else {
+                    0
+                },
+                force: 48,
+            }),
+        })
+    }
+
+    /// Start the isolated actor-free shared-cell clock at a fresh game tick.
+    pub fn begin_empty_shared_cells(&mut self) -> bool {
+        if !self.online()
+            || self.tick != 0
+            || !self.crabs.is_empty()
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.empty_shared_base.is_some()
+        {
+            return false;
+        }
+        let Some(cells) = &self.level.cells else {
+            return false;
+        };
+        if !cells.is_game_world() || cells.tick_count() >= u64::MAX - 1_000_000 {
+            return false;
+        }
+        self.empty_shared_base = Some(cells.tick_count());
+        true
+    }
+
+    pub(crate) fn empty_shared_base(&self) -> Option<u64> {
+        self.empty_shared_base
+    }
+
+    /// Isolated actor-free cellular lockstep seam. A validated frame must have
+    /// advanced terrain at the exact solo 30 Hz cadence before this is called.
+    /// Fresh sessions only: crabs, enemies, recording, and nonzero starting
+    /// clocks are not supported. Live game code does not call this method.
+    pub fn tick_empty_shared_cells(&mut self) -> bool {
+        let Some(expected) = self
+            .empty_shared_base
+            .and_then(|base| base.checked_add(self.tick / 4 + 1))
+        else {
+            return false;
+        };
+        if !self.online()
+            || !self.crabs.is_empty()
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.tick >= u64::MAX - 1_000_000
+            || self
+                .level
+                .cells
+                .as_ref()
+                .is_none_or(|cells| !cells.is_game_world() || cells.tick_count() != expected)
+        {
+            return false;
+        }
+        self.tick_inner(true, None)
+    }
+
+    /// Begin a fresh guarded guest session with exactly one local walker.
+    pub fn begin_guest_shared_walking(&mut self) -> bool {
+        if !self.online()
+            || self.is_host()
+            || self.tick != 0
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.empty_shared_base.is_some()
+            || self.crabs.len() > 2
+            || self.crabs.iter().filter(|c| !c.remote).count() != 1
+        {
+            return false;
+        }
+        let Some(cells) = &self.level.cells else {
+            return false;
+        };
+        if !cells.is_game_world() || cells.tick_count() >= u64::MAX - 1_000_000 {
+            return false;
+        }
+        self.empty_shared_base = Some(cells.tick_count());
+        true
+    }
+
+    /// Advance one guest tick only after the authoritative terrain frame.
+    pub fn tick_guest_shared_walking(&mut self) -> bool {
+        self.tick_guest_external(false)
+    }
+
+    pub(crate) fn tick_guest_up_external(&mut self) -> bool {
+        self.tick_guest_external(true)
+    }
+
+    fn tick_guest_external(&mut self, allow_up: bool) -> bool {
+        let Some(expected) = self
+            .empty_shared_base
+            .and_then(|b| b.checked_add(self.tick / 4 + 1))
+        else {
+            return false;
+        };
+        if !self.online()
+            || self.is_host()
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.crabs.len() > 2
+            || self.crabs.iter().filter(|c| !c.remote).count() != 1
+            || self.tick >= u64::MAX - 1_000_000
+            || self
+                .level
+                .cells
+                .as_ref()
+                .is_none_or(|c| c.tick_count() != expected)
+        {
+            return false;
+        }
+        let crab = self
+            .crabs
+            .iter()
+            .find(|c| !c.remote)
+            .expect("one local crab checked");
+        let mut controls = crab.controls;
+        let digging = controls.dig_held;
+        let down = digging && controls.down;
+        let up = digging && controls.dig_up;
+        controls.walk = 0.0;
+        controls.dig_held = false;
+        if down {
+            controls.down = false;
+        }
+        if up {
+            controls.dig_up = false;
+        }
+        if controls != Controls::default()
+            || crab.events.jumped
+            || !crab.mover.vel.is_finite()
+            || (crab.mover.vel.y > 0.0 && !up)
+            || !crab.controls.walk.is_finite()
+            || crab.controls.walk.abs() > 1.0
+            || (digging && !down && !up && crab.controls.walk.abs() <= 0.1)
+            || (up && (!allow_up || down || crab.controls.walk != 0.0))
+            || (allow_up && (down || crab.controls.walk != 0.0 || (digging && !up)))
+        {
+            return false;
+        }
+        self.tick_inner(true, None)
+    }
+
+    /// Advance the local host actor after an externally validated upward
+    /// terrain operation. Experimental; normal gameplay never calls this.
+    pub(crate) fn tick_host_up_external(&mut self) -> bool {
+        if !self.online()
+            || !self.is_host()
+            || self.tick >= u64::MAX - 1_000_000
+            || self
+                .local_shared_walking_force_any_tick()
+                .is_none_or(|force| force.walking != 0 || force.dig.is_some_and(|dig| dig.dy != 1))
+        {
+            return false;
+        }
+        self.tick_inner(true, None)
+    }
+
+    /// Advance a guarded host tick between shared material frames. Unsupported
+    /// input and active-window changes are rejected before modifying the Sim.
+    /// The real game does not call this experimental method.
+    pub fn tick_host_shared_between(&mut self) -> bool {
+        if !self.online()
+            || !self.is_host()
+            || self.tick.is_multiple_of(4)
+            || self.tick >= u64::MAX - 1_000_000
+            || self
+                .local_shared_walking_force_any_tick()
+                .is_none_or(|force| force.dig.is_some_and(|dig| dig.dy == 1))
+        {
+            return false;
+        }
+        let Some(crab) = self.crabs.iter().find(|c| !c.remote) else {
+            return false;
+        };
+        let Some(cells) = self.level.cells.as_ref() else {
+            return false;
+        };
+        let mut probe = cells.clone();
+        probe.follow_player(&self.level, crab.mover.pos.x, crab.mover.pos.y);
+        if probe != *cells {
+            return false;
+        }
+        self.tick_inner(false, None)
+    }
+
+    /// Transactionally advance a material tick with one authenticated remote
+    /// walker. Caller must bind the remote identity to its connection.
+    pub fn tick_host_with_shared_walker(
+        &mut self,
+        remote: crate::underwater::HostPlayerForce,
+    ) -> bool {
+        let Some(local) = self.local_shared_walking_force() else {
+            return false;
+        };
+        if !self.online()
+            || !self.is_host()
+            || !self.tick.is_multiple_of(4)
+            || self
+                .level
+                .cells
+                .as_ref()
+                .is_none_or(|cells| !cells.is_game_world())
+            || local.player == remote.player
+            || !self.crabs.iter().any(|c| c.remote && c.id == remote.player)
+        {
+            return false;
+        }
+        let mut next = self.clone();
+        if !next.tick_inner(false, Some(remote)) {
+            return false;
+        }
+        *self = next;
+        true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_unstaged_host_walker(
+        &mut self,
+        remote: crate::underwater::HostPlayerForce,
+    ) -> bool {
+        self.tick_inner(false, Some(remote))
+    }
+
+    fn tick_inner(
+        &mut self,
+        external_terrain: bool,
+        remote_walk: Option<crate::underwater::HostPlayerForce>,
+    ) -> bool {
+        let mut owned = self.owned_rng.take();
+        let result = self.tick_region_inner(external_terrain, remote_walk, owned.as_mut(), false);
+        if let Some(streams) = &mut owned {
+            streams.retain(|id, _| self.enemies.iter().any(|e| e.id == *id));
+            for enemy in &self.enemies {
+                streams
+                    .entry(enemy.id)
+                    .or_insert_with(|| Rng::new(SEED ^ u64::from(enemy.id)));
+            }
+        }
+        self.owned_rng = owned;
+        result
+    }
+
+    pub(crate) fn tick_fixed_terrain(&mut self) {
+        let mut owned = self.owned_rng.take();
+        self.tick_region_inner(false, None, owned.as_mut(), true);
+        if let Some(streams) = &mut owned {
+            streams.retain(|id, _| self.enemies.iter().any(|e| e.id == *id));
+            for enemy in &self.enemies {
+                streams
+                    .entry(enemy.id)
+                    .or_insert_with(|| Rng::new(SEED ^ u64::from(enemy.id)));
+            }
+        }
+        self.owned_rng = owned;
+    }
+
+    fn tick_region_inner(
+        &mut self,
+        external_terrain: bool,
+        remote_walk: Option<crate::underwater::HostPlayerForce>,
+        mut regional_rng: Option<&mut std::collections::BTreeMap<u32, Rng>>,
+        fixed_region: bool,
+    ) -> bool {
         // Move the detailed window before simulating, independent of camera.
-        if let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
+        if !external_terrain
+            && !fixed_region
+            && let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
             && let Some(mut cells) = self.level.cells.take()
         {
             cells.follow_player(&self.level, pos.x, pos.y);
             self.level.cells = Some(cells);
         }
-        // The material experiment advances at 30 Hz inside the fixed-step
-        // simulation. Only the local crab participates; co-op is disabled by
-        // the experimental entry point until terrain can be synchronized.
-        if let Some(cells) = self.level.cells.as_mut() {
+        if !external_terrain
+            && fixed_region
+            && let Some(mut cells) = self.level.cells.take()
+        {
+            cells.advance_local_falls(
+                &self.level,
+                u64::MAX,
+                crate::underwater::FALL_CATCHUP_BUDGET,
+            );
+            self.level.cells = Some(cells);
+        }
+        // Material advances at 30 Hz inside the fixed-step simulation. Full
+        // cellular sessions simulate every actor locally from ordered inputs;
+        // the older force-transport probes supply their terrain separately.
+        if !external_terrain && let Some(cells) = self.level.cells.as_mut() {
             // Do not leave an invisible crab-shaped exclusion behind when
             // the player leaves the experimental cell field.
             cells.clear_game_crab();
-            if let Some(crab) = self.crabs.iter_mut().find(|c| !c.remote) {
+            let bodies: Vec<_> = self
+                .crabs
+                .iter()
+                .filter(|c| !c.remote)
+                .map(|c| {
+                    let m = &c.mover;
+                    let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
+                    let (x, y) = cells.local_cell(center.x, center.y);
+                    (
+                        c.id,
+                        (
+                            x as i32,
+                            y as i32,
+                            (m.half_width(&self.tuning) / 4.0).ceil().max(1.0) as i32,
+                            (m.height(&self.tuning) / 8.0).ceil().max(1.0) as i32,
+                        ),
+                    )
+                })
+                .collect();
+            for crab in self.crabs.iter_mut().filter(|c| !c.remote) {
+                cells.reserve_other_crabs(
+                    bodies
+                        .iter()
+                        .filter(|(id, _)| *id != crab.id)
+                        .map(|(_, body)| *body)
+                        .collect(),
+                );
                 let m = &mut crab.mover;
                 let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
                 if cells.contains_world(center.x, center.y) {
@@ -892,16 +1385,51 @@ impl Sim {
                         && !cells.clear_for_crab(x, y + 4.0)
                     {
                         cells.push_for_crab(x, y + 4.0, 0, 1, 48);
+                    } else if self.tick.is_multiple_of(4)
+                        && !digging
+                        && !m.grounded
+                        && m.vel.y < 0.0
+                        && !cells.clear_for_crab(x, y)
+                    {
+                        if let Some(remote) = remote_walk {
+                            if !cells.dig_primary_shared(&remote, x, y, 0, -1) {
+                                return false;
+                            }
+                        } else {
+                            cells.push_for_crab(x, y, 0, -1, 48);
+                        }
                     } else if self.tick.is_multiple_of(4) && digging && crab.controls.down {
-                        cells.swoop_dig_pebbles(48);
-                        // Probe two cells ahead: a layer of sand over a
-                        // pebble must not hide the pebble from the push.
-                        cells.push_for_crab(x, y - 2.0, 0, -1, 48);
+                        if let Some(remote) = remote_walk {
+                            if !cells.dig_primary_shared(&remote, x, y - 2.0, 0, -1) {
+                                return false;
+                            }
+                        } else {
+                            cells.swoop_dig_pebbles(48);
+                            cells.push_for_crab(x, y - 2.0, 0, -1, 48);
+                        }
                     } else if self.tick.is_multiple_of(4) && digging && walk.abs() > 0.1 {
-                        cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
+                        if let Some(remote) = remote_walk {
+                            if !cells.dig_primary_shared(
+                                &remote,
+                                x + walk.signum(),
+                                y,
+                                walk.signum() as i32,
+                                0,
+                            ) {
+                                return false;
+                            }
+                        } else {
+                            cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
+                        }
                     }
                     if self.tick.is_multiple_of(4) && !digging && m.grounded && walk.abs() > 0.1 {
-                        cells.brush_walking_sand(walk.signum() as i32);
+                        if let Some(remote) = remote_walk {
+                            if !cells.brush_shared(&remote, walk.signum() as i32, false) {
+                                return false;
+                            }
+                        } else {
+                            cells.brush_walking_sand(walk.signum() as i32);
+                        }
                     }
                     if self.tick.is_multiple_of(4) {
                         // Walking stirs the water, but footsteps should not
@@ -922,7 +1450,20 @@ impl Sim {
                 }
             }
             if self.tick.is_multiple_of(4) {
-                cells.step(0.35);
+                let mut stepped = false;
+                if let Some(remote) = remote_walk
+                    && !cells.apply_disjoint_walker(&self.tuning, &remote)
+                {
+                    if !cells.apply_contact_walker(&self.tuning, &remote)
+                        || !cells.step_contact_pair(&remote)
+                    {
+                        return false;
+                    }
+                    stepped = true;
+                }
+                if !stepped {
+                    cells.step(0.35);
+                }
             }
         }
         if let Some(rec) = &mut self.recorder
@@ -1331,14 +1872,13 @@ impl Sim {
             let blows = if recovering {
                 Vec::new()
             } else {
-                enemy::step(
-                    e,
-                    &mut self.crabs,
-                    &self.tuning,
-                    &self.level,
-                    &mut self.rng,
-                    &animals,
-                )
+                let rng = match regional_rng.as_deref_mut() {
+                    Some(streams) => streams
+                        .entry(e.id)
+                        .or_insert_with(|| Rng::new(SEED ^ u64::from(e.id))),
+                    None => &mut self.rng,
+                };
+                enemy::step(e, &mut self.crabs, &self.tuning, &self.level, rng, &animals)
             };
             if self.level.cells.is_some()
                 && e.kind == Kind::Moray
@@ -1492,6 +2032,7 @@ impl Sim {
         }
         self.tick += 1;
         self.send_updates();
+        true
     }
 
     /// Co-op: note what happened to this device's crabs, and every
@@ -1686,12 +2227,75 @@ impl Sim {
     /// be replayed later. Call this before the first tick: a replay starts
     /// from a crab standing still.
     pub fn start_recording(&mut self) {
+        self.start_recording_impl(None, None);
+    }
+
+    /// A serialized terrain checkpoint that can be compressed off-thread for
+    /// a resumed recording. Pause simulation until the result is installed;
+    /// installation rejects a checkpoint that no longer matches the world.
+    pub fn recording_terrain_bytes(&self) -> Option<Vec<u8>> {
+        if self.tick == 0 {
+            return None;
+        }
+        Recorder::cell_start_bytes(self.level.cells.as_ref()?)
+    }
+
+    /// Start a resumed cellular recording using zlib-compressed bytes returned
+    /// by a worker. Malformed, stale, or mismatching data leaves recording
+    /// disabled; the same reconstruction checks as `start_recording` apply.
+    pub fn start_recording_with_compressed_terrain(&mut self, packed: &[u8]) -> bool {
+        if self.tick == 0 || self.level.cells.is_none() {
+            self.recorder = None;
+            return false;
+        }
+        self.start_recording_impl(Some(packed), None);
+        self.recorder.is_some()
+    }
+
+    /// Reuse a checkpoint already validated while loading a save. The token
+    /// is rejected if the terrain or clock has changed since it was decoded.
+    pub fn start_recording_with_verified_terrain(
+        &mut self,
+        verified: &crate::VerifiedCellStart,
+    ) -> bool {
+        if self.tick == 0 || self.level.cells.is_none() {
+            self.recorder = None;
+            return false;
+        }
+        self.start_recording_impl(None, Some(verified));
+        self.recorder.is_some()
+    }
+
+    fn start_recording_impl(
+        &mut self,
+        compressed_terrain: Option<&[u8]>,
+        verified: Option<&crate::VerifiedCellStart>,
+    ) {
+        // A saved cellular session can start after tick zero. Arbitrary
+        // mid-session recordings would also need enemy, RNG, and transient
+        // player state; accept only a reproducible pre-population startup.
+        let resumed_cells = self.level.cells.is_some() && self.tick != 0;
+        if resumed_cells
+            && (self.net.is_some()
+                || !self.enemies.is_empty()
+                || self.next_enemy != 0
+                || self.crabs.len() != 1
+                || self.crabs[0].id != PlayerId(0)
+                || self.crabs[0].remote
+                || self.rng != Rng::new(SEED))
+        {
+            self.recorder = None;
+            return;
+        }
         let start = self
             .crabs
             .iter()
             .find(|c| !c.remote)
             .map_or(crate::level::SPAWN, |c| c.mover.pos);
         let mut rec = Recorder::new(start, self.tick, &self.tuning);
+        if self.level.cells.is_some() {
+            rec.note_cellular();
+        }
         // Progress brought back from a save goes with it, so the replay
         // starts the crab as it was (a fresh crab needs nothing).
         if let Some(p) = self
@@ -1706,16 +2310,129 @@ impl Sim {
         if self.feel != Feel::default() {
             rec.note_feel(self.tick, self.feel);
         }
+        if resumed_cells {
+            let Some(terrain) = &self.level.cells else {
+                self.recorder = None;
+                return;
+            };
+            let terrain_noted = match (verified, compressed_terrain) {
+                (Some(token), _) if token.matches(terrain, self.tick) => {
+                    rec.note_verified_cell_start(token);
+                    true
+                }
+                (Some(_), _) => false,
+                (None, Some(packed)) => rec.note_compressed_cell_start(packed, self.tick),
+                (None, None) => rec.note_cell_start(terrain, self.tick),
+            };
+            if !terrain_noted || !rec.note_memory(&self.crabs[0].memory) {
+                self.recorder = None;
+                return;
+            }
+            // Verify the actual player/shared state is the state the replay
+            // format reconstructs. Never claim an exact replay otherwise.
+            let replay = rec.replay(self.tick);
+            let mut restored = Sim::with_one_crab(start);
+            if let Some(token) = verified
+                && !replay.prepare_start_with_terrain(&mut restored, token.world.clone())
+            {
+                self.recorder = None;
+                return;
+            }
+            replay.apply_at(&mut restored);
+            if !self.matches_recording_start(&restored, verified.is_none()) {
+                self.recorder = None;
+                return;
+            }
+        }
         self.recorder = Some(rec);
+    }
+
+    /// Compare the exact replay start without formatting millions of terrain
+    /// values into debug strings twice. Terrain uses the complete checkpoint
+    /// bytes, including streamed-out chunks and the bit patterns of floats.
+    /// The other fields use the same representation as `state_hash`; memory
+    /// is checked separately because it is intentionally omitted from that
+    /// hash. Pending controls, also omitted by `state_hash`, do not affect the
+    /// recorded initial state.
+    fn matches_recording_start(&self, other: &Self, check_terrain: bool) -> bool {
+        let crabs = |sim: &Self| -> Vec<SimCrab> {
+            sim.crabs
+                .iter()
+                .map(|c| SimCrab {
+                    controls: Controls::default(),
+                    ..c.clone()
+                })
+                .collect()
+        };
+        if self.tick != other.tick
+            || self.crabs.len() != other.crabs.len()
+            || self
+                .crabs
+                .iter()
+                .zip(&other.crabs)
+                .any(|(a, b)| a.memory != b.memory)
+            || format!(
+                "{:?} {:?} {:?} {:?}",
+                crabs(self),
+                self.enemies,
+                self.rng,
+                self.shared
+            ) != format!(
+                "{:?} {:?} {:?} {:?}",
+                crabs(other),
+                other.enemies,
+                other.rng,
+                other.shared
+            )
+        {
+            return false;
+        }
+        if !check_terrain {
+            return true;
+        }
+        match (&self.level.cells, &other.level.cells) {
+            (Some(a), Some(b)) => {
+                let a = postcard::to_allocvec(&a.checkpoint());
+                let b = postcard::to_allocvec(&b.checkpoint());
+                matches!((a, b), (Ok(a), Ok(b)) if a == b)
+            }
+            (None, None) => true,
+            _ => false,
+        }
     }
 
     /// The recording so far, as a replay (or nothing if none is running). A recording started before the first
     /// tick also carries the state hash now, which playing it again must reproduce.
     pub fn recording(&self) -> Option<crate::Replay> {
         self.recorder.as_ref().map(|r| crate::Replay {
-            hash: (r.first_tick == 0).then(|| self.state_hash()),
+            hash: (r.first_tick == 0 || r.has_cell_start()).then(|| self.state_hash()),
             ..r.replay(self.tick)
         })
+    }
+
+    /// Whether this session can provide a replay, without hashing or cloning
+    /// its potentially large world.
+    pub fn is_recording(&self) -> bool {
+        self.recorder.is_some()
+    }
+
+    /// Report attachment with the same recorded inputs and events as F9.
+    /// Cellular reports omit the final hash: formatting the entire terrain
+    /// can block or exhaust a phone when the form opens.
+    pub fn recording_for_report(&self) -> Option<crate::Replay> {
+        if self.level.cells.is_none() {
+            return self.recording();
+        }
+        self.recorder.as_ref().map(|r| crate::Replay {
+            hash: None,
+            ..r.replay(self.tick)
+        })
+    }
+
+    /// Size of a resumed replay's encoded terrain without cloning the replay
+    /// or hashing the world. Reports can refuse oversized payloads cheaply.
+    pub fn recording_cell_start_len(&self) -> Option<usize> {
+        self.recorder.as_ref().and_then(Recorder::cell_start_len)
     }
 
     /// A fingerprint of the whole world's state. Two runs whose fingerprints
@@ -1728,6 +2445,8 @@ impl Sim {
     /// replay in that same frame; the replay only carries controls a tick
     /// used.)
     pub fn state_hash(&self) -> u64 {
+        #[cfg(test)]
+        STATE_HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
         let crabs: Vec<SimCrab> = self
             .crabs
             .iter()
@@ -1743,10 +2462,50 @@ impl Sim {
             "{} {:?} {:?} {:?} {:?}",
             self.tick, crabs, self.enemies, self.rng, self.shared
         );
+        if let Some(streams) = &self.owned_rng {
+            state.push_str(&format!(" {streams:?}"));
+        }
         if let Some(cells) = &self.level.cells {
             state.push_str(&format!(" {cells:?}"));
         }
         fnv1a(state.as_bytes())
+    }
+
+    /// Experimental equivalent of `state_hash` that streams formatted state
+    /// into FNV instead of allocating a potentially enormous terrain string.
+    pub fn state_hash_streamed(&self) -> u64 {
+        use std::fmt::Write as _;
+        struct Sink(u64);
+        impl std::fmt::Write for Sink {
+            fn write_str(&mut self, value: &str) -> std::fmt::Result {
+                for byte in value.bytes() {
+                    self.0 ^= u64::from(byte);
+                    self.0 = self.0.wrapping_mul(0x100000001b3);
+                }
+                Ok(())
+            }
+        }
+        let crabs: Vec<SimCrab> = self
+            .crabs
+            .iter()
+            .map(|c| SimCrab {
+                controls: Controls::default(),
+                ..c.clone()
+            })
+            .collect();
+        let mut sink = Sink(0xcbf29ce484222325);
+        let _ = write!(
+            sink,
+            "{} {:?} {:?} {:?} {:?}",
+            self.tick, crabs, self.enemies, self.rng, self.shared
+        );
+        if let Some(streams) = &self.owned_rng {
+            let _ = write!(sink, " {streams:?}");
+        }
+        if let Some(cells) = &self.level.cells {
+            let _ = write!(sink, " {cells:?}");
+        }
+        sink.0
     }
 
     /// One line of state per crab, for the headless runner's `--dump`.
@@ -2100,5 +2859,68 @@ mod tests {
         }
         assert_eq!(sim.tick_count(), 240);
         assert!((sim.time() - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn report_recording_skips_world_hash_but_preserves_inputs_and_events() {
+        let mut sim = Sim::with_one_crab(SPAWN);
+        sim.enable_underwater_cells();
+        sim.start_recording();
+        sim.spawn_enemy(crate::enemy::Kind::Mantis, Vec2::new(420.0, 0.0));
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                walk: 0.5,
+                dig_held: true,
+                down: true,
+                ..Controls::default()
+            },
+        );
+        sim.tick();
+        sim.set_controls(PlayerId(0), Controls::default());
+        sim.tick();
+        STATE_HASH_CALLS.with(|calls| calls.set(0));
+
+        let report = sim.recording_for_report().unwrap();
+        assert_eq!(STATE_HASH_CALLS.with(|calls| calls.get()), 0);
+        assert!(report.hash.is_none());
+        assert!(!report.inputs.is_empty());
+        assert!(!report.spawns.is_empty());
+
+        let mut full = sim.recording().unwrap();
+        assert_eq!(STATE_HASH_CALLS.with(|calls| calls.get()), 1);
+        assert!(full.hash.is_some(), "F9 keeps the end-state hash");
+        full.hash = None;
+        assert_eq!(report, full);
+    }
+
+    #[test]
+    fn normal_report_recording_keeps_final_hash() {
+        let mut sim = Sim::with_one_crab(SPAWN);
+        sim.start_recording();
+        sim.tick();
+        assert_eq!(
+            sim.recording_for_report().unwrap(),
+            sim.recording().unwrap()
+        );
+        assert!(sim.recording_for_report().unwrap().hash.is_some());
+    }
+
+    #[test]
+    fn replay_start_comparison_checks_world_crab_and_memory_but_not_controls() {
+        let mut original = Sim::with_one_crab(SPAWN);
+        original.enable_underwater_cells();
+        let mut other = original.clone();
+        assert!(original.matches_recording_start(&other, true));
+        other.crabs[0].controls.walk = 1.0;
+        assert!(original.matches_recording_start(&other, true));
+        other.crabs[0].mover.pos.x += 1.0;
+        assert!(!original.matches_recording_start(&other, true));
+        other = original.clone();
+        other.crabs[0].memory.now += 1;
+        assert!(!original.matches_recording_start(&other, true));
+        other = original.clone();
+        other.level.cells.as_mut().unwrap().step(0.35);
+        assert!(!original.matches_recording_start(&other, true));
     }
 }

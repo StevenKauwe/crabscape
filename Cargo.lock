@@ -2619,6 +2619,8 @@ name = "cooptest"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "crabsim",
+ "postcard",
  "serde_json",
  "tungstenite",
 ]
@@ -2752,9 +2754,11 @@ dependencies = [
  "js-sys",
  "matchbox_socket",
  "miniz_oxide 0.8.9",
+ "postcard",
  "proptest",
  "serde",
  "serde_json",
+ "sha2",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -2766,10 +2770,14 @@ version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "bevy_math",
+ "crc32fast",
+ "libm",
+ "miniz_oxide 0.8.9",
  "postcard",
  "proptest",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -8029,7 +8037,10 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "crabsim",
+ "crc32fast",
+ "miniz_oxide 0.8.9",
  "png 0.18.1",
+ "postcard",
  "serde_json",
 ]
 

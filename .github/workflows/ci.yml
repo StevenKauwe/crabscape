@@ -81,6 +81,12 @@ jobs:
       # Includes the simulation's property tests (crates/sim/tests/properties.rs).
       - name: tests
         run: cargo test --workspace --locked
+      - name: cellular worker (fmt, clippy, tests)
+        run: |
+          cargo fmt --manifest-path tools/cellworker/Cargo.toml --check
+          cargo clippy --manifest-path tools/cellworker/Cargo.toml --all-targets --locked -- -D warnings
+          cargo clippy --manifest-path tools/cellworker/Cargo.toml --target wasm32-unknown-unknown --locked -- -D warnings
+          cargo test --manifest-path tools/cellworker/Cargo.toml --locked
       # Known security advisories, licences, duplicate versions and sources of every dependency (deny.toml). Three
       # graphs: native PC, the browser, and the introducer (its own workspace and lock file).
       - name: cargo deny (native)
@@ -89,6 +95,8 @@ jobs:
         run: cargo deny --workspace --locked --target wasm32-unknown-unknown check
       - name: cargo deny (introducer)
         run: cargo deny --manifest-path tools/introducer/Cargo.toml --config deny.toml --locked check
+      - name: cargo deny (cellular worker)
+        run: cargo deny --manifest-path tools/cellworker/Cargo.toml --config deny.toml --locked check
       - name: tidy tool (fmt, clippy, tests)
         run: |
           cargo fmt --manifest-path tools/tidy/Cargo.toml --check
@@ -201,6 +209,7 @@ jobs:
         run: |
           wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
           wasm-tools validate --features=-relaxed-simd web/listen/listen_bg.wasm
+          wasm-tools validate --features=-relaxed-simd web/cellworker/cellworker_bg.wasm
       - name: Size report (information only)
         run: |
           {
@@ -260,7 +269,9 @@ jobs:
     needs: [web, browser-tools]
     if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Software-rendered phone runs can finish gameplay/save assertions near
+    # 15 minutes; allow the isolated reset/lock proof and artifact cleanup too.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -289,6 +300,21 @@ jobs:
         run: |
           chmod +x target/art/webtest
           ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- target/art/webtest ${{ matrix.args }}
+      - name: Rust and wasm target for isolated coordination proof
+        if: ${{ matrix.phone == 'portrait' }}
+        run: rustup toolchain install && rustup target add wasm32-unknown-unknown
+      - name: Coordination proof wasm-bindgen version
+        if: ${{ matrix.phone == 'portrait' }}
+        id: coordination-wb
+        run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' tools/cellstore-proof/Cargo.lock)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        if: ${{ matrix.phone == 'portrait' }}
+        with:
+          tool: wasm-bindgen@${{ steps.coordination-wb.outputs.version }}
+      - name: Test isolated Web Locks and reset notifications in WebKit
+        if: ${{ matrix.phone == 'portrait' }}
+        run: |
+          ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- env CRAB_PROOF_WEBKIT=1 cargo run --manifest-path tools/cellstore-proof/Cargo.toml --features webkit-runner --bin browser-proof --locked
       - name: Keep the screenshots and browser log
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

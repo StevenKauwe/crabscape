@@ -268,8 +268,11 @@
       );
 
     const message = document.getElementById("message");
+    let fatalError = false;
 
-    function showError(detail) {
+    function showError(detail, recoverable = false) {
+      if (!recoverable) fatalError = true;
+      if (recoverable && fatalError) return;
       message.classList.add("error");
       message.hidden = false;
       message.innerHTML =
@@ -293,6 +296,29 @@
       // the focus now, and again whenever the page is clicked or tapped.
       const canvas = document.getElementById("crabscape");
       const focusGame = () => canvas.focus({ preventScroll: true });
+      // Cellular startup can finish asynchronously after the Wasm entry
+      // point returns. Keep the loading message until its storage check has
+      // finished; the ordinary synchronous startup takes the same fast path.
+      function showGameWhenReady() {
+        const finish = () => {
+          if (fatalError) return;
+          message.classList.remove("error");
+          message.hidden = true;
+          focusGame();
+        };
+        if (!canvas.hasAttribute("data-cell-loading")) { finish(); return; }
+        const observer = new MutationObserver(() => {
+          if (!canvas.hasAttribute("data-cell-loading")) {
+            clearTimeout(timeout);
+            observer.disconnect();
+            finish();
+          }
+        });
+        observer.observe(canvas, { attributeFilter: ["data-cell-loading"] });
+        const timeout = setTimeout(() => {
+          showError("The saved world took too long to load. Reload the page to try again.", true);
+        }, 30000);
+      }
       // Not while typing a report or a character code: the box keeps the keys.
       document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#report, #character")) focusGame(); });
       // Replays: the game writes the text into data-replay on the canvas
@@ -318,11 +344,10 @@
         button.onclick = () => canvas.setAttribute("data-want-replay", "1");
       }
       stamp.then(init).then(
-        () => { message.hidden = true; focusGame(); },
+        () => { showGameWhenReady(); },
         (e) => {
           if (isControlFlow(e)) {
-            message.hidden = true;
-            focusGame();
+            showGameWhenReady();
           } else {
             console.error(e);
             showError(String(e && (e.message || e)));

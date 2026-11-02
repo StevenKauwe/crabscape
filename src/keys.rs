@@ -173,11 +173,6 @@ fn spawn_card(mut commands: Commands) {
                 )
             });
             for (keys, does) in entries {
-                let does = if cellular && keys == "F9" {
-                    "replay unavailable here"
-                } else {
-                    does
-                };
                 card.spawn(Node {
                     height: px(LINE),
                     flex_direction: FlexDirection::Row,

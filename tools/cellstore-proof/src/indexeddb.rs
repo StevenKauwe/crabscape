@@ -1,0 +1,3515 @@
+//! Isolated, unwired IndexedDB transaction primitive. Not a production save.
+//! Each stage write and its metadata commit together in one transaction. The
+//! database name is caller-provided and must never be a live v1/v2 database.
+use crate::records::{Meta, Part, Stage, digest};
+use js_sys::{Function, Promise, Uint8Array};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure};
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{
+    Event, IdbCursor, IdbDatabase, IdbKeyRange, IdbObjectStore, IdbOpenDbRequest, IdbRequest,
+    IdbTransaction, IdbTransactionMode,
+};
+
+#[cfg(feature = "browser-proof")]
+mod atomic_cleanup;
+
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn atomic_cleanup_proof() -> Result<String, JsValue> {
+    atomic_cleanup::proof("crabscape.chunk-proof.cleanup-runner")
+        .await
+        .map_err(|e| JsValue::from_str(&e))?;
+    Ok("atomic-cleanup=real-replay-pass".into())
+}
+
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn atomic_cleanup_reload_prepare() -> Result<(), JsValue> {
+    atomic_cleanup::reload_prepare("crabscape.chunk-proof.cleanup-runner")
+        .await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn atomic_cleanup_reload_verify() -> Result<String, JsValue> {
+    atomic_cleanup::reload_verify("crabscape.chunk-proof.cleanup-runner")
+        .await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+const STORE: &str = "world";
+const MAX_BATCH: usize = 4;
+const MAX_PART: usize = 128 * 1024;
+const MAX_PARTS: usize = 512;
+type PublishCallback = Rc<RefCell<Option<Closure<dyn FnMut(Event)>>>>;
+type ReadAnswer = Rc<RefCell<Option<Result<Vec<u8>, String>>>>;
+type ReadHandler = Rc<RefCell<Option<(IdbRequest, Closure<dyn FnMut(Event)>)>>>;
+type InitAnswer = Rc<RefCell<Option<Result<LegacyInit, String>>>>;
+
+fn promise() -> (Promise, Function, Function) {
+    let mut ends = None;
+    let p = Promise::new(&mut |a, b| ends = Some((a, b)));
+    let (a, b) = ends.expect("Promise executor is synchronous");
+    (p, a, b)
+}
+fn err(context: &str, value: JsValue) -> String {
+    format!("{context}: {value:?}")
+}
+fn put(store: &IdbObjectStore, key: &str, data: &[u8]) -> Result<(), String> {
+    store
+        .put_with_key(Uint8Array::from(data).as_ref(), &JsValue::from_str(key))
+        .map_err(|e| err("put", e))?;
+    Ok(())
+}
+fn read(req: &IdbRequest, limit: usize) -> Result<Option<Vec<u8>>, String> {
+    let value = req.result().map_err(|e| err("request result", e))?;
+    if value.is_undefined() {
+        return Ok(None);
+    }
+    let bytes: Uint8Array = value
+        .dyn_into()
+        .map_err(|_| "record is not bytes".to_string())?;
+    if bytes.length() as usize > limit {
+        return Err("record too large".into());
+    }
+    Ok(Some(bytes.to_vec()))
+}
+fn references_valid(
+    meta: &Meta,
+    stage: &Option<Stage>,
+    head: &Option<Stage>,
+    pin: &Option<Stage>,
+) -> bool {
+    let stage_ok = match stage {
+        Some(s) => {
+            meta.stage_id != 0
+                && s.id == meta.stage_id
+                && s.epoch == meta.epoch
+                && s.base == meta.revision
+        }
+        None => meta.stage_id == 0,
+    };
+    let head_ok = match head {
+        Some(h) => {
+            meta.head_id != 0
+                && h.id == meta.head_id
+                && h.epoch == meta.epoch
+                && h.base.checked_add(1) == Some(meta.revision)
+        }
+        None => meta.head_id == 0,
+    };
+    let pin_ok = match pin {
+        Some(p) => meta.pin_token != 0 && p.base == meta.pin_token && p.epoch == meta.epoch,
+        None => meta.pin_token == 0,
+    };
+    stage_ok
+        && head_ok
+        && pin_ok
+        && meta.head_id <= meta.next_id
+        && meta.stage_id <= meta.next_id
+        && meta.pin_token <= meta.next_id
+}
+
+fn write_published(
+    meta: &mut Meta,
+    stage: &Stage,
+    source: Option<SourceProof>,
+    store: &IdbObjectStore,
+) -> Result<(), String> {
+    meta.revision = meta.revision.checked_add(1).ok_or("revision overflow")?;
+    meta.head_id = stage.id;
+    meta.head_guarded = source.is_some();
+    meta.stage_id = 0;
+    meta.stage_guarded = false;
+    store
+        .delete(&JsValue::from_str("v3:stage-source-proof"))
+        .map_err(|e| err("clear stage source proof", e))?;
+    put(store, "v3:head", &stage.encode().ok_or("stage too large")?)?;
+    match source {
+        Some(proof) => put(store, "v3:source-proof", &proof.encode())?,
+        None => {
+            store
+                .delete(&JsValue::from_str("v3:source-proof"))
+                .map_err(|e| err("clear source proof", e))?;
+        }
+    }
+    put(store, "v3:meta", &meta.encode())?;
+    store
+        .delete(&JsValue::from_str("v3:stage"))
+        .map_err(|e| err("delete stage", e))?;
+    Ok(())
+}
+
+struct OpenHandlers {
+    req: IdbOpenDbRequest,
+    _upgrade: Closure<dyn FnMut(Event)>,
+    _ok: Closure<dyn FnMut(Event)>,
+    _error: Closure<dyn FnMut(Event)>,
+    _blocked: Closure<dyn FnMut(Event)>,
+}
+impl Drop for OpenHandlers {
+    fn drop(&mut self) {
+        self.req.set_onupgradeneeded(None);
+        self.req.set_onsuccess(None);
+        self.req.set_onerror(None);
+        self.req.set_onblocked(None);
+    }
+}
+
+pub struct ChunkStore {
+    db: IdbDatabase,
+}
+impl Drop for ChunkStore {
+    fn drop(&mut self) {
+        self.db.close();
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Handle {
+    pub epoch: u64,
+    pub id: u64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PinHandle {
+    pub epoch: u64,
+    pub id: u64,
+    token: u64,
+    source: Option<SourceProof>,
+}
+
+/// Captured atomically with the exact legacy source; valid only for one epoch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SourceProof {
+    epoch: u64,
+    len: usize,
+    digest: [u8; 32],
+}
+impl SourceProof {
+    fn encode(self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(48);
+        bytes.extend_from_slice(&self.epoch.to_le_bytes());
+        bytes.extend_from_slice(&(self.len as u64).to_le_bytes());
+        bytes.extend_from_slice(&self.digest);
+        bytes
+    }
+    fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != 48 {
+            return None;
+        }
+        let len = usize::try_from(u64::from_le_bytes(bytes[8..16].try_into().ok()?)).ok()?;
+        if len > MAX_LEGACY_SOURCE {
+            return None;
+        }
+        Some(Self {
+            epoch: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+            len,
+            digest: bytes[16..].try_into().ok()?,
+        })
+    }
+    fn matches(self, epoch: u64, bytes: &[u8]) -> bool {
+        self.epoch == epoch && self.len == bytes.len() && self.digest == digest(bytes)
+    }
+}
+const MAX_LEGACY_SOURCE: usize = 8 * 1024 * 1024;
+#[derive(Debug, PartialEq, Eq)]
+enum LegacyInit {
+    Created(SourceProof),
+    Resume(SourceProof),
+    Existing,
+}
+
+impl ChunkStore {
+    /// Use a separate experimental database, never the live cellular name.
+    pub async fn open(name: &str) -> Result<Self, String> {
+        if !name.starts_with("crabscape.chunk-proof.") || name.len() > 200 {
+            return Err("invalid experimental database name".into());
+        }
+        let factory = web_sys::window()
+            .ok_or("no window")?
+            .indexed_db()
+            .map_err(|e| err("indexeddb", e))?
+            .ok_or("no indexeddb")?;
+        let req = factory.open_with_u32(name, 1).map_err(|e| err("open", e))?;
+        let upgrade_req = req.clone();
+        let upgrade = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let ok = upgrade_req
+                .result()
+                .ok()
+                .and_then(|v| v.dyn_into::<IdbDatabase>().ok())
+                .is_some_and(|db| {
+                    db.create_object_store(STORE).is_ok_and(|store| {
+                        put(&store, "v3:meta", &Meta::default().encode()).is_ok()
+                    })
+                });
+            if !ok && let Some(tx) = upgrade_req.transaction() {
+                let _ = tx.abort();
+            }
+        });
+        let (p, resolve, reject) = promise();
+        let fail_reject = reject.clone();
+        let blocked_reject = reject.clone();
+        let success_req = req.clone();
+        let ok = Closure::<dyn FnMut(Event)>::new(move |_| match success_req.result() {
+            Ok(v) => {
+                let _ = resolve.call1(&JsValue::UNDEFINED, &v);
+            }
+            Err(e) => {
+                let _ = reject.call1(&JsValue::UNDEFINED, &e);
+            }
+        });
+        let fail = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = fail_reject.call1(
+                &JsValue::UNDEFINED,
+                &JsValue::from_str("database open failed"),
+            );
+        });
+        let blocked = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = blocked_reject.call1(
+                &JsValue::UNDEFINED,
+                &JsValue::from_str("database open blocked"),
+            );
+        });
+        req.set_onupgradeneeded(Some(upgrade.as_ref().unchecked_ref()));
+        req.set_onsuccess(Some(ok.as_ref().unchecked_ref()));
+        req.set_onerror(Some(fail.as_ref().unchecked_ref()));
+        req.set_onblocked(Some(blocked.as_ref().unchecked_ref()));
+        let _handlers = OpenHandlers {
+            req,
+            _upgrade: upgrade,
+            _ok: ok,
+            _error: fail,
+            _blocked: blocked,
+        };
+        let value = JsFuture::from(p).await.map_err(|e| err("open failed", e))?;
+        Ok(Self {
+            db: value
+                .dyn_into()
+                .map_err(|_| "invalid database".to_string())?,
+        })
+    }
+
+    async fn transaction<T: 'static>(
+        &self,
+        part_key: Option<String>,
+        ignore_broken_entries: bool,
+        action: impl FnOnce(
+            Meta,
+            Option<Stage>,
+            Option<Stage>,
+            Option<Stage>,
+            Option<Vec<u8>>,
+            &IdbObjectStore,
+        ) -> Result<T, String>
+        + 'static,
+    ) -> Result<T, String> {
+        self.transaction_impl(
+            part_key,
+            ignore_broken_entries,
+            MAX_PART,
+            false,
+            move |meta, stage, head, pin, part, _, _, _, _, store| {
+                action(meta, stage, head, pin, part, store)
+            },
+        )
+        .await
+    }
+
+    async fn transaction_unguarded<T: 'static>(
+        &self,
+        part_key: Option<String>,
+        pin_mode: bool,
+        action: impl FnOnce(
+            Meta,
+            Option<Stage>,
+            Option<Stage>,
+            Option<Stage>,
+            Option<Vec<u8>>,
+            &IdbObjectStore,
+        ) -> Result<T, String>
+        + 'static,
+    ) -> Result<T, String> {
+        self.transaction_impl(
+            part_key,
+            false,
+            MAX_PART,
+            false,
+            move |meta, stage, head, pin, part, _, source, pin_source, _, store| {
+                if (pin_mode && pin_source.is_some()) || (!pin_mode && source.is_some()) {
+                    return Err("guarded record requires guarded read".into());
+                }
+                action(meta, stage, head, pin, part, store)
+            },
+        )
+        .await
+    }
+
+    async fn transaction_impl<T: 'static>(
+        &self,
+        part_key: Option<String>,
+        ignore_broken_entries: bool,
+        part_limit: usize,
+        include_source_epoch: bool,
+        action: impl FnOnce(
+            Meta,
+            Option<Stage>,
+            Option<Stage>,
+            Option<Stage>,
+            Option<Vec<u8>>,
+            Option<u64>,
+            Option<SourceProof>,
+            Option<SourceProof>,
+            Option<SourceProof>,
+            &IdbObjectStore,
+        ) -> Result<T, String>
+        + 'static,
+    ) -> Result<T, String> {
+        let tx = self
+            .db
+            .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
+            .map_err(|e| err("transaction", e))?;
+        let store = tx.object_store(STORE).map_err(|e| err("object store", e))?;
+        let mut requests: Vec<_> = [
+            "v3:meta",
+            "v3:stage",
+            "v3:head",
+            "v3:pin",
+            "v3:source-proof",
+            "v3:pin-source-proof",
+            "v3:stage-source-proof",
+        ]
+        .into_iter()
+        .map(|k| store.get(&JsValue::from_str(k)).map_err(|e| err("get", e)))
+        .collect::<Result<_, _>>()?;
+        if let Some(key) = part_key {
+            requests.push(
+                store
+                    .get(&JsValue::from_str(&key))
+                    .map_err(|e| err("get part", e))?,
+            );
+        }
+        if include_source_epoch {
+            if requests.len() != 8 {
+                return Err("source epoch requires source key".into());
+            }
+            requests.push(
+                store
+                    .get(&JsValue::from_str("reset_epoch"))
+                    .map_err(|e| err("get source epoch", e))?,
+            );
+        }
+        let remaining = Rc::new(Cell::new(requests.len() as u8));
+        let output: Rc<RefCell<Option<Result<T, String>>>> = Rc::new(RefCell::new(None));
+        let action = Rc::new(RefCell::new(Some(action)));
+        let mut callbacks = Vec::new();
+        for request in &requests {
+            let count = remaining.clone();
+            let out = output.clone();
+            let f = action.clone();
+            let reqs = requests.clone();
+            let object = store.clone();
+            let transaction = tx.clone();
+            let callback = Closure::<dyn FnMut(Event)>::new(move |_| {
+                let n = count.get() - 1;
+                count.set(n);
+                if n != 0 {
+                    return;
+                }
+                let parsed = (|| {
+                    let meta = match read(&reqs[0], Meta::ENCODED_LEN)? {
+                        Some(b) => Meta::decode(&b).ok_or("bad metadata")?,
+                        None => return Err("missing metadata".into()),
+                    };
+                    let decode_stage = |req: &IdbRequest| -> Result<Option<Stage>, String> {
+                        read(req, Stage::MAX_ENCODED)?
+                            .map(|b| Stage::decode(&b).ok_or_else(|| "bad manifest".to_string()))
+                            .transpose()
+                    };
+                    let stage = if ignore_broken_entries {
+                        None
+                    } else {
+                        decode_stage(&reqs[1])?
+                    };
+                    let head = if ignore_broken_entries {
+                        None
+                    } else {
+                        decode_stage(&reqs[2])?
+                    };
+                    let pin = if ignore_broken_entries {
+                        None
+                    } else {
+                        decode_stage(&reqs[3])?
+                    };
+                    if !ignore_broken_entries && !references_valid(&meta, &stage, &head, &pin) {
+                        return Err("missing or inconsistent ownership record".into());
+                    }
+                    let part = if reqs.len() > 7 {
+                        read(&reqs[7], part_limit)?
+                    } else {
+                        None
+                    };
+                    let source_epoch = if include_source_epoch {
+                        let bytes = read(&reqs[8], 8)?;
+                        Some(match bytes {
+                            None => 0,
+                            Some(bytes) => u64::from_le_bytes(
+                                bytes
+                                    .as_slice()
+                                    .try_into()
+                                    .map_err(|_| "invalid source epoch")?,
+                            ),
+                        })
+                    } else {
+                        None
+                    };
+                    let decode_proof = |req: &IdbRequest| -> Result<Option<SourceProof>, String> {
+                        if ignore_broken_entries {
+                            return Ok(None);
+                        }
+                        read(req, 48)?
+                            .map(|bytes| {
+                                SourceProof::decode(&bytes)
+                                    .ok_or_else(|| "invalid source proof".to_string())
+                            })
+                            .transpose()
+                    };
+                    let source_proof = decode_proof(&reqs[4])?;
+                    let pin_proof = decode_proof(&reqs[5])?;
+                    let stage_proof = decode_proof(&reqs[6])?;
+                    if !ignore_broken_entries
+                        && (meta.head_guarded != source_proof.is_some()
+                            || meta.pin_guarded != pin_proof.is_some()
+                            || meta.stage_guarded != stage_proof.is_some()
+                            || (meta.head_guarded && head.is_none())
+                            || (meta.pin_guarded && pin.is_none())
+                            || (meta.stage_guarded && stage.is_none()))
+                    {
+                        return Err("missing or inconsistent source guard".into());
+                    }
+                    f.borrow_mut().take().ok_or("duplicate callback")?(
+                        meta,
+                        stage,
+                        head,
+                        pin,
+                        part,
+                        source_epoch,
+                        source_proof,
+                        pin_proof,
+                        stage_proof,
+                        &object,
+                    )
+                })();
+                let failed = parsed.is_err();
+                *out.borrow_mut() = Some(parsed);
+                if failed {
+                    let _ = transaction.abort();
+                }
+            });
+            request.set_onsuccess(Some(callback.as_ref().unchecked_ref()));
+            callbacks.push(callback);
+        }
+        let (p, resolve, reject) = promise();
+        let complete = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        });
+        let tx_error = tx.clone();
+        let abort = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let name = tx_error
+                .error()
+                .map_or_else(|| "transaction aborted".to_string(), |error| error.name());
+            let _ = reject.call1(&JsValue::UNDEFINED, &JsValue::from_str(&name));
+        });
+        tx.set_oncomplete(Some(complete.as_ref().unchecked_ref()));
+        tx.set_onabort(Some(abort.as_ref().unchecked_ref()));
+        let guard = TransactionHandlers {
+            tx,
+            requests,
+            _callbacks: callbacks,
+            _complete: complete,
+            _abort: abort,
+        };
+        let committed = JsFuture::from(p).await.map_err(|e| err("commit", e));
+        let result = output.borrow_mut().take();
+        drop(guard);
+        match result {
+            Some(Err(e)) => Err(e),
+            _ if committed.is_err() => {
+                Err(committed.err().unwrap_or_else(|| "commit failed".into()))
+            }
+            Some(Ok(v)) => Ok(v),
+            None => Err("transaction produced no result".into()),
+        }
+    }
+
+    /// Isolated initializer probe for an existing legacy-shaped object store.
+    /// A retained v3 key without both metadata and sentinel is damage, not a
+    /// fresh store. Total deletion of every v3 key is indistinguishable from
+    /// never having migrated; this method cannot solve that information loss.
+    async fn init_legacy_namespace(&self) -> Result<LegacyInit, String> {
+        let tx = self
+            .db
+            .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
+            .map_err(|e| err("initialize transaction", e))?;
+        let store = tx
+            .object_store(STORE)
+            .map_err(|e| err("initialize store", e))?;
+        let mut requests = [
+            "v3:meta",
+            "v3:initialized",
+            "active",
+            "reset_epoch",
+            "v3:init-source",
+        ]
+        .into_iter()
+        .map(|key| {
+            store
+                .get(&JsValue::from_str(key))
+                .map_err(|e| err("initialize read", e))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+        let range = IdbKeyRange::bound_with_lower_open_and_upper_open(
+            &JsValue::from_str("v3:"),
+            &JsValue::from_str("v3;"),
+            false,
+            true,
+        )
+        .map_err(|e| err("initialize range", e))?;
+        requests.push(
+            store
+                .open_key_cursor_with_range(range.as_ref())
+                .map_err(|e| err("initialize cursor", e))?,
+        );
+        let remaining = Rc::new(Cell::new(requests.len()));
+        let answer: InitAnswer = Rc::new(RefCell::new(None));
+        let seen = Rc::new(Cell::new(false));
+        let unexpected = Rc::new(Cell::new(false));
+        let mut callbacks = Vec::new();
+        for (index, request) in requests.iter().enumerate() {
+            let left = remaining.clone();
+            let result = answer.clone();
+            let reqs = requests.clone();
+            let store = store.clone();
+            let tx = tx.clone();
+            let seen = seen.clone();
+            let unexpected = unexpected.clone();
+            let callback = Closure::<dyn FnMut(Event)>::new(move |_| {
+                if index == 5 {
+                    let scan = (|| -> Result<bool, String> {
+                        let value = reqs[5]
+                            .result()
+                            .map_err(|e| err("initialize cursor result", e))?;
+                        if value.is_null() || value.is_undefined() {
+                            return Ok(false);
+                        }
+                        seen.set(true);
+                        let cursor: IdbCursor =
+                            value.dyn_into().map_err(|_| "invalid initializer cursor")?;
+                        let key = cursor
+                            .key()
+                            .map_err(|e| err("initializer key", e))?
+                            .as_string()
+                            .ok_or("invalid initializer key")?;
+                        if matches!(
+                            key.as_str(),
+                            "v3:initialized" | "v3:meta" | "v3:init-source"
+                        ) {
+                            cursor
+                                .continue_()
+                                .map_err(|e| err("initializer cursor continue", e))?;
+                            Ok(true)
+                        } else {
+                            unexpected.set(true);
+                            Ok(false)
+                        }
+                    })();
+                    match scan {
+                        Ok(true) => return,
+                        Ok(false) => {}
+                        Err(error) => {
+                            *result.borrow_mut() = Some(Err(error));
+                            let _ = tx.abort();
+                            return;
+                        }
+                    }
+                }
+                let n = left.get() - 1;
+                left.set(n);
+                if n != 0 {
+                    return;
+                }
+                let operation = (|| {
+                    let meta = read(&reqs[0], Meta::ENCODED_LEN)?;
+                    let marker = read(&reqs[1], 1)?;
+                    let bytes =
+                        read(&reqs[2], MAX_LEGACY_SOURCE)?.ok_or("missing legacy source")?;
+                    let epoch = match read(&reqs[3], 8)? {
+                        None => 0,
+                        Some(bytes) => u64::from_le_bytes(
+                            bytes
+                                .as_slice()
+                                .try_into()
+                                .map_err(|_| "invalid legacy epoch")?,
+                        ),
+                    };
+                    let source_proof = read(&reqs[4], 48)?
+                        .map(|raw| SourceProof::decode(&raw).ok_or("invalid initial source proof"))
+                        .transpose()?;
+                    let any_v3_key = seen.get();
+                    let captured = SourceProof {
+                        epoch,
+                        len: bytes.len(),
+                        digest: digest(&bytes),
+                    };
+                    match (meta, marker, source_proof) {
+                        (None, None, None) if !any_v3_key => {
+                            let fresh = Meta {
+                                epoch,
+                                ..Meta::default()
+                            };
+                            put(&store, "v3:meta", &fresh.encode())?;
+                            put(&store, "v3:initialized", &[1])?;
+                            put(&store, "v3:init-source", &captured.encode())?;
+                            Ok(LegacyInit::Created(captured))
+                        }
+                        (Some(raw), Some(marker), Some(proof)) if marker == [1] => {
+                            let existing =
+                                Meta::decode(&raw).ok_or("damaged migration metadata")?;
+                            if existing.epoch != epoch {
+                                return Err(
+                                    "migration epoch does not match legacy reset epoch".into()
+                                );
+                            }
+                            if (existing.head_guarded && existing.head_id == 0)
+                                || (existing.pin_guarded && existing.pin_token == 0)
+                                || (existing.stage_guarded && existing.stage_id == 0)
+                            {
+                                return Err("inconsistent migration metadata".into());
+                            }
+                            if existing
+                                == (Meta {
+                                    epoch,
+                                    ..Meta::default()
+                                })
+                            {
+                                if unexpected.get() {
+                                    return Err("unexpected records in pending namespace".into());
+                                }
+                                if proof != captured {
+                                    return Err("pending legacy source changed".into());
+                                }
+                                Ok(LegacyInit::Resume(proof))
+                            } else {
+                                // Never offer legacy fallback once a head or stage
+                                // exists; that record may contain newer progress.
+                                Ok(LegacyInit::Existing)
+                            }
+                        }
+                        _ => Err("incomplete or damaged migration namespace".into()),
+                    }
+                })();
+                if operation.is_err() {
+                    let _ = tx.abort();
+                }
+                *result.borrow_mut() = Some(operation);
+            });
+            request.set_onsuccess(Some(callback.as_ref().unchecked_ref()));
+            callbacks.push(callback);
+        }
+        let (promise, resolve, reject) = promise();
+        let complete = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        });
+        let abort = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = reject.call1(
+                &JsValue::UNDEFINED,
+                &JsValue::from_str("initialize aborted"),
+            );
+        });
+        tx.set_oncomplete(Some(complete.as_ref().unchecked_ref()));
+        tx.set_onabort(Some(abort.as_ref().unchecked_ref()));
+        let handlers = TransactionHandlers {
+            tx,
+            requests,
+            _callbacks: callbacks,
+            _complete: complete,
+            _abort: abort,
+        };
+        let committed = JsFuture::from(promise)
+            .await
+            .map_err(|e| err("initialize commit", e));
+        let result = answer.borrow_mut().take();
+        drop(handlers);
+        match result {
+            Some(Err(e)) => Err(e),
+            _ if committed.is_err() => Err(committed
+                .err()
+                .unwrap_or_else(|| "initialize failed".into())),
+            Some(Ok(v)) => Ok(v),
+            None => Err("initialize produced no result".into()),
+        }
+    }
+
+    /// `session_epoch` must be captured before preparing the snapshot. An old
+    /// tab must not refresh it after reset to publish pre-reset state.
+    pub async fn begin(
+        &self,
+        session_epoch: u64,
+        tick: u64,
+        player: Vec<u8>,
+    ) -> Result<Handle, String> {
+        self.transaction(None, false, move |mut meta, stage, _, _, _, store| {
+            if meta.epoch != session_epoch {
+                return Err("stale session".into());
+            }
+            if meta.head_guarded {
+                return Err("guarded head requires source-bound stage".into());
+            }
+            if stage.is_some() {
+                return Err("writer busy".into());
+            }
+            meta.next_id = meta.next_id.checked_add(1).ok_or("id overflow")?;
+            let h = Handle {
+                epoch: meta.epoch,
+                id: meta.next_id,
+            };
+            meta.stage_id = h.id;
+            let stage = Stage {
+                epoch: h.epoch,
+                base: meta.revision,
+                id: h.id,
+                tick,
+                player,
+                parts: Vec::new(),
+            };
+            put(store, "v3:meta", &meta.encode())?;
+            put(store, "v3:stage", &stage.encode().ok_or("stage too large")?)?;
+            Ok(h)
+        })
+        .await
+    }
+    /// Bind a migration stage permanently to its captured source. Generic
+    /// publish cannot downgrade it, even after interruption and recovery.
+    async fn begin_from_source(
+        &self,
+        session_epoch: u64,
+        tick: u64,
+        player: Vec<u8>,
+        proof: SourceProof,
+    ) -> Result<Handle, String> {
+        self.transaction_impl(
+            Some("active".into()),
+            false,
+            MAX_LEGACY_SOURCE,
+            true,
+            move |mut meta, stage, _, _, part, epoch, _, _, _, store| {
+                let bytes = part.ok_or("missing legacy source")?;
+                if !epoch.is_some_and(|epoch| proof.matches(epoch, &bytes)) {
+                    return Err("legacy source changed or reset".into());
+                }
+                if meta.epoch != session_epoch {
+                    return Err("stale session".into());
+                }
+                if stage.is_some() {
+                    return Err("writer busy".into());
+                }
+                meta.next_id = meta.next_id.checked_add(1).ok_or("id overflow")?;
+                let handle = Handle {
+                    epoch: meta.epoch,
+                    id: meta.next_id,
+                };
+                meta.stage_id = handle.id;
+                meta.stage_guarded = true;
+                let stage = Stage {
+                    epoch: handle.epoch,
+                    base: meta.revision,
+                    id: handle.id,
+                    tick,
+                    player,
+                    parts: Vec::new(),
+                };
+                put(store, "v3:meta", &meta.encode())?;
+                put(store, "v3:stage", &stage.encode().ok_or("stage too large")?)?;
+                put(store, "v3:stage-source-proof", &proof.encode())?;
+                Ok(handle)
+            },
+        )
+        .await
+    }
+
+    pub async fn stage(&self, h: Handle, parts: Vec<Vec<u8>>) -> Result<(), String> {
+        if parts.is_empty() || parts.len() > MAX_BATCH || parts.iter().any(|b| b.len() > MAX_PART) {
+            return Err("batch limit".into());
+        }
+        self.transaction(None, false, move |meta, stage, _, _, _, store| {
+            let mut stage = stage.ok_or("missing stage")?;
+            if meta.epoch != h.epoch || stage.epoch != h.epoch || stage.id != h.id {
+                return Err("stale writer".into());
+            }
+            if stage.parts.len() + parts.len() > MAX_PARTS {
+                return Err("part limit".into());
+            }
+            for bytes in parts {
+                let index = stage.parts.len();
+                put(store, &format!("v3:chunk:{}:{index}", h.id), &bytes)?;
+                stage.parts.push(Part {
+                    digest: digest(&bytes),
+                    len: bytes.len() as u32,
+                });
+            }
+            put(store, "v3:stage", &stage.encode().ok_or("stage too large")?)?;
+            Ok(())
+        })
+        .await
+    }
+    /// Read the legacy payload and reset epoch in one transaction, before
+    /// decoding or staging; never refresh this proof after a reset.
+    async fn read_source(&self) -> Result<(Vec<u8>, SourceProof), String> {
+        self.transaction_impl(
+            Some("active".into()),
+            false,
+            MAX_LEGACY_SOURCE,
+            true,
+            |_, _, _, _, part, epoch, _, _, _, _| {
+                let bytes = part.ok_or("missing legacy source")?;
+                let proof = SourceProof {
+                    epoch: epoch.ok_or("missing epoch")?,
+                    len: bytes.len(),
+                    digest: digest(&bytes),
+                };
+                Ok((bytes, proof))
+            },
+        )
+        .await
+    }
+    /// Verify every staged part sequentially in the *same* read/write
+    /// transaction as publication. Only one bounded payload is in flight;
+    /// no competing transaction can alter a checked part before the swap.
+    pub async fn publish(&self, h: Handle, expected: usize) -> Result<(), String> {
+        self.publish_inner(h, expected, None).await
+    }
+    /// Read a guarded head only while its source bytes and epoch still match.
+    async fn source_guarded_head(&self) -> Result<Stage, String> {
+        self.transaction_impl(
+            Some("active".into()),
+            false,
+            MAX_LEGACY_SOURCE,
+            true,
+            |_, _, head, _, bytes, epoch, proof, _, _, _| {
+                let bytes = bytes.ok_or("missing legacy source")?;
+                let proof = proof.ok_or("missing source proof")?;
+                if !epoch.is_some_and(|epoch| proof.matches(epoch, &bytes)) {
+                    return Err("legacy source changed or reset".into());
+                }
+                head.ok_or("missing head".into())
+            },
+        )
+        .await
+    }
+    /// Check the current legacy epoch and bytes inside the publication
+    /// transaction, before verifying all staged chunks and replacing head.
+    async fn publish_from_source(
+        &self,
+        h: Handle,
+        expected: usize,
+        source: SourceProof,
+    ) -> Result<(), String> {
+        self.publish_inner(h, expected, Some(source)).await
+    }
+    async fn publish_inner(
+        &self,
+        h: Handle,
+        expected: usize,
+        source: Option<SourceProof>,
+    ) -> Result<(), String> {
+        let callbacks: PublishCallback = Rc::new(RefCell::new(None));
+        let current: Rc<RefCell<Option<IdbRequest>>> = Rc::new(RefCell::new(None));
+        let failure: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let guard = PublishHandlers {
+            callback: callbacks.clone(),
+            current: current.clone(),
+        };
+        let closure_holder = callbacks.clone();
+        let current_request = current.clone();
+        let check_failure = failure.clone();
+        let key = source.map(|_| "active".to_string());
+        let result = self
+            .transaction_impl(
+                key,
+                false,
+                if source.is_some() {
+                    MAX_LEGACY_SOURCE
+                } else {
+                    MAX_PART
+                },
+                source.is_some(),
+                move |mut meta, stage, _, _, part, epoch, _, _, stage_proof, store| {
+                    if source != stage_proof {
+                        return Err("stage source proof mismatch".into());
+                    }
+                    if source.is_none() && meta.head_guarded {
+                        return Err("guarded head requires source-bound publication".into());
+                    }
+                    if let Some(proof) = source {
+                        let bytes = part.ok_or("missing legacy source")?;
+                        if !epoch.is_some_and(|epoch| proof.matches(epoch, &bytes)) {
+                            return Err("legacy source changed or reset".into());
+                        }
+                    }
+                    let stage = stage.ok_or("missing stage")?;
+                    if meta.epoch != h.epoch
+                        || stage.epoch != h.epoch
+                        || stage.id != h.id
+                        || stage.base != meta.revision
+                    {
+                        return Err("stale writer".into());
+                    }
+                    if stage.parts.len() != expected {
+                        return Err("incomplete stage".into());
+                    }
+                    if stage.parts.is_empty() {
+                        return write_published(&mut meta, &stage, source, store);
+                    }
+                    let state = Rc::new(RefCell::new(PublishState {
+                        meta,
+                        stage,
+                        index: 0,
+                        source,
+                        store: store.clone(),
+                    }));
+                    let weak = Rc::downgrade(&closure_holder);
+                    let callback_state = state.clone();
+                    let callback_current = current_request.clone();
+                    let failed = check_failure.clone();
+                    let tx = store.transaction();
+                    let callback = Closure::<dyn FnMut(Event)>::new(move |event: Event| {
+                        let step = (|| -> Result<(), String> {
+                            let request: IdbRequest = event
+                                .target()
+                                .ok_or("missing request")?
+                                .dyn_into()
+                                .map_err(|_| "bad request")?;
+                            let bytes = read(&request, MAX_PART)?.ok_or("missing staged part")?;
+                            let mut state = callback_state.borrow_mut();
+                            let descriptor =
+                                state.stage.parts.get(state.index).ok_or("bad part index")?;
+                            if bytes.len() != descriptor.len as usize
+                                || digest(&bytes) != descriptor.digest
+                            {
+                                return Err("corrupt staged part".into());
+                            }
+                            state.index += 1;
+                            if state.index == state.stage.parts.len() {
+                                let PublishState {
+                                    meta,
+                                    stage,
+                                    source,
+                                    store,
+                                    ..
+                                } = &mut *state;
+                                return write_published(meta, stage, *source, store);
+                            }
+                            let next = state
+                                .store
+                                .get(&JsValue::from_str(&format!(
+                                    "v3:chunk:{}:{}",
+                                    state.stage.id, state.index
+                                )))
+                                .map_err(|e| err("read staged part", e))?;
+                            let holder = weak.upgrade().ok_or("publication canceled")?;
+                            let callback = holder.borrow();
+                            next.set_onsuccess(Some(
+                                callback
+                                    .as_ref()
+                                    .ok_or("missing callback")?
+                                    .as_ref()
+                                    .unchecked_ref(),
+                            ));
+                            *callback_current.borrow_mut() = Some(next);
+                            Ok(())
+                        })();
+                        if let Err(error) = step {
+                            *failed.borrow_mut() = Some(error);
+                            let _ = tx.abort();
+                        }
+                    });
+                    *closure_holder.borrow_mut() = Some(callback);
+                    let request = store
+                        .get(&JsValue::from_str(&format!("v3:chunk:{}:0", h.id)))
+                        .map_err(|e| err("read staged part", e))?;
+                    let callback = closure_holder.borrow();
+                    request.set_onsuccess(Some(
+                        callback
+                            .as_ref()
+                            .ok_or("missing callback")?
+                            .as_ref()
+                            .unchecked_ref(),
+                    ));
+                    *current_request.borrow_mut() = Some(request);
+                    Ok(())
+                },
+            )
+            .await;
+        let error = failure.borrow_mut().take();
+        drop(guard);
+        if let Some(error) = error {
+            Err(error)
+        } else {
+            result
+        }
+    }
+    /// Fence a stage while retaining its orphaned rows for later cleanup.
+    pub async fn abandon(&self, h: Handle) -> Result<(), String> {
+        self.transaction(None, false, move |mut meta, stage, _, _, _, store| {
+            let stage = stage.ok_or("missing stage")?;
+            if meta.epoch != h.epoch || stage.epoch != h.epoch || stage.id != h.id {
+                return Err("stale writer".into());
+            }
+            store
+                .delete(&JsValue::from_str("v3:stage"))
+                .map_err(|e| err("delete stage", e))?;
+            meta.stage_id = 0;
+            meta.stage_guarded = false;
+            store
+                .delete(&JsValue::from_str("v3:stage-source-proof"))
+                .map_err(|e| err("delete stage source proof", e))?;
+            put(store, "v3:meta", &meta.encode())?;
+            Ok(())
+        })
+        .await
+    }
+    pub async fn head(&self) -> Result<Option<Stage>, String> {
+        self.transaction_unguarded(None, false, |meta, _, head, _, _, _| {
+            if head.as_ref().is_some_and(|h| {
+                h.epoch != meta.epoch || h.base.checked_add(1) != Some(meta.revision)
+            }) {
+                return Err("invalid head epoch".into());
+            }
+            Ok(head)
+        })
+        .await
+    }
+    /// Expose a stage for deliberate recovery after a crash. Abandoning an
+    /// active writer is safe but fences it, so callers must coordinate UX.
+    pub async fn pending(&self) -> Result<Option<Handle>, String> {
+        self.transaction(None, false, |meta, stage, _, _, _, _| {
+            if stage
+                .as_ref()
+                .is_some_and(|s| s.epoch != meta.epoch || s.base != meta.revision)
+            {
+                return Err("invalid pending stage".into());
+            }
+            Ok(stage.map(|s| Handle {
+                epoch: s.epoch,
+                id: s.id,
+            }))
+        })
+        .await
+    }
+    pub async fn epoch(&self) -> Result<u64, String> {
+        self.transaction(None, false, |meta, _, _, _, _, _| Ok(meta.epoch))
+            .await
+    }
+    /// Hold one published head across later publications and collection.
+    pub async fn pin(&self) -> Result<PinHandle, String> {
+        self.transaction_unguarded(None, false, |mut meta, _, head, pin, _, store| {
+            if pin.is_some() {
+                return Err("reader busy".into());
+            }
+            let mut head = head.ok_or("missing head")?;
+            if head.epoch != meta.epoch || head.base.checked_add(1) != Some(meta.revision) {
+                return Err("invalid head".into());
+            }
+            meta.next_id = meta.next_id.checked_add(1).ok_or("pin token overflow")?;
+            let h = PinHandle {
+                epoch: head.epoch,
+                id: head.id,
+                token: meta.next_id,
+                source: None,
+            };
+            meta.pin_token = h.token;
+            // The pinned copy no longer needs the head's base revision;
+            // reuse that field as a monotonically increasing reader token.
+            head.base = h.token;
+            put(store, "v3:meta", &meta.encode())?;
+            put(store, "v3:pin", &head.encode().ok_or("pin too large")?)?;
+            Ok(h)
+        })
+        .await
+    }
+    /// Capture a pin and its legacy source proof in one transaction.
+    async fn source_guarded_pin(&self) -> Result<PinHandle, String> {
+        self.transaction_impl(
+            Some("active".into()),
+            false,
+            MAX_LEGACY_SOURCE,
+            true,
+            |mut meta, _, head, pin, bytes, epoch, proof, _, _, store| {
+                if pin.is_some() {
+                    return Err("reader busy".into());
+                }
+                let bytes = bytes.ok_or("missing legacy source")?;
+                let proof = proof.ok_or("missing source proof")?;
+                if !epoch.is_some_and(|e| proof.matches(e, &bytes)) {
+                    return Err("legacy source changed or reset".into());
+                }
+                let mut head = head.ok_or("missing head")?;
+                if head.epoch != meta.epoch || head.base.checked_add(1) != Some(meta.revision) {
+                    return Err("invalid head epoch".into());
+                }
+                meta.next_id = meta.next_id.checked_add(1).ok_or("pin token overflow")?;
+                let handle = PinHandle {
+                    epoch: head.epoch,
+                    id: head.id,
+                    token: meta.next_id,
+                    source: Some(proof),
+                };
+                meta.pin_token = handle.token;
+                meta.pin_guarded = true;
+                head.base = handle.token;
+                put(store, "v3:meta", &meta.encode())?;
+                put(store, "v3:pin", &head.encode().ok_or("pin too large")?)?;
+                put(store, "v3:pin-source-proof", &proof.encode())?;
+                Ok(handle)
+            },
+        )
+        .await
+    }
+
+    /// Read guarded pin metadata only while its source proof still matches.
+    async fn source_guarded_pin_info(&self, h: PinHandle) -> Result<Stage, String> {
+        let proof = h.source.ok_or("pin is not source guarded")?;
+        self.transaction_impl(
+            Some("active".into()),
+            false,
+            MAX_LEGACY_SOURCE,
+            true,
+            move |meta, _, _, pin, bytes, epoch, _, pin_proof, _, _| {
+                let bytes = bytes.ok_or("missing legacy source")?;
+                if pin_proof != Some(proof) || !epoch.is_some_and(|e| proof.matches(e, &bytes)) {
+                    return Err("legacy source changed or reset".into());
+                }
+                let pin = pin.ok_or("missing pin")?;
+                if meta.epoch != h.epoch
+                    || pin.epoch != h.epoch
+                    || pin.id != h.id
+                    || pin.base != h.token
+                {
+                    return Err("stale pin".into());
+                }
+                Ok(pin)
+            },
+        )
+        .await
+    }
+
+    /// Recheck legacy source, epoch, pin, and one bounded chunk in the same
+    /// transaction. A caller must still fence asynchronous installation.
+    async fn source_guarded_part(&self, h: PinHandle, index: usize) -> Result<Vec<u8>, String> {
+        if index >= MAX_PARTS {
+            return Err("part index limit".into());
+        }
+        let proof = h.source.ok_or("pin is not source guarded")?;
+        let answer: ReadAnswer = Rc::new(RefCell::new(None));
+        let handlers: ReadHandler = Rc::new(RefCell::new(None));
+        let handler_guard = ReadHandlers {
+            inner: handlers.clone(),
+        };
+        let out = answer.clone();
+        let keep = handlers.clone();
+        let result = self
+            .transaction_impl(
+                Some("active".into()),
+                false,
+                MAX_LEGACY_SOURCE,
+                true,
+                move |meta, _, _, pin, bytes, epoch, _, pin_proof, _, store| {
+                    let bytes = bytes.ok_or("missing legacy source")?;
+                    if pin_proof != Some(proof) {
+                        return Err("missing or mismatched pin source proof".into());
+                    }
+                    if !epoch.is_some_and(|e| proof.matches(e, &bytes)) {
+                        return Err("legacy source changed or reset".into());
+                    }
+                    let pin = pin.ok_or("missing pin")?;
+                    if meta.epoch != h.epoch
+                        || pin.epoch != h.epoch
+                        || pin.id != h.id
+                        || pin.base != h.token
+                    {
+                        return Err("stale pin".into());
+                    }
+                    let descriptor = pin.parts.get(index).ok_or("missing descriptor")?.clone();
+                    let request = store
+                        .get(&JsValue::from_str(&format!("v3:chunk:{}:{index}", h.id)))
+                        .map_err(|e| err("read pinned chunk", e))?;
+                    let req = request.clone();
+                    let tx = store.transaction();
+                    let callback = Closure::<dyn FnMut(Event)>::new(move |_| {
+                        let result = (|| {
+                            let bytes = read(&req, MAX_PART)?.ok_or("missing part")?;
+                            if bytes.len() != descriptor.len as usize
+                                || digest(&bytes) != descriptor.digest
+                            {
+                                return Err("corrupt part".into());
+                            }
+                            Ok(bytes)
+                        })();
+                        if result.is_err() {
+                            let _ = tx.abort();
+                        }
+                        *out.borrow_mut() = Some(result);
+                    });
+                    request.set_onsuccess(Some(callback.as_ref().unchecked_ref()));
+                    *keep.borrow_mut() = Some((request, callback));
+                    Ok(())
+                },
+            )
+            .await;
+        drop(handler_guard);
+        result?;
+        let value = answer.borrow_mut().take();
+        value.ok_or("guarded read produced no result".to_string())?
+    }
+
+    /// Recover a persisted guarded pin for cleanup after a reader disappears.
+    /// Page reads still check the captured source proof and current epoch.
+    async fn recover_source_pin(&self) -> Result<Option<PinHandle>, String> {
+        self.transaction_impl(
+            None,
+            false,
+            MAX_PART,
+            false,
+            |meta, _, _, pin, _, _, _, pin_proof, _, _| match (pin, pin_proof) {
+                (None, None) => Ok(None),
+                (Some(pin), Some(proof))
+                    if pin.epoch == meta.epoch && pin.base > 0 && pin.base <= meta.next_id =>
+                {
+                    Ok(Some(PinHandle {
+                        epoch: pin.epoch,
+                        id: pin.id,
+                        token: pin.base,
+                        source: Some(proof),
+                    }))
+                }
+                _ => Err("invalid guarded pin".into()),
+            },
+        )
+        .await
+    }
+
+    pub async fn unpin(&self, h: PinHandle) -> Result<(), String> {
+        self.transaction(None, false, move |mut meta, _, _, pin, _, store| {
+            let pin = pin.ok_or("missing pin")?;
+            if meta.epoch != h.epoch
+                || pin.epoch != h.epoch
+                || pin.id != h.id
+                || pin.base != h.token
+            {
+                return Err("stale pin".into());
+            }
+            store
+                .delete(&JsValue::from_str("v3:pin"))
+                .map_err(|e| err("delete pin", e))?;
+            store
+                .delete(&JsValue::from_str("v3:pin-source-proof"))
+                .map_err(|e| err("delete pin source proof", e))?;
+            meta.pin_token = 0;
+            meta.pin_guarded = false;
+            put(store, "v3:meta", &meta.encode())?;
+            Ok(())
+        })
+        .await
+    }
+    pub async fn pinned(&self) -> Result<Option<PinHandle>, String> {
+        self.transaction_unguarded(None, true, |meta, _, _, pin, _, _| {
+            if pin
+                .as_ref()
+                .is_some_and(|p| p.epoch != meta.epoch || p.base == 0 || p.base > meta.next_id)
+            {
+                return Err("invalid pin".into());
+            }
+            Ok(pin.map(|p| PinHandle {
+                epoch: p.epoch,
+                id: p.id,
+                token: p.base,
+                source: None,
+            }))
+        })
+        .await
+    }
+    /// Read the checksummed metadata for this exact pinned snapshot.
+    pub async fn pin_info(&self, h: PinHandle) -> Result<Stage, String> {
+        self.transaction_unguarded(None, true, move |meta, _, _, pin, _, _| {
+            let pin = pin.ok_or("missing pin")?;
+            if meta.epoch != h.epoch
+                || pin.epoch != h.epoch
+                || pin.id != h.id
+                || pin.base != h.token
+            {
+                return Err("stale pin".into());
+            }
+            Ok(pin)
+        })
+        .await
+    }
+    pub async fn pinned_part(&self, h: PinHandle, index: usize) -> Result<Vec<u8>, String> {
+        if index >= MAX_PARTS {
+            return Err("part index limit".into());
+        }
+        self.transaction_unguarded(
+            Some(format!("v3:chunk:{}:{index}", h.id)),
+            true,
+            move |meta, _, _, pin, part, _| {
+                let pin = pin.ok_or("missing pin")?;
+                if meta.epoch != h.epoch
+                    || pin.epoch != h.epoch
+                    || pin.id != h.id
+                    || pin.base != h.token
+                {
+                    return Err("stale pin".into());
+                }
+                let descriptor = pin.parts.get(index).ok_or("missing descriptor")?;
+                let bytes = part.ok_or("missing part")?;
+                if bytes.len() != descriptor.len as usize || digest(&bytes) != descriptor.digest {
+                    return Err("corrupt part".into());
+                }
+                Ok(bytes)
+            },
+        )
+        .await
+    }
+    /// Read and verify one part of the currently published head. A newer
+    /// publication or reset makes the handle stale; no cross-page pin exists.
+    pub async fn part(&self, h: Handle, index: usize) -> Result<Vec<u8>, String> {
+        if index >= MAX_PARTS {
+            return Err("part index limit".into());
+        }
+        self.transaction_unguarded(
+            Some(format!("v3:chunk:{}:{index}", h.id)),
+            false,
+            move |meta, _, head, _, part, _| {
+                let head = head.ok_or("missing head")?;
+                if meta.epoch != h.epoch
+                    || head.epoch != h.epoch
+                    || head.id != h.id
+                    || head.base.checked_add(1) != Some(meta.revision)
+                {
+                    return Err("stale head".into());
+                }
+                let descriptor = head.parts.get(index).ok_or("missing descriptor")?;
+                let bytes = part.ok_or("missing part")?;
+                if bytes.len() != descriptor.len as usize || digest(&bytes) != descriptor.digest {
+                    return Err("corrupt part".into());
+                }
+                Ok(bytes)
+            },
+        )
+        .await
+    }
+    /// Scan at most 32 key names without fetching part payloads. Deletion is
+    /// a separate transaction which rechecks all references and the epoch.
+    async fn scan_keys(&self, after: Option<String>, limit: usize) -> Result<Vec<String>, String> {
+        if limit == 0
+            || limit > 32
+            || after
+                .as_ref()
+                .is_some_and(|s| !s.starts_with("v3:chunk:") || s.len() > 80)
+        {
+            return Err("invalid collection page".into());
+        }
+        let tx = self
+            .db
+            .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readonly)
+            .map_err(|e| err("scan transaction", e))?;
+        let store = tx.object_store(STORE).map_err(|e| err("scan store", e))?;
+        let lower = JsValue::from_str(after.as_deref().unwrap_or("v3:chunk:"));
+        let upper = JsValue::from_str("v3:chunk:\u{ffff}");
+        let range = IdbKeyRange::bound_with_lower_open(&lower, &upper, after.is_some())
+            .map_err(|e| err("scan range", e))?;
+        let request = store
+            .open_key_cursor_with_range(range.as_ref())
+            .map_err(|e| err("scan cursor", e))?;
+        let keys = Rc::new(RefCell::new(Vec::<String>::new()));
+        let failure: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let got = keys.clone();
+        let bad = failure.clone();
+        let req = request.clone();
+        let transaction = tx.clone();
+        let cursor_callback = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let step = (|| -> Result<(), String> {
+                let value = req.result().map_err(|e| err("cursor result", e))?;
+                if value.is_null() || value.is_undefined() {
+                    return Ok(());
+                }
+                let cursor: IdbCursor = value.dyn_into().map_err(|_| "bad cursor")?;
+                let key = cursor
+                    .key()
+                    .map_err(|e| err("cursor key", e))?
+                    .as_string()
+                    .ok_or("bad key")?;
+                got.borrow_mut().push(key);
+                if got.borrow().len() < limit {
+                    cursor.continue_().map_err(|e| err("cursor continue", e))?;
+                }
+                Ok(())
+            })();
+            if let Err(e) = step {
+                *bad.borrow_mut() = Some(e);
+                let _ = transaction.abort();
+            }
+        });
+        request.set_onsuccess(Some(cursor_callback.as_ref().unchecked_ref()));
+        let (p, resolve, reject) = promise();
+        let complete = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        });
+        let abort = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = reject.call1(&JsValue::UNDEFINED, &JsValue::from_str("scan aborted"));
+        });
+        tx.set_oncomplete(Some(complete.as_ref().unchecked_ref()));
+        tx.set_onabort(Some(abort.as_ref().unchecked_ref()));
+        let guard = TransactionHandlers {
+            tx,
+            requests: vec![request],
+            _callbacks: vec![cursor_callback],
+            _complete: complete,
+            _abort: abort,
+        };
+        let committed = JsFuture::from(p).await.map_err(|e| err("scan commit", e));
+        let error = failure.borrow_mut().take();
+        drop(guard);
+        if let Some(error) = error {
+            return Err(error);
+        }
+        committed?;
+        let output = std::mem::take(&mut *keys.borrow_mut());
+        Ok(output)
+    }
+
+    /// One bounded collection page. `epoch` fences a reset between scan and
+    /// deletion; later pages may safely use the returned exclusive cursor.
+    pub async fn collect_page(
+        &self,
+        epoch: u64,
+        after: Option<String>,
+        limit: usize,
+    ) -> Result<(usize, Option<String>), String> {
+        let keys = self.scan_keys(after, limit).await?;
+        let next = if keys.len() == limit {
+            keys.last().cloned()
+        } else {
+            None
+        };
+        let deleted = self
+            .transaction(None, false, move |meta, stage, head, pin, _, store| {
+                if meta.epoch != epoch {
+                    return Err("stale collector".into());
+                }
+                if stage
+                    .as_ref()
+                    .is_some_and(|s| s.epoch != meta.epoch || s.base != meta.revision)
+                    || head.as_ref().is_some_and(|s| {
+                        s.epoch != meta.epoch || s.base.checked_add(1) != Some(meta.revision)
+                    })
+                    || pin.as_ref().is_some_and(|s| {
+                        s.epoch != meta.epoch || s.base == 0 || s.base > meta.next_id
+                    })
+                {
+                    return Err("invalid references".into());
+                }
+                let referenced = |id: u64, index: usize| {
+                    [stage.as_ref(), head.as_ref(), pin.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .any(|s| s.id == id && index < s.parts.len())
+                };
+                let mut deleted = 0;
+                for key in keys {
+                    let parsed = key.strip_prefix("v3:chunk:").and_then(|rest| {
+                        let (id, index) = rest.split_once(':')?;
+                        id.parse::<u64>().ok().zip(index.parse::<usize>().ok())
+                    });
+                    // Unknown or noncanonical keys are never collected.
+                    if let Some((id, index)) = parsed
+                        && key == format!("v3:chunk:{id}:{index}")
+                        && !referenced(id, index)
+                    {
+                        store
+                            .delete(&JsValue::from_str(&key))
+                            .map_err(|e| err("collect part", e))?;
+                        deleted += 1;
+                    }
+                }
+                Ok(deleted)
+            })
+            .await?;
+        Ok((deleted, next))
+    }
+
+    /// Isolated model of a reset shared by legacy and v3 in one object store.
+    /// Unreachable chunks remain for bounded collection; unrelated keys stay.
+    async fn reset_legacy_and_v3(&self) -> Result<(), String> {
+        self.transaction_impl(
+            Some("reset_epoch".into()),
+            true,
+            8,
+            false,
+            |mut meta, _, _, _, raw_epoch, _, _, _, _, store| {
+                let epoch = match raw_epoch {
+                    None => 0,
+                    Some(bytes) => u64::from_le_bytes(
+                        bytes
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_| "invalid legacy epoch")?,
+                    ),
+                };
+                if epoch != meta.epoch {
+                    return Err("legacy and migration epochs differ".into());
+                }
+                let next = epoch.checked_add(1).ok_or("reset epoch exhausted")?;
+                meta.epoch = next;
+                meta.revision = meta.revision.checked_add(1).ok_or("revision exhausted")?;
+                meta.head_id = 0;
+                meta.stage_id = 0;
+                meta.pin_token = 0;
+                meta.head_guarded = false;
+                meta.pin_guarded = false;
+                meta.stage_guarded = false;
+                for key in [
+                    "active",
+                    "v3:head",
+                    "v3:stage",
+                    "v3:pin",
+                    "v3:source-proof",
+                    "v3:pin-source-proof",
+                    "v3:stage-source-proof",
+                ] {
+                    store
+                        .delete(&JsValue::from_str(key))
+                        .map_err(|e| err("reset delete", e))?;
+                }
+                put(store, "reset_epoch", &next.to_le_bytes())?;
+                put(store, "v3:meta", &meta.encode())?;
+                Ok(())
+            },
+        )
+        .await
+    }
+
+    #[cfg(feature = "browser-proof")]
+    pub(crate) async fn reset_fixture(&self) -> Result<(), String> {
+        self.transaction(None, true, |mut meta, _, _, _, _, store| {
+            meta.epoch = meta.epoch.checked_add(1).ok_or("epoch overflow")?;
+            meta.revision = meta.revision.checked_add(1).ok_or("revision overflow")?;
+            meta.head_id = 0;
+            meta.stage_id = 0;
+            meta.pin_token = 0;
+            meta.head_guarded = false;
+            meta.pin_guarded = false;
+            meta.stage_guarded = false;
+            store.clear().map_err(|e| err("clear", e))?;
+            put(store, "v3:meta", &meta.encode())?;
+            Ok(())
+        })
+        .await
+    }
+}
+
+struct ReadHandlers {
+    inner: ReadHandler,
+}
+impl Drop for ReadHandlers {
+    fn drop(&mut self) {
+        if let Some((request, _)) = self.inner.borrow_mut().take() {
+            request.set_onsuccess(None);
+        }
+    }
+}
+
+struct PublishState {
+    meta: Meta,
+    stage: Stage,
+    index: usize,
+    source: Option<SourceProof>,
+    store: IdbObjectStore,
+}
+struct PublishHandlers {
+    callback: PublishCallback,
+    current: Rc<RefCell<Option<IdbRequest>>>,
+}
+impl Drop for PublishHandlers {
+    fn drop(&mut self) {
+        if let Some(req) = self.current.borrow_mut().take() {
+            req.set_onsuccess(None);
+        }
+        self.callback.borrow_mut().take();
+    }
+}
+
+struct TransactionHandlers {
+    tx: IdbTransaction,
+    requests: Vec<IdbRequest>,
+    _callbacks: Vec<Closure<dyn FnMut(Event)>>,
+    _complete: Closure<dyn FnMut(Event)>,
+    _abort: Closure<dyn FnMut(Event)>,
+}
+impl Drop for TransactionHandlers {
+    fn drop(&mut self) {
+        for req in &self.requests {
+            req.set_onsuccess(None);
+        }
+        self.tx.set_oncomplete(None);
+        self.tx.set_onabort(None);
+        let _ = self.tx.abort();
+    }
+}
+
+#[cfg(feature = "browser-proof")]
+async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
+    use crabsim::underwater::{
+        World,
+        frozen_chunks::{
+            CaptureIndex, FrozenChunks, GuardedBuilder, GuardedError, IndexVerifier, LazyError,
+            LazyView, PageId, SavedSetup,
+        },
+    };
+    let level = crabsim::Level::test_level();
+    let mut world = World::from_level_settled(&level);
+    world.follow_player(&level, 4000.0, 0.0);
+    world.follow_player(&level, 8000.0, 0.0);
+    let (left, bottom, width, height) = world.game_bounds();
+    let mut position = crabsim::level::SPAWN;
+    position.x = left + width * 0.5;
+    position.y = bottom + height * 0.5;
+    let mut reference = crabsim::Sim::new(crabsim::Tuning::default(), level.clone());
+    if !reference.restore_cellular_terrain(world, 17) {
+        return Err("reference setup".into());
+    }
+    reference.add_crab(crabsim::PlayerId(0), position);
+    let position = reference
+        .crab(crabsim::PlayerId(0))
+        .ok_or("missing player")?
+        .mover
+        .pos;
+    let player = format!(
+        r#"{{"version":2,"x":{},"y":{},"memory":null,"progress":null}}"#,
+        position.x, position.y
+    )
+    .into_bytes();
+    let frozen = FrozenChunks::capture(
+        reference.level.cells.as_ref().ok_or("missing terrain")?,
+        64 * 1024 * 1024,
+    )
+    .map_err(|e| format!("capture: {e:?}"))?;
+    let index = CaptureIndex::capture(&frozen, reference.tick_count(), &player, digest)
+        .map_err(|e| format!("index: {e:?}"))?;
+    let mut malformed_index = index.encode();
+    malformed_index[20..24].copy_from_slice(&u32::MAX.to_le_bytes());
+    if !matches!(
+        CaptureIndex::decode(&malformed_index),
+        Err(LazyError::TooLarge)
+    ) {
+        return Err("oversized index count accepted".into());
+    }
+    let mut ids = index.sleeping().to_vec();
+    if ids.is_empty() || ids.len() > 256 {
+        return Err("bad streamed fixture".into());
+    }
+    let (cols, rows) = frozen.active_dimensions();
+    let h = db
+        .begin(db.epoch().await?, reference.tick_count(), player)
+        .await?;
+    let mut count = 2;
+    let mut batch = vec![
+        index.encode(),
+        frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?,
+    ];
+    for y in 0..rows {
+        for x in 0..cols {
+            batch.push(frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?);
+            count += 1;
+            if batch.len() == MAX_BATCH {
+                db.stage(h, std::mem::take(&mut batch)).await?;
+            }
+        }
+    }
+    for &(x, y) in &ids {
+        batch.push(
+            frozen
+                .sleeping((x, y))
+                .map_err(|e| format!("sleeping: {e:?}"))?,
+        );
+        count += 1;
+        if batch.len() == MAX_BATCH {
+            db.stage(h, std::mem::take(&mut batch)).await?;
+        }
+    }
+    if !batch.is_empty() {
+        db.stage(h, batch).await?;
+    }
+    db.publish(h, count).await?;
+    let pin = db.pin().await?;
+    let pinned = db.pin_info(pin).await?;
+    let index_bytes = db.pinned_part(pin, 0).await?;
+    let metadata_bytes = db.pinned_part(pin, 1).await?;
+    let mut verifier = IndexVerifier::new(
+        &index_bytes,
+        &metadata_bytes,
+        pinned.tick,
+        pinned.parts.len(),
+        &pinned.player,
+        2_000_000,
+        digest,
+    )
+    .map_err(|e| format!("index verify: {e:?}"))?;
+    for slot in 2..pinned.parts.len() {
+        verifier
+            .accept(slot, &db.pinned_part(pin, slot).await?)
+            .map_err(|e| format!("index page: {e:?}"))?;
+    }
+    let verified = verifier
+        .finish()
+        .map_err(|e| format!("index incomplete: {e:?}"))?;
+    // A reset while checking the final page invalidates the pinned head.
+    db.pin_info(pin).await?;
+    ids = verified.sleeping().to_vec();
+    let mut view =
+        LazyView::new(&metadata_bytes, &ids, 2, 2_000_000).map_err(|e| format!("view: {e:?}"))?;
+    let estimate = view.estimated_bytes();
+    let mut peak_pages = 0;
+    for y in 0..rows {
+        for x in 0..cols {
+            let page = PageId::Active(x as u16, y as u16);
+            let ticket = view
+                .begin_load(page)
+                .map_err(|e| format!("ticket: {e:?}"))?;
+            let bytes = db.pinned_part(pin, 2 + y * cols + x).await?;
+            view.finish_load(ticket, &bytes)
+                .map_err(|e| format!("active page: {e:?}"))?;
+            peak_pages = peak_pages.max(view.resident_pages());
+            for ly in y * 64..(y * 64 + 64).min(crabsim::underwater::HEIGHT) {
+                for lx in x * 64..(x * 64 + 64).min(crabsim::underwater::WIDTH) {
+                    let cell = view
+                        .active_cell(lx, ly)
+                        .map_err(|e| format!("active cell: {e:?}"))?;
+                    if cell.cell
+                        != reference
+                            .level
+                            .cells
+                            .as_ref()
+                            .ok_or("missing terrain")?
+                            .cell(lx as i32, ly as i32)
+                        || cell.flow
+                            != reference
+                                .level
+                                .cells
+                                .as_ref()
+                                .ok_or("missing terrain")?
+                                .flow_at(lx as i32, ly as i32)
+                    {
+                        return Err("lazy active world differs".into());
+                    }
+                }
+            }
+            if view.resident_pages() > 2 {
+                return Err("cache exceeded bound".into());
+            }
+        }
+    }
+    for (i, &(x, y)) in ids.iter().enumerate() {
+        let ticket = view
+            .begin_load(PageId::Sleeping(x, y))
+            .map_err(|e| format!("ticket: {e:?}"))?;
+        let bytes = db.pinned_part(pin, 2 + cols * rows + i).await?;
+        view.finish_load(ticket, &bytes)
+            .map_err(|e| format!("sleeping page: {e:?}"))?;
+        peak_pages = peak_pages.max(view.resident_pages());
+        for slot in 0..4096 {
+            view.sleeping_cell(x, y, slot)
+                .map_err(|e| format!("sleeping cell: {e:?}"))?;
+        }
+        if view.resident_pages() > 2 {
+            return Err("cache exceeded bound".into());
+        }
+    }
+    // Construct the player from the persisted record and verified index; no Sim template.
+    let setup = || SavedSetup {
+        level: level.clone(),
+        tuning: crabsim::Tuning::default(),
+        feel: crabsim::Feel::default(),
+        sim_tick: pinned.tick,
+    };
+    let mut builder = GuardedBuilder::from_saved(
+        setup(),
+        &pinned.player,
+        &metadata_bytes,
+        &verified,
+        digest,
+        2_000_000,
+    )
+    .map_err(|e| format!("builder: {e:?}"))?;
+    for y in 0..rows {
+        for x in 0..cols {
+            builder
+                .active(
+                    x as u16,
+                    y as u16,
+                    &db.pinned_part(pin, 2 + y * cols + x).await?,
+                )
+                .map_err(|e| format!("builder page: {e:?}"))?;
+        }
+    }
+    let mut guarded = builder.install().map_err(|e| format!("install: {e:?}"))?;
+    if guarded.player() != reference.crab(crabsim::PlayerId(0)) || guarded.tick() != Some(17) {
+        return Err("player or tick mismatch".into());
+    }
+    // Beginning a fetch without receiving it is an interrupted load, not a
+    // reason to change player state or advance the simulation.
+    let _interrupted = guarded
+        .begin_sleeping(ids[0])
+        .map_err(|e| format!("interrupted: {e:?}"))?;
+    if guarded.tick() != Some(17) {
+        return Err("interrupted load changed tick".into());
+    }
+    for _ in 0..4 {
+        guarded
+            .step(crabsim::Controls::default())
+            .map_err(|e| format!("guarded step: {e:?}"))?;
+        reference.tick();
+        if guarded.player() != reference.crab(crabsim::PlayerId(0)) {
+            return Err("guarded player differs".into());
+        }
+    }
+    for (i, &id) in ids.iter().enumerate() {
+        let ticket = guarded
+            .begin_sleeping(id)
+            .map_err(|e| format!("guarded ticket: {e:?}"))?;
+        guarded
+            .accept_sleeping(ticket, &db.pinned_part(pin, 2 + cols * rows + i).await?)
+            .map_err(|e| format!("guarded sleeping: {e:?}"))?;
+    }
+    let restored = guarded
+        .finish()
+        .map_err(|e| format!("guarded finish: {e:?}"))?;
+    if restored.state_hash_streamed() != reference.state_hash_streamed() {
+        return Err("guarded exact state differs".into());
+    }
+    if guarded.step(crabsim::Controls::default()) != Err(GuardedError::Stale) {
+        return Err("finished session remained active".into());
+    }
+    drop(restored);
+    let mut reset_builder = GuardedBuilder::from_saved(
+        setup(),
+        &pinned.player,
+        &metadata_bytes,
+        &verified,
+        digest,
+        2_000_000,
+    )
+    .map_err(|e| format!("reset builder: {e:?}"))?;
+    for y in 0..rows {
+        for x in 0..cols {
+            reset_builder
+                .active(
+                    x as u16,
+                    y as u16,
+                    &db.pinned_part(pin, 2 + y * cols + x).await?,
+                )
+                .map_err(|e| format!("reset builder page: {e:?}"))?;
+        }
+    }
+    let mut reset_guard = reset_builder
+        .install()
+        .map_err(|e| format!("reset install: {e:?}"))?;
+    let guard_ticket = reset_guard
+        .begin_sleeping(ids[0])
+        .map_err(|e| format!("reset ticket: {e:?}"))?;
+    let guard_pending = db.pinned_part(pin, 2 + cols * rows).await?;
+    let late = view
+        .begin_load(PageId::Active(0, 0))
+        .map_err(|e| format!("late ticket: {e:?}"))?;
+    let pending = db.pinned_part(pin, 2).await?;
+    db.reset_fixture().await?;
+    view.invalidate();
+    reset_guard.invalidate();
+    if reset_guard.accept_sleeping(guard_ticket, &guard_pending) != Err(GuardedError::Stale) {
+        return Err("reset accepted stale guarded page".into());
+    }
+    if view.finish_load(late, &pending) != Err(LazyError::Stale)
+        || db.pinned_part(pin, 2).await.is_ok()
+    {
+        return Err("reset accepted stale page".into());
+    }
+    let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
+    let capacity = Uint8Array::new(&memory.buffer()).length();
+    Ok(format!(
+        "lazy_pages={} peak_cache={} estimate={} wasm_capacity={}",
+        ids.len() + cols * rows,
+        peak_pages,
+        estimate,
+        capacity
+    ))
+}
+
+#[cfg(feature = "browser-proof")]
+fn reload_fixture() -> Result<(crabsim::Sim, crabsim::SaveData), String> {
+    use crabsim::{Feel, Level, Memory, PlayerId, SaveData, Sim, Tuning, underwater::World};
+    let level = Level::test_level();
+    let mut terrain = World::opening_pebble_fixture(&level);
+    terrain.follow_player(&level, 4000.0, 0.0);
+    terrain.follow_player(&level, 8000.0, 0.0);
+    terrain.follow_player(&level, 160.0, 0.0);
+    let (left, bottom, width, height) = terrain.game_bounds();
+    let mut source = Sim::new(Tuning::default(), level.clone());
+    source.set_feel(Feel::default());
+    if !source.restore_cellular_terrain(terrain, 17) {
+        return Err("fixture terrain".into());
+    }
+    let mut center = crabsim::SPAWN;
+    center.x = left + width * 0.5;
+    center.y = bottom + height * 0.5;
+    source.add_crab(PlayerId(0), center);
+    let mut progress = source.progress(PlayerId(0)).ok_or("fixture progress")?;
+    progress.lantern = 1;
+    progress.climb_xp = 0.75;
+    source.restore_progress(PlayerId(0), &progress);
+    for _ in 0..8 {
+        source.tick();
+    }
+    let crab = source.crab(PlayerId(0)).ok_or("fixture player")?;
+    // Place the saved player just inside the loaded boundary but past the
+    // streaming threshold. The first tick must ask for sleeping pages.
+    let x = left + (crabsim::underwater::WIDTH as f32 - 159.0) * crabsim::underwater::GAME_CELL;
+    let y = crab.mover.pos.y;
+    let player = SaveData {
+        version: crabsim::SAVE_VERSION,
+        x,
+        y,
+        memory: Some(crab.memory.to_save()),
+        progress: source.progress(PlayerId(0)),
+    };
+    let tick = source.tick_count();
+    let terrain = source.level.cells.take().ok_or("fixture cells")?;
+    let mut reference = Sim::new(Tuning::default(), level);
+    reference.set_feel(Feel::default());
+    if !reference.restore_cellular_terrain(terrain, tick) {
+        return Err("reference terrain".into());
+    }
+    let mut pos = crabsim::SPAWN;
+    pos.x = x;
+    pos.y = y;
+    reference.add_crab(PlayerId(0), pos);
+    reference.restore_progress(
+        PlayerId(0),
+        player.progress.as_ref().ok_or("saved progress")?,
+    );
+    let memory = Memory::from_save(
+        player.memory.as_ref().ok_or("saved memory")?,
+        &reference.level,
+        &reference.tuning.memory,
+    )
+    .ok_or("saved memory invalid")?;
+    reference
+        .crab_mut(PlayerId(0))
+        .ok_or("reference player")?
+        .memory = memory;
+    Ok((reference, player))
+}
+
+// These are test-built wire fixtures; decoding always uses the same shared
+// production decoder as the game. The source lives in a separate proof DB.
+#[cfg(feature = "browser-proof")]
+fn legacy_fixture(
+    sim: &crabsim::Sim,
+    player: &crabsim::SaveData,
+    version: u8,
+) -> Result<Vec<u8>, String> {
+    let player = serde_json::to_vec(player).map_err(|e| e.to_string())?;
+    legacy_fixture_json(sim, player, version)
+}
+
+#[cfg(feature = "browser-proof")]
+fn legacy_fixture_json(
+    sim: &crabsim::Sim,
+    player: Vec<u8>,
+    version: u8,
+) -> Result<Vec<u8>, String> {
+    let terrain = postcard::to_allocvec(
+        &sim.level
+            .cells
+            .as_ref()
+            .ok_or("fixture terrain")?
+            .checkpoint(),
+    )
+    .map_err(|e| e.to_string())?;
+    let tick = sim.tick_count();
+    let mut crc = crc32fast::Hasher::new();
+    crc.update(&tick.to_le_bytes());
+    crc.update(&(player.len() as u32).to_le_bytes());
+    let mut out = Vec::new();
+    if version == 1 {
+        out.extend_from_slice(b"CRABCEL1");
+        let mut raw = player.clone();
+        raw.extend_from_slice(&terrain);
+        crc.update(&(raw.len() as u32).to_le_bytes());
+        crc.update(&raw);
+        out.extend_from_slice(&tick.to_le_bytes());
+        out.extend_from_slice(&(player.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc.finalize().to_le_bytes());
+        out.extend_from_slice(&miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1));
+    } else if version == 2 {
+        out.extend_from_slice(b"CRABCEL2");
+        crc.update(&(terrain.len() as u32).to_le_bytes());
+        crc.update(&player);
+        crc.update(&terrain);
+        out.extend_from_slice(&tick.to_le_bytes());
+        out.extend_from_slice(&(player.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(terrain.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc.finalize().to_le_bytes());
+        out.extend_from_slice(&player);
+        out.extend_from_slice(&miniz_oxide::deflate::compress_to_vec_zlib(&terrain, 1));
+    } else {
+        return Err("unknown fixture version".into());
+    }
+    Ok(out)
+}
+
+// Mirror the live loader's player compatibility check before a migration can
+// stage or publish anything. Source bytes stay untouched on every error.
+#[cfg(feature = "browser-proof")]
+fn migration_decode(
+    bytes: &[u8],
+    sim: &crabsim::Sim,
+) -> Result<crabsim::cell_codec::Restored, String> {
+    let restored =
+        crabsim::cell_codec::decode(bytes).map_err(|e| format!("legacy decode: {e:?}"))?;
+    if !crabsim::save_data::player_fits_world(sim, &restored.player) {
+        return Err("incompatible legacy player".into());
+    }
+    Ok(restored)
+}
+
+// Verify and reconstruct the complete candidate before any destination stage.
+// This deliberately favors safety over memory: it is not the live migrator.
+#[cfg(feature = "browser-proof")]
+fn prepare_migration(
+    saved: &crabsim::cell_codec::Restored,
+) -> Result<
+    (
+        Vec<u8>,
+        crabsim::underwater::frozen_chunks::PausedChunks<'_>,
+        crabsim::underwater::frozen_chunks::CaptureIndex,
+    ),
+    String,
+> {
+    use crabsim::underwater::frozen_chunks::{
+        CaptureIndex, GuardedBuilder, IndexVerifier, PausedChunks, SavedSetup,
+    };
+    let player = serde_json::to_vec(&saved.player).map_err(|e| e.to_string())?;
+    let frozen = PausedChunks::new(&saved.terrain).map_err(|e| format!("capture: {e:?}"))?;
+    let index = CaptureIndex::capture_paused(&frozen, saved.sim_tick, &player, digest)
+        .map_err(|e| format!("index: {e:?}"))?;
+    let metadata = frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?;
+    let mut verifier = IndexVerifier::new(
+        &index.encode(),
+        &metadata,
+        saved.sim_tick,
+        index.part_count(),
+        &player,
+        2_000_000,
+        digest,
+    )
+    .map_err(|e| format!("verify: {e:?}"))?;
+    let (cols, rows) = frozen.active_dimensions();
+    let mut slot = 2;
+    for y in 0..rows {
+        for x in 0..cols {
+            verifier
+                .accept(
+                    slot,
+                    &frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?,
+                )
+                .map_err(|e| format!("verify active: {e:?}"))?;
+            slot += 1;
+        }
+    }
+    for &id in index.sleeping() {
+        verifier
+            .accept(
+                slot,
+                &frozen
+                    .sleeping(id)
+                    .map_err(|e| format!("sleeping: {e:?}"))?,
+            )
+            .map_err(|e| format!("verify sleeping: {e:?}"))?;
+        slot += 1;
+    }
+    let verified = verifier
+        .finish()
+        .map_err(|e| format!("verify finish: {e:?}"))?;
+    let setup = SavedSetup {
+        level: crabsim::Level::test_level(),
+        tuning: crabsim::Tuning::default(),
+        feel: crabsim::Feel::default(),
+        sim_tick: saved.sim_tick,
+    };
+    let mut builder =
+        GuardedBuilder::from_saved(setup, &player, &metadata, &verified, digest, 2_000_000)
+            .map_err(|e| format!("player: {e:?}"))?;
+    for y in 0..rows {
+        for x in 0..cols {
+            builder
+                .active(
+                    x as u16,
+                    y as u16,
+                    &frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?,
+                )
+                .map_err(|e| format!("stage active: {e:?}"))?;
+        }
+    }
+    let mut guarded = builder
+        .install()
+        .map_err(|e| format!("unsafe saved player: {e:?}"))?;
+    for &id in index.sleeping() {
+        let ticket = guarded
+            .begin_sleeping(id)
+            .map_err(|e| format!("ticket: {e:?}"))?;
+        guarded
+            .accept_sleeping(
+                ticket,
+                &frozen
+                    .sleeping(id)
+                    .map_err(|e| format!("sleeping: {e:?}"))?,
+            )
+            .map_err(|e| format!("hydrate: {e:?}"))?;
+    }
+    let reconstructed = guarded.finish().map_err(|e| format!("finish: {e:?}"))?;
+    if reconstructed
+        .level
+        .cells
+        .as_ref()
+        .ok_or("reconstructed terrain")?
+        .checkpoint()
+        != saved.terrain.checkpoint()
+    {
+        return Err("candidate terrain differs".into());
+    }
+    Ok((player, frozen, index))
+}
+
+/// Phase one persists a real SaveData and frozen terrain. The runner reloads
+/// the browser document and Wasm instance before starting phase two.
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
+    async fn run(name: &str) -> Result<(), String> {
+        let (sim, player) = reload_fixture()?;
+        for version in [1, 2] {
+            let db = ChunkStore::open(&format!("{name}.migrated-v{version}")).await?;
+            let legacy = legacy_fixture(&sim, &player, version)?;
+            db.reset_fixture().await?;
+            raw_legacy_edit(&db, vec![("active", legacy.clone())], vec!["v3:meta"]).await?;
+            let proof = match db.init_legacy_namespace().await? {
+                LegacyInit::Created(proof) => proof,
+                _ => return Err("migration namespace was not freshly initialized".into()),
+            };
+            let epoch = db.epoch().await?;
+            // Keep a previous target head while testing a failed/incomplete migration.
+            let previous = db.begin(epoch, 1, b"previous".to_vec()).await?;
+            db.stage(previous, vec![b"previous head".to_vec()]).await?;
+            db.publish(previous, 1).await?;
+            let (original, captured) = db.read_source().await?;
+            if captured != proof {
+                return Err("legacy source changed after initialization".into());
+            }
+            // Valid CRC does not make impossible player progress safe. Test
+            // malformed bytes in the same source store as the previous head.
+            let mut invalid_player = player.clone();
+            invalid_player
+                .progress
+                .as_mut()
+                .ok_or("missing progress")?
+                .upgrades = u32::MAX;
+            let invalid = legacy_fixture(&sim, &invalid_player, version)?;
+            raw_legacy_edit(&db, vec![("active", invalid.clone())], vec![]).await?;
+            let (invalid_read, _) = db.read_source().await?;
+            if crabsim::cell_codec::decode(&invalid_read).is_err()
+                || migration_decode(&invalid_read, &sim).is_ok()
+            {
+                return Err("malformed player was not rejected before publish".into());
+            }
+            let unchanged = db.pin().await?;
+            if db.pinned_part(unchanged, 0).await? != b"previous head"
+                || db.read_source().await?.0 != invalid
+            {
+                return Err("invalid player changed prior data".into());
+            }
+            db.unpin(unchanged).await?;
+            let json = serde_json::to_string(&player).map_err(|e| e.to_string())?;
+            let infinite_json = json.replace("\"climb_xp\":0.75", "\"climb_xp\":1e99");
+            if json == infinite_json {
+                return Err("missing fixture XP".into());
+            }
+            let infinite = legacy_fixture_json(&sim, infinite_json.into_bytes(), version)?;
+            raw_legacy_edit(&db, vec![("active", infinite.clone())], vec![]).await?;
+            let (infinite_read, _) = db.read_source().await?;
+            if crabsim::cell_codec::decode(&infinite_read).is_err()
+                || migration_decode(&infinite_read, &sim).is_ok()
+            {
+                return Err("nonfinite XP was not rejected before publish".into());
+            }
+            let unchanged = db.pin().await?;
+            if db.pinned_part(unchanged, 0).await? != b"previous head"
+                || db.read_source().await?.0 != infinite
+            {
+                return Err("nonfinite player changed prior data".into());
+            }
+            db.unpin(unchanged).await?;
+            let mut unsafe_player = player.clone();
+            unsafe_player.x = sim.level.max_x + 1000.0;
+            let unsafe_bytes = legacy_fixture(&sim, &unsafe_player, version)?;
+            raw_legacy_edit(&db, vec![("active", unsafe_bytes.clone())], vec![]).await?;
+            let (unsafe_read, _) = db.read_source().await?;
+            let unsafe_saved = migration_decode(&unsafe_read, &sim)?;
+            if prepare_migration(&unsafe_saved).is_ok() {
+                return Err("unsafe saved position accepted".into());
+            }
+            let unchanged = db.pin().await?;
+            if db.pinned_part(unchanged, 0).await? != b"previous head"
+                || db.read_source().await?.0 != unsafe_bytes
+            {
+                return Err("unsafe position changed prior data".into());
+            }
+            db.unpin(unchanged).await?;
+            raw_legacy_edit(&db, vec![("active", original.clone())], vec![]).await?;
+            // Cross-world/legacy progress can contain more upgrades than this
+            // level's eggs and shorter old lists; it must remain compatible.
+            let mut compatible = player.clone();
+            let progress = compatible.progress.as_mut().ok_or("missing progress")?;
+            progress.upgrades = sim.fresh_progress().eaten.len() as u32 + 5;
+            progress.eaten.clear();
+            progress.climb_xp = -0.5;
+            if migration_decode(&legacy_fixture(&sim, &compatible, version)?, &sim).is_err() {
+                return Err("valid legacy progress rejected".into());
+            }
+            let mut corrupt = original.clone();
+            let last = corrupt.len().checked_sub(1).ok_or("empty fixture")?;
+            corrupt[last] ^= 1;
+            if crabsim::cell_codec::decode(&corrupt).is_ok() {
+                return Err("corrupt legacy accepted".into());
+            }
+            let restored = migration_decode(&original, &sim)?;
+            if restored.player != player
+                || restored.sim_tick != sim.tick_count()
+                || restored.terrain.checkpoint()
+                    != sim.level.cells.as_ref().ok_or("terrain")?.checkpoint()
+            {
+                return Err("legacy decode mismatch".into());
+            }
+            let (player_bytes, frozen, index) = prepare_migration(&restored)?;
+            let interrupted = db
+                .begin_from_source(epoch, restored.sim_tick, player_bytes.clone(), proof)
+                .await?;
+            db.stage(interrupted, vec![index.encode()]).await?;
+            if db
+                .publish_from_source(interrupted, index.part_count(), proof)
+                .await
+                .is_ok()
+            {
+                return Err("incomplete migration published".into());
+            }
+            // A new connection discovers an interrupted stage and can fence it
+            // without losing either the previous target head or the source.
+            drop(db);
+            let db = ChunkStore::open(&format!("{name}.migrated-v{version}")).await?;
+            if db.pending().await? != Some(interrupted) {
+                return Err("migration recovery lost pending stage".into());
+            }
+            db.abandon(interrupted).await?;
+            let pin = db.pin().await?;
+            if db.pinned_part(pin, 0).await? != b"previous head"
+                || db.read_source().await?.0 != original
+            {
+                return Err("failed migration changed prior data".into());
+            }
+            db.unpin(pin).await?;
+            let handle = db
+                .begin_from_source(epoch, restored.sim_tick, player_bytes, proof)
+                .await?;
+            let mut batch = vec![
+                index.encode(),
+                frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?,
+            ];
+            let mut count = 2;
+            let (cols, rows) = frozen.active_dimensions();
+            for y in 0..rows {
+                for x in 0..cols {
+                    batch.push(frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?);
+                    count += 1;
+                    if batch.len() == MAX_BATCH {
+                        db.stage(handle, std::mem::take(&mut batch)).await?;
+                    }
+                }
+            }
+            for &id in index.sleeping() {
+                batch.push(
+                    frozen
+                        .sleeping(id)
+                        .map_err(|e| format!("sleeping: {e:?}"))?,
+                );
+                count += 1;
+                if batch.len() == MAX_BATCH {
+                    db.stage(handle, std::mem::take(&mut batch)).await?;
+                }
+            }
+            if !batch.is_empty() {
+                db.stage(handle, batch).await?;
+            }
+            db.publish_from_source(handle, count, proof).await?;
+            if db.read_source().await?.0 != original {
+                return Err("migration changed legacy source".into());
+            }
+            let reset_db = ChunkStore::open(&format!("{name}.reset-v{version}")).await?;
+            reset_db.reset_fixture().await?;
+            let stale = reset_db
+                .begin(reset_db.epoch().await?, restored.sim_tick, vec![])
+                .await?;
+            reset_db.stage(stale, vec![b"pending".to_vec()]).await?;
+            reset_db.reset_fixture().await?;
+            if reset_db.publish(stale, 1).await.is_ok() || db.read_source().await?.0 != original {
+                return Err("reset allowed a stale migration".into());
+            }
+        }
+        Ok(())
+    }
+    run(&name).await.map_err(|e| JsValue::from_str(&e))
+}
+
+/// Phase two reconstructs after a real document reload from the pinned head.
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn reload_verify(name: String) -> Result<String, JsValue> {
+    async fn run(name: &str, version: u8) -> Result<String, String> {
+        use crabsim::{
+            Controls, Feel, Level, PlayerId, SaveData, Tuning,
+            underwater::frozen_chunks::{GuardedBuilder, GuardedError, IndexVerifier, SavedSetup},
+        };
+        let db = ChunkStore::open(&format!("{name}.migrated-v{version}")).await?;
+        let pin = db.source_guarded_pin().await?;
+        let pinned = db.source_guarded_pin_info(pin).await?;
+        let (mut reference, expected_player) = reload_fixture()?;
+        let (original, _) = db.read_source().await?;
+        if original != legacy_fixture(&reference, &expected_player, version)? {
+            return Err("legacy source changed across reload".into());
+        }
+        let original_save = crabsim::cell_codec::decode(&original)
+            .map_err(|e| format!("legacy after reload: {e:?}"))?;
+        if original_save.player != expected_player {
+            return Err("legacy player changed".into());
+        }
+        drop(original_save);
+        let pebbles = reference
+            .level
+            .cells
+            .as_ref()
+            .ok_or("reference cells")?
+            .game_pebbles()
+            .len();
+        if pebbles == 0 {
+            return Err("reload fixture has no active pebbles".into());
+        }
+        let actual_player: SaveData =
+            serde_json::from_slice(&pinned.player).map_err(|e| e.to_string())?;
+        if actual_player != expected_player || pinned.tick != reference.tick_count() {
+            return Err("reloaded player/progress/tick differ".into());
+        }
+        let index_bytes = db.source_guarded_part(pin, 0).await?;
+        let metadata = db.source_guarded_part(pin, 1).await?;
+        let mut verifier = IndexVerifier::new(
+            &index_bytes,
+            &metadata,
+            pinned.tick,
+            pinned.parts.len(),
+            &pinned.player,
+            2_000_000,
+            digest,
+        )
+        .map_err(|e| format!("verify: {e:?}"))?;
+        for slot in 2..pinned.parts.len() {
+            verifier
+                .accept(slot, &db.source_guarded_part(pin, slot).await?)
+                .map_err(|e| format!("verify page: {e:?}"))?;
+        }
+        let verified = verifier.finish().map_err(|e| format!("index: {e:?}"))?;
+        db.source_guarded_pin_info(pin).await?;
+        let ids = verified.sleeping().to_vec();
+        let cols = crabsim::underwater::WIDTH.div_ceil(64);
+        let rows = crabsim::underwater::HEIGHT.div_ceil(64);
+        let setup = || SavedSetup {
+            level: Level::test_level(),
+            tuning: Tuning::default(),
+            feel: Feel::default(),
+            sim_tick: pinned.tick,
+        };
+        let mut builder = GuardedBuilder::from_saved(
+            setup(),
+            &pinned.player,
+            &metadata,
+            &verified,
+            digest,
+            2_000_000,
+        )
+        .map_err(|e| format!("builder: {e:?}"))?;
+        for y in 0..rows {
+            for x in 0..cols {
+                builder
+                    .active(
+                        x as u16,
+                        y as u16,
+                        &db.source_guarded_part(pin, 2 + y * cols + x).await?,
+                    )
+                    .map_err(|e| format!("active: {e:?}"))?;
+            }
+        }
+        db.source_guarded_pin_info(pin).await?;
+        let mut guarded = builder.install().map_err(|e| format!("install: {e:?}"))?;
+        if guarded.player() != reference.crab(PlayerId(0))
+            || guarded.tick() != Some(reference.tick_count())
+        {
+            return Err("reloaded playable mismatch".into());
+        }
+        let initial_bounds = reference
+            .level
+            .cells
+            .as_ref()
+            .ok_or("initial cells")?
+            .game_bounds();
+        let before = guarded.tick();
+        let required = match guarded.step(Controls::default()) {
+            Err(GuardedError::NeedsPages(ids)) if !ids.is_empty() => ids,
+            other => return Err(format!("expected transition page wait: {other:?}")),
+        };
+        let interrupted = guarded
+            .begin_sleeping(required[0])
+            .map_err(|e| format!("ticket: {e:?}"))?;
+        drop(interrupted);
+        if guarded.tick() != before {
+            return Err("interrupted load advanced tick".into());
+        }
+        for id in required {
+            let slot = ids.binary_search(&id).map_err(|_| "required page absent")?;
+            let ticket = guarded
+                .begin_sleeping(id)
+                .map_err(|e| format!("ticket: {e:?}"))?;
+            guarded
+                .accept_sleeping(
+                    ticket,
+                    &db.source_guarded_part(pin, 2 + cols * rows + slot).await?,
+                )
+                .map_err(|e| format!("sleeping: {e:?}"))?;
+        }
+        db.source_guarded_pin_info(pin).await?;
+        guarded
+            .step(Controls::default())
+            .map_err(|e| format!("transition: {e:?}"))?;
+        reference.tick();
+        if guarded.player() != reference.crab(PlayerId(0))
+            || guarded.tick() != Some(reference.tick_count())
+        {
+            return Err("transition player mismatch".into());
+        }
+        let first_bounds = reference
+            .level
+            .cells
+            .as_ref()
+            .ok_or("transition cells")?
+            .game_bounds();
+        if initial_bounds == first_bounds {
+            return Err("first window did not shift".into());
+        }
+        let controls = Controls {
+            walk: 1.0,
+            ..Default::default()
+        };
+        let mut second_shift = false;
+        let mut second_waits = 0;
+        let mut stepped = 0;
+        for _ in 0..1000 {
+            match guarded.step(controls) {
+                Ok(()) => {
+                    stepped += 1;
+                    reference.set_controls(PlayerId(0), controls);
+                    reference.tick();
+                    if guarded.player() != reference.crab(PlayerId(0))
+                        || guarded.tick() != Some(reference.tick_count())
+                    {
+                        return Err("subsequent player/tick mismatch".into());
+                    }
+                    if reference
+                        .level
+                        .cells
+                        .as_ref()
+                        .ok_or("walk cells")?
+                        .game_bounds()
+                        != first_bounds
+                    {
+                        second_shift = true;
+                        break;
+                    }
+                }
+                Err(GuardedError::NeedsPages(required)) => {
+                    second_waits += 1;
+                    for id in required {
+                        let slot = ids
+                            .binary_search(&id)
+                            .map_err(|_| "next required page absent")?;
+                        let ticket = guarded
+                            .begin_sleeping(id)
+                            .map_err(|e| format!("next ticket: {e:?}"))?;
+                        guarded
+                            .accept_sleeping(
+                                ticket,
+                                &db.source_guarded_part(pin, 2 + cols * rows + slot).await?,
+                            )
+                            .map_err(|e| format!("next sleeping: {e:?}"))?;
+                    }
+                }
+                Err(e) => return Err(format!("subsequent step: {e:?}")),
+            }
+        }
+        if !second_shift || second_waits == 0 {
+            return Err("second window did not require sleeping-page hydration".into());
+        }
+        for (slot, &id) in ids.iter().enumerate() {
+            if let Ok(ticket) = guarded.begin_sleeping(id) {
+                guarded
+                    .accept_sleeping(
+                        ticket,
+                        &db.source_guarded_part(pin, 2 + cols * rows + slot).await?,
+                    )
+                    .map_err(|e| format!("hydrate: {e:?}"))?;
+            }
+        }
+        db.source_guarded_pin_info(pin).await?;
+        let restored = guarded.finish().map_err(|e| format!("finish: {e:?}"))?;
+        if restored.state_hash_streamed() != reference.state_hash_streamed() {
+            return Err("reloaded full state/pebble ownership differs".into());
+        }
+        if restored
+            .crab(PlayerId(0))
+            .ok_or("restored crab")?
+            .memory
+            .fingerprint()
+            != reference
+                .crab(PlayerId(0))
+                .ok_or("reference crab")?
+                .memory
+                .fingerprint()
+        {
+            return Err("reloaded memory differs".into());
+        }
+        drop(restored);
+        let mut reset_builder = GuardedBuilder::from_saved(
+            setup(),
+            &pinned.player,
+            &metadata,
+            &verified,
+            digest,
+            2_000_000,
+        )
+        .map_err(|e| format!("reset builder: {e:?}"))?;
+        for y in 0..rows {
+            for x in 0..cols {
+                reset_builder
+                    .active(
+                        x as u16,
+                        y as u16,
+                        &db.source_guarded_part(pin, 2 + y * cols + x).await?,
+                    )
+                    .map_err(|e| format!("reset active: {e:?}"))?;
+            }
+        }
+        let mut reset_guard = reset_builder
+            .install()
+            .map_err(|e| format!("reset install: {e:?}"))?;
+        let ticket = reset_guard
+            .begin_sleeping(ids[0])
+            .map_err(|e| format!("reset ticket: {e:?}"))?;
+        let pending = db.source_guarded_part(pin, 2 + cols * rows).await?;
+        db.reset_legacy_and_v3().await?;
+        reset_guard.invalidate();
+        if reset_guard.accept_sleeping(ticket, &pending) != Err(GuardedError::Stale)
+            || db.source_guarded_part(pin, 2).await.is_ok()
+        {
+            return Err("reset accepted a stale reloaded page".into());
+        }
+        let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
+        Ok(format!(
+            "real_reload=pass pages={} pebbles={} extra_steps={} later_waits={} wasm_capacity={}",
+            ids.len() + cols * rows,
+            pebbles,
+            stepped,
+            second_waits,
+            Uint8Array::new(&memory.buffer()).length()
+        ))
+    }
+    let v1 = run(&name, 1).await.map_err(|e| JsValue::from_str(&e))?;
+    let v2 = run(&name, 2).await.map_err(|e| JsValue::from_str(&e))?;
+    Ok(format!("migration_v1={v1}; migration_v2={v2}"))
+}
+
+#[cfg(feature = "browser-proof")]
+async fn raw_legacy_edit(
+    db: &ChunkStore,
+    puts: Vec<(&'static str, Vec<u8>)>,
+    deletes: Vec<&'static str>,
+) -> Result<(), String> {
+    let tx = db
+        .db
+        .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
+        .map_err(|e| err("legacy edit transaction", e))?;
+    let store = tx
+        .object_store(STORE)
+        .map_err(|e| err("legacy edit store", e))?;
+    for (key, bytes) in puts {
+        put(&store, key, &bytes)?;
+    }
+    for key in deletes {
+        store
+            .delete(&JsValue::from_str(key))
+            .map_err(|e| err("legacy delete", e))?;
+    }
+    let (promise, resolve, reject) = promise();
+    let complete = Closure::<dyn FnMut(Event)>::new(move |_| {
+        let _ = resolve.call0(&JsValue::UNDEFINED);
+    });
+    let abort = Closure::<dyn FnMut(Event)>::new(move |_| {
+        let _ = reject.call1(
+            &JsValue::UNDEFINED,
+            &JsValue::from_str("legacy edit aborted"),
+        );
+    });
+    tx.set_oncomplete(Some(complete.as_ref().unchecked_ref()));
+    tx.set_onabort(Some(abort.as_ref().unchecked_ref()));
+    let handlers = TransactionHandlers {
+        tx,
+        requests: Vec::new(),
+        _callbacks: Vec::new(),
+        _complete: complete,
+        _abort: abort,
+    };
+    let result = JsFuture::from(promise)
+        .await
+        .map_err(|e| err("legacy edit commit", e));
+    drop(handlers);
+    result.map(|_| ())
+}
+
+#[cfg(feature = "browser-proof")]
+async fn legacy_initializer_proof(name: &str) -> Result<(), String> {
+    let dbname = format!("{name}.legacy-init");
+    let a = ChunkStore::open(&dbname).await?;
+    let b = ChunkStore::open(&dbname).await?;
+    // Remove the proof metadata to reproduce a pre-existing v1/v2 store.
+    raw_legacy_edit(
+        &a,
+        vec![("active", b"untouched legacy".to_vec())],
+        vec!["v3:meta"],
+    )
+    .await?;
+    let (first, second) =
+        futures_util::future::join(a.init_legacy_namespace(), b.init_legacy_namespace()).await;
+    let first = first?;
+    let second = second?;
+    let first_proof = match (first, second) {
+        (LegacyInit::Created(proof), LegacyInit::Resume(_))
+        | (LegacyInit::Resume(_), LegacyInit::Created(proof)) => proof,
+        _ => return Err("concurrent legacy initialization was not atomic".into()),
+    };
+    if first_proof.epoch != 0 || first_proof.digest != digest(b"untouched legacy") {
+        return Err("legacy initialization captured the wrong source".into());
+    }
+    // An interrupted pre-stage initialization can safely resume only while
+    // its source is unchanged. An existing head never offers legacy fallback.
+    if b.init_legacy_namespace().await? != LegacyInit::Resume(first_proof) {
+        return Err("unchanged initialization could not resume".into());
+    }
+    for key in ["v3:head", "v3:\u{ffff}suffix"] {
+        raw_legacy_edit(&a, vec![(key, b"orphan".to_vec())], vec![]).await?;
+        if b.init_legacy_namespace().await.is_ok() {
+            return Err("orphaned pending namespace accepted".into());
+        }
+        raw_legacy_edit(&a, vec![], vec![key]).await?;
+    }
+    raw_legacy_edit(&a, vec![("active", b"older legacy state".to_vec())], vec![]).await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("changed pending source was accepted".into());
+    }
+    let published = Meta {
+        head_id: 1,
+        next_id: 1,
+        revision: 1,
+        ..Meta::default()
+    };
+    raw_legacy_edit(&a, vec![("v3:meta", published.encode())], vec![]).await?;
+    if b.init_legacy_namespace().await? != LegacyInit::Existing {
+        return Err("existing head offered legacy fallback".into());
+    }
+    raw_legacy_edit(
+        &a,
+        vec![
+            ("active", b"untouched legacy".to_vec()),
+            ("v3:meta", Meta::default().encode()),
+        ],
+        vec![],
+    )
+    .await?;
+    raw_legacy_edit(
+        &a,
+        vec![("reset_epoch", 1u64.to_le_bytes().to_vec())],
+        vec![],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("stale namespace epoch accepted".into());
+    }
+    raw_legacy_edit(&a, vec![], vec!["reset_epoch"]).await?;
+    // One deleted or corrupted record must not be treated as fresh.
+    raw_legacy_edit(&a, vec![], vec!["v3:meta"]).await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("missing metadata treated as fresh".into());
+    }
+    raw_legacy_edit(
+        &a,
+        vec![("v3:meta", Meta::default().encode())],
+        vec!["v3:initialized"],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("missing marker treated as fresh".into());
+    }
+    raw_legacy_edit(
+        &a,
+        vec![
+            ("v3:initialized", vec![1]),
+            ("v3:meta", vec![0; Meta::ENCODED_LEN]),
+        ],
+        vec![],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("corrupt metadata accepted".into());
+    }
+    raw_legacy_edit(
+        &a,
+        vec![("v3:chunk:orphan", b"kept".to_vec())],
+        vec!["v3:meta", "v3:initialized"],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("orphaned namespace treated as fresh".into());
+    }
+    // An intact legacy source and malformed epoch are also rejected without writes.
+    raw_legacy_edit(
+        &a,
+        vec![("reset_epoch", vec![7])],
+        vec!["v3:chunk:orphan", "v3:init-source"],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("invalid legacy epoch accepted".into());
+    }
+    raw_legacy_edit(&a, vec![], vec!["reset_epoch"]).await?;
+    if b.init_legacy_namespace().await? != LegacyInit::Created(first_proof) {
+        return Err("legacy source changed during failed initializations".into());
+    }
+    let race_name = format!("{name}.legacy-init-race");
+    let writer = ChunkStore::open(&race_name).await?;
+    let resetter = ChunkStore::open(&race_name).await?;
+    raw_legacy_edit(
+        &writer,
+        vec![("active", b"pre-reset".to_vec())],
+        vec!["v3:meta"],
+    )
+    .await?;
+    raw_legacy_edit(
+        &writer,
+        vec![("v3:\u{ffff}suffix", b"orphan".to_vec())],
+        vec![],
+    )
+    .await?;
+    if writer.init_legacy_namespace().await.is_ok() {
+        return Err("fresh namespace ignored high Unicode orphan".into());
+    }
+    raw_legacy_edit(&writer, vec![], vec!["v3:\u{ffff}suffix"]).await?;
+    let (initialize, reset) = futures_util::future::join(
+        writer.init_legacy_namespace(),
+        raw_legacy_edit(
+            &resetter,
+            vec![("reset_epoch", 1u64.to_le_bytes().to_vec())],
+            vec!["active"],
+        ),
+    )
+    .await;
+    reset?;
+    raw_legacy_edit(&resetter, vec![("active", b"post-reset".to_vec())], vec![]).await?;
+    match initialize {
+        Ok(LegacyInit::Created(_)) if writer.init_legacy_namespace().await.is_err() => (),
+        Err(_) => match writer.init_legacy_namespace().await? {
+            LegacyInit::Created(proof)
+                if proof.epoch == 1 && proof.digest == digest(b"post-reset") => {}
+            _ => return Err("reset-first initialization used stale source".into()),
+        },
+        _ => return Err("initialization/reset race was not fenced".into()),
+    }
+    Ok(())
+}
+
+/// Connect the initializer, source-bound staging, guarded reads and reset in
+/// one isolated object store using the actual legacy key names.
+#[cfg(feature = "browser-proof")]
+async fn unified_legacy_store_proof(name: &str) -> Result<(), String> {
+    let dbname = format!("{name}.unified");
+    let a = ChunkStore::open(&dbname).await?;
+    let b = ChunkStore::open(&dbname).await?;
+    raw_legacy_edit(
+        &a,
+        vec![
+            ("active", b"legacy source".to_vec()),
+            ("unrelated", b"keep".to_vec()),
+        ],
+        vec!["v3:meta"],
+    )
+    .await?;
+    let proof = match a.init_legacy_namespace().await? {
+        LegacyInit::Created(proof) => proof,
+        _ => return Err("legacy store did not initialize".into()),
+    };
+    let epoch = a.epoch().await?;
+    let first = a
+        .begin_from_source(epoch, 17, b"player".to_vec(), proof)
+        .await?;
+    a.stage(first, vec![b"terrain page".to_vec()]).await?;
+    a.publish_from_source(first, 1, proof).await?;
+    let pin = a.source_guarded_pin().await?;
+    if a.source_guarded_part(pin, 0).await? != b"terrain page" {
+        return Err("unified page mismatch".into());
+    }
+    if b.init_legacy_namespace().await? != LegacyInit::Existing {
+        return Err("published head offered legacy fallback".into());
+    }
+    let pending = a
+        .begin_from_source(epoch, 18, b"later".to_vec(), proof)
+        .await?;
+    a.stage(pending, vec![b"later page".to_vec()]).await?;
+    b.reset_legacy_and_v3().await?;
+    if a.publish_from_source(pending, 1, proof).await.is_ok()
+        || a.publish(pending, 1).await.is_ok()
+        || a.source_guarded_part(pin, 0).await.is_ok()
+        || a.read_source().await.is_ok()
+    {
+        return Err("unified reset did not fence old operations".into());
+    }
+    // Model a current v2 tab retaining its old captured epoch: its check and
+    // put happen in the same transaction as the reset epoch read.
+    let old_write = a
+        .transaction_impl(
+            Some("reset_epoch".into()),
+            false,
+            8,
+            false,
+            |_, _, _, _, bytes, _, _, _, _, store| {
+                let epoch = bytes
+                    .map(|v| {
+                        v.as_slice()
+                            .try_into()
+                            .map(u64::from_le_bytes)
+                            .map_err(|_| "bad epoch".to_string())
+                    })
+                    .transpose()?
+                    .unwrap_or(0);
+                if epoch != 0 {
+                    return Err("stale v2 writer".into());
+                }
+                put(store, "active", b"stale old tab")
+            },
+        )
+        .await;
+    if old_write.is_ok() {
+        return Err("old v2 session survived unified reset".into());
+    }
+    let unrelated = a
+        .transaction(Some("unrelated".into()), false, |_, _, _, _, bytes, _| {
+            Ok(bytes)
+        })
+        .await?;
+    if unrelated.as_deref() != Some(b"keep") || a.epoch().await? != 1 {
+        return Err("unified reset damaged unrelated data or epoch".into());
+    }
+    // A later fresh legacy save must not silently reload the old migrated head.
+    raw_legacy_edit(&b, vec![("active", b"new legacy world".to_vec())], vec![]).await?;
+    if b.init_legacy_namespace().await? != LegacyInit::Existing
+        || b.source_guarded_head().await.is_ok()
+    {
+        return Err("unified reset allowed old migration fallback".into());
+    }
+    let (deleted, _) = b.collect_page(1, None, 32).await?;
+    if deleted == 0 {
+        return Err("unified reset left no collectable old chunks".into());
+    }
+    Ok(())
+}
+
+/// Same-object-store publication fence. The keys mirror current live v1/v2,
+/// but this runs only in an experimental proof database.
+#[cfg(feature = "browser-proof")]
+async fn same_store_fence(name: &str) -> Result<(), String> {
+    let a = ChunkStore::open(&format!("{name}.same-store")).await?;
+    let b = ChunkStore::open(&format!("{name}.same-store")).await?;
+    a.reset_fixture().await?;
+    a.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "active", b"legacy-v2-first")?;
+        // No reset_epoch is the supported legacy epoch-zero state.
+        Ok(())
+    })
+    .await?;
+    let (legacy, proof) = a.read_source().await?;
+    if legacy != b"legacy-v2-first" || proof.epoch != 0 {
+        return Err("legacy source capture".into());
+    }
+    let epoch = a.epoch().await?;
+    let old = a.begin(epoch, 1, b"old player".to_vec()).await?;
+    a.stage(old, vec![b"old head".to_vec()]).await?;
+    a.publish(old, 1).await?;
+    let staged = a
+        .begin_from_source(epoch, 2, b"new player".to_vec(), proof)
+        .await?;
+    a.stage(staged, vec![b"new page".to_vec()]).await?;
+    a.transaction(None, false, |_, _, _, _, _, store| {
+        store
+            .delete(&JsValue::from_str("v3:stage-source-proof"))
+            .map_err(|e| err("delete stage proof", e))?;
+        Ok(())
+    })
+    .await?;
+    if a.publish(staged, 1).await.is_ok() || a.publish_from_source(staged, 1, proof).await.is_ok() {
+        return Err("missing stage proof bypassed fencing".into());
+    }
+    a.transaction(None, true, move |_, _, _, _, _, store| {
+        put(store, "v3:stage-source-proof", &proof.encode())
+    })
+    .await?;
+    if a.publish(staged, 1).await.is_ok() {
+        return Err("guarded stage downgraded to generic publish".into());
+    }
+    a.transaction(None, false, move |_, _, _, _, _, store| {
+        put(
+            store,
+            &format!("v3:chunk:{}:0", staged.id),
+            b"corrupted page",
+        )
+    })
+    .await?;
+    if a.publish_from_source(staged, 1, proof).await.is_ok() || a.pending().await? != Some(staged) {
+        return Err("corrupt guarded stage published or lost recovery state".into());
+    }
+    let preserved = a.pin().await?;
+    if a.pinned_part(preserved, 0).await? != b"old head" || a.read_source().await?.0 != legacy {
+        return Err("failed guarded publication changed source or head".into());
+    }
+    a.unpin(preserved).await?;
+    a.transaction(None, false, move |_, _, _, _, _, store| {
+        put(store, &format!("v3:chunk:{}:0", staged.id), b"new page")
+    })
+    .await?;
+    // An ordinary same-epoch legacy autosave must fence the pending snapshot.
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "active", b"legacy-v2-newer")
+    })
+    .await?;
+    if a.publish_from_source(staged, 1, proof).await.is_ok() {
+        return Err("source overwrite accepted".into());
+    }
+    let pin = a.pin().await?;
+    if a.pinned_part(pin, 0).await? != b"old head" {
+        return Err("source overwrite lost head".into());
+    }
+    a.unpin(pin).await?;
+    // A reset and later byte-identical save are distinct epochs.
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        store
+            .delete(&JsValue::from_str("active"))
+            .map_err(|e| err("reset source", e))?;
+        put(store, "reset_epoch", &1u64.to_le_bytes())
+    })
+    .await?;
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "active", b"legacy-v2-first")
+    })
+    .await?;
+    if a.publish_from_source(staged, 1, proof).await.is_ok() || a.publish(staged, 1).await.is_ok() {
+        return Err("source reset or generic downgrade accepted".into());
+    }
+    // A malformed persisted epoch must fail closed without replacing either record.
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "reset_epoch", &[7])
+    })
+    .await?;
+    if a.read_source().await.is_ok() || a.publish_from_source(staged, 1, proof).await.is_ok() {
+        return Err("malformed source epoch accepted".into());
+    }
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "reset_epoch", &1u64.to_le_bytes())
+    })
+    .await?;
+    a.abandon(staged).await?;
+    let (same, fresh) = a.read_source().await?;
+    if same != legacy || fresh.epoch != 1 {
+        return Err("new source session invalid".into());
+    }
+    let next = a
+        .begin_from_source(epoch, 3, b"fresh player".to_vec(), fresh)
+        .await?;
+    a.stage(next, vec![b"fresh page".to_vec()]).await?;
+    a.publish_from_source(next, 1, fresh).await?;
+    if a.source_guarded_head().await?.id != next.id {
+        return Err("guarded head not readable".into());
+    }
+    if a.head().await.is_ok()
+        || a.pin().await.is_ok()
+        || a.part(next, 0).await.is_ok()
+        || a.begin(epoch, 9, b"unguarded".to_vec()).await.is_ok()
+    {
+        return Err("unguarded head access bypassed source fencing".into());
+    }
+    a.transaction(None, false, |_, _, _, _, _, store| {
+        store
+            .delete(&JsValue::from_str("v3:source-proof"))
+            .map_err(|e| err("delete source proof", e))?;
+        Ok(())
+    })
+    .await?;
+    if a.head().await.is_ok() || a.source_guarded_head().await.is_ok() || a.pin().await.is_ok() {
+        return Err("missing head proof bypassed source fencing".into());
+    }
+    a.transaction(None, true, move |_, _, _, _, _, store| {
+        put(store, "v3:source-proof", &fresh.encode())
+    })
+    .await?;
+    let guarded_pin = a.source_guarded_pin().await?;
+    // Cancel an in-flight IDB future, then verify the detached callbacks and
+    // aborted transaction do not poison the next guarded read.
+    use futures_util::FutureExt;
+    if a.source_guarded_part(guarded_pin, 0)
+        .now_or_never()
+        .is_some()
+    {
+        return Err("guarded read unexpectedly completed synchronously".into());
+    }
+    if a.source_guarded_part(guarded_pin, 0).await? != b"fresh page" {
+        return Err("canceled guarded read broke the next read".into());
+    }
+    if a.pinned().await.is_ok()
+        || a.pin_info(guarded_pin).await.is_ok()
+        || a.pinned_part(guarded_pin, 0).await.is_ok()
+    {
+        return Err("unguarded pin read bypassed source fencing".into());
+    }
+    a.transaction(None, false, |_, _, _, _, _, store| {
+        store
+            .delete(&JsValue::from_str("v3:pin-source-proof"))
+            .map_err(|e| err("delete pin proof", e))?;
+        Ok(())
+    })
+    .await?;
+    if a.pinned().await.is_ok()
+        || a.pinned_part(guarded_pin, 0).await.is_ok()
+        || a.source_guarded_part(guarded_pin, 0).await.is_ok()
+    {
+        return Err("missing pin proof bypassed source fencing".into());
+    }
+    a.transaction(None, true, move |_, _, _, _, _, store| {
+        put(store, "v3:pin-source-proof", &fresh.encode())
+    })
+    .await?;
+    if a.source_guarded_part(guarded_pin, 0).await? != b"fresh page" {
+        return Err("guarded page mismatch".into());
+    }
+    // A subsequent old-schema write invalidates the new head for guarded readers.
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "active", b"later legacy write")
+    })
+    .await?;
+    if a.source_guarded_head().await.is_ok() || a.source_guarded_part(guarded_pin, 0).await.is_ok()
+    {
+        return Err("guarded read survived later legacy write".into());
+    }
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "active", b"legacy-v2-first")
+    })
+    .await?;
+    if a.source_guarded_head().await?.id != next.id {
+        return Err("restored matching source rejected".into());
+    }
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "reset_epoch", &2u64.to_le_bytes())
+    })
+    .await?;
+    if a.source_guarded_head().await.is_ok() || a.source_guarded_part(guarded_pin, 0).await.is_ok()
+    {
+        return Err("guarded read survived source reset".into());
+    }
+    b.transaction(None, false, |_, _, _, _, _, store| {
+        put(store, "reset_epoch", &1u64.to_le_bytes())
+    })
+    .await?;
+    if a.source_guarded_part(guarded_pin, 0).await? != b"fresh page" {
+        return Err("fresh source did not publish".into());
+    }
+    let recovered = b.recover_source_pin().await?.ok_or("lost guarded pin")?;
+    if recovered != guarded_pin || b.source_guarded_part(recovered, 0).await? != b"fresh page" {
+        return Err("guarded pin recovery failed".into());
+    }
+    b.unpin(recovered).await?;
+    if a.read_source().await?.0 != legacy {
+        return Err("publication changed legacy source".into());
+    }
+    Ok(())
+}
+
+/// Browser-only isolated transaction regression.
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn browser_proof(name: String) -> Result<String, JsValue> {
+    async fn collect_all(db: &ChunkStore, epoch: u64, limit: usize) -> Result<usize, String> {
+        let mut cursor = None;
+        let mut total = 0;
+        for _ in 0..100 {
+            let (deleted, next) = db.collect_page(epoch, cursor, limit).await?;
+            if deleted > limit {
+                return Err("collection exceeded page limit".into());
+            }
+            total += deleted;
+            cursor = next;
+            if cursor.is_none() {
+                return Ok(total);
+            }
+        }
+        Err("collection did not finish".into())
+    }
+    async fn run(name: &str) -> Result<String, String> {
+        let locks_supported = crate::coordination::proof().await?;
+        atomic_cleanup::proof(&format!("{name}.cleanup")).await?;
+        same_store_fence(name).await?;
+        legacy_initializer_proof(name).await?;
+        unified_legacy_store_proof(name).await?;
+        let a = ChunkStore::open(name).await?;
+        let b = ChunkStore::open(name).await?;
+        a.reset_fixture().await?;
+        let session_epoch = a.epoch().await?;
+        let first = a.begin(session_epoch, 17, b"crab".to_vec()).await?;
+        a.stage(first, vec![b"sand".to_vec(), b"mud".to_vec()])
+            .await?;
+        if a.publish(first, 3).await.is_ok() {
+            return Err("incomplete publish accepted".into());
+        }
+        a.publish(first, 2).await?;
+        // A real asynchronous IndexedDB request error aborts its transaction;
+        // it must not delete or replace the existing head. This is not a
+        // simulation of browser quota exhaustion.
+        let request_error = a
+            .transaction(None, false, move |_, _, _, _, _, store| {
+                store
+                    .delete(&JsValue::from_str(&format!("v3:chunk:{}:0", first.id)))
+                    .map_err(|e| err("queue delete", e))?;
+                store
+                    .add_with_key(
+                        Uint8Array::from([1u8].as_slice()).as_ref(),
+                        &JsValue::from_str("v3:head"),
+                    )
+                    .map_err(|e| err("queue duplicate add", e))?;
+                Ok(())
+            })
+            .await;
+        if request_error.is_ok()
+            || b.head().await?.ok_or("lost head after request error")?.id != first.id
+            || b.part(first, 0).await? != b"sand"
+        {
+            return Err("request error failed to roll back".into());
+        }
+        // Missing or corrupt staged rows must never replace the good head.
+        for missing in [true, false] {
+            let broken = a.begin(session_epoch, 18, b"broken".to_vec()).await?;
+            a.stage(broken, vec![b"partial".to_vec()]).await?;
+            a.transaction(None, false, move |_, _, _, _, _, store| {
+                let key = format!("v3:chunk:{}:0", broken.id);
+                if missing {
+                    store
+                        .delete(&JsValue::from_str(&key))
+                        .map_err(|e| err("delete staged part", e))?;
+                    Ok(())
+                } else {
+                    put(store, &key, b"damaged")
+                }
+            })
+            .await?;
+            if a.publish(broken, 1).await.is_ok()
+                || b.head().await?.ok_or("lost good head")?.id != first.id
+                || b.part(first, 0).await? != b"sand"
+            {
+                return Err("broken stage replaced the good head".into());
+            }
+            b.abandon(broken).await?;
+            let epoch = b.epoch().await?;
+            collect_all(&b, epoch, 2).await?;
+            if b.part(first, 0).await? != b"sand" {
+                return Err("collection lost good head".into());
+            }
+        }
+        // The persistent head ID distinguishes a damaged missing record from
+        // an empty/reset database, so collection must fail closed.
+        let good_head = a.head().await?.ok_or("missing good head")?;
+        a.transaction(None, false, |_, _, _, _, _, store| {
+            store
+                .delete(&JsValue::from_str("v3:head"))
+                .map_err(|e| err("delete head", e))?;
+            Ok(())
+        })
+        .await?;
+        let epoch_before_loss = good_head.epoch;
+        if a.collect_page(epoch_before_loss, None, 1).await.is_ok()
+            || a.begin(session_epoch, 99, b"bad".to_vec()).await.is_ok()
+        {
+            return Err("missing published head was treated as empty".into());
+        }
+        a.transaction(None, true, move |_, _, _, _, _, store| {
+            put(store, "v3:head", &good_head.encode().ok_or("bad head")?)
+        })
+        .await?;
+        if a.part(first, 0).await? != b"sand" {
+            return Err("missing-head recovery lost data".into());
+        }
+        let lost_stage = a.begin(session_epoch, 18, b"staged".to_vec()).await?;
+        a.stage(lost_stage, vec![b"recoverable".to_vec()]).await?;
+        let saved_stage = a
+            .transaction(None, false, |_, stage, _, _, _, _| {
+                stage.ok_or("missing stage".into())
+            })
+            .await?;
+        a.transaction(None, false, |_, _, _, _, _, store| {
+            store
+                .delete(&JsValue::from_str("v3:stage"))
+                .map_err(|e| err("delete stage", e))?;
+            Ok(())
+        })
+        .await?;
+        if a.collect_page(session_epoch, None, 1).await.is_ok()
+            || a.begin(session_epoch, 99, b"bad".to_vec()).await.is_ok()
+        {
+            return Err("missing staged ownership was treated as empty".into());
+        }
+        a.transaction(None, true, move |_, _, _, _, _, store| {
+            put(store, "v3:stage", &saved_stage.encode().ok_or("bad stage")?)
+        })
+        .await?;
+        b.abandon(lost_stage).await?;
+        collect_all(&b, session_epoch, 2).await?;
+        let stale_pin = b.pin().await?;
+        b.unpin(stale_pin).await?;
+        let pin = b.pin().await?;
+        if b.unpin(stale_pin).await.is_ok() {
+            return Err("stale pin released a new reader".into());
+        }
+        let saved_pin = a
+            .transaction(None, false, |_, _, _, pin, _, _| {
+                pin.ok_or("missing pin".into())
+            })
+            .await?;
+        a.transaction(None, false, |_, _, _, _, _, store| {
+            store
+                .delete(&JsValue::from_str("v3:pin"))
+                .map_err(|e| err("delete pin", e))?;
+            Ok(())
+        })
+        .await?;
+        if a.collect_page(session_epoch, None, 1).await.is_ok() {
+            return Err("missing pin ownership was treated as empty".into());
+        }
+        a.transaction(None, true, move |_, _, _, _, _, store| {
+            put(store, "v3:pin", &saved_pin.encode().ok_or("bad pin")?)
+        })
+        .await?;
+        if b.pinned_part(pin, 0).await? != b"sand" {
+            return Err("pin recovery lost data".into());
+        }
+        let abandoned;
+        {
+            let crashed = ChunkStore::open(name).await?;
+            abandoned = crashed.begin(session_epoch, 18, b"later".to_vec()).await?;
+            if crashed
+                .stage(abandoned, vec![vec![0; MAX_PART + 1]])
+                .await
+                .is_ok()
+                || crashed
+                    .stage(abandoned, vec![vec![]; MAX_BATCH + 1])
+                    .await
+                    .is_ok()
+            {
+                return Err("oversized batch accepted".into());
+            }
+            crashed
+                .stage(
+                    abandoned,
+                    vec![
+                        b"orphan1".to_vec(),
+                        b"orphan2".to_vec(),
+                        b"orphan3".to_vec(),
+                    ],
+                )
+                .await?;
+        }
+        if b.pending().await? != Some(abandoned) || b.head().await?.ok_or("lost head")?.tick != 17 {
+            return Err("failed crash recovery discovery".into());
+        }
+        b.abandon(abandoned).await?;
+        if a.publish(abandoned, 3).await.is_ok() {
+            return Err("abandoned writer published".into());
+        }
+        let second = a.begin(session_epoch, 19, b"new".to_vec()).await?;
+        a.stage(second, vec![b"fresh".to_vec()]).await?;
+        a.publish(second, 1).await?;
+        let active_stage = a.begin(session_epoch, 20, b"active".to_vec()).await?;
+        a.stage(active_stage, vec![b"still-staged".to_vec()])
+            .await?;
+        let epoch = a.epoch().await?;
+        if a.collect_page(epoch, None, 33).await.is_ok() {
+            return Err("oversized collection page accepted".into());
+        }
+        if collect_all(&a, epoch, 1).await? != 3
+            || b.pinned_part(pin, 0).await? != b"sand"
+            || a.part(second, 0).await? != b"fresh"
+        {
+            return Err("pinned or live parts were lost during collection".into());
+        }
+        let stage_part = a
+            .transaction(
+                Some(format!("v3:chunk:{}:0", active_stage.id)),
+                false,
+                |_, _, _, _, part, _| part.ok_or("missing staged part".into()),
+            )
+            .await?;
+        if stage_part != b"still-staged" {
+            return Err("active stage was collected".into());
+        }
+        a.abandon(active_stage).await?;
+        // A transaction abort after issuing delete must not delete live data.
+        let aborted = a
+            .transaction(
+                None,
+                false,
+                move |_, _, _, _, _, store| -> Result<(), String> {
+                    store
+                        .delete(&JsValue::from_str(&format!("v3:chunk:{}:0", pin.id)))
+                        .map_err(|e| err("injected delete", e))?;
+                    Err("forced abort".into())
+                },
+            )
+            .await;
+        if aborted.is_ok() || b.pinned_part(pin, 0).await? != b"sand" {
+            return Err("aborted deletion committed".into());
+        }
+        b.unpin(pin).await?;
+        if collect_all(&a, epoch, 1).await? != 3
+            || collect_all(&a, epoch, 2).await? != 0
+            || a.part(second, 0).await? != b"fresh"
+        {
+            return Err("collection or idempotence failed".into());
+        }
+        // Malformed head prevents collection rather than erasing recoverable rows.
+        let saved_head = a.head().await?.ok_or("missing head")?;
+        let mut damaged_head = saved_head.encode().ok_or("bad saved head")?;
+        damaged_head[24] ^= 1;
+        a.transaction(None, false, move |_, _, _, _, _, store| {
+            put(store, "v3:head", &damaged_head)
+        })
+        .await?;
+        if a.collect_page(epoch, None, 2).await.is_ok() {
+            return Err("collector accepted bad manifest".into());
+        }
+        a.transaction(None, true, move |_, _, _, _, _, store| {
+            put(
+                store,
+                "v3:head",
+                &saved_head.encode().ok_or("bad saved head")?,
+            )
+        })
+        .await?;
+        if a.part(second, 0).await? != b"fresh" {
+            return Err("head recovery lost part".into());
+        }
+        // Corruption and a missing part must never be returned as valid.
+        a.transaction(None, false, move |_, _, _, _, _, store| {
+            put(store, &format!("v3:chunk:{}:0", second.id), b"bad")
+        })
+        .await?;
+        if b.part(second, 0).await.is_ok() {
+            return Err("corrupt part accepted".into());
+        }
+        a.transaction(None, false, move |_, _, _, _, _, store| {
+            store
+                .delete(&JsValue::from_str(&format!("v3:chunk:{}:0", second.id)))
+                .map_err(|e| err("delete part", e))?;
+            Ok(())
+        })
+        .await?;
+        if b.part(second, 0).await.is_ok() {
+            return Err("missing part accepted".into());
+        }
+        let reset_pin = b.pin().await?;
+        let pending = a.begin(session_epoch, 20, b"pending".to_vec()).await?;
+        let (stage, reset) = futures_util::join!(
+            a.stage(pending, vec![b"pending".to_vec()]),
+            b.reset_fixture()
+        );
+        stage?;
+        reset?;
+        if a.publish(pending, 1).await.is_ok()
+            || a.head().await?.is_some()
+            || a.collect_page(epoch, None, 1).await.is_ok()
+        {
+            return Err("reset failed to fence old handles".into());
+        }
+        if a.begin(session_epoch, 22, b"old session".to_vec())
+            .await
+            .is_ok()
+        {
+            return Err("old tab began after reset".into());
+        }
+        let next = b.begin(b.epoch().await?, 21, b"new".to_vec()).await?;
+        b.stage(next, vec![b"fresh".to_vec()]).await?;
+        b.publish(next, 1).await?;
+        if a.collect_page(epoch, None, 1).await.is_ok()
+            || a.part(next, 0).await? != b"fresh"
+            || a.pinned_part(reset_pin, 0).await.is_ok()
+        {
+            return Err("bad post-reset state".into());
+        }
+        a.reset_fixture().await?;
+        let lazy = lazy_proof(&a).await?;
+        Ok(format!(
+            "PASS: bounded stage, abort, head preservation, part integrity, pinned pagination, recovery and reset fencing; locks={}; {lazy}",
+            if locks_supported {
+                "tested"
+            } else {
+                "unsupported"
+            }
+        ))
+    }
+    run(&name).await.map_err(|e| JsValue::from_str(&e))
+}

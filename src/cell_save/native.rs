@@ -1,0 +1,729 @@
+//! Desktop cellular saves. Encoding and disk writes run off the render thread.
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread::JoinHandle;
+
+use bevy::prelude::*;
+use crabsim::{Sim, underwater::World};
+
+use super::{MAX_RAW, ReplayStart, Restored};
+use crate::player::{GameSet, LocalPlayer, PlayerId};
+use crate::save::SaveData;
+
+const FILE: &str = "crabscape-cells.save";
+/// Capture during movement too: waiting until the crab rests can otherwise
+/// leave an arbitrarily long swimming session unsaved.
+const SAVE_EVERY: f32 = 5.0;
+static GATE: Mutex<()> = Mutex::new(());
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+static WIPE_FAILED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Resource, Default)]
+pub struct Storage {
+    disabled: bool,
+    warned: bool,
+    write_failed: bool,
+    elapsed: f32,
+    generation: u64,
+    worker: Option<JoinHandle<Result<(), String>>>,
+    replay: ReplayStart,
+}
+
+impl Storage {
+    pub fn disable(&mut self) {
+        self.disabled = true;
+    }
+
+    pub fn warning(&self) -> Option<&'static str> {
+        if self.disabled {
+            Some("Cellular save unavailable. Your previous save is kept; autosave is off.")
+        } else if self.write_failed {
+            Some("Autosave failed. Your previous cellular save is kept.")
+        } else {
+            None
+        }
+    }
+
+    pub fn take_replay_start(&mut self) -> ReplayStart {
+        std::mem::take(&mut self.replay)
+    }
+}
+
+pub fn install(app: &mut App) {
+    app.init_resource::<Storage>()
+        .add_systems(Update, save_periodically.in_set(GameSet::Present));
+}
+
+/// Refuse to write over a save that could not be read or restored. A fresh
+/// start explicitly clears this guard only after the old save is removed.
+pub fn load(sim: &mut Sim, storage: &mut Storage) -> Option<SaveData> {
+    load_path(sim, storage, Path::new(FILE))
+}
+
+fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveData> {
+    storage.generation = GENERATION.load(Ordering::SeqCst);
+    match read(path) {
+        Ok(None) => None,
+        Ok(Some(saved)) => {
+            if !super::player_fits_world(sim, &saved.player) {
+                storage.disabled = true;
+                warn!("cellular save has incompatible player data; keeping the old file unchanged");
+                return None;
+            }
+            if !super::install_terrain_and_validate(
+                sim,
+                saved.terrain,
+                saved.sim_tick,
+                &saved.player,
+            ) {
+                storage.disabled = true;
+                warn!("cellular save could not be safely restored; keeping the old file unchanged");
+                return None;
+            }
+            storage.replay = saved.replay;
+            Some(saved.player)
+        }
+        Err(e) => {
+            storage.disabled = true;
+            warn!("could not read the cellular save; keeping the old file unchanged: {e}");
+            None
+        }
+    }
+}
+
+fn read(path: &Path) -> Result<Option<Restored>, String> {
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let mut bytes = Vec::new();
+    file.take((MAX_RAW + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_RAW {
+        return Err("save is too large".into());
+    }
+    super::decode(&bytes)
+        .map(Some)
+        .map_err(|e| format!("{e:?}"))
+}
+
+fn queue(
+    path: PathBuf,
+    player: SaveData,
+    world: World,
+    tick: u64,
+) -> JoinHandle<Result<(), String>> {
+    let generation = GENERATION.load(Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let bytes = encode_snapshot(&player, &world, tick).map_err(|e| format!("{e:?}"))?;
+        let _guard = GATE.lock().map_err(|e| e.to_string())?;
+        if GENERATION.load(Ordering::SeqCst) != generation {
+            return Ok(());
+        }
+        super::write_atomic(&path, &bytes).map_err(|e| e.to_string())
+    })
+}
+
+fn encode_snapshot(player: &SaveData, world: &World, tick: u64) -> Result<Vec<u8>, super::Error> {
+    if tick == 0 {
+        super::encode(player, world, tick)
+    } else {
+        super::v2::prepare(player, world, tick).and_then(super::v2::PreparedSave::encode)
+    }
+}
+
+/// Invalidate pending background writes before removing the old save.
+pub fn wipe() -> Result<(), String> {
+    wipe_path(Path::new(FILE))
+}
+
+fn wipe_path(path: &Path) -> Result<(), String> {
+    let _guard = GATE.lock().map_err(|e| e.to_string())?;
+    GENERATION.fetch_add(1, Ordering::SeqCst);
+    let result = match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    };
+    WIPE_FAILED.store(result.is_err(), Ordering::SeqCst);
+    result
+}
+
+fn save_periodically(
+    time: Res<Time>,
+    sim: Res<Sim>,
+    crab: Single<(&crabsim::Mover, &PlayerId), With<LocalPlayer>>,
+    mut storage: ResMut<Storage>,
+) {
+    if !crate::cellular::enabled() {
+        return;
+    }
+    let (mover, id) = *crab;
+    update_storage(
+        &mut storage,
+        time.delta_secs(),
+        &sim,
+        mover,
+        *id,
+        Path::new(FILE),
+    );
+}
+
+/// Schedules at most one background snapshot at a time. The caller supplies
+/// the exact simulated position and the matching terrain from the same frame.
+fn update_storage(
+    storage: &mut Storage,
+    elapsed: f32,
+    sim: &Sim,
+    mover: &crabsim::Mover,
+    id: PlayerId,
+    path: &Path,
+) {
+    let generation = GENERATION.load(Ordering::SeqCst);
+    if storage.generation != generation {
+        storage.generation = generation;
+        storage.disabled = WIPE_FAILED.load(Ordering::SeqCst);
+        storage.write_failed = false;
+        storage.worker = None;
+        storage.elapsed = 0.0;
+    }
+    if storage.disabled {
+        return;
+    }
+    if storage.worker.as_ref().is_some_and(JoinHandle::is_finished) {
+        let result = storage
+            .worker
+            .take()
+            .expect("checked worker")
+            .join()
+            .unwrap_or_else(|_| Err("save worker stopped unexpectedly".into()));
+        storage.write_failed = result.is_err();
+        if let Err(e) = result
+            && !storage.warned
+        {
+            warn!("could not save the cellular world; the previous save was kept: {e}");
+            storage.warned = true;
+        }
+    }
+    storage.elapsed += elapsed;
+    if storage.elapsed < SAVE_EVERY
+        || storage.worker.is_some()
+        || !crate::player::valid_saved_spot(mover.pos, mover.grown(&sim.tuning), sim)
+    {
+        return;
+    }
+    let (Some(world), Some(mut player)) = (&sim.level.cells, crate::save::snapshot(sim, id)) else {
+        return;
+    };
+    // Unlike old saves, a cellular position can be inside a narrow dug space.
+    player.x = mover.pos.x;
+    player.y = mover.pos.y;
+    storage.elapsed = 0.0;
+    storage.worker = Some(queue(
+        path.to_owned(),
+        player,
+        world.clone(),
+        sim.tick_count(),
+    ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crabsim::{Level, Tuning};
+
+    // These cases share the production reset generation and must not reset
+    // each other's in-flight writes while the test suite runs in parallel.
+    static TEST_IO: Mutex<()> = Mutex::new(());
+
+    fn path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("crab-cell-native-{}-{name}", std::process::id()))
+    }
+
+    fn sim() -> Sim {
+        Sim::new(Tuning::default(), Level::test_level())
+    }
+
+    #[test]
+    fn load_restores_terrain_player_and_simulation_clock() {
+        let path = path("load");
+        let mut original = sim();
+        original.enable_underwater_cells();
+        let terrain = original.level.cells.as_mut().unwrap();
+        let level = Level::test_level();
+        assert!(terrain.follow_player(&level, 4400.0, -700.0));
+        terrain.step(0.35);
+        let y = (-1200..0)
+            .step_by(10)
+            .map(|y| y as f32)
+            .find(|&y| {
+                crate::player::valid_saved_spot(bevy::math::Vec2::new(4400.25, y), 1.0, &original)
+            })
+            .expect("fixture has a safe saved position");
+        let terrain = original.level.cells.as_ref().unwrap();
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 4400.25,
+            y,
+            memory: None,
+            progress: None,
+        };
+        let bytes = super::super::encode(&player, terrain, 17).unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut state = Storage::default();
+        assert_eq!(load_path(&mut restored, &mut state, &path), Some(player));
+        assert_eq!(restored.tick_count(), 17);
+        assert_eq!(
+            restored.level.cells.as_ref().unwrap().checkpoint(),
+            terrain.checkpoint()
+        );
+        assert!(!state.disabled);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn saved_open_passages_load_and_closed_passages_roll_back() {
+        for (name, x, y, rock) in [
+            ("rock", 5042.0, -690.0, true),
+            ("net", 4308.0, -4360.0, false),
+        ] {
+            for opened in [false, true] {
+                let path = path(&format!("passage-{name}-{opened}"));
+                let level = Level::test_level();
+                let mut terrain = World::from_level_settled(&level);
+                assert!(terrain.follow_player(&level, x, y));
+                let original = sim();
+                let mut progress = original.fresh_progress();
+                if rock {
+                    progress.rocks_cracked[0] = opened;
+                } else {
+                    progress.nets_cut[0] = opened;
+                }
+                let player = SaveData {
+                    version: crate::save::SAVE_VERSION,
+                    x,
+                    y,
+                    memory: None,
+                    progress: Some(progress),
+                };
+                let bytes = super::super::encode(&player, &terrain, 17).unwrap();
+                super::super::write_atomic(&path, &bytes).unwrap();
+                let mut restored = sim();
+                let mut storage = Storage::default();
+                let result = load_path(&mut restored, &mut storage, &path);
+                if opened {
+                    assert_eq!(result, Some(player), "opened {name} should load");
+                    assert!(!storage.disabled);
+                } else {
+                    assert!(result.is_none(), "closed {name} must block load");
+                    assert!(storage.disabled);
+                    assert!(
+                        restored.level.cells.is_none(),
+                        "failed load must roll back terrain"
+                    );
+                    assert_eq!(restored.tick_count(), 0);
+                }
+                assert_eq!(std::fs::read(&path).unwrap(), bytes);
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn damaged_save_is_never_silently_overwritten() {
+        let path = path("damaged");
+        std::fs::write(&path, b"not a valid cellular save").unwrap();
+        let mut state = Storage::default();
+        assert!(load_path(&mut sim(), &mut state, &path).is_none());
+        assert!(state.disabled);
+        assert!(state.warning().is_some());
+        assert_eq!(std::fs::read(&path).unwrap(), b"not a valid cellular save");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn incompatible_memory_keeps_the_existing_save_and_terrain_untouched() {
+        let path = path("bad-memory");
+        let original = sim();
+        let mut memory = crabsim::Memory::new(&original.level, &original.tuning.memory).to_save();
+        memory.cols += 1;
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: Some(memory),
+            progress: None,
+        };
+        let terrain = World::from_level_settled(&original.level);
+        let bytes = super::super::encode(&player, &terrain, 17).unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut storage = Storage::default();
+        assert!(load_path(&mut restored, &mut storage, &path).is_none());
+        assert!(storage.disabled, "autosaving must not replace the original");
+        assert_eq!(restored.tick_count(), 0);
+        assert!(restored.level.cells.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn incompatible_progress_keeps_the_existing_save_and_terrain_untouched() {
+        let path = path("bad-progress");
+        let original = sim();
+        let mut progress = original.fresh_progress();
+        // A shortened level would otherwise silently discard every collected
+        // egg when restore_progress finds this list too long.
+        progress.eaten.push(true);
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        let terrain = World::from_level_settled(&original.level);
+        let bytes = super::super::encode(&player, &terrain, 17).unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut storage = Storage::default();
+        assert!(load_path(&mut restored, &mut storage, &path).is_none());
+        assert!(storage.disabled, "autosaving must not replace the original");
+        assert_eq!(restored.tick_count(), 0);
+        assert!(restored.level.cells.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn malformed_numeric_progress_preserves_the_original_save() {
+        let path = path("bad-numeric-progress");
+        let original = sim();
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(original.fresh_progress()),
+        };
+        let terrain = World::from_level_settled(&original.level);
+        let (header, raw) = super::super::prepare(&player, &terrain, 17).unwrap();
+        let old_len = header.player_len as usize;
+        let json = std::str::from_utf8(&raw[..old_len]).unwrap();
+        let modified = json.replace("\"climb_xp\":0.0", "\"climb_xp\":1e99");
+        assert_ne!(modified, json);
+        let mut payload = modified.as_bytes().to_vec();
+        payload.extend_from_slice(&raw[old_len..]);
+        let player_len = modified.len() as u32;
+        let raw_len = payload.len() as u32;
+        let header = super::super::PreparedHeader {
+            tick: 17,
+            player_len,
+            raw_len,
+            checksum: super::super::checksum(17, player_len, raw_len, &payload),
+        };
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&payload, 1);
+        let bytes = header.finish(&packed).unwrap();
+        assert!(
+            !super::super::decode(&bytes)
+                .unwrap()
+                .player
+                .progress
+                .unwrap()
+                .climb_xp
+                .is_finite()
+        );
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut storage = Storage::default();
+        assert!(load_path(&mut restored, &mut storage, &path).is_none());
+        assert!(storage.disabled);
+        assert!(restored.level.cells.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn overflowing_v2_upgrades_preserve_the_original_save() {
+        let path = path("bad-v2-upgrades");
+        let original = sim();
+        let mut progress = original.fresh_progress();
+        progress.upgrades = u32::MAX;
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        let terrain = World::from_level_settled(&original.level);
+        let bytes = super::super::v2::prepare(&player, &terrain, 17)
+            .unwrap()
+            .encode()
+            .unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut storage = Storage::default();
+        assert!(load_path(&mut restored, &mut storage, &path).is_none());
+        assert!(storage.disabled);
+        assert!(restored.level.cells.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn numeric_progress_validation_keeps_cross_level_legacy_progress() {
+        let sim = sim();
+        let mut progress = sim.fresh_progress();
+        // Progress may come from a different world, whose eggs no longer
+        // correspond to the current world's saved flags.
+        progress.upgrades = progress.eaten.len() as u32 + 5;
+        progress.eaten.clear();
+        progress.climb_xp = -0.5;
+        let mut player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        assert!(super::super::player_fits_world(&sim, &player));
+        let progress = player.progress.as_mut().unwrap();
+        progress.upgrades = u32::MAX;
+        assert!(!super::super::player_fits_world(&sim, &player));
+        for set_bad in [
+            |p: &mut crabsim::Progress| p.climb_xp = f32::INFINITY,
+            |p: &mut crabsim::Progress| p.swim_xp = f32::INFINITY,
+            |p: &mut crabsim::Progress| p.fight_xp = f32::NEG_INFINITY,
+        ] {
+            let progress = player.progress.as_mut().unwrap();
+            progress.upgrades = 0;
+            progress.climb_xp = 0.0;
+            progress.swim_xp = 0.0;
+            progress.fight_xp = 0.0;
+            set_bad(progress);
+            assert!(!super::super::player_fits_world(&sim, &player));
+        }
+    }
+
+    #[test]
+    fn older_shorter_progress_lists_are_still_compatible() {
+        let sim = sim();
+        let mut progress = sim.fresh_progress();
+        progress.eaten.clear();
+        progress.rocks_cracked.clear();
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        assert!(super::super::player_fits_world(&sim, &player));
+    }
+
+    #[test]
+    fn each_progress_component_that_restore_would_drop_is_rejected() {
+        let sim = sim();
+        let base = sim.fresh_progress();
+        let cases: Vec<fn(&mut crabsim::Progress)> = vec![
+            |p| p.eaten.push(true),
+            |p| p.cultures_taken.push(true),
+            |p| p.clues_found.push(true),
+            |p| p.teeth_taken.push(true),
+            |p| p.nets_cut.push(true),
+            |p| p.rocks_cracked.push(true),
+            |p| p.clams.push(1),
+            |p| p.grit_taken.push(true),
+            |p| p.sponges_taken.push(true),
+            |p| p.wakes_at = Some(usize::MAX),
+            |p| p.larder = u32::MAX,
+        ];
+        for invalidate in cases {
+            let mut progress = base.clone();
+            invalidate(&mut progress);
+            let player = SaveData {
+                version: crate::save::SAVE_VERSION,
+                x: 160.0,
+                y: 0.0,
+                memory: None,
+                progress: Some(progress),
+            };
+            assert!(!super::super::player_fits_world(&sim, &player));
+        }
+    }
+
+    #[test]
+    fn absent_save_starts_fresh_without_disabling_saving() {
+        let path = path("absent");
+        let _ = std::fs::remove_file(&path);
+        let mut state = Storage::default();
+        assert!(load_path(&mut sim(), &mut state, &path).is_none());
+        assert!(!state.disabled);
+        assert!(state.warning().is_none());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn v2_load_passes_verified_replay_token_to_startup() {
+        let path = path("v2-token");
+        let mut before = sim();
+        before.enable_underwater_cells();
+        let terrain = before.level.cells.as_ref().unwrap();
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 400.0,
+            y: 0.0,
+            memory: None,
+            progress: None,
+        };
+        let bytes = super::super::v2::prepare(&player, terrain, 17)
+            .unwrap()
+            .encode()
+            .unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut after = sim();
+        let mut state = Storage::default();
+        assert!(load_path(&mut after, &mut state, &path).is_some());
+        after.add_crab(
+            crabsim::PlayerId(0),
+            bevy::math::Vec2::new(player.x, player.y),
+        );
+        let ReplayStart::Verified(token) = state.take_replay_start() else {
+            panic!("verified token lost during startup")
+        };
+        assert!(after.start_recording_with_verified_terrain(&token));
+        // The background writer's exact encoder must keep the v2 format;
+        // otherwise the next load silently loses the fast replay token.
+        let next = encode_snapshot(&player, after.level.cells.as_ref().unwrap(), 18).unwrap();
+        assert!(next.starts_with(b"CRABCEL2"));
+        super::super::write_atomic(&path, &next).unwrap();
+        let mut reloaded = sim();
+        let mut next_state = Storage::default();
+        assert!(load_path(&mut reloaded, &mut next_state, &path).is_some());
+        assert_eq!(reloaded.tick_count(), 18);
+        assert!(matches!(
+            next_state.take_replay_start(),
+            ReplayStart::Verified(_)
+        ));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn unreadable_save_disables_writes() {
+        let path = path("unreadable");
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(path.join("keep"), b"untouched").unwrap();
+        let mut state = Storage::default();
+        assert!(load_path(&mut sim(), &mut state, &path).is_none());
+        assert!(state.disabled);
+        assert_eq!(std::fs::read(path.join("keep")).unwrap(), b"untouched");
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn reset_cannot_be_undone_by_an_in_flight_save() {
+        let _serial = TEST_IO.lock().unwrap();
+        let path = path("reset");
+        std::fs::write(&path, b"old save").unwrap();
+        let mut world = sim();
+        world.enable_underwater_cells();
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: None,
+        };
+        let worker = queue(path.clone(), player, world.level.cells.take().unwrap(), 0);
+        wipe_path(&path).unwrap();
+        worker.join().unwrap().unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn cellular_reset_leaves_the_normal_save_untouched() {
+        let _serial = TEST_IO.lock().unwrap();
+        let path = path("separate");
+        std::fs::create_dir_all(&path).unwrap();
+        let cellular = path.join("cells");
+        let normal = path.join("normal");
+        std::fs::write(&cellular, b"cellular").unwrap();
+        std::fs::write(&normal, b"normal").unwrap();
+        wipe_path(&cellular).unwrap();
+        assert!(!cellular.exists());
+        assert_eq!(std::fs::read(&normal).unwrap(), b"normal");
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn prolonged_swimming_saves_current_position_and_reset_invalidates_a_moving_save() {
+        let _serial = TEST_IO.lock().unwrap();
+        let path = path("swimming");
+        let _ = std::fs::remove_file(&path);
+        let mut sim = sim();
+        sim.enable_underwater_cells();
+        let id = PlayerId(0);
+        sim.add_crab(id, Vec2::new(400.0, 300.0));
+        let mut storage = Storage {
+            generation: GENERATION.load(Ordering::SeqCst),
+            ..Storage::default()
+        };
+        for second in 1..=10 {
+            let crab = sim.crab_mut(id).unwrap();
+            crab.mover.pos = Vec2::new(400.0 + second as f32, 300.0);
+            crab.mover.vel = Vec2::new(90.0, 20.0);
+            crab.mover.grounded = false;
+            let mover = crab.mover.clone();
+            update_storage(&mut storage, 1.0, &sim, &mover, id, &path);
+            if second % 5 == 0 {
+                storage
+                    .worker
+                    .take()
+                    .expect("moving player is saved")
+                    .join()
+                    .unwrap()
+                    .unwrap();
+                let saved = read(&path).unwrap().unwrap();
+                assert_eq!(saved.player.x, mover.pos.x);
+                assert_eq!(saved.player.y, mover.pos.y);
+            } else {
+                assert!(storage.worker.is_none());
+            }
+        }
+        // A transient position that would be rejected on reload must not
+        // overwrite the last good save. As soon as it becomes safe, the
+        // pending save can proceed without waiting another five seconds.
+        let crab = sim.crab_mut(id).unwrap();
+        crab.mover.pos.x = -10.0;
+        let invalid = crab.mover.clone();
+        update_storage(&mut storage, SAVE_EVERY, &sim, &invalid, id, &path);
+        assert!(storage.worker.is_none());
+        assert_eq!(read(&path).unwrap().unwrap().player.x, 410.0);
+        let crab = sim.crab_mut(id).unwrap();
+        crab.mover.pos.x = 420.0;
+        let valid = crab.mover.clone();
+        update_storage(&mut storage, 0.0, &sim, &valid, id, &path);
+        storage
+            .worker
+            .take()
+            .expect("safe position is saved")
+            .join()
+            .unwrap()
+            .unwrap();
+        assert_eq!(read(&path).unwrap().unwrap().player.x, 420.0);
+        // A reset between capture and completion must still win, regardless
+        // of whether the background encoder has reached the file yet.
+        let mover = sim.crab(id).unwrap().mover.clone();
+        update_storage(&mut storage, SAVE_EVERY, &sim, &mover, id, &path);
+        let worker = storage.worker.take().expect("third moving snapshot");
+        wipe_path(&path).unwrap();
+        worker.join().unwrap().unwrap();
+        assert!(!path.exists());
+    }
+}

@@ -1,0 +1,560 @@
+//! Unwired experiment: freeze one terrain epoch and encode it in bounded pieces.
+//!
+//! This is not a save format or a browser loader. In particular it does not
+//! solve incremental dirty tracking, player capture, lazy reconstruction, or
+//! phone memory limits. The caller must capture player state at the same tick.
+mod restore;
+pub use restore::{
+    CaptureIndex, CaptureIndexBuilder, CellState, GuardedBuilder, GuardedError, GuardedPlayable,
+    IndexVerifier, LazyError, LazyView, LoadTicket, PageId, PagedRestore, SavedSetup,
+    VerifiedIndex,
+};
+
+use super::*;
+use serde::Serialize;
+use std::mem::size_of;
+
+const SIDE: usize = TERRAIN_CHUNK_CELLS as usize;
+const MAX_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PART_BYTES: usize = 4 * 1024 * 1024;
+// Player metadata includes the remembered map. It gets the same bounded
+// metadata-page budget as terrain metadata, rather than a tiny separate cap.
+// The full-demo-memory save regression must continue to fit this budget.
+pub const MAX_PLAYER_BYTES: usize = MAX_PART_BYTES;
+// At most about 119 MiB of sleeping cell arrays plus the active world.
+const MAX_SLEEPING_CHUNKS: usize = 1900;
+
+/// An owned, immutable point-in-time copy. Encoding later cannot observe
+/// mutations to the live world. Its pebble owner IDs refer to the exact pebble
+/// table in `metadata`, never to the live world's subsequently changed table.
+pub struct FrozenChunks {
+    checkpoint: WorldCheckpoint,
+    estimated_bytes: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CaptureError {
+    InvalidShape,
+    TooLarge,
+    Encoding,
+}
+
+#[derive(Serialize)]
+struct Metadata<'a> {
+    version: u8,
+    tick: u64,
+    origin: (i32, i32),
+    opening_edge_opened: bool,
+    pebble_seeded: &'a std::collections::BTreeSet<(i32, i32)>,
+    // Owners in active and sleeping chunks index this exact table (1-based).
+    pebbles: &'a [Pebble],
+    pebble_motion: &'a [(i8, i8, u8)],
+    sand_properties: &'a SedimentProperties,
+    mud_properties: &'a SedimentProperties,
+    crab: Option<(i32, i32)>,
+    crab_half_x: i32,
+    crab_half_y: i32,
+    tracers: &'a [(f32, f32)],
+    silt: &'a [Silt],
+    kelp: &'a [[f32; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
+    giant_kelp: &'a [f32],
+    giant_kelp_velocity: &'a [f32],
+    giant_base: f32,
+    bubbles: &'a [Bubble],
+    game: bool,
+    pending_falls: &'a [FallPacket],
+    next_fall_sequence: u64,
+    bottom_open: &'a [bool],
+}
+
+#[derive(Serialize, serde::Deserialize)]
+struct ActiveChunk {
+    version: u8,
+    x: u16,
+    y: u16,
+    width: u8,
+    height: u8,
+    cells: Vec<Cell>,
+    flow: Vec<(f32, f32)>,
+    suspended: Vec<u8>,
+    grain: Vec<u8>,
+    owner: Vec<u16>,
+}
+
+fn encode<T: Serialize>(part: &T) -> Result<Vec<u8>, CaptureError> {
+    let size = postcard::experimental::serialized_size(part).map_err(|_| CaptureError::Encoding)?;
+    if size > MAX_PART_BYTES {
+        return Err(CaptureError::TooLarge);
+    }
+    postcard::to_allocvec(part).map_err(|_| CaptureError::Encoding)
+}
+
+impl FrozenChunks {
+    /// Synchronously freeze one world. The requested budget bounds a
+    /// conservative logical heap estimate, not allocator overhead or the
+    /// original live world; do not use it as a phone memory guarantee.
+    pub fn capture(world: &World, budget: usize) -> Result<Self, CaptureError> {
+        validate_world_shape(world)?;
+        let cells = WIDTH * HEIGHT;
+        // Cloning a Vec allocates its elements; the fixed allowance covers the
+        // small vectors and tree-node metadata in this experimental estimate.
+        let active = cells
+            * (size_of::<Cell>()
+                + size_of::<(f32, f32)>()
+                + 2 * size_of::<u8>()
+                + size_of::<u16>());
+        let sleeping =
+            world.sleeping.len() * (SIDE * SIDE * size_of::<Option<SleepingCell>>() + 256);
+        let misc = world.pebbles.len() * (size_of::<Pebble>() + size_of::<(i8, i8, u8)>())
+            + world.pending_falls.len() * size_of::<FallPacket>()
+            + world.tracers.len() * size_of::<(f32, f32)>()
+            + world.silt.len() * size_of::<Silt>()
+            + world.bubbles.len() * size_of::<Bubble>()
+            + world.pebble_seeded.len() * 256
+            + size_of::<World>()
+            + 65_536;
+        let estimated_bytes = active + sleeping + misc;
+        if estimated_bytes > budget.min(MAX_CAPTURE_BYTES) {
+            return Err(CaptureError::TooLarge);
+        }
+        Ok(Self {
+            checkpoint: world.checkpoint(),
+            estimated_bytes,
+        })
+    }
+
+    /// Capture an epoch while sharing sleeping buffers until they are changed.
+    /// The estimate excludes the live world, later writes and storage copies.
+    pub fn capture_cow(world: &World) -> Result<Self, CaptureError> {
+        validate_world_shape(world)?;
+        let cells = WIDTH * HEIGHT;
+        let estimated_bytes = cells
+            * (size_of::<Cell>()
+                + size_of::<(f32, f32)>()
+                + 2 * size_of::<u8>()
+                + size_of::<u16>())
+            + world.sleeping.len() * 256
+            + world.pebbles.len() * (size_of::<Pebble>() + size_of::<(i8, i8, u8)>())
+            + world.pending_falls.len() * size_of::<FallPacket>()
+            + world.tracers.len() * size_of::<(f32, f32)>()
+            + world.silt.len() * size_of::<Silt>()
+            + world.bubbles.len() * size_of::<Bubble>()
+            + world.pebble_seeded.len() * 256
+            + size_of::<World>()
+            + 65_536;
+        Ok(Self {
+            checkpoint: world.checkpoint(),
+            estimated_bytes,
+        })
+    }
+
+    pub fn estimated_bytes(&self) -> usize {
+        self.estimated_bytes
+    }
+    pub fn tick(&self) -> u64 {
+        self.checkpoint.world.tick
+    }
+    pub fn active_dimensions(&self) -> (usize, usize) {
+        (WIDTH.div_ceil(SIDE), HEIGHT.div_ceil(SIDE))
+    }
+    pub fn sleeping_ids(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.checkpoint.sleeping.keys().copied()
+    }
+
+    pub fn metadata(&self) -> Result<Vec<u8>, CaptureError> {
+        let c = &self.checkpoint;
+        encode_metadata(
+            &c.world,
+            c.origin,
+            c.opening_edge_opened,
+            &c.pebble_seeded,
+            &c.pending_falls,
+            c.next_fall_sequence,
+            &c.bottom_open,
+        )
+    }
+    pub fn active(&self, x: usize, y: usize) -> Result<Vec<u8>, CaptureError> {
+        encode_active(&self.checkpoint.world, x, y)
+    }
+    pub fn sleeping(&self, id: (i32, i32)) -> Result<Vec<u8>, CaptureError> {
+        let chunk = self
+            .checkpoint
+            .sleeping
+            .get(&id)
+            .ok_or(CaptureError::InvalidShape)?;
+        encode(&(1u8, id, chunk))
+    }
+}
+
+/// Immutable view for an owned, paused world. The borrow prevents mutation of
+/// this world while pages are encoded or staged, without cloning its terrain.
+/// It does not make the operation nonblocking or bound the original world,
+/// decoder, allocator, IndexedDB copies, or metadata/index memory.
+///
+/// ```compile_fail
+/// use crabsim::underwater::{World, frozen_chunks::PausedChunks};
+/// let mut world = World::new();
+/// let snapshot = PausedChunks::new(&world).unwrap();
+/// world.step(0.35);
+/// let _ = snapshot.metadata();
+/// ```
+pub struct PausedChunks<'a> {
+    world: &'a World,
+}
+impl<'a> PausedChunks<'a> {
+    pub fn new(world: &'a World) -> Result<Self, CaptureError> {
+        validate_world_shape(world)?;
+        Ok(Self { world })
+    }
+    pub fn tick(&self) -> u64 {
+        self.world.tick
+    }
+    pub fn active_dimensions(&self) -> (usize, usize) {
+        (WIDTH.div_ceil(SIDE), HEIGHT.div_ceil(SIDE))
+    }
+    pub fn sleeping_ids(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.world.sleeping.keys().copied()
+    }
+    pub fn metadata(&self) -> Result<Vec<u8>, CaptureError> {
+        encode_metadata(
+            self.world,
+            self.world.origin,
+            self.world.opening_edge_opened,
+            &self.world.pebble_seeded,
+            &self.world.pending_falls,
+            self.world.next_fall_sequence,
+            &self.world.bottom_open,
+        )
+    }
+    pub fn active(&self, x: usize, y: usize) -> Result<Vec<u8>, CaptureError> {
+        encode_active(self.world, x, y)
+    }
+    pub fn sleeping(&self, id: (i32, i32)) -> Result<Vec<u8>, CaptureError> {
+        let chunk = self
+            .world
+            .sleeping
+            .get(&id)
+            .ok_or(CaptureError::InvalidShape)?;
+        encode(&(1u8, id, chunk))
+    }
+}
+
+fn validate_world_shape(world: &World) -> Result<(), CaptureError> {
+    let cells = WIDTH * HEIGHT;
+    if world.cells.len() != cells
+        || world.flow.len() != cells
+        || world.suspended.len() != cells
+        || world.grain.len() != cells
+        || world.pebble_owner.len() != cells
+        || world.pebbles.len() > u16::MAX as usize
+        || world.pebbles.len() != world.pebble_motion.len()
+        || world.tracers.len() > 4096
+        || world.silt.len() > MAX_REGION_SILT
+        || world.bubbles.len() > 4096
+        || world.pebble_seeded.len() > 2048
+        || !world.valid_pending_falls()
+        || (!world.bottom_open.is_empty() && world.bottom_open.len() != WIDTH)
+        || world
+            .sleeping
+            .values()
+            .any(|c| c.cells.len() != SIDE * SIDE)
+    {
+        return Err(CaptureError::InvalidShape);
+    }
+    if world.sleeping.len() > MAX_SLEEPING_CHUNKS {
+        return Err(CaptureError::TooLarge);
+    }
+    Ok(())
+}
+
+fn encode_metadata(
+    w: &World,
+    origin: (i32, i32),
+    opening_edge_opened: bool,
+    pebble_seeded: &std::collections::BTreeSet<(i32, i32)>,
+    pending_falls: &[FallPacket],
+    next_fall_sequence: u64,
+    bottom_open: &[bool],
+) -> Result<Vec<u8>, CaptureError> {
+    encode(&Metadata {
+        version: 1,
+        tick: w.tick,
+        origin,
+        opening_edge_opened,
+        pebble_seeded,
+        pebbles: &w.pebbles,
+        pebble_motion: &w.pebble_motion,
+        sand_properties: &w.sand_properties,
+        mud_properties: &w.mud_properties,
+        crab: w.crab,
+        crab_half_x: w.crab_half_x,
+        crab_half_y: w.crab_half_y,
+        tracers: &w.tracers,
+        silt: &w.silt,
+        kelp: &w.kelp,
+        giant_kelp: &w.giant_kelp,
+        giant_kelp_velocity: &w.giant_kelp_velocity,
+        giant_base: w.giant_base,
+        bubbles: &w.bubbles,
+        game: w.game,
+        pending_falls,
+        next_fall_sequence,
+        bottom_open,
+    })
+}
+
+fn encode_active(w: &World, x: usize, y: usize) -> Result<Vec<u8>, CaptureError> {
+    let (cols, rows) = (WIDTH.div_ceil(SIDE), HEIGHT.div_ceil(SIDE));
+    if x >= cols || y >= rows {
+        return Err(CaptureError::InvalidShape);
+    }
+    let width = SIDE.min(WIDTH - x * SIDE);
+    let height = SIDE.min(HEIGHT - y * SIDE);
+    let mut part = ActiveChunk {
+        version: 1,
+        x: x as u16,
+        y: y as u16,
+        width: width as u8,
+        height: height as u8,
+        cells: Vec::with_capacity(width * height),
+        flow: Vec::with_capacity(width * height),
+        suspended: Vec::with_capacity(width * height),
+        grain: Vec::with_capacity(width * height),
+        owner: Vec::with_capacity(width * height),
+    };
+    for row in 0..height {
+        let from = (y * SIDE + row) * WIDTH + x * SIDE;
+        let range = from..from + width;
+        part.cells.extend_from_slice(&w.cells[range.clone()]);
+        part.flow.extend_from_slice(&w.flow[range.clone()]);
+        part.suspended
+            .extend_from_slice(&w.suspended[range.clone()]);
+        part.grain.extend_from_slice(&w.grain[range.clone()]);
+        part.owner.extend_from_slice(&w.pebble_owner[range]);
+    }
+    encode(&part)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_sediment_and_bottom_guard_survive_every_save_path() {
+        let mut world = World::from_level_settled(&crate::Level::test_level());
+        world.tick = 200;
+        world.pending_falls = vec![
+            FallPacket {
+                sequence: 3,
+                outbound: true,
+                x: 40,
+                y: -18,
+                emitted_tick: 100,
+                advanced_tick: 150,
+                cell: Cell::Sand,
+                grain: 91,
+                suspended: 4,
+            },
+            FallPacket {
+                sequence: 6,
+                outbound: false,
+                x: 44,
+                y: -20,
+                emitted_tick: 110,
+                advanced_tick: 190,
+                cell: Cell::Mud,
+                grain: 53,
+                suspended: 2,
+            },
+        ];
+        world.next_fall_sequence = 7;
+        world.bottom_open = vec![false; WIDTH];
+        world.bottom_open[17] = true;
+        let before = world.checkpoint();
+        let raw = crate::underwater::encode_browser_checkpoint(&world).unwrap();
+        assert_eq!(
+            crate::underwater::decode_browser_checkpoint(&raw)
+                .unwrap()
+                .checkpoint(),
+            before
+        );
+        assert_eq!(
+            World::from_region_bytes(&world.region_bytes().unwrap())
+                .unwrap()
+                .checkpoint(),
+            before
+        );
+        let player = crate::SaveData {
+            version: crate::SAVE_VERSION,
+            x: 160.0,
+            y: 8.0,
+            memory: None,
+            progress: None,
+        };
+        let frame = crate::cell_codec::paged::prepare(&player, &world, 800)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let mut restored = crate::cell_codec::paged::decode(&frame).unwrap().terrain;
+        assert_eq!(restored.checkpoint(), before);
+        let frozen = FrozenChunks::capture_cow(&world).unwrap();
+        let metadata = frozen.metadata().unwrap();
+        world.pending_falls[0].grain ^= 1;
+        assert_eq!(frozen.metadata().unwrap(), metadata);
+        world = before.into_world().unwrap();
+        for _ in 0..12 {
+            world.step(0.35);
+            restored.step(0.35);
+        }
+        assert_eq!(restored.checkpoint(), world.checkpoint());
+        world.pending_falls[0].advanced_tick = world.tick + 1;
+        assert!(FrozenChunks::capture_cow(&world).is_err());
+        assert!(crate::underwater::encode_browser_checkpoint(&world).is_none());
+    }
+
+    #[test]
+    fn paused_pages_match_owned_snapshot_for_streamed_world() {
+        fn hash(bytes: &[u8]) -> [u8; 32] {
+            let mut out = [0; 32];
+            for part in out.chunks_mut(8) {
+                part.copy_from_slice(&crate::hash::fnv1a(bytes).to_le_bytes());
+            }
+            out
+        }
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        assert!(world.follow_player(&level, 4400.0, 0.0));
+        assert!(world.follow_player(&level, 160.0, 0.0));
+        world.step(0.35);
+        let frozen = FrozenChunks::capture(&world, 64 * 1024 * 1024).unwrap();
+        let paused = PausedChunks::new(&world).unwrap();
+        assert_eq!(paused.tick(), frozen.tick());
+        assert_eq!(paused.metadata().unwrap(), frozen.metadata().unwrap());
+        let (cols, rows) = paused.active_dimensions();
+        for y in 0..rows {
+            for x in 0..cols {
+                assert_eq!(paused.active(x, y).unwrap(), frozen.active(x, y).unwrap());
+            }
+        }
+        let ids: Vec<_> = paused.sleeping_ids().collect();
+        assert!(!ids.is_empty());
+        assert_eq!(ids, frozen.sleeping_ids().collect::<Vec<_>>());
+        for id in ids {
+            assert_eq!(paused.sleeping(id).unwrap(), frozen.sleeping(id).unwrap());
+        }
+        assert_eq!(
+            CaptureIndex::capture_paused(&paused, 17, b"player", hash)
+                .unwrap()
+                .encode(),
+            CaptureIndex::capture(&frozen, 17, b"player", hash)
+                .unwrap()
+                .encode()
+        );
+    }
+
+    #[test]
+    fn frozen_parts_keep_one_epoch_and_exact_cell_and_pebble_owners() {
+        let mut world = World::new();
+        world.tick = 123;
+        world.pebbles.push(Pebble {
+            x: 4,
+            y: 5,
+            side: 2,
+            shade: 3,
+        });
+        world.pebble_motion.push((1, 0, 2));
+        world.pebble_owner[WIDTH + 5] = 1;
+        let mut sleeping = SleepingChunk::default();
+        sleeping.cells[33] = Some(SleepingCell {
+            cell: Cell::Sand,
+            flow: (0.5, -0.25),
+            suspended: 2,
+            grain: 3,
+            owner: 1,
+        });
+        world.sleeping.insert((-2, 4), sleeping);
+        let snapshot = FrozenChunks::capture(&world, MAX_CAPTURE_BYTES).unwrap();
+        let meta = snapshot.metadata().unwrap();
+        let sleeping_bytes = snapshot.sleeping((-2, 4)).unwrap();
+        let original = world.checkpoint();
+
+        // Live mutations between independently serialized parts must not be
+        // reflected in any captured part or its globally indexed pebble table.
+        world.tick = 124;
+        world.pebbles[0].x = 900;
+        world.pebble_owner[WIDTH + 5] = 0;
+        world.sleeping.clear();
+        assert_eq!(snapshot.tick(), 123);
+        assert_eq!(snapshot.metadata().unwrap(), meta);
+        assert_eq!(snapshot.sleeping((-2, 4)).unwrap(), sleeping_bytes);
+        let (_, id, chunk): (u8, (i32, i32), SleepingChunk) =
+            postcard::from_bytes(&sleeping_bytes).unwrap();
+        assert_eq!(id, (-2, 4));
+        assert_eq!(chunk, original.sleeping[&id]);
+        assert_eq!(chunk.cells[33].unwrap().owner, 1);
+
+        let mut cells = Vec::new();
+        let mut flow = Vec::new();
+        let mut suspended = Vec::new();
+        let mut grain = Vec::new();
+        let mut owner = Vec::new();
+        let (cols, rows) = snapshot.active_dimensions();
+        // Reassemble row by row, including the shorter final chunk row.
+        for y in 0..rows {
+            let parts: Vec<ActiveChunk> = (0..cols)
+                .map(|x| postcard::from_bytes(&snapshot.active(x, y).unwrap()).unwrap())
+                .collect();
+            for row in 0..parts[0].height as usize {
+                for part in &parts {
+                    let start = row * part.width as usize;
+                    let range = start..start + part.width as usize;
+                    cells.extend_from_slice(&part.cells[range.clone()]);
+                    flow.extend_from_slice(&part.flow[range.clone()]);
+                    suspended.extend_from_slice(&part.suspended[range.clone()]);
+                    grain.extend_from_slice(&part.grain[range.clone()]);
+                    owner.extend_from_slice(&part.owner[range]);
+                }
+            }
+        }
+        assert_eq!(cells, original.world.cells);
+        assert_eq!(flow, original.world.flow);
+        assert_eq!(suspended, original.world.suspended);
+        assert_eq!(grain, original.world.grain);
+        assert_eq!(owner, original.world.pebble_owner);
+        assert_eq!(owner[WIDTH + 5], 1);
+        assert_eq!(snapshot.active(cols, 0), Err(CaptureError::InvalidShape));
+    }
+
+    #[test]
+    fn capture_refuses_budget_and_shape_before_freezing() {
+        let mut world = World::new();
+        assert!(matches!(
+            FrozenChunks::capture(&world, 1),
+            Err(CaptureError::TooLarge)
+        ));
+        world.sleeping.insert(
+            (0, 0),
+            SleepingChunk {
+                cells: vec![].into(),
+            },
+        );
+        assert!(matches!(
+            FrozenChunks::capture(&world, MAX_CAPTURE_BYTES),
+            Err(CaptureError::InvalidShape)
+        ));
+        world.sleeping.clear();
+        for n in 0..=MAX_SLEEPING_CHUNKS {
+            world.sleeping.insert(
+                (n as i32, 0),
+                SleepingChunk {
+                    cells: vec![].into(),
+                },
+            );
+        }
+        // Invalid shapes are rejected first, without cloning any cells.
+        assert!(matches!(
+            FrozenChunks::capture(&world, MAX_CAPTURE_BYTES),
+            Err(CaptureError::InvalidShape)
+        ));
+    }
+}

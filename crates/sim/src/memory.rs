@@ -47,7 +47,7 @@ pub struct Sighting {
 }
 
 /// One crab's memory of the level.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Memory {
     /// The grid's lower-left corner and size (cells).
     pub origin: Vec2,
@@ -504,7 +504,7 @@ fn read_varint(bytes: &[u8], at: &mut usize) -> Option<u32> {
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn base64(bytes: &[u8]) -> String {
+pub(crate) fn base64(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let n = chunk
@@ -518,7 +518,7 @@ fn base64(bytes: &[u8]) -> String {
     s
 }
 
-fn unbase64(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn unbase64(s: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len() * 3 / 4);
     for chunk in s.as_bytes().chunks(4) {
         let mut n = 0u32;
@@ -576,5 +576,27 @@ mod tests {
         for n in [0, 1, 127, 128, 300, 1 << 20, u32::MAX] {
             assert_eq!(read_varint(&b, &mut at), Some(n));
         }
+    }
+}
+
+impl Memory {
+    pub(crate) fn session_valid(&self, level: &Level) -> bool {
+        let Some(n) = self.cols.checked_mul(self.rows).map(|n| n as usize) else {
+            return false;
+        };
+        n > 0
+            && n <= 2_000_000
+            && self.origin.is_finite()
+            && self.visits.len() == n
+            && self.last.len() == n
+            && self.solid.len() == n
+            && self.live.len() == n
+            && self
+                .home
+                .iter()
+                .chain(&self.live_cells)
+                .all(|&i| (i as usize) < n)
+            && self.nets.len() == level.nets.len()
+            && self.sightings.len() <= 4096
     }
 }

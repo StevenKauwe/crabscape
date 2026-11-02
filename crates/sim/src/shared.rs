@@ -59,7 +59,7 @@ impl Thing {
 
 /// The shared things of the world, as this device has them: its own world
 /// in solo play and on the host; on a guest, the host's as last heard.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Shared {
     /// Each clam bed: ticks until it grows a new clam (0 = a clam lies
     /// there). A guest never counts them down: a bed is bare until the host
@@ -153,6 +153,9 @@ pub struct OwnWorld {
     pub shared: Shared,
     pub nets_cut: Vec<bool>,
     pub rocks_cracked: Vec<bool>,
+    /// The guest's own cellular terrain, restored on disconnect even when
+    /// a separate join/stream handle is lost.
+    pub cells: Option<crate::underwater::World>,
 }
 
 /// Is there room for `thing` on a crab, counting the `waiting` small things

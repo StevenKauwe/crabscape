@@ -26,6 +26,8 @@
 //! arrived, and after the ticks it sends what the simulation wrote. Quick
 //! updates (where crabs and enemies are) go on an unreliable channel, where a
 //! late one is simply skipped; the rest (blows, hand-overs) on a reliable one.
+//! Cellular sessions instead use the existing reliable connection for ordered
+//! controls and a complete join checkpoint; see `web/cells.rs`.
 //!
 //! The main host's crab is always [`HOST`] (as in solo play); a guest's gets a
 //! random number, which it keeps if it stands in. Each device's hello says
@@ -92,6 +94,92 @@ pub struct LocalId(pub PlayerId);
 pub struct NewLink;
 
 pub struct CoopPlugin;
+mod cells_wire;
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_visiting() -> bool {
+    web::cells::visiting()
+}
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_private_save(
+    sim: &crabsim::Sim,
+) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
+    web::cells::private_save(sim)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_owner_save(
+    sim: &crabsim::Sim,
+) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
+    web::cells::owner_save(sim)
+}
+
+pub(crate) use crabsim::replay::CellSessionAction as CellsAction;
+
+pub(crate) fn cells_replay(report: bool) -> Option<Result<String, String>> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::replay(report)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = report;
+        None
+    }
+}
+pub(crate) fn cells_action(action: CellsAction) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::action(action)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = action;
+        false
+    }
+}
+
+pub(crate) fn cells_active() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::active()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+/// Both co-op protocols expose the same host role to voice transcription.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn world_host(sim: &crabsim::Sim) -> bool {
+    if crate::cellular::enabled() {
+        web::cells::role() == "host"
+    } else {
+        sim.online() && sim.is_host()
+    }
+}
+pub(crate) fn cells_controls(controls: crabsim::Controls) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::controls(controls)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = controls;
+        false
+    }
+}
+pub(crate) fn cells_tick(sim: &mut crabsim::Sim, local: PlayerId) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::tick(sim, local)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (sim, local);
+        false
+    }
+}
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
@@ -449,11 +537,50 @@ fn from_host(msg: &crabsim::net::Msg, sender: Option<PlayerId>, hosting: Hosting
         }
 }
 
+/// Only the selected host may send a terrain checkpoint, and only after the
+/// guest has entered that host's world. A fragment alone must never cause a
+/// guest to enter a world, or let an old stand-in overwrite the new host.
+fn accepts_cell_terrain(
+    sender: Option<PlayerId>,
+    connection: u128,
+    peers: &[OnLink],
+    hosting: Hosting,
+    in_guest_world: bool,
+) -> bool {
+    use crabsim::net::cell_join::{Peer, select_host};
+    let Hosting::Friend(host) = hosting else {
+        return false;
+    };
+    if !in_guest_world || sender != Some(host) {
+        return false;
+    }
+    let claims: Vec<_> = peers
+        .iter()
+        .map(|peer| Peer {
+            player: peer.crab,
+            connection: peer.conn,
+        })
+        .collect();
+    select_host(host, &claims).is_some_and(|selected| selected.connection == connection)
+}
+
+#[cfg(all(
+    feature = "cellular-transport-probe",
+    any(target_arch = "wasm32", test)
+))]
+mod actor_probe;
+#[cfg(all(
+    feature = "cellular-transport-probe",
+    any(target_arch = "wasm32", test)
+))]
+mod probe;
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) use web::{in_room, introducer, players};
 
 #[cfg(target_arch = "wasm32")]
 mod web {
+    pub(crate) mod cells;
     use std::cell::RefCell;
 
     use bevy::prelude::*;
@@ -465,8 +592,9 @@ mod web {
 
     use super::{
         HOST, Hosting, INTRODUCER, LocalId, NewLink, OnLink, Start, Update, VERSION, Watch,
-        clean_code, from_host, hello, in_shared_world, make_code, on_version, open_in_other_tab,
-        param, read_hello, room, start, status, status_top, update_line, who_hosts,
+        accepts_cell_terrain, clean_code, from_host, hello, in_shared_world, make_code, on_version,
+        open_in_other_tab, param, read_hello, room, start, status, status_top, update_line,
+        who_hosts,
     };
     use crate::names::Names;
     use crate::player::{GameSet, spawn_local_crab};
@@ -553,6 +681,168 @@ mod web {
         peers: Vec<Peer>,
         /// Messages for a player whose device we can't tell yet.
         waiting: Vec<(PlayerId, Packet, usize)>,
+        #[cfg(feature = "cellular-transport-probe")]
+        probe: Option<ActiveProbe>,
+        #[cfg(feature = "cellular-transport-probe")]
+        probe_started: f64,
+        #[cfg(feature = "cellular-transport-probe")]
+        probe_attempted: bool,
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    enum ActiveProbe {
+        Terrain(super::probe::Probe),
+        Actor(super::actor_probe::ActorProbe),
+    }
+    #[cfg(feature = "cellular-transport-probe")]
+    impl ActiveProbe {
+        fn peer(&self) -> crabsim::net::cell_join::Peer {
+            match self {
+                Self::Terrain(p) => p.peer(),
+                Self::Actor(p) => p.peer(),
+            }
+        }
+        fn actor_timing(&self) -> Option<super::actor_probe::Timing> {
+            match self {
+                Self::Actor(p) => Some(p.timing()),
+                Self::Terrain(_) => None,
+            }
+        }
+        fn actor_digest(&self) -> Option<u64> {
+            match self {
+                Self::Actor(p) => p.profile_digest(),
+                Self::Terrain(_) => None,
+            }
+        }
+        fn actor_ticks(&self) -> Option<u64> {
+            match self {
+                Self::Actor(p) => Some(p.ticks()),
+                Self::Terrain(_) => None,
+            }
+        }
+        fn complete(&self) -> bool {
+            match self {
+                Self::Terrain(p) => p.complete(),
+                Self::Actor(p) => p.complete(),
+            }
+        }
+        fn more(&mut self) -> Result<Option<Msg>, ()> {
+            match self {
+                Self::Terrain(p) => p.more(),
+                Self::Actor(p) => p.more(),
+            }
+        }
+        fn receive(
+            &mut self,
+            sender: crabsim::net::cell_join::Peer,
+            selected: Option<crabsim::net::cell_join::Peer>,
+            msg: &Msg,
+        ) -> Result<Option<Msg>, ()> {
+            match self {
+                Self::Terrain(p) => p.receive(sender, selected, msg),
+                Self::Actor(p) => p.receive(sender, selected, msg),
+            }
+        }
+    }
+    #[cfg(feature = "cellular-transport-probe")]
+    fn actor_profile_enabled() -> bool {
+        web_sys::window()
+            .and_then(|w| w.session_storage().ok().flatten())
+            .and_then(|s| s.get_item("__cell_probe_profile").ok().flatten())
+            .as_deref()
+            == Some("1")
+    }
+    #[cfg(feature = "cellular-transport-probe")]
+    fn actor_pipeline_enabled() -> bool {
+        web_sys::window()
+            .and_then(|w| w.session_storage().ok().flatten())
+            .and_then(|s| s.get_item("__cell_probe_pipeline").ok().flatten())
+            .as_deref()
+            == Some("1")
+    }
+    #[cfg(feature = "cellular-transport-probe")]
+    fn actor_probe_enabled() -> bool {
+        web_sys::window()
+            .and_then(|w| w.session_storage().ok().flatten())
+            .and_then(|s| s.get_item("__cell_probe_actors").ok().flatten())
+            .as_deref()
+            == Some("1")
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    impl Drop for Link {
+        fn drop(&mut self) {
+            matchbox_socket::probe_ingress::allow([]);
+        }
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_status(value: &str) {
+        if let Some(canvas) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("crabscape"))
+        {
+            let _ = canvas.set_attribute("data-cell-transport-probe", value);
+        }
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_drop_ack(msg: &Msg) -> bool {
+        matches!(msg, Msg::CellTerrainAck { .. } | Msg::CellFrameAck { .. })
+            && web_sys::window()
+                .and_then(|w| w.session_storage().ok().flatten())
+                .and_then(|s| s.get_item("__cell_probe_drop_ack").ok().flatten())
+                .as_deref()
+                == Some("1")
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_window() -> usize {
+        let setting = web_sys::window()
+            .and_then(|w| w.session_storage().ok().flatten())
+            .and_then(|s| s.get_item("__cell_probe_window").ok().flatten());
+        if setting.as_deref() == Some("1") {
+            1
+        } else {
+            8
+        }
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_fill(link: &mut Link, peer: PeerId) -> Result<(), ()> {
+        loop {
+            let Some(probe) = link.probe.as_mut() else {
+                return Ok(());
+            };
+            let Some(piece) = probe.more()? else {
+                return Ok(());
+            };
+            link.socket
+                .channel_mut(RELIABLE)
+                .try_send(piece.to_bytes().into(), peer)
+                .map_err(|_| ())?;
+        }
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_source(link: &Link, id: PeerId) -> Option<crabsim::net::cell_join::Peer> {
+        use crabsim::net::cell_join::{Peer, select_host};
+        let peer = link
+            .peers
+            .iter()
+            .find(|p| p.id == id && p.same_version())?
+            .said?;
+        let claims: Vec<_> = link
+            .peers
+            .iter()
+            .filter(|p| p.same_version())
+            .filter_map(|p| p.said)
+            .map(|p| Peer {
+                player: p.crab,
+                connection: p.conn,
+            })
+            .collect();
+        select_host(peer.crab, &claims).filter(|p| p.connection == id.0.as_u128())
     }
 
     thread_local! {
@@ -614,11 +904,6 @@ mod web {
     struct StatusLine;
 
     pub fn build(app: &mut App) {
-        if crate::cellular::enabled() {
-            app.insert_resource(LocalId(HOST))
-                .insert_resource(Coop::default());
-            return;
-        }
         let invited = query("join").and_then(|c| clean_code(&c));
         let mine = lobby();
         let other_tab = open_in_other_tab(
@@ -723,7 +1008,17 @@ mod web {
         if me.0 == HOST && coop.code.is_some() {
             coop.code = Some(code.clone());
             coop.watch = Watch::default();
-            rejoin(&mut sim, &code, true);
+            if crate::cellular::enabled() {
+                cells::disconnect(&mut sim, me.0);
+                LINK.with(|slot| {
+                    if let Some(mut link) = slot.borrow_mut().take() {
+                        link.socket.close();
+                    }
+                });
+                connect(&code);
+            } else {
+                rejoin(&mut sim, &code, true);
+            }
         }
         coop.flash = 0.0;
         show_lobby(Some(&code));
@@ -763,6 +1058,11 @@ mod web {
     /// The link a friend opens to join `code`.
     fn invite_link(code: &str) -> String {
         let mut link = format!("{}?join={code}", page());
+        if crate::cellular::enabled() {
+            link += "&cells";
+        } else {
+            link += "&boring";
+        }
         if let Some(i) = query("introducer") {
             link += &format!("&introducer={}", js_sys::encode_uri_component(&i));
         }
@@ -779,7 +1079,7 @@ mod web {
             return;
         };
         let host = me.0 == HOST;
-        if host {
+        if host && !crate::cellular::enabled() {
             sim.go_online(true);
         }
         connect(&code);
@@ -795,10 +1095,69 @@ mod web {
 
     /// Join `code`'s room at the introducer.
     fn connect(code: &str) {
+        #[cfg(feature = "cellular-transport-probe")]
+        {
+            let messages = [
+                Msg::CellProbeReady,
+                Msg::CellTerrain(vec![]),
+                Msg::CellTerrainAck {
+                    transfer: 0,
+                    piece: 0,
+                },
+                Msg::CellFrame(vec![]),
+                Msg::CellFrameAck { epoch: 0, frame: 0 },
+                Msg::CellUpInput {
+                    epoch: 0,
+                    tick: 0,
+                    sequence: 0,
+                    player: PlayerId(0),
+                    up: false,
+                },
+                Msg::CellUpFrame {
+                    epoch: 0,
+                    tick: 0,
+                    world_tick: 0,
+                    host: crabsim::underwater::HostPlayerForce {
+                        player: PlayerId(0),
+                        x: 0.0,
+                        y: 0.0,
+                        half_width: 1.0,
+                        half_height: 1.0,
+                        wake_x: 0.0,
+                        wake_y: 0.0,
+                        walking: 0,
+                        grounded: false,
+                        jumped: false,
+                        dig: None,
+                    },
+                    guest: crabsim::underwater::HostPlayerForce {
+                        player: PlayerId(1),
+                        x: 0.0,
+                        y: 0.0,
+                        half_width: 1.0,
+                        half_height: 1.0,
+                        wake_x: 0.0,
+                        wake_y: 0.0,
+                        walking: 0,
+                        grounded: false,
+                        jumped: false,
+                        dig: None,
+                    },
+                    digest: 0,
+                },
+            ];
+            let tags: Vec<_> = messages.iter().map(|m| m.to_bytes()[0]).collect();
+            matchbox_socket::probe_ingress::reset(&tags);
+        }
         let url = format!(
-            "{}/{}",
+            "{}/{}{}",
             introducer(),
-            room(save::build_slug().as_deref(), code)
+            room(save::build_slug().as_deref(), code),
+            if crate::cellular::enabled() {
+                "-cells"
+            } else {
+                ""
+            }
         );
         let (socket, run) = WebRtcSocket::builder(url)
             .add_reliable_channel()
@@ -816,6 +1175,12 @@ mod web {
                 me: None,
                 peers: Vec::new(),
                 waiting: Vec::new(),
+                #[cfg(feature = "cellular-transport-probe")]
+                probe: None,
+                #[cfg(feature = "cellular-transport-probe")]
+                probe_started: 0.0,
+                #[cfg(feature = "cellular-transport-probe")]
+                probe_attempted: false,
             })
         });
     }
@@ -906,7 +1271,9 @@ mod web {
             js_sys::Date::now(),
         );
         if coop.code.is_none() && me.0 == HOST && !other_tab {
-            sim.go_online(true);
+            if !crate::cellular::enabled() {
+                sim.go_online(true);
+            }
             connect(&mine);
             coop.code = Some(mine.clone());
             coop.status = status(Hosting::Nobody, true, false, 0, None);
@@ -965,6 +1332,10 @@ mod web {
         mut chat: ResMut<crate::chat::Chat>,
         me: Res<LocalId>,
     ) {
+        if crate::cellular::enabled() {
+            cells::take_in(&time, &mut sim, &mut coop, me.0, &mut names, &mut chat);
+            return;
+        }
         let Some(code) = coop.code.clone() else {
             return;
         };
@@ -984,6 +1355,81 @@ mod web {
             if link.me.is_none() {
                 link.me = link.socket.id();
             }
+            #[cfg(feature = "cellular-transport-probe")]
+            {
+                if link
+                    .probe
+                    .as_ref()
+                    .is_some_and(|probe| !probe.complete() && now - link.probe_started > 15.0)
+                {
+                    link.probe = None;
+                    probe_status("timeout");
+                }
+                if let Some(probe) = link.probe.as_ref()
+                    && !probe.complete()
+                {
+                    let selected = link
+                        .peers
+                        .iter()
+                        .find(|p| p.id.0.as_u128() == probe.peer().connection)
+                        .and_then(|p| probe_source(link, p.id));
+                    let role_matches = match hosting {
+                        Hosting::Me => host,
+                        Hosting::Friend(id) => !host && id == probe.peer().player,
+                        Hosting::Nobody => false,
+                    };
+                    if selected != Some(probe.peer()) || !role_matches {
+                        link.probe = None;
+                        probe_status("host-changed");
+                    }
+                }
+                if !link.probe_attempted
+                    && link.peers.iter().filter(|p| p.same_version()).count() == 1
+                    && let Hosting::Friend(host_id) = hosting
+                {
+                    let candidates: Vec<_> = link
+                        .peers
+                        .iter()
+                        .filter(|p| p.same_version())
+                        .filter_map(|p| {
+                            let claim = p.said?;
+                            (claim.crab == host_id).then_some(p.id)
+                        })
+                        .collect();
+                    if candidates.len() == 1
+                        && let Some(selected) = probe_source(link, candidates[0])
+                    {
+                        link.probe = if actor_probe_enabled() {
+                            super::actor_probe::ActorProbe::guest(
+                                me.0,
+                                selected,
+                                actor_pipeline_enabled(),
+                            )
+                            .map(ActiveProbe::Actor)
+                        } else {
+                            Some(ActiveProbe::Terrain(super::probe::Probe::guest(selected)))
+                        };
+                        if link.probe.is_none() {
+                            link.probe_attempted = true;
+                            probe_status("rejected");
+                            return None;
+                        }
+                        link.probe_attempted = true;
+                        link.probe_started = now;
+                        if link
+                            .socket
+                            .channel_mut(RELIABLE)
+                            .try_send(Msg::CellProbeReady.to_bytes().into(), candidates[0])
+                            .is_err()
+                        {
+                            link.probe = None;
+                            probe_status("send-failed");
+                        } else {
+                            probe_status("running");
+                        }
+                    }
+                }
+            }
             let mut gone = Vec::new();
             for (peer, state) in changes {
                 match state {
@@ -1000,17 +1446,50 @@ mod web {
                         // First of all, on the reliable channel: which version this game is, and who it is here.
                         link.send(peer, hello(VERSION, me.0, host, met_here).into(), RELIABLE);
                     }
-                    PeerState::Disconnected => gone.push(peer),
+                    PeerState::Disconnected => {
+                        #[cfg(feature = "cellular-transport-probe")]
+                        if link
+                            .probe
+                            .as_ref()
+                            .is_some_and(|p| p.peer().connection == peer.0.as_u128())
+                        {
+                            link.probe = None;
+                            probe_status("disconnected");
+                        }
+                        gone.push(peer)
+                    }
                 }
             }
+            #[cfg(feature = "cellular-transport-probe")]
+            matchbox_socket::probe_ingress::allow(
+                link.peers
+                    .iter()
+                    .filter(|p| !gone.contains(&p.id))
+                    .map(|p| p.id),
+            );
             let mut met = Vec::new();
             let mut greet = Vec::new();
             let mut again = Vec::new();
             for channel in [RELIABLE, QUICK] {
-                for (peer, bytes) in link.socket.channel_mut(channel).receive() {
-                    let Some(p) = link.peers.iter_mut().find(|p| p.id == peer) else {
+                #[allow(unused_mut)]
+                let mut incoming = link.socket.channel_mut(channel).receive();
+                #[cfg(feature = "cellular-transport-probe")]
+                if channel == RELIABLE {
+                    let (packets, peak) = matchbox_socket::probe_ingress::drain();
+                    if let Some(canvas) = web_sys::window()
+                        .and_then(|w| w.document())
+                        .and_then(|d| d.get_element_by_id("crabscape"))
+                    {
+                        let _ =
+                            canvas.set_attribute("data-cell-probe-inbound-peak", &peak.to_string());
+                    }
+                    incoming.extend(packets);
+                }
+                for (peer, bytes) in incoming {
+                    let Some(peer_index) = link.peers.iter().position(|p| p.id == peer) else {
                         continue;
                     };
+                    let p = &mut link.peers[peer_index];
                     p.quiet = 0.0;
                     if let Some(h) = read_hello(&bytes) {
                         info!("co-op: a device on version {}", h.version);
@@ -1034,6 +1513,143 @@ mod web {
                     let Some(msg) = Msg::from_bytes(&bytes) else {
                         continue;
                     };
+                    #[cfg(feature = "cellular-transport-probe")]
+                    if matches!(
+                        msg,
+                        Msg::CellProbeReady
+                            | Msg::CellTerrain(_)
+                            | Msg::CellTerrainAck { .. }
+                            | Msg::CellFrame(_)
+                            | Msg::CellFrameAck { .. }
+                            | Msg::CellUpInput { .. }
+                            | Msg::CellUpFrame { .. }
+                    ) {
+                        if channel != RELIABLE {
+                            continue;
+                        }
+                        let Some(source) = probe_source(link, peer) else {
+                            continue;
+                        };
+                        if matches!(msg, Msg::CellProbeReady) && link.probe.is_none() {
+                            if !host
+                                || link.probe_attempted
+                                || link.peers.iter().filter(|p| p.same_version()).count() != 1
+                            {
+                                continue;
+                            }
+                            let setup = if actor_probe_enabled() {
+                                super::actor_probe::ActorProbe::host(me.0, source, probe_window())
+                                    .map(|(p, first)| (ActiveProbe::Actor(p), first))
+                            } else {
+                                super::probe::Probe::host(source, probe_window())
+                                    .map(|(p, first)| (ActiveProbe::Terrain(p), first))
+                            };
+                            if let Some((probe, first)) = setup {
+                                link.probe = Some(probe);
+                                link.probe_attempted = true;
+                                link.probe_started = now;
+                                if link
+                                    .socket
+                                    .channel_mut(RELIABLE)
+                                    .try_send(first.to_bytes().into(), peer)
+                                    .is_err()
+                                {
+                                    link.probe = None;
+                                    probe_status("send-failed");
+                                } else {
+                                    if probe_fill(link, peer).is_err() {
+                                        link.probe = None;
+                                        probe_status("send-failed");
+                                    } else {
+                                        probe_status("running");
+                                    }
+                                }
+                            }
+                        } else if let Some(probe) = link.probe.as_mut() {
+                            let role_matches = match hosting {
+                                Hosting::Me => host,
+                                Hosting::Friend(id) => !host && id == source.player,
+                                Hosting::Nobody => false,
+                            };
+                            if !role_matches {
+                                link.probe = None;
+                                probe_status("host-changed");
+                                continue;
+                            }
+                            let was_complete = probe.complete();
+                            match probe.receive(source, Some(source), &msg) {
+                                Ok(reply) => {
+                                    if matches!(&reply, Some(Msg::CellProbeReady))
+                                        && probe.actor_ticks().is_some()
+                                    {
+                                        probe_status("actor-running");
+                                    }
+                                    if !was_complete && probe.complete() {
+                                        if actor_profile_enabled()
+                                            && let Some(timing) = probe.actor_timing()
+                                            && let Some(canvas) = web_sys::window()
+                                                .and_then(|w| w.document())
+                                                .and_then(|d| d.get_element_by_id("crabscape"))
+                                        {
+                                            let _ = canvas.set_attribute(
+                                                "data-cell-actor-step-samples",
+                                                &timing.samples.to_string(),
+                                            );
+                                            let _ = canvas.set_attribute(
+                                                "data-cell-actor-step-total-ms",
+                                                &timing.total_ms.to_string(),
+                                            );
+                                            let _ = canvas.set_attribute(
+                                                "data-cell-actor-step-max-ms",
+                                                &timing.max_ms.to_string(),
+                                            );
+                                            let start = super::actor_probe::clock_ms();
+                                            if probe.actor_digest().is_some() {
+                                                let _ = canvas.set_attribute(
+                                                    "data-cell-actor-digest-ms",
+                                                    &(super::actor_probe::clock_ms() - start)
+                                                        .to_string(),
+                                                );
+                                            }
+                                        }
+                                        if let Some(ticks) = probe.actor_ticks()
+                                            && let Some(canvas) = web_sys::window()
+                                                .and_then(|w| w.document())
+                                                .and_then(|d| d.get_element_by_id("crabscape"))
+                                        {
+                                            let _ = canvas.set_attribute(
+                                                "data-cell-actor-probe-ticks",
+                                                &ticks.to_string(),
+                                            );
+                                        }
+                                        probe_status("complete");
+                                    }
+                                    if let Some(reply) = reply {
+                                        link.probe_started = now;
+                                        if !probe_drop_ack(&reply)
+                                            && link
+                                                .socket
+                                                .channel_mut(RELIABLE)
+                                                .try_send(reply.to_bytes().into(), peer)
+                                                .is_err()
+                                        {
+                                            link.probe = None;
+                                            probe_status("send-failed");
+                                        }
+                                    }
+                                    if probe_fill(link, peer).is_err() {
+                                        link.probe = None;
+                                        probe_status("send-failed");
+                                    }
+                                }
+                                Err(()) => {
+                                    link.probe = None;
+                                    probe_status("rejected");
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     // A friend's name is the game's to show, not a rule.
                     if let Msg::Name { crab, name } = &msg {
                         names.heard(*crab, name);
@@ -1047,11 +1663,32 @@ mod web {
                         }
                         continue;
                     }
-                    let from_host = from_host(&msg, p.said.map(|s| s.crab), hosting);
+                    let sender = p.said.map(|s| s.crab);
+                    let from_host = from_host(&msg, sender, hosting);
+                    if matches!(msg, Msg::CellTerrain(_)) {
+                        let links: Vec<_> = link
+                            .peers
+                            .iter()
+                            .filter(|p| p.same_version())
+                            .filter_map(|p| p.said)
+                            .collect();
+                        if channel != RELIABLE
+                            || !accepts_cell_terrain(
+                                sender,
+                                peer.0.as_u128(),
+                                &links,
+                                hosting,
+                                sim.online() && !sim.is_host(),
+                            )
+                        {
+                            continue;
+                        }
+                    }
                     // Only the host this device goes with says how the world stands.
                     if matches!(msg, Msg::World { .. }) && !from_host {
                         continue;
                     }
+                    let p = &mut link.peers[peer_index];
                     // Met for the first time, or again after going silent.
                     if let Msg::Crab { crab, .. } = &msg
                         && p.player.is_none()
@@ -1429,10 +2066,14 @@ mod web {
     ) {
         // Whose world this browser plays in, for the browser tests: a friend waiting for a host who isn't there
         // plays its own ("solo"), never half of someone else's.
-        let now = match (sim.online(), sim.is_host()) {
-            (false, _) => "solo",
-            (true, true) => "host",
-            (true, false) => "guest",
+        let now = if crate::cellular::enabled() {
+            cells::role()
+        } else {
+            match (sim.online(), sim.is_host()) {
+                (false, _) => "solo",
+                (true, true) => "host",
+                (true, false) => "guest",
+            }
         };
         if *world != now {
             *world = now;
@@ -1814,5 +2455,88 @@ mod tests {
             assert!(!from_host(&host.world(), Some(HOST), hosting));
             assert!(!from_host(&crabs[0], Some(HOST), hosting));
         }
+    }
+
+    #[test]
+    fn cellular_terrain_only_comes_from_the_selected_host_in_its_world() {
+        let main = Hosting::Friend(HOST);
+        let stand_in = Hosting::Friend(PlayerId(7));
+        let real = OnLink {
+            crab: HOST,
+            conn: 10,
+            hosts: true,
+            met: true,
+        };
+        let standin = OnLink {
+            crab: PlayerId(7),
+            conn: 20,
+            hosts: true,
+            met: true,
+        };
+        let duplicate = OnLink {
+            crab: HOST,
+            conn: 30,
+            hosts: true,
+            met: true,
+        };
+        assert!(accepts_cell_terrain(
+            Some(HOST),
+            10,
+            &[real, standin],
+            main,
+            true
+        ));
+        assert!(!accepts_cell_terrain(Some(HOST), 10, &[real], main, false));
+        assert!(!accepts_cell_terrain(None, 10, &[real], main, true));
+        assert!(!accepts_cell_terrain(
+            Some(PlayerId(7)),
+            20,
+            &[real, standin],
+            main,
+            true
+        ));
+        assert!(accepts_cell_terrain(
+            Some(PlayerId(7)),
+            20,
+            &[real, standin],
+            stand_in,
+            true
+        ));
+        assert!(!accepts_cell_terrain(
+            Some(HOST),
+            10,
+            &[real, standin],
+            stand_in,
+            true
+        ));
+        assert!(!accepts_cell_terrain(
+            Some(HOST),
+            10,
+            &[real],
+            Hosting::Me,
+            true
+        ));
+        assert!(!accepts_cell_terrain(
+            Some(HOST),
+            10,
+            &[real],
+            Hosting::Nobody,
+            true
+        ));
+        assert!(
+            !accepts_cell_terrain(Some(HOST), 30, &[real], main, true),
+            "another connection cannot claim the host identity"
+        );
+        assert!(
+            !accepts_cell_terrain(Some(HOST), 10, &[real, duplicate], main, true),
+            "duplicate host claims invalidate both connections"
+        );
+        assert!(!accepts_cell_terrain(
+            Some(HOST),
+            30,
+            &[real, duplicate],
+            main,
+            true
+        ));
     }
 }

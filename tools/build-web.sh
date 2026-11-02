@@ -51,6 +51,19 @@ rm -f web/listen/listen*
 wasm-bindgen --target web --no-typescript --out-dir web/listen \
   target/wasm32-unknown-unknown/release/listen.wasm
 
+# Checkpoint compression is a small standalone Rust worker. Keep its
+# wasm-bindgen glue at the same version as the game's loader.
+worker_want=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' tools/cellworker/Cargo.lock)
+if [[ "$worker_want" != "$want" ]]; then
+  echo "The cellular worker uses wasm-bindgen $worker_want; the game uses $want." >&2
+  exit 1
+fi
+RUSTFLAGS='' cargo build --release --locked --manifest-path tools/cellworker/Cargo.toml \
+  --target wasm32-unknown-unknown --target-dir target
+rm -f web/cellworker/cellworker*
+wasm-bindgen --target web --no-typescript --out-dir web/cellworker \
+  target/wasm32-unknown-unknown/release/cellworker.wasm
+
 # 3. Optionally squeeze it further.
 wasm=web/pkg/crabscape_bg.wasm
 opt=${WASM_OPT:-}
@@ -74,6 +87,7 @@ fi
 if command -v wasm-tools >/dev/null; then
   wasm-tools validate --features=-relaxed-simd "$wasm"
   wasm-tools validate --features=-relaxed-simd web/listen/listen_bg.wasm
+  wasm-tools validate --features=-relaxed-simd web/cellworker/cellworker_bg.wasm
   echo "wasm-tools: modules are valid without relaxed SIMD"
 else
   echo "(wasm-tools not found: skipping the relaxed-SIMD check)"
@@ -85,6 +99,7 @@ fi
 stamp() { cat "$@" | cksum | awk '{print $1}'; }
 stamp web/pkg/crabscape.js "$wasm" > web/pkg/version.txt
 stamp web/listen/listen.js web/listen/listen_bg.wasm > web/listen/listen-version.txt
+stamp web/cellworker/cellworker.js web/cellworker/cellworker_bg.wasm > web/cellworker/cellworker-version.txt
 # The version this site serves, which a co-op game fetches fresh when it meets a
 # friend on another one: whichever game doesn't match it reloads (src/coop.rs).
 printf '%s' "${CRABSCAPE_VERSION:-dev}" > web/pkg/commit.txt
@@ -101,3 +116,5 @@ gz=$(gzip -9 -c "$wasm" | wc -c)
 echo "Built web/ — $wasm is $((raw / 1024)) KiB ($((gz / 1024)) KiB gzipped)"
 listen=web/listen/listen_bg.wasm
 echo "  and $listen (spoken reports and voice chat, loaded only when used) is $(($(wc -c < "$listen") / 1024)) KiB ($(($(gzip -9 -c "$listen" | wc -c) / 1024)) KiB gzipped)"
+worker=web/cellworker/cellworker_bg.wasm
+echo "  and $worker (checkpoint compression, loaded only when used) is $(($(wc -c < "$worker") / 1024)) KiB ($(($(gzip -9 -c "$worker" | wc -c) / 1024)) KiB gzipped)"

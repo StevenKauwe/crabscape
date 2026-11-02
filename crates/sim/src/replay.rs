@@ -33,6 +33,8 @@
 //! | `slow`          | let go of dodge (ends a sprint)                          |
 //! | `sprinting`     | hold dodge without a new press                           |
 //! | `down=on`       | hold down (climbs down kelp or coral); `down=off` lets go |
+//! | `dig=on`        | hold the independent dig control; `dig=off` lets go   |
+//! | `dig_up=on`     | push upward while digging; `dig_up=off` lets go       |
 //! | `smash`         | press the crusher (a heavy smash)                        |
 //! | `jab`           | press the cutter (a quick jab)                           |
 //! | `block`         | press block and keep holding it (claws up)               |
@@ -56,6 +58,8 @@
 //! so the runner can say whether it ended in exactly the same state. A replay recorded from a crab that already
 //! had progress (a reload) starts with a `progress {...}` line: what it had then, as its save keeps it
 //! ([`crate::Progress`], JSON), given back to player 0 before the first tick.
+//! A resumed cellular recording also includes its bounded starting terrain,
+//! simulation clock, and saved map memory.
 
 use bevy_math::Vec2;
 
@@ -64,10 +68,23 @@ use crate::craft::Recipe;
 use crate::enemy::Kind;
 use crate::feel::Feel;
 use crate::level::SPAWN;
+use crate::memory::MemorySave;
 use crate::physics::{Controls, TICKS_PER_SECOND};
 use crate::progress::Progress;
 use crate::skills::Skill;
 use crate::tuning::Tuning;
+
+mod session;
+pub use session::{
+    CellSessionAction, CellSessionRecording, CellSessionTick, MAX_CELL_SESSION_TEXT,
+};
+
+mod cell_start;
+use cell_start::CellStart;
+pub use cell_start::VerifiedCellStart;
+
+/// An upper bound on saved map data accepted or emitted with a replay.
+const MAX_START_MEMORY: usize = 1024 * 1024;
 
 /// The controls from one tick on.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -82,8 +99,16 @@ pub struct Input {
 /// A whole replay or input script.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Replay {
+    pub(crate) regional: Option<crate::world::regions::journal::RegionJournal>,
+    pub(crate) session: Option<session::SessionReplay>,
     /// Where player 0's crab stands at tick 0.
     pub start: Vec2,
+    /// This recording started with the cellular terrain experiment enabled.
+    pub cellular: bool,
+    /// Complete starting terrain and the absolute clock for a loaded world.
+    pub(crate) cell_start: Option<CellStart>,
+    /// The loaded crab's remembered map, when replaying a saved cellular game.
+    pub(crate) memory: Option<MemorySave>,
     /// The [`Tuning::fingerprint`] it was recorded with, if known.
     pub tuning: Option<u64>,
     /// When the controls change, in tick order (at most one per tick).
@@ -122,7 +147,12 @@ pub struct Spawn {
 impl Default for Replay {
     fn default() -> Self {
         Self {
+            regional: None,
+            session: None,
             start: SPAWN,
+            cellular: false,
+            cell_start: None,
+            memory: None,
             tuning: None,
             inputs: Vec::new(),
             end: None,
@@ -146,6 +176,40 @@ pub fn ticks(seconds: f64) -> u64 {
 impl Replay {
     /// Read a replay or script. On a mistake, says which line and why.
     pub fn parse(text: &str) -> Result<Self, String> {
+        if text.trim_start().starts_with("region_session_v1 ") {
+            let mut lines = text.trim().lines();
+            let journal = crate::world::regions::journal::RegionJournal::from_text(
+                lines.next().ok_or("missing region replay")?,
+            )
+            .map_err(|e| format!("Regional replay: {e:?}"))?;
+            let mut replay = Self {
+                cellular: true,
+                end: Some(journal.pending_ticks()),
+                regional: Some(journal),
+                ..Self::default()
+            };
+            for line in lines {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if replay.hash.is_some() {
+                    return Err("duplicate regional hash".into());
+                }
+                replay.hash = Some(
+                    u64::from_str_radix(
+                        line.strip_prefix("hash ")
+                            .ok_or("unexpected regional replay line")?
+                            .trim(),
+                        16,
+                    )
+                    .map_err(|_| "invalid regional hash")?,
+                );
+            }
+            return Ok(replay);
+        }
+        if session::SessionReplay::recognizes(text) {
+            return session::SessionReplay::parse(text);
+        }
         let mut replay = Replay::default();
         // First collect (tick, words) entries, then sort them by time.
         let mut entries: Vec<(u64, Vec<&str>, usize)> = Vec::new();
@@ -159,6 +223,21 @@ impl Replay {
                 };
                 let err = |msg: String| format!("line {line_no}: {msg}");
                 match first {
+                    "world" if rest == ["cells"] => replay.cellular = true,
+                    "world" => return Err(err("`world` wants cells".into())),
+                    "cell_start" => {
+                        if rest.len() != 2 || replay.cell_start.is_some() {
+                            return Err(err("`cell_start` needs one tick and checkpoint".into()));
+                        }
+                        let tick = rest[0]
+                            .parse()
+                            .map_err(|_| err("invalid cellular start tick".into()))?;
+                        replay.cell_start =
+                            Some(CellStart::parse(tick, rest[1]).ok_or_else(|| {
+                                err("invalid or oversized cellular checkpoint".into())
+                            })?);
+                        replay.cellular = true;
+                    }
                     "start" => {
                         for w in rest {
                             match w.split_once('=') {
@@ -191,6 +270,22 @@ impl Replay {
                         let p = serde_json::from_str(&json)
                             .map_err(|e| err(format!("`progress` doesn't read: {e}")))?;
                         replay.progress = Some(p);
+                    }
+                    "memory" => {
+                        let len = rest
+                            .iter()
+                            .try_fold(rest.len().saturating_sub(1), |size, word| {
+                                size.checked_add(word.len())
+                            })
+                            .ok_or_else(|| err("saved memory is too large".into()))?;
+                        if len > MAX_START_MEMORY || replay.memory.is_some() {
+                            return Err(err("duplicate or oversized saved memory".into()));
+                        }
+                        let json = rest.join(" ");
+                        replay.memory = Some(
+                            serde_json::from_str(&json)
+                                .map_err(|e| err(format!("`memory` doesn't read: {e}")))?,
+                        );
                     }
                     "end" => {
                         let when = rest
@@ -252,6 +347,15 @@ impl Replay {
             held = c;
             replay.inputs.push(Input { tick, controls: c });
         }
+        if replay.memory.is_some() {
+            if !replay.has_cell_start() {
+                return Err("saved memory requires a cellular checkpoint".into());
+            }
+            let mut sim = crate::Sim::new(Tuning::default(), crate::Level::test_level());
+            if !replay.prepare_start(&mut sim) {
+                return Err("saved memory or its cellular checkpoint is invalid".into());
+            }
+        }
         Ok(replay)
     }
 
@@ -259,13 +363,41 @@ impl Replay {
     /// the changes are written, so a replay stays short: a few lines per
     /// second of play.
     pub fn to_text(&self) -> String {
+        if let Some(journal) = &self.regional {
+            let mut text = journal
+                .to_text()
+                .expect("validated bounded regional replay");
+            if let Some(hash) = self.hash {
+                text += &format!("hash {hash:016x}\n");
+            }
+            return text;
+        }
+        if let Some(session) = &self.session {
+            let mut text = session
+                .to_text()
+                .unwrap_or_else(|reason| format!("# {reason}\n"));
+            if let Some(hash) = self.hash {
+                text.push_str(&format!("hash {hash:016x}\n"));
+            }
+            return text;
+        }
         let mut out = String::from(
             "# CrabScape replay. Play it without a window: cargo crabsim --inputs <this file>\n",
         );
         out += &format!("start x={} y={}\n", self.start.x, self.start.y);
+        if self.cellular {
+            out += "world cells\n";
+        }
+        if let Some(start) = &self.cell_start {
+            out += &format!("cell_start {} {}\n", start.tick, start.text());
+        }
         if let Some(p) = &self.progress {
             let json = serde_json::to_string(p).expect("progress always serialises");
             out += &format!("progress {json}\n");
+        }
+        if let Some(memory) = &self.memory {
+            let json = serde_json::to_string(memory).expect("memory always serialises");
+            out += &format!("memory {json}\n");
         }
         if let Some(code) = self.tuning {
             out += &format!("tuning {code:016x}\n");
@@ -318,6 +450,16 @@ impl Replay {
             if c.down != before.down {
                 line += if c.down { " down=on" } else { " down=off" };
             }
+            if c.dig_held != before.dig_held {
+                line += if c.dig_held { " dig=on" } else { " dig=off" };
+            }
+            if c.dig_up != before.dig_up {
+                line += if c.dig_up {
+                    " dig_up=on"
+                } else {
+                    " dig_up=off"
+                };
+            }
             line += match (c.block_pressed, c.block_held, before.block_held) {
                 (true, true, _) => " block",
                 (true, false, _) => " parry",
@@ -361,11 +503,87 @@ impl Replay {
         self.spawns.iter().filter(move |s| s.tick == tick)
     }
 
+    /// Restore a loaded cellular world's terrain and clock before creating
+    /// its player. Other replays leave the supplied simulation untouched.
+    /// Returns false if its starting checkpoint cannot safely be restored.
+    pub fn prepare_start(&self, sim: &mut crate::Sim) -> bool {
+        if let Some(journal) = &self.regional {
+            return journal.prepare_replay(sim);
+        }
+        if let Some(session) = &self.session {
+            return match session.restore() {
+                Ok(restored) => {
+                    *sim = restored;
+                    true
+                }
+                Err(_) => false,
+            };
+        }
+        let Some(start) = &self.cell_start else {
+            return true;
+        };
+        let Some(terrain) = start.restore() else {
+            return false;
+        };
+        self.prepare_start_with_terrain(sim, terrain)
+    }
+
+    pub(crate) fn prepare_start_with_terrain(
+        &self,
+        sim: &mut crate::Sim,
+        terrain: crate::underwater::World,
+    ) -> bool {
+        let Some(start) = &self.cell_start else {
+            return false;
+        };
+        let mut restored = crate::Sim::new(Tuning::default(), crate::Level::test_level());
+        if !restored.restore_cellular_terrain(terrain, start.tick) {
+            return false;
+        }
+        if let Some((_, feel)) = self.feels.iter().find(|(tick, _)| *tick == 0) {
+            restored.set_feel(*feel);
+        }
+        restored.add_crab(crate::PlayerId(0), self.start);
+        if let Some(saved) = &self.memory {
+            let Some(memory) =
+                crate::Memory::from_save(saved, &restored.level, &restored.tuning.memory)
+            else {
+                return false;
+            };
+            let Some(crab) = restored.crab_mut(crate::PlayerId(0)) else {
+                return false;
+            };
+            crab.memory = memory;
+        }
+        *sim = restored;
+        true
+    }
+
+    /// Does this replay start from a saved cellular checkpoint?
+    pub fn has_cell_start(&self) -> bool {
+        self.cell_start.is_some() || self.session.is_some() || self.regional.is_some()
+    }
+
     /// What happens to the world just before tick number `sim.tick_count()`
     /// runs: enemies appear, the feel switches, codes are entered, things
     /// are made at the workbench and the crab goes home (for player 0).
     pub fn apply_at(&self, sim: &mut crate::Sim) {
-        let tick = sim.tick_count();
+        if let Some(session) = &self.session {
+            session.apply_at(sim);
+            return;
+        }
+        if self.cell_start.is_some() && sim.tick_count() == 0 && !self.prepare_start(sim) {
+            return;
+        }
+        let Some(tick) = sim
+            .tick_count()
+            .checked_sub(self.cell_start.as_ref().map_or(0, |s| s.tick))
+        else {
+            return;
+        };
+        if tick == 0 && self.cellular && sim.level.cells.is_none() {
+            sim.enable_underwater_cells();
+        }
         if tick == 0
             && let Some(p) = &self.progress
         {
@@ -390,6 +608,20 @@ impl Replay {
         if self.homes.contains(&tick) {
             sim.go_home(crate::PlayerId(0));
         }
+    }
+
+    /// Session playback must use this full step, including the shared tether,
+    /// instead of the single-player apply_at/next_controls/tick sequence.
+    pub fn is_cell_session(&self) -> bool {
+        self.session.is_some() || self.regional.is_some()
+    }
+    pub fn step_cell_session(&self, sim: &mut crate::Sim) -> bool {
+        if let Some(journal) = &self.regional {
+            return journal.step_replay(sim);
+        }
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.step(sim))
     }
 
     /// Something that hands out the controls for tick 0, 1, 2, ... in turn.
@@ -450,12 +682,69 @@ impl Recorder {
         }
     }
 
+    pub(crate) fn note_cellular(&mut self) {
+        self.replay.cellular = true;
+    }
+
+    pub(crate) fn note_cell_start(
+        &mut self,
+        terrain: &crate::underwater::World,
+        tick: u64,
+    ) -> bool {
+        let Some(start) = CellStart::capture(terrain, tick) else {
+            return false;
+        };
+        self.replay.cell_start = Some(start);
+        self.replay.cellular = true;
+        true
+    }
+
+    pub(crate) fn note_compressed_cell_start(&mut self, packed: &[u8], tick: u64) -> bool {
+        let Some(start) = CellStart::from_compressed(packed, tick) else {
+            return false;
+        };
+        self.replay.cell_start = Some(start);
+        self.replay.cellular = true;
+        true
+    }
+
+    pub(crate) fn note_verified_cell_start(&mut self, verified: &VerifiedCellStart) {
+        self.replay.cell_start = Some(verified.start.clone());
+        self.replay.cellular = true;
+    }
+
+    pub(crate) fn cell_start_bytes(terrain: &crate::underwater::World) -> Option<Vec<u8>> {
+        CellStart::checkpoint_bytes(terrain)
+    }
+
+    pub(crate) fn note_memory(&mut self, memory: &crate::Memory) -> bool {
+        let saved = memory.to_save();
+        if serde_json::to_vec(&saved).map_or(true, |json| json.len() > MAX_START_MEMORY) {
+            return false;
+        }
+        self.replay.memory = Some(saved);
+        true
+    }
+
+    pub(crate) fn has_cell_start(&self) -> bool {
+        self.replay.has_cell_start()
+    }
+
+    pub(crate) fn cell_start_len(&self) -> Option<usize> {
+        self.replay
+            .cell_start
+            .as_ref()
+            .map(|start| start.text().len())
+    }
+
     /// The controls used on `tick`. Only changes and presses are kept.
     pub fn note(&mut self, tick: u64, c: Controls) {
         let changed = c.walk != self.last.walk
             || c.jump_held != self.last.jump_held
             || c.dodge_held != self.last.dodge_held
             || c.down != self.last.down
+            || c.dig_held != self.last.dig_held
+            || c.dig_up != self.last.dig_up
             || c.block_held != self.last.block_held
             || c.smash_held != self.last.smash_held;
         if changed || c.any_press() {
@@ -587,6 +876,10 @@ fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
             }
             Some(("down", "on")) => c.down = true,
             Some(("down", "off")) => c.down = false,
+            Some(("dig", "on")) => c.dig_held = true,
+            Some(("dig", "off")) => c.dig_held = false,
+            Some(("dig_up", "on")) => c.dig_up = true,
+            Some(("dig_up", "off")) => c.dig_up = false,
             _ => return Err(format!("don't know `{word}`")),
         },
     }
@@ -622,6 +915,39 @@ fn walk_word(walk: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recording_round_trips_digging_and_direction_changes() {
+        let mut recorder = Recorder::new(Vec2::ZERO, 0, &Tuning::default());
+        let inputs = [
+            Controls {
+                dig_held: true,
+                down: true,
+                ..Controls::default()
+            },
+            Controls {
+                dig_held: true,
+                dig_up: true,
+                ..Controls::default()
+            },
+            Controls {
+                dig_held: true,
+                dig_up: false,
+                walk: 0.5,
+                ..Controls::default()
+            },
+            Controls::default(),
+        ];
+        for (tick, &controls) in inputs.iter().enumerate() {
+            recorder.note(tick as u64, controls);
+        }
+        let text = recorder.replay(inputs.len() as u64).to_text();
+        let replay = Replay::parse(&text).unwrap();
+        let mut playback = replay.playback();
+        for expected in inputs {
+            assert_eq!(playback.next_controls(), expected, "{text}");
+        }
+    }
 
     #[test]
     fn reads_a_script() {

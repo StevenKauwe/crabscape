@@ -13,7 +13,23 @@ use crate::save;
 /// the start too), then forget what this device kept and, in a browser, load
 /// the page afresh. (A desktop build just carries on, from the start.)
 pub fn start_over(sim: &mut Sim) {
+    #[cfg(target_arch = "wasm32")]
+    if crate::cellular::enabled() {
+        crate::cell_save::browser::clear_and_reload();
+        return;
+    }
     *sim = fresh();
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::cellular::enabled() {
+        if let Err(error) = crate::cell_save::native::wipe() {
+            bevy::log::warn!(
+                "could not clear the cellular save; the previous save was kept: {error}"
+            );
+        }
+    } else {
+        save::wipe();
+    }
+    #[cfg(target_arch = "wasm32")]
     save::wipe();
     #[cfg(target_arch = "wasm32")]
     if let Some(window) = web_sys::window() {
@@ -24,7 +40,15 @@ pub fn start_over(sim: &mut Sim) {
 /// The world as a new game starts it: the crab at the start, recording, and
 /// the level's animals in place (as `player::setup` does).
 fn fresh() -> Sim {
-    let mut sim = Sim::with_one_crab(SPAWN);
+    fresh_with_cells(crate::cellular::enabled())
+}
+
+fn fresh_with_cells(cells: bool) -> Sim {
+    let mut sim = Sim::new(crabsim::Tuning::default(), crabsim::Level::test_level());
+    if cells {
+        sim.enable_underwater_cells();
+    }
+    sim.add_crab(crabsim::PlayerId(0), SPAWN);
     sim.start_recording();
     sim.populate();
     sim
@@ -49,5 +73,14 @@ mod tests {
             .unwrap();
         assert_eq!(o.state, State::Idle);
         assert!(o.hidden(&sim.tuning));
+    }
+
+    #[test]
+    fn cellular_start_over_starts_a_fresh_cell_world() {
+        let sim = fresh_with_cells(true);
+        assert!(sim.level.cells.is_some());
+        assert!(sim.crab(crabsim::PlayerId(0)).is_some());
+        assert_eq!(sim.tick_count(), 0);
+        assert_eq!(sim.enemies().len(), sim.level.foes.len());
     }
 }

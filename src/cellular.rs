@@ -8,7 +8,7 @@ use bevy::render::render_resource::{AsBindGroup, Extent3d, TextureDimension, Tex
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{Material2d, Material2dPlugin};
 use crabsim::Sim;
-use crabsim::underwater::{GAME_BUBBLES, GAME_PEBBLES, GAME_SILT, GAME_TRACERS, HEIGHT, WIDTH};
+use crabsim::underwater::{GAME_BUBBLES, GAME_PEBBLES, GAME_SILT, GAME_TRACERS};
 
 use crate::player::GameSet;
 
@@ -30,18 +30,23 @@ pub fn enabled() -> bool {
     }
 }
 
-/// The cellular draft and the mobile camera-fix preview default to the
-/// experiment. The live site and other previews keep their usual default.
+/// The cellular drafts and the mobile camera-fix preview default to the
+/// experiment; `?boring` selects the normal game. The live site and other
+/// previews keep their usual default.
 #[cfg(any(test, target_arch = "wasm32"))]
 fn browser_cells_enabled(path: &str, search: &str) -> bool {
-    let explicit = search
-        .trim_start_matches('?')
-        .split('&')
-        .any(|part| part == "cells" || part == "cells=1");
+    let mut params = search.trim_start_matches('?').split('&');
+    if params
+        .clone()
+        .any(|part| part == "boring" || part == "boring=1")
+    {
+        return false;
+    }
+    let explicit = params.any(|part| part == "cells" || part == "cells=1");
     explicit
         || path
             .split('/')
-            .any(|part| matches!(part, "pr-345" | "pr-350"))
+            .any(|part| matches!(part, "pr-345" | "pr-350" | "pr-352"))
 }
 
 #[cfg(test)]
@@ -53,11 +58,21 @@ mod tests {
         assert!(browser_cells_enabled("/crabscape/pr-345/", ""));
         assert!(browser_cells_enabled("/crabscape/pr-345", "?zoom=2"));
         assert!(browser_cells_enabled("/crabscape/pr-350/", ""));
+        assert!(browser_cells_enabled("/crabscape/pr-352/", ""));
         assert!(!browser_cells_enabled("/crabscape/pr-3450/", ""));
         assert!(!browser_cells_enabled("/crabscape/", ""));
         assert!(!browser_cells_enabled("/crabscape/pr-346/", ""));
         assert!(browser_cells_enabled("/crabscape/", "?zoom=2&cells"));
         assert!(browser_cells_enabled("/crabscape/", "?cells=1"));
+        assert!(!browser_cells_enabled("/crabscape/pr-352/", "?boring"));
+        assert!(!browser_cells_enabled(
+            "/crabscape/pr-352/",
+            "?zoom=2&boring=1"
+        ));
+        assert!(!browser_cells_enabled(
+            "/crabscape/pr-352/",
+            "?cells&boring"
+        ));
     }
 }
 
@@ -134,10 +149,11 @@ fn setup(
     let Some(cells) = &sim.level.cells else {
         return;
     };
+    let (pixel_width, pixel_height) = cells.dimensions();
     let mut image = Image::new(
         Extent3d {
-            width: WIDTH as u32,
-            height: HEIGHT as u32,
+            width: pixel_width as u32,
+            height: pixel_height as u32,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -156,9 +172,10 @@ fn setup(
     };
     commands.spawn((
         CellField,
-        Mesh2d(meshes.add(Rectangle::new(width, height))),
+        Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))),
         MeshMaterial2d(materials.add(material)),
-        Transform::from_xyz(left + width * 0.5, bottom + height * 0.5, 0.3),
+        Transform::from_xyz(left + width * 0.5, bottom + height * 0.5, 0.3)
+            .with_scale(Vec3::new(width, height, 1.0)),
     ));
     for index in 0..GAME_TRACERS + GAME_BUBBLES {
         let bubble = index >= GAME_TRACERS;
@@ -243,12 +260,23 @@ fn draw(
     {
         transform.translation.x = bounds.0 + bounds.2 * 0.5;
         transform.translation.y = bounds.1 + bounds.3 * 0.5;
+        transform.scale = Vec3::new(bounds.2, bounds.3, 1.0);
         if let Some(mut material) = materials.get_mut(&handle.0) {
             material.bounds = Vec4::new(bounds.0, bounds.1, bounds.2, bounds.3);
         }
     }
     if cells.tick_count() != output.tick || bounds != output.bounds {
         if let Some(mut image) = images.get_mut(&output.handle) {
+            let (width, height) = cells.dimensions();
+            if image.texture_descriptor.size.width != width as u32
+                || image.texture_descriptor.size.height != height as u32
+            {
+                image.resize(Extent3d {
+                    width: width as u32,
+                    height: height as u32,
+                    depth_or_array_layers: 1,
+                });
+            }
             image.data = Some(cells.game_pixels());
         }
         for (particle, mut transform, mut visibility) in &mut particles {

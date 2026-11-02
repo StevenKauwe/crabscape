@@ -69,9 +69,8 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   cow-farming simulator, I'd be happy"). We never care about breaking changes or keeping past versions working:
   - **Co-op:** both players must be on the same version; the older one reloads into the new one. Never keep co-op
     messages readable by an older game, and never test against one.
-  - **Saves and export codes:** when a change would break a saved crab, write a migration (a small function from the
-    old shape to the new). No `#[serde(default)]` habit, no "saves from before…" special cases kept around forever;
-    once nobody can still hold an old save, its migration can go too.
+  - **Saves and export codes:** this is early pre-alpha. Replace formats outright when useful; do not spend work on
+    backward compatibility or migrations. Failed writes must still keep the last complete save intact.
   - **Anything else** (formats, files, tools, rules, the game itself): change it outright. No shims, flags or
     deprecation steps.
 - **How much polish** (owner's call):

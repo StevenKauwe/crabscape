@@ -2,7 +2,7 @@
 //! (SplitMix64) stored in the [`Sim`](crate::Sim) and part of its state hash.
 //! Same seed, same numbers, on every computer and in the browser.
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Rng {
     state: u64,
 }

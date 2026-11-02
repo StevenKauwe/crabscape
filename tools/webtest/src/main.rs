@@ -3,6 +3,7 @@
 //! ```text
 //! tools/build-web.sh && cargo webtest [--landscape | --desktop] [--shots PREFIX] [--style-shots PREFIX]
 //! cargo webtest --url https://stevenkauwe.github.io/crabscape/ --smoke
+//! cargo webtest --cellular-save # focused full-game autosave/reload/reset test
 //! ```
 //!
 //! Needs WebKitGTK 4.1's MiniBrowser and `WebKitWebDriver` (Ubuntu: `apt install webkitgtk-webdriver`, before 26.04 `webkit2gtk-driver`) and a display
@@ -38,6 +39,9 @@
 //! screenshots as PREFIX-1.png, ...; with `--style-shots PREFIX` it saves PREFIX-oil.png and PREFIX-ink.png.
 //! WebKitGTK on Linux is not iOS: same JavaScript, WebAssembly and WebGL code, but not the same GPU or memory limits.
 
+#[path = "../../../src/cell_worker_path.rs"]
+mod cell_worker_path;
+mod cellular_save;
 mod driver;
 mod serve;
 
@@ -62,6 +66,7 @@ struct Options {
     url: Option<String>,
     smoke: bool,
     feel_shots: Option<String>,
+    cellular_save: bool,
 }
 
 fn options() -> std::result::Result<Options, String> {
@@ -74,6 +79,7 @@ fn options() -> std::result::Result<Options, String> {
         url: None,
         smoke: false,
         feel_shots: None,
+        cellular_save: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -86,18 +92,22 @@ fn options() -> std::result::Result<Options, String> {
             }
             "--url" => o.url = Some(args.next().ok_or("--url needs an address")?),
             "--smoke" => o.smoke = true,
+            "--cellular-save" => o.cellular_save = true,
             "--feel-shots" => {
                 o.feel_shots = Some(args.next().ok_or("--feel-shots needs a prefix")?)
             }
             "-h" | "--help" => {
                 println!(
                     "cargo webtest [--landscape | --desktop] [--shots PREFIX] [--style-shots PREFIX] \
-                     [--url URL] [--smoke] [--feel-shots PREFIX]\n(see tools/webtest/src/main.rs)"
+                     [--url URL] [--smoke] [--feel-shots PREFIX] [--cellular-save]\n(see tools/webtest/src/main.rs)"
                 );
                 std::process::exit(0);
             }
             other => return Err(format!("unknown option `{other}` (try --help)")),
         }
+    }
+    if o.cellular_save && (o.url.is_some() || o.smoke || o.feel_shots.is_some()) {
+        return Err("--cellular-save uses a local build and cannot be combined with --url, --smoke or --feel-shots".into());
     }
     Ok(o)
 }
@@ -189,6 +199,7 @@ fn run(o: &Options, root: &Path, scratch: &Path, log: &Path) -> Result<u32> {
     let vw = if framed { o.width.max(500.0) } else { o.width };
     t.b.set_viewport(vw as u32, o.height as u32)?;
     match &o.feel_shots {
+        _ if o.cellular_save => t.cellular_autosave()?,
         Some(prefix) => t.feel_strips(prefix)?,
         None => t.all()?,
     }
@@ -224,6 +235,58 @@ impl Test<'_> {
             pump(0.25);
         }
         Ok(false)
+    }
+
+    /// Load the real Rust/Wasm worker through preview-build URLs, transfer a
+    /// known checkpoint payload, and compare its zlib bytes to native Rust.
+    fn cellular_worker(&mut self, preview: &str) -> Result<()> {
+        let path = cell_worker_path::worker_path(preview);
+        let run = format!(
+            r#"(() => {{
+          window.__cellworkerTest = {{ done: false }};
+          try {{
+            const worker = new Worker({path:?}, {{ type: "module" }});
+            worker.onerror = e => {{ e.preventDefault(); window.__cellworkerTest = {{ done: true, error: e.message }}; worker.terminate(); }};
+            worker.onmessage = e => {{
+              if (e.data.state === "ready") {{
+                const input = Uint8Array.from({{ length: 32 }}, (_, i) => i);
+                worker.postMessage({{ id: 1, bytes: input.buffer }}, [input.buffer]);
+                window.__cellworkerTest.detached = input.byteLength === 0;
+              }} else {{
+                window.__cellworkerTest = {{ done: true, state: e.data.state,
+                  detached: window.__cellworkerTest.detached,
+                  bytes: e.data.bytes ? Array.from(new Uint8Array(e.data.bytes)) : [] }};
+                worker.terminate();
+              }}
+            }};
+          }} catch (e) {{ window.__cellworkerTest = {{ done: true, error: String(e) }}; }}
+          return true;
+        }})()"#
+        );
+        self.eval(&run)?;
+        let done = self.wait_for("window.__cellworkerTest.done", 20.0)?;
+        let result = self.eval("window.__cellworkerTest")?;
+        let expected = serde_json::json!([
+            120, 1, 99, 96, 100, 98, 102, 97, 101, 99, 231, 224, 228, 226, 230, 225, 229, 227, 23,
+            16, 20, 18, 22, 17, 21, 19, 151, 144, 148, 146, 150, 145, 149, 147, 7, 0, 21, 112, 1,
+            241
+        ]);
+        let success = done
+            && result["state"] == "done"
+            && result["detached"] == true
+            && result["bytes"] == expected;
+        self.check(
+            success,
+            format!(
+                "cellular worker compresses bytes under preview path {preview}{}",
+                if success {
+                    String::new()
+                } else {
+                    format!(" ({result})")
+                }
+            ),
+        );
+        Ok(())
     }
 
     /// The crab's state, as the game writes it on the canvas: (x, y, grounded).
@@ -461,6 +524,10 @@ impl Test<'_> {
         );
         if !started {
             return Ok(()); // nothing else can work
+        }
+        if self.framed {
+            self.cellular_worker("/__worker_preview")?;
+            self.cellular_worker("/__worker_preview/")?;
         }
         let size = self.eval(&format!(
             "(c => [c.width, c.height, c.clientWidth, c.clientHeight])({CANVAS})"
@@ -969,6 +1036,9 @@ impl Test<'_> {
                 self.shot(PathBuf::from(format!("{prefix}-scent-{name}.png")), true)?;
                 self.no_error_on_page("during the scent screenshot")?;
             }
+        }
+        if self.framed {
+            self.cellular_autosave()?;
         }
         Ok(())
     }

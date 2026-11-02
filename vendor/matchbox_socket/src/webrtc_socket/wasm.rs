@@ -587,6 +587,11 @@ fn create_data_channel(
             trace!("data channel message received {event:?}");
             if let Ok(arraybuf) = event.data().dyn_into::<js_sys::ArrayBuffer>() {
                 let uarray = js_sys::Uint8Array::new(&arraybuf);
+                // Developer probe packets are bounded before copying into Rust.
+                #[cfg(feature = "probe-ingress")]
+                if crate::probe_ingress::intercept(channel_id, peer_id, &uarray) {
+                    return;
+                }
                 let body = uarray.to_vec();
 
                 if let Err(e) = incoming_tx.unbounded_send((peer_id, body.into_boxed_slice())) {

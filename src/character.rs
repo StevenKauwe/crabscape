@@ -306,7 +306,7 @@ fn checksum(text: &str) -> String {
 const B64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 /// URL-safe base64, without padding.
-fn base64url(bytes: &[u8]) -> String {
+pub(crate) fn base64url(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         // The chunk's bytes as one number, the first byte highest.
@@ -332,7 +332,7 @@ fn sextet(c: u8) -> Option<u32> {
 }
 
 /// Back from [`base64url`]; None for anything it can't have written.
-fn unbase64url(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn unbase64url(s: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len() * 3 / 4);
     for chunk in s.as_bytes().chunks(4) {
         if chunk.len() == 1 {

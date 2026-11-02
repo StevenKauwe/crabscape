@@ -49,6 +49,7 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
+pub mod cell_codec;
 pub mod codes;
 pub mod combat;
 pub mod craft;
@@ -65,6 +66,7 @@ pub mod physics;
 pub mod progress;
 pub mod replay;
 pub mod rng;
+pub mod save_data;
 pub mod shared;
 pub mod skills;
 pub mod tuning;
@@ -81,7 +83,8 @@ pub use memory::{Memory, MemorySave, Sight, Sighting};
 pub use moult::Feat;
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use progress::Progress;
-pub use replay::Replay;
+pub use replay::{Replay, VerifiedCellStart};
+pub use save_data::{SAVE_VERSION, SaveData};
 pub use skills::Skill;
 pub use tuning::Tuning;
 pub use world::{CastOff, PlayerId, Sim, SimCrab, Snapshot};
@@ -99,5 +102,8 @@ pub fn play(sim: &mut Sim, replay: &Replay, ticks: u64, mut after_tick: impl FnM
     }
 }
 
+pub mod cell_interest;
 mod navigation;
 pub mod underwater;
+
+pub use replay::{CellSessionAction, CellSessionRecording, CellSessionTick, MAX_CELL_SESSION_TEXT};

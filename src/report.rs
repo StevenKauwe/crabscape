@@ -8,7 +8,9 @@
 //! Each report carries the game as it was when the form opened: the replay
 //! so far (`cargo crabsim --inputs` plays it back exactly), the build,
 //! browser, screen, frame rate, where the crab was, co-op, the settings and
-//! the last log lines.
+//! the last log lines. Cellular report replays omit the final state hash to avoid
+//! hashing the entire cellular world on the device when the form opens; F9
+//! recordings still include their hash.
 //!
 //! After co-op voice chat, "Add the last 15 min of voice chat" (unticked
 //! each time: reports are public) adds what was said, as written down by
@@ -154,6 +156,37 @@ fn shortcut_for_target(
     }
 }
 
+/// Leave room in the introducer's 512 KiB request limit for the report text,
+/// log, facts, and optional voice transcript. Include JSON string escaping.
+const MAX_REPORT_REPLAY: usize = 256 * 1024;
+
+fn replay_too_large(replay: &str) -> bool {
+    if replay.len() > MAX_REPORT_REPLAY {
+        return true;
+    }
+    serde_json::to_vec(replay).map_or(true, |bytes| bytes.len() > MAX_REPORT_REPLAY)
+}
+
+/// A resumed cellular recording already owns its encoded starting checkpoint.
+/// If that part alone is too large for a report, don't clone the replay,
+/// format its text, or hash the (potentially much larger) running world.
+#[cfg(any(test, target_arch = "wasm32"))]
+fn report_replay(
+    checkpoint_len: Option<usize>,
+    materialize: impl FnOnce() -> Option<String>,
+) -> (String, bool) {
+    // Even an exactly-limit checkpoint needs a replay line around it.
+    if checkpoint_len.is_some_and(|len| len >= MAX_REPORT_REPLAY) {
+        return (String::new(), true);
+    }
+    let replay = materialize().unwrap_or_default();
+    if replay_too_large(&replay) {
+        (String::new(), true)
+    } else {
+        (replay, false)
+    }
+}
+
 /// What the form sends to the introducer (`tools/introducer`'s `Report`):
 /// the voice chat only when the player ticked it and left something in it.
 pub(crate) fn payload(
@@ -164,13 +197,20 @@ pub(crate) fn payload(
     log: &str,
     voice: Option<&str>,
 ) -> serde_json::Value {
+    let omitted = replay_too_large(replay);
     let mut body = serde_json::json!({
         "kind": if idea { "idea" } else { "bug" },
         "text": text,
         "facts": facts,
-        "replay": replay,
+        "replay": if omitted { "" } else { replay },
         "log": log,
     });
+    if omitted && let Some(facts) = body["facts"].as_array_mut() {
+        facts.push(serde_json::json!([
+            "Replay",
+            "Omitted: the saved terrain checkpoint is too large for a report."
+        ]));
+    }
     if let Some(voice) = voice.map(str::trim).filter(|v| !v.is_empty()) {
         body["voice"] = voice.into();
     }
@@ -339,13 +379,59 @@ mod web {
         {
             facts.push(("Co-op".into(), coop));
         }
-        let replay = sim.recording().map(|r| r.to_text()).unwrap_or_default();
+        let session = crate::coop::cells_replay(true);
+        let shared = session.is_some();
+        let session_reason = session.as_ref().and_then(|r| r.as_ref().err()).cloned();
+        let (replay, replay_omitted) = match session {
+            Some(Ok(text)) => super::report_replay(None, || Some(text)),
+            Some(Err(_)) => (String::new(), true),
+            None => super::report_replay(sim.recording_cell_start_len(), || {
+                sim.recording_for_report().map(|r| r.to_text())
+            }),
+        };
+        let replay_included = !replay.is_empty();
+        if replay_omitted {
+            facts.push((
+                "Replay".into(),
+                if shared {
+                    format!(
+                        "Complete co-op replay omitted: {}.",
+                        session_reason
+                            .as_deref()
+                            .unwrap_or("exceeds the report attachment limit")
+                    )
+                } else {
+                    "Omitted: the saved terrain checkpoint is too large for a report.".into()
+                },
+            ));
+        } else if replay_included && sim.level.cells.is_some() {
+            facts.push((
+                "Replay".into(),
+                "Final state hash omitted to keep reports responsive.".into(),
+            ));
+        }
         with(|f| {
             f.facts = facts;
             f.replay = replay;
         });
         wire();
-        note("");
+        note(
+            if replay_omitted
+                && session_reason
+                    .as_deref()
+                    .is_some_and(|s| s.contains("report attachment limit"))
+            {
+                "Co-op replay is too large to attach. F9 / Replay exports it separately; your report can still be sent."
+            } else if replay_omitted && shared {
+                "A complete co-op replay is unavailable. Your report can still be sent."
+            } else if replay_omitted {
+                "Replay omitted from this report because its saved terrain is too large."
+            } else if replay_included && sim.level.cells.is_some() {
+                "Replay included without a final state hash."
+            } else {
+                ""
+            },
+        );
         voice_offer();
         let _ = form.remove_attribute("hidden");
         if let Some(t) = text_box() {
@@ -823,6 +909,39 @@ mod tests {
             "ticked but all deleted: none"
         );
         assert_eq!(payload(true, "x", &[], "", "", None)["kind"], "idea");
+    }
+
+    #[test]
+    fn oversized_replay_is_omitted_instead_of_exceeding_report_limit() {
+        let oversized = "x".repeat(MAX_REPORT_REPLAY + 1);
+        let body = payload(false, "stuck", &[], &oversized, "log", None);
+        assert_eq!(body["replay"], "");
+        assert!(body["facts"].to_string().contains("Omitted"));
+        assert!(serde_json::to_vec(&body).unwrap().len() < 512 * 1024);
+        // JSON escaping can enlarge even a shorter replay.
+        assert!(replay_too_large(&"\"".repeat(MAX_REPORT_REPLAY / 2 + 1)));
+        let small = payload(false, "stuck", &[], "world cells\n", "log", None);
+        assert_eq!(small["replay"], "world cells\n");
+    }
+
+    #[test]
+    fn oversized_start_checkpoint_does_not_materialize_or_hash_replay() {
+        let (text, omitted) = report_replay(Some(MAX_REPORT_REPLAY + 1), || {
+            panic!("large checkpoint must be rejected before materializing the replay")
+        });
+        assert!(omitted);
+        assert!(text.is_empty());
+        let (_, omitted) = report_replay(Some(MAX_REPORT_REPLAY), || {
+            panic!("checkpoint at the limit still needs a replay header")
+        });
+        assert!(omitted);
+
+        let (text, omitted) = report_replay(Some(10), || Some("world cells\n".to_owned()));
+        assert!(!omitted);
+        assert_eq!(text, "world cells\n");
+        let (text, omitted) = report_replay(None, || Some("x".repeat(MAX_REPORT_REPLAY + 1)));
+        assert!(omitted);
+        assert!(text.is_empty());
     }
 
     #[test]

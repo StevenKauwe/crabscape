@@ -33,4 +33,16 @@ t=0 feel=momentum spawn=fixture@320,0; t=0 walk=right sprint; t=0.3 charge; t=0.
 t=0 feel=tank spawn=fixture@240,0; t=0.22 parry; t=0.27 smash; t=2 feel=hybrid; t=3 spawn=mantis@700,0; t=3 walk=right; t=4 walk=stop; t=6 charge; t=6.4 loose; t=8 walk=left sprint
 t=0 spawn=snapper@340,0 spawn=moray@760,0; t=0 walk=right; t=0.25 walk=stop; t=1.4 jump; t=2 walk=right; t=2.6 walk=stop; t=5 dodge; t=5.05 dodge; t=5.1 dodge; t=5.2 dodge; t=5.3 dodge; t=6 smash; t=8 walk=left sprint
 SCRIPTS
+# Cellular replay also depends on sediment and flow, not just crab motion.
+# Keep this short: the state hash covers the full active and streamed world.
+cell_script='world cells; t=0 walk=right dig=on down=on; t=1 down=off dig_up=on; t=1.5 dig=off dig_up=off'
+for tick_count in 1 4 60 240; do
+  ha=$($native --script "$cell_script" --ticks "$tick_count" | grep '^state hash')
+  hb=$($wasm --script "$cell_script" --ticks "$tick_count" | grep '^state hash')
+  if [ "$ha" != "$hb" ]; then
+    echo "DIFFERENT cellular world at tick $tick_count: native $ha; wasm $hb" >&2
+    exit 1
+  fi
+  echo "same cellular world at tick $tick_count: $ha"
+done
 echo "native and wasm agree"

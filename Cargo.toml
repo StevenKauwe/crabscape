@@ -34,6 +34,10 @@ unimplemented = "deny"
 [lints]
 workspace = true
 
+[features]
+# Developer-only, shadow-world WebRTC transport probe. Never enables gameplay.
+cellular-transport-probe = ["matchbox_socket/probe-ingress"]
+
 [dependencies]
 # The game rules. The `bevy` feature makes its types Bevy components/resources.
 crabsim = { path = "crates/sim", features = ["bevy"] }
@@ -77,9 +81,11 @@ bevy = { version = "0.20.0", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 # An exported character (src/character.rs): its checksum, and packing it about 4 times smaller. Both already in the
 # build: the PNG decoder uses them.
 crc32fast = "1"
+sha2 = "0.10.9"
 miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
 
 # Property tests (src/character.rs: any pasted text is answered, never a crash). As in crates/sim: without the
@@ -98,7 +104,9 @@ bevy = { version = "0.20.0", default-features = false, features = ["multi_thread
 # for the sounds (made in Rust, see src/sound.rs). wasm-bindgen (already
 # under web-sys) for the listener that switches sound on at the first touch.
 web-sys = { version = "0.3", features = [
-    "Window", "Storage", "Navigator", "Document", "Element", "Location", "EventTarget",
+    "Window", "Storage", "Navigator", "Document", "Element", "Location", "EventTarget", "Performance",
+    "DomException", "IdbFactory", "IdbDatabase", "IdbOpenDbRequest", "IdbRequest",
+    "IdbObjectStore", "IdbTransaction", "IdbTransactionMode",
     "AudioContext", "BaseAudioContext", "AudioContextState", "AudioBuffer", "AudioBufferSourceNode",
     "AudioScheduledSourceNode", "AudioNode", "AudioDestinationNode", "AudioParam", "GainNode",
     "HtmlAudioElement", "HtmlMediaElement",

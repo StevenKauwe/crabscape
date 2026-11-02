@@ -36,6 +36,9 @@
 //! versions first and never reads another version's messages (the older game
 //! reloads). So messages change freely, with no defaults kept for older games.
 
+pub mod cell_join;
+pub mod cell_transfer;
+
 use serde::{Deserialize, Serialize};
 
 use crate::combat::{Fighter, Hit, Outcome};
@@ -136,6 +139,50 @@ pub enum Msg {
     /// a [`clean_chat`]. Who said it is the device it came from (never a
     /// name or crab in the message), so nobody can speak as someone else.
     Chat(String),
+    /// One fragment of the host's cellular terrain checkpoint. Guests must
+    /// verify the sender is their selected host before accepting it.
+    CellTerrain(#[serde(deserialize_with = "cell_transfer::deserialize_fragment")] Vec<u8>),
+    /// An experimental ordered terrain frame; normal gameplay ignores it.
+    CellFrame(#[serde(deserialize_with = "cell_join::lockstep::deserialize_frame")] Vec<u8>),
+    /// Experimental stop-and-wait checkpoint acknowledgement; ignored by gameplay.
+    CellTerrainAck { transfer: u64, piece: u32 },
+    /// Experimental acknowledgement for one ordered terrain frame.
+    CellFrameAck { epoch: u64, frame: u64 },
+    /// Test-only shadow probe ready signal; gameplay ignores it.
+    CellProbeReady,
+    /// Experimental tick-stamped guest walk/dig input; ignored by gameplay.
+    CellWalkInput {
+        epoch: u64,
+        tick: u64,
+        sequence: u64,
+        player: PlayerId,
+        walk: f32,
+        dig: bool,
+    },
+    /// Experimental straight-down guest dig input; ignored by gameplay.
+    CellDownInput {
+        epoch: u64,
+        tick: u64,
+        sequence: u64,
+        player: PlayerId,
+    },
+    /// Experimental upward-mode tick input; ignored by gameplay.
+    CellUpInput {
+        epoch: u64,
+        tick: u64,
+        sequence: u64,
+        player: PlayerId,
+        up: bool,
+    },
+    /// Experimental authoritative upward-mode operation; ignored by gameplay.
+    CellUpFrame {
+        epoch: u64,
+        tick: u64,
+        world_tick: u64,
+        host: crate::underwater::HostPlayerForce,
+        guest: crate::underwater::HostPlayerForce,
+        digest: u64,
+    },
 }
 
 /// The longest name, in characters: short enough to sit over a crab.
@@ -278,6 +325,9 @@ impl Msg {
         if let Msg::Chat(line) = &msg {
             return (clean_chat(line).as_ref() == Some(line)).then_some(msg);
         }
+        if matches!(msg, Msg::CellTerrain(_) | Msg::CellFrame(_)) {
+            return Some(msg); // Its bounded byte payload was validated during decoding.
+        }
         // Every number in it, printed: `{:?}` writes a non-finite one as NaN
         // or inf, and no name in a message contains either (a test checks).
         let text = format!("{msg:?}");
@@ -369,8 +419,8 @@ pub struct FakeLink {
     pub loss: f32,
     rng: Rng,
     now: u64,
-    /// (due tick, to device, message), in the order sent.
-    queue: Vec<(u64, usize, Msg)>,
+    /// (due tick, source device, destination device, message), in send order.
+    queue: Vec<(u64, usize, usize, Msg)>,
     /// When the last reliable message from one device to another is due
     /// (from, to, tick): nothing reliable overtakes it.
     last_reliable: Vec<(usize, usize, u64)>,
@@ -397,6 +447,16 @@ impl FakeLink {
     /// One tick of the connection: take what every device sent, and hand
     /// over what is due. Call after every device has ticked.
     pub fn carry(&mut self, sims: &mut [&mut Sim]) {
+        self.carry_with(sims, |_, _, sim, msg| sim.receive(msg));
+    }
+
+    /// Deliver with the transport-provided source and destination indices.
+    /// The receiver must bind those to established connection identities.
+    pub(crate) fn carry_with(
+        &mut self,
+        sims: &mut [&mut Sim],
+        mut deliver: impl FnMut(usize, usize, &mut Sim, Msg),
+    ) {
         for from in 0..sims.len() {
             let outbox = sims[from].take_outbox();
             for out in outbox {
@@ -410,17 +470,22 @@ impl FakeLink {
         self.now += 1;
         let now = self.now;
         let mut due = Vec::new();
-        self.queue.retain(|(at, to, msg)| {
+        self.queue.retain(|(at, from, to, msg)| {
             if *at <= now {
-                due.push((*to, msg.clone()));
+                due.push((*from, *to, msg.clone()));
                 false
             } else {
                 true
             }
         });
-        for (to, msg) in due {
-            sims[to].receive(msg);
+        for (from, to, msg) in due {
+            deliver(from, to, sims[to], msg);
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_post(&mut self, from: usize, to: usize, msg: Msg) {
+        self.post(from, to, msg);
     }
 
     fn addressed(sim: &Sim, to: To) -> bool {
@@ -453,6 +518,6 @@ impl FakeLink {
                 None => self.last_reliable.push((from, to, at)),
             }
         }
-        self.queue.push((at, to, msg));
+        self.queue.push((at, from, to, msg));
     }
 }

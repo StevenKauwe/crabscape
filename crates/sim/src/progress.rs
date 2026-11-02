@@ -172,6 +172,25 @@ impl Sim {
         })
     }
 
+    /// Apply the saved passage state before validating a saved position.
+    /// Match restore_progress's cross-level compatibility rules.
+    pub fn apply_progress_obstacles(&mut self, p: &Progress) {
+        let fits = |saved: usize, now: usize| saved <= now;
+        let same_level = fits(p.eaten.len(), self.level.eggs.len())
+            && fits(p.cultures_taken.len(), self.level.cultures.len())
+            && fits(p.clues_found.len(), self.level.clues.len())
+            && fits(p.teeth_taken.len(), self.level.teeth.len())
+            && fits(p.nets_cut.len(), self.level.nets.len());
+        if same_level {
+            for (net, &cut) in self.level.nets.iter_mut().zip(&p.nets_cut) {
+                net.cut |= cut;
+            }
+            for (rock, &cracked) in self.level.brittle.iter_mut().zip(&p.rocks_cracked) {
+                rock.cracked |= cracked;
+            }
+        }
+    }
+
     /// Give crab `id` back its saved progress, rested. A list saved from a
     /// level with a different number of things is ignored (the level
     /// changed since), and so is anything left in a cast-off shell then,
@@ -189,14 +208,7 @@ impl Sim {
             && fits(p.clues_found.len(), self.level.clues.len())
             && fits(p.teeth_taken.len(), self.level.teeth.len())
             && fits(p.nets_cut.len(), self.level.nets.len());
-        if same_level {
-            for (net, &cut) in self.level.nets.iter_mut().zip(&p.nets_cut) {
-                net.cut |= cut;
-            }
-            for (rock, &cracked) in self.level.brittle.iter_mut().zip(&p.rocks_cracked) {
-                rock.cracked |= cracked;
-            }
-        }
+        self.apply_progress_obstacles(p);
         let crevices = self.level.crevices.len();
         if self.crab(id).is_none() {
             return;

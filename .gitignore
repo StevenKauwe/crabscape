@@ -11,6 +11,8 @@ mutants.out.old/
 /web/pkg/
 # The speech-to-text listener's compiled files (web/listen/worker.js is hand-written and committed).
 /web/listen/listen*
+# Rust checkpoint worker binaries and generated wasm-bindgen glue.
+/web/cellworker/cellworker*
 
 # The native build's save file (the web build saves in the browser instead).
 /crabscape-save.json
@@ -19,6 +21,7 @@ mutants.out.old/
 /web/assets/
 /tools/tidy/target/
 /tools/introducer/target/
+/tools/cellstore-proof/target/
 
 # Teaser renders: rebuilt by docs/teaser/build.sh into docs/teaser/build/.
 /docs/teaser/build/

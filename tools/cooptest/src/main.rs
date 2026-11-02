@@ -11,6 +11,7 @@
 //! somewhere unusual). `--url` plays the live site with the real introducer instead.
 
 mod chrome;
+mod save_fixture;
 #[path = "../../webtest/src/serve.rs"]
 mod serve;
 
@@ -20,6 +21,11 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use chrome::{Chrome, Options, Result};
+
+// Keep the pre-copy probe queue's platform-independent bounds in CI.
+#[cfg(test)]
+#[path = "../../../vendor/matchbox_socket/src/probe_ingress.rs"]
+mod probe_ingress_test;
 
 const HELP: &str = "\
 cargo cooptest [options]   play co-op in real browsers and check its promises
@@ -306,6 +312,21 @@ impl Player {
         code.ok_or_else(|| "no code".into())
     }
 
+    fn copied_invite(&mut self, code: &str, mode: &str) -> Result<String> {
+        let link = self
+            .b
+            .eval("navigator.clipboard.readText()")?
+            .as_str()
+            .ok_or("Invite did not copy a link")?
+            .to_string();
+        if !link.contains(&format!("join={code}")) || !link.contains(&format!("&{mode}")) {
+            return Err(format!(
+                "Invite did not preserve the selected {mode} world: {link}"
+            ));
+        }
+        Ok(link)
+    }
+
     /// Settings → `tab` → `choice`, twice (it asks "Sure?" first). Each tap is checked by what the panel says it shows
     /// (`data-settings`) and made again if a busy page missed it; the last one isn't (the panel closes).
     fn settings_twice(
@@ -433,6 +454,13 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
         }
         sleep(0.25);
     };
+    voices(players)?;
+    Ok(met)
+}
+
+/// The same real audio-call check applies to ordinary and cellular sessions.
+fn voices(players: &mut [&mut Player]) -> Result<()> {
+    let n = players.len() - 1;
     if players.iter().any(|p| p.voice) {
         for p in players.iter_mut() {
             p.mic_on()?;
@@ -475,7 +503,7 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
             }
         }
     }
-    Ok(met)
+    Ok(())
 }
 
 /// The second line of the one who stands in for the main host.
@@ -556,6 +584,324 @@ fn meet(site: &Site, host: &mut Player, guest: &mut Player, setup: f64) -> Resul
 /// What a scenario found: a line for each promise it checked, with the time it took.
 type Found = Vec<String>;
 
+fn region_status(p: &mut Player) -> String {
+    [
+        "data-cell-region-state",
+        "data-cell-regions",
+        "data-cell-region-id",
+        "data-cell-region-revision",
+        "data-cell-session-tick",
+        "data-cell-session-actors",
+        "data-cell-session",
+        "data-crab",
+        "data-coop",
+    ]
+    .into_iter()
+    .map(|name| format!("{name}={}", p.b.attr(name).unwrap_or_default()))
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn pause_region(p: &mut Player, paused: bool) -> Result<()> {
+    p.b.eval(if paused {
+        "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')"
+    } else {
+        "document.getElementById('crabscape').removeAttribute('data-cell-session-pause')"
+    })
+    .map(drop)
+}
+
+/// Reproduce the real browser's current region, including its NPC random streams.
+fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
+    for _ in 0..4 {
+        let revision_before = (
+            p.b.attr("data-cell-region-revision"),
+            p.b.attr("data-cell-state-revision"),
+        );
+        p.b.eval("(() => {const c=document.getElementById('crabscape'); c.removeAttribute('data-replay'); c.removeAttribute('data-cell-session-hash'); c.setAttribute('data-want-replay','1'); c.setAttribute('data-want-cell-hash','1');})()")?;
+        p.until(20.0, "regional replay export", |p| {
+            p.b.attr("data-replay").is_some() && p.b.attr("data-cell-session-hash").is_some()
+        })
+        .map_err(|error| format!("{error}; {}", region_status(p)))?;
+        let text = p.b.attr("data-replay").ok_or("missing regional replay")?;
+        if !text.starts_with("region_session_v1 ") {
+            return Err(format!(
+                "regional replay unavailable: {}; {}",
+                text.lines().next().unwrap_or("empty"),
+                region_status(p)
+            ));
+        }
+        std::fs::write(
+            p.dir.join(format!("{}-regional-replay.txt", p.name())),
+            &text,
+        )
+        .map_err(|e| e.to_string())?;
+        let replay = crabsim::Replay::parse(&text)?;
+        let mut scene = crabsim::Sim::with_one_crab(replay.start);
+        if !replay.prepare_start(&mut scene) {
+            return Err("regional replay checkpoint rejected".into());
+        }
+        for _ in 0..replay.length() {
+            if !replay.step_cell_session(&mut scene) {
+                return Err("regional replay tick rejected".into());
+            }
+        }
+        let native_hash = scene.state_hash();
+        if replay.hash != Some(native_hash) {
+            return Err(format!(
+                "{} regional replay differs from its atomic browser export at tick{}: native{native_hash:016x}, captured{:?}; {}",
+                p.name().to_owned(),
+                scene.tick_count(),
+                replay.hash,
+                region_status(p)
+            ));
+        }
+        let hash = format!("{}:{native_hash:016x}", scene.tick_count());
+        let browser =
+            p.b.attr("data-cell-session-hash")
+                .ok_or("missing completed browser hash")?;
+        // Pausing finishes the authority's current four-tick batch. Export and
+        // hash requests can straddle that final batch on a slow browser frame.
+        if browser.split(':').next() != hash.split(':').next() {
+            continue;
+        }
+        let revision_after = (
+            p.b.attr("data-cell-region-revision"),
+            p.b.attr("data-cell-state-revision"),
+        );
+        if browser != hash && revision_before != revision_after {
+            continue;
+        }
+        if browser != hash {
+            return Err(format!(
+                "{} regional replay differs from browser: native {hash}, browser {browser}",
+                p.name()
+            ));
+        }
+        p.b.eval("document.getElementById('replay-close').click()")?;
+        // Closing the textarea restores canvas focus. Let Bevy consume that
+        // focus transition before dispatching new held keys: its focus-loss
+        // cleanup can otherwise clear keys sent in the same browser frame.
+        p.b.eval("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(document.activeElement===document.getElementById('crabscape') && document.getElementById('replay-box').hidden))))")?
+            .as_bool().filter(|focused| *focused)
+            .ok_or("Replay close did not return keyboard focus to the game")?;
+        return Ok(scene);
+    }
+    Err(format!(
+        "{} did not finish its paused authority batch",
+        p.name()
+    ))
+}
+
+fn cell_hash(p: &mut Player) -> Result<String> {
+    p.b.eval("(()=>{const c=document.getElementById('crabscape');c.removeAttribute('data-cell-session-hash');c.setAttribute('data-want-cell-hash','1');})()")?;
+    p.until(20.0, "completed cellular state hash", |p| {
+        p.b.attr("data-cell-session-hash").is_some()
+    })?;
+    p.b.attr("data-cell-session-hash")
+        .ok_or("missing cellular hash".into())
+}
+
+fn shared_hashes(host: &mut Player, guest: &mut Player) -> Result<(String, String)> {
+    let started = Instant::now();
+    loop {
+        let h = cell_hash(host)?;
+        let g = cell_hash(guest)?;
+        if h.split(':').next() == g.split(':').next() {
+            if h != g {
+                return Err(format!(
+                    "same-tick cellular state mismatch: host {h}, guest {g}"
+                ));
+            }
+            return Ok((h, g));
+        }
+        if started.elapsed().as_secs() > 60 {
+            return Err(format!(
+                "guest did not drain the paused host batch: host {h}, guest {g}"
+            ));
+        }
+    }
+}
+
+fn saved_cells(p: &mut Player) -> Result<Option<crabsim::cell_codec::Restored>> {
+    let value=p.b.eval(r#"new Promise((resolve,reject)=>{
+      const parts=location.pathname.split('/').filter(Boolean);
+      let slug=null;
+      for(let i=0;i<parts.length;i++){
+        if(/^pr-\d+$/.test(parts[i])){slug=parts[i];break;}
+        if(parts[i]==='branches'&&parts[i+1]){slug='branches-'+parts[i+1];break;}
+      }
+      if(slug)slug=slug.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase();
+      const opening=indexedDB.open(slug?'crabscape@'+slug+'@.cells':'crabscape.cells',1);
+      opening.onerror=()=>reject(String(opening.error));
+      opening.onsuccess=()=>{
+        const db=opening.result,tx=db.transaction('world','readonly');
+        const request=tx.objectStore('world').get('active');
+        tx.onabort=()=>{db.close();reject(String(tx.error));};
+        tx.oncomplete=()=>{db.close();if(request.result===undefined){resolve(null);return;}
+          const raw=request.result;
+          if(raw.format!=='CRABPG02'){resolve(null);return;}
+          const encode=bytes=>{const pieces=[];
+            for(let i=0;i<bytes.length;i+=32768)pieces.push(String.fromCharCode(...bytes.subarray(i,i+32768)));
+            return btoa(pieces.join(''));};
+          resolve({format:raw.format,tick:encode(raw.tick),player:encode(raw.player),index:encode(raw.index),pages:raw.pages.map(encode)});
+        };
+      };
+    })"#)?;
+    if value.is_null() {
+        return Ok(None);
+    }
+    let bytes = save_fixture::frame_from_object(&value)?;
+    std::fs::write(
+        p.dir.join(format!("{}-captured-save.bin", p.name())),
+        &bytes,
+    )
+    .map_err(|e| e.to_string())?;
+    crabsim::cell_codec::paged::decode(&bytes)
+        .map(Some)
+        .map_err(|e| format!("invalid browser autosave: {e:?}"))
+}
+
+fn saved_excavation(p: &mut Player, min_tick: u64, at: (f32, f32)) -> Result<u64> {
+    let started = Instant::now();
+    loop {
+        if let Some(mut saved) = saved_cells(p)?
+            && saved.sim_tick >= min_tick
+        {
+            saved
+                .terrain
+                .restore_default_window(&crabsim::Level::test_level(), at.0, at.1)
+                .map_err(|e| format!("saved far region failed to load: {e:?}"))?;
+            let (x, y) = saved.terrain.local_cell(at.0, at.1);
+            let cell = saved.terrain.cell(x as i32, y as i32);
+            if cell != crabsim::underwater::Cell::Water {
+                return Err(format!(
+                    "guest excavation at {at:?} became {cell:?} in owner's saved world at tick{}",
+                    saved.sim_tick
+                ));
+            }
+            return Ok(saved.sim_tick);
+        }
+        p.healthy()?;
+        if started.elapsed().as_secs_f64() > 30.0 {
+            return Err(format!(
+                "owner did not write a fresh regional save after tick{min_tick}"
+            ));
+        }
+        sleep(0.5);
+    }
+}
+
+fn local_position(p: &mut Player) -> Result<(f64, f64)> {
+    let text =
+        p.b.attr("data-cell-session-actors")
+            .ok_or("missing regional actors")?;
+    let actors: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let list = actors.as_array().ok_or("invalid regional actors")?;
+    let actor = if p.name() == "host" {
+        list.iter().find(|a| a[0].as_u64() == Some(0))
+    } else {
+        list.iter().find(|a| a[0].as_u64() != Some(0))
+    }
+    .ok_or("missing local regional actor")?;
+    Ok((
+        actor[1].as_f64().ok_or("bad actor x")?,
+        actor[2].as_f64().ok_or("bad actor y")?,
+    ))
+}
+
+/// Optional real frame trace; excluded from normal acceptance runs.
+fn profile_frames(host: &mut Player, guest: &mut Player) -> Result<()> {
+    let Some(seconds) = std::env::var("CRABSCAPE_FRAME_PROFILE")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+    else {
+        return Ok(());
+    };
+    for p in [&mut *host, &mut *guest] {
+        if std::env::var_os("CRABSCAPE_CPU_PROFILE").is_some() {
+            p.b.start_cpu_profile()?;
+        }
+        p.b.eval(r#"(()=>{
+          const c=document.getElementById('crabscape'); c.setAttribute('data-cell-work-profile','1');
+          const s=window.__cellFrameProfile={gaps:[],stalls:[],states:[],measures:[],longTasks:[],stop:false};
+          const observers=[];
+          for(const type of ['measure','longtask']){
+            if(!PerformanceObserver.supportedEntryTypes.includes(type))continue;
+            const o=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+              if(type==='measure'&&!e.name.startsWith('cell-'))continue;
+              const target=type==='measure'?s.measures:s.longTasks;
+              target.push({name:e.name,at:e.startTime,ms:e.duration}); if(target.length>512)target.shift();
+            }});o.observe({type,buffered:false});observers.push(o);
+          }
+          let previous=performance.now(),lastTick=c.getAttribute('data-cell-session-tick'),changed=previous,lastState='';
+          function frame(now){if(s.stop){observers.forEach(o=>o.disconnect());return;}
+            const tick=c.getAttribute('data-cell-session-tick'),stage=c.getAttribute('data-cell-region-state');
+            const state=stage+':'+c.getAttribute('data-cell-region-id')+':'+c.getAttribute('data-cell-region-revision');
+            if(state!==lastState){s.states.push({at:now,tick,state});lastState=state;}
+            if(now-previous>60)s.gaps.push({at:previous,ms:now-previous,tick,stage});
+            if(tick!==lastTick){if(now-changed>75)s.stalls.push({at:changed,ms:now-changed,tick,stage});changed=now;lastTick=tick;}
+            previous=now;requestAnimationFrame(frame);
+          }requestAnimationFrame(frame);return true;
+        })()"#)?;
+    }
+    if std::env::var_os("CRABSCAPE_PROFILE_WALK").is_some() {
+        guest.b.type_line("hulk")?;
+        guest.b.set_key("KeyD", true)?;
+        let started = Instant::now();
+        while started.elapsed().as_secs_f64() < seconds.clamp(1.0, 90.0) {
+            let (_, height) = local_position(guest)?;
+            if height < 200.0 {
+                guest.b.hold_key("Space", 0.6)?;
+            } else if height > 450.0 {
+                guest.b.hold_key("ArrowDown", 0.6)?;
+            } else {
+                sleep(0.6);
+            }
+            sleep(0.15);
+        }
+        for key in ["KeyD", "Space", "ArrowDown"] {
+            guest.b.set_key(key, false)?;
+        }
+        eprintln!(
+            "frame-profile route: host {}, guest {}",
+            region_status(host),
+            region_status(guest)
+        );
+    } else {
+        sleep(seconds.clamp(1.0, 90.0));
+    }
+    for p in [host, guest] {
+        if std::env::var_os("CRABSCAPE_CPU_PROFILE").is_some() {
+            let profile = p.b.stop_cpu_profile()?;
+            let file = std::env::temp_dir().join(format!(
+                "crabscape-{}-{}-cpu-profile.json",
+                std::process::id(),
+                p.name()
+            ));
+            std::fs::write(
+                &file,
+                serde_json::to_vec(&profile).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+            eprintln!("cpu-profile {}: {}", p.name(), file.display());
+        }
+        let value = p.b.eval("(()=>{const s=window.__cellFrameProfile;s.stop=true;document.getElementById('crabscape').removeAttribute('data-cell-work-profile');return s;})()")?;
+        let file = std::env::temp_dir().join(format!(
+            "crabscape-{}-{}-frame-profile.json",
+            std::process::id(),
+            p.name()
+        ));
+        std::fs::write(
+            &file,
+            serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        eprintln!("frame-profile {}: {}", p.name(), file.display());
+    }
+    Ok(())
+}
+
 /// `a` shows `b`'s name over `b`'s crab (`data-names`) within 5 s of meeting. A build from before names (no
 /// `data-name`) is let be.
 fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
@@ -573,7 +919,62 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 13] = [
+const SCENARIOS: [(&str, &str, u32); 24] = [
+    (
+        "cells-solo-save",
+        "fresh and explored worlds save, reload, and accept a guest without losing distant terrain",
+        110,
+    ),
+    (
+        "cells-region-save",
+        "guest authority recovery and distant terrain surviving owner disk reload",
+        100,
+    ),
+    (
+        "cells-regions",
+        "separate regional physics, digging, reunion and owner loss",
+        120,
+    ),
+    (
+        "cells-session",
+        "playable cellular world, controls, determinism and solo recovery",
+        60,
+    ),
+    (
+        "cell-probe-actors-profile",
+        "developer actor processing and digest profile",
+        60,
+    ),
+    (
+        "cell-probe-actors-pipeline",
+        "developer bounded pipelined two-actor WebRTC probe",
+        60,
+    ),
+    (
+        "cell-probe-actors",
+        "developer two-actor cellular WebRTC probe",
+        60,
+    ),
+    (
+        "cell-probe",
+        "developer stop-and-wait shadow terrain WebRTC transfer",
+        60,
+    ),
+    (
+        "cell-probe-window",
+        "developer bounded-window shadow terrain WebRTC transfer",
+        45,
+    ),
+    (
+        "cell-probe-disconnect",
+        "developer shadow transfer aborts on disconnect",
+        45,
+    ),
+    (
+        "cell-probe-loss",
+        "developer shadow transfer stops on lost acknowledgements",
+        45,
+    ),
     (
         "join",
         "a friend opening your link plays with you, and chat reaches them",
@@ -670,6 +1071,830 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
+        "cells-solo-save" => {
+            host.open(&site.url("cells"))?;
+            let started = Instant::now();
+            let saved = loop {
+                if let Some(saved) = saved_cells(&mut host)? {
+                    break saved;
+                }
+                let warning = host.b.eval("document.body.innerText")?;
+                if warning
+                    .as_str()
+                    .is_some_and(|s| s.contains("autosave is off"))
+                {
+                    return Err(host.failed(format!("fresh solo save disabled: {warning}")));
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 20 {
+                    return Err(host.failed("fresh solo game wrote no save in 20 seconds".into()));
+                }
+                sleep(0.5);
+            };
+            host.reload()?;
+            host.until(15.0, "solo cellular save restored", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            found.push(format!(
+                "fresh solo autosave at tick{} restores on reload",
+                saved.sim_tick
+            ));
+            // Stop the running game before installing a real persisted large world.
+            let asset = host
+                .b
+                .eval("new URL('assets/crab/crab-atlas.png', location.href).href")?;
+            host.b.go(asset.as_str().ok_or("missing asset URL")?)?;
+            // Reproduce an existing preview's retired save after a format
+            // replacement. It must start fresh rather than disable saving.
+            host.b.eval(r#"new Promise((resolve,reject)=>{
+              const parts=location.pathname.split('/').filter(Boolean);let slug=null;
+              for(let i=0;i<parts.length;i++){if(/^pr-\d+$/.test(parts[i])){slug=parts[i];break;}
+                if(parts[i]==='branches'&&parts[i+1]){slug='branches-'+parts[i+1];break;}}
+              if(slug)slug=slug.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase();
+              const request=indexedDB.open(slug?'crabscape@'+slug+'@.cells':'crabscape.cells',1);
+              request.onerror=()=>reject(String(request.error));
+              request.onsuccess=()=>{
+                const db=request.result,tx=db.transaction('world','readwrite'),store=tx.objectStore('world');
+                const get=store.get('active');
+                get.onsuccess=()=>{const value=get.result;if(!value){tx.abort();return;}value.format='retired-format';store.put(value,'active');};
+                tx.onabort=()=>{db.close();reject('missing prior save');};
+                tx.oncomplete=()=>{db.close();resolve(true);};
+              };
+            })"#)?;
+            host.open(&site.url("cells"))?;
+            host.until(15.0, "retired cellular save starts a fresh world", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("fresh")
+            })?;
+            let started = Instant::now();
+            loop {
+                if saved_cells(&mut host)?.is_some() {
+                    break;
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 20 {
+                    return Err(host.failed("retired format left autosave disabled".into()));
+                }
+                sleep(0.5);
+            }
+            host.reload()?;
+            host.until(15.0, "fresh replacement save reloads", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            found.push("retired save format starts fresh, autosaves and reloads".into());
+            host.b.go(asset.as_str().ok_or("missing asset URL")?)?;
+            let large_frame = save_fixture::large_fixture()?;
+            let baseline = crabsim::cell_codec::paged::decode(&large_frame)
+                .map_err(|e| format!("large fixture decode: {e:?}"))?;
+            let baseline =
+                crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&baseline.terrain)
+                    .map_err(|e| format!("large fixture snapshot: {e:?}"))?;
+            let distant_id = baseline
+                .sleeping_ids()
+                .find(|(_, y)| y.abs() > 20)
+                .ok_or("large fixture has no distant sleeping page")?;
+            let distant_page = baseline
+                .sleeping(distant_id)
+                .map_err(|e| format!("fixture page: {e:?}"))?;
+            drop(baseline);
+            let fixture = save_fixture::object_from_frame(&large_frame)?;
+            drop(large_frame);
+            host.b.eval(&format!(r#"new Promise((resolve,reject)=>{{
+              const parts=location.pathname.split('/').filter(Boolean); let slug=null;
+              for(let i=0;i<parts.length;i++){{if(/^pr-\d+$/.test(parts[i])){{slug=parts[i];break;}}
+                if(parts[i]==='branches'&&parts[i+1]){{slug='branches-'+parts[i+1];break;}}}}
+              if(slug)slug=slug.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase();
+              const opening=indexedDB.open(slug?'crabscape@'+slug+'@.cells':'crabscape.cells',1);
+              opening.onerror=()=>reject(String(opening.error)); opening.onsuccess=()=>{{
+                const db=opening.result,tx=db.transaction('world','readwrite'),raw={fixture};
+                const decode=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+                tx.objectStore('world').put({{format:raw.format,tick:decode(raw.tick),player:decode(raw.player),
+                  index:decode(raw.index),pages:raw.pages.map(decode)}},'active');
+                tx.objectStore('world').delete('reset_epoch');
+                tx.onabort=()=>{{db.close();reject(String(tx.error));}};
+                tx.oncomplete=()=>{{db.close();resolve(true);}};
+              }};
+            }})"#))?;
+            host.open(&site.url("cells"))?;
+            host.until(30.0, "large solo saved world restored", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            let started = Instant::now();
+            let large_saved = loop {
+                if let Some(saved) = saved_cells(&mut host)?
+                    && saved.sim_tick > 17
+                {
+                    break saved;
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 90 {
+                    return Err(host
+                        .failed("large solo world wrote no fresh autosave in 90 seconds".into()));
+                }
+                sleep(1.0);
+            };
+            let chunks =
+                crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&large_saved.terrain)
+                    .map_err(|e| format!("large saved snapshot: {e:?}"))?
+                    .sleeping_ids()
+                    .count();
+            save_fixture::verify_full_memory(&large_saved.player)?;
+            if chunks <= 256 {
+                return Err(host.failed(format!("large save lost explored pages: {chunks}")));
+            }
+            let final_snapshot =
+                crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&large_saved.terrain)
+                    .map_err(|e| format!("saved snapshot: {e:?}"))?;
+            if final_snapshot
+                .sleeping(distant_id)
+                .map_err(|e| format!("saved distant page: {e:?}"))?
+                != distant_page
+            {
+                return Err(host.failed("large autosave changed distant sleeping terrain".into()));
+            }
+            host.reload()?;
+            host.until(30.0, "large solo worker autosave restored", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            found.push(format!("large solo world retains {chunks} sleeping chunks through browser load, worker autosave tick{}, and reload",large_saved.sim_tick));
+            let invite = host.invite()?;
+            guest.open(&host.copied_invite(&invite, "cells")?)?;
+            for p in [&mut host, &mut guest] {
+                p.until(120.0, "large-world regional lobby starts", |p| {
+                    (p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                        && p.b.attr("data-cell-regions").as_deref() == Some("shared"))
+                        || p.coop().to_lowercase().contains("world too large to share")
+                })?;
+                if p.coop().to_lowercase().contains("world too large to share") {
+                    return Err(
+                        p.failed("explored owner world was rejected as too large to share".into())
+                    );
+                }
+            }
+            pause_region(&mut host, true)?;
+            let (owner_hash, _) = shared_hashes(&mut host, &mut guest)?;
+            guest.b.go("about:blank")?;
+            host.until(30.0, "large-world guest departure recovers owner", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+            })?;
+            let recovered_tick = host
+                .b
+                .attr("data-cell-session-tick")
+                .ok_or("missing owner tick")?
+                .parse::<u64>()
+                .map_err(|e| e.to_string())?;
+            let started = Instant::now();
+            let saved = loop {
+                if let Some(saved) = saved_cells(&mut host)?
+                    && saved.sim_tick > recovered_tick
+                {
+                    break saved;
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 180 {
+                    return Err(
+                        host.failed("large owner world did not save after guest departure".into())
+                    );
+                }
+                sleep(1.0);
+            };
+            let snapshot =
+                crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&saved.terrain)
+                    .map_err(|e| format!("large owner snapshot: {e:?}"))?;
+            if snapshot.sleeping_ids().count() <= 256
+                || snapshot
+                    .sleeping(distant_id)
+                    .map_err(|e| format!("large owner far page: {e:?}"))?
+                    != distant_page
+            {
+                return Err(host.failed("large-world join/departure lost distant terrain".into()));
+            }
+            found.push(format!("400-page owner world accepts guest with exact shared hash {owner_hash}, then retains distant terrain after guest leaves and owner saves"));
+        }
+        "cells-regions" | "cells-region-save" => {
+            eprintln!("cells-regions: opening both browsers");
+            host.open(&site.url("cells"))?;
+            let code = host.invite()?;
+            guest.open(&host.copied_invite(&code, "cells")?)?;
+            for p in [&mut host, &mut guest] {
+                p.until(90.0, "regional simulation starts", |p| {
+                    p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+            }
+            host.b.eval(r#"(()=>{const c=document.getElementById('crabscape');let previous=c.getAttribute('data-cell-region-state'),revision=c.getAttribute('data-cell-region-revision'),started=null;window.__regionPauses=[];window.__windowMoves=0;
+              new MutationObserver(()=>{const nextRevision=c.getAttribute('data-cell-region-revision');if(nextRevision!==revision){if(Number(nextRevision)>0)window.__windowMoves++;revision=nextRevision;}
+                const state=c.getAttribute('data-cell-region-state');if(state===previous)return;
+                if(previous==='running'&&state!=='running')started=performance.now();
+                if(state==='running'&&started!==null){window.__regionPauses.push(performance.now()-started);started=null;}previous=state;
+              }).observe(c,{attributes:true,attributeFilter:['data-cell-region-state','data-cell-region-revision']});})()"#)?;
+            guest.b.type_line("hulk")?;
+            eprintln!(
+                "cells-regions joined: host {}, guest {}",
+                region_status(&mut host),
+                region_status(&mut guest)
+            );
+            sleep(0.4);
+            guest.b.set_key("KeyD", true)?;
+            let route_started = Instant::now();
+            let mut route_progress = (local_position(&mut guest)?.0, Instant::now());
+            while route_started.elapsed().as_secs() < 180 {
+                // Swim over the shelf without repeatedly accelerating upward
+                // through thousands of pixels while a slow runner catches up.
+                let (x, height) = local_position(&mut guest)?;
+                if x > route_progress.0 + 8.0 {
+                    route_progress = (x, Instant::now());
+                }
+                // A shelf or kelp grip can stop horizontal travel inside the
+                // altitude band. Swim up around it using ordinary controls.
+                let stalled = route_progress.1.elapsed().as_secs() >= 3;
+                if height < 200.0 || stalled {
+                    if stalled {
+                        eprintln!(
+                            "cells-regions swimming around route obstacle at {x:.1},{height:.1}"
+                        );
+                        route_progress = (x, Instant::now());
+                    }
+                    guest.b.hold_key("Space", 0.9)?;
+                } else if height > 450.0 {
+                    guest.b.hold_key("ArrowDown", 0.9)?;
+                } else {
+                    sleep(0.9);
+                }
+                sleep(0.15);
+                host.healthy()?;
+                guest.healthy()?;
+                eprintln!(
+                    "cells-regions route: host {}, guest {}",
+                    region_status(&mut host),
+                    region_status(&mut guest)
+                );
+                if local_position(&mut guest)?.0 > 2200.0 {
+                    break;
+                }
+            }
+            guest.b.set_key("KeyD", false)?;
+            if local_position(&mut guest)?.0 <= 2200.0 {
+                return Err(format!(
+                    "route did not reach the far substrate: host {}, guest {}",
+                    region_status(&mut host),
+                    region_status(&mut guest)
+                ));
+            }
+            guest.b.set_key("ArrowDown", true)?;
+            let landed = guest.until(90.0, "guest lands on far substrate", |p| {
+                p.b.attr("data-crab")
+                    .is_some_and(|v| v.split_whitespace().last() == Some("1"))
+                    && local_position(p).is_ok_and(|(_, y)| y < 100.0)
+                    && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+            });
+            landed.map_err(|why| format!("{why}; {}", region_status(&mut guest)))?;
+            guest.b.set_key("ArrowDown", false)?;
+            if name == "cells-region-save" {
+                // The owner's normal solo window reaches x2560. Put this
+                // excavation beyond it so natural mud flow cannot refill the
+                // sample while the owner waits for its disk write.
+                guest.b.set_key("KeyD", true)?;
+                guest.until(20.0, "guest reaches sleeping-world save sample", |p| {
+                    local_position(p).is_ok_and(|(x, _)| x > 2580.0)
+                })?;
+                guest.b.set_key("KeyD", false)?;
+                guest.until(20.0, "guest settles before distant excavation", |p| {
+                    p.b.attr("data-crab")
+                        .is_some_and(|v| v.split_whitespace().last() == Some("1"))
+                        && local_position(p).is_ok_and(|(x, y)| x > 2560.0 && y < 100.0)
+                })?;
+            }
+            eprintln!(
+                "cells-regions landed: host {}, guest {}",
+                region_status(&mut host),
+                region_status(&mut guest)
+            );
+            for p in [&mut host, &mut guest] {
+                p.until(60.0, "independent region", |p| {
+                    p.b.attr("data-cell-regions").as_deref() == Some("separate")
+                        && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+            }
+            let start_host = local_position(&mut host)?;
+            let start_guest = local_position(&mut guest)?;
+            if (start_guest.0 - start_host.0).abs() < 1700.0 {
+                return Err(format!(
+                    "players did not separate horizontally: {start_host:?}, {start_guest:?}"
+                ));
+            }
+            for p in [&mut host, &mut guest] {
+                pause_region(p, true)?;
+            }
+            sleep(0.3);
+            let before_host = regional_scene(&mut host)?;
+            let before_dig = regional_scene(&mut guest)?;
+            let start_guest = before_dig.crabs()[0].mover.pos;
+            for p in [&mut host, &mut guest] {
+                p.b.set_key("KeyC", true)?;
+                p.b.set_key("ArrowDown", true)?;
+                pause_region(p, false)?;
+            }
+            // Measure digging in simulation time. A software-rendered CI
+            // frame can consume most of a short wall-clock key hold.
+            for (p, first) in [
+                (&mut host, before_host.tick_count()),
+                (&mut guest, before_dig.tick_count()),
+            ] {
+                p.until(20.0, "ninety hundredths of simulated digging", |p| {
+                    p.b.attr("data-cell-session-tick")
+                        .and_then(|t| t.parse::<u64>().ok())
+                        .is_some_and(|tick| tick >= first + 108)
+                })?;
+                pause_region(p, true)?;
+                p.b.set_key("KeyC", false)?;
+                p.b.set_key("ArrowDown", false)?;
+            }
+            sleep(0.3);
+            let _owner_replay = regional_scene(&mut host)?;
+            let after_dig = regional_scene(&mut guest)?;
+            let dug_host = _owner_replay.crabs()[0].mover.pos;
+            let dug_guest = after_dig.crabs()[0].mover.pos;
+            if dug_host.y >= start_host.1 as f32 - 4.0 || dug_guest.y >= start_guest.y - 4.0 {
+                return Err(format!(
+                    "digging did not enter both substrates: host {start_host:?}->{dug_host:?}; guest {start_guest:?}->{dug_guest:?}"
+                ));
+            }
+            for (label, scene) in [("before-dig", &before_dig), ("after-dig", &after_dig)] {
+                let checkpoint = scene
+                    .session_checkpoint()
+                    .map_err(|e| format!("failed to retain {label} checkpoint: {e:?}"))?;
+                std::fs::write(site.dir.join(format!("guest-{label}.bin")), checkpoint)
+                    .map_err(|e| e.to_string())?;
+            }
+            let before = before_dig
+                .level
+                .cells
+                .as_ref()
+                .ok_or("missing before-dig terrain")?;
+            let after = after_dig
+                .level
+                .cells
+                .as_ref()
+                .ok_or("missing after-dig terrain")?;
+            let mut excavation = None;
+            // A slow frame may advance only a shallow dig. The cavity extends
+            // below the feet; searching only eight pixels above them omitted
+            // real excavations whose penetration was less than twelve pixels.
+            for rise in (-16..=(start_guest.y - dug_guest.y).floor() as i32).step_by(4) {
+                let at = (dug_guest.x, dug_guest.y + rise as f32);
+                let (bx, by) = before.local_cell(at.0, at.1);
+                let (ax, ay) = after.local_cell(at.0, at.1);
+                if before.cell(bx as i32, by as i32) != crabsim::underwater::Cell::Water
+                    && after.cell(ax as i32, ay as i32) == crabsim::underwater::Cell::Water
+                {
+                    excavation = Some(at);
+                    break;
+                }
+            }
+            let excavation =
+                excavation.ok_or_else(|| format!("guest did not replace substrate material with water: {start_guest:?} -> {dug_guest:?}, ticks {} -> {}", before_dig.tick_count(), after_dig.tick_count()))?;
+            eprintln!(
+                "cells-regions verified excavation material at {excavation:?}; both independent replays match native"
+            );
+            for p in [&mut host, &mut guest] {
+                p.b.screenshot(&site.dir.join(format!("separated-{}.png", p.name())))?;
+            }
+            let pauses = host.b.eval("window.__regionPauses")?;
+            eprintln!("cells-regions handoff pauses in milliseconds: {pauses}");
+            let moves = host.b.eval("window.__windowMoves")?.as_u64().unwrap_or(0);
+            if moves == 0 {
+                return Err("travel route never used a streamed region move".into());
+            }
+            eprintln!("cells-regions streamed window moves: {moves}");
+            if name == "cells-region-save" {
+                // Freeze the authority through departure: physics must not refill
+                // the sampled cell between the known checkpoint and recovery.
+                guest.b.go("about:blank")?;
+                host.until(30.0, "owner recovers departed regional authority", |p| {
+                    p.b.attr("data-cell-session").as_deref() == Some("solo")
+                })?;
+                // Regional clocks advance independently. An older owner save
+                // can have a higher tick than the guest's excavation and only
+                // contain its earlier backup. Require a capture after recovery.
+                let recovered_tick = host
+                    .b
+                    .attr("data-cell-session-tick")
+                    .ok_or("missing recovered owner tick")?
+                    .parse::<u64>()
+                    .map_err(|e| e.to_string())?;
+                let saved_tick = saved_excavation(&mut host, recovered_tick + 1, excavation)?;
+                host.reload()?;
+                let reloaded_tick = saved_excavation(&mut host, saved_tick + 1, excavation)?;
+                found.push(format!("both independent browser replays reproduce natively; guest excavation at {excavation:?} persists through authority departure, owner's IndexedDB and fresh post-reload save (ticks{saved_tick}→{reloaded_tick}); handoff pauses ms {pauses}"));
+                return Ok(found);
+            }
+            for p in [&mut host, &mut guest] {
+                pause_region(p, false)?;
+            }
+            guest.b.hold_key("KeyH", 0.1)?;
+            // H opens a question; Y answers it in a later game frame. A
+            // wall-time delay can put both presses in one slow CI frame.
+            guest.b.eval("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))")?;
+            guest.b.hold_key("KeyY", 0.1)?;
+            let reunited = [&mut host, &mut guest].into_iter().try_for_each(|p| {
+                p.until(90.0, "regional reunion", |p| {
+                    p.b.attr("data-cell-regions").as_deref() == Some("shared")
+                        && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })
+                .map(|_| ())
+            });
+            reunited.map_err(|why| {
+                format!(
+                    "{why}; host {}; guest {}",
+                    region_status(&mut host),
+                    region_status(&mut guest)
+                )
+            })?;
+            host.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')",
+            )?;
+            sleep(1.5);
+            let (h, _) = shared_hashes(&mut host, &mut guest)?;
+            host.b.eval(
+                "document.getElementById('crabscape').removeAttribute('data-cell-session-pause')",
+            )?;
+            found.push(format!(
+                "both independent browser replays reproduce natively; handoff pauses ms {pauses}"
+            ));
+            host.b.go("about:blank")?;
+            guest.until(30.0, "owner departure restores private world", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+            })?;
+            found.push(format!("actual keys separate players >1700px, both dig, Home reunites with identical world {h:?}; owner loss restores private world"));
+        }
+        "cells-session" => {
+            host.open(&site.url("cells"))?;
+            guest.open(&site.url("cells"))?;
+            let code = host.invite()?;
+            let invite = host.copied_invite(&code, "cells")?;
+            guest.open(&invite)?;
+            host.until(90.0, "cellular host session", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("host")
+            })
+            .map_err(|error| format!("{error}; guest status: {}", guest.coop()))?;
+            guest.until(90.0, "cellular guest session", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("guest")
+            })?;
+            for p in [&mut host, &mut guest] {
+                p.until(90.0, "regional snapshot installed", |p| {
+                    p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+                let tick = p.b.attr("data-cell-session-tick");
+                p.until(10.0, "regional simulation advances", |p| {
+                    p.b.attr("data-cell-session-tick") != tick
+                })?;
+            }
+            found.push(sees_name(&mut host, &mut guest)?);
+            found.push(sees_name(&mut guest, &mut host)?);
+            voices(&mut [&mut host, &mut guest])?;
+            host.b.type_line("cellular hello")?;
+            guest.until(5.0, "chat from the cellular host", |p| {
+                p.b.attr("data-chat")
+                    .is_some_and(|s| s.contains("cellular hello"))
+            })?;
+            let start = host.b.attr("data-cell-session-actors");
+            profile_frames(&mut host, &mut guest)?;
+            if std::env::var_os("CRABSCAPE_FRAME_PROFILE").is_some()
+                && std::env::var_os("CRABSCAPE_PROFILE_WALK").is_some()
+            {
+                for p in [&mut host, &mut guest] {
+                    pause_region(p, true)?;
+                }
+                sleep(1.5);
+                for p in [&mut host, &mut guest] {
+                    regional_scene(p)?;
+                    p.healthy()?;
+                }
+                found.push(
+                    "travel profile completed; both regional replays reproduce native state".into(),
+                );
+                return Ok(found);
+            }
+            eprintln!(
+                "cells-session before controls: host {}, guest {}",
+                region_status(&mut host),
+                region_status(&mut guest)
+            );
+            host.b.hold_key("KeyD", 0.7)?;
+            guest.b.hold_key("KeyA", 0.7)?;
+            guest.b.hold_key("Space", 0.2)?;
+            guest.b.hold_keys(&["KeyC", "ArrowDown"], 0.5)?;
+            guest.b.type_line("hulk")?;
+            sleep(0.5);
+            host.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')",
+            )?;
+            sleep(1.5);
+            let (h, g) = shared_hashes(&mut host, &mut guest)?;
+            eprintln!(
+                "cells-session after controls: host {}, guest {}",
+                region_status(&mut host),
+                region_status(&mut guest)
+            );
+            if h != g {
+                return Err(
+                    host.failed(format!("cellular state mismatch: host {h:?}, guest {g:?}"))
+                );
+            }
+            if host.b.attr("data-cell-session-actors") == start {
+                return Err("cellular controls did not move actors".into());
+            }
+            guest.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-want-replay','1')",
+            )?;
+            guest.until(20.0, "complete cellular multiplayer replay", |p| {
+                p.b.attr("data-replay").is_some_and(|s| {
+                    s.starts_with("cell_session_v1 ") || s.starts_with("region_session_v1 ")
+                })
+            })?;
+            let text = guest
+                .b
+                .attr("data-replay")
+                .ok_or("missing session replay")?;
+            let replay = crabsim::Replay::parse(&text)?;
+            let mut played = crabsim::Sim::with_one_crab(replay.start);
+            if !replay.prepare_start(&mut played) {
+                return Err("browser replay starting checkpoint was rejected natively".into());
+            }
+            for _ in 0..replay.length() {
+                if !replay.step_cell_session(&mut played) {
+                    return Err("browser replay could not complete natively".into());
+                }
+            }
+            let replayed = format!("{}:{:016x}", played.tick_count(), played.state_hash());
+            if replayed != h || replay.hash != Some(played.state_hash()) {
+                return Err(format!(
+                    "browser/native session replay mismatch: browser {h:?}, native {replayed}"
+                ));
+            }
+            guest
+                .b
+                .eval("document.getElementById('replay-close').click()")?;
+            host.healthy()?;
+            guest.healthy()?;
+            found.push(format!(
+                "both cellular actors move, dig and use codes; identical full state {h:?}"
+            ));
+            found.push(format!(
+                "complete browser replay reproduces native state ({} KiB)",
+                text.len() / 1024
+            ));
+            host.b.screenshot(&site.dir.join("cellular-host.png"))?;
+            guest.b.screenshot(&site.dir.join("cellular-guest.png"))?;
+            if let Some(dir) = &site.shots {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                host.b.screenshot(&dir.join("cells-playing-host.png"))?;
+                guest.b.screenshot(&dir.join("cells-playing-guest.png"))?;
+            }
+            // Exercise the real report form and POST construction, without
+            // creating a public issue from an automated test.
+            guest.b.eval(r#"(() => {
+              const real = window.fetch.bind(window);
+              window.fetch = (url, init) => {
+                if (String(url).endsWith('/report') && init?.method === 'POST') {
+                  window.__cellReport = JSON.parse(init.body);
+                  return Promise.resolve(new Response('https://example.test/issues/42', {status: 200}));
+                }
+                return real(url, init);
+              };
+            })()"#)?;
+            guest.b.hold_key("KeyR", 0.1)?;
+            guest.until(5.0, "report opens during cellular co-op", |p| {
+                p.b.eval("!document.getElementById('report').hidden")
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    == Some(true)
+            })?;
+            guest.b.eval("document.getElementById('report-text').value = 'cellular session test'; document.getElementById('report-send').click()")?;
+            guest.until(5.0, "report POST during cellular co-op", |p| {
+                p.b.eval("window.__cellReport?.text === 'cellular session test'")
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    == Some(true)
+            })?;
+            if guest.b.eval("window.__cellReport.facts.some(f => f[0] === 'Replay' && f[1].includes('Complete co-op replay omitted'))")? != true {
+                return Err("oversized co-op replay was not explicitly marked omitted in report".into());
+            }
+            found.push(
+                "names, chat, voice roles and bug-report submission use the cellular session"
+                    .into(),
+            );
+            host.b.go("about:blank")?;
+            guest.until(40.0, "private solo world restored", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+            })?;
+            let restored = guest.b.attr("data-cell-session-actors").unwrap_or_default();
+            let actors: serde_json::Value =
+                serde_json::from_str(&restored).map_err(|e| e.to_string())?;
+            if actors.as_array().map(Vec::len) != Some(1) {
+                return Err("guest did not recover its solo actor".into());
+            }
+            found.push("guest disconnect restores private solo world".into());
+            guest
+                .b
+                .eval("document.getElementById('report-cancel').click()")?;
+            host.open(&site.url("cells"))?;
+            guest.until(90.0, "guest returns to the reloaded cellular host", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("guest")
+            })?;
+            host.until(10.0, "reloaded cellular host", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("host")
+            })?;
+            voices(&mut [&mut host, &mut guest])?;
+            guest.b.go("about:blank")?;
+            host.until(20.0, "departed cellular guest removed from the host", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+                    && p.b
+                        .attr("data-cell-session-actors")
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                        .and_then(|a| a.as_array().map(Vec::len))
+                        == Some(1)
+            })?;
+            guest.open(&site.url(&format!("cells&join={code}")))?;
+            guest.until(90.0, "cellular guest rejoins", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("guest")
+            })?;
+            voices(&mut [&mut host, &mut guest])?;
+            found.push("host reload and guest leave/rejoin recover both players".into());
+        }
+        "cell-probe"
+        | "cell-probe-window"
+        | "cell-probe-loss"
+        | "cell-probe-disconnect"
+        | "cell-probe-actors"
+        | "cell-probe-actors-pipeline"
+        | "cell-probe-actors-profile" => {
+            host.open(&site.url(""))?;
+            host.b.eval(r#"(() => { window.__probeTimes = {}; const c = document.getElementById('crabscape'); new MutationObserver(() => { const s = c.getAttribute('data-cell-transport-probe'); if (s && window.__probeTimes[s] === undefined) window.__probeTimes[s] = performance.now(); }).observe(c, {attributes: true, attributeFilter: ['data-cell-transport-probe']}); })()"#)?;
+            if name == "cell-probe" {
+                host.b
+                    .eval("sessionStorage.setItem('__cell_probe_window','1')")?;
+            }
+            if name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
+                host.b
+                    .eval("sessionStorage.setItem('__cell_probe_actors','1')")?;
+                guest.open(&site.url(""))?;
+                guest
+                    .b
+                    .eval("sessionStorage.setItem('__cell_probe_actors','1')")?;
+                if name == "cell-probe-actors-profile" {
+                    host.b
+                        .eval("sessionStorage.setItem('__cell_probe_profile','1')")?;
+                    guest
+                        .b
+                        .eval("sessionStorage.setItem('__cell_probe_profile','1')")?;
+                    for p in [&mut host, &mut guest] {
+                        p.b.actor_profile_hook()?;
+                    }
+                }
+                if name == "cell-probe-actors-pipeline" {
+                    guest
+                        .b
+                        .eval("sessionStorage.setItem('__cell_probe_pipeline','1')")?;
+                }
+            }
+            let code = host.invite()?;
+            if name == "cell-probe-loss" || name == "cell-probe-disconnect" {
+                guest.open(&site.url(""))?;
+                guest
+                    .b
+                    .eval("sessionStorage.setItem('__cell_probe_drop_ack','1')")?;
+            }
+            let joining = Instant::now();
+            guest.open(&site.url(&format!("join={code}")))?;
+            together(&mut [&mut host, &mut guest], limit::MEET)?;
+            if name == "cell-probe-disconnect" {
+                host.until(10.0, "probe running", |p| {
+                    p.b.attr("data-cell-transport-probe").as_deref() == Some("running")
+                })?;
+                guest.b.go("about:blank")?;
+                host.until(20.0, "probe abandoned on disconnect", |p| {
+                    matches!(
+                        p.b.attr("data-cell-transport-probe").as_deref(),
+                        Some("disconnected" | "host-changed")
+                    )
+                })?;
+                if host.world() != "host" {
+                    return Err("host lost its own world on guest disconnect".into());
+                }
+                found.push("shadow probe abandoned; host retained its world".into());
+                return Ok(found);
+            }
+            let expected = if name == "cell-probe"
+                || name == "cell-probe-window"
+                || name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
+                "complete"
+            } else {
+                "timeout"
+            };
+            if let Err(error) = host.until(120.0, expected, |p| {
+                matches!(
+                    p.b.attr("data-cell-transport-probe").as_deref(),
+                    Some(
+                        "complete"
+                            | "timeout"
+                            | "rejected"
+                            | "host-changed"
+                            | "send-failed"
+                            | "disconnected"
+                    )
+                )
+            }) {
+                return Err(format!(
+                    "{error}; probe status: host {:?}, guest {:?}",
+                    host.b.attr("data-cell-transport-probe"),
+                    guest.b.attr("data-cell-transport-probe")
+                ));
+            }
+            if host.b.attr("data-cell-transport-probe").as_deref() != Some(expected) {
+                return Err(format!(
+                    "probe failed: host {:?}, guest {:?}",
+                    host.b.attr("data-cell-transport-probe"),
+                    guest.b.attr("data-cell-transport-probe")
+                ));
+            }
+            if name == "cell-probe"
+                || name == "cell-probe-window"
+                || name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
+                guest.until(5.0, "guest probe completion", |p| {
+                    p.b.attr("data-cell-transport-probe").as_deref() == Some("complete")
+                })?;
+            }
+            if name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
+                for p in [&mut host, &mut guest] {
+                    let ticks = p.b.attr("data-cell-actor-probe-ticks");
+                    if ticks.as_deref() != Some("4") {
+                        return Err(format!(
+                            "{} did not complete four actor ticks: {:?}",
+                            p.name(),
+                            ticks
+                        ));
+                    }
+                }
+            }
+            if name == "cell-probe-actors-profile" {
+                for p in [&mut host, &mut guest] {
+                    let samples = p.b.attr("data-cell-actor-step-samples");
+                    let total = p.b.attr("data-cell-actor-step-total-ms");
+                    let max = p.b.attr("data-cell-actor-step-max-ms");
+                    let digest = p.b.attr("data-cell-actor-digest-ms");
+                    if samples.as_deref() != Some("4")
+                        || total.is_none()
+                        || max.is_none()
+                        || digest.is_none()
+                    {
+                        return Err(format!(
+                            "{} missing actor timing: {samples:?} {total:?} {max:?} {digest:?}",
+                            p.name()
+                        ));
+                    }
+                    let ice_rtt = p.b.eval("(async () => { if (!window.__actorProfilePc) return null; const stats = await window.__actorProfilePc.getStats(); for (const s of stats.values()) { if (s.type === 'candidate-pair' && s.state === 'succeeded' && s.nominated && typeof s.currentRoundTripTime === 'number') return s.currentRoundTripTime * 1000; } return null; })()").ok().and_then(|v| v.as_f64());
+                    found.push(format!("{} step total {total:?} ms, max {max:?} ms, extra full digest {digest:?} ms, ICE RTT {ice_rtt:?} ms", p.name()));
+                }
+            }
+            for p in [&mut host, &mut guest] {
+                let peak =
+                    p.b.attr("data-cell-probe-inbound-peak")
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .ok_or_else(|| "missing ingress peak".to_string())?;
+                if peak > 64 * 1024 {
+                    return Err(format!(
+                        "{} probe ingress exceeded 64 KiB: {peak}",
+                        p.name()
+                    ));
+                }
+                found.push(format!("{} ingress peak {peak} bytes", p.name()));
+            }
+            let transfer = host
+                .b
+                .eval("(window.__probeTimes.complete - window.__probeTimes.running) / 1000")
+                .ok()
+                .and_then(|v| v.as_f64());
+            found.push(format!("isolated shadow transfer: {expected}, {:.1} s from guest navigation, transfer {:.2?} s", joining.elapsed().as_secs_f64(), transfer));
+            if name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
+                let actor_phase = host.b.eval("(window.__probeTimes.complete - window.__probeTimes['actor-running']) / 1000")?.as_f64().ok_or_else(|| "missing actor phase timing".to_string())?;
+                found.push(format!("four-tick actor phase {actor_phase:.3} s"));
+            }
+        }
         "join" => {
             host.open(&site.url(""))?;
             let code = host.invite()?;
@@ -677,7 +1902,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 p.coop().starts_with("Lobby open")
             })?;
             found.push(format!("lobby open {t:.1} s after Invite"));
-            guest.open(&site.url(&format!("join={code}")))?;
+            let invite = host.copied_invite(&code, "boring")?;
+            guest.open(&invite)?;
             let t = together(&mut [&mut host, &mut guest], limit::MEET)?;
             found.push(format!("met {t:.1} s after the friend's game started"));
             found.push(sees_name(&mut host, &mut guest)?);
@@ -1281,7 +2507,9 @@ fn main() {
         let names: Vec<&str> = SCENARIOS
             .iter()
             .map(|(n, _, _)| *n)
-            .filter(|n| a.only.is_empty() || a.only.iter().any(|o| o == n))
+            .filter(|n| {
+                (!n.starts_with("cell-probe") && a.only.is_empty()) || a.only.iter().any(|o| o == n)
+            })
             .filter(|n| part.as_ref().is_none_or(|p| p.contains(n)))
             .collect();
         if names.is_empty() {

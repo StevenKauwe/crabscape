@@ -2,11 +2,81 @@
 //! Coordinates increase right and up. Water occupies every non-solid cell;
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
+mod bounded_checkpoint;
+pub mod chunk_flow;
+#[cfg(test)]
+pub(crate) mod dirty_oracle;
+pub mod frozen_chunks;
+pub mod opening_cleanup;
+pub mod region;
+pub mod region_store;
+pub mod versioned_chunks;
+pub use bounded_checkpoint::{
+    decode_browser_checkpoint, encode_active_checkpoint, encode_browser_checkpoint,
+};
+mod host_windows;
+pub use host_windows::{HostDig, HostPlayerForce, HostStepError};
+
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 360;
+pub const MAX_REGION_CELLS: usize = 1024 * 1024;
+pub(crate) const MAX_PENDING_FALLS: usize = 65_536;
+pub(crate) const FALL_CATCHUP_BUDGET: usize = 4096;
+pub const MAX_REGION_SILT: usize = 8 * 1205;
+
+fn valid_region_size(width: usize, height: usize) -> bool {
+    (64..=2048).contains(&width)
+        && (64..=2048).contains(&height)
+        && width
+            .checked_mul(height)
+            .is_some_and(|n| n <= MAX_REGION_CELLS)
+}
+
+fn region_index(width: usize, height: usize, x: i32, y: i32) -> Option<usize> {
+    (x >= 0 && x < width as i32 && y >= 0 && y < height as i32)
+        .then(|| y as usize * width + x as usize)
+}
+
+fn baked_width() -> usize {
+    WIDTH
+}
+fn baked_height() -> usize {
+    HEIGHT
+}
 /// World units per cell and the position of the experiment's lower edge.
+// The collider keeps its rectangular cavity. The extra material clearance
+// above it follows a domed shell so grains are guided toward the sides.
+fn grain_body_contains(x: i32, y: i32, cx: i32, cy: i32, hx: i32, hy: i32) -> bool {
+    let (dx, dy) = ((x - cx).abs(), y - cy);
+    let (rx, top) = (hx + 4, hy + 4);
+    if dx > rx {
+        return false;
+    }
+    if (-top..=top).contains(&dy) {
+        return true;
+    }
+    // A low rounded crest above the ordinary protected cavity guides grains
+    // outward before they can accumulate across its flat top.
+    let rise = 4 * (rx * rx - dx * dx).max(0) / (rx * rx).max(1);
+    dy > top && dy <= top + rise
+}
+
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
+
+/// Apply a signed world-space phase without overflowing or converting a
+/// negative coordinate into an unrelated large unsigned position.
+fn phase_due(tick: u64, spatial: i64, period: u64) -> bool {
+    let phase = tick % period;
+    let offset = spatial.unsigned_abs() % period;
+    if spatial < 0 {
+        phase == offset
+    } else if offset == 0 {
+        phase == 0
+    } else {
+        phase == period - offset
+    }
+}
 /// Upper extent of the experimental cell field, not the ocean surface.
 pub const GAME_KELP_TOP: f32 = GAME_BOTTOM + HEIGHT as f32 * GAME_CELL - GAME_CELL;
 const GIANT_ROOT: i32 = 70;
@@ -51,7 +121,9 @@ pub enum Cell {
 /// Negative coordinates use Euclidean division, so boundaries agree on both
 /// sides of the origin. These describe terrain only; streaming is not enabled.
 pub const TERRAIN_CHUNK_CELLS: i32 = 64;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct TerrainChunkId {
     pub x: i32,
     pub y: i32,
@@ -182,7 +254,7 @@ struct Pebble {
 
 /// State retained for cells that have left the active window. Sleeping
 /// cells do not advance; reactivation restores exactly this stored state.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SleepingCell {
     cell: Cell,
     flow: (f32, f32),
@@ -190,20 +262,78 @@ struct SleepingCell {
     grain: u8,
     owner: u16,
 }
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+struct SleepingCells(std::sync::Arc<Vec<Option<SleepingCell>>>);
+impl std::fmt::Debug for SleepingCells {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl From<Vec<Option<SleepingCell>>> for SleepingCells {
+    fn from(cells: Vec<Option<SleepingCell>>) -> Self {
+        Self(std::sync::Arc::new(cells))
+    }
+}
+impl std::ops::Deref for SleepingCells {
+    type Target = Vec<Option<SleepingCell>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for SleepingCells {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+}
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SleepingChunk {
-    cells: Vec<Option<SleepingCell>>,
+    cells: SleepingCells,
 }
 impl Default for SleepingChunk {
     fn default() -> Self {
         Self {
-            cells: vec![None; (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize],
+            cells: vec![None; (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize].into(),
         }
     }
 }
 
+/// Loose sediment crossing the bottom of an active material region.
+/// The packet itself owns the grain until it is placed in terrain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FallPacket {
+    pub sequence: u64,
+    pub outbound: bool,
+    pub x: i32,
+    pub y: i32,
+    pub emitted_tick: u64,
+    pub advanced_tick: u64,
+    pub cell: Cell,
+    pub grain: u8,
+    pub suspended: u8,
+}
+
+pub(crate) fn valid_fall_packets(packets: &[FallPacket], next: u64, tick: u64) -> bool {
+    packets.len() <= MAX_PENDING_FALLS
+        && packets.iter().all(|p| {
+            (-1_000_000..=1_000_000).contains(&p.x)
+                && (-1_000_000..=1_000_000).contains(&p.y)
+                && matches!(p.cell, Cell::Sand | Cell::Mud)
+                && p.emitted_tick <= p.advanced_tick
+                && p.advanced_tick <= tick
+                && p.sequence < next
+        })
+        && packets.windows(2).all(|p| p[0].sequence < p[1].sequence)
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct World {
+    // The baked opening retains its original wire layout. Explicit region
+    // envelopes carry these dimensions; legacy checkpoints use WIDTH/HEIGHT.
+    #[serde(skip, default = "baked_width")]
+    width: usize,
+    #[serde(skip, default = "baked_height")]
+    height: usize,
     cells: Vec<Cell>,
     flow: Vec<(f32, f32)>,
     suspended: Vec<u8>,
@@ -218,6 +348,8 @@ pub struct World {
     crab: Option<(i32, i32)>,
     crab_half_x: i32,
     crab_half_y: i32,
+    #[serde(skip)]
+    pub(crate) other_crabs: Vec<(i32, i32, i32, i32)>,
     tracers: Vec<(f32, f32)>,
     silt: Vec<Silt>,
     kelp: [[f32; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
@@ -239,6 +371,68 @@ pub struct World {
     opening_edge_opened: bool,
     #[serde(skip)]
     pebble_seeded: std::collections::BTreeSet<(i32, i32)>,
+    #[serde(skip)]
+    pending_falls: Vec<FallPacket>,
+    #[serde(skip)]
+    next_fall_sequence: u64,
+    #[serde(skip)]
+    bottom_open: Vec<bool>,
+}
+
+/// A complete checkpoint, including streamed-out terrain. `World` itself
+/// keeps its old serialization layout for the bundled opening snapshot;
+/// this wrapper adds the streaming state needed by saves and replays.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct WorldCheckpoint {
+    version: u8,
+    world: World,
+    origin: (i32, i32),
+    sleeping: std::collections::BTreeMap<(i32, i32), SleepingChunk>,
+    opening_edge_opened: bool,
+    pebble_seeded: std::collections::BTreeSet<(i32, i32)>,
+    pending_falls: Vec<FallPacket>,
+    next_fall_sequence: u64,
+    bottom_open: Vec<bool>,
+}
+
+/// Serialization-only view with exactly the checkpoint wire layout. The
+/// `World` serialization skips the separately stored streaming fields.
+#[derive(serde::Serialize)]
+pub(crate) struct WorldCheckpointRef<'a> {
+    version: u8,
+    world: &'a World,
+    origin: (i32, i32),
+    sleeping: &'a std::collections::BTreeMap<(i32, i32), SleepingChunk>,
+    opening_edge_opened: bool,
+    pebble_seeded: &'a std::collections::BTreeSet<(i32, i32)>,
+    pending_falls: &'a [FallPacket],
+    next_fall_sequence: u64,
+    bottom_open: &'a [bool],
+}
+
+impl WorldCheckpoint {
+    /// Recover a checkpoint after checking its basic shape and cell values.
+    /// Callers handling untrusted bytes must also enforce an input-size cap.
+    pub fn into_world(self) -> Option<World> {
+        self.into_region(WIDTH, HEIGHT)
+    }
+
+    pub(crate) fn into_region(self, width: usize, height: usize) -> Option<World> {
+        if !valid_region_size(width, height) {
+            return None;
+        }
+        let mut world = self.world;
+        world.width = width;
+        world.height = height;
+        world.origin = self.origin;
+        world.sleeping = self.sleeping;
+        world.opening_edge_opened = self.opening_edge_opened;
+        world.pebble_seeded = self.pebble_seeded;
+        world.pending_falls = self.pending_falls;
+        world.next_fall_sequence = self.next_fall_sequence;
+        world.bottom_open = self.bottom_open;
+        (self.version == 1 && world.valid_region_state()).then_some(world)
+    }
 }
 
 mod giant_array {
@@ -266,6 +460,136 @@ impl Default for World {
     }
 }
 impl World {
+    pub(crate) fn valid_pending_falls(&self) -> bool {
+        valid_fall_packets(&self.pending_falls, self.next_fall_sequence, self.tick)
+    }
+
+    pub(super) fn valid_region_state(&self) -> bool {
+        if !valid_region_size(self.width, self.height)
+            || !self.valid_pending_falls()
+            || (!self.bottom_open.is_empty() && self.bottom_open.len() != self.width)
+        {
+            return false;
+        }
+        let count = self.width * self.height;
+        // All currently playable terrain is well inside this range. Keeping
+        // saved coordinates bounded also makes the arithmetic in streaming
+        // and pebble motion safe on damaged or hostile inputs.
+        let coord = |v: i32| (-1_000_000..=1_000_000).contains(&v);
+        let number = |v: f32| v.is_finite() && v.abs() <= 1_000_000.0;
+        let properties = |p: &SedimentProperties| {
+            number(p.erosion_threshold)
+                && number(p.density_resistance)
+                && number(p.cohesion_break_flow)
+                && p.push_cost <= 1_000_000
+        };
+        if !coord(self.origin.0)
+            || !coord(self.origin.1)
+            || self.tick > (u64::MAX / 4 - 1_000_000)
+            || !(0..=self.width as i32).contains(&self.crab_half_x)
+            || !(0..=self.height as i32).contains(&self.crab_half_y)
+            || self.crab.is_some_and(|(x, y)| !coord(x) || !coord(y))
+            || !properties(&self.sand_properties)
+            || !properties(&self.mud_properties)
+            || self
+                .pebbles
+                .iter()
+                .any(|p| !coord(p.x) || !coord(p.y) || p.side == 0 || p.side > 64)
+            || self.tracers.len() > 4096
+            || self.tracers.iter().any(|&(x, y)| !number(x) || !number(y))
+            || self.silt.len() > MAX_REGION_SILT
+            || self
+                .silt
+                .iter()
+                .any(|s| !number(s.x) || !number(s.y) || !number(s.vx) || !number(s.vy))
+            || self.bubbles.len() > 4096
+            || self.bubbles.iter().any(|b| !number(b.x) || !number(b.y))
+            || self.kelp.iter().flatten().any(|&v| !number(v))
+            || self.giant_kelp.iter().any(|&v| !number(v))
+            || self.giant_kelp_velocity.iter().any(|&v| !number(v))
+            || !number(self.giant_base)
+            || self.cells.len() != count
+            || self.flow.len() != count
+            || self.suspended.len() != count
+            || self.grain.len() != count
+            || self.pebble_owner.len() != count
+            || self.pebble_motion.len() != self.pebbles.len()
+            || self.pebbles.len() > u16::MAX as usize
+            || self
+                .pebble_owner
+                .iter()
+                .any(|&id| id as usize > self.pebbles.len())
+            || self.flow.iter().any(|&(x, y)| !number(x) || !number(y))
+            || self
+                .pebble_seeded
+                .iter()
+                .any(|&(x, y)| !coord(x) || !coord(y))
+            || self.sleeping.iter().any(|(&(x, y), chunk)| {
+                !coord(x)
+                    || !coord(y)
+                    || chunk.cells.len() != (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize
+                    || chunk.cells.iter().flatten().any(|cell| {
+                        cell.owner as usize > self.pebbles.len()
+                            || !number(cell.flow.0)
+                            || !number(cell.flow.1)
+                    })
+            })
+        {
+            return false;
+        }
+        true
+    }
+
+    pub fn dimensions(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+
+    fn index_at(&self, x: i32, y: i32) -> Option<usize> {
+        region_index(self.width, self.height, x, y)
+    }
+    /// Whether this terrain is the campaign's streaming world.
+    pub fn is_game_world(&self) -> bool {
+        self.game
+    }
+
+    /// Capture the complete active and sleeping material state.
+    pub(crate) fn checkpoint_ref(&self) -> WorldCheckpointRef<'_> {
+        WorldCheckpointRef {
+            version: 1,
+            world: self,
+            origin: self.origin,
+            sleeping: &self.sleeping,
+            opening_edge_opened: self.opening_edge_opened,
+            pebble_seeded: &self.pebble_seeded,
+            pending_falls: &self.pending_falls,
+            next_fall_sequence: self.next_fall_sequence,
+            bottom_open: &self.bottom_open,
+        }
+    }
+
+    pub fn checkpoint(&self) -> WorldCheckpoint {
+        let mut world = self.clone();
+        // Streaming fields are stored separately for compatibility with the
+        // opening bake; do not retain a second in-memory copy in the wrapper.
+        let sleeping = std::mem::take(&mut world.sleeping);
+        let pebble_seeded = std::mem::take(&mut world.pebble_seeded);
+        let pending_falls = std::mem::take(&mut world.pending_falls);
+        let next_fall_sequence = std::mem::take(&mut world.next_fall_sequence);
+        let bottom_open = std::mem::take(&mut world.bottom_open);
+        world.origin = (0, 0);
+        world.opening_edge_opened = false;
+        WorldCheckpoint {
+            version: 1,
+            world,
+            origin: self.origin,
+            sleeping,
+            opening_edge_opened: self.opening_edge_opened,
+            pebble_seeded,
+            pending_falls,
+            next_fall_sequence,
+            bottom_open,
+        }
+    }
     pub fn sediment_properties(&self, material: Cell) -> Option<SedimentProperties> {
         match material {
             Cell::Sand => Some(self.sand_properties),
@@ -289,8 +613,23 @@ impl World {
     pub fn from_level_settled(level: &crate::Level) -> Self {
         let original = crate::Level::test_level();
         let mut world: Self = if level.floor == original.floor && level.rocks == original.rocks {
-            postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
-                .expect("the bundled opening snapshot is valid")
+            let mut opening: Self =
+                postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
+                    .expect("the bundled opening snapshot is valid");
+            opening.width = WIDTH;
+            opening.height = HEIGHT;
+            // The older settled bake contains a solid bed of pebble aggregates
+            // in the opening. Keep their material as ordinary sand; distant
+            // pebble deposits are seeded independently as the world streams.
+            for (i, owner) in opening.pebble_owner.iter_mut().enumerate() {
+                if *owner != 0 {
+                    *owner = 0;
+                    opening.grain[i] = initial_grain((i % WIDTH) as i32, (i / WIDTH) as i32);
+                }
+            }
+            opening.pebbles.clear();
+            opening.pebble_motion.clear();
+            opening
         } else {
             Self::from_level(level)
         };
@@ -302,6 +641,24 @@ impl World {
             }
         }
         world.opening_edge_opened = true;
+        world
+    }
+
+    /// Keep the historical pebble bed available to focused physics tests.
+    #[cfg(any(test, feature = "cleanup-proof"))]
+    pub fn opening_pebble_fixture(level: &crate::Level) -> Self {
+        let mut world = Self::from_level_settled(level);
+        let baked: Self =
+            postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
+                .expect("the bundled opening snapshot is valid");
+        for (i, &owner) in baked.pebble_owner.iter().enumerate() {
+            if owner != 0 {
+                world.pebble_owner[i] = owner;
+                world.grain[i] = baked.grain[i];
+            }
+        }
+        world.pebbles = baked.pebbles;
+        world.pebble_motion = baked.pebble_motion;
         world
     }
 
@@ -348,8 +705,8 @@ impl World {
                         };
                         world.flow[i] = if world.cells[i] == Cell::Water {
                             (
-                                0.35 + (y as f32 * 0.055).sin() * 0.375
-                                    + (y as f32 * 0.021).sin() * 0.15,
+                                0.35 + libm::sinf(y as f32 * 0.055) * 0.375
+                                    + libm::sinf(y as f32 * 0.021) * 0.15,
                                 0.0,
                             )
                         } else {
@@ -366,7 +723,7 @@ impl World {
     /// currents and the existing rocks shape these deposits before play.
     #[cfg(test)]
     fn seed_opening_deposits(&mut self, level: &crate::Level) {
-        // Replace the upper bed with distinct 4-by-4 cell aggregates.
+        // Retain the historical bake as a repeatable pebble physics fixture.
         for x in (36..200).step_by(4) {
             let floor = level.floor_height((x as f32 + 0.5) * GAME_CELL);
             let top = ((floor - GAME_BOTTOM) / GAME_CELL).floor() as i32;
@@ -376,7 +733,7 @@ impl World {
         }
         // Leave the initial crab spawn clear. The deposits begin just beyond
         // it and are intentionally irregular in height and concentration.
-        for x in 55..WIDTH - 2 {
+        for x in 55..self.width - 2 {
             if (36..200).contains(&x) {
                 continue;
             }
@@ -388,7 +745,7 @@ impl World {
             let count = 2 + (x * 31 + x / 11) % 5;
             for n in 0..count {
                 let y = base + 10 + (x * 17 % 13) as i32 + n as i32 * 2;
-                if let Some(i) = Self::index(x as i32, y)
+                if let Some(i) = self.index_at(x as i32, y)
                     && self.cells[i] == Cell::Water
                 {
                     self.cells[i] = if x * 4 > 1650 { Cell::Mud } else { Cell::Sand };
@@ -396,7 +753,6 @@ impl World {
                 }
             }
         }
-        // Drop more pebbles separately so the settled surface is irregular.
         for x in (56..196).step_by(8) {
             let floor = level.floor_height((x as f32 + 0.5) * GAME_CELL);
             let top = ((floor - GAME_BOTTOM) / GAME_CELL).floor() as i32;
@@ -416,11 +772,11 @@ impl World {
             return None;
         }
         let root = world_root - self.origin.0;
-        if !(1..WIDTH as i32 - 1).contains(&root) {
+        if !(1..self.width as i32 - 1).contains(&root) {
             return None;
         }
-        let lo = (12 - self.origin.1).clamp(1, HEIGHT as i32 - 1);
-        let hi = (120 - self.origin.1).clamp(1, HEIGHT as i32 - 1);
+        let lo = (12 - self.origin.1).clamp(1, self.height as i32 - 1);
+        let hi = (120 - self.origin.1).clamp(1, self.height as i32 - 1);
         let base = (lo..hi).find(|&y| {
             self.cell(root, y) == Cell::Water && self.cell(root, y - 1) != Cell::Water
         })?;
@@ -459,8 +815,8 @@ impl World {
         (
             self.origin.0 as f32 * GAME_CELL,
             GAME_BOTTOM + self.origin.1 as f32 * GAME_CELL,
-            WIDTH as f32 * GAME_CELL,
-            HEIGHT as f32 * GAME_CELL,
+            self.width as f32 * GAME_CELL,
+            self.height as f32 * GAME_CELL,
         )
     }
     pub fn contains_world(&self, x: f32, y: f32) -> bool {
@@ -480,15 +836,42 @@ impl World {
             return false;
         }
         if !self.opening_edge_opened {
+            #[cfg(test)]
+            {
+                dirty_oracle::mark_global();
+                for tile in 0..self.width.div_ceil(TERRAIN_CHUNK_CELLS as usize) {
+                    dirty_oracle::mark_active_tile(tile);
+                }
+            }
             // The old opening-only field had an artificial solid bottom row.
             // Replace that seam with the actual demo terrain before streaming.
-            for col in 0..WIDTH {
+            for col in 0..self.width {
                 let i = col;
                 if self.pebble_owner[i] == 0 {
                     self.cells[i] = initial_terrain_cell(level, col as i32, 0);
                 }
             }
             self.opening_edge_opened = true;
+        }
+        let advanced = self.advance_pending_falls(level, self.tick, FALL_CATCHUP_BUDGET, &[]);
+        self.hydrate_pending_falls(true);
+        if advanced > 0 || self.bottom_open.is_empty() {
+            self.prepare_bottom_open(level);
+        }
+        let Some(target) = self.preview_window(x, y) else {
+            return false;
+        };
+        self.shift_window(level, target);
+        self.prepare_bottom_open(level);
+        self.hydrate_pending_falls(true);
+        self.seed_far_pebbles(level);
+        true
+    }
+
+    /// Compute the exact next origin without moving or cloning the world.
+    fn preview_window(&self, x: f32, y: f32) -> Option<(i32, i32)> {
+        if !self.game {
+            return None;
         }
         let (cx, cy) = self.local_cell(x, y);
         // Bring unseen terrain into the simulation well before the crab
@@ -499,18 +882,19 @@ impl World {
         let margin_y = 80.0;
         let gx = (x / GAME_CELL).floor() as i32;
         let gy = ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32;
-        let target_x = if cx > WIDTH as f32 - margin_x || (cx < margin_x && self.origin.0 > 0) {
-            ((gx - WIDTH as i32 / 2).div_euclid(64) * 64).max(0)
+        let target_x = if cx > self.width as f32 - margin_x || (cx < margin_x && self.origin.0 > 0)
+        {
+            ((gx - self.width as i32 / 2).div_euclid(64) * 64).max(0)
         } else {
             self.origin.0
         };
-        let target_y = if cy > HEIGHT as f32 - margin_y || cy < margin_y {
-            (gy - HEIGHT as i32 / 2).div_euclid(64) * 64
+        let target_y = if cy > self.height as f32 - margin_y || cy < margin_y {
+            (gy - self.height as i32 / 2).div_euclid(64) * 64
         } else {
             self.origin.1
         };
         if (target_x, target_y) == self.origin {
-            return false;
+            return None;
         }
         // Never cut a pebble aggregate at the edge of the next window.
         let choose = |old: i32, wanted: i32, extent: i32, horizontal: bool| -> Option<i32> {
@@ -545,14 +929,13 @@ impl World {
             }
             None
         };
-        let nx = choose(self.origin.0, target_x, WIDTH as i32, true).unwrap_or(self.origin.0);
-        let ny = choose(self.origin.1, target_y, HEIGHT as i32, false).unwrap_or(self.origin.1);
+        let nx = choose(self.origin.0, target_x, self.width as i32, true).unwrap_or(self.origin.0);
+        let ny =
+            choose(self.origin.1, target_y, self.height as i32, false).unwrap_or(self.origin.1);
         if (nx, ny) == self.origin {
-            return false;
+            return None;
         }
-        self.shift_window(level, (nx, ny));
-        self.seed_far_pebbles(level);
-        true
+        Some((nx, ny))
     }
 
     /// Seed individual aggregates only in previously unseen, completely
@@ -560,9 +943,9 @@ impl World {
     fn seed_far_pebbles(&mut self, level: &crate::Level) {
         let side = TERRAIN_CHUNK_CELLS;
         let first_x = (self.origin.0 + side - 1).div_euclid(side);
-        let last_x = (self.origin.0 + WIDTH as i32).div_euclid(side);
+        let last_x = (self.origin.0 + self.width as i32).div_euclid(side);
         let first_y = (self.origin.1 + side - 1).div_euclid(side);
-        let last_y = (self.origin.1 + HEIGHT as i32).div_euclid(side);
+        let last_y = (self.origin.1 + self.height as i32).div_euclid(side);
         for cy in first_y..last_y {
             for cx in first_x..last_x {
                 if !self.pebble_seeded.insert((cx, cy)) {
@@ -584,7 +967,7 @@ impl World {
                     let y = gy - self.origin.1;
                     let pristine = (0..4).all(|oy| {
                         (0..4).all(|ox| {
-                            let Some(i) = Self::index(x + ox, y + oy) else {
+                            let Some(i) = self.index_at(x + ox, y + oy) else {
                                 return false;
                             };
                             self.cells[i] == Cell::Sand
@@ -604,14 +987,30 @@ impl World {
     }
 
     fn shift_window(&mut self, level: &crate::Level, next_origin: (i32, i32)) {
+        self.remap_region(level, next_origin, self.dimensions());
+    }
+
+    fn remap_region(
+        &mut self,
+        level: &crate::Level,
+        next_origin: (i32, i32),
+        next_size: (usize, usize),
+    ) {
+        #[cfg(test)]
+        {
+            dirty_oracle::mark_all_active();
+            dirty_oracle::mark_global();
+        }
         let old = self.origin;
+        let old_size = self.dimensions();
+        let (width, height) = next_size;
         let dx = next_origin.0 - old.0;
         let dy = next_origin.1 - old.1;
-        let inside = |x: i32, y: i32, origin: (i32, i32)| {
+        let inside = |x: i32, y: i32, origin: (i32, i32), size: (usize, usize)| {
             x >= origin.0
-                && x < origin.0 + WIDTH as i32
+                && x < origin.0 + size.0 as i32
                 && y >= origin.1
-                && y < origin.1 + HEIGHT as i32
+                && y < origin.1 + size.1 as i32
         };
         let locate = |x: i32, y: i32| {
             let side = TERRAIN_CHUNK_CELLS;
@@ -619,14 +1018,16 @@ impl World {
             let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
             (key, slot)
         };
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
+        for y in 0..self.height {
+            for x in 0..self.width {
                 let (gx, gy) = (old.0 + x as i32, old.1 + y as i32);
-                if inside(gx, gy, next_origin) {
+                if inside(gx, gy, next_origin, next_size) {
                     continue;
                 }
-                let i = y * WIDTH + x;
+                let i = y * self.width + x;
                 let (key, slot) = locate(gx, gy);
+                #[cfg(test)]
+                dirty_oracle::mark_sleeping(key);
                 self.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
                     cell: self.cells[i],
                     flow: self.flow[i],
@@ -636,17 +1037,17 @@ impl World {
                 });
             }
         }
-        let mut cells = vec![Cell::Water; WIDTH * HEIGHT];
-        let mut flow = vec![(0.0, 0.0); WIDTH * HEIGHT];
-        let mut suspended = vec![0; WIDTH * HEIGHT];
-        let mut grain = vec![0; WIDTH * HEIGHT];
-        let mut owner = vec![0; WIDTH * HEIGHT];
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
+        let mut cells = vec![Cell::Water; width * height];
+        let mut flow = vec![(0.0, 0.0); width * height];
+        let mut suspended = vec![0; width * height];
+        let mut grain = vec![0; width * height];
+        let mut owner = vec![0; width * height];
+        for y in 0..height {
+            for x in 0..width {
                 let (gx, gy) = (next_origin.0 + x as i32, next_origin.1 + y as i32);
-                let i = y * WIDTH + x;
-                let value = if inside(gx, gy, old) {
-                    let j = (gy - old.1) as usize * WIDTH + (gx - old.0) as usize;
+                let i = y * width + x;
+                let value = if inside(gx, gy, old, old_size) {
+                    let j = (gy - old.1) as usize * old_size.0 + (gx - old.0) as usize;
                     SleepingCell {
                         cell: self.cells[j],
                         flow: self.flow[j],
@@ -656,9 +1057,14 @@ impl World {
                     }
                 } else {
                     let (key, slot) = locate(gx, gy);
+                    #[cfg(test)]
+                    dirty_oracle::mark_sleeping(key);
                     self.sleeping
                         .get_mut(&key)
-                        .and_then(|chunk| chunk.cells[slot].take())
+                        .and_then(|chunk| {
+                            chunk.cells[slot]?;
+                            chunk.cells[slot].take()
+                        })
                         .unwrap_or_else(|| {
                             let cell = initial_terrain_cell(level, gx, gy);
                             let shade = initial_grain(gx, gy);
@@ -686,6 +1092,10 @@ impl World {
                 owner[i] = value.owner;
             }
         }
+        #[cfg(test)]
+        for key in self.sleeping.keys() {
+            dirty_oracle::mark_sleeping(*key);
+        }
         self.sleeping
             .retain(|_, chunk| chunk.cells.iter().any(Option::is_some));
         self.cells = cells;
@@ -693,6 +1103,8 @@ impl World {
         self.suspended = suspended;
         self.grain = grain;
         self.pebble_owner = owner;
+        self.width = width;
+        self.height = height;
         self.origin = next_origin;
         for p in &mut self.pebbles {
             p.x -= dx;
@@ -711,6 +1123,12 @@ impl World {
             p.y -= dy as f32;
         }
         self.crab = None;
+        self.other_crabs.clear();
+        if self.game {
+            self.prepare_bottom_open(level);
+        } else {
+            self.bottom_open.clear();
+        }
     }
 
     pub fn tick_count(&self) -> u64 {
@@ -729,12 +1147,12 @@ impl World {
     /// Transparent water lets the campaign's own background show through.
     pub fn game_pixels(&self) -> Vec<u8> {
         let mut pixels = self.pixels();
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let cell = y * WIDTH + x;
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let cell = y * self.width + x;
                 if self.cells[cell] == Cell::Water {
-                    let p = ((HEIGHT - 1 - y) * WIDTH + x) * 4;
-                    let depth = (y * 10 / HEIGHT) as u8;
+                    let p = ((self.height - 1 - y) * self.width + x) * 4;
+                    let depth = (y * 10 / self.height) as u8;
                     if pixels[p..p + 3] == [15 + depth / 2, 53 + depth, 65 + depth] {
                         pixels[p + 3] = 0;
                     }
@@ -756,7 +1174,7 @@ impl World {
             }
             (b.x, b.y, true)
         };
-        let i = Self::index(x as i32, y as i32)?;
+        let i = self.index_at(x as i32, y as i32)?;
         (self.cells[i] == Cell::Water).then_some((
             (x + self.origin.0 as f32) * GAME_CELL,
             GAME_BOTTOM + (y + self.origin.1 as f32) * GAME_CELL,
@@ -767,7 +1185,7 @@ impl World {
     /// Fine, lightweight silt drawn separately from the solid cell grid.
     pub fn game_silt(&self, index: usize) -> Option<(f32, f32, f32)> {
         let p = self.silt.get(index)?;
-        let i = Self::index(p.x as i32, p.y as i32)?;
+        let i = self.index_at(p.x as i32, p.y as i32)?;
         (self.cells[i] == Cell::Water).then_some((
             (p.x + self.origin.0 as f32) * GAME_CELL,
             GAME_BOTTOM + (p.y + self.origin.1 as f32) * GAME_CELL,
@@ -812,6 +1230,26 @@ impl World {
         self.cell(cx.floor() as i32, cy.floor() as i32) == Cell::Rock
     }
 
+    /// Whether the interior of a world-space rectangle overlaps immutable
+    /// rock. Treat unknown, out-of-window or invalid rectangles as blocked;
+    /// the bounds check also limits the work to the active material window.
+    /// Loose sand and mud do not block the rectangle.
+    pub fn game_rock_in_rect(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
+        const INSET: f32 = 0.01;
+        if !min_x.is_finite()
+            || !min_y.is_finite()
+            || !max_x.is_finite()
+            || !max_y.is_finite()
+            || max_x - min_x <= INSET * 2.0
+            || max_y - min_y <= INSET * 2.0
+            || !self.contains_world(min_x, min_y)
+            || !self.contains_world(max_x, max_y)
+        {
+            return true;
+        }
+        self.game_rock_overlap(min_x + INSET, min_y + INSET, max_x - INSET, max_y - INSET) != 0
+    }
+
     /// Test the interior of a game-world rectangle against material cells.
     pub fn game_solid(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
         let (x0, y0) = self.local_cell(min_x, min_y);
@@ -819,7 +1257,7 @@ impl World {
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
                 // Outside the bounded experiment the regular level handles collision.
-                if let Some(i) = Self::index(x, y)
+                if let Some(i) = self.index_at(x, y)
                     && self.cells[i] != Cell::Water
                 {
                     return true;
@@ -843,7 +1281,10 @@ impl World {
         let mut count = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
-                if Self::index(x, y).is_some_and(|i| self.cells[i] == Cell::Rock) {
+                if self
+                    .index_at(x, y)
+                    .is_some_and(|i| self.cells[i] == Cell::Rock)
+                {
                     count += 1;
                 }
             }
@@ -904,7 +1345,7 @@ impl World {
         let mut seen = Vec::new();
         for gy in y0..=y1 {
             for gx in x0..=x1 {
-                let Some(i) = Self::index(gx, gy) else {
+                let Some(i) = self.index_at(gx, gy) else {
                     continue;
                 };
                 let owner = self.pebble_owner[i];
@@ -963,7 +1404,7 @@ impl World {
         let (mut cost, mut grains) = (0usize, 0usize);
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
-                if let Some(i) = Self::index(x, y)
+                if let Some(i) = self.index_at(x, y)
                     && matches!(self.cells[i], Cell::Sand | Cell::Mud)
                 {
                     cost += self.sediment_push_cost(i);
@@ -1000,7 +1441,7 @@ impl World {
             let mut grains = 0;
             let mut columns = 0;
             for x in left..=right {
-                if let Some(i) = Self::index(x, y) {
+                if let Some(i) = self.index_at(x, y) {
                     columns += 1;
                     match self.cells[i] {
                         Cell::Rock => return true,
@@ -1028,7 +1469,7 @@ impl World {
         let mut columns = 0;
         let mut grains = 0;
         for x in x0.floor() as i32..=x1.floor() as i32 {
-            let Some(i) = Self::index(x, y.floor() as i32) else {
+            let Some(i) = self.index_at(x, y.floor() as i32) else {
                 continue;
             };
             columns += 1;
@@ -1042,6 +1483,56 @@ impl World {
         }
         columns > 0 && grains >= 2 && grains * 3 >= columns
     }
+    // A falling loose column cannot carry an airborne crab. Rock and packed
+    // sediment extending beyond this active window retain their normal collision.
+    fn sediment_anchored(&self, x: i32, row: i32) -> bool {
+        (0..=row)
+            .rev()
+            .find_map(|below| match self.cell(x, below) {
+                Cell::Rock => Some(true),
+                Cell::Water => Some(false),
+                Cell::Sand | Cell::Mud => None,
+            })
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn game_airborne_support(&self, min_x: f32, max_x: f32, feet_y: f32) -> bool {
+        let (x0, y) = self.local_cell(min_x, feet_y - 0.5);
+        let (x1, _) = self.local_cell(max_x, feet_y - 0.5);
+        let row = y.floor() as i32;
+        let mut columns = 0;
+        let mut grains = 0;
+        for x in x0.floor() as i32..=x1.floor() as i32 {
+            if let Some(i) = self.index_at(x, row) {
+                columns += 1;
+                if self.cells[i] != Cell::Water && self.sediment_anchored(x, row) {
+                    grains += 1;
+                }
+            }
+        }
+        columns > 0 && grains >= 2 && grains * 3 >= columns
+    }
+
+    pub(crate) fn game_airborne_blocked(
+        &self,
+        min_x: f32,
+        min_y: f32,
+        max_x: f32,
+        max_y: f32,
+    ) -> bool {
+        let (x0, y0) = self.local_cell(min_x, min_y);
+        let (x1, y1) = self.local_cell(max_x, max_y);
+        for y in y0.floor() as i32..=y1.floor() as i32 {
+            for x in x0.floor() as i32..=x1.floor() as i32 {
+                match self.cell(x, y) {
+                    Cell::Rock => return true,
+                    Cell::Sand | Cell::Mud if self.sediment_anchored(x, y) => return true,
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
     /// Find a supported surface below an animal, filtering small pebbles
     /// using the same footprint test as the crab.
     pub fn game_surface_below(&self, x: f32, half_width: f32, ceiling: f32) -> Option<f32> {
@@ -1050,7 +1541,7 @@ impl World {
         }
         let first = (((ceiling - GAME_BOTTOM) / GAME_CELL - self.origin.1 as f32).floor() as i32
             - 1)
-        .clamp(0, HEIGHT as i32 - 1);
+        .clamp(0, self.height as i32 - 1);
         for row in (0..=first).rev() {
             let surface = GAME_BOTTOM + (row + 1 + self.origin.1) as f32 * GAME_CELL;
             if self.game_surface_support(x - half_width, x + half_width, surface) {
@@ -1096,7 +1587,7 @@ impl World {
         let (x1, y1) = self.local_cell(max_x, max_y);
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
-                if let Some(i) = Self::index(x, y) {
+                if let Some(i) = self.index_at(x, y) {
                     match self.cells[i] {
                         Cell::Rock => return true,
                         Cell::Sand | Cell::Mud
@@ -1121,7 +1612,9 @@ impl World {
         let mut grains = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
-                let Some(i) = Self::index(x, y) else { continue };
+                let Some(i) = self.index_at(x, y) else {
+                    continue;
+                };
                 match self.cells[i] {
                     Cell::Rock => return false,
                     Cell::Sand | Cell::Mud => {
@@ -1138,6 +1631,8 @@ impl World {
     }
     pub fn new() -> Self {
         let mut world = Self {
+            width: WIDTH,
+            height: HEIGHT,
             cells: vec![Cell::Water; WIDTH * HEIGHT],
             flow: vec![(0.0, 0.0); WIDTH * HEIGHT],
             suspended: vec![0; WIDTH * HEIGHT],
@@ -1156,6 +1651,7 @@ impl World {
             crab: None,
             crab_half_x: CRAB_HALF_X,
             crab_half_y: CRAB_HALF_Y,
+            other_crabs: Vec::new(),
             tracers: (0..900)
                 .map(|n| {
                     (
@@ -1176,10 +1672,13 @@ impl World {
             sleeping: std::collections::BTreeMap::new(),
             opening_edge_opened: false,
             pebble_seeded: std::collections::BTreeSet::new(),
+            pending_falls: Vec::new(),
+            next_fall_sequence: 0,
+            bottom_open: Vec::new(),
         };
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
-                let floor = (48.0 + (x as f32 * 0.015).sin() * 12.0) as usize;
+                let floor = (48.0 + libm::sinf(x as f32 * 0.015) * 12.0) as usize;
                 let rock = x == 0
                     || x == WIDTH - 1
                     || y == 0
@@ -1212,7 +1711,7 @@ impl World {
     fn add_pebble(&mut self, x: i32, y: i32, side: u8, shade: u8) -> bool {
         for oy in 0..i32::from(side) {
             for ox in 0..i32::from(side) {
-                let Some(i) = Self::index(x + ox, y + oy) else {
+                let Some(i) = self.index_at(x + ox, y + oy) else {
                     return false;
                 };
                 if self.cells[i] == Cell::Rock
@@ -1228,7 +1727,9 @@ impl World {
         };
         for oy in 0..i32::from(side) {
             for ox in 0..i32::from(side) {
-                let i = Self::index(x + ox, y + oy).expect("pebble footprint was checked");
+                let i = self
+                    .index_at(x + ox, y + oy)
+                    .expect("pebble footprint was checked");
                 self.cells[i] = Cell::Sand;
                 self.grain[i] = shade;
                 self.pebble_owner[i] = id;
@@ -1253,10 +1754,13 @@ impl World {
         }
         for oy in 0..side {
             for ox in 0..side {
-                let Some(i) = Self::index(p.x + ox + dx, p.y + oy + dy) else {
+                let Some(i) = self.index_at(p.x + ox + dx, p.y + oy + dy) else {
                     return false;
                 };
                 if self.pebble_owner[i] != id {
+                    if self.other_body_contains(p.x + ox + dx, p.y + oy + dy, 0) {
+                        return false;
+                    }
                     let clear = if force == usize::MAX {
                         self.can_receive_grain(i)
                             || (self.cells[i] == Cell::Water
@@ -1287,8 +1791,11 @@ impl World {
             for col in 0..side {
                 let ox = if dx > 0 { side - 1 - col } else { col };
                 let oy = if dy > 0 { side - 1 - row } else { row };
-                let from = Self::index(p.x + ox, p.y + oy).expect("pebble source was checked");
-                let to = Self::index(p.x + ox + dx, p.y + oy + dy)
+                let from = self
+                    .index_at(p.x + ox, p.y + oy)
+                    .expect("pebble source was checked");
+                let to = self
+                    .index_at(p.x + ox + dx, p.y + oy + dy)
                     .expect("pebble destination was checked");
                 self.swap_cells(from, to);
             }
@@ -1333,16 +1840,18 @@ impl World {
             for ox in 0..side {
                 let x = p.x + ox + dx;
                 let y = p.y + oy + dy;
-                let Some(i) = Self::index(x, y) else {
+                let Some(i) = self.index_at(x, y) else {
                     return false;
                 };
                 let owner = self.pebble_owner[i];
                 if owner == id {
                     continue;
                 }
-                if self.crab.is_some_and(|(cx, cy)| {
-                    (x - cx).abs() <= self.crab_half_x && (y - cy).abs() <= self.crab_half_y
-                }) {
+                if self.other_body_contains(x, y, 0)
+                    || self.crab.is_some_and(|(cx, cy)| {
+                        (x - cx).abs() <= self.crab_half_x && (y - cy).abs() <= self.crab_half_y
+                    })
+                {
                     return false;
                 }
                 if owner != 0 {
@@ -1389,10 +1898,10 @@ impl World {
         self.pebble_owner.swap(a, b);
     }
     pub fn cell(&self, x: i32, y: i32) -> Cell {
-        Self::index(x, y).map_or(Cell::Rock, |i| self.cells[i])
+        self.index_at(x, y).map_or(Cell::Rock, |i| self.cells[i])
     }
     pub fn flow_at(&self, x: i32, y: i32) -> (f32, f32) {
-        Self::index(x, y).map_or((0.0, 0.0), |i| self.flow[i])
+        self.index_at(x, y).map_or((0.0, 0.0), |i| self.flow[i])
     }
     pub fn clear_for_crab(&self, x: f32, y: f32) -> bool {
         (-self.crab_half_y..=self.crab_half_y).all(|dy| {
@@ -1406,6 +1915,15 @@ impl World {
     }
     pub fn clear_game_crab(&mut self) {
         self.crab = None;
+        self.other_crabs.clear();
+    }
+    pub(crate) fn reserve_other_crabs(&mut self, bodies: Vec<(i32, i32, i32, i32)>) {
+        self.other_crabs = bodies;
+    }
+    fn other_body_contains(&self, x: i32, y: i32, margin: i32) -> bool {
+        self.other_crabs
+            .iter()
+            .any(|&(cx, cy, hx, hy)| (x - cx).abs() <= hx + margin && (y - cy).abs() <= hy + margin)
     }
     pub fn set_game_crab(&mut self, x: f32, y: f32, half_width: f32, half_height: f32) {
         self.crab_half_x = half_width.ceil().max(1.0) as i32;
@@ -1443,7 +1961,7 @@ impl World {
                 if !(4.0..=144.0).contains(&radius2) {
                     continue;
                 }
-                let Some(i) = Self::index(wake_x as i32 + ox, wake_y as i32 + oy) else {
+                let Some(i) = self.index_at(wake_x as i32 + ox, wake_y as i32 + oy) else {
                     continue;
                 };
                 if self.cells[i] != Cell::Water {
@@ -1465,7 +1983,7 @@ impl World {
                 if r2 >= 1.0 {
                     continue;
                 }
-                let Some(i) = Self::index(x as i32 + ox, foot_y as i32 + oy) else {
+                let Some(i) = self.index_at(x as i32 + ox, foot_y as i32 + oy) else {
                     continue;
                 };
                 if self.cells[i] != Cell::Water {
@@ -1485,14 +2003,20 @@ impl World {
             for oy in -4_i32..=0 {
                 let sx = x as i32 + ox;
                 let sy = foot_y as i32 + oy;
-                let Some(from) = Self::index(sx, sy) else {
+                let Some(from) = self.index_at(sx, sy) else {
                     continue;
                 };
+                let world_x = i64::from(sx)
+                    + if self.game {
+                        i64::from(self.origin.0)
+                    } else {
+                        0
+                    };
                 let material = self.cells[from];
                 if !matches!(material, Cell::Sand | Cell::Mud)
                     || self.grain[from] >= 96
                     || self.cell(sx, sy + 1) != Cell::Water
-                    || (sx as u64 + self.tick).is_multiple_of(3)
+                    || phase_due(self.tick, world_x, 3)
                 {
                     continue;
                 }
@@ -1500,7 +2024,7 @@ impl World {
                 if fx.abs() + fy.abs() < 0.3 {
                     continue;
                 }
-                let Some(to) = Self::index(sx + ox.signum(), sy + 1) else {
+                let Some(to) = self.index_at(sx + ox.signum(), sy + 1) else {
                     continue;
                 };
                 if self.can_receive_grain(to) {
@@ -1511,7 +2035,7 @@ impl World {
                     } else {
                         96 - density / 4
                     };
-                    if material == Cell::Mud && (sx as u64 + self.tick).is_multiple_of(5) {
+                    if material == Cell::Mud && phase_due(self.tick, world_x, 5) {
                         self.emit_silt(sx as f32, sy as f32 + 1.0);
                     }
                 }
@@ -1586,7 +2110,7 @@ impl World {
                 if distance > 100.0 {
                     continue;
                 }
-                let Some(i) = Self::index(cx + ox, cy + oy) else {
+                let Some(i) = self.index_at(cx + ox, cy + oy) else {
                     continue;
                 };
                 if self.cells[i] != Cell::Water {
@@ -1611,11 +2135,15 @@ impl World {
         if self.cells[index] != Cell::Water {
             return false;
         }
-        let x = (index % WIDTH) as i32;
-        let y = (index / WIDTH) as i32;
-        !self.crab.is_some_and(|(cx, cy)| {
-            (x - cx).abs() <= self.crab_half_x + 4 && (y - cy).abs() <= self.crab_half_y + 4
-        })
+        let x = (index % self.width) as i32;
+        let y = (index / self.width) as i32;
+        !self
+            .other_crabs
+            .iter()
+            .any(|&(cx, cy, hx, hy)| grain_body_contains(x, y, cx, cy, hx, hy))
+            && !self.crab.is_some_and(|(cx, cy)| {
+                grain_body_contains(x, y, cx, cy, self.crab_half_x, self.crab_half_y)
+            })
     }
 
     fn sediment_push_cost(&self, i: usize) -> usize {
@@ -1641,7 +2169,7 @@ impl World {
         for y in (foot - 2..=foot + 4).rev() {
             for offset in 0..6 {
                 let x = front + direction * offset;
-                let Some(from) = Self::index(x, y) else {
+                let Some(from) = self.index_at(x, y) else {
                     continue;
                 };
                 if !matches!(self.cells[from], Cell::Sand | Cell::Mud) {
@@ -1669,7 +2197,7 @@ impl World {
                     continue;
                 }
                 for (dx, dy) in [(direction, 1), (direction, 0), (0, 1)] {
-                    let Some(to) = Self::index(x + dx, y + dy) else {
+                    let Some(to) = self.index_at(x + dx, y + dy) else {
                         continue;
                     };
                     let outside_body = (x + dx - cx).abs() > self.crab_half_x
@@ -1723,7 +2251,9 @@ impl World {
             for offset in 1..=4 {
                 let x = cx + direction * (self.crab_half_x + offset);
                 for y in foot - 1..=foot + 4 {
-                    let Some(i) = Self::index(x, y) else { continue };
+                    let Some(i) = self.index_at(x, y) else {
+                        continue;
+                    };
                     let id = self.pebble_owner[i];
                     if id == 0 || seen.contains(&id) {
                         continue;
@@ -1779,7 +2309,7 @@ impl World {
                 for ox in -self.crab_half_x..=self.crab_half_x {
                     let (sx, sy) = (cx + ox, cy + oy);
                     if matches!(self.cell(sx, sy), Cell::Sand | Cell::Mud) {
-                        let owner = Self::index(sx, sy).map_or(0, |i| self.pebble_owner[i]);
+                        let owner = self.index_at(sx, sy).map_or(0, |i| self.pebble_owner[i]);
                         if owner != 0 {
                             // Whole-pebble planning uses the crab reservation;
                             // avoid it while an independent animal is pushing.
@@ -1849,7 +2379,7 @@ impl World {
             return;
         }
         for n in 0..6 {
-            let angle = (self.tick as f32 * 0.37 + n as f32 * 2.4).sin();
+            let angle = libm::sinf(self.tick as f32 * 0.37 + n as f32 * 2.4);
             self.silt.push(Silt {
                 x: x + angle * 3.0,
                 y: y + n as f32 * 0.4,
@@ -1872,7 +2402,7 @@ impl World {
         through_body: bool,
         protected: Option<(i32, i32, i32, i32)>,
     ) {
-        let Some(start) = Self::index(x, y) else {
+        let Some(start) = self.index_at(x, y) else {
             return;
         };
         if self.pebble_owner[start] != 0 {
@@ -1883,12 +2413,13 @@ impl World {
         let radius = force as i32 + 1;
         let left = (x - radius).max(0);
         let bottom = (y - radius).max(0);
-        let right = (x + radius).min(WIDTH as i32 - 1);
-        let top = (y + radius).min(HEIGHT as i32 - 1);
+        let right = (x + radius).min(self.width as i32 - 1);
+        let top = (y + radius).min(self.height as i32 - 1);
         let w = (right - left + 1) as usize;
+        let stride = self.width;
         let local = |i: usize| -> Option<usize> {
-            let px = (i % WIDTH) as i32;
-            let py = (i / WIDTH) as i32;
+            let px = (i % stride) as i32;
+            let py = (i / stride) as i32;
             if px < left || px > right || py < bottom || py > top {
                 None
             } else {
@@ -1915,23 +2446,24 @@ impl World {
         }
         while let Some(i) = queue.pop_front() {
             let Some(li) = local(i) else { continue };
-            let (px, py) = ((i % WIDTH) as i32, (i / WIDTH) as i32);
+            let (px, py) = ((i % self.width) as i32, (i / self.width) as i32);
             for (nx, ny) in [(side_x, side_y), (-dx, -dy), (dx, dy), (-side_x, -side_y)] {
-                let Some(n) = Self::index(px + nx, py + ny) else {
+                let Some(n) = self.index_at(px + nx, py + ny) else {
                     continue;
                 };
                 if self.pebble_owner[n] != 0 {
                     continue;
                 }
                 let Some(ln) = local(n) else { continue };
-                if (!through_body
-                    && self.crab.is_some_and(|(cx, cy)| {
-                        ((n % WIDTH) as i32 - cx).abs() <= self.crab_half_x
-                            && ((n / WIDTH) as i32 - cy).abs() <= self.crab_half_y
-                    }))
+                if self.other_body_contains((n % self.width) as i32, (n / self.width) as i32, 0)
+                    || (!through_body
+                        && self.crab.is_some_and(|(cx, cy)| {
+                            ((n % self.width) as i32 - cx).abs() <= self.crab_half_x
+                                && ((n / self.width) as i32 - cy).abs() <= self.crab_half_y
+                        }))
                     || protected.is_some_and(|(cx, cy, hx, hy)| {
-                        ((n % WIDTH) as i32 - cx).abs() <= hx
-                            && ((n / WIDTH) as i32 - cy).abs() <= hy
+                        ((n % self.width) as i32 - cx).abs() <= hx
+                            && ((n / self.width) as i32 - cy).abs() <= hy
                     })
                 {
                     continue;
@@ -1944,8 +2476,8 @@ impl World {
                 // Water inside the destination can be crossed but cannot
                 // be the final resting place for a displaced grain.
                 let inside_target = target.is_some_and(|(cx, cy)| {
-                    ((n % WIDTH) as i32 - cx).abs() <= self.crab_half_x
-                        && ((n / WIDTH) as i32 - cy).abs() <= self.crab_half_y
+                    ((n % self.width) as i32 - cx).abs() <= self.crab_half_x
+                        && ((n / self.width) as i32 - cy).abs() <= self.crab_half_y
                 });
                 let load = loads[li].saturating_add(cost);
                 if load > force || load >= loads[ln] {
@@ -1991,11 +2523,11 @@ impl World {
         if reach == 0 {
             return;
         }
-        let (sx, sy) = ((start % WIDTH) as i32, (start / WIDTH) as i32);
+        let (sx, sy) = ((start % self.width) as i32, (start / self.width) as i32);
         let left = (sx - reach).max(0);
-        let right = (sx + reach).min(WIDTH as i32 - 1);
+        let right = (sx + reach).min(self.width as i32 - 1);
         let bottom = (sy - reach).max(0);
-        let top = (sy + reach).min(HEIGHT as i32 - 1);
+        let top = (sy + reach).min(self.height as i32 - 1);
         let width = (right - left + 1) as usize;
         let mut visited = vec![false; width * (top - bottom + 1) as usize];
         let mut queue = std::collections::VecDeque::new();
@@ -2022,7 +2554,7 @@ impl World {
                     continue;
                 }
                 visited[v] = true;
-                let Some(i) = Self::index(nx, ny) else {
+                let Some(i) = self.index_at(nx, ny) else {
                     continue;
                 };
                 if self.cells[i] != Cell::Water {
@@ -2040,50 +2572,1108 @@ impl World {
     }
     pub fn step(&mut self, current: f32) {
         self.tick += 1;
-        // Diffuse velocity locally and continuously feed the ambient current.
-        // Solid neighbors redirect a small part of the flow vertically.
-        let mut next = self.flow.clone();
-        for y in 1..HEIGHT - 1 {
-            // Broad slow layers preserve the fine simulation's established
-            // motion until it is coupled to the world-wide baseline.
-            let time = self.tick as f32;
-            let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
-            let shear = if self.game {
-                (world_y * 0.055 + time * 0.006).sin() * 0.375
-                    + (world_y * 0.021 - time * 0.0027).sin() * 0.15
+        self.step_material(current);
+        self.step_visuals();
+    }
+
+    /// Set the region owner's view of the cells immediately below this kernel.
+    pub fn set_bottom_open(&mut self, open: Vec<bool>) -> bool {
+        if open.len() != self.width {
+            return false;
+        }
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        self.bottom_open = open;
+        true
+    }
+
+    pub fn bottom_open(&self) -> &[bool] {
+        &self.bottom_open
+    }
+
+    fn prepare_bottom_open(&mut self, level: &crate::Level) {
+        let Some(y) = self.origin.1.checked_sub(1).filter(|y| *y >= -1_000_000) else {
+            self.bottom_open = vec![false; self.width];
+            return;
+        };
+        let side = TERRAIN_CHUNK_CELLS;
+        let open: Vec<_> = (0..self.width)
+            .map(|x| {
+                let gx = self.origin.0 + x as i32;
+                let key = (gx.div_euclid(side), y.div_euclid(side));
+                let slot = (y.rem_euclid(side) * side + gx.rem_euclid(side)) as usize;
+                self.sleeping
+                    .get(&key)
+                    .and_then(|c| c.cells[slot])
+                    .map_or_else(|| initial_terrain_cell(level, gx, y), |c| c.cell)
+                    == Cell::Water
+            })
+            .collect();
+        if self.bottom_open != open {
+            #[cfg(test)]
+            dirty_oracle::mark_global();
+            self.bottom_open = open;
+        }
+    }
+
+    /// Sediment awaiting transfer to the terrain owner or offscreen settling.
+    pub fn pending_falls(&self) -> &[FallPacket] {
+        &self.pending_falls
+    }
+
+    /// Acknowledge an owner-committed prefix of a region's outbox.
+    pub fn ack_falls_through(&mut self, sequence: u64) {
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        self.pending_falls
+            .retain(|p| !p.outbound || p.sequence > sequence);
+    }
+
+    /// Accept a whole owner-delivered batch, assigning destination-local IDs.
+    pub fn enqueue_falls(&mut self, packets: &[FallPacket]) -> bool {
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        if packets.len() > MAX_PENDING_FALLS.saturating_sub(self.pending_falls.len())
+            || self
+                .next_fall_sequence
+                .checked_add(packets.len() as u64)
+                .is_none()
+            || packets.iter().any(|p| {
+                !(-1_000_000..=1_000_000).contains(&p.x)
+                    || !(-1_000_000..=1_000_000).contains(&p.y)
+                    || !matches!(p.cell, Cell::Sand | Cell::Mud)
+                    || p.emitted_tick > p.advanced_tick
+                    || p.advanced_tick > u64::MAX / 4 - 1_000_000
+            })
+        {
+            return false;
+        }
+        if let Some(tick) = packets.iter().map(|p| p.advanced_tick).max() {
+            self.tick = self.tick.max(tick);
+        }
+        for packet in packets {
+            let mut packet = *packet;
+            packet.sequence = self.next_fall_sequence;
+            packet.outbound = false;
+            self.next_fall_sequence += 1;
+            self.pending_falls.push(packet);
+        }
+        true
+    }
+
+    /// Transfer packets currently inside a newly granted region to its owner.
+    pub fn take_falls_in(&mut self, bounds: region::CellRegion) -> Vec<FallPacket> {
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        let mut taken = Vec::new();
+        self.pending_falls.retain(|p| {
+            if bounds.contains(p.x, p.y) {
+                taken.push(*p);
+                false
             } else {
-                0.0
-            };
-            for x in 1..WIDTH - 1 {
-                let i = y * WIDTH + x;
-                if self.cells[i] != Cell::Water {
-                    next[i] = (0.0, 0.0);
-                    continue;
+                true
+            }
+        });
+        taken
+    }
+
+    /// Advance in-flight loose grains at most `budget` gravity checks. The
+    /// owner excludes leased rectangles; blocked packets remain in flight.
+    pub fn advance_pending_falls(
+        &mut self,
+        level: &crate::Level,
+        until_tick: u64,
+        budget: usize,
+        blocked: &[region::CellRegion],
+    ) -> usize {
+        if self.pending_falls.is_empty() || budget == 0 {
+            return 0;
+        }
+        let until_tick = until_tick.min(self.tick);
+        if self
+            .pending_falls
+            .iter()
+            .all(|p| p.advanced_tick >= until_tick)
+        {
+            return 0;
+        }
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        let mut occupied: std::collections::BTreeSet<_> =
+            self.pending_falls.iter().map(|p| (p.x, p.y)).collect();
+        let mut order: Vec<usize> = (0..self.pending_falls.len()).collect();
+        order.sort_unstable_by_key(|&i| (self.pending_falls[i].y, self.pending_falls[i].sequence));
+        let mut done = vec![false; self.pending_falls.len()];
+        let mut work = 0;
+        for i in order {
+            let mut packet = self.pending_falls[i];
+            while packet.advanced_tick < until_tick && work < budget {
+                let Some(below) = packet.y.checked_sub(1) else {
+                    break;
+                };
+                if below < -1_000_000 || blocked.iter().any(|b| b.contains(packet.x, below)) {
+                    break;
                 }
-                // Broad, slow eddies make the current less uniform while
-                // retaining its overall direction and stable boundaries.
-                let t = self.tick as f32 * 0.018;
-                let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
-                let eddy = (world_x * 0.047 + world_y * 0.023 + t).sin();
-                let cross = (world_x * 0.027 - world_y * 0.041 - t * 0.7).sin();
-                let feed = if self.game { 0.12 } else { 0.035 };
-                let mut vx = (current + shear + eddy * 0.08) * feed;
-                let mut vy = cross * 0.002;
-                let mut weight = feed;
-                for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                    let n = (y as i32 + dy) as usize * WIDTH + (x as i32 + dx) as usize;
-                    if self.cells[n] == Cell::Water {
-                        vx += self.flow[n].0;
-                        vy += self.flow[n].1;
-                        weight += 1.0;
-                    } else if dx != 0 {
-                        vy += current * if y < HEIGHT / 2 { 0.12 } else { -0.12 };
+                work += 1;
+                let local_x = packet.x - self.origin.0;
+                let local_y = below - self.origin.1;
+                let tile = if let Some(index) = self.index_at(local_x, local_y) {
+                    self.cells[index]
+                } else {
+                    let side = TERRAIN_CHUNK_CELLS;
+                    let key = (packet.x.div_euclid(side), below.div_euclid(side));
+                    let slot = (below.rem_euclid(side) * side + packet.x.rem_euclid(side)) as usize;
+                    self.sleeping
+                        .get(&key)
+                        .and_then(|chunk| chunk.cells[slot])
+                        .map_or_else(
+                            || initial_terrain_cell(level, packet.x, below),
+                            |cell| cell.cell,
+                        )
+                };
+                if tile != Cell::Water {
+                    if blocked.iter().any(|b| b.contains(packet.x, packet.y)) {
+                        break;
                     }
+                    let lx = packet.x - self.origin.0;
+                    let ly = packet.y - self.origin.1;
+                    if let Some(index) = self.index_at(lx, ly) {
+                        if !self.can_receive_grain(index) {
+                            break;
+                        }
+                        #[cfg(test)]
+                        dirty_oracle::mark_active_tile(
+                            (ly as usize / TERRAIN_CHUNK_CELLS as usize)
+                                * self.width.div_ceil(TERRAIN_CHUNK_CELLS as usize)
+                                + lx as usize / TERRAIN_CHUNK_CELLS as usize,
+                        );
+                        self.cells[index] = packet.cell;
+                        self.grain[index] = packet.grain;
+                        self.suspended[index] = packet.suspended;
+                    } else {
+                        let side = TERRAIN_CHUNK_CELLS;
+                        let key = (packet.x.div_euclid(side), packet.y.div_euclid(side));
+                        let slot =
+                            (packet.y.rem_euclid(side) * side + packet.x.rem_euclid(side)) as usize;
+                        let old = self.sleeping.get(&key).and_then(|chunk| chunk.cells[slot]);
+                        if old.is_some_and(|cell| cell.cell != Cell::Water)
+                            || (old.is_none()
+                                && initial_terrain_cell(level, packet.x, packet.y) != Cell::Water)
+                        {
+                            break;
+                        }
+                        #[cfg(test)]
+                        dirty_oracle::mark_sleeping(key);
+                        self.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
+                            cell: packet.cell,
+                            flow: old.map_or((0.0, 0.0), |c| c.flow),
+                            suspended: packet.suspended,
+                            grain: packet.grain,
+                            owner: 0,
+                        });
+                    }
+                    occupied.remove(&(packet.x, packet.y));
+                    done[i] = true;
+                    break;
                 }
-                next[i] = (vx / weight, vy / weight);
+                if occupied.contains(&(packet.x, below)) {
+                    break;
+                }
+                packet.advanced_tick += 1;
+                let phase = i64::from(packet.x) * 13 + i64::from(packet.y) * 7;
+                let properties = if packet.cell == Cell::Sand {
+                    self.sand_properties
+                } else {
+                    self.mud_properties
+                };
+                let density = (i32::from(packet.grain) + i32::from(properties.density_bias))
+                    .clamp(0, 255) as u8;
+                let moves = if packet.suspended > 0 {
+                    packet.suspended -= 1;
+                    let period = if packet.cell == Cell::Sand {
+                        3
+                    } else if density > 170 {
+                        2
+                    } else if density > 85 {
+                        4
+                    } else {
+                        8
+                    };
+                    packet.advanced_tick.is_multiple_of(period)
+                } else if packet.cell == Cell::Sand {
+                    !phase_due(packet.advanced_tick, phase, 4)
+                } else {
+                    let period = if properties.cohesion_ticks == 0 || density > 192 {
+                        1
+                    } else {
+                        2
+                    };
+                    packet
+                        .advanced_tick
+                        .wrapping_add(self.mud_properties.erosion_interval.max(1))
+                        .is_multiple_of(period)
+                };
+                if moves {
+                    occupied.remove(&(packet.x, packet.y));
+                    packet.y = below;
+                    occupied.insert((packet.x, packet.y));
+                }
+            }
+            self.pending_falls[i] = packet;
+            if work >= budget {
+                break;
             }
         }
-        self.flow = next;
+        let mut n = 0;
+        self.pending_falls.retain(|_| {
+            let keep = !done[n];
+            n += 1;
+            keep
+        });
+        work
+    }
+
+    /// Advance packets owned by this kernel without writing beyond its lease.
+    pub fn advance_local_falls(
+        &mut self,
+        level: &crate::Level,
+        until_tick: u64,
+        budget: usize,
+    ) -> usize {
+        if self.pending_falls.iter().all(|p| p.outbound) {
+            return 0;
+        }
+        let below = region::CellRegion {
+            x: -1_000_000,
+            y: -1_000_000,
+            width: 2_000_001,
+            height: (self.origin.1 + 1_000_000).max(0) as usize,
+        };
+        // Outbound packets belong to the transfer protocol until acknowledged;
+        // moving the window must not also reinsert an already sent grain.
+        let mut outbound = Vec::new();
+        self.pending_falls.retain(|p| {
+            if p.outbound {
+                outbound.push(*p);
+                false
+            } else {
+                true
+            }
+        });
+        let work = self.advance_pending_falls(level, until_tick, budget, &[below]);
+        self.pending_falls.extend(outbound);
+        for packet in &mut self.pending_falls {
+            if !packet.outbound
+                && packet.y <= self.origin.1
+                && let Some(next) = self.next_fall_sequence.checked_add(1)
+            {
+                packet.sequence = self.next_fall_sequence;
+                packet.outbound = true;
+                self.next_fall_sequence = next;
+            }
+        }
+        self.pending_falls.sort_unstable_by_key(|p| p.sequence);
+        self.hydrate_pending_falls(false);
+        work
+    }
+
+    // Packets that have caught up and entered the active window resume as
+    // ordinary cells. A packet at row zero stays in flight until it can fall.
+    fn hydrate_pending_falls(&mut self, include_outbound: bool) {
+        #[cfg(test)]
+        if !self.pending_falls.is_empty() {
+            dirty_oracle::mark_global();
+        }
+        let mut hydrated = vec![false; self.pending_falls.len()];
+        for (n, packet) in self.pending_falls.iter().enumerate() {
+            if packet.advanced_tick != self.tick || (!include_outbound && packet.outbound) {
+                continue;
+            }
+            let (x, y) = (packet.x - self.origin.0, packet.y - self.origin.1);
+            if y <= 0 {
+                continue;
+            }
+            let Some(index) = self.index_at(x, y) else {
+                continue;
+            };
+            if !self.can_receive_grain(index) {
+                continue;
+            }
+            #[cfg(test)]
+            dirty_oracle::mark_active_tile(
+                (y as usize / TERRAIN_CHUNK_CELLS as usize)
+                    * self.width.div_ceil(TERRAIN_CHUNK_CELLS as usize)
+                    + x as usize / TERRAIN_CHUNK_CELLS as usize,
+            );
+            self.cells[index] = packet.cell;
+            self.grain[index] = packet.grain;
+            self.suspended[index] = packet.suspended;
+            hydrated[n] = true;
+        }
+        let mut n = 0;
+        self.pending_falls.retain(|_| {
+            let keep = !hydrated[n];
+            n += 1;
+            keep
+        });
+    }
+
+    fn emit_bottom_falls(&mut self) {
+        if !self.game {
+            return;
+        }
+        for x in 0..self.width {
+            if self.pending_falls.len() >= MAX_PENDING_FALLS {
+                break;
+            }
+            let Some(next_sequence) = self.next_fall_sequence.checked_add(1) else {
+                break;
+            };
+            if !self.bottom_open.get(x).copied().unwrap_or(false)
+                || self.pebble_owner[x] != 0
+                || !matches!(self.cells[x], Cell::Sand | Cell::Mud)
+            {
+                continue;
+            }
+            let Some(world_x) = self.origin.0.checked_add(x as i32) else {
+                continue;
+            };
+            if !(-1_000_000..=1_000_000).contains(&world_x) {
+                continue;
+            }
+            self.pending_falls.push(FallPacket {
+                sequence: self.next_fall_sequence,
+                outbound: true,
+                x: world_x,
+                y: self.origin.1,
+                emitted_tick: self.tick,
+                advanced_tick: self.tick,
+                cell: self.cells[x],
+                grain: self.grain[x],
+                suspended: self.suspended[x],
+            });
+            self.next_fall_sequence = next_sequence;
+            self.cells[x] = Cell::Water;
+            self.grain[x] = 0;
+            self.suspended[x] = 0;
+            #[cfg(test)]
+            {
+                dirty_oracle::mark_active_tile(x / TERRAIN_CHUNK_CELLS as usize);
+                dirty_oracle::mark_global();
+            }
+        }
+    }
+
+    /// Exact actor-free step for the isolated co-op frame prototype.
+    pub(crate) fn step_empty_shared(&mut self, current: f32) -> bool {
+        if !self.game || self.crab.is_some() || !current.is_finite() || self.tick == u64::MAX {
+            return false;
+        }
+        self.step(current);
+        true
+    }
+
+    /// Apply a remote swimming wake when its full protected body and a
+    /// one-cell movement margin contain only water. This proves that omitting
+    /// its reservation cannot change the following material step.
+    pub(crate) fn apply_disjoint_walker(
+        &mut self,
+        tuning: &crate::Tuning,
+        p: &HostPlayerForce,
+    ) -> bool {
+        if !self.game
+            || p.grounded
+            || p.jumped
+            || p.dig.is_some()
+            || !(-1..=1).contains(&p.walking)
+            || [
+                p.x,
+                p.y,
+                p.half_width,
+                p.half_height,
+                p.wake_x,
+                p.wake_y,
+                tuning.walk_speed,
+            ]
+            .iter()
+            .any(|v| !v.is_finite())
+            || p.x.abs() > 1_000_000.0
+            || p.y.abs() > 1_000_000.0
+            || !(0.0..=64.0).contains(&p.half_width)
+            || !(0.0..=64.0).contains(&p.half_height)
+            || p.half_width == 0.0
+            || p.half_height == 0.0
+            || tuning.walk_speed <= 0.0
+            || p.wake_x.abs() > 1000.0
+            || !(-1000.0..=0.0).contains(&p.wake_y)
+            || !self.contains_world(p.x, p.y)
+        {
+            return false;
+        }
+        let Some((host_x, host_y)) = self.crab else {
+            return false;
+        };
+        let (x, y) = self.local_cell(p.x, p.y);
+        let (cx, cy) = (x as i32, y as i32);
+        let hx = (p.half_width / GAME_CELL).ceil().max(1.0) as i32 + 5;
+        let hy = (p.half_height / GAME_CELL).ceil().max(1.0) as i32 + 5;
+        if (cx - host_x).abs() <= hx + self.crab_half_x + 20
+            && (cy - host_y).abs() <= hy + self.crab_half_y + 20
+        {
+            return false;
+        }
+        for oy in -hy..=hy {
+            for ox in -hx..=hx {
+                if self.cell(cx + ox, cy + oy) != Cell::Water {
+                    return false;
+                }
+            }
+        }
+        let wake_x = (p.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+        let wake_y = (p.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+        self.react_to_swim(x, y, wake_x, wake_y);
+        self.stir(
+            x,
+            y,
+            p.wake_x * crate::physics::STEP / 4.0 * 0.45,
+            p.wake_y * crate::physics::STEP / 4.0 * 0.45,
+        );
+        true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_flat_loose_bed(&mut self) {
+        for x in 130..=220 {
+            for y in 114..=145 {
+                let i = self.index_at(x, y).expect("fixture inside world");
+                self.pebble_owner[i] = 0;
+                self.suspended[i] = 0;
+                self.cells[i] = if y == 114 { Cell::Sand } else { Cell::Water };
+                self.grain[i] = 80;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_open_downward_bed(&mut self) {
+        for x in 130..=220 {
+            for y in 100..=113 {
+                let i = self.index_at(x, y).expect("fixture inside world");
+                self.pebble_owner[i] = 0;
+                self.suspended[i] = 0;
+                self.cells[i] = if y == 113 { Cell::Sand } else { Cell::Water };
+                self.grain[i] = 80;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_fill_dense_downward_region(&mut self) {
+        for x in 120..=230 {
+            for y in 60..=165 {
+                let i = self.index_at(x, y).expect("fixture inside world");
+                self.pebble_owner[i] = 0;
+                self.suspended[i] = 0;
+                self.cells[i] = Cell::Sand;
+                self.grain[i] = 80;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_fill_dense_upward_region(&mut self) {
+        for x in 120..=230 {
+            for y in 160..=280 {
+                let i = self.index_at(x, y).expect("fixture inside world");
+                self.pebble_owner[i] = 0;
+                self.suspended[i] = 0;
+                self.cells[i] = Cell::Sand;
+                self.grain[i] = 80;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_place_loose_sand(&mut self, x: i32, y: i32) -> bool {
+        let Some(index) = self.index_at(x, y) else {
+            return false;
+        };
+        if self.cells[index] != Cell::Water || self.pebble_owner[index] != 0 {
+            return false;
+        }
+        self.cells[index] = Cell::Sand;
+        self.grain[index] = 80;
+        true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_add_pebble(&mut self, x: i32, y: i32, side: u8) -> bool {
+        self.add_pebble(x, y, side, 250)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_dissolve_pebble_ownership(&mut self) {
+        self.pebble_owner.fill(0);
+        self.pebbles.clear();
+        self.pebble_motion.clear();
+    }
+
+    fn contact_reservation(&self, p: &HostPlayerForce) -> Option<chunk_flow::BodyReservation> {
+        if !self.contains_world(p.x, p.y) {
+            return None;
+        }
+        let (x, y) = self.local_cell(p.x, p.y);
+        let body = chunk_flow::BodyReservation {
+            player: p.player,
+            x: x as i32,
+            y: y as i32,
+            half_x: (p.half_width / GAME_CELL).ceil().max(1.0) as i32,
+            half_y: (p.half_height / GAME_CELL).ceil().max(1.0) as i32,
+        };
+        chunk_flow::validate_bodies(self.crab, self.crab_half_x, self.crab_half_y, &[body])
+            .then_some(body)
+    }
+
+    /// Brush using both separated reservations. The primary body's ordinary
+    /// brush runs first, followed by the guest's action in the shared tick.
+    pub(crate) fn brush_shared(
+        &mut self,
+        other: &HostPlayerForce,
+        direction: i32,
+        guest: bool,
+    ) -> bool {
+        let Some(body) = self.contact_reservation(other) else {
+            return false;
+        };
+        if !matches!(direction, -1 | 1) {
+            return false;
+        }
+        if self.pebbles.is_empty() {
+            // The validated separation exceeds the brush's full reach, so
+            // loose grains cannot enter the other body's actual footprint.
+            if guest {
+                let old = (self.crab, self.crab_half_x, self.crab_half_y);
+                self.crab = Some((body.x, body.y));
+                self.crab_half_x = body.half_x;
+                self.crab_half_y = body.half_y;
+                self.brush_walking_sand(direction);
+                (self.crab, self.crab_half_x, self.crab_half_y) = old;
+            } else {
+                self.brush_walking_sand(direction);
+            }
+            return true;
+        }
+        let mut chunks = chunk_flow::ChunkFlow::from_world(self);
+        if chunks.set_extra_bodies(&[body]).is_err() {
+            return false;
+        }
+        let result = if guest {
+            chunks.brush_extra(other.player, direction)
+        } else {
+            chunks.brush_primary(direction)
+        };
+        result.is_ok() && chunks.write_material_to(self)
+    }
+
+    fn valid_shared_dig(p: &HostPlayerForce, dig: HostDig) -> bool {
+        dig.force == 48
+            && ((dig.dy == 0 && dig.dx != 0 && dig.dx == p.walking)
+                || (dig.dy == -1 && dig.dx == 0))
+    }
+
+    fn reserved_dig_load(&mut self, body: &chunk_flow::BodyReservation, dig: &HostDig) -> f32 {
+        let saved = (self.crab, self.crab_half_x, self.crab_half_y);
+        self.crab = Some((body.x, body.y));
+        self.crab_half_x = body.half_x;
+        self.crab_half_y = body.half_y;
+        let load = self.game_dig_load(
+            body.x as f32,
+            body.y as f32,
+            i32::from(dig.dx),
+            i32::from(dig.dy),
+        );
+        (self.crab, self.crab_half_x, self.crab_half_y) = saved;
+        load
+    }
+
+    // Solo cavity pushing checks rock before any cavity mutation. This may be
+    // queried after the downward pebble sweep, which itself is transactional.
+    fn shared_cavity_has_rock(
+        chunks: &chunk_flow::ChunkFlow,
+        x: f32,
+        y: f32,
+        half_x: i32,
+        half_y: i32,
+    ) -> bool {
+        let (cx, cy) = (x as i32, y as i32);
+        (-half_y..=half_y).any(|oy| {
+            (-half_x..=half_x).any(|ox| {
+                let (Ok(x), Ok(y)) = (usize::try_from(cx + ox), usize::try_from(cy + oy)) else {
+                    return true;
+                };
+                chunks.cell(x, y).is_none_or(|cell| cell == Cell::Rock)
+            })
+        })
+    }
+
+    /// Host horizontal or downward digging with the guest's body protected.
+    /// Unsupported scoops fail before this world is modified.
+    pub(crate) fn dig_primary_shared(
+        &mut self,
+        other: &HostPlayerForce,
+        x: f32,
+        y: f32,
+        dx: i32,
+        dy: i32,
+    ) -> bool {
+        if !matches!((dx, dy), (-1, 0) | (1, 0) | (0, -1))
+            || !(1..=16).contains(&self.crab_half_x)
+            || !(1..=16).contains(&self.crab_half_y)
+        {
+            return false;
+        }
+        let Some(body) = self.contact_reservation(other) else {
+            return false;
+        };
+        let guest_load = if let Some(dig) = other.dig {
+            if !Self::valid_shared_dig(other, dig) {
+                return false;
+            }
+            Some(self.reserved_dig_load(&body, &dig))
+        } else {
+            None
+        };
+        let mut chunks = chunk_flow::ChunkFlow::from_world(self);
+        if chunks.set_extra_bodies(&[body]).is_err()
+            || (dy == -1 && chunks.swoop_primary(48).is_err())
+        {
+            return false;
+        }
+        let rock_blocked = dy == -1
+            && Self::shared_cavity_has_rock(&chunks, x, y, self.crab_half_x, self.crab_half_y);
+        if !rock_blocked && chunks.push_for_crab(x, y, dx, dy, 48) != Ok(true) {
+            return false;
+        }
+        if let Some(before) = guest_load {
+            let mut next = self.clone();
+            if !chunks.write_material_to(&mut next)
+                || next.reserved_dig_load(&body, &other.dig.expect("load requires guest dig"))
+                    != before
+            {
+                return false;
+            }
+            *self = next;
+            true
+        } else {
+            chunks.write_material_to(self)
+        }
+    }
+
+    /// Apply an additional grounded or swimming walker's solo brush/wake.
+    /// Separated bodies are required; pebble brushes protect both bodies.
+    pub(crate) fn apply_contact_walker(
+        &mut self,
+        tuning: &crate::Tuning,
+        p: &HostPlayerForce,
+    ) -> bool {
+        if p.jumped
+            || !(-1..=1).contains(&p.walking)
+            || [
+                p.x,
+                p.y,
+                p.half_width,
+                p.half_height,
+                p.wake_x,
+                p.wake_y,
+                tuning.walk_speed,
+            ]
+            .iter()
+            .any(|v| !v.is_finite())
+            || p.x.abs() > 1_000_000.0
+            || p.y.abs() > 1_000_000.0
+            || !(0.0..=64.0).contains(&p.half_width)
+            || !(0.0..=64.0).contains(&p.half_height)
+            || p.half_width == 0.0
+            || p.half_height == 0.0
+            || tuning.walk_speed <= 0.0
+            || p.wake_x.abs() > 1000.0
+            || !(-1000.0..=0.0).contains(&p.wake_y)
+        {
+            return false;
+        }
+        let Some(body) = self.contact_reservation(p) else {
+            return false;
+        };
+        if let Some(dig) = p.dig {
+            if !Self::valid_shared_dig(p, dig) {
+                return false;
+            }
+            let mut next = self.clone();
+            let mut chunks = chunk_flow::ChunkFlow::from_world(&next);
+            if chunks.set_extra_bodies(&[body]).is_err() {
+                return false;
+            }
+            let (x, y) = next.local_cell(p.x, p.y);
+            if dig.dy == -1 && chunks.swoop_extra(p.player, 48).is_err() {
+                return false;
+            }
+            let target_x = x + f32::from(dig.dx);
+            let target_y = y + if dig.dy == -1 { -2.0 } else { 0.0 };
+            let rock_blocked = dig.dy == -1
+                && Self::shared_cavity_has_rock(
+                    &chunks,
+                    target_x,
+                    target_y,
+                    body.half_x,
+                    body.half_y,
+                );
+            if !rock_blocked
+                && chunks.push_for_extra_body(
+                    p.player,
+                    target_x,
+                    target_y,
+                    i32::from(dig.dx),
+                    i32::from(dig.dy),
+                    usize::from(dig.force),
+                ) != Ok(true)
+            {
+                return false;
+            }
+            if !chunks.write_material_to(&mut next) {
+                return false;
+            }
+            let mut wake = *p;
+            wake.dig = None;
+            wake.walking = 0;
+            if !next.apply_contact_walker(tuning, &wake) {
+                return false;
+            }
+            *self = next;
+            return true;
+        }
+        let shared_brush = p.grounded && p.walking != 0 && !self.pebbles.is_empty();
+        if shared_brush && !self.brush_shared(p, i32::from(p.walking), true) {
+            return false;
+        }
+        let old = (self.crab, self.crab_half_x, self.crab_half_y);
+        self.crab = Some((body.x, body.y));
+        self.crab_half_x = body.half_x;
+        self.crab_half_y = body.half_y;
+        if p.grounded && p.walking != 0 && !shared_brush {
+            self.brush_walking_sand(i32::from(p.walking));
+        }
+        let (x, y) = self.local_cell(p.x, p.y);
+        let wx = (p.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+        let wy = (p.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+        self.react_to_swim(x, y, wx, wy);
+        self.stir(
+            x,
+            y,
+            p.wake_x * crate::physics::STEP / 4.0 * 0.45,
+            p.wake_y * crate::physics::STEP / 4.0 * 0.45,
+        );
+        (self.crab, self.crab_half_x, self.crab_half_y) = old;
+        true
+    }
+
+    /// Transactional upward-only pair terrain operation for one game tick.
+    /// No material tick is advanced unless `material` is true. This remains
+    /// isolated until a source-bound 120 Hz frame protocol calls it.
+    pub(crate) fn step_up_pair(
+        &mut self,
+        level: &crate::Level,
+        tuning: &crate::Tuning,
+        host: &HostPlayerForce,
+        guest: &HostPlayerForce,
+        material: bool,
+    ) -> bool {
+        let valid = |p: &HostPlayerForce| {
+            let up = p
+                .dig
+                .is_some_and(|d| d.dx == 0 && d.dy == 1 && d.force == 48);
+            (p.dig.is_none() || up)
+                && p.walking == 0
+                && !p.jumped
+                && [p.x, p.y, p.half_width, p.half_height, p.wake_x, p.wake_y]
+                    .iter()
+                    .all(|v| v.is_finite())
+                && p.x.abs() <= 1_000_000.0
+                && p.y.abs() <= 1_000_000.0
+                && (0.0..=64.0).contains(&p.half_width)
+                && p.half_width > 0.0
+                && (0.0..=64.0).contains(&p.half_height)
+                && p.half_height > 0.0
+                && p.wake_x.abs() <= 1000.0
+                && p.wake_y.abs() <= 1000.0
+                && (p.wake_y <= 0.0 || up)
+        };
+        if !self.game
+            || self.tick >= u64::MAX - 1_000_000
+            || !tuning.walk_speed.is_finite()
+            || tuning.walk_speed <= 0.0
+            || host.player == guest.player
+            || !valid(host)
+            || !valid(guest)
+        {
+            return false;
+        }
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        let mut next = self.clone();
+        #[cfg(test)]
+        if material {
+            chunk_flow::reject_scoop_capture();
+        }
+        #[cfg(test)]
+        if chunk_flow::incremental_archive::staged::staged_follow_enabled() {
+            if chunk_flow::incremental_archive::staged::follow_for_sim_test(
+                &mut next,
+                level,
+                host.x,
+                host.y - host.half_height,
+            )
+            .is_none()
+            {
+                return false;
+            }
+        } else {
+            next.follow_player(level, host.x, host.y - host.half_height);
+        }
+        #[cfg(not(test))]
+        next.follow_player(level, host.x, host.y - host.half_height);
+        #[cfg(test)]
+        if next.origin != self.origin || next.opening_edge_opened != self.opening_edge_opened {
+            chunk_flow::reject_scoop_capture();
+        }
+        if !next.contains_world(host.x, host.y) {
+            return false;
+        }
+        let (hx, hy) = next.local_cell(host.x, host.y);
+        next.clear_game_crab();
+        next.set_game_crab(
+            hx,
+            hy,
+            host.half_width / GAME_CELL,
+            host.half_height / GAME_CELL,
+        );
+        let Some(body) = next.contact_reservation(guest) else {
+            return false;
+        };
+        let guest_load = if material && host.dig.is_some() {
+            guest.dig.map(|dig| next.reserved_dig_load(&body, &dig))
+        } else {
+            None
+        };
+        let mut chunks = chunk_flow::ChunkFlow::from_world(&next);
+        if chunks.set_extra_bodies(&[body]).is_err() {
+            return false;
+        }
+        let clear = |chunks: &chunk_flow::ChunkFlow, cx: i32, cy: i32, hx: i32, hy: i32| {
+            (-hy..=hy).all(|oy| {
+                (-hx..=hx).all(|ox| {
+                    let (Ok(x), Ok(y)) = (usize::try_from(cx + ox), usize::try_from(cy + oy))
+                    else {
+                        return false;
+                    };
+                    chunks.cell(x, y) == Some(Cell::Water)
+                })
+            })
+        };
+        if host.dig.is_some()
+            && !clear(
+                &chunks,
+                hx as i32,
+                hy as i32 + 4,
+                next.crab_half_x,
+                next.crab_half_y,
+            )
+        {
+            let blocked = Self::shared_cavity_has_rock(
+                &chunks,
+                hx,
+                hy + 4.0,
+                next.crab_half_x,
+                next.crab_half_y,
+            );
+            if !blocked && chunks.push_for_crab(hx, hy + 4.0, 0, 1, 48) != Ok(true) {
+                return false;
+            }
+        }
+        if let Some(before) = guest_load {
+            let mut after_host = next.clone();
+            if !chunks.write_material_to(&mut after_host)
+                || after_host.reserved_dig_load(&body, &guest.dig.expect("load requires guest dig"))
+                    != before
+            {
+                return false;
+            }
+        }
+        let (gx, gy) = next.local_cell(guest.x, guest.y);
+        if guest.dig.is_some()
+            && !clear(&chunks, gx as i32, gy as i32 + 4, body.half_x, body.half_y)
+        {
+            let blocked =
+                Self::shared_cavity_has_rock(&chunks, gx, gy + 4.0, body.half_x, body.half_y);
+            if !blocked
+                && chunks.push_for_extra_body(guest.player, gx, gy + 4.0, 0, 1, 48) != Ok(true)
+            {
+                return false;
+            }
+        }
+        if !chunks.write_material_to(&mut next) {
+            return false;
+        }
+        if material {
+            for p in [host, guest] {
+                let (x, y) = next.local_cell(p.x, p.y);
+                let saved = (next.crab, next.crab_half_x, next.crab_half_y);
+                if p.player == guest.player {
+                    next.set_game_crab(x, y, p.half_width / GAME_CELL, p.half_height / GAME_CELL);
+                }
+                let wx = (p.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+                let wy = (p.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+                next.react_to_swim(x, y, wx, wy);
+                next.stir(
+                    x,
+                    y,
+                    p.wake_x * crate::physics::STEP / 4.0 * 0.45,
+                    p.wake_y * crate::physics::STEP / 4.0 * 0.45,
+                );
+                (next.crab, next.crab_half_x, next.crab_half_y) = saved;
+            }
+            if !next.step_contact_pair(guest) {
+                return false;
+            }
+        }
+        #[cfg(test)]
+        chunk_flow::capture_staged_scoop(&chunks);
+        *self = next;
+        true
+    }
+
+    /// Material/visual step using both separated reservations.
+    pub(crate) fn step_contact_pair(&mut self, p: &HostPlayerForce) -> bool {
+        let Some(body) = self.contact_reservation(p) else {
+            return false;
+        };
+        let mut chunks = chunk_flow::ChunkFlow::from_world(self);
+        if chunks.set_extra_bodies(&[body]).is_err()
+            || chunks.step_sediment(0.35).is_err()
+            || !chunks.write_material_to(self)
+        {
+            return false;
+        }
+        self.step_visuals();
+        true
+    }
+
+    /// Apply the terrain part of one solo crab's guarded walking tick.
+    /// In this spectator-only frame, wake fields carry pre-tick velocity.
+    pub(crate) fn step_walking_spectator(
+        &mut self,
+        level: &crate::Level,
+        tuning: &crate::Tuning,
+        p: &HostPlayerForce,
+    ) -> bool {
+        self.step_walking_pair(level, tuning, p, None)
+    }
+
+    pub(crate) fn step_walking_pair(
+        &mut self,
+        level: &crate::Level,
+        tuning: &crate::Tuning,
+        p: &HostPlayerForce,
+        other: Option<&HostPlayerForce>,
+    ) -> bool {
+        if !self.game
+            || self.tick >= u64::MAX - 1_000_000
+            || [
+                p.x,
+                p.y,
+                p.half_width,
+                p.half_height,
+                p.wake_x,
+                p.wake_y,
+                tuning.walk_speed,
+            ]
+            .iter()
+            .any(|v| !v.is_finite())
+            || p.x.abs() > 1_000_000.0
+            || p.y.abs() > 1_000_000.0
+            || !(0.0..=64.0).contains(&p.half_width)
+            || !(0.0..=64.0).contains(&p.half_height)
+            || p.half_width == 0.0
+            || p.half_height == 0.0
+            || tuning.walk_speed <= 0.0
+            || p.wake_x.abs() > 1000.0
+            || !(-1000.0..=0.0).contains(&p.wake_y)
+            || !(-1..=1).contains(&p.walking)
+            || p.jumped
+            || p.dig
+                .is_some_and(|dig| other.is_none() || !Self::valid_shared_dig(p, dig))
+        {
+            return false;
+        }
+        let mut next = self.clone();
+        next.follow_player(level, p.x, p.y - p.half_height);
+        next.clear_game_crab();
+        if next.contains_world(p.x, p.y) {
+            let (x, y) = next.local_cell(p.x, p.y);
+            next.set_game_crab(x, y, p.half_width / GAME_CELL, p.half_height / GAME_CELL);
+            if let Some(dig) = p.dig {
+                let Some(other) = other else {
+                    return false;
+                };
+                if !next.dig_primary_shared(
+                    other,
+                    x + f32::from(dig.dx),
+                    y + if dig.dy == -1 { -2.0 } else { 0.0 },
+                    i32::from(dig.dx),
+                    i32::from(dig.dy),
+                ) {
+                    return false;
+                }
+            }
+            if p.dig.is_none() && p.grounded && p.walking != 0 {
+                if let Some(other) = other {
+                    if !next.brush_shared(other, i32::from(p.walking), false) {
+                        return false;
+                    }
+                } else {
+                    next.brush_walking_sand(i32::from(p.walking));
+                }
+            }
+            let wake_x = (p.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+            let wake_y = (p.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+            next.react_to_swim(x, y, wake_x, wake_y);
+            next.stir(
+                x,
+                y,
+                p.wake_x * crate::physics::STEP / 4.0 * 0.45,
+                p.wake_y * crate::physics::STEP / 4.0 * 0.45,
+            );
+        }
+        let mut stepped = false;
+        if let Some(other) = other
+            && !next.apply_disjoint_walker(tuning, other)
+        {
+            if !next.apply_contact_walker(tuning, other) || !next.step_contact_pair(other) {
+                return false;
+            }
+            stepped = true;
+        }
+        if !stepped {
+            next.step(0.35);
+        }
+        *self = next;
+        true
+    }
+
+    /// One material step at the current clock. Kept separate from visual
+    /// particles and vegetation so an experimental host can step more than
+    /// one disjoint active window without advancing global visuals twice.
+    fn step_material(&mut self, current: f32) {
+        self.diffuse_flow(current);
         // Pebbles are owned cell aggregates: resolve each one once in a
         // deterministic order, then let the loose individual cells move.
         let reverse = self.tick.is_multiple_of(2);
@@ -2099,8 +3689,8 @@ impl World {
             let side_cells = i32::from(p.side);
             if p.x < 0
                 || p.y < 0
-                || p.x + side_cells > WIDTH as i32
-                || p.y + side_cells > HEIGHT as i32
+                || p.x + side_cells > self.width as i32
+                || p.y + side_cells > self.height as i32
             {
                 continue;
             }
@@ -2124,14 +3714,16 @@ impl World {
                 self.stir((p.x + i32::from(p.side) / 2) as f32, p.y as f32, 0.0, -0.8);
             }
         }
+        self.emit_bottom_falls();
         // Bottom-up prevents a grain moving more than one cell in a tick.
-        let mut moved_cells = vec![false; WIDTH * HEIGHT];
+        let mut moved_cells = vec![false; self.width * self.height];
+        let tick = self.tick;
         // The top and side rows must also fall. They can be visible near a
         // streaming boundary and otherwise leave grains frozen in mid-water.
-        for y in 1..HEIGHT {
-            for n in 0..WIDTH {
-                let x = if reverse { WIDTH - 1 - n } else { n };
-                let i = y * WIDTH + x;
+        for y in 1..self.height {
+            for n in 0..self.width {
+                let x = if reverse { self.width - 1 - n } else { n };
+                let i = y * self.width + x;
                 if self.pebble_owner[i] != 0 {
                     continue;
                 }
@@ -2144,18 +3736,26 @@ impl World {
                 }
                 // Sand's existing cadence stays unchanged. Mud's cadence
                 // is evaluated after the current can lift a grain.
-                let phase = x as u64 * 13 + y as u64 * 7;
-                if material == Cell::Sand
-                    && self.suspended[i] == 0
-                    && (self.tick + phase).is_multiple_of(4)
-                {
+                // Cadence is a property of the world cell, not the active
+                // window: moving the window must not change how it falls.
+                let world_x = x as i64
+                    + if self.game {
+                        i64::from(self.origin.0)
+                    } else {
+                        0
+                    };
+                let world_y = y as i64
+                    + if self.game {
+                        i64::from(self.origin.1)
+                    } else {
+                        0
+                    };
+                let due = |spatial: i64, period: u64| phase_due(tick, spatial, period);
+                let phase = world_x * 13 + world_y * 7;
+                if material == Cell::Sand && self.suspended[i] == 0 && due(phase, 4) {
                     continue;
                 }
-                let dir = if (x as u64 + y as u64 + self.tick).is_multiple_of(2) {
-                    1
-                } else {
-                    -1
-                };
+                let dir = if due(world_x + world_y, 2) { 1 } else { -1 };
                 let (flow, vertical_flow) = self.flow_at(x as i32, y as i32 + 1);
                 let flow_strength = if material == Cell::Sand {
                     flow.abs()
@@ -2185,11 +3785,11 @@ impl World {
                     } else {
                         0.0
                     };
-                let phase = properties.erosion_interval.max(1);
+                let erosion_interval = properties.erosion_interval.max(1);
                 if self.suspended[i] == 0
                     && flow_strength > threshold
-                    && (x as u64 * 13 + self.tick).is_multiple_of(phase)
-                    && let Some(to) = Self::index(x as i32 + drift, y as i32 + 1)
+                    && due(world_x * 13, erosion_interval)
+                    && let Some(to) = self.index_at(x as i32 + drift, y as i32 + 1)
                     && self.can_receive_grain(to)
                     && self.cell(x as i32, y as i32 + 1) == Cell::Water
                 {
@@ -2230,7 +3830,7 @@ impl World {
                         0
                     };
                     if (drift != 0 || dy != 0)
-                        && let Some(to) = Self::index(x as i32 + drift, y as i32 + dy)
+                        && let Some(to) = self.index_at(x as i32 + drift, y as i32 + dy)
                         && self.can_receive_grain(to)
                     {
                         self.swap_cells(i, to);
@@ -2252,7 +3852,7 @@ impl World {
                     } else {
                         2
                     };
-                    if !(self.tick + phase).is_multiple_of(period) {
+                    if !tick.wrapping_add(erosion_interval).is_multiple_of(period) {
                         continue;
                     }
                 }
@@ -2279,11 +3879,11 @@ impl World {
                     {
                         continue;
                     }
-                    if let Some(to) = Self::index(x as i32 + dx, y as i32 + dy)
+                    if let Some(to) = self.index_at(x as i32 + dx, y as i32 + dy)
                         && self.can_receive_grain(to)
                     {
                         self.swap_cells(i, to);
-                        if (x as u64 * 17 + y as u64 * 11 + self.tick).is_multiple_of(53) {
+                        if due(world_x * 17 + world_y * 11, 53) {
                             self.stir(x as f32, y as f32, dx as f32 * 0.5, dy as f32 * 0.5);
                             if self.cell(x as i32, y as i32 + 1) == Cell::Water {
                                 self.emit_silt(x as f32, y as f32 + 1.0);
@@ -2299,13 +3899,13 @@ impl World {
                 if !moved
                     && let Some((cx, cy)) = self.crab
                     && y as i32 > cy
-                    && let Some(below) = Self::index(x as i32, y as i32 - 1)
+                    && let Some(below) = self.index_at(x as i32, y as i32 - 1)
                     && self.cells[below] == Cell::Water
                     && !self.can_receive_grain(below)
                 {
                     let side = if (x as i32) < cx { -1 } else { 1 };
                     for dx in [side, -side] {
-                        if let Some(to) = Self::index(x as i32 + dx, y as i32)
+                        if let Some(to) = self.index_at(x as i32 + dx, y as i32)
                             && self.cells[to] == Cell::Water
                             && (x as i32 + dx - cx).abs() > (x as i32 - cx).abs()
                         {
@@ -2322,7 +3922,7 @@ impl World {
                     && drift != 0
                     && self.tick.is_multiple_of(8)
                     && self.cell(x as i32, y as i32 + 1) == Cell::Water
-                    && let Some(to) = Self::index(x as i32 + drift, y as i32)
+                    && let Some(to) = self.index_at(x as i32 + drift, y as i32)
                     && self.can_receive_grain(to)
                 {
                     self.swap_cells(i, to);
@@ -2330,6 +3930,64 @@ impl World {
                 }
             }
         }
+    }
+
+    /// Contiguous reference for the chunked flow-diffusion prototype.
+    fn diffuse_flow(&mut self, current: f32) {
+        // Diffuse velocity locally and continuously feed the ambient current.
+        // Solid neighbors redirect a small part of the flow vertically.
+        let mut next = self.flow.clone();
+        for y in 1..self.height - 1 {
+            // Broad slow layers preserve the fine simulation's established
+            // motion until it is coupled to the world-wide baseline.
+            let time = self.tick as f32;
+            let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
+            let shear = if self.game {
+                libm::sinf(world_y * 0.055 + time * 0.006) * 0.375
+                    + libm::sinf(world_y * 0.021 - time * 0.0027) * 0.15
+            } else {
+                0.0
+            };
+            for x in 1..self.width - 1 {
+                let i = y * self.width + x;
+                if self.cells[i] != Cell::Water {
+                    next[i] = (0.0, 0.0);
+                    continue;
+                }
+                // Broad, slow eddies make the current less uniform while
+                // retaining its overall direction and stable boundaries.
+                let t = self.tick as f32 * 0.018;
+                let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
+                let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
+                let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
+                let feed = if self.game { 0.12 } else { 0.035 };
+                let mut vx = (current + shear + eddy * 0.08) * feed;
+                let mut vy = cross * 0.002;
+                let mut weight = feed;
+                for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    let n = (y as i32 + dy) as usize * self.width + (x as i32 + dx) as usize;
+                    if self.cells[n] == Cell::Water {
+                        vx += self.flow[n].0;
+                        vy += self.flow[n].1;
+                        weight += 1.0;
+                    } else if dx != 0 {
+                        vy += current
+                            * if world_y < (self.height / 2) as f32 {
+                                0.12
+                            } else {
+                                -0.12
+                            };
+                    }
+                }
+                next[i] = (vx / weight, vy / weight);
+            }
+        }
+        self.flow = next;
+    }
+
+    fn step_visuals(&mut self) {
+        let (width, height) = self.dimensions();
+        let index = |x, y| region_index(width, height, x, y);
         // Each blade follows the local water with drag. Neighboring points
         // pull one another along slowly; no periodic spring animation.
         for (blade, root) in KELP_ROOTS.iter().copied().enumerate() {
@@ -2341,16 +3999,16 @@ impl World {
             } else {
                 root
             };
-            if !(1..WIDTH as i32 - 1).contains(&root) {
+            if !(1..self.width as i32 - 1).contains(&root) {
                 continue;
             }
             let lo = if self.game {
-                (12 - self.origin.1).clamp(1, HEIGHT as i32 - 1)
+                (12 - self.origin.1).clamp(1, self.height as i32 - 1)
             } else {
                 12
             };
             let hi = if self.game {
-                (120 - self.origin.1).clamp(1, HEIGHT as i32 - 1)
+                (120 - self.origin.1).clamp(1, self.height as i32 - 1)
             } else {
                 120
             };
@@ -2393,15 +4051,17 @@ impl World {
                 if bubble.life == 0 {
                     bubble.rest = bubble.rest.saturating_sub(1);
                     if bubble.rest == 0 && (self.tick + n as u64 * 23).is_multiple_of(97) {
-                        bubble.x = (20 + ((n * 137 + self.tick as usize) % (WIDTH - 40))) as f32;
+                        bubble.x =
+                            (20 + ((n * 137 + self.tick as usize) % (self.width - 40))) as f32;
                         bubble.y = base + (n % 30) as f32;
                         bubble.life = 50 + (n % 7) as u16 * 13;
                     }
                     continue;
                 }
                 bubble.life -= 1;
-                if let Some(i) = Self::index(bubble.x as i32, bubble.y as i32) {
-                    bubble.x = (bubble.x + self.flow[i].0 * 0.14).clamp(1.0, WIDTH as f32 - 2.0);
+                if let Some(i) = index(bubble.x as i32, bubble.y as i32) {
+                    bubble.x =
+                        (bubble.x + self.flow[i].0 * 0.14).clamp(1.0, self.width as f32 - 2.0);
                 }
                 bubble.y += 0.32 + (n % 5) as f32 * 0.035;
                 if bubble.y >= surface || bubble.life == 0 {
@@ -2411,13 +4071,13 @@ impl World {
             }
         }
         for p in &mut self.tracers {
-            if let Some(i) = Self::index(p.0 as i32, p.1 as i32) {
+            if let Some(i) = index(p.0 as i32, p.1 as i32) {
                 let velocity = self.flow[i];
                 let nx = (p.0 + velocity.0 * 0.75)
-                    .rem_euclid(WIDTH as f32 - 2.0)
+                    .rem_euclid(self.width as f32 - 2.0)
                     .max(1.0);
-                let ny = (p.1 + velocity.1 * 0.75).clamp(1.0, HEIGHT as f32 - 2.0);
-                if let Some(next) = Self::index(nx as i32, ny as i32)
+                let ny = (p.1 + velocity.1 * 0.75).clamp(1.0, self.height as f32 - 2.0);
+                if let Some(next) = index(nx as i32, ny as i32)
                     && self.cells[next] == Cell::Water
                 {
                     *p = (nx, ny);
@@ -2426,12 +4086,12 @@ impl World {
         }
         for p in &mut self.silt {
             p.life = p.life.saturating_sub(1);
-            if let Some(i) = Self::index(p.x as i32, p.y as i32) {
+            if let Some(i) = index(p.x as i32, p.y as i32) {
                 let (fx, fy) = self.flow[i];
                 p.vx = p.vx * 0.94 + fx * 0.08;
                 p.vy = p.vy * 0.94 + fy * 0.08 - 0.0025;
                 let (nx, ny) = (p.x + p.vx, p.y + p.vy);
-                if let Some(n) = Self::index(nx as i32, ny as i32)
+                if let Some(n) = index(nx as i32, ny as i32)
                     && self.cells[n] == Cell::Water
                 {
                     p.x = nx;
@@ -2470,10 +4130,10 @@ impl World {
     }
 
     pub fn pixels(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(WIDTH * HEIGHT * 4);
-        for y in (0..HEIGHT).rev() {
-            for x in 0..WIDTH {
-                let i = y * WIDTH + x;
+        let mut out = Vec::with_capacity(self.width * self.height * 4);
+        for y in (0..self.height).rev() {
+            for x in 0..self.width {
+                let i = y * self.width + x;
                 let color = match self.cells[i] {
                     Cell::Rock => {
                         let fleck = ((x / 4 * 11 + y / 3 * 17) % 9) as u8;
@@ -2501,7 +4161,7 @@ impl World {
                             let speck = ((x * 7 + y * 13) % 7) as u8;
                             [76 + speck, 82 + speck, 68 + speck, 255]
                         } else {
-                            let depth = (y * 10 / HEIGHT) as u8;
+                            let depth = (y * 10 / self.height) as u8;
                             [15 + depth / 2, 53 + depth, 65 + depth, 255]
                         }
                     }
@@ -2515,10 +4175,10 @@ impl World {
             if self.game {
                 break;
             }
-            if let Some(i) = Self::index(x as i32, y as i32)
+            if let Some(i) = self.index_at(x as i32, y as i32)
                 && self.cells[i] == Cell::Water
             {
-                let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                let p = ((self.height - 1 - i / self.width) * self.width + i % self.width) * 4;
                 let shade = (number % 4) as u8 * 7;
                 out[p..p + 4].copy_from_slice(&[88 + shade, 135 + shade, 133 + shade, 255]);
             }
@@ -2527,10 +4187,10 @@ impl World {
             if self.game {
                 break;
             }
-            if let Some(i) = Self::index(p.x as i32, p.y as i32)
+            if let Some(i) = self.index_at(p.x as i32, p.y as i32)
                 && self.cells[i] == Cell::Water
             {
-                let offset = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                let offset = ((self.height - 1 - i / self.width) * self.width + i % self.width) * 4;
                 let brightness = (p.life.min(60) / 3) as u8;
                 out[offset..offset + 4].copy_from_slice(&[
                     105 + brightness,
@@ -2559,17 +4219,19 @@ impl World {
                 let x = root + bend as i32;
                 let y = base + h;
                 if self.cell(x, y) == Cell::Water
-                    && let Some(i) = Self::index(x, y)
+                    && let Some(i) = self.index_at(x, y)
                 {
-                    let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                    let p = ((self.height - 1 - i / self.width) * self.width + i % self.width) * 4;
                     out[p..p + 4].copy_from_slice(&[145, 160 + (h % 3) as u8 * 8, 70, 255]);
                     if h % 14 < 6 {
                         let side = if (h / 14) % 2 == 0 { 1 } else { -1 };
                         for dx in 1..=6 {
-                            if let Some(n) = Self::index(x + side * dx, y + dx / 2)
+                            if let Some(n) = self.index_at(x + side * dx, y + dx / 2)
                                 && self.cells[n] == Cell::Water
                             {
-                                let p = ((HEIGHT - 1 - n / WIDTH) * WIDTH + n % WIDTH) * 4;
+                                let p = ((self.height - 1 - n / self.width) * self.width
+                                    + n % self.width)
+                                    * 4;
                                 out[p..p + 4].copy_from_slice(&[127, 151, 67, 255]);
                             }
                         }
@@ -2584,6 +4246,196 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disjoint_walker_rejects_sediment_and_overlapping_bodies_atomically() {
+        let mut world = World::new();
+        world.game = true;
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.set_game_crab(100.0, 100.0, 3.0, 3.0);
+        let force = HostPlayerForce {
+            player: crate::PlayerId(1),
+            x: 200.0 * GAME_CELL,
+            y: GAME_BOTTOM + 200.0 * GAME_CELL,
+            half_width: 8.0,
+            half_height: 8.0,
+            wake_x: 100.0,
+            wake_y: 0.0,
+            walking: 1,
+            grounded: false,
+            jumped: false,
+            dig: None,
+        };
+        let tuning = crate::Tuning::default();
+        let i = World::index(200, 200).unwrap();
+        world.cells[i] = Cell::Mud;
+        let before = world.clone();
+        assert!(!world.apply_disjoint_walker(&tuning, &force));
+        assert_eq!(world, before);
+        world.cells[i] = Cell::Water;
+        world.set_game_crab(200.0, 200.0, 3.0, 3.0);
+        let before = world.clone();
+        assert!(!world.apply_disjoint_walker(&tuning, &force));
+        assert_eq!(world, before);
+        world.set_game_crab(100.0, 100.0, 3.0, 3.0);
+        assert!(world.apply_disjoint_walker(&tuning, &force));
+    }
+
+    #[test]
+    fn fresh_cellular_replay_reproduces_digging() {
+        use crate::{Controls, Feel, Level, PlayerId, Replay, Sim, Tuning};
+        use bevy_math::Vec2;
+
+        let mut original = Sim::new(Tuning::default(), Level::test_level());
+        original.enable_underwater_cells();
+        original.set_feel(Feel::Heavy);
+        original.add_crab(PlayerId(0), Vec2::new(400.0, 0.0));
+        original.start_recording();
+        original.populate();
+        for tick in 0..120 {
+            let controls = if tick < 60 {
+                Controls {
+                    dig_held: true,
+                    down: true,
+                    ..Controls::default()
+                }
+            } else {
+                Controls {
+                    dig_held: true,
+                    dig_up: true,
+                    ..Controls::default()
+                }
+            };
+            original.set_controls(PlayerId(0), controls);
+            original.tick();
+        }
+        let recorded = original.recording().expect("fresh world is recorded");
+        let replay = Replay::parse(&recorded.to_text()).expect("recorded text parses");
+        assert!(replay.cellular);
+        let mut restored = Sim::with_one_crab(replay.start);
+        crate::play(&mut restored, &replay, replay.length(), |_| {});
+        assert_eq!(restored.state_hash(), original.state_hash());
+    }
+
+    #[test]
+    fn borrowed_checkpoint_serializes_identically_before_and_after_streaming() {
+        let level = crate::Level::test_level();
+        for mut world in [World::new(), World::from_level_settled(&level)] {
+            let owned = postcard::to_allocvec(&world.checkpoint()).unwrap();
+            let borrowed = postcard::to_allocvec(&world.checkpoint_ref()).unwrap();
+            assert_eq!(owned, borrowed);
+            if world.game {
+                let changed = World::index(100, 150).unwrap();
+                world.cells[changed] = Cell::Sand;
+                world.grain[changed] = 41;
+                assert!(world.follow_player(&level, 4400.0, -700.0));
+                world.step(0.35);
+                assert!(!world.sleeping.is_empty());
+                world.opening_edge_opened = true;
+                world.pebble_seeded.insert((-7, 11));
+                let owned = postcard::to_allocvec(&world.checkpoint()).unwrap();
+                let borrowed = postcard::to_allocvec(&world.checkpoint_ref()).unwrap();
+                assert_eq!(owned, borrowed);
+            }
+        }
+        // The borrowed encoder must not make a malformed shape acceptable:
+        // validation still happens before the replay checkpoint is installed.
+        let mut malformed = World::from_level_settled(&level);
+        let valid = postcard::to_allocvec(&malformed.checkpoint_ref()).unwrap();
+        let valid_packed = miniz_oxide::deflate::compress_to_vec_zlib(&valid, 1);
+        assert!(crate::VerifiedCellStart::from_compressed(&valid_packed, 17).is_some());
+        malformed.cells.pop();
+        let owned = postcard::to_allocvec(&malformed.checkpoint()).unwrap();
+        let borrowed = postcard::to_allocvec(&malformed.checkpoint_ref()).unwrap();
+        assert_eq!(owned, borrowed);
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&borrowed, 1);
+        assert!(crate::VerifiedCellStart::from_compressed(&packed, 17).is_none());
+    }
+
+    #[test]
+    fn checkpoint_restores_streamed_terrain_and_its_future() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        // Preserve a changed grain in the opening, then move the window far
+        // enough that it becomes sleeping terrain.
+        let changed = World::index(100, 150).unwrap();
+        world.cells[changed] = Cell::Sand;
+        world.grain[changed] = 41;
+        assert!(world.follow_player(&level, 4400.0, -700.0));
+        for _ in 0..4 {
+            world.step(0.35);
+        }
+        let bytes = postcard::to_allocvec(&world.checkpoint()).unwrap();
+        let checkpoint: WorldCheckpoint = postcard::from_bytes(&bytes).unwrap();
+        let mut restored = checkpoint.into_world().expect("valid checkpoint");
+        assert_eq!(world, restored);
+        assert!(world.follow_player(&level, 160.0, 0.0));
+        assert!(restored.follow_player(&level, 160.0, 0.0));
+        for _ in 0..4 {
+            world.step(0.35);
+            restored.step(0.35);
+        }
+        assert_eq!(world, restored);
+    }
+
+    #[test]
+    fn checkpoint_rejects_invalid_cell_storage() {
+        let world = World::from_level_settled(&crate::Level::test_level());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.world.cells.pop();
+        assert!(checkpoint.into_world().is_none());
+    }
+
+    #[test]
+    fn checkpoint_rejects_unsafe_clocks_coordinates_and_particles() {
+        let mut world = World::from_level_settled(&crate::Level::test_level());
+        assert!(world.add_pebble(20, 200, 4, 248));
+        let mut checkpoint = world.checkpoint();
+        checkpoint.origin.0 = i32::MAX;
+        assert!(checkpoint.into_world().is_none());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.world.tick = u64::MAX;
+        assert!(checkpoint.into_world().is_none());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.world.giant_kelp[0] = f32::NAN;
+        assert!(checkpoint.into_world().is_none());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.world.pebbles[0].side = 0;
+        assert!(checkpoint.into_world().is_none());
+    }
+
+    #[test]
+    fn restored_simulation_preserves_the_material_step_phase() {
+        use crate::{Level, Sim, Tuning};
+
+        let mut original = Sim::new(Tuning::default(), Level::test_level());
+        original.enable_underwater_cells();
+        // Save between material steps, where resetting the clock to zero
+        // would advance the water three ticks too soon.
+        for _ in 0..5 {
+            original.tick();
+        }
+        let terrain = original
+            .level
+            .cells
+            .as_ref()
+            .unwrap()
+            .checkpoint()
+            .into_world()
+            .unwrap();
+        let mut restored = Sim::new(Tuning::default(), Level::test_level());
+        assert!(restored.restore_cellular_terrain(terrain, original.tick_count()));
+        for _ in 0..8 {
+            original.tick();
+            restored.tick();
+            assert_eq!(original.level.cells, restored.level.cells);
+        }
+        let terrain = restored.level.cells.as_ref().unwrap().clone();
+        assert!(!restored.restore_cellular_terrain(terrain, 0));
+    }
 
     #[test]
     fn climbing_above_dug_out_bed_is_not_stopped_by_old_floor_or_loose_grains() {
@@ -2670,6 +4522,264 @@ mod tests {
             (crab.pos.y + 60.0).abs() < 5.0,
             "landed on floating grain or old floor: {:?}",
             crab.pos
+        );
+    }
+
+    #[test]
+    fn passive_fall_respects_elapsed_time_edits_and_work_budget() {
+        let level = crate::Level::test_level();
+        let mut w = World::new();
+        w.game = true;
+        w.origin = (0, 256);
+        w.cells.fill(Cell::Water);
+        let side = TERRAIN_CHUNK_CELLS;
+        let (x, rock_y) = (200_i32, 70_i32);
+        // An excavated shaft must override the natural seabed in the archive.
+        for y in rock_y + 1..=130 {
+            let key = (x.div_euclid(side), y.div_euclid(side));
+            let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
+            w.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
+                cell: Cell::Water,
+                flow: (0.0, 0.0),
+                suspended: 0,
+                grain: 0,
+                owner: 0,
+            });
+        }
+        let key = (x / side, rock_y / side);
+        let slot = ((rock_y % side) * side + x % side) as usize;
+        w.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
+            cell: Cell::Rock,
+            flow: (0.0, 0.0),
+            suspended: 0,
+            grain: 0,
+            owner: 0,
+        });
+        w.cells[200] = Cell::Sand;
+        w.bottom_open = vec![true; w.width];
+        w.grain[200] = 123;
+        w.tick = 1;
+        w.emit_bottom_falls();
+        w.tick = 2;
+        w.advance_pending_falls(&level, 2, 100, &[]);
+        assert!(
+            w.pending_falls[0].y >= 255,
+            "one material tick cannot teleport a grain"
+        );
+        let mut split = w.clone();
+        w.tick = 9001;
+        split.tick = 9001;
+        w.advance_pending_falls(&level, 9001, 100_000, &[]);
+        for _ in 0..1000 {
+            if split.pending_falls.is_empty() {
+                break;
+            }
+            split.advance_pending_falls(&level, 9001, 7, &[]);
+        }
+        assert!(
+            w.pending_falls.is_empty(),
+            "five minutes should settle over the edited rock"
+        );
+        assert_eq!(w.pending_falls, split.pending_falls);
+        assert_eq!(
+            w.sleeping, split.sleeping,
+            "budget subdivision changed the result"
+        );
+        let landing = ((rock_y + 1) % side * side + x % side) as usize;
+        let cell = w.sleeping[&key].cells[landing].unwrap();
+        assert_eq!((cell.cell, cell.grain), (Cell::Sand, 123));
+        assert_eq!(w.sleeping[&key].cells[slot].unwrap().cell, Cell::Rock);
+    }
+
+    #[test]
+    fn passive_mud_fall_uses_density_and_preserves_suspension() {
+        let level = crate::Level::test_level();
+        let mut w = World::new();
+        w.game = true;
+        w.origin = (0, 256);
+        w.cells.fill(Cell::Water);
+        w.tick = 2;
+        w.pending_falls = vec![
+            FallPacket {
+                sequence: 0,
+                outbound: false,
+                x: 200,
+                y: 256,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Mud,
+                grain: 220,
+                suspended: 4,
+            },
+            FallPacket {
+                sequence: 1,
+                outbound: false,
+                x: 201,
+                y: 256,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Mud,
+                grain: 50,
+                suspended: 4,
+            },
+        ];
+        w.next_fall_sequence = 2;
+        w.advance_pending_falls(&level, 2, 10, &[]);
+        assert_eq!((w.pending_falls[0].y, w.pending_falls[1].y), (255, 256));
+        assert!(w.pending_falls.iter().all(|p| p.suspended == 3));
+        let loaded = w
+            .checkpoint()
+            .into_world()
+            .expect("valid pending fall checkpoint");
+        assert_eq!(loaded.pending_falls, w.pending_falls);
+    }
+
+    #[test]
+    fn full_fall_outbox_keeps_the_grain_at_the_boundary() {
+        let mut w = World::new();
+        w.game = true;
+        w.cells.fill(Cell::Water);
+        w.cells[0] = Cell::Mud;
+        w.bottom_open = vec![true; w.width];
+        w.tick = 1;
+        w.pending_falls = (0..MAX_PENDING_FALLS as u64)
+            .map(|sequence| FallPacket {
+                sequence,
+                outbound: true,
+                x: 0,
+                y: 0,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Sand,
+                grain: 0,
+                suspended: 0,
+            })
+            .collect();
+        w.next_fall_sequence = MAX_PENDING_FALLS as u64;
+        w.emit_bottom_falls();
+        assert_eq!(w.cells[0], Cell::Mud);
+        assert_eq!(w.pending_falls.len(), MAX_PENDING_FALLS);
+    }
+
+    #[test]
+    fn local_fall_processing_keeps_sent_packets_until_acknowledged() {
+        let level = crate::Level::test_level();
+        let mut w = World::new();
+        w.game = true;
+        w.origin = (0, 256);
+        w.cells.fill(Cell::Water);
+        w.tick = 10;
+        w.pending_falls = vec![
+            FallPacket {
+                sequence: 0,
+                outbound: false,
+                x: 200,
+                y: 260,
+                emitted_tick: 9,
+                advanced_tick: 9,
+                cell: Cell::Sand,
+                grain: 1,
+                suspended: 0,
+            },
+            FallPacket {
+                sequence: 1,
+                outbound: true,
+                x: 201,
+                y: 259,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Mud,
+                grain: 2,
+                suspended: 0,
+            },
+        ];
+        w.next_fall_sequence = 2;
+        let sent = w.pending_falls[1];
+        w.advance_local_falls(&level, 10, 100);
+        assert_eq!(
+            w.pending_falls,
+            vec![sent],
+            "sent mass must remain in the outbox until ack"
+        );
+        assert_eq!(
+            w.cells.iter().filter(|&&cell| cell == Cell::Sand).count(),
+            1,
+            "an airborne import resumes as a local grain"
+        );
+        w.ack_falls_through(sent.sequence);
+        assert!(w.pending_falls.is_empty());
+    }
+
+    #[test]
+    fn fall_ack_does_not_discard_airborne_imports() {
+        let mut w = World::new();
+        w.tick = 5;
+        w.pending_falls = vec![
+            FallPacket {
+                sequence: 0,
+                outbound: false,
+                x: 10,
+                y: 10,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Sand,
+                grain: 1,
+                suspended: 0,
+            },
+            FallPacket {
+                sequence: 1,
+                outbound: true,
+                x: 11,
+                y: 0,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Mud,
+                grain: 2,
+                suspended: 0,
+            },
+        ];
+        w.next_fall_sequence = 2;
+        w.ack_falls_through(1);
+        assert_eq!(w.pending_falls.len(), 1);
+        assert!(!w.pending_falls[0].outbound);
+    }
+
+    #[test]
+    fn falling_sand_does_not_leave_a_shelf_at_the_old_window_bottom() {
+        let level = crate::Level::test_level();
+        let mut w = World::new();
+        w.game = true;
+        w.origin = (0, 256);
+        w.opening_edge_opened = true;
+        w.cells.fill(Cell::Water);
+        w.flow.fill((0.0, 0.0));
+        w.pebbles.clear();
+        w.pebble_owner.fill(0);
+        for x in 200..210 {
+            let i = World::index(x, 2).unwrap();
+            w.cells[i] = Cell::Sand;
+            w.grain[i] = 255;
+        }
+        w.prepare_bottom_open(&level);
+        for _ in 0..40 {
+            w.step(0.0);
+        }
+        assert!(w.follow_player(&level, 820.0, GAME_BOTTOM + 266.0 * GAME_CELL));
+        let seam = (256 - w.origin.1) as usize;
+        let on_seam = (0..w.width)
+            .filter(|&x| {
+                let i = seam * w.width + x;
+                w.cells[i] == Cell::Sand && w.grain[i] == 255
+            })
+            .count();
+        assert_eq!(on_seam, 0, "sand accumulated on an artificial window floor");
+        assert_eq!(
+            w.cells
+                .iter()
+                .zip(&w.grain)
+                .filter(|(c, g)| **c == Cell::Sand && **g == 255)
+                .count(),
+            10
         );
     }
 
@@ -2976,34 +5086,11 @@ mod tests {
     fn opening_snapshot_is_a_live_five_minute_world() {
         let mut world = World::from_level_settled(&crate::Level::test_level());
         assert_eq!(world.tick, 9000);
-        let nearby_pebbles = world
-            .game_pebbles()
-            .into_iter()
-            .filter(|&(x, _, size, _)| (250.0..700.0).contains(&x) && size >= 15.0)
-            .count();
-        let mut top_pebbles = 0;
-        let mut top_sand = 0;
-        for x in 80..145 {
-            if let Some(i) = (70..110)
-                .rev()
-                .map(|y| y * WIDTH + x)
-                .find(|&i| world.cells[i] == Cell::Sand)
-            {
-                if world.grain[i] >= 248 {
-                    top_pebbles += 1;
-                } else {
-                    top_sand += 1;
-                }
-            }
-        }
         assert!(
-            top_pebbles > top_sand,
-            "pebble bed surface: {top_pebbles} pebble columns, {top_sand} sand columns"
+            world.pebbles.is_empty(),
+            "the opening should not start as a pebble bed"
         );
-        assert!(
-            nearby_pebbles >= 5,
-            "too few visible pebbles near the start: {nearby_pebbles}"
-        );
+        assert!(world.pebble_owner.iter().all(|&owner| owner == 0));
         let heights: Vec<_> = (240..480)
             .step_by(8)
             .filter_map(|x| world.game_surface_below(x as f32, GAME_CELL, 50.0))
@@ -3126,6 +5213,99 @@ mod tests {
             GIANT_ROOT as f32 * GAME_CELL
         );
     }
+    #[test]
+    fn suspended_sediment_bank_is_not_support() {
+        let mut w = World::new();
+        w.cells.fill(Cell::Water);
+        for x in 195..=205 {
+            for y in 95..=100 {
+                w.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        let feet = GAME_BOTTOM + 101.0 * GAME_CELL;
+        assert!(!w.game_airborne_support(195.0 * GAME_CELL, 205.0 * GAME_CELL, feet));
+        assert!(!w.game_airborne_blocked(
+            195.0 * GAME_CELL,
+            feet - 2.0,
+            205.0 * GAME_CELL,
+            feet + 10.0
+        ));
+    }
+
+    #[test]
+    fn airborne_crab_falls_through_suspended_bank() {
+        use crate::{PlayerId, Sim};
+        use bevy_math::Vec2;
+        let mut sim = Sim::with_one_crab(Vec2::new(400.0, 88.0));
+        sim.enable_underwater_cells();
+        let cells = sim.level.cells.as_mut().unwrap();
+        cells.cells.fill(Cell::Water);
+        cells.pebble_owner.fill(0);
+        cells.pebbles.clear();
+        for x in 85..=115 {
+            for y in 98..=105 {
+                cells.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        let crab = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
+        crab.pos = Vec2::new(400.0, 65.0);
+        crab.vel = Vec2::new(0.0, -30.0);
+        crab.grounded = false;
+        for _ in 0..12 {
+            sim.tick();
+        }
+        let crab = &sim.crab(PlayerId(0)).unwrap().mover;
+        assert!(!crab.grounded, "falling sediment held the crab");
+        assert!(crab.pos.y < 65.0, "the crab did not continue falling");
+    }
+
+    #[test]
+    fn distant_crab_reservation_does_not_overflow() {
+        assert!(!grain_body_contains(0, 0, 1_000_000, -1_000_000, 12, 8));
+        assert!(!grain_body_contains(0, 0, -1_000_000, 1_000_000, 12, 8));
+    }
+
+    #[test]
+    fn crab_grain_reservation_guides_sand_over_a_rounded_crest() {
+        let mut w = World::new();
+        w.cells.fill(Cell::Water);
+        w.set_crab(200.0, 150.0);
+        let top = 150 + w.crab_half_y + 4;
+        let center = World::index(200, top + 3).unwrap();
+        let edge = World::index(200 + w.crab_half_x + 4, top + 3).unwrap();
+        assert!(!w.can_receive_grain(center));
+        assert!(w.can_receive_grain(edge));
+    }
+
+    #[test]
+    fn falling_sand_flows_around_the_shell_and_is_conserved() {
+        let mut w = World::new();
+        w.cells.fill(Cell::Water);
+        w.flow.fill((0.0, 0.0));
+        w.set_game_crab(200.0, 150.0, 12.0, 8.0);
+        for x in 195..=205 {
+            for y in 175..=178 {
+                w.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        for _ in 0..90 {
+            w.step(0.0);
+        }
+        assert_eq!(
+            w.cells.iter().filter(|&&cell| cell == Cell::Sand).count(),
+            44
+        );
+        assert!(
+            w.cells
+                .iter()
+                .enumerate()
+                .filter(|(_, cell)| **cell == Cell::Sand)
+                .all(|(i, _)| i / WIDTH < 162),
+            "sand remained as a shelf above the crab"
+        );
+        assert!(w.clear_for_crab(200.0, 150.0));
+    }
+
     #[test]
     fn one_grain_does_not_define_the_surface() {
         let mut w = World::new();
@@ -3940,6 +6120,7 @@ mod tests {
         use bevy_math::Vec2;
         let mut sim = Sim::with_one_crab(Vec2::new(400.0, 0.0));
         sim.enable_underwater_cells();
+        sim.level.cells = Some(World::opening_pebble_fixture(&sim.level));
         let before = sim.level.cells.as_ref().unwrap();
         let counts = |w: &World| {
             [Cell::Sand, Cell::Mud, Cell::Rock]
@@ -4174,6 +6355,7 @@ mod tests {
         use bevy_math::Vec2;
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
         sim.enable_underwater_cells();
+        sim.level.cells = Some(World::opening_pebble_fixture(&sim.level));
         let mut pushed = false;
         for _ in 0..180 {
             sim.set_controls(

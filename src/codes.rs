@@ -126,11 +126,13 @@ fn use_codes(
     let (id, at) = *crab;
     for Typed(text) in typed.read() {
         // Words that aren't a code are said to the friends here, if any.
-        if Code::parse(text).is_none() && sim.crabs().iter().any(|c| c.remote) {
+        if Code::parse(text).is_none() && (sim.crabs().len() > 1 || crate::coop::cells_active()) {
             chat.say(names.mine(), text, time.elapsed_secs_f64());
             continue;
         }
-        let code = Code::parse(text).filter(|c| sim.enter_code(*id, *c));
+        let code = Code::parse(text).filter(|c| {
+            crate::coop::cells_action(crate::coop::CellsAction::Code(*c)) || sim.enter_code(*id, *c)
+        });
         let mover = sim.crab(*id).map(|c| &c.mover);
         let (words, colour) = match (code, mover) {
             (Some(Code::Hulk), Some(m)) if m.hulk => ("HULK SMASH!", HULK_GREEN),

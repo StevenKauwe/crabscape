@@ -756,7 +756,7 @@ pub(crate) mod web {
         let mic_on = mic.is_some();
         let room = crate::coop::in_room();
         // Runs the world: the lobby's host, or a friend standing in for it.
-        let host = room && sim.online() && sim.is_host();
+        let host = room && crate::coop::world_host(&sim);
         let calls = crate::voice::calls();
         let players = crate::coop::players();
         let here = with(|s| {

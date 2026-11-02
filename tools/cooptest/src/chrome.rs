@@ -143,10 +143,12 @@ impl Chrome {
                 "--no-default-browser-check",
                 "--mute-audio",
                 "--autoplay-policy=no-user-gesture-required",
-                // WebGL without a GPU (CI machines have none).
-                "--enable-unsafe-swiftshader",
-                "--use-angle=swiftshader",
             ]);
+        if std::env::var_os("CRABSCAPE_PROFILE_GPU").is_none() {
+            // WebGL without a GPU (CI machines have none). Local profiling can
+            // opt into hardware so software rendering doesn't obscure hitches.
+            cmd.args(["--enable-unsafe-swiftshader", "--use-angle=swiftshader"]);
+        }
         if o.fake_mic {
             cmd.args([
                 "--use-fake-device-for-media-stream",
@@ -275,6 +277,16 @@ impl Chrome {
         self.eval(SLOW_GATHERING).map(drop)
     }
 
+    /// Capture the probe's peer connection in this and future documents.
+    pub fn actor_profile_hook(&mut self) -> Result<()> {
+        const HOOK: &str = "(() => { const Base = window.RTCPeerConnection; window.RTCPeerConnection = class extends Base { constructor(...args) { super(...args); window.__actorProfilePc = this; } }; })()";
+        self.call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": HOOK }),
+        )?;
+        self.eval(HOOK).map(drop)
+    }
+
     /// What the page shows, as a PNG at `path`.
     pub fn screenshot(&mut self, path: &Path) -> Result<()> {
         use base64::Engine as _;
@@ -310,6 +322,15 @@ impl Chrome {
             const f = () => { n++; if (performance.now() - t < 1000) requestAnimationFrame(f); else done(n); }; \
             requestAnimationFrame(f); })";
         Ok(self.eval(count)?.as_u64().unwrap_or(0))
+    }
+
+    pub fn start_cpu_profile(&mut self) -> Result<()> {
+        self.call("Profiler.enable", json!({}))?;
+        self.call("Profiler.start", json!({})).map(drop)
+    }
+    pub fn stop_cpu_profile(&mut self) -> Result<Value> {
+        self.call("Profiler.stop", json!({}))
+            .map(|r| r["profile"].clone())
     }
 
     /// An attribute of the game's canvas (`data-coop`...), if the page has one now.
@@ -373,6 +394,31 @@ impl Chrome {
             if kind == "rawKeyDown" {
                 std::thread::sleep(Duration::from_secs_f64(secs));
             }
+        }
+        Ok(())
+    }
+    pub fn set_key(&mut self, code: &str, down: bool) -> Result<()> {
+        self.call(
+            "Input.dispatchKeyEvent",
+            json!({"type":if down{"rawKeyDown"}else{"keyUp"},"code":code}),
+        )
+        .map(drop)
+    }
+
+    /// Type `text` as a player does in the game's box: Enter, the letters, Enter.
+    pub fn hold_keys(&mut self, codes: &[&str], secs: f64) -> Result<()> {
+        for code in codes {
+            self.call(
+                "Input.dispatchKeyEvent",
+                json!({"type":"rawKeyDown","code":code}),
+            )?;
+        }
+        std::thread::sleep(Duration::from_secs_f64(secs));
+        for code in codes {
+            self.call(
+                "Input.dispatchKeyEvent",
+                json!({"type":"keyUp","code":code}),
+            )?;
         }
         Ok(())
     }
