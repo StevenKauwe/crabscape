@@ -679,6 +679,12 @@ fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
             ));
         }
         p.b.eval("document.getElementById('replay-close').click()")?;
+        // Closing the textarea restores canvas focus. Let Bevy consume that
+        // focus transition before dispatching new held keys: its focus-loss
+        // cleanup can otherwise clear keys sent in the same browser frame.
+        p.b.eval("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(document.activeElement===document.getElementById('crabscape') && document.getElementById('replay-box').hidden))))")?
+            .as_bool().filter(|focused| *focused)
+            .ok_or("Replay close did not return keyboard focus to the game")?;
         return Ok(scene);
     }
     Err(format!(
