@@ -4,6 +4,27 @@
 use super::{HEIGHT, TERRAIN_CHUNK_CELLS, WIDTH, World};
 use std::collections::{BTreeMap, BTreeSet};
 
+thread_local! {
+    static TOUCHED: std::cell::RefCell<Option<BTreeSet<(usize, usize)>>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(super) fn mark_active_tile(tile: usize) {
+    let cols = WIDTH.div_ceil(TERRAIN_CHUNK_CELLS as usize);
+    TOUCHED.with_borrow_mut(|trace| {
+        if let Some(trace) = trace {
+            trace.insert((tile % cols, tile / cols));
+        }
+    });
+}
+
+fn trace(f: impl FnOnce()) -> BTreeSet<(usize, usize)> {
+    TOUCHED.with_borrow_mut(|slot| {
+        assert!(slot.replace(BTreeSet::new()).is_none());
+    });
+    f();
+    TOUCHED.with_borrow_mut(|slot| slot.take().expect("active trace"))
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Dirty {
     active: BTreeSet<(usize, usize)>,
@@ -225,6 +246,96 @@ mod tests {
         assert_eq!(versions.global, first_global + 1);
         assert!(versions.sleeping.values().all(|&version| version == 1));
         assert!(versions.active.values().any(|&version| version == 2));
+    }
+
+    #[test]
+    fn mutation_time_marks_cover_cross_seam_swaps_and_local_flow() {
+        use crate::underwater::chunk_flow::ChunkFlow;
+        let mut before = World::new();
+        let side = TERRAIN_CHUNK_CELLS as usize;
+        let y = 100;
+        before.cells[y * WIDTH + side - 1] = Cell::Mud;
+        before.cells[y * WIDTH + side] = Cell::Water;
+        let mut chunks = ChunkFlow::from_world(&before);
+        let touched = trace(|| {
+            chunks.swap_material(
+                (
+                    WIDTH.div_ceil(side) * (y / side),
+                    (y % side) * side + side - 1,
+                ),
+                (WIDTH.div_ceil(side) * (y / side) + 1, (y % side) * side),
+            );
+            chunks.stir(side as f32, y as f32, 1.0, 0.5);
+        });
+        let mut after = before.clone();
+        assert!(chunks.write_material_to(&mut after));
+        let changes = dirty(&before, &after).unwrap();
+        assert!(!changes.active.is_empty());
+        assert!(
+            changes.active.is_subset(&touched),
+            "oracle={:?} traced={:?}",
+            changes.active,
+            touched
+        );
+        assert!(touched.contains(&(0, y / side)) && touched.contains(&(1, y / side)));
+    }
+
+    #[test]
+    fn mutation_time_marks_cover_pebble_push_across_seam() {
+        use crate::underwater::chunk_flow::ChunkFlow;
+        let mut before = World::new();
+        before.cells.fill(Cell::Water);
+        before.pebble_owner.fill(0);
+        before.pebbles.clear();
+        before.pebble_motion.clear();
+        before.clear_game_crab();
+        assert!(before.add_pebble(62, 100, 4, 250));
+        let mut chunks = ChunkFlow::from_world(&before);
+        let touched = trace(|| assert!(chunks.push_pebble_chain(1, 1, 0, 64)));
+        let mut after = before.clone();
+        assert!(chunks.write_material_to(&mut after));
+        let changes = dirty(&before, &after).unwrap();
+        assert!(changes.global); // Pebble position and motion need separate tracking.
+        assert!(!changes.active.is_empty());
+        assert!(
+            changes.active.is_subset(&touched),
+            "oracle={:?} traced={:?}",
+            changes.active,
+            touched
+        );
+        assert!(touched.contains(&(0, 1)) && touched.contains(&(1, 1)));
+    }
+
+    #[test]
+    fn mutation_time_marks_cover_jump_flow_and_entrained_sediment() {
+        use crate::underwater::chunk_flow::ChunkFlow;
+        let mut before = World::new();
+        before.cells.fill(Cell::Water);
+        before.pebbles.clear();
+        before.pebble_motion.clear();
+        before.pebble_owner.fill(0);
+        before.clear_game_crab();
+        for x in 45..84 {
+            let i = 100 * WIDTH + x;
+            before.cells[i] = if x % 2 == 0 { Cell::Sand } else { Cell::Mud };
+            before.grain[i] = 20;
+        }
+        let mut chunks = ChunkFlow::from_world(&before);
+        let touched = trace(|| assert!(chunks.react_to_jump(64.0, 102.0)));
+        let mut after = before.clone();
+        assert!(chunks.write_material_to(&mut after));
+        let changes = dirty(&before, &after).unwrap();
+        assert_ne!(
+            before.cells, after.cells,
+            "fixture must actually move sediment"
+        );
+        assert!(!changes.active.is_empty());
+        assert!(
+            changes.active.is_subset(&touched),
+            "oracle={:?} traced={:?}",
+            changes.active,
+            touched
+        );
     }
 
     #[test]

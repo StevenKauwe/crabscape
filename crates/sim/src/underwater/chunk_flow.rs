@@ -246,7 +246,12 @@ impl ChunkFlow {
         (x < WIDTH && y < HEIGHT).then(|| self.sample(x, y).1)
     }
 
-    fn swap_material(&mut self, a: (usize, usize), b: (usize, usize)) {
+    pub(super) fn swap_material(&mut self, a: (usize, usize), b: (usize, usize)) {
+        #[cfg(test)]
+        {
+            super::dirty_oracle::mark_active_tile(a.0);
+            super::dirty_oracle::mark_active_tile(b.0);
+        }
         let (a, ai) = a;
         let (b, bi) = b;
         let old = (
@@ -280,7 +285,7 @@ impl ChunkFlow {
             .then(|| Self::locate(x as usize, y as usize))
     }
 
-    fn stir(&mut self, x: f32, y: f32, vx: f32, vy: f32) {
+    pub(super) fn stir(&mut self, x: f32, y: f32, vx: f32, vy: f32) {
         let strength = (vx * vx + vy * vy).sqrt().min(2.0);
         if strength < 0.05 {
             return;
@@ -305,6 +310,8 @@ impl ChunkFlow {
                 } else {
                     -1.0
                 };
+                #[cfg(test)]
+                super::dirty_oracle::mark_active_tile(chunk);
                 let flow = &mut self.chunks[chunk].flow[slot];
                 flow.0 = (flow.0 + vx * fade - oy as f32 * fade * strength * swirl * 0.18)
                     .clamp(-2.0, 2.0);
@@ -824,6 +831,8 @@ impl ChunkFlow {
                     continue;
                 }
                 let fade = 1.0 - r2;
+                #[cfg(test)]
+                super::dirty_oracle::mark_active_tile(c);
                 let flow = &mut self.chunks[c].flow[i];
                 flow.0 = (flow.0 + ox as f32 / 20.0 * fade * 1.6).clamp(-2.0, 2.0);
                 flow.1 = (flow.1 - fade * 0.8).clamp(-2.0, 2.0);
