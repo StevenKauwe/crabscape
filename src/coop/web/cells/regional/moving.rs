@@ -109,6 +109,7 @@ pub(super) fn step(
     let tick = sim.tick_count();
     let output = apply_local(r, sim, input, authority)?;
     if local == HOST {
+        r.shared_move_cutoff = Some(tick);
         let owner = r.owner.as_mut().ok_or("Missing owner")?;
         finish_move(&mut owner.terrain, &mut owner.entities, output).map_err(fault)?;
         send(
@@ -168,7 +169,12 @@ fn prefetch(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> R
                     finish_move(&mut owner.terrain, &mut owner.entities, output).map_err(fault)?;
                 }
             }
-            if r.moving.is_none() {
+            // A slow replica can still be draining the pre-move batches.
+            // Do not replace its pending cutoff with the next transfer until
+            // it has acknowledged a post-move batch (equal tick is too early).
+            if r.moving.is_none()
+                && (!r.shared || r.shared_move_cutoff.is_none_or(|tick| r.applied > tick))
+            {
                 let (id, epoch, old, points) = if r.shared {
                     let k = r.kernel.as_ref().ok_or("Missing kernel")?;
                     (k.id, k.epoch, bounds(sim)?, vec![host_at, guest_at])

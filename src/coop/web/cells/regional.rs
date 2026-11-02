@@ -48,6 +48,7 @@ pub(super) struct State {
     pub(super) owner_save_dirty: bool,
     moving: Option<moving::Transfer>,
     move_serial: u64,
+    shared_move_cutoff: Option<u64>,
 }
 struct Backup {
     transfer: u64,
@@ -233,6 +234,7 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
         (local, bytes)
     };
     r.applied = local.sim.tick_count();
+    r.shared_move_cutoff = None;
     r.journal = Some(RegionJournal::new(&local, HOST).map_err(fault)?);
     r.kernel = Some(local.install_view(sim));
     r.snapshot = remote;
