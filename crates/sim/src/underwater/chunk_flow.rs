@@ -2731,6 +2731,60 @@ mod tests {
     }
 
     #[test]
+    fn upward_cavities_for_both_bodies_match_solo_without_material_step() {
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        world.flow.fill((0.0, 0.0));
+        world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+        world.cells[World::index(64, 107).unwrap()] = Cell::Sand;
+        world.cells[World::index(192, 107).unwrap()] = Cell::Mud;
+        let guest = BodyReservation {
+            player: crate::PlayerId(1),
+            x: 192,
+            y: 100,
+            half_x: 3,
+            half_y: 3,
+        };
+        let mut host_solo = world.clone();
+        assert!(host_solo.push_for_crab(64.0, 104.0, 0, 1, 48));
+        let mut guest_solo = world.clone();
+        guest_solo.set_game_crab(192.0, 100.0, 3.0, 3.0);
+        assert!(guest_solo.push_for_crab(192.0, 104.0, 0, 1, 48));
+        let mut chunks = ChunkFlow::from_world(&world);
+        chunks.set_extra_bodies(&[guest]).unwrap();
+        assert_eq!(chunks.push_for_crab(64.0, 104.0, 0, 1, 48), Ok(true));
+        assert_eq!(
+            chunks.push_for_extra_body(guest.player, 192.0, 104.0, 0, 1, 48),
+            Ok(true)
+        );
+        for (cx, expected) in [(64, &host_solo), (192, &guest_solo)] {
+            for y in 90..=115 {
+                for x in cx - 12..=cx + 12 {
+                    assert_eq!(
+                        chunks.cell(x, y),
+                        Some(expected.cell(x as i32, y as i32)),
+                        "cell {x},{y}"
+                    );
+                }
+            }
+        }
+        let sand = chunks
+            .chunks
+            .iter()
+            .flat_map(|c| &c.cells)
+            .filter(|&&c| c == Cell::Sand)
+            .count();
+        let mud = chunks
+            .chunks
+            .iter()
+            .flat_map(|c| &c.cells)
+            .filter(|&&c| c == Cell::Mud)
+            .count();
+        assert_eq!((sand, mud), (1, 1));
+        assert_eq!(chunks.tick, world.tick, "no material step advanced");
+    }
+
+    #[test]
     fn protected_pebble_sweep_matches_solo_for_both_bodies_and_force_limits() {
         for force in [15, 48] {
             let mut world = sand_fixture(0);
