@@ -406,6 +406,16 @@ impl Test<'_> {
             "a newly loaded cellular session saves after a cross-tab reset",
         );
         self.no_error_on_page("after cellular autosave, reload and reset")?;
+        let normal_started = self.open("index.html?cells&boring")?;
+        let normal_replay = if normal_started {
+            Some(self.cellular_replay()?)
+        } else {
+            None
+        };
+        self.check(
+            normal_replay.is_some_and(|replay| !replay.cellular),
+            "boring mode opens the normal game even when cells is requested",
+        );
         Ok(())
     }
 }
