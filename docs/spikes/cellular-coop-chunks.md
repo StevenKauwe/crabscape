@@ -33,10 +33,10 @@ explicit blockers before connecting this prototype to the runtime.
 
 The first isolated chunk-native primitives reproduce the existing flow
 diffusion phase, move one unobstructed whole pebble across chunk seams, and
-advance guarded sand and mud, including cohesion and existing suspension, in
-the same global order as the contiguous reference. The sediment slice rejects
-pebbles, body reservations, entrainment and any movement that would produce
-silt or a water disturbance. It does not run the full sediment simulation, pebble chains,
+advance guarded sand and mud, including cohesion, suspension, entrainment,
+and sediment wakes, in the same global order as the contiguous reference.
+The sediment slice rejects pebbles and body reservations. It does not run
+the full sediment simulation, pebble chains,
 forces, inactive chunks or a shared game. In a 20-step release desktop test
 over one full 640 × 360 region, contiguous diffusion averaged 8.54 ms/step
 and the first chunked implementation 12.42 ms/step, about 45% slower. Its
@@ -152,7 +152,13 @@ flow and moved-cell scratch; it is not an incremental or phone-memory design.
 Additional isolated tests compare a cohesive mud cluster across a seam,
 mixed sand and mud, and suspended fine mud moving upward across a seam with
 the contiguous reference. These retain deterministic ordering and material
-counts, but do not demonstrate the missing entrainment or silt effects. Two
+counts. Additional focused seam fixtures compare entrainment and falling-grain
+wakes and silt with the contiguous phase, including negative world coordinates,
+material conservation and deterministic repeated traces. The reference emits
+six silt particles when fewer than 1,200 exist, so its maximum after an
+emission is 1,205; the prototype preserves that cap and copies the particle
+vector when cloning, adding memory beyond its reported field allocation.
+These fixtures do not cover every interaction in a populated world. Two
 release desktop runs of a sparse five-mud-grain one-step fixture, including
 reset clones, measured 12.54/11.75 ms contiguous and 9.65/9.46 ms chunked.
 One test-process peak was 28.0 MB, including both versions. These figures do
