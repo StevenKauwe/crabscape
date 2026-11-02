@@ -22,6 +22,123 @@ pub struct CaptureIndex {
     sleeping: Vec<(i32, i32)>,
     parts: Vec<Part>,
 }
+
+/// Build descriptors one page at a time, without serializing the whole world
+/// synchronously. Pages must be supplied in snapshot order.
+pub struct CaptureIndexBuilder {
+    index: CaptureIndex,
+    hash: Digest,
+}
+impl CaptureIndexBuilder {
+    pub fn new(
+        world: &FrozenChunks,
+        sim_tick: u64,
+        player: &[u8],
+        hash: Digest,
+    ) -> Result<Self, LazyError> {
+        if sim_tick > u64::MAX - 1_000_000 || player.len() > MAX_PLAYER {
+            return Err(LazyError::TooLarge);
+        }
+        let sleeping: Vec<_> = world.sleeping_ids().collect();
+        if sleeping.len() > MAX_SLEEPING {
+            return Err(LazyError::TooLarge);
+        }
+        Ok(Self {
+            index: CaptureIndex {
+                sim_tick,
+                terrain_tick: world.tick(),
+                player: Part {
+                    digest: hash(player),
+                    len: player.len() as u32,
+                },
+                sleeping,
+                parts: Vec::new(),
+            },
+            hash,
+        })
+    }
+    pub fn push(&mut self, page: &[u8]) -> Result<(), LazyError> {
+        let n = self.index.parts.len();
+        if n >= 1 + TOTAL_ACTIVE + self.index.sleeping.len() {
+            return Err(LazyError::Invalid);
+        }
+        let limit = if n == 0 { MAX_PART_BYTES } else { 256 * 1024 };
+        if page.len() > limit {
+            return Err(LazyError::TooLarge);
+        }
+        self.index.parts.push(Part {
+            digest: (self.hash)(page),
+            len: page.len() as u32,
+        });
+        Ok(())
+    }
+    pub fn finish(self) -> Result<CaptureIndex, LazyError> {
+        if self.index.parts.len() != 1 + TOTAL_ACTIVE + self.index.sleeping.len() {
+            return Err(LazyError::MissingPage);
+        }
+        Ok(self.index)
+    }
+}
+
+/// Rebuild one page at a time. Caller must keep the same committed database
+/// head pinned, and recheck its epoch before installing the completed world.
+pub struct PagedRestore {
+    verifier: IndexVerifier,
+    restore: FrozenRestore,
+    next: usize,
+}
+impl PagedRestore {
+    pub fn new(
+        index: &[u8],
+        metadata: &[u8],
+        sim_tick: u64,
+        player: &[u8],
+        resident_budget: usize,
+        hash: Digest,
+    ) -> Result<Self, LazyError> {
+        let parsed = CaptureIndex::decode(index)?;
+        let count = parsed.sleeping.len();
+        // The expanded fixed-size sleeping arrays dominate resident memory.
+        // This excludes JS copies, allocator overhead and the currently live world.
+        let required = count
+            .checked_mul(CHUNK_CELLS * size_of::<Option<SleepingCell>>() + 256)
+            .and_then(|n| n.checked_add(8 * 1024 * 1024))
+            .ok_or(LazyError::TooLarge)?;
+        if count > MAX_RESTORE_SLEEPING || required > resident_budget.min(128 * 1024 * 1024) {
+            return Err(LazyError::TooLarge);
+        }
+        let verifier = IndexVerifier::new(
+            index,
+            metadata,
+            sim_tick,
+            parsed.part_count(),
+            player,
+            2_000_000,
+            hash,
+        )?;
+        let restore = FrozenRestore::new(metadata, count).map_err(|_| LazyError::Invalid)?;
+        Ok(Self {
+            verifier,
+            restore,
+            next: 2,
+        })
+    }
+    pub fn push(&mut self, page: &[u8]) -> Result<(), LazyError> {
+        self.verifier.accept(self.next, page)?;
+        if self.next < 2 + TOTAL_ACTIVE {
+            self.restore.active(page)
+        } else {
+            self.restore.sleeping(page)
+        }
+        .map_err(|_| LazyError::Invalid)?;
+        self.next += 1;
+        Ok(())
+    }
+    pub fn finish(self) -> Result<World, LazyError> {
+        self.verifier.finish()?;
+        self.restore.finish().map_err(|_| LazyError::Invalid)
+    }
+}
 trait ChunkPages {
     fn tick(&self) -> u64;
     fn active_dimensions(&self) -> (usize, usize);
@@ -384,6 +501,87 @@ mod tests {
         let index = CaptureIndex::capture(&frozen, 17, b"player", test_hash).unwrap();
         assert!(!index.sleeping().is_empty());
         (frozen, index)
+    }
+    #[test]
+    fn paged_save_restores_large_frozen_epoch_after_world_moves() {
+        let level = Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        for n in 0..300 {
+            world.sleeping.insert((n, -50), SleepingChunk::default());
+        }
+        let snapshot = FrozenChunks::capture_cow(&world).unwrap();
+        let mut reference = world.clone();
+        let shared = world.sleeping[&(0, -50)].cells.as_ptr();
+        assert_eq!(
+            snapshot.checkpoint.sleeping[&(0, -50)].cells.as_ptr(),
+            shared
+        );
+        world.sleeping.get_mut(&(0, -50)).unwrap().cells[0] = Some(SleepingCell {
+            cell: Cell::Mud,
+            flow: (0.0, 0.0),
+            suspended: 0,
+            grain: 1,
+            owner: 0,
+        });
+        assert_ne!(world.sleeping[&(0, -50)].cells.as_ptr(), shared);
+        assert_eq!(
+            snapshot.checkpoint.sleeping[&(0, -50)].cells.as_ptr(),
+            shared
+        );
+        let mut builder = CaptureIndexBuilder::new(&snapshot, 17, b"player", test_hash).unwrap();
+        let metadata = snapshot.metadata().unwrap();
+        builder.push(&metadata).unwrap();
+        let (cols, rows) = snapshot.active_dimensions();
+        for y in 0..rows {
+            for x in 0..cols {
+                builder.push(&snapshot.active(x, y).unwrap()).unwrap();
+            }
+        }
+        for id in snapshot.sleeping_ids() {
+            builder.push(&snapshot.sleeping(id).unwrap()).unwrap();
+        }
+        let index = builder.finish().unwrap().encode();
+        assert!(matches!(
+            PagedRestore::new(&index, &metadata, 17, b"player", 1, test_hash),
+            Err(LazyError::TooLarge)
+        ));
+        let mut restore = PagedRestore::new(
+            &index,
+            &metadata,
+            17,
+            b"player",
+            64 * 1024 * 1024,
+            test_hash,
+        )
+        .unwrap();
+        for y in 0..rows {
+            for x in 0..cols {
+                restore.push(&snapshot.active(x, y).unwrap()).unwrap();
+            }
+        }
+        for id in snapshot.sleeping_ids() {
+            restore.push(&snapshot.sleeping(id).unwrap()).unwrap();
+        }
+        let mut restored = restore.finish().unwrap();
+        assert_eq!(restored, reference);
+        for _ in 0..3 {
+            restored.step(0.35);
+            reference.step(0.35);
+            assert_eq!(restored, reference);
+        }
+        let mut damaged = PagedRestore::new(
+            &index,
+            &metadata,
+            17,
+            b"player",
+            64 * 1024 * 1024,
+            test_hash,
+        )
+        .unwrap();
+        let mut first = snapshot.active(0, 0).unwrap();
+        first[0] ^= 1;
+        assert!(damaged.push(&first).is_err());
+        assert!(damaged.finish().is_err());
     }
     #[test]
     fn verifies_canonical_index_all_pages_and_rejects_incomplete_or_reordered() {

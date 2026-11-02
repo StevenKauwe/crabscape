@@ -8,10 +8,10 @@ mod lazy;
 mod manifest;
 mod playable;
 pub use lazy::{CellState, LazyError, LazyView, LoadTicket, PageId};
-pub use manifest::{CaptureIndex, IndexVerifier, VerifiedIndex};
+pub use manifest::{CaptureIndex, CaptureIndexBuilder, IndexVerifier, PagedRestore, VerifiedIndex};
 pub use playable::{GuardedBuilder, GuardedError, GuardedPlayable, SavedSetup};
 
-const MAX_RESTORE_SLEEPING: usize = 256;
+const MAX_RESTORE_SLEEPING: usize = MAX_SLEEPING_CHUNKS;
 const CHUNK_CELLS: usize = SIDE * SIDE;
 const TOTAL_ACTIVE: usize = WIDTH.div_ceil(SIDE) * HEIGHT.div_ceil(SIDE);
 
@@ -30,7 +30,7 @@ struct MetadataOwned {
     crab_half_x: i32,
     crab_half_y: i32,
     tracers: BoundedVec<(f32, f32), 4096>,
-    silt: BoundedVec<Silt, 1205>,
+    silt: BoundedVec<Silt, MAX_REGION_SILT>,
     kelp: [[f32; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
     giant_kelp: BoundedVec<f32, { GIANT_PARTS + 1 }>,
     giant_kelp_velocity: BoundedVec<f32, { GIANT_PARTS + 1 }>,
@@ -186,7 +186,6 @@ impl FrozenRestore {
         Ok(())
     }
 
-    #[cfg(test)]
     fn sleeping(&mut self, bytes: &[u8]) -> Result<(), CaptureError> {
         if self.checkpoint.sleeping.len() >= self.expected_sleeping {
             return Err(CaptureError::InvalidShape);
@@ -201,7 +200,7 @@ impl FrozenRestore {
         self.checkpoint.sleeping.insert(
             id,
             SleepingChunk {
-                cells: part.cells.0,
+                cells: part.cells.0.into(),
             },
         );
         Ok(())

@@ -255,7 +255,7 @@ fn decode_sized_checkpoint<const MAX_CELLS: usize, const MAX_SILT: usize>(
             (
                 key,
                 SleepingChunk {
-                    cells: chunk.cells.0,
+                    cells: chunk.cells.0.into(),
                 },
             )
         })

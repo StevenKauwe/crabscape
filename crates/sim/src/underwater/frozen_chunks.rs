@@ -5,8 +5,9 @@
 //! phone memory limits. The caller must capture player state at the same tick.
 mod restore;
 pub use restore::{
-    CaptureIndex, CellState, GuardedBuilder, GuardedError, GuardedPlayable, IndexVerifier,
-    LazyError, LazyView, LoadTicket, PageId, SavedSetup, VerifiedIndex,
+    CaptureIndex, CaptureIndexBuilder, CellState, GuardedBuilder, GuardedError, GuardedPlayable,
+    IndexVerifier, LazyError, LazyView, LoadTicket, PageId, PagedRestore, SavedSetup,
+    VerifiedIndex,
 };
 
 use super::*;
@@ -16,7 +17,8 @@ use std::mem::size_of;
 const SIDE: usize = TERRAIN_CHUNK_CELLS as usize;
 const MAX_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PART_BYTES: usize = 4 * 1024 * 1024;
-const MAX_SLEEPING_CHUNKS: usize = 768;
+// At most about 119 MiB of sleeping cell arrays plus the active world.
+const MAX_SLEEPING_CHUNKS: usize = 1900;
 
 /// An owned, immutable point-in-time copy. Encoding later cannot observe
 /// mutations to the live world. Its pebble owner IDs refer to the exact pebble
@@ -113,6 +115,30 @@ impl FrozenChunks {
         })
     }
 
+    /// Capture an epoch while sharing sleeping buffers until they are changed.
+    /// The estimate excludes the live world, later writes and storage copies.
+    pub fn capture_cow(world: &World) -> Result<Self, CaptureError> {
+        validate_world_shape(world)?;
+        let cells = WIDTH * HEIGHT;
+        let estimated_bytes = cells
+            * (size_of::<Cell>()
+                + size_of::<(f32, f32)>()
+                + 2 * size_of::<u8>()
+                + size_of::<u16>())
+            + world.sleeping.len() * 256
+            + world.pebbles.len() * (size_of::<Pebble>() + size_of::<(i8, i8, u8)>())
+            + world.tracers.len() * size_of::<(f32, f32)>()
+            + world.silt.len() * size_of::<Silt>()
+            + world.bubbles.len() * size_of::<Bubble>()
+            + world.pebble_seeded.len() * 256
+            + size_of::<World>()
+            + 65_536;
+        Ok(Self {
+            checkpoint: world.checkpoint(),
+            estimated_bytes,
+        })
+    }
+
     pub fn estimated_bytes(&self) -> usize {
         self.estimated_bytes
     }
@@ -203,7 +229,7 @@ fn validate_world_shape(world: &World) -> Result<(), CaptureError> {
         || world.pebbles.len() > u16::MAX as usize
         || world.pebbles.len() != world.pebble_motion.len()
         || world.tracers.len() > 4096
-        || world.silt.len() > 1205
+        || world.silt.len() > MAX_REGION_SILT
         || world.bubbles.len() > 4096
         || world.pebble_seeded.len() > 2048
         || world
@@ -405,18 +431,24 @@ mod tests {
             FrozenChunks::capture(&world, 1),
             Err(CaptureError::TooLarge)
         ));
-        world
-            .sleeping
-            .insert((0, 0), SleepingChunk { cells: vec![] });
+        world.sleeping.insert(
+            (0, 0),
+            SleepingChunk {
+                cells: vec![].into(),
+            },
+        );
         assert!(matches!(
             FrozenChunks::capture(&world, MAX_CAPTURE_BYTES),
             Err(CaptureError::InvalidShape)
         ));
         world.sleeping.clear();
         for n in 0..=MAX_SLEEPING_CHUNKS {
-            world
-                .sleeping
-                .insert((n as i32, 0), SleepingChunk { cells: vec![] });
+            world.sleeping.insert(
+                (n as i32, 0),
+                SleepingChunk {
+                    cells: vec![].into(),
+                },
+            );
         }
         // Invalid shapes are rejected first, without cloning any cells.
         assert!(matches!(

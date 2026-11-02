@@ -241,14 +241,38 @@ struct SleepingCell {
     grain: u8,
     owner: u16,
 }
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+struct SleepingCells(std::sync::Arc<Vec<Option<SleepingCell>>>);
+impl std::fmt::Debug for SleepingCells {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl From<Vec<Option<SleepingCell>>> for SleepingCells {
+    fn from(cells: Vec<Option<SleepingCell>>) -> Self {
+        Self(std::sync::Arc::new(cells))
+    }
+}
+impl std::ops::Deref for SleepingCells {
+    type Target = Vec<Option<SleepingCell>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for SleepingCells {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SleepingChunk {
-    cells: Vec<Option<SleepingCell>>,
+    cells: SleepingCells,
 }
 impl Default for SleepingChunk {
     fn default() -> Self {
         Self {
-            cells: vec![None; (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize],
+            cells: vec![None; (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize].into(),
         }
     }
 }
@@ -950,7 +974,10 @@ impl World {
                     dirty_oracle::mark_sleeping(key);
                     self.sleeping
                         .get_mut(&key)
-                        .and_then(|chunk| chunk.cells[slot].take())
+                        .and_then(|chunk| {
+                            chunk.cells[slot]?;
+                            chunk.cells[slot].take()
+                        })
                         .unwrap_or_else(|| {
                             let cell = initial_terrain_cell(level, gx, gy);
                             let shade = initial_grain(gx, gy);

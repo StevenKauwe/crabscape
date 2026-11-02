@@ -373,7 +373,7 @@ impl GuardedPlayable {
         world.sleeping.insert(
             id,
             SleepingChunk {
-                cells: part.cells.0,
+                cells: part.cells.0.into(),
             },
         );
         self.missing.remove(&id);
