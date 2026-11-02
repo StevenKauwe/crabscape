@@ -242,3 +242,13 @@ ownership must also be addressed. The current host-window solid-body model
 and whole-field clones are not substitutes for exact behavior and phone-ready
 performance. Until those constraints are met the game must keep cellular
 co-op disabled.
+
+An isolated frame envelope now passes through the existing FakeLink scheduler,
+which exposes its actual source device index to a test delivery callback. A
+joined guest rejects another connection impersonating the host, accepts the
+selected host and rejects a repeated frame as stale; rejected deliveries leave
+terrain unchanged, and ambiguous duplicate host claims prevent selection.
+Frame messages are bounded and validated when decoded. `Sim::receive` ignores
+them, and the game does not wire this experimental delivery path: a real
+transport must bind its callback to an authenticated connection and selected
+host. This is transport testing, not a passing live two-player simulation.

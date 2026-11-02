@@ -88,6 +88,40 @@ where
     deserializer.deserialize_seq(Bounded(PhantomData))
 }
 
+// Bound the bytes while decoding the enclosing co-op message, before parsing
+// the frame. Normal Sim::receive deliberately ignores this experimental type.
+pub(crate) fn deserialize_frame<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct FrameBytes;
+    impl<'de> Visitor<'de> for FrameBytes {
+        type Value = Vec<u8>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "a bounded experimental terrain frame")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<u8>, A::Error> {
+            if seq
+                .size_hint()
+                .is_some_and(|n| n > MAX_BYTES - ENVELOPE_ROOM)
+            {
+                return Err(A::Error::custom("terrain frame too large"));
+            }
+            let mut bytes =
+                Vec::with_capacity(seq.size_hint().unwrap_or(0).min(MAX_BYTES - ENVELOPE_ROOM));
+            while let Some(byte) = seq.next_element()? {
+                if bytes.len() == MAX_BYTES - ENVELOPE_ROOM {
+                    return Err(A::Error::custom("terrain frame too large"));
+                }
+                bytes.push(byte);
+            }
+            Frame::from_bytes(&bytes).map_err(|_| A::Error::custom("invalid terrain frame"))?;
+            Ok(bytes)
+        }
+    }
+    deserializer.deserialize_seq(FrameBytes)
+}
+
 impl Frame {
     /// Encode one packet with space for a future enclosing co-op message.
     pub fn to_bytes(&self) -> Result<Vec<u8>, LockstepError> {
@@ -333,6 +367,58 @@ mod tests {
         frame.after_digest = check.then(|| digest(&world).unwrap());
         host.level.cells = Some(world);
         frame.to_bytes().unwrap()
+    }
+
+    #[test]
+    fn fake_link_binds_frame_delivery_to_transport_source() {
+        let (mut host, mut guest, visit, mut stream, _) = joined();
+        let mut impostor = Sim::with_one_crab(Vec2::new(1200.0, 0.0));
+        impostor.go_online(false);
+        let host_peer = peer(7);
+        let forged_peer = Peer {
+            player: host_peer.player,
+            connection: 99,
+        };
+        assert_eq!(
+            super::super::select_host(host_peer.player, &[host_peer, forged_peer]),
+            None,
+            "duplicate identity claims prevent selecting a host"
+        );
+        let bytes = host_step(&mut host, 77, 0, true);
+        let message = Msg::CellFrame(bytes);
+        assert!(Msg::from_bytes(&Msg::CellFrame(vec![0; 16]).to_bytes()).is_none());
+        assert!(Msg::from_bytes(&Msg::CellFrame(vec![0; MAX_BYTES]).to_bytes()).is_none());
+        let mut link = crate::net::FakeLink::steady(0);
+        link.test_post(2, 1, message.clone());
+        link.test_post(0, 1, message.clone());
+        link.test_post(0, 1, message);
+        let mut outcomes = Vec::new();
+        let sources = [host_peer, peer(8), forged_peer];
+        link.carry_with(
+            &mut [&mut host, &mut guest, &mut impostor],
+            |from, to, sim, message| {
+                assert_eq!(to, 1);
+                let decoded = Msg::from_bytes(&message.to_bytes()).expect("bounded wire message");
+                let Msg::CellFrame(bytes) = decoded else {
+                    panic!("expected frame");
+                };
+                let before = sim.level.cells.clone();
+                let result = stream.apply(&visit, sim, sources[from], Some(host_peer), &bytes);
+                if result.is_err() {
+                    assert_eq!(sim.level.cells, before);
+                }
+                outcomes.push(result);
+            },
+        );
+        assert_eq!(
+            outcomes,
+            vec![
+                Err(LockstepError::WrongSender),
+                Ok(()),
+                Err(LockstepError::Stale)
+            ]
+        );
+        assert_eq!(guest.level.cells, host.level.cells);
     }
 
     #[test]

@@ -142,6 +142,8 @@ pub enum Msg {
     /// One fragment of the host's cellular terrain checkpoint. Guests must
     /// verify the sender is their selected host before accepting it.
     CellTerrain(#[serde(deserialize_with = "cell_transfer::deserialize_fragment")] Vec<u8>),
+    /// An experimental ordered terrain frame; normal gameplay ignores it.
+    CellFrame(#[serde(deserialize_with = "cell_join::lockstep::deserialize_frame")] Vec<u8>),
 }
 
 /// The longest name, in characters: short enough to sit over a crab.
@@ -284,7 +286,7 @@ impl Msg {
         if let Msg::Chat(line) = &msg {
             return (clean_chat(line).as_ref() == Some(line)).then_some(msg);
         }
-        if matches!(msg, Msg::CellTerrain(_)) {
+        if matches!(msg, Msg::CellTerrain(_) | Msg::CellFrame(_)) {
             return Some(msg); // Its bounded byte payload was validated during decoding.
         }
         // Every number in it, printed: `{:?}` writes a non-finite one as NaN
@@ -378,8 +380,8 @@ pub struct FakeLink {
     pub loss: f32,
     rng: Rng,
     now: u64,
-    /// (due tick, to device, message), in the order sent.
-    queue: Vec<(u64, usize, Msg)>,
+    /// (due tick, source device, destination device, message), in send order.
+    queue: Vec<(u64, usize, usize, Msg)>,
     /// When the last reliable message from one device to another is due
     /// (from, to, tick): nothing reliable overtakes it.
     last_reliable: Vec<(usize, usize, u64)>,
@@ -406,6 +408,16 @@ impl FakeLink {
     /// One tick of the connection: take what every device sent, and hand
     /// over what is due. Call after every device has ticked.
     pub fn carry(&mut self, sims: &mut [&mut Sim]) {
+        self.carry_with(sims, |_, _, sim, msg| sim.receive(msg));
+    }
+
+    /// Deliver with the transport-provided source and destination indices.
+    /// The receiver must bind those to established connection identities.
+    pub(crate) fn carry_with(
+        &mut self,
+        sims: &mut [&mut Sim],
+        mut deliver: impl FnMut(usize, usize, &mut Sim, Msg),
+    ) {
         for from in 0..sims.len() {
             let outbox = sims[from].take_outbox();
             for out in outbox {
@@ -419,17 +431,22 @@ impl FakeLink {
         self.now += 1;
         let now = self.now;
         let mut due = Vec::new();
-        self.queue.retain(|(at, to, msg)| {
+        self.queue.retain(|(at, from, to, msg)| {
             if *at <= now {
-                due.push((*to, msg.clone()));
+                due.push((*from, *to, msg.clone()));
                 false
             } else {
                 true
             }
         });
-        for (to, msg) in due {
-            sims[to].receive(msg);
+        for (from, to, msg) in due {
+            deliver(from, to, sims[to], msg);
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_post(&mut self, from: usize, to: usize, msg: Msg) {
+        self.post(from, to, msg);
     }
 
     fn addressed(sim: &Sim, to: To) -> bool {
@@ -462,6 +479,6 @@ impl FakeLink {
                 None => self.last_reliable.push((from, to, at)),
             }
         }
-        self.queue.push((at, to, msg));
+        self.queue.push((at, from, to, msg));
     }
 }
