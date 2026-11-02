@@ -223,6 +223,106 @@ impl ChunkFlow {
         true
     }
 
+    /// The same diffusion phase traversed by chunk. Interior neighbours use
+    /// direct contiguous offsets; only seam neighbours touch another tile.
+    /// This is an experimental benchmark path, not gameplay integration.
+    pub fn step_batched(&mut self, current: f32) -> bool {
+        let Some(tick) = self.tick.checked_add(1) else {
+            return false;
+        };
+        if !current.is_finite() {
+            return false;
+        }
+        let mut next: Vec<_> = self.chunks.iter().map(|chunk| chunk.flow.clone()).collect();
+        for cy in 0..ROWS {
+            for cx in 0..COLS {
+                let index = cy * COLS + cx;
+                let chunk = &self.chunks[index];
+                let local_height = SIDE.min(HEIGHT - cy * SIDE);
+                let local_width = SIDE.min(WIDTH - cx * SIDE);
+                for ly in 0..local_height {
+                    let y = cy * SIDE + ly;
+                    if y == 0 || y + 1 == HEIGHT {
+                        continue;
+                    }
+                    let time = tick as f32;
+                    let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
+                    let shear = if self.game {
+                        libm::sinf(world_y * 0.055 + time * 0.006) * 0.375
+                            + libm::sinf(world_y * 0.021 - time * 0.0027) * 0.15
+                    } else {
+                        0.0
+                    };
+                    for lx in 0..local_width {
+                        let x = cx * SIDE + lx;
+                        if x == 0 || x + 1 == WIDTH {
+                            continue;
+                        }
+                        let slot = ly * SIDE + lx;
+                        if chunk.cells[slot] != Cell::Water {
+                            next[index][slot] = (0.0, 0.0);
+                            continue;
+                        }
+                        let t = tick as f32 * 0.018;
+                        let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
+                        let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
+                        let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
+                        let feed = if self.game { 0.12 } else { 0.035 };
+                        let mut vx = (current + shear + eddy * 0.08) * feed;
+                        let mut vy = cross * 0.002;
+                        let mut weight = feed;
+                        let neighbour = |chunk_index: usize, at: usize| {
+                            let other = &self.chunks[chunk_index];
+                            (other.cells[at], other.flow[at])
+                        };
+                        let left = if lx > 0 {
+                            neighbour(index, slot - 1)
+                        } else {
+                            neighbour(index - 1, slot + SIDE - 1)
+                        };
+                        let right = if lx + 1 < SIDE {
+                            neighbour(index, slot + 1)
+                        } else {
+                            neighbour(index + 1, slot + 1 - SIDE)
+                        };
+                        let below = if ly > 0 {
+                            neighbour(index, slot - SIDE)
+                        } else {
+                            neighbour(index - COLS, slot + SIDE * (SIDE - 1))
+                        };
+                        let above = if ly + 1 < SIDE {
+                            neighbour(index, slot + SIDE)
+                        } else {
+                            neighbour(index + COLS, slot - SIDE * (SIDE - 1))
+                        };
+                        for (horizontal, (cell, flow)) in
+                            [(true, left), (true, right), (false, below), (false, above)]
+                        {
+                            if cell == Cell::Water {
+                                vx += flow.0;
+                                vy += flow.1;
+                                weight += 1.0;
+                            } else if horizontal {
+                                vy += current
+                                    * if world_y < (HEIGHT / 2) as f32 {
+                                        0.12
+                                    } else {
+                                        -0.12
+                                    };
+                            }
+                        }
+                        next[index][slot] = (vx / weight, vy / weight);
+                    }
+                }
+            }
+        }
+        for (chunk, flow) in self.chunks.iter_mut().zip(next) {
+            chunk.flow = flow;
+        }
+        self.tick = tick;
+        true
+    }
+
     /// Payload capacity for the fields modeled here; excludes Vec headers,
     /// allocator overhead, scratch flow buffers, and all other game state.
     pub fn field_capacity_bytes(&self) -> usize {
@@ -282,11 +382,14 @@ mod tests {
         let initial_material = reference.cells.clone();
         let owners = reference.pebble_owner.clone();
         let mut chunked = ChunkFlow::from_world(&reference);
+        let mut batched = ChunkFlow::from_world(&reference);
         for _ in 0..3 {
             reference.tick += 1;
             reference.diffuse_flow(0.35);
             assert!(chunked.step(0.35));
+            assert!(batched.step_batched(0.35));
             compare(&reference, &chunked);
+            compare(&reference, &batched);
             assert_eq!(
                 reference.cells, initial_material,
                 "flow diffusion cannot create or remove sediment"
@@ -312,10 +415,13 @@ mod tests {
         reference.cells[World::index(100, 64).unwrap()] = Cell::Rock;
         let materials = reference.cells.clone();
         let mut chunked = ChunkFlow::from_world(&reference);
+        let mut batched = ChunkFlow::from_world(&reference);
         reference.tick += 1;
         reference.diffuse_flow(0.0);
         assert!(chunked.step(0.0));
+        assert!(batched.step_batched(0.0));
         compare(&reference, &chunked);
+        compare(&reference, &batched);
         assert!(
             chunked.flow(64, 150).unwrap().0 > 0.0,
             "velocity crossed the vertical seam"
@@ -395,6 +501,7 @@ mod tests {
         let level = crate::Level::test_level();
         let mut reference = World::from_level_settled(&level);
         let mut chunked = ChunkFlow::from_world(&reference);
+        let mut batched = ChunkFlow::from_world(&reference);
         let start = std::time::Instant::now();
         for _ in 0..20 {
             reference.tick += 1;
@@ -406,9 +513,15 @@ mod tests {
             assert!(chunked.step(0.35));
         }
         let chunked_ms = start.elapsed().as_secs_f64() * 50.0;
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            assert!(batched.step_batched(0.35));
+        }
+        let batched_ms = start.elapsed().as_secs_f64() * 50.0;
         compare(&reference, &chunked);
+        compare(&reference, &batched);
         eprintln!(
-            "flow diffusion: contiguous {contiguous_ms:.2} ms/step, chunked {chunked_ms:.2} ms/step; chunk field capacity {} bytes",
+            "flow diffusion: contiguous {contiguous_ms:.2} ms/step, chunked {chunked_ms:.2} ms/step, batched {batched_ms:.2} ms/step; chunk field capacity {} bytes",
             chunked.field_capacity_bytes()
         );
     }

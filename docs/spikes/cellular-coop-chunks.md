@@ -36,6 +36,15 @@ capacity for that region, excluding flow scratch, the pebble registry,
 allocation overhead and all other game state. This is a correctness baseline,
 not a performance improvement or a phone measurement.
 
+A second, still isolated diffusion path traverses contiguous rows within
+each chunk and only looks up another tile at a seam. Two 20-step release
+desktop runs measured 8.37/8.06 ms per contiguous step, 12.20/12.13 ms for
+the first chunk implementation, and 6.68/6.70 ms for batched chunk traversal.
+Both chunk paths match the contiguous reference on the tested terrain and
+seams. This is a diffusion-only result, not a full-simulation speedup: it
+still stages flow for the entire region and does not advance sediment,
+pebbles, animals or players. No phone performance claim follows from it.
+
 An isolated post-checkpoint command test encodes two players' interests and
 forces in 97–107 bytes per material step, roughly 2.9–3.2 KB/s per receiving
 guest at 30 Hz before transport overhead. It checks epoch, sequence, material
