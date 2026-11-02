@@ -90,6 +90,19 @@ fn decode(bytes: &[u8]) -> Result<Saved> {
     })
 }
 
+fn terrain_has_marker(world: &World) -> bool {
+    if world.contains_world(MARKER.0, MARKER.1) {
+        return world.game_rock_at(MARKER.0, MARKER.1);
+    }
+    // Digging can move the active window below the marker. Reactivate its
+    // saved sleeping chunk on a copy, keeping the exact restoration check
+    // untouched. Use the normal level: regenerating a missing chunk must
+    // not recreate the fixture's extra rock and accidentally pass the test.
+    let mut inspected = world.clone();
+    inspected.follow_player(&Level::test_level(), MARKER.0, MARKER.1);
+    inspected.game_rock_at(MARKER.0, MARKER.1)
+}
+
 /// Compare actual materials in overlapping world coordinates. Tick, current,
 /// particle and other animation-only changes cannot satisfy this assertion.
 fn changed_material_cells(before: &World, after: &World) -> usize {
@@ -253,13 +266,14 @@ impl Test<'_> {
                 .ok_or("autosave record disappeared")?,
         )?;
         let material_changes = changed_material_cells(&initial.terrain, &saved.terrain);
+        let marker = terrain_has_marker(&saved.terrain);
         self.check(
             saved.tick > 17
                 && saved.player["x"].as_f64().is_some_and(|x| x > 405.0)
                 && saved.player["y"].as_f64().is_some_and(|y| y < -12.0)
                 && material_changes > 0
-                && saved.terrain.game_rock_at(MARKER.0, MARKER.1),
-            format!("the autosave contains the dug player, evolved material and terrain marker (tick {}, player ({}, {}), changed cells {material_changes})", saved.tick, saved.player["x"], saved.player["y"]),
+                && marker,
+            format!("the autosave contains the dug player, evolved material and terrain marker (tick {}, player ({}, {}), changed cells {material_changes}, marker {marker}, active bounds {:?})", saved.tick, saved.player["x"], saved.player["y"], saved.terrain.game_bounds()),
         );
 
         let started = self.open("index.html?cells")?;
@@ -311,7 +325,7 @@ impl Test<'_> {
             None => (true, "absent".to_string()),
             Some(bytes) => {
                 let fresh = decode(&bytes)?;
-                let marker = fresh.terrain.game_rock_at(MARKER.0, MARKER.1);
+                let marker = terrain_has_marker(&fresh.terrain);
                 (
                     !marker,
                     format!(
@@ -401,6 +415,27 @@ mod tests {
         );
         let terrain = sim.level.cells.as_ref().unwrap();
         assert!(changed_material_cells(&initial.terrain, terrain) > 0);
-        assert!(terrain.game_rock_at(MARKER.0, MARKER.1));
+        assert!(terrain_has_marker(terrain));
+    }
+
+    #[test]
+    fn marker_survives_a_downward_streamed_browser_checkpoint() {
+        let mut saved = decode(&fixture().unwrap()).unwrap();
+        let level = Level::test_level();
+        assert!(saved.terrain.follow_player(&level, 525.141, -48.0));
+        assert!(!saved.terrain.contains_world(MARKER.0, MARKER.1));
+        assert!(!saved.terrain.game_rock_at(MARKER.0, MARKER.1));
+        let raw = crabsim::underwater::encode_browser_checkpoint(&saved.terrain).unwrap();
+        let restored = crabsim::underwater::decode_browser_checkpoint(&raw).unwrap();
+        let before_inspection = restored.checkpoint();
+        assert!(terrain_has_marker(&restored));
+        assert_eq!(restored.checkpoint(), before_inspection);
+
+        let mut normal = World::from_level_settled(&level);
+        assert!(normal.follow_player(&level, 525.141, -48.0));
+        assert!(
+            !terrain_has_marker(&normal),
+            "normal regeneration cannot forge the saved marker"
+        );
     }
 }
