@@ -306,3 +306,35 @@ before publication still leaves a race. Live migration needs one authoritative
 reset epoch that both operations can enforce atomically, or an independently
 proved cross-database coordination protocol. The current experiment must not be
 used to claim cross-database reset safety.
+
+A separate same-object-store proof mirrors the current legacy `active` and
+`reset_epoch` keys without opening a real game database. It captures the source
+bytes and epoch in one transaction, binds a guarded stage to that snapshot, and
+checks source length/digest and epoch in the same transaction that verifies each
+staged part and publishes the new head. Persisted head/stage/pin guard flags
+and proof records make generic publication and reads fail closed; guarded pins
+and page reads recheck the source in their own transactions. Chrome tests cover
+same-epoch source replacement, reset followed by byte-identical recreation,
+missing markers, attempted generic downgrade, an aborted corrupt-stage publish,
+recovery of a persisted guarded pin, and cancellation of a guarded page read
+followed by a successful retry. The prior head and source survive the tested
+failed publications. These transactions are still isolated prototypes,
+not connected to the migration/reload proof or the live save schema.
+
+A guarded page result is not a lock on later transactions: installation after
+an asynchronous read still needs a cancellation/reset handshake, and an old
+client can change the legacy source without maintaining the new records. The
+experiment does not solve cross-version tab coexistence or establish safe live
+migration. Reading an existing legacy record can also cause IndexedDB to
+structured-clone it into JavaScript before its 8 MiB limit is checked. Chrome's
+DevTools quota override reported a 1-byte quota but continued allowing writes in
+this environment, so actual `QuotaExceededError` remains untested; a corrupt
+stage abort is not evidence of quota behavior. WebKit and iPhone validation
+remain required.
+
+The same-store proof initializes metadata only when its new proof database is
+created. A real existing v1/v2 store has no such metadata. Live use requires an
+atomic initializer that distinguishes a fresh legacy store from missing or
+corrupt migration metadata and fails closed in the latter case; this is not yet
+implemented. The experimental keys also need a reserved namespace and a tested
+upgrade/recovery policy before sharing the live store.
