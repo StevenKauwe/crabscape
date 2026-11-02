@@ -1,5 +1,6 @@
 //! Isolated synthetic browser transaction probe, never used by game saves.
 use super::*;
+mod prepared;
 
 const LIMIT: usize = 8 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,6 +20,10 @@ enum Action {
         replay: Vec<u8>,
         abort: bool,
     },
+    Prepared {
+        value: prepared::Prepared,
+        abort: bool,
+    },
     Reset {
         epoch: u64,
     },
@@ -36,6 +41,37 @@ fn marker(epoch: u64, source: &[u8], active: &[u8], replay: &[u8]) -> Vec<u8> {
         &digest(replay),
     ]
     .concat()
+}
+fn queue_migration(
+    object: &IdbObjectStore,
+    view: &View,
+    expected: u64,
+    source: Vec<u8>,
+    candidate: Vec<u8>,
+    replay: Vec<u8>,
+    abort: bool,
+) -> Result<(), String> {
+    if expected != view.epoch
+        || view.active.as_deref() != Some(source.as_slice())
+        || view.marker.is_some()
+        || view.backup.is_some()
+        || view.replay.is_some()
+        || source.len() > LIMIT
+        || candidate.len() > LIMIT
+        || replay.len() > LIMIT
+        || replay.is_empty()
+    {
+        return Err("stale or invalid migration source".into());
+    }
+    let stamp = marker(view.epoch, &source, &candidate, &replay);
+    put(object, "cleanup:backup", &source)?;
+    put(object, "active", &candidate)?;
+    put(object, "cleanup:marker", &stamp)?;
+    put(object, "cleanup:replay", &replay)?;
+    if abort {
+        return Err("injected abort".into());
+    }
+    Ok(())
 }
 async fn apply(db: &ChunkStore, action: Action) -> Result<View, String> {
     let tx = db
@@ -96,6 +132,9 @@ async fn apply(db: &ChunkStore, action: Action) -> Result<View, String> {
                 {
                     Action::Read => {
                         if let Some(stamp) = &view.marker {
+                            if view.backup.is_some() != view.replay.is_some() {
+                                return Err("cleanup backup/replay incomplete".into());
+                            }
                             let active = view.active.as_deref().ok_or("marker without active")?;
                             let backup = view.backup.as_deref().unwrap_or(active);
                             let replay = view.replay.as_deref().unwrap_or(&[]);
@@ -113,25 +152,13 @@ async fn apply(db: &ChunkStore, action: Action) -> Result<View, String> {
                         replay,
                         abort,
                     } => {
-                        if expected != epoch
-                            || view.active.as_deref() != Some(source.as_slice())
-                            || view.marker.is_some()
-                            || view.backup.is_some()
-                            || view.replay.is_some()
-                            || source.len() > LIMIT
-                            || candidate.len() > LIMIT
-                            || replay.len() > LIMIT
-                        {
-                            return Err("stale or invalid migration source".into());
-                        }
-                        let stamp = marker(epoch, &source, &candidate, &replay);
-                        put(&object, "cleanup:backup", &source)?;
-                        put(&object, "active", &candidate)?;
-                        put(&object, "cleanup:marker", &stamp)?;
-                        put(&object, "cleanup:replay", &replay)?;
-                        if abort {
-                            return Err("injected abort".into());
-                        }
+                        queue_migration(&object, &view, expected, source, candidate, replay, abort)?
+                    }
+                    Action::Prepared { value, abort } => {
+                        let (expected, source, candidate, replay) = value.parts();
+                        queue_migration(
+                            &object, &view, expected, source, candidate, replay, abort,
+                        )?;
                     }
                     Action::Reset { epoch: expected }
                     | Action::Import {
@@ -326,28 +353,50 @@ fn real_fixture(version: u8) -> Result<RealFixture, String> {
     })
 }
 
+fn no_op_source() -> Result<Vec<u8>, String> {
+    let level = crabsim::Level::test_level();
+    let terrain = crabsim::underwater::World::from_level_settled(&level);
+    let mut sim = crabsim::Sim::new(crabsim::Tuning::default(), level);
+    if !sim.restore_cellular_terrain(terrain, 17) {
+        return Err("no-op terrain".into());
+    }
+    sim.add_crab(crabsim::PlayerId(0), crabsim::SPAWN);
+    let crab = sim.crab(crabsim::PlayerId(0)).ok_or("no-op crab")?;
+    let mut progress = sim.progress(crabsim::PlayerId(0)).ok_or("no-op progress")?;
+    progress.eaten.clear();
+    progress.cultures_taken.clear();
+    progress.clues_found.clear();
+    progress.teeth_taken.clear();
+    progress.sponges_taken.clear();
+    let player = crabsim::SaveData {
+        version: crabsim::SAVE_VERSION,
+        x: crab.mover.pos.x,
+        y: crab.mover.pos.y,
+        memory: None,
+        progress: Some(progress),
+    };
+    legacy_fixture(&sim, &player, 2)
+}
+
 pub(super) async fn reload_prepare(name: &str) -> Result<(), String> {
     for version in [1, 2] {
         let db = ChunkStore::open(&format!("{name}.cleanup-reload-v{version}")).await?;
         db.reset_fixture().await?;
-        let RealFixture {
-            source,
-            candidate,
-            replay,
-        } = real_fixture(version)?;
+        let RealFixture { source, .. } = real_fixture(version)?;
         let write = source.clone();
         db.transaction(None, true, move |_, _, _, _, _, object| {
             put(object, "active", &write)
         })
         .await?;
         let captured = apply(&db, Action::Read).await?;
+        let prepared = prepared::Prepared::from_source(
+            captured.epoch,
+            captured.active.ok_or("missing captured source")?,
+        )?;
         apply(
             &db,
-            Action::Migrate {
-                epoch: captured.epoch,
-                source,
-                candidate,
-                replay,
+            Action::Prepared {
+                value: prepared,
                 abort: false,
             },
         )
@@ -381,26 +430,23 @@ fn verify_stored(view: &View) -> Result<(), String> {
     {
         return Err("committed player position or tick changed".into());
     }
-    actual.restore_progress(
-        crabsim::PlayerId(0),
-        restored
-            .player
-            .progress
-            .as_ref()
-            .ok_or("committed progress")?,
-    );
-    let memory = crabsim::Memory::from_save(
-        restored.player.memory.as_ref().ok_or("committed memory")?,
-        &actual.level,
-        &actual.tuning.memory,
-    )
-    .ok_or("bad committed memory")?;
-    actual
-        .crab_mut(crabsim::PlayerId(0))
-        .ok_or("committed crab")?
-        .memory = memory;
-    if actual.progress(crabsim::PlayerId(0)).as_ref() != restored.player.progress.as_ref() {
-        return Err("committed progress changed".into());
+    if let Some(progress) = &restored.player.progress {
+        actual.restore_progress(crabsim::PlayerId(0), progress);
+    }
+    if let Some(saved) = &restored.player.memory {
+        let memory = crabsim::Memory::from_save(saved, &actual.level, &actual.tuning.memory)
+            .ok_or("bad committed memory")?;
+        actual
+            .crab_mut(crabsim::PlayerId(0))
+            .ok_or("committed crab")?
+            .memory = memory;
+    }
+    let replay_progress = parsed
+        .progress
+        .clone()
+        .unwrap_or_else(|| actual.fresh_progress());
+    if actual.progress(crabsim::PlayerId(0)).as_ref() != Some(&replay_progress) {
+        return Err("replay progress differs from restored player".into());
     }
     for _ in 0..8 {
         actual.tick();
@@ -442,6 +488,72 @@ pub(super) async fn proof(name: &str) -> Result<(), String> {
     let a = ChunkStore::open(name).await?;
     let b = ChunkStore::open(name).await?;
     a.reset_fixture().await?;
+    let no_op = no_op_source()?;
+    let no_op_write = no_op.clone();
+    a.transaction(None, true, move |_, _, _, _, _, object| {
+        put(object, "active", &no_op_write)
+    })
+    .await?;
+    let before_no_op = apply(&a, Action::Read).await?;
+    let prepared = prepared::Prepared::from_source(before_no_op.epoch, no_op.clone())?;
+    apply(
+        &a,
+        Action::Prepared {
+            value: prepared.clone(),
+            abort: false,
+        },
+    )
+    .await?;
+    let published_no_op = apply(&b, Action::Read).await?;
+    if published_no_op.backup.as_deref() != Some(no_op.as_slice()) {
+        return Err("no-op backup missing".into());
+    }
+    let before_player = crabsim::cell_codec::decode(&no_op)
+        .map_err(|e| format!("no-op source player: {e:?}"))?
+        .player;
+    let after_player =
+        crabsim::cell_codec::decode(published_no_op.active.as_ref().ok_or("no-op candidate")?)
+            .map_err(|e| format!("no-op candidate player: {e:?}"))?
+            .player;
+    if after_player != before_player {
+        return Err("no-op player header changed".into());
+    }
+    verify_stored(&published_no_op)?;
+    b.transaction(None, true, |_, _, _, _, _, object| {
+        object
+            .delete(&JsValue::from_str("cleanup:backup"))
+            .map_err(|e| err("delete no-op backup", e))?;
+        Ok(())
+    })
+    .await?;
+    if apply(&a, Action::Read).await.is_ok() {
+        return Err("missing no-op backup accepted".into());
+    }
+    let no_op_restore = no_op.clone();
+    b.transaction(None, true, move |_, _, _, _, _, object| {
+        put(object, "cleanup:backup", &no_op_restore)
+    })
+    .await?;
+    if apply(
+        &a,
+        Action::Prepared {
+            value: prepared,
+            abort: false,
+        },
+    )
+    .await
+    .is_ok()
+        || apply(&b, Action::Read).await? != published_no_op
+    {
+        return Err("no-op cleanup repeated".into());
+    }
+    apply(
+        &a,
+        Action::Reset {
+            epoch: before_no_op.epoch,
+        },
+    )
+    .await?;
     a.transaction(None, true, |_, _, _, _, _, object| {
         put(object, "active", b"old save")
     })
@@ -554,11 +666,41 @@ pub(super) async fn proof(name: &str) -> Result<(), String> {
         })
         .await?;
         let captured = apply(&a, Action::Read).await?;
-        let request = |abort| Action::Migrate {
-            epoch: captured.epoch,
-            source: source.clone(),
-            candidate: candidate.clone(),
-            replay: replay.clone(),
+        let mut damaged = source.clone();
+        let last = damaged.last_mut().ok_or("empty source")?;
+        *last ^= 1;
+        if prepared::Prepared::from_source(captured.epoch, damaged).is_ok()
+            || apply(&a, Action::Read).await? != captured
+        {
+            return Err("damaged source prepared or changed storage".into());
+        }
+        let prepared = prepared::Prepared::from_source(
+            captured.epoch,
+            captured.active.clone().ok_or("missing captured source")?,
+        )?;
+        b.transaction(None, true, |_, _, _, _, _, object| {
+            put(object, "active", b"different source")
+        })
+        .await?;
+        if apply(
+            &a,
+            Action::Prepared {
+                value: prepared.clone(),
+                abort: false,
+            },
+        )
+        .await
+        .is_ok()
+        {
+            return Err("prepared candidate accepted a different source".into());
+        }
+        let restore_source = source.clone();
+        b.transaction(None, true, move |_, _, _, _, _, object| {
+            put(object, "active", &restore_source)
+        })
+        .await?;
+        let request = |abort| Action::Prepared {
+            value: prepared.clone(),
             abort,
         };
         if apply(&a, request(true)).await.is_ok() || apply(&a, Action::Read).await? != captured {
@@ -581,6 +723,18 @@ pub(super) async fn proof(name: &str) -> Result<(), String> {
             },
         )
         .await?;
+        if apply(
+            &a,
+            Action::Prepared {
+                value: prepared,
+                abort: false,
+            },
+        )
+        .await
+        .is_ok()
+        {
+            return Err("reset accepted stale prepared candidate".into());
+        }
     }
     Ok(())
 }

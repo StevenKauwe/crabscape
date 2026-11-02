@@ -205,6 +205,11 @@ prove real quota exhaustion, phone memory/latency, older-client
 exclusion, or recovery from every late asynchronous transaction. Its record
 format and import/reset semantics are test scaffolding, not a migration marker
 for actual game saves. The low-level transaction accepts arbitrary candidate
-bytes and does not itself enforce those fixture validation steps. Complete loss
+bytes for synthetic tests. The real-data proof instead constructs an opaque
+prepared value from the captured source and epoch: it decodes and validates
+that source, applies the owned transform, validates the resulting candidate and
+player, and regenerates a replay before the transaction receives it. This is
+still a proof-only boundary and does not make raw publication safe for live use.
+Complete loss
 of marker, backup and replay keys is indistinguishable from an unmarked legacy
 record. The existing broader v1/v2 reload proof is separate.
