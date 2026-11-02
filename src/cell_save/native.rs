@@ -13,7 +13,9 @@ use crate::player::{GameSet, LocalPlayer, PlayerId};
 use crate::save::SaveData;
 
 const FILE: &str = "crabscape-cells.save";
-const SAVE_EVERY: f32 = 15.0;
+/// Capture during movement too: waiting until the crab rests can otherwise
+/// leave an arbitrarily long swimming session unsaved.
+const SAVE_EVERY: f32 = 5.0;
 static GATE: Mutex<()> = Mutex::new(());
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static WIPE_FAILED: AtomicBool = AtomicBool::new(false);
@@ -35,7 +37,7 @@ impl Storage {
 
 pub fn install(app: &mut App) {
     app.init_resource::<Storage>()
-        .add_systems(Update, save_when_resting.in_set(GameSet::Present));
+        .add_systems(Update, save_periodically.in_set(GameSet::Present));
 }
 
 /// Refuse to write over a save that could not be read or restored. A fresh
@@ -122,7 +124,7 @@ fn wipe_path(path: &Path) -> Result<(), String> {
     result
 }
 
-fn save_when_resting(
+fn save_periodically(
     time: Res<Time>,
     sim: Res<Sim>,
     crab: Single<(&crabsim::Mover, &PlayerId), With<LocalPlayer>>,
@@ -131,6 +133,27 @@ fn save_when_resting(
     if !crate::cellular::enabled() {
         return;
     }
+    let (mover, id) = *crab;
+    update_storage(
+        &mut storage,
+        time.delta_secs(),
+        &sim,
+        mover,
+        *id,
+        Path::new(FILE),
+    );
+}
+
+/// Schedules at most one background snapshot at a time. The caller supplies
+/// the exact simulated position and the matching terrain from the same frame.
+fn update_storage(
+    storage: &mut Storage,
+    elapsed: f32,
+    sim: &Sim,
+    mover: &crabsim::Mover,
+    id: PlayerId,
+    path: &Path,
+) {
     let generation = GENERATION.load(Ordering::SeqCst);
     if storage.generation != generation {
         storage.generation = generation;
@@ -155,17 +178,14 @@ fn save_when_resting(
             storage.warned = true;
         }
     }
-    storage.elapsed += time.delta_secs();
-    let (mover, id) = *crab;
+    storage.elapsed += elapsed;
     if storage.elapsed < SAVE_EVERY
         || storage.worker.is_some()
-        || !mover.grounded
-        || mover.vel.length() >= 1.0
+        || !crate::player::valid_saved_spot(mover.pos, mover.grown(&sim.tuning), sim)
     {
         return;
     }
-    let (Some(world), Some(mut player)) = (&sim.level.cells, crate::save::snapshot(&sim, *id))
-    else {
+    let (Some(world), Some(mut player)) = (&sim.level.cells, crate::save::snapshot(sim, id)) else {
         return;
     };
     // Unlike old saves, a cellular position can be inside a narrow dug space.
@@ -173,7 +193,7 @@ fn save_when_resting(
     player.y = mover.pos.y;
     storage.elapsed = 0.0;
     storage.worker = Some(queue(
-        PathBuf::from(FILE),
+        path.to_owned(),
         player,
         world.clone(),
         sim.tick_count(),
@@ -184,6 +204,10 @@ fn save_when_resting(
 mod tests {
     use super::*;
     use crabsim::{Level, Tuning};
+
+    // These cases share the production reset generation and must not reset
+    // each other's in-flight writes while the test suite runs in parallel.
+    static TEST_IO: Mutex<()> = Mutex::new(());
 
     fn path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("crab-cell-native-{}-{name}", std::process::id()))
@@ -359,6 +383,7 @@ mod tests {
 
     #[test]
     fn reset_cannot_be_undone_by_an_in_flight_save() {
+        let _serial = TEST_IO.lock().unwrap();
         let path = path("reset");
         std::fs::write(&path, b"old save").unwrap();
         let mut world = sim();
@@ -378,6 +403,7 @@ mod tests {
 
     #[test]
     fn cellular_reset_leaves_the_normal_save_untouched() {
+        let _serial = TEST_IO.lock().unwrap();
         let path = path("separate");
         std::fs::create_dir_all(&path).unwrap();
         let cellular = path.join("cells");
@@ -388,5 +414,71 @@ mod tests {
         assert!(!cellular.exists());
         assert_eq!(std::fs::read(&normal).unwrap(), b"normal");
         std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn prolonged_swimming_saves_current_position_and_reset_invalidates_a_moving_save() {
+        let _serial = TEST_IO.lock().unwrap();
+        let path = path("swimming");
+        let _ = std::fs::remove_file(&path);
+        let mut sim = sim();
+        sim.enable_underwater_cells();
+        let id = PlayerId(0);
+        sim.add_crab(id, Vec2::new(400.0, 300.0));
+        let mut storage = Storage {
+            generation: GENERATION.load(Ordering::SeqCst),
+            ..Storage::default()
+        };
+        for second in 1..=10 {
+            let crab = sim.crab_mut(id).unwrap();
+            crab.mover.pos = Vec2::new(400.0 + second as f32, 300.0);
+            crab.mover.vel = Vec2::new(90.0, 20.0);
+            crab.mover.grounded = false;
+            let mover = crab.mover.clone();
+            update_storage(&mut storage, 1.0, &sim, &mover, id, &path);
+            if second % 5 == 0 {
+                storage
+                    .worker
+                    .take()
+                    .expect("moving player is saved")
+                    .join()
+                    .unwrap()
+                    .unwrap();
+                let saved = read(&path).unwrap().unwrap();
+                assert_eq!(saved.player.x, mover.pos.x);
+                assert_eq!(saved.player.y, mover.pos.y);
+            } else {
+                assert!(storage.worker.is_none());
+            }
+        }
+        // A transient position that would be rejected on reload must not
+        // overwrite the last good save. As soon as it becomes safe, the
+        // pending save can proceed without waiting another five seconds.
+        let crab = sim.crab_mut(id).unwrap();
+        crab.mover.pos.x = -10.0;
+        let invalid = crab.mover.clone();
+        update_storage(&mut storage, SAVE_EVERY, &sim, &invalid, id, &path);
+        assert!(storage.worker.is_none());
+        assert_eq!(read(&path).unwrap().unwrap().player.x, 410.0);
+        let crab = sim.crab_mut(id).unwrap();
+        crab.mover.pos.x = 420.0;
+        let valid = crab.mover.clone();
+        update_storage(&mut storage, 0.0, &sim, &valid, id, &path);
+        storage
+            .worker
+            .take()
+            .expect("safe position is saved")
+            .join()
+            .unwrap()
+            .unwrap();
+        assert_eq!(read(&path).unwrap().unwrap().player.x, 420.0);
+        // A reset between capture and completion must still win, regardless
+        // of whether the background encoder has reached the file yet.
+        let mover = sim.crab(id).unwrap().mover.clone();
+        update_storage(&mut storage, SAVE_EVERY, &sim, &mover, id, &path);
+        let worker = storage.worker.take().expect("third moving snapshot");
+        wipe_path(&path).unwrap();
+        worker.join().unwrap().unwrap();
+        assert!(!path.exists());
     }
 }

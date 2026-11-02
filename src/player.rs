@@ -186,7 +186,7 @@ pub fn spawn_local_crab(
     ));
 }
 
-fn valid_saved_spot(pos: Vec2, size: f32, sim: &Sim) -> bool {
+pub(crate) fn valid_saved_spot(pos: Vec2, size: f32, sim: &Sim) -> bool {
     let Some(cells) = &sim.level.cells else {
         return physics::is_valid_spot(pos, size, &sim.tuning, &sim.level);
     };
