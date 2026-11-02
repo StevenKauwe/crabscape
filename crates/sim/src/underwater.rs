@@ -2,7 +2,9 @@
 //! Coordinates increase right and up. Water occupies every non-solid cell;
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
+mod bounded_checkpoint;
 pub mod chunk_flow;
+pub use bounded_checkpoint::decode_browser_checkpoint;
 mod host_windows;
 pub use host_windows::{HostDig, HostPlayerForce, HostStepError};
 
