@@ -11,6 +11,7 @@
 //! somewhere unusual). `--url` plays the live site with the real introducer instead.
 
 mod chrome;
+mod save_fixture;
 #[path = "../../webtest/src/serve.rs"]
 mod serve;
 
@@ -646,33 +647,38 @@ fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
 }
 
 fn saved_cells(p: &mut Player) -> Result<Option<crabsim::cell_codec::Restored>> {
-    use base64::Engine;
     let value=p.b.eval(r#"new Promise((resolve,reject)=>{
-      const opening=indexedDB.open('crabscape.cells',1);
+      const parts=location.pathname.split('/').filter(Boolean);
+      let slug=null;
+      for(let i=0;i<parts.length;i++){
+        if(/^pr-\d+$/.test(parts[i])){slug=parts[i];break;}
+        if(parts[i]==='branches'&&parts[i+1]){slug='branches-'+parts[i+1];break;}
+      }
+      if(slug)slug=slug.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase();
+      const opening=indexedDB.open(slug?'crabscape@'+slug+'@.cells':'crabscape.cells',1);
       opening.onerror=()=>reject(String(opening.error));
       opening.onsuccess=()=>{
         const db=opening.result,tx=db.transaction('world','readonly');
         const request=tx.objectStore('world').get('active');
         tx.onabort=()=>{db.close();reject(String(tx.error));};
         tx.oncomplete=()=>{db.close();if(request.result===undefined){resolve(null);return;}
-          const bytes=request.result,pieces=[];
-          for(let i=0;i<bytes.length;i+=32768)pieces.push(String.fromCharCode(...bytes.subarray(i,i+32768)));
-          resolve(btoa(pieces.join('')));
+          const raw=request.result, encode=bytes=>{const pieces=[];
+            for(let i=0;i<bytes.length;i+=32768)pieces.push(String.fromCharCode(...bytes.subarray(i,i+32768)));
+            return btoa(pieces.join(''));};
+          resolve({format:raw.format,tick:encode(raw.tick),player:encode(raw.player),index:encode(raw.index),pages:raw.pages.map(encode)});
         };
       };
     })"#)?;
-    let Some(text) = value.as_str() else {
+    if value.is_null() {
         return Ok(None);
-    };
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(text)
-        .map_err(|e| e.to_string())?;
+    }
+    let bytes = save_fixture::frame_from_object(&value)?;
     std::fs::write(
         p.dir.join(format!("{}-captured-save.bin", p.name())),
         &bytes,
     )
     .map_err(|e| e.to_string())?;
-    crabsim::cell_codec::decode(&bytes)
+    crabsim::cell_codec::paged::decode(&bytes)
         .map(Some)
         .map_err(|e| format!("invalid browser autosave: {e:?}"))
 }
@@ -742,7 +748,12 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 23] = [
+const SCENARIOS: [(&str, &str, u32); 24] = [
+    (
+        "cells-solo-save",
+        "fresh and extensively explored solo worlds autosave and reload",
+        65,
+    ),
     (
         "cells-region-save",
         "guest authority recovery and distant terrain surviving owner disk reload",
@@ -889,6 +900,113 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
+        "cells-solo-save" => {
+            host.open(&site.url("cells"))?;
+            let started = Instant::now();
+            let saved = loop {
+                if let Some(saved) = saved_cells(&mut host)? {
+                    break saved;
+                }
+                let warning = host.b.eval("document.body.innerText")?;
+                if warning
+                    .as_str()
+                    .is_some_and(|s| s.contains("autosave is off"))
+                {
+                    return Err(host.failed(format!("fresh solo save disabled: {warning}")));
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 20 {
+                    return Err(host.failed("fresh solo game wrote no save in 20 seconds".into()));
+                }
+                sleep(0.5);
+            };
+            host.reload()?;
+            host.until(15.0, "solo cellular save restored", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            found.push(format!(
+                "fresh solo autosave at tick{} restores on reload",
+                saved.sim_tick
+            ));
+            // Stop the running game before installing a real persisted large world.
+            let asset = host
+                .b
+                .eval("new URL('assets/crab/crab-atlas.png', location.href).href")?;
+            host.b.go(asset.as_str().ok_or("missing asset URL")?)?;
+            let large_frame = save_fixture::large_fixture()?;
+            let baseline = crabsim::cell_codec::paged::decode(&large_frame)
+                .map_err(|e| format!("large fixture decode: {e:?}"))?;
+            let baseline =
+                crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&baseline.terrain)
+                    .map_err(|e| format!("large fixture snapshot: {e:?}"))?;
+            let distant_id = baseline
+                .sleeping_ids()
+                .find(|(_, y)| y.abs() > 20)
+                .ok_or("large fixture has no distant sleeping page")?;
+            let distant_page = baseline
+                .sleeping(distant_id)
+                .map_err(|e| format!("fixture page: {e:?}"))?;
+            drop(baseline);
+            let fixture = save_fixture::object_from_frame(&large_frame)?;
+            drop(large_frame);
+            host.b.eval(&format!(r#"new Promise((resolve,reject)=>{{
+              const parts=location.pathname.split('/').filter(Boolean); let slug=null;
+              for(let i=0;i<parts.length;i++){{if(/^pr-\d+$/.test(parts[i])){{slug=parts[i];break;}}
+                if(parts[i]==='branches'&&parts[i+1]){{slug='branches-'+parts[i+1];break;}}}}
+              if(slug)slug=slug.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase();
+              const opening=indexedDB.open(slug?'crabscape@'+slug+'@.cells':'crabscape.cells',1);
+              opening.onerror=()=>reject(String(opening.error)); opening.onsuccess=()=>{{
+                const db=opening.result,tx=db.transaction('world','readwrite'),raw={fixture};
+                const decode=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+                tx.objectStore('world').put({{format:raw.format,tick:decode(raw.tick),player:decode(raw.player),
+                  index:decode(raw.index),pages:raw.pages.map(decode)}},'active');
+                tx.objectStore('world').delete('reset_epoch');
+                tx.onabort=()=>{{db.close();reject(String(tx.error));}};
+                tx.oncomplete=()=>{{db.close();resolve(true);}};
+              }};
+            }})"#))?;
+            host.open(&site.url("cells"))?;
+            host.until(30.0, "large solo saved world restored", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            let started = Instant::now();
+            let large_saved = loop {
+                if let Some(saved) = saved_cells(&mut host)?
+                    && saved.sim_tick > 17
+                {
+                    break saved;
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 90 {
+                    return Err(host
+                        .failed("large solo world wrote no fresh autosave in 90 seconds".into()));
+                }
+                sleep(1.0);
+            };
+            let chunks =
+                crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&large_saved.terrain)
+                    .map_err(|e| format!("large saved snapshot: {e:?}"))?
+                    .sleeping_ids()
+                    .count();
+            if chunks <= 256 {
+                return Err(host.failed(format!("large save lost explored pages: {chunks}")));
+            }
+            let final_snapshot =
+                crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&large_saved.terrain)
+                    .map_err(|e| format!("saved snapshot: {e:?}"))?;
+            if final_snapshot
+                .sleeping(distant_id)
+                .map_err(|e| format!("saved distant page: {e:?}"))?
+                != distant_page
+            {
+                return Err(host.failed("large autosave changed distant sleeping terrain".into()));
+            }
+            host.reload()?;
+            host.until(30.0, "large solo worker autosave restored", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            found.push(format!("large solo world retains {chunks} sleeping chunks through browser load, worker autosave tick{}, and reload",large_saved.sim_tick));
+        }
         "cells-regions" | "cells-region-save" => {
             eprintln!("cells-regions: opening both browsers");
             host.open(&site.url("cells"))?;
@@ -979,25 +1097,29 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             }
             sleep(0.3);
             let before_dig = regional_scene(&mut guest)?;
+            let start_guest = before_dig.crabs()[0].mover.pos;
             for p in [&mut host, &mut guest] {
                 pause_region(p, false)?;
             }
             host.b.hold_keys(&["KeyC", "ArrowDown"], 0.9)?;
-            guest.b.hold_keys(&["KeyC", "ArrowDown"], 0.9)?;
-            sleep(0.5);
-            let dug_host = local_position(&mut host)?;
-            let dug_guest = local_position(&mut guest)?;
-            if dug_host.1 >= start_host.1 - 4.0 || dug_guest.1 >= start_guest.1 - 4.0 {
+            guest.b.set_key("KeyC", true)?;
+            guest.b.set_key("ArrowDown", true)?;
+            sleep(0.9);
+            for p in [&mut host, &mut guest] {
+                pause_region(p, true)?;
+            }
+            guest.b.set_key("KeyC", false)?;
+            guest.b.set_key("ArrowDown", false)?;
+            sleep(0.3);
+            let _owner_replay = regional_scene(&mut host)?;
+            let after_dig = regional_scene(&mut guest)?;
+            let dug_host = _owner_replay.crabs()[0].mover.pos;
+            let dug_guest = after_dig.crabs()[0].mover.pos;
+            if dug_host.y >= start_host.1 as f32 - 4.0 || dug_guest.y >= start_guest.y - 4.0 {
                 return Err(format!(
                     "digging did not enter both substrates: host {start_host:?}->{dug_host:?}; guest {start_guest:?}->{dug_guest:?}"
                 ));
             }
-            for p in [&mut host, &mut guest] {
-                pause_region(p, true)?;
-            }
-            sleep(0.3);
-            let _owner_replay = regional_scene(&mut host)?;
-            let after_dig = regional_scene(&mut guest)?;
             for (label, scene) in [("before-dig", &before_dig), ("after-dig", &after_dig)] {
                 let checkpoint = scene
                     .session_checkpoint()
@@ -1016,8 +1138,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 .as_ref()
                 .ok_or("missing after-dig terrain")?;
             let mut excavation = None;
-            for rise in (8..(start_guest.1 - dug_guest.1).floor() as i32).step_by(4) {
-                let at = (dug_guest.0 as f32, dug_guest.1 as f32 + rise as f32);
+            for rise in (8..(start_guest.y - dug_guest.y).floor() as i32).step_by(4) {
+                let at = (dug_guest.x, dug_guest.y + rise as f32);
                 let (bx, by) = before.local_cell(at.0, at.1);
                 let (ax, ay) = after.local_cell(at.0, at.1);
                 if before.cell(bx as i32, by as i32) != crabsim::underwater::Cell::Water
