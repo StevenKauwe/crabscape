@@ -10,7 +10,6 @@ use crate::{CANVAS, Test, driver::Result, settings_button, settings_tab, start_o
 
 const DATABASE: &str = "crabscape.cells";
 const MARKER: (f32, f32) = (1000.0, 700.0);
-const HEADER: usize = 28;
 
 struct Saved {
     tick: u64,
@@ -18,18 +17,7 @@ struct Saved {
     terrain: World,
 }
 
-fn checksum(tick: u64, player: &[u8], raw: &[u8]) -> u32 {
-    let mut hash = crc32fast::Hasher::new();
-    hash.update(&tick.to_le_bytes());
-    hash.update(&(player.len() as u32).to_le_bytes());
-    hash.update(&(raw.len() as u32).to_le_bytes());
-    hash.update(player);
-    hash.update(raw);
-    hash.finalize()
-}
-
 /// A stable rock cell absent from the normal level catches player-only restoration.
-/// This is storage fixture setup, not a gameplay mutation or a test-only game hook.
 fn fixture() -> Result<Vec<u8>> {
     let mut level = Level::test_level();
     let mut rock = level.home;
@@ -44,72 +32,129 @@ fn fixture() -> Result<Vec<u8>> {
     {
         return Err("cellular fixture marker does not distinguish saved and fresh terrain".into());
     }
-    let raw = crabsim::underwater::encode_browser_checkpoint(&terrain)
-        .ok_or("cellular fixture exceeds the browser checkpoint budget")?;
-    let player = serde_json::to_vec(&json!({"version": 2, "x": 400.0, "y": 0.0}))
-        .map_err(|e| e.to_string())?;
-    let tick = 17u64;
-    let mut bytes = b"CRABCEL2".to_vec();
-    bytes.extend_from_slice(&tick.to_le_bytes());
-    bytes.extend_from_slice(&(player.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&checksum(tick, &player, &raw).to_le_bytes());
-    bytes.extend_from_slice(&player);
-    bytes.extend_from_slice(&miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1));
-    Ok(bytes)
+    let player = crabsim::SaveData {
+        version: crabsim::SAVE_VERSION,
+        x: 400.0,
+        y: 0.0,
+        memory: None,
+        progress: None,
+    };
+    crabsim::cell_codec::paged::prepare(&player, &terrain, 17)
+        .and_then(|prepared| prepared.encode())
+        .map_err(|e| format!("fixture encode: {e:?}"))
 }
 
-fn old_opening_fixture() -> Result<Vec<u8>> {
-    let terrain: World = postcard::from_bytes(include_bytes!(
-        "../../../crates/sim/assets/opening-settled.postcard"
-    ))
-    .map_err(|error| error.to_string())?;
-    if terrain.game_pebbles().is_empty() {
-        return Err("historical opening must contain pebbles".into());
+/// Simulate exploration far beyond the original browser checkpoint limit.
+fn large_fixture() -> Result<Vec<u8>> {
+    let level = Level::test_level();
+    let mut terrain = World::from_level_settled(&level);
+    for (x, y) in [
+        (4400.0, -700.0),
+        (8000.0, -1400.0),
+        (4000.0, -3000.0),
+        (8000.0, -5000.0),
+        (3000.0, -7000.0),
+        (8000.0, -9000.0),
+        (400.0, 0.0),
+    ] {
+        if !terrain.follow_player(&level, x, y) {
+            return Err("fixture did not stream".into());
+        }
+        for _ in 0..4 {
+            terrain.step(0.35);
+        }
     }
-    let raw =
-        crabsim::underwater::encode_browser_checkpoint(&terrain).ok_or("opening too large")?;
-    let player = serde_json::to_vec(&json!({"version":2,"x":200.25,"y":40.5})).unwrap();
-    let tick = 17u64;
-    let mut bytes = b"CRABCEL2".to_vec();
-    bytes.extend_from_slice(&tick.to_le_bytes());
-    bytes.extend_from_slice(&(player.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&checksum(tick, &player, &raw).to_le_bytes());
-    bytes.extend_from_slice(&player);
-    bytes.extend_from_slice(&miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1));
-    Ok(bytes)
+    let snapshot = crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&terrain)
+        .map_err(|e| format!("large snapshot: {e:?}"))?;
+    let chunks = snapshot.sleeping_ids().count();
+    let raw = postcard::to_allocvec(&terrain.checkpoint()).map_err(|e| e.to_string())?;
+    if chunks <= 256 || raw.len() <= 12 * 1024 * 1024 {
+        return Err(format!(
+            "fixture is too small: {chunks} sleeping chunks, {} raw bytes",
+            raw.len()
+        ));
+    }
+    drop(raw);
+    let player = crabsim::SaveData {
+        version: crabsim::SAVE_VERSION,
+        x: 400.0,
+        y: 0.0,
+        memory: None,
+        progress: None,
+    };
+    crabsim::cell_codec::paged::prepare(&player, &terrain, 17)
+        .and_then(|p| p.encode())
+        .map_err(|e| format!("large fixture: {e:?}"))
 }
 
 fn decode(bytes: &[u8]) -> Result<Saved> {
-    if bytes.len() < HEADER || !bytes.starts_with(b"CRABCEL2") {
-        return Err("the game did not write a complete v2 cellular save".into());
-    }
-    let tick = u64::from_le_bytes(bytes[8..16].try_into().map_err(|_| "bad save tick")?);
-    let player_len =
-        u32::from_le_bytes(bytes[16..20].try_into().map_err(|_| "bad player size")?) as usize;
-    let raw_len =
-        u32::from_le_bytes(bytes[20..24].try_into().map_err(|_| "bad terrain size")?) as usize;
-    if bytes.len() > 8 * 1024 * 1024 || raw_len > 12 * 1024 * 1024 || player_len > 1024 * 1024 {
-        return Err("the autosave exceeds its browser reload budget".into());
-    }
-    let end = HEADER
-        .checked_add(player_len)
-        .filter(|&n| n <= bytes.len())
-        .ok_or("truncated player")?;
-    let player_bytes = &bytes[HEADER..end];
-    let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&bytes[end..], raw_len)
-        .map_err(|e| format!("invalid autosave compression: {e:?}"))?;
-    let expected = u32::from_le_bytes(bytes[24..28].try_into().map_err(|_| "bad checksum")?);
-    if raw.len() != raw_len || checksum(tick, player_bytes, &raw) != expected {
-        return Err("the autosave player/header/terrain checksum does not match".into());
-    }
+    let value = crabsim::cell_codec::paged::decode(bytes)
+        .map_err(|e| format!("invalid paged save: {e:?}"))?;
     Ok(Saved {
-        tick,
-        player: serde_json::from_slice(player_bytes).map_err(|e| e.to_string())?,
-        terrain: crabsim::underwater::decode_browser_checkpoint(&raw)
-            .ok_or("invalid saved terrain")?,
+        tick: value.sim_tick,
+        player: serde_json::to_value(&value.player).map_err(|e| e.to_string())?,
+        terrain: value.terrain,
     })
+}
+
+/// Translate the native test framing into the real IndexedDB object shape.
+fn object_from_frame(bytes: &[u8]) -> Result<Value> {
+    if bytes.len() < 28 || &bytes[..8] != b"CRABPG01" {
+        return Err("invalid frame".into());
+    }
+    let n = |at: usize| {
+        u32::from_le_bytes(bytes[at..at + 4].try_into().expect("header checked")) as usize
+    };
+    let (player_len, index_len, count) = (n(16), n(20), n(24));
+    let mut at = 28usize;
+    let mut take = |size: usize| -> Result<&[u8]> {
+        let end = at
+            .checked_add(size)
+            .filter(|&end| end <= bytes.len())
+            .ok_or("truncated frame")?;
+        let part = &bytes[at..end];
+        at = end;
+        Ok(part)
+    };
+    let player = STANDARD.encode(take(player_len)?);
+    let index = STANDARD.encode(take(index_len)?);
+    let mut pages = Vec::with_capacity(count);
+    for _ in 0..count {
+        let len = u32::from_le_bytes(take(4)?.try_into().map_err(|_| "bad page length")?) as usize;
+        pages.push(STANDARD.encode(take(len)?));
+    }
+    if at != bytes.len() {
+        return Err("trailing frame".into());
+    }
+    Ok(
+        json!({"format":"CRABPG01", "tick":STANDARD.encode(&bytes[8..16]), "player":player, "index":index, "pages":pages}),
+    )
+}
+
+fn frame_from_object(value: &Value) -> Result<Vec<u8>> {
+    if value["format"] != "CRABPG01" {
+        return Err("invalid object format".into());
+    }
+    let get = |key: &str| -> Result<Vec<u8>> {
+        STANDARD
+            .decode(value[key].as_str().ok_or("missing object field")?)
+            .map_err(|e| e.to_string())
+    };
+    let tick = u64::from_le_bytes(get("tick")?.try_into().map_err(|_| "bad tick")?);
+    let player = get("player")?;
+    let index = get("index")?;
+    let pages = value["pages"]
+        .as_array()
+        .ok_or("missing pages")?
+        .iter()
+        .map(|p| {
+            STANDARD
+                .decode(p.as_str().ok_or("bad page")?)
+                .map_err(|e| e.to_string())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    crabsim::cell_codec::paged::pack(tick, &player, &index, &pages)
+        .map_err(|e| format!("invalid frame: {e:?}"))
 }
 
 fn terrain_has_marker(world: &World) -> bool {
@@ -157,20 +202,43 @@ const READ: &str = r#"await new Promise((resolve, reject) => {
     tx.oncomplete = () => {
       db.close();
       if (request.result === undefined) { resolve(null); return; }
-      const bytes = request.result, pieces = [];
-      for (let i = 0; i < bytes.length; i += 32768)
-        pieces.push(String.fromCharCode(...bytes.subarray(i, i + 32768)));
-      resolve(btoa(pieces.join("")));
+      const value = request.result;
+      const b64 = bytes => {
+        const pieces = [];
+        for (let i = 0; i < bytes.length; i += 32768)
+          pieces.push(String.fromCharCode(...bytes.subarray(i, i + 32768)));
+        return btoa(pieces.join(""));
+      };
+      resolve({format:value.format, tick:b64(value.tick), player:b64(value.player),
+        index:b64(value.index), pages:value.pages.map(b64)});
+    };
+  };
+})"#;
+
+const READ_PLAYER: &str = r#"await new Promise((resolve, reject) => {
+  const opening = indexedDB.open("crabscape.cells", 1);
+  opening.onerror = () => reject(String(opening.error));
+  opening.onsuccess = () => {
+    const db = opening.result, tx = db.transaction("world", "readonly");
+    const request = tx.objectStore("world").get("active");
+    tx.onabort = () => { db.close(); reject(String(tx.error)); };
+    tx.oncomplete = () => {
+      db.close(); const value = request.result;
+      if (!value || value.format !== "CRABPG01") { resolve(null); return; }
+      resolve({ tick: Number(new DataView(value.tick.buffer, value.tick.byteOffset, 8).getBigUint64(0, true)),
+        player: JSON.parse(new TextDecoder().decode(value.player)) });
     };
   };
 })"#;
 
 impl Test<'_> {
     fn cellular_record(&self) -> Result<Option<Vec<u8>>> {
-        self.eval(READ)?
-            .as_str()
-            .map(|s| STANDARD.decode(s).map_err(|e| e.to_string()))
-            .transpose()
+        let record = self.eval(READ)?;
+        if record.is_null() {
+            Ok(None)
+        } else {
+            frame_from_object(&record).map(Some)
+        }
     }
 
     fn cellular_replay(&self) -> Result<Replay> {
@@ -187,7 +255,7 @@ impl Test<'_> {
         self.go("assets/crab/crab-atlas.png")?;
         let bytes = fixture()?;
         let initial = decode(&bytes)?;
-        let encoded = STANDARD.encode(&bytes);
+        let object = object_from_frame(&bytes)?;
         let normal = json!({"version": 2, "x": 918.0, "y": 0.0}).to_string();
         self.eval(&format!(r#"await new Promise((resolve, reject) => {{
           localStorage.setItem("crabscape.save", {normal:?});
@@ -197,8 +265,11 @@ impl Test<'_> {
           request.onerror = () => reject(String(request.error));
           request.onsuccess = () => {{
             const db = request.result, tx = db.transaction("world", "readwrite");
-            tx.objectStore("world").put(Uint8Array.from(atob({encoded:?}), c => c.charCodeAt(0)), "active");
-            tx.objectStore("world").delete("reset_epoch"); // Exercise legacy records without an epoch.
+            const raw = {object};
+            const decode = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+            const value = {{ format:raw.format, tick:decode(raw.tick), player:decode(raw.player), index:decode(raw.index), pages:raw.pages.map(decode) }};
+            tx.objectStore("world").put(value, "active");
+            tx.objectStore("world").delete("reset_epoch");
             tx.onabort = () => {{ db.close(); reject(String(tx.error)); }};
             tx.oncomplete = () => {{ db.close(); resolve(true); }};
           }};
@@ -262,13 +333,9 @@ impl Test<'_> {
         let newer = self.wait_for(
             &format!(
                 r#"await (async () => {{
-          const record = {READ};
+          const record = {READ_PLAYER};
           if (!record) return false;
-          const bytes = atob(record);
-          if (bytes.slice(0, 8) !== "CRABCEL2") return false;
-          const size = (bytes.charCodeAt(16) | bytes.charCodeAt(17) << 8 |
-            bytes.charCodeAt(18) << 16 | bytes.charCodeAt(19) << 24) >>> 0;
-          const player = JSON.parse(bytes.slice(28, 28 + size));
+          const player = record.player;
           return player.x > 405 && player.y < -12;
         }})()"#
             ),
@@ -422,7 +489,10 @@ impl Test<'_> {
         let restarted = self.open("index.html?cells")?;
         let fresh_session = restarted && self.attr("data-cell-save")?.as_deref() == Some("fresh");
         let saved_again = fresh_session
-            && self.wait_for(&format!("await (async () => ({READ}) !== null)()"), 60.0)?;
+            && self.wait_for(
+                &format!("await (async () => ({READ_PLAYER}) !== null)()"),
+                60.0,
+            )?;
         self.check(
             saved_again,
             "a newly loaded cellular session saves after a cross-tab reset",
@@ -439,72 +509,55 @@ impl Test<'_> {
             "boring mode opens the normal game even when cells is requested",
         );
         self.go("assets/crab/crab-atlas.png")?;
-        let opening = old_opening_fixture()?;
-        let encoded = STANDARD.encode(&opening);
-        self.eval(&format!(r#"await new Promise((resolve,reject)=>{{
-          const r=indexedDB.open({DATABASE:?},1);
-          r.onsuccess=()=>{{ const db=r.result,tx=db.transaction('world','readwrite'),s=tx.objectStore('world');
-            s.put(Uint8Array.from(atob({encoded:?}),c=>c.charCodeAt(0)),'active');
-            for(const k of ['reset_epoch','cleanup_marker','cleanup_backup']) s.delete(k);
-            tx.oncomplete=()=>{{db.close();resolve(true)}};tx.onabort=()=>reject('fixture write failed'); }};
-          r.onerror=()=>reject('fixture open failed');
-        }})"#))?;
-        let migrated = self.open("index.html?cells")?;
-        let saved = self
-            .cellular_record()?
-            .ok_or("opening migration lost save")?;
-        let state = decode(&saved)?;
-        self.check(
-            migrated
-                && state.terrain.game_pebbles().is_empty()
-                && state.tick == 17
-                && state.player["x"] == 200.25
-                && state.player["y"] == 40.5,
-            "real startup removes the saved opening pebble bed and preserves player/tick",
-        );
-        self.check(self.eval(&format!(r#"await new Promise((resolve,reject)=>{{
-          const r=indexedDB.open({DATABASE:?},1);r.onerror=()=>reject('open');r.onsuccess=()=>{{
-            const db=r.result,tx=db.transaction('world','readonly'),s=tx.objectStore('world');
-            const b=s.get('cleanup_backup'),m=s.get('cleanup_marker'),e=s.get('reset_epoch');
-            tx.oncomplete=()=>{{ const v=b.result,expected=atob({encoded:?});resolve(!!m.result && !!e.result && e.result[0]===1 && !!v && v.length===expected.length && v.every((c,i)=>c===expected.charCodeAt(i)));db.close(); }};
+        let large = object_from_frame(&large_fixture()?)?;
+        self.eval(&format!(r#"await new Promise((resolve, reject) => {{
+          const request = indexedDB.open({DATABASE:?}, 1);
+          request.onerror = () => reject(String(request.error));
+          request.onsuccess = () => {{
+            const db = request.result, tx = db.transaction('world', 'readwrite');
+            const raw = {large}, decode = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+            tx.objectStore('world').put({{format:raw.format, tick:decode(raw.tick),
+              player:decode(raw.player), index:decode(raw.index), pages:raw.pages.map(decode)}}, 'active');
+            tx.objectStore('world').delete('reset_epoch');
+            tx.onabort = () => {{ db.close(); reject(String(tx.error)); }};
+            tx.oncomplete = () => {{ db.close(); resolve(true); }};
           }};
-        }})"#))?.as_bool()==Some(true), "migration preserves exact backup and fences the previous epoch");
-        let replay = self.cellular_replay()?;
-        let mut restored = Sim::with_one_crab(replay.start);
+        }})"#))?;
+        let started = self.open("index.html?cells")?;
+        let loaded = started && self.attr("data-cell-save")?.as_deref() == Some("loaded");
+        let saved_large = loaded && self.wait_for(&format!(
+            "await (async () => {{ const r = {READ_PLAYER}; return !!r && r.tick > 17; }})()"
+        ), 90.0)?;
         self.check(
-            replay.prepare_start(&mut restored)
-                && restored
-                    .level
-                    .cells
-                    .as_ref()
-                    .is_some_and(|w| w.game_pebbles().is_empty()),
-            "migrated startup exports the new sandy replay checkpoint",
+            saved_large,
+            "a world larger than the former browser limit loads and autosaves",
         );
-        let migrated_bytes = STANDARD.encode(&saved);
-        let advanced = self.wait_for(
-            &format!("await (async () => ({READ}) !== {migrated_bytes:?})()"),
-            30.0,
+        if !saved_large {
+            return Ok(());
+        }
+        self.go("assets/crab/crab-atlas.png")?;
+        let saved = decode(
+            &self
+                .cellular_record()?
+                .ok_or("large autosave disappeared")?,
         )?;
-        self.check(advanced, "migrated world continues autosaving");
+        let chunks = crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&saved.terrain)
+            .map_err(|e| format!("large saved snapshot: {e:?}"))?
+            .sleeping_ids()
+            .count();
+        self.check(
+            chunks > 256 && saved.tick > 17,
+            format!(
+                "large autosave retains explored terrain ({chunks} sleeping chunks, tick {})",
+                saved.tick
+            ),
+        );
         let reloaded = self.open("index.html?cells")?;
         self.check(
             reloaded && self.attr("data-cell-save")?.as_deref() == Some("loaded"),
-            "migrated autosave reloads with a matching marker",
+            "the game reloads its own large paged autosave",
         );
-        let (x, y) = settings_button(self.o.width);
-        self.tap(x, y, 12, true)?;
-        let (x, y) = settings_tab(self.o.width, "game");
-        self.tap(x, y, 12, true)?;
-        let (x, y) = start_over_centre(self.o.width);
-        self.tap(x, y, 13, true)?;
-        self.tap(x, y, 14, true)?;
-        self.check(
-            self.wait_for(
-                &format!("{CANVAS}.getAttribute('data-cell-save') === 'fresh'"),
-                90.0,
-            )?,
-            "reset clears the migrated save and reloads fresh",
-        );
+
         Ok(())
     }
 }
@@ -514,15 +567,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fixture_has_distinct_terrain_player_and_checked_v2_envelope() {
+    fn fixture_has_distinct_terrain_player_and_checked_paged_record() {
         let bytes = fixture().unwrap();
         let saved = decode(&bytes).unwrap();
         assert_eq!(saved.tick, 17);
         assert_eq!(saved.player["x"], 400.0);
         assert!(saved.terrain.game_rock_at(MARKER.0, MARKER.1));
         let mut damaged = bytes;
-        damaged[24] ^= 1;
+        let last = damaged.len() - 1;
+        damaged[last] ^= 1;
         assert!(decode(&damaged).is_err());
+    }
+
+    #[test]
+    fn large_paged_fixture_survives_object_and_native_roundtrip() {
+        let frame = large_fixture().unwrap();
+        let object = object_from_frame(&frame).unwrap();
+        let roundtrip = frame_from_object(&object).unwrap();
+        assert_eq!(frame, roundtrip);
+        let restored = decode(&roundtrip).unwrap();
+        assert!(
+            crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&restored.terrain)
+                .unwrap()
+                .sleeping_ids()
+                .count()
+                > 256
+        );
     }
 
     #[test]
@@ -572,8 +642,12 @@ mod tests {
         assert!(saved.terrain.follow_player(&level, 525.141, -48.0));
         assert!(!saved.terrain.contains_world(MARKER.0, MARKER.1));
         assert!(!saved.terrain.game_rock_at(MARKER.0, MARKER.1));
-        let raw = crabsim::underwater::encode_browser_checkpoint(&saved.terrain).unwrap();
-        let restored = crabsim::underwater::decode_browser_checkpoint(&raw).unwrap();
+        let player: crabsim::SaveData = serde_json::from_value(saved.player.clone()).unwrap();
+        let raw = crabsim::cell_codec::paged::prepare(&player, &saved.terrain, saved.tick)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let restored = crabsim::cell_codec::paged::decode(&raw).unwrap().terrain;
         let before_inspection = restored.checkpoint();
         assert!(terrain_has_marker(&restored));
         assert_eq!(restored.checkpoint(), before_inspection);
