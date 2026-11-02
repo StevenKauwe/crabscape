@@ -2217,6 +2217,43 @@ impl World {
         true
     }
 
+    /// Apply the terrain part of one stationary solo crab's material tick.
+    pub(crate) fn step_idle_spectator(
+        &mut self,
+        level: &crate::Level,
+        p: &HostPlayerForce,
+    ) -> bool {
+        if !self.game
+            || self.tick >= u64::MAX - 1_000_000
+            || [p.x, p.y, p.half_width, p.half_height]
+                .iter()
+                .any(|v| !v.is_finite())
+            || p.x.abs() > 1_000_000.0
+            || p.y.abs() > 1_000_000.0
+            || !(0.0..=64.0).contains(&p.half_width)
+            || !(0.0..=64.0).contains(&p.half_height)
+            || p.half_width == 0.0
+            || p.half_height == 0.0
+            || p.wake_x != 0.0
+            || p.wake_y != 0.0
+            || p.walking != 0
+            || p.jumped
+            || p.dig.is_some()
+        {
+            return false;
+        }
+        let mut next = self.clone();
+        next.follow_player(level, p.x, p.y - p.half_height);
+        next.clear_game_crab();
+        if next.contains_world(p.x, p.y) {
+            let (x, y) = next.local_cell(p.x, p.y);
+            next.set_game_crab(x, y, p.half_width / GAME_CELL, p.half_height / GAME_CELL);
+        }
+        next.step(0.35);
+        *self = next;
+        true
+    }
+
     /// One material step at the current clock. Kept separate from visual
     /// particles and vegetation so an experimental host can step more than
     /// one disjoint active window without advancing global visuals twice.

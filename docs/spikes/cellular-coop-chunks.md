@@ -263,3 +263,12 @@ compares both complete terrain states to a third solo Sim at every tick. This
 is an exact narrow fixture, not a playable co-op mode: no player or creature
 can enter this seam, it uses a full world step and digest, and it is not wired
 into the game.
+
+A further isolated spectator test captures a single real, stationary host
+crab, advances the host's normal game loop, sends its body reservation via
+FakeLink, and compares the guest's full terrain to a solo simulation. The
+frame requires a post-step digest and rolls back on mismatch. The guest has no
+crab, ordinary crab messages are discarded by this fixture, and host movement,
+actions, creatures and active recording are rejected. This is one terrain
+tick, not player replication, movement prediction or a playable co-op test;
+full-world cloning and digesting remain unsuitable for phone gameplay.

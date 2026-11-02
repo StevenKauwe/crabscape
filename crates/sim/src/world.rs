@@ -879,6 +879,48 @@ impl Sim {
         self.tick_inner(false);
     }
 
+    /// Capture the sole stationary host crab for the isolated spectator-frame
+    /// experiment. Any movement, action, creature, or ambiguous local/remote
+    /// ownership is rejected; this does not enable playable co-op.
+    pub fn idle_shared_cell_force(&self) -> Option<crate::underwater::HostPlayerForce> {
+        if !self.online()
+            || !self.is_host()
+            || self.crabs.len() != 1
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || !self.tick.is_multiple_of(4)
+        {
+            return None;
+        }
+        let crab = &self.crabs[0];
+        if crab.remote
+            || crab.controls != Controls::default()
+            || crab.events.jumped
+            || crab.mover.vel != Vec2::ZERO
+        {
+            return None;
+        }
+        let half_height = crab.mover.height(&self.tuning) * 0.5;
+        let half_width = crab.mover.half_width(&self.tuning);
+        let center = crab.mover.pos + Vec2::Y * half_height;
+        if !center.is_finite() || !half_width.is_finite() || !half_height.is_finite() {
+            return None;
+        }
+        Some(crate::underwater::HostPlayerForce {
+            player: crab.id,
+            x: center.x,
+            y: center.y,
+            half_width,
+            half_height,
+            wake_x: 0.0,
+            wake_y: 0.0,
+            walking: 0,
+            grounded: crab.mover.grounded,
+            jumped: false,
+            dig: None,
+        })
+    }
+
     /// Start the isolated actor-free shared-cell clock at a fresh game tick.
     pub fn begin_empty_shared_cells(&mut self) -> bool {
         if !self.online()

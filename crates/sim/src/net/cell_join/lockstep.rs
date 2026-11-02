@@ -256,7 +256,23 @@ impl Guest {
             return Err(LockstepError::Diverged);
         }
         let before = frame.after_digest.map(|_| world.clone());
-        let step_result = if frame.interests.is_empty() && frame.players.is_empty() {
+        let step_result = if frame.interests.is_empty() && frame.players.len() == 1 {
+            if frame.after_digest.is_none()
+                || !guest.crabs().is_empty()
+                || !guest.enemies().is_empty()
+                || !guest.tick_count().is_multiple_of(4)
+                || guest
+                    .empty_shared_base()
+                    .and_then(|base| base.checked_add(guest.tick_count() / 4))
+                    != Some(world.tick_count())
+                || frame.current != 0.35
+                || !world.step_idle_spectator(&guest.level, &frame.players[0])
+            {
+                Err(HostStepError::UnsupportedPlayer)
+            } else {
+                Ok(())
+            }
+        } else if frame.interests.is_empty() && frame.players.is_empty() {
             if !guest.crabs().is_empty()
                 || !guest.enemies().is_empty()
                 || !guest.tick_count().is_multiple_of(4)
@@ -463,6 +479,80 @@ mod tests {
         );
         assert_eq!(host.tick_count(), tick);
         assert_eq!(host.level.cells, terrain);
+    }
+
+    #[test]
+    fn one_idle_host_player_matches_solo_on_spectator_over_fake_link() {
+        let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        host.enable_underwater_cells();
+        let mut solo = host.clone();
+        let mut guest = Sim::new(crate::Tuning::default(), crate::Level::test_level());
+        guest.enable_underwater_cells();
+        host.go_online(true);
+        guest.go_online(false);
+        let mut visit = GuestJoin::new(peer(7));
+        for msg in HostCheckpoint::capture(&host)
+            .unwrap()
+            .messages(77)
+            .unwrap()
+        {
+            visit
+                .accept(&mut guest, peer(7), Some(peer(7)), &msg)
+                .unwrap();
+        }
+        assert!(guest.begin_empty_shared_cells());
+        let mut stream = Guest::from_join(&visit).unwrap();
+        let force = host
+            .idle_shared_cell_force()
+            .expect("stationary host player");
+        let mut unsupported = guest.level.cells.clone().unwrap();
+        let before = unsupported.clone();
+        let mut moving = force;
+        moving.wake_x = 1.0;
+        assert!(!unsupported.step_idle_spectator(&guest.level, &moving));
+        assert_eq!(unsupported, before);
+        let world_tick = host.level.cells.as_ref().unwrap().tick_count();
+        host.tick();
+        solo.tick();
+        assert_eq!(host.level.cells, solo.level.cells);
+        let frame = Frame {
+            epoch: 77,
+            number: 0,
+            world_tick,
+            current: 0.35,
+            interests: vec![],
+            players: vec![force],
+            after_digest: Some(digest(host.level.cells.as_ref().unwrap()).unwrap()),
+        };
+        let mut link = crate::net::FakeLink::steady(0);
+        link.test_post(0, 1, Msg::CellFrame(frame.to_bytes().unwrap()));
+        let mut result = None;
+        link.carry_with(&mut [&mut host, &mut guest], |from, to, sim, msg| {
+            let decoded = Msg::from_bytes(&msg.to_bytes()).unwrap();
+            let Msg::CellFrame(bytes) = decoded else {
+                return;
+            };
+            assert_eq!((from, to), (0, 1));
+            result = Some(stream.apply(&visit, sim, peer(7), Some(peer(7)), &bytes));
+        });
+        assert_eq!(result, Some(Ok(())));
+        assert!(guest.tick_empty_shared_cells());
+        assert_eq!(guest.level.cells, solo.level.cells);
+        host.set_controls(
+            PlayerId(0),
+            crate::Controls {
+                walk: 1.0,
+                ..Default::default()
+            },
+        );
+        // Advance to the next material tick before checking the input guard.
+        for _ in 0..3 {
+            host.tick();
+        }
+        assert!(
+            host.idle_shared_cell_force().is_none(),
+            "movement is not supported by this spectator path"
+        );
     }
 
     #[test]
