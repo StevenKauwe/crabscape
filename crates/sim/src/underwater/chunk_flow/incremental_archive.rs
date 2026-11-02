@@ -1,6 +1,9 @@
 //! Bounded-work archive validation experiment. The immutable borrow is the
 //! proof's lifetime: no mutable world access is possible while it is scanned.
 //! This does not yet authorize later writes, other worlds, or game integration.
+#[cfg(test)]
+mod owned;
+
 use super::{Cell, HEIGHT, SIDE, TERRAIN_CHUNK_CELLS, WIDTH, World};
 use crate::underwater::SleepingChunk;
 
