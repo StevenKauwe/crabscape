@@ -240,32 +240,16 @@ pub fn install_preloaded(
     match loaded {
         Ok(None) => (None, super::ReplayStart::Legacy, None),
         Ok(Some(saved)) if super::player_fits_world(sim, &saved.player) => {
-            let original = sim.clone();
-            if !sim.restore_cellular_terrain(saved.terrain, saved.sim_tick) {
+            if !super::install_terrain_and_validate(
+                sim,
+                saved.terrain,
+                saved.sim_tick,
+                &saved.player,
+            ) {
                 return (
                     None,
                     super::ReplayStart::Unavailable,
-                    Some("incompatible terrain".into()),
-                );
-            }
-            let size = saved.player.progress.as_ref().map_or(1.0, |progress| {
-                let mut mover = crabsim::Mover::new(crabsim::SPAWN);
-                (mover.moults, mover.growing) = (progress.moults, progress.growing);
-                mover.grown(&sim.tuning)
-            });
-            let position = bevy::math::Vec2::new(
-                saved.player.x,
-                saved
-                    .player
-                    .y
-                    .min(crabsim::level::WATER_SURFACE_Y - sim.tuning.body_height * size),
-            );
-            if !crate::player::valid_saved_spot(position, size, sim) {
-                *sim = original;
-                return (
-                    None,
-                    super::ReplayStart::Unavailable,
-                    Some("saved position is not safe".into()),
+                    Some("saved terrain or position is not safe".into()),
                 );
             }
             let replay = match saved.replay {

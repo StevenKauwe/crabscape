@@ -32,48 +32,14 @@ fn build_saved(start: SavedStartup, world: World) -> Result<Sim, GuardedError> {
     if !sim.restore_cellular_terrain(world, setup.sim_tick) {
         return Err(GuardedError::Invalid);
     }
-    if let Some(progress) = &player.progress {
-        let fresh = sim.fresh_progress();
-        if !progress.climb_xp.is_finite()
-            || !progress.swim_xp.is_finite()
-            || !progress.fight_xp.is_finite()
-            || progress.cast_offs.iter().any(|c| !c.pos.is_finite())
-            || u32::try_from(fresh.eaten.len())
-                .ok()
-                .and_then(|eggs| {
-                    progress
-                        .upgrades
-                        .checked_add(sim.tuning.swim_strokes)?
-                        .checked_add(eggs)
-                })
-                .is_none()
-            || progress.eaten.len() > fresh.eaten.len()
-            || progress.cultures_taken.len() > fresh.cultures_taken.len()
-            || progress.clues_found.len() > fresh.clues_found.len()
-            || progress.teeth_taken.len() > fresh.teeth_taken.len()
-            || progress.nets_cut.len() > fresh.nets_cut.len()
-            || progress.rocks_cracked.len() > fresh.rocks_cracked.len()
-            || progress.clams.len() > fresh.clams.len()
-            || progress.grit_taken.len() > fresh.grit_taken.len()
-            || progress.sponges_taken.len() > fresh.sponges_taken.len()
-            || progress.larder
-                > crate::world::larder_holds(
-                    sim.tuning.build.stage(progress.home_grit),
-                    &sim.tuning,
-                )
-            || progress
-                .wakes_at
-                .is_some_and(|i| i >= sim.level.crevices.len())
-        {
-            return Err(GuardedError::Invalid);
-        }
-    }
-    if player.memory.as_ref().is_some_and(|m| {
-        m.sightings
-            .iter()
-            .any(|s| !s.pos.is_finite() || !s.facing.is_finite())
-    }) {
+    if !crate::save_data::player_fits_world(&sim, &player) {
         return Err(GuardedError::Invalid);
+    }
+    // The saved world may already have opened these obstacles. Apply the
+    // validated progress before checking the player's saved position; doing
+    // it afterwards would reject a crab inside an already-cleared passage.
+    if let Some(progress) = &player.progress {
+        sim.apply_progress_obstacles(progress);
     }
     let memory = player
         .memory
@@ -486,6 +452,40 @@ mod tests {
             world.sleeping.remove(id);
         }
         clone.state_hash()
+    }
+
+    #[test]
+    fn saved_open_passages_are_checked_after_restoring_obstacles() {
+        for (x, y, rock) in [(5042.0, -690.0, true), (4308.0, -4360.0, false)] {
+            for opened in [false, true] {
+                let level = Level::test_level();
+                let mut world = World::from_level_settled(&level);
+                assert!(world.follow_player(&level, x, y));
+                let mut progress = Sim::new(Tuning::default(), level.clone()).fresh_progress();
+                if rock {
+                    progress.rocks_cracked[0] = opened;
+                } else {
+                    progress.nets_cut[0] = opened;
+                }
+                let start = SavedStartup {
+                    setup: SavedSetup {
+                        level,
+                        tuning: Tuning::default(),
+                        feel: Feel::default(),
+                        sim_tick: 17,
+                    },
+                    player: SaveData {
+                        version: crate::SAVE_VERSION,
+                        x,
+                        y,
+                        memory: None,
+                        progress: Some(progress),
+                    },
+                };
+                let loaded = build_saved(start, world);
+                assert_eq!(loaded.is_ok(), opened, "rock={rock}, opened={opened}");
+            }
+        }
     }
 
     #[test]

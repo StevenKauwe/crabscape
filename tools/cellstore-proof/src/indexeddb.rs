@@ -1237,6 +1237,15 @@ fn legacy_fixture(
     version: u8,
 ) -> Result<Vec<u8>, String> {
     let player = serde_json::to_vec(player).map_err(|e| e.to_string())?;
+    legacy_fixture_json(sim, player, version)
+}
+
+#[cfg(feature = "browser-proof")]
+fn legacy_fixture_json(
+    sim: &crabsim::Sim,
+    player: Vec<u8>,
+    version: u8,
+) -> Result<Vec<u8>, String> {
     let terrain = postcard::to_allocvec(
         &sim.level
             .cells
@@ -1278,6 +1287,130 @@ fn legacy_fixture(
     Ok(out)
 }
 
+// Mirror the live loader's player compatibility check before a migration can
+// stage or publish anything. Source bytes stay untouched on every error.
+#[cfg(feature = "browser-proof")]
+fn migration_decode(
+    bytes: &[u8],
+    sim: &crabsim::Sim,
+) -> Result<crabsim::cell_codec::Restored, String> {
+    let restored =
+        crabsim::cell_codec::decode(bytes).map_err(|e| format!("legacy decode: {e:?}"))?;
+    if !crabsim::save_data::player_fits_world(sim, &restored.player) {
+        return Err("incompatible legacy player".into());
+    }
+    Ok(restored)
+}
+
+// Verify and reconstruct the complete candidate before any destination stage.
+// This deliberately favors safety over memory: it is not the live migrator.
+#[cfg(feature = "browser-proof")]
+fn prepare_migration(
+    saved: &crabsim::cell_codec::Restored,
+) -> Result<
+    (
+        Vec<u8>,
+        crabsim::underwater::frozen_chunks::FrozenChunks,
+        crabsim::underwater::frozen_chunks::CaptureIndex,
+    ),
+    String,
+> {
+    use crabsim::underwater::frozen_chunks::{
+        CaptureIndex, FrozenChunks, GuardedBuilder, IndexVerifier, SavedSetup,
+    };
+    let player = serde_json::to_vec(&saved.player).map_err(|e| e.to_string())?;
+    let frozen = FrozenChunks::capture(&saved.terrain, 64 * 1024 * 1024)
+        .map_err(|e| format!("capture: {e:?}"))?;
+    let index = CaptureIndex::capture(&frozen, saved.sim_tick, &player, digest)
+        .map_err(|e| format!("index: {e:?}"))?;
+    let metadata = frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?;
+    let mut verifier = IndexVerifier::new(
+        &index.encode(),
+        &metadata,
+        saved.sim_tick,
+        index.part_count(),
+        &player,
+        2_000_000,
+        digest,
+    )
+    .map_err(|e| format!("verify: {e:?}"))?;
+    let (cols, rows) = frozen.active_dimensions();
+    let mut slot = 2;
+    for y in 0..rows {
+        for x in 0..cols {
+            verifier
+                .accept(
+                    slot,
+                    &frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?,
+                )
+                .map_err(|e| format!("verify active: {e:?}"))?;
+            slot += 1;
+        }
+    }
+    for &id in index.sleeping() {
+        verifier
+            .accept(
+                slot,
+                &frozen
+                    .sleeping(id)
+                    .map_err(|e| format!("sleeping: {e:?}"))?,
+            )
+            .map_err(|e| format!("verify sleeping: {e:?}"))?;
+        slot += 1;
+    }
+    let verified = verifier
+        .finish()
+        .map_err(|e| format!("verify finish: {e:?}"))?;
+    let setup = SavedSetup {
+        level: crabsim::Level::test_level(),
+        tuning: crabsim::Tuning::default(),
+        feel: crabsim::Feel::default(),
+        sim_tick: saved.sim_tick,
+    };
+    let mut builder =
+        GuardedBuilder::from_saved(setup, &player, &metadata, &verified, digest, 2_000_000)
+            .map_err(|e| format!("player: {e:?}"))?;
+    for y in 0..rows {
+        for x in 0..cols {
+            builder
+                .active(
+                    x as u16,
+                    y as u16,
+                    &frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?,
+                )
+                .map_err(|e| format!("stage active: {e:?}"))?;
+        }
+    }
+    let mut guarded = builder
+        .install()
+        .map_err(|e| format!("unsafe saved player: {e:?}"))?;
+    for &id in index.sleeping() {
+        let ticket = guarded
+            .begin_sleeping(id)
+            .map_err(|e| format!("ticket: {e:?}"))?;
+        guarded
+            .accept_sleeping(
+                ticket,
+                &frozen
+                    .sleeping(id)
+                    .map_err(|e| format!("sleeping: {e:?}"))?,
+            )
+            .map_err(|e| format!("hydrate: {e:?}"))?;
+    }
+    let reconstructed = guarded.finish().map_err(|e| format!("finish: {e:?}"))?;
+    if reconstructed
+        .level
+        .cells
+        .as_ref()
+        .ok_or("reconstructed terrain")?
+        .checkpoint()
+        != saved.terrain.checkpoint()
+    {
+        return Err("candidate terrain differs".into());
+    }
+    Ok((player, frozen, index))
+}
+
 #[cfg(feature = "browser-proof")]
 async fn source_bytes(db: &ChunkStore) -> Result<Vec<u8>, String> {
     let pin = db.pin().await?;
@@ -1317,7 +1450,6 @@ async fn seed_source(db: &ChunkStore, bytes: &[u8]) -> Result<(), String> {
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
     async fn run(name: &str) -> Result<(), String> {
-        use crabsim::underwater::frozen_chunks::{CaptureIndex, FrozenChunks};
         let (sim, player) = reload_fixture()?;
         for version in [1, 2] {
             let source = ChunkStore::open(&format!("{name}.legacy-v{version}")).await?;
@@ -1331,14 +1463,83 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
             db.stage(previous, vec![b"previous head".to_vec()]).await?;
             db.publish(previous, 1).await?;
             let original = source_bytes(&source).await?;
+            // Valid CRC does not make impossible player progress safe. Keep a
+            // separate malformed source intact and retain the previous head.
+            let invalid_source = ChunkStore::open(&format!("{name}.invalid-v{version}")).await?;
+            let mut invalid_player = player.clone();
+            invalid_player
+                .progress
+                .as_mut()
+                .ok_or("missing progress")?
+                .upgrades = u32::MAX;
+            let invalid = legacy_fixture(&sim, &invalid_player, version)?;
+            seed_source(&invalid_source, &invalid).await?;
+            let invalid_read = source_bytes(&invalid_source).await?;
+            if crabsim::cell_codec::decode(&invalid_read).is_err()
+                || migration_decode(&invalid_read, &sim).is_ok()
+            {
+                return Err("malformed player was not rejected before publish".into());
+            }
+            let unchanged = db.pin().await?;
+            if db.pinned_part(unchanged, 0).await? != b"previous head"
+                || source_bytes(&invalid_source).await? != invalid
+            {
+                return Err("invalid player changed prior data".into());
+            }
+            db.unpin(unchanged).await?;
+            let json = serde_json::to_string(&player).map_err(|e| e.to_string())?;
+            let infinite_json = json.replace("\"climb_xp\":0.75", "\"climb_xp\":1e99");
+            if json == infinite_json {
+                return Err("missing fixture XP".into());
+            }
+            let infinite = legacy_fixture_json(&sim, infinite_json.into_bytes(), version)?;
+            seed_source(&invalid_source, &infinite).await?;
+            let infinite_read = source_bytes(&invalid_source).await?;
+            if crabsim::cell_codec::decode(&infinite_read).is_err()
+                || migration_decode(&infinite_read, &sim).is_ok()
+            {
+                return Err("nonfinite XP was not rejected before publish".into());
+            }
+            let unchanged = db.pin().await?;
+            if db.pinned_part(unchanged, 0).await? != b"previous head"
+                || source_bytes(&invalid_source).await? != infinite
+            {
+                return Err("nonfinite player changed prior data".into());
+            }
+            db.unpin(unchanged).await?;
+            let mut unsafe_player = player.clone();
+            unsafe_player.x = sim.level.max_x + 1000.0;
+            let unsafe_bytes = legacy_fixture(&sim, &unsafe_player, version)?;
+            seed_source(&invalid_source, &unsafe_bytes).await?;
+            let unsafe_read = source_bytes(&invalid_source).await?;
+            let unsafe_saved = migration_decode(&unsafe_read, &sim)?;
+            if prepare_migration(&unsafe_saved).is_ok() {
+                return Err("unsafe saved position accepted".into());
+            }
+            let unchanged = db.pin().await?;
+            if db.pinned_part(unchanged, 0).await? != b"previous head"
+                || source_bytes(&invalid_source).await? != unsafe_bytes
+            {
+                return Err("unsafe position changed prior data".into());
+            }
+            db.unpin(unchanged).await?;
+            // Cross-world/legacy progress can contain more upgrades than this
+            // level's eggs and shorter old lists; it must remain compatible.
+            let mut compatible = player.clone();
+            let progress = compatible.progress.as_mut().ok_or("missing progress")?;
+            progress.upgrades = sim.fresh_progress().eaten.len() as u32 + 5;
+            progress.eaten.clear();
+            progress.climb_xp = -0.5;
+            if migration_decode(&legacy_fixture(&sim, &compatible, version)?, &sim).is_err() {
+                return Err("valid legacy progress rejected".into());
+            }
             let mut corrupt = original.clone();
             let last = corrupt.len().checked_sub(1).ok_or("empty fixture")?;
             corrupt[last] ^= 1;
             if crabsim::cell_codec::decode(&corrupt).is_ok() {
                 return Err("corrupt legacy accepted".into());
             }
-            let restored = crabsim::cell_codec::decode(&original)
-                .map_err(|e| format!("legacy decode: {e:?}"))?;
+            let restored = migration_decode(&original, &sim)?;
             if restored.player != player
                 || restored.sim_tick != sim.tick_count()
                 || restored.terrain.checkpoint()
@@ -1346,11 +1547,7 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
             {
                 return Err("legacy decode mismatch".into());
             }
-            let player_bytes = serde_json::to_vec(&restored.player).map_err(|e| e.to_string())?;
-            let frozen = FrozenChunks::capture(&restored.terrain, 64 * 1024 * 1024)
-                .map_err(|e| format!("capture: {e:?}"))?;
-            let index = CaptureIndex::capture(&frozen, restored.sim_tick, &player_bytes, digest)
-                .map_err(|e| format!("index: {e:?}"))?;
+            let (player_bytes, frozen, index) = prepare_migration(&restored)?;
             let interrupted = db
                 .begin(epoch, restored.sim_tick, player_bytes.clone())
                 .await?;

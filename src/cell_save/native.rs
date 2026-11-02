@@ -72,14 +72,18 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
                 warn!("cellular save has incompatible player data; keeping the old file unchanged");
                 return None;
             }
-            if sim.restore_cellular_terrain(saved.terrain, saved.sim_tick) {
-                storage.replay = saved.replay;
-                Some(saved.player)
-            } else {
+            if !super::install_terrain_and_validate(
+                sim,
+                saved.terrain,
+                saved.sim_tick,
+                &saved.player,
+            ) {
                 storage.disabled = true;
-                warn!("cellular save could not be restored; keeping the old file unchanged");
-                None
+                warn!("cellular save could not be safely restored; keeping the old file unchanged");
+                return None;
             }
+            storage.replay = saved.replay;
+            Some(saved.player)
         }
         Err(e) => {
             storage.disabled = true;
@@ -253,10 +257,18 @@ mod tests {
         let level = Level::test_level();
         assert!(terrain.follow_player(&level, 4400.0, -700.0));
         terrain.step(0.35);
+        let y = (-1200..0)
+            .step_by(10)
+            .map(|y| y as f32)
+            .find(|&y| {
+                crate::player::valid_saved_spot(bevy::math::Vec2::new(4400.25, y), 1.0, &original)
+            })
+            .expect("fixture has a safe saved position");
+        let terrain = original.level.cells.as_ref().unwrap();
         let player = SaveData {
             version: crate::save::SAVE_VERSION,
             x: 4400.25,
-            y: -710.75,
+            y,
             memory: None,
             progress: None,
         };
@@ -272,6 +284,54 @@ mod tests {
         );
         assert!(!state.disabled);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn saved_open_passages_load_and_closed_passages_roll_back() {
+        for (name, x, y, rock) in [
+            ("rock", 5042.0, -690.0, true),
+            ("net", 4308.0, -4360.0, false),
+        ] {
+            for opened in [false, true] {
+                let path = path(&format!("passage-{name}-{opened}"));
+                let level = Level::test_level();
+                let mut terrain = World::from_level_settled(&level);
+                assert!(terrain.follow_player(&level, x, y));
+                let original = sim();
+                let mut progress = original.fresh_progress();
+                if rock {
+                    progress.rocks_cracked[0] = opened;
+                } else {
+                    progress.nets_cut[0] = opened;
+                }
+                let player = SaveData {
+                    version: crate::save::SAVE_VERSION,
+                    x,
+                    y,
+                    memory: None,
+                    progress: Some(progress),
+                };
+                let bytes = super::super::encode(&player, &terrain, 17).unwrap();
+                super::super::write_atomic(&path, &bytes).unwrap();
+                let mut restored = sim();
+                let mut storage = Storage::default();
+                let result = load_path(&mut restored, &mut storage, &path);
+                if opened {
+                    assert_eq!(result, Some(player), "opened {name} should load");
+                    assert!(!storage.disabled);
+                } else {
+                    assert!(result.is_none(), "closed {name} must block load");
+                    assert!(storage.disabled);
+                    assert!(
+                        restored.level.cells.is_none(),
+                        "failed load must roll back terrain"
+                    );
+                    assert_eq!(restored.tick_count(), 0);
+                }
+                assert_eq!(std::fs::read(&path).unwrap(), bytes);
+                std::fs::remove_file(path).unwrap();
+            }
+        }
     }
 
     #[test]

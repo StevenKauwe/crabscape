@@ -273,3 +273,15 @@ comparison. These are test-created envelopes and proof databases; this is not
 yet migration from the live IndexedDB schema or a tested quota-exhaustion path.
 The observed Wasm linear-memory capacity reached 65,077,248 bytes in the desktop
 Chrome migration fixture; it is not a total process peak or an iPhone bound.
+
+The migration fixture now applies the live player compatibility validator before
+starting a destination stage. Checksummed v1 and v2 sources with impossible
+upgrade counts or nonfinite XP are rejected while both the source bytes and the
+previous destination head remain intact. Short old progress lists and upgrades
+carried from another world remain acceptable. Before staging, the fixture also
+verifies every candidate page, reconstructs the full terrain, and applies the
+guarded player's terrain/position checks. A checksummed source with an unsafe
+position is rejected with both source and prior target untouched. This
+conservative validation can reject otherwise valid saves outside its active
+window or above its 256 sleeping-page hydration limit; it retains multiple world
+copies and is not a bounded-memory production migration.

@@ -97,55 +97,37 @@ pub fn prepare(
     Ok((header, raw))
 }
 
-/// `restore_progress` intentionally accepts old, shorter lists, but silently
-/// drops lists that no longer fit the level. For an atomic cellular save that
-/// would overwrite the original with partial progress on the next autosave.
-/// Validate first, before installing either the terrain or the player.
-pub(crate) fn player_fits_world(sim: &crabsim::Sim, player: &SaveData) -> bool {
-    if let Some(memory) = &player.memory
-        && (memory
-            .sightings
-            .iter()
-            .any(|s| !s.pos.is_finite() || !s.facing.is_finite())
-            || crabsim::Memory::from_save(memory, &sim.level, &sim.tuning.memory).is_none())
-    {
+pub(crate) use crabsim::save_data::player_fits_world;
+
+/// Install the terrain and the saved passage state as one tentative operation.
+/// Both browser and desktop use this before allowing the saved position.
+fn install_terrain_and_validate(
+    sim: &mut crabsim::Sim,
+    terrain: World,
+    tick: u64,
+    player: &SaveData,
+) -> bool {
+    let original = sim.clone();
+    if !sim.restore_cellular_terrain(terrain, tick) {
         return false;
     }
     if let Some(progress) = &player.progress {
-        let current = sim.fresh_progress();
-        if !progress.climb_xp.is_finite()
-            || !progress.swim_xp.is_finite()
-            || !progress.fight_xp.is_finite()
-            || progress.cast_offs.iter().any(|c| !c.pos.is_finite())
-            || u32::try_from(current.eaten.len())
-                .ok()
-                .and_then(|eggs| {
-                    progress
-                        .upgrades
-                        .checked_add(sim.tuning.swim_strokes)?
-                        .checked_add(eggs)
-                })
-                .is_none()
-            || progress.eaten.len() > current.eaten.len()
-            || progress.cultures_taken.len() > current.cultures_taken.len()
-            || progress.clues_found.len() > current.clues_found.len()
-            || progress.teeth_taken.len() > current.teeth_taken.len()
-            || progress.nets_cut.len() > current.nets_cut.len()
-            || progress.rocks_cracked.len() > current.rocks_cracked.len()
-            || progress.clams.len() > current.clams.len()
-            || progress.grit_taken.len() > current.grit_taken.len()
-            || progress.sponges_taken.len() > current.sponges_taken.len()
-            || progress.larder
-                > crabsim::world::larder_holds(
-                    sim.tuning.build.stage(progress.home_grit),
-                    &sim.tuning,
-                )
-            || progress
-                .wakes_at
-                .is_some_and(|i| i >= sim.level.crevices.len())
-        {
-            return false;
-        }
+        sim.apply_progress_obstacles(progress);
+    }
+    let size = player.progress.as_ref().map_or(1.0, |progress| {
+        let mut mover = crabsim::Mover::new(crabsim::SPAWN);
+        (mover.moults, mover.growing) = (progress.moults, progress.growing);
+        mover.grown(&sim.tuning)
+    });
+    let position = bevy::math::Vec2::new(
+        player.x,
+        player
+            .y
+            .min(crabsim::level::WATER_SURFACE_Y - sim.tuning.body_height * size),
+    );
+    if !crate::player::valid_saved_spot(position, size, sim) {
+        *sim = original;
+        return false;
     }
     true
 }
