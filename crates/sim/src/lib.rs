@@ -81,7 +81,7 @@ pub use memory::{Memory, MemorySave, Sight, Sighting};
 pub use moult::Feat;
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use progress::Progress;
-pub use replay::Replay;
+pub use replay::{Replay, VerifiedCellStart};
 pub use skills::Skill;
 pub use tuning::Tuning;
 pub use world::{CastOff, PlayerId, Sim, SimCrab, Snapshot};

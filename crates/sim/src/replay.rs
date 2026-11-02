@@ -76,6 +76,7 @@ use crate::tuning::Tuning;
 
 mod cell_start;
 use cell_start::CellStart;
+pub use cell_start::VerifiedCellStart;
 
 /// An upper bound on saved map data accepted or emitted with a replay.
 const MAX_START_MEMORY: usize = 1024 * 1024;
@@ -451,6 +452,17 @@ impl Replay {
         let Some(terrain) = start.restore() else {
             return false;
         };
+        self.prepare_start_with_terrain(sim, terrain)
+    }
+
+    pub(crate) fn prepare_start_with_terrain(
+        &self,
+        sim: &mut crate::Sim,
+        terrain: crate::underwater::World,
+    ) -> bool {
+        let Some(start) = &self.cell_start else {
+            return false;
+        };
         let mut restored = crate::Sim::new(Tuning::default(), crate::Level::test_level());
         if !restored.restore_cellular_terrain(terrain, start.tick) {
             return false;
@@ -605,6 +617,11 @@ impl Recorder {
         true
     }
 
+    pub(crate) fn note_verified_cell_start(&mut self, verified: &VerifiedCellStart) {
+        self.replay.cell_start = Some(verified.start.clone());
+        self.replay.cellular = true;
+    }
+
     pub(crate) fn cell_start_bytes(terrain: &crate::underwater::World) -> Option<Vec<u8>> {
         CellStart::checkpoint_bytes(terrain)
     }
@@ -620,6 +637,13 @@ impl Recorder {
 
     pub(crate) fn has_cell_start(&self) -> bool {
         self.replay.has_cell_start()
+    }
+
+    pub(crate) fn cell_start_len(&self) -> Option<usize> {
+        self.replay
+            .cell_start
+            .as_ref()
+            .map(|start| start.text().len())
     }
 
     /// The controls used on `tick`. Only changes and presses are kept.

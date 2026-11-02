@@ -1711,7 +1711,7 @@ impl Sim {
     /// be replayed later. Call this before the first tick: a replay starts
     /// from a crab standing still.
     pub fn start_recording(&mut self) {
-        self.start_recording_impl(None);
+        self.start_recording_impl(None, None);
     }
 
     /// A serialized terrain checkpoint that can be compressed off-thread for
@@ -1732,11 +1732,29 @@ impl Sim {
             self.recorder = None;
             return false;
         }
-        self.start_recording_impl(Some(packed));
+        self.start_recording_impl(Some(packed), None);
         self.recorder.is_some()
     }
 
-    fn start_recording_impl(&mut self, compressed_terrain: Option<&[u8]>) {
+    /// Reuse a checkpoint already validated while loading a save. The token
+    /// is rejected if the terrain or clock has changed since it was decoded.
+    pub fn start_recording_with_verified_terrain(
+        &mut self,
+        verified: &crate::VerifiedCellStart,
+    ) -> bool {
+        if self.tick == 0 || self.level.cells.is_none() {
+            self.recorder = None;
+            return false;
+        }
+        self.start_recording_impl(None, Some(verified));
+        self.recorder.is_some()
+    }
+
+    fn start_recording_impl(
+        &mut self,
+        compressed_terrain: Option<&[u8]>,
+        verified: Option<&crate::VerifiedCellStart>,
+    ) {
         // A saved cellular session can start after tick zero. Arbitrary
         // mid-session recordings would also need enemy, RNG, and transient
         // player state; accept only a reproducible pre-population startup.
@@ -1781,9 +1799,14 @@ impl Sim {
                 self.recorder = None;
                 return;
             };
-            let terrain_noted = match compressed_terrain {
-                Some(packed) => rec.note_compressed_cell_start(packed, self.tick),
-                None => rec.note_cell_start(terrain, self.tick),
+            let terrain_noted = match (verified, compressed_terrain) {
+                (Some(token), _) if token.matches(terrain, self.tick) => {
+                    rec.note_verified_cell_start(token);
+                    true
+                }
+                (Some(_), _) => false,
+                (None, Some(packed)) => rec.note_compressed_cell_start(packed, self.tick),
+                (None, None) => rec.note_cell_start(terrain, self.tick),
             };
             if !terrain_noted || !rec.note_memory(&self.crabs[0].memory) {
                 self.recorder = None;
@@ -1793,8 +1816,14 @@ impl Sim {
             // format reconstructs. Never claim an exact replay otherwise.
             let replay = rec.replay(self.tick);
             let mut restored = Sim::with_one_crab(start);
+            if let Some(token) = verified
+                && !replay.prepare_start_with_terrain(&mut restored, token.world.clone())
+            {
+                self.recorder = None;
+                return;
+            }
             replay.apply_at(&mut restored);
-            if !self.matches_recording_start(&restored) {
+            if !self.matches_recording_start(&restored, verified.is_none()) {
                 self.recorder = None;
                 return;
             }
@@ -1809,7 +1838,7 @@ impl Sim {
     /// is checked separately because it is intentionally omitted from that
     /// hash. Pending controls, also omitted by `state_hash`, do not affect the
     /// recorded initial state.
-    fn matches_recording_start(&self, other: &Self) -> bool {
+    fn matches_recording_start(&self, other: &Self, check_terrain: bool) -> bool {
         let crabs = |sim: &Self| -> Vec<SimCrab> {
             sim.crabs
                 .iter()
@@ -1842,6 +1871,9 @@ impl Sim {
         {
             return false;
         }
+        if !check_terrain {
+            return true;
+        }
         match (&self.level.cells, &other.level.cells) {
             (Some(a), Some(b)) => {
                 let a = postcard::to_allocvec(&a.checkpoint());
@@ -1860,6 +1892,12 @@ impl Sim {
             hash: (r.first_tick == 0 || r.has_cell_start()).then(|| self.state_hash()),
             ..r.replay(self.tick)
         })
+    }
+
+    /// Size of a resumed replay's encoded terrain without cloning the replay
+    /// or hashing the world. Reports can refuse oversized payloads cheaply.
+    pub fn recording_cell_start_len(&self) -> Option<usize> {
+        self.recorder.as_ref().and_then(Recorder::cell_start_len)
     }
 
     /// A fingerprint of the whole world's state. Two runs whose fingerprints
@@ -2251,16 +2289,16 @@ mod tests {
         let mut original = Sim::with_one_crab(SPAWN);
         original.enable_underwater_cells();
         let mut other = original.clone();
-        assert!(original.matches_recording_start(&other));
+        assert!(original.matches_recording_start(&other, true));
         other.crabs[0].controls.walk = 1.0;
-        assert!(original.matches_recording_start(&other));
+        assert!(original.matches_recording_start(&other, true));
         other.crabs[0].mover.pos.x += 1.0;
-        assert!(!original.matches_recording_start(&other));
+        assert!(!original.matches_recording_start(&other, true));
         other = original.clone();
         other.crabs[0].memory.now += 1;
-        assert!(!original.matches_recording_start(&other));
+        assert!(!original.matches_recording_start(&other, true));
         other = original.clone();
         other.level.cells.as_mut().unwrap().step(0.35);
-        assert!(!original.matches_recording_start(&other));
+        assert!(!original.matches_recording_start(&other, true));
     }
 }

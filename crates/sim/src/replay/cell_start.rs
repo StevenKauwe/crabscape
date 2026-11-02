@@ -15,6 +15,48 @@ pub(crate) struct CellStart {
     encoded: String,
 }
 
+/// A compressed replay checkpoint that has already been inflated and
+/// validated. Its fields are private so callers cannot pair different
+/// compressed bytes and terrain. A live simulation must still compare its
+/// current checkpoint and tick before reusing this token.
+#[derive(Clone, Debug)]
+pub struct VerifiedCellStart {
+    pub(crate) start: CellStart,
+    pub(crate) raw: Vec<u8>,
+    pub(crate) world: World,
+}
+
+impl VerifiedCellStart {
+    /// Validate a compressed postcard checkpoint once, including its shape.
+    pub fn from_compressed(packed: &[u8], tick: u64) -> Option<Self> {
+        let start = CellStart::from_compressed(packed, tick)?;
+        let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(packed, MAX_RAW).ok()?;
+        let (checkpoint, trailing): (WorldCheckpoint, &[u8]) =
+            postcard::take_from_bytes(&raw).ok()?;
+        if !trailing.is_empty() {
+            return None;
+        }
+        let world = checkpoint.into_world()?;
+        if !world.is_game_world() {
+            return None;
+        }
+        Some(Self { start, raw, world })
+    }
+
+    pub fn raw(&self) -> &[u8] {
+        &self.raw
+    }
+
+    pub fn world(&self) -> &World {
+        &self.world
+    }
+
+    pub(crate) fn matches(&self, world: &World, tick: u64) -> bool {
+        self.start.tick == tick
+            && CellStart::checkpoint_bytes(world).is_some_and(|bytes| bytes == self.raw)
+    }
+}
+
 impl CellStart {
     pub fn checkpoint_bytes(world: &World) -> Option<Vec<u8>> {
         let raw = postcard::to_allocvec(&world.checkpoint()).ok()?;

@@ -177,10 +177,27 @@ fn worker_compressed_recording_rejects_corrupt_and_stale_terrain() {
     resumed.add_crab(PlayerId(0), Vec2::new(400.0, 0.0));
     let raw = resumed.recording_terrain_bytes().unwrap();
     let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+    let verified = crabsim::VerifiedCellStart::from_compressed(&packed, 17).unwrap();
+    assert!(crabsim::VerifiedCellStart::from_compressed(b"invalid", 17).is_none());
+    let mut verified_run = resumed.clone();
+    assert!(verified_run.start_recording_with_verified_terrain(&verified));
+    let wrong_tick = crabsim::VerifiedCellStart::from_compressed(&packed, 18).unwrap();
+    assert!(
+        !resumed
+            .clone()
+            .start_recording_with_verified_terrain(&wrong_tick)
+    );
+    let mut wrong_player = resumed.clone();
+    wrong_player.crab_mut(PlayerId(0)).unwrap().mover.vel.x = 17.0;
+    assert!(!wrong_player.start_recording_with_verified_terrain(&verified));
 
     let mut same = resumed.clone();
     assert!(same.start_recording_with_compressed_terrain(&packed));
     assert!(same.recording().is_some());
+    assert_eq!(
+        verified_run.recording().unwrap().to_text(),
+        same.recording().unwrap().to_text()
+    );
     same.populate();
     for _ in 0..30 {
         same.set_controls(
@@ -205,5 +222,7 @@ fn worker_compressed_recording_rejects_corrupt_and_stale_terrain() {
     let mut stale = resumed;
     stale.level.cells.as_mut().unwrap().step(0.35);
     assert!(!stale.start_recording_with_compressed_terrain(&packed));
+    assert!(stale.recording().is_none());
+    assert!(!stale.start_recording_with_verified_terrain(&verified));
     assert!(stale.recording().is_none());
 }
