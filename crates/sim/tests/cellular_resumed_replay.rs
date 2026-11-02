@@ -166,3 +166,44 @@ fn corrupted_and_invalid_replay_checkpoint_is_rejected() {
     let oversized = format!("memory {}\n", "x".repeat(1024 * 1024 + 1));
     assert!(Replay::parse(&oversized).is_err());
 }
+
+#[test]
+fn worker_compressed_recording_rejects_corrupt_and_stale_terrain() {
+    let mut baseline = Sim::new(Tuning::default(), Level::test_level());
+    baseline.enable_underwater_cells();
+    let terrain = baseline.level.cells.take().unwrap();
+    let mut resumed = Sim::new(Tuning::default(), Level::test_level());
+    assert!(resumed.restore_cellular_terrain(terrain, 17));
+    resumed.add_crab(PlayerId(0), Vec2::new(400.0, 0.0));
+    let raw = resumed.recording_terrain_bytes().unwrap();
+    let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+
+    let mut same = resumed.clone();
+    assert!(same.start_recording_with_compressed_terrain(&packed));
+    assert!(same.recording().is_some());
+    same.populate();
+    for _ in 0..30 {
+        same.set_controls(
+            PlayerId(0),
+            Controls {
+                dig_held: true,
+                down: true,
+                ..Controls::default()
+            },
+        );
+        same.tick();
+    }
+    let replay = Replay::parse(&same.recording().unwrap().to_text()).unwrap();
+    let mut played = Sim::with_one_crab(replay.start);
+    crabsim::play(&mut played, &replay, replay.length(), |_| {});
+    assert_eq!(played.state_hash(), same.state_hash());
+
+    let mut corrupt = resumed.clone();
+    assert!(!corrupt.start_recording_with_compressed_terrain(b"invalid zlib"));
+    assert!(corrupt.recording().is_none());
+
+    let mut stale = resumed;
+    stale.level.cells.as_mut().unwrap().step(0.35);
+    assert!(!stale.start_recording_with_compressed_terrain(&packed));
+    assert!(stale.recording().is_none());
+}

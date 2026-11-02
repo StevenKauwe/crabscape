@@ -1711,6 +1711,32 @@ impl Sim {
     /// be replayed later. Call this before the first tick: a replay starts
     /// from a crab standing still.
     pub fn start_recording(&mut self) {
+        self.start_recording_impl(None);
+    }
+
+    /// A serialized terrain checkpoint that can be compressed off-thread for
+    /// a resumed recording. Pause simulation until the result is installed;
+    /// installation rejects a checkpoint that no longer matches the world.
+    pub fn recording_terrain_bytes(&self) -> Option<Vec<u8>> {
+        if self.tick == 0 {
+            return None;
+        }
+        Recorder::cell_start_bytes(self.level.cells.as_ref()?)
+    }
+
+    /// Start a resumed cellular recording using zlib-compressed bytes returned
+    /// by a worker. Malformed, stale, or mismatching data leaves recording
+    /// disabled; the same reconstruction checks as `start_recording` apply.
+    pub fn start_recording_with_compressed_terrain(&mut self, packed: &[u8]) -> bool {
+        if self.tick == 0 || self.level.cells.is_none() {
+            self.recorder = None;
+            return false;
+        }
+        self.start_recording_impl(Some(packed));
+        self.recorder.is_some()
+    }
+
+    fn start_recording_impl(&mut self, compressed_terrain: Option<&[u8]>) {
         // A saved cellular session can start after tick zero. Arbitrary
         // mid-session recordings would also need enemy, RNG, and transient
         // player state; accept only a reproducible pre-population startup.
@@ -1755,7 +1781,11 @@ impl Sim {
                 self.recorder = None;
                 return;
             };
-            if !rec.note_cell_start(terrain, self.tick) || !rec.note_memory(&self.crabs[0].memory) {
+            let terrain_noted = match compressed_terrain {
+                Some(packed) => rec.note_compressed_cell_start(packed, self.tick),
+                None => rec.note_cell_start(terrain, self.tick),
+            };
+            if !terrain_noted || !rec.note_memory(&self.crabs[0].memory) {
                 self.recorder = None;
                 return;
             }
@@ -1764,14 +1794,63 @@ impl Sim {
             let replay = rec.replay(self.tick);
             let mut restored = Sim::with_one_crab(start);
             replay.apply_at(&mut restored);
-            if restored.state_hash() != self.state_hash()
-                || restored.crabs[0].memory != self.crabs[0].memory
-            {
+            if !self.matches_recording_start(&restored) {
                 self.recorder = None;
                 return;
             }
         }
         self.recorder = Some(rec);
+    }
+
+    /// Compare the exact replay start without formatting millions of terrain
+    /// values into debug strings twice. Terrain uses the complete checkpoint
+    /// bytes, including streamed-out chunks and the bit patterns of floats.
+    /// The other fields use the same representation as `state_hash`; memory
+    /// is checked separately because it is intentionally omitted from that
+    /// hash. Pending controls, also omitted by `state_hash`, do not affect the
+    /// recorded initial state.
+    fn matches_recording_start(&self, other: &Self) -> bool {
+        let crabs = |sim: &Self| -> Vec<SimCrab> {
+            sim.crabs
+                .iter()
+                .map(|c| SimCrab {
+                    controls: Controls::default(),
+                    ..c.clone()
+                })
+                .collect()
+        };
+        if self.tick != other.tick
+            || self.crabs.len() != other.crabs.len()
+            || self
+                .crabs
+                .iter()
+                .zip(&other.crabs)
+                .any(|(a, b)| a.memory != b.memory)
+            || format!(
+                "{:?} {:?} {:?} {:?}",
+                crabs(self),
+                self.enemies,
+                self.rng,
+                self.shared
+            ) != format!(
+                "{:?} {:?} {:?} {:?}",
+                crabs(other),
+                other.enemies,
+                other.rng,
+                other.shared
+            )
+        {
+            return false;
+        }
+        match (&self.level.cells, &other.level.cells) {
+            (Some(a), Some(b)) => {
+                let a = postcard::to_allocvec(&a.checkpoint());
+                let b = postcard::to_allocvec(&b.checkpoint());
+                matches!((a, b), (Ok(a), Ok(b)) if a == b)
+            }
+            (None, None) => true,
+            _ => false,
+        }
     }
 
     /// The recording so far, as a replay (or nothing if none is running). A recording started before the first
@@ -2165,5 +2244,23 @@ mod tests {
         }
         assert_eq!(sim.tick_count(), 240);
         assert!((sim.time() - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn replay_start_comparison_checks_world_crab_and_memory_but_not_controls() {
+        let mut original = Sim::with_one_crab(SPAWN);
+        original.enable_underwater_cells();
+        let mut other = original.clone();
+        assert!(original.matches_recording_start(&other));
+        other.crabs[0].controls.walk = 1.0;
+        assert!(original.matches_recording_start(&other));
+        other.crabs[0].mover.pos.x += 1.0;
+        assert!(!original.matches_recording_start(&other));
+        other = original.clone();
+        other.crabs[0].memory.now += 1;
+        assert!(!original.matches_recording_start(&other));
+        other = original.clone();
+        other.level.cells.as_mut().unwrap().step(0.35);
+        assert!(!original.matches_recording_start(&other));
     }
 }

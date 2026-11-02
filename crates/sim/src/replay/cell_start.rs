@@ -16,21 +16,30 @@ pub(crate) struct CellStart {
 }
 
 impl CellStart {
+    pub fn checkpoint_bytes(world: &World) -> Option<Vec<u8>> {
+        let raw = postcard::to_allocvec(&world.checkpoint()).ok()?;
+        (raw.len() <= MAX_RAW).then_some(raw)
+    }
+
     pub fn capture(world: &World, tick: u64) -> Option<Self> {
+        let raw = Self::checkpoint_bytes(world)?;
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+        Self::from_compressed(&packed, tick)
+    }
+
+    /// Decompression and world validation occur when the resulting replay is
+    /// reconstructed. In particular, callers must compare that reconstruction
+    /// with the live world before accepting this as a recording start.
+    pub fn from_compressed(packed: &[u8], tick: u64) -> Option<Self> {
         if tick == 0 || tick > u64::MAX - 1_000_000 {
             return None;
         }
-        let raw = postcard::to_allocvec(&world.checkpoint()).ok()?;
-        if raw.len() > MAX_RAW {
-            return None;
-        }
-        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
         if packed.len() > MAX_PACKED {
             return None;
         }
         Some(Self {
             tick,
-            encoded: memory::base64(&packed),
+            encoded: memory::base64(packed),
         })
     }
 

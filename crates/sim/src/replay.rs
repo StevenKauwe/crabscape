@@ -596,6 +596,19 @@ impl Recorder {
         true
     }
 
+    pub(crate) fn note_compressed_cell_start(&mut self, packed: &[u8], tick: u64) -> bool {
+        let Some(start) = CellStart::from_compressed(packed, tick) else {
+            return false;
+        };
+        self.replay.cell_start = Some(start);
+        self.replay.cellular = true;
+        true
+    }
+
+    pub(crate) fn cell_start_bytes(terrain: &crate::underwater::World) -> Option<Vec<u8>> {
+        CellStart::checkpoint_bytes(terrain)
+    }
+
     pub(crate) fn note_memory(&mut self, memory: &crate::Memory) -> bool {
         let saved = memory.to_save();
         if serde_json::to_vec(&saved).map_or(true, |json| json.len() > MAX_START_MEMORY) {
