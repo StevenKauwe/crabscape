@@ -40,6 +40,44 @@ pub struct Restored {
 /// Pack a single point-in-time save. The backend must never replace an older
 /// save unless this succeeds *and* its own atomic write succeeds.
 pub fn encode(player: &SaveData, terrain: &World, sim_tick: u64) -> Result<Vec<u8>, Error> {
+    let (header, raw) = prepare(player, terrain, sim_tick)?;
+    let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+    header.finish(&packed)
+}
+
+/// Metadata kept on the game thread while the raw payload is compressed by a
+/// worker. It must remain paired with the exact bytes returned by `prepare`.
+pub struct PreparedHeader {
+    tick: u64,
+    player_len: u32,
+    raw_len: u32,
+    checksum: u32,
+}
+
+impl PreparedHeader {
+    /// Assemble a complete envelope after the worker returns compressed data.
+    pub fn finish(self, packed: &[u8]) -> Result<Vec<u8>, Error> {
+        if packed.len().checked_add(HEADER).is_none_or(|n| n > MAX_RAW) {
+            return Err(Error::TooLarge);
+        }
+        let mut out = Vec::with_capacity(HEADER + packed.len());
+        out.extend_from_slice(MAGIC);
+        out.extend_from_slice(&self.tick.to_le_bytes());
+        out.extend_from_slice(&self.player_len.to_le_bytes());
+        out.extend_from_slice(&self.raw_len.to_le_bytes());
+        out.extend_from_slice(&self.checksum.to_le_bytes());
+        out.extend_from_slice(packed);
+        Ok(out)
+    }
+}
+
+/// Copy and serialize a consistent checkpoint. This still runs on the caller's
+/// thread and must be measured on phones before enabling browser autosaves.
+pub fn prepare(
+    player: &SaveData,
+    terrain: &World,
+    sim_tick: u64,
+) -> Result<(PreparedHeader, Vec<u8>), Error> {
     if player.version != SAVE_VERSION {
         return Err(Error::Unsupported);
     }
@@ -61,19 +99,13 @@ pub fn encode(player: &SaveData, terrain: &World, sim_tick: u64) -> Result<Vec<u
     let mut raw = player_bytes;
     let player_len = raw.len() as u32;
     raw.extend_from_slice(&terrain_bytes);
-    let checksum = checksum(sim_tick, player_len, raw_len as u32, &raw);
-    let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
-    if packed.len() + HEADER > MAX_RAW {
-        return Err(Error::TooLarge);
-    }
-    let mut out = Vec::with_capacity(HEADER + packed.len());
-    out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&sim_tick.to_le_bytes());
-    out.extend_from_slice(&player_len.to_le_bytes());
-    out.extend_from_slice(&(raw_len as u32).to_le_bytes());
-    out.extend_from_slice(&checksum.to_le_bytes());
-    out.extend_from_slice(&packed);
-    Ok(out)
+    let header = PreparedHeader {
+        tick: sim_tick,
+        player_len,
+        raw_len: raw_len as u32,
+        checksum: checksum(sim_tick, player_len, raw_len as u32, &raw),
+    };
+    Ok((header, raw))
 }
 
 /// Decode a bounded, complete save. This verifies accidental damage; it is not
@@ -220,6 +252,15 @@ mod tests {
         let mut oversized = bytes;
         oversized[20..24].copy_from_slice(&((MAX_RAW + 1) as u32).to_le_bytes());
         assert!(matches!(decode(&oversized), Err(Error::TooLarge)));
+    }
+
+    #[test]
+    fn worker_compression_uses_the_same_checked_envelope() {
+        let terrain = World::from_level_settled(&Level::test_level());
+        let expected = encode(&player(), &terrain, 123).unwrap();
+        let (header, raw) = prepare(&player(), &terrain, 123).unwrap();
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+        assert_eq!(header.finish(&packed).unwrap(), expected);
     }
 
     #[cfg(not(target_arch = "wasm32"))]

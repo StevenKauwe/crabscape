@@ -83,6 +83,26 @@ pub(crate) async fn write_to(database: &str, bytes: &[u8]) -> Result<(), String>
     .await
 }
 
+/// Remove only this build's cellular save. Callers must invalidate pending
+/// compression jobs first and wait for this transaction before reloading.
+pub async fn clear() -> Result<(), String> {
+    clear_from(&crate::save::browser_key(".cells")).await
+}
+
+pub(crate) async fn clear_from(database: &str) -> Result<(), String> {
+    let db = Database(open(database).await?);
+    let tx =
+        db.0.transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
+            .map_err(|e| problem("open clear transaction", e))?;
+    let store = tx
+        .object_store(STORE)
+        .map_err(|e| problem("open save store", e))?;
+    store
+        .delete(&JsValue::from_str(KEY))
+        .map_err(|e| problem("clear save", e))?;
+    committed(&tx).await
+}
+
 fn problem(operation: &str, error: JsValue) -> String {
     format!("IndexedDB could not {operation}: {error:?}")
 }
