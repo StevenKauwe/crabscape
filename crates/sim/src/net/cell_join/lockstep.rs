@@ -607,6 +607,58 @@ mod tests {
     }
 
     #[test]
+    fn host_rollback_discards_a_brush_before_late_guest_rejection() {
+        let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        host.enable_underwater_cells();
+        assert!(
+            host.level
+                .cells
+                .as_mut()
+                .unwrap()
+                .test_place_loose_sand(110, 94)
+        );
+        host.add_remote_crab(PlayerId(1), Vec2::new(700.0, 500.0));
+        host.go_online(true);
+        host.set_controls(
+            PlayerId(0),
+            crate::Controls {
+                walk: 1.0,
+                ..Default::default()
+            },
+        );
+        let bad = HostPlayerForce {
+            player: PlayerId(1),
+            x: 700.0,
+            y: 524.0,
+            half_width: 36.0,
+            half_height: 24.0,
+            wake_x: 0.0,
+            wake_y: 0.0,
+            walking: -1,
+            grounded: false,
+            jumped: true,
+            dig: None,
+        };
+        let before = host.level.cells.clone();
+        let tick = host.tick_count();
+        let mut unstaged = host.clone();
+        assert!(!unstaged.test_unstaged_host_walker(bad));
+        assert!(
+            unstaged.level.cells != before,
+            "the host brush must run before the guest is rejected"
+        );
+        let staged = unstaged.level.cells.as_ref().unwrap();
+        assert_eq!(staged.cell(110, 94), crate::underwater::Cell::Water);
+        assert_eq!(staged.cell(111, 95), crate::underwater::Cell::Sand);
+        assert!(!host.tick_host_with_shared_walker(bad));
+        assert_eq!(host.tick_count(), tick);
+        assert!(
+            host.level.cells == before,
+            "the transactional host restores all staged edits"
+        );
+    }
+
+    #[test]
     fn separated_real_walkers_share_one_authoritative_terrain_over_fake_link() {
         let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
         host.enable_underwater_cells();

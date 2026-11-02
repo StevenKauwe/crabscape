@@ -2332,9 +2332,8 @@ impl World {
             half_x: (p.half_width / GAME_CELL).ceil().max(1.0) as i32,
             half_y: (p.half_height / GAME_CELL).ceil().max(1.0) as i32,
         };
-        let mut chunks = chunk_flow::ChunkFlow::from_world(self);
-        chunks.set_extra_bodies(&[body]).ok()?;
-        Some(body)
+        chunk_flow::validate_bodies(self.crab, self.crab_half_x, self.crab_half_y, &[body])
+            .then_some(body)
     }
 
     /// Apply an additional grounded or swimming walker's solo brush/wake.

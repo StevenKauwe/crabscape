@@ -147,9 +147,10 @@ On a separate synthetic two-grain fixture, two release desktop runs of one
 step repeated 20 times, including reset clones, measured 11.71/11.50 ms per
 contiguous step and 10.06/9.78 ms per guarded chunked step. One test-process
 peak was 28.0 MB, including both versions. This is a sparse restricted case,
-not representative full-world or phone performance. The guarded step clones
-the complete chunk field before advancing so it can roll back, then allocates
-flow and moved-cell scratch; it is not an incremental or phone-memory design.
+not representative full-world or phone performance. The guarded step used to clone the complete chunk field before advancing.
+It now validates all recoverable errors before mutation, then allocates flow
+and moved-cell scratch; the enclosing host operation still clones for rollback,
+and this is not an incremental or phone-memory design.
 Additional isolated tests compare a cohesive mud cluster across a seam,
 mixed sand and mud, and suspended fine mud moving upward across a seam with
 the contiguous reference. These retain deterministic ordering and material
@@ -350,3 +351,14 @@ therefore averaged about 24.8 ms per material tick in this fixture, before
 networking and rendering; this single desktop measurement does not establish
 phone performance. The new dig path also clones fields and has not been
 profiled separately. Neither path is ready for live co-op.
+
+Removing two full-field conversions used only for reservation validation and
+the redundant prevalidated chunk-step clone reduced one desktop release
+fixture from 244.2 ms to 189.8 ms for ten guarded grounded-host ticks, both
+including reset clones (about 24.4 to 19.0 ms per tick). Corresponding solo
+times were 99.1 and 96.3 ms. This single fixture is not a phone measurement;
+the host still clones its full state for rollback, converts the active field
+to and from chunks, and allocates flow and movement scratch. The chunk step
+has no recoverable errors after its checks; tests cover nonfinite input, tick
+overflow, aggregate rejection with existing silt, and a real host brush that
+mutates staged terrain before a late guest rejection restores the original.

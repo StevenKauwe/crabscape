@@ -1141,6 +1141,14 @@ impl Sim {
         true
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_unstaged_host_walker(
+        &mut self,
+        remote: crate::underwater::HostPlayerForce,
+    ) -> bool {
+        self.tick_inner(false, Some(remote))
+    }
+
     fn tick_inner(
         &mut self,
         external_terrain: bool,

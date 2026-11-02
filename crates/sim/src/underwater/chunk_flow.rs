@@ -65,6 +65,59 @@ pub struct BodyDig {
     pub force: usize,
 }
 
+pub(super) fn validate_bodies(
+    primary: Option<(i32, i32)>,
+    half_x: i32,
+    half_y: i32,
+    bodies: &[BodyReservation],
+) -> bool {
+    let Some((x, y)) = primary else {
+        return false;
+    };
+    if bodies.len() > 3
+        || !(-1000..=WIDTH as i32 + 1000).contains(&x)
+        || !(-1000..=HEIGHT as i32 + 1000).contains(&y)
+        || !(0..=1000).contains(&half_x)
+        || !(0..=1000).contains(&half_y)
+    {
+        return false;
+    }
+    if !bodies.is_empty()
+        && (x - half_x - 5 < 0
+            || x + half_x + 5 >= WIDTH as i32
+            || y - half_y - 5 < 0
+            || y + half_y + 5 >= HEIGHT as i32)
+    {
+        return false;
+    }
+    for (i, body) in bodies.iter().enumerate() {
+        if !(0..WIDTH as i32).contains(&body.x)
+            || !(0..HEIGHT as i32).contains(&body.y)
+            || !(1..=64).contains(&body.half_x)
+            || !(1..=64).contains(&body.half_y)
+            || body.x - body.half_x - 5 < 0
+            || body.x + body.half_x + 5 >= WIDTH as i32
+            || body.y - body.half_y - 5 < 0
+            || body.y + body.half_y + 5 >= HEIGHT as i32
+            || bodies[..i].iter().any(|other| other.player == body.player)
+        {
+            return false;
+        }
+        let overlaps = |ox: i32, oy: i32, hx: i32, hy: i32| {
+            (body.x - ox).abs() <= body.half_x + hx + 10
+                && (body.y - oy).abs() <= body.half_y + hy + 10
+        };
+        if overlaps(x, y, half_x, half_y)
+            || bodies[..i]
+                .iter()
+                .any(|b| overlaps(b.x, b.y, b.half_x, b.half_y))
+        {
+            return false;
+        }
+    }
+    true
+}
+
 type CellLocation = (usize, usize);
 type CellSwap = (CellLocation, CellLocation);
 type PebbleUndo = (usize, Pebble, Option<(i8, i8, u8)>);
@@ -642,48 +695,11 @@ impl ChunkFlow {
         &mut self,
         bodies: &[BodyReservation],
     ) -> Result<(), SedimentStepError> {
-        if bodies.len() > 3 || !self.supported_crab() || self.crab.is_none() {
-            return Err(SedimentStepError::Unsupported);
-        }
-        if !bodies.is_empty()
-            && self.crab.is_some_and(|(x, y)| {
-                x - self.crab_half_x - 5 < 0
-                    || x + self.crab_half_x + 5 >= WIDTH as i32
-                    || y - self.crab_half_y - 5 < 0
-                    || y + self.crab_half_y + 5 >= HEIGHT as i32
-            })
-        {
+        if !validate_bodies(self.crab, self.crab_half_x, self.crab_half_y, bodies) {
             return Err(SedimentStepError::Unsupported);
         }
         let mut sorted = bodies.to_vec();
-        sorted.sort_unstable_by_key(|b| b.player);
-        for (i, body) in sorted.iter().enumerate() {
-            if !(0..WIDTH as i32).contains(&body.x)
-                || !(0..HEIGHT as i32).contains(&body.y)
-                || !(1..=64).contains(&body.half_x)
-                || !(1..=64).contains(&body.half_y)
-                || body.x - body.half_x - 5 < 0
-                || body.x + body.half_x + 5 >= WIDTH as i32
-                || body.y - body.half_y - 5 < 0
-                || body.y + body.half_y + 5 >= HEIGHT as i32
-                || i > 0 && sorted[i - 1].player == body.player
-            {
-                return Err(SedimentStepError::Unsupported);
-            }
-            let overlaps = |x: i32, y: i32, hx: i32, hy: i32| {
-                (body.x - x).abs() <= body.half_x + hx + 10
-                    && (body.y - y).abs() <= body.half_y + hy + 10
-            };
-            if self
-                .crab
-                .is_some_and(|(x, y)| overlaps(x, y, self.crab_half_x, self.crab_half_y))
-                || sorted[..i]
-                    .iter()
-                    .any(|b| overlaps(b.x, b.y, b.half_x, b.half_y))
-            {
-                return Err(SedimentStepError::Unsupported);
-            }
-        }
+        sorted.sort_unstable_by_key(|body| body.player);
         self.extra_bodies = sorted;
         Ok(())
     }
@@ -739,7 +755,9 @@ impl ChunkFlow {
         {
             return Err(SedimentStepError::Unsupported);
         }
-        let mut next = self.clone();
+        // All fallible validation precedes mutation; the diffusion method can
+        // fail only on the tick/current checks already performed above.
+        let next = self;
         if !next.step_batched(current) {
             return Err(SedimentStepError::Invalid);
         }
@@ -953,7 +971,6 @@ impl ChunkFlow {
                 }
             }
         }
-        *self = next;
         Ok(())
     }
 
@@ -2545,6 +2562,44 @@ mod tests {
             }
         }
         assert_eq!((sand, mud), (2, 1));
+    }
+
+    #[test]
+    fn material_preflight_preserves_existing_silt_on_all_errors() {
+        let mut world = sand_fixture(0);
+        world.set_game_crab(64.0, 150.0, 3.0, 3.0);
+        world.silt.push(Silt {
+            x: 1.0,
+            y: 2.0,
+            vx: 0.5,
+            vy: -0.5,
+            life: 20,
+        });
+        assert!(world.add_pebble(250, 200, 4, 250));
+        let body = BodyReservation {
+            player: crate::PlayerId(1),
+            x: 192,
+            y: 150,
+            half_x: 3,
+            half_y: 3,
+        };
+        let mut chunked = ChunkFlow::from_world(&world);
+        chunked.set_extra_bodies(&[body]).unwrap();
+        let before = chunked.clone();
+        assert_eq!(
+            chunked.step_sediment(f32::NAN),
+            Err(SedimentStepError::Invalid)
+        );
+        assert!(chunked == before);
+        assert_eq!(
+            chunked.step_sediment(0.0),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(chunked == before);
+        chunked.tick = u64::MAX;
+        let before = chunked.clone();
+        assert_eq!(chunked.step_sediment(0.0), Err(SedimentStepError::Invalid));
+        assert!(chunked == before);
     }
 
     #[test]
