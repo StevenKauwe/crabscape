@@ -154,3 +154,29 @@ safety. The experimental metadata encoding changed during development and is
 not a stable format. A forced transaction abort is tested; actual quota
 exhaustion is not. Reset deliberately clears only the separate experimental
 database. Do not substitute it for the live save path.
+
+## Lazy terrain view experiment
+
+The unwired `LazyView` consumes the frozen metadata plus an expected sleeping
+page index, keeps at most eight pages, and reports missing pages instead of
+inventing terrain. It preserves one-based pebble owner IDs and the frozen
+global pebble table. An aggregate cannot be exposed as complete until every
+page intersecting its footprint is resident and agrees with that owner. Load
+tickets are tied to one view instance and invalidation rejects late results;
+the caller must also enforce the persistent storage epoch. Page hashes are
+verified by the storage layer before the view receives bytes.
+
+Rust tests exercise active-page and active/sleeping boundaries, exact sleeping
+cells, eviction/reload, invalid owners, incomplete reads and invalidation. The
+isolated Chrome proof reads 180 real active/sleeping pages through pinned
+IndexedDB, compares active material and flow against the fixture, and rejects a
+late page after reset. It observed two resident pages, a 304,383-byte logical
+view estimate (including room for the incoming page), and 26,083,328 bytes of
+Wasm linear-memory capacity for the whole test module, including its original
+world and full frozen snapshot. This is not a measured total heap peak: it
+excludes browser/JS storage, allocator overhead, caller-owned buffers, and game
+assets, and has not been measured on mobile. The proof supplies the sleeping
+index from its in-memory capture; it does not yet reconstruct that index from a
+persisted manifest or install and advance a playable world. Its page limit,
+validation rules, memory estimate and experimental format are not production
+compatibility guarantees.

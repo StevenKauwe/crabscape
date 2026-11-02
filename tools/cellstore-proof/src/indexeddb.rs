@@ -683,6 +683,121 @@ impl Drop for TransactionHandlers {
     }
 }
 
+#[cfg(feature = "browser-proof")]
+async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
+    use crabsim::underwater::{
+        World,
+        frozen_chunks::{FrozenChunks, LazyError, LazyView, PageId},
+    };
+    let level = crabsim::Level::test_level();
+    let mut world = World::from_level_settled(&level);
+    world.follow_player(&level, 4000.0, 0.0);
+    world.follow_player(&level, 8000.0, 0.0);
+    let frozen =
+        FrozenChunks::capture(&world, 64 * 1024 * 1024).map_err(|e| format!("capture: {e:?}"))?;
+    let ids: Vec<_> = frozen.sleeping_ids().collect();
+    if ids.is_empty() || ids.len() > 256 {
+        return Err("bad streamed fixture".into());
+    }
+    let (cols, rows) = frozen.active_dimensions();
+    let h = db.begin(frozen.tick(), b"fixture-player".to_vec()).await?;
+    let mut count = 0;
+    let mut batch = vec![frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?];
+    count += 1;
+    for y in 0..rows {
+        for x in 0..cols {
+            batch.push(frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?);
+            count += 1;
+            if batch.len() == MAX_BATCH {
+                db.stage(h, std::mem::take(&mut batch)).await?;
+            }
+        }
+    }
+    for &(x, y) in &ids {
+        batch.push(
+            frozen
+                .sleeping((x, y))
+                .map_err(|e| format!("sleeping: {e:?}"))?,
+        );
+        count += 1;
+        if batch.len() == MAX_BATCH {
+            db.stage(h, std::mem::take(&mut batch)).await?;
+        }
+    }
+    if !batch.is_empty() {
+        db.stage(h, batch).await?;
+    }
+    db.publish(h, count).await?;
+    let pin = db.pin().await?;
+    let mut view = LazyView::new(&db.pinned_part(pin, 0).await?, &ids, 2, 2_000_000)
+        .map_err(|e| format!("view: {e:?}"))?;
+    let estimate = view.estimated_bytes();
+    let mut peak_pages = 0;
+    for y in 0..rows {
+        for x in 0..cols {
+            let page = PageId::Active(x as u16, y as u16);
+            let ticket = view
+                .begin_load(page)
+                .map_err(|e| format!("ticket: {e:?}"))?;
+            let bytes = db.pinned_part(pin, 1 + y * cols + x).await?;
+            view.finish_load(ticket, &bytes)
+                .map_err(|e| format!("active page: {e:?}"))?;
+            peak_pages = peak_pages.max(view.resident_pages());
+            for ly in y * 64..(y * 64 + 64).min(crabsim::underwater::HEIGHT) {
+                for lx in x * 64..(x * 64 + 64).min(crabsim::underwater::WIDTH) {
+                    let cell = view
+                        .active_cell(lx, ly)
+                        .map_err(|e| format!("active cell: {e:?}"))?;
+                    if cell.cell != world.cell(lx as i32, ly as i32)
+                        || cell.flow != world.flow_at(lx as i32, ly as i32)
+                    {
+                        return Err("lazy active world differs".into());
+                    }
+                }
+            }
+            if view.resident_pages() > 2 {
+                return Err("cache exceeded bound".into());
+            }
+        }
+    }
+    for (i, &(x, y)) in ids.iter().enumerate() {
+        let ticket = view
+            .begin_load(PageId::Sleeping(x, y))
+            .map_err(|e| format!("ticket: {e:?}"))?;
+        let bytes = db.pinned_part(pin, 1 + cols * rows + i).await?;
+        view.finish_load(ticket, &bytes)
+            .map_err(|e| format!("sleeping page: {e:?}"))?;
+        peak_pages = peak_pages.max(view.resident_pages());
+        for slot in 0..4096 {
+            view.sleeping_cell(x, y, slot)
+                .map_err(|e| format!("sleeping cell: {e:?}"))?;
+        }
+        if view.resident_pages() > 2 {
+            return Err("cache exceeded bound".into());
+        }
+    }
+    let late = view
+        .begin_load(PageId::Active(0, 0))
+        .map_err(|e| format!("late ticket: {e:?}"))?;
+    let pending = db.pinned_part(pin, 1).await?;
+    db.reset().await?;
+    view.invalidate();
+    if view.finish_load(late, &pending) != Err(LazyError::Stale)
+        || db.pinned_part(pin, 1).await.is_ok()
+    {
+        return Err("reset accepted stale page".into());
+    }
+    let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
+    let capacity = Uint8Array::new(&memory.buffer()).length();
+    Ok(format!(
+        "lazy_pages={} peak_cache={} estimate={} wasm_capacity={}",
+        ids.len() + cols * rows,
+        peak_pages,
+        estimate,
+        capacity
+    ))
+}
+
 /// Browser-only isolated transaction regression.
 #[cfg(feature = "browser-proof")]
 #[wasm_bindgen::prelude::wasm_bindgen]
@@ -861,7 +976,10 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             return Err("bad post-reset state".into());
         }
         a.reset().await?;
-        Ok("PASS: bounded stage, abort, head preservation, part integrity, pinned pagination, recovery and reset fencing".into())
+        let lazy = lazy_proof(&a).await?;
+        Ok(format!(
+            "PASS: bounded stage, abort, head preservation, part integrity, pinned pagination, recovery and reset fencing; {lazy}"
+        ))
     }
     run(&name).await.map_err(|e| JsValue::from_str(&e))
 }

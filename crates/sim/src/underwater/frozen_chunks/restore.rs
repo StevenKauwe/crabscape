@@ -4,6 +4,8 @@ use super::*;
 use crate::underwater::bounded_checkpoint::BoundedVec;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
+mod lazy;
+pub use lazy::{CellState, LazyError, LazyView, LoadTicket, PageId};
 
 const MAX_RESTORE_SLEEPING: usize = 256;
 const CHUNK_CELLS: usize = SIDE * SIDE;

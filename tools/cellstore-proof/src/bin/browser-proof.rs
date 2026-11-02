@@ -163,7 +163,12 @@ fn execute() -> Result<(), String> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    println!("PASS: Rust/Wasm IndexedDB browser proof");
+    let detail = dom
+        .split("data-result=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .unwrap_or("PASS");
+    println!("{detail}");
     Ok(())
 }
 fn main() {
