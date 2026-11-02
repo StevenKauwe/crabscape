@@ -45,11 +45,10 @@ pub(crate) fn prepare_owner_save(
     if !super::player_fits_world(view, &saved) {
         return Err(Error::Damaged);
     }
-    let mut snapshot = terrain.terrain().clone();
-    snapshot
-        .restore_default_window(&entities.sim.level, host.mover.pos.x, host.mover.pos.y)
+    terrain
+        .prepare_save_window(&entities.sim.level, host.mover.pos.x, host.mover.pos.y)
         .map_err(|_| Error::Damaged)?;
-    paged::prepare(&saved, &snapshot, tick)
+    paged::prepare(&saved, terrain.terrain(), tick)
 }
 
 #[cfg(test)]
@@ -189,6 +188,23 @@ mod tests {
         )
         .unwrap();
         let bytes = result.encode().unwrap();
+        let stable_window = terrain.terrain().region();
+        let repeated = prepare_owner_save(
+            &local.sim,
+            &mut terrain,
+            &mut entities,
+            local.id,
+            local.epoch,
+            Some(&backup),
+        )
+        .unwrap()
+        .encode()
+        .unwrap();
+        assert_eq!(terrain.terrain().region(), stable_window);
+        assert_eq!(
+            repeated, bytes,
+            "an unchanged lobby captures the same saved world"
+        );
         let decoded = super::super::decode(&bytes).unwrap();
         assert_eq!(decoded.sim_tick, local.sim.tick_count());
         let position = local.sim.crab(PlayerId(0)).unwrap().mover.pos;

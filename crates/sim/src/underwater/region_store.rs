@@ -55,6 +55,19 @@ impl TerrainStore {
     pub fn terrain(&self) -> &World {
         &self.terrain
     }
+    /// Keep the canonical archive in the owner's save window. Lease bounds
+    /// and aggregate IDs are absolute/stable, so changing the active window
+    /// does not change any authority's assignment or local-to-global ID map.
+    /// Repeated captures at the same position take the world's identity path.
+    pub fn prepare_save_window(
+        &mut self,
+        level: &crate::Level,
+        x: f32,
+        y: f32,
+    ) -> Result<(), StoreError> {
+        self.terrain.restore_default_window(level, x, y)?;
+        Ok(())
+    }
     pub fn committed_tick(&self, id: RegionId) -> Option<u64> {
         self.leases.get(&id).map(|l| l.committed_tick)
     }
@@ -434,6 +447,81 @@ impl From<RegionError> for StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn save_window_is_stable_and_preserves_live_leases_and_snapshot_physics() {
+        let level = crate::Level::test_level();
+        let mut source = World::from_level_settled(&level);
+        assert!(source.add_pebble(100, 180, 2, 250));
+        let mut store = TerrainStore::new(source).unwrap();
+        let left = CellRegion {
+            x: 0,
+            y: 0,
+            width: 256,
+            height: 256,
+        };
+        let right = CellRegion { x: 768, ..left };
+        let (ea, mut a) = store.grant(RegionId(1), left, &level).unwrap();
+        let (eb, mut b) = store.grant(RegionId(2), right, &level).unwrap();
+        assert!(b.add_pebble(100, 180, 2, 251));
+        let far = b.index_at(120, 180).unwrap();
+        b.cells[far] = Cell::Mud;
+        b.flow[far] = (1.25, -0.75);
+        b.grain[far] = 37;
+        b.suspended[far] = 3;
+        a.pebble_motion[0] = (1, 0, 17);
+        let last = b.pebble_motion.len() - 1;
+        b.pebble_motion[last] = (-1, 0, 19);
+        store.commit(RegionId(1), ea, &a).unwrap();
+        store.commit(RegionId(2), eb, &b).unwrap();
+
+        // The old save path normalized a throwaway full-world clone.
+        let mut expected = store.terrain.clone();
+        expected.restore_default_window(&level, 160.0, 8.0).unwrap();
+        store.prepare_save_window(&level, 160.0, 8.0).unwrap();
+        assert_eq!(
+            postcard::to_allocvec(&expected.checkpoint()).unwrap(),
+            postcard::to_allocvec(&store.terrain.checkpoint()).unwrap()
+        );
+        let stable = store.terrain.region();
+        let allocation = store.terrain.cells.as_ptr();
+        let aggregate_flags = store.terrain.pebble_motion.clone();
+        for _ in 0..4 {
+            store.prepare_save_window(&level, 160.0, 8.0).unwrap();
+            assert_eq!(store.terrain.region(), stable);
+            assert_eq!(store.terrain.cells.as_ptr(), allocation);
+        }
+        assert_eq!(store.terrain.pebble_motion, aggregate_flags);
+        let mut snapshot = store.terrain.clone();
+        for _ in 0..16 {
+            expected.step(0.35);
+            snapshot.step(0.35);
+        }
+        assert_eq!(
+            postcard::to_allocvec(&expected.checkpoint()).unwrap(),
+            postcard::to_allocvec(&snapshot.checkpoint()).unwrap()
+        );
+
+        // Both leases keep committing through the canonical origin change.
+        assert!(a.move_pebble(1, 1, 0, 48));
+        store.commit(RegionId(1), ea, &a).unwrap();
+        store.commit(RegionId(2), eb, &b).unwrap();
+        let cell = store.terrain.archived_cell(right.x + 120, 180).unwrap();
+        assert_eq!(
+            (cell.cell, cell.flow, cell.grain, cell.suspended),
+            (Cell::Mud, (1.25, -0.75), 37, 3)
+        );
+        store.release(RegionId(1), ea).unwrap();
+        store.release(RegionId(2), eb).unwrap();
+        let (_, restored_a) = store.grant(RegionId(3), left, &level).unwrap();
+        let (_, restored_b) = store.grant(RegionId(4), right, &level).unwrap();
+        assert_eq!(
+            restored_a.pebble_owner[restored_a.index_at(101, 180).unwrap()],
+            1
+        );
+        assert_eq!(restored_b.pebble_motion[last], (-1, 0, 19));
+        assert_eq!(restored_b.cells[far], Cell::Mud);
+    }
+
     #[test]
     fn disjoint_region_commits_survive_reunion_and_old_authorities_cannot_overwrite() {
         let level = crate::Level::test_level();
