@@ -14,6 +14,18 @@ use web_sys::{
     IdbTransaction, IdbTransactionMode,
 };
 
+#[cfg(feature = "browser-proof")]
+mod atomic_cleanup;
+
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn atomic_cleanup_proof() -> Result<String, JsValue> {
+    atomic_cleanup::proof("crabscape.chunk-proof.cleanup-runner")
+        .await
+        .map_err(|e| JsValue::from_str(&e))?;
+    Ok("atomic-cleanup=real-replay-pass".into())
+}
+
 const STORE: &str = "world";
 const MAX_BATCH: usize = 4;
 const MAX_PART: usize = 128 * 1024;
@@ -1932,7 +1944,7 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
 fn reload_fixture() -> Result<(crabsim::Sim, crabsim::SaveData), String> {
     use crabsim::{Feel, Level, Memory, PlayerId, SaveData, Sim, Tuning, underwater::World};
     let level = Level::test_level();
-    let mut terrain = World::from_level_settled(&level);
+    let mut terrain = World::opening_pebble_fixture(&level);
     terrain.follow_player(&level, 4000.0, 0.0);
     terrain.follow_player(&level, 8000.0, 0.0);
     terrain.follow_player(&level, 160.0, 0.0);
@@ -3177,6 +3189,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
     }
     async fn run(name: &str) -> Result<String, String> {
         let locks_supported = crate::coordination::proof().await?;
+        atomic_cleanup::proof(&format!("{name}.cleanup")).await?;
         same_store_fence(name).await?;
         legacy_initializer_proof(name).await?;
         unified_legacy_store_proof(name).await?;

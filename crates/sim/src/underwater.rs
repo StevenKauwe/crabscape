@@ -7,8 +7,8 @@ pub mod chunk_flow;
 #[cfg(test)]
 pub(crate) mod dirty_oracle;
 pub mod frozen_chunks;
-#[cfg(test)]
-mod opening_cleanup;
+#[cfg(any(test, feature = "cleanup-proof"))]
+pub mod opening_cleanup;
 pub mod versioned_chunks;
 pub use bounded_checkpoint::{decode_browser_checkpoint, encode_browser_checkpoint};
 mod host_windows;
@@ -486,8 +486,8 @@ impl World {
     }
 
     /// Keep the historical pebble bed available to focused physics tests.
-    #[cfg(test)]
-    fn opening_pebble_fixture(level: &crate::Level) -> Self {
+    #[cfg(any(test, feature = "cleanup-proof"))]
+    pub fn opening_pebble_fixture(level: &crate::Level) -> Self {
         let mut world = Self::from_level_settled(level);
         let baked: Self =
             postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))

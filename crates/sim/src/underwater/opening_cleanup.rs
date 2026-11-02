@@ -1,16 +1,16 @@
-//! Test-only migration transform. Coordinates are absolute terrain cells;
+//! Feature-gated migration proof. Coordinates are absolute terrain cells;
 //! nothing here reads, writes, or installs a save.
 use super::*;
 
 #[derive(Clone, Copy)]
-struct Rect {
-    left: i64,
-    bottom: i64,
-    right: i64,
-    top: i64,
+pub struct Rect {
+    pub left: i64,
+    pub bottom: i64,
+    pub right: i64,
+    pub top: i64,
 }
 #[derive(Debug, PartialEq, Eq)]
-enum Error {
+pub enum Error {
     Invalid,
 }
 
@@ -18,7 +18,7 @@ enum Error {
 /// pebble's square must be represented exactly once across active and sleeping
 /// cells. Keep all sediment and flow in place; normalize selected pebble
 /// grains to ordinary sand and remap the remaining owner indices.
-fn transform(source: &World, bounds: Rect) -> Result<(World, usize), Error> {
+pub fn transform(source: &World, bounds: Rect) -> Result<(World, usize), Error> {
     let n = source.pebbles.len();
     if bounds.left >= bounds.right
         || bounds.bottom >= bounds.top

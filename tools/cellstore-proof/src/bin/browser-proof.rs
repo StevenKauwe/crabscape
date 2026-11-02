@@ -24,6 +24,10 @@ import init,{browser_proof,reload_prepare,reload_verify} from './cellstore_proof
 const name='crabscape.chunk-proof.rust-runner';
 init().then(async()=>{if (!sessionStorage.getItem('reloaded')) { await reload_prepare(name); sessionStorage.setItem('reloaded','yes'); location.reload(); return; } const proof=await reload_verify(name); const rest=await browser_proof(name); document.body.dataset.result=rest+'; '+proof; fetch('/done')}).catch(e=>{document.body.dataset.result='FAIL: '+e;fetch('/done')});
 </script><iframe src="/delay" hidden></iframe></body>"#;
+const CLEANUP_PAGE: &str = r#"<!doctype html><body data-result="running"><script>window.addEventListener('error',e=>{document.body.dataset.result='FAIL: '+e.message;fetch('/done')})</script><script type="module">
+import init,{atomic_cleanup_proof} from './cellstore_proof.js';
+init().then(()=>atomic_cleanup_proof()).then(x=>{document.body.dataset.result='PASS: '+x;fetch('/done')}).catch(e=>{document.body.dataset.result='FAIL: '+e;fetch('/done')});
+</script><iframe src="/delay" hidden></iframe></body>"#;
 #[cfg(feature = "webkit-runner")]
 const WEBKIT_PAGE: &str = r#"<!doctype html><body data-result="running"><script>window.addEventListener('error',e=>{document.body.dataset.result='FAIL: '+e.message;fetch('/done')})</script><script type="module">
 import init,{coordination_proof} from './cellstore_proof.js';
@@ -111,6 +115,7 @@ fn execute() -> Result<(), String> {
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let webkit = cfg!(feature = "webkit-runner") && env::var_os("CRAB_PROOF_WEBKIT").is_some();
+    let cleanup = env::var_os("CRAB_PROOF_CLEANUP").is_some();
     let stopped = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
     let flag = stopped.clone();
@@ -143,9 +148,15 @@ fn execute() -> Result<(), String> {
                     let (kind, body) = match path {
                         "/" | "/index.html" => {
                             #[cfg(feature = "webkit-runner")]
-                            let page = if webkit { WEBKIT_PAGE } else { PAGE };
+                            let page = if cleanup {
+                                CLEANUP_PAGE
+                            } else if webkit {
+                                WEBKIT_PAGE
+                            } else {
+                                PAGE
+                            };
                             #[cfg(not(feature = "webkit-runner"))]
-                            let page = PAGE;
+                            let page = if cleanup { CLEANUP_PAGE } else { PAGE };
                             ("text/html", page.as_bytes().to_vec())
                         }
                         "/delay" => {
@@ -217,11 +228,14 @@ fn execute() -> Result<(), String> {
                 .output()
                 .map_err(|e| e.to_string())?;
             let dom = String::from_utf8_lossy(&output.stdout);
-            if !output.status.success()
-                || !dom.contains("data-result=\"PASS: bounded stage")
-                || !dom.contains("migration_v1=real_reload=pass")
-                || !dom.contains("migration_v2=real_reload=pass")
-            {
+            let passed = if cleanup {
+                dom.contains("data-result=\"PASS: atomic-cleanup=real-replay-pass")
+            } else {
+                dom.contains("data-result=\"PASS: bounded stage")
+                    && dom.contains("migration_v1=real_reload=pass")
+                    && dom.contains("migration_v2=real_reload=pass")
+            };
+            if !output.status.success() || !passed {
                 return Err(format!(
                     "browser proof failed: {dom}; browser log: {}",
                     String::from_utf8_lossy(&output.stderr)
