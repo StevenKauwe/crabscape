@@ -69,6 +69,8 @@ mod canyon;
 mod cell_save;
 #[cfg(target_arch = "wasm32")]
 mod cell_worker;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod cell_worker_path;
 mod cellular;
 mod character;
 mod chat;

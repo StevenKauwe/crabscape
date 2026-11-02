@@ -115,7 +115,12 @@ fn send_pending(state: &Rc<RefCell<State>>, worker: &Worker) {
 impl CellWorker {
     /// Relative to the current page, which also works for `/pr-N/` previews.
     pub fn new() -> Result<Self, Error> {
-        Self::with_url("cellworker/worker.js")
+        let path = web_sys::window()
+            .ok_or(Error::Unavailable)?
+            .location()
+            .pathname()
+            .map_err(|_| Error::Unavailable)?;
+        Self::with_url(&crate::cell_worker_path::worker_path(&path))
     }
 
     pub(crate) fn with_url(url: &str) -> Result<Self, Error> {
@@ -133,6 +138,18 @@ impl CellWorker {
             if name.as_deref() == Some("ready") {
                 listener_state.borrow_mut().ready = true;
                 send_pending(&listener_state, &listener_worker);
+                return;
+            }
+            if name.as_deref() == Some("failed") {
+                let detail = Reflect::get(&data, &"error".into())
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_else(|| "worker could not start".into());
+                fail(
+                    &listener_state,
+                    &listener_worker,
+                    Error::WorkerFailed(detail),
+                );
                 return;
             }
             let id = Reflect::get(&data, &"id".into())
