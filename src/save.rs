@@ -66,6 +66,8 @@ pub struct SavePlugin;
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, save_when_resting.in_set(GameSet::Present));
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::cell_save::native::install(app);
     }
 }
 

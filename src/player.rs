@@ -115,10 +115,20 @@ pub fn spawn_local_crab(
     mut sim: ResMut<Sim>,
     lab: Res<FeelLab>,
     me: Res<LocalId>,
+    #[cfg(not(target_arch = "wasm32"))] mut cells_storage: ResMut<
+        crate::cell_save::native::Storage,
+    >,
 ) {
     let me = me.0;
     // The feel preset first, so the recording starts with it.
     sim.set_feel(lab.feel);
+    #[cfg(not(target_arch = "wasm32"))]
+    let saved = if crate::cellular::enabled() {
+        crate::cell_save::native::load(&mut sim, &mut cells_storage)
+    } else {
+        save::load()
+    };
+    #[cfg(target_arch = "wasm32")]
     let saved = save::load();
     // How big it has grown decides where it fits.
     let size = saved
@@ -129,7 +139,7 @@ pub fn spawn_local_crab(
             (m.moults, m.growing) = (p.moults, p.growing);
             m.grown(&sim.tuning)
         });
-    let pos = saved
+    let saved_pos = saved
         .as_ref()
         .filter(|s| s.x.is_finite() && s.y.is_finite())
         // A save from before the surface existed may be above it. Bring
@@ -140,8 +150,13 @@ pub fn spawn_local_crab(
                 s.y.min(crabsim::level::WATER_SURFACE_Y - sim.tuning.body_height * size),
             )
         })
-        .filter(|&p| physics::is_valid_spot(p, size, &sim.tuning, &sim.level))
-        .unwrap_or(SPAWN);
+        .filter(|&p| valid_saved_spot(p, size, &sim));
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::cellular::enabled() && saved.is_some() && saved_pos.is_none() {
+        cells_storage.disable();
+        warn!("cellular save has an invalid crab position; keeping the old file unchanged");
+    }
+    let pos = saved_pos.unwrap_or(SPAWN);
     sim.add_crab(me, pos);
     // What it grew, took and remembers comes back with it.
     if let Some(p) = saved.as_ref().and_then(|s| s.progress.as_ref()) {
@@ -169,6 +184,26 @@ pub fn spawn_local_crab(
         Transform::from_xyz(pos.x, pos.y, 10.0),
         Visibility::default(),
     ));
+}
+
+fn valid_saved_spot(pos: Vec2, size: f32, sim: &Sim) -> bool {
+    let Some(cells) = &sim.level.cells else {
+        return physics::is_valid_spot(pos, size, &sim.tuning, &sim.level);
+    };
+    let hw = sim.tuning.body_half_width * size;
+    let height = sim.tuning.body_height * size;
+    pos.is_finite()
+        && pos.x >= sim.level.min_x + hw
+        && pos.x <= sim.level.max_x - hw
+        && pos.y + height <= crabsim::level::WATER_SURFACE_Y
+        && cells.contains_world(pos.x, pos.y)
+        && cells.contains_world(pos.x, pos.y + height)
+        && !sim.level.solids().any(|r| {
+            pos.x + hw > r.min.x + 0.01
+                && pos.x - hw < r.max.x - 0.01
+                && pos.y + height > r.min.y + 0.01
+                && pos.y < r.max.y - 0.01
+        })
 }
 
 /// Hand each [`MoveRequest`] to the simulation. (A press, like jump, is
@@ -314,5 +349,23 @@ fn place_crabs(
         transform.rotation = transform
             .rotation
             .slerp(target, 1.0 - (-10.0 * time.delta_secs()).exp());
+    }
+}
+
+#[cfg(test)]
+mod cellular_save_tests {
+    use super::*;
+
+    #[test]
+    fn cellular_saved_spawn_can_be_under_the_old_fixed_floor() {
+        let mut sim = Sim::new(Tuning::default(), Level::test_level());
+        sim.enable_underwater_cells();
+        let pos = Vec2::new(160.25, -15.75);
+        assert!(pos.y < sim.level.floor_height(pos.x) - 1.0);
+        assert!(!physics::is_valid_spot(pos, 1.0, &sim.tuning, &sim.level));
+        assert!(valid_saved_spot(pos, 1.0, &sim));
+        assert!(!valid_saved_spot(Vec2::new(f32::NAN, 0.0), 1.0, &sim));
+        sim.add_crab(PlayerId(0), pos);
+        assert_eq!(sim.crab(PlayerId(0)).unwrap().mover.pos, pos);
     }
 }
