@@ -33,6 +33,7 @@ pub struct ChunkFlow {
     origin: (i32, i32),
     tick: u64,
     pebbles: Vec<Pebble>,
+    pebble_motion: Vec<(i8, i8, u8)>,
     silt: Vec<Silt>,
     crab_reserved: bool,
     sand_properties: SedimentProperties,
@@ -75,6 +76,7 @@ impl ChunkFlow {
             origin: world.origin,
             tick: world.tick,
             pebbles: world.pebbles.clone(),
+            pebble_motion: world.pebble_motion.clone(),
             silt: world.silt.clone(),
             crab_reserved: world.crab.is_some(),
             sand_properties: world.sand_properties,
@@ -452,6 +454,156 @@ impl ChunkFlow {
         true
     }
 
+    // Planning follows the reference's row-major blocker discovery and recursive
+    // leading-first order. A 256-aggregate limit keeps this isolated prototype
+    // bounded; longer chains are rejected before any mutation.
+    fn plan_push(
+        &self,
+        id: u16,
+        dx: i32,
+        dy: i32,
+        budget: &mut usize,
+        seen: &mut Vec<u16>,
+        plan: &mut Vec<u16>,
+    ) -> bool {
+        if seen.contains(&id) {
+            return true;
+        }
+        if seen.len() >= 256 {
+            return false;
+        }
+        let Some(p) = id
+            .checked_sub(1)
+            .and_then(|i| self.pebbles.get(i as usize))
+            .copied()
+        else {
+            return false;
+        };
+        let side = i32::from(p.side);
+        if !(1..=64).contains(&side) {
+            return false;
+        }
+        let mass = side as usize * side as usize;
+        if *budget < mass {
+            return false;
+        }
+        *budget -= mass;
+        seen.push(id);
+        let mut blockers = Vec::new();
+        for oy in 0..side {
+            for ox in 0..side {
+                let Some((c, i)) = Self::signed_location(p.x + ox + dx, p.y + oy + dy) else {
+                    return false;
+                };
+                let tile = &self.chunks[c];
+                let owner = tile.owner[i];
+                if owner == id {
+                    continue;
+                }
+                if owner != 0 {
+                    if !blockers.contains(&owner) {
+                        blockers.push(owner);
+                    }
+                } else if tile.cells[i] == Cell::Rock {
+                    return false;
+                } else if tile.cells[i] != Cell::Water {
+                    let cost = match tile.cells[i] {
+                        Cell::Sand if tile.grain[i] >= 248 => {
+                            3 + usize::from(tile.grain[i] - 248) / 2
+                        }
+                        Cell::Sand => self.sand_properties.push_cost.max(1),
+                        Cell::Mud => self.mud_properties.push_cost.max(1),
+                        _ => 0,
+                    };
+                    if *budget < cost {
+                        return false;
+                    }
+                    *budget -= cost;
+                }
+            }
+        }
+        for blocker in blockers {
+            if !self.plan_push(blocker, dx, dy, budget, seen, plan) {
+                return false;
+            }
+        }
+        plan.push(id);
+        true
+    }
+
+    fn move_pushed_pebble(&mut self, id: u16, dx: i32, dy: i32, force: usize) -> bool {
+        let Some(p) = id
+            .checked_sub(1)
+            .and_then(|i| self.pebbles.get(i as usize))
+            .copied()
+        else {
+            return false;
+        };
+        let side = i32::from(p.side);
+        let mass = side as usize * side as usize;
+        if force < mass {
+            return false;
+        }
+        for oy in 0..side {
+            for ox in 0..side {
+                let Some((sc, si)) = Self::signed_location(p.x + ox, p.y + oy) else {
+                    return false;
+                };
+                if self.chunks[sc].owner[si] != id || self.chunks[sc].cells[si] != Cell::Sand {
+                    return false;
+                }
+                let Some((c, i)) = Self::signed_location(p.x + ox + dx, p.y + oy + dy) else {
+                    return false;
+                };
+                let tile = &self.chunks[c];
+                if tile.owner[i] != id && (tile.owner[i] != 0 || tile.cells[i] == Cell::Rock) {
+                    return false;
+                }
+            }
+        }
+        for row in 0..side {
+            for col in 0..side {
+                let ox = if dx > 0 { side - 1 - col } else { col };
+                let oy = if dy > 0 { side - 1 - row } else { row };
+                let from = Self::signed_location(p.x + ox, p.y + oy)
+                    .expect("source footprint checked above");
+                let to = Self::signed_location(p.x + ox + dx, p.y + oy + dy)
+                    .expect("destination footprint checked above");
+                self.swap_material(from, to);
+            }
+        }
+        self.pebbles[id as usize - 1].x += dx;
+        self.pebbles[id as usize - 1].y += dy;
+        self.pebble_motion.resize(self.pebbles.len(), (0, 0, 0));
+        let travel = (1 + (force - mass) / 8).min(4) as u8;
+        self.pebble_motion[id as usize - 1] = (dx as i8, dy as i8, travel);
+        true
+    }
+
+    /// Isolated, transactional whole-aggregate push, with the reference's
+    /// force costs and order. Bodies and long chains remain unsupported.
+    pub fn push_pebble_chain(&mut self, id: u16, dx: i32, dy: i32, force: usize) -> bool {
+        if self.crab_reserved
+            || !matches!((dx, dy), (1, 0) | (-1, 0) | (0, 1) | (0, -1))
+            || force == usize::MAX
+        {
+            return false;
+        }
+        let mut budget = force;
+        let mut plan = Vec::new();
+        if !self.plan_push(id, dx, dy, &mut budget, &mut Vec::new(), &mut plan) {
+            return false;
+        }
+        let mut next = self.clone();
+        for pebble in plan {
+            if !next.move_pushed_pebble(pebble, dx, dy, force) {
+                return false;
+            }
+        }
+        *self = next;
+        true
+    }
+
     /// Advance the same water-diffusion rule by one material tick. Each
     /// chunk's output is staged separately until every neighbour is read.
     pub fn step(&mut self, current: f32) -> bool {
@@ -782,6 +934,129 @@ mod tests {
         assert!(!chunked.move_unobstructed_pebble(1, 1, 0));
         compare(&reference, &chunked);
         assert_eq!(chunked.pebbles, reference.pebbles);
+    }
+
+    #[test]
+    fn pebble_push_chains_match_reference_across_seams_and_roll_back() {
+        for (x, y, dx, dy) in [(58, 150, 1, 0), (150, 68, 0, -1)] {
+            let mut reference = World::new();
+            reference.cells.fill(Cell::Water);
+            reference.pebble_owner.fill(0);
+            reference.pebbles.clear();
+            reference.pebble_motion.clear();
+            reference.clear_game_crab();
+            assert!(reference.add_pebble(x, y, 4, 250));
+            assert!(reference.add_pebble(x + dx * 4, y + dy * 4, 4, 251));
+            for n in 0..4 {
+                let (sx, sy) = if dx != 0 {
+                    (x + dx * 8, y + n)
+                } else {
+                    (x + n, y + dy * 5)
+                };
+                let i = World::index(sx, sy).unwrap();
+                reference.cells[i] = if n % 2 == 0 { Cell::Sand } else { Cell::Mud };
+                reference.grain[i] = 20 + n as u8;
+            }
+            let mut chunked = ChunkFlow::from_world(&reference);
+            let initial = chunked.clone();
+            assert!(!reference.push_pebble_chain(1, dx, dy, 31));
+            assert!(!chunked.push_pebble_chain(1, dx, dy, 31));
+            assert!(chunked == initial);
+            let mut replayed = chunked.clone();
+            assert!(reference.push_pebble_chain(1, dx, dy, 64));
+            assert!(chunked.push_pebble_chain(1, dx, dy, 64));
+            assert!(replayed.push_pebble_chain(1, dx, dy, 64));
+            compare(&reference, &chunked);
+            assert_eq!(reference.pebbles, chunked.pebbles);
+            assert_eq!(reference.pebble_motion, chunked.pebble_motion);
+            assert!(chunked == replayed);
+            for id in 1..=2 {
+                assert_eq!(
+                    reference.pebble_owner.iter().filter(|&&i| i == id).count(),
+                    16
+                );
+            }
+            assert_eq!(
+                reference.cells.iter().filter(|&&c| c == Cell::Mud).count(),
+                2
+            );
+            assert_eq!(
+                reference.cells.iter().filter(|&&c| c == Cell::Sand).count(),
+                34
+            );
+        }
+    }
+
+    #[test]
+    fn pebble_push_protects_rock_and_reserved_bodies() {
+        let mut reference = World::new();
+        reference.cells.fill(Cell::Water);
+        reference.pebble_owner.fill(0);
+        reference.pebbles.clear();
+        reference.pebble_motion.clear();
+        reference.clear_game_crab();
+        assert!(reference.add_pebble(62, 100, 4, 250));
+        reference.cells[World::index(66, 100).unwrap()] = Cell::Rock;
+        let mut chunked = ChunkFlow::from_world(&reference);
+        let before = chunked.clone();
+        assert!(!reference.push_pebble_chain(1, 1, 0, 64));
+        assert!(!chunked.push_pebble_chain(1, 1, 0, 64));
+        assert!(chunked == before);
+        compare(&reference, &chunked);
+        reference.set_game_crab(200.0, 200.0, 3.0, 3.0);
+        let mut reserved = ChunkFlow::from_world(&reference);
+        let before = reserved.clone();
+        assert!(!reserved.push_pebble_chain(1, 1, 0, 64));
+        assert!(reserved == before);
+    }
+
+    #[test]
+    fn oversized_pebble_chain_is_rejected_without_partial_changes() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.clear_game_crab();
+        for x in 10..267 {
+            assert!(world.add_pebble(x, 150, 1, 250));
+        }
+        let mut chunked = ChunkFlow::from_world(&world);
+        let before = chunked.clone();
+        assert!(!chunked.push_pebble_chain(1, 1, 0, 300));
+        assert!(chunked == before);
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn chunked_pebble_push_profile() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.clear_game_crab();
+        assert!(world.add_pebble(58, 150, 4, 250));
+        assert!(world.add_pebble(62, 150, 4, 251));
+        let chunked = ChunkFlow::from_world(&world);
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut run = world.clone();
+            assert!(run.push_pebble_chain(1, 1, 0, 64));
+            std::hint::black_box(run);
+        }
+        let reference_time = start.elapsed();
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut run = chunked.clone();
+            assert!(run.push_pebble_chain(1, 1, 0, 64));
+            std::hint::black_box(run);
+        }
+        eprintln!(
+            "20 pushes with fixture resets: reference {reference_time:?}; chunked {:?}; chunk field {} bytes",
+            start.elapsed(),
+            chunked.field_capacity_bytes()
+        );
     }
 
     fn sand_fixture(origin_y: i32) -> World {

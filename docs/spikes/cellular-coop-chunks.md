@@ -32,7 +32,7 @@ Bounded parsing, peak-memory measurements and chunk-scoped backpressure are
 explicit blockers before connecting this prototype to the runtime.
 
 The first isolated chunk-native primitives reproduce the existing flow
-diffusion phase, move one unobstructed whole pebble across chunk seams, and
+diffusion phase, move unobstructed whole pebbles and bounded push chains across chunk seams, and
 advance guarded sand and mud, including cohesion, suspension, entrainment,
 and sediment wakes, in the same global order as the contiguous reference.
 The sediment slice rejects pebbles and body reservations. It does not run
@@ -163,3 +163,16 @@ release desktop runs of a sparse five-mud-grain one-step fixture, including
 reset clones, measured 12.54/11.75 ms contiguous and 9.65/9.46 ms chunked.
 One test-process peak was 28.0 MB, including both versions. These figures do
 not represent a dense world, full simulation, or phone performance.
+
+A separate transactional pebble-push primitive matches the reference's
+row-major blocker discovery, leading-first aggregate movement, finite force
+costs and motion impulses in tested two-aggregate seam fixtures containing
+loose sand and mud. A failed push leaves the chunked state unchanged. This
+prototype rejects player reservations, non-cardinal pushes, unlimited force,
+and chains over 256 aggregates; its sediment step still rejects all pebbles.
+It does not implement full pebble stepping, streaming, or gameplay co-op.
+In one desktop release run, 20 pushes with fixture reset clones took 1.84 ms
+for the contiguous reference and 5.36 ms for chunks. Each successful chunk
+push clones the full field for rollback, in addition to the fixture reset;
+the field alone occupies about 3.19 MB, excluding particles, metadata, and
+additional scratch/copies. This is not a phone memory or frame-time result.
