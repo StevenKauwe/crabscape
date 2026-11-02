@@ -2,7 +2,7 @@
 
 The shipping browser save is a single v1/v2 record. It refuses snapshots above
 its 12 MiB raw or 256 sleeping-chunk bounds and retains the previous save. The
-prototype in `tools/cellstore-prototype` explores a different protocol; it is
+model in `tools/cellstore-proof` explores a different protocol; it is
 not wired into the game or IndexedDB and does not raise those limits.
 
 ## Required consistency
@@ -66,31 +66,17 @@ would hide loss and permit overwriting it. Migration should publish the new
 format before considering removal of the old v1/v2 record; until then preserve
 it byte-for-byte. Existing normal-game saves remain separate.
 
-## Prototype and remaining work
+## Prototypes and remaining work
 
-Run `python3 -m unittest discover -s tools/cellstore-prototype -v`. The small
-serializable-transaction model tests staged publication, content reuse, bounded
-batches, fail-closed conflicts, collection reachability and reset fencing across
-writers. It deliberately assumes transactions provide the stated semantics: it
-does not test IndexedDB event scheduling, storage eviction, quota, browser
-crashes, or worker lifetimes.
-
-`tools/cellstore-prototype/indexeddb.js` is a separate experimental implementation
-of those transactions, using its own database and no game integration. Serve the
-repository over localhost and open `tools/cellstore-prototype/test.html` in a
-browser to exercise it with two connections. The page's `data-result` reports
-PASS or the failure. This prototype still lacks production decoding, capture,
-crash recovery, quota testing and a bounded, paginated collector. Neither
-prototype establishes that enabling the format in the game is safe.
-
-A production implementation still needs actual IndexedDB integration tests in
-multiple tabs, reset/worker/transaction races, crash and quota injection,
-version migration tests, integrity validation, stale-stage reclamation, and
-WebKit/iPhone memory and performance measurements. Most importantly, loading
-all chunks into the current in-memory `World` can exceed phone memory even when
-individual chunks are small. Raising storage limits also requires bounded lazy
-world reconstruction or explicit expanded-memory limits; chunked storage alone
-must not relax the existing startup protections.
+The standalone Rust model in `tools/cellstore-proof` tests staged publication,
+SHA-256 part and manifest integrity, bounded verification and garbage-collection
+steps, competing writers, explicit recovery, and epoch fencing. Run
+`cargo test --manifest-path tools/cellstore-proof/Cargo.toml`. Its operations
+are synchronous in-memory transactions, not IndexedDB; real cross-tab ordering,
+crashes and quota must be verified separately. Hashes detect accidental damage;
+they cannot authenticate against an attacker who can replace the data and its
+digest. Recovery deliberately fences even a slow writer and never reuses its
+ID; automatic detection of abandoned owners remains unsolved.
 
 The unwired `underwater::versioned_chunks` experiment demonstrates the smaller
 copy-on-write mechanism: a snapshot shares immutable payloads and copies an
@@ -104,37 +90,24 @@ chunks change. Lazy disk reconstruction additionally needs per-chunk validation,
 an IO cache budget, deterministic missing-chunk behavior, cancellation and reset
 fencing, and a policy for when simulation may advance while a chunk is loading.
 
-## Isolated end-to-end proof
-
 `FrozenRestore` consumes bounded active and sleeping parts individually,
 rejects missing, duplicate, malformed or oversized parts, and checks the
 assembled world with the existing checkpoint validator. It eagerly holds all
 accepted chunks and currently caps sleeping chunks at 256; it is not a lazy
-loader. The isolated IndexedDB prototype can pin a manifest while reading it in
-pages, so collection cannot delete an old snapshot between page transactions.
-Reset invalidates the pin using the persistent epoch.
+loader. Its Rust tests exercise exact reconstruction and malformed inputs.
 
-The standalone Wasm harness can be built and served from the repository root:
+An earlier throwaway browser experiment (not part of the repository or game
+pipeline) staged and verified SHA-256-addressed parts in IndexedDB, reloaded the
+page, and reconstructed a streamed terrain fixture four parts at a time. Chrome
+passed with 120 sleeping chunks over 46 pages, including corruption, missing
+parts, interrupted staging and reset checks. The frozen snapshot's logical heap
+estimate was 10,995,023 bytes; the highest observed Wasm linear-memory capacity
+was 58,392,576 bytes. The latter includes original, snapshot, restoration and
+comparison copies; it is not an allocation peak and excludes JS, IndexedDB,
+browser overhead and game assets. The player was an opaque fixture, not game
+progress. These results do not establish a mobile memory budget.
 
-```sh
-cargo build --release --target wasm32-unknown-unknown --manifest-path tools/cellstore-prototype/harness/Cargo.toml
-wasm-bindgen --target web --out-dir tools/cellstore-prototype/pkg tools/cellstore-prototype/harness/target/wasm32-unknown-unknown/release/cellstore_proof.wasm
-python3 -m http.server
-```
-
-Open `tools/cellstore-prototype/proof.html` on that server. It freezes a real
-streamed terrain fixture, stages and publishes its parts, reloads the browser page, then restores four parts at
-a time, compares the entire reconstructed terrain and fixture player/tick, and
-checks interruption and reset behavior. A desktop Chrome run with 120 sleeping
-chunks used 46 pages: the frozen snapshot's logical heap estimate was 10,995,023
-bytes and the highest observed Wasm linear-memory **capacity** was 58,392,576
-bytes. The latter includes the harness's original world, snapshot, restoration,
-and comparison copies; it is not an allocation peak and excludes JS,
-IndexedDB, browser overhead, and actual game assets. It does not establish a
-mobile memory budget. The player is a small opaque fixture, not game progress.
-
-This proof does not yet verify cryptographic manifest/part integrity, install
-into the game, reconstruct on demand, migrate legacy saves, reclaim abandoned
-pins after crashes, or test quota and WebKit. A corrupt manifest that is
-internally plausible can still select the wrong chunks. Keep the live v1/v2
-path and its existing limits until these problems are solved and measured.
+Production still requires a Rust/Wasm IndexedDB implementation, automatic
+crash and stale-pin recovery, safe bounded collection, quota handling, real
+player/progress capture, lazy world loading, legacy migration, and WebKit/iPhone
+validation. Do not relax existing live v1/v2 protections based on these models.

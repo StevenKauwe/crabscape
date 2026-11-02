@@ -326,3 +326,27 @@ sand cells: the contact path rejects any world containing aggregates. It also
 rejects overlap, window-edge bodies, jumping, digging and creatures. It copies
 the full field through the chunk representation and clones state for rollback,
 so it is not yet suitable for live gameplay or a phone performance claim.
+
+The experimental loose-sediment scoop can now preserve both separated body
+reservations. An isolated batch sorts player commands by ID, rejects duplicate
+actors and unsupported fallbacks, and rolls back all earlier scoops if a later
+one fails. Each body's local result is compared with a solo scoop, including
+force budget, material conservation and protection of the other body.
+
+A separate two-Sim fixture applies actual guest horizontal dig controls on a
+purpose-built pebble-free sand bed. It checks full host/guest terrain agreement
+at material ticks, compares each body's local terrain to independent solo
+references, and compares guest movement and nonzero dig resistance with a
+separately ticking solo guest. The real-tick prototype currently orders the
+host's walking action before the guest's dig; simultaneous host digging,
+other directions, fallback scoops, aggregate-bearing worlds, overlapping
+bodies and creatures remain unsupported. Authentication and sequencing of
+guest input are still supplied by the test harness, not a live session.
+
+A desktop release profile of the earlier grounded walking contact path took
+97.0 ms for ten normal solo material ticks and 247.8 ms for ten guarded host
+material ticks, including reset clones in both measurements. The guarded path
+therefore averaged about 24.8 ms per material tick in this fixture, before
+networking and rendering; this single desktop measurement does not establish
+phone performance. The new dig path also clones fields and has not been
+profiled separately. Neither path is ready for live co-op.

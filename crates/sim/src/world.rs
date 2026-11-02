@@ -945,12 +945,15 @@ impl Sim {
         let crab = self.crabs.iter().find(|c| !c.remote)?;
         let mut remaining = crab.controls;
         let walk = remaining.walk;
+        let digging = remaining.dig_held;
         remaining.walk = 0.0;
+        remaining.dig_held = false;
         let velocity = crab.mover.vel;
         if crab.remote
             || remaining != Controls::default()
             || !walk.is_finite()
             || !(-1.0..=1.0).contains(&walk)
+            || (digging && (self.is_host() || walk.abs() <= 0.1))
             || crab.events.jumped
             || !velocity.is_finite()
             || velocity.y > 0.0
@@ -980,7 +983,11 @@ impl Sim {
             },
             grounded: crab.mover.grounded,
             jumped: false,
-            dig: None,
+            dig: digging.then_some(crate::underwater::HostDig {
+                dx: walk.signum() as i8,
+                dy: 0,
+                force: 48,
+            }),
         })
     }
 
@@ -1088,13 +1095,16 @@ impl Sim {
             .find(|c| !c.remote)
             .expect("one local crab checked");
         let mut controls = crab.controls;
+        let digging = controls.dig_held;
         controls.walk = 0.0;
+        controls.dig_held = false;
         if controls != Controls::default()
             || crab.events.jumped
             || !crab.mover.vel.is_finite()
             || crab.mover.vel.y > 0.0
             || !crab.controls.walk.is_finite()
             || crab.controls.walk.abs() > 1.0
+            || (digging && crab.controls.walk.abs() <= 0.1)
         {
             return false;
         }

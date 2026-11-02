@@ -2288,6 +2288,19 @@ impl World {
     }
 
     #[cfg(test)]
+    pub(crate) fn test_flat_loose_bed(&mut self) {
+        for x in 130..=220 {
+            for y in 114..=145 {
+                let i = Self::index(x, y).expect("fixture inside world");
+                self.pebble_owner[i] = 0;
+                self.suspended[i] = 0;
+                self.cells[i] = if y == 114 { Cell::Sand } else { Cell::Water };
+                self.grain[i] = 80;
+            }
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn test_place_loose_sand(&mut self, x: i32, y: i32) -> bool {
         let Some(index) = Self::index(x, y) else {
             return false;
@@ -2332,7 +2345,6 @@ impl World {
         p: &HostPlayerForce,
     ) -> bool {
         if p.jumped
-            || p.dig.is_some()
             || !(-1..=1).contains(&p.walking)
             || [
                 p.x,
@@ -2360,6 +2372,36 @@ impl World {
         let Some(body) = self.contact_reservation(p) else {
             return false;
         };
+        if let Some(dig) = p.dig {
+            if dig.dy != 0 || dig.dx != p.walking || dig.dx == 0 || dig.force != 48 {
+                return false;
+            }
+            let mut next = self.clone();
+            let mut chunks = chunk_flow::ChunkFlow::from_world(&next);
+            if chunks.set_extra_bodies(&[body]).is_err() {
+                return false;
+            }
+            let (x, y) = next.local_cell(p.x, p.y);
+            let pushed = chunks.push_for_extra_body(
+                p.player,
+                x + f32::from(dig.dx),
+                y,
+                i32::from(dig.dx),
+                0,
+                usize::from(dig.force),
+            );
+            if pushed != Ok(true) || !chunks.write_material_to(&mut next) {
+                return false;
+            }
+            let mut wake = *p;
+            wake.dig = None;
+            wake.walking = 0;
+            if !next.apply_contact_walker(tuning, &wake) {
+                return false;
+            }
+            *self = next;
+            return true;
+        }
         let old = (self.crab, self.crab_half_x, self.crab_half_y);
         self.crab = Some((body.x, body.y));
         self.crab_half_x = body.half_x;

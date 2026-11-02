@@ -55,6 +55,16 @@ pub struct BodyReservation {
     pub half_y: i32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BodyDig {
+    pub player: crate::PlayerId,
+    pub x: f32,
+    pub y: f32,
+    pub dx: i32,
+    pub dy: i32,
+    pub force: usize,
+}
+
 type CellLocation = (usize, usize);
 type CellSwap = (CellLocation, CellLocation);
 type PebbleUndo = (usize, Pebble, Option<(i8, i8, u8)>);
@@ -305,7 +315,11 @@ impl ChunkFlow {
                 }
                 if self.crab.is_some_and(|(cx, cy)| {
                     (nx - cx).abs() <= self.crab_half_x && (ny - cy).abs() <= self.crab_half_y
-                }) {
+                }) || self
+                    .extra_bodies
+                    .iter()
+                    .any(|b| (nx - b.x).abs() <= b.half_x && (ny - b.y).abs() <= b.half_y)
+                {
                     continue;
                 }
                 let cost = match self.chunks[loc.0].cells[loc.1] {
@@ -359,7 +373,7 @@ impl ChunkFlow {
             || !matches!((dx, dy), (1, 0) | (-1, 0) | (0, 1) | (0, -1))
             || force > 64
             || !self.supported_crab()
-            || !self.extra_bodies.is_empty()
+            || (!self.extra_bodies.is_empty() && !self.pebbles.is_empty())
             || self.crab.is_none()
             || self.crab_half_x > 16
             || self.crab_half_y > 16
@@ -368,6 +382,12 @@ impl ChunkFlow {
             return Err(SedimentStepError::Unsupported);
         }
         let (cx, cy) = (x as i32, y as i32);
+        if self.extra_bodies.iter().any(|b| {
+            (cx - b.x).abs() <= self.crab_half_x + b.half_x
+                && (cy - b.y).abs() <= self.crab_half_y + b.half_y
+        }) {
+            return Err(SedimentStepError::Unsupported);
+        }
         let clear = |world: &Self| {
             (-world.crab_half_y..=world.crab_half_y).all(|oy| {
                 (-world.crab_half_x..=world.crab_half_x).all(|ox| {
@@ -445,6 +465,81 @@ impl ChunkFlow {
         let result = clear(&next);
         *self = next;
         Ok(result)
+    }
+
+    /// Apply a separated extra body's loose-sediment scoop while protecting
+    /// the primary body and all other reservations. Unsupported/blocked
+    /// scoops do not change the caller's state.
+    pub fn push_for_extra_body(
+        &mut self,
+        player: crate::PlayerId,
+        x: f32,
+        y: f32,
+        dx: i32,
+        dy: i32,
+        force: usize,
+    ) -> Result<bool, SedimentStepError> {
+        let Some(index) = self.extra_bodies.iter().position(|b| b.player == player) else {
+            return Err(SedimentStepError::Unsupported);
+        };
+        if !self.pebbles.is_empty() {
+            return Err(SedimentStepError::Unsupported);
+        }
+        let Some((host_x, host_y)) = self.crab else {
+            return Err(SedimentStepError::Unsupported);
+        };
+        let mut next = self.clone();
+        let guest = next.extra_bodies.remove(index);
+        next.extra_bodies.push(BodyReservation {
+            player: crate::PlayerId(u32::MAX),
+            x: host_x,
+            y: host_y,
+            half_x: next.crab_half_x,
+            half_y: next.crab_half_y,
+        });
+        next.crab = Some((guest.x, guest.y));
+        next.crab_half_x = guest.half_x;
+        next.crab_half_y = guest.half_y;
+        let result = next.push_for_crab(x, y, dx, dy, force)?;
+        if !result {
+            return Ok(false);
+        }
+        next.crab = self.crab;
+        next.crab_half_x = self.crab_half_x;
+        next.crab_half_y = self.crab_half_y;
+        next.extra_bodies = self.extra_bodies.clone();
+        *self = next;
+        Ok(true)
+    }
+
+    /// Apply commands in player-ID order, atomically. One failed or unsupported
+    /// scoop discards every earlier scoop in this batch.
+    pub fn apply_ordered_digs(
+        &mut self,
+        primary: crate::PlayerId,
+        digs: &[BodyDig],
+    ) -> Result<(), SedimentStepError> {
+        if digs.len() > 4 {
+            return Err(SedimentStepError::Unsupported);
+        }
+        let mut ordered = digs.to_vec();
+        ordered.sort_unstable_by_key(|d| d.player);
+        if ordered.windows(2).any(|p| p[0].player == p[1].player) {
+            return Err(SedimentStepError::Unsupported);
+        }
+        let mut next = self.clone();
+        for d in ordered {
+            let result = if d.player == primary {
+                next.push_for_crab(d.x, d.y, d.dx, d.dy, d.force)
+            } else {
+                next.push_for_extra_body(d.player, d.x, d.y, d.dx, d.dy, d.force)
+            }?;
+            if !result {
+                return Err(SedimentStepError::Unsupported);
+            }
+        }
+        *self = next;
+        Ok(())
     }
 
     /// Apply the solo jump downwash and immediate grain entrainment. Aggregate
@@ -2281,6 +2376,113 @@ mod tests {
     }
 
     #[test]
+    fn ordered_two_body_loose_digs_match_local_solo_and_roll_back() {
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        world.flow.fill((0.0, 0.0));
+        world.set_game_crab(64.0, 64.0, 3.0, 3.0);
+        for (x, material) in [
+            (68, Cell::Sand),
+            (69, Cell::Mud),
+            (196, Cell::Sand),
+            (197, Cell::Mud),
+        ] {
+            let i = World::index(x, 64).unwrap();
+            world.cells[i] = material;
+            world.grain[i] = 80;
+        }
+        let extra = BodyReservation {
+            player: crate::PlayerId(1),
+            x: 192,
+            y: 64,
+            half_x: 3,
+            half_y: 3,
+        };
+        let main = BodyDig {
+            player: crate::PlayerId(0),
+            x: 68.0,
+            y: 64.0,
+            dx: 1,
+            dy: 0,
+            force: 48,
+        };
+        let guest = BodyDig {
+            player: crate::PlayerId(1),
+            x: 196.0,
+            y: 64.0,
+            dx: 1,
+            dy: 0,
+            force: 48,
+        };
+        let mut chunked = ChunkFlow::from_world(&world);
+        chunked.set_extra_bodies(&[extra]).unwrap();
+        let before = chunked.clone();
+        let mut reversed = chunked.clone();
+        assert_eq!(
+            chunked.apply_ordered_digs(main.player, &[guest, main]),
+            Ok(())
+        );
+        assert_eq!(
+            reversed.apply_ordered_digs(main.player, &[main, guest]),
+            Ok(())
+        );
+        assert!(chunked == reversed);
+        for (cx, command) in [(64, main), (192, guest)] {
+            let mut solo = world.clone();
+            solo.set_game_crab(cx as f32, 64.0, 3.0, 3.0);
+            assert!(solo.push_for_crab(
+                command.x,
+                command.y,
+                command.dx,
+                command.dy,
+                command.force
+            ));
+            for y in 50..80 {
+                for x in cx - 15..=cx + 15 {
+                    let i = World::index(x, y).unwrap();
+                    let (c, slot) = ChunkFlow::locate(x as usize, y as usize);
+                    assert_eq!(chunked.chunks[c].cells[slot], solo.cells[i]);
+                    assert_eq!(chunked.chunks[c].flow[slot], solo.flow[i]);
+                    assert_eq!(chunked.chunks[c].grain[slot], solo.grain[i]);
+                }
+            }
+        }
+        let mut failed = before.clone();
+        let mut bad_guest = guest;
+        bad_guest.force = 0;
+        assert_eq!(
+            failed.apply_ordered_digs(main.player, &[bad_guest, main]),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(
+            failed == before,
+            "a later guest failure rolls back the primary dig"
+        );
+        assert_eq!(
+            failed.apply_ordered_digs(main.player, &[main, main]),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(failed == before);
+        assert_eq!(
+            failed.push_for_extra_body(guest.player, 64.0, 64.0, 1, 0, 48),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(failed == before, "a guest cannot target the primary body");
+        let mut sand = 0;
+        let mut mud = 0;
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                match chunked.cell(x, y) {
+                    Some(Cell::Sand) => sand += 1,
+                    Some(Cell::Mud) => mud += 1,
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!((sand, mud), (2, 2));
+    }
+
+    #[test]
     fn separated_body_reservations_match_solo_rules_and_conserve_grains() {
         let mut world = sand_fixture(0);
         world.cells.fill(Cell::Water);
@@ -2368,10 +2570,7 @@ mod tests {
             chunked.set_extra_bodies(&[body, body]),
             Err(SedimentStepError::Unsupported)
         );
-        assert_eq!(
-            chunked.push_for_crab(64.0, 150.0, 1, 0, 48),
-            Err(SedimentStepError::Unsupported)
-        );
+        assert_eq!(chunked.push_for_crab(64.0, 150.0, 1, 0, 48), Ok(false));
         assert!(!chunked.react_to_jump(64.0, 150.0));
         assert!(chunked == before);
         assert!(world.add_pebble(250, 200, 4, 250));
