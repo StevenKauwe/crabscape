@@ -583,6 +583,39 @@ fn meet(site: &Site, host: &mut Player, guest: &mut Player, setup: f64) -> Resul
 /// What a scenario found: a line for each promise it checked, with the time it took.
 type Found = Vec<String>;
 
+fn region_status(p: &mut Player) -> String {
+    [
+        "data-cell-region-state",
+        "data-cell-regions",
+        "data-cell-region-id",
+        "data-cell-session-tick",
+        "data-cell-session-actors",
+        "data-coop",
+    ]
+    .into_iter()
+    .map(|name| format!("{name}={}", p.b.attr(name).unwrap_or_default()))
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn local_position(p: &mut Player) -> Result<(f64, f64)> {
+    let text =
+        p.b.attr("data-cell-session-actors")
+            .ok_or("missing regional actors")?;
+    let actors: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let list = actors.as_array().ok_or("invalid regional actors")?;
+    let actor = if p.name() == "host" {
+        list.iter().find(|a| a[0].as_u64() == Some(0))
+    } else {
+        list.iter().find(|a| a[0].as_u64() != Some(0))
+    }
+    .ok_or("missing local regional actor")?;
+    Ok((
+        actor[1].as_f64().ok_or("bad actor x")?,
+        actor[2].as_f64().ok_or("bad actor y")?,
+    ))
+}
+
 /// `a` shows `b`'s name over `b`'s crab (`data-names`) within 5 s of meeting. A build from before names (no
 /// `data-name`) is let be.
 fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
@@ -600,7 +633,12 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 21] = [
+const SCENARIOS: [(&str, &str, u32); 22] = [
+    (
+        "cells-regions",
+        "separate regional physics, digging, reunion and owner loss",
+        120,
+    ),
     (
         "cells-session",
         "playable cellular world, controls, determinism and solo recovery",
@@ -737,6 +775,117 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
+        "cells-regions" => {
+            eprintln!("cells-regions: opening both browsers");
+            host.open(&site.url("cells"))?;
+            let code = host.invite()?;
+            guest.open(&host.copied_invite(&code, "cells")?)?;
+            for p in [&mut host, &mut guest] {
+                p.until(90.0, "regional simulation starts", |p| {
+                    p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+            }
+            guest.b.type_line("hulk")?;
+            eprintln!(
+                "cells-regions joined: host {}, guest {}",
+                region_status(&mut host),
+                region_status(&mut guest)
+            );
+            sleep(0.4);
+            guest.b.set_key("KeyD", true)?;
+            for _ in 0..60 {
+                guest.b.hold_key("Space", 0.9)?;
+                sleep(0.15);
+                host.healthy()?;
+                guest.healthy()?;
+                eprintln!(
+                    "cells-regions route: host {}, guest {}",
+                    region_status(&mut host),
+                    region_status(&mut guest)
+                );
+                if local_position(&mut guest)?.0 > 2200.0 {
+                    break;
+                }
+            }
+            guest.b.set_key("KeyD", false)?;
+            if local_position(&mut guest)?.0 <= 2200.0 {
+                return Err(format!(
+                    "route did not reach the far substrate: host {}, guest {}",
+                    region_status(&mut host),
+                    region_status(&mut guest)
+                ));
+            }
+            guest.b.hold_key("ArrowDown", 4.0)?;
+            guest.until(20.0, "guest lands on far substrate", |p| {
+                p.b.attr("data-crab")
+                    .is_some_and(|v| v.split_whitespace().last() == Some("1"))
+            })?;
+            eprintln!(
+                "cells-regions landed: host {}, guest {}",
+                region_status(&mut host),
+                region_status(&mut guest)
+            );
+            for p in [&mut host, &mut guest] {
+                p.until(60.0, "independent region", |p| {
+                    p.b.attr("data-cell-regions").as_deref() == Some("separate")
+                        && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+            }
+            let start_host = local_position(&mut host)?;
+            let start_guest = local_position(&mut guest)?;
+            if (start_guest.0 - start_host.0).abs() < 1700.0 {
+                return Err(format!(
+                    "players did not separate horizontally: {start_host:?}, {start_guest:?}"
+                ));
+            }
+            host.b.hold_keys(&["KeyC", "ArrowDown"], 0.9)?;
+            guest.b.hold_keys(&["KeyC", "ArrowDown"], 0.9)?;
+            sleep(0.5);
+            let dug_host = local_position(&mut host)?;
+            let dug_guest = local_position(&mut guest)?;
+            if dug_host.1 >= start_host.1 - 4.0 || dug_guest.1 >= start_guest.1 - 4.0 {
+                return Err(format!(
+                    "digging did not enter both substrates: host {start_host:?}->{dug_host:?}; guest {start_guest:?}->{dug_guest:?}"
+                ));
+            }
+            for p in [&mut host, &mut guest] {
+                p.b.screenshot(&site.dir.join(format!("separated-{}.png", p.name())))?;
+            }
+            guest.b.hold_key("KeyH", 0.1)?;
+            sleep(0.3);
+            guest.b.hold_key("KeyY", 0.1)?;
+            for p in [&mut host, &mut guest] {
+                p.until(90.0, "regional reunion", |p| {
+                    p.b.attr("data-cell-regions").as_deref() == Some("shared")
+                        && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+            }
+            host.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')",
+            )?;
+            sleep(1.5);
+            for p in [&mut host, &mut guest] {
+                p.b.eval(
+                    "document.getElementById('crabscape').setAttribute('data-want-cell-hash','1')",
+                )?;
+            }
+            sleep(0.3);
+            let h = host.b.attr("data-cell-session-hash");
+            let g = guest.b.attr("data-cell-session-hash");
+            if h.is_none() || h != g {
+                return Err(format!(
+                    "reunited regions disagree: host {h:?}, guest {g:?}"
+                ));
+            }
+            host.b.eval(
+                "document.getElementById('crabscape').removeAttribute('data-cell-session-pause')",
+            )?;
+            host.b.go("about:blank")?;
+            guest.until(30.0, "owner departure restores private world", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+            })?;
+            found.push(format!("actual keys separate players >1700px, both dig, Home reunites with identical world {h:?}; owner loss restores private world"));
+        }
         "cells-session" => {
             host.open(&site.url("cells"))?;
             guest.open(&site.url("cells"))?;
@@ -750,6 +899,15 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             guest.until(90.0, "cellular guest session", |p| {
                 p.b.attr("data-cell-session").as_deref() == Some("guest")
             })?;
+            for p in [&mut host, &mut guest] {
+                p.until(90.0, "regional snapshot installed", |p| {
+                    p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+                let tick = p.b.attr("data-cell-session-tick");
+                p.until(10.0, "regional simulation advances", |p| {
+                    p.b.attr("data-cell-session-tick") != tick
+                })?;
+            }
             found.push(sees_name(&mut host, &mut guest)?);
             found.push(sees_name(&mut guest, &mut host)?);
             voices(&mut [&mut host, &mut guest])?;
@@ -759,6 +917,11 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     .is_some_and(|s| s.contains("cellular hello"))
             })?;
             let start = host.b.attr("data-cell-session-actors");
+            eprintln!(
+                "cells-session before controls: host {}, guest {}",
+                region_status(&mut host),
+                region_status(&mut guest)
+            );
             host.b.hold_key("KeyD", 0.7)?;
             guest.b.hold_key("KeyA", 0.7)?;
             guest.b.hold_key("Space", 0.2)?;
@@ -777,6 +940,11 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             sleep(0.5);
             let h = host.b.attr("data-cell-session-hash");
             let g = guest.b.attr("data-cell-session-hash");
+            eprintln!(
+                "cells-session after controls: host {}, guest {}",
+                region_status(&mut host),
+                region_status(&mut guest)
+            );
             if h.is_none() || h != g {
                 return Err(
                     host.failed(format!("cellular state mismatch: host {h:?}, guest {g:?}"))
@@ -789,8 +957,9 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 "document.getElementById('crabscape').setAttribute('data-want-replay','1')",
             )?;
             guest.until(20.0, "complete cellular multiplayer replay", |p| {
-                p.b.attr("data-replay")
-                    .is_some_and(|s| s.starts_with("cell_session_v1 "))
+                p.b.attr("data-replay").is_some_and(|s| {
+                    s.starts_with("cell_session_v1 ") || s.starts_with("region_session_v1 ")
+                })
             })?;
             let text = guest
                 .b

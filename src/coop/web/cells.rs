@@ -6,7 +6,9 @@ use crabsim::{Controls, Progress};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
-const WINDOW: u32 = 8;
+// Bound outstanding checkpoint data to about 502 KiB. Eight 4 KiB packets
+// required dozens of browser-frame round trips for even a small region.
+const WINDOW: u32 = 128;
 const MAX_AHEAD: u64 = 60;
 mod regional;
 
@@ -81,6 +83,19 @@ pub(crate) fn active() -> bool {
 pub(crate) fn replay(report: bool) -> Option<Result<String, String>> {
     SESSION.with(|slot| {
         let s = slot.borrow();
+        if let Some(journal) = regional::replay_journal(&s) {
+            return Some(
+                journal
+                    .and_then(|j| j.to_text().map_err(|e| format!("Regional replay: {e:?}")))
+                    .and_then(|text| {
+                        if (report && text.len() >= 256 * 1024) || text.len() > 4 * 1024 * 1024 {
+                            Err("Complete co-op replay exceeds the report attachment limit".into())
+                        } else {
+                            Ok(text)
+                        }
+                    }),
+            );
+        }
         if !matches!(s.phase, Phase::Host | Phase::Guest) {
             return None;
         }
@@ -144,6 +159,40 @@ pub(crate) fn private_save(
             solo.level.cells.as_ref()?,
             solo.tick_count(),
         ))
+    })
+}
+
+/// Capture the owner's whole canonical world, including the most recent
+/// accepted visitor checkpoint, without replaying the visitor's journal.
+pub(crate) fn owner_save(
+    view: &Sim,
+) -> Option<Result<crate::cell_save::v2::PreparedSave, crate::cell_save::Error>> {
+    use crate::cell_save::Error;
+    SESSION.with(|slot| {
+        let mut session = slot.borrow_mut();
+        let regional = session.regional.as_mut()?;
+        regional.owner.as_ref()?;
+        let result = (|| {
+            let local = regional.kernel.as_ref().ok_or(Error::Damaged)?;
+            let owner = regional.owner.as_mut().ok_or(Error::Damaged)?;
+            let remote = owner
+                .remote
+                .as_ref()
+                .map(|journal| journal.base_kernel())
+                .transpose()
+                .map_err(|_| Error::Damaged)?;
+            let prepared = crate::cell_save::regional::prepare_owner_save(
+                view,
+                &mut owner.terrain,
+                &mut owner.entities,
+                local.id,
+                local.epoch,
+                remote.as_ref(),
+            )?;
+            regional.owner_save_dirty = false;
+            Ok(prepared)
+        })();
+        Some(result)
     })
 }
 pub(crate) fn action(action: super::super::CellsAction) -> bool {
@@ -434,7 +483,9 @@ fn receive(
                 return Err("invalid action sequence".into());
             }
             s.heard_sequence += 1;
-            s.actions.push_back((s.guest.unwrap(), action));
+            if !regional::forward_action(s, action) {
+                s.actions.push_back((s.guest.unwrap(), action));
+            }
         }
         Wire::Batch {
             epoch,

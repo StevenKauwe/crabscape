@@ -386,6 +386,13 @@ impl Chrome {
         }
         Ok(())
     }
+    pub fn set_key(&mut self, code: &str, down: bool) -> Result<()> {
+        self.call(
+            "Input.dispatchKeyEvent",
+            json!({"type":if down{"rawKeyDown"}else{"keyUp"},"code":code}),
+        )
+        .map(drop)
+    }
 
     /// Type `text` as a player does in the game's box: Enter, the letters, Enter.
     pub fn hold_keys(&mut self, codes: &[&str], secs: f64) -> Result<()> {

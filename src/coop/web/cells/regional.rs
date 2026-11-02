@@ -248,6 +248,18 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
 pub(super) fn wants_inputs(s: &Session) -> bool {
     s.regional.as_ref().is_none_or(|r| r.shared)
 }
+pub(super) fn forward_action(s: &mut Session, action: super::super::super::CellsAction) -> bool {
+    if s.regional
+        .as_ref()
+        .is_some_and(|r| r.owner.is_some() && !r.shared)
+        && !matches!(action, super::super::super::CellsAction::Home)
+    {
+        send(s, RegionMsg::Actions(vec![action]));
+        true
+    } else {
+        false
+    }
+}
 pub(super) fn replay_journal(s: &Session) -> Option<Result<RegionJournal, String>> {
     let r = s.regional.as_ref()?;
     Some((|| {
@@ -272,7 +284,7 @@ pub(super) fn local_action(s: &mut Session, action: super::super::super::CellsAc
     let Some(r) = s.regional.as_ref() else {
         return false;
     };
-    if s.phase == Phase::Guest && r.shared {
+    if s.phase == Phase::Guest && r.shared && r.stage == Stage::Running {
         return false;
     }
     if s.actions.len() < 16 {
