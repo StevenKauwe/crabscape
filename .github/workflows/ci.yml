@@ -269,7 +269,9 @@ jobs:
     needs: [web, browser-tools]
     if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Software-rendered phone runs can finish gameplay/save assertions near
+    # 15 minutes; allow the isolated reset/lock proof and artifact cleanup too.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
