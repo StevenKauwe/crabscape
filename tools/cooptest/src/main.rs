@@ -589,6 +589,7 @@ fn region_status(p: &mut Player) -> String {
         "data-cell-region-state",
         "data-cell-regions",
         "data-cell-region-id",
+        "data-cell-region-revision",
         "data-cell-session-tick",
         "data-cell-session-actors",
         "data-cell-session",
@@ -613,6 +614,7 @@ fn pause_region(p: &mut Player, paused: bool) -> Result<()> {
 /// Reproduce the real browser's current region, including its NPC random streams.
 fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
     for _ in 0..4 {
+        let revision_before = p.b.attr("data-cell-region-revision");
         p.b.eval("(() => {const c=document.getElementById('crabscape'); c.removeAttribute('data-replay'); c.removeAttribute('data-cell-session-hash'); c.setAttribute('data-want-replay','1'); c.setAttribute('data-want-cell-hash','1');})()")?;
         p.until(20.0, "regional replay export", |p| {
             p.b.attr("data-replay").is_some() && p.b.attr("data-cell-session-hash").is_some()
@@ -626,6 +628,11 @@ fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
                 region_status(p)
             ));
         }
+        std::fs::write(
+            p.dir.join(format!("{}-regional-replay.txt", p.name())),
+            &text,
+        )
+        .map_err(|e| e.to_string())?;
         let replay = crabsim::Replay::parse(&text)?;
         let mut scene = crabsim::Sim::with_one_crab(replay.start);
         if !replay.prepare_start(&mut scene) {
@@ -636,13 +643,27 @@ fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
                 return Err("regional replay tick rejected".into());
             }
         }
-        let hash = format!("{}:{:016x}", scene.tick_count(), scene.state_hash());
+        let native_hash = scene.state_hash();
+        if replay.hash != Some(native_hash) {
+            return Err(format!(
+                "{} regional replay differs from its atomic browser export at tick{}: native{native_hash:016x}, captured{:?}; {}",
+                p.name().to_owned(),
+                scene.tick_count(),
+                replay.hash,
+                region_status(p)
+            ));
+        }
+        let hash = format!("{}:{native_hash:016x}", scene.tick_count());
         let browser =
             p.b.attr("data-cell-session-hash")
                 .ok_or("missing completed browser hash")?;
         // Pausing finishes the authority's current four-tick batch. Export and
         // hash requests can straddle that final batch on a slow browser frame.
         if browser.split(':').next() != hash.split(':').next() {
+            continue;
+        }
+        let revision_after = p.b.attr("data-cell-region-revision");
+        if browser != hash && revision_before != revision_after {
             continue;
         }
         if browser != hash {
@@ -1235,7 +1256,9 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 let stalled = route_progress.1.elapsed().as_secs() >= 3;
                 if height < 200.0 || stalled {
                     if stalled {
-                        eprintln!("cells-regions swimming around route obstacle at {x:.1},{height:.1}");
+                        eprintln!(
+                            "cells-regions swimming around route obstacle at {x:.1},{height:.1}"
+                        );
                         route_progress = (x, Instant::now());
                     }
                     guest.b.hold_key("Space", 0.9)?;
@@ -1407,14 +1430,24 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 pause_region(p, false)?;
             }
             guest.b.hold_key("KeyH", 0.1)?;
-            sleep(0.3);
+            // H opens a question; Y answers it in a later game frame. A
+            // wall-time delay can put both presses in one slow CI frame.
+            guest.b.eval("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))")?;
             guest.b.hold_key("KeyY", 0.1)?;
-            for p in [&mut host, &mut guest] {
+            let reunited = [&mut host, &mut guest].into_iter().try_for_each(|p| {
                 p.until(90.0, "regional reunion", |p| {
                     p.b.attr("data-cell-regions").as_deref() == Some("shared")
                         && p.b.attr("data-cell-region-state").as_deref() == Some("running")
-                })?;
-            }
+                })
+                .map(|_| ())
+            });
+            reunited.map_err(|why| {
+                format!(
+                    "{why}; host {}; guest {}",
+                    region_status(&mut host),
+                    region_status(&mut guest)
+                )
+            })?;
             host.b.eval(
                 "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')",
             )?;
