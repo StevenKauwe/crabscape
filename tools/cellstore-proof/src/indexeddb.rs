@@ -1574,7 +1574,7 @@ impl ChunkStore {
     }
 
     #[cfg(feature = "browser-proof")]
-    async fn reset_fixture(&self) -> Result<(), String> {
+    pub(crate) async fn reset_fixture(&self) -> Result<(), String> {
         self.transaction(None, true, |mut meta, _, _, _, _, store| {
             meta.epoch = meta.epoch.checked_add(1).ok_or("epoch overflow")?;
             meta.revision = meta.revision.checked_add(1).ok_or("revision overflow")?;

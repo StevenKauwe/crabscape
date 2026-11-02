@@ -380,15 +380,38 @@ clear a newer notification. Chrome exercises actual contention between a page
 and iframe, release after the iframe is removed, delivery from the iframe,
 unsupported behavior, thrown work, and simulated delayed/canceled callbacks.
 
-This is not yet an async IndexedDB-check-and-install protocol: the lock currently
-covers only synchronous test work, visibility handling is manually invoked, and
-notifications can be delayed or missed. A real implementation must hold
-cooperative exclusion over the full durable check and installation, revalidate
-on resume, and remain safe if a tab is suspended while holding the lock. The
+An additional isolated experiment holds the lock across an asynchronous read
+from a proof-only IndexedDB database and a synchronous installation callback.
+Async work is rejected unless the lock belongs to the caller's own window:
+an iframe-owned lock can be released when the iframe is destroyed while a
+parent-realm task survives and subsequently installs stale data.
+Chrome checks contention in both directions against a proof reset, read failure,
+timeout, cancellation and suppression of late installation. Its delay gate is
+before the database operation, not a suspended browser transaction. A timed-out
+reset can still commit; the proof keeps its lock until it settles and attempts a
+notification after commit. A successful callback can return before the browser
+has released the lock, so another request may briefly report busy.
+Likewise, `Failed` does not prove a reset was rolled back: notification can
+fail after the transaction commits. The old session must stay paused and
+revalidate durable state before resuming.
+An injected Wasm throw in the async install surfaced as an uncaught page error;
+a throw or panic in either async read or install can leave the lock pending and
+installation may have partially mutated state. This experiment does not recover
+from that failure. Production needs fallible preparation that returns errors and
+an audited, infallible synchronous swap of fully validated state.
+
+This is not yet the game's async check-and-install protocol: it does not install
+the guarded migration result, visibility handling is manually invoked, and
+notifications can be delayed, missed, or fail after a committed reset. A real
+implementation must hold cooperative exclusion over the full durable check and
+installation, revalidate on resume, and remain safe if a tab is suspended while
+holding the lock. The
 timer itself may be throttled or frozen in a background tab and is not a hard
 wall-clock guarantee; no lock is stolen on timeout. A never-settling browser
 request retains one bounded pending task until the context closes. Older clients
-cannot be assumed to honor the lock or notifications. Safari WebDriver was not
+cannot be assumed to honor the lock or notifications: an independent Chrome
+probe reset the database without the lock after a read captured its head, and
+the stale captured state was subsequently installed. Safari WebDriver was not
 available in this session because remote automation was disabled; no Safari
 setting was changed. WebKit introduced Web Locks in Safari 15.4, but this proof
 has not established WebKit or iPhone behavior ([WebKit release notes](https://webkit.org/blog/12445/new-webkit-features-in-safari-15-4/),
@@ -397,5 +420,6 @@ has not established WebKit or iPhone behavior ([WebKit release notes](https://we
 A focused WebKitGTK CI step now builds the same Rust/Wasm coordination proof
 and runs it through the repository's WebDriver client. It reports either
 `locks=tested` or `locks=unsupported`; the latter is an explicit fail-closed
-fallback, not evidence that locking works. The step has not yet run in this
-session, and WebKitGTK CI is not an iPhone memory or background-suspension test.
+fallback, not evidence that locking works. The first run failed at the
+second-context check; a harness settlement fix is awaiting its CI rerun.
+WebKitGTK CI is not an iPhone memory or background-suspension test.
