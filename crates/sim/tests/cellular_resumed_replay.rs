@@ -178,6 +178,11 @@ fn worker_compressed_recording_rejects_corrupt_and_stale_terrain() {
     let raw = resumed.recording_terrain_bytes().unwrap();
     let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
     let verified = crabsim::VerifiedCellStart::from_compressed(&packed, 17).unwrap();
+    assert!(crabsim::VerifiedCellStart::from_compressed_with_len(&packed, 17, raw.len()).is_some());
+    assert!(crabsim::VerifiedCellStart::from_compressed_with_len(&packed, 17, 1).is_none());
+    assert!(
+        crabsim::VerifiedCellStart::from_compressed_with_len(&packed, 17, raw.len() + 1).is_none()
+    );
     assert!(crabsim::VerifiedCellStart::from_compressed(b"invalid", 17).is_none());
     let mut verified_run = resumed.clone();
     assert!(verified_run.start_recording_with_verified_terrain(&verified));
@@ -193,6 +198,7 @@ fn worker_compressed_recording_rejects_corrupt_and_stale_terrain() {
 
     let mut same = resumed.clone();
     assert!(same.start_recording_with_compressed_terrain(&packed));
+    assert!(same.is_recording());
     assert!(same.recording().is_some());
     assert_eq!(
         verified_run.recording().unwrap().to_text(),
@@ -217,6 +223,7 @@ fn worker_compressed_recording_rejects_corrupt_and_stale_terrain() {
 
     let mut corrupt = resumed.clone();
     assert!(!corrupt.start_recording_with_compressed_terrain(b"invalid zlib"));
+    assert!(!corrupt.is_recording());
     assert!(corrupt.recording().is_none());
 
     let mut stale = resumed;

@@ -1899,6 +1899,12 @@ impl Sim {
         })
     }
 
+    /// Whether this session can provide a replay, without hashing or cloning
+    /// its potentially large world.
+    pub fn is_recording(&self) -> bool {
+        self.recorder.is_some()
+    }
+
     /// Report attachment with the same recorded inputs and events as F9,
     /// but without a final state hash. Hashing a cellular world formats the
     /// entire terrain and can block or exhaust a phone when the form opens.

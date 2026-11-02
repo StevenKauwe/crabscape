@@ -29,8 +29,29 @@ pub struct VerifiedCellStart {
 impl VerifiedCellStart {
     /// Validate a compressed postcard checkpoint once, including its shape.
     pub fn from_compressed(packed: &[u8], tick: u64) -> Option<Self> {
+        Self::decode_compressed(packed, tick, MAX_RAW, None)
+    }
+
+    /// Like `from_compressed`, but bound decompression by the envelope's
+    /// declared raw length and reject any mismatch before parsing the world.
+    pub fn from_compressed_with_len(packed: &[u8], tick: u64, raw_len: usize) -> Option<Self> {
+        if raw_len > MAX_RAW {
+            return None;
+        }
+        Self::decode_compressed(packed, tick, raw_len, Some(raw_len))
+    }
+
+    fn decode_compressed(
+        packed: &[u8],
+        tick: u64,
+        limit: usize,
+        expected: Option<usize>,
+    ) -> Option<Self> {
         let start = CellStart::from_compressed(packed, tick)?;
-        let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(packed, MAX_RAW).ok()?;
+        let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(packed, limit).ok()?;
+        if expected.is_some_and(|len| raw.len() != len) {
+            return None;
+        }
         let (checkpoint, trailing): (WorldCheckpoint, &[u8]) =
             postcard::take_from_bytes(&raw).ok()?;
         if !trailing.is_empty() {
