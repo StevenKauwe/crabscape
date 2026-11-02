@@ -8032,6 +8032,8 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "crabsim",
+ "crc32fast",
+ "miniz_oxide 0.8.9",
  "png 0.18.1",
  "serde_json",
 ]

@@ -3,6 +3,7 @@
 //! ```text
 //! tools/build-web.sh && cargo webtest [--landscape | --desktop] [--shots PREFIX] [--style-shots PREFIX]
 //! cargo webtest --url https://stevenkauwe.github.io/crabscape/ --smoke
+//! cargo webtest --cellular-save # focused full-game autosave/reload/reset test
 //! ```
 //!
 //! Needs WebKitGTK 4.1's MiniBrowser and `WebKitWebDriver` (Ubuntu: `apt install webkitgtk-webdriver`, before 26.04 `webkit2gtk-driver`) and a display
@@ -40,6 +41,7 @@
 
 #[path = "../../../src/cell_worker_path.rs"]
 mod cell_worker_path;
+mod cellular_save;
 mod driver;
 mod serve;
 
@@ -64,6 +66,7 @@ struct Options {
     url: Option<String>,
     smoke: bool,
     feel_shots: Option<String>,
+    cellular_save: bool,
 }
 
 fn options() -> std::result::Result<Options, String> {
@@ -76,6 +79,7 @@ fn options() -> std::result::Result<Options, String> {
         url: None,
         smoke: false,
         feel_shots: None,
+        cellular_save: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -88,18 +92,22 @@ fn options() -> std::result::Result<Options, String> {
             }
             "--url" => o.url = Some(args.next().ok_or("--url needs an address")?),
             "--smoke" => o.smoke = true,
+            "--cellular-save" => o.cellular_save = true,
             "--feel-shots" => {
                 o.feel_shots = Some(args.next().ok_or("--feel-shots needs a prefix")?)
             }
             "-h" | "--help" => {
                 println!(
                     "cargo webtest [--landscape | --desktop] [--shots PREFIX] [--style-shots PREFIX] \
-                     [--url URL] [--smoke] [--feel-shots PREFIX]\n(see tools/webtest/src/main.rs)"
+                     [--url URL] [--smoke] [--feel-shots PREFIX] [--cellular-save]\n(see tools/webtest/src/main.rs)"
                 );
                 std::process::exit(0);
             }
             other => return Err(format!("unknown option `{other}` (try --help)")),
         }
+    }
+    if o.cellular_save && (o.url.is_some() || o.smoke || o.feel_shots.is_some()) {
+        return Err("--cellular-save uses a local build and cannot be combined with --url, --smoke or --feel-shots".into());
     }
     Ok(o)
 }
@@ -191,6 +199,7 @@ fn run(o: &Options, root: &Path, scratch: &Path, log: &Path) -> Result<u32> {
     let vw = if framed { o.width.max(500.0) } else { o.width };
     t.b.set_viewport(vw as u32, o.height as u32)?;
     match &o.feel_shots {
+        _ if o.cellular_save => t.cellular_autosave()?,
         Some(prefix) => t.feel_strips(prefix)?,
         None => t.all()?,
     }
@@ -1027,6 +1036,9 @@ impl Test<'_> {
                 self.shot(PathBuf::from(format!("{prefix}-scent-{name}.png")), true)?;
                 self.no_error_on_page("during the scent screenshot")?;
             }
+        }
+        if self.framed {
+            self.cellular_autosave()?;
         }
         Ok(())
     }
