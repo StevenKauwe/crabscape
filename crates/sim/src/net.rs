@@ -36,6 +36,8 @@
 //! versions first and never reads another version's messages (the older game
 //! reloads). So messages change freely, with no defaults kept for older games.
 
+pub mod cell_transfer;
+
 use serde::{Deserialize, Serialize};
 
 use crate::combat::{Fighter, Hit, Outcome};
