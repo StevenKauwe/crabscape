@@ -1,6 +1,8 @@
 # Regional simulation authority
 
-Chosen with Astra after the two-player shared-window implementation. This is the implementation contract for independent exploration. The current browser runtime still uses the earlier shared-window session until the new regional runtime passes its browser checks.
+Chosen with Astra after the two-player shared-window implementation. This is the implementation contract for independent exploration. The browser now uses regional kernels. Shared play, exact browser-to-native replay, reporting, reload and private-world restoration have passed the real-browser check. Independent exploration remains under acceptance testing; ordinary recenter currently transfers a complete checkpoint and needs its pause reduced before release.
+
+The current browser coordinator admits one owner and one guest. The native kernels support eight actors, but that does not make the browser coordinator support eight players. A third player receives an explicit capacity message and keeps their private world. Full co-op parity requires extending that coordinator and proving the three-player flow below.
 
 ## Ownership and persistence
 
@@ -18,7 +20,7 @@ NPC state and random streams survive extraction, restoration and reunion. Each a
 
 ## Delegation and recovery
 
-The authority sends canonical input batches to the owner. The owner can retain a complete starting checkpoint plus an ordered input journal without continuously running distant physics. On a visit, merge, periodic checkpoint or authority loss, deterministic replay materializes the latest acknowledged regional state. Regular local persistence stores these snapshots and journals. The owner acknowledges accepted sequences and bounds each outstanding journal.
+The authority sends canonical input batches to the owner. The owner can retain a complete starting checkpoint plus an ordered input journal without continuously running distant physics. On a visit, merge or authority loss, deterministic replay materializes the latest acknowledged regional state. The guest also sends a checkpoint every five seconds of simulated time without pausing gameplay. The owner's ordinary local save combines its current region with the latest complete guest checkpoint and sleeping terrain; it does not replay the guest's physics on every autosave. A sudden owner shutdown can therefore lose the uncheckpointed guest tail. The owner acknowledges accepted sequences and bounds each outstanding journal.
 
 A handoff is a tick-boundary transaction: finish at the agreed cutoff, retain the old checkpoint, transfer and validate complete state, then activate the new epoch. Other regions keep running. Stale-epoch packets are rejected. A region's authority leaving while the owner remains triggers recovery on the owner. Owner loss closes the session; unreceived updates cannot be promised.
 
