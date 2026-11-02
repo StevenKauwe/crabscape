@@ -591,7 +591,7 @@ pub fn step(
         State::Attack if o.webover => web_drop(e, &mut o, crabs, t, &mut blows),
         State::Attack => {
             e.octo = Some(o);
-            enemy::strike(e, crabs, t, k, &mut blows);
+            enemy::strike(e, crabs, t, k, &mut blows, None);
             o = e.octo.take().expect("put back just now");
         }
         State::Probe => match target.filter(|p| in_reach(*p)) {

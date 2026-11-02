@@ -90,6 +90,8 @@ pub struct Brittle {
 /// from there.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Level {
+    /// Optional, disposable material simulation for the opening section.
+    pub cells: Option<crate::underwater::World>,
     /// The sea floor's surface, as points from left to right. Between two
     /// points the floor is a straight line. Two points at (almost) the same x
     /// make a cliff.
@@ -194,6 +196,7 @@ impl Level {
     /// The level the game uses (for now, the only one).
     pub fn test_level() -> Self {
         Self {
+            cells: None,
             floor: vec![
                 Vec2::new(0.0, 0.0),
                 Vec2::new(520.0, 0.0),
@@ -515,13 +518,25 @@ impl Level {
     /// The climb a crab standing (feet) at `pos` could grip, if any: one it
     /// overlaps sideways (within `reach` of its middle) and between its ends.
     /// Bare rock counts only for a crab with glass grips (`glass`).
-    pub fn climb_at(&self, pos: Vec2, reach: f32, glass: bool) -> Option<&Climb> {
-        self.climbs.iter().find(|c| {
-            (glass || c.kind != Growth::Rock)
-                && (pos.x - c.x).abs() <= reach
-                && pos.y >= c.bottom - 1.0
-                && pos.y <= c.top
-        })
+    pub fn climb_at(&self, pos: Vec2, reach: f32, glass: bool) -> Option<Climb> {
+        self.climbs
+            .iter()
+            .copied()
+            .map(|mut c| {
+                if let Some(cells) = &self.cells
+                    && c.kind == Growth::Kelp
+                    && c.x == 280.0
+                {
+                    c.x = cells.giant_kelp_x(pos.y);
+                }
+                c
+            })
+            .find(|c| {
+                (glass || c.kind != Growth::Rock)
+                    && (pos.x - c.x).abs() <= reach
+                    && pos.y >= c.bottom - 1.0
+                    && pos.y <= c.top
+            })
     }
 
     /// The place whose doorway `pos` is in, if any.
@@ -575,7 +590,15 @@ impl Level {
         let cliffs = self.floor.windows(2).filter_map(|pair| {
             let (a, b) = (pair[0], pair[1]);
             let is_cliff = (b.x - a.x) < 2.0 && (b.y - a.y).abs() > 1.0;
-            is_cliff.then(|| Rect::new(a.x, a.y.min(b.y) - 2000.0, b.x, a.y.max(b.y)))
+            // The material field supplies its own terrain here. Retaining
+            // the old invisible cliff walls creates phantom pillars when
+            // the visible cells have moved or been dug away.
+            let in_cells = self.cells.as_ref().is_some_and(|cells| {
+                let (left, _, width, _) = cells.game_bounds();
+                a.x >= left && b.x <= left + width
+            });
+            (is_cliff && !in_cells)
+                .then(|| Rect::new(a.x, a.y.min(b.y) - 2000.0, b.x, a.y.max(b.y)))
         });
         let nets = self.nets.iter().filter(|n| !n.cut).map(|n| n.rect);
         let brittle = self.brittle.iter().filter(|b| !b.cracked).map(|b| b.rect);

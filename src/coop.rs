@@ -614,6 +614,11 @@ mod web {
     struct StatusLine;
 
     pub fn build(app: &mut App) {
+        if crate::cellular::enabled() {
+            app.insert_resource(LocalId(HOST))
+                .insert_resource(Coop::default());
+            return;
+        }
         let invited = query("join").and_then(|c| clean_code(&c));
         let mine = lobby();
         let other_tab = open_in_other_tab(

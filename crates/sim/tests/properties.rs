@@ -28,6 +28,8 @@ fn controls() -> impl Strategy<Value = Controls> {
         jump_pressed: b[1],
         dodge_pressed: b[2],
         dodge_held: b[3],
+        dig_held: b[10],
+        dig_up: false,
         down: b[4],
         smash_pressed: b[5],
         smash_held: b[6],

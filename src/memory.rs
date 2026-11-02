@@ -81,17 +81,17 @@ pub fn water_at(at: Vec2) -> Color {
 
 #[derive(ShaderType, Clone, Debug)]
 pub struct MemoryUniform {
-    color: Vec4,
-    water: Vec4,
-    grid: Vec4,
-    lights: [Vec4; 8],
+    pub(crate) color: Vec4,
+    pub(crate) water: Vec4,
+    pub(crate) grid: Vec4,
+    pub(crate) lights: [Vec4; 8],
 }
 
 /// A level shape's colour, shown through the local crab's memory.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct MemoryMaterial {
     #[uniform(0)]
-    uniform: MemoryUniform,
+    pub(crate) uniform: MemoryUniform,
     #[texture(1)]
     #[sampler(2)]
     memory: Handle<Image>,
@@ -464,6 +464,22 @@ mod tests {
     fn light(c: Color) -> f32 {
         let c = c.to_srgba();
         c.red + c.green + c.blue
+    }
+
+    #[test]
+    fn terrain_and_cell_fog_use_the_same_world_depth_as_the_water_backdrop() {
+        fn water_function(shader: &str) -> &str {
+            let start = shader
+                .find("fn water_colour(")
+                .expect("water function exists");
+            let end = shader[start..]
+                .find("\n@fragment")
+                .expect("fragment follows water function");
+            shader[start..start + end].trim()
+        }
+        let background = water_function(include_str!("depth_water.wgsl"));
+        assert_eq!(water_function(include_str!("memory.wgsl")), background);
+        assert_eq!(water_function(include_str!("cellular.wgsl")), background);
     }
 
     #[test]

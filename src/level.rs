@@ -7,9 +7,13 @@
 //! World coordinates: x grows to the right, y grows UP (Bevy's convention),
 //! and the flat sea floor where the crab starts is at y = 0.
 
-use bevy::asset::RenderAssetUsages;
+use bevy::asset::{RenderAssetUsages, embedded_asset, embedded_path};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::reflect::TypePath;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
+use bevy::sprite_render::{Material2d, Material2dPlugin};
 use crabsim::Sim;
 use crabsim::level::{Climb, Growth, WATER_SURFACE_Y};
 
@@ -39,6 +43,30 @@ const SURFACE_SEGMENTS: usize = 400;
 #[derive(Component)]
 struct LevelShape;
 
+/// A floor band is redrawn only when the detailed material window moves.
+#[derive(Component)]
+struct FloorBand {
+    top_offset: f32,
+    depth: f32,
+}
+
+/// Art above the cell field follows the same sampled stalk as the grip.
+#[derive(Component)]
+struct LocalKelpPiece {
+    blade: usize,
+    segment: usize,
+    leaf: bool,
+    side: f32,
+}
+
+#[derive(Component)]
+struct FlowKelpPiece {
+    lower_y: f32,
+    upper_y: f32,
+    side_offset: f32,
+    leaf_angle: Option<f32>,
+}
+
 /// The far-away rock spires behind the level. They move slower than the
 /// camera, which makes them look distant ("parallax").
 #[derive(Component)]
@@ -51,15 +79,41 @@ pub struct Parallax {
     pub colour: Color,
 }
 
+/// The ocean is a world-space backdrop: each depth keeps its own colour
+/// even when the camera sees several zones at once.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+struct DepthWaterMaterial {
+    #[uniform(0)]
+    opacity: f32,
+}
+impl Material2d for DepthWaterMaterial {
+    fn fragment_shader() -> ShaderRef {
+        ShaderRef::Path(
+            bevy::asset::AssetPath::from_path_buf(embedded_path!("depth_water.wgsl"))
+                .with_source("embedded"),
+        )
+    }
+}
+
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
+        embedded_asset!(app, "depth_water.wgsl");
+        app.add_plugins(Material2dPlugin::<DepthWaterMaterial>::default());
         app.add_systems(
             Startup,
             draw_level.after(crate::memory::setup_memory_texture),
         )
-        .add_systems(Update, move_water_surface);
+        .add_systems(
+            Update,
+            (
+                move_water_surface,
+                move_high_kelp,
+                move_local_kelp,
+                refresh_floor,
+            ),
+        );
     }
 }
 
@@ -95,10 +149,19 @@ fn draw_level(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut remembered: ResMut<Assets<MemoryMaterial>>,
+    mut water_materials: ResMut<Assets<DepthWaterMaterial>>,
 ) {
     let level = &sim.level;
     let mut palette = Palette::default();
     let mut paint = |colour: Color| palette.get(colour, &tex, &mut remembered);
+    // This is the water itself, behind all scenery; it is not an overlay on
+    // the art. The sky surface is drawn over its upper edge as before.
+    let water_width = level.max_x - level.min_x + 12000.0;
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(water_width, 28000.0))),
+        MeshMaterial2d(water_materials.add(DepthWaterMaterial { opacity: 1.0 })),
+        Transform::from_xyz((level.min_x + level.max_x) * 0.5, -4000.0, -100.0),
+    ));
     // Air and water share the same animated, wavy boundary. The pale edge
     // and broken glints are individual shapes, never a screen-wide filter.
     let (left, right) = (level.min_x - 600.0, level.max_x + 600.0);
@@ -117,17 +180,25 @@ fn draw_level(
     }
     // The sea floor: one mesh. Each floor segment becomes a four-cornered
     // shape from the surface down to FLOOR_DEPTH.
-    let floor = meshes.add(floor_mesh(&level.floor, 0.0, FLOOR_DEPTH));
+    let bounds = level.cells.as_ref().map(|cells| cells.game_bounds());
+    let floor = meshes.add(floor_mesh(&level.floor, 0.0, FLOOR_DEPTH, bounds));
     commands.spawn((
         LevelShape,
+        FloorBand {
+            top_offset: 0.0,
+            depth: FLOOR_DEPTH,
+        },
         Mesh2d(floor),
         MeshMaterial2d(paint(SAND)),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
-    // A thin lighter band along the top: the surface of the sand.
-    let lip = meshes.add(floor_mesh(&level.floor, 0.0, 5.0));
+    let lip = meshes.add(floor_mesh(&level.floor, 0.0, 5.0, bounds));
     commands.spawn((
         LevelShape,
+        FloorBand {
+            top_offset: 0.0,
+            depth: 5.0,
+        },
         Mesh2d(lip),
         MeshMaterial2d(paint(SAND_TOP)),
         Transform::from_xyz(0.0, 0.0, 0.1),
@@ -139,15 +210,30 @@ fn draw_level(
     for r in &level.rocks {
         let size = r.size();
         let centre = r.center();
+        // Only rocks meeting the original seabed get a buried foundation;
+        // intentionally floating ledges retain their separate silhouette.
+        let floor = level.floor_height(centre.x);
+        if r.min.y <= floor + 30.0 && r.max.y > floor {
+            let bottom = floor.min(r.min.y) - 120.0;
+            let height = r.min.y - bottom;
+            if height > 0.0 {
+                commands.spawn((
+                    LevelShape,
+                    Mesh2d(meshes.add(rock_mesh(Vec2::new(size.x, height)))),
+                    MeshMaterial2d(rock.clone()),
+                    Transform::from_xyz(centre.x, bottom + height * 0.5, 0.2),
+                ));
+            }
+        }
         commands.spawn((
             LevelShape,
-            Mesh2d(meshes.add(Rectangle::new(size.x, size.y))),
+            Mesh2d(meshes.add(rock_mesh(size))),
             MeshMaterial2d(rock.clone()),
             Transform::from_xyz(centre.x, centre.y, 1.0),
         ));
         commands.spawn((
             LevelShape,
-            Mesh2d(meshes.add(Rectangle::new(size.x, 5.0))),
+            Mesh2d(meshes.add(rock_mesh(Vec2::new(size.x * 0.72, 5.0)))),
             MeshMaterial2d(rock_top.clone()),
             Transform::from_xyz(centre.x, r.max.y - 2.5, 1.1),
         ));
@@ -163,14 +249,44 @@ fn draw_level(
         ));
     }
 
-    draw_climbs(&mut commands, &level.climbs, &mut meshes, &mut paint);
+    draw_climbs(
+        &mut commands,
+        &level.climbs,
+        &mut meshes,
+        &mut paint,
+        level.cells.is_some(),
+    );
+
+    // Small stalks use the same drawn shapes as the long climbable kelp,
+    // while their joints follow the cellular water field.
+    if level.cells.is_some() {
+        for blade in 1..6 {
+            for segment in 0..12 {
+                for (leaf, size, colour) in [
+                    (false, Vec2::new(5.0, 28.0), KELP),
+                    (true, Vec2::new(11.0, 34.0), KELP_BLADE),
+                ] {
+                    let side = if segment % 2 == 0 { 1.0 } else { -1.0 };
+                    commands.spawn((
+                        LevelShape,
+                        LocalKelpPiece {
+                            blade,
+                            segment,
+                            leaf,
+                            side,
+                        },
+                        Mesh2d(meshes.add(Ellipse::new(size.x * 0.5, size.y * 0.5))),
+                        MeshMaterial2d(paint(colour)),
+                        Transform::from_xyz(0.0, 0.0, PLANT_Z),
+                        Visibility::Hidden,
+                    ));
+                }
+            }
+        }
+    }
 
     // Background spires, two layers. Triangles of different sizes.
-    let spire = meshes.add(Triangle2d::new(
-        Vec2::new(-0.5, 0.0),
-        Vec2::new(0.5, 0.0),
-        Vec2::new(0.08, 1.0),
-    ));
+    let spire = meshes.add(spire_mesh());
     for (layer, colour, factor, z) in [(0, SPIRE_FAR, 0.7, -20.0), (1, SPIRE_NEAR, 0.45, -10.0)] {
         let material = materials.add(colour);
         let parent = commands
@@ -198,6 +314,62 @@ fn draw_level(
             ));
         }
     }
+}
+
+/// Irregular distant rock, drawn as one silhouette rather than a triangle.
+fn spire_mesh() -> Mesh {
+    let points: [[f32; 3]; 8] = [
+        [-0.5, 0.0, 0.0],
+        [0.5, 0.0, 0.0],
+        [0.4, 0.30, 0.0],
+        [0.3, 0.42, 0.0],
+        [0.25, 0.65, 0.0],
+        [0.08, 1.0, 0.0],
+        [-0.05, 0.66, 0.0],
+        [-0.30, 0.34, 0.0],
+    ];
+    let mut indices = Vec::new();
+    for i in 1..points.len() - 1 {
+        indices.extend([0, i as u32, i as u32 + 1]);
+    }
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, points.to_vec())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; points.len()])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; points.len()])
+    .with_inserted_indices(Indices::U32(indices))
+}
+
+/// A small hand-cut silhouette; collision remains the original rock box.
+fn rock_mesh(size: Vec2) -> Mesh {
+    let points = [
+        (-0.5, -0.5),
+        (0.5, -0.5),
+        (0.50, 0.32),
+        (0.40, 0.47),
+        (0.15, 0.50),
+        (-0.08, 0.46),
+        (-0.30, 0.50),
+        (-0.47, 0.38),
+    ];
+    let positions: Vec<[f32; 3]> = points
+        .iter()
+        .map(|&(x, y)| [x * size.x, y * size.y, 0.0])
+        .collect();
+    let mut indices = Vec::new();
+    for i in 1..points.len() - 1 {
+        indices.extend([0, i as u32, i as u32 + 1]);
+    }
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; points.len()])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; points.len()])
+    .with_inserted_indices(Indices::U32(indices))
 }
 
 /// Animate the shared boundary so there is never a straight seam above waves.
@@ -334,8 +506,47 @@ fn draw_climbs(
     climbs: &[Climb],
     meshes: &mut Assets<Mesh>,
     paint: &mut impl FnMut(Color) -> Handle<MemoryMaterial>,
+    cells_enabled: bool,
 ) {
     for c in climbs {
+        let experimental_kelp = cells_enabled && c.kind == Growth::Kelp && c.x == 280.0;
+        if experimental_kelp {
+            // Distant stalk segments are sampled from the ambient current;
+            // the same position is used for climbing in the simulation.
+            let mut y = c.bottom;
+            while y < c.top {
+                let next = (y + 70.0).min(c.top);
+                commands.spawn((
+                    LevelShape,
+                    FlowKelpPiece {
+                        lower_y: y,
+                        upper_y: next,
+                        side_offset: 0.0,
+                        leaf_angle: None,
+                    },
+                    Mesh2d(meshes.add(Rectangle::new(8.0, next - y + 4.0))),
+                    MeshMaterial2d(paint(KELP)),
+                    Transform::from_xyz(c.x, (y + next) * 0.5, PLANT_Z),
+                ));
+                if next < c.top {
+                    let side = if (y as i32 / 70) % 2 == 0 { 1.0 } else { -1.0 };
+                    commands.spawn((
+                        LevelShape,
+                        FlowKelpPiece {
+                            lower_y: next,
+                            upper_y: next,
+                            side_offset: side * 20.0,
+                            leaf_angle: Some(-side * 0.6),
+                        },
+                        Mesh2d(meshes.add(Ellipse::new(8.0, 28.0))),
+                        MeshMaterial2d(paint(KELP_BLADE)),
+                        Transform::from_xyz(c.x + side * 20.0, next, PLANT_Z),
+                    ));
+                }
+                y = next;
+            }
+            continue;
+        }
         let mut draw = |mesh: Mesh, colour: Color, at: Vec2, angle: f32| {
             commands.spawn((
                 LevelShape,
@@ -350,6 +561,63 @@ fn draw_climbs(
             Growth::Coral => coral(c, &mut draw),
             Growth::Rock => bare_rock(c, &mut draw),
         }
+    }
+}
+
+fn move_high_kelp(
+    time: Res<Time>,
+    sim: Res<Sim>,
+    mut pieces: Query<(&FlowKelpPiece, &mut Transform)>,
+) {
+    let Some(cells) = &sim.level.cells else {
+        return;
+    };
+    for (piece, mut transform) in &mut pieces {
+        let a = cells.giant_kelp_x(piece.lower_y);
+        let b = cells.giant_kelp_x(piece.upper_y);
+        let blend = 1.0 - (-16.0 * time.delta_secs()).exp();
+        let target_x = (a + b) * 0.5 + piece.side_offset;
+        transform.translation.x += (target_x - transform.translation.x) * blend;
+        let angle = piece
+            .leaf_angle
+            .unwrap_or_else(|| -(b - a).atan2(piece.upper_y - piece.lower_y));
+        transform.rotation = transform
+            .rotation
+            .slerp(Quat::from_rotation_z(angle), blend);
+    }
+}
+
+fn move_local_kelp(
+    time: Res<Time>,
+    sim: Res<Sim>,
+    mut pieces: Query<(&LocalKelpPiece, &mut Transform, &mut Visibility)>,
+) {
+    let Some(cells) = &sim.level.cells else {
+        return;
+    };
+    for (piece, mut transform, mut visibility) in &mut pieces {
+        let Some((ax, ay)) = cells.game_kelp_point(piece.blade, piece.segment) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let Some((bx, by)) = cells.game_kelp_point(piece.blade, piece.segment + 1) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let angle = -(bx - ax).atan2(by - ay);
+        let x = (ax + bx) * 0.5 + if piece.leaf { piece.side * 8.0 } else { 0.0 };
+        let y = (ay + by) * 0.5 + if piece.leaf { 7.0 } else { 0.0 };
+        let target = Vec3::new(x, y, transform.translation.z);
+        let rotation =
+            Quat::from_rotation_z(angle - if piece.leaf { piece.side * 0.6 } else { 0.0 });
+        let blend = if *visibility == Visibility::Hidden {
+            1.0
+        } else {
+            1.0 - (-12.0 * time.delta_secs()).exp()
+        };
+        transform.translation = transform.translation.lerp(target, blend);
+        transform.rotation = transform.rotation.slerp(rotation, blend);
+        *visibility = Visibility::Inherited;
     }
 }
 
@@ -509,40 +777,165 @@ fn bare_rock(c: &Climb, draw: &mut Draw) {
 
 /// A mesh for the band between the floor line and `depth` below it, made of
 /// one quad per floor segment. (`top_offset` lifts the top edge.)
-fn floor_mesh(points: &[Vec2], top_offset: f32, depth: f32) -> Mesh {
+/// Clip a polygon against one half-plane, preserving vertex order.
+fn clip_floor(poly: &[Vec2], axis: usize, value: f32, keep_greater: bool) -> Vec<Vec2> {
+    if poly.is_empty() {
+        return Vec::new();
+    }
+    let coord = |p: Vec2| if axis == 0 { p.x } else { p.y };
+    let inside = |p: Vec2| {
+        if keep_greater {
+            coord(p) >= value
+        } else {
+            coord(p) <= value
+        }
+    };
+    let mut out = Vec::new();
+    let mut a = *poly.last().expect("nonempty polygon");
+    for &b in poly {
+        let (ain, bin) = (inside(a), inside(b));
+        if ain != bin {
+            let t = (value - coord(a)) / (coord(b) - coord(a));
+            out.push(a.lerp(b, t));
+        }
+        if bin {
+            out.push(b);
+        }
+        a = b;
+    }
+    out
+}
+
+/// Draw the original floor outside the current cell window. Subtracting the
+/// full rectangle, rather than only an x range, preserves deep cliffs when
+/// the player is above or below them.
+fn floor_mesh(
+    points: &[Vec2],
+    top_offset: f32,
+    depth: f32,
+    bounds: Option<(f32, f32, f32, f32)>,
+) -> Mesh {
     let mut positions = Vec::new();
     let mut indices = Vec::new();
-    for pair in points.windows(2) {
-        let (a, b) = (pair[0], pair[1]);
-        let i = positions.len() as u32;
-        positions.push([a.x, a.y + top_offset, 0.0]);
-        positions.push([b.x, b.y + top_offset, 0.0]);
-        positions.push([b.x, b.y - depth, 0.0]);
-        positions.push([a.x, a.y - depth, 0.0]);
-        // Two triangles, counter-clockwise.
-        indices.extend([i, i + 3, i + 2, i, i + 2, i + 1]);
-    }
-    // Extend the floor past both walls so no gap ever shows at the edges.
     let first = points[0];
     let last = points[points.len() - 1];
-    for (a, b) in [
-        (Vec2::new(first.x - 600.0, first.y), first),
-        (last, Vec2::new(last.x + 600.0, last.y)),
-    ] {
-        let i = positions.len() as u32;
-        positions.push([a.x, a.y + top_offset, 0.0]);
-        positions.push([b.x, b.y + top_offset, 0.0]);
-        positions.push([b.x, b.y - depth, 0.0]);
-        positions.push([a.x, a.y - depth, 0.0]);
-        indices.extend([i, i + 3, i + 2, i, i + 2, i + 1]);
+    let segments = std::iter::once((Vec2::new(first.x - 600.0, first.y), first))
+        .chain(points.windows(2).map(|p| (p[0], p[1])))
+        .chain(std::iter::once((last, Vec2::new(last.x + 600.0, last.y))));
+    for (a, b) in segments {
+        let quad = vec![
+            Vec2::new(a.x, a.y + top_offset),
+            Vec2::new(a.x, a.y - depth),
+            Vec2::new(b.x, b.y - depth),
+            Vec2::new(b.x, b.y + top_offset),
+        ];
+        let regions = if let Some((left, bottom, width, height)) = bounds {
+            let right = left + width;
+            let top = bottom + height;
+            let middle = clip_floor(&clip_floor(&quad, 0, left, true), 0, right, false);
+            vec![
+                clip_floor(&quad, 0, left, false),
+                clip_floor(&quad, 0, right, true),
+                clip_floor(&middle, 1, bottom, false),
+                clip_floor(&middle, 1, top, true),
+            ]
+        } else {
+            vec![quad]
+        };
+        for poly in regions {
+            if poly.len() < 3 {
+                continue;
+            }
+            let base = positions.len() as u32;
+            positions.extend(poly.iter().map(|p| [p.x, p.y, 0.0]));
+            for i in 1..poly.len() - 1 {
+                indices.extend([base, base + i as u32, base + i as u32 + 1]);
+            }
+        }
     }
     let count = positions.len();
     Mesh::new(
         PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; count])
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
     .with_inserted_indices(Indices::U32(indices))
+}
+
+fn refresh_floor(
+    sim: Res<Sim>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    bands: Query<(&FloorBand, &Mesh2d)>,
+    mut previous: Local<Option<(f32, f32, f32, f32)>>,
+) {
+    let Some(cells) = &sim.level.cells else {
+        return;
+    };
+    let bounds = cells.game_bounds();
+    if *previous == Some(bounds) {
+        return;
+    }
+    *previous = Some(bounds);
+    for (band, handle) in &bands {
+        if let Some(mut mesh) = meshes.get_mut(&handle.0) {
+            *mesh = floor_mesh(&sim.level.floor, band.top_offset, band.depth, Some(bounds));
+        }
+    }
+}
+
+#[cfg(test)]
+mod streamed_floor_tests {
+    use super::*;
+    use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn active_window_is_cut_from_sloping_floor_without_dropping_the_rest() {
+        let floor = [Vec2::new(0.0, 0.0), Vec2::new(200.0, 100.0)];
+        let bounds = (50.0, -20.0, 100.0, 80.0);
+        let mesh = floor_mesh(&floor, 0.0, 100.0, Some(bounds));
+        let VertexAttributeValues::Float32x3(positions) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION).expect("positions")
+        else {
+            panic!("unexpected vertex format")
+        };
+        let indices: Vec<u32> = mesh
+            .indices()
+            .expect("triangles")
+            .iter()
+            .map(|i| i as u32)
+            .collect();
+        assert!(!indices.is_empty());
+        let mut saw_left = false;
+        let mut saw_right = false;
+        let mut saw_below = false;
+        for triangle in indices.as_chunks::<3>().0 {
+            let a = Vec2::new(
+                positions[triangle[0] as usize][0],
+                positions[triangle[0] as usize][1],
+            );
+            let b = Vec2::new(
+                positions[triangle[1] as usize][0],
+                positions[triangle[1] as usize][1],
+            );
+            let c = Vec2::new(
+                positions[triangle[2] as usize][0],
+                positions[triangle[2] as usize][1],
+            );
+            let center = (a + b + c) / 3.0;
+            assert!(
+                !(center.x > bounds.0 + 0.01
+                    && center.x < bounds.0 + bounds.2 - 0.01
+                    && center.y > bounds.1 + 0.01
+                    && center.y < bounds.1 + bounds.3 - 0.01),
+                "floor covers material window at {center:?}"
+            );
+            saw_left |= center.x < bounds.0;
+            saw_right |= center.x > bounds.0 + bounds.2;
+            saw_below |=
+                center.x > bounds.0 && center.x < bounds.0 + bounds.2 && center.y < bounds.1;
+        }
+        assert!(saw_left && saw_right && saw_below);
+    }
 }

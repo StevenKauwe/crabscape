@@ -154,6 +154,16 @@ pub struct Enemy {
     pub state_len: u32,
     /// The crab it is after.
     pub target: Option<PlayerId>,
+    /// Non-player animal currently being hunted by an experimental moray.
+    pub animal_target: Option<u32>,
+    /// Time a nearby predator keeps this animal exposed and alert.
+    pub predator_alert: u16,
+    /// Whether this attack already struck its animal target.
+    pub animal_struck: bool,
+    /// Bounded local route around an obstruction, in world coordinates.
+    pub swim_path: Vec<Vec2>,
+    pub swim_goal: Vec2,
+    pub swim_retry: u8,
     /// Strikes so far in this combo (0 = the first).
     pub combo: u32,
     /// The current strike got through to a body.
@@ -212,6 +222,12 @@ impl Enemy {
             state_tick: 0,
             state_len: 0,
             target: None,
+            animal_target: None,
+            predator_alert: 0,
+            animal_struck: false,
+            swim_path: Vec::new(),
+            swim_goal: pos,
+            swim_retry: 0,
             combo: 0,
             landed: false,
             struck: Vec::new(),
@@ -299,8 +315,10 @@ impl Enemy {
             return self.state == State::Idle && !o.revealed;
         }
         self.kind.tuning(t).burrows
+            && self.predator_alert == 0
             && self.state == State::Idle
             && (self.pos.x - self.home.x).abs() < 1.0
+            && (self.pos.y - self.home.y).abs() < 8.0
     }
 
     /// Can it be hit right now?
@@ -375,7 +393,9 @@ impl Enemy {
     pub fn strike_circle(&self, t: &Tuning) -> (Vec2, f32) {
         let k = self.kind.tuning(t);
         let s = &k.strike;
-        let out = if self.state == State::Attack && k.active_ticks > 0 {
+        let out = if self.kind == Kind::Moray && self.state == State::Attack {
+            self.reach
+        } else if self.state == State::Attack && k.active_ticks > 0 {
             s.lunge * (self.state_tick as f32 / k.active_ticks as f32).min(1.0)
         } else {
             0.0
@@ -475,9 +495,106 @@ impl Enemy {
             .iter()
             .filter(|c| huntable(c) && seen(c, sight) && c.mover.vel.x.abs() >= moving)
             .map(|c| (c.id, (c.mover.pos.x - self.pos.x).abs(), c))
-            .filter(|(_, d, c)| *d <= range && (c.mover.pos.y - self.pos.y).abs() < 200.0)
+            .filter(|(_, d, c)| {
+                let vertical = if self.kind == Kind::Moray && t.moray.approach_speed > 0.0 {
+                    420.0
+                } else {
+                    200.0
+                };
+                *d <= range && (c.mover.pos.y - self.pos.y).abs() < vertical
+            })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(id, _, _)| id)
+    }
+}
+
+/// Stable start-of-tick view of another animal for single-player predation.
+#[derive(Clone, Copy)]
+pub struct AnimalPrey {
+    pub id: u32,
+    pub pos: Vec2,
+    pub body: Rect,
+    pub animal_target: Option<u32>,
+}
+
+pub(crate) fn swimmer_blocked(level: &Level, p: Vec2, half: f32, height: f32) -> bool {
+    let (left, right, bottom, top) = (
+        p.x - half * 0.65,
+        p.x + half * 0.65,
+        p.y + 1.0,
+        p.y + height * 0.85,
+    );
+    let solid = level
+        .solids()
+        .any(|r| r.min.x < right && r.max.x > left && r.min.y < top && r.max.y > bottom);
+    let sediment = level.cells.as_ref().is_some_and(|cells| {
+        cells.contains_world(p.x, p.y) && cells.game_movement_blocked(left, bottom, right, top, 0.0)
+    });
+    let floor = !level
+        .cells
+        .as_ref()
+        .is_some_and(|cells| cells.contains_world(p.x, p.y))
+        && p.y < level.floor_height(p.x);
+    solid || sediment || floor || p.x < level.min_x + half || p.x > level.max_x - half
+}
+
+/// Move an already interpenetrating animal toward the nearest clear water.
+/// It may only decrease rock overlap; it cannot use this to enter a wall.
+/// This is a bounded recovery for bad contacts, not normal locomotion.
+pub(crate) fn recover_from_rock(e: &mut Enemy, level: &Level, t: &Tuning) -> bool {
+    let (width, height) = e.kind.tuning(t).body;
+    let half = width * 0.5;
+    let rock_overlap = |p: Vec2| -> f32 {
+        let (left, right, bottom, top) = (
+            p.x - half * 0.65,
+            p.x + half * 0.65,
+            p.y + 1.0,
+            p.y + height * 0.85,
+        );
+        let rect_area: f32 = level
+            .solids()
+            .map(|r| {
+                (right.min(r.max.x) - left.max(r.min.x)).max(0.0)
+                    * (top.min(r.max.y) - bottom.max(r.min.y)).max(0.0)
+            })
+            .sum();
+        let cells = level
+            .cells
+            .as_ref()
+            .map_or(0, |c| c.game_rock_overlap(left, bottom, right, top));
+        rect_area + cells as f32 * 16.0
+    };
+    let overlap = rock_overlap(e.pos);
+    if overlap <= 0.0 {
+        return false;
+    }
+    let mut best: Option<(f32, Vec2)> = None;
+    for direction in [Vec2::Y, -Vec2::X, Vec2::X, -Vec2::Y] {
+        let mut previous = overlap;
+        for n in 1..=64 {
+            let distance = n as f32 * 4.0;
+            let p = e.pos + direction * distance;
+            let next_overlap = rock_overlap(p);
+            if next_overlap > previous + 32.0 {
+                break;
+            }
+            previous = next_overlap;
+            if next_overlap <= 0.0 && !swimmer_blocked(level, p, half, height) {
+                if best.is_none_or(|(old, _)| distance < old) {
+                    best = Some((distance, p));
+                }
+                break;
+            }
+        }
+    }
+    if let Some((distance, destination)) = best {
+        let step = (160.0 * STEP).min(distance);
+        e.pos += (destination - e.pos).normalize_or_zero() * step;
+        e.vel_x = 0.0;
+        e.swim_path.clear();
+        true
+    } else {
+        false
     }
 }
 
@@ -490,6 +607,7 @@ pub fn step(
     t: &Tuning,
     level: &Level,
     rng: &mut Rng,
+    animals: &[AnimalPrey],
 ) -> Vec<(PlayerId, Outcome)> {
     let mut blows = Vec::new();
     if e.vitals.hitstop > 0 {
@@ -515,17 +633,34 @@ pub fn step(
     }
     let k = e.kind.tuning(t).clone();
     e.vitals.tick(&k.vitals);
+    if level.cells.is_some() && animals.iter().any(|a| a.animal_target == Some(e.id)) {
+        e.predator_alert = 240;
+    } else {
+        e.predator_alert = e.predator_alert.saturating_sub(1);
+    }
     e.hiding = e.hiding.saturating_sub(1);
     // A crab that died or tucked itself away is gone, as far as the hunt
     // goes: it gives up.
-    let target_x = e
+    let swimming_moray = e.kind == Kind::Moray && level.cells.is_some();
+    let animal_pos = e
+        .animal_target
+        .and_then(|id| animals.iter().find(|a| a.id == id))
+        .map(|a| a.pos);
+    let crab_pos = e
         .target
         .and_then(|id| {
             crabs
                 .iter()
                 .find(|c| c.id == id && huntable(c) && seen(c, k.sight))
         })
-        .map(|c| c.mover.pos.x);
+        .map(|c| c.mover.pos);
+    let target_pos = if e.animal_target.is_some() {
+        animal_pos
+    } else {
+        crab_pos
+    };
+    let target_x = target_pos.map(|p| p.x);
+    let target_y = target_pos.map(|p| p.y);
 
     // Timed states end, and the next one starts on this same tick.
     if e.state_len > 0 && e.state_tick >= e.state_len {
@@ -533,6 +668,7 @@ pub fn step(
             State::Notice => e.enter(State::Approach, 0),
             State::Tell => {
                 e.landed = false;
+                e.animal_struck = false;
                 e.struck.clear();
                 e.enter(State::Attack, k.active_ticks);
             }
@@ -574,6 +710,25 @@ pub fn step(
         State::Grab | State::Recover | State::Stagger => e.reach,
         _ => (e.reach - k.strike.lunge / HEAD_BACK_TICKS).max(0.0),
     };
+    if swimming_moray && e.reach > 0.0 {
+        // A lunge moves the head, not just the hit circle. Sweep its body
+        // along that movement so neither the visible head nor its bite can
+        // jump across a thin wall in a single tick.
+        let steps = (e.reach / 4.0).ceil() as u32;
+        let wanted = e.reach;
+        for i in 1..=steps {
+            let distance = wanted * i as f32 / steps as f32;
+            if swimmer_blocked(
+                level,
+                e.pos + Vec2::new(e.facing * distance, 0.0),
+                k.body.0 * 0.5 / 0.65,
+                k.body.1,
+            ) {
+                e.reach = wanted * (i - 1) as f32 / steps as f32;
+                break;
+            }
+        }
+    }
 
     // Follow-up hits (the bubble) pop when their time comes.
     let mut due = Vec::new();
@@ -609,6 +764,7 @@ pub fn step(
     match e.state {
         State::Idle => {
             e.target = None;
+            e.animal_target = None;
             let dx = e.home.x - e.pos.x;
             if dx.abs() >= 1.0 {
                 e.facing = dx.signum();
@@ -625,20 +781,46 @@ pub fn step(
                     e.pos.x = e.home.x;
                     want_speed = 0.0;
                 }
-            } else if e.hiding == 0 {
+            } else if e.hiding == 0 && (!swimming_moray || (e.pos.y - e.home.y).abs() < 8.0) {
                 // Feeling steps (only a crab moving fast enough), or a smell
                 // that has to build up first.
                 let sensed = e.sense_moving(crabs, k.notice_range, k.notice_moving, t);
-                e.scent = if sensed.is_some() {
+                let animal = if swimming_moray {
+                    animals
+                        .iter()
+                        .filter(|a| {
+                            a.id != e.id
+                                && a.pos.distance_squared(e.pos) <= k.notice_range * k.notice_range
+                        })
+                        .min_by(|a, b| {
+                            a.pos
+                                .distance_squared(e.pos)
+                                .total_cmp(&b.pos.distance_squared(e.pos))
+                        })
+                } else {
+                    None
+                };
+                let crab_distance = sensed
+                    .and_then(|id| crabs.iter().find(|c| c.id == id))
+                    .map_or(f32::INFINITY, |c| c.mover.pos.distance_squared(e.pos));
+                let choose_animal =
+                    animal.is_some_and(|a| a.pos.distance_squared(e.pos) < crab_distance);
+                e.scent = if sensed.is_some() || animal.is_some() {
                     e.scent + 1
                 } else {
                     e.scent.saturating_sub(2)
                 };
-                if let Some(id) = sensed.filter(|_| e.scent >= k.scent_ticks) {
+                if e.scent >= k.scent_ticks && (sensed.is_some() || animal.is_some()) {
                     e.scent = 0;
-                    e.target = Some(id);
+                    if choose_animal {
+                        e.animal_target = animal.map(|a| a.id);
+                    } else {
+                        e.target = sensed;
+                    }
                     e.enter_now(State::Notice, k.notice_ticks);
-                } else if e.sense(crabs, k.notice_range, t).is_none() && e.vitals.unhit > MEND_AFTER
+                } else if e.predator_alert == 0
+                    && e.sense(crabs, k.notice_range, t).is_none()
+                    && e.vitals.unhit > MEND_AFTER
                 {
                     // Home with nobody near, unhit for a while: the fight is
                     // over. It mends.
@@ -654,14 +836,58 @@ pub fn step(
             }
         }
         State::Approach => match target_x {
-            Some(x) if (x - e.home.x).abs() <= k.give_up_range => {
+            Some(x)
+                if (x - e.home.x).abs() <= k.give_up_range
+                    && (!swimming_moray
+                        || target_y.is_some_and(|y| (y - e.home.y).abs() <= k.give_up_range)) =>
+            {
                 if x != e.pos.x {
                     e.facing = (x - e.pos.x).signum();
                 }
-                if (x - e.head_x(t)).abs() <= k.strike_range {
+                let target_body = e
+                    .animal_target
+                    .and_then(|id| animals.iter().find(|a| a.id == id))
+                    .map(|a| a.body)
+                    .or_else(|| {
+                        e.target
+                            .and_then(|id| crabs.iter().find(|c| c.id == id))
+                            .map(|c| combat::body(&c.mover, t))
+                    });
+                let level_with_target = !swimming_moray
+                    || target_body.is_some_and(|body| {
+                        let bite_y = e.pos.y + k.strike.height;
+                        let mid = (body.min.y + body.max.y) * 0.5;
+                        (bite_y - mid).abs() <= k.strike.radius + (body.max.y - body.min.y) * 0.35
+                    });
+                // Back away if the prey is already behind the snout.
+                let behind_snout = swimming_moray
+                    && target_body.is_some_and(|body| {
+                        let target_half = (body.max.x - body.min.x) * 0.5;
+                        let margin = (k.strike.radius + target_half
+                            - k.strike.ahead
+                            - k.strike.lunge / k.active_ticks.max(1) as f32
+                            - 2.0)
+                            .max(0.0);
+                        (x - e.head_x(t)) * e.facing < -margin
+                    });
+                let near_attack =
+                    (x - e.head_x(t)).abs() <= k.strike_range && level_with_target && !behind_snout;
+                let clear_to_prey = !swimming_moray
+                    || !near_attack
+                    || target_pos.is_some_and(|p| {
+                        crate::navigation::clear_line(e.pos, p, &|p| {
+                            swimmer_blocked(level, p, k.body.0 * 0.5, k.body.1)
+                        })
+                    });
+                if near_attack && clear_to_prey {
                     e.combo = 0;
                     e.enter_now(State::Tell, k.tell_ticks);
-                } else {
+                } else if behind_snout {
+                    want_speed = -k.approach_speed * 0.5;
+                } else if !swimming_moray
+                    || !clear_to_prey
+                    || (x - e.head_x(t)).abs() > k.strike_range * 0.7
+                {
                     want_speed = k.approach_speed;
                 }
             }
@@ -690,7 +916,17 @@ pub fn step(
                 }
             }
         }
-        State::Attack => strike(e, crabs, t, &k, &mut blows),
+        State::Attack => {
+            let clear = !swimming_moray
+                || target_pos.is_some_and(|p| {
+                    crate::navigation::clear_line(e.pos, p, &|p| {
+                        swimmer_blocked(level, p, k.body.0 * 0.5, k.body.1)
+                    })
+                });
+            if clear {
+                strike(e, crabs, t, &k, &mut blows, swimming_moray.then_some(level));
+            }
+        }
         State::Grab => {
             // Holding on: it bites again every so often, until the crab
             // struggles free (or its hold gives out).
@@ -742,13 +978,132 @@ pub fn step(
         let half = k.body.0 / 2.0;
         let x = (e.pos.x + (e.vel_x + e.facing * want_speed) * STEP)
             .clamp(level.min_x + half, level.max_x - half);
-        // A drop or a wall (a big step in the floor) stops it: it walks the
-        // floor, it doesn't fall off cliffs.
-        let y = level.floor_height(x);
-        if (y - e.pos.y).abs() <= MAX_STEP {
-            e.pos = Vec2::new(x, y);
+        let escaping_mantis = e.kind == Kind::Mantis
+            && level.cells.is_some()
+            && matches!(e.state, State::Idle | State::Flee)
+            && (e.pos.y < e.home.y - MAX_STEP || !e.swim_path.is_empty());
+        if swimming_moray || escaping_mantis {
+            // It leaves its crevice and moves through water toward the crab,
+            // then returns to the fixed home. Solid terrain still blocks it.
+            let goal = match e.state {
+                State::Approach => target_pos
+                    .map(|p| Vec2::new(p.x, p.y.clamp(e.home.y - 420.0, e.home.y + 420.0))),
+                State::Idle | State::Flee => Some(e.home),
+                _ => None,
+            };
+            let blocked = |p: Vec2| swimmer_blocked(level, p, half, k.body.1);
+            e.swim_retry = e.swim_retry.saturating_sub(1);
+            if let Some(goal) = goal {
+                if e.swim_goal.distance(goal) > 72.0
+                    || e.swim_path.first().is_some_and(|&p| blocked(p))
+                {
+                    e.swim_path.clear();
+                }
+                let direct = Vec2::new(
+                    x,
+                    e.pos.y + (goal.y - e.pos.y).clamp(-100.0 * STEP, 100.0 * STEP),
+                );
+                let horizontal_blocked =
+                    (x - e.pos.x).abs() > 0.001 && blocked(Vec2::new(x, e.pos.y));
+                let line_blocked = e.state == State::Approach
+                    && e.pos.distance(goal) < k.strike_range * 1.7
+                    && !crate::navigation::clear_line(e.pos, goal, &blocked);
+                if e.swim_path.is_empty()
+                    && e.swim_retry == 0
+                    && (horizontal_blocked || line_blocked || blocked(direct))
+                {
+                    e.swim_goal = goal;
+                    e.swim_path = crate::navigation::swim_route(
+                        e.pos,
+                        goal,
+                        if escaping_mantis {
+                            24.0
+                        } else {
+                            k.strike_range * 0.85
+                        },
+                        blocked,
+                    )
+                    .unwrap_or_default();
+                    e.swim_retry = 45;
+                }
+                if let Some(&waypoint) = e.swim_path.first() {
+                    let d = waypoint - e.pos;
+                    let next = e.pos
+                        + Vec2::new(
+                            d.x.clamp(
+                                -k.approach_speed.min(160.0) * STEP,
+                                k.approach_speed.min(160.0) * STEP,
+                            ),
+                            d.y.clamp(-100.0 * STEP, 100.0 * STEP),
+                        );
+                    if !blocked(next) {
+                        if (next.x - e.pos.x).abs() > 0.001 {
+                            e.facing = (next.x - e.pos.x).signum();
+                        }
+                        e.pos = next;
+                        if e.pos.distance(waypoint) < 1.0 {
+                            e.swim_path.remove(0);
+                        }
+                    } else {
+                        e.swim_path.clear();
+                    }
+                } else if !blocked(direct) {
+                    e.pos = direct;
+                } else if !blocked(Vec2::new(e.pos.x, direct.y)) {
+                    e.pos.y = direct.y;
+                } else if !blocked(Vec2::new(direct.x, e.pos.y)) {
+                    e.pos.x = direct.x;
+                } else {
+                    e.vel_x = 0.0;
+                }
+            } else {
+                e.swim_path.clear();
+            }
+            if swimming_moray && e.state == State::Idle && e.pos.distance(e.home) < 4.0 {
+                e.pos = e.home;
+                e.vel_x = 0.0;
+                e.reach = 0.0;
+                // The cave artwork has a fixed opening, facing left.
+                e.facing = -1.0;
+            }
         } else {
-            e.vel_x = 0.0;
+            // A drop or a wall (a big step in the floor) stops it: it walks the
+            // floor, it doesn't fall off cliffs.
+            let dynamic_surface = level
+                .cells
+                .as_ref()
+                .and_then(|cells| cells.game_surface_below(x, half, e.pos.y + MAX_STEP));
+            let mut y = dynamic_surface.unwrap_or_else(|| level.floor_height(x));
+            if level.cells.is_some() {
+                // A solid lip within leg reach is a step, not a wall.
+                for rock in level.solids() {
+                    if rock.max.x > x - half * 0.65
+                        && rock.min.x < x + half * 0.65
+                        && rock.max.y >= e.pos.y - MAX_STEP
+                        && rock.max.y <= e.pos.y + MAX_STEP
+                    {
+                        y = y.max(rock.max.y);
+                    }
+                }
+            }
+            if (y - e.pos.y).abs() <= MAX_STEP {
+                let next = Vec2::new(x, y);
+                // In the material experiment, ground animals respect the
+                // same solid obstacles as swimmers. A reachable supported
+                // top is still a step; a taller wall stops them.
+                if level.cells.is_none() || !swimmer_blocked(level, next, half, k.body.1) {
+                    e.pos = next;
+                } else {
+                    e.vel_x = 0.0;
+                }
+            } else if dynamic_surface.is_some() && y < e.pos.y {
+                // When the experimental seabed moves away under an animal,
+                // let it sink toward the next supported surface over time.
+                e.pos.y = (e.pos.y - 250.0 * STEP).max(y);
+                e.vel_x = 0.0;
+            } else {
+                e.vel_x = 0.0;
+            }
         }
     }
     blows
@@ -786,6 +1141,7 @@ pub(crate) fn strike(
     t: &Tuning,
     k: &EnemyTuning,
     blows: &mut Vec<(PlayerId, Outcome)>,
+    obstacle_level: Option<&Level>,
 ) {
     let (centre, radius) = e.strike_circle(t);
     let s = &k.strike;
@@ -794,6 +1150,13 @@ pub(crate) fn strike(
             continue;
         }
         let body = combat::body(&crab.mover, t);
+        if obstacle_level.is_some_and(|level| {
+            !crate::navigation::clear_line(e.pos, crab.mover.pos, &|p| {
+                swimmer_blocked(level, p, k.body.0 * 0.5, k.body.1)
+            })
+        }) {
+            continue;
+        }
         let meets = match e.shock_box(t) {
             Some(shock) => !shock.intersect(body).is_empty(),
             None => circle_meets(centre, radius, body),

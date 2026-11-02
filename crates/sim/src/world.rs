@@ -153,6 +153,27 @@ pub struct Sim {
 pub const SEED: u64 = 0x00c0_ffee_c4ab_5eed;
 
 impl Sim {
+    /// Enable the draft's single-player material experiment in the opening area.
+    pub fn enable_underwater_cells(&mut self) {
+        if self.level.cells.is_some() {
+            return;
+        }
+        self.level.cells = Some(crate::underwater::World::from_level_settled(&self.level));
+        // A larger individual reads clearly against the player crab; keep
+        // its hurtbox and bite aligned with the scaled puppet.
+        Self::scale_experimental_moray(&mut self.tuning);
+        for crab in &mut self.crabs {
+            let pos = Self::surface_spawn(&self.level, &self.tuning, crab.mover.pos);
+            crab.mover.pos = pos;
+            crab.prev_pos = pos;
+        }
+        let root_floor = self.level.floor_height(280.0);
+        if let Some(kelp) = self.level.climbs.first_mut() {
+            kelp.x = 280.0;
+            kelp.bottom = root_floor;
+            kelp.top = crate::level::WATER_SURFACE_Y - 20.0;
+        }
+    }
     /// An empty world: no crabs yet.
     pub fn new(tuning: Tuning, level: Level) -> Self {
         Self {
@@ -190,9 +211,26 @@ impl Sim {
     pub fn set_feel(&mut self, feel: Feel) {
         self.feel = feel;
         self.tuning = feel.tuning();
+        if self.level.cells.is_some() {
+            Self::scale_experimental_moray(&mut self.tuning);
+        }
         if let Some(rec) = &mut self.recorder {
             rec.note_feel(self.tick, feel);
         }
+    }
+
+    fn scale_experimental_moray(tuning: &mut Tuning) {
+        tuning.moray.body.0 *= 1.75;
+        tuning.moray.body.1 *= 1.75;
+        tuning.moray.strike.height *= 1.75;
+        tuning.moray.strike.radius *= 1.75;
+        // The experimental eel swims out to its prey instead of stretching
+        // an implausibly long head and neck from a fixed point.
+        tuning.moray.approach_speed = 155.0;
+        tuning.moray.notice_range = 460.0;
+        tuning.moray.give_up_range = 760.0;
+        tuning.moray.strike_range = 65.0;
+        tuning.moray.strike.lunge = 45.0;
     }
 
     /// A code was entered at `tick`: a running recording notes it.
@@ -228,6 +266,7 @@ impl Sim {
 
     /// Put a crab standing still at `pos` into the world.
     pub fn add_crab(&mut self, id: PlayerId, pos: Vec2) {
+        let pos = Self::surface_spawn(&self.level, &self.tuning, pos);
         let mut mover = Mover::new(pos);
         mover.stamina = mover.strokes(&self.tuning) as f32; // rested
         self.crabs.push(SimCrab {
@@ -252,6 +291,29 @@ impl Sim {
             resting: 0,
             wakes_at: None,
         });
+    }
+
+    fn surface_spawn(level: &Level, tuning: &Tuning, pos: Vec2) -> Vec2 {
+        let Some(cells) = &level.cells else {
+            return pos;
+        };
+        // Only adjust an old surface spawn, not a deliberately underground
+        // save or a crab already swimming above the floor.
+        if pos.y < level.floor_height(pos.x) - 4.0 {
+            return pos;
+        }
+        let Some(surface) = cells.game_surface_below(
+            pos.x,
+            tuning.body_half_width * 0.8,
+            pos.y + tuning.body_height,
+        ) else {
+            return pos;
+        };
+        if surface > pos.y && surface <= pos.y + tuning.body_height {
+            Vec2::new(pos.x, surface)
+        } else {
+            pos
+        }
     }
 
     /// Put another player's crab into the world (co-op): it stands at `pos`
@@ -677,6 +739,8 @@ impl Sim {
             c.walk = new.walk;
             c.jump_held = new.jump_held;
             c.dodge_held = new.dodge_held;
+            c.dig_held = new.dig_held;
+            c.dig_up = new.dig_up;
             c.down = new.down;
             c.jump_pressed |= new.jump_pressed;
             c.dodge_pressed |= new.dodge_pressed;
@@ -712,7 +776,17 @@ impl Sim {
     pub fn spawn_enemy(&mut self, kind: Kind, pos: Vec2) -> u32 {
         let id = self.next_enemy;
         self.next_enemy += 1;
-        let at = Vec2::new(pos.x, self.level.floor_height(pos.x));
+        let floor = self.level.floor_height(pos.x);
+        let half = kind.tuning(&self.tuning).body.0 * 0.5;
+        let surface = self
+            .level
+            .cells
+            .as_ref()
+            .and_then(|cells| {
+                cells.game_surface_below(pos.x, half, floor + self.tuning.body_height * 2.0)
+            })
+            .unwrap_or(floor);
+        let at = Vec2::new(pos.x, surface);
         self.enemies.push(Enemy::new(id, kind, at, &self.tuning));
         if let Some(rec) = &mut self.recorder {
             rec.note_spawn(self.tick, kind, pos);
@@ -766,6 +840,91 @@ impl Sim {
 
     /// Advance the world by one [`STEP`].
     pub fn tick(&mut self) {
+        // Move the detailed window before simulating, independent of camera.
+        if let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
+            && let Some(mut cells) = self.level.cells.take()
+        {
+            cells.follow_player(&self.level, pos.x, pos.y);
+            self.level.cells = Some(cells);
+        }
+        // The material experiment advances at 30 Hz inside the fixed-step
+        // simulation. Only the local crab participates; co-op is disabled by
+        // the experimental entry point until terrain can be synchronized.
+        if let Some(cells) = self.level.cells.as_mut() {
+            // Do not leave an invisible crab-shaped exclusion behind when
+            // the player leaves the experimental cell field.
+            cells.clear_game_crab();
+            if let Some(crab) = self.crabs.iter_mut().find(|c| !c.remote) {
+                let m = &mut crab.mover;
+                let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
+                if cells.contains_world(center.x, center.y) {
+                    let (x, y) = cells.local_cell(center.x, center.y);
+                    cells.set_game_crab(
+                        x,
+                        y,
+                        m.half_width(&self.tuning) / 4.0,
+                        m.height(&self.tuning) / 8.0,
+                    );
+                    if crab.events.jumped {
+                        let (_, foot_y) = cells.local_cell(m.pos.x, m.pos.y);
+                        cells.react_to_jump(x, foot_y);
+                    }
+                    let walk = crab.controls.walk.clamp(-1.0, 1.0);
+                    let digging = crab.controls.dig_held;
+                    if self.tick.is_multiple_of(4) {
+                        let (dx, dy) = if digging && crab.controls.dig_up {
+                            (0, 1)
+                        } else if digging && crab.controls.down {
+                            (0, -1)
+                        } else if digging && walk.abs() > 0.1 {
+                            (walk.signum() as i32, 0)
+                        } else {
+                            (0, 0)
+                        };
+                        let target = cells.game_dig_load(x, y, dx, dy);
+                        // Smooth changing contact over a few material steps,
+                        // so a shifting pebble does not make speed flicker.
+                        m.dig_load += (target - m.dig_load) * 0.3;
+                    }
+                    if ((digging && crab.controls.dig_up)
+                        || (!digging && (crab.controls.jump_held || crab.controls.jump_pressed))
+                        || m.vel.y > 0.0)
+                        && !cells.clear_for_crab(x, y + 4.0)
+                    {
+                        cells.push_for_crab(x, y + 4.0, 0, 1, 48);
+                    } else if self.tick.is_multiple_of(4) && digging && crab.controls.down {
+                        cells.swoop_dig_pebbles(48);
+                        // Probe two cells ahead: a layer of sand over a
+                        // pebble must not hide the pebble from the push.
+                        cells.push_for_crab(x, y - 2.0, 0, -1, 48);
+                    } else if self.tick.is_multiple_of(4) && digging && walk.abs() > 0.1 {
+                        cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
+                    }
+                    if self.tick.is_multiple_of(4) && !digging && m.grounded && walk.abs() > 0.1 {
+                        cells.brush_walking_sand(walk.signum() as i32);
+                    }
+                    if self.tick.is_multiple_of(4) {
+                        // Walking stirs the water, but footsteps should not
+                        // excavate the bed underneath the crab.
+                        // Scale the wake with actual speed, so a sprint or
+                        // dodge stirs more water than a slow step or a
+                        // crab pushing against an immovable obstacle.
+                        let wake_x = (m.vel.x / self.tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+                        let wake_y = (m.vel.y / self.tuning.walk_speed).clamp(-2.5, 2.5);
+                        cells.react_to_swim(x, y, wake_x, wake_y);
+                        cells.stir(
+                            x,
+                            y,
+                            m.vel.x * STEP / 4.0 * 0.45,
+                            m.vel.y * STEP / 4.0 * 0.45,
+                        );
+                    }
+                }
+            }
+            if self.tick.is_multiple_of(4) {
+                cells.step(0.35);
+            }
+        }
         if let Some(rec) = &mut self.recorder
             && let Some(crab) = self.crabs.iter().find(|c| !c.remote)
         {
@@ -1115,9 +1274,134 @@ impl Sim {
             c.fighter.blinded = clouds.iter().any(|at| at.distance(middle) <= r);
         }
         self.claws_meet_enemies();
+        let animals: Vec<enemy::AnimalPrey> = if self.level.cells.is_some() {
+            self.enemies
+                .iter()
+                .filter(|e| {
+                    e.kind != Kind::Fixture
+                        && e.state != enemy::State::Gone
+                        && !e.held
+                        && !e.dropping()
+                })
+                .map(|e| enemy::AnimalPrey {
+                    id: e.id,
+                    pos: e.pos,
+                    body: e.hurtbox(&self.tuning),
+                    animal_target: e.animal_target,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut animal_bites = Vec::new();
         let runs = self.runs_each();
         for (e, runs) in self.enemies.iter_mut().zip(runs) {
-            let blows = enemy::step(e, &mut self.crabs, &self.tuning, &self.level, &mut self.rng);
+            let previous = e.pos;
+            // Correct existing rock overlaps without allowing normal travel
+            // through walls; move loose grains rather than deleting them.
+            let local_animal = self.level.cells.is_some()
+                && matches!(e.kind, Kind::Mantis | Kind::Snapper | Kind::Moray)
+                && self
+                    .level
+                    .cells
+                    .as_ref()
+                    .is_some_and(|cells| cells.contains_world(e.pos.x, e.pos.y))
+                && e.state != enemy::State::Gone
+                && !e.held
+                && e.vitals.hitstop == 0;
+            let recovering = local_animal && enemy::recover_from_rock(e, &self.level, &self.tuning);
+            if local_animal
+                && !recovering
+                && self.tick.is_multiple_of(4)
+                && let Some(cells) = self.level.cells.as_mut()
+            {
+                let (width, height) = e.kind.tuning(&self.tuning).body;
+                let half = width * 0.325;
+                let embedded = cells.game_movement_blocked(
+                    e.pos.x - half,
+                    e.pos.y + 1.0,
+                    e.pos.x + half,
+                    e.pos.y + height * 0.85,
+                    0.0,
+                );
+                if embedded && cells.clear_animal_upward(e.pos.x, e.pos.y, half, height * 0.85) {
+                    e.pos.y += crate::underwater::GAME_CELL;
+                }
+            }
+            let blows = if recovering {
+                Vec::new()
+            } else {
+                enemy::step(
+                    e,
+                    &mut self.crabs,
+                    &self.tuning,
+                    &self.level,
+                    &mut self.rng,
+                    &animals,
+                )
+            };
+            if self.level.cells.is_some()
+                && e.kind == Kind::Moray
+                && e.state == enemy::State::Attack
+                && !e.animal_struck
+                && let Some(prey) = e
+                    .animal_target
+                    .and_then(|id| animals.iter().find(|a| a.id == id))
+            {
+                let (centre, radius) = e.strike_circle(&self.tuning);
+                let clear = crate::navigation::clear_line(e.pos, prey.pos, &|p| {
+                    enemy::swimmer_blocked(
+                        &self.level,
+                        p,
+                        self.tuning.moray.body.0 * 0.5,
+                        self.tuning.moray.body.1,
+                    )
+                });
+                // Test the mouth's starting position as well as its lunge:
+                // a close prey can overlap the jaws before they extend.
+                let mouth = Vec2::new(
+                    e.head_x(&self.tuning),
+                    e.pos.y + self.tuning.moray.strike.height,
+                );
+                if clear
+                    && (enemy::circle_meets(centre, radius, prey.body)
+                        || enemy::circle_meets(mouth, radius, prey.body))
+                {
+                    e.animal_struck = true;
+                    let strike = &self.tuning.moray.strike;
+                    let hit = Hit {
+                        damage: strike.damage,
+                        poise: strike.poise,
+                        source: Source::Enemy(e.id),
+                        hitstop: strike.hitstop_ticks,
+                        ..Hit::default()
+                    };
+                    animal_bites.push((e.id, prey.id, e.pos.x, hit));
+                }
+            }
+            // The crevice stays on its own seabed while the moray swims.
+            if e.kind == Kind::Moray
+                && self.tick.is_multiple_of(4)
+                && let Some(cells) = self.level.cells.as_ref()
+                && let Some(surface) = cells.game_surface_below(
+                    e.home.x,
+                    self.tuning.moray.body.0 * 0.5,
+                    e.home.y + 80.0,
+                )
+            {
+                e.home.y = surface;
+            }
+            if self.tick.is_multiple_of(4)
+                && let Some(cells) = self.level.cells.as_mut()
+                && cells.contains_world(e.pos.x, e.pos.y)
+            {
+                let movement = (e.pos - previous) / crate::underwater::GAME_CELL;
+                if movement.length_squared() > 0.0025 {
+                    let (x, y) = cells.local_cell(e.pos.x, e.pos.y);
+                    cells.react_to_swim(x, y, movement.x * 2.0, movement.y * 2.0);
+                    cells.stir(x, y, movement.x * 0.45, movement.y * 0.45);
+                }
+            }
             let Some(net) = &mut self.net else {
                 continue;
             };
@@ -1148,6 +1432,39 @@ impl Sim {
                             outcome,
                         },
                     );
+                }
+            }
+        }
+        // Resolve predator bites after the stable iteration, so an animal can
+        // be both a hunter and prey without aliasing or order-dependent scans.
+        for (attacker, victim, from_x, hit) in animal_bites {
+            if let Some(prey) = self
+                .enemies
+                .iter_mut()
+                .find(|e| e.id == victim && e.state != enemy::State::Gone)
+            {
+                // A concealed animal reacts as the predator reaches its hole.
+                if prey.hidden(&self.tuning) {
+                    let notice = prey.kind.tuning(&self.tuning).notice_ticks;
+                    prey.enter_now(enemy::State::Notice, notice);
+                }
+                let result = prey.takes(&hit, from_x, &self.tuning);
+                if result.is_some_and(|took| took.died) {
+                    // The moray eats its catch: use the same shared body
+                    // bookkeeping as a crab, so no duplicate meal is left.
+                    self.shared.take(
+                        Thing::Body {
+                            enemy: victim,
+                            deaths: prey.deaths,
+                        },
+                        &self.tuning,
+                    );
+                }
+                if result.is_some()
+                    && let Some(hunter) = self.enemies.iter_mut().find(|e| e.id == attacker)
+                {
+                    hunter.landed = true;
+                    hunter.vitals.hitstop = hunter.vitals.hitstop.max(hit.hitstop);
                 }
             }
         }
@@ -1422,13 +1739,14 @@ impl Sim {
         // `{:?}` prints every field, and prints each `f32` exactly, so
         // formatting is an easy way to "hash everything" that keeps working
         // when fields are added.
-        fnv1a(
-            format!(
-                "{} {:?} {:?} {:?} {:?}",
-                self.tick, crabs, self.enemies, self.rng, self.shared
-            )
-            .as_bytes(),
-        )
+        let mut state = format!(
+            "{} {:?} {:?} {:?} {:?}",
+            self.tick, crabs, self.enemies, self.rng, self.shared
+        );
+        if let Some(cells) = &self.level.cells {
+            state.push_str(&format!(" {cells:?}"));
+        }
+        fnv1a(state.as_bytes())
     }
 
     /// One line of state per crab, for the headless runner's `--dump`.

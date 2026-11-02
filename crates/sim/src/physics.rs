@@ -39,6 +39,10 @@ pub struct Controls {
     pub dodge_pressed: bool,
     /// Is the dodge button held down? (Keep holding after a dodge to sprint.)
     pub dodge_held: bool,
+    /// Experimental digging is independent of dodge and sprint.
+    pub dig_held: bool,
+    /// Dig upward, independently of jumping.
+    pub dig_up: bool,
     /// Is down held? (Climbs down kelp or coral; so does holding dodge.)
     pub down: bool,
     /// Was the crusher (smash) pressed since the last step?
@@ -115,6 +119,8 @@ pub struct Mover {
     pub vel: Vec2,
     /// Standing on something?
     pub grounded: bool,
+    /// Smoothed material load in front of an experimental digging crab.
+    pub dig_load: f32,
     /// Time left in which a jump still works after leaving the ground.
     pub coyote: f32,
     /// Time left in which an early jump press is remembered.
@@ -232,6 +238,7 @@ impl Mover {
             pos,
             vel: Vec2::ZERO,
             grounded: true,
+            dig_load: 0.0,
             coyote: 0.0,
             jump_buffer: 0.0,
             windup: 0.0,
@@ -667,9 +674,25 @@ fn approach(value: f32, target: f32, amount: f32) -> f32 {
 
 /// Advance one crab by `dt` seconds.
 pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> StepEvents {
+    let mut effective_controls = *c;
+    if level.cells.is_some() && c.dig_held {
+        // Up and jump share a keyboard key, but digging is a controlled
+        // push: it must not queue a jump or a swimming stroke.
+        effective_controls.jump_pressed = false;
+        effective_controls.jump_held = false;
+        m.jump_buffer = 0.0;
+        m.stroke_queued = false;
+        m.windup = 0.0;
+    }
+    let c = &effective_controls;
     let mut ev = StepEvents::default();
     let walk = c.walk.clamp(-1.0, 1.0);
     let walking = walk.abs() > 0.1;
+    let dig_speed = if level.cells.is_some() && c.dig_held {
+        (1.0 / (1.0 + m.dig_load.max(0.0) / 80.0)).clamp(0.3, 1.0)
+    } else {
+        1.0
+    };
 
     // --- Timers ---------------------------------------------------------
     if c.jump_pressed {
@@ -773,7 +796,15 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     // pushing on past the edge of its reach steps off. Jump with a direction
     // kicks off the stalk that way (free, like a floor jump). Climbing past
     // the top pulls the crab up over it.
-    let grip = level.climb_at(m.pos, t.climb_reach, m.glass_grips);
+    // A held, moving cellular stalk can bend between physics ticks. Keep a
+    // little extra reach while already gripping it, then follow its centre.
+    let grip_reach = t.climb_reach
+        + if m.climbing && level.cells.is_some() {
+            20.0
+        } else {
+            0.0
+        };
+    let grip = level.climb_at(m.pos, grip_reach, m.glass_grips);
     let mut shuffle = 0.0;
     if m.climbing {
         if !walking {
@@ -841,7 +872,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         let xp = (m.pos.y - from).abs() * t.climb_xp_per_unit;
         ev.levelled = ev.levelled.or(m.earn(Skill::Climbing, xp, t));
         // Shuffling stops at the edge of the reach; pushing on steps off.
-        if let Some(g) = level.climb_at(m.pos, t.climb_reach + 5.0, m.glass_grips) {
+        if let Some(g) = level.climb_at(m.pos, grip_reach + 5.0, m.glass_grips) {
             let edge = t.climb_reach - 0.5;
             m.pos.x = m.pos.x.clamp(g.x - edge, g.x + edge);
         }
@@ -866,7 +897,15 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             } else {
                 t.walk_speed
             };
-        let target = walk * top;
+        let resistance = if m.grounded {
+            level.cells.as_ref().map_or(0.0, |cells| {
+                cells.game_foot_resistance(m.pos.x, m.half_width(t) * 0.8, m.pos.y)
+            })
+        } else {
+            0.0
+        };
+        // More work is needed to move footing made of heavier grains.
+        let target = walk * top * dig_speed / (1.0 + resistance * 0.12);
         let reversing = walking && m.vel.x.abs() > 1.0 && target.signum() != m.vel.x.signum();
         let too_fast = m.vel.x.abs() > top && !reversing;
         let rate = match (m.grounded, walking) {
@@ -979,7 +1018,55 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.vel.y -= drag * (up * up - down * down / heavy) * dt;
     }
 
-    move_and_collide(m, t, level, dt, &mut ev);
+    if let Some(cells) = &level.cells {
+        let (vx, vy) = cells.game_water_at(m.pos.x, m.pos.y + m.height(t) * 0.5);
+        m.vel.x += (vx * 35.0 - m.vel.x) * 0.08 * dt;
+        m.vel.y += vy * 12.0 * dt;
+        // A resting crab braces against the substrate. Tiny upward current
+        // impulses must not repeatedly lift it off its feet and switch its
+        // movement between the ground and swimming acceleration rules.
+        if m.grounded {
+            m.vel.y = m.vel.y.min(0.0);
+        }
+    }
+    if level
+        .cells
+        .as_ref()
+        .is_some_and(|cells| cells.contains_world(m.pos.x, m.pos.y))
+    {
+        if c.down && c.dig_held {
+            let digging_velocity = -70.0 * dig_speed;
+            if m.grounded {
+                m.vel.y = digging_velocity;
+                m.grounded = false;
+            } else if m.dig_load > 1.0 {
+                m.vel.y = m.vel.y.max(digging_velocity);
+            }
+        }
+        // A crab under the original surface can always work upward out of
+        // loosened sediment, even if it has spent its swimming strokes.
+        if c.dig_held && c.dig_up {
+            let half = m.half_width(t);
+            let near_sediment = level.cells.as_ref().is_some_and(|cells| {
+                cells.game_dig_support(
+                    m.pos.x - half - 4.0,
+                    m.pos.y - 8.0,
+                    m.pos.x + half + 4.0,
+                    m.pos.y + m.height(t) + 8.0,
+                )
+            });
+            if near_sediment {
+                m.vel.y = 110.0 * dig_speed;
+                m.grounded = false;
+            } else {
+                m.vel.y = m.vel.y.min(0.0);
+            }
+            m.rising = false;
+        } else if c.jump_held && m.pos.y < level.floor_height(m.pos.x) - 2.0 {
+            m.vel.y = m.vel.y.max(110.0);
+        }
+    }
+    move_and_collide(m, t, level, dt, &mut ev, c.dig_held);
     // Touching down rests one stroke at once (so a hop straight off again
     // has its double jump); the rest come back while it stands.
     if ev.landed.is_some() {
@@ -1051,18 +1138,56 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
             m.vel.y = 0.0;
         }
     }
-    let floor = level.floor_height(m.pos.x);
-    if m.pos.y - m.half_width(t) <= floor {
-        m.pos.y = floor;
-        m.vel = Vec2::ZERO;
-        m.climbing = false;
-        m.grounded = true;
+    if let Some(cells) = level
+        .cells
+        .as_ref()
+        .filter(|c| c.contains_world(m.pos.x, m.pos.y))
+    {
+        // The old heightmap is no longer the floor after digging. Only land
+        // on a supported material surface while climbing down; isolated
+        // grains and an old floor above an excavated bed cannot release grip.
+        let bottom_before = before - m.half_width(t);
+        if m.vel.y < 0.0
+            && let Some(floor) = cells.game_footing_height(
+                m.pos.x,
+                m.height(t) * 0.5,
+                bottom_before + crate::underwater::GAME_CELL,
+            )
+            && m.pos.y - m.half_width(t) <= floor
+        {
+            m.pos.y = floor;
+            m.vel = Vec2::ZERO;
+            m.climbing = false;
+            m.grounded = true;
+        }
+    } else {
+        let floor = level.floor_height(m.pos.x);
+        if m.pos.y - m.half_width(t) <= floor {
+            m.pos.y = floor;
+            m.vel = Vec2::ZERO;
+            m.climbing = false;
+            m.grounded = true;
+        }
     }
 }
 
 /// Move by the velocity, then sort out collisions: sideways first, then up
 /// and down.
-fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut StepEvents) {
+fn move_and_collide(
+    m: &mut Mover,
+    t: &Tuning,
+    level: &Level,
+    dt: f32,
+    ev: &mut StepEvents,
+    digging: bool,
+) {
+    if let Some(cells) = &level.cells
+        && cells.contains_world(m.pos.x, m.pos.y)
+        && cells.contains_world(m.pos.x, m.pos.y + m.height(t))
+    {
+        move_and_collide_cells(m, t, level, cells, dt, ev, digging);
+        return;
+    }
     let hw = m.half_width(t);
     let h = m.height(t);
     // Longer legs step up higher and keep to a floor that drops further.
@@ -1162,6 +1287,153 @@ fn move_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32, ev: &mut 
     }
 }
 
+/// Draft-only collision with the material grid and the existing solid rocks.
+fn move_and_collide_cells(
+    m: &mut Mover,
+    t: &Tuning,
+    level: &Level,
+    cells: &crate::underwater::World,
+    dt: f32,
+    ev: &mut StepEvents,
+    digging: bool,
+) {
+    let hw = m.half_width(t);
+    let height = m.height(t);
+    let smooth_height = t.step_up * m.grown(t) + 2.0 * crate::underwater::GAME_CELL;
+    let blocked_rect = |left: f32, bottom: f32, right: f32, top: f32| {
+        cells.game_movement_blocked(left, bottom, right, top, smooth_height)
+            || level
+                .solids()
+                .any(|r| right > r.min.x && left < r.max.x && top > r.min.y && bottom < r.max.y)
+    };
+    let blocked = |pos: Vec2| {
+        blocked_rect(
+            pos.x - hw + EPS,
+            pos.y + EPS,
+            pos.x + hw - EPS,
+            pos.y + height - EPS,
+        )
+    };
+    let was_grounded = m.grounded;
+    let dx = m.vel.x * dt;
+    let xsteps = (dx.abs() / 2.0).ceil().max(1.0) as usize;
+    let mut climbing_step = false;
+    let mut walking_on_surface = false;
+    for _ in 0..xsteps {
+        let candidate = Vec2::new(
+            (m.pos.x + dx / xsteps as f32).clamp(level.min_x + hw, level.max_x - hw),
+            m.pos.y,
+        );
+        // Model the legs finding a broad patch of footing at each step.
+        // This follows small hills without pushing into them, but doesn't
+        // pull the crab onto a high wall or bridge over a deep drop.
+        let step_up = t.step_up * m.grown(t);
+        let snap_down = t.ground_snap * m.grown(t);
+        let footing = if !digging && m.vel.y <= 0.0 {
+            // A moving pebble can briefly remove support. Reacquire a
+            // nearby surface while falling rather than treating its edge as
+            // a wall; in open water only snap across this tick's fall.
+            let reach_down = if was_grounded {
+                snap_down
+            } else {
+                (-m.vel.y * dt + 1.0).max(1.0)
+            };
+            let reach_up = if was_grounded {
+                step_up
+            } else {
+                crate::underwater::GAME_CELL
+            };
+            cells
+                .game_footing_height(
+                    candidate.x,
+                    hw * 0.8,
+                    m.pos.y + step_up + hw * 0.8 + crate::underwater::GAME_CELL,
+                )
+                .filter(|&s| s >= m.pos.y - reach_down && s <= m.pos.y + reach_up)
+        } else {
+            None
+        };
+        let can_step = |pos: Vec2| {
+            let (left, right) = (pos.x - hw + EPS, pos.x + hw - EPS);
+            let (bottom, top) = (pos.y + EPS, pos.y + height - EPS);
+            !cells.game_walking_blocked(left, bottom, right, top, step_up + hw * 0.8)
+                && !level
+                    .solids()
+                    .any(|r| right > r.min.x && left < r.max.x && top > r.min.y && bottom < r.max.y)
+        };
+        if let Some(surface) = footing.filter(|&s| can_step(Vec2::new(candidate.x, s))) {
+            m.pos = Vec2::new(candidate.x, surface);
+            walking_on_surface = true;
+        } else if !blocked(candidate) || (!digging && m.vel.y > 0.0 && can_step(candidate)) {
+            m.pos = candidate;
+            walking_on_surface = false;
+        } else if was_grounded && !digging && dx.abs() > EPS && m.vel.y <= 0.0 {
+            let mut stepped = false;
+            // Legs can climb a ledge shorter than the crab. Find the top
+            // first, so a tall wall cannot be climbed a little at a time.
+            for rise in 1..(height.ceil() as usize) {
+                let raised = candidate + Vec2::Y * rise as f32;
+                if !blocked(raised) {
+                    // Work the legs up while moving forward instead of
+                    // snapping the whole crab to the top in a single tick.
+                    let leg_lift = (dx.abs() / xsteps as f32 * 2.5).max(0.5);
+                    m.pos = candidate + Vec2::Y * (rise as f32).min(leg_lift);
+                    climbing_step = rise as f32 > leg_lift;
+                    stepped = true;
+                    break;
+                }
+            }
+            if !stepped {
+                m.vel.x = 0.0;
+                break;
+            }
+        } else {
+            m.vel.x = 0.0;
+            break;
+        }
+    }
+    if climbing_step || walking_on_surface {
+        if walking_on_surface && !was_grounded {
+            ev.landed = Some((-m.vel.y).max(0.0));
+        }
+        m.vel.y = 0.0;
+        m.grounded = true;
+        return;
+    }
+    let dy = m.vel.y * dt;
+    let ysteps = (dy.abs() / 2.0).ceil().max(1.0) as usize;
+    let impact = -m.vel.y;
+    let mut touched = false;
+    for _ in 0..ysteps {
+        let candidate = m.pos + Vec2::Y * (dy / ysteps as f32);
+        // On a slope the legs can already overlap sand. While rising, only
+        // material newly entering above the shell can stop the jump.
+        let collision = if dy > 0.0 {
+            blocked_rect(
+                candidate.x - hw + EPS,
+                m.pos.y + height - EPS,
+                candidate.x + hw - EPS,
+                candidate.y + height - EPS,
+            )
+        } else {
+            blocked(candidate)
+        };
+        if candidate.y + height > crate::level::WATER_SURFACE_Y || collision {
+            touched = dy < 0.0;
+            m.vel.y = 0.0;
+            if dy > 0.0 {
+                m.rising = false;
+            }
+            break;
+        }
+        m.pos = candidate;
+    }
+    m.grounded = touched || (dy <= 0.0 && blocked(m.pos - Vec2::Y * 1.0));
+    if m.grounded && !was_grounded {
+        ev.landed = Some(impact.max(0.0));
+    }
+}
+
 /// Is `pos` a fair place for a crab grown to `size` ([`Mover::grown`]) to
 /// stand (for example, a loaded save)? Inside the level's walls, not inside
 /// a rock, and not under the floor.
@@ -1232,6 +1504,8 @@ mod tests {
         jump_pressed: true,
         dodge_pressed: false,
         dodge_held: false,
+        dig_held: false,
+        dig_up: false,
         down: false,
         smash_pressed: false,
         smash_held: false,

@@ -98,3 +98,6 @@ pub fn play(sim: &mut Sim, replay: &Replay, ticks: u64, mut after_tick: impl FnM
         after_tick(sim);
     }
 }
+
+mod navigation;
+pub mod underwater;

@@ -87,8 +87,12 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        let mut sim = Sim::new(Tuning::default(), Level::test_level());
+        if crate::cellular::enabled() {
+            sim.enable_underwater_cells();
+        }
         app.add_message::<MoveRequest>()
-            .insert_resource(Sim::new(Tuning::default(), Level::test_level()))
+            .insert_resource(sim)
             .init_resource::<StepClock>()
             .configure_sets(
                 Update,
@@ -152,7 +156,9 @@ pub fn spawn_local_crab(
     }
     // Always write down what the local player does, so a replay can be saved
     // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
-    sim.start_recording();
+    if !crate::cellular::enabled() {
+        sim.start_recording();
+    }
     sim.populate();
     commands.spawn((
         Crab,
@@ -252,14 +258,25 @@ fn follow_friends(
 /// Move each crab's `Transform` (where it is drawn) to its simulated
 /// position: this device's crab part-way between its last two ticks, a
 /// friend's eased towards its last update.
+#[allow(clippy::type_complexity)]
 fn place_crabs(
     time: Res<Time>,
     clock: Res<StepClock>,
-    mut crabs: Query<(&Mover, &PreviousPos, &mut Transform, Option<&mut Shown>), With<Crab>>,
+    sim: Res<Sim>,
+    mut crabs: Query<
+        (
+            &Mover,
+            &crabsim::PlayerId,
+            &PreviousPos,
+            &mut Transform,
+            Option<&mut Shown>,
+        ),
+        With<Crab>,
+    >,
 ) {
     let blend = clock.leftover / STEP;
     let ease = 1.0 - (-EASE * time.delta_secs()).exp();
-    for (mover, prev, mut transform, shown) in &mut crabs {
+    for (mover, id, prev, mut transform, shown) in &mut crabs {
         let p = match shown {
             Some(mut shown) => {
                 shown.0 = if shown.0.distance(mover.pos) > JUMP_PAST {
@@ -273,5 +290,31 @@ fn place_crabs(
         };
         transform.translation.x = p.x;
         transform.translation.y = p.y;
+        let digging = sim.crab(*id).is_some_and(|crab| crab.controls.dig_held);
+        let slope = if mover.grounded && !digging {
+            sim.level
+                .cells
+                .as_ref()
+                .and_then(|cells| {
+                    let half = mover.half_width(&sim.tuning);
+                    let offset = half * 0.6;
+                    let ceiling = mover.pos.y + half + sim.tuning.step_up;
+                    let left =
+                        cells.game_surface_below(mover.pos.x - offset, half * 0.22, ceiling)?;
+                    let right =
+                        cells.game_surface_below(mover.pos.x + offset, half * 0.22, ceiling)?;
+                    if left < mover.pos.y - half || right < mover.pos.y - half {
+                        return None;
+                    }
+                    Some((right - left).atan2(offset * 2.0).clamp(-0.5, 0.5))
+                })
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let target = Quat::from_rotation_z(slope);
+        transform.rotation = transform
+            .rotation
+            .slerp(target, 1.0 - (-10.0 * time.delta_secs()).exp());
     }
 }

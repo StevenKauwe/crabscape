@@ -341,6 +341,7 @@ fn light_level(
     crabs: Query<&Mover>,
     camera: Query<&GlobalTransform, With<Camera2d>>,
     mut materials: ResMut<Assets<MemoryMaterial>>,
+    mut cell_materials: ResMut<Assets<crate::cellular::CellMaterial>>,
 ) {
     let centre = camera
         .single()
@@ -364,6 +365,9 @@ fn light_level(
         *slot = Vec4::new(p.x, p.y, tuning.light_inner, reach);
     }
     for (_, material) in materials.iter_mut() {
+        material.set_lights(lamps);
+    }
+    for (_, material) in cell_materials.iter_mut() {
         material.set_lights(lamps);
     }
 }

@@ -127,6 +127,7 @@ fn read_zoom(
     keys: Res<ButtonInput<KeyCode>>,
     mut wheel: MessageReader<MouseWheel>,
     touches: Res<Touches>,
+    touch_controls: Res<TouchControls>,
     window: Single<&Window>,
     mut zoom: ResMut<Zoom>,
 ) {
@@ -149,6 +150,7 @@ fn read_zoom(
     let size = Vec2::new(window.width(), window.height());
     let fingers: Vec<Vec2> = touches
         .iter()
+        .filter(|t| Some(t.id()) != touch_controls.dig_touch)
         .map(|t| t.position())
         .filter(|p| !crate::input::on_a_button(size, *p))
         .collect();
@@ -303,6 +305,7 @@ fn follow_crab(
 fn tint_water(
     mut camera: Single<(&Transform, &mut Camera), With<Camera2d>>,
     mut fogs: ResMut<Assets<MemoryMaterial>>,
+    mut cell_fogs: ResMut<Assets<crate::cellular::CellMaterial>>,
     mut was: Local<Option<[u8; 4]>>,
 ) {
     let water = water_at(camera.0.translation.truncate());
@@ -313,6 +316,9 @@ fn tint_water(
     *was = Some(bytes);
     camera.1.clear_color = ClearColorConfig::Custom(water);
     for (_, fog) in fogs.iter_mut() {
+        fog.set_water(water);
+    }
+    for (_, fog) in cell_fogs.iter_mut() {
         fog.set_water(water);
     }
 }

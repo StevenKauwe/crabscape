@@ -71,6 +71,9 @@ impl Plugin for SavePlugin {
 
 /// Load the save, if there is a readable one.
 pub fn load() -> Option<SaveData> {
+    if crate::cellular::enabled() {
+        return None;
+    }
     let text = backend::read()?;
     match serde_json::from_str::<SaveData>(&text) {
         Ok(data) if data.version == SAVE_VERSION => Some(data),
@@ -99,6 +102,9 @@ fn save_when_resting(
     mut progress_saved: Local<Option<Progress>>,
     mut warned: Local<bool>, // `Local` is private memory for this one system
 ) {
+    if crate::cellular::enabled() {
+        return;
+    }
     let (crab, id) = *crab;
     *since_last += time.delta_secs();
     let memory = sim.crab(*id).map(|c| &c.memory);
@@ -166,6 +172,9 @@ fn frozen() -> bool {
 /// failed import changes nothing.
 #[cfg(target_arch = "wasm32")]
 pub fn replace(keys: &[(&str, String)]) -> Result<(), String> {
+    if crate::cellular::enabled() {
+        return Err("Character import is unavailable in the experimental cell world".into());
+    }
     let storage = backend::storage()?;
     let old: Vec<Option<String>> = keys
         .iter()
@@ -190,6 +199,9 @@ pub fn replace(keys: &[(&str, String)]) -> Result<(), String> {
 /// Forget everything the game keeps on this device (the save, the art
 /// style...), for a fresh start.
 pub fn wipe() {
+    if crate::cellular::enabled() {
+        return;
+    }
     backend::wipe();
 }
 
