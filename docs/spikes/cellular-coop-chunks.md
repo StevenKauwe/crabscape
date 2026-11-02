@@ -362,3 +362,15 @@ to and from chunks, and allocates flow and movement scratch. The chunk step
 has no recoverable errors after its checks; tests cover nonfinite input, tick
 overflow, aggregate rejection with existing silt, and a real host brush that
 mutates staged terrain before a late guest rejection restores the original.
+
+Batched row copies between the contiguous field and chunk tiles replaced
+per-cell indexing. In separate builds of the same desktop release fixture,
+three runs of ten continuous material cycles (plus 30 ordinary game ticks)
+measured 176.4/177.4/179.8 ms before and 103.6/105.4/107.6 ms after. A
+single comparison of reused versus fresh tile allocation measured 110.2 versus
+113.5 ms for ten cycles; that small difference did not justify retaining an
+extra 3.19 MB scratch field, so the cache was discarded. Round-trip tests
+cover tile seams, edge rows and all material fields; the two-Sim, conservation
+and late-rollback checks still pass. These are desktop fixture results, not
+phone measurements, and they do not address the remaining co-op guards or
+full-state rollback/digest costs.

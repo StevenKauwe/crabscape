@@ -149,17 +149,7 @@ impl ChunkFlow {
                 owner: vec![0; SIDE * SIDE],
             })
             .collect();
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let (chunk, slot) = Self::locate(x, y);
-                let i = y * WIDTH + x;
-                chunks[chunk].cells[slot] = world.cells[i];
-                chunks[chunk].flow[slot] = world.flow[i];
-                chunks[chunk].grain[slot] = world.grain[i];
-                chunks[chunk].suspended[slot] = world.suspended[i];
-                chunks[chunk].owner[slot] = world.pebble_owner[i];
-            }
-        }
+        Self::copy_from_world(&mut chunks, world);
         Self {
             chunks,
             game: world.game,
@@ -177,6 +167,30 @@ impl ChunkFlow {
         }
     }
 
+    fn copy_from_world(chunks: &mut [Chunk], world: &World) {
+        for cy in 0..ROWS {
+            for cx in 0..COLS {
+                let tile = &mut chunks[cy * COLS + cx];
+                let width = SIDE.min(WIDTH - cx * SIDE);
+                let height = SIDE.min(HEIGHT - cy * SIDE);
+                for row in 0..height {
+                    let source = (cy * SIDE + row) * WIDTH + cx * SIDE;
+                    let target = row * SIDE;
+                    tile.cells[target..target + width]
+                        .copy_from_slice(&world.cells[source..source + width]);
+                    tile.flow[target..target + width]
+                        .copy_from_slice(&world.flow[source..source + width]);
+                    tile.grain[target..target + width]
+                        .copy_from_slice(&world.grain[source..source + width]);
+                    tile.suspended[target..target + width]
+                        .copy_from_slice(&world.suspended[source..source + width]);
+                    tile.owner[target..target + width]
+                        .copy_from_slice(&world.pebble_owner[source..source + width]);
+                }
+            }
+        }
+    }
+
     /// Commit this active material field back into the same contiguous world.
     /// Only used by the isolated same-window prototype; streamed state and
     /// visuals stay owned by the world.
@@ -188,15 +202,25 @@ impl ChunkFlow {
         {
             return false;
         }
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let (c, i) = Self::locate(x, y);
-                let index = y * WIDTH + x;
-                world.cells[index] = self.chunks[c].cells[i];
-                world.flow[index] = self.chunks[c].flow[i];
-                world.grain[index] = self.chunks[c].grain[i];
-                world.suspended[index] = self.chunks[c].suspended[i];
-                world.pebble_owner[index] = self.chunks[c].owner[i];
+        for cy in 0..ROWS {
+            for cx in 0..COLS {
+                let tile = &self.chunks[cy * COLS + cx];
+                let width = SIDE.min(WIDTH - cx * SIDE);
+                let height = SIDE.min(HEIGHT - cy * SIDE);
+                for row in 0..height {
+                    let target = (cy * SIDE + row) * WIDTH + cx * SIDE;
+                    let source = row * SIDE;
+                    world.cells[target..target + width]
+                        .copy_from_slice(&tile.cells[source..source + width]);
+                    world.flow[target..target + width]
+                        .copy_from_slice(&tile.flow[source..source + width]);
+                    world.grain[target..target + width]
+                        .copy_from_slice(&tile.grain[source..source + width]);
+                    world.suspended[target..target + width]
+                        .copy_from_slice(&tile.suspended[source..source + width]);
+                    world.pebble_owner[target..target + width]
+                        .copy_from_slice(&tile.owner[source..source + width]);
+                }
             }
         }
         world.tick = self.tick;
@@ -1552,6 +1576,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn batched_world_round_trip_preserves_edge_rows_and_all_fields() {
+        let mut world = sand_fixture(-200);
+        for (x, y) in [(0, 0), (63, 63), (64, 64), (WIDTH - 1, HEIGHT - 1)] {
+            let i = y * WIDTH + x;
+            world.cells[i] = Cell::Mud;
+            world.flow[i] = (x as f32 * 0.001, y as f32 * -0.001);
+            world.grain[i] = (x % 251) as u8;
+            world.suspended[i] = 7;
+        }
+        world.silt.push(Silt {
+            x: 1.0,
+            y: 2.0,
+            vx: 0.5,
+            vy: 0.25,
+            life: 9,
+        });
+        let chunks = ChunkFlow::from_world(&world);
+        let mut restored = world.clone();
+        restored.cells.fill(Cell::Water);
+        restored.flow.fill((0.0, 0.0));
+        restored.grain.fill(0);
+        restored.suspended.fill(0);
+        restored.silt.clear();
+        assert!(chunks.write_material_to(&mut restored));
+        assert!(restored == world);
     }
 
     #[test]

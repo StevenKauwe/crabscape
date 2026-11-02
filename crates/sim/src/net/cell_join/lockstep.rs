@@ -832,6 +832,45 @@ mod tests {
 
     #[test]
     #[ignore = "manual release-mode performance measurement"]
+    fn grounded_guest_continuous_profile() {
+        let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        host.enable_underwater_cells();
+        host.level
+            .cells
+            .as_mut()
+            .unwrap()
+            .test_dissolve_pebble_ownership();
+        host.add_remote_crab(PlayerId(1), Vec2::new(700.0, 100.0));
+        host.go_online(true);
+        let remote = HostPlayerForce {
+            player: PlayerId(1),
+            x: 700.0,
+            y: 124.0,
+            half_width: 36.0,
+            half_height: 24.0,
+            wake_x: -40.0,
+            wake_y: 0.0,
+            walking: -1,
+            grounded: true,
+            jumped: false,
+            dig: None,
+        };
+        let start = std::time::Instant::now();
+        for _ in 0..10 {
+            assert!(host.tick_host_with_shared_walker(remote));
+            for _ in 0..3 {
+                host.tick();
+            }
+        }
+        eprintln!(
+            "10 continuous material cycles including 30 ordinary ticks: {:?}",
+            start.elapsed()
+        );
+        std::hint::black_box(host);
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
     fn grounded_guest_full_tick_profile() {
         let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
         host.enable_underwater_cells();
