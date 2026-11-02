@@ -103,6 +103,8 @@ impl FrozenRestore {
             .map_err(|_| CaptureError::InvalidShape)?;
         let count = WIDTH * HEIGHT;
         let world = World {
+            width: WIDTH,
+            height: HEIGHT,
             cells: vec![Cell::Water; count],
             flow: vec![(0.0, 0.0); count],
             suspended: vec![0; count],

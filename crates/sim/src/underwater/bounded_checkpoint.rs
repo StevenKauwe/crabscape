@@ -37,15 +37,31 @@ struct CheckpointRef<'a> {
 /// Serialize a browser-saveable world without cloning it. Refuse unsupported
 /// shapes and oversized records before allocating the serialized buffer.
 pub fn encode_browser_checkpoint(world: &World) -> Option<Vec<u8>> {
-    if world.cells.len() != ACTIVE_CELLS
-        || world.flow.len() != ACTIVE_CELLS
-        || world.suspended.len() != ACTIVE_CELLS
-        || world.grain.len() != ACTIVE_CELLS
-        || world.pebble_owner.len() != ACTIVE_CELLS
+    if world.dimensions() != (WIDTH, HEIGHT) {
+        return None;
+    }
+    encode_sized_checkpoint(world, MAX_RAW, 1205)
+}
+
+pub(super) fn encode_region_checkpoint(world: &World) -> Option<Vec<u8>> {
+    encode_sized_checkpoint(world, 24 * 1024 * 1024, MAX_REGION_SILT)
+}
+
+fn encode_sized_checkpoint(world: &World, raw_limit: usize, silt_limit: usize) -> Option<Vec<u8>> {
+    let (width, height) = world.dimensions();
+    if !valid_region_size(width, height) {
+        return None;
+    }
+    let count = width * height;
+    if world.cells.len() != count
+        || world.flow.len() != count
+        || world.suspended.len() != count
+        || world.grain.len() != count
+        || world.pebble_owner.len() != count
         || world.pebbles.len() > MAX_PEBBLES
         || world.pebble_motion.len() != world.pebbles.len()
         || world.tracers.len() > 4096
-        || world.silt.len() > 1205
+        || world.silt.len() > silt_limit
         || world.bubbles.len() > 4096
         || world.sleeping.len() > MAX_SLEEPING
         || world
@@ -64,7 +80,7 @@ pub fn encode_browser_checkpoint(world: &World) -> Option<Vec<u8>> {
         opening_edge_opened: world.opening_edge_opened,
         pebble_seeded: &world.pebble_seeded,
     };
-    if postcard::experimental::serialized_size(&borrowed).ok()? > MAX_RAW {
+    if postcard::experimental::serialized_size(&borrowed).ok()? > raw_limit {
         return None;
     }
     postcard::to_allocvec(&borrowed).ok()
@@ -136,12 +152,12 @@ struct BoundedChunk {
 // Field order deliberately matches `World`'s existing serde layout. The four
 // runtime-only streaming fields on `World` are skipped in that layout.
 #[derive(Deserialize)]
-struct BoundedWorld {
-    cells: BoundedVec<Cell, ACTIVE_CELLS>,
-    flow: BoundedVec<(f32, f32), ACTIVE_CELLS>,
-    suspended: BoundedVec<u8, ACTIVE_CELLS>,
-    grain: BoundedVec<u8, ACTIVE_CELLS>,
-    pebble_owner: BoundedVec<u16, ACTIVE_CELLS>,
+struct BoundedWorld<const MAX_CELLS: usize, const MAX_SILT: usize> {
+    cells: BoundedVec<Cell, MAX_CELLS>,
+    flow: BoundedVec<(f32, f32), MAX_CELLS>,
+    suspended: BoundedVec<u8, MAX_CELLS>,
+    grain: BoundedVec<u8, MAX_CELLS>,
+    pebble_owner: BoundedVec<u16, MAX_CELLS>,
     pebbles: BoundedVec<Pebble, MAX_PEBBLES>,
     pebble_motion: BoundedVec<(i8, i8, u8), MAX_PEBBLES>,
     sand_properties: SedimentProperties,
@@ -150,7 +166,7 @@ struct BoundedWorld {
     crab_half_x: i32,
     crab_half_y: i32,
     tracers: BoundedVec<(f32, f32), 4096>,
-    silt: BoundedVec<Silt, 1205>,
+    silt: BoundedVec<Silt, MAX_SILT>,
     kelp: [[f32; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
     giant_kelp: BoundedVec<f32, { GIANT_PARTS + 1 }>,
     giant_kelp_velocity: BoundedVec<f32, { GIANT_PARTS + 1 }>,
@@ -161,9 +177,9 @@ struct BoundedWorld {
 }
 
 #[derive(Deserialize)]
-struct BoundedCheckpoint {
+struct BoundedCheckpoint<const MAX_CELLS: usize, const MAX_SILT: usize> {
     version: u8,
-    world: BoundedWorld,
+    world: BoundedWorld<MAX_CELLS, MAX_SILT>,
     origin: (i32, i32),
     sleeping: BoundedMap<(i32, i32), BoundedChunk, MAX_SLEEPING>,
     opening_edge_opened: bool,
@@ -174,15 +190,36 @@ struct BoundedCheckpoint {
 /// oversized, truncated, or otherwise invalid worlds return `None` and must
 /// not replace a stored save. This does not change the desktop save decoder.
 pub fn decode_browser_checkpoint(raw: &[u8]) -> Option<World> {
-    if raw.len() > MAX_RAW {
+    decode_sized_checkpoint::<ACTIVE_CELLS, 1205>(raw, WIDTH, HEIGHT, MAX_RAW)
+}
+
+pub(super) fn decode_region_checkpoint(raw: &[u8], width: usize, height: usize) -> Option<World> {
+    decode_sized_checkpoint::<MAX_REGION_CELLS, MAX_REGION_SILT>(
+        raw,
+        width,
+        height,
+        24 * 1024 * 1024,
+    )
+}
+
+fn decode_sized_checkpoint<const MAX_CELLS: usize, const MAX_SILT: usize>(
+    raw: &[u8],
+    width: usize,
+    height: usize,
+    raw_limit: usize,
+) -> Option<World> {
+    if !valid_region_size(width, height) || width * height > MAX_CELLS || raw.len() > raw_limit {
         return None;
     }
-    let (bounded, trailing): (BoundedCheckpoint, &[u8]) = postcard::take_from_bytes(raw).ok()?;
+    let (bounded, trailing): (BoundedCheckpoint<MAX_CELLS, MAX_SILT>, &[u8]) =
+        postcard::take_from_bytes(raw).ok()?;
     if !trailing.is_empty() {
         return None;
     }
     let w = bounded.world;
     let world = World {
+        width,
+        height,
         cells: w.cells.0,
         flow: w.flow.0,
         suspended: w.suspended.0,
@@ -235,7 +272,7 @@ pub fn decode_browser_checkpoint(raw: &[u8]) -> Option<World> {
         opening_edge_opened: bounded.opening_edge_opened,
         pebble_seeded,
     }
-    .into_world()
+    .into_region(width, height)
 }
 
 #[cfg(test)]

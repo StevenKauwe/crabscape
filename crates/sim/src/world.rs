@@ -14,6 +14,7 @@
 //! - the tests, the same way.
 
 pub mod cell_session;
+pub mod regions;
 
 use bevy_math::{Rect, Vec2};
 use serde::Serialize;
@@ -1255,8 +1256,18 @@ impl Sim {
         external_terrain: bool,
         remote_walk: Option<crate::underwater::HostPlayerForce>,
     ) -> bool {
+        self.tick_region_inner(external_terrain, remote_walk, None)
+    }
+
+    fn tick_region_inner(
+        &mut self,
+        external_terrain: bool,
+        remote_walk: Option<crate::underwater::HostPlayerForce>,
+        mut regional_rng: Option<&mut std::collections::BTreeMap<u32, Rng>>,
+    ) -> bool {
         // Move the detailed window before simulating, independent of camera.
         if !external_terrain
+            && regional_rng.is_none()
             && let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
             && let Some(mut cells) = self.level.cells.take()
         {
@@ -1808,14 +1819,13 @@ impl Sim {
             let blows = if recovering {
                 Vec::new()
             } else {
-                enemy::step(
-                    e,
-                    &mut self.crabs,
-                    &self.tuning,
-                    &self.level,
-                    &mut self.rng,
-                    &animals,
-                )
+                let rng = match regional_rng.as_deref_mut() {
+                    Some(streams) => streams
+                        .entry(e.id)
+                        .or_insert_with(|| Rng::new(SEED ^ u64::from(e.id))),
+                    None => &mut self.rng,
+                };
+                enemy::step(e, &mut self.crabs, &self.tuning, &self.level, rng, &animals)
             };
             if self.level.cells.is_some()
                 && e.kind == Kind::Moray

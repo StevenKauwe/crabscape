@@ -4,6 +4,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 
 const MAGIC: &[u8; 8] = b"CRBSES01";
+const REGION_MAGIC: &[u8; 8] = b"CRBSES02";
 const MAX_META: usize = 8 * 1024 * 1024;
 const MAX_RAW: usize = 20 * 1024 * 1024;
 pub const MAX_SESSION_CHECKPOINT: usize = crate::net::cell_transfer::MAX_CHECKPOINT_BYTES;
@@ -134,6 +135,14 @@ impl Sim {
 
     /// Capture at a tick boundary. Saves, recorder and transport ownership are excluded.
     pub fn session_checkpoint(&self) -> Result<Vec<u8>, CheckpointError> {
+        self.checkpoint_impl(false)
+    }
+
+    pub fn region_checkpoint(&self) -> Result<Vec<u8>, CheckpointError> {
+        self.checkpoint_impl(true)
+    }
+
+    fn checkpoint_impl(&self, region: bool) -> Result<Vec<u8>, CheckpointError> {
         if self.net.is_some() || self.empty_shared_base.is_some() {
             return Err(CheckpointError::Unsupported);
         }
@@ -142,8 +151,13 @@ impl Sim {
             .cells
             .as_ref()
             .ok_or(CheckpointError::Unsupported)?;
-        let terrain =
-            crate::underwater::encode_browser_checkpoint(cells).ok_or(CheckpointError::TooLarge)?;
+        let terrain = if region {
+            cells
+                .region_bytes()
+                .map_err(|_| CheckpointError::TooLarge)?
+        } else {
+            crate::underwater::encode_browser_checkpoint(cells).ok_or(CheckpointError::TooLarge)?
+        };
         let state = StateRef {
             feel: self.feel.name(),
             tuning: self.tuning.fingerprint(),
@@ -164,7 +178,7 @@ impl Sim {
         raw.extend_from_slice(&(metadata.len() as u32).to_le_bytes());
         raw.extend_from_slice(&metadata);
         raw.extend_from_slice(&terrain);
-        let mut bytes = MAGIC.to_vec();
+        let mut bytes = if region { REGION_MAGIC } else { MAGIC }.to_vec();
         bytes.extend(miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1));
         if bytes.len() > MAX_SESSION_CHECKPOINT {
             return Err(CheckpointError::TooLarge);
@@ -179,7 +193,8 @@ impl Sim {
         if bytes.len() > MAX_SESSION_CHECKPOINT {
             return Err(CheckpointError::TooLarge);
         }
-        if !bytes.starts_with(MAGIC) {
+        let region = bytes.starts_with(REGION_MAGIC);
+        if !region && !bytes.starts_with(MAGIC) {
             return Err(CheckpointError::Invalid);
         }
         let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&bytes[8..], MAX_RAW)
@@ -196,8 +211,12 @@ impl Sim {
         let metadata = raw.get(4..4 + size).ok_or(CheckpointError::Invalid)?;
         let state: State =
             serde_json::from_slice(metadata).map_err(|_| CheckpointError::Invalid)?;
-        let mut terrain = crate::underwater::decode_browser_checkpoint(&raw[4 + size..])
-            .ok_or(CheckpointError::Invalid)?;
+        let mut terrain = if region {
+            crate::underwater::World::from_region_bytes(&raw[4 + size..]).ok()
+        } else {
+            crate::underwater::decode_browser_checkpoint(&raw[4 + size..])
+        }
+        .ok_or(CheckpointError::Invalid)?;
         if state.other_crabs.len() > 8
             || state.other_crabs.iter().any(|&(x, y, w, h)| {
                 x.abs_diff(0) > 1_000_000

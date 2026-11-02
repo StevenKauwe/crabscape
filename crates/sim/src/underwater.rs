@@ -8,6 +8,8 @@ pub mod chunk_flow;
 pub(crate) mod dirty_oracle;
 pub mod frozen_chunks;
 pub mod opening_cleanup;
+pub mod region;
+pub mod region_store;
 pub mod versioned_chunks;
 pub use bounded_checkpoint::{decode_browser_checkpoint, encode_browser_checkpoint};
 mod host_windows;
@@ -15,6 +17,28 @@ pub use host_windows::{HostDig, HostPlayerForce, HostStepError};
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 360;
+pub const MAX_REGION_CELLS: usize = 1024 * 1024;
+pub const MAX_REGION_SILT: usize = 8 * 1205;
+
+fn valid_region_size(width: usize, height: usize) -> bool {
+    (64..=2048).contains(&width)
+        && (64..=2048).contains(&height)
+        && width
+            .checked_mul(height)
+            .is_some_and(|n| n <= MAX_REGION_CELLS)
+}
+
+fn region_index(width: usize, height: usize, x: i32, y: i32) -> Option<usize> {
+    (x >= 0 && x < width as i32 && y >= 0 && y < height as i32)
+        .then(|| y as usize * width + x as usize)
+}
+
+fn baked_width() -> usize {
+    WIDTH
+}
+fn baked_height() -> usize {
+    HEIGHT
+}
 /// World units per cell and the position of the experiment's lower edge.
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
@@ -231,6 +255,12 @@ impl Default for SleepingChunk {
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct World {
+    // The baked opening retains its original wire layout. Explicit region
+    // envelopes carry these dimensions; legacy checkpoints use WIDTH/HEIGHT.
+    #[serde(skip, default = "baked_width")]
+    width: usize,
+    #[serde(skip, default = "baked_height")]
+    height: usize,
     cells: Vec<Cell>,
     flow: Vec<(f32, f32)>,
     suspended: Vec<u8>,
@@ -299,79 +329,21 @@ impl WorldCheckpoint {
     /// Recover a checkpoint after checking its basic shape and cell values.
     /// Callers handling untrusted bytes must also enforce an input-size cap.
     pub fn into_world(self) -> Option<World> {
-        let mut world = self.world;
-        let count = WIDTH * HEIGHT;
-        // All currently playable terrain is well inside this range. Keeping
-        // saved coordinates bounded also makes the arithmetic in streaming
-        // and pebble motion safe on damaged or hostile inputs.
-        let coord = |v: i32| (-1_000_000..=1_000_000).contains(&v);
-        let number = |v: f32| v.is_finite() && v.abs() <= 1_000_000.0;
-        let properties = |p: &SedimentProperties| {
-            number(p.erosion_threshold)
-                && number(p.density_resistance)
-                && number(p.cohesion_break_flow)
-                && p.push_cost <= 1_000_000
-        };
-        if self.version != 1
-            || !coord(self.origin.0)
-            || !coord(self.origin.1)
-            || world.tick > (u64::MAX / 4 - 1_000_000)
-            || !(0..=WIDTH as i32).contains(&world.crab_half_x)
-            || !(0..=HEIGHT as i32).contains(&world.crab_half_y)
-            || world.crab.is_some_and(|(x, y)| !coord(x) || !coord(y))
-            || !properties(&world.sand_properties)
-            || !properties(&world.mud_properties)
-            || world
-                .pebbles
-                .iter()
-                .any(|p| !coord(p.x) || !coord(p.y) || p.side == 0 || p.side > 64)
-            || world.tracers.len() > 4096
-            || world.tracers.iter().any(|&(x, y)| !number(x) || !number(y))
-            || world.silt.len() > 1205
-            || world
-                .silt
-                .iter()
-                .any(|s| !number(s.x) || !number(s.y) || !number(s.vx) || !number(s.vy))
-            || world.bubbles.len() > 4096
-            || world.bubbles.iter().any(|b| !number(b.x) || !number(b.y))
-            || world.kelp.iter().flatten().any(|&v| !number(v))
-            || world.giant_kelp.iter().any(|&v| !number(v))
-            || world.giant_kelp_velocity.iter().any(|&v| !number(v))
-            || !number(world.giant_base)
-            || world.cells.len() != count
-            || world.flow.len() != count
-            || world.suspended.len() != count
-            || world.grain.len() != count
-            || world.pebble_owner.len() != count
-            || world.pebble_motion.len() != world.pebbles.len()
-            || world.pebbles.len() > u16::MAX as usize
-            || world
-                .pebble_owner
-                .iter()
-                .any(|&id| id as usize > world.pebbles.len())
-            || world.flow.iter().any(|&(x, y)| !number(x) || !number(y))
-            || self
-                .pebble_seeded
-                .iter()
-                .any(|&(x, y)| !coord(x) || !coord(y))
-            || self.sleeping.iter().any(|(&(x, y), chunk)| {
-                !coord(x)
-                    || !coord(y)
-                    || chunk.cells.len() != (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize
-                    || chunk.cells.iter().flatten().any(|cell| {
-                        cell.owner as usize > world.pebbles.len()
-                            || !number(cell.flow.0)
-                            || !number(cell.flow.1)
-                    })
-            })
-        {
+        self.into_region(WIDTH, HEIGHT)
+    }
+
+    pub(crate) fn into_region(self, width: usize, height: usize) -> Option<World> {
+        if !valid_region_size(width, height) {
             return None;
         }
+        let mut world = self.world;
+        world.width = width;
+        world.height = height;
         world.origin = self.origin;
         world.sleeping = self.sleeping;
         world.opening_edge_opened = self.opening_edge_opened;
         world.pebble_seeded = self.pebble_seeded;
-        Some(world)
+        (self.version == 1 && world.valid_region_state()).then_some(world)
     }
 }
 
@@ -400,6 +372,86 @@ impl Default for World {
     }
 }
 impl World {
+    pub(super) fn valid_region_state(&self) -> bool {
+        if !valid_region_size(self.width, self.height) {
+            return false;
+        }
+        let count = self.width * self.height;
+        // All currently playable terrain is well inside this range. Keeping
+        // saved coordinates bounded also makes the arithmetic in streaming
+        // and pebble motion safe on damaged or hostile inputs.
+        let coord = |v: i32| (-1_000_000..=1_000_000).contains(&v);
+        let number = |v: f32| v.is_finite() && v.abs() <= 1_000_000.0;
+        let properties = |p: &SedimentProperties| {
+            number(p.erosion_threshold)
+                && number(p.density_resistance)
+                && number(p.cohesion_break_flow)
+                && p.push_cost <= 1_000_000
+        };
+        if !coord(self.origin.0)
+            || !coord(self.origin.1)
+            || self.tick > (u64::MAX / 4 - 1_000_000)
+            || !(0..=self.width as i32).contains(&self.crab_half_x)
+            || !(0..=self.height as i32).contains(&self.crab_half_y)
+            || self.crab.is_some_and(|(x, y)| !coord(x) || !coord(y))
+            || !properties(&self.sand_properties)
+            || !properties(&self.mud_properties)
+            || self
+                .pebbles
+                .iter()
+                .any(|p| !coord(p.x) || !coord(p.y) || p.side == 0 || p.side > 64)
+            || self.tracers.len() > 4096
+            || self.tracers.iter().any(|&(x, y)| !number(x) || !number(y))
+            || self.silt.len() > MAX_REGION_SILT
+            || self
+                .silt
+                .iter()
+                .any(|s| !number(s.x) || !number(s.y) || !number(s.vx) || !number(s.vy))
+            || self.bubbles.len() > 4096
+            || self.bubbles.iter().any(|b| !number(b.x) || !number(b.y))
+            || self.kelp.iter().flatten().any(|&v| !number(v))
+            || self.giant_kelp.iter().any(|&v| !number(v))
+            || self.giant_kelp_velocity.iter().any(|&v| !number(v))
+            || !number(self.giant_base)
+            || self.cells.len() != count
+            || self.flow.len() != count
+            || self.suspended.len() != count
+            || self.grain.len() != count
+            || self.pebble_owner.len() != count
+            || self.pebble_motion.len() != self.pebbles.len()
+            || self.pebbles.len() > u16::MAX as usize
+            || self
+                .pebble_owner
+                .iter()
+                .any(|&id| id as usize > self.pebbles.len())
+            || self.flow.iter().any(|&(x, y)| !number(x) || !number(y))
+            || self
+                .pebble_seeded
+                .iter()
+                .any(|&(x, y)| !coord(x) || !coord(y))
+            || self.sleeping.iter().any(|(&(x, y), chunk)| {
+                !coord(x)
+                    || !coord(y)
+                    || chunk.cells.len() != (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize
+                    || chunk.cells.iter().flatten().any(|cell| {
+                        cell.owner as usize > self.pebbles.len()
+                            || !number(cell.flow.0)
+                            || !number(cell.flow.1)
+                    })
+            })
+        {
+            return false;
+        }
+        true
+    }
+
+    pub fn dimensions(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+
+    fn index_at(&self, x: i32, y: i32) -> Option<usize> {
+        region_index(self.width, self.height, x, y)
+    }
     /// Whether this terrain is the campaign's streaming world.
     pub fn is_game_world(&self) -> bool {
         self.game
@@ -460,6 +512,8 @@ impl World {
             let mut opening: Self =
                 postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
                     .expect("the bundled opening snapshot is valid");
+            opening.width = WIDTH;
+            opening.height = HEIGHT;
             // The older settled bake contains a solid bed of pebble aggregates
             // in the opening. Keep their material as ordinary sand; distant
             // pebble deposits are seeded independently as the world streams.
@@ -575,7 +629,7 @@ impl World {
         }
         // Leave the initial crab spawn clear. The deposits begin just beyond
         // it and are intentionally irregular in height and concentration.
-        for x in 55..WIDTH - 2 {
+        for x in 55..self.width - 2 {
             if (36..200).contains(&x) {
                 continue;
             }
@@ -587,7 +641,7 @@ impl World {
             let count = 2 + (x * 31 + x / 11) % 5;
             for n in 0..count {
                 let y = base + 10 + (x * 17 % 13) as i32 + n as i32 * 2;
-                if let Some(i) = Self::index(x as i32, y)
+                if let Some(i) = self.index_at(x as i32, y)
                     && self.cells[i] == Cell::Water
                 {
                     self.cells[i] = if x * 4 > 1650 { Cell::Mud } else { Cell::Sand };
@@ -614,11 +668,11 @@ impl World {
             return None;
         }
         let root = world_root - self.origin.0;
-        if !(1..WIDTH as i32 - 1).contains(&root) {
+        if !(1..self.width as i32 - 1).contains(&root) {
             return None;
         }
-        let lo = (12 - self.origin.1).clamp(1, HEIGHT as i32 - 1);
-        let hi = (120 - self.origin.1).clamp(1, HEIGHT as i32 - 1);
+        let lo = (12 - self.origin.1).clamp(1, self.height as i32 - 1);
+        let hi = (120 - self.origin.1).clamp(1, self.height as i32 - 1);
         let base = (lo..hi).find(|&y| {
             self.cell(root, y) == Cell::Water && self.cell(root, y - 1) != Cell::Water
         })?;
@@ -657,8 +711,8 @@ impl World {
         (
             self.origin.0 as f32 * GAME_CELL,
             GAME_BOTTOM + self.origin.1 as f32 * GAME_CELL,
-            WIDTH as f32 * GAME_CELL,
-            HEIGHT as f32 * GAME_CELL,
+            self.width as f32 * GAME_CELL,
+            self.height as f32 * GAME_CELL,
         )
     }
     pub fn contains_world(&self, x: f32, y: f32) -> bool {
@@ -681,13 +735,13 @@ impl World {
             #[cfg(test)]
             {
                 dirty_oracle::mark_global();
-                for tile in 0..WIDTH.div_ceil(TERRAIN_CHUNK_CELLS as usize) {
+                for tile in 0..self.width.div_ceil(TERRAIN_CHUNK_CELLS as usize) {
                     dirty_oracle::mark_active_tile(tile);
                 }
             }
             // The old opening-only field had an artificial solid bottom row.
             // Replace that seam with the actual demo terrain before streaming.
-            for col in 0..WIDTH {
+            for col in 0..self.width {
                 let i = col;
                 if self.pebble_owner[i] == 0 {
                     self.cells[i] = initial_terrain_cell(level, col as i32, 0);
@@ -717,13 +771,14 @@ impl World {
         let margin_y = 80.0;
         let gx = (x / GAME_CELL).floor() as i32;
         let gy = ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32;
-        let target_x = if cx > WIDTH as f32 - margin_x || (cx < margin_x && self.origin.0 > 0) {
-            ((gx - WIDTH as i32 / 2).div_euclid(64) * 64).max(0)
+        let target_x = if cx > self.width as f32 - margin_x || (cx < margin_x && self.origin.0 > 0)
+        {
+            ((gx - self.width as i32 / 2).div_euclid(64) * 64).max(0)
         } else {
             self.origin.0
         };
-        let target_y = if cy > HEIGHT as f32 - margin_y || cy < margin_y {
-            (gy - HEIGHT as i32 / 2).div_euclid(64) * 64
+        let target_y = if cy > self.height as f32 - margin_y || cy < margin_y {
+            (gy - self.height as i32 / 2).div_euclid(64) * 64
         } else {
             self.origin.1
         };
@@ -763,8 +818,9 @@ impl World {
             }
             None
         };
-        let nx = choose(self.origin.0, target_x, WIDTH as i32, true).unwrap_or(self.origin.0);
-        let ny = choose(self.origin.1, target_y, HEIGHT as i32, false).unwrap_or(self.origin.1);
+        let nx = choose(self.origin.0, target_x, self.width as i32, true).unwrap_or(self.origin.0);
+        let ny =
+            choose(self.origin.1, target_y, self.height as i32, false).unwrap_or(self.origin.1);
         if (nx, ny) == self.origin {
             return None;
         }
@@ -776,9 +832,9 @@ impl World {
     fn seed_far_pebbles(&mut self, level: &crate::Level) {
         let side = TERRAIN_CHUNK_CELLS;
         let first_x = (self.origin.0 + side - 1).div_euclid(side);
-        let last_x = (self.origin.0 + WIDTH as i32).div_euclid(side);
+        let last_x = (self.origin.0 + self.width as i32).div_euclid(side);
         let first_y = (self.origin.1 + side - 1).div_euclid(side);
-        let last_y = (self.origin.1 + HEIGHT as i32).div_euclid(side);
+        let last_y = (self.origin.1 + self.height as i32).div_euclid(side);
         for cy in first_y..last_y {
             for cx in first_x..last_x {
                 if !self.pebble_seeded.insert((cx, cy)) {
@@ -800,7 +856,7 @@ impl World {
                     let y = gy - self.origin.1;
                     let pristine = (0..4).all(|oy| {
                         (0..4).all(|ox| {
-                            let Some(i) = Self::index(x + ox, y + oy) else {
+                            let Some(i) = self.index_at(x + ox, y + oy) else {
                                 return false;
                             };
                             self.cells[i] == Cell::Sand
@@ -820,19 +876,30 @@ impl World {
     }
 
     fn shift_window(&mut self, level: &crate::Level, next_origin: (i32, i32)) {
+        self.remap_region(level, next_origin, self.dimensions());
+    }
+
+    fn remap_region(
+        &mut self,
+        level: &crate::Level,
+        next_origin: (i32, i32),
+        next_size: (usize, usize),
+    ) {
         #[cfg(test)]
         {
             dirty_oracle::mark_all_active();
             dirty_oracle::mark_global();
         }
         let old = self.origin;
+        let old_size = self.dimensions();
+        let (width, height) = next_size;
         let dx = next_origin.0 - old.0;
         let dy = next_origin.1 - old.1;
-        let inside = |x: i32, y: i32, origin: (i32, i32)| {
+        let inside = |x: i32, y: i32, origin: (i32, i32), size: (usize, usize)| {
             x >= origin.0
-                && x < origin.0 + WIDTH as i32
+                && x < origin.0 + size.0 as i32
                 && y >= origin.1
-                && y < origin.1 + HEIGHT as i32
+                && y < origin.1 + size.1 as i32
         };
         let locate = |x: i32, y: i32| {
             let side = TERRAIN_CHUNK_CELLS;
@@ -840,13 +907,13 @@ impl World {
             let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
             (key, slot)
         };
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
+        for y in 0..self.height {
+            for x in 0..self.width {
                 let (gx, gy) = (old.0 + x as i32, old.1 + y as i32);
-                if inside(gx, gy, next_origin) {
+                if inside(gx, gy, next_origin, next_size) {
                     continue;
                 }
-                let i = y * WIDTH + x;
+                let i = y * self.width + x;
                 let (key, slot) = locate(gx, gy);
                 #[cfg(test)]
                 dirty_oracle::mark_sleeping(key);
@@ -859,17 +926,17 @@ impl World {
                 });
             }
         }
-        let mut cells = vec![Cell::Water; WIDTH * HEIGHT];
-        let mut flow = vec![(0.0, 0.0); WIDTH * HEIGHT];
-        let mut suspended = vec![0; WIDTH * HEIGHT];
-        let mut grain = vec![0; WIDTH * HEIGHT];
-        let mut owner = vec![0; WIDTH * HEIGHT];
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
+        let mut cells = vec![Cell::Water; width * height];
+        let mut flow = vec![(0.0, 0.0); width * height];
+        let mut suspended = vec![0; width * height];
+        let mut grain = vec![0; width * height];
+        let mut owner = vec![0; width * height];
+        for y in 0..height {
+            for x in 0..width {
                 let (gx, gy) = (next_origin.0 + x as i32, next_origin.1 + y as i32);
-                let i = y * WIDTH + x;
-                let value = if inside(gx, gy, old) {
-                    let j = (gy - old.1) as usize * WIDTH + (gx - old.0) as usize;
+                let i = y * width + x;
+                let value = if inside(gx, gy, old, old_size) {
+                    let j = (gy - old.1) as usize * old_size.0 + (gx - old.0) as usize;
                     SleepingCell {
                         cell: self.cells[j],
                         flow: self.flow[j],
@@ -922,6 +989,8 @@ impl World {
         self.suspended = suspended;
         self.grain = grain;
         self.pebble_owner = owner;
+        self.width = width;
+        self.height = height;
         self.origin = next_origin;
         for p in &mut self.pebbles {
             p.x -= dx;
@@ -940,6 +1009,7 @@ impl World {
             p.y -= dy as f32;
         }
         self.crab = None;
+        self.other_crabs.clear();
     }
 
     pub fn tick_count(&self) -> u64 {
@@ -958,12 +1028,12 @@ impl World {
     /// Transparent water lets the campaign's own background show through.
     pub fn game_pixels(&self) -> Vec<u8> {
         let mut pixels = self.pixels();
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let cell = y * WIDTH + x;
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let cell = y * self.width + x;
                 if self.cells[cell] == Cell::Water {
-                    let p = ((HEIGHT - 1 - y) * WIDTH + x) * 4;
-                    let depth = (y * 10 / HEIGHT) as u8;
+                    let p = ((self.height - 1 - y) * self.width + x) * 4;
+                    let depth = (y * 10 / self.height) as u8;
                     if pixels[p..p + 3] == [15 + depth / 2, 53 + depth, 65 + depth] {
                         pixels[p + 3] = 0;
                     }
@@ -985,7 +1055,7 @@ impl World {
             }
             (b.x, b.y, true)
         };
-        let i = Self::index(x as i32, y as i32)?;
+        let i = self.index_at(x as i32, y as i32)?;
         (self.cells[i] == Cell::Water).then_some((
             (x + self.origin.0 as f32) * GAME_CELL,
             GAME_BOTTOM + (y + self.origin.1 as f32) * GAME_CELL,
@@ -996,7 +1066,7 @@ impl World {
     /// Fine, lightweight silt drawn separately from the solid cell grid.
     pub fn game_silt(&self, index: usize) -> Option<(f32, f32, f32)> {
         let p = self.silt.get(index)?;
-        let i = Self::index(p.x as i32, p.y as i32)?;
+        let i = self.index_at(p.x as i32, p.y as i32)?;
         (self.cells[i] == Cell::Water).then_some((
             (p.x + self.origin.0 as f32) * GAME_CELL,
             GAME_BOTTOM + (p.y + self.origin.1 as f32) * GAME_CELL,
@@ -1068,7 +1138,7 @@ impl World {
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
                 // Outside the bounded experiment the regular level handles collision.
-                if let Some(i) = Self::index(x, y)
+                if let Some(i) = self.index_at(x, y)
                     && self.cells[i] != Cell::Water
                 {
                     return true;
@@ -1092,7 +1162,10 @@ impl World {
         let mut count = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
-                if Self::index(x, y).is_some_and(|i| self.cells[i] == Cell::Rock) {
+                if self
+                    .index_at(x, y)
+                    .is_some_and(|i| self.cells[i] == Cell::Rock)
+                {
                     count += 1;
                 }
             }
@@ -1153,7 +1226,7 @@ impl World {
         let mut seen = Vec::new();
         for gy in y0..=y1 {
             for gx in x0..=x1 {
-                let Some(i) = Self::index(gx, gy) else {
+                let Some(i) = self.index_at(gx, gy) else {
                     continue;
                 };
                 let owner = self.pebble_owner[i];
@@ -1212,7 +1285,7 @@ impl World {
         let (mut cost, mut grains) = (0usize, 0usize);
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
-                if let Some(i) = Self::index(x, y)
+                if let Some(i) = self.index_at(x, y)
                     && matches!(self.cells[i], Cell::Sand | Cell::Mud)
                 {
                     cost += self.sediment_push_cost(i);
@@ -1249,7 +1322,7 @@ impl World {
             let mut grains = 0;
             let mut columns = 0;
             for x in left..=right {
-                if let Some(i) = Self::index(x, y) {
+                if let Some(i) = self.index_at(x, y) {
                     columns += 1;
                     match self.cells[i] {
                         Cell::Rock => return true,
@@ -1277,7 +1350,7 @@ impl World {
         let mut columns = 0;
         let mut grains = 0;
         for x in x0.floor() as i32..=x1.floor() as i32 {
-            let Some(i) = Self::index(x, y.floor() as i32) else {
+            let Some(i) = self.index_at(x, y.floor() as i32) else {
                 continue;
             };
             columns += 1;
@@ -1299,7 +1372,7 @@ impl World {
         }
         let first = (((ceiling - GAME_BOTTOM) / GAME_CELL - self.origin.1 as f32).floor() as i32
             - 1)
-        .clamp(0, HEIGHT as i32 - 1);
+        .clamp(0, self.height as i32 - 1);
         for row in (0..=first).rev() {
             let surface = GAME_BOTTOM + (row + 1 + self.origin.1) as f32 * GAME_CELL;
             if self.game_surface_support(x - half_width, x + half_width, surface) {
@@ -1345,7 +1418,7 @@ impl World {
         let (x1, y1) = self.local_cell(max_x, max_y);
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
-                if let Some(i) = Self::index(x, y) {
+                if let Some(i) = self.index_at(x, y) {
                     match self.cells[i] {
                         Cell::Rock => return true,
                         Cell::Sand | Cell::Mud
@@ -1370,7 +1443,9 @@ impl World {
         let mut grains = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
-                let Some(i) = Self::index(x, y) else { continue };
+                let Some(i) = self.index_at(x, y) else {
+                    continue;
+                };
                 match self.cells[i] {
                     Cell::Rock => return false,
                     Cell::Sand | Cell::Mud => {
@@ -1387,6 +1462,8 @@ impl World {
     }
     pub fn new() -> Self {
         let mut world = Self {
+            width: WIDTH,
+            height: HEIGHT,
             cells: vec![Cell::Water; WIDTH * HEIGHT],
             flow: vec![(0.0, 0.0); WIDTH * HEIGHT],
             suspended: vec![0; WIDTH * HEIGHT],
@@ -1462,7 +1539,7 @@ impl World {
     fn add_pebble(&mut self, x: i32, y: i32, side: u8, shade: u8) -> bool {
         for oy in 0..i32::from(side) {
             for ox in 0..i32::from(side) {
-                let Some(i) = Self::index(x + ox, y + oy) else {
+                let Some(i) = self.index_at(x + ox, y + oy) else {
                     return false;
                 };
                 if self.cells[i] == Cell::Rock
@@ -1478,7 +1555,9 @@ impl World {
         };
         for oy in 0..i32::from(side) {
             for ox in 0..i32::from(side) {
-                let i = Self::index(x + ox, y + oy).expect("pebble footprint was checked");
+                let i = self
+                    .index_at(x + ox, y + oy)
+                    .expect("pebble footprint was checked");
                 self.cells[i] = Cell::Sand;
                 self.grain[i] = shade;
                 self.pebble_owner[i] = id;
@@ -1503,7 +1582,7 @@ impl World {
         }
         for oy in 0..side {
             for ox in 0..side {
-                let Some(i) = Self::index(p.x + ox + dx, p.y + oy + dy) else {
+                let Some(i) = self.index_at(p.x + ox + dx, p.y + oy + dy) else {
                     return false;
                 };
                 if self.pebble_owner[i] != id {
@@ -1540,8 +1619,11 @@ impl World {
             for col in 0..side {
                 let ox = if dx > 0 { side - 1 - col } else { col };
                 let oy = if dy > 0 { side - 1 - row } else { row };
-                let from = Self::index(p.x + ox, p.y + oy).expect("pebble source was checked");
-                let to = Self::index(p.x + ox + dx, p.y + oy + dy)
+                let from = self
+                    .index_at(p.x + ox, p.y + oy)
+                    .expect("pebble source was checked");
+                let to = self
+                    .index_at(p.x + ox + dx, p.y + oy + dy)
                     .expect("pebble destination was checked");
                 self.swap_cells(from, to);
             }
@@ -1586,7 +1668,7 @@ impl World {
             for ox in 0..side {
                 let x = p.x + ox + dx;
                 let y = p.y + oy + dy;
-                let Some(i) = Self::index(x, y) else {
+                let Some(i) = self.index_at(x, y) else {
                     return false;
                 };
                 let owner = self.pebble_owner[i];
@@ -1644,10 +1726,10 @@ impl World {
         self.pebble_owner.swap(a, b);
     }
     pub fn cell(&self, x: i32, y: i32) -> Cell {
-        Self::index(x, y).map_or(Cell::Rock, |i| self.cells[i])
+        self.index_at(x, y).map_or(Cell::Rock, |i| self.cells[i])
     }
     pub fn flow_at(&self, x: i32, y: i32) -> (f32, f32) {
-        Self::index(x, y).map_or((0.0, 0.0), |i| self.flow[i])
+        self.index_at(x, y).map_or((0.0, 0.0), |i| self.flow[i])
     }
     pub fn clear_for_crab(&self, x: f32, y: f32) -> bool {
         (-self.crab_half_y..=self.crab_half_y).all(|dy| {
@@ -1707,7 +1789,7 @@ impl World {
                 if !(4.0..=144.0).contains(&radius2) {
                     continue;
                 }
-                let Some(i) = Self::index(wake_x as i32 + ox, wake_y as i32 + oy) else {
+                let Some(i) = self.index_at(wake_x as i32 + ox, wake_y as i32 + oy) else {
                     continue;
                 };
                 if self.cells[i] != Cell::Water {
@@ -1729,7 +1811,7 @@ impl World {
                 if r2 >= 1.0 {
                     continue;
                 }
-                let Some(i) = Self::index(x as i32 + ox, foot_y as i32 + oy) else {
+                let Some(i) = self.index_at(x as i32 + ox, foot_y as i32 + oy) else {
                     continue;
                 };
                 if self.cells[i] != Cell::Water {
@@ -1749,7 +1831,7 @@ impl World {
             for oy in -4_i32..=0 {
                 let sx = x as i32 + ox;
                 let sy = foot_y as i32 + oy;
-                let Some(from) = Self::index(sx, sy) else {
+                let Some(from) = self.index_at(sx, sy) else {
                     continue;
                 };
                 let world_x = i64::from(sx)
@@ -1770,7 +1852,7 @@ impl World {
                 if fx.abs() + fy.abs() < 0.3 {
                     continue;
                 }
-                let Some(to) = Self::index(sx + ox.signum(), sy + 1) else {
+                let Some(to) = self.index_at(sx + ox.signum(), sy + 1) else {
                     continue;
                 };
                 if self.can_receive_grain(to) {
@@ -1856,7 +1938,7 @@ impl World {
                 if distance > 100.0 {
                     continue;
                 }
-                let Some(i) = Self::index(cx + ox, cy + oy) else {
+                let Some(i) = self.index_at(cx + ox, cy + oy) else {
                     continue;
                 };
                 if self.cells[i] != Cell::Water {
@@ -1881,8 +1963,8 @@ impl World {
         if self.cells[index] != Cell::Water {
             return false;
         }
-        let x = (index % WIDTH) as i32;
-        let y = (index / WIDTH) as i32;
+        let x = (index % self.width) as i32;
+        let y = (index / self.width) as i32;
         !self.other_body_contains(x, y, 4)
             && !self.crab.is_some_and(|(cx, cy)| {
                 (x - cx).abs() <= self.crab_half_x + 4 && (y - cy).abs() <= self.crab_half_y + 4
@@ -1912,7 +1994,7 @@ impl World {
         for y in (foot - 2..=foot + 4).rev() {
             for offset in 0..6 {
                 let x = front + direction * offset;
-                let Some(from) = Self::index(x, y) else {
+                let Some(from) = self.index_at(x, y) else {
                     continue;
                 };
                 if !matches!(self.cells[from], Cell::Sand | Cell::Mud) {
@@ -1940,7 +2022,7 @@ impl World {
                     continue;
                 }
                 for (dx, dy) in [(direction, 1), (direction, 0), (0, 1)] {
-                    let Some(to) = Self::index(x + dx, y + dy) else {
+                    let Some(to) = self.index_at(x + dx, y + dy) else {
                         continue;
                     };
                     let outside_body = (x + dx - cx).abs() > self.crab_half_x
@@ -1994,7 +2076,9 @@ impl World {
             for offset in 1..=4 {
                 let x = cx + direction * (self.crab_half_x + offset);
                 for y in foot - 1..=foot + 4 {
-                    let Some(i) = Self::index(x, y) else { continue };
+                    let Some(i) = self.index_at(x, y) else {
+                        continue;
+                    };
                     let id = self.pebble_owner[i];
                     if id == 0 || seen.contains(&id) {
                         continue;
@@ -2050,7 +2134,7 @@ impl World {
                 for ox in -self.crab_half_x..=self.crab_half_x {
                     let (sx, sy) = (cx + ox, cy + oy);
                     if matches!(self.cell(sx, sy), Cell::Sand | Cell::Mud) {
-                        let owner = Self::index(sx, sy).map_or(0, |i| self.pebble_owner[i]);
+                        let owner = self.index_at(sx, sy).map_or(0, |i| self.pebble_owner[i]);
                         if owner != 0 {
                             // Whole-pebble planning uses the crab reservation;
                             // avoid it while an independent animal is pushing.
@@ -2143,7 +2227,7 @@ impl World {
         through_body: bool,
         protected: Option<(i32, i32, i32, i32)>,
     ) {
-        let Some(start) = Self::index(x, y) else {
+        let Some(start) = self.index_at(x, y) else {
             return;
         };
         if self.pebble_owner[start] != 0 {
@@ -2154,12 +2238,13 @@ impl World {
         let radius = force as i32 + 1;
         let left = (x - radius).max(0);
         let bottom = (y - radius).max(0);
-        let right = (x + radius).min(WIDTH as i32 - 1);
-        let top = (y + radius).min(HEIGHT as i32 - 1);
+        let right = (x + radius).min(self.width as i32 - 1);
+        let top = (y + radius).min(self.height as i32 - 1);
         let w = (right - left + 1) as usize;
+        let stride = self.width;
         let local = |i: usize| -> Option<usize> {
-            let px = (i % WIDTH) as i32;
-            let py = (i / WIDTH) as i32;
+            let px = (i % stride) as i32;
+            let py = (i / stride) as i32;
             if px < left || px > right || py < bottom || py > top {
                 None
             } else {
@@ -2186,24 +2271,24 @@ impl World {
         }
         while let Some(i) = queue.pop_front() {
             let Some(li) = local(i) else { continue };
-            let (px, py) = ((i % WIDTH) as i32, (i / WIDTH) as i32);
+            let (px, py) = ((i % self.width) as i32, (i / self.width) as i32);
             for (nx, ny) in [(side_x, side_y), (-dx, -dy), (dx, dy), (-side_x, -side_y)] {
-                let Some(n) = Self::index(px + nx, py + ny) else {
+                let Some(n) = self.index_at(px + nx, py + ny) else {
                     continue;
                 };
                 if self.pebble_owner[n] != 0 {
                     continue;
                 }
                 let Some(ln) = local(n) else { continue };
-                if self.other_body_contains((n % WIDTH) as i32, (n / WIDTH) as i32, 0)
+                if self.other_body_contains((n % self.width) as i32, (n / self.width) as i32, 0)
                     || (!through_body
                         && self.crab.is_some_and(|(cx, cy)| {
-                            ((n % WIDTH) as i32 - cx).abs() <= self.crab_half_x
-                                && ((n / WIDTH) as i32 - cy).abs() <= self.crab_half_y
+                            ((n % self.width) as i32 - cx).abs() <= self.crab_half_x
+                                && ((n / self.width) as i32 - cy).abs() <= self.crab_half_y
                         }))
                     || protected.is_some_and(|(cx, cy, hx, hy)| {
-                        ((n % WIDTH) as i32 - cx).abs() <= hx
-                            && ((n / WIDTH) as i32 - cy).abs() <= hy
+                        ((n % self.width) as i32 - cx).abs() <= hx
+                            && ((n / self.width) as i32 - cy).abs() <= hy
                     })
                 {
                     continue;
@@ -2216,8 +2301,8 @@ impl World {
                 // Water inside the destination can be crossed but cannot
                 // be the final resting place for a displaced grain.
                 let inside_target = target.is_some_and(|(cx, cy)| {
-                    ((n % WIDTH) as i32 - cx).abs() <= self.crab_half_x
-                        && ((n / WIDTH) as i32 - cy).abs() <= self.crab_half_y
+                    ((n % self.width) as i32 - cx).abs() <= self.crab_half_x
+                        && ((n / self.width) as i32 - cy).abs() <= self.crab_half_y
                 });
                 let load = loads[li].saturating_add(cost);
                 if load > force || load >= loads[ln] {
@@ -2263,11 +2348,11 @@ impl World {
         if reach == 0 {
             return;
         }
-        let (sx, sy) = ((start % WIDTH) as i32, (start / WIDTH) as i32);
+        let (sx, sy) = ((start % self.width) as i32, (start / self.width) as i32);
         let left = (sx - reach).max(0);
-        let right = (sx + reach).min(WIDTH as i32 - 1);
+        let right = (sx + reach).min(self.width as i32 - 1);
         let bottom = (sy - reach).max(0);
-        let top = (sy + reach).min(HEIGHT as i32 - 1);
+        let top = (sy + reach).min(self.height as i32 - 1);
         let width = (right - left + 1) as usize;
         let mut visited = vec![false; width * (top - bottom + 1) as usize];
         let mut queue = std::collections::VecDeque::new();
@@ -2294,7 +2379,7 @@ impl World {
                     continue;
                 }
                 visited[v] = true;
-                let Some(i) = Self::index(nx, ny) else {
+                let Some(i) = self.index_at(nx, ny) else {
                     continue;
                 };
                 if self.cells[i] != Cell::Water {
@@ -2397,7 +2482,7 @@ impl World {
     pub(crate) fn test_flat_loose_bed(&mut self) {
         for x in 130..=220 {
             for y in 114..=145 {
-                let i = Self::index(x, y).expect("fixture inside world");
+                let i = self.index_at(x, y).expect("fixture inside world");
                 self.pebble_owner[i] = 0;
                 self.suspended[i] = 0;
                 self.cells[i] = if y == 114 { Cell::Sand } else { Cell::Water };
@@ -2410,7 +2495,7 @@ impl World {
     pub(crate) fn test_open_downward_bed(&mut self) {
         for x in 130..=220 {
             for y in 100..=113 {
-                let i = Self::index(x, y).expect("fixture inside world");
+                let i = self.index_at(x, y).expect("fixture inside world");
                 self.pebble_owner[i] = 0;
                 self.suspended[i] = 0;
                 self.cells[i] = if y == 113 { Cell::Sand } else { Cell::Water };
@@ -2423,7 +2508,7 @@ impl World {
     pub(crate) fn test_fill_dense_downward_region(&mut self) {
         for x in 120..=230 {
             for y in 60..=165 {
-                let i = Self::index(x, y).expect("fixture inside world");
+                let i = self.index_at(x, y).expect("fixture inside world");
                 self.pebble_owner[i] = 0;
                 self.suspended[i] = 0;
                 self.cells[i] = Cell::Sand;
@@ -2436,7 +2521,7 @@ impl World {
     pub(crate) fn test_fill_dense_upward_region(&mut self) {
         for x in 120..=230 {
             for y in 160..=280 {
-                let i = Self::index(x, y).expect("fixture inside world");
+                let i = self.index_at(x, y).expect("fixture inside world");
                 self.pebble_owner[i] = 0;
                 self.suspended[i] = 0;
                 self.cells[i] = Cell::Sand;
@@ -2447,7 +2532,7 @@ impl World {
 
     #[cfg(test)]
     pub(crate) fn test_place_loose_sand(&mut self, x: i32, y: i32) -> bool {
-        let Some(index) = Self::index(x, y) else {
+        let Some(index) = self.index_at(x, y) else {
             return false;
         };
         if self.cells[index] != Cell::Water || self.pebble_owner[index] != 0 {
@@ -3041,8 +3126,8 @@ impl World {
             let side_cells = i32::from(p.side);
             if p.x < 0
                 || p.y < 0
-                || p.x + side_cells > WIDTH as i32
-                || p.y + side_cells > HEIGHT as i32
+                || p.x + side_cells > self.width as i32
+                || p.y + side_cells > self.height as i32
             {
                 continue;
             }
@@ -3067,14 +3152,14 @@ impl World {
             }
         }
         // Bottom-up prevents a grain moving more than one cell in a tick.
-        let mut moved_cells = vec![false; WIDTH * HEIGHT];
+        let mut moved_cells = vec![false; self.width * self.height];
         let tick = self.tick;
         // The top and side rows must also fall. They can be visible near a
         // streaming boundary and otherwise leave grains frozen in mid-water.
-        for y in 1..HEIGHT {
-            for n in 0..WIDTH {
-                let x = if reverse { WIDTH - 1 - n } else { n };
-                let i = y * WIDTH + x;
+        for y in 1..self.height {
+            for n in 0..self.width {
+                let x = if reverse { self.width - 1 - n } else { n };
+                let i = y * self.width + x;
                 if self.pebble_owner[i] != 0 {
                     continue;
                 }
@@ -3140,7 +3225,7 @@ impl World {
                 if self.suspended[i] == 0
                     && flow_strength > threshold
                     && due(world_x * 13, erosion_interval)
-                    && let Some(to) = Self::index(x as i32 + drift, y as i32 + 1)
+                    && let Some(to) = self.index_at(x as i32 + drift, y as i32 + 1)
                     && self.can_receive_grain(to)
                     && self.cell(x as i32, y as i32 + 1) == Cell::Water
                 {
@@ -3181,7 +3266,7 @@ impl World {
                         0
                     };
                     if (drift != 0 || dy != 0)
-                        && let Some(to) = Self::index(x as i32 + drift, y as i32 + dy)
+                        && let Some(to) = self.index_at(x as i32 + drift, y as i32 + dy)
                         && self.can_receive_grain(to)
                     {
                         self.swap_cells(i, to);
@@ -3230,7 +3315,7 @@ impl World {
                     {
                         continue;
                     }
-                    if let Some(to) = Self::index(x as i32 + dx, y as i32 + dy)
+                    if let Some(to) = self.index_at(x as i32 + dx, y as i32 + dy)
                         && self.can_receive_grain(to)
                     {
                         self.swap_cells(i, to);
@@ -3250,13 +3335,13 @@ impl World {
                 if !moved
                     && let Some((cx, cy)) = self.crab
                     && y as i32 > cy
-                    && let Some(below) = Self::index(x as i32, y as i32 - 1)
+                    && let Some(below) = self.index_at(x as i32, y as i32 - 1)
                     && self.cells[below] == Cell::Water
                     && !self.can_receive_grain(below)
                 {
                     let side = if (x as i32) < cx { -1 } else { 1 };
                     for dx in [side, -side] {
-                        if let Some(to) = Self::index(x as i32 + dx, y as i32)
+                        if let Some(to) = self.index_at(x as i32 + dx, y as i32)
                             && self.cells[to] == Cell::Water
                             && (x as i32 + dx - cx).abs() > (x as i32 - cx).abs()
                         {
@@ -3273,7 +3358,7 @@ impl World {
                     && drift != 0
                     && self.tick.is_multiple_of(8)
                     && self.cell(x as i32, y as i32 + 1) == Cell::Water
-                    && let Some(to) = Self::index(x as i32 + drift, y as i32)
+                    && let Some(to) = self.index_at(x as i32 + drift, y as i32)
                     && self.can_receive_grain(to)
                 {
                     self.swap_cells(i, to);
@@ -3288,7 +3373,7 @@ impl World {
         // Diffuse velocity locally and continuously feed the ambient current.
         // Solid neighbors redirect a small part of the flow vertically.
         let mut next = self.flow.clone();
-        for y in 1..HEIGHT - 1 {
+        for y in 1..self.height - 1 {
             // Broad slow layers preserve the fine simulation's established
             // motion until it is coupled to the world-wide baseline.
             let time = self.tick as f32;
@@ -3299,8 +3384,8 @@ impl World {
             } else {
                 0.0
             };
-            for x in 1..WIDTH - 1 {
-                let i = y * WIDTH + x;
+            for x in 1..self.width - 1 {
+                let i = y * self.width + x;
                 if self.cells[i] != Cell::Water {
                     next[i] = (0.0, 0.0);
                     continue;
@@ -3316,14 +3401,14 @@ impl World {
                 let mut vy = cross * 0.002;
                 let mut weight = feed;
                 for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                    let n = (y as i32 + dy) as usize * WIDTH + (x as i32 + dx) as usize;
+                    let n = (y as i32 + dy) as usize * self.width + (x as i32 + dx) as usize;
                     if self.cells[n] == Cell::Water {
                         vx += self.flow[n].0;
                         vy += self.flow[n].1;
                         weight += 1.0;
                     } else if dx != 0 {
                         vy += current
-                            * if world_y < (HEIGHT / 2) as f32 {
+                            * if world_y < (self.height / 2) as f32 {
                                 0.12
                             } else {
                                 -0.12
@@ -3337,6 +3422,8 @@ impl World {
     }
 
     fn step_visuals(&mut self) {
+        let (width, height) = self.dimensions();
+        let index = |x, y| region_index(width, height, x, y);
         // Each blade follows the local water with drag. Neighboring points
         // pull one another along slowly; no periodic spring animation.
         for (blade, root) in KELP_ROOTS.iter().copied().enumerate() {
@@ -3348,16 +3435,16 @@ impl World {
             } else {
                 root
             };
-            if !(1..WIDTH as i32 - 1).contains(&root) {
+            if !(1..self.width as i32 - 1).contains(&root) {
                 continue;
             }
             let lo = if self.game {
-                (12 - self.origin.1).clamp(1, HEIGHT as i32 - 1)
+                (12 - self.origin.1).clamp(1, self.height as i32 - 1)
             } else {
                 12
             };
             let hi = if self.game {
-                (120 - self.origin.1).clamp(1, HEIGHT as i32 - 1)
+                (120 - self.origin.1).clamp(1, self.height as i32 - 1)
             } else {
                 120
             };
@@ -3400,15 +3487,17 @@ impl World {
                 if bubble.life == 0 {
                     bubble.rest = bubble.rest.saturating_sub(1);
                     if bubble.rest == 0 && (self.tick + n as u64 * 23).is_multiple_of(97) {
-                        bubble.x = (20 + ((n * 137 + self.tick as usize) % (WIDTH - 40))) as f32;
+                        bubble.x =
+                            (20 + ((n * 137 + self.tick as usize) % (self.width - 40))) as f32;
                         bubble.y = base + (n % 30) as f32;
                         bubble.life = 50 + (n % 7) as u16 * 13;
                     }
                     continue;
                 }
                 bubble.life -= 1;
-                if let Some(i) = Self::index(bubble.x as i32, bubble.y as i32) {
-                    bubble.x = (bubble.x + self.flow[i].0 * 0.14).clamp(1.0, WIDTH as f32 - 2.0);
+                if let Some(i) = index(bubble.x as i32, bubble.y as i32) {
+                    bubble.x =
+                        (bubble.x + self.flow[i].0 * 0.14).clamp(1.0, self.width as f32 - 2.0);
                 }
                 bubble.y += 0.32 + (n % 5) as f32 * 0.035;
                 if bubble.y >= surface || bubble.life == 0 {
@@ -3418,13 +3507,13 @@ impl World {
             }
         }
         for p in &mut self.tracers {
-            if let Some(i) = Self::index(p.0 as i32, p.1 as i32) {
+            if let Some(i) = index(p.0 as i32, p.1 as i32) {
                 let velocity = self.flow[i];
                 let nx = (p.0 + velocity.0 * 0.75)
-                    .rem_euclid(WIDTH as f32 - 2.0)
+                    .rem_euclid(self.width as f32 - 2.0)
                     .max(1.0);
-                let ny = (p.1 + velocity.1 * 0.75).clamp(1.0, HEIGHT as f32 - 2.0);
-                if let Some(next) = Self::index(nx as i32, ny as i32)
+                let ny = (p.1 + velocity.1 * 0.75).clamp(1.0, self.height as f32 - 2.0);
+                if let Some(next) = index(nx as i32, ny as i32)
                     && self.cells[next] == Cell::Water
                 {
                     *p = (nx, ny);
@@ -3433,12 +3522,12 @@ impl World {
         }
         for p in &mut self.silt {
             p.life = p.life.saturating_sub(1);
-            if let Some(i) = Self::index(p.x as i32, p.y as i32) {
+            if let Some(i) = index(p.x as i32, p.y as i32) {
                 let (fx, fy) = self.flow[i];
                 p.vx = p.vx * 0.94 + fx * 0.08;
                 p.vy = p.vy * 0.94 + fy * 0.08 - 0.0025;
                 let (nx, ny) = (p.x + p.vx, p.y + p.vy);
-                if let Some(n) = Self::index(nx as i32, ny as i32)
+                if let Some(n) = index(nx as i32, ny as i32)
                     && self.cells[n] == Cell::Water
                 {
                     p.x = nx;
@@ -3477,10 +3566,10 @@ impl World {
     }
 
     pub fn pixels(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(WIDTH * HEIGHT * 4);
-        for y in (0..HEIGHT).rev() {
-            for x in 0..WIDTH {
-                let i = y * WIDTH + x;
+        let mut out = Vec::with_capacity(self.width * self.height * 4);
+        for y in (0..self.height).rev() {
+            for x in 0..self.width {
+                let i = y * self.width + x;
                 let color = match self.cells[i] {
                     Cell::Rock => {
                         let fleck = ((x / 4 * 11 + y / 3 * 17) % 9) as u8;
@@ -3508,7 +3597,7 @@ impl World {
                             let speck = ((x * 7 + y * 13) % 7) as u8;
                             [76 + speck, 82 + speck, 68 + speck, 255]
                         } else {
-                            let depth = (y * 10 / HEIGHT) as u8;
+                            let depth = (y * 10 / self.height) as u8;
                             [15 + depth / 2, 53 + depth, 65 + depth, 255]
                         }
                     }
@@ -3522,10 +3611,10 @@ impl World {
             if self.game {
                 break;
             }
-            if let Some(i) = Self::index(x as i32, y as i32)
+            if let Some(i) = self.index_at(x as i32, y as i32)
                 && self.cells[i] == Cell::Water
             {
-                let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                let p = ((self.height - 1 - i / self.width) * self.width + i % self.width) * 4;
                 let shade = (number % 4) as u8 * 7;
                 out[p..p + 4].copy_from_slice(&[88 + shade, 135 + shade, 133 + shade, 255]);
             }
@@ -3534,10 +3623,10 @@ impl World {
             if self.game {
                 break;
             }
-            if let Some(i) = Self::index(p.x as i32, p.y as i32)
+            if let Some(i) = self.index_at(p.x as i32, p.y as i32)
                 && self.cells[i] == Cell::Water
             {
-                let offset = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                let offset = ((self.height - 1 - i / self.width) * self.width + i % self.width) * 4;
                 let brightness = (p.life.min(60) / 3) as u8;
                 out[offset..offset + 4].copy_from_slice(&[
                     105 + brightness,
@@ -3566,17 +3655,19 @@ impl World {
                 let x = root + bend as i32;
                 let y = base + h;
                 if self.cell(x, y) == Cell::Water
-                    && let Some(i) = Self::index(x, y)
+                    && let Some(i) = self.index_at(x, y)
                 {
-                    let p = ((HEIGHT - 1 - i / WIDTH) * WIDTH + i % WIDTH) * 4;
+                    let p = ((self.height - 1 - i / self.width) * self.width + i % self.width) * 4;
                     out[p..p + 4].copy_from_slice(&[145, 160 + (h % 3) as u8 * 8, 70, 255]);
                     if h % 14 < 6 {
                         let side = if (h / 14) % 2 == 0 { 1 } else { -1 };
                         for dx in 1..=6 {
-                            if let Some(n) = Self::index(x + side * dx, y + dx / 2)
+                            if let Some(n) = self.index_at(x + side * dx, y + dx / 2)
                                 && self.cells[n] == Cell::Water
                             {
-                                let p = ((HEIGHT - 1 - n / WIDTH) * WIDTH + n % WIDTH) * 4;
+                                let p = ((self.height - 1 - n / self.width) * self.width
+                                    + n % self.width)
+                                    * 4;
                                 out[p..p + 4].copy_from_slice(&[127, 151, 67, 255]);
                             }
                         }
