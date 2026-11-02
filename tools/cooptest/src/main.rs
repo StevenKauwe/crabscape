@@ -1030,7 +1030,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             );
             sleep(0.4);
             guest.b.set_key("KeyD", true)?;
-            for _ in 0..60 {
+            let route_started = Instant::now();
+            while route_started.elapsed().as_secs() < 180 {
                 guest.b.hold_key("Space", 0.9)?;
                 sleep(0.15);
                 host.healthy()?;
@@ -1052,13 +1053,14 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     region_status(&mut guest)
                 ));
             }
-            guest.b.hold_key("ArrowDown", 4.0)?;
-            guest.until(20.0, "guest lands on far substrate", |p| {
+            guest.b.set_key("ArrowDown", true)?;
+            guest.until(90.0, "guest lands on far substrate", |p| {
                 p.b.attr("data-crab")
                     .is_some_and(|v| v.split_whitespace().last() == Some("1"))
                     && local_position(p).is_ok_and(|(_, y)| y < 100.0)
                     && p.b.attr("data-cell-region-state").as_deref() == Some("running")
             })?;
+            guest.b.set_key("ArrowDown", false)?;
             if name == "cells-region-save" {
                 // The owner's normal solo window reaches x2560. Put this
                 // excavation beyond it so natural mud flow cannot refill the

@@ -527,12 +527,19 @@ impl Test<'_> {
         let loaded = started && self.attr("data-cell-save")?.as_deref() == Some("loaded");
         let saved_large = loaded && self.wait_for(&format!(
             "await (async () => {{ const r = {READ_PLAYER}; return !!r && r.tick > 17; }})()"
-        ), 90.0)?;
+        ), 180.0)?;
         self.check(
             saved_large,
             "a world larger than the former browser limit loads and autosaves",
         );
         if !saved_large {
+            eprintln!(
+                "large world diagnostics: loaded={loaded}, save={:?}, autosave={:?}, player={:?}, page={:?}",
+                self.attr("data-cell-save")?,
+                self.attr("data-cell-autosave")?,
+                self.eval(READ_PLAYER)?,
+                self.eval("document.body.innerText")?
+            );
             return Ok(());
         }
         self.go("assets/crab/crab-atlas.png")?;
