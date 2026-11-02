@@ -82,6 +82,9 @@ impl TerrainStore {
                 id,
                 Lease {
                     bounds: strip,
+                    // Entering cells are sleeping, outside the live lease.
+                    // Their snapshot clock need not equal its last cutoff.
+                    committed_tick: world.tick,
                     pebble_ids: ids,
                     ..lease.clone()
                 },
@@ -229,6 +232,9 @@ impl TerrainStore {
             self.leases.insert(out.id, lease.clone());
             result?;
         }
+        // Expansion-only moves have no leaving strip commits to advance this
+        // clock. Newly generated terrain must still use the accepted cutoff.
+        self.terrain.tick = self.terrain.tick.max(out.tick);
         lease.bounds = out.new;
         lease.revision = out.revision;
         lease.committed_tick = out.tick;
@@ -377,6 +383,32 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn expanding_twice_does_not_compare_sleeping_strip_clock_to_live_lease() {
+        let level = crate::Level::test_level();
+        let source = World::from_level_settled(&level);
+        let mut store = TerrainStore::new(source).unwrap();
+        let id = RegionId(1);
+        let old = CellRegion {
+            x: 0,
+            y: 256,
+            width: 256,
+            height: 256,
+        };
+        let (epoch, mut live) = store.grant(id, old, &level).unwrap();
+        live.tick += 20;
+        let input = store
+            .prepare_move_terrain(id, epoch, CellRegion { width: 320, ..old }, &level)
+            .unwrap();
+        let (next, out) = live.apply_move_terrain(&input, &level).unwrap();
+        assert!(out.parts.is_empty());
+        let decoded = store.validate_move_out(&out).unwrap();
+        store.finish_move_terrain(out, decoded).unwrap();
+        assert_eq!(store.terrain.tick, next.tick);
+        store
+            .prepare_move_terrain(id, epoch, CellRegion { width: 384, ..old }, &level)
+            .unwrap();
+    }
     #[test]
     fn move_preserves_current_cells_aggregate_ids_impulses_and_actor_reservations() {
         let level = crate::Level::test_level();
