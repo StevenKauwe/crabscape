@@ -34,10 +34,14 @@ pub fn enabled() -> bool {
 /// experiment. The live site and other previews keep their usual default.
 #[cfg(any(test, target_arch = "wasm32"))]
 fn browser_cells_enabled(path: &str, search: &str) -> bool {
-    let explicit = search
-        .trim_start_matches('?')
-        .split('&')
-        .any(|part| part == "cells" || part == "cells=1");
+    let mut params = search.trim_start_matches('?').split('&');
+    if params
+        .clone()
+        .any(|part| part == "boring" || part == "boring=1")
+    {
+        return false;
+    }
+    let explicit = params.any(|part| part == "cells" || part == "cells=1");
     explicit
         || path
             .split('/')
@@ -59,6 +63,15 @@ mod tests {
         assert!(!browser_cells_enabled("/crabscape/pr-346/", ""));
         assert!(browser_cells_enabled("/crabscape/", "?zoom=2&cells"));
         assert!(browser_cells_enabled("/crabscape/", "?cells=1"));
+        assert!(!browser_cells_enabled("/crabscape/pr-352/", "?boring"));
+        assert!(!browser_cells_enabled(
+            "/crabscape/pr-352/",
+            "?zoom=2&boring=1"
+        ));
+        assert!(!browser_cells_enabled(
+            "/crabscape/pr-352/",
+            "?cells&boring"
+        ));
     }
 }
 
