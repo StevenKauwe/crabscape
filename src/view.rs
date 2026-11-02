@@ -57,8 +57,16 @@ impl Shake {
         self.trauma = (self.trauma - 1.6 * dt).max(0.0);
         // The kick: a stiff spring, critically damped-ish.
         let (k, damping) = (900.0, 45.0);
-        self.kick_vel += (-k * self.kick - damping * self.kick_vel) * dt;
-        self.kick += self.kick_vel * dt;
+        // The spring's explicit integration becomes unstable on a slow
+        // frame (particularly on phones). Bound each step while preserving
+        // the existing response at ordinary frame rates.
+        let elapsed = dt.clamp(0.0, 0.25);
+        let steps = (elapsed / (1.0 / 60.0)).ceil().max(1.0) as u32;
+        let step = elapsed / steps as f32;
+        for _ in 0..steps {
+            self.kick_vel += (-k * self.kick - damping * self.kick_vel) * step;
+            self.kick += self.kick_vel * step;
+        }
         self.zoom = (self.zoom - 0.6 * dt).max(0.0);
         let s = self.trauma * self.trauma * 14.0;
         let t = self.time;
@@ -82,8 +90,8 @@ pub struct Zoom {
     /// Zoomed out at least this far for now, whatever was asked: the
     /// settings slider pulls back to show how far the crab hears.
     pub peek: f32,
-    /// The two pinching fingers' distance last frame.
-    pinch: Option<f32>,
+    /// Finger identities and their distance last frame.
+    pinch: Option<(u64, u64, f32)>,
 }
 
 impl Default for Zoom {
@@ -148,21 +156,15 @@ fn read_zoom(
     }
     // Two fingers off the buttons: a pinch.
     let size = Vec2::new(window.width(), window.height());
-    let fingers: Vec<Vec2> = touches
+    let fingers: Vec<(u64, Vec2)> = touches
         .iter()
         .filter(|t| Some(t.id()) != touch_controls.dig_touch)
-        .map(|t| t.position())
-        .filter(|p| !crate::input::on_a_button(size, *p))
+        // A thumb that began on a button stays a control even if it slides
+        // off the hit area. It must not suddenly become a pinch finger.
+        .filter(|t| pinch_eligible(size, t.start_position(), t.position()))
+        .map(|t| (t.id(), t.position()))
         .collect();
-    if let [a, b] = fingers[..] {
-        let d = a.distance(b).max(1.0);
-        if let Some(was) = zoom.pinch {
-            by *= was / d;
-        }
-        zoom.pinch = Some(d);
-    } else {
-        zoom.pinch = None;
-    }
+    by *= pinch_factor(&mut zoom.pinch, &fingers);
     zoom.want = (zoom.want * by).clamp(1.0, ZOOM_MAX);
     // Ease in log space, so every step feels the same size.
     let target = zoom.want.max(zoom.peek).min(ZOOM_MAX);
@@ -171,6 +173,25 @@ fn read_zoom(
     if (zoom.out - target).abs() < 1e-3 {
         zoom.out = target;
     }
+}
+
+fn pinch_eligible(size: Vec2, start: Vec2, now: Vec2) -> bool {
+    !crate::input::on_a_button(size, start) && !crate::input::on_a_button(size, now)
+}
+
+/// A replacement finger starts a new pinch instead of jumping the zoom.
+fn pinch_factor(previous: &mut Option<(u64, u64, f32)>, fingers: &[(u64, Vec2)]) -> f32 {
+    let [(a_id, a), (b_id, b)] = fingers else {
+        *previous = None;
+        return 1.0;
+    };
+    let (first, second) = ((*a_id).min(*b_id), (*a_id).max(*b_id));
+    let distance = a.distance(*b).max(1.0);
+    let factor = previous
+        .filter(|(old_a, old_b, _)| *old_a == first && *old_b == second)
+        .map_or(1.0, |(_, _, old)| old / distance);
+    *previous = Some((first, second, distance));
+    factor
 }
 
 pub struct ViewPlugin;
@@ -458,5 +479,59 @@ mod page_bridge {
             }
             let _ = canvas.set_attribute("data-fight", &fight);
         }
+    }
+}
+
+#[cfg(test)]
+mod camera_stability_tests {
+    use super::*;
+
+    #[test]
+    fn camera_kick_settles_at_low_and_variable_frame_rates() {
+        for dt in [1.0 / 60.0, 1.0 / 30.0, 1.0 / 15.0, 0.2] {
+            let mut shake = Shake::default();
+            shake.kick(Vec2::new(8.0, -4.0));
+            for _ in 0..120 {
+                let offset = shake.offset(dt);
+                assert!(
+                    offset.is_finite() && offset.length() < 50.0,
+                    "unstable at {dt}s: {offset:?}"
+                );
+            }
+            assert!(
+                shake.kick.length() < 0.01,
+                "did not settle at {dt}s: {:?}",
+                shake.kick
+            );
+        }
+    }
+
+    #[test]
+    fn replacing_a_pinch_finger_does_not_jump_zoom() {
+        let mut pinch = None;
+        assert_eq!(
+            pinch_factor(&mut pinch, &[(1, Vec2::ZERO), (2, Vec2::X * 100.0)]),
+            1.0
+        );
+        assert_eq!(
+            pinch_factor(&mut pinch, &[(2, Vec2::X * 200.0), (1, Vec2::ZERO)]),
+            0.5
+        );
+        assert_eq!(
+            pinch_factor(&mut pinch, &[(1, Vec2::ZERO), (3, Vec2::X * 20.0)]),
+            1.0
+        );
+        assert_eq!(pinch_factor(&mut pinch, &[]), 1.0);
+        assert!(pinch.is_none());
+    }
+
+    #[test]
+    fn sliding_a_control_thumb_away_does_not_create_a_pinch() {
+        let screen = Vec2::new(390.0, 844.0);
+        let left = crate::input::touch_rects(screen)[1].center();
+        let middle = Vec2::new(screen.x * 0.5, screen.y * 0.5);
+        assert!(!pinch_eligible(screen, left, middle));
+        assert!(!pinch_eligible(screen, middle, left));
+        assert!(pinch_eligible(screen, middle, middle + Vec2::X * 40.0));
     }
 }
