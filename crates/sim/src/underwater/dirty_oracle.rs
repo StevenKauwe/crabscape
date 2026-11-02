@@ -58,6 +58,7 @@ pub(crate) struct Dirty {
 
 /// Lower bound for dynamically allocated checkpoint payload retained by a clone;
 /// excludes allocator/BTree nodes, Vec headers already in World, and spare map capacity.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn retained_payload_lower_bound(world: &World) -> usize {
     world.cells.capacity() * std::mem::size_of_val(&super::Cell::Water)
         + world.flow.capacity() * std::mem::size_of::<(f32, f32)>()

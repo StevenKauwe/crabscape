@@ -109,6 +109,7 @@ impl Probe {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn retained_payload_lower_bound(&self) -> usize {
         super::retained_payload_lower_bound(&self.world)
             + super::retained_payload_lower_bound(&self.verified)
