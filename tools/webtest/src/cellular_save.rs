@@ -176,6 +176,7 @@ impl Test<'_> {
           request.onsuccess = () => {{
             const db = request.result, tx = db.transaction("world", "readwrite");
             tx.objectStore("world").put(Uint8Array.from(atob({encoded:?}), c => c.charCodeAt(0)), "active");
+            tx.objectStore("world").delete("reset_epoch"); // Exercise legacy records without an epoch.
             tx.onabort = () => {{ db.close(); reject(String(tx.error)); }};
             tx.oncomplete = () => {{ db.close(); resolve(true); }};
           }};
@@ -356,6 +357,53 @@ impl Test<'_> {
         self.check(
             fresh.cellular && !fresh.has_cell_start() && fresh.start == expected_start,
             format!("reset records a fresh cellular world at its actual spawn surface (recorded {:?}, expected {expected_start:?}, live {at:?})", fresh.start),
+        );
+        self.eval("(document.getElementById('replay-box').hidden = true, true)")?;
+        // A second browsing context performs the same atomic reset while the
+        // original game remains alive. Its next real worker save must be
+        // fenced, and a newly loaded session must still be able to save.
+        self.eval(r#"await new Promise((resolve, reject) => {
+          const frame = document.createElement('iframe');
+          frame.hidden = true;
+          frame.onload = () => {
+            const opening = frame.contentWindow.indexedDB.open('crabscape.cells', 1);
+            opening.onerror = () => { frame.remove(); reject(String(opening.error)); };
+            opening.onsuccess = () => {
+              const db = opening.result, tx = db.transaction('world', 'readwrite');
+              const store = tx.objectStore('world'), request = store.get('reset_epoch');
+              request.onsuccess = () => {
+                const epoch = request.result === undefined ? new Uint8Array(8) : request.result.slice();
+                if (!ArrayBuffer.isView(epoch) || epoch.length !== 8) { tx.abort(); return; }
+                let i = 0;
+                while (i < 8 && epoch[i] === 255) { epoch[i] = 0; i++; }
+                if (i === 8) { tx.abort(); return; }
+                epoch[i]++;
+                store.delete('active'); store.put(epoch, 'reset_epoch');
+              };
+              tx.onabort = () => { db.close(); frame.remove(); reject('cross-tab reset failed'); };
+              tx.oncomplete = () => { db.close(); frame.remove(); resolve(true); };
+            };
+          };
+          frame.src = 'about:blank'; document.body.appendChild(frame);
+        })"#)?;
+        let fenced = self.wait_for(
+            &format!("{CANVAS}.getAttribute('data-cell-autosave') === 'stale-epoch'"),
+            60.0,
+        )?;
+        self.check(
+            fenced && self.cellular_record()?.is_none(),
+            "an old tab cannot resurrect a cellular save reset in another browsing context",
+        );
+        if !fenced {
+            return Ok(());
+        }
+        let restarted = self.open("index.html?cells")?;
+        let fresh_session = restarted && self.attr("data-cell-save")?.as_deref() == Some("fresh");
+        let saved_again = fresh_session
+            && self.wait_for(&format!("await (async () => ({READ}) !== null)()"), 60.0)?;
+        self.check(
+            saved_again,
+            "a newly loaded cellular session saves after a cross-tab reset",
         );
         self.no_error_on_page("after cellular autosave, reload and reset")?;
         Ok(())
