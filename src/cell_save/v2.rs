@@ -65,7 +65,7 @@ impl PreparedSave {
         self.header.finish(&packed).map_err(|e| format!("{e:?}"))
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(test, not(target_arch = "wasm32")))]
     pub fn encode(self) -> Result<Vec<u8>, Error> {
         let packed = miniz_oxide::deflate::compress_to_vec_zlib(&self.raw, 1);
         self.header.finish(&packed)
