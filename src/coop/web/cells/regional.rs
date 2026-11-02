@@ -116,11 +116,33 @@ fn store_kernel(owner: &mut Owner, kernel: RegionKernel) -> Result<(), String> {
 }
 fn collect(r: &mut State, sim: &mut Sim) -> Result<(), String> {
     let owner = r.owner.as_mut().ok_or("Missing lobby owner")?;
+    // Validate/recover the remote history before moving the visible simulation.
+    // A failed recovery must leave both the journal and the local crab available.
+    let recovered = owner
+        .remote
+        .as_ref()
+        .map(|j| j.materialize())
+        .transpose()
+        .map_err(fault)?;
     if let Some(kernel) = r.kernel.take() {
-        store_kernel(owner, kernel.take_view(sim))?;
+        let kernel = kernel.take_view(sim);
+        if let Err(error) = owner.terrain.commit(
+            kernel.id,
+            kernel.epoch,
+            kernel.sim.level.cells.as_ref().ok_or("Missing terrain")?,
+        ) {
+            r.kernel = Some(kernel.install_view(sim));
+            return Err(fault(error));
+        }
+        owner
+            .terrain
+            .release(kernel.id, kernel.epoch)
+            .map_err(fault)?;
+        owner.entities.absorb(kernel).map_err(fault)?;
     }
-    if let Some(remote) = owner.remote.take() {
-        store_kernel(owner, remote.materialize().map_err(fault)?)?;
+    if let Some(remote) = recovered {
+        store_kernel(owner, remote)?;
+        owner.remote = None;
     }
     r.journal = None;
     for id in r.home.drain(..) {
@@ -657,31 +679,41 @@ fn update_inner(
     }
     Ok(())
 }
-pub(super) fn restore_owner(s: &mut Session, sim: &mut Sim) {
+pub(super) fn restore_owner(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
     let Some(mut r) = s.regional.take() else {
-        return;
+        return Ok(());
     };
     if r.owner.is_none() {
-        return;
+        return Ok(());
     }
     let restored = (|| -> Result<Sim, String> {
         collect(&mut r, sim)?;
+        if r.owner
+            .as_ref()
+            .is_none_or(|o| o.terrain.active_regions() != 0)
+        {
+            return Err("Regional ownership is still active".into());
+        }
         let owner = r.owner.take().ok_or("Missing owner archive")?;
         let mut whole = owner.entities.into_sim();
         let mut terrain = owner.terrain.into_world().map_err(fault)?;
         let at = point(&whole, HOST)?;
-        terrain
-            .restore_default_window(&whole.level, at.x, at.y)
-            .map_err(fault)?;
+        if let Err(reason) = terrain.restore_default_window(&whole.level, at.x, at.y) {
+            warn!("Could not resize restored terrain: {reason:?}");
+        }
         whole.level.cells = Some(terrain);
         Ok(whole)
     })();
     match restored {
-        Ok(whole) => *sim = whole,
+        Ok(whole) => {
+            *sim = whole;
+            Ok(())
+        }
         Err(reason) => {
             warn!("{reason}");
-            s.failure = Some(reason);
+            r.stage = Stage::Stopped;
             s.regional = Some(r);
+            Err(reason)
         }
     }
 }

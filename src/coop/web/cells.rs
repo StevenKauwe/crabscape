@@ -188,8 +188,11 @@ pub(crate) fn controls(c: Controls) -> bool {
     })
 }
 fn end(s: &mut Session, sim: &mut Sim, local: PlayerId) {
-    if local == HOST {
-        regional::restore_owner(s, sim);
+    if local == HOST
+        && let Err(reason) = regional::restore_owner(s, sim)
+    {
+        s.failure = Some(reason);
+        return;
     }
     if let Some(mut solo) = s.solo.take() {
         if s.phase == Phase::Guest {
