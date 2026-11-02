@@ -382,6 +382,8 @@ mod tests {
     }
 }
 
+#[cfg(all(target_arch = "wasm32", feature = "browser-proof"))]
+mod coordination;
 #[cfg(target_arch = "wasm32")]
 pub mod indexeddb;
 pub mod records;

@@ -3176,6 +3176,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         Err("collection did not finish".into())
     }
     async fn run(name: &str) -> Result<String, String> {
+        let locks_supported = crate::coordination::proof().await?;
         same_store_fence(name).await?;
         legacy_initializer_proof(name).await?;
         unified_legacy_store_proof(name).await?;
@@ -3473,7 +3474,12 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         a.reset_fixture().await?;
         let lazy = lazy_proof(&a).await?;
         Ok(format!(
-            "PASS: bounded stage, abort, head preservation, part integrity, pinned pagination, recovery and reset fencing; {lazy}"
+            "PASS: bounded stage, abort, head preservation, part integrity, pinned pagination, recovery and reset fencing; locks={}; {lazy}",
+            if locks_supported {
+                "tested"
+            } else {
+                "unsupported"
+            }
         ))
     }
     run(&name).await.map_err(|e| JsValue::from_str(&e))

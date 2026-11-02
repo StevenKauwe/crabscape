@@ -14,11 +14,56 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "webkit-runner")]
+#[allow(dead_code)]
+#[path = "../../../webtest/src/driver.rs"]
+mod driver;
+
 const PAGE: &str = r#"<!doctype html><body data-result="running"><script>window.addEventListener('error',e=>{document.body.dataset.result='FAIL: '+e.message;fetch('/done')})</script><script type="module">
 import init,{browser_proof,reload_prepare,reload_verify} from './cellstore_proof.js';
 const name='crabscape.chunk-proof.rust-runner';
 init().then(async()=>{if (!sessionStorage.getItem('reloaded')) { await reload_prepare(name); sessionStorage.setItem('reloaded','yes'); location.reload(); return; } const proof=await reload_verify(name); const rest=await browser_proof(name); document.body.dataset.result=rest+'; '+proof; fetch('/done')}).catch(e=>{document.body.dataset.result='FAIL: '+e;fetch('/done')});
 </script><iframe src="/delay" hidden></iframe></body>"#;
+#[cfg(feature = "webkit-runner")]
+const WEBKIT_PAGE: &str = r#"<!doctype html><body data-result="running"><script>window.addEventListener('error',e=>{document.body.dataset.result='FAIL: '+e.message;fetch('/done')})</script><script type="module">
+import init,{coordination_proof} from './cellstore_proof.js';
+init().then(()=>coordination_proof()).then(x=>{document.body.dataset.result='PASS: '+x;fetch('/done')}).catch(e=>{document.body.dataset.result='FAIL: '+e;fetch('/done')});
+</script><iframe src="/delay" hidden></iframe></body>"#;
+
+#[cfg(feature = "webkit-runner")]
+fn run_webkit(url: &str, scratch: &std::path::Path) -> Result<String, String> {
+    let log = scratch.join("webkit.log");
+    let result = (|| {
+        let browser = driver::Browser::start(&[], &log)?;
+        browser.set_viewport(390, 844)?;
+        browser.go(url)?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(90);
+        loop {
+            let value = browser.eval("document.body && document.body.dataset.result")?;
+            if let Some(text) = value.as_str() {
+                if text.starts_with("PASS: locks=tested")
+                    || text.starts_with("PASS: locks=unsupported")
+                {
+                    return Ok(text.to_string());
+                }
+                if text.starts_with("FAIL:") {
+                    return Err(text.to_string());
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err("WebKit coordination proof timed out".into());
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    })();
+    result.map_err(|e| {
+        format!(
+            "{e}; WebKit log: {}",
+            fs::read_to_string(log).unwrap_or_default()
+        )
+    })
+}
+
 fn run(program: &str, args: &[&str]) -> Result<(), String> {
     let status = Command::new(program)
         .args(args)
@@ -42,6 +87,7 @@ fn execute() -> Result<(), String> {
             "build",
             "--manifest-path",
             manifest_file.to_str().ok_or("manifest path")?,
+            "--locked",
             "--target",
             "wasm32-unknown-unknown",
             "--release",
@@ -64,6 +110,7 @@ fn execute() -> Result<(), String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let webkit = cfg!(feature = "webkit-runner") && env::var_os("CRAB_PROOF_WEBKIT").is_some();
     let stopped = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
     let flag = stopped.clone();
@@ -94,7 +141,13 @@ fn execute() -> Result<(), String> {
                         .next()
                         .unwrap_or("/");
                     let (kind, body) = match path {
-                        "/" | "/index.html" => ("text/html", PAGE.as_bytes().to_vec()),
+                        "/" | "/index.html" => {
+                            #[cfg(feature = "webkit-runner")]
+                            let page = if webkit { WEBKIT_PAGE } else { PAGE };
+                            #[cfg(not(feature = "webkit-runner"))]
+                            let page = PAGE;
+                            ("text/html", page.as_bytes().to_vec())
+                        }
                         "/delay" => {
                             for _ in 0..450 {
                                 if done.load(Ordering::Relaxed) {
@@ -130,49 +183,63 @@ fn execute() -> Result<(), String> {
             }
         }
     });
-    let chrome = env::var("CHROME_BIN").unwrap_or_else(|_| {
-        if cfg!(target_os = "macos") {
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into()
-        } else {
-            "chromium".into()
+    let result: Result<String, String> = if webkit {
+        #[cfg(feature = "webkit-runner")]
+        {
+            run_webkit(&format!("http://127.0.0.1:{port}/"), &scratch)
         }
-    });
-    let profile = scratch.join("profile");
-    let result = Command::new(chrome)
-        .args([
-            "--headless=new",
-            "--disable-gpu",
-            "--use-angle=swiftshader",
-            "--enable-unsafe-swiftshader",
-            "--window-size=1024,768",
-            "--no-first-run",
-            "--dump-dom",
-            &format!("--user-data-dir={}", profile.display()),
-            &format!("http://127.0.0.1:{port}/"),
-        ])
-        .output()
-        .map_err(|e| e.to_string());
+        #[cfg(not(feature = "webkit-runner"))]
+        {
+            Err("WebKit runner feature not enabled".into())
+        }
+    } else {
+        (|| {
+            let chrome = env::var("CHROME_BIN").unwrap_or_else(|_| {
+                if cfg!(target_os = "macos") {
+                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into()
+                } else {
+                    "chromium".into()
+                }
+            });
+            let profile = scratch.join("profile");
+            let output = Command::new(chrome)
+                .args([
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--use-angle=swiftshader",
+                    "--enable-unsafe-swiftshader",
+                    "--window-size=1024,768",
+                    "--no-first-run",
+                    "--dump-dom",
+                    &format!("--user-data-dir={}", profile.display()),
+                    &format!("http://127.0.0.1:{port}/"),
+                ])
+                .output()
+                .map_err(|e| e.to_string())?;
+            let dom = String::from_utf8_lossy(&output.stdout);
+            if !output.status.success()
+                || !dom.contains("data-result=\"PASS: bounded stage")
+                || !dom.contains("migration_v1=real_reload=pass")
+                || !dom.contains("migration_v2=real_reload=pass")
+            {
+                return Err(format!(
+                    "browser proof failed: {dom}; browser log: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            Ok(dom
+                .split("data-result=\"")
+                .nth(1)
+                .and_then(|s| s.split('\"').next())
+                .unwrap_or("PASS")
+                .to_string())
+        })()
+    };
     stopped.store(true, Ordering::Relaxed);
     let _ = server.join();
-    let output = result?;
-    let dom = String::from_utf8_lossy(&output.stdout);
-    let pass = output.status.success()
-        && dom.contains("data-result=\"PASS: bounded stage")
-        && dom.contains("migration_v1=real_reload=pass")
-        && dom.contains("migration_v2=real_reload=pass");
+    let detail = result;
     let _ = fs::remove_dir_all(&scratch);
-    if !pass {
-        return Err(format!(
-            "browser proof failed: {dom}; browser log: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    let detail = dom
-        .split("data-result=\"")
-        .nth(1)
-        .and_then(|s| s.split('"').next())
-        .unwrap_or("PASS");
-    println!("{detail}");
+    println!("{}", detail?);
     Ok(())
 }
 fn main() {

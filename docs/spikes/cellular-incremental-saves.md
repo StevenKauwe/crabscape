@@ -367,3 +367,35 @@ design. A production protocol needs a collision-resistant, atomically maintained
 source revision or another verified fence, plus a final installation/cancellation
 handshake; checking after an async read alone leaves a later reset race. It also
 needs real quota-failure and WebKit/iPhone tests before enabling this path.
+
+An unwired Rust/Wasm coordination experiment uses an exclusive Web Lock with
+`ifAvailable` for short, synchronous critical work. If Web Locks are missing it
+returns an unsupported result and performs no work; it never falls back to an
+unlocked write. A bounded timer reports a stalled request, suppresses any late
+callback, and permits only one unresolved request per coordinator. Canceling
+the caller likewise suppresses late work. An advisory BroadcastChannel listener
+starts stale, marks the session stale on notifications or explicit visibility
+changes, and uses generation tickets so an older durable-epoch check cannot
+clear a newer notification. Chrome exercises actual contention between a page
+and iframe, release after the iframe is removed, delivery from the iframe,
+unsupported behavior, thrown work, and simulated delayed/canceled callbacks.
+
+This is not yet an async IndexedDB-check-and-install protocol: the lock currently
+covers only synchronous test work, visibility handling is manually invoked, and
+notifications can be delayed or missed. A real implementation must hold
+cooperative exclusion over the full durable check and installation, revalidate
+on resume, and remain safe if a tab is suspended while holding the lock. The
+timer itself may be throttled or frozen in a background tab and is not a hard
+wall-clock guarantee; no lock is stolen on timeout. A never-settling browser
+request retains one bounded pending task until the context closes. Older clients
+cannot be assumed to honor the lock or notifications. Safari WebDriver was not
+available in this session because remote automation was disabled; no Safari
+setting was changed. WebKit introduced Web Locks in Safari 15.4, but this proof
+has not established WebKit or iPhone behavior ([WebKit release notes](https://webkit.org/blog/12445/new-webkit-features-in-safari-15-4/),
+[Web Locks request semantics](https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request)).
+
+A focused WebKitGTK CI step now builds the same Rust/Wasm coordination proof
+and runs it through the repository's WebDriver client. It reports either
+`locks=tested` or `locks=unsupported`; the latter is an explicit fail-closed
+fallback, not evidence that locking works. The step has not yet run in this
+session, and WebKitGTK CI is not an iPhone memory or background-suspension test.
