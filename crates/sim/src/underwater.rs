@@ -2,6 +2,9 @@
 //! Coordinates increase right and up. Water occupies every non-solid cell;
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
+mod host_windows;
+pub use host_windows::HostStepError;
+
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 360;
 /// World units per cell and the position of the experiment's lower edge.
@@ -2176,6 +2179,14 @@ impl World {
     }
     pub fn step(&mut self, current: f32) {
         self.tick += 1;
+        self.step_material(current);
+        self.step_visuals();
+    }
+
+    /// One material step at the current clock. Kept separate from visual
+    /// particles and vegetation so an experimental host can step more than
+    /// one disjoint active window without advancing global visuals twice.
+    fn step_material(&mut self, current: f32) {
         // Diffuse velocity locally and continuously feed the ambient current.
         // Solid neighbors redirect a small part of the flow vertically.
         let mut next = self.flow.clone();
@@ -2466,6 +2477,9 @@ impl World {
                 }
             }
         }
+    }
+
+    fn step_visuals(&mut self) {
         // Each blade follows the local water with drag. Neighboring points
         // pull one another along slowly; no periodic spring animation.
         for (blade, root) in KELP_ROOTS.iter().copied().enumerate() {
