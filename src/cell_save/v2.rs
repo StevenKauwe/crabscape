@@ -62,6 +62,9 @@ impl PreparedSave {
             .compress(&self.raw)
             .await
             .map_err(|e| format!("{e:?}"))?;
+        if HEADER + self.header.player.len() + packed.len() > 8 * 1024 * 1024 {
+            return Err("cellular save is too large for this browser".into());
+        }
         self.header.finish(&packed).map_err(|e| format!("{e:?}"))
     }
 
@@ -76,6 +79,24 @@ impl PreparedSave {
 /// still copies and serializes on the calling thread, so its phone cost needs
 /// measurement before this format is used for autosaving.
 pub fn prepare(player: &SaveData, terrain: &World, tick: u64) -> Result<PreparedSave, Error> {
+    validate_input(player, terrain, tick)?;
+    let raw = postcard::to_allocvec(&terrain.checkpoint()).map_err(|_| Error::Damaged)?;
+    prepare_raw(player, tick, raw)
+}
+
+/// Browser-safe preparation: the serialized world is bounded before buffer
+/// allocation and is borrowed rather than cloned on the frame thread.
+pub fn prepare_browser(
+    player: &SaveData,
+    terrain: &World,
+    tick: u64,
+) -> Result<PreparedSave, Error> {
+    validate_input(player, terrain, tick)?;
+    let raw = crabsim::underwater::encode_browser_checkpoint(terrain).ok_or(Error::TooLarge)?;
+    prepare_raw(player, tick, raw)
+}
+
+fn validate_input(player: &SaveData, terrain: &World, tick: u64) -> Result<(), Error> {
     if player.version != SAVE_VERSION {
         return Err(Error::Unsupported);
     }
@@ -87,8 +108,11 @@ pub fn prepare(player: &SaveData, terrain: &World, tick: u64) -> Result<Prepared
     {
         return Err(Error::Damaged);
     }
+    Ok(())
+}
+
+fn prepare_raw(player: &SaveData, tick: u64, raw: Vec<u8>) -> Result<PreparedSave, Error> {
     let player = serde_json::to_vec(player).map_err(|_| Error::Damaged)?;
-    let raw = postcard::to_allocvec(&terrain.checkpoint()).map_err(|_| Error::Damaged)?;
     if player.len() > MAX_PLAYER
         || player
             .len()
@@ -205,6 +229,13 @@ mod tests {
             progress: None,
         };
         let bytes = prepare(&player, &terrain, 17).unwrap().encode().unwrap();
+        assert_eq!(
+            prepare_browser(&player, &terrain, 17)
+                .unwrap()
+                .encode()
+                .unwrap(),
+            bytes
+        );
         let loaded = super::super::decode(&bytes).unwrap();
         assert_eq!(loaded.player, player);
         assert_eq!(loaded.terrain.checkpoint(), terrain.checkpoint());
@@ -284,6 +315,10 @@ mod tests {
             memory: None,
             progress: None,
         };
+        assert!(matches!(
+            prepare_browser(&player, &terrain, 17),
+            Err(Error::TooLarge)
+        ));
         let prepared = prepare(&player, &terrain, 17).unwrap();
         let packed = miniz_oxide::deflate::compress_to_vec_zlib(&prepared.raw, 1);
         assert!(

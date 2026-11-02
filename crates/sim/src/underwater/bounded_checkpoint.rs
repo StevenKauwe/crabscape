@@ -22,6 +22,54 @@ const ACTIVE_CELLS: usize = WIDTH * HEIGHT;
 const MAX_PEBBLES: usize = u16::MAX as usize;
 const MAX_SEEDED: usize = 2048;
 
+/// The same wire layout as `WorldCheckpoint`, borrowed to avoid cloning the
+/// entire world on the browser's frame thread before serialization.
+#[derive(serde::Serialize)]
+struct CheckpointRef<'a> {
+    version: u8,
+    world: &'a World,
+    origin: (i32, i32),
+    sleeping: &'a BTreeMap<(i32, i32), SleepingChunk>,
+    opening_edge_opened: bool,
+    pebble_seeded: &'a BTreeSet<(i32, i32)>,
+}
+
+/// Serialize a browser-saveable world without cloning it. Refuse unsupported
+/// shapes and oversized records before allocating the serialized buffer.
+pub fn encode_browser_checkpoint(world: &World) -> Option<Vec<u8>> {
+    if world.cells.len() != ACTIVE_CELLS
+        || world.flow.len() != ACTIVE_CELLS
+        || world.suspended.len() != ACTIVE_CELLS
+        || world.grain.len() != ACTIVE_CELLS
+        || world.pebble_owner.len() != ACTIVE_CELLS
+        || world.pebbles.len() > MAX_PEBBLES
+        || world.pebble_motion.len() != world.pebbles.len()
+        || world.tracers.len() > 4096
+        || world.silt.len() > 1205
+        || world.bubbles.len() > 4096
+        || world.sleeping.len() > MAX_SLEEPING
+        || world
+            .sleeping
+            .values()
+            .any(|chunk| chunk.cells.len() != CHUNK_CELLS)
+        || world.pebble_seeded.len() > MAX_SEEDED
+    {
+        return None;
+    }
+    let borrowed = CheckpointRef {
+        version: 1,
+        world,
+        origin: world.origin,
+        sleeping: &world.sleeping,
+        opening_edge_opened: world.opening_edge_opened,
+        pebble_seeded: &world.pebble_seeded,
+    };
+    if postcard::experimental::serialized_size(&borrowed).ok()? > MAX_RAW {
+        return None;
+    }
+    postcard::to_allocvec(&borrowed).ok()
+}
+
 struct BoundedVec<T, const MAX: usize>(Vec<T>);
 impl<'de, T: Deserialize<'de>, const MAX: usize> Deserialize<'de> for BoundedVec<T, MAX> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -203,6 +251,7 @@ mod tests {
             world.step(0.35);
         }
         let raw = postcard::to_allocvec(&world.checkpoint()).unwrap();
+        assert_eq!(encode_browser_checkpoint(&world).unwrap(), raw);
         let restored = decode_browser_checkpoint(&raw).expect("valid streamed world");
         assert_eq!(restored.checkpoint(), world.checkpoint());
     }
@@ -274,6 +323,10 @@ mod tests {
             "desktop format accepts the sparse fixture"
         );
         assert!(decode_browser_checkpoint(&raw).is_none());
+
+        let too_many: WorldCheckpoint = postcard::from_bytes(&raw).unwrap();
+        let too_many = too_many.into_world().unwrap();
+        assert!(encode_browser_checkpoint(&too_many).is_none());
 
         let malformed = BTreeMap::from([(
             (0i32, 0i32),
