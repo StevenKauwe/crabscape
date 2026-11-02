@@ -129,6 +129,43 @@ fn checksum(tick: u64, player_len: u32, raw_len: u32, raw: &[u8]) -> u32 {
     checksum.finalize()
 }
 
+/// Replace a desktop save without ever truncating the last good one. The
+/// temporary file is in the same directory so the final rename is atomic.
+/// A failed write or rename leaves the previous save untouched.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing save name")
+    })?;
+    let mut temporary = name.to_os_string();
+    temporary.push(format!(
+        ".tmp-{}-{}",
+        std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
+    let temporary = parent.join(temporary);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    let result = (|| {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(())
+    })();
+    drop(file);
+    let result = result.and_then(|()| std::fs::rename(&temporary, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +215,25 @@ mod tests {
         let mut oversized = bytes;
         oversized[20..24].copy_from_slice(&((MAX_RAW + 1) as u32).to_le_bytes());
         assert!(matches!(decode(&oversized), Err(Error::TooLarge)));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn atomic_write_replaces_a_complete_save() {
+        let directory =
+            std::env::temp_dir().join(format!("crabscape-save-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("world");
+        std::fs::write(&path, b"old save").unwrap();
+        write_atomic(&path, b"new save").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new save");
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        let occupied = directory.join("occupied");
+        std::fs::create_dir(&occupied).unwrap();
+        std::fs::write(occupied.join("keep"), b"old").unwrap();
+        assert!(write_atomic(&occupied, b"new").is_err());
+        assert_eq!(std::fs::read(occupied.join("keep")).unwrap(), b"old");
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 2);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
