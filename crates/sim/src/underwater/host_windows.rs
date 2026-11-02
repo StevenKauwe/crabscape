@@ -99,9 +99,12 @@ impl World {
 
     /// Apply player wakes, jump downwash, digging, and walking brushes while stepping
     /// host terrain. Every interest must have one matching player. Player
-    /// bodies must be disjoint, entirely water, and away from window edges.
-    /// A body temporarily blocks fluid and sediment as solid cells, so this
-    /// method deliberately rejects players already embedded in terrain.
+    /// bodies must be disjoint and away from window edges. Loose sediment
+    /// inside a body is cleared with that player's dig force before stepping;
+    /// jumping or upward motion also clears upwards using the solo force.
+    /// rock, embedded pebbles, insufficient force, or more than two bodies
+    /// in an embedded window are rejected. Bodies temporarily block fluid
+    /// and sediment as solid cells, which is only an approximation.
     pub fn step_host_players(
         &mut self,
         level: &crate::Level,
@@ -319,7 +322,10 @@ impl World {
                             *self = original;
                             return Err(HostStepError::UnsupportedPlayer);
                         };
-                        if self.cells[i] != Cell::Water || !occupied.insert(i) {
+                        if self.cells[i] == Cell::Rock
+                            || self.pebble_owner[i] != 0
+                            || !occupied.insert(i)
+                        {
                             *self = original;
                             return Err(HostStepError::UnsupportedPlayer);
                         }
@@ -327,6 +333,53 @@ impl World {
                     }
                 }
                 bodies.push((*player, x, y, hx, hy, body_cells));
+            }
+            let any_embedded = bodies
+                .iter()
+                .any(|body| body.5.iter().any(|&i| self.cells[i] != Cell::Water));
+            if any_embedded && bodies.len() > 2 {
+                *self = original;
+                return Err(HostStepError::UnsupportedPlayer);
+            }
+            // Clear every embedded footprint before turning any body into a
+            // temporary solid. For the supported two-player case the other
+            // body's whole rectangle is protected during the search, even
+            // when it too still contains sediment. Owned pebbles in a body
+            // are rejected above until whole-aggregate clearing is supported.
+            for (index, (player, x, y, hx, hy, body_cells)) in bodies.iter().enumerate() {
+                if !body_cells.iter().any(|&i| self.cells[i] != Cell::Water) {
+                    continue;
+                }
+                let Some(dig) = player.dig.or_else(|| {
+                    (player.jumped || player.wake_y > 0.0).then_some(HostDig {
+                        dx: 0,
+                        dy: 1,
+                        force: 48,
+                    })
+                }) else {
+                    *self = original;
+                    return Err(HostStepError::UnsupportedPlayer);
+                };
+                let protected = bodies
+                    .iter()
+                    .enumerate()
+                    .find(|(n, _)| *n != index)
+                    .map(|(_, other)| (other.1, other.2, other.3, other.4));
+                self.set_game_crab(*x as f32, *y as f32, *hx as f32, *hy as f32);
+                let cleared = self.push_body(
+                    *x as f32,
+                    *y as f32,
+                    i32::from(dig.dx),
+                    i32::from(dig.dy),
+                    usize::from(dig.force),
+                    true,
+                    protected,
+                );
+                self.clear_game_crab();
+                if !cleared || body_cells.iter().any(|&i| self.cells[i] != Cell::Water) {
+                    *self = original;
+                    return Err(HostStepError::UnsupportedPlayer);
+                }
             }
             for &i in &occupied {
                 self.cells[i] = Cell::Rock;
@@ -667,6 +720,170 @@ mod tests {
                         world.cell(x, y),
                         Cell::Water,
                         "digging displaced material into another crab"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn two_embedded_diggers_clear_cavities_without_destroying_sediment() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        clear_for_player(&mut world, 300, 300);
+        clear_for_player(&mut world, 308, 300);
+        for (cx, material) in [(300, Cell::Sand), (308, Cell::Mud)] {
+            let i = World::index(cx, 300).unwrap();
+            world.cells[i] = material;
+            world.grain[i] = 120;
+        }
+        let interests = [interest(1, 4, 4), interest(2, 4, 4)];
+        let mut players = [player(1, 300, 300), player(2, 308, 300)];
+        for p in &mut players {
+            p.wake_x = 0.0;
+            p.wake_y = 0.0;
+            p.walking = 0;
+            p.jumped = false;
+            p.dig = Some(dig_right(48));
+        }
+        let before = sediment(&world);
+        let mut reversed = world.clone();
+        world
+            .step_host_players(&level, &interests, 0.35, &players)
+            .unwrap();
+        reversed
+            .step_host_players(
+                &level,
+                &[interests[1], interests[0]],
+                0.35,
+                &[players[1], players[0]],
+            )
+            .unwrap();
+        assert_eq!(world, reversed, "clearing order follows player IDs");
+        assert_eq!(sediment(&world), before);
+        for cx in [300, 308] {
+            for x in cx - 2..=cx + 2 {
+                for y in 298..=302 {
+                    assert_eq!(
+                        world.cell(x, y),
+                        Cell::Water,
+                        "body remains blocked at {x},{y}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn embedded_bodies_reject_insufficient_force_rock_and_owned_pebbles_atomically() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        clear_for_player(&mut world, 300, 300);
+        clear_for_player(&mut world, 308, 300);
+        let left = World::index(300, 300).unwrap();
+        let right = World::index(308, 300).unwrap();
+        world.cells[left] = Cell::Sand;
+        world.cells[right] = Cell::Mud;
+        let interests = [interest(1, 4, 4), interest(2, 4, 4)];
+        let mut players = [player(1, 300, 300), player(2, 308, 300)];
+        players[0].dig = Some(dig_right(48));
+        players[1].dig = Some(dig_right(1));
+        let unchanged = world.clone();
+        assert_eq!(
+            world.step_host_players(&level, &interests, 0.35, &players),
+            Err(HostStepError::UnsupportedPlayer)
+        );
+        assert_eq!(
+            world, unchanged,
+            "the first player's partial excavation was rolled back"
+        );
+
+        world.cells[left] = Cell::Rock;
+        let unchanged = world.clone();
+        players[1].dig = Some(dig_right(48));
+        assert_eq!(
+            world.step_host_players(&level, &interests, 0.35, &players),
+            Err(HostStepError::UnsupportedPlayer)
+        );
+        assert_eq!(world, unchanged, "hard rock cannot be displaced");
+
+        world.cells[left] = Cell::Water;
+        assert!(world.add_pebble(299, 299, 4, 250));
+        let unchanged = world.clone();
+        assert_eq!(
+            world.step_host_players(&level, &interests, 0.35, &players),
+            Err(HostStepError::UnsupportedPlayer)
+        );
+        assert_eq!(world, unchanged, "owned pebbles cannot be split or erased");
+    }
+
+    #[test]
+    fn upward_motion_clears_an_embedded_body_without_a_dig_button() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        clear_for_player(&mut world, 300, 300);
+        let center = World::index(300, 300).unwrap();
+        world.cells[center] = Cell::Sand;
+        let interests = [interest(1, 4, 4)];
+        let mut swimmer = player(1, 300, 300);
+        swimmer.dig = None;
+        swimmer.jumped = false;
+        swimmer.walking = 0;
+        swimmer.wake_y = -0.5;
+        let unchanged = world.clone();
+        assert_eq!(
+            world.step_host_players(&level, &interests, 0.35, &[swimmer]),
+            Err(HostStepError::UnsupportedPlayer)
+        );
+        assert_eq!(world, unchanged);
+        swimmer.wake_y = 0.5;
+        let before = sediment(&world);
+        world
+            .step_host_players(&level, &interests, 0.35, &[swimmer])
+            .unwrap();
+        assert_eq!(world.cell(300, 300), Cell::Water);
+        assert_eq!(sediment(&world), before);
+    }
+
+    #[test]
+    fn separated_embedded_players_clear_both_windows() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        let interests = [interest(1, 4, 4), interest(2, 29, 4)];
+        world.step_host_interests(&level, &interests, 0.35).unwrap();
+        for origin in [(0, 0), (1600, 0)] {
+            world.shift_window(&level, origin);
+            clear_for_player(&mut world, 300, 300);
+            let i = World::index(300, 300).unwrap();
+            world.cells[i] = Cell::Mud;
+            world.grain[i] = 120;
+        }
+        world.shift_window(&level, (0, 0));
+        let mut players = [player(1, 300, 300), player(2, 1900, 300)];
+        for p in &mut players {
+            p.wake_x = 0.0;
+            p.wake_y = 0.0;
+            p.walking = 0;
+            p.jumped = false;
+            p.dig = Some(dig_right(48));
+        }
+        let before = sediment(&world);
+        world
+            .step_host_players(&level, &interests, 0.35, &players)
+            .unwrap();
+        assert_eq!(sediment(&world), before);
+        for origin in [(0, 0), (1600, 0)] {
+            world.shift_window(&level, origin);
+            for x in 298..=302 {
+                for y in 298..=302 {
+                    assert_eq!(
+                        world.cell(x, y),
+                        Cell::Water,
+                        "body remains blocked in {origin:?}"
                     );
                 }
             }
