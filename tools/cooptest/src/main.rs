@@ -573,7 +573,18 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 13] = [
+const SCENARIOS: [(&str, &str, u32); 16] = [
+    ("cell-probe", "developer shadow terrain WebRTC transfer", 40),
+    (
+        "cell-probe-disconnect",
+        "developer shadow transfer aborts on disconnect",
+        45,
+    ),
+    (
+        "cell-probe-loss",
+        "developer shadow transfer stops on lost acknowledgements",
+        45,
+    ),
     (
         "join",
         "a friend opening your link plays with you, and chat reaches them",
@@ -670,6 +681,72 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
+        "cell-probe" | "cell-probe-loss" | "cell-probe-disconnect" => {
+            host.open(&site.url(""))?;
+            let code = host.invite()?;
+            if name != "cell-probe" {
+                guest.open(&site.url(""))?;
+                guest
+                    .b
+                    .eval("sessionStorage.setItem('__cell_probe_drop_ack','1')")?;
+            }
+            guest.open(&site.url(&format!("join={code}")))?;
+            together(&mut [&mut host, &mut guest], limit::MEET)?;
+            if name == "cell-probe-disconnect" {
+                host.until(10.0, "probe running", |p| {
+                    p.b.attr("data-cell-transport-probe").as_deref() == Some("running")
+                })?;
+                guest.b.go("about:blank")?;
+                host.until(20.0, "probe abandoned on disconnect", |p| {
+                    matches!(
+                        p.b.attr("data-cell-transport-probe").as_deref(),
+                        Some("disconnected" | "host-changed")
+                    )
+                })?;
+                if host.world() != "host" {
+                    return Err("host lost its own world on guest disconnect".into());
+                }
+                found.push("shadow probe abandoned; host retained its world".into());
+                return Ok(found);
+            }
+            let expected = if name == "cell-probe" {
+                "complete"
+            } else {
+                "timeout"
+            };
+            if let Err(error) = host.until(120.0, expected, |p| {
+                matches!(
+                    p.b.attr("data-cell-transport-probe").as_deref(),
+                    Some(
+                        "complete"
+                            | "timeout"
+                            | "rejected"
+                            | "host-changed"
+                            | "send-failed"
+                            | "disconnected"
+                    )
+                )
+            }) {
+                return Err(format!(
+                    "{error}; probe status: host {:?}, guest {:?}",
+                    host.b.attr("data-cell-transport-probe"),
+                    guest.b.attr("data-cell-transport-probe")
+                ));
+            }
+            if host.b.attr("data-cell-transport-probe").as_deref() != Some(expected) {
+                return Err(format!(
+                    "probe failed: host {:?}, guest {:?}",
+                    host.b.attr("data-cell-transport-probe"),
+                    guest.b.attr("data-cell-transport-probe")
+                ));
+            }
+            if name == "cell-probe" {
+                guest.until(5.0, "guest probe completion", |p| {
+                    p.b.attr("data-cell-transport-probe").as_deref() == Some("complete")
+                })?;
+            }
+            found.push(format!("isolated shadow transfer: {expected}"));
+        }
         "join" => {
             host.open(&site.url(""))?;
             let code = host.invite()?;
@@ -1281,7 +1358,9 @@ fn main() {
         let names: Vec<&str> = SCENARIOS
             .iter()
             .map(|(n, _, _)| *n)
-            .filter(|n| a.only.is_empty() || a.only.iter().any(|o| o == n))
+            .filter(|n| {
+                (!n.starts_with("cell-probe") && a.only.is_empty()) || a.only.iter().any(|o| o == n)
+            })
             .filter(|n| part.as_ref().is_none_or(|p| p.contains(n)))
             .collect();
         if names.is_empty() {

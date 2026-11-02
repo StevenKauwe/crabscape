@@ -144,6 +144,12 @@ pub enum Msg {
     CellTerrain(#[serde(deserialize_with = "cell_transfer::deserialize_fragment")] Vec<u8>),
     /// An experimental ordered terrain frame; normal gameplay ignores it.
     CellFrame(#[serde(deserialize_with = "cell_join::lockstep::deserialize_frame")] Vec<u8>),
+    /// Experimental stop-and-wait checkpoint acknowledgement; ignored by gameplay.
+    CellTerrainAck { transfer: u64, piece: u32 },
+    /// Experimental acknowledgement for one ordered terrain frame.
+    CellFrameAck { epoch: u64, frame: u64 },
+    /// Test-only shadow probe ready signal; gameplay ignores it.
+    CellProbeReady,
 }
 
 /// The longest name, in characters: short enough to sit over a crab.

@@ -648,7 +648,13 @@ impl Sim {
             // Terrain transfer has no world-install path yet. Until host
             // authority and complete checkpoint validation are wired up,
             // receiving a fragment cannot change the simulation.
-            Msg::Name { .. } | Msg::Chat(_) | Msg::CellTerrain(_) | Msg::CellFrame(_) => {}
+            Msg::Name { .. }
+            | Msg::Chat(_)
+            | Msg::CellTerrain(_)
+            | Msg::CellFrame(_)
+            | Msg::CellTerrainAck { .. }
+            | Msg::CellFrameAck { .. }
+            | Msg::CellProbeReady => {}
         }
     }
 

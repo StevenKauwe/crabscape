@@ -476,6 +476,12 @@ fn accepts_cell_terrain(
     select_host(host, &claims).is_some_and(|selected| selected.connection == connection)
 }
 
+#[cfg(all(
+    feature = "cellular-transport-probe",
+    any(target_arch = "wasm32", test)
+))]
+mod probe;
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) use web::{in_room, introducer, players};
 
@@ -581,6 +587,53 @@ mod web {
         peers: Vec<Peer>,
         /// Messages for a player whose device we can't tell yet.
         waiting: Vec<(PlayerId, Packet, usize)>,
+        #[cfg(feature = "cellular-transport-probe")]
+        probe: Option<super::probe::Probe>,
+        #[cfg(feature = "cellular-transport-probe")]
+        probe_started: f64,
+        #[cfg(feature = "cellular-transport-probe")]
+        probe_attempted: bool,
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_status(value: &str) {
+        if let Some(canvas) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("crabscape"))
+        {
+            let _ = canvas.set_attribute("data-cell-transport-probe", value);
+        }
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_drop_ack(msg: &Msg) -> bool {
+        matches!(msg, Msg::CellTerrainAck { .. } | Msg::CellFrameAck { .. })
+            && web_sys::window()
+                .and_then(|w| w.session_storage().ok().flatten())
+                .and_then(|s| s.get_item("__cell_probe_drop_ack").ok().flatten())
+                .as_deref()
+                == Some("1")
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_source(link: &Link, id: PeerId) -> Option<crabsim::net::cell_join::Peer> {
+        use crabsim::net::cell_join::{Peer, select_host};
+        let peer = link
+            .peers
+            .iter()
+            .find(|p| p.id == id && p.same_version())?
+            .said?;
+        let claims: Vec<_> = link
+            .peers
+            .iter()
+            .filter(|p| p.same_version())
+            .filter_map(|p| p.said)
+            .map(|p| Peer {
+                player: p.crab,
+                connection: p.conn,
+            })
+            .collect();
+        select_host(peer.crab, &claims).filter(|p| p.connection == id.0.as_u128())
     }
 
     thread_local! {
@@ -844,6 +897,12 @@ mod web {
                 me: None,
                 peers: Vec::new(),
                 waiting: Vec::new(),
+                #[cfg(feature = "cellular-transport-probe")]
+                probe: None,
+                #[cfg(feature = "cellular-transport-probe")]
+                probe_started: 0.0,
+                #[cfg(feature = "cellular-transport-probe")]
+                probe_attempted: false,
             })
         });
     }
@@ -1012,6 +1071,67 @@ mod web {
             if link.me.is_none() {
                 link.me = link.socket.id();
             }
+            #[cfg(feature = "cellular-transport-probe")]
+            {
+                if link
+                    .probe
+                    .as_ref()
+                    .is_some_and(|probe| !probe.complete() && now - link.probe_started > 15.0)
+                {
+                    link.probe = None;
+                    probe_status("timeout");
+                }
+                if let Some(probe) = link.probe.as_ref()
+                    && !probe.complete()
+                {
+                    let selected = link
+                        .peers
+                        .iter()
+                        .find(|p| p.id.0.as_u128() == probe.peer().connection)
+                        .and_then(|p| probe_source(link, p.id));
+                    let role_matches = match hosting {
+                        Hosting::Me => host,
+                        Hosting::Friend(id) => !host && id == probe.peer().player,
+                        Hosting::Nobody => false,
+                    };
+                    if selected != Some(probe.peer()) || !role_matches {
+                        link.probe = None;
+                        probe_status("host-changed");
+                    }
+                }
+                if !link.probe_attempted
+                    && link.peers.iter().filter(|p| p.same_version()).count() == 1
+                    && let Hosting::Friend(host_id) = hosting
+                {
+                    let candidates: Vec<_> = link
+                        .peers
+                        .iter()
+                        .filter(|p| p.same_version())
+                        .filter_map(|p| {
+                            let claim = p.said?;
+                            (claim.crab == host_id).then_some(p.id)
+                        })
+                        .collect();
+                    if candidates.len() == 1
+                        && let Some(selected) = probe_source(link, candidates[0])
+                    {
+                        link.probe = Some(super::probe::Probe::guest(selected));
+                        link.probe_attempted = true;
+                        link.probe_started = now;
+                        if link
+                            .socket
+                            .channel_mut(RELIABLE)
+                            .try_send(Msg::CellProbeReady.to_bytes().into(), candidates[0])
+                            .is_err()
+                        {
+                            link.probe = None;
+                            probe_status("send-failed");
+                        } else {
+                            probe_status("running");
+                        }
+                    }
+                }
+            }
             let mut gone = Vec::new();
             for (peer, state) in changes {
                 match state {
@@ -1028,7 +1148,18 @@ mod web {
                         // First of all, on the reliable channel: which version this game is, and who it is here.
                         link.send(peer, hello(VERSION, me.0, host, met_here).into(), RELIABLE);
                     }
-                    PeerState::Disconnected => gone.push(peer),
+                    PeerState::Disconnected => {
+                        #[cfg(feature = "cellular-transport-probe")]
+                        if link
+                            .probe
+                            .as_ref()
+                            .is_some_and(|p| p.peer().connection == peer.0.as_u128())
+                        {
+                            link.probe = None;
+                            probe_status("disconnected");
+                        }
+                        gone.push(peer)
+                    }
                 }
             }
             let mut met = Vec::new();
@@ -1063,6 +1194,82 @@ mod web {
                     let Some(msg) = Msg::from_bytes(&bytes) else {
                         continue;
                     };
+                    #[cfg(feature = "cellular-transport-probe")]
+                    if matches!(
+                        msg,
+                        Msg::CellProbeReady
+                            | Msg::CellTerrain(_)
+                            | Msg::CellTerrainAck { .. }
+                            | Msg::CellFrame(_)
+                            | Msg::CellFrameAck { .. }
+                    ) {
+                        if channel != RELIABLE {
+                            continue;
+                        }
+                        let Some(source) = probe_source(link, peer) else {
+                            continue;
+                        };
+                        if matches!(msg, Msg::CellProbeReady) {
+                            if !host
+                                || link.probe_attempted
+                                || link.peers.iter().filter(|p| p.same_version()).count() != 1
+                            {
+                                continue;
+                            }
+                            if let Some((probe, first)) = super::probe::Probe::host(source) {
+                                link.probe = Some(probe);
+                                link.probe_attempted = true;
+                                link.probe_started = now;
+                                if link
+                                    .socket
+                                    .channel_mut(RELIABLE)
+                                    .try_send(first.to_bytes().into(), peer)
+                                    .is_err()
+                                {
+                                    link.probe = None;
+                                    probe_status("send-failed");
+                                } else {
+                                    probe_status("running");
+                                }
+                            }
+                        } else if let Some(probe) = link.probe.as_mut() {
+                            let role_matches = match hosting {
+                                Hosting::Me => host,
+                                Hosting::Friend(id) => !host && id == source.player,
+                                Hosting::Nobody => false,
+                            };
+                            if !role_matches {
+                                link.probe = None;
+                                probe_status("host-changed");
+                                continue;
+                            }
+                            match probe.receive(source, Some(source), &msg) {
+                                Ok(reply) => {
+                                    if probe.complete() {
+                                        probe_status("complete");
+                                    }
+                                    if let Some(reply) = reply {
+                                        link.probe_started = now;
+                                        if !probe_drop_ack(&reply)
+                                            && link
+                                                .socket
+                                                .channel_mut(RELIABLE)
+                                                .try_send(reply.to_bytes().into(), peer)
+                                                .is_err()
+                                        {
+                                            link.probe = None;
+                                            probe_status("send-failed");
+                                        }
+                                    }
+                                }
+                                Err(()) => {
+                                    link.probe = None;
+                                    probe_status("rejected");
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     // A friend's name is the game's to show, not a rule.
                     if let Msg::Name { crab, name } = &msg {
                         names.heard(*crab, name);

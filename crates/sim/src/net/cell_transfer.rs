@@ -37,6 +37,32 @@ pub struct Fragments<'a> {
 }
 
 impl<'a> Fragments<'a> {
+    pub(crate) fn piece(
+        id: u64,
+        bytes: &'a [u8],
+        index: u32,
+    ) -> Result<Option<Vec<u8>>, TransferError> {
+        if bytes.is_empty() {
+            return Err(TransferError::Empty);
+        }
+        if bytes.len() > MAX_CHECKPOINT_BYTES {
+            return Err(TransferError::TooLarge);
+        }
+        let Some(start) = (index as usize).checked_mul(PIECE_BYTES) else {
+            return Ok(None);
+        };
+        if start >= bytes.len() {
+            return Ok(None);
+        }
+        let end = (start + PIECE_BYTES).min(bytes.len());
+        let mut packet = Vec::with_capacity(HEADER + end - start);
+        packet.extend_from_slice(&id.to_le_bytes());
+        packet.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        packet.extend_from_slice(&index.to_le_bytes());
+        packet.extend_from_slice(&bytes[start..end]);
+        Ok(Some(packet))
+    }
+
     pub fn new(id: u64, bytes: &'a [u8]) -> Result<Self, TransferError> {
         if bytes.is_empty() {
             return Err(TransferError::Empty);
@@ -157,6 +183,14 @@ where
         }
     }
     deserializer.deserialize_seq(FragmentVisitor)
+}
+
+pub fn fragment_identity(packet: &[u8]) -> Result<(u64, u32), TransferError> {
+    let parsed = parse_fragment(packet)?;
+    Ok((
+        parsed.id,
+        u32::try_from(parsed.index).map_err(|_| TransferError::Malformed)?,
+    ))
 }
 
 /// Receives one transfer at a time. Each piece is stored only when received;

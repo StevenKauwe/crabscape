@@ -34,6 +34,10 @@ unimplemented = "deny"
 [lints]
 workspace = true
 
+[features]
+# Developer-only, shadow-world WebRTC transport probe. Never enables gameplay.
+cellular-transport-probe = []
+
 [dependencies]
 # The game rules. The `bevy` feature makes its types Bevy components/resources.
 crabsim = { path = "crates/sim", features = ["bevy"] }

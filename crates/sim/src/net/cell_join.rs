@@ -12,6 +12,7 @@
 //! a practical bound on peak phone memory. Chunk streaming is still needed.
 
 pub mod lockstep;
+pub mod paced;
 
 use crate::{
     Sim,
@@ -93,6 +94,12 @@ impl HostCheckpoint {
         bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&packed);
         Ok(Self { bytes })
+    }
+
+    pub(crate) fn piece(&self, id: u64, index: u32) -> Result<Option<Msg>, JoinError> {
+        Fragments::piece(id, &self.bytes, index)
+            .map(|piece| piece.map(Msg::CellTerrain))
+            .map_err(JoinError::Transfer)
     }
 
     /// The caller supplies increasing transfer IDs and sends these reliably.
