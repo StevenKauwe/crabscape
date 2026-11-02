@@ -21,6 +21,11 @@ use std::time::{Duration, Instant};
 
 use chrome::{Chrome, Options, Result};
 
+// Keep the pre-copy probe queue's platform-independent bounds in CI.
+#[cfg(test)]
+#[path = "../../../vendor/matchbox_socket/src/probe_ingress.rs"]
+mod probe_ingress_test;
+
 const HELP: &str = "\
 cargo cooptest [options]   play co-op in real browsers and check its promises
 
@@ -759,6 +764,19 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 guest.until(5.0, "guest probe completion", |p| {
                     p.b.attr("data-cell-transport-probe").as_deref() == Some("complete")
                 })?;
+            }
+            for p in [&mut host, &mut guest] {
+                let peak =
+                    p.b.attr("data-cell-probe-inbound-peak")
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .ok_or_else(|| "missing ingress peak".to_string())?;
+                if peak > 64 * 1024 {
+                    return Err(format!(
+                        "{} probe ingress exceeded 64 KiB: {peak}",
+                        p.name()
+                    ));
+                }
+                found.push(format!("{} ingress peak {peak} bytes", p.name()));
             }
             let transfer = host
                 .b

@@ -220,6 +220,26 @@ mod tests {
     use crabsim::PlayerId;
 
     #[test]
+    fn probe_ingress_tags_are_distinct_single_byte_and_cannot_be_hello() {
+        let messages = [
+            Msg::CellProbeReady,
+            Msg::CellTerrain(vec![]),
+            Msg::CellTerrainAck {
+                transfer: 0,
+                piece: 0,
+            },
+            Msg::CellFrame(vec![]),
+            Msg::CellFrameAck { epoch: 0, frame: 0 },
+        ];
+        let tags: std::collections::HashSet<_> = messages.iter().map(|m| m.to_bytes()[0]).collect();
+        assert_eq!(tags.len(), messages.len());
+        assert!(
+            tags.iter()
+                .all(|tag| *tag < 128 && *tag != super::super::HELLO[0])
+        );
+    }
+
+    #[test]
     fn windowed_shadow_probe_survives_reordered_acks_with_bounded_queue() {
         let host_peer = Peer {
             player: PlayerId(0),

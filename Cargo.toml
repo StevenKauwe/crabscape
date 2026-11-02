@@ -36,7 +36,7 @@ workspace = true
 
 [features]
 # Developer-only, shadow-world WebRTC transport probe. Never enables gameplay.
-cellular-transport-probe = []
+cellular-transport-probe = ["matchbox_socket/probe-ingress"]
 
 [dependencies]
 # The game rules. The `bevy` feature makes its types Bevy components/resources.

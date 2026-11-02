@@ -596,6 +596,13 @@ mod web {
     }
 
     #[cfg(feature = "cellular-transport-probe")]
+    impl Drop for Link {
+        fn drop(&mut self) {
+            matchbox_socket::probe_ingress::allow([]);
+        }
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
     fn probe_status(value: &str) {
         if let Some(canvas) = web_sys::window()
             .and_then(|w| w.document())
@@ -904,6 +911,21 @@ mod web {
 
     /// Join `code`'s room at the introducer.
     fn connect(code: &str) {
+        #[cfg(feature = "cellular-transport-probe")]
+        {
+            let messages = [
+                Msg::CellProbeReady,
+                Msg::CellTerrain(vec![]),
+                Msg::CellTerrainAck {
+                    transfer: 0,
+                    piece: 0,
+                },
+                Msg::CellFrame(vec![]),
+                Msg::CellFrameAck { epoch: 0, frame: 0 },
+            ];
+            let tags: Vec<_> = messages.iter().map(|m| m.to_bytes()[0]).collect();
+            matchbox_socket::probe_ingress::reset(&tags);
+        }
         let url = format!(
             "{}/{}",
             introducer(),
@@ -1190,11 +1212,32 @@ mod web {
                     }
                 }
             }
+            #[cfg(feature = "cellular-transport-probe")]
+            matchbox_socket::probe_ingress::allow(
+                link.peers
+                    .iter()
+                    .filter(|p| !gone.contains(&p.id))
+                    .map(|p| p.id),
+            );
             let mut met = Vec::new();
             let mut greet = Vec::new();
             let mut again = Vec::new();
             for channel in [RELIABLE, QUICK] {
-                for (peer, bytes) in link.socket.channel_mut(channel).receive() {
+                #[allow(unused_mut)]
+                let mut incoming = link.socket.channel_mut(channel).receive();
+                #[cfg(feature = "cellular-transport-probe")]
+                if channel == RELIABLE {
+                    let (packets, peak) = matchbox_socket::probe_ingress::drain();
+                    if let Some(canvas) = web_sys::window()
+                        .and_then(|w| w.document())
+                        .and_then(|d| d.get_element_by_id("crabscape"))
+                    {
+                        let _ =
+                            canvas.set_attribute("data-cell-probe-inbound-peak", &peak.to_string());
+                    }
+                    incoming.extend(packets);
+                }
+                for (peer, bytes) in incoming {
                     let Some(peer_index) = link.peers.iter().position(|p| p.id == peer) else {
                         continue;
                     };
