@@ -2,9 +2,9 @@
 //!
 //! Cells are uniquely owned by 64 × 64 tiles, and each tile reads its four
 //! neighbours from the previous complete field, including across tile seams.
-//! This is not yet a complete terrain simulator: its step rejects player
-//! reservations and incomplete aggregate footprints; it does not apply player
-//! forces, stream sleeping chunks, or run co-op.
+//! This is not yet a complete terrain simulator: its step supports one solo
+//! reservation but rejects incomplete aggregate footprints; it does not apply
+//! player forces, reserve multiple bodies, stream sleeping chunks, or run co-op.
 //! It must not replace the contiguous gameplay simulation.
 
 use super::{
@@ -35,7 +35,9 @@ pub struct ChunkFlow {
     pebbles: Vec<Pebble>,
     pebble_motion: Vec<(i8, i8, u8)>,
     silt: Vec<Silt>,
-    crab_reserved: bool,
+    crab: Option<(i32, i32)>,
+    crab_half_x: i32,
+    crab_half_y: i32,
     sand_properties: SedimentProperties,
     mud_properties: SedimentProperties,
 }
@@ -90,7 +92,9 @@ impl ChunkFlow {
             pebbles: world.pebbles.clone(),
             pebble_motion: world.pebble_motion.clone(),
             silt: world.silt.clone(),
-            crab_reserved: world.crab.is_some(),
+            crab: world.crab,
+            crab_half_x: world.crab_half_x,
+            crab_half_y: world.crab_half_y,
             sand_properties: world.sand_properties,
             mud_properties: world.mud_properties,
         }
@@ -200,6 +204,24 @@ impl ChunkFlow {
         }
     }
 
+    fn supported_crab(&self) -> bool {
+        self.crab.is_none_or(|(x, y)| {
+            (-1000..=WIDTH as i32 + 1000).contains(&x)
+                && (-1000..=HEIGHT as i32 + 1000).contains(&y)
+                && (0..=1000).contains(&self.crab_half_x)
+                && (0..=1000).contains(&self.crab_half_y)
+        })
+    }
+
+    fn can_receive_grain(&self, x: i32, y: i32) -> bool {
+        Self::signed_location(x, y).is_some_and(|(c, i)| {
+            self.chunks[c].cells[i] == Cell::Water
+                && !self.crab.is_some_and(|(cx, cy)| {
+                    (x - cx).abs() <= self.crab_half_x + 4 && (y - cy).abs() <= self.crab_half_y + 4
+                })
+        })
+    }
+
     /// Advance an intentionally restricted sediment slice of the material
     /// step. The whole operation is transactional. Any condition that needs
     /// unimplemented physics returns `Unsupported` without changing state.
@@ -207,7 +229,7 @@ impl ChunkFlow {
         if !current.is_finite() || self.tick == u64::MAX {
             return Err(SedimentStepError::Invalid);
         }
-        if self.crab_reserved
+        if !self.supported_crab()
             || !self.supported_pebbles()
             || self.tick + 1 > u64::MAX - self.pebbles.len() as u64
         {
@@ -292,7 +314,7 @@ impl ChunkFlow {
                     && flow_strength > threshold
                     && phase_due(tick, world_x * 13, properties.erosion_interval.max(1))
                     && let Some(to) = Self::signed_location(x as i32 + drift, y as i32 + 1)
-                    && next.chunks[to.0].cells[to.1] == Cell::Water
+                    && next.can_receive_grain(x as i32 + drift, y as i32 + 1)
                     && next.cell(x, y + 1) == Some(Cell::Water)
                 {
                     next.swap_material((chunk, slot), to);
@@ -331,7 +353,7 @@ impl ChunkFlow {
                     };
                     if (drift != 0 || dy != 0)
                         && let Some(to) = Self::signed_location(x as i32 + drift, y as i32 + dy)
-                        && next.chunks[to.0].cells[to.1] == Cell::Water
+                        && next.can_receive_grain(x as i32 + drift, y as i32 + dy)
                     {
                         next.swap_material((chunk, slot), to);
                         moved[to.0][to.1] = true;
@@ -382,7 +404,7 @@ impl ChunkFlow {
                     let Some(to) = Self::signed_location(x as i32 + dx, y as i32 + dy) else {
                         continue;
                     };
-                    if next.chunks[to.0].cells[to.1] != Cell::Water {
+                    if !next.can_receive_grain(x as i32 + dx, y as i32 + dy) {
                         continue;
                     }
                     next.swap_material((chunk, slot), to);
@@ -397,11 +419,31 @@ impl ChunkFlow {
                     break;
                 }
                 if !did_move
+                    && let Some((cx, cy)) = next.crab
+                    && y as i32 > cy
+                    && let Some((below_c, below_i)) = Self::signed_location(x as i32, y as i32 - 1)
+                    && next.chunks[below_c].cells[below_i] == Cell::Water
+                    && !next.can_receive_grain(x as i32, y as i32 - 1)
+                {
+                    let side = if (x as i32) < cx { -1 } else { 1 };
+                    for dx in [side, -side] {
+                        if let Some(to) = Self::signed_location(x as i32 + dx, y as i32)
+                            && next.chunks[to.0].cells[to.1] == Cell::Water
+                            && (x as i32 + dx - cx).abs() > (x as i32 - cx).abs()
+                        {
+                            next.swap_material((chunk, slot), to);
+                            moved[to.0][to.1] = true;
+                            did_move = true;
+                            break;
+                        }
+                    }
+                }
+                if !did_move
                     && drift != 0
                     && tick.is_multiple_of(8)
                     && next.cell(x, y + 1) == Some(Cell::Water)
                     && let Some(to) = Self::signed_location(x as i32 + drift, y as i32)
-                    && next.chunks[to.0].cells[to.1] == Cell::Water
+                    && next.can_receive_grain(x as i32 + drift, y as i32)
                 {
                     next.swap_material((chunk, slot), to);
                     moved[to.0][to.1] = true;
@@ -502,7 +544,7 @@ impl ChunkFlow {
     /// deliberately rejects crab reservations, push chains and other solids;
     /// it does not yet implement the complete pebble step or force budget.
     pub fn move_unobstructed_pebble(&mut self, id: u16, dx: i32, dy: i32) -> bool {
-        if self.crab_reserved || !matches!((dx, dy), (1, 0) | (-1, 0) | (0, 1) | (0, -1)) {
+        if self.crab.is_some() || !matches!((dx, dy), (1, 0) | (-1, 0) | (0, 1) | (0, -1)) {
             return false;
         }
         self.move_pebble_water(id, dx, dy)
@@ -535,10 +577,18 @@ impl ChunkFlow {
                 }
                 let (dest_chunk, dest_slot) = Self::locate(nx as usize, ny as usize);
                 let dest = &self.chunks[dest_chunk];
-                if dest.owner[dest_slot] != id
-                    && (dest.owner[dest_slot] != 0 || dest.cells[dest_slot] != Cell::Water)
-                {
-                    return false;
+                if dest.owner[dest_slot] != id {
+                    let water = dest.cells[dest_slot] == Cell::Water && dest.owner[dest_slot] == 0;
+                    let moving_away = self.crab.is_some_and(|(cx, cy)| {
+                        let outside = (nx - cx).abs() > self.crab_half_x
+                            || (ny - cy).abs() > self.crab_half_y;
+                        let away =
+                            (pebble.x + side / 2 - cx) * dx + (pebble.y + side / 2 - cy) * dy;
+                        outside && away > 0
+                    });
+                    if !water || !(self.can_receive_grain(nx, ny) || moving_away) {
+                        return false;
+                    }
                 }
             }
         }
@@ -698,7 +748,7 @@ impl ChunkFlow {
     /// Isolated, transactional whole-aggregate push, with the reference's
     /// force costs and order. Bodies and long chains remain unsupported.
     pub fn push_pebble_chain(&mut self, id: u16, dx: i32, dy: i32, force: usize) -> bool {
-        if self.crab_reserved
+        if self.crab.is_some()
             || !matches!((dx, dy), (1, 0) | (-1, 0) | (0, 1) | (0, -1))
             || force == usize::MAX
         {
@@ -1583,6 +1633,94 @@ mod tests {
     }
 
     #[test]
+    fn single_body_reservation_matches_solo_sediment_and_pebble_step() {
+        let mut reference = sand_fixture(-200);
+        reference.cells.fill(Cell::Water);
+        reference.flow.fill((0.0, 0.0));
+        reference.set_game_crab(64.0, 64.0, 3.0, 3.0);
+        reference.mud_properties.erosion_threshold = 10.0;
+        assert!(reference.add_pebble(60, 73, 2, 250));
+        for (x, y, material) in [
+            (64, 72, Cell::Sand),
+            (66, 72, Cell::Mud),
+            (65, 70, Cell::Mud),
+        ] {
+            let i = World::index(x, y).unwrap();
+            reference.cells[i] = material;
+            reference.grain[i] = 90;
+        }
+        let mut chunked = ChunkFlow::from_world(&reference);
+        let mut replay = chunked.clone();
+        let counts = |w: &World, material| w.cells.iter().filter(|&&c| c == material).count();
+        let sand = counts(&reference, Cell::Sand);
+        let mud = counts(&reference, Cell::Mud);
+        for step in 0..6 {
+            reference.tick += 1;
+            reference.step_material(0.0);
+            assert_eq!(chunked.step_sediment(0.0), Ok(()));
+            assert_eq!(replay.step_sediment(0.0), Ok(()));
+            compare(&reference, &chunked);
+            assert_eq!(reference.pebbles, chunked.pebbles);
+            assert_eq!(reference.pebble_motion, chunked.pebble_motion);
+            assert!(chunked == replay);
+            assert_eq!(counts(&reference, Cell::Sand), sand);
+            assert_eq!(counts(&reference, Cell::Mud), mud);
+            if step == 0 {
+                assert_eq!(
+                    chunked.cell(65, 72),
+                    Some(Cell::Sand),
+                    "sand slides aside off the body's protected area"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn body_reservation_matches_solo_with_entrained_and_suspended_mud() {
+        let mut reference = sand_fixture(-200);
+        reference.cells.fill(Cell::Water);
+        reference.flow.fill((1.0, 0.5));
+        reference.set_game_crab(64.0, 64.0, 3.0, 3.0);
+        reference.mud_properties.erosion_threshold = 0.01;
+        reference.mud_properties.density_resistance = 0.0;
+        reference.mud_properties.erosion_interval = 1;
+        for (x, y, suspended) in [(62, 69, 0), (65, 69, 3), (64, 72, 0)] {
+            let i = World::index(x, y).unwrap();
+            reference.cells[i] = Cell::Mud;
+            reference.grain[i] = 40;
+            reference.suspended[i] = suspended;
+        }
+        let mut chunked = ChunkFlow::from_world(&reference);
+        for _ in 0..4 {
+            reference.tick += 1;
+            reference.step_material(0.0);
+            assert_eq!(chunked.step_sediment(0.0), Ok(()));
+            compare(&reference, &chunked);
+            assert_eq!(
+                reference.cells.iter().filter(|&&c| c == Cell::Mud).count(),
+                3
+            );
+        }
+    }
+
+    #[test]
+    fn reserved_body_allows_an_aggregate_to_move_away_like_solo() {
+        let mut reference = sand_fixture(0);
+        reference.cells.fill(Cell::Water);
+        reference.set_game_crab(64.0, 64.0, 3.0, 3.0);
+        assert!(reference.add_pebble(62, 70, 2, 250));
+        reference.pebble_motion[0] = (0, 1, 1);
+        let mut chunked = ChunkFlow::from_world(&reference);
+        reference.tick += 1;
+        reference.step_material(0.0);
+        assert_eq!(chunked.step_sediment(0.0), Ok(()));
+        compare(&reference, &chunked);
+        assert_eq!(chunked.pebbles, reference.pebbles);
+        assert_eq!(chunked.pebble_motion, reference.pebble_motion);
+        assert_eq!(chunked.pebbles[0].y, 71);
+    }
+
+    #[test]
     fn generated_terrain_step_matches_contiguous_reference() {
         let level = crate::Level::test_level();
         let mut reference = World::from_level_settled(&level);
@@ -1668,7 +1806,7 @@ mod tests {
         assert!(chunked == before);
 
         let mut world = sand_fixture(0);
-        world.crab = Some((100, 100));
+        world.crab = Some((i32::MAX, 100));
         let mut chunked = ChunkFlow::from_world(&world);
         let before = chunked.clone();
         assert_eq!(

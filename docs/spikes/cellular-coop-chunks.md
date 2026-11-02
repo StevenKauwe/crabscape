@@ -35,8 +35,8 @@ The first isolated chunk-native primitives reproduce the existing flow
 diffusion phase, move unobstructed whole pebbles and bounded push chains across chunk seams, and
 advance guarded sand and mud, including cohesion, suspension, entrainment,
 and sediment wakes, in the same global order as the contiguous reference.
-The integrated material step handles complete in-window aggregates, and rejects
-body reservations and incomplete aggregate footprints. It does not run
+The integrated material step handles complete in-window aggregates and one
+solo body reservation, and rejects incomplete aggregate footprints. It does not run
 the full gameplay simulation, player-driven pushes,
 forces, inactive chunks or a shared game. In a 20-step release desktop test
 over one full 640 × 360 region, contiguous diffusion averaged 8.54 ms/step
@@ -187,8 +187,7 @@ The guarded chunk material step now runs diffusion, aggregate motion and loose
 sediment in the same order as the contiguous step. A generated settled level
 with aggregates matched the reference for one step; a mixed sand/mud and
 two-pebble seam fixture matched for six, including an impulse, wake, particle
-state, aggregate ownership and deterministic replay. Incomplete/offscreen
-aggregate footprints and player reservations reject the entire step; actual
+state, aggregate ownership and deterministic replay. Incomplete/offscreen aggregate footprints reject the entire step; actual
 streaming commonly requires such footprints, so this is not a full-world
 solution. Two desktop release runs of ten generated-level steps including
 fixture reset clones measured 97.4/92.8 ms contiguous and 95.4/98.2 ms
@@ -196,3 +195,12 @@ chunked. The chunk field occupies 3.19 MB, but both reset and transactional
 step clones, flow and movement scratch, particles and the reference world add
 more; peak process memory could not be measured in the sandbox. These results
 do not establish phone suitability or a complete multiplayer simulation.
+
+The material step additionally matches the solo simulator's one-body protected
+area: grains cannot enter it except for the existing slide-off behavior, and
+nearby aggregates may move away from the crab. Focused seam fixtures compare
+sand, cohesive and suspended mud, strong-flow entrainment, and pebble impulses
+over multiple ticks. This is a stationary reservation copied from one solo
+world, not support for player forces, jumping, digging, multiple reservations,
+or resolving overlaps. Those interactions still need explicit synchronized
+semantics and parity tests before co-op can use this step.
