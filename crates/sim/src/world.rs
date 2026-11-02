@@ -655,7 +655,8 @@ impl Sim {
             | Msg::CellTerrainAck { .. }
             | Msg::CellFrameAck { .. }
             | Msg::CellProbeReady
-            | Msg::CellWalkInput { .. } => {}
+            | Msg::CellWalkInput { .. }
+            | Msg::CellDownInput { .. } => {}
         }
     }
 
@@ -959,14 +960,18 @@ impl Sim {
         let mut remaining = crab.controls;
         let walk = remaining.walk;
         let digging = remaining.dig_held;
+        let down = digging && remaining.down;
         remaining.walk = 0.0;
         remaining.dig_held = false;
+        if down {
+            remaining.down = false;
+        }
         let velocity = crab.mover.vel;
         if crab.remote
             || remaining != Controls::default()
             || !walk.is_finite()
             || !(-1.0..=1.0).contains(&walk)
-            || (digging && walk.abs() <= 0.1)
+            || (digging && !down && walk.abs() <= 0.1)
             || crab.events.jumped
             || !velocity.is_finite()
             || velocity.y > 0.0
@@ -997,8 +1002,8 @@ impl Sim {
             grounded: crab.mover.grounded,
             jumped: false,
             dig: digging.then_some(crate::underwater::HostDig {
-                dx: walk.signum() as i8,
-                dy: 0,
+                dx: if down { 0 } else { walk.signum() as i8 },
+                dy: if down { -1 } else { 0 },
                 force: 48,
             }),
         })
@@ -1109,15 +1114,19 @@ impl Sim {
             .expect("one local crab checked");
         let mut controls = crab.controls;
         let digging = controls.dig_held;
+        let down = digging && controls.down;
         controls.walk = 0.0;
         controls.dig_held = false;
+        if down {
+            controls.down = false;
+        }
         if controls != Controls::default()
             || crab.events.jumped
             || !crab.mover.vel.is_finite()
             || crab.mover.vel.y > 0.0
             || !crab.controls.walk.is_finite()
             || crab.controls.walk.abs() > 1.0
-            || (digging && crab.controls.walk.abs() <= 0.1)
+            || (digging && !down && crab.controls.walk.abs() <= 0.1)
         {
             return false;
         }
@@ -1247,10 +1256,14 @@ impl Sim {
                     {
                         cells.push_for_crab(x, y + 4.0, 0, 1, 48);
                     } else if self.tick.is_multiple_of(4) && digging && crab.controls.down {
-                        cells.swoop_dig_pebbles(48);
-                        // Probe two cells ahead: a layer of sand over a
-                        // pebble must not hide the pebble from the push.
-                        cells.push_for_crab(x, y - 2.0, 0, -1, 48);
+                        if let Some(remote) = remote_walk {
+                            if !cells.dig_primary_shared(&remote, x, y - 2.0, 0, -1) {
+                                return false;
+                            }
+                        } else {
+                            cells.swoop_dig_pebbles(48);
+                            cells.push_for_crab(x, y - 2.0, 0, -1, 48);
+                        }
                     } else if self.tick.is_multiple_of(4) && digging && walk.abs() > 0.1 {
                         if let Some(remote) = remote_walk {
                             if !cells.dig_primary_shared(
@@ -1258,6 +1271,7 @@ impl Sim {
                                 x + walk.signum(),
                                 y,
                                 walk.signum() as i32,
+                                0,
                             ) {
                                 return false;
                             }

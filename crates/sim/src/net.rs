@@ -159,6 +159,13 @@ pub enum Msg {
         walk: f32,
         dig: bool,
     },
+    /// Experimental straight-down guest dig input; ignored by gameplay.
+    CellDownInput {
+        epoch: u64,
+        tick: u64,
+        sequence: u64,
+        player: PlayerId,
+    },
 }
 
 /// The longest name, in characters: short enough to sit over a crab.

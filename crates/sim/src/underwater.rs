@@ -2301,6 +2301,32 @@ impl World {
     }
 
     #[cfg(test)]
+    pub(crate) fn test_open_downward_bed(&mut self) {
+        for x in 130..=220 {
+            for y in 100..=113 {
+                let i = Self::index(x, y).expect("fixture inside world");
+                self.pebble_owner[i] = 0;
+                self.suspended[i] = 0;
+                self.cells[i] = if y == 113 { Cell::Sand } else { Cell::Water };
+                self.grain[i] = 80;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_fill_dense_downward_region(&mut self) {
+        for x in 120..=230 {
+            for y in 60..=165 {
+                let i = Self::index(x, y).expect("fixture inside world");
+                self.pebble_owner[i] = 0;
+                self.suspended[i] = 0;
+                self.cells[i] = Cell::Sand;
+                self.grain[i] = 80;
+            }
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn test_place_loose_sand(&mut self, x: i32, y: i32) -> bool {
         let Some(index) = Self::index(x, y) else {
             return false;
@@ -2382,6 +2408,12 @@ impl World {
         result.is_ok() && chunks.write_material_to(self)
     }
 
+    fn valid_shared_dig(p: &HostPlayerForce, dig: HostDig) -> bool {
+        dig.force == 48
+            && ((dig.dy == 0 && dig.dx != 0 && dig.dx == p.walking)
+                || (dig.dy == -1 && dig.dx == 0))
+    }
+
     fn reserved_dig_load(&mut self, body: &chunk_flow::BodyReservation, dig: &HostDig) -> f32 {
         let saved = (self.crab, self.crab_half_x, self.crab_half_y);
         self.crab = Some((body.x, body.y));
@@ -2397,23 +2429,47 @@ impl World {
         load
     }
 
-    /// Host horizontal digging with the guest's body protected. Unsupported
-    /// scoops fail before this world is modified.
+    // Solo cavity pushing checks rock before any cavity mutation. This may be
+    // queried after the downward pebble sweep, which itself is transactional.
+    fn shared_cavity_has_rock(
+        chunks: &chunk_flow::ChunkFlow,
+        x: f32,
+        y: f32,
+        half_x: i32,
+        half_y: i32,
+    ) -> bool {
+        let (cx, cy) = (x as i32, y as i32);
+        (-half_y..=half_y).any(|oy| {
+            (-half_x..=half_x).any(|ox| {
+                let (Ok(x), Ok(y)) = (usize::try_from(cx + ox), usize::try_from(cy + oy)) else {
+                    return true;
+                };
+                chunks.cell(x, y).is_none_or(|cell| cell == Cell::Rock)
+            })
+        })
+    }
+
+    /// Host horizontal or downward digging with the guest's body protected.
+    /// Unsupported scoops fail before this world is modified.
     pub(crate) fn dig_primary_shared(
         &mut self,
         other: &HostPlayerForce,
         x: f32,
         y: f32,
         dx: i32,
+        dy: i32,
     ) -> bool {
-        if !matches!(dx, -1 | 1) {
+        if !matches!((dx, dy), (-1, 0) | (1, 0) | (0, -1))
+            || !(1..=16).contains(&self.crab_half_x)
+            || !(1..=16).contains(&self.crab_half_y)
+        {
             return false;
         }
         let Some(body) = self.contact_reservation(other) else {
             return false;
         };
         let guest_load = if let Some(dig) = other.dig {
-            if dig.dy != 0 || dig.dx == 0 || dig.dx != other.walking || dig.force != 48 {
+            if !Self::valid_shared_dig(other, dig) {
                 return false;
             }
             Some(self.reserved_dig_load(&body, &dig))
@@ -2422,8 +2478,13 @@ impl World {
         };
         let mut chunks = chunk_flow::ChunkFlow::from_world(self);
         if chunks.set_extra_bodies(&[body]).is_err()
-            || chunks.push_for_crab(x, y, dx, 0, 48) != Ok(true)
+            || (dy == -1 && chunks.swoop_primary(48).is_err())
         {
+            return false;
+        }
+        let rock_blocked = dy == -1
+            && Self::shared_cavity_has_rock(&chunks, x, y, self.crab_half_x, self.crab_half_y);
+        if !rock_blocked && chunks.push_for_crab(x, y, dx, dy, 48) != Ok(true) {
             return false;
         }
         if let Some(before) = guest_load {
@@ -2477,7 +2538,7 @@ impl World {
             return false;
         };
         if let Some(dig) = p.dig {
-            if dig.dy != 0 || dig.dx != p.walking || dig.dx == 0 || dig.force != 48 {
+            if !Self::valid_shared_dig(p, dig) {
                 return false;
             }
             let mut next = self.clone();
@@ -2486,15 +2547,32 @@ impl World {
                 return false;
             }
             let (x, y) = next.local_cell(p.x, p.y);
-            let pushed = chunks.push_for_extra_body(
-                p.player,
-                x + f32::from(dig.dx),
-                y,
-                i32::from(dig.dx),
-                0,
-                usize::from(dig.force),
-            );
-            if pushed != Ok(true) || !chunks.write_material_to(&mut next) {
+            if dig.dy == -1 && chunks.swoop_extra(p.player, 48).is_err() {
+                return false;
+            }
+            let target_x = x + f32::from(dig.dx);
+            let target_y = y + if dig.dy == -1 { -2.0 } else { 0.0 };
+            let rock_blocked = dig.dy == -1
+                && Self::shared_cavity_has_rock(
+                    &chunks,
+                    target_x,
+                    target_y,
+                    body.half_x,
+                    body.half_y,
+                );
+            if !rock_blocked
+                && chunks.push_for_extra_body(
+                    p.player,
+                    target_x,
+                    target_y,
+                    i32::from(dig.dx),
+                    i32::from(dig.dy),
+                    usize::from(dig.force),
+                ) != Ok(true)
+            {
+                return false;
+            }
+            if !chunks.write_material_to(&mut next) {
                 return false;
             }
             let mut wake = *p;
@@ -2589,13 +2667,8 @@ impl World {
             || !(-1000.0..=0.0).contains(&p.wake_y)
             || !(-1..=1).contains(&p.walking)
             || p.jumped
-            || p.dig.is_some_and(|dig| {
-                other.is_none()
-                    || dig.dy != 0
-                    || dig.dx == 0
-                    || dig.dx != p.walking
-                    || dig.force != 48
-            })
+            || p.dig
+                .is_some_and(|dig| other.is_none() || !Self::valid_shared_dig(p, dig))
         {
             return false;
         }
@@ -2609,7 +2682,13 @@ impl World {
                 let Some(other) = other else {
                     return false;
                 };
-                if !next.dig_primary_shared(other, x + f32::from(dig.dx), y, i32::from(dig.dx)) {
+                if !next.dig_primary_shared(
+                    other,
+                    x + f32::from(dig.dx),
+                    y + if dig.dy == -1 { -2.0 } else { 0.0 },
+                    i32::from(dig.dx),
+                    i32::from(dig.dy),
+                ) {
                     return false;
                 }
             }
