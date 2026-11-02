@@ -399,6 +399,13 @@ a throw or panic in either async read or install can leave the lock pending and
 installation may have partially mutated state. This experiment does not recover
 from that failure. Production needs fallible preparation that returns errors and
 an audited, infallible synchronous swap of fully validated state.
+An isolated fully hydrated candidate now has a narrow `Sim` replacement
+operation: incomplete or stale candidates leave the target untouched, and a
+successful single move-swap returns the old `Sim` without dropping it during
+the swap. This does not prove atomic installation of Bevy entities, resources,
+replay state or presentation, nor does it enforce the required storage fence.
+It also requires every sleeping page to be resident and therefore is not the
+bounded-memory lazy solution.
 
 This is not yet the game's async check-and-install protocol: it does not install
 the guarded migration result, visibility handling is manually invoked, and
@@ -420,6 +427,7 @@ has not established WebKit or iPhone behavior ([WebKit release notes](https://we
 A focused WebKitGTK CI step now builds the same Rust/Wasm coordination proof
 and runs it through the repository's WebDriver client. It reports either
 `locks=tested` or `locks=unsupported`; the latter is an explicit fail-closed
-fallback, not evidence that locking works. The first run failed at the
-second-context check; a harness settlement fix is awaiting its CI rerun.
-WebKitGTK CI is not an iPhone memory or background-suspension test.
+fallback, not evidence that locking works. After fixing a harness settlement
+race, both the synchronous and newer isolated async proof passed on WebKitGTK
+with `locks=tested`. WebKitGTK CI is not an iPhone memory or
+background-suspension test.

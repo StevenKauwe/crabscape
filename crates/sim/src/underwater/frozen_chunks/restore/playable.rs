@@ -393,6 +393,14 @@ impl GuardedPlayable {
         }
         self.sim.take().ok_or(GuardedError::Stale)
     }
+    /// Replace a standalone simulation only after complete hydration. The old
+    /// simulation is returned without being dropped in the swap. The caller
+    /// must hold any storage/reset exclusion and reconcile other game state;
+    /// this is not an atomic installation of the whole Bevy application.
+    pub fn replace_complete(&mut self, live: &mut Sim) -> Result<Sim, GuardedError> {
+        let candidate = self.finish()?;
+        Ok(std::mem::replace(live, candidate))
+    }
     pub fn invalidate(&mut self) {
         self.sim = None;
         self.view.invalidate();
@@ -452,6 +460,31 @@ mod tests {
             world.sleeping.remove(id);
         }
         clone.state_hash()
+    }
+
+    #[test]
+    fn complete_candidate_swap_preserves_live_state_on_wait_and_returns_old_sim() {
+        let (reference, frozen, ids) = fixture();
+        let mut guard = build(&reference, &frozen, &ids);
+        let mut live = Sim::new(Tuning::default(), Level::test_level());
+        live.add_crab(PlayerId(0), Vec2::new(200.0, 0.0));
+        let old_hash = live.state_hash();
+        assert!(matches!(
+            guard.replace_complete(&mut live),
+            Err(GuardedError::Incomplete)
+        ));
+        assert_eq!(live.state_hash(), old_hash);
+        for id in ids {
+            load(&mut guard, &frozen, id);
+        }
+        let old = guard.replace_complete(&mut live).unwrap();
+        assert_eq!(old.state_hash(), old_hash);
+        assert_eq!(live.state_hash(), reference.state_hash());
+        assert!(matches!(
+            guard.replace_complete(&mut live),
+            Err(GuardedError::Stale)
+        ));
+        assert_eq!(live.state_hash(), reference.state_hash());
     }
 
     #[test]
