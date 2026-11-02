@@ -45,13 +45,16 @@ fn baked_height() -> usize {
 fn grain_body_contains(x: i32, y: i32, cx: i32, cy: i32, hx: i32, hy: i32) -> bool {
     let (dx, dy) = ((x - cx).abs(), y - cy);
     let (rx, top) = (hx + 4, hy + 4);
-    if dx <= rx && (-top..=top).contains(&dy) {
+    if dx > rx {
+        return false;
+    }
+    if (-top..=top).contains(&dy) {
         return true;
     }
     // A low rounded crest above the ordinary protected cavity guides grains
     // outward before they can accumulate across its flat top.
     let rise = 4 * (rx * rx - dx * dx).max(0) / (rx * rx).max(1);
-    dx <= rx && dy > top && dy <= top + rise
+    dy > top && dy <= top + rise
 }
 
 pub const GAME_CELL: f32 = 4.0;
@@ -4529,6 +4532,12 @@ mod tests {
         let crab = &sim.crab(PlayerId(0)).unwrap().mover;
         assert!(!crab.grounded, "falling sediment held the crab");
         assert!(crab.pos.y < 65.0, "the crab did not continue falling");
+    }
+
+    #[test]
+    fn distant_crab_reservation_does_not_overflow() {
+        assert!(!grain_body_contains(0, 0, 1_000_000, -1_000_000, 12, 8));
+        assert!(!grain_body_contains(0, 0, -1_000_000, 1_000_000, 12, 8));
     }
 
     #[test]
