@@ -108,57 +108,100 @@ fn decode_test_journal(bytes: &[u8]) -> Option<MaterialJournal> {
     (remaining.is_empty() && !journal.overflow && !journal.unsupported).then_some(journal)
 }
 
-/// Test-only, one-region verifier. The caller must construct Peer from the
-/// actual authenticated transport and reject duplicate identity claims.
 #[cfg(test)]
-struct ScoopVerifier {
-    peer: crate::net::cell_join::Peer,
-    epoch: u64,
-    baseline: u64,
-    next: u64,
-    field: ChunkFlow,
-}
-#[cfg(test)]
-impl ScoopVerifier {
-    fn from_world(
-        world: &World,
+mod verified_scoop {
+    use super::*;
+    /// Test-only, one-region verifier. The caller must construct Peer from the
+    /// actual authenticated transport and reject duplicate identity claims.
+    pub(super) struct ScoopVerifier {
         peer: crate::net::cell_join::Peer,
         epoch: u64,
-        advertised: u64,
-    ) -> Option<Self> {
-        (crate::net::cell_join::lockstep::digest(world) == Some(advertised)).then(|| Self {
-            peer,
-            epoch,
-            baseline: advertised,
-            next: 0,
-            field: ChunkFlow::from_world(world),
-        })
+        baseline: u64,
+        next: u64,
+        field: ChunkFlow,
     }
-    fn accept(
-        &mut self,
-        sender: crate::net::cell_join::Peer,
-        selected: Option<crate::net::cell_join::Peer>,
-        sequence: u64,
-        action: (f32, f32, i32, i32, usize),
-        frame: &[u8],
-    ) -> bool {
-        if sender != self.peer || selected != Some(self.peer) || sequence != self.next {
-            return false;
+    impl ScoopVerifier {
+        pub(super) fn from_world(
+            world: &World,
+            peer: crate::net::cell_join::Peer,
+            epoch: u64,
+            advertised: u64,
+        ) -> Option<Self> {
+            (crate::net::cell_join::lockstep::digest(world) == Some(advertised)).then(|| Self {
+                peer,
+                epoch,
+                baseline: advertised,
+                next: 0,
+                field: ChunkFlow::from_world(world),
+            })
         }
-        let Some(next) = self.next.checked_add(1) else {
-            return false;
+        pub(super) fn field(&self) -> &ChunkFlow {
+            &self.field
+        }
+        pub(super) fn sequence(&self) -> u64 {
+            self.next
+        }
+        pub(super) fn accept(
+            &mut self,
+            sender: crate::net::cell_join::Peer,
+            selected: Option<crate::net::cell_join::Peer>,
+            sequence: u64,
+            action: (f32, f32, i32, i32, usize),
+            frame: &[u8],
+        ) -> bool {
+            if sender != self.peer || selected != Some(self.peer) || sequence != self.next {
+                return false;
+            }
+            let Some(next) = self.next.checked_add(1) else {
+                return false;
+            };
+            if !self.field.verify_scoop_with_context(
+                (self.epoch, sequence, self.baseline),
+                action,
+                frame,
+            ) {
+                return false;
+            }
+            self.next = next;
+            true
+        }
+    }
+
+    #[test]
+    fn verifier_initial_token_does_not_detect_later_unrelated_corruption() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 1;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            world.cells[World::index(x, 155).unwrap()] = Cell::Sand;
+        }
+        let baseline = crate::net::cell_join::lockstep::digest(&world).unwrap();
+        let peer = crate::net::cell_join::Peer {
+            player: crate::PlayerId(1),
+            connection: 7,
         };
-        if !self.field.verify_scoop_with_context(
-            (self.epoch, sequence, self.baseline),
-            action,
-            frame,
-        ) {
-            return false;
-        }
-        self.next = next;
-        true
+        let mut guest = ScoopVerifier::from_world(&world, peer, 11, baseline).unwrap();
+        let action = (63.0, 154.0, 0, 1, 48);
+        let (host, frame) = guest
+            .field
+            .record_scoop_with_context((11, 0, baseline), action)
+            .unwrap();
+        let (tile, slot) = ChunkFlow::locate(500, 300);
+        guest.field.chunks[tile].cells[slot] = Cell::Rock;
+        assert!(guest.accept(peer, Some(peer), 0, action, &frame));
+        assert_eq!(guest.next, 1);
+        assert!(
+            guest.field != host,
+            "initial token does not certify later untouched cells"
+        );
     }
 }
+#[cfg(test)]
+use verified_scoop::ScoopVerifier;
 
 #[derive(Clone, PartialEq)]
 pub struct ChunkFlow {
@@ -4764,55 +4807,33 @@ mod tests {
         let mut guest = ScoopVerifier::from_world(&world, peer, 11, baseline).unwrap();
         let action = (63.0, 154.0, 0, 1, 48);
         let (host, frame) = guest
-            .field
+            .field()
             .record_scoop_with_context((11, 0, baseline), action)
             .unwrap();
-        let before = guest.field.clone();
+        let before = guest.field().clone();
         assert!(!guest.accept(forged, Some(peer), 0, action, &frame));
         assert!(!guest.accept(peer, None, 0, action, &frame));
         assert!(!guest.accept(peer, Some(peer), 1, action, &frame));
-        assert_eq!(guest.next, 0);
-        assert!(guest.field == before);
+        assert_eq!(guest.sequence(), 0);
+        assert!(*guest.field() == before);
         assert!(guest.accept(peer, Some(peer), 0, action, &frame));
-        assert!(guest.field == host);
-        let before = guest.field.clone();
+        assert!(*guest.field() == host);
+        let before = guest.field().clone();
         assert!(!guest.accept(peer, Some(peer), 0, action, &frame));
-        assert_eq!(guest.next, 1);
-        assert!(guest.field == before);
-    }
-    #[test]
-    fn verifier_initial_token_does_not_detect_later_unrelated_corruption() {
-        let mut world = World::new();
-        world.cells.fill(Cell::Water);
-        world.pebble_owner.fill(0);
-        world.pebbles.clear();
-        world.pebble_motion.clear();
-        world.tick = 1;
-        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
-        for x in 61..=65 {
-            world.cells[World::index(x, 155).unwrap()] = Cell::Sand;
-        }
-        let baseline = crate::net::cell_join::lockstep::digest(&world).unwrap();
-        let peer = crate::net::cell_join::Peer {
-            player: crate::PlayerId(1),
-            connection: 7,
-        };
-        let mut guest = ScoopVerifier::from_world(&world, peer, 11, baseline).unwrap();
-        let action = (63.0, 154.0, 0, 1, 48);
-        let (host, frame) = guest
-            .field
-            .record_scoop_with_context((11, 0, baseline), action)
+        assert_eq!(guest.sequence(), 1);
+        assert!(*guest.field() == before);
+        let (host_next, frame_next) = host
+            .record_scoop_with_context((11, 1, baseline), action)
             .unwrap();
-        let (tile, slot) = ChunkFlow::locate(500, 300);
-        guest.field.chunks[tile].cells[slot] = Cell::Rock;
-        assert!(guest.accept(peer, Some(peer), 0, action, &frame));
-        assert_eq!(guest.next, 1);
-        assert!(
-            guest.field != host,
-            "initial token does not certify later untouched cells"
-        );
+        let mut corrupted = frame_next.clone();
+        *corrupted.last_mut().unwrap() ^= 1;
+        assert!(!guest.accept(peer, Some(peer), 1, action, &corrupted));
+        assert_eq!(guest.sequence(), 1);
+        assert!(*guest.field() == before);
+        assert!(guest.accept(peer, Some(peer), 1, action, &frame_next));
+        assert_eq!(guest.sequence(), 2);
+        assert!(*guest.field() == host_next);
     }
-
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     #[ignore = "manual release-mode performance measurement"]
