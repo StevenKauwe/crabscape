@@ -590,12 +590,121 @@ fn region_status(p: &mut Player) -> String {
         "data-cell-region-id",
         "data-cell-session-tick",
         "data-cell-session-actors",
+        "data-cell-session",
+        "data-crab",
         "data-coop",
     ]
     .into_iter()
     .map(|name| format!("{name}={}", p.b.attr(name).unwrap_or_default()))
     .collect::<Vec<_>>()
     .join(" ")
+}
+
+fn pause_region(p: &mut Player, paused: bool) -> Result<()> {
+    p.b.eval(if paused {
+        "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')"
+    } else {
+        "document.getElementById('crabscape').removeAttribute('data-cell-session-pause')"
+    })
+    .map(drop)
+}
+
+/// Reproduce the real browser's current region, including its NPC random streams.
+fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
+    p.b.eval("(() => {const c=document.getElementById('crabscape'); c.removeAttribute('data-replay'); c.setAttribute('data-want-replay','1'); c.setAttribute('data-want-cell-hash','1');})()")?;
+    p.until(20.0, "regional replay export", |p| {
+        p.b.attr("data-replay").is_some()
+    })
+    .map_err(|error| format!("{error}; {}", region_status(p)))?;
+    let text = p.b.attr("data-replay").ok_or("missing regional replay")?;
+    if !text.starts_with("region_session_v1 ") {
+        return Err(format!(
+            "regional replay unavailable: {}; {}",
+            text.lines().next().unwrap_or("empty"),
+            region_status(p)
+        ));
+    }
+    let replay = crabsim::Replay::parse(&text)?;
+    let mut scene = crabsim::Sim::with_one_crab(replay.start);
+    if !replay.prepare_start(&mut scene) {
+        return Err("regional replay checkpoint rejected".into());
+    }
+    for _ in 0..replay.length() {
+        if !replay.step_cell_session(&mut scene) {
+            return Err("regional replay tick rejected".into());
+        }
+    }
+    let hash = format!("{}:{:016x}", scene.tick_count(), scene.state_hash());
+    if p.b.attr("data-cell-session-hash").as_deref() != Some(hash.as_str()) {
+        return Err(format!(
+            "{} regional replay differs from browser: {hash}",
+            p.name()
+        ));
+    }
+    p.b.eval("document.getElementById('replay-close').click()")?;
+    Ok(scene)
+}
+
+fn saved_cells(p: &mut Player) -> Result<Option<crabsim::cell_codec::Restored>> {
+    use base64::Engine;
+    let value=p.b.eval(r#"new Promise((resolve,reject)=>{
+      const opening=indexedDB.open('crabscape.cells',1);
+      opening.onerror=()=>reject(String(opening.error));
+      opening.onsuccess=()=>{
+        const db=opening.result,tx=db.transaction('world','readonly');
+        const request=tx.objectStore('world').get('active');
+        tx.onabort=()=>{db.close();reject(String(tx.error));};
+        tx.oncomplete=()=>{db.close();if(request.result===undefined){resolve(null);return;}
+          const bytes=request.result,pieces=[];
+          for(let i=0;i<bytes.length;i+=32768)pieces.push(String.fromCharCode(...bytes.subarray(i,i+32768)));
+          resolve(btoa(pieces.join('')));
+        };
+      };
+    })"#)?;
+    let Some(text) = value.as_str() else {
+        return Ok(None);
+    };
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(text)
+        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        p.dir.join(format!("{}-captured-save.bin", p.name())),
+        &bytes,
+    )
+    .map_err(|e| e.to_string())?;
+    crabsim::cell_codec::decode(&bytes)
+        .map(Some)
+        .map_err(|e| format!("invalid browser autosave: {e:?}"))
+}
+
+fn saved_excavation(p: &mut Player, min_tick: u64, at: (f32, f32)) -> Result<u64> {
+    let started = Instant::now();
+    loop {
+        if let Some(mut saved) = saved_cells(p)?
+            && saved.sim_tick >= min_tick
+        {
+            saved
+                .terrain
+                .restore_default_window(&crabsim::Level::test_level(), at.0, at.1)
+                .map_err(|e| format!("saved far region failed to load: {e:?}"))?;
+            let (x, y) = saved.terrain.local_cell(at.0, at.1);
+            let cell = saved.terrain.cell(x as i32, y as i32);
+            if cell != crabsim::underwater::Cell::Water {
+                return Err(format!(
+                    "guest excavation at {at:?} became {cell:?} in owner's saved world at tick{}",
+                    saved.sim_tick
+                ));
+            }
+            return Ok(saved.sim_tick);
+        }
+        p.healthy()?;
+        if started.elapsed().as_secs_f64() > 30.0 {
+            return Err(format!(
+                "owner did not write a fresh regional save after tick{min_tick}"
+            ));
+        }
+        sleep(0.5);
+    }
 }
 
 fn local_position(p: &mut Player) -> Result<(f64, f64)> {
@@ -633,7 +742,12 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 22] = [
+const SCENARIOS: [(&str, &str, u32); 23] = [
+    (
+        "cells-region-save",
+        "guest authority recovery and distant terrain surviving owner disk reload",
+        100,
+    ),
     (
         "cells-regions",
         "separate regional physics, digging, reunion and owner loss",
@@ -775,7 +889,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
-        "cells-regions" => {
+        "cells-regions" | "cells-region-save" => {
             eprintln!("cells-regions: opening both browsers");
             host.open(&site.url("cells"))?;
             let code = host.invite()?;
@@ -785,6 +899,11 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     p.b.attr("data-cell-region-state").as_deref() == Some("running")
                 })?;
             }
+            host.b.eval(r#"(()=>{const c=document.getElementById('crabscape');let previous=c.getAttribute('data-cell-region-state'),started=null;window.__regionPauses=[];
+              new MutationObserver(()=>{const state=c.getAttribute('data-cell-region-state');if(state===previous)return;
+                if(previous==='running'&&state!=='running')started=performance.now();
+                if(state==='running'&&started!==null){window.__regionPauses.push(performance.now()-started);started=null;}previous=state;
+              }).observe(c,{attributes:true,attributeFilter:['data-cell-region-state']});})()"#)?;
             guest.b.type_line("hulk")?;
             eprintln!(
                 "cells-regions joined: host {}, guest {}",
@@ -819,7 +938,24 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             guest.until(20.0, "guest lands on far substrate", |p| {
                 p.b.attr("data-crab")
                     .is_some_and(|v| v.split_whitespace().last() == Some("1"))
+                    && local_position(p).is_ok_and(|(_, y)| y < 100.0)
+                    && p.b.attr("data-cell-region-state").as_deref() == Some("running")
             })?;
+            if name == "cells-region-save" {
+                // The owner's normal solo window reaches x2560. Put this
+                // excavation beyond it so natural mud flow cannot refill the
+                // sample while the owner waits for its disk write.
+                guest.b.set_key("KeyD", true)?;
+                guest.until(20.0, "guest reaches sleeping-world save sample", |p| {
+                    local_position(p).is_ok_and(|(x, _)| x > 2580.0)
+                })?;
+                guest.b.set_key("KeyD", false)?;
+                guest.until(20.0, "guest settles before distant excavation", |p| {
+                    p.b.attr("data-crab")
+                        .is_some_and(|v| v.split_whitespace().last() == Some("1"))
+                        && local_position(p).is_ok_and(|(x, y)| x > 2560.0 && y < 100.0)
+                })?;
+            }
             eprintln!(
                 "cells-regions landed: host {}, guest {}",
                 region_status(&mut host),
@@ -838,6 +974,14 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     "players did not separate horizontally: {start_host:?}, {start_guest:?}"
                 ));
             }
+            for p in [&mut host, &mut guest] {
+                pause_region(p, true)?;
+            }
+            sleep(0.3);
+            let before_dig = regional_scene(&mut guest)?;
+            for p in [&mut host, &mut guest] {
+                pause_region(p, false)?;
+            }
             host.b.hold_keys(&["KeyC", "ArrowDown"], 0.9)?;
             guest.b.hold_keys(&["KeyC", "ArrowDown"], 0.9)?;
             sleep(0.5);
@@ -849,7 +993,65 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 ));
             }
             for p in [&mut host, &mut guest] {
+                pause_region(p, true)?;
+            }
+            sleep(0.3);
+            let _owner_replay = regional_scene(&mut host)?;
+            let after_dig = regional_scene(&mut guest)?;
+            for (label, scene) in [("before-dig", &before_dig), ("after-dig", &after_dig)] {
+                let checkpoint = scene
+                    .session_checkpoint()
+                    .map_err(|e| format!("failed to retain {label} checkpoint: {e:?}"))?;
+                std::fs::write(site.dir.join(format!("guest-{label}.bin")), checkpoint)
+                    .map_err(|e| e.to_string())?;
+            }
+            let before = before_dig
+                .level
+                .cells
+                .as_ref()
+                .ok_or("missing before-dig terrain")?;
+            let after = after_dig
+                .level
+                .cells
+                .as_ref()
+                .ok_or("missing after-dig terrain")?;
+            let mut excavation = None;
+            for rise in (8..(start_guest.1 - dug_guest.1).floor() as i32).step_by(4) {
+                let at = (dug_guest.0 as f32, dug_guest.1 as f32 + rise as f32);
+                let (bx, by) = before.local_cell(at.0, at.1);
+                let (ax, ay) = after.local_cell(at.0, at.1);
+                if before.cell(bx as i32, by as i32) != crabsim::underwater::Cell::Water
+                    && after.cell(ax as i32, ay as i32) == crabsim::underwater::Cell::Water
+                {
+                    excavation = Some(at);
+                    break;
+                }
+            }
+            let excavation =
+                excavation.ok_or("guest did not replace substrate material with water")?;
+            eprintln!(
+                "cells-regions verified excavation material at {excavation:?}; both independent replays match native"
+            );
+            for p in [&mut host, &mut guest] {
                 p.b.screenshot(&site.dir.join(format!("separated-{}.png", p.name())))?;
+            }
+            let pauses = host.b.eval("window.__regionPauses")?;
+            eprintln!("cells-regions handoff pauses in milliseconds: {pauses}");
+            if name == "cells-region-save" {
+                // Freeze the authority through departure: physics must not refill
+                // the sampled cell between the known checkpoint and recovery.
+                guest.b.go("about:blank")?;
+                host.until(30.0, "owner recovers departed regional authority", |p| {
+                    p.b.attr("data-cell-session").as_deref() == Some("solo")
+                })?;
+                let saved_tick = saved_excavation(&mut host, after_dig.tick_count(), excavation)?;
+                host.reload()?;
+                let reloaded_tick = saved_excavation(&mut host, saved_tick + 1, excavation)?;
+                found.push(format!("both independent browser replays reproduce natively; guest excavation at {excavation:?} persists through authority departure, owner's IndexedDB and fresh post-reload save (ticks{saved_tick}→{reloaded_tick}); handoff pauses ms {pauses}"));
+                return Ok(found);
+            }
+            for p in [&mut host, &mut guest] {
+                pause_region(p, false)?;
             }
             guest.b.hold_key("KeyH", 0.1)?;
             sleep(0.3);
@@ -880,6 +1082,9 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             host.b.eval(
                 "document.getElementById('crabscape').removeAttribute('data-cell-session-pause')",
             )?;
+            found.push(format!(
+                "both independent browser replays reproduce natively; handoff pauses ms {pauses}"
+            ));
             host.b.go("about:blank")?;
             guest.until(30.0, "owner departure restores private world", |p| {
                 p.b.attr("data-cell-session").as_deref() == Some("solo")
