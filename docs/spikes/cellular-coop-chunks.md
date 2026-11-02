@@ -25,6 +25,17 @@ XOR was approximately 1.10 MB, against 1.33 MB for the compressed checkpoint.
 Those sizes and the larger buffers needed for decoding make full-world updates
 unsuitable for real-time play and do not establish a safe phone-memory bound.
 
+The first isolated chunk-native primitive reproduces the existing flow
+diffusion phase exactly and moves one unobstructed whole pebble across chunk
+seams without splitting it. It does not yet step sediment, pebble chains,
+forces, inactive chunks or a shared game. In a 20-step release desktop test
+over one full 640 × 360 region, contiguous diffusion averaged 8.54 ms/step
+and the first chunked implementation 12.42 ms/step, about 45% slower. Its
+chunk cell, flow, grain, suspension and owner arrays have 3,194,880 bytes of
+capacity for that region, excluding flow scratch, the pebble registry,
+allocation overhead and all other game state. This is a correctness baseline,
+not a performance improvement or a phone measurement.
+
 An isolated post-checkpoint command test encodes two players' interests and
 forces in 97–107 bytes per material step, roughly 2.9–3.2 KB/s per receiving
 guest at 30 Hz before transport overhead. It checks epoch, sequence, material
