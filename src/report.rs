@@ -138,6 +138,22 @@ pub(crate) fn shortcut(code: &str, typing: bool, alt: bool, command: bool) -> Op
     }
 }
 
+/// The canvas keeps its gameplay keys while the form is open, except Escape,
+/// which must always be able to dismiss the form.
+fn shortcut_for_target(
+    code: &str,
+    typing: bool,
+    alt: bool,
+    command: bool,
+    canvas: bool,
+) -> Option<Shortcut> {
+    if canvas && code != "Escape" {
+        None
+    } else {
+        shortcut(code, typing, alt, command)
+    }
+}
+
 /// What the form sends to the introducer (`tools/introducer`'s `Report`):
 /// the voice chat only when the player ticked it and left something in it.
 pub(crate) fn payload(
@@ -390,21 +406,20 @@ mod web {
         }
     }
 
-    /// A key pressed anywhere on the page while the form is open (not on
-    /// the game, which has its own keys once it has the focus back).
+    /// Escape closes the form even if focus returned to the game. Other
+    /// gameplay keys on the canvas do not trigger form shortcuts.
     fn on_key(e: KeyboardEvent) {
         if element::<HtmlElement>("report").is_none_or(|f| f.hidden()) {
             return;
         }
         let target = e.target().and_then(|t| t.dyn_into::<Element>().ok());
-        if target.is_some_and(|t| t.id() == "crabscape") {
-            return;
-        }
+        let canvas = target.is_some_and(|t| t.id() == "crabscape");
         let typing = document()
             .and_then(|d| d.active_element())
             .is_some_and(|a| a.id() == "report-text" || a.id() == "report-voice");
         let command = e.ctrl_key() || e.meta_key();
-        let Some(key) = super::shortcut(&e.code(), typing, e.alt_key(), command) else {
+        let Some(key) = super::shortcut_for_target(&e.code(), typing, e.alt_key(), command, canvas)
+        else {
             return;
         };
         // Taken: not typed, and not a click on whichever button has the focus.
@@ -832,6 +847,15 @@ mod tests {
             assert_eq!(shortcut("NumpadEnter", typing, false, true), Some(Send));
             assert_eq!(shortcut("Enter", typing, false, false), None);
             assert_eq!(shortcut("Escape", typing, false, false), Some(Close));
+            assert_eq!(
+                shortcut_for_target("Escape", typing, false, false, true),
+                Some(Close)
+            );
         }
+        assert_eq!(shortcut_for_target("KeyB", false, false, false, true), None);
+        assert_eq!(
+            shortcut_for_target("KeyB", false, false, false, false),
+            Some(Bug)
+        );
     }
 }

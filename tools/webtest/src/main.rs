@@ -532,6 +532,21 @@ impl Test<'_> {
             return Ok(());
         }
 
+        // The report can remain open after the player clicks the game.
+        // Escape must dismiss it even with the canvas focused; gameplay
+        // keys must not accidentally operate its controls.
+        self.press("KeyR", "r")?;
+        let report_open = r#"!document.getElementById("report").hidden"#;
+        let report_closed = r#"document.getElementById("report").hidden"#;
+        let ok = self.wait_for(report_open, 5.0)?;
+        self.check(ok, "R opens the report form");
+        self.press("KeyB", "b")?;
+        let ok = self.eval(report_open)?.as_bool() == Some(true);
+        self.check(ok, "gameplay keys on the canvas leave the report open");
+        self.press("Escape", "Escape")?;
+        let ok = self.wait_for(report_closed, 5.0)?;
+        self.check(ok, "Escape closes the report with the canvas focused");
+
         // --- art style --------------------------------------------------------------------------------------------
         let style_is = |s: &str| format!(r#"{CANVAS}.getAttribute("data-style") === "{s}""#);
         let oil_warm = self.style_shot("oil")?;
