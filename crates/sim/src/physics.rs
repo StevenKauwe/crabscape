@@ -27,7 +27,7 @@ pub const TICKS_PER_SECOND: u32 = 120;
 /// What a player is asking their crab to do. This is a *command*, not a
 /// keyboard or touch-screen reading, so it can come from anywhere: the local
 /// player's keys today, a network message from another player later.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Controls {
     /// Walking direction and strength: -1 = full left, 1 = full right.
     pub walk: f32,

@@ -59,7 +59,7 @@ impl Thing {
 
 /// The shared things of the world, as this device has them: its own world
 /// in solo play and on the host; on a guest, the host's as last heard.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Shared {
     /// Each clam bed: ticks until it grows a new clam (0 = a clam lies
     /// there). A guest never counts them down: a bed is bare until the host

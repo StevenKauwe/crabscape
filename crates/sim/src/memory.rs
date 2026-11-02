@@ -47,7 +47,7 @@ pub struct Sighting {
 }
 
 /// One crab's memory of the level.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Memory {
     /// The grid's lower-left corner and size (cells).
     pub origin: Vec2,
@@ -576,5 +576,27 @@ mod tests {
         for n in [0, 1, 127, 128, 300, 1 << 20, u32::MAX] {
             assert_eq!(read_varint(&b, &mut at), Some(n));
         }
+    }
+}
+
+impl Memory {
+    pub(crate) fn session_valid(&self, level: &Level) -> bool {
+        let Some(n) = self.cols.checked_mul(self.rows).map(|n| n as usize) else {
+            return false;
+        };
+        n > 0
+            && n <= 2_000_000
+            && self.origin.is_finite()
+            && self.visits.len() == n
+            && self.last.len() == n
+            && self.solid.len() == n
+            && self.live.len() == n
+            && self
+                .home
+                .iter()
+                .chain(&self.live_cells)
+                .all(|&i| (i as usize) < n)
+            && self.nets.len() == level.nets.len()
+            && self.sightings.len() <= 4096
     }
 }

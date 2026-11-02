@@ -13,6 +13,8 @@
 //! - the headless runner (`cargo crabsim`), as fast as the computer can,
 //! - the tests, the same way.
 
+pub mod cell_session;
+
 use bevy_math::{Rect, Vec2};
 use serde::Serialize;
 
@@ -40,7 +42,7 @@ use crate::tuning::Tuning;
 pub struct PlayerId(pub u32);
 
 /// One crab inside the simulation.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SimCrab {
     pub id: PlayerId,
     /// Runs on another player's device (co-op): never stepped here, only set

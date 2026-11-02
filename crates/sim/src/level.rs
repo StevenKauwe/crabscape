@@ -34,7 +34,7 @@ pub const EGG_RADIUS: f32 = 14.0;
 
 /// Something growing straight up that the crab can grip and climb: a
 /// vertical line at `x`, from `bottom` to `top`.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Climb {
     pub x: f32,
     pub bottom: f32,
@@ -43,7 +43,7 @@ pub struct Climb {
 }
 
 /// What a [`Climb`] is (for the drawing; the crab climbs both the same).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Growth {
     /// Giant kelp: grows where light still reaches, buoyed up by its floats.
     Kelp,
@@ -59,7 +59,7 @@ pub enum Growth {
 /// [`crate::home`]): walking into the doorway, it backs in to the den at the
 /// back, and rests there. The last one it rested in is where it wakes after
 /// dying. Like home, its opening faces right, so in is to the left.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Crevice {
     /// The doorway on the floor: walking left in here, a crab backs in.
     pub door: Rect,
@@ -68,7 +68,7 @@ pub struct Crevice {
 }
 
 /// A place a crab can tuck into.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Place {
     /// Its home shell.
     Home,
@@ -77,7 +77,7 @@ pub enum Place {
 }
 
 /// A ghost net across a way through: solid until it's cut.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Net {
     pub rect: Rect,
     pub cut: bool,
@@ -85,7 +85,7 @@ pub struct Net {
 
 /// A lump of brittle rock: solid until a heavy crusher's full charge cracks
 /// it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Brittle {
     pub rect: Rect,
     pub cracked: bool,
@@ -93,9 +93,10 @@ pub struct Brittle {
 
 /// The shape of the level. The [`Sim`](crate::Sim) owns it; the game draws it
 /// from there.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Level {
     /// Optional, disposable material simulation for the opening section.
+    #[serde(skip)]
     pub cells: Option<crate::underwater::World>,
     /// The sea floor's surface, as points from left to right. Between two
     /// points the floor is a straight line. Two points at (almost) the same x
