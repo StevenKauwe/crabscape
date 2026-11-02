@@ -11,6 +11,59 @@ const MAX_RAW: usize = 64 * 1024 * 1024;
 const MAX_PACKED: usize = 8 * 1024 * 1024;
 const MAX_TEXT: usize = MAX_PACKED.div_ceil(3) * 4;
 
+/// Stop serialization before writing more than the logical output limit.
+/// The allocator and the surrounding World still have their own memory cost.
+struct CappedVec {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+
+impl postcard::ser_flavors::Flavor for CappedVec {
+    type Output = Vec<u8>;
+
+    fn try_push(&mut self, data: u8) -> postcard::Result<()> {
+        self.try_extend(&[data])
+    }
+
+    fn try_extend(&mut self, data: &[u8]) -> postcard::Result<()> {
+        let required = self
+            .bytes
+            .len()
+            .checked_add(data.len())
+            .filter(|&size| size <= self.limit)
+            .ok_or(postcard::Error::SerializeBufferFull)?;
+        if required > self.bytes.capacity() {
+            let target = self
+                .bytes
+                .capacity()
+                .saturating_mul(2)
+                .max(1024)
+                .max(required)
+                .min(self.limit);
+            self.bytes
+                .try_reserve_exact(target - self.bytes.len())
+                .map_err(|_| postcard::Error::SerializeBufferFull)?;
+        }
+        self.bytes.extend_from_slice(data);
+        Ok(())
+    }
+
+    fn finalize(self) -> postcard::Result<Self::Output> {
+        Ok(self.bytes)
+    }
+}
+
+fn encode_capped<T: serde::Serialize>(value: &T, limit: usize) -> Option<Vec<u8>> {
+    postcard::serialize_with_flavor(
+        value,
+        CappedVec {
+            bytes: Vec::new(),
+            limit,
+        },
+    )
+    .ok()
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CellStart {
     pub tick: u64,
@@ -77,8 +130,7 @@ impl VerifiedCellStart {
 
 impl CellStart {
     pub fn checkpoint_bytes(world: &World) -> Option<Vec<u8>> {
-        let raw = postcard::to_allocvec(&world.checkpoint_ref()).ok()?;
-        (raw.len() <= MAX_RAW).then_some(raw)
+        encode_capped(&world.checkpoint_ref(), MAX_RAW)
     }
 
     pub fn capture(world: &World, tick: u64) -> Option<Self> {
@@ -148,3 +200,43 @@ fn decode_world(raw: &[u8]) -> Option<World> {
         checkpoint.into_world()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capped_serialization_matches_postcard_and_rejects_at_the_boundary() {
+        let value = (42u64, vec![7u16; 4096], "terrain");
+        let expected = postcard::to_allocvec(&value).unwrap();
+        assert_eq!(
+            encode_capped(&value, expected.len()),
+            Some(expected.clone())
+        );
+        assert_eq!(encode_capped(&value, expected.len() - 1), None);
+        assert_eq!(encode_capped(&value, 0), None);
+        assert_eq!(encode_capped(&(), 0), Some(Vec::new()));
+    }
+
+    #[test]
+    fn oversized_input_stops_serializing_when_the_limit_is_hit() {
+        use serde::ser::SerializeSeq;
+        use std::cell::Cell;
+
+        struct Large<'a>(&'a Cell<usize>);
+        impl serde::Serialize for Large<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                let mut seq = serializer.serialize_seq(Some(1_000_000))?;
+                for _ in 0..1_000_000 {
+                    self.0.set(self.0.get() + 1);
+                    seq.serialize_element(&7u8)?;
+                }
+                seq.end()
+            }
+        }
+        let attempts = Cell::new(0);
+        assert_eq!(encode_capped(&Large(&attempts), 128), None);
+        assert!(attempts.get() <= 129, "serialization must stop at the cap");
+    }
+}
+
