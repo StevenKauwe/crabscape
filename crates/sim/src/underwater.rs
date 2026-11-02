@@ -278,6 +278,18 @@ pub struct WorldCheckpoint {
     pebble_seeded: std::collections::BTreeSet<(i32, i32)>,
 }
 
+/// Serialization-only view with exactly the checkpoint wire layout. The
+/// `World` serialization skips the separately stored streaming fields.
+#[derive(serde::Serialize)]
+pub(crate) struct WorldCheckpointRef<'a> {
+    version: u8,
+    world: &'a World,
+    origin: (i32, i32),
+    sleeping: &'a std::collections::BTreeMap<(i32, i32), SleepingChunk>,
+    opening_edge_opened: bool,
+    pebble_seeded: &'a std::collections::BTreeSet<(i32, i32)>,
+}
+
 impl WorldCheckpoint {
     /// Recover a checkpoint after checking its basic shape and cell values.
     /// Callers handling untrusted bytes must also enforce an input-size cap.
@@ -389,6 +401,17 @@ impl World {
     }
 
     /// Capture the complete active and sleeping material state.
+    pub(crate) fn checkpoint_ref(&self) -> WorldCheckpointRef<'_> {
+        WorldCheckpointRef {
+            version: 1,
+            world: self,
+            origin: self.origin,
+            sleeping: &self.sleeping,
+            opening_edge_opened: self.opening_edge_opened,
+            pebble_seeded: &self.pebble_seeded,
+        }
+    }
+
     pub fn checkpoint(&self) -> WorldCheckpoint {
         let mut world = self.clone();
         // Streaming fields are stored separately for compatibility with the
@@ -3529,6 +3552,29 @@ mod tests {
         let mut restored = Sim::with_one_crab(replay.start);
         crate::play(&mut restored, &replay, replay.length(), |_| {});
         assert_eq!(restored.state_hash(), original.state_hash());
+    }
+
+    #[test]
+    fn borrowed_checkpoint_serializes_identically_before_and_after_streaming() {
+        let level = crate::Level::test_level();
+        for mut world in [World::new(), World::from_level_settled(&level)] {
+            let owned = postcard::to_allocvec(&world.checkpoint()).unwrap();
+            let borrowed = postcard::to_allocvec(&world.checkpoint_ref()).unwrap();
+            assert_eq!(owned, borrowed);
+            if world.game {
+                let changed = World::index(100, 150).unwrap();
+                world.cells[changed] = Cell::Sand;
+                world.grain[changed] = 41;
+                assert!(world.follow_player(&level, 4400.0, -700.0));
+                world.step(0.35);
+                assert!(!world.sleeping.is_empty());
+                world.opening_edge_opened = true;
+                world.pebble_seeded.insert((-7, 11));
+                let owned = postcard::to_allocvec(&world.checkpoint()).unwrap();
+                let borrowed = postcard::to_allocvec(&world.checkpoint_ref()).unwrap();
+                assert_eq!(owned, borrowed);
+            }
+        }
     }
 
     #[test]

@@ -166,11 +166,50 @@ impl Frame {
     }
 }
 
+struct HashFlavor {
+    hash: u64,
+    len: usize,
+}
+impl postcard::ser_flavors::Flavor for HashFlavor {
+    type Output = u64;
+    fn try_push(&mut self, byte: u8) -> postcard::Result<()> {
+        if self.len == MAX_HASH_BYTES {
+            return Err(postcard::Error::SerializeBufferFull);
+        }
+        self.len += 1;
+        self.hash = (self.hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        Ok(())
+    }
+    fn try_extend(&mut self, bytes: &[u8]) -> postcard::Result<()> {
+        let Some(len) = self
+            .len
+            .checked_add(bytes.len())
+            .filter(|&n| n <= MAX_HASH_BYTES)
+        else {
+            return Err(postcard::Error::SerializeBufferFull);
+        };
+        self.len = len;
+        for &byte in bytes {
+            self.hash = (self.hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        Ok(())
+    }
+    fn finalize(self) -> postcard::Result<u64> {
+        Ok(self.hash)
+    }
+}
+
 /// A full-world checkpoint digest. This can be expensive and should be sent
 /// sparingly; a production protocol needs chunk-scoped corrections instead.
 pub fn digest(world: &World) -> Option<u64> {
-    let bytes = postcard::to_allocvec(&world.checkpoint()).ok()?;
-    (bytes.len() <= MAX_HASH_BYTES).then(|| fnv1a(&bytes))
+    postcard::serialize_with_flavor(
+        &world.checkpoint_ref(),
+        HashFlavor {
+            hash: 0xcbf2_9ce4_8422_2325,
+            len: 0,
+        },
+    )
+    .ok()
 }
 
 /// A guest consumes ordered commands only for its selected host and its
@@ -468,6 +507,63 @@ mod tests {
         frame.after_digest = check.then(|| digest(&world).unwrap());
         host.level.cells = Some(world);
         frame.to_bytes().unwrap()
+    }
+
+    #[test]
+    fn streaming_digest_enforces_the_exact_encoded_limit() {
+        use postcard::ser_flavors::Flavor;
+        let mut flavor = HashFlavor {
+            hash: 7,
+            len: MAX_HASH_BYTES - 1,
+        };
+        assert!(flavor.try_extend(&[1, 2]).is_err());
+        assert_eq!((flavor.hash, flavor.len), (7, MAX_HASH_BYTES - 1));
+        flavor.try_push(1).unwrap();
+        assert_eq!(flavor.len, MAX_HASH_BYTES);
+        let hash = flavor.hash;
+        assert!(flavor.try_push(2).is_err());
+        assert_eq!((flavor.hash, flavor.len), (hash, MAX_HASH_BYTES));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn digest_old_and_streamed_interleaved_profile() {
+        use std::time::Instant;
+        let level = crate::Level::test_level();
+        let world = World::from_level_settled(&level);
+        let mut old = Vec::new();
+        let mut new = Vec::new();
+        for _ in 0..20 {
+            let start = Instant::now();
+            let bytes = postcard::to_allocvec(&world.checkpoint()).unwrap();
+            let old_digest = fnv1a(&bytes);
+            old.push(start.elapsed());
+            let start = Instant::now();
+            let new_digest = digest(&world).unwrap();
+            new.push(start.elapsed());
+            assert_eq!(old_digest, new_digest);
+        }
+        old.sort_unstable();
+        new.sort_unstable();
+        eprintln!(
+            "old digest: {:?}; streamed digest: {:?}; n=20 each",
+            old[10], new[10]
+        );
+    }
+
+    #[test]
+    fn streamed_digest_matches_the_existing_checkpoint_bytes() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        for streamed in [false, true] {
+            if streamed {
+                assert!(world.follow_player(&level, 4400.0, -700.0));
+                world.step(0.35);
+            }
+            let bytes = postcard::to_allocvec(&world.checkpoint()).unwrap();
+            assert_eq!(digest(&world), Some(fnv1a(&bytes)));
+        }
     }
 
     #[test]
