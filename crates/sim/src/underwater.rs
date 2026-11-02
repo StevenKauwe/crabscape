@@ -3,7 +3,7 @@
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
 mod host_windows;
-pub use host_windows::{HostPlayerForce, HostStepError};
+pub use host_windows::{HostDig, HostPlayerForce, HostStepError};
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 360;

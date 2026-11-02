@@ -3,9 +3,9 @@
 //! This prototype advances fluid and sediment around every requested player
 //! on one clock, and coalesces nearby players into one authoritative window.
 //! It is not yet a co-op simulation: crossing between disjoint windows,
-//! digging, network synchronization, and particle visuals outside the host
-//! window are not implemented. Player bodies are temporarily treated as
-//! solid cells, an approximation that must be replaced before live co-op.
+//! network synchronization and particle visuals outside the host window
+//! are not implemented. Player bodies are temporarily treated as solid
+//! cells, an approximation that must be replaced before live co-op.
 //! Unsafe layouts are rejected transactionally instead of stepped twice.
 
 use super::{
@@ -29,7 +29,7 @@ pub enum HostStepError {
 
 /// A player's already-resolved motion, measured in world units. Wake values
 /// are dimensionless thrust impulses in the range -2.5 to 2.5; walking is
-/// -1, 0, or 1. This restricted prototype does not support digging.
+/// -1, 0, or 1. Digging is restricted to cardinal directions.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HostPlayerForce {
     pub player: PlayerId,
@@ -42,6 +42,16 @@ pub struct HostPlayerForce {
     pub walking: i8,
     pub grounded: bool,
     pub jumped: bool,
+    pub dig: Option<HostDig>,
+}
+
+/// A bounded cardinal digging impulse. Force is the existing solo push
+/// budget, applied per push rather than as a total per-frame mass budget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostDig {
+    pub dx: i8,
+    pub dy: i8,
+    pub force: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -87,11 +97,11 @@ impl World {
         self.step_host_frame(level, interests, current, &[])
     }
 
-    /// Apply player wakes, jump downwash, and walking brushes while stepping
+    /// Apply player wakes, jump downwash, digging, and walking brushes while stepping
     /// host terrain. Every interest must have one matching player. Player
     /// bodies must be disjoint, entirely water, and away from window edges.
     /// A body temporarily blocks fluid and sediment as solid cells, so this
-    /// method deliberately rejects embedded or digging players for now.
+    /// method deliberately rejects players already embedded in terrain.
     pub fn step_host_players(
         &mut self,
         level: &crate::Level,
@@ -143,6 +153,13 @@ impl World {
                 || player.wake_x.abs() > 2.5
                 || player.wake_y.abs() > 2.5
                 || !(-1..=1).contains(&player.walking)
+                || player.dig.is_some_and(|dig| {
+                    !(-1..=1).contains(&dig.dx)
+                        || !(-1..=1).contains(&dig.dy)
+                        || dig.dx.unsigned_abs() + dig.dy.unsigned_abs() != 1
+                        || dig.force == 0
+                        || dig.force > 48
+                })
                 || (i > 0 && players[i - 1].player == player.player)
                 || !interests.iter().any(|interest| {
                     interest.player == player.player
@@ -295,6 +312,7 @@ impl World {
                 }
                 let hx = (player.half_width / GAME_CELL).ceil().max(1.0) as i32;
                 let hy = (player.half_height / GAME_CELL).ceil().max(1.0) as i32;
+                let mut body_cells = Vec::new();
                 for by in y - hy..=y + hy {
                     for bx in x - hx..=x + hx {
                         let Some(i) = Self::index(bx, by) else {
@@ -305,23 +323,58 @@ impl World {
                             *self = original;
                             return Err(HostStepError::UnsupportedPlayer);
                         }
+                        body_cells.push(i);
                     }
                 }
-                bodies.push((*player, x, y, hx, hy));
+                bodies.push((*player, x, y, hx, hy, body_cells));
             }
             for &i in &occupied {
                 self.cells[i] = Cell::Rock;
             }
-            for (player, x, y, hx, hy) in bodies {
+            for (player, x, y, hx, hy, body_cells) in bodies {
+                // The active player's normal crab reservation handles its
+                // own footprint, allowing the solo scooping algorithm to
+                // see water through it. Other players remain solid guards.
+                for &i in &body_cells {
+                    self.cells[i] = Cell::Water;
+                }
                 self.set_game_crab(x as f32, y as f32, hx as f32, hy as f32);
                 self.react_to_swim(x as f32, y as f32, player.wake_x, player.wake_y);
                 if player.jumped {
                     self.react_to_jump(x as f32, (y - hy) as f32);
                 }
-                if player.grounded && player.walking != 0 {
+                if let Some(dig) = player.dig {
+                    let force = usize::from(dig.force);
+                    match (dig.dx, dig.dy) {
+                        (0, -1) => {
+                            self.swoop_dig_pebbles(force);
+                            self.push_for_crab(x as f32, (y - 2) as f32, 0, -1, force);
+                        }
+                        (0, 1) => {
+                            self.push_for_crab(x as f32, (y + 4) as f32, 0, 1, force);
+                        }
+                        (dx, 0) => {
+                            self.push_for_crab(
+                                (x + i32::from(dx)) as f32,
+                                y as f32,
+                                i32::from(dx),
+                                0,
+                                force,
+                            );
+                        }
+                        _ => {} // Invalid directions were rejected before any mutation.
+                    }
+                } else if player.grounded && player.walking != 0 {
                     self.brush_walking_sand(i32::from(player.walking));
                 }
                 self.clear_game_crab();
+                for i in body_cells {
+                    if self.cells[i] != Cell::Water {
+                        *self = original;
+                        return Err(HostStepError::UnsupportedPlayer);
+                    }
+                    self.cells[i] = Cell::Rock;
+                }
             }
             self.tick = old_tick + 1;
             self.step_material(current);
@@ -413,6 +466,7 @@ mod tests {
             walking: 1,
             grounded: true,
             jumped: true,
+            dig: None,
         }
     }
 
@@ -431,6 +485,237 @@ mod tests {
         let falling = World::index(cx, cy + 3).unwrap();
         world.cells[falling] = Cell::Mud;
         world.grain[falling] = 230;
+    }
+
+    fn dig_right(force: u8) -> HostDig {
+        HostDig {
+            dx: 1,
+            dy: 0,
+            force,
+        }
+    }
+
+    fn front_sand(world: &mut World, cx: i32, cy: i32, direction: i32) {
+        for y in cy - 2..=cy + 2 {
+            let i = World::index(cx + direction * 3, y).unwrap();
+            assert_eq!(world.pebble_owner[i], 0);
+            world.cells[i] = Cell::Sand;
+            world.grain[i] = 120;
+        }
+    }
+
+    #[test]
+    fn two_nearby_players_dig_around_reserved_bodies_and_conserve_sand() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        clear_for_player(&mut world, 300, 300);
+        clear_for_player(&mut world, 340, 300);
+        front_sand(&mut world, 300, 300, 1);
+        front_sand(&mut world, 340, 300, -1);
+        let interests = [interest(1, 4, 4), interest(2, 5, 4)];
+        let mut players = [player(1, 300, 300), player(2, 340, 300)];
+        for p in &mut players {
+            p.wake_x = 0.0;
+            p.wake_y = 0.0;
+            p.walking = 0;
+            p.jumped = false;
+        }
+        players[0].dig = Some(dig_right(48));
+        players[1].dig = Some(HostDig {
+            dx: -1,
+            dy: 0,
+            force: 48,
+        });
+        let mut reversed = world.clone();
+        let mut still = players;
+        for p in &mut still {
+            p.dig = None;
+        }
+        let mut passive = world.clone();
+        let before = sediment(&world);
+        world
+            .step_host_players(&level, &interests, 0.35, &players)
+            .unwrap();
+        reversed
+            .step_host_players(
+                &level,
+                &[interests[1], interests[0]],
+                0.35,
+                &[players[1], players[0]],
+            )
+            .unwrap();
+        passive
+            .step_host_players(&level, &interests, 0.35, &still)
+            .unwrap();
+        assert_eq!(world, reversed, "digging order is stable by player ID");
+        assert_eq!(sediment(&world), before, "digging conserves material");
+        for cx in [300, 340] {
+            for y in 298..=302 {
+                for x in cx - 2..=cx + 2 {
+                    assert_eq!(
+                        world.cell(x, y),
+                        Cell::Water,
+                        "material entered a reserved body"
+                    );
+                }
+            }
+            assert!(
+                (cx - 6..=cx + 6)
+                    .any(|x| (294..=306).any(|y| world.cell(x, y) != passive.cell(x, y))),
+                "player {cx} did not move nearby sand"
+            );
+        }
+    }
+
+    #[test]
+    fn dig_force_limits_pebble_motion_and_bad_forces_roll_back() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        clear_for_player(&mut world, 300, 300);
+        for x in 303..=307 {
+            world.cells[World::index(x, 297).unwrap()] = Cell::Rock;
+        }
+        let id = world.pebbles.len();
+        assert!(world.add_pebble(303, 298, 4, 250));
+        let original = world.pebbles[id];
+        let interest = [interest(1, 4, 4)];
+        let mut weak = player(1, 300, 300);
+        weak.wake_x = 0.0;
+        weak.wake_y = 0.0;
+        weak.jumped = false;
+        weak.walking = 0;
+        weak.dig = Some(dig_right(8));
+        let mut strong = weak;
+        strong.dig = Some(dig_right(48));
+        let mut lightly_pushed = world.clone();
+        let before = sediment(&world);
+        lightly_pushed
+            .step_host_players(&level, &interest, 0.35, &[weak])
+            .unwrap();
+        world
+            .step_host_players(&level, &interest, 0.35, &[strong])
+            .unwrap();
+        assert_eq!(
+            (lightly_pushed.pebbles[id].x, lightly_pushed.pebbles[id].y),
+            (original.x, original.y),
+            "force below pebble mass cannot move it"
+        );
+        assert_ne!(
+            (world.pebbles[id].x, world.pebbles[id].y),
+            (original.x, original.y),
+            "stronger dig can move it"
+        );
+        assert_eq!(sediment(&world), before);
+        let unchanged = world.clone();
+        let mut invalid = strong;
+        invalid.dig = Some(HostDig {
+            dx: 1,
+            dy: 1,
+            force: 48,
+        });
+        assert_eq!(
+            world.step_host_players(&level, &interest, 0.35, &[invalid]),
+            Err(HostStepError::UnsupportedPlayer)
+        );
+        invalid.dig = Some(dig_right(49));
+        assert_eq!(
+            world.step_host_players(&level, &interest, 0.35, &[invalid]),
+            Err(HostStepError::UnsupportedPlayer)
+        );
+        assert_eq!(world, unchanged);
+    }
+
+    #[test]
+    fn opposing_diggers_preserve_both_adjacent_bodies() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        clear_for_player(&mut world, 300, 300);
+        clear_for_player(&mut world, 308, 300);
+        for x in 303..=305 {
+            for y in 298..=302 {
+                let i = World::index(x, y).unwrap();
+                world.cells[i] = Cell::Sand;
+                world.grain[i] = 120;
+            }
+        }
+        let interests = [interest(1, 4, 4), interest(2, 4, 4)];
+        let mut players = [player(1, 300, 300), player(2, 308, 300)];
+        for p in &mut players {
+            p.wake_x = 0.0;
+            p.wake_y = 0.0;
+            p.walking = 0;
+            p.jumped = false;
+        }
+        players[0].dig = Some(dig_right(48));
+        players[1].dig = Some(HostDig {
+            dx: -1,
+            dy: 0,
+            force: 48,
+        });
+        let before = sediment(&world);
+        world
+            .step_host_players(&level, &interests, 0.35, &players)
+            .unwrap();
+        assert_eq!(sediment(&world), before);
+        for cx in [300, 308] {
+            for x in cx - 2..=cx + 2 {
+                for y in 298..=302 {
+                    assert_eq!(
+                        world.cell(x, y),
+                        Cell::Water,
+                        "digging displaced material into another crab"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn separated_players_both_dig_in_their_own_active_regions() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        let interests = [interest(1, 4, 4), interest(2, 29, 4)];
+        // Generate both windows before accounting for conserved material.
+        world.step_host_interests(&level, &interests, 0.35).unwrap();
+        clear_for_player(&mut world, 300, 300);
+        front_sand(&mut world, 300, 300, 1);
+        world.shift_window(&level, (1600, 0));
+        clear_for_player(&mut world, 300, 300);
+        front_sand(&mut world, 300, 300, 1);
+        world.shift_window(&level, (0, 0));
+        let mut players = [player(1, 300, 300), player(2, 1900, 300)];
+        for p in &mut players {
+            p.wake_x = 0.0;
+            p.wake_y = 0.0;
+            p.walking = 0;
+            p.jumped = false;
+            p.dig = Some(dig_right(48));
+        }
+        let mut passive = world.clone();
+        let mut still = players;
+        for p in &mut still {
+            p.dig = None;
+        }
+        let before = sediment(&world);
+        world
+            .step_host_players(&level, &interests, 0.35, &players)
+            .unwrap();
+        passive
+            .step_host_players(&level, &interests, 0.35, &still)
+            .unwrap();
+        assert_eq!(sediment(&world), before);
+        for origin in [(0, 0), (1600, 0)] {
+            world.shift_window(&level, origin);
+            passive.shift_window(&level, origin);
+            assert!(
+                (294..=306).any(|x| (294..=306).any(|y| world.cell(x, y) != passive.cell(x, y))),
+                "digging had no effect at origin {origin:?}"
+            );
+        }
     }
 
     #[test]
