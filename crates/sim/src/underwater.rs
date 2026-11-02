@@ -68,7 +68,9 @@ pub enum Cell {
 /// Negative coordinates use Euclidean division, so boundaries agree on both
 /// sides of the origin. These describe terrain only; streaming is not enabled.
 pub const TERRAIN_CHUNK_CELLS: i32 = 64;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct TerrainChunkId {
     pub x: i32,
     pub y: i32,

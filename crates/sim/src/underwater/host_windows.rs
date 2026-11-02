@@ -30,7 +30,7 @@ pub enum HostStepError {
 /// A player's already-resolved motion, measured in world units. Wake values
 /// are dimensionless thrust impulses in the range -2.5 to 2.5; walking is
 /// -1, 0, or 1. Digging is restricted to cardinal directions.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HostPlayerForce {
     pub player: PlayerId,
     pub x: f32,
@@ -47,7 +47,7 @@ pub struct HostPlayerForce {
 
 /// A bounded cardinal digging impulse. Force is the existing solo push
 /// budget, applied per push rather than as a total per-frame mass budget.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HostDig {
     pub dx: i8,
     pub dy: i8,
@@ -1179,5 +1179,78 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn profile_host_windows(count: usize) {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        let players = [player(1, 300, 300), player(2, 1900, 300)];
+        let interests = [interest(1, 4, 4), interest(2, 29, 4)];
+        for _ in 0..3 {
+            world
+                .step_host_players(&level, &interests[..count], 0.35, &players[..count])
+                .unwrap();
+        }
+        let started = std::time::Instant::now();
+        for _ in 0..20 {
+            world
+                .step_host_players(&level, &interests[..count], 0.35, &players[..count])
+                .unwrap();
+        }
+        eprintln!(
+            "{count} players: {:.2} ms/step",
+            started.elapsed().as_secs_f64() * 1000.0 / 20.0
+        );
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn host_single_profile() {
+        profile_host_windows(1);
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn host_dual_profile() {
+        profile_host_windows(2);
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn host_components_profile() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        world.shift_window(&level, (1600, 0));
+        world.shift_window(&level, (0, 0));
+        let mut times = [std::time::Duration::ZERO; 6];
+        for _ in 0..20 {
+            let start = std::time::Instant::now();
+            let copy = world.clone();
+            std::hint::black_box(&copy);
+            times[0] += start.elapsed();
+            let start = std::time::Instant::now();
+            world.shift_window(&level, (0, 0));
+            times[1] += start.elapsed();
+            world.tick += 1;
+            let start = std::time::Instant::now();
+            world.step_material(0.35);
+            times[2] += start.elapsed();
+            let start = std::time::Instant::now();
+            world.shift_window(&level, (1600, 0));
+            times[3] += start.elapsed();
+            let start = std::time::Instant::now();
+            world.step_material(0.35);
+            times[4] += start.elapsed();
+            let start = std::time::Instant::now();
+            world.shift_window(&level, (0, 0));
+            times[5] += start.elapsed();
+            drop(copy);
+        }
+        eprintln!(
+            "clone, same-window shift, first step, far shift, second step, return shift ms: {:?}",
+            times.map(|t| t.as_secs_f64() * 50.0)
+        );
     }
 }

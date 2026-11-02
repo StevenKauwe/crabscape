@@ -452,8 +452,28 @@ fn from_host(msg: &crabsim::net::Msg, sender: Option<PlayerId>, hosting: Hosting
 /// Only the selected host may send a terrain checkpoint, and only after the
 /// guest has entered that host's world. A fragment alone must never cause a
 /// guest to enter a world, or let an old stand-in overwrite the new host.
-fn accepts_cell_terrain(sender: Option<PlayerId>, hosting: Hosting, in_guest_world: bool) -> bool {
-    in_guest_world && matches!(hosting, Hosting::Friend(host) if sender == Some(host))
+fn accepts_cell_terrain(
+    sender: Option<PlayerId>,
+    connection: u128,
+    peers: &[OnLink],
+    hosting: Hosting,
+    in_guest_world: bool,
+) -> bool {
+    use crabsim::net::cell_join::{Peer, select_host};
+    let Hosting::Friend(host) = hosting else {
+        return false;
+    };
+    if !in_guest_world || sender != Some(host) {
+        return false;
+    }
+    let claims: Vec<_> = peers
+        .iter()
+        .map(|peer| Peer {
+            player: peer.crab,
+            connection: peer.conn,
+        })
+        .collect();
+    select_host(host, &claims).is_some_and(|selected| selected.connection == connection)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1016,9 +1036,10 @@ mod web {
             let mut again = Vec::new();
             for channel in [RELIABLE, QUICK] {
                 for (peer, bytes) in link.socket.channel_mut(channel).receive() {
-                    let Some(p) = link.peers.iter_mut().find(|p| p.id == peer) else {
+                    let Some(peer_index) = link.peers.iter().position(|p| p.id == peer) else {
                         continue;
                     };
+                    let p = &mut link.peers[peer_index];
                     p.quiet = 0.0;
                     if let Some(h) = read_hello(&bytes) {
                         info!("co-op: a device on version {}", h.version);
@@ -1055,21 +1076,32 @@ mod web {
                         }
                         continue;
                     }
-                    let from_host = from_host(&msg, p.said.map(|s| s.crab), hosting);
-                    if matches!(msg, Msg::CellTerrain(_))
-                        && (channel != RELIABLE
+                    let sender = p.said.map(|s| s.crab);
+                    let from_host = from_host(&msg, sender, hosting);
+                    if matches!(msg, Msg::CellTerrain(_)) {
+                        let links: Vec<_> = link
+                            .peers
+                            .iter()
+                            .filter(|p| p.same_version())
+                            .filter_map(|p| p.said)
+                            .collect();
+                        if channel != RELIABLE
                             || !accepts_cell_terrain(
-                                p.said.map(|s| s.crab),
+                                sender,
+                                peer.0.as_u128(),
+                                &links,
                                 hosting,
                                 sim.online() && !sim.is_host(),
-                            ))
-                    {
-                        continue;
+                            )
+                        {
+                            continue;
+                        }
                     }
                     // Only the host this device goes with says how the world stands.
                     if matches!(msg, Msg::World { .. }) && !from_host {
                         continue;
                     }
+                    let p = &mut link.peers[peer_index];
                     // Met for the first time, or again after going silent.
                     if let Msg::Crab { crab, .. } = &msg
                         && p.player.is_none()
@@ -1838,13 +1870,82 @@ mod tests {
     fn cellular_terrain_only_comes_from_the_selected_host_in_its_world() {
         let main = Hosting::Friend(HOST);
         let stand_in = Hosting::Friend(PlayerId(7));
-        assert!(accepts_cell_terrain(Some(HOST), main, true));
-        assert!(!accepts_cell_terrain(Some(HOST), main, false));
-        assert!(!accepts_cell_terrain(None, main, true));
-        assert!(!accepts_cell_terrain(Some(PlayerId(7)), main, true));
-        assert!(accepts_cell_terrain(Some(PlayerId(7)), stand_in, true));
-        assert!(!accepts_cell_terrain(Some(HOST), stand_in, true));
-        assert!(!accepts_cell_terrain(Some(HOST), Hosting::Me, true));
-        assert!(!accepts_cell_terrain(Some(HOST), Hosting::Nobody, true));
+        let real = OnLink {
+            crab: HOST,
+            conn: 10,
+            hosts: true,
+            met: true,
+        };
+        let standin = OnLink {
+            crab: PlayerId(7),
+            conn: 20,
+            hosts: true,
+            met: true,
+        };
+        let duplicate = OnLink {
+            crab: HOST,
+            conn: 30,
+            hosts: true,
+            met: true,
+        };
+        assert!(accepts_cell_terrain(
+            Some(HOST),
+            10,
+            &[real, standin],
+            main,
+            true
+        ));
+        assert!(!accepts_cell_terrain(Some(HOST), 10, &[real], main, false));
+        assert!(!accepts_cell_terrain(None, 10, &[real], main, true));
+        assert!(!accepts_cell_terrain(
+            Some(PlayerId(7)),
+            20,
+            &[real, standin],
+            main,
+            true
+        ));
+        assert!(accepts_cell_terrain(
+            Some(PlayerId(7)),
+            20,
+            &[real, standin],
+            stand_in,
+            true
+        ));
+        assert!(!accepts_cell_terrain(
+            Some(HOST),
+            10,
+            &[real, standin],
+            stand_in,
+            true
+        ));
+        assert!(!accepts_cell_terrain(
+            Some(HOST),
+            10,
+            &[real],
+            Hosting::Me,
+            true
+        ));
+        assert!(!accepts_cell_terrain(
+            Some(HOST),
+            10,
+            &[real],
+            Hosting::Nobody,
+            true
+        ));
+        assert!(
+            !accepts_cell_terrain(Some(HOST), 30, &[real], main, true),
+            "another connection cannot claim the host identity"
+        );
+        assert!(
+            !accepts_cell_terrain(Some(HOST), 10, &[real, duplicate], main, true),
+            "duplicate host claims invalidate both connections"
+        );
+        assert!(!accepts_cell_terrain(
+            Some(HOST),
+            30,
+            &[real, duplicate],
+            main,
+            true
+        ));
     }
 }

@@ -153,6 +153,9 @@ pub struct OwnWorld {
     pub shared: Shared,
     pub nets_cut: Vec<bool>,
     pub rocks_cracked: Vec<bool>,
+    /// The guest's own cellular terrain, restored on disconnect even when
+    /// a separate join/stream handle is lost.
+    pub cells: Option<crate::underwater::World>,
 }
 
 /// Is there room for `thing` on a crab, counting the `waiting` small things

@@ -714,6 +714,7 @@ impl Sim {
             shared: self.shared.clone(),
             nets_cut: self.level.nets.iter().map(|n| n.cut).collect(),
             rocks_cracked: self.level.brittle.iter().map(|b| b.cracked).collect(),
+            cells: self.level.cells.clone(),
         }
     }
 
@@ -726,6 +727,7 @@ impl Sim {
             b.cracked |= cracked;
         }
         self.shared = own.shared;
+        self.level.cells = own.cells;
     }
 
     /// A guest's own world while it visits the host's (None otherwise): what

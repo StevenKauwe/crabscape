@@ -19,7 +19,7 @@ const MAX_CHUNK_COORD: i32 = 15_624;
 /// One player's chunk-space area of interest, inclusive of the center chunk.
 /// The caller chooses radii large enough for the simulation and streaming
 /// buffers; they are not inferred from the camera or a player-supplied size.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Interest {
     pub player: PlayerId,
     pub center: TerrainChunkId,
