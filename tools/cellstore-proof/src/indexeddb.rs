@@ -607,6 +607,21 @@ impl ChunkStore {
         })
         .await
     }
+    /// Read the checksummed metadata for this exact pinned snapshot.
+    pub async fn pin_info(&self, h: PinHandle) -> Result<Stage, String> {
+        self.transaction(None, false, move |meta, _, _, pin, _, _| {
+            let pin = pin.ok_or("missing pin")?;
+            if meta.epoch != h.epoch
+                || pin.epoch != h.epoch
+                || pin.id != h.id
+                || pin.base != h.token
+            {
+                return Err("stale pin".into());
+            }
+            Ok(pin)
+        })
+        .await
+    }
     pub async fn pinned_part(&self, h: PinHandle, index: usize) -> Result<Vec<u8>, String> {
         if index >= MAX_PARTS {
             return Err("part index limit".into());
@@ -865,7 +880,10 @@ impl Drop for TransactionHandlers {
 async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     use crabsim::underwater::{
         World,
-        frozen_chunks::{FrozenChunks, GuardedBuilder, GuardedError, LazyError, LazyView, PageId},
+        frozen_chunks::{
+            CaptureIndex, FrozenChunks, GuardedBuilder, GuardedError, IndexVerifier, LazyError,
+            LazyView, PageId,
+        },
     };
     let level = crabsim::Level::test_level();
     let mut world = World::from_level_settled(&level);
@@ -873,7 +891,17 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     world.follow_player(&level, 8000.0, 0.0);
     let frozen =
         FrozenChunks::capture(&world, 64 * 1024 * 1024).map_err(|e| format!("capture: {e:?}"))?;
-    let ids: Vec<_> = frozen.sleeping_ids().collect();
+    let index = CaptureIndex::capture(&frozen, frozen.tick(), digest)
+        .map_err(|e| format!("index: {e:?}"))?;
+    let mut malformed_index = index.encode();
+    malformed_index[20..24].copy_from_slice(&u32::MAX.to_le_bytes());
+    if !matches!(
+        CaptureIndex::decode(&malformed_index),
+        Err(LazyError::TooLarge)
+    ) {
+        return Err("oversized index count accepted".into());
+    }
+    let mut ids = index.sleeping().to_vec();
     if ids.is_empty() || ids.len() > 256 {
         return Err("bad streamed fixture".into());
     }
@@ -881,9 +909,11 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     let h = db
         .begin(db.epoch().await?, frozen.tick(), b"fixture-player".to_vec())
         .await?;
-    let mut count = 0;
-    let mut batch = vec![frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?];
-    count += 1;
+    let mut count = 2;
+    let mut batch = vec![
+        index.encode(),
+        frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?,
+    ];
     for y in 0..rows {
         for x in 0..cols {
             batch.push(frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?);
@@ -909,8 +939,31 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     }
     db.publish(h, count).await?;
     let pin = db.pin().await?;
-    let mut view = LazyView::new(&db.pinned_part(pin, 0).await?, &ids, 2, 2_000_000)
-        .map_err(|e| format!("view: {e:?}"))?;
+    let pinned = db.pin_info(pin).await?;
+    let index_bytes = db.pinned_part(pin, 0).await?;
+    let metadata_bytes = db.pinned_part(pin, 1).await?;
+    let mut verifier = IndexVerifier::new(
+        &index_bytes,
+        &metadata_bytes,
+        pinned.tick,
+        pinned.parts.len(),
+        2_000_000,
+        digest,
+    )
+    .map_err(|e| format!("index verify: {e:?}"))?;
+    for slot in 2..pinned.parts.len() {
+        verifier
+            .accept(slot, &db.pinned_part(pin, slot).await?)
+            .map_err(|e| format!("index page: {e:?}"))?;
+    }
+    let verified = verifier
+        .finish()
+        .map_err(|e| format!("index incomplete: {e:?}"))?;
+    // A reset while checking the final page invalidates the pinned head.
+    db.pin_info(pin).await?;
+    ids = verified.sleeping().to_vec();
+    let mut view =
+        LazyView::new(&metadata_bytes, &ids, 2, 2_000_000).map_err(|e| format!("view: {e:?}"))?;
     let estimate = view.estimated_bytes();
     let mut peak_pages = 0;
     for y in 0..rows {
@@ -919,7 +972,7 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
             let ticket = view
                 .begin_load(page)
                 .map_err(|e| format!("ticket: {e:?}"))?;
-            let bytes = db.pinned_part(pin, 1 + y * cols + x).await?;
+            let bytes = db.pinned_part(pin, 2 + y * cols + x).await?;
             view.finish_load(ticket, &bytes)
                 .map_err(|e| format!("active page: {e:?}"))?;
             peak_pages = peak_pages.max(view.resident_pages());
@@ -944,7 +997,7 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
         let ticket = view
             .begin_load(PageId::Sleeping(x, y))
             .map_err(|e| format!("ticket: {e:?}"))?;
-        let bytes = db.pinned_part(pin, 1 + cols * rows + i).await?;
+        let bytes = db.pinned_part(pin, 2 + cols * rows + i).await?;
         view.finish_load(ticket, &bytes)
             .map_err(|e| format!("sleeping page: {e:?}"))?;
         peak_pages = peak_pages.max(view.resident_pages());
@@ -972,16 +1025,15 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     let terrain = reference.level.cells.take().ok_or("missing terrain")?;
     let template = reference.clone();
     reference.level.cells = Some(terrain);
-    let mut builder =
-        GuardedBuilder::new(template, &db.pinned_part(pin, 0).await?, &ids, 2_000_000)
-            .map_err(|e| format!("builder: {e:?}"))?;
+    let mut builder = GuardedBuilder::new(template, &metadata_bytes, &ids, 2_000_000)
+        .map_err(|e| format!("builder: {e:?}"))?;
     for y in 0..rows {
         for x in 0..cols {
             builder
                 .active(
                     x as u16,
                     y as u16,
-                    &db.pinned_part(pin, 1 + y * cols + x).await?,
+                    &db.pinned_part(pin, 2 + y * cols + x).await?,
                 )
                 .map_err(|e| format!("builder page: {e:?}"))?;
         }
@@ -1012,7 +1064,7 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
             .begin_sleeping(id)
             .map_err(|e| format!("guarded ticket: {e:?}"))?;
         guarded
-            .accept_sleeping(ticket, &db.pinned_part(pin, 1 + cols * rows + i).await?)
+            .accept_sleeping(ticket, &db.pinned_part(pin, 2 + cols * rows + i).await?)
             .map_err(|e| format!("guarded sleeping: {e:?}"))?;
     }
     let restored = guarded
@@ -1026,20 +1078,15 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     }
     let mut reset_template = restored;
     reset_template.level.cells = None;
-    let mut reset_builder = GuardedBuilder::new(
-        reset_template,
-        &db.pinned_part(pin, 0).await?,
-        &ids,
-        2_000_000,
-    )
-    .map_err(|e| format!("reset builder: {e:?}"))?;
+    let mut reset_builder = GuardedBuilder::new(reset_template, &metadata_bytes, &ids, 2_000_000)
+        .map_err(|e| format!("reset builder: {e:?}"))?;
     for y in 0..rows {
         for x in 0..cols {
             reset_builder
                 .active(
                     x as u16,
                     y as u16,
-                    &db.pinned_part(pin, 1 + y * cols + x).await?,
+                    &db.pinned_part(pin, 2 + y * cols + x).await?,
                 )
                 .map_err(|e| format!("reset builder page: {e:?}"))?;
         }
@@ -1050,11 +1097,11 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     let guard_ticket = reset_guard
         .begin_sleeping(ids[0])
         .map_err(|e| format!("reset ticket: {e:?}"))?;
-    let guard_pending = db.pinned_part(pin, 1 + cols * rows).await?;
+    let guard_pending = db.pinned_part(pin, 2 + cols * rows).await?;
     let late = view
         .begin_load(PageId::Active(0, 0))
         .map_err(|e| format!("late ticket: {e:?}"))?;
-    let pending = db.pinned_part(pin, 1).await?;
+    let pending = db.pinned_part(pin, 2).await?;
     db.reset().await?;
     view.invalidate();
     reset_guard.invalidate();
@@ -1062,7 +1109,7 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
         return Err("reset accepted stale guarded page".into());
     }
     if view.finish_load(late, &pending) != Err(LazyError::Stale)
-        || db.pinned_part(pin, 1).await.is_ok()
+        || db.pinned_part(pin, 2).await.is_ok()
     {
         return Err("reset accepted stale page".into());
     }
@@ -1109,6 +1156,29 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             return Err("incomplete publish accepted".into());
         }
         a.publish(first, 2).await?;
+        // A real asynchronous IndexedDB request error aborts its transaction;
+        // it must not delete or replace the existing head. This is not a
+        // simulation of browser quota exhaustion.
+        let request_error = a
+            .transaction(None, false, move |_, _, _, _, _, store| {
+                store
+                    .delete(&JsValue::from_str(&format!("chunk:{}:0", first.id)))
+                    .map_err(|e| err("queue delete", e))?;
+                store
+                    .add_with_key(
+                        Uint8Array::from([1u8].as_slice()).as_ref(),
+                        &JsValue::from_str("head"),
+                    )
+                    .map_err(|e| err("queue duplicate add", e))?;
+                Ok(())
+            })
+            .await;
+        if request_error.is_ok()
+            || b.head().await?.ok_or("lost head after request error")?.id != first.id
+            || b.part(first, 0).await? != b"sand"
+        {
+            return Err("request error failed to roll back".into());
+        }
         // Missing or corrupt staged rows must never replace the good head.
         for missing in [true, false] {
             let broken = a.begin(session_epoch, 18, b"broken".to_vec()).await?;

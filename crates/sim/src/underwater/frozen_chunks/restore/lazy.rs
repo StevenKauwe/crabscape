@@ -177,6 +177,29 @@ impl LazyView {
     pub fn resident_pages(&self) -> usize {
         self.cache.len()
     }
+    /// Every pebble cell outside the active rectangle must have a declared
+    /// sleeping page. This checks index coverage, not page contents.
+    pub(super) fn validate_index_coverage(&self) -> Result<(), LazyError> {
+        for pebble in &self.metadata.pebbles.0 {
+            for y in pebble.y..pebble.y + i32::from(pebble.side) {
+                for x in pebble.x..pebble.x + i32::from(pebble.side) {
+                    if x >= 0 && y >= 0 && x < WIDTH as i32 && y < HEIGHT as i32 {
+                        continue;
+                    }
+                    let gx = i64::from(x) + i64::from(self.metadata.origin.0);
+                    let gy = i64::from(y) + i64::from(self.metadata.origin.1);
+                    let cx = i32::try_from(gx.div_euclid(SIDE as i64))
+                        .map_err(|_| LazyError::Invalid)?;
+                    let cy = i32::try_from(gy.div_euclid(SIDE as i64))
+                        .map_err(|_| LazyError::Invalid)?;
+                    if !self.sleeping.contains(&(cx, cy)) {
+                        return Err(LazyError::Inconsistent);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn invalidate(&mut self) {
         self.valid = false;
         self.cache.clear();

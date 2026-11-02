@@ -52,6 +52,8 @@ impl GuardedBuilder {
         let player = sim.crabs()[0].id;
         let view =
             LazyView::new(metadata, sleeping, 2, budget).map_err(|_| GuardedError::Invalid)?;
+        view.validate_index_coverage()
+            .map_err(|_| GuardedError::Invalid)?;
         let restore = FrozenRestore::new(metadata, 0).map_err(|_| GuardedError::Invalid)?;
         Ok(Self {
             sim,
@@ -107,6 +109,14 @@ impl GuardedBuilder {
     }
 }
 
+/// A partial session does not expose its underlying `World` for export.
+///
+/// ```compile_fail
+/// use crabsim::underwater::frozen_chunks::GuardedPlayable;
+/// fn export_partial(session: &GuardedPlayable) {
+///     let _terrain = session.active_world();
+/// }
+/// ```
 pub struct GuardedPlayable {
     sim: Option<Sim>,
     player: PlayerId,
@@ -119,9 +129,6 @@ impl GuardedPlayable {
     }
     pub fn tick(&self) -> Option<u64> {
         Some(self.sim.as_ref()?.tick_count())
-    }
-    pub fn active_world(&self) -> Option<&World> {
-        self.sim.as_ref()?.level.cells.as_ref()
     }
     pub fn missing_count(&self) -> usize {
         self.missing.len()
@@ -485,6 +492,12 @@ mod tests {
         let mut sim = Sim::new(Tuning::default(), level);
         assert!(sim.restore_cellular_terrain(world.clone(), 17));
         sim.add_crab(PlayerId(0), Vec2::new(160.0, 0.0));
+        let mut omitted_index = sim.clone();
+        omitted_index.level.cells = None;
+        assert!(matches!(
+            GuardedBuilder::new(omitted_index, &frozen.metadata().unwrap(), &[], 2_000_000),
+            Err(GuardedError::Invalid)
+        ));
         let mut guard = build(&sim, &frozen, &[(0, 5)]);
         let before = guard.sim.as_ref().unwrap().state_hash();
         let mut omitted = world.sleeping[&(0, 5)].clone();

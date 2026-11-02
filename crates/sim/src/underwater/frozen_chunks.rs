@@ -5,8 +5,8 @@
 //! phone memory limits. The caller must capture player state at the same tick.
 mod restore;
 pub use restore::{
-    CellState, FrozenRestore, GuardedBuilder, GuardedError, GuardedPlayable, LazyError, LazyView,
-    LoadTicket, PageId,
+    CaptureIndex, CellState, GuardedBuilder, GuardedError, GuardedPlayable, IndexVerifier,
+    LazyError, LazyView, LoadTicket, PageId, VerifiedIndex,
 };
 
 use super::*;

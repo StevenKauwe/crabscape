@@ -5,8 +5,10 @@ use crate::underwater::bounded_checkpoint::BoundedVec;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 mod lazy;
+mod manifest;
 mod playable;
 pub use lazy::{CellState, LazyError, LazyView, LoadTicket, PageId};
+pub use manifest::{CaptureIndex, IndexVerifier, VerifiedIndex};
 pub use playable::{GuardedBuilder, GuardedError, GuardedPlayable};
 
 const MAX_RESTORE_SLEEPING: usize = 256;
@@ -69,7 +71,7 @@ fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, CaptureError> {
 
 /// A bounded proof of reconstruction. A production manifest must also bind
 /// the identity and digest of every expected part to the tick/player record.
-pub struct FrozenRestore {
+struct FrozenRestore {
     checkpoint: WorldCheckpoint,
     active_seen: [bool; TOTAL_ACTIVE],
     expected_sleeping: usize,
@@ -181,7 +183,8 @@ impl FrozenRestore {
         Ok(())
     }
 
-    pub fn sleeping(&mut self, bytes: &[u8]) -> Result<(), CaptureError> {
+    #[cfg(test)]
+    fn sleeping(&mut self, bytes: &[u8]) -> Result<(), CaptureError> {
         if self.checkpoint.sleeping.len() >= self.expected_sleeping {
             return Err(CaptureError::InvalidShape);
         }

@@ -90,7 +90,7 @@ chunks change. Lazy disk reconstruction additionally needs per-chunk validation,
 an IO cache budget, deterministic missing-chunk behavior, cancellation and reset
 fencing, and a policy for when simulation may advance while a chunk is loading.
 
-`FrozenRestore` consumes bounded active and sleeping parts individually,
+The internal `FrozenRestore` consumes bounded active and sleeping parts individually,
 rejects missing, duplicate, malformed or oversized parts, and checks the
 assembled world with the existing checkpoint validator. It eagerly holds all
 accepted chunks and currently caps sleeping chunks at 256; it is not a lazy
@@ -155,8 +155,9 @@ whether a writer or pin belongs to a crashed tab, automatically schedule or
 resume collection, bound JavaScript's structured-clone memory, handle quota
 recovery, migrate the old record, integrate the game, or establish mobile/WebKit
 safety. The experimental metadata encoding changed during development and is
-not a stable format. A forced transaction abort is tested; actual quota
-exhaustion is not. Reset deliberately clears only the separate experimental
+not a stable format. A forced transaction abort and a real asynchronous
+IndexedDB duplicate-key error are tested; actual quota exhaustion is not.
+Reset deliberately clears only the separate experimental
 database. Do not substitute it for the live save path.
 
 ## Lazy terrain view experiment
@@ -181,11 +182,22 @@ view estimate (including room for the incoming page), and 26,083,328 bytes of
 Wasm linear-memory capacity for the whole test module, including its original
 world and full frozen snapshot. This is not a measured total heap peak: it
 excludes browser/JS storage, allocator overhead, caller-owned buffers, and game
-assets, and has not been measured on mobile. The proof supplies the sleeping
-index from its in-memory capture; it does not yet reconstruct that index from a
-persisted manifest or install and advance a playable world. Its page limit,
-validation rules, memory estimate and experimental format are not production
-compatibility guarantees.
+assets, and has not been measured on mobile. Its page limit, validation rules,
+memory estimate and experimental format are not production compatibility
+guarantees.
+
+`CaptureIndex` now derives a canonical ordered page index and digests from the
+frozen capture. In the isolated browser proof it is stored with the snapshot,
+then read from the same pinned head as the metadata and every page. An
+`IndexVerifier` checks tick, count, page ordering and each digest, streams all
+pages through the two-page validator, and checks that global pebble footprints
+have declared pages. Its hash callback must be collision-resistant; the proof
+uses SHA-256. This confirms consistency with the supplied index, not that an
+arbitrary self-consistent index is complete. Completeness still depends on
+trusted capture provenance and binding to the same saved player/tick. Reset
+and pin validity must be checked before using the result. Index construction
+currently encodes and hashes all pages synchronously and is not a production
+mobile performance design.
 
 ## Guarded active-world experiment
 
