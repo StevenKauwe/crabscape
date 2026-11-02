@@ -33,16 +33,38 @@ struct Lease {
     // Each kernel's compact 1-based owner ID maps to the canonical table.
     pebble_ids: Vec<u16>,
     revision: u64,
+    fall_accepted: u64,
+    fall_staged: Vec<FallPacket>,
+    shadows: Vec<u64>,
+    arrival_ack: u64,
+    arrival_published: u64,
+    bottom_open: Vec<bool>,
+    had_falls: bool,
 }
 
 /// The owner keeps one canonical archive. Active kernels contain only their
 /// assigned cells: they never clone the growing sleeping-world archive.
 #[derive(Clone)]
 pub struct TerrainStore {
+    arrivals: BTreeMap<RegionId, Vec<ReservedArrival>>,
     terrain: World,
     leases: BTreeMap<RegionId, Lease>,
     next_epoch: u64,
     pending_moves: BTreeMap<RegionId, moving::TerrainMoveIn>,
+}
+#[derive(Clone)]
+struct ReservedArrival {
+    input: crate::world::regions::falling::Arrival,
+    delivered: bool,
+}
+struct FluxPlan {
+    queue: Vec<FallPacket>,
+    next: u64,
+    shadows: Vec<u64>,
+    staged: Vec<FallPacket>,
+    accepted: u64,
+    arrivals: u64,
+    had_falls: bool,
 }
 impl TerrainStore {
     pub fn new(terrain: World) -> Result<Self, StoreError> {
@@ -50,6 +72,7 @@ impl TerrainStore {
             return Err(StoreError::InvalidState);
         }
         Ok(Self {
+            arrivals: BTreeMap::new(),
             terrain,
             leases: BTreeMap::new(),
             next_epoch: 1,
@@ -117,7 +140,19 @@ impl TerrainStore {
         if self.pending_moves.values().any(|m| m.new.overlaps(bounds)) {
             return Err(StoreError::Overlap);
         }
-        let (kernel, pebble_ids) = self.terrain.load_region(bounds, level)?;
+        let (mut kernel, pebble_ids) = self.terrain.load_region(bounds, level)?;
+        let arrivals: Vec<_> = self
+            .terrain
+            .pending_falls()
+            .iter()
+            .copied()
+            .filter(|p| bounds.contains(p.x, p.y))
+            .collect();
+        if !kernel.enqueue_falls(&arrivals) {
+            return Err(StoreError::InvalidState);
+        }
+        let shadows: Vec<_> = arrivals.iter().map(|p| p.sequence).collect();
+        kernel.set_bottom_open(self.terrain.bottom_mask(bounds, level));
         let epoch = RegionEpoch(self.next_epoch);
         self.next_epoch = self
             .next_epoch
@@ -131,6 +166,13 @@ impl TerrainStore {
                 committed_tick: kernel.tick,
                 pebble_ids,
                 revision: 0,
+                fall_accepted: 0,
+                fall_staged: Vec::new(),
+                had_falls: !shadows.is_empty(),
+                shadows,
+                arrival_ack: 0,
+                arrival_published: 0,
+                bottom_open: kernel.bottom_open().to_vec(),
             },
         );
         Ok((epoch, kernel))
@@ -139,6 +181,32 @@ impl TerrainStore {
     /// Commit only a region's owned rectangle. A stale authority cannot
     /// overwrite a newer region, even after an ID is reused.
     pub fn commit(
+        &mut self,
+        id: RegionId,
+        epoch: RegionEpoch,
+        kernel: &World,
+    ) -> Result<(), StoreError> {
+        self.commit_state(id, epoch, kernel, 0)
+    }
+    pub fn commit_state(
+        &mut self,
+        id: RegionId,
+        epoch: RegionEpoch,
+        kernel: &World,
+        arrivals_delivered: u64,
+    ) -> Result<(), StoreError> {
+        let flux = self.prepare_flux(
+            id,
+            epoch,
+            kernel.pending_falls(),
+            kernel.tick,
+            arrivals_delivered,
+        )?;
+        self.commit_terrain(id, epoch, kernel)?;
+        self.publish_flux(id, flux);
+        Ok(())
+    }
+    fn commit_terrain(
         &mut self,
         id: RegionId,
         epoch: RegionEpoch,
@@ -277,6 +345,297 @@ impl TerrainStore {
             }
         }
         lease.committed_tick = kernel.tick;
+        lease.bottom_open = kernel.bottom_open().to_vec();
+        Ok(())
+    }
+    /// Accept each authority's emitted grains once, even across retries,
+    /// checkpoints, disconnect recovery and window moves.
+    pub fn accept_falls(
+        &mut self,
+        id: RegionId,
+        epoch: RegionEpoch,
+        packets: &[FallPacket],
+    ) -> Result<u64, StoreError> {
+        let lease = self.leases.get_mut(&id).ok_or(StoreError::UnknownRegion)?;
+        if lease.epoch != epoch {
+            return Err(StoreError::StaleEpoch);
+        }
+        if packets.windows(2).any(|p| p[0].sequence >= p[1].sequence)
+            || packets
+                .iter()
+                .any(|p| !p.outbound || p.sequence == u64::MAX)
+        {
+            return Err(StoreError::InvalidState);
+        }
+        let fresh: Vec<_> = packets
+            .iter()
+            .copied()
+            .filter(|p| p.sequence >= lease.fall_accepted)
+            .collect();
+        if !valid_fall_packets(packets, u64::MAX, u64::MAX / 4 - 1_000_000)
+            || lease.fall_staged.len() + fresh.len() > MAX_PENDING_FALLS
+        {
+            return Err(StoreError::InvalidState);
+        }
+        lease.fall_staged.extend(fresh.iter().copied());
+        lease.had_falls |= !fresh.is_empty();
+        if let Some(last) = fresh.last() {
+            lease.fall_accepted = last.sequence + 1;
+        }
+        Ok(lease.fall_accepted)
+    }
+    /// Bounded passive work uses the owner clock, but cannot modify live or
+    /// prefetched terrain. Reserved in-flight packets remain frozen until the
+    /// associated move either commits or aborts.
+    pub fn advance_passive(
+        &mut self,
+        level: &crate::Level,
+        until_tick: u64,
+        budget: usize,
+    ) -> usize {
+        self.terrain.tick = self.terrain.tick.max(until_tick);
+        let blocked: Vec<_> = self
+            .leases
+            .values()
+            .map(|l| l.bounds)
+            .chain(self.pending_moves.values().map(|m| m.new))
+            .collect();
+        let reserved: std::collections::BTreeSet<_> = self
+            .pending_moves
+            .values()
+            .flat_map(|m| m.falls.iter().map(|p| p.sequence))
+            .chain(self.leases.values().flat_map(|l| l.shadows.iter().copied()))
+            .chain(
+                self.arrivals
+                    .values()
+                    .flatten()
+                    .flat_map(|a| a.input.packets().iter().map(|p| p.sequence)),
+            )
+            .collect();
+        let mut held = Vec::new();
+        self.terrain.pending_falls.retain(|p| {
+            if reserved.contains(&p.sequence) {
+                held.push(*p);
+                false
+            } else {
+                true
+            }
+        });
+        let work = self
+            .terrain
+            .advance_pending_falls(level, until_tick, budget, &blocked);
+        self.terrain.pending_falls.extend(held);
+        self.terrain.pending_falls.sort_by_key(|p| p.sequence);
+        work
+    }
+    fn prepare_flux(
+        &self,
+        id: RegionId,
+        epoch: RegionEpoch,
+        pending: &[FallPacket],
+        tick: u64,
+        arrivals: u64,
+    ) -> Result<FluxPlan, StoreError> {
+        let lease = self.leases.get(&id).ok_or(StoreError::UnknownRegion)?;
+        if lease.epoch != epoch {
+            return Err(StoreError::StaleEpoch);
+        }
+        if arrivals < lease.arrival_published || arrivals > lease.arrival_ack {
+            return Err(StoreError::StaleCommit);
+        }
+        if !valid_fall_packets(pending, u64::MAX, tick) {
+            return Err(StoreError::InvalidState);
+        }
+        let mut staged = lease.fall_staged.clone();
+        let fresh: Vec<_> = pending
+            .iter()
+            .copied()
+            .filter(|p| p.outbound && p.sequence >= lease.fall_accepted)
+            .collect();
+        let accepted = fresh.last().map_or(lease.fall_accepted, |p| p.sequence + 1);
+        staged.extend(fresh);
+        let remove: std::collections::BTreeSet<_> = lease
+            .shadows
+            .iter()
+            .copied()
+            .chain(
+                self.arrivals
+                    .get(&id)
+                    .into_iter()
+                    .flatten()
+                    .filter(|a| a.input.delivery() <= arrivals)
+                    .flat_map(|a| a.input.packets().iter().map(|p| p.sequence)),
+            )
+            .collect();
+        let mut queue: Vec<_> = self
+            .terrain
+            .pending_falls
+            .iter()
+            .copied()
+            .filter(|p| !remove.contains(&p.sequence))
+            .collect();
+        let mut next = self.terrain.next_fall_sequence;
+        let mut shadows = Vec::new();
+        let incoming = pending.iter().filter(|p| !p.outbound).count()
+            + staged.iter().filter(|p| p.advanced_tick <= tick).count();
+        if queue.len() + incoming > MAX_PENDING_FALLS || next.checked_add(incoming as u64).is_none()
+        {
+            return Err(StoreError::InvalidState);
+        }
+        for packet in pending.iter().filter(|p| !p.outbound) {
+            let mut p = *packet;
+            p.sequence = next;
+            p.outbound = false;
+            shadows.push(next);
+            next += 1;
+            queue.push(p);
+        }
+        let mut waiting = Vec::new();
+        for mut p in staged {
+            if p.advanced_tick <= tick {
+                p.sequence = next;
+                p.outbound = false;
+                next += 1;
+                queue.push(p);
+            } else {
+                waiting.push(p);
+            }
+        }
+        Ok(FluxPlan {
+            queue,
+            next,
+            shadows,
+            staged: waiting,
+            accepted,
+            arrivals,
+            had_falls: lease.had_falls || !pending.is_empty(),
+        })
+    }
+    fn publish_flux(&mut self, id: RegionId, plan: FluxPlan) {
+        self.terrain.pending_falls = plan.queue;
+        self.terrain.next_fall_sequence = plan.next;
+        let lease = self.leases.get_mut(&id).expect("validated lease");
+        lease.shadows = plan.shadows;
+        lease.fall_staged = plan.staged;
+        lease.fall_accepted = plan.accepted;
+        lease.arrival_published = plan.arrivals;
+        lease.had_falls = plan.had_falls;
+        if let Some(arrivals) = self.arrivals.get_mut(&id) {
+            arrivals.retain(|a| a.input.delivery() > plan.arrivals);
+        }
+    }
+    pub fn prepare_arrival(
+        &mut self,
+        id: RegionId,
+        epoch: RegionEpoch,
+    ) -> Result<Option<crate::world::regions::falling::Arrival>, StoreError> {
+        use crate::world::regions::falling::Arrival;
+        let lease = self.leases.get(&id).ok_or(StoreError::UnknownRegion)?;
+        if lease.epoch != epoch {
+            return Err(StoreError::StaleEpoch);
+        }
+        if self.pending_moves.contains_key(&id) {
+            return Ok(None);
+        }
+        if let Some(pending) = self
+            .arrivals
+            .get(&id)
+            .and_then(|v| v.iter().find(|a| !a.delivered))
+        {
+            return Ok(Some(pending.input.clone()));
+        }
+        let reserved: std::collections::BTreeSet<_> = self
+            .arrivals
+            .values()
+            .flatten()
+            .flat_map(|a| a.input.packets().iter().map(|p| p.sequence))
+            .chain(self.leases.values().flat_map(|l| l.shadows.iter().copied()))
+            .collect();
+        let bottom: Vec<_> = (0..lease.bounds.width)
+            .map(|x| {
+                self.terrain
+                    .archived_cell(lease.bounds.x + x as i32, lease.bounds.y - 1)
+                    .map_or_else(
+                        || lease.bottom_open.get(x).copied().unwrap_or(false),
+                        |c| c.cell == Cell::Water,
+                    )
+            })
+            .collect();
+        let packets: Vec<_> = self
+            .terrain
+            .pending_falls
+            .iter()
+            .copied()
+            .filter(|p| {
+                if reserved.contains(&p.sequence) {
+                    return false;
+                }
+                if lease.bounds.contains(p.x, p.y) {
+                    p.y > lease.bounds.y || !bottom[(p.x - lease.bounds.x) as usize]
+                } else {
+                    lease.bounds.contains(p.x, p.y.saturating_sub(1))
+                }
+            })
+            .take(64)
+            .collect();
+        if packets.is_empty() && bottom == lease.bottom_open {
+            return Ok(None);
+        }
+        let input = Arrival {
+            id,
+            epoch,
+            revision: lease.revision,
+            delivery: lease
+                .arrival_ack
+                .checked_add(1)
+                .ok_or(StoreError::InvalidState)?,
+            source_tick: self.terrain.tick,
+            bounds: lease.bounds,
+            packets,
+            bottom: Arrival::pack_bottom(&bottom),
+        };
+        self.arrivals.entry(id).or_default().push(ReservedArrival {
+            input: input.clone(),
+            delivered: false,
+        });
+        Ok(Some(input))
+    }
+    /// An ACK reserves the canonical mass until a recipient terrain checkpoint
+    /// includes this delivery. It is not enough to erase the saved transit copy.
+    pub fn finish_arrival(
+        &mut self,
+        id: RegionId,
+        epoch: RegionEpoch,
+        delivery: u64,
+    ) -> Result<(), StoreError> {
+        let lease = self.leases.get_mut(&id).ok_or(StoreError::UnknownRegion)?;
+        if lease.epoch != epoch {
+            return Err(StoreError::StaleEpoch);
+        }
+        if delivery <= lease.arrival_ack {
+            return Ok(());
+        }
+        let pending = self
+            .arrivals
+            .get_mut(&id)
+            .and_then(|v| v.iter_mut().find(|a| a.input.delivery() == delivery))
+            .ok_or(StoreError::InvalidState)?;
+        if lease.arrival_ack.checked_add(1) != Some(delivery) {
+            return Err(StoreError::InvalidState);
+        }
+        pending.delivered = true;
+        lease.arrival_ack = delivery;
+        lease.bottom_open = pending.input.bottom_mask();
+        lease.had_falls |= !pending.input.packets().is_empty();
+        Ok(())
+    }
+    pub fn abort_arrival(&mut self, id: RegionId, epoch: RegionEpoch) -> Result<(), StoreError> {
+        if self.leases.get(&id).is_none_or(|l| l.epoch != epoch) {
+            return Err(StoreError::StaleEpoch);
+        }
+        if let Some(v) = self.arrivals.get_mut(&id) {
+            v.retain(|a| a.delivered);
+        }
         Ok(())
     }
     pub fn release(&mut self, id: RegionId, epoch: RegionEpoch) -> Result<(), StoreError> {
@@ -285,6 +644,7 @@ impl TerrainStore {
             return Err(StoreError::StaleEpoch);
         }
         self.leases.remove(&id);
+        self.arrivals.remove(&id);
         self.pending_moves.remove(&id);
         Ok(())
     }
@@ -319,6 +679,17 @@ impl World {
             let index = (gy.rem_euclid(side) * side + gx.rem_euclid(side)) as usize;
             self.sleeping.entry(key).or_default().cells[index] = Some(value);
         }
+    }
+    fn bottom_mask(&self, bounds: CellRegion, level: &crate::Level) -> Vec<bool> {
+        (0..bounds.width)
+            .map(|x| {
+                let gx = bounds.x + x as i32;
+                let gy = bounds.y - 1;
+                self.archived_cell(gx, gy)
+                    .map_or_else(|| initial_terrain_cell(level, gx, gy), |c| c.cell)
+                    == Cell::Water
+            })
+            .collect()
     }
     fn load_region(
         &self,
@@ -648,3 +1019,6 @@ mod tests {
         assert_eq!(merged.pebble_owner.iter().filter(|&&id| id != 0).count(), 8);
     }
 }
+
+#[cfg(test)]
+mod falling_tests;

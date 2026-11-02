@@ -5,11 +5,19 @@ use super::*;
 const MAX_TICKS: u64 = 120 * 60;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-struct MoveEvent {
+enum StateChange {
+    Move {
+        revision: u64,
+        #[serde(deserialize_with = "read_checkpoint")]
+        bytes: Vec<u8>,
+    },
+    FallsCommitted(u64),
+    Arrival(super::falling::Arrival),
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct StateEvent {
     tick: u64,
-    revision: u64,
-    #[serde(deserialize_with = "read_checkpoint")]
-    bytes: Vec<u8>,
+    change: StateChange,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -25,8 +33,11 @@ struct Run {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RegionJournal {
     base_revision: u64,
-    #[serde(deserialize_with = "read_moves")]
-    moves: Vec<MoveEvent>,
+    base_fall_committed: u64,
+    base_arrivals_delivered: u64,
+    base_state_revision: u64,
+    #[serde(deserialize_with = "read_events")]
+    events: Vec<StateEvent>,
     id: RegionId,
     epoch: RegionEpoch,
     authority: PlayerId,
@@ -39,8 +50,8 @@ pub struct RegionJournal {
     #[serde(deserialize_with = "read_runs")]
     runs: Vec<Run>,
 }
-fn read_moves<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<MoveEvent>, D::Error> {
-    read_list::<D, _, 128>(d)
+fn read_events<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<StateEvent>, D::Error> {
+    read_list::<D, _, { MAX_TICKS as usize }>(d)
 }
 fn read_members<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<PlayerId>, D::Error> {
     read_list::<D, _, 8>(d)
@@ -59,7 +70,10 @@ impl RegionJournal {
         }
         Ok(Self {
             base_revision: kernel.revision(),
-            moves: Vec::new(),
+            base_fall_committed: kernel.fall_committed(),
+            base_arrivals_delivered: kernel.arrivals_delivered(),
+            base_state_revision: kernel.state_revision(),
+            events: Vec::new(),
             id: kernel.id,
             epoch: kernel.epoch,
             authority,
@@ -70,8 +84,78 @@ impl RegionJournal {
             runs: Vec::new(),
         })
     }
+    fn metadata_at(&self, state: u64) -> (u64, u64, u64) {
+        let mut result = (
+            self.base_revision,
+            self.base_fall_committed,
+            self.base_arrivals_delivered,
+        );
+        for event in self
+            .events
+            .iter()
+            .take(state.saturating_sub(self.base_state_revision) as usize)
+        {
+            match &event.change {
+                StateChange::Move { revision, .. } => result.0 = *revision,
+                StateChange::FallsCommitted(n) => result.1 = *n,
+                StateChange::Arrival(a) => result.2 = a.delivery(),
+            }
+        }
+        result
+    }
+    pub fn state_revision(&self) -> u64 {
+        self.base_state_revision + self.events.len() as u64
+    }
     pub fn revision(&self) -> u64 {
-        self.moves.last().map_or(self.base_revision, |e| e.revision)
+        self.metadata_at(self.state_revision()).0
+    }
+    pub fn fall_committed(&self) -> u64 {
+        self.metadata_at(self.state_revision()).1
+    }
+    pub fn arrivals_delivered(&self) -> u64 {
+        self.metadata_at(self.state_revision()).2
+    }
+    fn note(
+        &mut self,
+        authority: PlayerId,
+        tick: u64,
+        change: StateChange,
+    ) -> Result<(), RegionError> {
+        if authority != self.authority
+            || tick != self.next_tick
+            || self.events.len() >= MAX_TICKS as usize
+            || self.state_revision() == u64::MAX
+        {
+            return Err(RegionError::InvalidFrame);
+        }
+        self.events.push(StateEvent { tick, change });
+        Ok(())
+    }
+    pub fn note_falls_committed(
+        &mut self,
+        authority: PlayerId,
+        tick: u64,
+        committed: u64,
+    ) -> Result<(), RegionError> {
+        if committed <= self.fall_committed() {
+            return Err(RegionError::InvalidFrame);
+        }
+        self.note(authority, tick, StateChange::FallsCommitted(committed))
+    }
+    pub fn note_arrival(
+        &mut self,
+        authority: PlayerId,
+        tick: u64,
+        input: super::falling::Arrival,
+    ) -> Result<(), RegionError> {
+        if input.id() != self.id
+            || input.epoch() != self.epoch
+            || input.revision() != self.revision()
+            || self.arrivals_delivered().checked_add(1) != Some(input.delivery())
+        {
+            return Err(RegionError::InvalidFrame);
+        }
+        self.note(authority, tick, StateChange::Arrival(input))
     }
     pub fn note_move(
         &mut self,
@@ -79,30 +163,48 @@ impl RegionJournal {
         tick: u64,
         input: super::moving::MoveIn,
     ) -> Result<(), RegionError> {
-        if authority != self.authority
-            || tick != self.next_tick
-            || input.id() != self.id
+        if input.id() != self.id
             || input.epoch() != self.epoch
             || self.revision().checked_add(1) != Some(input.revision())
-            || self.moves.len() >= 128
         {
             return Err(RegionError::InvalidFrame);
         }
-        let bytes = input.to_bytes()?;
-        self.moves.push(MoveEvent {
+        self.note(
+            authority,
             tick,
-            revision: input.revision(),
-            bytes,
-        });
-        Ok(())
+            StateChange::Move {
+                revision: input.revision(),
+                bytes: input.to_bytes()?,
+            },
+        )
+    }
+    fn apply_change(kernel: &mut RegionKernel, change: &StateChange) -> Result<(), RegionError> {
+        match change {
+            StateChange::Move { bytes, .. } => kernel
+                .rewindow(&super::moving::MoveIn::from_bytes(bytes)?)
+                .map(drop),
+            StateChange::FallsCommitted(n) => kernel.commit_falls(*n),
+            StateChange::Arrival(a) => kernel.receive_falls(a),
+        }
     }
     fn apply_events(&self, kernel: &mut RegionKernel) -> Result<(), RegionError> {
-        for event in &self.moves {
-            if event.tick == kernel.sim.tick_count() && event.revision > kernel.revision() {
-                kernel.rewindow(&super::moving::MoveIn::from_bytes(&event.bytes)?)?;
+        for (i, event) in self.events.iter().enumerate() {
+            let order = self.base_state_revision + i as u64 + 1;
+            if event.tick == kernel.sim.tick_count() && order > kernel.state_revision() {
+                Self::apply_change(kernel, &event.change)?;
+                if kernel.state_revision() != order {
+                    return Err(RegionError::InvalidState);
+                }
             }
         }
         Ok(())
+    }
+    fn reset_base(&mut self, kernel: &RegionKernel) {
+        self.base_revision = kernel.revision();
+        self.base_fall_committed = kernel.fall_committed();
+        self.base_arrivals_delivered = kernel.arrivals_delivered();
+        self.base_state_revision = kernel.state_revision();
+        self.events.clear();
     }
     pub fn id(&self) -> RegionId {
         self.id
@@ -192,8 +294,7 @@ impl RegionJournal {
     pub fn compact(&mut self) -> Result<(), RegionError> {
         let kernel = self.materialize()?;
         let checkpoint = kernel.checkpoint()?;
-        self.base_revision = kernel.revision();
-        self.moves.clear();
+        self.reset_base(&kernel);
         self.checkpoint = checkpoint;
         self.base_tick = self.next_tick;
         self.runs.clear();
@@ -212,13 +313,14 @@ impl RegionJournal {
         if state.id != self.id
             || state.epoch != self.epoch
             || state.revision() != self.revision()
+            || state.fall_committed() != self.fall_committed()
+            || state.state_revision() != self.state_revision()
             || state.sim.tick_count() != self.next_tick
             || state.members() != self.members
         {
             return Err(RegionError::InvalidState);
         }
-        self.base_revision = state.revision();
-        self.moves.clear();
+        self.reset_base(&state);
         self.checkpoint = bytes;
         self.base_tick = self.next_tick;
         self.runs.clear();
@@ -237,6 +339,8 @@ impl RegionJournal {
         }
         if kernel.id != self.id
             || kernel.revision() != self.revision()
+            || kernel.fall_committed() != self.fall_committed()
+            || kernel.state_revision() != self.state_revision()
             || kernel.sim.tick_count() != self.next_tick
             || kernel.members() != self.members
         {
@@ -245,8 +349,7 @@ impl RegionJournal {
         // Encode before changing the retained base, so a failed capture keeps
         // the previous checkpoint and complete acknowledged journal intact.
         let checkpoint = kernel.checkpoint()?;
-        self.base_revision = kernel.revision();
-        self.moves.clear();
+        self.reset_base(kernel);
         self.checkpoint = checkpoint;
         self.base_tick = self.next_tick;
         self.runs.clear();
@@ -289,11 +392,18 @@ impl RegionJournal {
         if state.id != self.id
             || state.epoch != self.epoch
             || state.members() != self.members
-            || state.revision() < self.base_revision
-            || state.revision() > self.revision()
-            || self.moves.iter().any(|e| {
-                (e.revision <= state.revision() && e.tick > tick)
-                    || (e.revision > state.revision() && e.tick < tick)
+            || state.state_revision() < self.base_state_revision
+            || state.state_revision() > self.state_revision()
+            || self.metadata_at(state.state_revision())
+                != (
+                    state.revision(),
+                    state.fall_committed(),
+                    state.arrivals_delivered(),
+                )
+            || self.events.iter().enumerate().any(|(i, e)| {
+                let order = self.base_state_revision + i as u64 + 1;
+                (order <= state.state_revision() && e.tick > tick)
+                    || (order > state.state_revision() && e.tick < tick)
             })
             || tick < self.base_tick
             || tick > self.next_tick
@@ -313,8 +423,11 @@ impl RegionJournal {
             }
             runs.push(kept);
         }
-        self.base_revision = state.revision();
-        self.moves.retain(|e| e.revision > state.revision());
+        let kept = self
+            .events
+            .split_off((state.state_revision() - self.base_state_revision) as usize);
+        self.reset_base(&state);
+        self.events = kept;
         self.checkpoint = bytes;
         self.base_tick = tick;
         self.runs = runs;
@@ -384,18 +497,25 @@ impl RegionJournal {
     }
     fn apply_replay_events(&self, sim: &mut Sim) -> bool {
         let tick = sim.tick_count();
-        for event in self.moves.iter().filter(|e| e.tick == tick) {
-            let Ok(input) = super::moving::MoveIn::from_bytes(&event.bytes) else {
-                return false;
-            };
+        for (i, event) in self
+            .events
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.tick == tick)
+        {
+            let state = self.base_state_revision + i as u64;
+            let (revision, fall_committed, arrivals_delivered) = self.metadata_at(state);
             let placeholder = Sim::new(sim.tuning.clone(), crate::Level::test_level());
             let mut kernel = RegionKernel {
                 id: self.id,
                 epoch: self.epoch,
-                revision: event.revision - 1,
+                revision,
+                fall_committed,
+                arrivals_delivered,
+                state_revision: state,
                 sim: std::mem::replace(sim, placeholder),
             };
-            let result = kernel.rewindow(&input);
+            let result = Self::apply_change(&mut kernel, &event.change);
             *sim = kernel.sim;
             if result.is_err() {
                 return false;
@@ -425,6 +545,13 @@ impl RegionJournal {
         let base = RegionKernel::from_checkpoint(&restored.checkpoint)?;
         if base.id != restored.id
             || base.revision() != restored.base_revision
+            || base.fall_committed() != restored.base_fall_committed
+            || base.arrivals_delivered() != restored.base_arrivals_delivered
+            || base.state_revision() != restored.base_state_revision
+            || restored
+                .base_state_revision
+                .checked_add(restored.events.len() as u64)
+                .is_none()
             || base.epoch != restored.epoch
             || base.members() != restored.members
             || base.sim.tick_count() != restored.base_tick
@@ -433,21 +560,44 @@ impl RegionJournal {
         {
             return Err(RegionError::InvalidState);
         }
-        let mut revision = restored.base_revision;
-        let mut move_tick = restored.base_tick;
-        for event in &restored.moves {
-            let input = super::moving::MoveIn::from_bytes(&event.bytes)?;
-            if revision.checked_add(1) != Some(event.revision)
-                || event.tick < move_tick
-                || event.tick > restored.next_tick
-                || input.revision() != event.revision
-                || input.id() != restored.id
-                || input.epoch() != restored.epoch
-            {
+        let mut window = restored.base_revision;
+        let mut committed = restored.base_fall_committed;
+        let mut arrivals = restored.base_arrivals_delivered;
+        let mut event_tick = restored.base_tick;
+        for event in &restored.events {
+            if event.tick < event_tick || event.tick > restored.next_tick {
                 return Err(RegionError::InvalidState);
             }
-            revision = event.revision;
-            move_tick = event.tick;
+            event_tick = event.tick;
+            match &event.change {
+                StateChange::Move { revision, bytes } => {
+                    let input = super::moving::MoveIn::from_bytes(bytes)?;
+                    if window.checked_add(1) != Some(*revision)
+                        || input.revision() != *revision
+                        || input.id() != restored.id
+                        || input.epoch() != restored.epoch
+                    {
+                        return Err(RegionError::InvalidState);
+                    }
+                    window = *revision;
+                }
+                StateChange::FallsCommitted(n) => {
+                    if *n <= committed {
+                        return Err(RegionError::InvalidState);
+                    }
+                    committed = *n;
+                }
+                StateChange::Arrival(a) => {
+                    if a.id() != restored.id
+                        || a.epoch() != restored.epoch
+                        || a.revision() != window
+                        || arrivals.checked_add(1) != Some(a.delivery())
+                    {
+                        return Err(RegionError::InvalidState);
+                    }
+                    arrivals = a.delivery();
+                }
+            }
         }
         let mut next = restored.base_tick;
 

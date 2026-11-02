@@ -105,6 +105,7 @@ pub struct MoveIn {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MoveOut {
+    state_revision: u64,
     terrain: TerrainMoveOut,
     entities: Entities,
     tick: u64,
@@ -152,6 +153,9 @@ macro_rules! codec {
 codec!(MoveIn, b"CRBMVI01");
 codec!(MoveOut, b"CRBMVO01");
 impl MoveOut {
+    pub fn state_revision(&self) -> u64 {
+        self.state_revision
+    }
     pub fn tick(&self) -> u64 {
         self.tick
     }
@@ -271,7 +275,12 @@ impl RegionKernel {
             .cells
             .as_ref()
             .ok_or(RegionError::InvalidState)?
-            .apply_move_terrain(&input.terrain, &self.sim.level)
+            .apply_move_terrain(
+                &input.terrain,
+                &self.sim.level,
+                self.fall_committed > 0 || self.arrivals_delivered > 0,
+                self.arrivals_delivered,
+            )
             .map_err(err)?;
         let entities = Entities::capture(
             &self.sim,
@@ -302,7 +311,9 @@ impl RegionKernel {
         );
         self.sim.level.cells = Some(terrain);
         self.revision = input.revision();
+        self.state_revision += 1;
         Ok(MoveOut {
+            state_revision: self.state_revision,
             terrain: output,
             entities,
             tick: self.sim.tick,

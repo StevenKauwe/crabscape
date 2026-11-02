@@ -15,11 +15,22 @@ pub(crate) struct TerrainMoveIn {
     pub old: CellRegion,
     pub new: CellRegion,
     pub parts: Vec<Patch>,
+    pub falls: Vec<FallPacket>,
+    pub bottom_open: Vec<bool>,
+    pub material_cut: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum OwnerSource {
     Old(u16),
     Incoming(u16),
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct MaterialCut {
+    cells: Vec<Cell>,
+    grain: Vec<u8>,
+    suspended: Vec<u8>,
+    owners: Vec<u16>,
+    pending: Vec<FallPacket>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct TerrainMoveOut {
@@ -33,6 +44,9 @@ pub(crate) struct TerrainMoveOut {
     pebbles: Vec<Pebble>,
     motion: Vec<(i8, i8, u8)>,
     pub owners: Vec<OwnerSource>,
+    material: Option<MaterialCut>,
+    arrivals_delivered: u64,
+    bottom_open: Vec<bool>,
 }
 fn aligned(b: CellRegion) -> bool {
     b.valid()
@@ -60,7 +74,11 @@ impl TerrainStore {
         if !aligned(new) || !new.overlaps(lease.bounds) || new == lease.bounds {
             return Err(StoreError::InvalidRegion);
         }
-        if self.pending_moves.contains_key(&id)
+        if self
+            .arrivals
+            .get(&id)
+            .is_some_and(|v| v.iter().any(|a| !a.delivered))
+            || self.pending_moves.contains_key(&id)
             || self
                 .leases
                 .iter()
@@ -89,7 +107,7 @@ impl TerrainStore {
                     ..lease.clone()
                 },
             );
-            let result = self.commit(id, epoch, &world);
+            let result = self.commit_terrain(id, epoch, &world);
             let generated = self
                 .leases
                 .insert(id, lease.clone())
@@ -100,7 +118,18 @@ impl TerrainStore {
                 ids: generated.pebble_ids,
             });
         }
+        let falls: Vec<_> = self
+            .terrain
+            .pending_falls()
+            .iter()
+            .copied()
+            .filter(|p| new.contains(p.x, p.y) && !lease.bounds.contains(p.x, p.y))
+            .collect();
+        let bottom_open = self.terrain.bottom_mask(new, level);
         let input = TerrainMoveIn {
+            material_cut: lease.had_falls || !falls.is_empty(),
+            bottom_open,
+            falls,
             id,
             epoch,
             revision,
@@ -160,6 +189,30 @@ impl TerrainStore {
                 _ => return Err(StoreError::InvalidState),
             }
         }
+        if out.bottom_open.len() != out.new.width {
+            return Err(StoreError::InvalidState);
+        }
+        if let Some(m) = &out.material {
+            let count = out.old.width * out.old.height;
+            if m.cells.len() != count
+                || m.grain.len() != count
+                || m.suspended.len() != count
+                || m.owners.len() != count
+                || m.owners.iter().any(|i| usize::from(*i) > out.pebbles.len())
+                || !valid_fall_packets(&m.pending, u64::MAX, out.tick)
+            {
+                return Err(StoreError::InvalidState);
+            }
+            self.prepare_flux(
+                out.id,
+                out.epoch,
+                &m.pending,
+                out.tick,
+                out.arrivals_delivered,
+            )?;
+        } else if lease.had_falls {
+            return Err(StoreError::InvalidState);
+        }
         let strips = out.old.difference(out.new);
         if strips.len() != out.parts.len() {
             return Err(StoreError::InvalidState);
@@ -215,6 +268,45 @@ impl TerrainStore {
                 self.terrain.pebble_motion[g] = out.motion[i];
             }
         }
+        let flux = if let Some(m) = &out.material {
+            Some(self.prepare_flux(
+                out.id,
+                out.epoch,
+                &m.pending,
+                out.tick,
+                out.arrivals_delivered,
+            )?)
+        } else {
+            None
+        };
+        if let Some(m) = &out.material {
+            for y in 0..out.old.height {
+                for x in 0..out.old.width {
+                    let i = y * out.old.width + x;
+                    let gx = out.old.x + x as i32;
+                    let gy = out.old.y + y as i32;
+                    let flow = self
+                        .terrain
+                        .archived_cell(gx, gy)
+                        .map_or((0.0, 0.0), |c| c.flow);
+                    self.terrain.put_archived_cell(
+                        gx,
+                        gy,
+                        SleepingCell {
+                            cell: m.cells[i],
+                            flow,
+                            grain: m.grain[i],
+                            suspended: m.suspended[i],
+                            owner: if m.owners[i] == 0 {
+                                0
+                            } else {
+                                lease.pebble_ids[usize::from(m.owners[i]) - 1]
+                            },
+                        },
+                    );
+                }
+            }
+        }
         for (part, world) in out.parts.iter().zip(&decoded) {
             self.leases.insert(
                 out.id,
@@ -228,13 +320,23 @@ impl TerrainStore {
                     ..lease.clone()
                 },
             );
-            let result = self.commit(out.id, out.epoch, world);
+            let result = self.commit_terrain(out.id, out.epoch, world);
             self.leases.insert(out.id, lease.clone());
             result?;
         }
         // Expansion-only moves have no leaving strip commits to advance this
         // clock. Newly generated terrain must still use the accepted cutoff.
         self.terrain.tick = self.terrain.tick.max(out.tick);
+        if let Some(plan) = flux {
+            self.publish_flux(out.id, plan);
+            let updated = self.leases.get(&out.id).expect("lease");
+            lease.fall_staged = updated.fall_staged.clone();
+            lease.fall_accepted = updated.fall_accepted;
+            lease.shadows = updated.shadows.clone();
+            lease.arrival_published = updated.arrival_published;
+            lease.had_falls = updated.had_falls;
+        }
+        lease.bottom_open = out.bottom_open.clone();
         lease.bounds = out.new;
         lease.revision = out.revision;
         lease.committed_tick = out.tick;
@@ -247,7 +349,13 @@ impl TerrainStore {
             })
             .collect();
         self.leases.insert(out.id, lease);
-        self.pending_moves.remove(&out.id);
+        if let Some(pending) = self.pending_moves.remove(&out.id) {
+            let lease = self.leases.get_mut(&out.id).expect("moved lease");
+            lease
+                .shadows
+                .extend(pending.falls.iter().map(|p| p.sequence));
+            lease.had_falls |= !pending.falls.is_empty();
+        }
         Ok(())
     }
 }
@@ -256,6 +364,8 @@ impl World {
         &self,
         input: &TerrainMoveIn,
         level: &crate::Level,
+        material_cut: bool,
+        arrivals_delivered: u64,
     ) -> Result<(World, TerrainMoveOut), StoreError> {
         if self.region() != input.old || !aligned(input.new) || !self.sleeping.is_empty() {
             return Err(StoreError::InvalidState);
@@ -285,6 +395,35 @@ impl World {
             });
         }
         let (mut next, kept) = self.load_region_seeded(input.new, level, false)?;
+        next.pending_falls = self.pending_falls.clone();
+        next.next_fall_sequence = self.next_fall_sequence;
+        let arriving: Vec<_> = input
+            .falls
+            .iter()
+            .map(|p| {
+                let mut p = *p;
+                p.emitted_tick = self.tick;
+                p.advanced_tick = self.tick;
+                p
+            })
+            .collect();
+        if !next.enqueue_falls(&arriving) {
+            return Err(StoreError::InvalidState);
+        }
+        if input.bottom_open.len() != input.new.width {
+            return Err(StoreError::InvalidState);
+        }
+        let mut bottom = input.bottom_open.clone();
+        for (x, open) in bottom.iter_mut().enumerate() {
+            let gx = input.new.x + x as i32;
+            let gy = input.new.y - 1;
+            if self.region().contains(gx, gy) {
+                *open = self
+                    .archived_cell(gx, gy)
+                    .is_some_and(|c| c.cell == Cell::Water);
+            }
+        }
+        next.set_bottom_open(bottom);
         let dx = self.origin.0 - next.origin.0;
         let dy = self.origin.1 - next.origin.1;
         next.crab = self.crab.map(|(x, y)| (x + dx, y + dy));
@@ -364,7 +503,20 @@ impl World {
         if !next.valid_region_state() {
             return Err(StoreError::InvalidState);
         }
+        let material =
+            (material_cut || input.material_cut || !self.pending_falls.is_empty()).then(|| {
+                MaterialCut {
+                    cells: self.cells.clone(),
+                    grain: self.grain.clone(),
+                    suspended: self.suspended.clone(),
+                    owners: self.pebble_owner.clone(),
+                    pending: self.pending_falls.clone(),
+                }
+            });
         let out = TerrainMoveOut {
+            material,
+            arrivals_delivered,
+            bottom_open: next.bottom_open.clone(),
             id: input.id,
             epoch: input.epoch,
             revision: input.revision,
@@ -400,7 +552,7 @@ mod tests {
         let input = store
             .prepare_move_terrain(id, epoch, CellRegion { width: 320, ..old }, &level)
             .unwrap();
-        let (next, out) = live.apply_move_terrain(&input, &level).unwrap();
+        let (next, out) = live.apply_move_terrain(&input, &level, false, 0).unwrap();
         assert!(out.parts.is_empty());
         let decoded = store.validate_move_out(&out).unwrap();
         store.finish_move_terrain(out, decoded).unwrap();
@@ -443,7 +595,7 @@ mod tests {
         live.crab_half_x = 7;
         live.crab_half_y = 5;
         live.other_crabs = vec![(130, 140, 8, 6)];
-        let (next, out) = live.apply_move_terrain(&input, &level).unwrap();
+        let (next, out) = live.apply_move_terrain(&input, &level, false, 0).unwrap();
         assert_eq!(next.crab, Some((56, 120)));
         assert_eq!((next.crab_half_x, next.crab_half_y), (7, 5));
         assert_eq!(next.other_crabs, [(66, 140, 8, 6)]);
@@ -481,5 +633,87 @@ mod tests {
             );
         }
         assert_eq!(merged.pebble_owner.iter().filter(|&&i| i != 0).count(), 12);
+    }
+}
+
+#[cfg(test)]
+mod fall_tests {
+    use super::*;
+    use crate::{
+        Controls, PlayerId, Sim,
+        world::regions::{EntityArchive, RegionFrame, journal::RegionJournal},
+    };
+    #[test]
+    fn owner_accepts_each_fall_once_and_same_tick_ack_replays_after_old_checkpoint() {
+        let mut sim = Sim::with_one_crab(bevy_math::Vec2::new(480.0, 1000.0));
+        sim.enable_underwater_cells();
+        let mut store = TerrainStore::new(sim.level.cells.take().unwrap()).unwrap();
+        let mut archive = EntityArchive::new(sim).unwrap();
+        let bounds = CellRegion {
+            x: 0,
+            y: 256,
+            width: 256,
+            height: 256,
+        };
+        let id = RegionId(1);
+        let (epoch, mut world) = store.grant(id, bounds, &archive.sim.level).unwrap();
+        world.cells[100] = Cell::Sand;
+        world.grain[100] = 19;
+        assert!(world.bottom_open()[100]);
+        let mut kernel = archive.extract(id, epoch, &[PlayerId(0)], world).unwrap();
+        let mut journal = RegionJournal::new(&kernel, PlayerId(0)).unwrap();
+        for tick in 0..4 {
+            let frame = RegionFrame {
+                tick,
+                controls: vec![(PlayerId(0), Controls::default())],
+                actions: Vec::new(),
+            };
+            kernel.tick(&frame).unwrap();
+            journal.append(PlayerId(0), epoch, &[frame]).unwrap();
+        }
+        let packets = kernel
+            .sim
+            .level
+            .cells
+            .as_ref()
+            .unwrap()
+            .pending_falls()
+            .to_vec();
+        assert_eq!(packets.len(), 1);
+        assert!(packets[0].outbound);
+        let before = kernel.checkpoint().unwrap();
+        let committed = store.accept_falls(id, epoch, &packets).unwrap();
+        assert_eq!(committed, 1);
+        assert_eq!(store.accept_falls(id, epoch, &packets).unwrap(), committed);
+        assert!(
+            store.terrain.pending_falls().is_empty(),
+            "accepted flux is staged until source terrain commits"
+        );
+        kernel.commit_falls(committed).unwrap();
+        journal
+            .note_falls_committed(PlayerId(0), 4, committed)
+            .unwrap();
+        let after = kernel.checkpoint().unwrap();
+        assert_eq!(journal.materialize().unwrap().checkpoint().unwrap(), after);
+        journal
+            .advance_checkpoint(PlayerId(0), epoch, before)
+            .unwrap();
+        assert_eq!(journal.materialize().unwrap().checkpoint().unwrap(), after);
+        let round = RegionJournal::from_bytes(&journal.to_bytes().unwrap()).unwrap();
+        assert_eq!(round.materialize().unwrap().checkpoint().unwrap(), after);
+        let mut replay = Sim::with_one_crab(bevy_math::Vec2::ZERO);
+        assert!(round.prepare_replay(&mut replay));
+        assert_eq!(replay.state_hash_streamed(), kernel.state_hash());
+        store
+            .commit_state(id, epoch, kernel.sim.level.cells.as_ref().unwrap(), 0)
+            .unwrap();
+        store.advance_passive(&archive.sim.level, packets[0].advanced_tick + 30, 1000);
+        assert!(store.terrain.pending_falls()[0].y < bounds.y);
+        assert_eq!(store.accept_falls(id, epoch, &packets).unwrap(), committed);
+        assert_eq!(store.terrain.pending_falls().len(), 1);
+        journal
+            .advance_checkpoint(PlayerId(0), epoch, after)
+            .unwrap();
+        assert_eq!(journal.fall_committed(), 1);
     }
 }

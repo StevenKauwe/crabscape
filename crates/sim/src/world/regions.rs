@@ -8,6 +8,7 @@ use crate::underwater::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+pub mod falling;
 pub mod journal;
 pub mod moving;
 
@@ -75,6 +76,9 @@ pub enum RegionError {
 /// Everything needed to continue this area's gameplay on another browser.
 pub struct RegionKernel {
     revision: u64,
+    fall_committed: u64,
+    state_revision: u64,
+    arrivals_delivered: u64,
     pub id: RegionId,
     pub epoch: RegionEpoch,
     pub sim: Sim,
@@ -145,11 +149,52 @@ impl EntityArchive {
 #[derive(Serialize, Deserialize)]
 struct Header {
     revision: u64,
+    fall_committed: u64,
+    state_revision: u64,
+    arrivals_delivered: u64,
     id: RegionId,
     epoch: RegionEpoch,
     npc_rng: BTreeMap<u32, Rng>,
 }
 impl RegionKernel {
+    pub fn state_revision(&self) -> u64 {
+        self.state_revision
+    }
+    pub fn arrivals_delivered(&self) -> u64 {
+        self.arrivals_delivered
+    }
+    pub fn fall_committed(&self) -> u64 {
+        self.fall_committed
+    }
+    pub fn commit_falls(&mut self, committed: u64) -> Result<(), RegionError> {
+        if committed <= self.fall_committed {
+            return Ok(());
+        }
+        let world = self
+            .sim
+            .level
+            .cells
+            .as_mut()
+            .ok_or(RegionError::InvalidState)?;
+        if !world
+            .pending_falls()
+            .iter()
+            .any(|p| p.outbound && p.sequence.checked_add(1) == Some(committed))
+        {
+            return Err(RegionError::InvalidState);
+        }
+        world.ack_falls_through(committed - 1);
+        self.fall_committed = committed;
+        self.state_revision += 1;
+        Ok(())
+    }
+    pub fn commit_falls_view(&mut self, sim: &mut Sim, committed: u64) -> Result<(), RegionError> {
+        std::mem::swap(&mut self.sim, sim);
+        let result = self.commit_falls(committed);
+        std::mem::swap(&mut self.sim, sim);
+        result
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -245,6 +290,9 @@ impl RegionKernel {
     pub fn checkpoint(&self) -> Result<Vec<u8>, RegionError> {
         let header = serde_json::to_vec(&Header {
             revision: self.revision,
+            fall_committed: self.fall_committed,
+            state_revision: self.state_revision,
+            arrivals_delivered: self.arrivals_delivered,
             id: self.id,
             epoch: self.epoch,
             npc_rng: self.sim.owned_rng.clone().unwrap_or_default(),
@@ -289,6 +337,9 @@ impl RegionKernel {
         sim.owned_rng = Some(h.npc_rng);
         Ok(Self {
             revision: h.revision,
+            fall_committed: h.fall_committed,
+            state_revision: h.state_revision,
+            arrivals_delivered: h.arrivals_delivered,
             id: h.id,
             epoch: h.epoch,
             sim,
@@ -365,6 +416,9 @@ impl Sim {
         self.stop_recording();
         Ok(RegionKernel {
             revision: 0,
+            fall_committed: 0,
+            state_revision: 0,
+            arrivals_delivered: 0,
             id,
             epoch,
             sim: region,
