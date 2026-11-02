@@ -260,7 +260,43 @@ impl WorldCheckpoint {
     pub fn into_world(self) -> Option<World> {
         let mut world = self.world;
         let count = WIDTH * HEIGHT;
+        // All currently playable terrain is well inside this range. Keeping
+        // saved coordinates bounded also makes the arithmetic in streaming
+        // and pebble motion safe on damaged or hostile inputs.
+        let coord = |v: i32| (-1_000_000..=1_000_000).contains(&v);
+        let number = |v: f32| v.is_finite() && v.abs() <= 1_000_000.0;
+        let properties = |p: &SedimentProperties| {
+            number(p.erosion_threshold)
+                && number(p.density_resistance)
+                && number(p.cohesion_break_flow)
+                && p.push_cost <= 1_000_000
+        };
         if self.version != 1
+            || !coord(self.origin.0)
+            || !coord(self.origin.1)
+            || world.tick > (u64::MAX / 4 - 1_000_000)
+            || !(0..=WIDTH as i32).contains(&world.crab_half_x)
+            || !(0..=HEIGHT as i32).contains(&world.crab_half_y)
+            || world.crab.is_some_and(|(x, y)| !coord(x) || !coord(y))
+            || !properties(&world.sand_properties)
+            || !properties(&world.mud_properties)
+            || world
+                .pebbles
+                .iter()
+                .any(|p| !coord(p.x) || !coord(p.y) || p.side == 0 || p.side > 64)
+            || world.tracers.len() > 4096
+            || world.tracers.iter().any(|&(x, y)| !number(x) || !number(y))
+            || world.silt.len() > 1205
+            || world
+                .silt
+                .iter()
+                .any(|s| !number(s.x) || !number(s.y) || !number(s.vx) || !number(s.vy))
+            || world.bubbles.len() > 4096
+            || world.bubbles.iter().any(|b| !number(b.x) || !number(b.y))
+            || world.kelp.iter().flatten().any(|&v| !number(v))
+            || world.giant_kelp.iter().any(|&v| !number(v))
+            || world.giant_kelp_velocity.iter().any(|&v| !number(v))
+            || !number(world.giant_base)
             || world.cells.len() != count
             || world.flow.len() != count
             || world.suspended.len() != count
@@ -272,16 +308,19 @@ impl WorldCheckpoint {
                 .pebble_owner
                 .iter()
                 .any(|&id| id as usize > world.pebbles.len())
-            || world
-                .flow
+            || world.flow.iter().any(|&(x, y)| !number(x) || !number(y))
+            || self
+                .pebble_seeded
                 .iter()
-                .any(|&(x, y)| !x.is_finite() || !y.is_finite())
-            || self.sleeping.values().any(|chunk| {
-                chunk.cells.len() != (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize
+                .any(|&(x, y)| !coord(x) || !coord(y))
+            || self.sleeping.iter().any(|(&(x, y), chunk)| {
+                !coord(x)
+                    || !coord(y)
+                    || chunk.cells.len() != (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize
                     || chunk.cells.iter().flatten().any(|cell| {
                         cell.owner as usize > world.pebbles.len()
-                            || !cell.flow.0.is_finite()
-                            || !cell.flow.1.is_finite()
+                            || !number(cell.flow.0)
+                            || !number(cell.flow.1)
                     })
             })
         {
@@ -320,6 +359,11 @@ impl Default for World {
     }
 }
 impl World {
+    /// Whether this terrain is the campaign's streaming world.
+    pub fn is_game_world(&self) -> bool {
+        self.game
+    }
+
     /// Capture the complete active and sleeping material state.
     pub fn checkpoint(&self) -> WorldCheckpoint {
         let mut world = self.clone();
@@ -2725,6 +2769,53 @@ mod tests {
         let mut checkpoint = world.checkpoint();
         checkpoint.world.cells.pop();
         assert!(checkpoint.into_world().is_none());
+    }
+
+    #[test]
+    fn checkpoint_rejects_unsafe_clocks_coordinates_and_particles() {
+        let world = World::from_level_settled(&crate::Level::test_level());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.origin.0 = i32::MAX;
+        assert!(checkpoint.into_world().is_none());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.world.tick = u64::MAX;
+        assert!(checkpoint.into_world().is_none());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.world.giant_kelp[0] = f32::NAN;
+        assert!(checkpoint.into_world().is_none());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.world.pebbles[0].side = 0;
+        assert!(checkpoint.into_world().is_none());
+    }
+
+    #[test]
+    fn restored_simulation_preserves_the_material_step_phase() {
+        use crate::{Level, Sim, Tuning};
+
+        let mut original = Sim::new(Tuning::default(), Level::test_level());
+        original.enable_underwater_cells();
+        // Save between material steps, where resetting the clock to zero
+        // would advance the water three ticks too soon.
+        for _ in 0..5 {
+            original.tick();
+        }
+        let terrain = original
+            .level
+            .cells
+            .as_ref()
+            .unwrap()
+            .checkpoint()
+            .into_world()
+            .unwrap();
+        let mut restored = Sim::new(Tuning::default(), Level::test_level());
+        assert!(restored.restore_cellular_terrain(terrain, original.tick_count()));
+        for _ in 0..8 {
+            original.tick();
+            restored.tick();
+            assert_eq!(original.level.cells, restored.level.cells);
+        }
+        let terrain = restored.level.cells.as_ref().unwrap().clone();
+        assert!(!restored.restore_cellular_terrain(terrain, 0));
     }
 
     #[test]

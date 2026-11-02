@@ -153,6 +153,28 @@ pub struct Sim {
 pub const SEED: u64 = 0x00c0_ffee_c4ab_5eed;
 
 impl Sim {
+    /// Install validated saved terrain and its simulation clock before the
+    /// player or creatures are spawned. A running simulation cannot safely
+    /// swap its underlying world out from under its entities.
+    pub fn restore_cellular_terrain(
+        &mut self,
+        terrain: crate::underwater::World,
+        tick: u64,
+    ) -> bool {
+        if self.tick != 0
+            || !self.crabs.is_empty()
+            || !self.enemies.is_empty()
+            || !terrain.is_game_world()
+            || tick > u64::MAX - 1_000_000
+        {
+            return false;
+        }
+        self.enable_underwater_cells();
+        self.level.cells = Some(terrain);
+        self.tick = tick;
+        true
+    }
+
     /// Enable the draft's single-player material experiment in the opening area.
     pub fn enable_underwater_cells(&mut self) {
         if self.level.cells.is_some() {
@@ -615,7 +637,10 @@ impl Sim {
                 }
             }
             // Names are the game's to show (`src/names.rs`), not a rule.
-            Msg::Name { .. } | Msg::Chat(_) => {}
+            // Terrain transfer has no world-install path yet. Until host
+            // authority and complete checkpoint validation are wired up,
+            // receiving a fragment cannot change the simulation.
+            Msg::Name { .. } | Msg::Chat(_) | Msg::CellTerrain(_) => {}
         }
     }
 
