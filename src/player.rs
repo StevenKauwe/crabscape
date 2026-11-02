@@ -196,8 +196,7 @@ fn valid_saved_spot(pos: Vec2, size: f32, sim: &Sim) -> bool {
         && pos.x >= sim.level.min_x + hw
         && pos.x <= sim.level.max_x - hw
         && pos.y + height <= crabsim::level::WATER_SURFACE_Y
-        && cells.contains_world(pos.x, pos.y)
-        && cells.contains_world(pos.x, pos.y + height)
+        && !cells.game_rock_in_rect(pos.x - hw, pos.y, pos.x + hw, pos.y + height)
         && !sim.level.solids().any(|r| {
             pos.x + hw > r.min.x + 0.01
                 && pos.x - hw < r.max.x - 0.01
@@ -365,7 +364,32 @@ mod cellular_save_tests {
         assert!(!physics::is_valid_spot(pos, 1.0, &sim.tuning, &sim.level));
         assert!(valid_saved_spot(pos, 1.0, &sim));
         assert!(!valid_saved_spot(Vec2::new(f32::NAN, 0.0), 1.0, &sim));
+        let half_width = sim.tuning.body_half_width;
+        let height = sim.tuning.body_height;
+        assert!(sim.level.cells.as_ref().unwrap().game_solid(
+            pos.x - half_width,
+            pos.y,
+            pos.x + half_width,
+            pos.y + height,
+        ));
         sim.add_crab(PlayerId(0), pos);
         assert_eq!(sim.crab(PlayerId(0)).unwrap().mover.pos, pos);
+    }
+
+    #[test]
+    fn cellular_saved_spawn_rejects_rock_inside_any_part_of_body() {
+        let mut sim = Sim::new(Tuning::default(), Level::test_level());
+        sim.enable_underwater_cells();
+        // The deep rock under the opening floor is made from cells, not a
+        // rectangle in Level::solids. Its top intersects only the feet here.
+        let pos = Vec2::new(160.0, -105.0);
+        let cells = sim.level.cells.as_ref().unwrap();
+        assert!(cells.game_rock_at(pos.x, pos.y + 1.0));
+        assert!(!cells.game_rock_at(pos.x, pos.y + sim.tuning.body_height - 1.0));
+        assert!(!valid_saved_spot(pos, 1.0, &sim));
+        let (left, bottom, width, height) = cells.game_bounds();
+        assert!(cells.game_rock_in_rect(left - 1.0, bottom, left + width, bottom + height));
+        assert!(cells.game_rock_in_rect(0.0, 0.0, f32::INFINITY, 100.0));
+        assert!(cells.game_rock_in_rect(1.0, 1.0, 1.0, 10.0));
     }
 }

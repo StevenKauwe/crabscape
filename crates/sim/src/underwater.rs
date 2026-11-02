@@ -928,6 +928,26 @@ impl World {
         self.cell(cx.floor() as i32, cy.floor() as i32) == Cell::Rock
     }
 
+    /// Whether the interior of a world-space rectangle overlaps immutable
+    /// rock. Treat unknown, out-of-window or invalid rectangles as blocked;
+    /// the bounds check also limits the work to the active material window.
+    /// Loose sand and mud do not block the rectangle.
+    pub fn game_rock_in_rect(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
+        const INSET: f32 = 0.01;
+        if !min_x.is_finite()
+            || !min_y.is_finite()
+            || !max_x.is_finite()
+            || !max_y.is_finite()
+            || max_x - min_x <= INSET * 2.0
+            || max_y - min_y <= INSET * 2.0
+            || !self.contains_world(min_x, min_y)
+            || !self.contains_world(max_x, max_y)
+        {
+            return true;
+        }
+        self.game_rock_overlap(min_x + INSET, min_y + INSET, max_x - INSET, max_y - INSET) != 0
+    }
+
     /// Test the interior of a game-world rectangle against material cells.
     pub fn game_solid(&self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
         let (x0, y0) = self.local_cell(min_x, min_y);
