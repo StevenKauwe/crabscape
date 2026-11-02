@@ -2981,4 +2981,86 @@ mod tests {
             retained
         );
     }
+    #[test]
+    fn upward_predeclared_inputs_pipeline_over_fake_link_with_per_tick_world_checks() {
+        let (mut controller, mut guest, join, _) = setup_case(11);
+        let mut receiver = UpGuest::from_join(&join).unwrap();
+        let host_peer = peer(0, 10);
+        let guest_peer = peer(1, 20);
+        let mut link = FakeLink::steady(0);
+        const WINDOW: u64 = 4;
+        for tick in 0..WINDOW {
+            link.test_post(
+                1,
+                0,
+                Msg::CellUpInput {
+                    epoch: 77,
+                    tick,
+                    sequence: tick,
+                    player: PlayerId(1),
+                    up: true,
+                },
+            );
+        }
+        let mut inputs = Vec::new();
+        link.carry_with(
+            &mut [&mut controller.host, &mut guest],
+            |from, to, _, msg| {
+                if matches!(msg, Msg::CellUpInput { .. }) {
+                    assert_eq!((from, to), (1, 0));
+                    inputs.push(Msg::from_bytes(&msg.to_bytes()).unwrap());
+                }
+            },
+        );
+        assert_eq!(inputs.len(), WINDOW as usize);
+        let mut expected = Vec::new();
+        for msg in inputs {
+            let frame = controller
+                .accept_up(guest_peer, Some(guest_peer), &msg, true)
+                .unwrap();
+            expected.push(controller.host.level.cells.clone().unwrap());
+            link.test_post(0, 1, frame);
+        }
+        assert_eq!(controller.host.tick_count(), WINDOW);
+        assert_eq!(
+            guest.tick_count(),
+            0,
+            "host advanced before guest received any frame"
+        );
+        let mut delivered = 0;
+        link.carry_with(
+            &mut [&mut controller.host, &mut guest],
+            |from, to, sim, msg| {
+                if matches!(msg, Msg::CellUpFrame { .. }) {
+                    assert_eq!((from, to), (0, 1));
+                    sim.set_controls(
+                        PlayerId(1),
+                        Controls {
+                            dig_held: true,
+                            dig_up: true,
+                            ..Default::default()
+                        },
+                    );
+                    assert_eq!(
+                        receiver.apply(
+                            &join,
+                            sim,
+                            host_peer,
+                            Some(host_peer),
+                            &Msg::from_bytes(&msg.to_bytes()).unwrap()
+                        ),
+                        Ok(())
+                    );
+                    assert_eq!(sim.level.cells.as_ref(), Some(&expected[delivered]));
+                    delivered += 1;
+                }
+            },
+        );
+        assert_eq!(delivered, WINDOW as usize);
+        assert_eq!(guest.tick_count(), WINDOW);
+        assert_eq!(
+            guest.crab(PlayerId(1)),
+            controller.shadow().crab(PlayerId(1))
+        );
+    }
 }
