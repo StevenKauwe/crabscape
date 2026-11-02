@@ -751,8 +751,8 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 const SCENARIOS: [(&str, &str, u32); 24] = [
     (
         "cells-solo-save",
-        "fresh and extensively explored solo worlds autosave and reload",
-        65,
+        "fresh and explored worlds save, reload, and accept a guest without losing distant terrain",
+        110,
     ),
     (
         "cells-region-save",
@@ -1006,6 +1006,67 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 p.b.attr("data-cell-save").as_deref() == Some("loaded")
             })?;
             found.push(format!("large solo world retains {chunks} sleeping chunks through browser load, worker autosave tick{}, and reload",large_saved.sim_tick));
+            let invite = host.invite()?;
+            guest.open(&host.copied_invite(&invite, "cells")?)?;
+            for p in [&mut host, &mut guest] {
+                p.until(120.0, "large-world regional lobby starts", |p| {
+                    p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                        && p.b.attr("data-cell-regions").as_deref() == Some("shared")
+                })?;
+            }
+            pause_region(&mut host, true)?;
+            sleep(0.5);
+            host.b.eval("(()=>{const c=document.getElementById('crabscape');c.removeAttribute('data-cell-session-hash');c.setAttribute('data-want-cell-hash','1');})()")?;
+            host.until(15.0, "large-world owner hash", |p| {
+                p.b.attr("data-cell-session-hash").is_some()
+            })?;
+            let owner_hash = host
+                .b
+                .attr("data-cell-session-hash")
+                .ok_or("missing owner hash")?;
+            guest.until(30.0, "large-world guest matches owner", |p| {
+                let _ = p.b.eval(
+                    "document.getElementById('crabscape').setAttribute('data-want-cell-hash','1')",
+                );
+                p.b.attr("data-cell-session-hash").as_deref() == Some(owner_hash.as_str())
+            })?;
+            guest.b.go("about:blank")?;
+            host.until(30.0, "large-world guest departure recovers owner", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+            })?;
+            let recovered_tick = host
+                .b
+                .attr("data-cell-session-tick")
+                .ok_or("missing owner tick")?
+                .parse::<u64>()
+                .map_err(|e| e.to_string())?;
+            let started = Instant::now();
+            let saved = loop {
+                if let Some(saved) = saved_cells(&mut host)?
+                    && saved.sim_tick > recovered_tick
+                {
+                    break saved;
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 180 {
+                    return Err(
+                        host.failed("large owner world did not save after guest departure".into())
+                    );
+                }
+                sleep(1.0);
+            };
+            let snapshot =
+                crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&saved.terrain)
+                    .map_err(|e| format!("large owner snapshot: {e:?}"))?;
+            if snapshot.sleeping_ids().count() <= 256
+                || snapshot
+                    .sleeping(distant_id)
+                    .map_err(|e| format!("large owner far page: {e:?}"))?
+                    != distant_page
+            {
+                return Err(host.failed("large-world join/departure lost distant terrain".into()));
+            }
+            found.push(format!("400-page owner world accepts guest with exact shared hash {owner_hash}, then retains distant terrain after guest leaves and owner saves"));
         }
         "cells-regions" | "cells-region-save" => {
             eprintln!("cells-regions: opening both browsers");
