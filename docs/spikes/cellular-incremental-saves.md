@@ -332,9 +332,19 @@ this environment, so actual `QuotaExceededError` remains untested; a corrupt
 stage abort is not evidence of quota behavior. WebKit and iPhone validation
 remain required.
 
-The same-store proof initializes metadata only when its new proof database is
-created. A real existing v1/v2 store has no such metadata. Live use requires an
-atomic initializer that distinguishes a fresh legacy store from missing or
-corrupt migration metadata and fails closed in the latter case; this is not yet
-implemented. The experimental keys also need a reserved namespace and a tested
-upgrade/recovery policy before sharing the live store.
+The experimental initializer models an existing v1/v2 store with a reserved
+`v3:` namespace. In a single read/write transaction it captures legacy bytes and
+reset epoch, checks for any existing namespaced key, and creates metadata, a
+sentinel and an initial-source proof only for an empty namespace. If an
+initialization was interrupted before staging, it can resume automatically only
+with the same source and epoch; once a stage or head exists, it never offers an
+automatic legacy fallback. Missing individual metadata/proof records, orphaned
+keys, malformed metadata and reset-epoch mismatches fail closed. Chrome tests
+exercise concurrent initializers and a reset race.
+
+This remains an isolated probe, not an initializer for the live store. If every
+v3 record is deleted, the remaining legacy store is indistinguishable from one
+that never migrated; an external authority or stronger persistence assumption is
+needed to rule out silently reverting to an old legacy record. Existing stores,
+quota failures, namespaced upgrade/recovery, WebKit and older-client coexistence
+remain unproven.

@@ -21,6 +21,7 @@ const MAX_PARTS: usize = 512;
 type PublishCallback = Rc<RefCell<Option<Closure<dyn FnMut(Event)>>>>;
 type ReadAnswer = Rc<RefCell<Option<Result<Vec<u8>, String>>>>;
 type ReadHandler = Rc<RefCell<Option<(IdbRequest, Closure<dyn FnMut(Event)>)>>>;
+type InitAnswer = Rc<RefCell<Option<Result<LegacyInit, String>>>>;
 
 fn promise() -> (Promise, Function, Function) {
     let mut ends = None;
@@ -187,6 +188,12 @@ impl SourceProof {
     }
 }
 const MAX_LEGACY_SOURCE: usize = 8 * 1024 * 1024;
+#[derive(Debug, PartialEq, Eq)]
+enum LegacyInit {
+    Created(SourceProof),
+    Resume(SourceProof),
+    Existing,
+}
 
 impl ChunkStore {
     /// Use a separate experimental database, never the live cellular name.
@@ -506,6 +513,214 @@ impl ChunkStore {
             }
             Some(Ok(v)) => Ok(v),
             None => Err("transaction produced no result".into()),
+        }
+    }
+
+    /// Isolated initializer probe for an existing legacy-shaped object store.
+    /// A retained v3 key without both metadata and sentinel is damage, not a
+    /// fresh store. Total deletion of every v3 key is indistinguishable from
+    /// never having migrated; this method cannot solve that information loss.
+    async fn init_legacy_namespace(&self) -> Result<LegacyInit, String> {
+        let tx = self
+            .db
+            .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
+            .map_err(|e| err("initialize transaction", e))?;
+        let store = tx
+            .object_store(STORE)
+            .map_err(|e| err("initialize store", e))?;
+        let mut requests = [
+            "v3:meta",
+            "v3:initialized",
+            "active",
+            "reset_epoch",
+            "v3:source-proof",
+        ]
+        .into_iter()
+        .map(|key| {
+            store
+                .get(&JsValue::from_str(key))
+                .map_err(|e| err("initialize read", e))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+        let range = IdbKeyRange::bound_with_lower_open_and_upper_open(
+            &JsValue::from_str("v3:"),
+            &JsValue::from_str("v3;"),
+            false,
+            true,
+        )
+        .map_err(|e| err("initialize range", e))?;
+        requests.push(
+            store
+                .open_key_cursor_with_range(range.as_ref())
+                .map_err(|e| err("initialize cursor", e))?,
+        );
+        let remaining = Rc::new(Cell::new(requests.len()));
+        let answer: InitAnswer = Rc::new(RefCell::new(None));
+        let seen = Rc::new(Cell::new(false));
+        let unexpected = Rc::new(Cell::new(false));
+        let mut callbacks = Vec::new();
+        for (index, request) in requests.iter().enumerate() {
+            let left = remaining.clone();
+            let result = answer.clone();
+            let reqs = requests.clone();
+            let store = store.clone();
+            let tx = tx.clone();
+            let seen = seen.clone();
+            let unexpected = unexpected.clone();
+            let callback = Closure::<dyn FnMut(Event)>::new(move |_| {
+                if index == 5 {
+                    let scan = (|| -> Result<bool, String> {
+                        let value = reqs[5]
+                            .result()
+                            .map_err(|e| err("initialize cursor result", e))?;
+                        if value.is_null() || value.is_undefined() {
+                            return Ok(false);
+                        }
+                        seen.set(true);
+                        let cursor: IdbCursor =
+                            value.dyn_into().map_err(|_| "invalid initializer cursor")?;
+                        let key = cursor
+                            .key()
+                            .map_err(|e| err("initializer key", e))?
+                            .as_string()
+                            .ok_or("invalid initializer key")?;
+                        if matches!(
+                            key.as_str(),
+                            "v3:initialized" | "v3:meta" | "v3:source-proof"
+                        ) {
+                            cursor
+                                .continue_()
+                                .map_err(|e| err("initializer cursor continue", e))?;
+                            Ok(true)
+                        } else {
+                            unexpected.set(true);
+                            Ok(false)
+                        }
+                    })();
+                    match scan {
+                        Ok(true) => return,
+                        Ok(false) => {}
+                        Err(error) => {
+                            *result.borrow_mut() = Some(Err(error));
+                            let _ = tx.abort();
+                            return;
+                        }
+                    }
+                }
+                let n = left.get() - 1;
+                left.set(n);
+                if n != 0 {
+                    return;
+                }
+                let operation = (|| {
+                    let meta = read(&reqs[0], Meta::ENCODED_LEN)?;
+                    let marker = read(&reqs[1], 1)?;
+                    let bytes =
+                        read(&reqs[2], MAX_LEGACY_SOURCE)?.ok_or("missing legacy source")?;
+                    let epoch = match read(&reqs[3], 8)? {
+                        None => 0,
+                        Some(bytes) => u64::from_le_bytes(
+                            bytes
+                                .as_slice()
+                                .try_into()
+                                .map_err(|_| "invalid legacy epoch")?,
+                        ),
+                    };
+                    let source_proof = read(&reqs[4], 48)?
+                        .map(|raw| SourceProof::decode(&raw).ok_or("invalid initial source proof"))
+                        .transpose()?;
+                    let any_v3_key = seen.get();
+                    let captured = SourceProof {
+                        epoch,
+                        len: bytes.len(),
+                        digest: digest(&bytes),
+                    };
+                    match (meta, marker, source_proof) {
+                        (None, None, None) if !any_v3_key => {
+                            let fresh = Meta {
+                                epoch,
+                                ..Meta::default()
+                            };
+                            put(&store, "v3:meta", &fresh.encode())?;
+                            put(&store, "v3:initialized", &[1])?;
+                            put(&store, "v3:source-proof", &captured.encode())?;
+                            Ok(LegacyInit::Created(captured))
+                        }
+                        (Some(raw), Some(marker), Some(proof)) if marker == [1] => {
+                            let existing =
+                                Meta::decode(&raw).ok_or("damaged migration metadata")?;
+                            if existing.epoch != epoch {
+                                return Err(
+                                    "migration epoch does not match legacy reset epoch".into()
+                                );
+                            }
+                            if (existing.head_guarded && existing.head_id == 0)
+                                || (existing.pin_guarded && existing.pin_token == 0)
+                                || (existing.stage_guarded && existing.stage_id == 0)
+                            {
+                                return Err("inconsistent migration metadata".into());
+                            }
+                            if existing
+                                == (Meta {
+                                    epoch,
+                                    ..Meta::default()
+                                })
+                            {
+                                if unexpected.get() {
+                                    return Err("unexpected records in pending namespace".into());
+                                }
+                                if proof != captured {
+                                    return Err("pending legacy source changed".into());
+                                }
+                                Ok(LegacyInit::Resume(proof))
+                            } else {
+                                // Never offer legacy fallback once a head or stage
+                                // exists; that record may contain newer progress.
+                                Ok(LegacyInit::Existing)
+                            }
+                        }
+                        _ => Err("incomplete or damaged migration namespace".into()),
+                    }
+                })();
+                if operation.is_err() {
+                    let _ = tx.abort();
+                }
+                *result.borrow_mut() = Some(operation);
+            });
+            request.set_onsuccess(Some(callback.as_ref().unchecked_ref()));
+            callbacks.push(callback);
+        }
+        let (promise, resolve, reject) = promise();
+        let complete = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        });
+        let abort = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = reject.call1(
+                &JsValue::UNDEFINED,
+                &JsValue::from_str("initialize aborted"),
+            );
+        });
+        tx.set_oncomplete(Some(complete.as_ref().unchecked_ref()));
+        tx.set_onabort(Some(abort.as_ref().unchecked_ref()));
+        let handlers = TransactionHandlers {
+            tx,
+            requests,
+            _callbacks: callbacks,
+            _complete: complete,
+            _abort: abort,
+        };
+        let committed = JsFuture::from(promise)
+            .await
+            .map_err(|e| err("initialize commit", e));
+        let result = answer.borrow_mut().take();
+        drop(handlers);
+        match result {
+            Some(Err(e)) => Err(e),
+            _ if committed.is_err() => Err(committed
+                .err()
+                .unwrap_or_else(|| "initialize failed".into())),
+            Some(Ok(v)) => Ok(v),
+            None => Err("initialize produced no result".into()),
         }
     }
 
@@ -2357,6 +2572,213 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
     Ok(format!("migration_v1={v1}; migration_v2={v2}"))
 }
 
+#[cfg(feature = "browser-proof")]
+async fn raw_legacy_edit(
+    db: &ChunkStore,
+    puts: Vec<(&'static str, Vec<u8>)>,
+    deletes: Vec<&'static str>,
+) -> Result<(), String> {
+    let tx = db
+        .db
+        .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
+        .map_err(|e| err("legacy edit transaction", e))?;
+    let store = tx
+        .object_store(STORE)
+        .map_err(|e| err("legacy edit store", e))?;
+    for (key, bytes) in puts {
+        put(&store, key, &bytes)?;
+    }
+    for key in deletes {
+        store
+            .delete(&JsValue::from_str(key))
+            .map_err(|e| err("legacy delete", e))?;
+    }
+    let (promise, resolve, reject) = promise();
+    let complete = Closure::<dyn FnMut(Event)>::new(move |_| {
+        let _ = resolve.call0(&JsValue::UNDEFINED);
+    });
+    let abort = Closure::<dyn FnMut(Event)>::new(move |_| {
+        let _ = reject.call1(
+            &JsValue::UNDEFINED,
+            &JsValue::from_str("legacy edit aborted"),
+        );
+    });
+    tx.set_oncomplete(Some(complete.as_ref().unchecked_ref()));
+    tx.set_onabort(Some(abort.as_ref().unchecked_ref()));
+    let handlers = TransactionHandlers {
+        tx,
+        requests: Vec::new(),
+        _callbacks: Vec::new(),
+        _complete: complete,
+        _abort: abort,
+    };
+    let result = JsFuture::from(promise)
+        .await
+        .map_err(|e| err("legacy edit commit", e));
+    drop(handlers);
+    result.map(|_| ())
+}
+
+#[cfg(feature = "browser-proof")]
+async fn legacy_initializer_proof(name: &str) -> Result<(), String> {
+    let dbname = format!("{name}.legacy-init");
+    let a = ChunkStore::open(&dbname).await?;
+    let b = ChunkStore::open(&dbname).await?;
+    // Remove the proof metadata to reproduce a pre-existing v1/v2 store.
+    raw_legacy_edit(
+        &a,
+        vec![("active", b"untouched legacy".to_vec())],
+        vec!["meta"],
+    )
+    .await?;
+    let (first, second) =
+        futures_util::future::join(a.init_legacy_namespace(), b.init_legacy_namespace()).await;
+    let first = first?;
+    let second = second?;
+    let first_proof = match (first, second) {
+        (LegacyInit::Created(proof), LegacyInit::Resume(_))
+        | (LegacyInit::Resume(_), LegacyInit::Created(proof)) => proof,
+        _ => return Err("concurrent legacy initialization was not atomic".into()),
+    };
+    if first_proof.epoch != 0 || first_proof.digest != digest(b"untouched legacy") {
+        return Err("legacy initialization captured the wrong source".into());
+    }
+    // An interrupted pre-stage initialization can safely resume only while
+    // its source is unchanged. An existing head never offers legacy fallback.
+    if b.init_legacy_namespace().await? != LegacyInit::Resume(first_proof) {
+        return Err("unchanged initialization could not resume".into());
+    }
+    for key in ["v3:head", "v3:\u{ffff}suffix"] {
+        raw_legacy_edit(&a, vec![(key, b"orphan".to_vec())], vec![]).await?;
+        if b.init_legacy_namespace().await.is_ok() {
+            return Err("orphaned pending namespace accepted".into());
+        }
+        raw_legacy_edit(&a, vec![], vec![key]).await?;
+    }
+    raw_legacy_edit(&a, vec![("active", b"older legacy state".to_vec())], vec![]).await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("changed pending source was accepted".into());
+    }
+    let published = Meta {
+        head_id: 1,
+        next_id: 1,
+        revision: 1,
+        ..Meta::default()
+    };
+    raw_legacy_edit(&a, vec![("v3:meta", published.encode())], vec![]).await?;
+    if b.init_legacy_namespace().await? != LegacyInit::Existing {
+        return Err("existing head offered legacy fallback".into());
+    }
+    raw_legacy_edit(
+        &a,
+        vec![
+            ("active", b"untouched legacy".to_vec()),
+            ("v3:meta", Meta::default().encode()),
+        ],
+        vec![],
+    )
+    .await?;
+    raw_legacy_edit(
+        &a,
+        vec![("reset_epoch", 1u64.to_le_bytes().to_vec())],
+        vec![],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("stale namespace epoch accepted".into());
+    }
+    raw_legacy_edit(&a, vec![], vec!["reset_epoch"]).await?;
+    // One deleted or corrupted record must not be treated as fresh.
+    raw_legacy_edit(&a, vec![], vec!["v3:meta"]).await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("missing metadata treated as fresh".into());
+    }
+    raw_legacy_edit(
+        &a,
+        vec![("v3:meta", Meta::default().encode())],
+        vec!["v3:initialized"],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("missing marker treated as fresh".into());
+    }
+    raw_legacy_edit(
+        &a,
+        vec![
+            ("v3:initialized", vec![1]),
+            ("v3:meta", vec![0; Meta::ENCODED_LEN]),
+        ],
+        vec![],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("corrupt metadata accepted".into());
+    }
+    raw_legacy_edit(
+        &a,
+        vec![("v3:chunk:orphan", b"kept".to_vec())],
+        vec!["v3:meta", "v3:initialized"],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("orphaned namespace treated as fresh".into());
+    }
+    // An intact legacy source and malformed epoch are also rejected without writes.
+    raw_legacy_edit(
+        &a,
+        vec![("reset_epoch", vec![7])],
+        vec!["v3:chunk:orphan", "v3:source-proof"],
+    )
+    .await?;
+    if b.init_legacy_namespace().await.is_ok() {
+        return Err("invalid legacy epoch accepted".into());
+    }
+    raw_legacy_edit(&a, vec![], vec!["reset_epoch"]).await?;
+    if b.init_legacy_namespace().await? != LegacyInit::Created(first_proof) {
+        return Err("legacy source changed during failed initializations".into());
+    }
+    let race_name = format!("{name}.legacy-init-race");
+    let writer = ChunkStore::open(&race_name).await?;
+    let resetter = ChunkStore::open(&race_name).await?;
+    raw_legacy_edit(
+        &writer,
+        vec![("active", b"pre-reset".to_vec())],
+        vec!["meta"],
+    )
+    .await?;
+    raw_legacy_edit(
+        &writer,
+        vec![("v3:\u{ffff}suffix", b"orphan".to_vec())],
+        vec![],
+    )
+    .await?;
+    if writer.init_legacy_namespace().await.is_ok() {
+        return Err("fresh namespace ignored high Unicode orphan".into());
+    }
+    raw_legacy_edit(&writer, vec![], vec!["v3:\u{ffff}suffix"]).await?;
+    let (initialize, reset) = futures_util::future::join(
+        writer.init_legacy_namespace(),
+        raw_legacy_edit(
+            &resetter,
+            vec![("reset_epoch", 1u64.to_le_bytes().to_vec())],
+            vec!["active"],
+        ),
+    )
+    .await;
+    reset?;
+    raw_legacy_edit(&resetter, vec![("active", b"post-reset".to_vec())], vec![]).await?;
+    match initialize {
+        Ok(LegacyInit::Created(_)) if writer.init_legacy_namespace().await.is_err() => (),
+        Err(_) => match writer.init_legacy_namespace().await? {
+            LegacyInit::Created(proof)
+                if proof.epoch == 1 && proof.digest == digest(b"post-reset") => {}
+            _ => return Err("reset-first initialization used stale source".into()),
+        },
+        _ => return Err("initialization/reset race was not fenced".into()),
+    }
+    Ok(())
+}
+
 /// Same-object-store publication fence. The keys mirror current live v1/v2,
 /// but this runs only in an experimental proof database.
 #[cfg(feature = "browser-proof")]
@@ -2588,6 +3010,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
     }
     async fn run(name: &str) -> Result<String, String> {
         same_store_fence(name).await?;
+        legacy_initializer_proof(name).await?;
         let a = ChunkStore::open(name).await?;
         let b = ChunkStore::open(name).await?;
         a.reset().await?;
