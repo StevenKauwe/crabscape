@@ -106,6 +106,18 @@ impl Host {
         input: &Msg,
         host_walk: f32,
     ) -> Result<Option<Msg>, InputError> {
+        self.accept_with_host_dig(sender, selected, input, host_walk, false)
+    }
+
+    /// Like `accept`, but allows the host's own horizontal dig control.
+    pub fn accept_with_host_dig(
+        &mut self,
+        sender: Peer,
+        selected: Option<Peer>,
+        input: &Msg,
+        host_walk: f32,
+        host_dig: bool,
+    ) -> Result<Option<Msg>, InputError> {
         if selected != Some(self.guest) {
             self.paused = true;
             return Err(InputError::WrongPeer);
@@ -150,7 +162,7 @@ impl Host {
             self.paused = true;
             return Err(InputError::Invalid);
         }
-        if dig && walk.abs() <= 0.1 {
+        if (dig && walk.abs() <= 0.1) || (host_dig && host_walk.abs() <= 0.1) {
             self.paused = true;
             return Err(InputError::Unsupported);
         }
@@ -168,6 +180,7 @@ impl Host {
             host_id,
             Controls {
                 walk: host_walk,
+                dig_held: host_dig,
                 ..Default::default()
             },
         );
@@ -302,7 +315,7 @@ mod tests {
     fn setup() -> (Host, Sim, GuestJoin, Guest) {
         setup_case(0)
     }
-    // 0: airborne walker, 1: loose sand, 2: pebble aggregate.
+    // 0: airborne walker, 1/2: guest sand/pebble, 3/4: host sand/pebble.
     fn setup_case(case: u8) -> (Host, Sim, GuestJoin, Guest) {
         let mut level = Level::test_level();
         level.eggs.clear();
@@ -330,6 +343,16 @@ mod tests {
             if case == 2 {
                 assert!(cells.test_add_pebble(162, 124, 4));
             }
+            if case == 3 {
+                assert!(cells.test_place_loose_sand(185, 115));
+            }
+            if case == 4 {
+                assert!(cells.test_add_pebble(184, 124, 4));
+            }
+            if case == 5 {
+                assert!(cells.test_place_loose_sand(160, 115));
+                assert!(cells.test_place_loose_sand(190, 115));
+            }
         }
         let surface = if case == 0 {
             500.0
@@ -341,10 +364,22 @@ mod tests {
                 .game_surface_below(700.0, 30.0, 1000.0)
                 .unwrap()
         };
+        if case >= 3 {
+            let host_crab = host.crab_mut(PlayerId(0)).unwrap();
+            host_crab.mover.pos = Vec2::new(if case == 5 { 600.0 } else { 700.0 }, surface);
+            host_crab.prev_pos = host_crab.mover.pos;
+        }
         let mut guest = Sim::new(Tuning::default(), level);
         guest.enable_underwater_cells();
-        guest.add_crab(PlayerId(1), Vec2::new(700.0, surface));
-        if case == 0 {
+        let guest_pos = if case == 5 {
+            Vec2::new(800.0, surface)
+        } else if case >= 3 {
+            Vec2::new(400.0, 500.0)
+        } else {
+            Vec2::new(700.0, surface)
+        };
+        guest.add_crab(PlayerId(1), guest_pos);
+        if case == 0 || (3..=4).contains(&case) {
             guest.crab_mut(PlayerId(1)).unwrap().mover.grounded = false;
         }
         host.add_remote_crab(PlayerId(1), guest.crab(PlayerId(1)).unwrap().mover.pos);
@@ -625,6 +660,319 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn host_horizontal_dig_matches_solo_and_preserves_guest_over_fake_link() {
+        for case in [3, 4] {
+            let (mut controller, mut guest, join, mut stream) = setup_case(case);
+            let mut solo = controller.host.clone();
+            let mut link = FakeLink::steady(0);
+            let host_peer = peer(0, 10);
+            let guest_peer = peer(1, 20);
+            let initial_pebbles = controller
+                .host()
+                .level
+                .cells
+                .as_ref()
+                .unwrap()
+                .game_pebbles();
+            let mut counts = None;
+            let mut saw_load = false;
+            for tick in 0..12 {
+                link.test_post(1, 0, message(tick, 0.0));
+                let mut received = None;
+                link.carry_with(
+                    &mut [&mut controller.host, &mut guest],
+                    |from, to, _, msg| {
+                        if matches!(msg, Msg::CellWalkInput { .. }) {
+                            assert_eq!((from, to), (1, 0));
+                            received = Msg::from_bytes(&msg.to_bytes());
+                        }
+                    },
+                );
+                let frame = controller
+                    .accept_with_host_dig(
+                        guest_peer,
+                        Some(guest_peer),
+                        &received.unwrap(),
+                        1.0,
+                        true,
+                    )
+                    .unwrap();
+                guest.set_controls(PlayerId(1), Controls::default());
+                solo.set_controls(
+                    PlayerId(0),
+                    Controls {
+                        walk: 1.0,
+                        dig_held: true,
+                        ..Default::default()
+                    },
+                );
+                if let Some(frame) = frame {
+                    let Msg::CellFrame(bytes) = &frame else {
+                        panic!("expected frame")
+                    };
+                    let decoded = Frame::from_bytes(bytes).unwrap();
+                    let dig = decoded.players[0].dig.expect("host dig");
+                    assert_eq!((dig.dx, dig.dy, dig.force), (1, 0, 48));
+                    link.test_post(0, 1, frame);
+                    let mut applied = None;
+                    link.carry_with(
+                        &mut [&mut controller.host, &mut guest],
+                        |from, to, sim, msg| {
+                            if let Some(Msg::CellFrame(bytes)) = Msg::from_bytes(&msg.to_bytes()) {
+                                assert_eq!((from, to), (0, 1));
+                                applied = Some(stream.apply(
+                                    &join,
+                                    sim,
+                                    host_peer,
+                                    Some(host_peer),
+                                    &bytes,
+                                ));
+                            }
+                        },
+                    );
+                    assert_eq!(applied, Some(Ok(())));
+                }
+                assert!(guest.tick_guest_shared_walking());
+                solo.tick();
+                let actual = &controller.host().crab(PlayerId(0)).unwrap().mover;
+                let expected = &solo.crab(PlayerId(0)).unwrap().mover;
+                assert_eq!(actual.pos, expected.pos, "case {case} tick {tick}");
+                assert_eq!(
+                    actual.dig_load, expected.dig_load,
+                    "case {case} tick {tick}"
+                );
+                saw_load |= actual.dig_load > 0.0;
+                assert_eq!(
+                    guest.crab(PlayerId(1)),
+                    controller.shadow().crab(PlayerId(1))
+                );
+                if tick.is_multiple_of(4) {
+                    let world = controller.host().level.cells.as_ref().unwrap();
+                    let reference = solo.level.cells.as_ref().unwrap();
+                    let center =
+                        actual.pos + Vec2::Y * (actual.height(&controller.host().tuning) * 0.5);
+                    let (cx, cy) = world.local_cell(center.x, center.y);
+                    for y in cy as i32 - 20..=cy as i32 + 20 {
+                        for x in cx as i32 - 20..=cx as i32 + 20 {
+                            assert_eq!(
+                                world.cell(x, y),
+                                reference.cell(x, y),
+                                "case {case} tick {tick} cell {x},{y}"
+                            );
+                            assert_eq!(
+                                world.flow_at(x, y),
+                                reference.flow_at(x, y),
+                                "case {case} tick {tick} flow {x},{y}"
+                            );
+                        }
+                    }
+                    let count = |material| {
+                        (0..360)
+                            .flat_map(|y| (0..640).map(move |x| (x, y)))
+                            .filter(|&(x, y)| world.cell(x, y) == material)
+                            .count()
+                    };
+                    let now = (
+                        count(crate::underwater::Cell::Sand),
+                        count(crate::underwater::Cell::Mud),
+                        world.game_pebbles().len(),
+                    );
+                    if let Some(before) = counts {
+                        assert_eq!(now, before);
+                    }
+                    counts = Some(now);
+                    let shape: Vec<_> = world.game_pebbles().iter().map(|p| (p.2, p.3)).collect();
+                    let initial_shape: Vec<_> =
+                        initial_pebbles.iter().map(|p| (p.2, p.3)).collect();
+                    assert_eq!(shape, initial_shape);
+                }
+            }
+            assert!(saw_load, "case {case} must encounter resistance");
+            if case == 4 {
+                assert_ne!(
+                    controller
+                        .host()
+                        .level
+                        .cells
+                        .as_ref()
+                        .unwrap()
+                        .game_pebbles(),
+                    initial_pebbles
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn host_dig_displaces_sand_differently_from_walking() {
+        let (mut dig, _, _, _) = setup_case(3);
+        let (mut walk, _, _, _) = setup_case(3);
+        let peer = peer(1, 20);
+        dig.accept_with_host_dig(peer, Some(peer), &message(0, 0.0), 1.0, true)
+            .unwrap();
+        walk.accept_with_host_dig(peer, Some(peer), &message(0, 0.0), 1.0, false)
+            .unwrap();
+        let a = dig.host().level.cells.as_ref().unwrap();
+        let b = walk.host().level.cells.as_ref().unwrap();
+        assert!(
+            (90..145).any(|y| (160..205).any(|x| a.cell(x, y) != b.cell(x, y))),
+            "dig must move loose sand differently from walking"
+        );
+    }
+
+    #[test]
+    fn simultaneous_horizontal_digs_follow_host_then_guest_order() {
+        let (mut controller, mut guest, join, mut stream) = setup_case(5);
+        let mut reference = controller.host().level.cells.clone().unwrap();
+        let level = controller.host().level.clone();
+        let tuning = controller.host().tuning.clone();
+        let host_peer = peer(0, 10);
+        let peer = peer(1, 20);
+        let mut input = message(0, -1.0);
+        if let Msg::CellWalkInput { dig, .. } = &mut input {
+            *dig = true;
+        }
+        let mut link = FakeLink::steady(0);
+        link.test_post(1, 0, input);
+        let mut received = None;
+        link.carry_with(
+            &mut [&mut controller.host, &mut guest],
+            |from, to, _, msg| {
+                if matches!(msg, Msg::CellWalkInput { .. }) {
+                    assert_eq!((from, to), (1, 0));
+                    received = Msg::from_bytes(&msg.to_bytes());
+                }
+            },
+        );
+        let frame = controller
+            .accept_with_host_dig(peer, Some(peer), &received.unwrap(), 1.0, true)
+            .unwrap()
+            .unwrap();
+        let Msg::CellFrame(bytes) = &frame else {
+            panic!("expected frame")
+        };
+        let frame_data = Frame::from_bytes(bytes).unwrap();
+        let h = frame_data.players[0];
+        let g = frame_data.players[1];
+        assert_eq!(h.dig.unwrap().force, 48);
+        assert_eq!(g.dig.unwrap().force, 48);
+        reference.follow_player(&level, h.x, h.y - h.half_height);
+        let (hx, hy) = reference.local_cell(h.x, h.y);
+        reference.set_game_crab(
+            hx,
+            hy,
+            h.half_width / crate::underwater::GAME_CELL,
+            h.half_height / crate::underwater::GAME_CELL,
+        );
+        assert!(reference.push_for_crab(hx + 1.0, hy, 1, 0, 48));
+        let wx = (h.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+        let wy = (h.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+        reference.react_to_swim(hx, hy, wx, wy);
+        reference.stir(
+            hx,
+            hy,
+            h.wake_x * crate::physics::STEP / 4.0 * 0.45,
+            h.wake_y * crate::physics::STEP / 4.0 * 0.45,
+        );
+        assert!(reference.apply_contact_walker(&tuning, &g));
+        assert!(reference.step_contact_pair(&g));
+        assert!(
+            controller.host().level.cells.as_ref() == Some(&reference),
+            "host then guest must match the solo-ordered reference"
+        );
+        guest.set_controls(
+            PlayerId(1),
+            Controls {
+                walk: -1.0,
+                dig_held: true,
+                ..Default::default()
+            },
+        );
+        link.test_post(0, 1, frame);
+        let mut applied = None;
+        link.carry_with(
+            &mut [&mut controller.host, &mut guest],
+            |from, to, sim, msg| {
+                if let Some(Msg::CellFrame(bytes)) = Msg::from_bytes(&msg.to_bytes()) {
+                    assert_eq!((from, to), (0, 1));
+                    applied = Some(stream.apply(&join, sim, host_peer, Some(host_peer), &bytes));
+                }
+            },
+        );
+        assert_eq!(applied, Some(Ok(())));
+        assert!(guest.tick_guest_shared_walking());
+        assert_eq!(
+            guest.crab(PlayerId(1)),
+            controller.shadow().crab(PlayerId(1))
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn host_horizontal_dig_profile() {
+        use std::time::Instant;
+        for digging in [false, true] {
+            let mut material = Vec::new();
+            let mut between = Vec::new();
+            for _ in 0..3 {
+                let (mut c, _, _, _) = setup_case(3);
+                let peer = peer(1, 20);
+                for tick in 0..12 {
+                    let now = Instant::now();
+                    c.accept_with_host_dig(peer, Some(peer), &message(tick, 0.0), 1.0, digging)
+                        .unwrap();
+                    let elapsed = now.elapsed().as_secs_f64() * 1000.0;
+                    if tick % 4 == 0 {
+                        material.push(elapsed);
+                    } else {
+                        between.push(elapsed);
+                    }
+                }
+            }
+            material.sort_by(f64::total_cmp);
+            between.sort_by(f64::total_cmp);
+            eprintln!(
+                "host_dig={digging} material median {:.2} ms (n={}), between median {:.2} ms (n={})",
+                material[material.len() / 2],
+                material.len(),
+                between[between.len() / 2],
+                between.len()
+            );
+        }
+    }
+
+    #[test]
+    fn host_dig_rejects_overlapping_guest_and_rolls_back_late_failure() {
+        let peer = peer(1, 20);
+        let (mut c, _, _, _) = setup_case(3);
+        let position = c.host().crab(PlayerId(0)).unwrap().mover.pos;
+        c.host.crab_mut(PlayerId(1)).unwrap().mover.pos = position;
+        c.shadow.crab_mut(PlayerId(1)).unwrap().mover.pos = position;
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        assert_eq!(
+            c.accept_with_host_dig(peer, Some(peer), &message(0, 0.0), 1.0, true),
+            Err(InputError::Unsupported)
+        );
+        assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+        let (mut idle, _, _, _) = setup_case(3);
+        let before = (snapshot(idle.host()), snapshot(idle.shadow()));
+        assert_eq!(
+            idle.accept_with_host_dig(peer, Some(peer), &message(0, 0.0), 0.0, true),
+            Err(InputError::Unsupported)
+        );
+        assert_eq!((snapshot(idle.host()), snapshot(idle.shadow())), before);
+        let (mut c, _, _, _) = setup_case(3);
+        c.shadow.level.cells = None;
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        assert_eq!(
+            c.accept_with_host_dig(peer, Some(peer), &message(0, 0.0), 1.0, true),
+            Err(InputError::Unsupported)
+        );
+        assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
     }
 
     #[test]

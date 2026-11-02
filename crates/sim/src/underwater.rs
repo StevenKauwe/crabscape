@@ -2382,6 +2382,65 @@ impl World {
         result.is_ok() && chunks.write_material_to(self)
     }
 
+    fn reserved_dig_load(&mut self, body: &chunk_flow::BodyReservation, dig: &HostDig) -> f32 {
+        let saved = (self.crab, self.crab_half_x, self.crab_half_y);
+        self.crab = Some((body.x, body.y));
+        self.crab_half_x = body.half_x;
+        self.crab_half_y = body.half_y;
+        let load = self.game_dig_load(
+            body.x as f32,
+            body.y as f32,
+            i32::from(dig.dx),
+            i32::from(dig.dy),
+        );
+        (self.crab, self.crab_half_x, self.crab_half_y) = saved;
+        load
+    }
+
+    /// Host horizontal digging with the guest's body protected. Unsupported
+    /// scoops fail before this world is modified.
+    pub(crate) fn dig_primary_shared(
+        &mut self,
+        other: &HostPlayerForce,
+        x: f32,
+        y: f32,
+        dx: i32,
+    ) -> bool {
+        if !matches!(dx, -1 | 1) {
+            return false;
+        }
+        let Some(body) = self.contact_reservation(other) else {
+            return false;
+        };
+        let guest_load = if let Some(dig) = other.dig {
+            if dig.dy != 0 || dig.dx == 0 || dig.dx != other.walking || dig.force != 48 {
+                return false;
+            }
+            Some(self.reserved_dig_load(&body, &dig))
+        } else {
+            None
+        };
+        let mut chunks = chunk_flow::ChunkFlow::from_world(self);
+        if chunks.set_extra_bodies(&[body]).is_err()
+            || chunks.push_for_crab(x, y, dx, 0, 48) != Ok(true)
+        {
+            return false;
+        }
+        if let Some(before) = guest_load {
+            let mut next = self.clone();
+            if !chunks.write_material_to(&mut next)
+                || next.reserved_dig_load(&body, &other.dig.expect("load requires guest dig"))
+                    != before
+            {
+                return false;
+            }
+            *self = next;
+            true
+        } else {
+            chunks.write_material_to(self)
+        }
+    }
+
     /// Apply an additional grounded or swimming walker's solo brush/wake.
     /// Separated bodies are required; pebble brushes protect both bodies.
     pub(crate) fn apply_contact_walker(
@@ -2530,7 +2589,13 @@ impl World {
             || !(-1000.0..=0.0).contains(&p.wake_y)
             || !(-1..=1).contains(&p.walking)
             || p.jumped
-            || p.dig.is_some()
+            || p.dig.is_some_and(|dig| {
+                other.is_none()
+                    || dig.dy != 0
+                    || dig.dx == 0
+                    || dig.dx != p.walking
+                    || dig.force != 48
+            })
         {
             return false;
         }
@@ -2540,7 +2605,15 @@ impl World {
         if next.contains_world(p.x, p.y) {
             let (x, y) = next.local_cell(p.x, p.y);
             next.set_game_crab(x, y, p.half_width / GAME_CELL, p.half_height / GAME_CELL);
-            if p.grounded && p.walking != 0 {
+            if let Some(dig) = p.dig {
+                let Some(other) = other else {
+                    return false;
+                };
+                if !next.dig_primary_shared(other, x + f32::from(dig.dx), y, i32::from(dig.dx)) {
+                    return false;
+                }
+            }
+            if p.dig.is_none() && p.grounded && p.walking != 0 {
                 if let Some(other) = other {
                     if !next.brush_shared(other, i32::from(p.walking), false) {
                         return false;

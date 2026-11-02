@@ -649,6 +649,7 @@ mod tests {
             },
             crate::Controls {
                 dig_held: true,
+                dig_up: true,
                 walk: 1.0,
                 ..Default::default()
             },

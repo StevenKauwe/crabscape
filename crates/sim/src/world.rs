@@ -966,7 +966,7 @@ impl Sim {
             || remaining != Controls::default()
             || !walk.is_finite()
             || !(-1.0..=1.0).contains(&walk)
-            || (digging && (self.is_host() || walk.abs() <= 0.1))
+            || (digging && walk.abs() <= 0.1)
             || crab.events.jumped
             || !velocity.is_finite()
             || velocity.y > 0.0
@@ -1252,7 +1252,18 @@ impl Sim {
                         // pebble must not hide the pebble from the push.
                         cells.push_for_crab(x, y - 2.0, 0, -1, 48);
                     } else if self.tick.is_multiple_of(4) && digging && walk.abs() > 0.1 {
-                        cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
+                        if let Some(remote) = remote_walk {
+                            if !cells.dig_primary_shared(
+                                &remote,
+                                x + walk.signum(),
+                                y,
+                                walk.signum() as i32,
+                            ) {
+                                return false;
+                            }
+                        } else {
+                            cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
+                        }
                     }
                     if self.tick.is_multiple_of(4) && !digging && m.grounded && walk.abs() > 0.1 {
                         if let Some(remote) = remote_walk {
