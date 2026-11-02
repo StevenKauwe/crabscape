@@ -1,7 +1,7 @@
 //! Test-only staged direct `shift_window` experiment, not a game integration.
 //! Initialization still performs a synchronous validation of the whole archive.
 //! Each advance visits <=1024 cells/items and clones at most one 4096-cell page;
-//! the final commit edits <=32 pages. The old World remains pinned and unchanged
+//! the final commit edits <=64 pages. The old World remains pinned and unchanged
 //! until commit. Opening-edge changes and `seed_far_pebbles` are not included.
 use super::{Status, Validator, World};
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-const MAX_PAGES: usize = 32;
+const MAX_PAGES: usize = 64;
 const ITEMS: usize = 1024;
 const PAGE_CELLS: usize = 4096;
 
@@ -101,7 +101,9 @@ impl Owner {
             || level.rocks.len() > 256
             || target.0.unsigned_abs() > 1_000_000
             || target.1.unsigned_abs() > 1_000_000
-            || !matches!((dx, dy), (64, 0) | (-64, 0) | (0, 64) | (0, -64))
+            || (dx == 0) == (dy == 0)
+            || dx.unsigned_abs() > 192
+            || dy.unsigned_abs() > 192
         {
             return None;
         }
@@ -506,6 +508,60 @@ mod tests {
         complete(&mut stage);
         assert!(stage.commit());
         assert_eq!(owner.world, expected);
+    }
+
+    #[test]
+    fn common_follow_distances_match_actual_world() {
+        let level = Level::test_level();
+        for (origin, x, y, target) in [
+            ((0, 0), 2000.0, 500.0, (128, 0)),
+            ((256, 0), 1660.0, 500.0, (64, 0)),
+            ((0, 0), 400.0, -44.0, (0, -128)),
+        ] {
+            let mut world = fixture();
+            world.origin = origin;
+            world.opening_edge_opened = true;
+            assert_eq!(world.preview_window(x, y), Some(target));
+            let side = TERRAIN_CHUNK_CELLS;
+            for cy in
+                (target.1 + side - 1).div_euclid(side)..(target.1 + HEIGHT as i32).div_euclid(side)
+            {
+                for cx in (target.0 + side - 1).div_euclid(side)
+                    ..(target.0 + WIDTH as i32).div_euclid(side)
+                {
+                    world.pebble_seeded.insert((cx, cy));
+                }
+            }
+            let mut expected = world.clone();
+            assert!(expected.follow_player(&level, x, y));
+            let mut owner = Owner::new(world).unwrap();
+            let mut stage = owner.start_follow(&level, x, y).unwrap();
+            complete(&mut stage);
+            assert!(stage.commit());
+            assert_eq!(
+                owner.world, expected,
+                "origin {origin:?}, target {target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn large_and_diagonal_shifts_or_page_overflow_preserve_world() {
+        let level = Level::test_level();
+        let mut world = fixture();
+        world.origin = (1, 0);
+        let mut owner = Owner::new(world.clone()).unwrap();
+        assert!(owner.start(&level, (194, 0)).is_none());
+        assert!(owner.start(&level, (65, 64)).is_none());
+        assert!(owner.start(&level, (1, 0)).is_none());
+        {
+            let mut stage = owner.start(&level, (1, 192)).unwrap();
+            while !stage.advance(1024) && !stage.failed {}
+            assert!(stage.failed, "fixture should exceed the 64-page cap");
+            assert!(!stage.commit());
+        }
+        assert_eq!(owner.world, world);
+        assert_eq!(owner.generation, 0);
     }
 
     #[test]
