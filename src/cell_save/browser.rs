@@ -63,10 +63,37 @@ pub async fn write(bytes: &[u8]) -> Result<(), String> {
 }
 
 pub(crate) async fn write_to(database: &str, bytes: &[u8]) -> Result<(), String> {
+    write_to_if(database, bytes, || true).await.map(|_| ())
+}
+
+/// Write only while the snapshot still belongs to the current session.
+/// Reset must invalidate its generation before calling `clear()`. `false`
+/// means cancellation, not a storage failure, and no transaction was started.
+pub async fn write_if_current(
+    bytes: &[u8],
+    still_current: impl Fn() -> bool,
+) -> Result<bool, String> {
+    write_to_if(&crate::save::browser_key(".cells"), bytes, still_current).await
+}
+
+pub(crate) async fn write_to_if(
+    database: &str,
+    bytes: &[u8],
+    still_current: impl Fn() -> bool,
+) -> Result<bool, String> {
     if bytes.len() > MAX_BYTES {
         return Err("cellular save is too large".into());
     }
+    if !still_current() {
+        return Ok(false);
+    }
     let db = Database(open(database).await?);
+    // `open` is asynchronous. Reset may have happened while it was pending;
+    // after this check transaction creation is synchronous on the same JS
+    // thread, so a later clear is ordered after any transaction started here.
+    if !still_current() {
+        return Ok(false);
+    }
     async {
         let tx =
             db.0.transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
@@ -78,7 +105,7 @@ pub(crate) async fn write_to(database: &str, bytes: &[u8]) -> Result<(), String>
         store
             .put_with_key(value.as_ref(), &JsValue::from_str(KEY))
             .map_err(|e| problem("write save", e))?;
-        committed(&tx).await
+        committed(&tx).await.map(|()| true)
     }
     .await
 }
