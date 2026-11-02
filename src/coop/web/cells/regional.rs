@@ -87,6 +87,12 @@ fn point(sim: &Sim, id: PlayerId) -> Result<Vec2, String> {
 fn area(points: &[Vec2]) -> Result<CellRegion, String> {
     CellRegion::around_points(points, 160).ok_or_else(|| "Region is too large".into())
 }
+fn share_region(host: Vec2, guest: Vec2, shared: bool) -> Result<bool, String> {
+    let margin = if shared { 192 } else { 160 };
+    let a = CellRegion::around_points(&[host], margin).ok_or("Invalid owner region")?;
+    let b = CellRegion::around_points(&[guest], margin).ok_or("Invalid visitor region")?;
+    Ok(a.overlaps(b))
+}
 fn near_edge(b: CellRegion, p: Vec2) -> bool {
     let x = p.x / GAME_CELL;
     let y = (p.y - GAME_BOTTOM) / GAME_CELL;
@@ -190,7 +196,7 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
     let guest_at = point(&owner.entities.sim, guest)?;
     let host_area = area(&[host_at])?;
     let guest_area = area(&[guest_at])?;
-    r.shared = host_area.overlaps(guest_area);
+    r.shared = share_region(host_at, guest_at, r.shared)?;
     let (local, remote) = if r.shared {
         let local = extract(owner, &[HOST, guest], area(&[host_at, guest_at])?)?;
         let remote = local.checkpoint().map_err(fault)?;
@@ -222,6 +228,20 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
             transfer: r.transfer,
         },
     );
+    if !r.shared {
+        let mut forwarded = Vec::new();
+        s.actions.retain(|(id, action)| {
+            if *id == guest && !matches!(action, super::super::super::CellsAction::Home) {
+                forwarded.push(*action);
+                false
+            } else {
+                true
+            }
+        });
+        if !forwarded.is_empty() {
+            send(s, RegionMsg::Actions(forwarded));
+        }
+    }
     Ok(())
 }
 
@@ -472,6 +492,13 @@ fn receive_inner(
     msg: RegionMsg,
 ) -> Result<(), String> {
     match msg {
+        RegionMsg::Actions(actions) if local != HOST => {
+            if actions.len() + s.actions.len() > 32 {
+                return Err("Too many regional actions".into());
+            }
+            s.actions
+                .extend(actions.into_iter().map(|action| (local, action)));
+        }
         RegionMsg::CheckpointBegin {
             transfer,
             region,
@@ -575,6 +602,17 @@ fn receive_inner(
                 );
                 r.kernel = Some(kernel.install_view(sim));
                 r.stage = Stage::Running;
+                if r.shared {
+                    while let Some((_, action)) = s.actions.pop_front() {
+                        let sequence = s.input_sequence;
+                        s.input_sequence += 1;
+                        s.outgoing.push_back(Wire::Action {
+                            epoch: s.epoch,
+                            sequence,
+                            action,
+                        });
+                    }
+                }
                 send(
                     s,
                     RegionMsg::Ready {
@@ -804,9 +842,7 @@ fn update_inner(
         } else {
             r.guest_pos.ok_or("Missing visitor position")?
         };
-        let host_area = area(&[host])?;
-        let guest_area = area(&[guest])?;
-        let separate = !host_area.overlaps(guest_area);
+        let separate = !share_region(host, guest, r.shared)?;
         let b = bounds(sim)?;
         let change = if r.shared {
             separate || near_edge(b, host) || near_edge(b, guest)
