@@ -505,12 +505,13 @@ mod camera_stability_tests {
             );
         }
 
-        // An average near 31 fps can still include occasional slower frames.
+        // The reported phone averaged 31 fps. These varying frame times
+        // average 31 fps and reproduced runaway shake in the old spring.
         let mut shake = Shake::default();
-        shake.kick(Vec2::new(8.0, -4.0));
+        shake.kick(Vec2::new(8.0, -2.8));
+        let frames = [0.050, 0.015, 0.050, 0.014];
         for frame in 0..120 {
-            let dt = if frame % 4 == 0 { 0.055 } else { 1.0 / 31.0 };
-            let offset = shake.offset(dt);
+            let offset = shake.offset(frames[frame % frames.len()]);
             assert!(
                 offset.is_finite() && offset.length() < 50.0,
                 "unstable mixed frame: {offset:?}"
