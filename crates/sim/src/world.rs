@@ -1303,6 +1303,17 @@ impl Sim {
             cells.follow_player(&self.level, pos.x, pos.y);
             self.level.cells = Some(cells);
         }
+        if !external_terrain
+            && fixed_region
+            && let Some(mut cells) = self.level.cells.take()
+        {
+            cells.advance_local_falls(
+                &self.level,
+                u64::MAX,
+                crate::underwater::FALL_CATCHUP_BUDGET,
+            );
+            self.level.cells = Some(cells);
+        }
         // Material advances at 30 Hz inside the fixed-step simulation. Full
         // cellular sessions simulate every actor locally from ordered inputs;
         // the older force-transport probes supply their terrain separately.

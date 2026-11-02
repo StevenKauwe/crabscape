@@ -64,7 +64,16 @@ pub(crate) fn follow_for_sim_test(
     y: f32,
 ) -> Option<bool> {
     let mut owner = Owner::new(world.clone())?;
+    owner.world.advance_pending_falls(
+        level,
+        owner.world.tick,
+        underwater::FALL_CATCHUP_BUDGET,
+        &[],
+    );
+    owner.world.hydrate_pending_falls(true);
+    owner.world.prepare_bottom_open(level);
     if owner.world.opening_edge_opened && owner.world.preview_window(x, y).is_none() {
+        *world = owner.world;
         return Some(false);
     }
     let mut stage = owner.start_follow(level, x, y)?;
@@ -580,6 +589,8 @@ impl Stage<'_> {
         if self.opening {
             world.opening_edge_opened = true;
         }
+        world.prepare_bottom_open(self.level);
+        world.hydrate_pending_falls(true);
         self.owner.generation += 1;
         true
     }

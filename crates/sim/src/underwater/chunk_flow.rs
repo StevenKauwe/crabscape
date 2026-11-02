@@ -9,7 +9,8 @@
 //! It must not replace the contiguous gameplay simulation.
 
 use super::{
-    Cell, HEIGHT, Pebble, SedimentProperties, Silt, TERRAIN_CHUNK_CELLS, WIDTH, World, phase_due,
+    Cell, FallPacket, HEIGHT, Pebble, SedimentProperties, Silt, TERRAIN_CHUNK_CELLS, WIDTH, World,
+    phase_due,
 };
 
 const SIDE: usize = TERRAIN_CHUNK_CELLS as usize;
@@ -287,6 +288,9 @@ pub struct ChunkFlow {
     game: bool,
     origin: (i32, i32),
     tick: u64,
+    pending_falls: Vec<FallPacket>,
+    next_fall_sequence: u64,
+    bottom_open: Vec<bool>,
     pebbles: Vec<Pebble>,
     sleeping_pebbles_valid: bool,
     pebble_motion: Vec<(i8, i8, u8)>,
@@ -413,6 +417,9 @@ impl ChunkFlow {
             game: world.game,
             origin: world.origin,
             tick: world.tick,
+            pending_falls: world.pending_falls.clone(),
+            next_fall_sequence: world.next_fall_sequence,
+            bottom_open: world.bottom_open.clone(),
             pebbles: world.pebbles.clone(),
             sleeping_pebbles_valid: Self::validate_sleeping_pebbles(world),
             pebble_motion: world.pebble_motion.clone(),
@@ -611,6 +618,8 @@ impl ChunkFlow {
             }
         }
         world.tick = self.tick;
+        world.pending_falls.clone_from(&self.pending_falls);
+        world.next_fall_sequence = self.next_fall_sequence;
         world.pebbles.clone_from(&self.pebbles);
         world.pebble_motion.clone_from(&self.pebble_motion);
         world.silt = self.silt.clone();
@@ -1645,6 +1654,53 @@ impl ChunkFlow {
             return Err(SedimentStepError::Invalid);
         }
         next.step_pebbles();
+        if next.game {
+            for x in 0..WIDTH {
+                if next.pending_falls.len() >= super::MAX_PENDING_FALLS {
+                    break;
+                }
+                let Some(sequence) = next.next_fall_sequence.checked_add(1) else {
+                    break;
+                };
+                let (chunk, slot) = Self::locate(x, 0);
+                let tile = &mut next.chunks[chunk];
+                if !next.bottom_open.get(x).copied().unwrap_or(false)
+                    || tile.owner[slot] != 0
+                    || !matches!(tile.cells[slot], Cell::Sand | Cell::Mud)
+                {
+                    continue;
+                }
+                let Some(world_x) = next.origin.0.checked_add(x as i32) else {
+                    continue;
+                };
+                if !(-1_000_000..=1_000_000).contains(&world_x) {
+                    continue;
+                }
+                next.pending_falls.push(FallPacket {
+                    sequence: next.next_fall_sequence,
+                    outbound: true,
+                    x: world_x,
+                    y: next.origin.1,
+                    emitted_tick: next.tick,
+                    advanced_tick: next.tick,
+                    cell: tile.cells[slot],
+                    grain: tile.grain[slot],
+                    suspended: tile.suspended[slot],
+                });
+                next.next_fall_sequence = sequence;
+                tile.cells[slot] = Cell::Water;
+                tile.grain[slot] = 0;
+                tile.suspended[slot] = 0;
+                #[cfg(test)]
+                {
+                    super::dirty_oracle::mark_active_tile(chunk);
+                    super::dirty_oracle::mark_global();
+                    if let Some(journal) = &mut next.material_journal {
+                        journal.unsupported = true;
+                    }
+                }
+            }
+        }
         let tick = next.tick;
         let reverse = tick.is_multiple_of(2);
         let mut moved: Vec<Vec<bool>> = next

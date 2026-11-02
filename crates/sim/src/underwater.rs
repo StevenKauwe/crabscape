@@ -20,6 +20,8 @@ pub use host_windows::{HostDig, HostPlayerForce, HostStepError};
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 360;
 pub const MAX_REGION_CELLS: usize = 1024 * 1024;
+pub(crate) const MAX_PENDING_FALLS: usize = 65_536;
+pub(crate) const FALL_CATCHUP_BUDGET: usize = 4096;
 pub const MAX_REGION_SILT: usize = 8 * 1205;
 
 fn valid_region_size(width: usize, height: usize) -> bool {
@@ -296,6 +298,34 @@ impl Default for SleepingChunk {
     }
 }
 
+/// Loose sediment crossing the bottom of an active material region.
+/// The packet itself owns the grain until it is placed in terrain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FallPacket {
+    pub sequence: u64,
+    pub outbound: bool,
+    pub x: i32,
+    pub y: i32,
+    pub emitted_tick: u64,
+    pub advanced_tick: u64,
+    pub cell: Cell,
+    pub grain: u8,
+    pub suspended: u8,
+}
+
+pub(crate) fn valid_fall_packets(packets: &[FallPacket], next: u64, tick: u64) -> bool {
+    packets.len() <= MAX_PENDING_FALLS
+        && packets.iter().all(|p| {
+            (-1_000_000..=1_000_000).contains(&p.x)
+                && (-1_000_000..=1_000_000).contains(&p.y)
+                && matches!(p.cell, Cell::Sand | Cell::Mud)
+                && p.emitted_tick <= p.advanced_tick
+                && p.advanced_tick <= tick
+                && p.sequence < next
+        })
+        && packets.windows(2).all(|p| p[0].sequence < p[1].sequence)
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct World {
     // The baked opening retains its original wire layout. Explicit region
@@ -341,6 +371,12 @@ pub struct World {
     opening_edge_opened: bool,
     #[serde(skip)]
     pebble_seeded: std::collections::BTreeSet<(i32, i32)>,
+    #[serde(skip)]
+    pending_falls: Vec<FallPacket>,
+    #[serde(skip)]
+    next_fall_sequence: u64,
+    #[serde(skip)]
+    bottom_open: Vec<bool>,
 }
 
 /// A complete checkpoint, including streamed-out terrain. `World` itself
@@ -354,6 +390,9 @@ pub struct WorldCheckpoint {
     sleeping: std::collections::BTreeMap<(i32, i32), SleepingChunk>,
     opening_edge_opened: bool,
     pebble_seeded: std::collections::BTreeSet<(i32, i32)>,
+    pending_falls: Vec<FallPacket>,
+    next_fall_sequence: u64,
+    bottom_open: Vec<bool>,
 }
 
 /// Serialization-only view with exactly the checkpoint wire layout. The
@@ -366,6 +405,9 @@ pub(crate) struct WorldCheckpointRef<'a> {
     sleeping: &'a std::collections::BTreeMap<(i32, i32), SleepingChunk>,
     opening_edge_opened: bool,
     pebble_seeded: &'a std::collections::BTreeSet<(i32, i32)>,
+    pending_falls: &'a [FallPacket],
+    next_fall_sequence: u64,
+    bottom_open: &'a [bool],
 }
 
 impl WorldCheckpoint {
@@ -386,6 +428,9 @@ impl WorldCheckpoint {
         world.sleeping = self.sleeping;
         world.opening_edge_opened = self.opening_edge_opened;
         world.pebble_seeded = self.pebble_seeded;
+        world.pending_falls = self.pending_falls;
+        world.next_fall_sequence = self.next_fall_sequence;
+        world.bottom_open = self.bottom_open;
         (self.version == 1 && world.valid_region_state()).then_some(world)
     }
 }
@@ -415,8 +460,15 @@ impl Default for World {
     }
 }
 impl World {
+    pub(crate) fn valid_pending_falls(&self) -> bool {
+        valid_fall_packets(&self.pending_falls, self.next_fall_sequence, self.tick)
+    }
+
     pub(super) fn valid_region_state(&self) -> bool {
-        if !valid_region_size(self.width, self.height) {
+        if !valid_region_size(self.width, self.height)
+            || !self.valid_pending_falls()
+            || (!self.bottom_open.is_empty() && self.bottom_open.len() != self.width)
+        {
             return false;
         }
         let count = self.width * self.height;
@@ -509,6 +561,9 @@ impl World {
             sleeping: &self.sleeping,
             opening_edge_opened: self.opening_edge_opened,
             pebble_seeded: &self.pebble_seeded,
+            pending_falls: &self.pending_falls,
+            next_fall_sequence: self.next_fall_sequence,
+            bottom_open: &self.bottom_open,
         }
     }
 
@@ -518,6 +573,9 @@ impl World {
         // opening bake; do not retain a second in-memory copy in the wrapper.
         let sleeping = std::mem::take(&mut world.sleeping);
         let pebble_seeded = std::mem::take(&mut world.pebble_seeded);
+        let pending_falls = std::mem::take(&mut world.pending_falls);
+        let next_fall_sequence = std::mem::take(&mut world.next_fall_sequence);
+        let bottom_open = std::mem::take(&mut world.bottom_open);
         world.origin = (0, 0);
         world.opening_edge_opened = false;
         WorldCheckpoint {
@@ -527,6 +585,9 @@ impl World {
             sleeping,
             opening_edge_opened: self.opening_edge_opened,
             pebble_seeded,
+            pending_falls,
+            next_fall_sequence,
+            bottom_open,
         }
     }
     pub fn sediment_properties(&self, material: Cell) -> Option<SedimentProperties> {
@@ -792,10 +853,17 @@ impl World {
             }
             self.opening_edge_opened = true;
         }
+        let advanced = self.advance_pending_falls(level, self.tick, FALL_CATCHUP_BUDGET, &[]);
+        self.hydrate_pending_falls(true);
+        if advanced > 0 || self.bottom_open.is_empty() {
+            self.prepare_bottom_open(level);
+        }
         let Some(target) = self.preview_window(x, y) else {
             return false;
         };
         self.shift_window(level, target);
+        self.prepare_bottom_open(level);
+        self.hydrate_pending_falls(true);
         self.seed_far_pebbles(level);
         true
     }
@@ -1056,6 +1124,11 @@ impl World {
         }
         self.crab = None;
         self.other_crabs.clear();
+        if self.game {
+            self.prepare_bottom_open(level);
+        } else {
+            self.bottom_open.clear();
+        }
     }
 
     pub fn tick_count(&self) -> u64 {
@@ -1599,6 +1672,9 @@ impl World {
             sleeping: std::collections::BTreeMap::new(),
             opening_edge_opened: false,
             pebble_seeded: std::collections::BTreeSet::new(),
+            pending_falls: Vec::new(),
+            next_fall_sequence: 0,
+            bottom_open: Vec::new(),
         };
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
@@ -2500,6 +2576,394 @@ impl World {
         self.step_visuals();
     }
 
+    /// Set the region owner's view of the cells immediately below this kernel.
+    pub fn set_bottom_open(&mut self, open: Vec<bool>) -> bool {
+        if open.len() != self.width {
+            return false;
+        }
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        self.bottom_open = open;
+        true
+    }
+
+    pub fn bottom_open(&self) -> &[bool] {
+        &self.bottom_open
+    }
+
+    fn prepare_bottom_open(&mut self, level: &crate::Level) {
+        let Some(y) = self.origin.1.checked_sub(1).filter(|y| *y >= -1_000_000) else {
+            self.bottom_open = vec![false; self.width];
+            return;
+        };
+        let side = TERRAIN_CHUNK_CELLS;
+        let open: Vec<_> = (0..self.width)
+            .map(|x| {
+                let gx = self.origin.0 + x as i32;
+                let key = (gx.div_euclid(side), y.div_euclid(side));
+                let slot = (y.rem_euclid(side) * side + gx.rem_euclid(side)) as usize;
+                self.sleeping
+                    .get(&key)
+                    .and_then(|c| c.cells[slot])
+                    .map_or_else(|| initial_terrain_cell(level, gx, y), |c| c.cell)
+                    == Cell::Water
+            })
+            .collect();
+        if self.bottom_open != open {
+            #[cfg(test)]
+            dirty_oracle::mark_global();
+            self.bottom_open = open;
+        }
+    }
+
+    /// Sediment awaiting transfer to the terrain owner or offscreen settling.
+    pub fn pending_falls(&self) -> &[FallPacket] {
+        &self.pending_falls
+    }
+
+    /// Acknowledge an owner-committed prefix of a region's outbox.
+    pub fn ack_falls_through(&mut self, sequence: u64) {
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        self.pending_falls
+            .retain(|p| !p.outbound || p.sequence > sequence);
+    }
+
+    /// Accept a whole owner-delivered batch, assigning destination-local IDs.
+    pub fn enqueue_falls(&mut self, packets: &[FallPacket]) -> bool {
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        if packets.len() > MAX_PENDING_FALLS.saturating_sub(self.pending_falls.len())
+            || self
+                .next_fall_sequence
+                .checked_add(packets.len() as u64)
+                .is_none()
+            || packets.iter().any(|p| {
+                !(-1_000_000..=1_000_000).contains(&p.x)
+                    || !(-1_000_000..=1_000_000).contains(&p.y)
+                    || !matches!(p.cell, Cell::Sand | Cell::Mud)
+                    || p.emitted_tick > p.advanced_tick
+                    || p.advanced_tick > u64::MAX / 4 - 1_000_000
+            })
+        {
+            return false;
+        }
+        if let Some(tick) = packets.iter().map(|p| p.advanced_tick).max() {
+            self.tick = self.tick.max(tick);
+        }
+        for packet in packets {
+            let mut packet = *packet;
+            packet.sequence = self.next_fall_sequence;
+            packet.outbound = false;
+            self.next_fall_sequence += 1;
+            self.pending_falls.push(packet);
+        }
+        true
+    }
+
+    /// Transfer packets currently inside a newly granted region to its owner.
+    pub fn take_falls_in(&mut self, bounds: region::CellRegion) -> Vec<FallPacket> {
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        let mut taken = Vec::new();
+        self.pending_falls.retain(|p| {
+            if bounds.contains(p.x, p.y) {
+                taken.push(*p);
+                false
+            } else {
+                true
+            }
+        });
+        taken
+    }
+
+    /// Advance in-flight loose grains at most `budget` gravity checks. The
+    /// owner excludes leased rectangles; blocked packets remain in flight.
+    pub fn advance_pending_falls(
+        &mut self,
+        level: &crate::Level,
+        until_tick: u64,
+        budget: usize,
+        blocked: &[region::CellRegion],
+    ) -> usize {
+        if self.pending_falls.is_empty() || budget == 0 {
+            return 0;
+        }
+        let until_tick = until_tick.min(self.tick);
+        if self
+            .pending_falls
+            .iter()
+            .all(|p| p.advanced_tick >= until_tick)
+        {
+            return 0;
+        }
+        #[cfg(test)]
+        dirty_oracle::mark_global();
+        let mut occupied: std::collections::BTreeSet<_> =
+            self.pending_falls.iter().map(|p| (p.x, p.y)).collect();
+        let mut order: Vec<usize> = (0..self.pending_falls.len()).collect();
+        order.sort_unstable_by_key(|&i| (self.pending_falls[i].y, self.pending_falls[i].sequence));
+        let mut done = vec![false; self.pending_falls.len()];
+        let mut work = 0;
+        for i in order {
+            let mut packet = self.pending_falls[i];
+            while packet.advanced_tick < until_tick && work < budget {
+                let Some(below) = packet.y.checked_sub(1) else {
+                    break;
+                };
+                if below < -1_000_000 || blocked.iter().any(|b| b.contains(packet.x, below)) {
+                    break;
+                }
+                work += 1;
+                let local_x = packet.x - self.origin.0;
+                let local_y = below - self.origin.1;
+                let tile = if let Some(index) = self.index_at(local_x, local_y) {
+                    self.cells[index]
+                } else {
+                    let side = TERRAIN_CHUNK_CELLS;
+                    let key = (packet.x.div_euclid(side), below.div_euclid(side));
+                    let slot = (below.rem_euclid(side) * side + packet.x.rem_euclid(side)) as usize;
+                    self.sleeping
+                        .get(&key)
+                        .and_then(|chunk| chunk.cells[slot])
+                        .map_or_else(
+                            || initial_terrain_cell(level, packet.x, below),
+                            |cell| cell.cell,
+                        )
+                };
+                if tile != Cell::Water {
+                    if blocked.iter().any(|b| b.contains(packet.x, packet.y)) {
+                        break;
+                    }
+                    let lx = packet.x - self.origin.0;
+                    let ly = packet.y - self.origin.1;
+                    if let Some(index) = self.index_at(lx, ly) {
+                        if !self.can_receive_grain(index) {
+                            break;
+                        }
+                        #[cfg(test)]
+                        dirty_oracle::mark_active_tile(
+                            (ly as usize / TERRAIN_CHUNK_CELLS as usize)
+                                * self.width.div_ceil(TERRAIN_CHUNK_CELLS as usize)
+                                + lx as usize / TERRAIN_CHUNK_CELLS as usize,
+                        );
+                        self.cells[index] = packet.cell;
+                        self.grain[index] = packet.grain;
+                        self.suspended[index] = packet.suspended;
+                    } else {
+                        let side = TERRAIN_CHUNK_CELLS;
+                        let key = (packet.x.div_euclid(side), packet.y.div_euclid(side));
+                        let slot =
+                            (packet.y.rem_euclid(side) * side + packet.x.rem_euclid(side)) as usize;
+                        let old = self.sleeping.get(&key).and_then(|chunk| chunk.cells[slot]);
+                        if old.is_some_and(|cell| cell.cell != Cell::Water)
+                            || (old.is_none()
+                                && initial_terrain_cell(level, packet.x, packet.y) != Cell::Water)
+                        {
+                            break;
+                        }
+                        #[cfg(test)]
+                        dirty_oracle::mark_sleeping(key);
+                        self.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
+                            cell: packet.cell,
+                            flow: old.map_or((0.0, 0.0), |c| c.flow),
+                            suspended: packet.suspended,
+                            grain: packet.grain,
+                            owner: 0,
+                        });
+                    }
+                    occupied.remove(&(packet.x, packet.y));
+                    done[i] = true;
+                    break;
+                }
+                if occupied.contains(&(packet.x, below)) {
+                    break;
+                }
+                packet.advanced_tick += 1;
+                let phase = i64::from(packet.x) * 13 + i64::from(packet.y) * 7;
+                let properties = if packet.cell == Cell::Sand {
+                    self.sand_properties
+                } else {
+                    self.mud_properties
+                };
+                let density = (i32::from(packet.grain) + i32::from(properties.density_bias))
+                    .clamp(0, 255) as u8;
+                let moves = if packet.suspended > 0 {
+                    packet.suspended -= 1;
+                    let period = if packet.cell == Cell::Sand {
+                        3
+                    } else if density > 170 {
+                        2
+                    } else if density > 85 {
+                        4
+                    } else {
+                        8
+                    };
+                    packet.advanced_tick.is_multiple_of(period)
+                } else if packet.cell == Cell::Sand {
+                    !phase_due(packet.advanced_tick, phase, 4)
+                } else {
+                    let period = if properties.cohesion_ticks == 0 || density > 192 {
+                        1
+                    } else {
+                        2
+                    };
+                    packet
+                        .advanced_tick
+                        .wrapping_add(self.mud_properties.erosion_interval.max(1))
+                        .is_multiple_of(period)
+                };
+                if moves {
+                    occupied.remove(&(packet.x, packet.y));
+                    packet.y = below;
+                    occupied.insert((packet.x, packet.y));
+                }
+            }
+            self.pending_falls[i] = packet;
+            if work >= budget {
+                break;
+            }
+        }
+        let mut n = 0;
+        self.pending_falls.retain(|_| {
+            let keep = !done[n];
+            n += 1;
+            keep
+        });
+        work
+    }
+
+    /// Advance packets owned by this kernel without writing beyond its lease.
+    pub fn advance_local_falls(
+        &mut self,
+        level: &crate::Level,
+        until_tick: u64,
+        budget: usize,
+    ) -> usize {
+        if self.pending_falls.iter().all(|p| p.outbound) {
+            return 0;
+        }
+        let below = region::CellRegion {
+            x: -1_000_000,
+            y: -1_000_000,
+            width: 2_000_001,
+            height: (self.origin.1 + 1_000_000).max(0) as usize,
+        };
+        // Outbound packets belong to the transfer protocol until acknowledged;
+        // moving the window must not also reinsert an already sent grain.
+        let mut outbound = Vec::new();
+        self.pending_falls.retain(|p| {
+            if p.outbound {
+                outbound.push(*p);
+                false
+            } else {
+                true
+            }
+        });
+        let work = self.advance_pending_falls(level, until_tick, budget, &[below]);
+        self.pending_falls.extend(outbound);
+        for packet in &mut self.pending_falls {
+            if !packet.outbound
+                && packet.y <= self.origin.1
+                && let Some(next) = self.next_fall_sequence.checked_add(1)
+            {
+                packet.sequence = self.next_fall_sequence;
+                packet.outbound = true;
+                self.next_fall_sequence = next;
+            }
+        }
+        self.pending_falls.sort_unstable_by_key(|p| p.sequence);
+        self.hydrate_pending_falls(false);
+        work
+    }
+
+    // Packets that have caught up and entered the active window resume as
+    // ordinary cells. A packet at row zero stays in flight until it can fall.
+    fn hydrate_pending_falls(&mut self, include_outbound: bool) {
+        #[cfg(test)]
+        if !self.pending_falls.is_empty() {
+            dirty_oracle::mark_global();
+        }
+        let mut hydrated = vec![false; self.pending_falls.len()];
+        for (n, packet) in self.pending_falls.iter().enumerate() {
+            if packet.advanced_tick != self.tick || (!include_outbound && packet.outbound) {
+                continue;
+            }
+            let (x, y) = (packet.x - self.origin.0, packet.y - self.origin.1);
+            if y <= 0 {
+                continue;
+            }
+            let Some(index) = self.index_at(x, y) else {
+                continue;
+            };
+            if !self.can_receive_grain(index) {
+                continue;
+            }
+            #[cfg(test)]
+            dirty_oracle::mark_active_tile(
+                (y as usize / TERRAIN_CHUNK_CELLS as usize)
+                    * self.width.div_ceil(TERRAIN_CHUNK_CELLS as usize)
+                    + x as usize / TERRAIN_CHUNK_CELLS as usize,
+            );
+            self.cells[index] = packet.cell;
+            self.grain[index] = packet.grain;
+            self.suspended[index] = packet.suspended;
+            hydrated[n] = true;
+        }
+        let mut n = 0;
+        self.pending_falls.retain(|_| {
+            let keep = !hydrated[n];
+            n += 1;
+            keep
+        });
+    }
+
+    fn emit_bottom_falls(&mut self) {
+        if !self.game {
+            return;
+        }
+        for x in 0..self.width {
+            if self.pending_falls.len() >= MAX_PENDING_FALLS {
+                break;
+            }
+            let Some(next_sequence) = self.next_fall_sequence.checked_add(1) else {
+                break;
+            };
+            if !self.bottom_open.get(x).copied().unwrap_or(false)
+                || self.pebble_owner[x] != 0
+                || !matches!(self.cells[x], Cell::Sand | Cell::Mud)
+            {
+                continue;
+            }
+            let Some(world_x) = self.origin.0.checked_add(x as i32) else {
+                continue;
+            };
+            if !(-1_000_000..=1_000_000).contains(&world_x) {
+                continue;
+            }
+            self.pending_falls.push(FallPacket {
+                sequence: self.next_fall_sequence,
+                outbound: true,
+                x: world_x,
+                y: self.origin.1,
+                emitted_tick: self.tick,
+                advanced_tick: self.tick,
+                cell: self.cells[x],
+                grain: self.grain[x],
+                suspended: self.suspended[x],
+            });
+            self.next_fall_sequence = next_sequence;
+            self.cells[x] = Cell::Water;
+            self.grain[x] = 0;
+            self.suspended[x] = 0;
+            #[cfg(test)]
+            {
+                dirty_oracle::mark_active_tile(x / TERRAIN_CHUNK_CELLS as usize);
+                dirty_oracle::mark_global();
+            }
+        }
+    }
+
     /// Exact actor-free step for the isolated co-op frame prototype.
     pub(crate) fn step_empty_shared(&mut self, current: f32) -> bool {
         if !self.game || self.crab.is_some() || !current.is_finite() || self.tick == u64::MAX {
@@ -3250,6 +3714,7 @@ impl World {
                 self.stir((p.x + i32::from(p.side) / 2) as f32, p.y as f32, 0.0, -0.8);
             }
         }
+        self.emit_bottom_falls();
         // Bottom-up prevents a grain moving more than one cell in a tick.
         let mut moved_cells = vec![false; self.width * self.height];
         let tick = self.tick;
@@ -4057,6 +4522,264 @@ mod tests {
             (crab.pos.y + 60.0).abs() < 5.0,
             "landed on floating grain or old floor: {:?}",
             crab.pos
+        );
+    }
+
+    #[test]
+    fn passive_fall_respects_elapsed_time_edits_and_work_budget() {
+        let level = crate::Level::test_level();
+        let mut w = World::new();
+        w.game = true;
+        w.origin = (0, 256);
+        w.cells.fill(Cell::Water);
+        let side = TERRAIN_CHUNK_CELLS;
+        let (x, rock_y) = (200_i32, 70_i32);
+        // An excavated shaft must override the natural seabed in the archive.
+        for y in rock_y + 1..=130 {
+            let key = (x.div_euclid(side), y.div_euclid(side));
+            let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
+            w.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
+                cell: Cell::Water,
+                flow: (0.0, 0.0),
+                suspended: 0,
+                grain: 0,
+                owner: 0,
+            });
+        }
+        let key = (x / side, rock_y / side);
+        let slot = ((rock_y % side) * side + x % side) as usize;
+        w.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
+            cell: Cell::Rock,
+            flow: (0.0, 0.0),
+            suspended: 0,
+            grain: 0,
+            owner: 0,
+        });
+        w.cells[200] = Cell::Sand;
+        w.bottom_open = vec![true; w.width];
+        w.grain[200] = 123;
+        w.tick = 1;
+        w.emit_bottom_falls();
+        w.tick = 2;
+        w.advance_pending_falls(&level, 2, 100, &[]);
+        assert!(
+            w.pending_falls[0].y >= 255,
+            "one material tick cannot teleport a grain"
+        );
+        let mut split = w.clone();
+        w.tick = 9001;
+        split.tick = 9001;
+        w.advance_pending_falls(&level, 9001, 100_000, &[]);
+        for _ in 0..1000 {
+            if split.pending_falls.is_empty() {
+                break;
+            }
+            split.advance_pending_falls(&level, 9001, 7, &[]);
+        }
+        assert!(
+            w.pending_falls.is_empty(),
+            "five minutes should settle over the edited rock"
+        );
+        assert_eq!(w.pending_falls, split.pending_falls);
+        assert_eq!(
+            w.sleeping, split.sleeping,
+            "budget subdivision changed the result"
+        );
+        let landing = ((rock_y + 1) % side * side + x % side) as usize;
+        let cell = w.sleeping[&key].cells[landing].unwrap();
+        assert_eq!((cell.cell, cell.grain), (Cell::Sand, 123));
+        assert_eq!(w.sleeping[&key].cells[slot].unwrap().cell, Cell::Rock);
+    }
+
+    #[test]
+    fn passive_mud_fall_uses_density_and_preserves_suspension() {
+        let level = crate::Level::test_level();
+        let mut w = World::new();
+        w.game = true;
+        w.origin = (0, 256);
+        w.cells.fill(Cell::Water);
+        w.tick = 2;
+        w.pending_falls = vec![
+            FallPacket {
+                sequence: 0,
+                outbound: false,
+                x: 200,
+                y: 256,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Mud,
+                grain: 220,
+                suspended: 4,
+            },
+            FallPacket {
+                sequence: 1,
+                outbound: false,
+                x: 201,
+                y: 256,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Mud,
+                grain: 50,
+                suspended: 4,
+            },
+        ];
+        w.next_fall_sequence = 2;
+        w.advance_pending_falls(&level, 2, 10, &[]);
+        assert_eq!((w.pending_falls[0].y, w.pending_falls[1].y), (255, 256));
+        assert!(w.pending_falls.iter().all(|p| p.suspended == 3));
+        let loaded = w
+            .checkpoint()
+            .into_world()
+            .expect("valid pending fall checkpoint");
+        assert_eq!(loaded.pending_falls, w.pending_falls);
+    }
+
+    #[test]
+    fn full_fall_outbox_keeps_the_grain_at_the_boundary() {
+        let mut w = World::new();
+        w.game = true;
+        w.cells.fill(Cell::Water);
+        w.cells[0] = Cell::Mud;
+        w.bottom_open = vec![true; w.width];
+        w.tick = 1;
+        w.pending_falls = (0..MAX_PENDING_FALLS as u64)
+            .map(|sequence| FallPacket {
+                sequence,
+                outbound: true,
+                x: 0,
+                y: 0,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Sand,
+                grain: 0,
+                suspended: 0,
+            })
+            .collect();
+        w.next_fall_sequence = MAX_PENDING_FALLS as u64;
+        w.emit_bottom_falls();
+        assert_eq!(w.cells[0], Cell::Mud);
+        assert_eq!(w.pending_falls.len(), MAX_PENDING_FALLS);
+    }
+
+    #[test]
+    fn local_fall_processing_keeps_sent_packets_until_acknowledged() {
+        let level = crate::Level::test_level();
+        let mut w = World::new();
+        w.game = true;
+        w.origin = (0, 256);
+        w.cells.fill(Cell::Water);
+        w.tick = 10;
+        w.pending_falls = vec![
+            FallPacket {
+                sequence: 0,
+                outbound: false,
+                x: 200,
+                y: 260,
+                emitted_tick: 9,
+                advanced_tick: 9,
+                cell: Cell::Sand,
+                grain: 1,
+                suspended: 0,
+            },
+            FallPacket {
+                sequence: 1,
+                outbound: true,
+                x: 201,
+                y: 259,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Mud,
+                grain: 2,
+                suspended: 0,
+            },
+        ];
+        w.next_fall_sequence = 2;
+        let sent = w.pending_falls[1];
+        w.advance_local_falls(&level, 10, 100);
+        assert_eq!(
+            w.pending_falls,
+            vec![sent],
+            "sent mass must remain in the outbox until ack"
+        );
+        assert_eq!(
+            w.cells.iter().filter(|&&cell| cell == Cell::Sand).count(),
+            1,
+            "an airborne import resumes as a local grain"
+        );
+        w.ack_falls_through(sent.sequence);
+        assert!(w.pending_falls.is_empty());
+    }
+
+    #[test]
+    fn fall_ack_does_not_discard_airborne_imports() {
+        let mut w = World::new();
+        w.tick = 5;
+        w.pending_falls = vec![
+            FallPacket {
+                sequence: 0,
+                outbound: false,
+                x: 10,
+                y: 10,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Sand,
+                grain: 1,
+                suspended: 0,
+            },
+            FallPacket {
+                sequence: 1,
+                outbound: true,
+                x: 11,
+                y: 0,
+                emitted_tick: 1,
+                advanced_tick: 1,
+                cell: Cell::Mud,
+                grain: 2,
+                suspended: 0,
+            },
+        ];
+        w.next_fall_sequence = 2;
+        w.ack_falls_through(1);
+        assert_eq!(w.pending_falls.len(), 1);
+        assert!(!w.pending_falls[0].outbound);
+    }
+
+    #[test]
+    fn falling_sand_does_not_leave_a_shelf_at_the_old_window_bottom() {
+        let level = crate::Level::test_level();
+        let mut w = World::new();
+        w.game = true;
+        w.origin = (0, 256);
+        w.opening_edge_opened = true;
+        w.cells.fill(Cell::Water);
+        w.flow.fill((0.0, 0.0));
+        w.pebbles.clear();
+        w.pebble_owner.fill(0);
+        for x in 200..210 {
+            let i = World::index(x, 2).unwrap();
+            w.cells[i] = Cell::Sand;
+            w.grain[i] = 255;
+        }
+        w.prepare_bottom_open(&level);
+        for _ in 0..40 {
+            w.step(0.0);
+        }
+        assert!(w.follow_player(&level, 820.0, GAME_BOTTOM + 266.0 * GAME_CELL));
+        let seam = (256 - w.origin.1) as usize;
+        let on_seam = (0..w.width)
+            .filter(|&x| {
+                let i = seam * w.width + x;
+                w.cells[i] == Cell::Sand && w.grain[i] == 255
+            })
+            .count();
+        assert_eq!(on_seam, 0, "sand accumulated on an artificial window floor");
+        assert_eq!(
+            w.cells
+                .iter()
+                .zip(&w.grain)
+                .filter(|(c, g)| **c == Cell::Sand && **g == 255)
+                .count(),
+            10
         );
     }
 
