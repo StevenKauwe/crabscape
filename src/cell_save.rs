@@ -6,7 +6,9 @@
 //! not wired into the game's save path until the browser has suitable storage.
 #![allow(dead_code)]
 
-use crabsim::underwater::{World, WorldCheckpoint};
+use crabsim::underwater::World;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use crabsim::underwater::WorldCheckpoint;
 
 use crate::save::{SAVE_VERSION, SaveData};
 
@@ -123,6 +125,14 @@ pub fn prepare(
 /// Decode a bounded, complete save. This verifies accidental damage; it is not
 /// an authentication mechanism and must not be used for untrusted peers.
 pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    if bytes.len() > 8 * 1024 * 1024
+        || (bytes.len() >= HEADER
+            && u32::from_le_bytes(bytes[20..24].try_into().map_err(|_| Error::Damaged)?) as usize
+                > 12 * 1024 * 1024)
+    {
+        return Err(Error::TooLarge);
+    }
     if bytes.starts_with(v2::MAGIC) {
         return v2::decode(bytes);
     }
@@ -159,12 +169,7 @@ pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
     if !player.x.is_finite() || !player.y.is_finite() {
         return Err(Error::Damaged);
     }
-    let (checkpoint, trailing): (WorldCheckpoint, &[u8]) =
-        postcard::take_from_bytes(&raw[player_len..]).map_err(|_| Error::Damaged)?;
-    if !trailing.is_empty() {
-        return Err(Error::Damaged);
-    }
-    let terrain = checkpoint.into_world().ok_or(Error::Damaged)?;
+    let terrain = decode_checkpoint(&raw[player_len..]).ok_or(Error::Damaged)?;
     Ok(Restored {
         player,
         terrain,
@@ -175,6 +180,22 @@ pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
             ReplayStart::Legacy
         },
     })
+}
+
+fn decode_checkpoint(raw: &[u8]) -> Option<World> {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        crabsim::underwater::decode_browser_checkpoint(raw)
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        let (checkpoint, trailing): (WorldCheckpoint, &[u8]) =
+            postcard::take_from_bytes(raw).ok()?;
+        if !trailing.is_empty() {
+            return None;
+        }
+        checkpoint.into_world()
+    }
 }
 
 /// `restore_progress` intentionally accepts old, shorter lists, but silently

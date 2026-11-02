@@ -154,13 +154,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
         if raw.len() != raw_len || checksum(tick, player_bytes, &raw) != expected {
             return Err(Error::Damaged);
         }
-        let (checkpoint, trailing): (crabsim::underwater::WorldCheckpoint, &[u8]) =
-            postcard::take_from_bytes(&raw).map_err(|_| Error::Damaged)?;
-        if !trailing.is_empty() {
-            return Err(Error::Damaged);
-        }
-        let world = checkpoint
-            .into_world()
+        let world = super::decode_checkpoint(&raw)
             .filter(World::is_game_world)
             .ok_or(Error::Damaged)?;
         (world, ReplayStart::Unavailable)

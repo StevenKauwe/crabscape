@@ -1,10 +1,12 @@
 //! Bounded, lossless starting terrain for a replay after a save.
 
-use crate::{
-    memory,
-    underwater::{World, WorldCheckpoint},
-};
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use crate::underwater::WorldCheckpoint;
+use crate::{memory, underwater::World};
 
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+const MAX_RAW: usize = 12 * 1024 * 1024;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 const MAX_RAW: usize = 64 * 1024 * 1024;
 const MAX_PACKED: usize = 8 * 1024 * 1024;
 const MAX_TEXT: usize = MAX_PACKED.div_ceil(3) * 4;
@@ -52,12 +54,7 @@ impl VerifiedCellStart {
         if expected.is_some_and(|len| raw.len() != len) {
             return None;
         }
-        let (checkpoint, trailing): (WorldCheckpoint, &[u8]) =
-            postcard::take_from_bytes(&raw).ok()?;
-        if !trailing.is_empty() {
-            return None;
-        }
-        let world = checkpoint.into_world()?;
+        let world = decode_world(&raw)?;
         if !world.is_game_world() {
             return None;
         }
@@ -131,12 +128,23 @@ impl CellStart {
             return None;
         }
         let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&packed, MAX_RAW).ok()?;
+        let world = decode_world(&raw)?;
+        world.is_game_world().then_some(world)
+    }
+}
+
+fn decode_world(raw: &[u8]) -> Option<World> {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        crate::underwater::decode_browser_checkpoint(raw)
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
         let (checkpoint, trailing): (WorldCheckpoint, &[u8]) =
-            postcard::take_from_bytes(&raw).ok()?;
+            postcard::take_from_bytes(raw).ok()?;
         if !trailing.is_empty() {
             return None;
         }
-        let world = checkpoint.into_world()?;
-        world.is_game_world().then_some(world)
+        checkpoint.into_world()
     }
 }
