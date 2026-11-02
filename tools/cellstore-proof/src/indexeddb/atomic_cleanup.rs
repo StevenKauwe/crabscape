@@ -228,32 +228,40 @@ fn real_fixture(version: u8) -> Result<RealFixture, String> {
     .map_err(|e| format!("old bake: {e}"))?;
     let level = Level::test_level();
     let mut old = Sim::new(Tuning::default(), level.clone());
-    if !old.restore_cellular_terrain(source.clone(), 17) {
+    if !old.restore_cellular_terrain(source, 17) {
         return Err("old terrain".into());
     }
-    old.add_crab(PlayerId(0), crabsim::SPAWN);
+    let mut requested = crabsim::SPAWN;
+    requested.x = 200.25;
+    requested.y = 40.5;
+    old.add_crab(PlayerId(0), requested);
     let mut progress = old.progress(PlayerId(0)).ok_or("old progress")?;
     progress.lantern = 1;
     old.restore_progress(PlayerId(0), &progress);
+    let crab = old.crab(PlayerId(0)).ok_or("old crab")?;
+    let position = crab.mover.pos;
     let player = SaveData {
         version: SAVE_VERSION,
-        x: crabsim::SPAWN.x,
-        y: crabsim::SPAWN.y,
-        memory: Some(old.crab(PlayerId(0)).ok_or("old crab")?.memory.to_save()),
+        x: crab.mover.pos.x,
+        y: crab.mover.pos.y,
+        memory: Some(crab.memory.to_save()),
         progress: Some(progress.clone()),
     };
     let source_bytes = legacy_fixture(&old, &player, version)?;
     let decoded =
         crabsim::cell_codec::decode(&source_bytes).map_err(|e| format!("source decode: {e:?}"))?;
-    if decoded.player != player || decoded.terrain != source {
+    if decoded.player != player || old.level.cells.as_ref() != Some(&decoded.terrain) {
         return Err("source fixture round-trip mismatch".into());
     }
+    drop(decoded);
     let old_raw = old.recording_terrain_bytes().ok_or("old replay bytes")?;
     let old_packed = miniz_oxide::deflate::compress_to_vec_zlib(&old_raw, 6);
     let old_token =
         crabsim::VerifiedCellStart::from_compressed(&old_packed, 17).ok_or("old replay token")?;
+    drop(old_raw);
+    drop(old_packed);
     let (terrain, count) = transform(
-        &source,
+        old.level.cells.as_ref().ok_or("old cells")?,
         Rect {
             left: 0,
             bottom: 0,
@@ -265,11 +273,21 @@ fn real_fixture(version: u8) -> Result<RealFixture, String> {
     if count == 0 {
         return Err("old bake has no selected pebbles".into());
     }
+    drop(old);
     let mut candidate = Sim::new(Tuning::default(), level);
     if !candidate.restore_cellular_terrain(terrain, 17) {
         return Err("candidate terrain".into());
     }
-    candidate.add_crab(PlayerId(0), crabsim::SPAWN);
+    candidate.add_crab(PlayerId(0), position);
+    if candidate
+        .crab(PlayerId(0))
+        .ok_or("candidate crab")?
+        .mover
+        .pos
+        != position
+    {
+        return Err("candidate player position changed".into());
+    }
     candidate.restore_progress(PlayerId(0), &progress);
     let save = legacy_fixture(&candidate, &player, 2)?;
     let decoded_candidate = migration_decode(&save, &candidate)?;
@@ -281,9 +299,11 @@ fn real_fixture(version: u8) -> Result<RealFixture, String> {
     // The existing isolated validator reconstructs the complete world and
     // checks the saved position before this proof can queue publication.
     drop(prepare_migration(&decoded_candidate)?);
+    drop(decoded_candidate);
     if candidate.start_recording_with_verified_terrain(&old_token) {
         return Err("old replay token accepted".into());
     }
+    drop(old_token);
     candidate.start_recording();
     if !candidate.is_recording() {
         return Err("new replay unavailable".into());
@@ -303,6 +323,118 @@ fn real_fixture(version: u8) -> Result<RealFixture, String> {
         candidate: save,
         replay: replay.into_bytes(),
     })
+}
+
+pub(super) async fn reload_prepare(name: &str) -> Result<(), String> {
+    for version in [1, 2] {
+        let db = ChunkStore::open(&format!("{name}.cleanup-reload-v{version}")).await?;
+        db.reset_fixture().await?;
+        let RealFixture {
+            source,
+            candidate,
+            replay,
+        } = real_fixture(version)?;
+        let write = source.clone();
+        db.transaction(None, true, move |_, _, _, _, _, object| {
+            put(object, "active", &write)
+        })
+        .await?;
+        let captured = apply(&db, Action::Read).await?;
+        apply(
+            &db,
+            Action::Migrate {
+                epoch: captured.epoch,
+                source,
+                candidate,
+                replay,
+                abort: false,
+            },
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+fn verify_stored(view: &View) -> Result<(), String> {
+    let restored = crabsim::cell_codec::decode(view.active.as_ref().ok_or("missing candidate")?)
+        .map_err(|e| format!("committed candidate: {e:?}"))?;
+    let replay_text = std::str::from_utf8(view.replay.as_ref().ok_or("missing replay")?)
+        .map_err(|_| "bad replay utf8")?;
+    let parsed =
+        crabsim::Replay::parse(replay_text).map_err(|e| format!("committed replay: {e:?}"))?;
+    let mut actual = crabsim::Sim::new(crabsim::Tuning::default(), crabsim::Level::test_level());
+    if !actual.restore_cellular_terrain(restored.terrain, restored.sim_tick) {
+        return Err("committed world failed to restore".into());
+    }
+    let mut position = crabsim::SPAWN;
+    position.x = restored.player.x;
+    position.y = restored.player.y;
+    actual.add_crab(crabsim::PlayerId(0), position);
+    if actual.tick_count() != restored.sim_tick
+        || actual
+            .crab(crabsim::PlayerId(0))
+            .ok_or("committed crab")?
+            .mover
+            .pos
+            != position
+    {
+        return Err("committed player position or tick changed".into());
+    }
+    actual.restore_progress(
+        crabsim::PlayerId(0),
+        restored
+            .player
+            .progress
+            .as_ref()
+            .ok_or("committed progress")?,
+    );
+    let memory = crabsim::Memory::from_save(
+        restored.player.memory.as_ref().ok_or("committed memory")?,
+        &actual.level,
+        &actual.tuning.memory,
+    )
+    .ok_or("bad committed memory")?;
+    actual
+        .crab_mut(crabsim::PlayerId(0))
+        .ok_or("committed crab")?
+        .memory = memory;
+    if actual.progress(crabsim::PlayerId(0)).as_ref() != restored.player.progress.as_ref() {
+        return Err("committed progress changed".into());
+    }
+    for _ in 0..8 {
+        actual.tick();
+    }
+    let mut playback = crabsim::Sim::with_one_crab(parsed.start);
+    crabsim::play(&mut playback, &parsed, parsed.length(), |_| {});
+    if actual.state_hash() != playback.state_hash() {
+        return Err("committed save and replay disagree".into());
+    }
+    Ok(())
+}
+
+pub(super) async fn reload_verify(name: &str) -> Result<String, String> {
+    for version in [1, 2] {
+        let db = ChunkStore::open(&format!("{name}.cleanup-reload-v{version}")).await?;
+        let stored = apply(&db, Action::Read).await?;
+        let RealFixture {
+            source,
+            candidate,
+            replay,
+        } = real_fixture(version)?;
+        if stored.active.as_deref() != Some(candidate.as_slice())
+            || stored.backup.as_deref() != Some(source.as_slice())
+            || stored.replay.as_deref() != Some(replay.as_slice())
+            || stored.marker != Some(marker(stored.epoch, &source, &candidate, &replay))
+        {
+            return Err(format!("v{version} cleanup records changed across reload"));
+        }
+        verify_stored(&stored)?;
+    }
+    let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
+    let capacity = Uint8Array::new(&memory.buffer()).length();
+    Ok(format!(
+        "cleanup-real-reload=v1,v2 wasm_capacity={capacity}"
+    ))
 }
 
 pub(super) async fn proof(name: &str) -> Result<(), String> {
@@ -439,45 +571,7 @@ pub(super) async fn proof(name: &str) -> Result<(), String> {
         {
             return Err("real fixture publication mismatch".into());
         }
-        let restored =
-            crabsim::cell_codec::decode(committed.active.as_ref().ok_or("missing candidate")?)
-                .map_err(|e| format!("committed candidate: {e:?}"))?;
-        let replay_text = std::str::from_utf8(committed.replay.as_ref().ok_or("missing replay")?)
-            .map_err(|_| "bad replay utf8")?;
-        let parsed =
-            crabsim::Replay::parse(replay_text).map_err(|e| format!("committed replay: {e:?}"))?;
-        let mut actual =
-            crabsim::Sim::new(crabsim::Tuning::default(), crabsim::Level::test_level());
-        if !actual.restore_cellular_terrain(restored.terrain, restored.sim_tick) {
-            return Err("committed world failed to restore".into());
-        }
-        actual.add_crab(crabsim::PlayerId(0), crabsim::SPAWN);
-        actual.restore_progress(
-            crabsim::PlayerId(0),
-            restored
-                .player
-                .progress
-                .as_ref()
-                .ok_or("committed progress")?,
-        );
-        let memory = crabsim::Memory::from_save(
-            restored.player.memory.as_ref().ok_or("committed memory")?,
-            &actual.level,
-            &actual.tuning.memory,
-        )
-        .ok_or("bad committed memory")?;
-        actual
-            .crab_mut(crabsim::PlayerId(0))
-            .ok_or("committed crab")?
-            .memory = memory;
-        for _ in 0..8 {
-            actual.tick();
-        }
-        let mut playback = crabsim::Sim::with_one_crab(parsed.start);
-        crabsim::play(&mut playback, &parsed, parsed.length(), |_| {});
-        if actual.state_hash() != playback.state_hash() {
-            return Err("committed save and replay disagree".into());
-        }
+        verify_stored(&committed)?;
         let current = apply(&a, Action::Read).await?;
         apply(
             &a,

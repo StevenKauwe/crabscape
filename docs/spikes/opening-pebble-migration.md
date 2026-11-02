@@ -185,9 +185,16 @@ replay playback. A proof-only IndexedDB transaction tests source/epoch
 comparison, backup + candidate + marker + replay publication, injected abort,
 reset/import fences and detection of an external overwrite.
 
+The focused proof also closes and reloads its document before checking v1 and
+v2 candidate, backup, marker and replay bytes, then directly restores the saved
+player and plays the stored replay. A clean, isolated desktop Chrome build
+reported 70,582,272 bytes of Wasm linear-memory capacity in the verification
+document. This is not total process peak memory or a phone limit; the proof
+still holds several full records and reconstructs the complete candidate.
+
 This is not production publication: it runs in a dedicated proof database, uses
 synchronous full-record work and retains multiple copies, and does not yet
-prove a document reload, real quota exhaustion, phone memory/latency, older-client
+prove real quota exhaustion, phone memory/latency, older-client
 exclusion, or recovery from every late asynchronous transaction. Its record
 format and import/reset semantics are test scaffolding, not a migration marker
 for actual game saves. The low-level transaction accepts arbitrary candidate

@@ -26,6 +26,22 @@ pub async fn atomic_cleanup_proof() -> Result<String, JsValue> {
     Ok("atomic-cleanup=real-replay-pass".into())
 }
 
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn atomic_cleanup_reload_prepare() -> Result<(), JsValue> {
+    atomic_cleanup::reload_prepare("crabscape.chunk-proof.cleanup-runner")
+        .await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn atomic_cleanup_reload_verify() -> Result<String, JsValue> {
+    atomic_cleanup::reload_verify("crabscape.chunk-proof.cleanup-runner")
+        .await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
 const STORE: &str = "world";
 const MAX_BATCH: usize = 4;
 const MAX_PART: usize = 128 * 1024;
