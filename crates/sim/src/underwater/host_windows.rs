@@ -338,4 +338,75 @@ mod tests {
         assert_eq!(host.pebble_owner, solo.pebble_owner);
         assert_eq!(host.pebble_motion, solo.pebble_motion);
     }
+
+    #[test]
+    fn overlapping_world_cells_do_not_change_physics_when_the_window_moves() {
+        let level = crate::Level::test_level();
+        for (origin_y, sand_y) in [(0, 200), (-200, 100)] {
+            let mut original = World::new();
+            original.game = true;
+            original.origin.1 = origin_y;
+            original.cells.fill(Cell::Water);
+            original.flow.fill((0.0, 0.0));
+            original.pebbles.clear();
+            original.pebble_owner.fill(0);
+            original.cells[World::index(299, sand_y).unwrap()] = Cell::Sand;
+            original.cells[World::index(301, sand_y - 20).unwrap()] = Cell::Rock;
+            let jump_sand = World::index(295, sand_y - 4).unwrap();
+            original.cells[jump_sand] = Cell::Sand;
+            original.grain[jump_sand] = 20;
+            let mut shifted = original.clone();
+            shifted.shift_window(&level, (1, origin_y + 2));
+            original.react_to_jump(300.0, sand_y as f32);
+            shifted.react_to_jump(299.0, (sand_y - 2) as f32);
+            original.tick += 1;
+            shifted.tick += 1;
+            original.step_material(0.35);
+            shifted.step_material(0.35);
+            for y in sand_y - 30..=sand_y + 10 {
+                for x in 280..=320 {
+                    let a = World::index(x, y).unwrap();
+                    let b = World::index(x - 1, y - 2).unwrap();
+                    assert_eq!(
+                        original.cells[a],
+                        shifted.cells[b],
+                        "material at {x},{}",
+                        y + origin_y
+                    );
+                    assert_eq!(
+                        original.flow[a],
+                        shifted.flow[b],
+                        "flow at {x},{}",
+                        y + origin_y
+                    );
+                    assert_eq!(
+                        original.grain[a],
+                        shifted.grain[b],
+                        "grain at {x},{}",
+                        y + origin_y
+                    );
+                    assert_eq!(
+                        original.suspended[a],
+                        shifted.suspended[b],
+                        "suspension at {x},{}",
+                        y + origin_y
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn signed_world_phase_is_bounded_even_at_extreme_ticks() {
+        for tick in [0, 1, 1_000_000, u64::MAX] {
+            for spatial in [i64::MIN, -1_000_000, -1, 0, 1, 1_000_000, i64::MAX] {
+                for period in [1, 2, 3, 4, 53, u64::MAX] {
+                    let expected = (i128::from(tick) + i128::from(spatial))
+                        .rem_euclid(i128::from(period))
+                        == 0;
+                    assert_eq!(super::super::phase_due(tick, spatial, period), expected);
+                }
+            }
+        }
+    }
 }

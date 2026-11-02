@@ -10,6 +10,20 @@ pub const HEIGHT: usize = 360;
 /// World units per cell and the position of the experiment's lower edge.
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
+
+/// Apply a signed world-space phase without overflowing or converting a
+/// negative coordinate into an unrelated large unsigned position.
+fn phase_due(tick: u64, spatial: i64, period: u64) -> bool {
+    let phase = tick % period;
+    let offset = spatial.unsigned_abs() % period;
+    if spatial < 0 {
+        phase == offset
+    } else if offset == 0 {
+        phase == 0
+    } else {
+        phase == period - offset
+    }
+}
 /// Upper extent of the experimental cell field, not the ocean surface.
 pub const GAME_KELP_TOP: f32 = GAME_BOTTOM + HEIGHT as f32 * GAME_CELL - GAME_CELL;
 const GIANT_ROOT: i32 = 70;
@@ -1627,11 +1641,17 @@ impl World {
                 let Some(from) = Self::index(sx, sy) else {
                     continue;
                 };
+                let world_x = i64::from(sx)
+                    + if self.game {
+                        i64::from(self.origin.0)
+                    } else {
+                        0
+                    };
                 let material = self.cells[from];
                 if !matches!(material, Cell::Sand | Cell::Mud)
                     || self.grain[from] >= 96
                     || self.cell(sx, sy + 1) != Cell::Water
-                    || (sx as u64 + self.tick).is_multiple_of(3)
+                    || phase_due(self.tick, world_x, 3)
                 {
                     continue;
                 }
@@ -1650,7 +1670,7 @@ impl World {
                     } else {
                         96 - density / 4
                     };
-                    if material == Cell::Mud && (sx as u64 + self.tick).is_multiple_of(5) {
+                    if material == Cell::Mud && phase_due(self.tick, world_x, 5) {
                         self.emit_silt(sx as f32, sy as f32 + 1.0);
                     }
                 }
@@ -2224,7 +2244,12 @@ impl World {
                         vy += self.flow[n].1;
                         weight += 1.0;
                     } else if dx != 0 {
-                        vy += current * if y < HEIGHT / 2 { 0.12 } else { -0.12 };
+                        vy += current
+                            * if world_y < (HEIGHT / 2) as f32 {
+                                0.12
+                            } else {
+                                -0.12
+                            };
                     }
                 }
                 next[i] = (vx / weight, vy / weight);
@@ -2273,6 +2298,7 @@ impl World {
         }
         // Bottom-up prevents a grain moving more than one cell in a tick.
         let mut moved_cells = vec![false; WIDTH * HEIGHT];
+        let tick = self.tick;
         // The top and side rows must also fall. They can be visible near a
         // streaming boundary and otherwise leave grains frozen in mid-water.
         for y in 1..HEIGHT {
@@ -2291,18 +2317,26 @@ impl World {
                 }
                 // Sand's existing cadence stays unchanged. Mud's cadence
                 // is evaluated after the current can lift a grain.
-                let phase = x as u64 * 13 + y as u64 * 7;
-                if material == Cell::Sand
-                    && self.suspended[i] == 0
-                    && (self.tick + phase).is_multiple_of(4)
-                {
+                // Cadence is a property of the world cell, not the active
+                // window: moving the window must not change how it falls.
+                let world_x = x as i64
+                    + if self.game {
+                        i64::from(self.origin.0)
+                    } else {
+                        0
+                    };
+                let world_y = y as i64
+                    + if self.game {
+                        i64::from(self.origin.1)
+                    } else {
+                        0
+                    };
+                let due = |spatial: i64, period: u64| phase_due(tick, spatial, period);
+                let phase = world_x * 13 + world_y * 7;
+                if material == Cell::Sand && self.suspended[i] == 0 && due(phase, 4) {
                     continue;
                 }
-                let dir = if (x as u64 + y as u64 + self.tick).is_multiple_of(2) {
-                    1
-                } else {
-                    -1
-                };
+                let dir = if due(world_x + world_y, 2) { 1 } else { -1 };
                 let (flow, vertical_flow) = self.flow_at(x as i32, y as i32 + 1);
                 let flow_strength = if material == Cell::Sand {
                     flow.abs()
@@ -2332,10 +2366,10 @@ impl World {
                     } else {
                         0.0
                     };
-                let phase = properties.erosion_interval.max(1);
+                let erosion_interval = properties.erosion_interval.max(1);
                 if self.suspended[i] == 0
                     && flow_strength > threshold
-                    && (x as u64 * 13 + self.tick).is_multiple_of(phase)
+                    && due(world_x * 13, erosion_interval)
                     && let Some(to) = Self::index(x as i32 + drift, y as i32 + 1)
                     && self.can_receive_grain(to)
                     && self.cell(x as i32, y as i32 + 1) == Cell::Water
@@ -2399,7 +2433,7 @@ impl World {
                     } else {
                         2
                     };
-                    if !(self.tick + phase).is_multiple_of(period) {
+                    if !tick.wrapping_add(erosion_interval).is_multiple_of(period) {
                         continue;
                     }
                 }
@@ -2430,7 +2464,7 @@ impl World {
                         && self.can_receive_grain(to)
                     {
                         self.swap_cells(i, to);
-                        if (x as u64 * 17 + y as u64 * 11 + self.tick).is_multiple_of(53) {
+                        if due(world_x * 17 + world_y * 11, 53) {
                             self.stir(x as f32, y as f32, dx as f32 * 0.5, dy as f32 * 0.5);
                             if self.cell(x as i32, y as i32 + 1) == Cell::Water {
                                 self.emit_silt(x as f32, y as f32 + 1.0);
