@@ -9,6 +9,17 @@ its real size against that (table: `creatures/README.md`): a snapping shrimp is 
 crabs long, an octopus's arms are a metre each. The game squeezes vertical distance (a zone is a few screens, not hundreds of metres), but each zone's
 light, life and dangers are the real ones for its depth.
 
+The playable surface is 5,000 units (8 m at creature scale) above the starting floor. That is a chosen local
+starting depth, not a measurement of the rest of the ocean. The pit and canyon counters show **local distances** at
+the same scale, labelled below the pit rim or crack entrance; they are not sea-surface depths. The pit's 8,000-unit
+drop is 12.8 m in playable geometry even though the canyon represents the much deeper twilight zone. The creature's
+72-unit collision width is slightly narrower than its 75-unit drawn carapace. The opt-in cellular experiment enlarges
+the moray beyond the standard tuning for visibility; its experimental size is not a biological measurement.
+
+Lighting follows the represented zone rather than a literal conversion from world coordinates to ocean metres: the
+shallows brighten toward the surface, while the pit and canyon darken. The canyon rim represents twilight; these
+art-directed gradients are not a measured irradiance or a numerical depth map.
+
 ## The map by depth
 | Zone (game) | Real depth | Light | Cold, pressure, oxygen | Who lives here | Rare resource |
 |---|---|---|---|---|---|

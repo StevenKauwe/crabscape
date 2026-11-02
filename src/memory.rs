@@ -499,6 +499,11 @@ mod tests {
             );
         }
         assert!(light(water_at(Vec2::new(0.0, 5000.0))) > light(WATER));
+        // The actual surface is the bright end of the shallow-water ramp,
+        // including over the horizontally compressed canyon.
+        let surface = crabsim::level::WATER_SURFACE_Y;
+        assert_eq!(water_at(Vec2::new(0.0, surface)), SHALLOW_WATER);
+        assert_eq!(water_at(Vec2::new(8200.0, surface)), SHALLOW_WATER);
         assert!(
             light(water_at(Vec2::new(7000.0, -1500.0))) < light(water_at(Vec2::new(0.0, -1500.0)))
         );

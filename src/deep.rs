@@ -22,8 +22,7 @@ use crabsim::Sim;
 
 use crate::player::{GameSet, LocalPlayer};
 
-/// World units per metre: the crab's shell (72 units across) is about 15 cm.
-pub(crate) const UNITS_PER_METRE: f32 = 480.0;
+use crabsim::level::UNITS_PER_METRE;
 /// The counter shows once the crab is this far below the lip (units).
 const SHOW_BELOW: f32 = 60.0;
 /// The shark passes once the crab is this far below the lip (units): early,
@@ -197,6 +196,21 @@ fn below_lip(sim: &Sim, at: Vec2) -> Option<f32> {
     (at.x > left - 40.0 && at.x < right + 40.0).then_some(lip - at.y)
 }
 
+/// A local distance at creature scale, not the ocean depth represented by
+/// the compressed geography. Name the reference so the two cannot be mixed.
+fn depth_label(sim: &Sim, at: Vec2) -> Option<String> {
+    let depth = below_lip(sim, at).filter(|&d| d > SHOW_BELOW)?;
+    let reference = if at.x > sim.level.crack.x - 60.0 {
+        "crack entrance"
+    } else {
+        "pit rim"
+    };
+    Some(format!(
+        "{:.1} m below {reference}",
+        depth / UNITS_PER_METRE
+    ))
+}
+
 fn show_depth(
     sim: Res<Sim>,
     crab: Query<&Transform, With<LocalPlayer>>,
@@ -205,9 +219,9 @@ fn show_depth(
     let (Ok(at), Ok((mut text, mut colour))) = (crab.single(), text.single_mut()) else {
         return;
     };
-    match below_lip(&sim, at.translation.truncate()).filter(|&d| d > SHOW_BELOW) {
-        Some(depth) => {
-            text.0 = format!("{:.1} m down", depth / UNITS_PER_METRE);
+    match depth_label(&sim, at.translation.truncate()) {
+        Some(label) => {
+            text.0 = label;
             colour.0 = Color::srgba(0.80, 0.90, 0.92, 0.75);
         }
         None => colour.0 = Color::NONE,
@@ -452,6 +466,29 @@ fn shoal_at(t: f32, from: Vec2) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distance_names_its_reference_and_uses_creature_scale() {
+        let sim = Sim::with_one_crab(crabsim::level::SPAWN);
+        let (left, right, _) = sim.level.pit();
+        let lip = sim.level.floor_height(left - 1.0);
+        let pit = Vec2::new((left + right) * 0.5, lip - 625.0);
+        assert_eq!(
+            depth_label(&sim, pit).as_deref(),
+            Some("1.0 m below pit rim")
+        );
+        let crack = sim.level.crack;
+        assert_eq!(
+            depth_label(&sim, Vec2::new(crack.x, crack.y - 1250.0)).as_deref(),
+            Some("2.0 m below crack entrance")
+        );
+        assert!(depth_label(&sim, Vec2::new(pit.x, lip - SHOW_BELOW)).is_none());
+        assert!(depth_label(&sim, crabsim::level::SPAWN).is_none());
+        // These are distances in the playable geometry, not measured ocean depth.
+        assert_eq!(crabsim::level::WATER_SURFACE_Y / UNITS_PER_METRE, 8.0);
+        assert_eq!(75.0 / UNITS_PER_METRE, 0.12);
+        assert_eq!(sim.tuning.octopus.arms.length / UNITS_PER_METRE, 1.0);
+    }
 
     #[test]
     fn once_it_starts_the_shark_swims_its_own_line_at_a_steady_speed() {

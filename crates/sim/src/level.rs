@@ -19,9 +19,14 @@ use crate::tuning::TideTuning;
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
 
+/// Creature and local-distance scale: the 75-unit carapace represents 12 cm.
+/// The demo compresses the vertical separation of ocean zones, so this does
+/// not convert a position into an actual sea depth.
+pub const UNITS_PER_METRE: f32 = 625.0;
+
 /// The water's surface, eight metres above the starting floor at creature
 /// scale. The player remains underwater until above-water play is designed.
-pub const WATER_SURFACE_Y: f32 = 5000.0;
+pub const WATER_SURFACE_Y: f32 = 8.0 * UNITS_PER_METRE;
 
 /// Size of a fish egg. A crab eats one when it touches its body (with a
 /// little reach for the claws).
@@ -218,8 +223,8 @@ impl Level {
                 Vec2::new(2800.0, 860.0),
                 // Behind its crest, a sheer drop into a deep basin...
                 Vec2::new(2801.0, -700.0),
-                // ...and in its floor, the pit: 8000 down (about 17 m for a
-                // crab), 1000 across.
+                // ...and in its floor, the pit: 8000 down (12.8 m at creature
+                // scale), 1000 across.
                 Vec2::new(3300.0, -700.0),
                 Vec2::new(3301.0, -8700.0),
                 Vec2::new(4300.0, -8700.0),
