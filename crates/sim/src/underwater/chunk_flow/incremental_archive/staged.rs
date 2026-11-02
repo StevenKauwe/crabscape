@@ -61,6 +61,35 @@ impl Owner {
         })
     }
 
+    // Match `follow_player` only when its opening-seam and seeding phases are
+    // already complete. Any work in those phases is explicitly unsupported.
+    // Preview examines at most 64 aggregates with a fixed candidate range.
+    fn start_follow<'a>(&'a mut self, level: &'a Level, x: f32, y: f32) -> Option<Stage<'a>> {
+        if !self.world.opening_edge_opened
+            || self.world.pebbles.len() > 64
+            || !x.is_finite()
+            || !y.is_finite()
+            || x.abs() > 1_000_000.0
+            || y.abs() > 1_000_000.0
+        {
+            return None;
+        }
+        let target = self.world.preview_window(x, y)?;
+        let side = TERRAIN_CHUNK_CELLS;
+        let first_x = (target.0 + side - 1).div_euclid(side);
+        let last_x = (target.0 + WIDTH as i32).div_euclid(side);
+        let first_y = (target.1 + side - 1).div_euclid(side);
+        let last_y = (target.1 + HEIGHT as i32).div_euclid(side);
+        for cy in first_y..last_y {
+            for cx in first_x..last_x {
+                if !self.world.pebble_seeded.contains(&(cx, cy)) {
+                    return None;
+                }
+            }
+        }
+        self.start(level, target)
+    }
+
     fn start<'a>(&'a mut self, level: &'a Level, target: (i32, i32)) -> Option<Stage<'a>> {
         let old = self.world.origin;
         let dx = target.0.checked_sub(old.0)?;
@@ -445,6 +474,40 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn restricted_follow_matches_world_and_rejects_edge_or_seeding_work() {
+        let level = Level::test_level();
+        let mut world = fixture();
+        let x = 400.0;
+        let y = GAME_BOTTOM + 285.0 * GAME_CELL;
+        assert_eq!(world.preview_window(x, y), Some((0, 64)));
+        let mut unopened = Owner::new(world.clone()).unwrap();
+        assert!(unopened.start_follow(&level, x, y).is_none());
+        assert_eq!(unopened.world, world);
+        world.opening_edge_opened = true;
+        let mut unseeded = Owner::new(world.clone()).unwrap();
+        assert!(unseeded.start_follow(&level, x, y).is_none());
+        assert_eq!(unseeded.world, world);
+        let target = (0, 64);
+        let side = TERRAIN_CHUNK_CELLS;
+        for cy in
+            (target.1 + side - 1).div_euclid(side)..(target.1 + HEIGHT as i32).div_euclid(side)
+        {
+            for cx in
+                (target.0 + side - 1).div_euclid(side)..(target.0 + WIDTH as i32).div_euclid(side)
+            {
+                world.pebble_seeded.insert((cx, cy));
+            }
+        }
+        let mut expected = world.clone();
+        assert!(expected.follow_player(&level, x, y));
+        let mut owner = Owner::new(world).unwrap();
+        let mut stage = owner.start_follow(&level, x, y).unwrap();
+        complete(&mut stage);
+        assert!(stage.commit());
+        assert_eq!(owner.world, expected);
+    }
+
     #[test]
     fn empty_or_oversized_level_geometry_is_rejected_before_staging() {
         let mut owner = Owner::new(fixture()).unwrap();
