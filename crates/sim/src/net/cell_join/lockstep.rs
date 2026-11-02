@@ -607,7 +607,51 @@ mod tests {
     }
 
     #[test]
-    fn host_walking_near_pebble_rejects_shared_tick_without_mutation() {
+    fn host_between_frame_rejects_unsupported_input_before_mutation() {
+        let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        host.enable_underwater_cells();
+        host.add_remote_crab(PlayerId(1), Vec2::new(700.0, 500.0));
+        host.go_online(true);
+        let remote = HostPlayerForce {
+            player: PlayerId(1),
+            x: 700.0,
+            y: 524.0,
+            half_width: 36.0,
+            half_height: 24.0,
+            wake_x: 0.0,
+            wake_y: 0.0,
+            walking: 0,
+            grounded: false,
+            jumped: false,
+            dig: None,
+        };
+        assert!(host.tick_host_with_shared_walker(remote));
+        for controls in [
+            crate::Controls {
+                jump_pressed: true,
+                ..Default::default()
+            },
+            crate::Controls {
+                dig_held: true,
+                walk: 1.0,
+                ..Default::default()
+            },
+        ] {
+            host.set_controls(PlayerId(0), controls);
+            let before = host.level.cells.clone();
+            let position = host.crab(PlayerId(0)).unwrap().mover.pos;
+            let tick = host.tick_count();
+            assert!(!host.tick_host_shared_between());
+            assert_eq!(host.tick_count(), tick);
+            assert!(host.level.cells == before);
+            assert_eq!(host.crab(PlayerId(0)).unwrap().mover.pos, position);
+            // Fresh host avoids the intentionally latched jump press.
+            host.crab_mut(PlayerId(0)).unwrap().controls = crate::Controls::default();
+        }
+    }
+
+    #[test]
+    fn late_guest_rejection_rolls_back_an_already_moved_host_pebble() {
         let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
         host.enable_underwater_cells();
         host.level
@@ -631,7 +675,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let remote = HostPlayerForce {
+        let bad = HostPlayerForce {
             player: PlayerId(1),
             x: 700.0,
             y: 524.0,
@@ -639,15 +683,17 @@ mod tests {
             half_height: 24.0,
             wake_x: 0.0,
             wake_y: 0.0,
-            walking: -1,
+            walking: 0,
             grounded: false,
-            jumped: false,
+            jumped: true,
             dig: None,
         };
-        let tick = host.tick_count();
         let before = host.level.cells.clone();
-        assert!(!host.tick_host_with_shared_walker(remote));
-        assert_eq!(host.tick_count(), tick);
+        let pebbles = before.as_ref().unwrap().game_pebbles();
+        let mut staged = host.clone();
+        assert!(!staged.test_unstaged_host_walker(bad));
+        assert_ne!(staged.level.cells.as_ref().unwrap().game_pebbles(), pebbles);
+        assert!(!host.tick_host_with_shared_walker(bad));
         assert!(host.level.cells == before);
     }
 
@@ -870,7 +916,7 @@ mod tests {
                 assert_eq!(guest.level.cells, host.level.cells);
                 number += 1;
             } else {
-                host.tick();
+                assert!(host.tick_host_shared_between());
                 reference.tick();
                 link.carry(&mut [&mut host, &mut guest]);
             }
@@ -878,6 +924,65 @@ mod tests {
         }
         assert!(host.crab(PlayerId(0)).unwrap().mover.pos.x > host_start.x);
         assert!(guest.crab(PlayerId(1)).unwrap().mover.pos.x < guest_start.x);
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn pebble_brush_full_tick_profile() {
+        let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        host.enable_underwater_cells();
+        host.level
+            .cells
+            .as_mut()
+            .unwrap()
+            .test_dissolve_pebble_ownership();
+        host.level.cells.as_mut().unwrap().test_flat_loose_bed();
+        assert!(
+            host.level
+                .cells
+                .as_mut()
+                .unwrap()
+                .test_add_pebble(110, 94, 2)
+        );
+        assert!(
+            host.level
+                .cells
+                .as_mut()
+                .unwrap()
+                .test_add_pebble(164, 115, 2)
+        );
+        host.add_remote_crab(PlayerId(1), Vec2::new(700.0, 100.0));
+        host.go_online(true);
+        host.set_controls(
+            PlayerId(0),
+            crate::Controls {
+                walk: 1.0,
+                ..Default::default()
+            },
+        );
+        let remote = HostPlayerForce {
+            player: PlayerId(1),
+            x: 700.0,
+            y: 124.0,
+            half_width: 36.0,
+            half_height: 24.0,
+            wake_x: -40.0,
+            wake_y: 0.0,
+            walking: -1,
+            grounded: true,
+            jumped: false,
+            dig: None,
+        };
+        let start = std::time::Instant::now();
+        for _ in 0..10 {
+            let mut sim = host.clone();
+            assert!(sim.tick_host_with_shared_walker(remote));
+            std::hint::black_box(sim);
+        }
+        eprintln!(
+            "10 two-pebble material ticks including reset clones: {:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
@@ -909,7 +1014,7 @@ mod tests {
         for _ in 0..10 {
             assert!(host.tick_host_with_shared_walker(remote));
             for _ in 0..3 {
-                host.tick();
+                assert!(host.tick_host_shared_between());
             }
         }
         eprintln!(
@@ -1203,12 +1308,280 @@ mod tests {
                 assert!(guest.level.cells == host.level.cells);
                 number += 1;
             } else {
-                host.tick();
+                assert!(host.tick_host_shared_between());
                 reference.tick();
                 link.carry(&mut [&mut host, &mut guest]);
             }
             assert!(guest.tick_guest_shared_walking());
         }
+        assert!(host.crab(PlayerId(0)).unwrap().mover.pos.x > host_start.x);
+        assert!(guest.crab(PlayerId(1)).unwrap().mover.pos.x < guest_start.x);
+    }
+
+    #[test]
+    fn both_crabs_brush_pebbles_with_real_controls_over_fake_link() {
+        let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        host.enable_underwater_cells();
+        host.level
+            .cells
+            .as_mut()
+            .unwrap()
+            .test_dissolve_pebble_ownership();
+        assert!(
+            host.level
+                .cells
+                .as_mut()
+                .unwrap()
+                .test_add_pebble(164, 115, 2)
+        );
+        assert!(
+            host.level
+                .cells
+                .as_mut()
+                .unwrap()
+                .test_add_pebble(110, 94, 2)
+        );
+        let initial_pebbles = host.level.cells.as_ref().unwrap().game_pebbles();
+        let mut guest = Sim::new(crate::Tuning::default(), crate::Level::test_level());
+        guest.enable_underwater_cells();
+        let surface = host
+            .level
+            .cells
+            .as_ref()
+            .unwrap()
+            .game_surface_below(700.0, 30.0, 1000.0)
+            .unwrap();
+        guest.add_crab(PlayerId(1), Vec2::new(700.0, surface));
+        let guest_pos = guest.crab(PlayerId(1)).unwrap().mover.pos;
+        host.add_remote_crab(PlayerId(1), guest_pos);
+        host.go_online(true);
+        guest.go_online(false);
+        let mut visit = GuestJoin::new(peer(0));
+        for msg in HostCheckpoint::capture(&host)
+            .unwrap()
+            .messages(77)
+            .unwrap()
+        {
+            visit
+                .accept(&mut guest, peer(0), Some(peer(0)), &msg)
+                .unwrap();
+        }
+        assert!(guest.begin_guest_shared_walking());
+        let mut reference = host.clone();
+        let mut stream = Guest::from_join(&visit).unwrap();
+        let mut link = crate::net::FakeLink::steady(0);
+        let right = crate::Controls {
+            walk: 1.0,
+            ..Default::default()
+        };
+        let left = crate::Controls {
+            walk: -1.0,
+            ..Default::default()
+        };
+        host.set_controls(PlayerId(0), right);
+        reference.set_controls(PlayerId(0), right);
+        guest.set_controls(PlayerId(1), left);
+        let host_start = host.crab(PlayerId(0)).unwrap().mover.pos;
+        let guest_start = guest.crab(PlayerId(1)).unwrap().mover.pos;
+        let mut number = 0;
+        let mut counts = None;
+        for game_tick in 0..12 {
+            if game_tick % 4 == 0 {
+                let remote = guest
+                    .local_shared_walking_force()
+                    .expect("supported guest walker");
+                let host_force = host
+                    .local_shared_walking_force()
+                    .expect("supported host walker");
+                let world_tick = host.level.cells.as_ref().unwrap().tick_count();
+                let input = Frame {
+                    epoch: 77,
+                    number,
+                    world_tick,
+                    current: 0.35,
+                    interests: vec![],
+                    players: vec![remote],
+                    after_digest: None,
+                };
+                link.test_post(1, 0, Msg::CellFrame(input.to_bytes().unwrap()));
+                let mut received = None;
+                link.carry_with(&mut [&mut host, &mut guest], |from, to, sim, msg| {
+                    let msg = Msg::from_bytes(&msg.to_bytes()).unwrap();
+                    if let Msg::CellFrame(bytes) = msg {
+                        assert_eq!((from, to), (1, 0));
+                        let input = Frame::from_bytes(&bytes).unwrap();
+                        assert_eq!(
+                            (input.epoch, input.number, input.world_tick),
+                            (77, number, world_tick)
+                        );
+                        assert_eq!(input.players.len(), 1);
+                        assert_eq!(input.players[0].player, PlayerId(1));
+                        received = Some(input.players[0]);
+                    } else {
+                        sim.receive(msg);
+                    }
+                });
+                assert_eq!(received, Some(remote));
+                // Independently step one world per body, then compare each
+                // local neighborhood to the combined two-body result.
+                let level = reference.level.clone();
+                let mut guest_reference = host.level.cells.clone().unwrap();
+                guest_reference.follow_player(
+                    &level,
+                    host_force.x,
+                    host_force.y - host_force.half_height,
+                );
+                let (hx, hy) = guest_reference.local_cell(host_force.x, host_force.y);
+                guest_reference.set_game_crab(
+                    hx,
+                    hy,
+                    host_force.half_width / GAME_CELL,
+                    host_force.half_height / GAME_CELL,
+                );
+                if host_force.grounded && host_force.walking != 0 {
+                    guest_reference.brush_walking_sand(i32::from(host_force.walking));
+                }
+                let wx = (host_force.wake_x / reference.tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+                let wy = (host_force.wake_y / reference.tuning.walk_speed).clamp(-2.5, 2.5);
+                guest_reference.react_to_swim(hx, hy, wx, wy);
+                guest_reference.stir(
+                    hx,
+                    hy,
+                    host_force.wake_x * crate::physics::STEP / 4.0 * 0.45,
+                    host_force.wake_y * crate::physics::STEP / 4.0 * 0.45,
+                );
+                assert!(guest_reference.apply_contact_walker(&reference.tuning, &remote));
+                let (gx, gy) = guest_reference.local_cell(remote.x, remote.y);
+                guest_reference.set_game_crab(
+                    gx,
+                    gy,
+                    remote.half_width / GAME_CELL,
+                    remote.half_height / GAME_CELL,
+                );
+                guest_reference.step(0.35);
+                let level = reference.level.clone();
+                let cells = reference.level.cells.as_mut().unwrap();
+                cells.follow_player(&level, host_force.x, host_force.y - host_force.half_height);
+                let (x, y) = cells.local_cell(host_force.x, host_force.y);
+                cells.set_game_crab(
+                    x,
+                    y,
+                    host_force.half_width / GAME_CELL,
+                    host_force.half_height / GAME_CELL,
+                );
+                assert!(remote.grounded);
+                let before_brush = cells.clone();
+                assert!(cells.apply_contact_walker(&reference.tuning, &remote));
+                if number == 0 {
+                    assert!(*cells != before_brush, "the guest leg brushed an aggregate");
+                }
+                reference.tick();
+                if number == 0 {
+                    let before_tick = host.tick_count();
+                    let before = host.level.cells.clone();
+                    let mut unsupported = remote;
+                    unsupported.jumped = true;
+                    assert!(!host.tick_host_with_shared_walker(unsupported));
+                    assert_eq!(host.tick_count(), before_tick);
+                    assert_eq!(host.level.cells, before);
+                }
+                assert!(host.tick_host_with_shared_walker(remote));
+                let world = host.level.cells.as_ref().unwrap();
+                let host_reference = reference.level.cells.as_ref().unwrap();
+                for (force, expected) in [(host_force, host_reference), (remote, &guest_reference)]
+                {
+                    let (cx, cy) = world.local_cell(force.x, force.y);
+                    for y in cy as i32 - 20..=cy as i32 + 20 {
+                        for x in cx as i32 - 20..=cx as i32 + 20 {
+                            assert_eq!(
+                                world.cell(x, y),
+                                expected.cell(x, y),
+                                "material at {x},{y}"
+                            );
+                            assert_eq!(
+                                world.flow_at(x, y),
+                                expected.flow_at(x, y),
+                                "flow at {x},{y}"
+                            );
+                        }
+                    }
+                }
+                reference.level.cells = host.level.cells.clone();
+                let world = host.level.cells.as_ref().unwrap();
+                let count = |material| {
+                    (0..360)
+                        .flat_map(|y| (0..640).map(move |x| (x, y)))
+                        .filter(|&(x, y)| world.cell(x, y) == material)
+                        .count()
+                };
+                let current = (
+                    count(crate::underwater::Cell::Sand),
+                    count(crate::underwater::Cell::Mud),
+                );
+                if let Some(before) = counts {
+                    assert_eq!(current, before);
+                } else {
+                    counts = Some(current);
+                }
+                let frame = Frame {
+                    epoch: 77,
+                    number,
+                    world_tick,
+                    current: 0.35,
+                    interests: vec![],
+                    players: vec![host_force, remote],
+                    after_digest: Some(digest(host.level.cells.as_ref().unwrap()).unwrap()),
+                };
+                if number == 1 {
+                    let mut fork = guest.clone();
+                    let before = fork.level.cells.clone();
+                    let mut check = Guest::from_join(&visit).unwrap();
+                    check.next = number;
+                    let mut wrong = frame.clone();
+                    wrong.after_digest = wrong.after_digest.map(|digest| digest ^ 1);
+                    assert_eq!(
+                        check.apply(
+                            &visit,
+                            &mut fork,
+                            peer(0),
+                            Some(peer(0)),
+                            &wrong.to_bytes().unwrap()
+                        ),
+                        Err(LockstepError::Diverged)
+                    );
+                    assert_eq!(fork.level.cells, before);
+                }
+                link.test_post(0, 1, Msg::CellFrame(frame.to_bytes().unwrap()));
+                let mut applied = None;
+                link.carry_with(&mut [&mut host, &mut guest], |from, to, sim, msg| {
+                    let msg = Msg::from_bytes(&msg.to_bytes()).unwrap();
+                    if let Msg::CellFrame(bytes) = msg {
+                        assert_eq!((from, to), (0, 1));
+                        applied = Some(stream.apply(&visit, sim, peer(0), Some(peer(0)), &bytes));
+                    } else {
+                        sim.receive(msg);
+                    }
+                });
+                assert_eq!(applied, Some(Ok(())));
+                assert!(guest.level.cells == host.level.cells);
+                number += 1;
+            } else {
+                assert!(host.tick_host_shared_between());
+                reference.tick();
+                link.carry(&mut [&mut host, &mut guest]);
+            }
+            assert!(guest.tick_guest_shared_walking());
+        }
+        let final_pebbles = host.level.cells.as_ref().unwrap().game_pebbles();
+        assert_eq!(final_pebbles.len(), 2);
+        assert_ne!(
+            final_pebbles[0], initial_pebbles[0],
+            "guest moved its pebble"
+        );
+        assert_ne!(
+            final_pebbles[1], initial_pebbles[1],
+            "host moved its pebble"
+        );
         assert!(host.crab(PlayerId(0)).unwrap().mover.pos.x > host_start.x);
         assert!(guest.crab(PlayerId(1)).unwrap().mover.pos.x < guest_start.x);
     }
@@ -1462,7 +1835,7 @@ mod tests {
                 assert!(guest.level.cells == host.level.cells);
                 number += 1;
             } else {
-                host.tick();
+                assert!(host.tick_host_shared_between());
                 reference.tick();
                 link.carry(&mut [&mut host, &mut guest]);
             }
@@ -1735,7 +2108,7 @@ mod tests {
                 assert!(guest.level.cells == host.level.cells);
                 number += 1;
             } else {
-                host.tick();
+                assert!(host.tick_host_shared_between());
                 reference.tick();
                 link.carry(&mut [&mut host, &mut guest]);
             }

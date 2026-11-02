@@ -933,11 +933,17 @@ impl Sim {
 
     /// Capture a single local walker's forces for the guarded two-player prototype.
     pub fn local_shared_walking_force(&self) -> Option<crate::underwater::HostPlayerForce> {
+        if !self.tick.is_multiple_of(4) {
+            return None;
+        }
+        self.local_shared_walking_force_any_tick()
+    }
+
+    fn local_shared_walking_force_any_tick(&self) -> Option<crate::underwater::HostPlayerForce> {
         if !self.online()
             || self.crabs.len() > 2
             || !self.enemies.is_empty()
             || self.recorder.is_some()
-            || !self.tick.is_multiple_of(4)
             || self.crabs.iter().filter(|c| !c.remote).count() != 1
         {
             return None;
@@ -1111,6 +1117,32 @@ impl Sim {
         self.tick_inner(true, None)
     }
 
+    /// Advance a guarded host tick between shared material frames. Unsupported
+    /// input and active-window changes are rejected before modifying the Sim.
+    /// The real game does not call this experimental method.
+    pub fn tick_host_shared_between(&mut self) -> bool {
+        if !self.online()
+            || !self.is_host()
+            || self.tick.is_multiple_of(4)
+            || self.tick >= u64::MAX - 1_000_000
+            || self.local_shared_walking_force_any_tick().is_none()
+        {
+            return false;
+        }
+        let Some(crab) = self.crabs.iter().find(|c| !c.remote) else {
+            return false;
+        };
+        let Some(cells) = self.level.cells.as_ref() else {
+            return false;
+        };
+        let mut probe = cells.clone();
+        probe.follow_player(&self.level, crab.mover.pos.x, crab.mover.pos.y);
+        if probe != *cells {
+            return false;
+        }
+        self.tick_inner(false, None)
+    }
+
     /// Transactionally advance a material tick with one authenticated remote
     /// walker. Caller must bind the remote identity to its connection.
     pub fn tick_host_with_shared_walker(
@@ -1129,11 +1161,6 @@ impl Sim {
                 .as_ref()
                 .is_none_or(|cells| !cells.is_game_world())
             || local.player == remote.player
-            || self
-                .level
-                .cells
-                .as_ref()
-                .is_some_and(|cells| cells.walking_brush_has_pebble(&local))
             || !self.crabs.iter().any(|c| c.remote && c.id == remote.player)
         {
             return false;
@@ -1221,7 +1248,13 @@ impl Sim {
                         cells.push_for_crab(x + walk.signum(), y, walk.signum() as i32, 0, 48);
                     }
                     if self.tick.is_multiple_of(4) && !digging && m.grounded && walk.abs() > 0.1 {
-                        cells.brush_walking_sand(walk.signum() as i32);
+                        if let Some(remote) = remote_walk {
+                            if !cells.brush_shared(&remote, walk.signum() as i32, false) {
+                                return false;
+                            }
+                        } else {
+                            cells.brush_walking_sand(walk.signum() as i32);
+                        }
                     }
                     if self.tick.is_multiple_of(4) {
                         // Walking stirs the water, but footsteps should not

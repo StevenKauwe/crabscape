@@ -541,6 +541,102 @@ impl ChunkFlow {
         Ok(result)
     }
 
+    /// The solo walking brush with every additional body protected.
+    /// Pebbles move as whole aggregates with the original walking force.
+    pub fn brush_primary(&mut self, direction: i32) -> Result<(), SedimentStepError> {
+        if !matches!(direction, -1 | 1) || !self.supported_crab() || !self.supported_pebbles() {
+            return Err(SedimentStepError::Unsupported);
+        }
+        let Some((cx, cy)) = self.crab else {
+            return Err(SedimentStepError::Unsupported);
+        };
+        let foot = cy - self.crab_half_y;
+        let front = cx + direction * (self.crab_half_x + 1);
+        let mut moved = 0;
+        let mut remaining = 6usize;
+        for y in (foot - 2..=foot + 4).rev() {
+            for offset in 0..6 {
+                let x = front + direction * offset;
+                let Some(from) = Self::signed_location(x, y) else {
+                    continue;
+                };
+                if !matches!(self.chunks[from.0].cells[from.1], Cell::Sand | Cell::Mud) {
+                    continue;
+                }
+                let owner = self.chunks[from.0].owner[from.1];
+                if owner != 0 {
+                    for (dx, dy) in [(direction, 0), (direction, 1), (0, 1)] {
+                        let mut journal = PushJournal::default();
+                        if self.move_pushed_pebble(owner, dx, dy, 16, &mut journal) {
+                            return Ok(());
+                        }
+                    }
+                    continue;
+                }
+                if y < foot || offset >= 2 {
+                    continue;
+                }
+                let cost = self.loose_push_cost(from);
+                if cost > remaining {
+                    continue;
+                }
+                for (dx, dy) in [(direction, 1), (direction, 0), (0, 1)] {
+                    let Some(to) = Self::signed_location(x + dx, y + dy) else {
+                        continue;
+                    };
+                    let outside = (x + dx - cx).abs() > self.crab_half_x
+                        || (y + dy - cy).abs() > self.crab_half_y;
+                    if outside
+                        && !self.inside_any_body(x + dx, y + dy)
+                        && self.chunks[to.0].cells[to.1] == Cell::Water
+                    {
+                        self.swap_material(from, to);
+                        moved += 1;
+                        remaining -= cost;
+                        break;
+                    }
+                }
+                if moved >= 3 {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Brush for an additional body while preserving the primary reservation.
+    pub fn brush_extra(
+        &mut self,
+        player: crate::PlayerId,
+        direction: i32,
+    ) -> Result<(), SedimentStepError> {
+        let Some(index) = self.extra_bodies.iter().position(|b| b.player == player) else {
+            return Err(SedimentStepError::Unsupported);
+        };
+        let Some((host_x, host_y)) = self.crab else {
+            return Err(SedimentStepError::Unsupported);
+        };
+        let mut next = self.clone();
+        let guest = next.extra_bodies.remove(index);
+        next.extra_bodies.push(BodyReservation {
+            player: crate::PlayerId(u32::MAX),
+            x: host_x,
+            y: host_y,
+            half_x: next.crab_half_x,
+            half_y: next.crab_half_y,
+        });
+        next.crab = Some((guest.x, guest.y));
+        next.crab_half_x = guest.half_x;
+        next.crab_half_y = guest.half_y;
+        next.brush_primary(direction)?;
+        next.crab = self.crab;
+        next.crab_half_x = self.crab_half_x;
+        next.crab_half_y = self.crab_half_y;
+        next.extra_bodies = self.extra_bodies.clone();
+        *self = next;
+        Ok(())
+    }
+
     /// Apply a separated extra body's sediment and aggregate scoop while
     /// protecting the primary body and all other reservations. Unsupported/blocked
     /// scoops do not change the caller's state.
@@ -2482,6 +2578,79 @@ mod tests {
                 assert_eq!(chunked.pebbles[0].y, y);
             }
         }
+    }
+
+    #[test]
+    fn two_body_pebble_brushes_match_solo_and_force_limits() {
+        for blocked in [false, true] {
+            let mut world = sand_fixture(0);
+            world.cells.fill(Cell::Water);
+            world.flow.fill((0.0, 0.0));
+            world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+            assert!(world.add_pebble(68, 97, 2, 250));
+            assert!(world.add_pebble(187, 97, 2, 251));
+            if blocked {
+                world.cells[World::index(70, 97).unwrap()] = Cell::Rock;
+            }
+            let body = BodyReservation {
+                player: crate::PlayerId(1),
+                x: 192,
+                y: 100,
+                half_x: 3,
+                half_y: 3,
+            };
+            let mut chunks = ChunkFlow::from_world(&world);
+            chunks.set_extra_bodies(&[body]).unwrap();
+            assert_eq!(chunks.brush_primary(1), Ok(()));
+            assert_eq!(chunks.brush_extra(body.player, -1), Ok(()));
+            for (cx, dir) in [(64, 1), (192, -1)] {
+                let mut solo = world.clone();
+                solo.set_game_crab(cx as f32, 100.0, 3.0, 3.0);
+                solo.brush_walking_sand(dir);
+                let index = if cx == 64 { 0 } else { 1 };
+                assert_eq!(chunks.pebbles[index], solo.pebbles[index]);
+                assert_eq!(chunks.pebble_motion[index], solo.pebble_motion[index]);
+                for y in 88..110 {
+                    for x in cx - 15..=cx + 15 {
+                        let i = World::index(x, y).unwrap();
+                        let (c, slot) = ChunkFlow::locate(x as usize, y as usize);
+                        assert_eq!(chunks.chunks[c].cells[slot], solo.cells[i]);
+                        assert_eq!(chunks.chunks[c].owner[slot], solo.pebble_owner[i]);
+                    }
+                }
+            }
+            assert!(chunks.pebbles[0].x > 68);
+            assert!(chunks.pebbles[1].x < 187);
+            for id in 1..=2 {
+                assert_eq!(
+                    chunks
+                        .chunks
+                        .iter()
+                        .map(|c| c.owner.iter().filter(|&&v| v == id).count())
+                        .sum::<usize>(),
+                    4
+                );
+            }
+        }
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+        assert!(world.add_pebble(68, 97, 5, 250));
+        let body = BodyReservation {
+            player: crate::PlayerId(1),
+            x: 192,
+            y: 100,
+            half_x: 3,
+            half_y: 3,
+        };
+        let mut chunks = ChunkFlow::from_world(&world);
+        chunks.set_extra_bodies(&[body]).unwrap();
+        let before = chunks.clone();
+        assert_eq!(chunks.brush_primary(1), Ok(()));
+        assert!(
+            chunks == before,
+            "walking force 16 cannot move a mass-25 aggregate"
+        );
     }
 
     #[test]

@@ -382,9 +382,29 @@ dig controls; it checks the aggregate moves, terrain agreement, conservation,
 solo-local fields, guest position/resistance and digest rollback. Isolated
 two-body tests compare aggregate pushes and subsequent motion with solo at low
 and high force, verify deterministic player order and rollback, and cover
-movement away from a body. Ordinary walking brushes touching pebbles are
-rejected on both peers because that solo brush cannot yet protect a second
-body; incomplete/offscreen aggregates, overlapping bodies, fallback scoops,
-other dig directions and creatures also remain unsupported. The fixture
+movement away from a body. At that stage, ordinary walking brushes touching pebbles were rejected because
+the solo brush could not protect a second body. Incomplete/offscreen aggregates,
+overlapping bodies, fallback scoops, other dig directions and creatures remain
+unsupported. The fixture
 removes naturally seeded aggregate ownership before adding a controlled pebble,
 so it does not establish parity for the full generated world.
+
+The guarded walking brush now routes whole-pebble moves through both body
+reservations, in host-then-guest order. A two-Sim FakeLink fixture drives both
+crabs with ordinary walking controls, moves a separate pebble with each, and
+compares peer terrain and local solo references. Isolated tests cover force
+16 versus a mass-25 aggregate, diagonal fallback, aggregate conservation and
+rollback after a host pebble already moved. A host off-tick guard now rejects
+unsupported input and active-window changes before mutation; the live game
+still uses its ordinary loop and does not call this guard.
+
+One desktop release run of ten reset-cloned two-pebble material ticks took
+155.8 ms (about 15.6 ms per tick). This excludes the guest, transport and
+rendering. A chunk field is about 3.19 MB and host rollback, conversions and
+brush staging may hold multiple copies; peak phone memory has not been
+measured. A live WebRTC path still needs connection-bound checkpoint and
+frame handling in the app, bounded transfer/backpressure, authoritative guest
+input sequencing and tick barriers, prediction/reconciliation, complete
+terrain/actor behavior, host migration and real cross-platform/device tests.
+The existing game loop calls ordinary `Sim::tick`, and the app currently
+drops experimental frames. No live co-op is enabled.
