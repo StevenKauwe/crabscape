@@ -30,15 +30,18 @@ pub fn enabled() -> bool {
     }
 }
 
-/// Only this disposable draft's preview defaults to the experiment. The
-/// rest of the site and browser tests keep their usual default.
+/// The cellular draft and the mobile camera-fix preview default to the
+/// experiment. The live site and other previews keep their usual default.
 #[cfg(any(test, target_arch = "wasm32"))]
 fn browser_cells_enabled(path: &str, search: &str) -> bool {
     let explicit = search
         .trim_start_matches('?')
         .split('&')
         .any(|part| part == "cells" || part == "cells=1");
-    explicit || path.split('/').any(|part| part == "pr-345")
+    explicit
+        || path
+            .split('/')
+            .any(|part| matches!(part, "pr-345" | "pr-350"))
 }
 
 #[cfg(test)]
@@ -46,9 +49,10 @@ mod tests {
     use super::browser_cells_enabled;
 
     #[test]
-    fn only_this_draft_preview_enables_cells_without_a_query() {
+    fn cellular_test_previews_enable_cells_without_a_query() {
         assert!(browser_cells_enabled("/crabscape/pr-345/", ""));
         assert!(browser_cells_enabled("/crabscape/pr-345", "?zoom=2"));
+        assert!(browser_cells_enabled("/crabscape/pr-350/", ""));
         assert!(!browser_cells_enabled("/crabscape/pr-3450/", ""));
         assert!(!browser_cells_enabled("/crabscape/", ""));
         assert!(!browser_cells_enabled("/crabscape/pr-346/", ""));

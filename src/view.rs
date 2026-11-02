@@ -488,7 +488,7 @@ mod camera_stability_tests {
 
     #[test]
     fn camera_kick_settles_at_low_and_variable_frame_rates() {
-        for dt in [1.0 / 60.0, 1.0 / 30.0, 1.0 / 15.0, 0.2] {
+        for dt in [1.0 / 60.0, 1.0 / 31.0, 1.0 / 30.0, 1.0 / 15.0, 0.2] {
             let mut shake = Shake::default();
             shake.kick(Vec2::new(8.0, -4.0));
             for _ in 0..120 {
@@ -504,6 +504,19 @@ mod camera_stability_tests {
                 shake.kick
             );
         }
+
+        // An average near 31 fps can still include occasional slower frames.
+        let mut shake = Shake::default();
+        shake.kick(Vec2::new(8.0, -4.0));
+        for frame in 0..120 {
+            let dt = if frame % 4 == 0 { 0.055 } else { 1.0 / 31.0 };
+            let offset = shake.offset(dt);
+            assert!(
+                offset.is_finite() && offset.length() < 50.0,
+                "unstable mixed frame: {offset:?}"
+            );
+        }
+        assert!(shake.kick.length() < 0.01);
     }
 
     #[test]
