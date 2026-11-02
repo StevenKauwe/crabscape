@@ -733,7 +733,9 @@ fn saved_cells(p: &mut Player) -> Result<Option<crabsim::cell_codec::Restored>> 
         const request=tx.objectStore('world').get('active');
         tx.onabort=()=>{db.close();reject(String(tx.error));};
         tx.oncomplete=()=>{db.close();if(request.result===undefined){resolve(null);return;}
-          const raw=request.result, encode=bytes=>{const pieces=[];
+          const raw=request.result;
+          if(raw.format!=='CRABPG02'){resolve(null);return;}
+          const encode=bytes=>{const pieces=[];
             for(let i=0;i<bytes.length;i+=32768)pieces.push(String.fromCharCode(...bytes.subarray(i,i+32768)));
             return btoa(pieces.join(''));};
           resolve({format:raw.format,tick:encode(raw.tick),player:encode(raw.player),index:encode(raw.index),pages:raw.pages.map(encode)});
@@ -1377,20 +1379,29 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 pause_region(p, true)?;
             }
             sleep(0.3);
+            let before_host = regional_scene(&mut host)?;
             let before_dig = regional_scene(&mut guest)?;
             let start_guest = before_dig.crabs()[0].mover.pos;
             for p in [&mut host, &mut guest] {
+                p.b.set_key("KeyC", true)?;
+                p.b.set_key("ArrowDown", true)?;
                 pause_region(p, false)?;
             }
-            host.b.hold_keys(&["KeyC", "ArrowDown"], 0.9)?;
-            guest.b.set_key("KeyC", true)?;
-            guest.b.set_key("ArrowDown", true)?;
-            sleep(0.9);
-            for p in [&mut host, &mut guest] {
+            // Measure digging in simulation time. A software-rendered CI
+            // frame can consume most of a short wall-clock key hold.
+            for (p, first) in [
+                (&mut host, before_host.tick_count()),
+                (&mut guest, before_dig.tick_count()),
+            ] {
+                p.until(20.0, "ninety hundredths of simulated digging", |p| {
+                    p.b.attr("data-cell-session-tick")
+                        .and_then(|t| t.parse::<u64>().ok())
+                        .is_some_and(|tick| tick >= first + 108)
+                })?;
                 pause_region(p, true)?;
+                p.b.set_key("KeyC", false)?;
+                p.b.set_key("ArrowDown", false)?;
             }
-            guest.b.set_key("KeyC", false)?;
-            guest.b.set_key("ArrowDown", false)?;
             sleep(0.3);
             let _owner_replay = regional_scene(&mut host)?;
             let after_dig = regional_scene(&mut guest)?;
