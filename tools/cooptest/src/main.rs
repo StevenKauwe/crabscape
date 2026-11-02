@@ -48,6 +48,8 @@ mod limit {
     /// A reloaded friend may need two capped address-gathering passes, plus
     /// browser scheduling and a stable connection on a busy machine.
     pub const GUEST_RELOAD: f64 = 15.0;
+    /// Two guests must also elect a temporary host before they share a world.
+    pub const STAND_IN: f64 = 15.0;
     /// Back together after the introducer restarted (it drops everyone: they join afresh 5 s later).
     pub const INTRODUCER_BACK: f64 = 15.0;
     /// Voice heard again once together, with the mic on.
@@ -759,7 +761,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             let link = away(site, &mut host)?;
             guest.open(&link)?;
             other.open(&link)?;
-            let (i, t) = together_with_stand_in(&mut [&mut guest, &mut other], limit::MEET)?;
+            let (i, t) = together_with_stand_in(&mut [&mut guest, &mut other], limit::STAND_IN)?;
             found.push(format!(
                 "together, one standing in, {t:.1} s after the second friend's game started"
             ));
