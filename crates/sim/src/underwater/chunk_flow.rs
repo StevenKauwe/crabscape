@@ -2,8 +2,8 @@
 //!
 //! Cells are uniquely owned by 64 × 64 tiles, and each tile reads its four
 //! neighbours from the previous complete field, including across tile seams.
-//! This is not yet a terrain simulator: its sand step rejects mud, pebbles,
-//! suspension and entrainment; it does not step pebble chains, apply player
+//! This is not yet a terrain simulator: its sediment step rejects pebbles,
+//! entrainment and wake/silt-producing falls; it does not step pebble chains, apply player
 //! forces, stream sleeping chunks, or run co-op.
 //! It must not replace the contiguous gameplay simulation.
 
@@ -35,10 +35,11 @@ pub struct ChunkFlow {
     pebbles: Vec<Pebble>,
     crab_reserved: bool,
     sand_properties: SedimentProperties,
+    mud_properties: SedimentProperties,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SandStepError {
+pub enum SedimentStepError {
     Invalid,
     Unsupported,
 }
@@ -75,6 +76,7 @@ impl ChunkFlow {
             pebbles: world.pebbles.clone(),
             crab_reserved: world.crab.is_some(),
             sand_properties: world.sand_properties,
+            mud_properties: world.mud_properties,
         }
     }
 
@@ -132,27 +134,25 @@ impl ChunkFlow {
             .then(|| Self::locate(x as usize, y as usize))
     }
 
-    /// Advance an intentionally narrow sand-only slice of the material
+    /// Advance an intentionally restricted sediment slice of the material
     /// step. The whole operation is transactional. Any condition that needs
     /// unimplemented physics returns `Unsupported` without changing state.
-    pub fn step_sand(&mut self, current: f32) -> Result<(), SandStepError> {
+    pub fn step_sediment(&mut self, current: f32) -> Result<(), SedimentStepError> {
         if !current.is_finite() || self.tick == u64::MAX {
-            return Err(SandStepError::Invalid);
+            return Err(SedimentStepError::Invalid);
         }
         if self.crab_reserved
             || !self.pebbles.is_empty()
-            || self.sand_properties.cohesion_ticks != 0
-            || self.chunks.iter().any(|chunk| {
-                chunk.cells.contains(&Cell::Mud)
-                    || chunk.owner.iter().any(|&id| id != 0)
-                    || chunk.suspended.iter().any(|&ticks| ticks != 0)
-            })
+            || self
+                .chunks
+                .iter()
+                .any(|chunk| chunk.owner.iter().any(|&id| id != 0))
         {
-            return Err(SandStepError::Unsupported);
+            return Err(SedimentStepError::Unsupported);
         }
         let mut next = self.clone();
         if !next.step_batched(current) {
-            return Err(SandStepError::Invalid);
+            return Err(SedimentStepError::Invalid);
         }
         let tick = next.tick;
         let reverse = tick.is_multiple_of(2);
@@ -165,7 +165,8 @@ impl ChunkFlow {
             for n in 0..WIDTH {
                 let x = if reverse { WIDTH - 1 - n } else { n };
                 let (chunk, slot) = Self::locate(x, y);
-                if moved[chunk][slot] || next.chunks[chunk].cells[slot] != Cell::Sand {
+                let material = next.chunks[chunk].cells[slot];
+                if moved[chunk][slot] || !matches!(material, Cell::Sand | Cell::Mud) {
                     continue;
                 }
                 let world_x = x as i64
@@ -180,7 +181,11 @@ impl ChunkFlow {
                     } else {
                         0
                     };
-                if phase_due(tick, world_x * 13 + world_y * 7, 4) {
+                let phase = world_x * 13 + world_y * 7;
+                if material == Cell::Sand
+                    && next.chunks[chunk].suspended[slot] == 0
+                    && phase_due(tick, phase, 4)
+                {
                     continue;
                 }
                 let dir = if phase_due(tick, world_x + world_y, 2) {
@@ -188,21 +193,31 @@ impl ChunkFlow {
                 } else {
                     -1
                 };
-                let (flow, _) = next.flow(x, y + 1).unwrap_or((0.0, 0.0));
+                let (flow, vertical_flow) = next.flow(x, y + 1).unwrap_or((0.0, 0.0));
+                let flow_strength = if material == Cell::Sand {
+                    flow.abs()
+                } else {
+                    flow.abs() + vertical_flow.abs() * 0.7
+                };
+                let properties = if material == Cell::Sand {
+                    next.sand_properties
+                } else {
+                    next.mud_properties
+                };
                 let density = (i32::from(next.chunks[chunk].grain[slot])
-                    + i32::from(next.sand_properties.density_bias))
+                    + i32::from(properties.density_bias))
                 .clamp(0, 255) as u8;
-                let threshold = next.sand_properties.erosion_threshold
-                    + f32::from(density) / 255.0 * next.sand_properties.density_resistance
-                    + if next.chunks[chunk].grain[slot] >= 248 {
+                let threshold = properties.erosion_threshold
+                    + f32::from(density) / 255.0 * properties.density_resistance
+                    + if material == Cell::Sand && next.chunks[chunk].grain[slot] >= 248 {
                         0.45
                     } else {
                         0.0
                     };
-                if flow.abs() > threshold {
+                if next.chunks[chunk].suspended[slot] == 0 && flow_strength > threshold {
                     // Entrainment, even when not due on this tick, remains
                     // explicitly outside this first slice.
-                    return Err(SandStepError::Unsupported);
+                    return Err(SedimentStepError::Unsupported);
                 }
                 let drift = if flow > 0.2 {
                     1
@@ -211,6 +226,63 @@ impl ChunkFlow {
                 } else {
                     0
                 };
+                if next.chunks[chunk].suspended[slot] > 0 {
+                    next.chunks[chunk].suspended[slot] -= 1;
+                    let settling = if material == Cell::Sand {
+                        3
+                    } else if density > 170 {
+                        2
+                    } else if density > 85 {
+                        4
+                    } else {
+                        8
+                    };
+                    let dy = if material == Cell::Mud
+                        && density < 100
+                        && vertical_flow > 0.3
+                        && tick.is_multiple_of(3)
+                    {
+                        1
+                    } else if tick.is_multiple_of(settling) {
+                        -1
+                    } else {
+                        0
+                    };
+                    if (drift != 0 || dy != 0)
+                        && let Some(to) = Self::signed_location(x as i32 + drift, y as i32 + dy)
+                        && next.chunks[to.0].cells[to.1] == Cell::Water
+                    {
+                        next.swap_material((chunk, slot), to);
+                        moved[to.0][to.1] = true;
+                    }
+                    continue;
+                }
+                let neighbours = if properties.cohesion_ticks > 0 {
+                    [(-1, 0), (1, 0), (0, 1)]
+                        .into_iter()
+                        .filter(|&(dx, dy)| {
+                            Self::signed_location(x as i32 + dx, y as i32 + dy)
+                                .is_some_and(|(c, i)| next.chunks[c].cells[i] == material)
+                        })
+                        .count()
+                } else {
+                    0
+                };
+                if properties.cohesion_ticks > 0 {
+                    let period = if density > 192 {
+                        1
+                    } else if neighbours >= 2 && flow_strength < properties.cohesion_break_flow {
+                        properties.cohesion_ticks
+                    } else {
+                        2
+                    };
+                    if !tick
+                        .wrapping_add(properties.erosion_interval.max(1))
+                        .is_multiple_of(period)
+                    {
+                        continue;
+                    }
+                }
                 let choices = if drift != 0 && tick.is_multiple_of(2) {
                     [(drift, -1), (0, -1), (-drift, -1)]
                 } else {
@@ -218,6 +290,14 @@ impl ChunkFlow {
                 };
                 let mut did_move = false;
                 for (dx, dy) in choices {
+                    if material == Cell::Mud
+                        && properties.cohesion_ticks > 0
+                        && dx != 0
+                        && flow_strength < properties.cohesion_break_flow
+                        && neighbours >= 2
+                    {
+                        continue;
+                    }
                     let Some(to) = Self::signed_location(x as i32 + dx, y as i32 + dy) else {
                         continue;
                     };
@@ -227,7 +307,7 @@ impl ChunkFlow {
                     if phase_due(tick, world_x * 17 + world_y * 11, 53) {
                         // The real step emits water disturbance and perhaps
                         // silt here; do not silently omit either effect.
-                        return Err(SandStepError::Unsupported);
+                        return Err(SedimentStepError::Unsupported);
                     }
                     next.swap_material((chunk, slot), to);
                     moved[to.0][to.1] = true;
@@ -677,8 +757,8 @@ mod tests {
             for step in 0..6 {
                 reference.tick += 1;
                 reference.step_material(0.0);
-                assert_eq!(chunked.step_sand(0.0), Ok(()));
-                assert_eq!(replayed.step_sand(0.0), Ok(()));
+                assert_eq!(chunked.step_sediment(0.0), Ok(()));
+                assert_eq!(replayed.step_sediment(0.0), Ok(()));
                 compare(&reference, &chunked);
                 assert!(
                     chunked == replayed,
@@ -709,25 +789,164 @@ mod tests {
     }
 
     #[test]
+    fn cohesive_mud_across_a_seam_matches_reference_and_conserves_material() {
+        for origin_y in [0, -200] {
+            let mut reference = sand_fixture(origin_y);
+            reference.cells.fill(Cell::Water);
+            reference.flow.fill((0.0, 0.0));
+            reference.mud_properties.erosion_threshold = 10.0;
+            for (x, y) in [(63, 65), (64, 65), (63, 66), (64, 66), (100, 65)] {
+                let i = World::index(x, y).unwrap();
+                reference.cells[i] = Cell::Mud;
+                reference.grain[i] = 120;
+            }
+            let sand = World::index(200, 200).unwrap();
+            reference.cells[sand] = Cell::Sand;
+            reference.grain[sand] = 70;
+            let before_mud = reference
+                .cells
+                .iter()
+                .filter(|&&cell| cell == Cell::Mud)
+                .count();
+            let before_sand = reference
+                .cells
+                .iter()
+                .filter(|&&cell| cell == Cell::Sand)
+                .count();
+            let mut chunked = ChunkFlow::from_world(&reference);
+            let mut replayed = chunked.clone();
+            for step in 0..6 {
+                reference.tick += 1;
+                reference.step_material(0.0);
+                assert_eq!(chunked.step_sediment(0.0), Ok(()));
+                assert_eq!(replayed.step_sediment(0.0), Ok(()));
+                compare(&reference, &chunked);
+                assert!(
+                    chunked == replayed,
+                    "adhesive sediment replayed differently"
+                );
+                assert_eq!(
+                    reference
+                        .cells
+                        .iter()
+                        .filter(|&&cell| cell == Cell::Mud)
+                        .count(),
+                    before_mud
+                );
+                assert_eq!(
+                    reference
+                        .cells
+                        .iter()
+                        .filter(|&&cell| cell == Cell::Sand)
+                        .count(),
+                    before_sand
+                );
+                if step == 0 {
+                    assert_eq!(
+                        chunked.cell(63, 65),
+                        Some(Cell::Mud),
+                        "the cross-seam cohesive cluster holds"
+                    );
+                    assert_eq!(
+                        chunked.cell(100, 64),
+                        Some(Cell::Mud),
+                        "isolated mud settles sooner"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn suspended_fine_mud_crosses_a_seam_on_upwelling_without_double_stepping() {
+        let mut reference = sand_fixture(-200);
+        reference.cells.fill(Cell::Water);
+        reference.flow.fill((0.0, 1.2));
+        reference.suspended.fill(0);
+        reference.tick = 2;
+        for (x, y, grain) in [(64, 63, 40), (130, 64, 210)] {
+            let i = World::index(x, y).unwrap();
+            reference.cells[i] = Cell::Mud;
+            reference.grain[i] = grain;
+            reference.suspended[i] = 5;
+        }
+        let mut chunked = ChunkFlow::from_world(&reference);
+        let mut replayed = chunked.clone();
+        reference.tick += 1;
+        reference.step_material(0.0);
+        assert_eq!(chunked.step_sediment(0.0), Ok(()));
+        assert_eq!(replayed.step_sediment(0.0), Ok(()));
+        compare(&reference, &chunked);
+        assert!(chunked == replayed);
+        assert_eq!(
+            chunked.cell(64, 64),
+            Some(Cell::Mud),
+            "fine suspended mud rose across y=63/64"
+        );
+        let (chunk, slot) = ChunkFlow::locate(64, 64);
+        assert_eq!(
+            chunked.chunks[chunk].suspended[slot], 4,
+            "the particle advanced once"
+        );
+        assert_eq!(
+            chunked.cell(130, 64),
+            Some(Cell::Mud),
+            "coarse suspended mud has a different settling cadence"
+        );
+        assert_eq!(
+            reference
+                .cells
+                .iter()
+                .filter(|&&cell| cell == Cell::Mud)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
     fn guarded_sand_rejects_unimplemented_physics_without_mutation() {
         let mut world = sand_fixture(-200);
-        world.cells[World::index(200, 200).unwrap()] = Cell::Mud;
+        assert!(world.add_pebble(200, 200, 4, 250));
         let mut chunked = ChunkFlow::from_world(&world);
         let before = chunked.clone();
-        assert_eq!(chunked.step_sand(0.0), Err(SandStepError::Unsupported));
+        assert_eq!(
+            chunked.step_sediment(0.0),
+            Err(SedimentStepError::Unsupported)
+        );
         assert!(chunked == before);
 
         let mut world = sand_fixture(0);
         world.sand_properties.erosion_threshold = -1.0;
         let mut chunked = ChunkFlow::from_world(&world);
         let before = chunked.clone();
-        assert_eq!(chunked.step_sand(0.0), Err(SandStepError::Unsupported));
+        assert_eq!(
+            chunked.step_sediment(0.0),
+            Err(SedimentStepError::Unsupported)
+        );
         assert!(
             chunked == before,
             "the staged flow is rolled back when entrainment is unsupported"
         );
-        assert_eq!(chunked.step_sand(f32::NAN), Err(SandStepError::Invalid));
+        assert_eq!(
+            chunked.step_sediment(f32::NAN),
+            Err(SedimentStepError::Invalid)
+        );
         assert!(chunked == before);
+
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        world.cells[World::index(120, 120).unwrap()] = Cell::Mud;
+        world.mud_properties.erosion_threshold = -1.0;
+        let mut chunked = ChunkFlow::from_world(&world);
+        let before = chunked.clone();
+        assert_eq!(
+            chunked.step_sediment(0.0),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(
+            chunked == before,
+            "unsupported mud entrainment also rolls back"
+        );
 
         let mut world = sand_fixture(0);
         world.cells.fill(Cell::Water);
@@ -738,15 +957,20 @@ mod tests {
                     && phase_due(1, i64::from(x) * 17 + i64::from(y) * 11, 53)
             })
             .unwrap();
-        world.cells[World::index(x, y).unwrap()] = Cell::Sand;
-        let mut chunked = ChunkFlow::from_world(&world);
-        let before = chunked.clone();
-        assert_eq!(
-            chunked.step_sand(0.0),
-            Err(SandStepError::Unsupported),
-            "a grain that would stir water cannot silently omit its wake"
-        );
-        assert!(chunked == before);
+        for material in [Cell::Sand, Cell::Mud] {
+            let i = World::index(x, y).unwrap();
+            world.cells[i] = material;
+            world.grain[i] = 240;
+            world.mud_properties.erosion_threshold = 10.0;
+            let mut chunked = ChunkFlow::from_world(&world);
+            let before = chunked.clone();
+            assert_eq!(
+                chunked.step_sediment(0.0),
+                Err(SedimentStepError::Unsupported),
+                "a {material:?} grain that would stir water cannot silently omit its wake"
+            );
+            assert!(chunked == before);
+        }
     }
 
     #[test]
@@ -765,7 +989,7 @@ mod tests {
         let start = std::time::Instant::now();
         for _ in 0..20 {
             let mut chunked = initial.clone();
-            chunked.step_sand(0.0).unwrap();
+            chunked.step_sediment(0.0).unwrap();
             std::hint::black_box(chunked);
         }
         let chunked_ms = start.elapsed().as_secs_f64() * 50.0;
@@ -802,6 +1026,39 @@ mod tests {
         eprintln!(
             "flow diffusion: contiguous {contiguous_ms:.2} ms/step, chunked {chunked_ms:.2} ms/step, batched {batched_ms:.2} ms/step; chunk field capacity {} bytes",
             chunked.field_capacity_bytes()
+        );
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn chunked_mud_profile() {
+        let mut initial = sand_fixture(-200);
+        initial.cells.fill(Cell::Water);
+        initial.flow.fill((0.0, 0.0));
+        initial.mud_properties.erosion_threshold = 10.0;
+        for (x, y) in [(63, 65), (64, 65), (63, 66), (64, 66), (100, 65)] {
+            let i = World::index(x, y).unwrap();
+            initial.cells[i] = Cell::Mud;
+            initial.grain[i] = 120;
+        }
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut reference = initial.clone();
+            reference.tick += 1;
+            reference.step_material(0.0);
+            std::hint::black_box(reference);
+        }
+        let contiguous_ms = start.elapsed().as_secs_f64() * 50.0;
+        let initial = ChunkFlow::from_world(&initial);
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut chunked = initial.clone();
+            chunked.step_sediment(0.0).unwrap();
+            std::hint::black_box(chunked);
+        }
+        let chunked_ms = start.elapsed().as_secs_f64() * 50.0;
+        eprintln!(
+            "guarded mud fixture, including reset clone: contiguous {contiguous_ms:.2} ms/step, chunked {chunked_ms:.2} ms/step"
         );
     }
 }

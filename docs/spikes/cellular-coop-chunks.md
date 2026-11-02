@@ -24,13 +24,19 @@ Sending whole-world differences is also too costly. In one measured step,
 XOR was approximately 1.10 MB, against 1.33 MB for the compressed checkpoint.
 Those sizes and the larger buffers needed for decoding make full-world updates
 unsuitable for real-time play and do not establish a safe phone-memory bound.
+The join prototype also decodes a general Serde checkpoint with a 64 MiB
+decompressed-byte cap; that cap alone does not bound all allocations during
+deserialization or the combined peak of transfer buffers and both worlds.
+The browser save path's separately bounded reader is not used for co-op joins.
+Bounded parsing, peak-memory measurements and chunk-scoped backpressure are
+explicit blockers before connecting this prototype to the runtime.
 
 The first isolated chunk-native primitives reproduce the existing flow
 diffusion phase, move one unobstructed whole pebble across chunk seams, and
-advance a guarded sand-only slice in the same global order as the contiguous
-reference. The sand slice rejects mud, pebbles, body reservations,
-suspension, entrainment and any movement that would produce silt or a water
-disturbance. It does not run the full sediment simulation, pebble chains,
+advance guarded sand and mud, including cohesion and existing suspension, in
+the same global order as the contiguous reference. The sediment slice rejects
+pebbles, body reservations, entrainment and any movement that would produce
+silt or a water disturbance. It does not run the full sediment simulation, pebble chains,
 forces, inactive chunks or a shared game. In a 20-step release desktop test
 over one full 640 × 360 region, contiguous diffusion averaged 8.54 ms/step
 and the first chunked implementation 12.42 ms/step, about 45% slower. Its
@@ -143,3 +149,11 @@ peak was 28.0 MB, including both versions. This is a sparse restricted case,
 not representative full-world or phone performance. The guarded step clones
 the complete chunk field before advancing so it can roll back, then allocates
 flow and moved-cell scratch; it is not an incremental or phone-memory design.
+Additional isolated tests compare a cohesive mud cluster across a seam,
+mixed sand and mud, and suspended fine mud moving upward across a seam with
+the contiguous reference. These retain deterministic ordering and material
+counts, but do not demonstrate the missing entrainment or silt effects. Two
+release desktop runs of a sparse five-mud-grain one-step fixture, including
+reset clones, measured 12.54/11.75 ms contiguous and 9.65/9.46 ms chunked.
+One test-process peak was 28.0 MB, including both versions. These figures do
+not represent a dense world, full simulation, or phone performance.
