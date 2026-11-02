@@ -147,6 +147,7 @@ pub struct Sim {
     rng: Rng,
     /// This device's part in a co-op game (none in solo play).
     net: Option<Net>,
+    empty_shared_base: Option<u64>,
 }
 
 /// The seed every world starts with (a replay therefore needs no seed).
@@ -215,6 +216,7 @@ impl Sim {
             next_enemy: 0,
             rng: Rng::new(SEED),
             net: None,
+            empty_shared_base: None,
         }
     }
 
@@ -359,6 +361,7 @@ impl Sim {
     /// updates. A guest puts its own world aside (its clams, shell grit, nets
     /// and rocks) and shows the host's from the host's word ([`Msg::World`]).
     pub fn go_online(&mut self, host: bool) {
+        self.empty_shared_base = None;
         let aside = self.net.take().and_then(|n| n.own);
         let own = match (host, aside) {
             (true, aside) => {
@@ -694,6 +697,7 @@ impl Sim {
     /// world stays open (its crab may stand past one, or where one was).
     /// Shared things asked for and not yet given are never given.
     pub fn go_offline(&mut self) {
+        self.empty_shared_base = None;
         if let Some(own) = self.net.take().and_then(|n| n.own) {
             self.come_home(own);
         }
@@ -872,8 +876,66 @@ impl Sim {
 
     /// Advance the world by one [`STEP`].
     pub fn tick(&mut self) {
+        self.tick_inner(false);
+    }
+
+    /// Start the isolated actor-free shared-cell clock at a fresh game tick.
+    pub fn begin_empty_shared_cells(&mut self) -> bool {
+        if !self.online()
+            || self.tick != 0
+            || !self.crabs.is_empty()
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.empty_shared_base.is_some()
+        {
+            return false;
+        }
+        let Some(cells) = &self.level.cells else {
+            return false;
+        };
+        if !cells.is_game_world() || cells.tick_count() >= u64::MAX - 1_000_000 {
+            return false;
+        }
+        self.empty_shared_base = Some(cells.tick_count());
+        true
+    }
+
+    pub(crate) fn empty_shared_base(&self) -> Option<u64> {
+        self.empty_shared_base
+    }
+
+    /// Isolated actor-free cellular lockstep seam. A validated frame must have
+    /// advanced terrain at the exact solo 30 Hz cadence before this is called.
+    /// Fresh sessions only: crabs, enemies, recording, and nonzero starting
+    /// clocks are not supported. Live game code does not call this method.
+    pub fn tick_empty_shared_cells(&mut self) -> bool {
+        let Some(expected) = self
+            .empty_shared_base
+            .and_then(|base| base.checked_add(self.tick / 4 + 1))
+        else {
+            return false;
+        };
+        if !self.online()
+            || !self.crabs.is_empty()
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.tick >= u64::MAX - 1_000_000
+            || self
+                .level
+                .cells
+                .as_ref()
+                .is_none_or(|cells| !cells.is_game_world() || cells.tick_count() != expected)
+        {
+            return false;
+        }
+        self.tick_inner(true);
+        true
+    }
+
+    fn tick_inner(&mut self, external_terrain: bool) {
         // Move the detailed window before simulating, independent of camera.
-        if let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
+        if !external_terrain
+            && let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
             && let Some(mut cells) = self.level.cells.take()
         {
             cells.follow_player(&self.level, pos.x, pos.y);
@@ -882,7 +944,7 @@ impl Sim {
         // The material experiment advances at 30 Hz inside the fixed-step
         // simulation. Only the local crab participates; co-op is disabled by
         // the experimental entry point until terrain can be synchronized.
-        if let Some(cells) = self.level.cells.as_mut() {
+        if !external_terrain && let Some(cells) = self.level.cells.as_mut() {
             // Do not leave an invisible crab-shaped exclusion behind when
             // the player leaves the experimental cell field.
             cells.clear_game_crab();

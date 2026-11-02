@@ -256,12 +256,30 @@ impl Guest {
             return Err(LockstepError::Diverged);
         }
         let before = frame.after_digest.map(|_| world.clone());
-        if let Err(error) = world.step_host_players(
-            &guest.level,
-            &frame.interests,
-            frame.current,
-            &frame.players,
-        ) {
+        let step_result = if frame.interests.is_empty() && frame.players.is_empty() {
+            if !guest.crabs().is_empty()
+                || !guest.enemies().is_empty()
+                || !guest.tick_count().is_multiple_of(4)
+                || guest
+                    .empty_shared_base()
+                    .and_then(|base| base.checked_add(guest.tick_count() / 4))
+                    != Some(world.tick_count())
+                || frame.current != 0.35
+                || !world.step_empty_shared(frame.current)
+            {
+                Err(HostStepError::UnsupportedPlayer)
+            } else {
+                Ok(())
+            }
+        } else {
+            world.step_host_players(
+                &guest.level,
+                &frame.interests,
+                frame.current,
+                &frame.players,
+            )
+        };
+        if let Err(error) = step_result {
             guest.level.cells = Some(world);
             self.paused = true;
             return Err(LockstepError::Unsupported(error));
@@ -367,6 +385,111 @@ mod tests {
         frame.after_digest = check.then(|| digest(&world).unwrap());
         host.level.cells = Some(world);
         frame.to_bytes().unwrap()
+    }
+
+    #[test]
+    fn actor_free_real_sim_ticks_follow_ordered_frames_and_match_solo() {
+        let make_empty = || {
+            let mut sim = Sim::new(crate::Tuning::default(), crate::Level::test_level());
+            sim.enable_underwater_cells();
+            sim.level.cells.as_mut().unwrap().clear_game_crab();
+            sim
+        };
+        let mut host = make_empty();
+        let mut guest = make_empty();
+        let mut solo = make_empty();
+        host.go_online(true);
+        guest.go_online(false);
+        let mut visit = GuestJoin::new(peer(7));
+        for msg in HostCheckpoint::capture(&host)
+            .unwrap()
+            .messages(77)
+            .unwrap()
+        {
+            visit
+                .accept(&mut guest, peer(7), Some(peer(7)), &msg)
+                .unwrap();
+        }
+        let mut stream = Guest::from_join(&visit).unwrap();
+        assert!(host.begin_empty_shared_cells());
+        assert!(guest.begin_empty_shared_cells());
+        assert!(
+            !guest.tick_empty_shared_cells(),
+            "a scheduled frame is required first"
+        );
+        let mut link = crate::net::FakeLink::steady(0);
+        let mut frame_number = 0;
+        for game_tick in 0..8 {
+            if game_tick % 4 == 0 {
+                let world = host.level.cells.as_mut().unwrap();
+                let mut frame = Frame {
+                    epoch: 77,
+                    number: frame_number,
+                    world_tick: world.tick_count(),
+                    current: 0.35,
+                    interests: vec![],
+                    players: vec![],
+                    after_digest: None,
+                };
+                assert!(world.step_empty_shared(0.35));
+                frame.after_digest = Some(digest(world).unwrap());
+                link.test_post(0, 1, Msg::CellFrame(frame.to_bytes().unwrap()));
+                let mut result = None;
+                link.carry_with(&mut [&mut host, &mut guest], |from, to, sim, msg| {
+                    assert_eq!((from, to), (0, 1));
+                    let decoded = Msg::from_bytes(&msg.to_bytes()).unwrap();
+                    let Msg::CellFrame(bytes) = decoded else {
+                        panic!("expected frame");
+                    };
+                    result = Some(stream.apply(&visit, sim, peer(7), Some(peer(7)), &bytes));
+                });
+                assert_eq!(result, Some(Ok(())));
+                frame_number += 1;
+            }
+            assert!(host.tick_empty_shared_cells());
+            assert!(guest.tick_empty_shared_cells());
+            solo.tick();
+            assert_eq!(host.tick_count(), solo.tick_count());
+            assert_eq!(guest.tick_count(), solo.tick_count());
+            assert_eq!(host.level.cells, solo.level.cells);
+            assert_eq!(guest.level.cells, solo.level.cells);
+        }
+        host.add_crab(PlayerId(3), Vec2::new(400.0, 0.0));
+        let tick = host.tick_count();
+        let terrain = host.level.cells.clone();
+        assert!(
+            !host.tick_empty_shared_cells(),
+            "real players remain unsupported"
+        );
+        assert_eq!(host.tick_count(), tick);
+        assert_eq!(host.level.cells, terrain);
+    }
+
+    #[test]
+    fn actor_free_frames_reject_a_guest_with_a_crab_without_mutation() {
+        let (host, mut guest, visit, mut stream, _) = joined();
+        let before = guest.level.cells.clone();
+        let frame = Frame {
+            epoch: 77,
+            number: 0,
+            world_tick: host.level.cells.as_ref().unwrap().tick_count(),
+            current: 0.35,
+            interests: vec![],
+            players: vec![],
+            after_digest: None,
+        };
+        assert_eq!(
+            stream.apply(
+                &visit,
+                &mut guest,
+                peer(7),
+                Some(peer(7)),
+                &frame.to_bytes().unwrap()
+            ),
+            Err(LockstepError::Unsupported(HostStepError::UnsupportedPlayer))
+        );
+        assert_eq!(guest.level.cells, before);
+        assert!(!guest.begin_empty_shared_cells());
     }
 
     #[test]

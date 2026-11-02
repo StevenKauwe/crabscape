@@ -252,3 +252,14 @@ Frame messages are bounded and validated when decoded. `Sim::receive` ignores
 them, and the game does not wire this experimental delivery path: a real
 transport must bind its callback to an authenticated connection and selected
 host. This is transport testing, not a passing live two-player simulation.
+
+A guarded actor-free game-loop seam now lets fresh, online Sims advance their
+normal fixed ticks while an ordered, source-bound frame advances the same full
+solo material-and-visual step once every four ticks. It records the settled
+terrain's starting clock (currently 9,000), checks the expected cadence, and
+rejects players, enemies, recording, missing frames and changed connections.
+An eight-tick test joins two Sims, delivers the frames through FakeLink, and
+compares both complete terrain states to a third solo Sim at every tick. This
+is an exact narrow fixture, not a playable co-op mode: no player or creature
+can enter this seam, it uses a full world step and digest, and it is not wired
+into the game.

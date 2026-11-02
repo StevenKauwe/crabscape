@@ -2208,6 +2208,15 @@ impl World {
         self.step_visuals();
     }
 
+    /// Exact actor-free step for the isolated co-op frame prototype.
+    pub(crate) fn step_empty_shared(&mut self, current: f32) -> bool {
+        if !self.game || self.crab.is_some() || !current.is_finite() || self.tick == u64::MAX {
+            return false;
+        }
+        self.step(current);
+        true
+    }
+
     /// One material step at the current clock. Kept separate from visual
     /// particles and vegetation so an experimental host can step more than
     /// one disjoint active window without advancing global visuals twice.
