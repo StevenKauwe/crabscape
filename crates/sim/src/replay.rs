@@ -230,7 +230,9 @@ impl Replay {
                     "memory" => {
                         let len = rest
                             .iter()
-                            .try_fold(0usize, |size, word| size.checked_add(word.len() + 1))
+                            .try_fold(rest.len().saturating_sub(1), |size, word| {
+                                size.checked_add(word.len())
+                            })
                             .ok_or_else(|| err("saved memory is too large".into()))?;
                         if len > MAX_START_MEMORY || replay.memory.is_some() {
                             return Err(err("duplicate or oversized saved memory".into()));
