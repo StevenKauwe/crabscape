@@ -167,6 +167,45 @@ impl RegionJournal {
         self.runs.clear();
         Ok(())
     }
+    /// Compact from the authority's live kernel without decoding the bytes
+    /// that were just encoded. External checkpoints must still use the
+    /// validating byte-based replacement/advance methods.
+    pub fn replace_from_local(
+        &mut self,
+        authority: PlayerId,
+        kernel: &RegionKernel,
+    ) -> Result<(), RegionError> {
+        if authority != self.authority || kernel.epoch != self.epoch {
+            return Err(RegionError::InvalidFrame);
+        }
+        if kernel.id != self.id
+            || kernel.sim.tick_count() != self.next_tick
+            || kernel.members() != self.members
+        {
+            return Err(RegionError::InvalidState);
+        }
+        // Encode before changing the retained base, so a failed capture keeps
+        // the previous checkpoint and complete acknowledged journal intact.
+        let checkpoint = kernel.checkpoint()?;
+        self.checkpoint = checkpoint;
+        self.base_tick = self.next_tick;
+        self.runs.clear();
+        Ok(())
+    }
+
+    /// The installed browser view holds the actual simulation; the kernel
+    /// contains its ownership metadata and an empty placeholder simulation.
+    pub fn replace_from_local_view(
+        &mut self,
+        authority: PlayerId,
+        kernel: &mut RegionKernel,
+        view: &mut Sim,
+    ) -> Result<(), RegionError> {
+        std::mem::swap(&mut kernel.sim, view);
+        let result = self.replace_from_local(authority, kernel);
+        std::mem::swap(&mut kernel.sim, view);
+        result
+    }
     pub fn advance_checkpoint(
         &mut self,
         authority: PlayerId,
@@ -325,6 +364,115 @@ impl RegionJournal {
 mod tests {
     use super::*;
     use crate::underwater::region_store::TerrainStore;
+    #[test]
+    fn local_compaction_matches_validated_checkpoint_and_keeps_future_history_exact() {
+        let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+        sim.enable_underwater_cells();
+        sim.populate();
+        let mut terrain = TerrainStore::new(sim.level.cells.take().unwrap()).unwrap();
+        let mut archive = EntityArchive::new(sim).unwrap();
+        let (epoch, world) = terrain
+            .grant(
+                RegionId(1),
+                CellRegion {
+                    x: 0,
+                    y: 0,
+                    width: 256,
+                    height: 256,
+                },
+                &archive.sim.level,
+            )
+            .unwrap();
+        let mut live = archive
+            .extract(RegionId(1), epoch, &[PlayerId(0)], world)
+            .unwrap();
+        let mut journal = RegionJournal::new(&live, PlayerId(0)).unwrap();
+        for tick in 0..12 {
+            let frame = RegionFrame {
+                tick,
+                controls: vec![(PlayerId(0), Controls::default())],
+                actions: vec![],
+            };
+            live.tick(&frame).unwrap();
+            journal.append(PlayerId(0), epoch, &[frame]).unwrap();
+        }
+        let before = journal.clone();
+        assert!(journal.replace_from_local(PlayerId(7), &live).is_err());
+        let old_id = live.id;
+        live.id = RegionId(99);
+        assert!(journal.replace_from_local(PlayerId(0), &live).is_err());
+        live.id = old_id;
+        live.epoch = RegionEpoch(epoch.0 + 1);
+        assert!(journal.replace_from_local(PlayerId(0), &live).is_err());
+        live.epoch = epoch;
+        assert!(
+            journal
+                .replace_from_local(PlayerId(0), &before.base_kernel().unwrap())
+                .is_err()
+        );
+        assert!(
+            journal
+                .replace_checkpoint(PlayerId(0), epoch, vec![0; 32])
+                .is_err()
+        );
+        assert_eq!(
+            journal, before,
+            "failed captures must not discard acknowledged inputs"
+        );
+        let checkpoint = live.checkpoint().unwrap();
+        let mut validated = journal.clone();
+        validated
+            .replace_checkpoint(PlayerId(0), epoch, checkpoint)
+            .unwrap();
+        journal.replace_from_local(PlayerId(0), &live).unwrap();
+        assert_eq!(journal, validated);
+
+        let mut view = Sim::with_one_crab(Vec2::ZERO);
+        let mut installed = live.install_view(&mut view);
+        let view_hash = view.state_hash();
+        let mut captured_view = before.clone();
+        assert!(
+            captured_view
+                .replace_from_local_view(PlayerId(7), &mut installed, &mut view)
+                .is_err()
+        );
+        assert_eq!(
+            view.state_hash(),
+            view_hash,
+            "failed view capture restores the installed simulation"
+        );
+        assert_eq!(captured_view, before);
+        captured_view
+            .replace_from_local_view(PlayerId(0), &mut installed, &mut view)
+            .unwrap();
+        assert_eq!(captured_view, journal);
+        assert_eq!(view.state_hash(), view_hash);
+        for tick in 12..24 {
+            let frame = RegionFrame {
+                tick,
+                controls: vec![(
+                    PlayerId(0),
+                    Controls {
+                        walk: 0.25,
+                        ..Controls::default()
+                    },
+                )],
+                actions: vec![],
+            };
+            installed.tick_view(&mut view, &frame).unwrap();
+            captured_view.append(PlayerId(0), epoch, &[frame]).unwrap();
+        }
+        assert_eq!(captured_view.pending_ticks(), 12);
+        assert_eq!(
+            captured_view.materialize().unwrap().sim.state_hash(),
+            view.state_hash()
+        );
+        assert_eq!(
+            RegionJournal::from_bytes(&captured_view.to_bytes().unwrap()).unwrap(),
+            captured_view
+        );
+    }
+
     #[test]
     fn acknowledged_inputs_recover_exactly_after_authority_loss_and_bad_batches_are_atomic() {
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
