@@ -325,6 +325,8 @@ impl ChunkFlow {
         if self.silt.len() >= 1200 {
             return;
         }
+        #[cfg(test)]
+        super::dirty_oracle::mark_global();
         for n in 0..6 {
             let angle = libm::sinf(self.tick as f32 * 0.37 + n as f32 * 2.4);
             self.silt.push(Silt {
@@ -1339,6 +1341,8 @@ impl ChunkFlow {
                 self.swap_material((a, ai), (b, bi));
             }
         }
+        #[cfg(test)]
+        super::dirty_oracle::mark_global();
         self.pebbles[id as usize - 1].x += dx;
         self.pebbles[id as usize - 1].y += dy;
         true
@@ -1481,6 +1485,8 @@ impl ChunkFlow {
                 self.swap_material(from, to);
             }
         }
+        #[cfg(test)]
+        super::dirty_oracle::mark_global();
         self.pebbles[id as usize - 1].x += dx;
         self.pebbles[id as usize - 1].y += dy;
         self.pebble_motion.resize(self.pebbles.len(), (0, 0, 0));
@@ -1606,6 +1612,11 @@ impl ChunkFlow {
                 next[chunk][slot] = (vx / weight, vy / weight);
             }
         }
+        #[cfg(test)]
+        {
+            super::dirty_oracle::mark_all_active();
+            super::dirty_oracle::mark_global();
+        }
         for (chunk, flow) in self.chunks.iter_mut().zip(next) {
             chunk.flow = flow;
         }
@@ -1705,6 +1716,11 @@ impl ChunkFlow {
                     }
                 }
             }
+        }
+        #[cfg(test)]
+        {
+            super::dirty_oracle::mark_all_active();
+            super::dirty_oracle::mark_global();
         }
         for (chunk, flow) in self.chunks.iter_mut().zip(next) {
             chunk.flow = flow;

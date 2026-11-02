@@ -645,6 +645,13 @@ impl World {
             return false;
         }
         if !self.opening_edge_opened {
+            #[cfg(test)]
+            {
+                dirty_oracle::mark_global();
+                for tile in 0..WIDTH.div_ceil(TERRAIN_CHUNK_CELLS as usize) {
+                    dirty_oracle::mark_active_tile(tile);
+                }
+            }
             // The old opening-only field had an artificial solid bottom row.
             // Replace that seam with the actual demo terrain before streaming.
             for col in 0..WIDTH {
@@ -769,6 +776,11 @@ impl World {
     }
 
     fn shift_window(&mut self, level: &crate::Level, next_origin: (i32, i32)) {
+        #[cfg(test)]
+        {
+            dirty_oracle::mark_all_active();
+            dirty_oracle::mark_global();
+        }
         let old = self.origin;
         let dx = next_origin.0 - old.0;
         let dy = next_origin.1 - old.1;
@@ -792,6 +804,8 @@ impl World {
                 }
                 let i = y * WIDTH + x;
                 let (key, slot) = locate(gx, gy);
+                #[cfg(test)]
+                dirty_oracle::mark_sleeping(key);
                 self.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
                     cell: self.cells[i],
                     flow: self.flow[i],
@@ -821,6 +835,8 @@ impl World {
                     }
                 } else {
                     let (key, slot) = locate(gx, gy);
+                    #[cfg(test)]
+                    dirty_oracle::mark_sleeping(key);
                     self.sleeping
                         .get_mut(&key)
                         .and_then(|chunk| chunk.cells[slot].take())
@@ -850,6 +866,10 @@ impl World {
                 grain[i] = value.grain;
                 owner[i] = value.owner;
             }
+        }
+        #[cfg(test)]
+        for key in self.sleeping.keys() {
+            dirty_oracle::mark_sleeping(*key);
         }
         self.sleeping
             .retain(|_, chunk| chunk.cells.iter().any(Option::is_some));

@@ -5,24 +5,46 @@ use super::{HEIGHT, TERRAIN_CHUNK_CELLS, WIDTH, World};
 use std::collections::{BTreeMap, BTreeSet};
 
 thread_local! {
-    static TOUCHED: std::cell::RefCell<Option<BTreeSet<(usize, usize)>>> = const { std::cell::RefCell::new(None) };
+    static TOUCHED: std::cell::RefCell<Option<Dirty>> = const { std::cell::RefCell::new(None) };
 }
 
 pub(super) fn mark_active_tile(tile: usize) {
     let cols = WIDTH.div_ceil(TERRAIN_CHUNK_CELLS as usize);
     TOUCHED.with_borrow_mut(|trace| {
         if let Some(trace) = trace {
-            trace.insert((tile % cols, tile / cols));
+            trace.active.insert((tile % cols, tile / cols));
         }
     });
 }
-
-fn trace(f: impl FnOnce()) -> BTreeSet<(usize, usize)> {
+pub(super) fn mark_all_active() {
+    let side = TERRAIN_CHUNK_CELLS as usize;
+    for tile in 0..WIDTH.div_ceil(side) * HEIGHT.div_ceil(side) {
+        mark_active_tile(tile);
+    }
+}
+pub(super) fn mark_sleeping(id: (i32, i32)) {
+    TOUCHED.with_borrow_mut(|trace| {
+        if let Some(trace) = trace {
+            trace.sleeping.insert(id);
+        }
+    });
+}
+pub(super) fn mark_global() {
+    TOUCHED.with_borrow_mut(|trace| {
+        if let Some(trace) = trace {
+            trace.global = true;
+        }
+    });
+}
+fn trace_world(f: impl FnOnce()) -> Dirty {
     TOUCHED.with_borrow_mut(|slot| {
-        assert!(slot.replace(BTreeSet::new()).is_none());
+        assert!(slot.replace(Dirty::default()).is_none());
     });
     f();
     TOUCHED.with_borrow_mut(|slot| slot.take().expect("active trace"))
+}
+fn trace(f: impl FnOnce()) -> BTreeSet<(usize, usize)> {
+    trace_world(f).active
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -291,19 +313,19 @@ mod tests {
         before.clear_game_crab();
         assert!(before.add_pebble(62, 100, 4, 250));
         let mut chunks = ChunkFlow::from_world(&before);
-        let touched = trace(|| assert!(chunks.push_pebble_chain(1, 1, 0, 64)));
+        let touched = trace_world(|| assert!(chunks.push_pebble_chain(1, 1, 0, 64)));
         let mut after = before.clone();
         assert!(chunks.write_material_to(&mut after));
         let changes = dirty(&before, &after).unwrap();
-        assert!(changes.global); // Pebble position and motion need separate tracking.
+        assert!(changes.global && touched.global);
         assert!(!changes.active.is_empty());
         assert!(
-            changes.active.is_subset(&touched),
+            changes.active.is_subset(&touched.active),
             "oracle={:?} traced={:?}",
             changes.active,
             touched
         );
-        assert!(touched.contains(&(0, 1)) && touched.contains(&(1, 1)));
+        assert!(touched.active.contains(&(0, 1)) && touched.active.contains(&(1, 1)));
     }
 
     #[test]
@@ -336,6 +358,41 @@ mod tests {
             changes.active,
             touched
         );
+    }
+
+    #[test]
+    fn diffusion_and_streaming_marks_cover_the_exhaustive_oracle() {
+        use crate::underwater::chunk_flow::ChunkFlow;
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        for batched in [false, true] {
+            let before = world.clone();
+            let mut chunks = ChunkFlow::from_world(&before);
+            let touched = trace_world(|| {
+                assert!(if batched {
+                    chunks.step_batched(0.35)
+                } else {
+                    chunks.step(0.35)
+                });
+            });
+            assert!(chunks.write_material_to(&mut world));
+            let changed = dirty(&before, &world).unwrap();
+            assert!(changed.active.is_subset(&touched.active));
+            assert!(changed.global && touched.global);
+        }
+        for (x, y) in [(4400.0, -700.0), (160.0, 0.0)] {
+            let before = world.clone();
+            let touched = trace_world(|| assert!(world.follow_player(&level, x, y)));
+            let changed = dirty(&before, &world).unwrap();
+            assert!(changed.active.is_subset(&touched.active));
+            assert!(
+                changed.sleeping.is_subset(&touched.sleeping),
+                "missing sleeping {:?}",
+                changed.sleeping.difference(&touched.sleeping)
+            );
+            assert!(!changed.global || touched.global);
+            assert!(!changed.sleeping.is_empty());
+        }
     }
 
     #[test]
