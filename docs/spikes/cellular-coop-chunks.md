@@ -301,3 +301,14 @@ sequencing are performed by the test harness, not a wired production session.
 The prototype clones whole state and hashes terrain, and guest collision or
 window state between material frames is not reconciled. This is a narrow
 integration experiment, not playable co-op or evidence of phone performance.
+
+An isolated chunk-material primitive now permits up to three additional
+reservations alongside the solo body. It sorts additional IDs, rejects
+intersecting protected regions and boundaries that cut a body margin, keeps
+sand and mud out of each protected area, and applies the existing slide-off
+rule to the body blocking a grain. A separated three-body fixture compares
+local behavior around each body with the one-body contiguous reference,
+checks seam behavior, material conservation and input-order determinism.
+Pebbles, jump forces and digging are rejected while extra reservations are
+present. This is not a full multi-player force model: body overlap, aggregate
+contact, shared digging and the real Sim integration still need work.

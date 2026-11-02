@@ -39,8 +39,20 @@ pub struct ChunkFlow {
     crab: Option<(i32, i32)>,
     crab_half_x: i32,
     crab_half_y: i32,
+    extra_bodies: Vec<BodyReservation>,
     sand_properties: SedimentProperties,
     mud_properties: SedimentProperties,
+}
+
+/// An additional local-cell body. The primary body's reservation is copied
+/// from the solo world; IDs make additional-body ordering deterministic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BodyReservation {
+    pub player: crate::PlayerId,
+    pub x: i32,
+    pub y: i32,
+    pub half_x: i32,
+    pub half_y: i32,
 }
 
 type CellLocation = (usize, usize);
@@ -96,6 +108,7 @@ impl ChunkFlow {
             crab: world.crab,
             crab_half_x: world.crab_half_x,
             crab_half_y: world.crab_half_y,
+            extra_bodies: Vec::new(),
             sand_properties: world.sand_properties,
             mud_properties: world.mud_properties,
         }
@@ -319,6 +332,7 @@ impl ChunkFlow {
             || !matches!((dx, dy), (1, 0) | (-1, 0) | (0, 1) | (0, -1))
             || force > 64
             || !self.supported_crab()
+            || !self.extra_bodies.is_empty()
             || self.crab.is_none()
             || self.crab_half_x > 16
             || self.crab_half_y > 16
@@ -414,6 +428,7 @@ impl ChunkFlow {
             || !foot_y.is_finite()
             || !(-64.0..=WIDTH as f32 + 64.0).contains(&x)
             || !(-64.0..=HEIGHT as f32 + 64.0).contains(&foot_y)
+            || !self.extra_bodies.is_empty()
             || !self.supported_crab()
             || !self.supported_pebbles()
         {
@@ -498,6 +513,74 @@ impl ChunkFlow {
         true
     }
 
+    /// Install up to three separated additional body reservations. Reject
+    /// ambiguous/overlapping protected areas and leave the old list intact.
+    /// This is isolated material stepping, not multiplayer movement or forces.
+    pub fn set_extra_bodies(
+        &mut self,
+        bodies: &[BodyReservation],
+    ) -> Result<(), SedimentStepError> {
+        if bodies.len() > 3 || !self.supported_crab() || self.crab.is_none() {
+            return Err(SedimentStepError::Unsupported);
+        }
+        if !bodies.is_empty()
+            && self.crab.is_some_and(|(x, y)| {
+                x - self.crab_half_x - 5 < 0
+                    || x + self.crab_half_x + 5 >= WIDTH as i32
+                    || y - self.crab_half_y - 5 < 0
+                    || y + self.crab_half_y + 5 >= HEIGHT as i32
+            })
+        {
+            return Err(SedimentStepError::Unsupported);
+        }
+        let mut sorted = bodies.to_vec();
+        sorted.sort_unstable_by_key(|b| b.player);
+        for (i, body) in sorted.iter().enumerate() {
+            if !(0..WIDTH as i32).contains(&body.x)
+                || !(0..HEIGHT as i32).contains(&body.y)
+                || !(1..=64).contains(&body.half_x)
+                || !(1..=64).contains(&body.half_y)
+                || body.x - body.half_x - 5 < 0
+                || body.x + body.half_x + 5 >= WIDTH as i32
+                || body.y - body.half_y - 5 < 0
+                || body.y + body.half_y + 5 >= HEIGHT as i32
+                || i > 0 && sorted[i - 1].player == body.player
+            {
+                return Err(SedimentStepError::Unsupported);
+            }
+            let overlaps = |x: i32, y: i32, hx: i32, hy: i32| {
+                (body.x - x).abs() <= body.half_x + hx + 10
+                    && (body.y - y).abs() <= body.half_y + hy + 10
+            };
+            if self
+                .crab
+                .is_some_and(|(x, y)| overlaps(x, y, self.crab_half_x, self.crab_half_y))
+                || sorted[..i]
+                    .iter()
+                    .any(|b| overlaps(b.x, b.y, b.half_x, b.half_y))
+            {
+                return Err(SedimentStepError::Unsupported);
+            }
+        }
+        self.extra_bodies = sorted;
+        Ok(())
+    }
+
+    fn blocking_body_below(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let blocks = |cx: i32, cy: i32, hx: i32, hy: i32| {
+            y > cy && (x - cx).abs() <= hx + 4 && (y - 1 - cy).abs() <= hy + 4
+        };
+        if let Some((cx, cy)) = self.crab
+            && blocks(cx, cy, self.crab_half_x, self.crab_half_y)
+        {
+            return Some((cx, cy));
+        }
+        self.extra_bodies
+            .iter()
+            .find(|b| blocks(b.x, b.y, b.half_x, b.half_y))
+            .map(|b| (b.x, b.y))
+    }
+
     fn supported_crab(&self) -> bool {
         self.crab.is_none_or(|(x, y)| {
             (-1000..=WIDTH as i32 + 1000).contains(&x)
@@ -513,6 +596,10 @@ impl ChunkFlow {
                 && !self.crab.is_some_and(|(cx, cy)| {
                     (x - cx).abs() <= self.crab_half_x + 4 && (y - cy).abs() <= self.crab_half_y + 4
                 })
+                && !self
+                    .extra_bodies
+                    .iter()
+                    .any(|b| (x - b.x).abs() <= b.half_x + 4 && (y - b.y).abs() <= b.half_y + 4)
         })
     }
 
@@ -524,6 +611,7 @@ impl ChunkFlow {
             return Err(SedimentStepError::Invalid);
         }
         if !self.supported_crab()
+            || (!self.extra_bodies.is_empty() && !self.pebbles.is_empty())
             || !self.supported_pebbles()
             || self.tick + 1 > u64::MAX - self.pebbles.len() as u64
         {
@@ -713,8 +801,7 @@ impl ChunkFlow {
                     break;
                 }
                 if !did_move
-                    && let Some((cx, cy)) = next.crab
-                    && y as i32 > cy
+                    && let Some((cx, _cy)) = next.blocking_body_below(x as i32, y as i32)
                     && let Some((below_c, below_i)) = Self::signed_location(x as i32, y as i32 - 1)
                     && next.chunks[below_c].cells[below_i] == Cell::Water
                     && !next.can_receive_grain(x as i32, y as i32 - 1)
@@ -2164,6 +2251,111 @@ mod tests {
         assert!(!chunked.react_to_jump(64.0, 70.0));
         assert!(!chunked.react_to_jump(f32::NAN, 70.0));
         assert!(chunked == before);
+    }
+
+    #[test]
+    fn separated_body_reservations_match_solo_rules_and_conserve_grains() {
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        world.flow.fill((0.0, 0.0));
+        world.set_game_crab(64.0, 150.0, 3.0, 3.0);
+        world.mud_properties.erosion_threshold = 10.0;
+        for (x, material) in [(64, Cell::Sand), (192, Cell::Mud), (320, Cell::Sand)] {
+            let i = World::index(x, 158).unwrap();
+            world.cells[i] = material;
+            world.grain[i] = 240;
+        }
+        let b = BodyReservation {
+            player: crate::PlayerId(2),
+            x: 192,
+            y: 150,
+            half_x: 3,
+            half_y: 3,
+        };
+        let c = BodyReservation {
+            player: crate::PlayerId(1),
+            x: 320,
+            y: 150,
+            half_x: 3,
+            half_y: 3,
+        };
+        let mut chunked = ChunkFlow::from_world(&world);
+        let mut reordered = chunked.clone();
+        assert_eq!(chunked.set_extra_bodies(&[b, c]), Ok(()));
+        assert_eq!(reordered.set_extra_bodies(&[c, b]), Ok(()));
+        assert!(chunked == reordered);
+        assert_eq!(chunked.step_sediment(0.0), Ok(()));
+        assert_eq!(reordered.step_sediment(0.0), Ok(()));
+        assert!(chunked == reordered);
+        for (cx, material) in [(64, Cell::Sand), (192, Cell::Mud), (320, Cell::Sand)] {
+            let mut solo = world.clone();
+            solo.set_game_crab(cx as f32, 150.0, 3.0, 3.0);
+            solo.tick += 1;
+            solo.step_material(0.0);
+            assert_eq!(chunked.cell(cx as usize + 1, 158), Some(material));
+            for y in 145..166 {
+                for x in cx - 10..=cx + 10 {
+                    let index = World::index(x, y).unwrap();
+                    let (tile, slot) = ChunkFlow::locate(x as usize, y as usize);
+                    assert_eq!(chunked.chunks[tile].cells[slot], solo.cells[index]);
+                    assert_eq!(chunked.chunks[tile].flow[slot], solo.flow[index]);
+                    assert_eq!(chunked.chunks[tile].grain[slot], solo.grain[index]);
+                    assert_eq!(chunked.chunks[tile].suspended[slot], solo.suspended[index]);
+                }
+            }
+        }
+        let mut sand = 0;
+        let mut mud = 0;
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                match chunked.cell(x, y) {
+                    Some(Cell::Sand) => sand += 1,
+                    Some(Cell::Mud) => mud += 1,
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!((sand, mud), (2, 1));
+    }
+
+    #[test]
+    fn ambiguous_bodies_pebbles_and_forces_are_rejected_atomically() {
+        let mut world = sand_fixture(0);
+        world.set_game_crab(64.0, 150.0, 3.0, 3.0);
+        let body = BodyReservation {
+            player: crate::PlayerId(2),
+            x: 192,
+            y: 150,
+            half_x: 3,
+            half_y: 3,
+        };
+        let mut chunked = ChunkFlow::from_world(&world);
+        assert_eq!(chunked.set_extra_bodies(&[body]), Ok(()));
+        let before = chunked.clone();
+        let overlapping = BodyReservation { x: 66, ..body };
+        assert_eq!(
+            chunked.set_extra_bodies(&[overlapping]),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert_eq!(
+            chunked.set_extra_bodies(&[body, body]),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert_eq!(
+            chunked.push_for_crab(64.0, 150.0, 1, 0, 48),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(!chunked.react_to_jump(64.0, 150.0));
+        assert!(chunked == before);
+        assert!(world.add_pebble(250, 200, 4, 250));
+        let mut with_pebble = ChunkFlow::from_world(&world);
+        assert_eq!(with_pebble.set_extra_bodies(&[body]), Ok(()));
+        let before = with_pebble.clone();
+        assert_eq!(
+            with_pebble.step_sediment(0.0),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(with_pebble == before);
     }
 
     #[test]
