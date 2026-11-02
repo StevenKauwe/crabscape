@@ -46,6 +46,12 @@ fn answer(mut stream: TcpStream, root: &Path, (w, h): (u32, u32)) -> std::io::Re
     }
     let path = target;
     let path = path.split(['?', '#']).next().unwrap_or("/");
+    // Exercise worker URLs under a preview prefix without creating a second
+    // copy of the site's generated files.
+    let path = path
+        .strip_prefix("/__worker_preview")
+        .filter(|p| p.starts_with("/cellworker/"))
+        .unwrap_or(path);
     let (status, kind, body) =
         match file_for(root, path).and_then(|p| Some((std::fs::read(&p).ok()?, p))) {
             Some((body, p)) => ("200 OK", content_type(&p), body),

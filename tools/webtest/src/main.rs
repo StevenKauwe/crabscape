@@ -38,6 +38,8 @@
 //! screenshots as PREFIX-1.png, ...; with `--style-shots PREFIX` it saves PREFIX-oil.png and PREFIX-ink.png.
 //! WebKitGTK on Linux is not iOS: same JavaScript, WebAssembly and WebGL code, but not the same GPU or memory limits.
 
+#[path = "../../../src/cell_worker_path.rs"]
+mod cell_worker_path;
 mod driver;
 mod serve;
 
@@ -224,6 +226,58 @@ impl Test<'_> {
             pump(0.25);
         }
         Ok(false)
+    }
+
+    /// Load the real Rust/Wasm worker through preview-build URLs, transfer a
+    /// known checkpoint payload, and compare its zlib bytes to native Rust.
+    fn cellular_worker(&mut self, preview: &str) -> Result<()> {
+        let path = cell_worker_path::worker_path(preview);
+        let run = format!(
+            r#"(() => {{
+          window.__cellworkerTest = {{ done: false }};
+          try {{
+            const worker = new Worker({path:?}, {{ type: "module" }});
+            worker.onerror = e => {{ e.preventDefault(); window.__cellworkerTest = {{ done: true, error: e.message }}; worker.terminate(); }};
+            worker.onmessage = e => {{
+              if (e.data.state === "ready") {{
+                const input = Uint8Array.from({{ length: 32 }}, (_, i) => i);
+                worker.postMessage({{ id: 1, bytes: input.buffer }}, [input.buffer]);
+                window.__cellworkerTest.detached = input.byteLength === 0;
+              }} else {{
+                window.__cellworkerTest = {{ done: true, state: e.data.state,
+                  detached: window.__cellworkerTest.detached,
+                  bytes: e.data.bytes ? Array.from(new Uint8Array(e.data.bytes)) : [] }};
+                worker.terminate();
+              }}
+            }};
+          }} catch (e) {{ window.__cellworkerTest = {{ done: true, error: String(e) }}; }}
+          return true;
+        }})()"#
+        );
+        self.eval(&run)?;
+        let done = self.wait_for("window.__cellworkerTest.done", 20.0)?;
+        let result = self.eval("window.__cellworkerTest")?;
+        let expected = serde_json::json!([
+            120, 1, 99, 96, 100, 98, 102, 97, 101, 99, 231, 224, 228, 226, 230, 225, 229, 227, 23,
+            16, 20, 18, 22, 17, 21, 19, 151, 144, 148, 146, 150, 145, 149, 147, 7, 0, 21, 112, 1,
+            241
+        ]);
+        let success = done
+            && result["state"] == "done"
+            && result["detached"] == true
+            && result["bytes"] == expected;
+        self.check(
+            success,
+            format!(
+                "cellular worker compresses bytes under preview path {preview}{}",
+                if success {
+                    String::new()
+                } else {
+                    format!(" ({result})")
+                }
+            ),
+        );
+        Ok(())
     }
 
     /// The crab's state, as the game writes it on the canvas: (x, y, grounded).
@@ -461,6 +515,10 @@ impl Test<'_> {
         );
         if !started {
             return Ok(()); // nothing else can work
+        }
+        if self.framed {
+            self.cellular_worker("/__worker_preview")?;
+            self.cellular_worker("/__worker_preview/")?;
         }
         let size = self.eval(&format!(
             "(c => [c.width, c.height, c.clientWidth, c.clientHeight])({CANVAS})"

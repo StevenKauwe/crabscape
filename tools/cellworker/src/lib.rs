@@ -17,7 +17,39 @@ pub fn compress(bytes: &[u8]) -> Result<Vec<u8>, &'static str> {
     if compressed.len() > MAX_BYTES {
         return Err("compressed checkpoint is too large");
     }
+    if !matches_original(&compressed, bytes) {
+        return Err("compressed checkpoint failed verification");
+    }
     Ok(compressed)
+}
+
+/// Verify before reporting success, using a fixed buffer rather than keeping a
+/// second uncompressed checkpoint in memory. The host keeps its previous
+/// save if compression or verification fails.
+fn matches_original(compressed: &[u8], expected: &[u8]) -> bool {
+    use miniz_oxide::{
+        DataFormat, MZFlush, MZStatus,
+        inflate::stream::{InflateState, inflate},
+    };
+    let mut state = InflateState::new_boxed(DataFormat::Zlib);
+    let mut buffer = vec![0; 32 * 1024];
+    let (mut read, mut written) = (0usize, 0usize);
+    loop {
+        let result = inflate(&mut state, &compressed[read..], &mut buffer, MZFlush::None);
+        read += result.bytes_consumed;
+        let end = written + result.bytes_written;
+        if end > expected.len() || buffer[..result.bytes_written] != expected[written..end] {
+            return false;
+        }
+        written = end;
+        match result.status {
+            Ok(MZStatus::StreamEnd) => {
+                return read == compressed.len() && written == expected.len();
+            }
+            Ok(_) if result.bytes_consumed != 0 || result.bytes_written != 0 => {}
+            _ => return false,
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -116,5 +148,23 @@ mod tests {
             compress(&vec![0; MAX_BYTES + 1]),
             Err("checkpoint is too large")
         );
+    }
+
+    #[test]
+    fn detects_corruption_truncation_extra_bytes_and_wrong_contents() {
+        let input: Vec<_> = (0..200_000)
+            .map(|n| ((n * 31 + n / 13) % 256) as u8)
+            .collect();
+        let packed = compress(&input).unwrap();
+        assert!(matches_original(&packed, &input));
+        assert!(!matches_original(&packed, &input[..input.len() - 1]));
+        assert!(!matches_original(&packed[..packed.len() - 1], &input));
+        let mut damaged = packed.clone();
+        damaged[5] ^= 1;
+        assert!(!matches_original(&damaged, &input));
+        damaged = packed.clone();
+        damaged.push(0);
+        assert!(!matches_original(&damaged, &input));
+        assert!(matches_original(&compress(&[]).unwrap(), &[]));
     }
 }
