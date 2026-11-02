@@ -31,7 +31,8 @@ pub fn enabled() -> bool {
 }
 
 /// The cellular drafts and the mobile camera-fix preview default to the
-/// experiment. The live site and other previews keep their usual default.
+/// experiment; `?boring` selects the normal game. The live site and other
+/// previews keep their usual default.
 #[cfg(any(test, target_arch = "wasm32"))]
 fn browser_cells_enabled(path: &str, search: &str) -> bool {
     let mut params = search.trim_start_matches('?').split('&');
