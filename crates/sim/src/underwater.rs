@@ -2217,26 +2217,37 @@ impl World {
         true
     }
 
-    /// Apply the terrain part of one stationary solo crab's material tick.
-    pub(crate) fn step_idle_spectator(
+    /// Apply the terrain part of one solo crab's guarded walking tick.
+    /// In this spectator-only frame, wake fields carry pre-tick velocity.
+    pub(crate) fn step_walking_spectator(
         &mut self,
         level: &crate::Level,
+        tuning: &crate::Tuning,
         p: &HostPlayerForce,
     ) -> bool {
         if !self.game
             || self.tick >= u64::MAX - 1_000_000
-            || [p.x, p.y, p.half_width, p.half_height]
-                .iter()
-                .any(|v| !v.is_finite())
+            || [
+                p.x,
+                p.y,
+                p.half_width,
+                p.half_height,
+                p.wake_x,
+                p.wake_y,
+                tuning.walk_speed,
+            ]
+            .iter()
+            .any(|v| !v.is_finite())
             || p.x.abs() > 1_000_000.0
             || p.y.abs() > 1_000_000.0
             || !(0.0..=64.0).contains(&p.half_width)
             || !(0.0..=64.0).contains(&p.half_height)
             || p.half_width == 0.0
             || p.half_height == 0.0
-            || p.wake_x != 0.0
-            || p.wake_y != 0.0
-            || p.walking != 0
+            || tuning.walk_speed <= 0.0
+            || p.wake_x.abs() > 1000.0
+            || !(-1000.0..=0.0).contains(&p.wake_y)
+            || !(-1..=1).contains(&p.walking)
             || p.jumped
             || p.dig.is_some()
         {
@@ -2248,6 +2259,18 @@ impl World {
         if next.contains_world(p.x, p.y) {
             let (x, y) = next.local_cell(p.x, p.y);
             next.set_game_crab(x, y, p.half_width / GAME_CELL, p.half_height / GAME_CELL);
+            if p.grounded && p.walking != 0 {
+                next.brush_walking_sand(i32::from(p.walking));
+            }
+            let wake_x = (p.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+            let wake_y = (p.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+            next.react_to_swim(x, y, wake_x, wake_y);
+            next.stir(
+                x,
+                y,
+                p.wake_x * crate::physics::STEP / 4.0 * 0.45,
+                p.wake_y * crate::physics::STEP / 4.0 * 0.45,
+            );
         }
         next.step(0.35);
         *self = next;

@@ -272,3 +272,16 @@ crab, ordinary crab messages are discarded by this fixture, and host movement,
 actions, creatures and active recording are rejected. This is one terrain
 tick, not player replication, movement prediction or a playable co-op test;
 full-world cloning and digesting remain unsuitable for phone gameplay.
+
+The isolated spectator seam also supports one host crab walking horizontally:
+it captures the real pre-tick controls and velocity, then reproduces the solo
+body reservation, walking brush, swim wake and water stirring. A 16-game-tick
+FakeLink test verifies actual crab motion and a nonzero wake, compares four
+material steps to solo, and checks that a bad post-step digest rolls terrain
+back. The host's ordinary crab updates are intentionally not delivered to the
+guest; the guest has no player. Between material frames the host can update its
+reservation and active window without a corresponding guest update, so this
+does not establish off-tick collision or rendering parity. Jumping, digging,
+upward motion, guest crabs and creatures are still rejected. The spectator
+frame uses its wake fields for pre-tick velocity, unlike the separate host
+window prototype; the two interpretations are selected by the frame shape.

@@ -39,6 +39,8 @@ pub struct Frame {
     #[serde(deserialize_with = "bounded_vec")]
     pub interests: Vec<Interest>,
     #[serde(deserialize_with = "bounded_vec")]
+    /// In the one-player spectator path (no interests), wake_x/y encode
+    /// the host crab's pre-tick velocity, rather than host-window thrust.
     pub players: Vec<HostPlayerForce>,
     pub after_digest: Option<u64>,
 }
@@ -266,7 +268,7 @@ impl Guest {
                     .and_then(|base| base.checked_add(guest.tick_count() / 4))
                     != Some(world.tick_count())
                 || frame.current != 0.35
-                || !world.step_idle_spectator(&guest.level, &frame.players[0])
+                || !world.step_walking_spectator(&guest.level, &guest.tuning, &frame.players[0])
             {
                 Err(HostStepError::UnsupportedPlayer)
             } else {
@@ -508,8 +510,8 @@ mod tests {
         let mut unsupported = guest.level.cells.clone().unwrap();
         let before = unsupported.clone();
         let mut moving = force;
-        moving.wake_x = 1.0;
-        assert!(!unsupported.step_idle_spectator(&guest.level, &moving));
+        moving.jumped = true;
+        assert!(!unsupported.step_walking_spectator(&guest.level, &guest.tuning, &moving));
         assert_eq!(unsupported, before);
         let world_tick = host.level.cells.as_ref().unwrap().tick_count();
         host.tick();
@@ -553,6 +555,106 @@ mod tests {
             host.idle_shared_cell_force().is_none(),
             "movement is not supported by this spectator path"
         );
+    }
+
+    #[test]
+    fn walking_host_terrain_matches_solo_and_spectator_over_fake_link() {
+        let mut host = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        host.enable_underwater_cells();
+        let mut solo = host.clone();
+        let mut guest = Sim::new(crate::Tuning::default(), crate::Level::test_level());
+        guest.enable_underwater_cells();
+        host.go_online(true);
+        guest.go_online(false);
+        let mut visit = GuestJoin::new(peer(7));
+        for msg in HostCheckpoint::capture(&host)
+            .unwrap()
+            .messages(77)
+            .unwrap()
+        {
+            visit
+                .accept(&mut guest, peer(7), Some(peer(7)), &msg)
+                .unwrap();
+        }
+        assert!(guest.begin_empty_shared_cells());
+        let mut stream = Guest::from_join(&visit).unwrap();
+        let mut link = crate::net::FakeLink::steady(0);
+        let controls = crate::Controls {
+            walk: 1.0,
+            ..Default::default()
+        };
+        host.set_controls(PlayerId(0), controls);
+        solo.set_controls(PlayerId(0), controls);
+        let start = host.crab(PlayerId(0)).unwrap().mover.pos;
+        let mut frames = 0;
+        let mut saw_moving_wake = false;
+        for game_tick in 0..16 {
+            let capture = if game_tick % 4 == 0 {
+                let force = host
+                    .walking_shared_cell_force()
+                    .expect("supported horizontal walking");
+                saw_moving_wake |= force.wake_x != 0.0;
+                Some((host.level.cells.as_ref().unwrap().tick_count(), force))
+            } else {
+                None
+            };
+            host.tick();
+            solo.tick();
+            assert_eq!(host.level.cells, solo.level.cells);
+            if let Some((world_tick, force)) = capture {
+                let frame = Frame {
+                    epoch: 77,
+                    number: frames,
+                    world_tick,
+                    current: 0.35,
+                    interests: vec![],
+                    players: vec![force],
+                    after_digest: Some(digest(host.level.cells.as_ref().unwrap()).unwrap()),
+                };
+                if game_tick == 4 {
+                    let mut fork = guest.clone();
+                    let before = fork.level.cells.clone();
+                    let mut check = Guest::from_join(&visit).unwrap();
+                    check.next = frames;
+                    let mut bad = frame.clone();
+                    bad.after_digest = bad.after_digest.map(|hash| hash ^ 1);
+                    assert_eq!(
+                        check.apply(
+                            &visit,
+                            &mut fork,
+                            peer(7),
+                            Some(peer(7)),
+                            &bad.to_bytes().unwrap()
+                        ),
+                        Err(LockstepError::Diverged)
+                    );
+                    assert_eq!(
+                        fork.level.cells, before,
+                        "a wrong authoritative digest rolls the whole frame back"
+                    );
+                }
+                link.test_post(0, 1, Msg::CellFrame(frame.to_bytes().unwrap()));
+                frames += 1;
+            }
+            let mut delivered = None;
+            link.carry_with(&mut [&mut host, &mut guest], |from, to, sim, msg| {
+                let decoded = Msg::from_bytes(&msg.to_bytes()).unwrap();
+                let Msg::CellFrame(bytes) = decoded else {
+                    return;
+                };
+                assert_eq!((from, to), (0, 1));
+                delivered = Some(stream.apply(&visit, sim, peer(7), Some(peer(7)), &bytes));
+            });
+            if game_tick % 4 == 0 {
+                assert_eq!(delivered, Some(Ok(())));
+            }
+            assert!(guest.tick_empty_shared_cells());
+            if game_tick % 4 == 0 {
+                assert_eq!(guest.level.cells, solo.level.cells);
+            }
+        }
+        assert!(saw_moving_wake);
+        assert!(host.crab(PlayerId(0)).unwrap().mover.pos.x > start.x);
     }
 
     #[test]

@@ -921,6 +921,61 @@ impl Sim {
         })
     }
 
+    /// Capture a single host crab's horizontal walking terrain effects for
+    /// the guarded spectator experiment. Other actions and upward motion are
+    /// rejected; the real game continues to own player physics.
+    pub fn walking_shared_cell_force(&self) -> Option<crate::underwater::HostPlayerForce> {
+        if !self.online()
+            || !self.is_host()
+            || self.crabs.len() != 1
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || !self.tick.is_multiple_of(4)
+        {
+            return None;
+        }
+        let crab = &self.crabs[0];
+        let mut remaining = crab.controls;
+        let walk = remaining.walk;
+        remaining.walk = 0.0;
+        let velocity = crab.mover.vel;
+        if crab.remote
+            || remaining != Controls::default()
+            || !walk.is_finite()
+            || !(-1.0..=1.0).contains(&walk)
+            || crab.events.jumped
+            || !velocity.is_finite()
+            || velocity.y > 0.0
+            || velocity.x.abs() > 1000.0
+            || velocity.y.abs() > 1000.0
+        {
+            return None;
+        }
+        let half_height = crab.mover.height(&self.tuning) * 0.5;
+        let half_width = crab.mover.half_width(&self.tuning);
+        let center = crab.mover.pos + Vec2::Y * half_height;
+        if !center.is_finite() || !half_width.is_finite() || !half_height.is_finite() {
+            return None;
+        }
+        Some(crate::underwater::HostPlayerForce {
+            player: crab.id,
+            x: center.x,
+            y: center.y,
+            half_width,
+            half_height,
+            wake_x: velocity.x,
+            wake_y: velocity.y,
+            walking: if walk.abs() > 0.1 {
+                walk.signum() as i8
+            } else {
+                0
+            },
+            grounded: crab.mover.grounded,
+            jumped: false,
+            dig: None,
+        })
+    }
+
     /// Start the isolated actor-free shared-cell clock at a fresh game tick.
     pub fn begin_empty_shared_cells(&mut self) -> bool {
         if !self.online()
