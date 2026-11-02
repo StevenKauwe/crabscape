@@ -31,11 +31,31 @@ struct Chunk {
 type JournalMaterial = (Cell, u8, u8, u16);
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq)]
-struct MaterialEvent {
-    a: (usize, usize),
-    b: (usize, usize),
-    old_a: JournalMaterial,
-    old_b: JournalMaterial,
+enum MaterialEvent {
+    Swap {
+        a: (usize, usize),
+        b: (usize, usize),
+        old_a: JournalMaterial,
+        old_b: JournalMaterial,
+    },
+    Flow {
+        at: (usize, usize),
+        before: (u32, u32),
+        after: (u32, u32),
+    },
+    Silt {
+        previous_len: usize,
+        particle: Silt,
+    },
+    Pebble {
+        index: usize,
+        before: Pebble,
+        after: Pebble,
+        motion_len_before: usize,
+        motion_before: Option<(i8, i8, u8)>,
+        motion_len_after: usize,
+        motion_after: (i8, i8, u8),
+    },
 }
 #[cfg(test)]
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -295,7 +315,7 @@ impl ChunkFlow {
             if journal.events.len() == MATERIAL_JOURNAL_LIMIT {
                 journal.overflow = true;
             } else {
-                journal.events.push(MaterialEvent {
+                journal.events.push(MaterialEvent::Swap {
                     a: (a, ai),
                     b: (b, bi),
                     old_a: old,
@@ -317,8 +337,9 @@ impl ChunkFlow {
         ) = old;
     }
 
-    /// Experimental exact replay of material swaps only. This is not a world
-    /// journal: it excludes flow, particles, pebbles, clocks and streaming.
+    /// Experimental replay for recorded scoop swaps, local flow, silt and
+    /// pushed pebbles. This is not a world journal: clocks, streaming,
+    /// unrecorded operations and actors remain outside its supported scope.
     #[cfg(test)]
     fn replay_material_journal(&mut self, journal: &MaterialJournal) -> bool {
         if journal.overflow || journal.unsupported || journal.events.len() > MATERIAL_JOURNAL_LIMIT
@@ -328,22 +349,104 @@ impl ChunkFlow {
         let mut next = self.clone();
         next.material_journal = None;
         for event in &journal.events {
-            let current = |location: (usize, usize)| -> Option<JournalMaterial> {
-                let chunk = next.chunks.get(location.0)?;
-                Some((
-                    *chunk.cells.get(location.1)?,
-                    *chunk.grain.get(location.1)?,
-                    *chunk.suspended.get(location.1)?,
-                    *chunk.owner.get(location.1)?,
-                ))
-            };
-            if current(event.a) != Some(event.old_a) || current(event.b) != Some(event.old_b) {
-                return false;
+            match event {
+                MaterialEvent::Swap { a, b, old_a, old_b } => {
+                    let current = |location: (usize, usize)| -> Option<JournalMaterial> {
+                        let chunk = next.chunks.get(location.0)?;
+                        Some((
+                            *chunk.cells.get(location.1)?,
+                            *chunk.grain.get(location.1)?,
+                            *chunk.suspended.get(location.1)?,
+                            *chunk.owner.get(location.1)?,
+                        ))
+                    };
+                    if current(*a) != Some(*old_a) || current(*b) != Some(*old_b) {
+                        return false;
+                    }
+                    next.swap_material(*a, *b);
+                }
+                MaterialEvent::Flow { at, before, after } => {
+                    let Some(flow) = next.chunks.get_mut(at.0).and_then(|c| c.flow.get_mut(at.1))
+                    else {
+                        return false;
+                    };
+                    if (flow.0.to_bits(), flow.1.to_bits()) != *before {
+                        return false;
+                    }
+                    *flow = (f32::from_bits(after.0), f32::from_bits(after.1));
+                }
+                MaterialEvent::Silt {
+                    previous_len,
+                    particle,
+                } => {
+                    if next.silt.len() != *previous_len {
+                        return false;
+                    }
+                    next.silt.push(particle.clone());
+                }
+                MaterialEvent::Pebble {
+                    index,
+                    before,
+                    after,
+                    motion_len_before,
+                    motion_before,
+                    motion_len_after,
+                    motion_after,
+                } => {
+                    let pebble_count = next.pebbles.len();
+                    let Some(pebble) = next.pebbles.get_mut(*index) else {
+                        return false;
+                    };
+                    if pebble != before
+                        || next.pebble_motion.len() != *motion_len_before
+                        || next.pebble_motion.get(*index).copied() != *motion_before
+                        || *motion_len_after != pebble_count
+                        || *index >= *motion_len_after
+                    {
+                        return false;
+                    }
+                    *pebble = *after;
+                    next.pebble_motion.resize(*motion_len_after, (0, 0, 0));
+                    next.pebble_motion[*index] = *motion_after;
+                }
             }
-            next.swap_material(event.a, event.b);
         }
         *self = next;
         true
+    }
+
+    /// Require the ordinary full checkpoint digest before committing; this
+    /// catches omissions that individual old-value checks cannot detect.
+    #[cfg(test)]
+    fn replay_journal_with_full_digest(
+        &mut self,
+        base: &World,
+        journal: &MaterialJournal,
+        expected: u64,
+    ) -> bool {
+        let mut next = self.clone();
+        if !next.replay_material_journal(journal) {
+            return false;
+        }
+        let mut world = base.clone();
+        if !next.write_material_to(&mut world)
+            || crate::net::cell_join::lockstep::digest(&world) != Some(expected)
+        {
+            return false;
+        }
+        *self = next;
+        true
+    }
+
+    #[cfg(test)]
+    fn record_event(&mut self, event: MaterialEvent) {
+        if let Some(journal) = &mut self.material_journal {
+            if journal.events.len() == MATERIAL_JOURNAL_LIMIT {
+                journal.overflow = true;
+            } else {
+                journal.events.push(event);
+            }
+        }
     }
 
     fn signed_location(x: i32, y: i32) -> Option<(usize, usize)> {
@@ -355,10 +458,6 @@ impl ChunkFlow {
         let strength = (vx * vx + vy * vy).sqrt().min(2.0);
         if strength < 0.05 {
             return;
-        }
-        #[cfg(test)]
-        if let Some(journal) = &mut self.material_journal {
-            journal.unsupported = true;
         }
         let cx = x as i32;
         let cy = y as i32;
@@ -383,10 +482,21 @@ impl ChunkFlow {
                 #[cfg(test)]
                 super::dirty_oracle::mark_active_tile(chunk);
                 let flow = &mut self.chunks[chunk].flow[slot];
+                #[cfg(test)]
+                let before = (flow.0.to_bits(), flow.1.to_bits());
                 flow.0 = (flow.0 + vx * fade - oy as f32 * fade * strength * swirl * 0.18)
                     .clamp(-2.0, 2.0);
                 flow.1 = (flow.1 + vy * fade + ox as f32 * fade * strength * swirl * 0.18)
                     .clamp(-2.0, 2.0);
+                #[cfg(test)]
+                {
+                    let after = (flow.0.to_bits(), flow.1.to_bits());
+                    self.record_event(MaterialEvent::Flow {
+                        at: (chunk, slot),
+                        before,
+                        after,
+                    });
+                }
             }
         }
     }
@@ -398,9 +508,6 @@ impl ChunkFlow {
         #[cfg(test)]
         {
             super::dirty_oracle::mark_global();
-            if let Some(journal) = &mut self.material_journal {
-                journal.unsupported = true;
-            }
         }
         for n in 0..6 {
             let angle = libm::sinf(self.tick as f32 * 0.37 + n as f32 * 2.4);
@@ -410,6 +517,11 @@ impl ChunkFlow {
                 vx: angle * 0.6,
                 vy: 0.3 + (n % 3) as f32 * 0.14,
                 life: 100,
+            });
+            #[cfg(test)]
+            self.record_event(MaterialEvent::Silt {
+                previous_len: self.silt.len() - 1,
+                particle: self.silt.last().expect("just appended").clone(),
             });
         }
     }
@@ -883,6 +995,10 @@ impl ChunkFlow {
             || !self.supported_pebbles()
         {
             return false;
+        }
+        #[cfg(test)]
+        if let Some(journal) = &mut self.material_journal {
+            journal.unsupported = true;
         }
         let cx = x as i32;
         let cy = foot_y as i32;
@@ -1568,15 +1684,27 @@ impl ChunkFlow {
         #[cfg(test)]
         {
             super::dirty_oracle::mark_global();
-            if let Some(journal) = &mut self.material_journal {
-                journal.unsupported = true;
-            }
         }
+        #[cfg(test)]
+        let (motion_len_before, motion_before) = (
+            self.pebble_motion.len(),
+            self.pebble_motion.get(index).copied(),
+        );
         self.pebbles[id as usize - 1].x += dx;
         self.pebbles[id as usize - 1].y += dy;
         self.pebble_motion.resize(self.pebbles.len(), (0, 0, 0));
         let travel = (1 + (force - mass) / 8).min(4) as u8;
         self.pebble_motion[id as usize - 1] = (dx as i8, dy as i8, travel);
+        #[cfg(test)]
+        self.record_event(MaterialEvent::Pebble {
+            index,
+            before: p,
+            after: self.pebbles[index],
+            motion_len_before,
+            motion_before,
+            motion_len_after: self.pebble_motion.len(),
+            motion_after: self.pebble_motion[index],
+        });
         true
     }
 
@@ -1627,6 +1755,11 @@ impl ChunkFlow {
         {
             return Err(SedimentStepError::Unsupported);
         }
+        #[cfg(test)]
+        let journal_checkpoint = self
+            .material_journal
+            .as_ref()
+            .map(|j| (j.events.len(), j.overflow, j.unsupported));
         for pebble in plan {
             if !self.move_pushed_pebble(pebble, dx, dy, force, &mut journal) {
                 for &(from, to) in journal.swaps.iter().rev() {
@@ -1639,6 +1772,16 @@ impl ChunkFlow {
                     }
                 }
                 self.pebble_motion.truncate(journal.original_motion_len);
+                #[cfg(test)]
+                {
+                    if let (Some(journal), Some((len, overflow, unsupported))) =
+                        (&mut self.material_journal, journal_checkpoint)
+                    {
+                        journal.events.truncate(len);
+                        journal.overflow = overflow;
+                        journal.unsupported = unsupported;
+                    }
+                }
                 return Err(SedimentStepError::Unsupported);
             }
         }
@@ -1653,6 +1796,10 @@ impl ChunkFlow {
         };
         if !current.is_finite() {
             return false;
+        }
+        #[cfg(test)]
+        if let Some(journal) = &mut self.material_journal {
+            journal.unsupported = true;
         }
         let mut next: Vec<_> = self.chunks.iter().map(|chunk| chunk.flow.clone()).collect();
         for y in 1..HEIGHT - 1 {
@@ -1718,6 +1865,10 @@ impl ChunkFlow {
         };
         if !current.is_finite() {
             return false;
+        }
+        #[cfg(test)]
+        if let Some(journal) = &mut self.material_journal {
+            journal.unsupported = true;
         }
         let mut next: Vec<_> = self.chunks.iter().map(|chunk| chunk.flow.clone()).collect();
         for cy in 0..ROWS {
@@ -2107,6 +2258,7 @@ mod tests {
             world.pebble_owner[corrupt_source] = 0;
             world.cells[corrupt_source] = Cell::Water;
             let mut chunked = ChunkFlow::from_world(&world);
+            chunked.material_journal = Some(MaterialJournal::default());
             let before = chunked.clone();
             let mut budget = 64;
             let mut plan = Vec::new();
@@ -3696,8 +3848,10 @@ mod tests {
             overflow: false,
             unsupported: false,
         });
-        let first = &journal.events[0];
-        saturated.swap_material(first.a, first.b);
+        let MaterialEvent::Swap { a, b, .. } = &journal.events[0] else {
+            panic!("expected swap")
+        };
+        saturated.swap_material(*a, *b);
         assert!(saturated.material_journal.as_ref().unwrap().overflow);
         assert_eq!(
             saturated.material_journal.as_ref().unwrap().events.len(),
@@ -3713,7 +3867,10 @@ mod tests {
             );
         }
         let mut bad = journal.clone();
-        bad.events[0].old_a.1 ^= 1;
+        let MaterialEvent::Swap { old_a, .. } = &mut bad.events[0] else {
+            panic!("expected swap")
+        };
+        old_a.1 ^= 1;
         let mut guest = ChunkFlow::from_world(&world);
         let untouched = guest.clone();
         assert!(!guest.replay_material_journal(&bad));
@@ -3728,11 +3885,10 @@ mod tests {
         with_wake.material_journal = Some(MaterialJournal::default());
         assert_eq!(with_wake.push_for_crab(63.0, 154.0, 0, 1, 48), Ok(true));
         let journal = with_wake.material_journal.take().unwrap();
-        assert!(journal.unsupported);
+        assert!(!journal.unsupported);
         let mut guest = ChunkFlow::from_world(&phase_zero);
-        let untouched = guest.clone();
-        assert!(!guest.replay_material_journal(&journal));
-        assert!(guest == untouched);
+        assert!(guest.replay_material_journal(&journal));
+        assert!(guest == with_wake);
     }
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
@@ -3779,6 +3935,125 @@ mod tests {
         eprintln!(
             "material scoop baseline {:?}, mutation journal {:?}, verified replay {:?}; {} events, n=20; excludes full digest, transport and World/actor work",
             baseline[10], recording[10], replay[10], count
+        );
+    }
+    #[test]
+    fn mutation_journal_replays_wake_and_pebble_and_full_digest_rejects_omissions() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.clear_game_crab();
+        assert!(world.add_pebble(62, 100, 4, 250));
+        let mut host = ChunkFlow::from_world(&world);
+        host.material_journal = Some(MaterialJournal::default());
+        assert!(host.push_pebble_chain(1, 1, 0, 64));
+        host.stir(64.0, 102.0, 1.0, 0.5);
+        host.emit_silt(64.0, 102.0);
+        let journal = host.material_journal.take().unwrap();
+        assert!(!journal.overflow && !journal.unsupported);
+        assert!(
+            journal
+                .events
+                .iter()
+                .any(|e| matches!(e, MaterialEvent::Pebble { .. }))
+        );
+        assert!(
+            journal
+                .events
+                .iter()
+                .any(|e| matches!(e, MaterialEvent::Flow { .. }))
+        );
+        assert!(
+            journal
+                .events
+                .iter()
+                .any(|e| matches!(e, MaterialEvent::Silt { .. }))
+        );
+        let mut host_world = world.clone();
+        assert!(host.write_material_to(&mut host_world));
+        let expected = crate::net::cell_join::lockstep::digest(&host_world).unwrap();
+        let mut guest = ChunkFlow::from_world(&world);
+        assert!(guest.replay_journal_with_full_digest(&world, &journal, expected));
+        assert!(guest == host);
+        let mut guest_world = world.clone();
+        assert!(guest.write_material_to(&mut guest_world));
+        assert!(
+            super::super::dirty_oracle::dirty(&host_world, &guest_world)
+                .unwrap()
+                .is_empty()
+        );
+        let mut incomplete = journal.clone();
+        incomplete.events.pop();
+        let mut guest = ChunkFlow::from_world(&world);
+        let original = guest.clone();
+        assert!(!guest.replay_journal_with_full_digest(&world, &incomplete, expected));
+        assert!(guest == original);
+        let mut corrupted = journal;
+        if let Some(MaterialEvent::Pebble {
+            motion_len_before, ..
+        }) = corrupted
+            .events
+            .iter_mut()
+            .find(|e| matches!(e, MaterialEvent::Pebble { .. }))
+        {
+            *motion_len_before += 1;
+        } else {
+            panic!("expected pebble event");
+        }
+        assert!(!guest.replay_journal_with_full_digest(&world, &corrupted, expected));
+        assert!(guest == original);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn mutation_journal_wake_pebble_profile() {
+        use std::time::Instant;
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.clear_game_crab();
+        assert!(world.add_pebble(62, 100, 4, 250));
+        let initial = ChunkFlow::from_world(&world);
+        let mut baseline = Vec::new();
+        let mut recording = Vec::new();
+        let mut replay = Vec::new();
+        let mut count = 0;
+        for _ in 0..20 {
+            let mut host = initial.clone();
+            let start = Instant::now();
+            assert!(host.push_pebble_chain(1, 1, 0, 64));
+            host.stir(64.0, 102.0, 1.0, 0.5);
+            host.emit_silt(64.0, 102.0);
+            baseline.push(start.elapsed());
+            let mut host = initial.clone();
+            host.material_journal = Some(MaterialJournal::default());
+            let start = Instant::now();
+            assert!(host.push_pebble_chain(1, 1, 0, 64));
+            host.stir(64.0, 102.0, 1.0, 0.5);
+            host.emit_silt(64.0, 102.0);
+            recording.push(start.elapsed());
+            let journal = host.material_journal.take().unwrap();
+            count = journal.events.len();
+            let mut guest = initial.clone();
+            let start = Instant::now();
+            assert!(guest.replay_material_journal(&journal));
+            replay.push(start.elapsed());
+            assert!(guest == host);
+        }
+        baseline.sort_unstable();
+        recording.sort_unstable();
+        replay.sort_unstable();
+        eprintln!(
+            "pebble+wake baseline {:?}, recording {:?}, replay {:?}; {} events; fixed-size event cap <= {} bytes; n=20; excludes full digest, World and actors, transport and rendering",
+            baseline[10],
+            recording[10],
+            replay[10],
+            count,
+            MATERIAL_JOURNAL_LIMIT * std::mem::size_of::<MaterialEvent>()
         );
     }
 }

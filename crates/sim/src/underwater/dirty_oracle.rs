@@ -77,6 +77,12 @@ pub(crate) fn retained_payload_lower_bound(world: &World) -> usize {
             .sum::<usize>()
 }
 
+impl Dirty {
+    pub(super) fn is_empty(&self) -> bool {
+        self.active.is_empty() && self.sleeping.is_empty() && !self.global
+    }
+}
+
 fn bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, postcard::Error> {
     postcard::to_allocvec(value)
 }
@@ -84,7 +90,7 @@ fn bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, postcard::Error> {
 /// Compare the exact serialized representation, including float bits. Every
 /// field other than the five indexed cell arrays and sleeping map goes into
 /// `global`, including origin and all visual and aggregate state.
-fn dirty(before: &World, after: &World) -> Result<Dirty, postcard::Error> {
+pub(super) fn dirty(before: &World, after: &World) -> Result<Dirty, postcard::Error> {
     let count = WIDTH * HEIGHT;
     for w in [before, after] {
         if [
