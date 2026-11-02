@@ -637,6 +637,83 @@ impl ChunkFlow {
         Ok(())
     }
 
+    /// The solo downward-dig pebble sweep, with all extra bodies reserved.
+    /// Each side attempts at most one upward aggregate push, in solo order.
+    /// A failed internal operation rolls back the complete two-sided sweep.
+    pub fn swoop_primary(&mut self, force: usize) -> Result<(), SedimentStepError> {
+        if force > 64 || !self.supported_crab() || !self.supported_pebbles() {
+            return Err(SedimentStepError::Unsupported);
+        }
+        let Some((cx, cy)) = self.crab else {
+            return Err(SedimentStepError::Unsupported);
+        };
+        let mut next = self.clone();
+        let foot = cy - next.crab_half_y;
+        for direction in [-1, 1] {
+            let mut seen = Vec::new();
+            let mut moved = false;
+            for offset in 1..=4 {
+                let x = cx + direction * (next.crab_half_x + offset);
+                for y in foot - 1..=foot + 4 {
+                    let Some((chunk, slot)) = Self::signed_location(x, y) else {
+                        continue;
+                    };
+                    let id = next.chunks[chunk].owner[slot];
+                    if id == 0 || seen.contains(&id) {
+                        continue;
+                    }
+                    seen.push(id);
+                    if next.push_pebble_chain_inner(id, 0, 1, force)? {
+                        moved = true;
+                        break;
+                    }
+                }
+                if moved {
+                    break;
+                }
+            }
+        }
+        *self = next;
+        Ok(())
+    }
+
+    /// Sweep for an extra body, protecting the primary and other bodies.
+    pub fn swoop_extra(
+        &mut self,
+        player: crate::PlayerId,
+        force: usize,
+    ) -> Result<(), SedimentStepError> {
+        let Some(index) = self
+            .extra_bodies
+            .iter()
+            .position(|body| body.player == player)
+        else {
+            return Err(SedimentStepError::Unsupported);
+        };
+        let Some((host_x, host_y)) = self.crab else {
+            return Err(SedimentStepError::Unsupported);
+        };
+        let mut next = self.clone();
+        let guest = next.extra_bodies.remove(index);
+        next.extra_bodies.push(BodyReservation {
+            player: crate::PlayerId(u32::MAX),
+            x: host_x,
+            y: host_y,
+            half_x: next.crab_half_x,
+            half_y: next.crab_half_y,
+        });
+        next.crab = Some((guest.x, guest.y));
+        next.crab_half_x = guest.half_x;
+        next.crab_half_y = guest.half_y;
+        next.swoop_primary(force)?;
+        next.crab = self.crab;
+        next.crab_half_x = self.crab_half_x;
+        next.crab_half_y = self.crab_half_y;
+        next.extra_bodies = self.extra_bodies.clone();
+        *self = next;
+        Ok(())
+    }
+
     /// Apply a separated extra body's sediment and aggregate scoop while
     /// protecting the primary body and all other reservations. Unsupported/blocked
     /// scoops do not change the caller's state.
@@ -2651,6 +2728,124 @@ mod tests {
             chunks == before,
             "walking force 16 cannot move a mass-25 aggregate"
         );
+    }
+
+    #[test]
+    fn protected_pebble_sweep_matches_solo_for_both_bodies_and_force_limits() {
+        for force in [15, 48] {
+            let mut world = sand_fixture(0);
+            world.cells.fill(Cell::Water);
+            world.flow.fill((0.0, 0.0));
+            world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+            assert!(world.add_pebble(68, 94, 4, 250));
+            assert!(world.add_pebble(196, 94, 4, 251));
+            let guest = BodyReservation {
+                player: crate::PlayerId(1),
+                x: 192,
+                y: 100,
+                half_x: 3,
+                half_y: 3,
+            };
+            let mut chunks = ChunkFlow::from_world(&world);
+            chunks.set_extra_bodies(&[guest]).unwrap();
+            let mut primary_solo = world.clone();
+            primary_solo.swoop_dig_pebbles(force);
+            let mut guest_solo = world.clone();
+            guest_solo.set_game_crab(192.0, 100.0, 3.0, 3.0);
+            guest_solo.swoop_dig_pebbles(force);
+            chunks.swoop_primary(force).unwrap();
+            chunks.swoop_extra(guest.player, force).unwrap();
+            for (cx, expected) in [(64, &primary_solo), (192, &guest_solo)] {
+                for y in 85..=110 {
+                    for x in cx - 12..=cx + 12 {
+                        assert_eq!(
+                            chunks.cell(x, y),
+                            Some(expected.cell(x as i32, y as i32)),
+                            "force {force} cell {x},{y}"
+                        );
+                    }
+                }
+            }
+            for id in 1..=2 {
+                assert_eq!(
+                    chunks
+                        .chunks
+                        .iter()
+                        .map(|c| c.owner.iter().filter(|&&v| v == id).count())
+                        .sum::<usize>(),
+                    16
+                );
+            }
+            assert_eq!(chunks.pebbles[0], primary_solo.pebbles[0]);
+            assert_eq!(chunks.pebbles[1], guest_solo.pebbles[1]);
+            if force == 15 {
+                assert_eq!(chunks.pebbles, world.pebbles);
+            } else {
+                assert_ne!(chunks.pebbles, world.pebbles);
+            }
+        }
+    }
+
+    #[test]
+    fn downward_sweep_will_not_push_a_chain_into_another_body() {
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+        for (i, (x, y)) in [(68, 94), (70, 97), (72, 100), (74, 103), (76, 106)]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(world.add_pebble(x, y, 3, 200 + i as u8));
+        }
+        let guest = BodyReservation {
+            player: crate::PlayerId(1),
+            x: 81,
+            y: 112,
+            half_x: 3,
+            half_y: 3,
+        };
+        let mut unprotected = ChunkFlow::from_world(&world);
+        unprotected.swoop_primary(48).unwrap();
+        assert_ne!(
+            unprotected.pebbles, world.pebbles,
+            "the chain can move without a guest reservation"
+        );
+        let mut protected = ChunkFlow::from_world(&world);
+        protected.set_extra_bodies(&[guest]).unwrap();
+        let before = protected.clone();
+        protected.swoop_primary(48).unwrap();
+        assert!(
+            protected == before,
+            "sweep must not push an aggregate into the guest"
+        );
+    }
+
+    #[test]
+    fn protected_sweep_rejects_invalid_or_late_errors_without_mutation() {
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+        assert!(world.add_pebble(68, 94, 4, 250));
+        let mut chunks = ChunkFlow::from_world(&world);
+        let before = chunks.clone();
+        assert_eq!(
+            chunks.swoop_primary(65),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert_eq!(
+            chunks.swoop_extra(crate::PlayerId(1), 48),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(chunks == before);
+        chunks
+            .pebble_motion
+            .resize(chunks.pebbles.len() + 1, (0, 0, 0));
+        let before = chunks.clone();
+        assert_eq!(
+            chunks.swoop_primary(48),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(chunks == before, "error after sweep begins must roll back");
     }
 
     #[test]
