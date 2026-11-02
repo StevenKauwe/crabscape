@@ -91,3 +91,15 @@ all chunks into the current in-memory `World` can exceed phone memory even when
 individual chunks are small. Raising storage limits also requires bounded lazy
 world reconstruction or explicit expanded-memory limits; chunked storage alone
 must not relax the existing startup protections.
+
+The unwired `underwater::versioned_chunks` experiment demonstrates the smaller
+copy-on-write mechanism: a snapshot shares immutable payloads and copies an
+ordered index; a later mutation clones only the affected payload. Its bounded
+pages borrow data from that frozen snapshot. The model requires payloads and
+metadata without interior mutability, does not bound key heap size, and is not
+connected to real streamed terrain. A production design must capture the active
+window, player and global pebble table atomically with the chunk index, ensure
+every mutation uses copy-on-write, and deal with snapshots held while many
+chunks change. Lazy disk reconstruction additionally needs per-chunk validation,
+an IO cache budget, deterministic missing-chunk behavior, cancellation and reset
+fencing, and a policy for when simulation may advance while a chunk is loading.

@@ -5,6 +5,7 @@
 mod bounded_checkpoint;
 pub mod chunk_flow;
 pub mod frozen_chunks;
+pub mod versioned_chunks;
 pub use bounded_checkpoint::{decode_browser_checkpoint, encode_browser_checkpoint};
 mod host_windows;
 pub use host_windows::{HostDig, HostPlayerForce, HostStepError};
