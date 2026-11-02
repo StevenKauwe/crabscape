@@ -1,7 +1,7 @@
 //! Test-only exhaustive reference for future dirty-chunk instrumentation.
 //! This deliberately scans and clones whole worlds; it is not a fast path.
 
-mod incremental_probe;
+pub(crate) mod incremental_probe;
 
 use super::{HEIGHT, TERRAIN_CHUNK_CELLS, WIDTH, World};
 use std::collections::{BTreeMap, BTreeSet};
@@ -38,7 +38,7 @@ pub(super) fn mark_global() {
         }
     });
 }
-fn trace_world(f: impl FnOnce()) -> Dirty {
+pub(crate) fn trace_world(f: impl FnOnce()) -> Dirty {
     TOUCHED.with_borrow_mut(|slot| {
         assert!(slot.replace(Dirty::default()).is_none());
     });
@@ -50,10 +50,30 @@ fn trace(f: impl FnOnce()) -> BTreeSet<(usize, usize)> {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Dirty {
+pub(crate) struct Dirty {
     active: BTreeSet<(usize, usize)>,
     sleeping: BTreeSet<(i32, i32)>,
     global: bool,
+}
+
+/// Lower bound for dynamically allocated checkpoint payload retained by a clone;
+/// excludes allocator/BTree nodes, Vec headers already in World, and spare map capacity.
+pub(crate) fn retained_payload_lower_bound(world: &World) -> usize {
+    world.cells.capacity() * std::mem::size_of_val(&super::Cell::Water)
+        + world.flow.capacity() * std::mem::size_of::<(f32, f32)>()
+        + world.suspended.capacity()
+        + world.grain.capacity()
+        + world.pebble_owner.capacity() * std::mem::size_of::<u16>()
+        + world.pebbles.capacity() * std::mem::size_of::<super::Pebble>()
+        + world.pebble_motion.capacity() * std::mem::size_of::<(i8, i8, u8)>()
+        + world.tracers.capacity() * std::mem::size_of::<(f32, f32)>()
+        + world.silt.capacity() * std::mem::size_of::<super::Silt>()
+        + world.bubbles.capacity() * std::mem::size_of::<super::Bubble>()
+        + world
+            .sleeping
+            .values()
+            .map(|c| c.cells.capacity() * std::mem::size_of::<Option<super::SleepingCell>>())
+            .sum::<usize>()
 }
 
 fn bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, postcard::Error> {

@@ -2776,4 +2776,209 @@ mod tests {
         );
         assert!(wrong_epoch.paused());
     }
+    #[test]
+    fn audited_upward_sidecar_tracks_real_fake_link_and_full_digest() {
+        use crate::underwater::dirty_oracle::{
+            incremental_probe::{Frame, Probe},
+            trace_world,
+        };
+        let (mut controller, mut guest, join, _) = setup_case(12);
+        let mut receiver = UpGuest::from_join(&join).unwrap();
+        let host_peer = peer(0, 10);
+        let guest_peer = peer(1, 20);
+        let mut link = FakeLink::steady(0);
+        let mut sidecar = Probe::new(guest.level.cells.clone().unwrap(), 4);
+        for tick in 0..8 {
+            let input = Msg::CellUpInput {
+                epoch: 77,
+                tick,
+                sequence: tick,
+                player: PlayerId(1),
+                up: true,
+            };
+            link.test_post(1, 0, input);
+            let mut received = None;
+            link.carry_with(
+                &mut [&mut controller.host, &mut guest],
+                |from, to, _, msg| {
+                    if matches!(msg, Msg::CellUpInput { .. }) {
+                        assert_eq!((from, to), (1, 0));
+                        received = Msg::from_bytes(&msg.to_bytes());
+                    }
+                },
+            );
+            let before = controller.host.level.cells.clone().unwrap();
+            let mut operation = None;
+            let marked = trace_world(|| {
+                operation = Some(
+                    controller
+                        .accept_up(guest_peer, Some(guest_peer), &received.unwrap(), true)
+                        .unwrap(),
+                );
+            });
+            let world = controller.host.level.cells.as_ref().unwrap();
+            let audit_frame =
+                Frame::capture_checked(&before, world, &marked, (tick + 1) % 4 == 0).unwrap();
+            let operation = operation.unwrap();
+            if let Msg::CellUpFrame { digest, .. } = &operation {
+                assert_eq!(Some(*digest), lockstep::digest(world));
+            } else {
+                panic!("expected full digest frame")
+            }
+            guest.set_controls(
+                PlayerId(1),
+                Controls {
+                    dig_held: true,
+                    dig_up: true,
+                    ..Default::default()
+                },
+            );
+            link.test_post(0, 1, operation);
+            let mut applied = None;
+            link.carry_with(
+                &mut [&mut controller.host, &mut guest],
+                |from, to, sim, msg| {
+                    if matches!(msg, Msg::CellUpFrame { .. }) {
+                        assert_eq!((from, to), (0, 1));
+                        applied = Some(receiver.apply(
+                            &join,
+                            sim,
+                            host_peer,
+                            Some(host_peer),
+                            &Msg::from_bytes(&msg.to_bytes()).unwrap(),
+                        ));
+                    }
+                },
+            );
+            assert_eq!(applied, Some(Ok(())));
+            assert!(sidecar.apply_checked(guest.level.cells.clone().unwrap(), &audit_frame));
+            assert_eq!(controller.host.level.cells, guest.level.cells);
+        }
+        let input = Msg::CellUpInput {
+            epoch: 77,
+            tick: 8,
+            sequence: 8,
+            player: PlayerId(1),
+            up: true,
+        };
+        let mut operation = controller
+            .accept_up(guest_peer, Some(guest_peer), &input, true)
+            .unwrap();
+        if let Msg::CellUpFrame { digest, .. } = &mut operation {
+            *digest ^= 1;
+        } else {
+            panic!("expected frame")
+        }
+        controller.host.take_outbox();
+        guest.take_outbox();
+        let before = snapshot(&guest);
+        link.test_post(0, 1, operation);
+        let mut result = None;
+        link.carry_with(&mut [&mut controller.host, &mut guest], |_, _, sim, msg| {
+            if matches!(msg, Msg::CellUpFrame { .. }) {
+                result = Some(receiver.apply(&join, sim, host_peer, Some(host_peer), &msg));
+            }
+        });
+        assert_eq!(result, Some(Err(InputError::Diverged)));
+        assert_eq!(snapshot(&guest), before);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn full_upward_fake_link_with_optional_audit_profile() {
+        use crate::underwater::dirty_oracle::{
+            incremental_probe::{Frame, Probe},
+            trace_world,
+        };
+        use std::time::Instant;
+        let mut baseline = Vec::new();
+        let mut audited = Vec::new();
+        let mut retained = 0usize;
+        for with_audit in [false, true] {
+            for _ in 0..3 {
+                let (mut c, mut guest, join, _) = setup_case(12);
+                let mut receiver = UpGuest::from_join(&join).unwrap();
+                let mut sidecar =
+                    with_audit.then(|| Probe::new(guest.level.cells.clone().unwrap(), 4));
+                if let Some(sidecar) = &sidecar {
+                    retained = sidecar.retained_payload_lower_bound();
+                }
+                let mut link = FakeLink::steady(0);
+                let hp = peer(0, 10);
+                let gp = peer(1, 20);
+                for tick in 0..8 {
+                    let start = Instant::now();
+                    let input = Msg::CellUpInput {
+                        epoch: 77,
+                        tick,
+                        sequence: tick,
+                        player: PlayerId(1),
+                        up: true,
+                    };
+                    link.test_post(1, 0, input);
+                    let mut received = None;
+                    link.carry_with(&mut [&mut c.host, &mut guest], |_, _, _, msg| {
+                        if matches!(msg, Msg::CellUpInput { .. }) {
+                            received = Some(msg);
+                        }
+                    });
+                    let before = with_audit.then(|| c.host.level.cells.clone().unwrap());
+                    let mut operation = None;
+                    let marks = if with_audit {
+                        Some(trace_world(|| {
+                            operation =
+                                Some(c.accept_up(gp, Some(gp), &received.unwrap(), true).unwrap())
+                        }))
+                    } else {
+                        operation =
+                            Some(c.accept_up(gp, Some(gp), &received.unwrap(), true).unwrap());
+                        None
+                    };
+                    let frame = marks.as_ref().map(|marks| {
+                        Frame::capture_checked(
+                            before.as_ref().unwrap(),
+                            c.host.level.cells.as_ref().unwrap(),
+                            marks,
+                            (tick + 1) % 4 == 0,
+                        )
+                        .unwrap()
+                    });
+                    guest.set_controls(
+                        PlayerId(1),
+                        Controls {
+                            dig_held: true,
+                            dig_up: true,
+                            ..Default::default()
+                        },
+                    );
+                    link.test_post(0, 1, operation.unwrap());
+                    let mut result = None;
+                    link.carry_with(&mut [&mut c.host, &mut guest], |_, _, sim, msg| {
+                        if matches!(msg, Msg::CellUpFrame { .. }) {
+                            result = Some(receiver.apply(&join, sim, hp, Some(hp), &msg));
+                        }
+                    });
+                    assert_eq!(result, Some(Ok(())));
+                    if let (Some(sidecar), Some(frame)) = (&mut sidecar, &frame) {
+                        assert!(sidecar.apply_checked(guest.level.cells.clone().unwrap(), frame));
+                    }
+                    let elapsed = start.elapsed();
+                    if with_audit {
+                        audited.push(elapsed);
+                    } else {
+                        baseline.push(elapsed);
+                    }
+                }
+            }
+        }
+        baseline.sort_unstable();
+        audited.sort_unstable();
+        eprintln!(
+            "full host+guest FakeLink tick median: existing {:?}, existing plus audited sidecar {:?}; n={} each; sidecar retained World Vec payload lower bound {} bytes (excludes allocator and tree nodes)",
+            baseline[baseline.len() / 2],
+            audited[audited.len() / 2],
+            baseline.len(),
+            retained
+        );
+    }
 }

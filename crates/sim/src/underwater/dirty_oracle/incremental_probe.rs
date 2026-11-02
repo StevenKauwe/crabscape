@@ -47,7 +47,7 @@ fn sleeping_hash(world: &World, key: (i32, i32)) -> u64 {
 
 /// Frame carries authoritative hashes for marked state, and the exact full
 /// checkpoint digest on each checkpoint boundary. It does not carry changes.
-struct Frame {
+pub(crate) struct Frame {
     tiles: BTreeMap<(usize, usize), u64>,
     sleeping: BTreeMap<(i32, i32), u64>,
     globals: Option<u64>,
@@ -61,7 +61,7 @@ fn covers(marked: &Dirty, changed: &Dirty) -> bool {
 }
 
 impl Frame {
-    fn capture_checked(
+    pub(crate) fn capture_checked(
         before: &World,
         host: &World,
         changes: &Dirty,
@@ -89,7 +89,7 @@ impl Frame {
     }
 }
 
-struct Probe {
+pub(crate) struct Probe {
     world: World,
     verified: World,
     sequence: u64,
@@ -98,7 +98,7 @@ struct Probe {
 }
 
 impl Probe {
-    fn new(world: World, period: u64) -> Self {
+    pub(crate) fn new(world: World, period: u64) -> Self {
         assert!(period > 0);
         Self {
             verified: world.clone(),
@@ -109,7 +109,12 @@ impl Probe {
         }
     }
 
-    fn apply_checked(&mut self, trial: World, frame: &Frame) -> bool {
+    pub(crate) fn retained_payload_lower_bound(&self) -> usize {
+        super::retained_payload_lower_bound(&self.world)
+            + super::retained_payload_lower_bound(&self.verified)
+    }
+
+    pub(crate) fn apply_checked(&mut self, trial: World, frame: &Frame) -> bool {
         let marked = Dirty {
             active: frame.tiles.keys().copied().collect(),
             sleeping: frame.sleeping.keys().copied().collect(),
