@@ -204,3 +204,13 @@ over multiple ticks. This is a stationary reservation copied from one solo
 world, not support for player forces, jumping, digging, multiple reservations,
 or resolving overlaps. Those interactions still need explicit synchronized
 semantics and parity tests before co-op can use this step.
+
+A restricted solo force prototype now applies the reference jump downwash and
+immediate entrainment and reproduces loose sand/mud digging using the same
+breadth-first scoop and force costs. Direct reference tests compare jump and
+dig outcomes, silt and flow, then continue material stepping across seams.
+Digging rejects aggregate-bearing worlds, force above 64, and searches needing
+the alternate scoop fallback; a rejected operation leaves state unchanged.
+Jumping rejects aggregate cells in its entrainment footprint. Digging still
+clones the entire chunk field to roll back, and neither operation constitutes
+complete movement or multi-player force support. No game path uses them.
