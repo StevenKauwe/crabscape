@@ -21,6 +21,8 @@ pub mod browser_system;
 pub mod cleanup;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) mod regional;
 pub mod v2;
 
 const MAGIC: &[u8; 8] = b"CRABCEL1";

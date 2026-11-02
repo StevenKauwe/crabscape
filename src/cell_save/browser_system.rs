@@ -26,9 +26,21 @@ pub fn save_periodically(
     if !crate::player::valid_saved_spot(mover.pos, mover.grown(&sim.tuning), &sim) {
         return;
     }
+    if let Some(live) = sim.crab(*id)
+        && !crate::player::valid_saved_spot(live.mover.pos, live.mover.grown(&sim.tuning), &sim)
+    {
+        return;
+    }
     let Some(generation) = super::browser::reserve_save(time.delta_secs()) else {
         return;
     };
+    if let Some(owner_save) = crate::coop::cells_owner_save(&sim) {
+        match owner_save {
+            Ok(prepared) => super::browser::submit_save(generation, prepared),
+            Err(_) => super::browser::capture_failed(generation),
+        }
+        return;
+    }
     let (Some(terrain), Some(mut player)) = (&sim.level.cells, crate::save::snapshot(&sim, *id))
     else {
         super::browser::capture_failed(generation);

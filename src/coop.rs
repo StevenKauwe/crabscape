@@ -106,6 +106,13 @@ pub(crate) fn cells_private_save(
     web::cells::private_save(sim)
 }
 
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_owner_save(
+    sim: &crabsim::Sim,
+) -> Option<Result<crate::cell_save::v2::PreparedSave, crate::cell_save::Error>> {
+    web::cells::owner_save(sim)
+}
+
 pub(crate) use crabsim::replay::CellSessionAction as CellsAction;
 
 pub(crate) fn cells_replay(report: bool) -> Option<Result<String, String>> {
