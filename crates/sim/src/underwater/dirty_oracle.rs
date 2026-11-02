@@ -1,6 +1,8 @@
 //! Test-only exhaustive reference for future dirty-chunk instrumentation.
 //! This deliberately scans and clones whole worlds; it is not a fast path.
 
+mod incremental_probe;
+
 use super::{HEIGHT, TERRAIN_CHUNK_CELLS, WIDTH, World};
 use std::collections::{BTreeMap, BTreeSet};
 
