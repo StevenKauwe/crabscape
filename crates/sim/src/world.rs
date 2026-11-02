@@ -148,6 +148,8 @@ pub struct Sim {
     next_enemy: u32,
     /// The only randomness allowed: seeded, part of the state hash.
     rng: Rng,
+    /// Independent NPC streams retained when a regional session returns to solo.
+    owned_rng: Option<std::collections::BTreeMap<u32, Rng>>,
     /// This device's part in a co-op game (none in solo play).
     net: Option<Net>,
     empty_shared_base: Option<u64>,
@@ -222,6 +224,7 @@ impl Sim {
             enemies: Vec::new(),
             next_enemy: 0,
             rng: Rng::new(SEED),
+            owned_rng: None,
             net: None,
             empty_shared_base: None,
         }
@@ -1256,7 +1259,32 @@ impl Sim {
         external_terrain: bool,
         remote_walk: Option<crate::underwater::HostPlayerForce>,
     ) -> bool {
-        self.tick_region_inner(external_terrain, remote_walk, None)
+        let mut owned = self.owned_rng.take();
+        let result = self.tick_region_inner(external_terrain, remote_walk, owned.as_mut(), false);
+        if let Some(streams) = &mut owned {
+            streams.retain(|id, _| self.enemies.iter().any(|e| e.id == *id));
+            for enemy in &self.enemies {
+                streams
+                    .entry(enemy.id)
+                    .or_insert_with(|| Rng::new(SEED ^ u64::from(enemy.id)));
+            }
+        }
+        self.owned_rng = owned;
+        result
+    }
+
+    pub(crate) fn tick_fixed_terrain(&mut self) {
+        let mut owned = self.owned_rng.take();
+        self.tick_region_inner(false, None, owned.as_mut(), true);
+        if let Some(streams) = &mut owned {
+            streams.retain(|id, _| self.enemies.iter().any(|e| e.id == *id));
+            for enemy in &self.enemies {
+                streams
+                    .entry(enemy.id)
+                    .or_insert_with(|| Rng::new(SEED ^ u64::from(enemy.id)));
+            }
+        }
+        self.owned_rng = owned;
     }
 
     fn tick_region_inner(
@@ -1264,10 +1292,11 @@ impl Sim {
         external_terrain: bool,
         remote_walk: Option<crate::underwater::HostPlayerForce>,
         mut regional_rng: Option<&mut std::collections::BTreeMap<u32, Rng>>,
+        fixed_region: bool,
     ) -> bool {
         // Move the detailed window before simulating, independent of camera.
         if !external_terrain
-            && regional_rng.is_none()
+            && !fixed_region
             && let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
             && let Some(mut cells) = self.level.cells.take()
         {
@@ -2409,6 +2438,9 @@ impl Sim {
             "{} {:?} {:?} {:?} {:?}",
             self.tick, crabs, self.enemies, self.rng, self.shared
         );
+        if let Some(streams) = &self.owned_rng {
+            state.push_str(&format!(" {streams:?}"));
+        }
         if let Some(cells) = &self.level.cells {
             state.push_str(&format!(" {cells:?}"));
         }
@@ -2443,6 +2475,9 @@ impl Sim {
             "{} {:?} {:?} {:?} {:?}",
             self.tick, crabs, self.enemies, self.rng, self.shared
         );
+        if let Some(streams) = &self.owned_rng {
+            let _ = write!(sink, " {streams:?}");
+        }
         if let Some(cells) = &self.level.cells {
             let _ = write!(sink, " {cells:?}");
         }

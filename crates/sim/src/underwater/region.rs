@@ -11,6 +11,50 @@ pub struct CellRegion {
     pub height: usize,
 }
 impl CellRegion {
+    pub fn around_points(points: &[bevy_math::Vec2], margin_cells: i32) -> Option<Self> {
+        if points.is_empty()
+            || !(16..=512).contains(&margin_cells)
+            || points.iter().any(|p| !p.is_finite())
+        {
+            return None;
+        }
+        let x0 = points
+            .iter()
+            .map(|p| (p.x / GAME_CELL).floor() as i32)
+            .min()?
+            .saturating_sub(margin_cells)
+            .max(0)
+            .div_euclid(64)
+            * 64;
+        let y0 = points
+            .iter()
+            .map(|p| ((p.y - GAME_BOTTOM) / GAME_CELL).floor() as i32)
+            .min()?
+            .saturating_sub(margin_cells)
+            .div_euclid(64)
+            * 64;
+        let x1 = (points
+            .iter()
+            .map(|p| (p.x / GAME_CELL).ceil() as i32)
+            .max()?
+            .saturating_add(margin_cells + 64))
+        .div_euclid(64)
+            * 64;
+        let y1 = (points
+            .iter()
+            .map(|p| ((p.y - GAME_BOTTOM) / GAME_CELL).ceil() as i32)
+            .max()?
+            .saturating_add(margin_cells + 64))
+        .div_euclid(64)
+            * 64;
+        let region = Self {
+            x: x0,
+            y: y0,
+            width: (x1 - x0).max(64) as usize,
+            height: (y1 - y0).max(64) as usize,
+        };
+        region.valid().then_some(region)
+    }
     pub fn valid(self) -> bool {
         valid_region_size(self.width, self.height)
             && (0..=1_000_000).contains(&self.x)
@@ -28,6 +72,38 @@ impl CellRegion {
             && i64::from(self.y) < i64::from(other.y) + other.height as i64
             && i64::from(other.y) < i64::from(self.y) + self.height as i64
     }
+
+    /// Disjoint rectangular strips of `self` outside `other`.
+    pub fn difference(self, other: Self) -> Vec<Self> {
+        if !self.overlaps(other) {
+            return vec![self];
+        }
+        let left = self.x.max(other.x);
+        let bottom = self.y.max(other.y);
+        let right = (self.x + self.width as i32).min(other.x + other.width as i32);
+        let top = (self.y + self.height as i32).min(other.y + other.height as i32);
+        let mut out = Vec::new();
+        let mut add = |x: i32, y: i32, r: i32, t: i32| {
+            if r > x && t > y {
+                out.push(Self {
+                    x,
+                    y,
+                    width: (r - x) as usize,
+                    height: (t - y) as usize,
+                });
+            }
+        };
+        add(self.x, self.y, left, self.y + self.height as i32);
+        add(
+            right,
+            self.y,
+            self.x + self.width as i32,
+            self.y + self.height as i32,
+        );
+        add(left, self.y, right, bottom);
+        add(left, top, right, self.y + self.height as i32);
+        out
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +114,54 @@ pub enum RegionError {
 }
 
 impl World {
+    pub fn restore_default_window(
+        &mut self,
+        level: &crate::Level,
+        x: f32,
+        y: f32,
+    ) -> Result<(), RegionError> {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(RegionError::InvalidBounds);
+        }
+        let wanted_x =
+            (((x / GAME_CELL).floor() as i32 - WIDTH as i32 / 2).div_euclid(64) * 64).max(0);
+        let wanted_y = (((y - GAME_BOTTOM) / GAME_CELL).floor() as i32 - HEIGHT as i32 / 2)
+            .div_euclid(64)
+            * 64;
+        let choose = |wanted: i32, extent: i32, horizontal: bool| -> Option<i32> {
+            for distance in 0..=64 {
+                for candidate in [wanted - distance, wanted + distance] {
+                    if horizontal && candidate < 0 {
+                        continue;
+                    }
+                    if self.pebbles.iter().all(|p| {
+                        let start = if horizontal {
+                            p.x + self.origin.0
+                        } else {
+                            p.y + self.origin.1
+                        };
+                        [candidate, candidate + extent]
+                            .iter()
+                            .all(|&edge| !(start < edge && edge < start + i32::from(p.side)))
+                    }) {
+                        return Some(candidate);
+                    }
+                }
+            }
+            None
+        };
+        let x = choose(wanted_x, WIDTH as i32, true).ok_or(RegionError::PebbleBoundary)?;
+        let y = choose(wanted_y, HEIGHT as i32, false).ok_or(RegionError::PebbleBoundary)?;
+        self.fit_region(
+            level,
+            CellRegion {
+                x,
+                y,
+                width: WIDTH,
+                height: HEIGHT,
+            },
+        )
+    }
     pub fn region(&self) -> CellRegion {
         CellRegion {
             x: self.origin.0,

@@ -70,28 +70,46 @@ impl Sim {
         {
             return false;
         }
-        frame.apply(self, host, guest);
-        self.tick();
-        let delta = self.crab(guest).expect("validated guest").mover.pos
-            - self.crab(host).expect("validated host").mover.pos;
-        for (axis, limit) in [(0, 700.0), (1, 240.0)] {
-            if delta[axis].abs() <= limit {
-                continue;
-            }
-            for id in [host, guest] {
-                let crab = self.crab_mut(id).expect("validated actor");
-                let moved = crab.mover.pos[axis] - crab.prev_pos[axis];
-                let outward = if id == guest {
-                    delta[axis]
-                } else {
-                    -delta[axis]
-                };
-                if moved * outward > 0.0 {
-                    crab.mover.pos[axis] = crab.prev_pos[axis];
-                    crab.mover.vel[axis] = 0.0;
-                }
+        let mut points = [
+            self.crab(host).expect("validated host").mover.pos,
+            self.crab(guest).expect("validated guest").mover.pos,
+        ];
+        for (id, action) in frame.actions.iter().flatten() {
+            if matches!(action, CellSessionAction::Home) {
+                points[usize::from(*id == guest)] =
+                    self.level.door_and_den(crate::level::Place::Home).1;
             }
         }
+        let Some(mut bounds) = crate::underwater::region::CellRegion::around_points(&points, 128)
+        else {
+            return false;
+        };
+        let Some(mut terrain) = self.level.cells.take() else {
+            return false;
+        };
+        let mut fitted = false;
+        for _ in 0..4 {
+            if terrain.fit_region(&self.level, bounds).is_ok() {
+                fitted = true;
+                break;
+            }
+            let x = bounds.x.saturating_sub(64).max(0);
+            bounds = crate::underwater::region::CellRegion {
+                x,
+                y: bounds.y - 64,
+                width: bounds.width + (bounds.x - x) as usize + 64,
+                height: bounds.height + 128,
+            };
+            if !bounds.valid() {
+                break;
+            }
+        }
+        self.level.cells = Some(terrain);
+        if !fitted {
+            return false;
+        }
+        frame.apply(self, host, guest);
+        self.tick_fixed_terrain();
         true
     }
 }

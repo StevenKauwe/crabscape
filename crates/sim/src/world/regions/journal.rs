@@ -4,7 +4,7 @@ use super::*;
 
 const MAX_TICKS: u64 = 120 * 60;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Run {
     first: u64,
     count: u32,
@@ -14,7 +14,7 @@ struct Run {
     actions: Vec<(PlayerId, CellSessionAction)>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RegionJournal {
     id: RegionId,
     epoch: RegionEpoch,
@@ -167,6 +167,102 @@ impl RegionJournal {
         self.runs.clear();
         Ok(())
     }
+    pub fn advance_checkpoint(
+        &mut self,
+        authority: PlayerId,
+        epoch: RegionEpoch,
+        bytes: Vec<u8>,
+    ) -> Result<(), RegionError> {
+        if authority != self.authority || epoch != self.epoch {
+            return Err(RegionError::InvalidFrame);
+        }
+        let state = RegionKernel::from_checkpoint(&bytes)?;
+        let tick = state.sim.tick_count();
+        if state.id != self.id
+            || state.epoch != self.epoch
+            || state.members() != self.members
+            || tick < self.base_tick
+            || tick > self.next_tick
+        {
+            return Err(RegionError::InvalidState);
+        }
+        let mut runs = Vec::new();
+        for run in &self.runs {
+            let end = run.first + u64::from(run.count);
+            if end <= tick {
+                continue;
+            }
+            let mut kept = run.clone();
+            if kept.first < tick {
+                kept.count = (end - tick) as u32;
+                kept.first = tick;
+            }
+            runs.push(kept);
+        }
+        self.checkpoint = bytes;
+        self.base_tick = tick;
+        self.runs = runs;
+        Ok(())
+    }
+    pub fn base_kernel(&self) -> Result<RegionKernel, RegionError> {
+        RegionKernel::from_checkpoint(&self.checkpoint)
+    }
+    pub fn to_text(&self) -> Result<String, RegionError> {
+        Ok(format!(
+            "region_session_v1 {}\n",
+            crate::memory::base64(&self.to_bytes()?)
+        ))
+    }
+    pub fn from_text(text: &str) -> Result<Self, RegionError> {
+        if text.len() > 32 * 1024 * 1024 {
+            return Err(RegionError::TooLarge);
+        }
+        let encoded = text
+            .trim()
+            .strip_prefix("region_session_v1 ")
+            .ok_or(RegionError::InvalidState)?;
+        let bytes = crate::memory::unbase64(encoded).ok_or(RegionError::InvalidState)?;
+        Self::from_bytes(&bytes)
+    }
+    pub fn prepare_replay(&self, sim: &mut Sim) -> bool {
+        match self.base_kernel() {
+            Ok(kernel) => {
+                *sim = kernel.sim;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+    pub fn step_replay(&self, sim: &mut Sim) -> bool {
+        let tick = sim.tick_count();
+        let i = self.runs.partition_point(|r| r.first <= tick);
+        let Some(run) = i
+            .checked_sub(1)
+            .and_then(|i| self.runs.get(i))
+            .filter(|r| tick < r.first + u64::from(r.count))
+        else {
+            return false;
+        };
+        for (id, action) in &run.actions {
+            match action {
+                CellSessionAction::Home => return false,
+                CellSessionAction::Code(code) => {
+                    sim.enter_code(*id, *code);
+                }
+                CellSessionAction::Moult(skill) => {
+                    sim.moult(*id, *skill);
+                }
+                CellSessionAction::Craft(recipe) => {
+                    let _ = sim.make(*id, *recipe);
+                }
+            }
+        }
+        for (id, control) in &run.controls {
+            sim.set_controls(*id, *control);
+        }
+        sim.tick_fixed_terrain();
+        true
+    }
     pub fn to_bytes(&self) -> Result<Vec<u8>, RegionError> {
         if postcard::experimental::serialized_size(self).map_err(|_| RegionError::InvalidState)?
             > 24 * 1024 * 1024
@@ -252,6 +348,7 @@ mod tests {
             .extract(RegionId(1), epoch, &[PlayerId(0)], world)
             .unwrap();
         let mut journal = RegionJournal::new(&live, PlayerId(0)).unwrap();
+        let mut halfway = None;
         for n in 0..60 {
             let mut frames = Vec::new();
             for offset in 0..4 {
@@ -272,10 +369,34 @@ mod tests {
                 frames.push(frame);
             }
             journal.append(PlayerId(0), epoch, &frames).unwrap();
+            if n == 29 {
+                halfway = Some(live.checkpoint().unwrap());
+            }
         }
         assert_eq!(journal.acknowledged_tick(), 240);
         let recovered = journal.materialize().unwrap();
         assert_eq!(live.state_hash(), recovered.state_hash());
+        let replay = crate::Replay::parse(&journal.to_text().unwrap()).unwrap();
+        let mut played = Sim::with_one_crab(replay.start);
+        assert!(replay.prepare_start(&mut played));
+        for _ in 0..replay.length() {
+            assert!(replay.step_cell_session(&mut played));
+        }
+        assert_eq!(
+            live.sim.state_hash(),
+            played.state_hash(),
+            "exported regional replay retains NPC random state"
+        );
+        let mut advanced = journal.clone();
+        advanced
+            .advance_checkpoint(PlayerId(0), epoch, halfway.unwrap())
+            .unwrap();
+        assert_eq!(advanced.acknowledged_tick(), 240);
+        assert_eq!(advanced.pending_ticks(), 120);
+        assert_eq!(
+            live.state_hash(),
+            advanced.materialize().unwrap().state_hash()
+        );
         let saved = journal.to_bytes().unwrap();
         let reloaded = RegionJournal::from_bytes(&saved).unwrap();
         assert_eq!(
@@ -304,7 +425,7 @@ mod tests {
         assert_eq!(journal.acknowledged_tick(), 240);
         assert!(
             journal
-                .append(PlayerId(7), epoch, &[valid.clone()])
+                .append(PlayerId(7), epoch, std::slice::from_ref(&valid))
                 .is_err()
         );
         assert!(

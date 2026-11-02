@@ -24,6 +24,7 @@ pub enum StoreError {
     TooManyRegions,
 }
 
+#[derive(Clone)]
 struct Lease {
     epoch: RegionEpoch,
     bounds: CellRegion,
@@ -34,6 +35,7 @@ struct Lease {
 
 /// The owner keeps one canonical archive. Active kernels contain only their
 /// assigned cells: they never clone the growing sleeping-world archive.
+#[derive(Clone)]
 pub struct TerrainStore {
     terrain: World,
     leases: BTreeMap<RegionId, Lease>,
@@ -58,6 +60,12 @@ impl TerrainStore {
     }
     pub fn active_regions(&self) -> usize {
         self.leases.len()
+    }
+    pub fn into_world(self) -> Result<World, StoreError> {
+        if !self.leases.is_empty() {
+            return Err(StoreError::Overlap);
+        }
+        Ok(self.terrain)
     }
 
     pub fn grant(

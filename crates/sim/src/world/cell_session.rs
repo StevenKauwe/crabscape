@@ -26,6 +26,7 @@ struct State {
     enemies: Vec<Enemy>,
     next_enemy: u32,
     rng: Rng,
+    owned_rng: Option<std::collections::BTreeMap<u32, Rng>>,
     shared: Shared,
     other_crabs: Vec<(i32, i32, i32, i32)>,
 }
@@ -40,6 +41,7 @@ struct StateRef<'a> {
     enemies: &'a [Enemy],
     next_enemy: u32,
     rng: &'a Rng,
+    owned_rng: &'a Option<std::collections::BTreeMap<u32, Rng>>,
     shared: &'a Shared,
     other_crabs: &'a [(i32, i32, i32, i32)],
 }
@@ -135,7 +137,9 @@ impl Sim {
 
     /// Capture at a tick boundary. Saves, recorder and transport ownership are excluded.
     pub fn session_checkpoint(&self) -> Result<Vec<u8>, CheckpointError> {
-        self.checkpoint_impl(false)
+        self.checkpoint_impl(self.level.cells.as_ref().is_some_and(|w| {
+            w.dimensions() != (crate::underwater::WIDTH, crate::underwater::HEIGHT)
+        }))
     }
 
     pub fn region_checkpoint(&self) -> Result<Vec<u8>, CheckpointError> {
@@ -167,6 +171,7 @@ impl Sim {
             enemies: &self.enemies,
             next_enemy: self.next_enemy,
             rng: &self.rng,
+            owned_rng: &self.owned_rng,
             shared: &self.shared,
             other_crabs: &cells.other_crabs,
         };
@@ -211,6 +216,14 @@ impl Sim {
         let metadata = raw.get(4..4 + size).ok_or(CheckpointError::Invalid)?;
         let state: State =
             serde_json::from_slice(metadata).map_err(|_| CheckpointError::Invalid)?;
+        if state.owned_rng.as_ref().is_some_and(|streams| {
+            streams.len() > 4096
+                || streams
+                    .keys()
+                    .any(|id| !state.enemies.iter().any(|e| e.id == *id))
+        }) {
+            return Err(CheckpointError::Invalid);
+        }
         let mut terrain = if region {
             crate::underwater::World::from_region_bytes(&raw[4 + size..]).ok()
         } else {
@@ -277,6 +290,7 @@ impl Sim {
         sim.enemies = state.enemies;
         sim.next_enemy = state.next_enemy;
         sim.rng = state.rng;
+        sim.owned_rng = state.owned_rng;
         sim.shared = state.shared;
         Ok(sim)
     }

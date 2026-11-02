@@ -76,7 +76,6 @@ pub struct RegionKernel {
     pub id: RegionId,
     pub epoch: RegionEpoch,
     pub sim: Sim,
-    pub(crate) npc_rng: BTreeMap<u32, Rng>,
 }
 
 /// Sleeping entities and their independent random streams belong to the
@@ -91,12 +90,17 @@ impl EntityArchive {
             return Err(RegionError::InvalidState);
         }
         sim.stop_recording();
-        let npc_rng = sim
-            .enemies
-            .iter()
-            .map(|e| (e.id, Rng::new(SEED ^ u64::from(e.id))))
-            .collect();
+        let npc_rng = sim.owned_rng.take().unwrap_or_else(|| {
+            sim.enemies
+                .iter()
+                .map(|e| (e.id, Rng::new(SEED ^ u64::from(e.id))))
+                .collect()
+        });
         Ok(Self { sim, npc_rng })
+    }
+    pub fn into_sim(mut self) -> Sim {
+        self.sim.owned_rng = Some(self.npc_rng);
+        self.sim
     }
     pub fn extract(
         &mut self,
@@ -108,16 +112,32 @@ impl EntityArchive {
         let mut kernel = self.sim.extract_region(id, epoch, members, terrain)?;
         for e in &kernel.sim.enemies {
             if let Some(rng) = self.npc_rng.remove(&e.id) {
-                kernel.npc_rng.insert(e.id, rng);
+                kernel
+                    .sim
+                    .owned_rng
+                    .as_mut()
+                    .expect("regional streams")
+                    .insert(e.id, rng);
             }
         }
         Ok(kernel)
     }
     pub fn absorb(&mut self, kernel: RegionKernel) -> Result<(), RegionError> {
-        let streams = kernel.npc_rng.clone();
+        let streams = kernel.sim.owned_rng.clone().unwrap_or_default();
         self.sim.absorb_region(kernel)?;
         self.npc_rng.extend(streams);
         Ok(())
+    }
+    /// Capture shared resources without stopping or transferring an authority.
+    pub fn merge_resources(&mut self, source: &Sim) -> Result<(), RegionError> {
+        self.sim.merge_region_resources(source)
+    }
+    /// Combine the owner's canonical world flags with a live player's progress.
+    pub fn world_progress(&self, progress: &mut crate::Progress) {
+        progress.clams = self.sim.shared.clams.clone();
+        progress.grit_taken = self.sim.shared.grit_taken.clone();
+        progress.nets_cut = self.sim.level.nets.iter().map(|n| n.cut).collect();
+        progress.rocks_cracked = self.sim.level.brittle.iter().map(|r| r.cracked).collect();
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -127,6 +147,27 @@ struct Header {
     npc_rng: BTreeMap<u32, Rng>,
 }
 impl RegionKernel {
+    pub fn install_view(mut self, view: &mut Sim) -> Self {
+        let empty = Sim::new(self.sim.tuning.clone(), crate::Level::test_level());
+        *view = std::mem::replace(&mut self.sim, empty);
+        self
+    }
+    pub fn take_view(mut self, view: &mut Sim) -> Self {
+        std::mem::swap(&mut self.sim, view);
+        self
+    }
+    pub fn tick_view(&mut self, view: &mut Sim, frame: &RegionFrame) -> Result<(), RegionError> {
+        std::mem::swap(&mut self.sim, view);
+        let result = self.tick(frame);
+        std::mem::swap(&mut self.sim, view);
+        result
+    }
+    pub fn checkpoint_view(&mut self, view: &mut Sim) -> Result<Vec<u8>, RegionError> {
+        std::mem::swap(&mut self.sim, view);
+        let result = self.checkpoint();
+        std::mem::swap(&mut self.sim, view);
+        result
+    }
     pub fn bounds(&self) -> CellRegion {
         self.sim
             .level
@@ -192,22 +233,14 @@ impl RegionKernel {
         for (id, c) in &frame.controls {
             self.sim.set_controls(*id, *c);
         }
-        self.sim
-            .tick_region_inner(false, None, Some(&mut self.npc_rng));
-        self.npc_rng
-            .retain(|id, _| self.sim.enemies.iter().any(|e| e.id == *id));
-        for e in &self.sim.enemies {
-            self.npc_rng
-                .entry(e.id)
-                .or_insert_with(|| Rng::new(SEED ^ u64::from(e.id)));
-        }
+        self.sim.tick_fixed_terrain();
         Ok(())
     }
     pub fn checkpoint(&self) -> Result<Vec<u8>, RegionError> {
         let header = serde_json::to_vec(&Header {
             id: self.id,
             epoch: self.epoch,
-            npc_rng: self.npc_rng.clone(),
+            npc_rng: self.sim.owned_rng.clone().unwrap_or_default(),
         })
         .map_err(|_| RegionError::InvalidState)?;
         if header.len() > 256 * 1024 {
@@ -233,7 +266,7 @@ impl RegionKernel {
         }
         let h: Header = serde_json::from_slice(&bytes[12..12 + length])
             .map_err(|_| RegionError::InvalidState)?;
-        let sim = Sim::from_session_checkpoint(&bytes[12 + length..])
+        let mut sim = Sim::from_session_checkpoint(&bytes[12 + length..])
             .map_err(|_| RegionError::InvalidState)?;
         if h.id.0 == 0
             || h.epoch.0 == 0
@@ -246,23 +279,15 @@ impl RegionKernel {
         {
             return Err(RegionError::InvalidState);
         }
+        sim.owned_rng = Some(h.npc_rng);
         Ok(Self {
             id: h.id,
             epoch: h.epoch,
             sim,
-            npc_rng: h.npc_rng,
         })
     }
     pub fn state_hash(&self) -> u64 {
-        crate::hash::fnv1a(
-            format!(
-                "{:?} {} {:?}",
-                self.bounds(),
-                self.sim.state_hash_streamed(),
-                self.npc_rng
-            )
-            .as_bytes(),
-        )
+        self.sim.state_hash_streamed()
     }
 }
 
@@ -328,26 +353,18 @@ impl Sim {
             .iter()
             .map(|e| (e.id, Rng::new(SEED ^ u64::from(e.id))))
             .collect();
+        region.owned_rng = Some(npc_rng);
         self.stop_recording();
         Ok(RegionKernel {
             id,
             epoch,
             sim: region,
-            npc_rng,
         })
     }
 
     /// Restore a finished kernel to the owner archive. Resource state is
     /// copied only for this area's objects; other regions retain their values.
     fn absorb_region(&mut self, kernel: RegionKernel) -> Result<(), RegionError> {
-        let bounds = kernel.bounds();
-        let owns = |p: Vec2| {
-            bounds.contains(
-                (p.x / crate::underwater::GAME_CELL).floor() as i32,
-                ((p.y - crate::underwater::GAME_BOTTOM) / crate::underwater::GAME_CELL).floor()
-                    as i32,
-            )
-        };
         if self.net.is_some()
             || kernel.sim.crabs.iter().any(|c| self.crab(c.id).is_some())
             || kernel
@@ -358,7 +375,40 @@ impl Sim {
         {
             return Err(RegionError::InvalidState);
         }
+        self.merge_region_resources(&kernel.sim)?;
         let source = kernel.sim;
+        self.tick = self.tick.max(source.tick);
+        self.next_enemy = self.next_enemy.max(source.next_enemy);
+        self.crabs.extend(source.crabs);
+        self.crabs.sort_by_key(|c| c.id);
+        self.enemies.extend(source.enemies);
+        self.enemies.sort_by_key(|e| e.id);
+        Ok(())
+    }
+
+    fn merge_region_resources(&mut self, source: &Sim) -> Result<(), RegionError> {
+        let bounds = source
+            .level
+            .cells
+            .as_ref()
+            .ok_or(RegionError::InvalidState)?
+            .region();
+        if self.level.clams != source.level.clams
+            || self.level.grit != source.level.grit
+            || self.shared.clams.len() != source.shared.clams.len()
+            || self.shared.grit_taken.len() != source.shared.grit_taken.len()
+            || self.level.nets.len() != source.level.nets.len()
+            || self.level.brittle.len() != source.level.brittle.len()
+        {
+            return Err(RegionError::InvalidState);
+        }
+        let owns = |p: Vec2| {
+            bounds.contains(
+                (p.x / crate::underwater::GAME_CELL).floor() as i32,
+                ((p.y - crate::underwater::GAME_BOTTOM) / crate::underwater::GAME_CELL).floor()
+                    as i32,
+            )
+        };
         for (i, p) in self.level.clams.iter().enumerate() {
             if owns(*p) {
                 self.shared.clams[i] = source.shared.clams[i];
@@ -392,12 +442,6 @@ impl Sim {
         if source.enemies.iter().any(|e| e.octopus().is_some()) {
             self.shared.midden_taken = source.shared.midden_taken.clone();
         }
-        self.tick = self.tick.max(source.tick);
-        self.next_enemy = self.next_enemy.max(source.next_enemy);
-        self.crabs.extend(source.crabs);
-        self.crabs.sort_by_key(|c| c.id);
-        self.enemies.extend(source.enemies);
-        self.enemies.sort_by_key(|e| e.id);
         Ok(())
     }
 }
@@ -406,6 +450,40 @@ impl Sim {
 mod tests {
     use super::*;
     use crate::underwater::region_store::TerrainStore;
+    #[test]
+    fn autosave_merges_only_owned_resources_without_transferring_actors() {
+        let mut source = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+        source.enable_underwater_cells();
+        let region = source.level.cells.as_ref().unwrap().region();
+        let inside = Vec2::new(160.0, 0.0);
+        let outside = Vec2::new(
+            (region.x + region.width as i32 + 100) as f32 * crate::underwater::GAME_CELL,
+            0.0,
+        );
+        source.level.clams = vec![inside, outside];
+        source.level.grit = vec![inside, outside];
+        source.shared.clams = vec![0, 0];
+        source.shared.grit_taken = vec![false, false];
+        let mut archive = EntityArchive::new(Sim::with_one_crab(inside)).unwrap();
+        archive.sim.level = source.level.clone();
+        archive.sim.shared.clams = vec![10, 20];
+        archive.sim.shared.grit_taken = vec![false, true];
+        source.shared.clams = vec![30, 40];
+        source.shared.grit_taken = vec![true, false];
+        archive.merge_resources(&source).unwrap();
+        let mut progress = crate::Progress::default();
+        archive.world_progress(&mut progress);
+        assert_eq!(progress.clams, [30, 20]);
+        assert_eq!(progress.grit_taken, [true, true]);
+        assert_eq!(archive.sim.crabs.len(), 1);
+        assert_eq!(source.crabs.len(), 1);
+        source.shared.clams.clear();
+        assert_eq!(
+            archive.merge_resources(&source),
+            Err(RegionError::InvalidState)
+        );
+        assert_eq!(archive.sim.shared.clams, [30, 20]);
+    }
     #[test]
     fn two_distant_regions_step_independently_and_restore_both_players_and_creatures() {
         let mut archive = Sim::with_one_crab(Vec2::new(160.0, 0.0));
@@ -476,8 +554,8 @@ mod tests {
         store
             .commit(b.id, b.epoch, b.sim.level.cells.as_ref().unwrap())
             .unwrap();
-        let mut streams = a.npc_rng.clone();
-        streams.extend(b.npc_rng.clone());
+        let mut streams = a.sim.owned_rng.clone().unwrap();
+        streams.extend(b.sim.owned_rng.clone().unwrap());
         archive.absorb(a).unwrap();
         archive.absorb(b).unwrap();
         assert_eq!(archive.sim.crabs.len(), 2);
@@ -495,7 +573,8 @@ mod tests {
             .extract(RegionId(3), epoch, &[PlayerId(0), PlayerId(7)], terrain)
             .unwrap();
         assert_eq!(
-            merged.npc_rng, streams,
+            merged.sim.owned_rng.unwrap(),
+            streams,
             "creatures retain their random histories across reunion"
         );
     }

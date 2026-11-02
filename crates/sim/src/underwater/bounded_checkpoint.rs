@@ -40,7 +40,7 @@ pub fn encode_browser_checkpoint(world: &World) -> Option<Vec<u8>> {
     if world.dimensions() != (WIDTH, HEIGHT) {
         return None;
     }
-    encode_sized_checkpoint(world, MAX_RAW, 1205)
+    encode_sized_checkpoint(world, MAX_RAW, MAX_REGION_SILT)
 }
 
 pub(super) fn encode_region_checkpoint(world: &World) -> Option<Vec<u8>> {
@@ -190,7 +190,7 @@ struct BoundedCheckpoint<const MAX_CELLS: usize, const MAX_SILT: usize> {
 /// oversized, truncated, or otherwise invalid worlds return `None` and must
 /// not replace a stored save. This does not change the desktop save decoder.
 pub fn decode_browser_checkpoint(raw: &[u8]) -> Option<World> {
-    decode_sized_checkpoint::<ACTIVE_CELLS, 1205>(raw, WIDTH, HEIGHT, MAX_RAW)
+    decode_sized_checkpoint::<ACTIVE_CELLS, MAX_REGION_SILT>(raw, WIDTH, HEIGHT, MAX_RAW)
 }
 
 pub(super) fn decode_region_checkpoint(raw: &[u8], width: usize, height: usize) -> Option<World> {

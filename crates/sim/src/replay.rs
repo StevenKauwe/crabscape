@@ -99,6 +99,7 @@ pub struct Input {
 /// A whole replay or input script.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Replay {
+    pub(crate) regional: Option<crate::world::regions::journal::RegionJournal>,
     pub(crate) session: Option<session::SessionReplay>,
     /// Where player 0's crab stands at tick 0.
     pub start: Vec2,
@@ -146,6 +147,7 @@ pub struct Spawn {
 impl Default for Replay {
     fn default() -> Self {
         Self {
+            regional: None,
             session: None,
             start: SPAWN,
             cellular: false,
@@ -174,6 +176,37 @@ pub fn ticks(seconds: f64) -> u64 {
 impl Replay {
     /// Read a replay or script. On a mistake, says which line and why.
     pub fn parse(text: &str) -> Result<Self, String> {
+        if text.trim_start().starts_with("region_session_v1 ") {
+            let mut lines = text.trim().lines();
+            let journal = crate::world::regions::journal::RegionJournal::from_text(
+                lines.next().ok_or("missing region replay")?,
+            )
+            .map_err(|e| format!("Regional replay: {e:?}"))?;
+            let mut replay = Self {
+                cellular: true,
+                end: Some(journal.pending_ticks()),
+                regional: Some(journal),
+                ..Self::default()
+            };
+            for line in lines {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if replay.hash.is_some() {
+                    return Err("duplicate regional hash".into());
+                }
+                replay.hash = Some(
+                    u64::from_str_radix(
+                        line.strip_prefix("hash ")
+                            .ok_or("unexpected regional replay line")?
+                            .trim(),
+                        16,
+                    )
+                    .map_err(|_| "invalid regional hash")?,
+                );
+            }
+            return Ok(replay);
+        }
         if session::SessionReplay::recognizes(text) {
             return session::SessionReplay::parse(text);
         }
@@ -330,6 +363,15 @@ impl Replay {
     /// the changes are written, so a replay stays short: a few lines per
     /// second of play.
     pub fn to_text(&self) -> String {
+        if let Some(journal) = &self.regional {
+            let mut text = journal
+                .to_text()
+                .expect("validated bounded regional replay");
+            if let Some(hash) = self.hash {
+                text += &format!("hash {hash:016x}\n");
+            }
+            return text;
+        }
         if let Some(session) = &self.session {
             let mut text = session
                 .to_text()
@@ -465,6 +507,9 @@ impl Replay {
     /// its player. Other replays leave the supplied simulation untouched.
     /// Returns false if its starting checkpoint cannot safely be restored.
     pub fn prepare_start(&self, sim: &mut crate::Sim) -> bool {
+        if let Some(journal) = &self.regional {
+            return journal.prepare_replay(sim);
+        }
         if let Some(session) = &self.session {
             return match session.restore() {
                 Ok(restored) => {
@@ -516,7 +561,7 @@ impl Replay {
 
     /// Does this replay start from a saved cellular checkpoint?
     pub fn has_cell_start(&self) -> bool {
-        self.cell_start.is_some() || self.session.is_some()
+        self.cell_start.is_some() || self.session.is_some() || self.regional.is_some()
     }
 
     /// What happens to the world just before tick number `sim.tick_count()`
@@ -568,9 +613,12 @@ impl Replay {
     /// Session playback must use this full step, including the shared tether,
     /// instead of the single-player apply_at/next_controls/tick sequence.
     pub fn is_cell_session(&self) -> bool {
-        self.session.is_some()
+        self.session.is_some() || self.regional.is_some()
     }
     pub fn step_cell_session(&self, sim: &mut crate::Sim) -> bool {
+        if let Some(journal) = &self.regional {
+            return journal.step_replay(sim);
+        }
         self.session
             .as_ref()
             .is_some_and(|session| session.step(sim))
