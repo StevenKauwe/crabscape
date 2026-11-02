@@ -2,9 +2,10 @@
 //! cannot prove an arbitrary index is complete: provenance must come from the
 //! frozen capture, atomically bound to a verified storage snapshot.
 use super::*;
-const MAGIC: &[u8; 4] = b"CCI1";
-const HEADER: usize = 24;
+const MAGIC: &[u8; 4] = b"CCI2";
+const HEADER: usize = 60;
 const MAX_SLEEPING: usize = 4096;
+const MAX_PLAYER: usize = 64 * 1024;
 const DESCRIPTOR: usize = 36;
 type Digest = fn(&[u8]) -> [u8; 32];
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,6 +18,7 @@ struct Part {
 pub struct CaptureIndex {
     sim_tick: u64,
     terrain_tick: u64,
+    player: Part,
     sleeping: Vec<(i32, i32)>,
     parts: Vec<Part>,
 }
@@ -25,9 +27,17 @@ impl CaptureIndex {
     /// caller must capture player state at `sim_tick` in that same epoch.
     /// `hash` must be collision-resistant (the isolated storage proof uses
     /// SHA-256). Encoding each page here is synchronous and experimental.
-    pub fn capture(world: &FrozenChunks, sim_tick: u64, hash: Digest) -> Result<Self, LazyError> {
+    pub fn capture(
+        world: &FrozenChunks,
+        sim_tick: u64,
+        player: &[u8],
+        hash: Digest,
+    ) -> Result<Self, LazyError> {
         if sim_tick > u64::MAX - 1_000_000 {
             return Err(LazyError::Invalid);
+        }
+        if player.len() > MAX_PLAYER {
+            return Err(LazyError::TooLarge);
         }
         let sleeping: Vec<_> = world.sleeping_ids().collect();
         if sleeping.len() > MAX_SLEEPING {
@@ -63,6 +73,10 @@ impl CaptureIndex {
         Ok(Self {
             sim_tick,
             terrain_tick: world.tick(),
+            player: Part {
+                digest: hash(player),
+                len: player.len() as u32,
+            },
             sleeping,
             parts,
         })
@@ -74,6 +88,8 @@ impl CaptureIndex {
         raw.extend_from_slice(&self.sim_tick.to_le_bytes());
         raw.extend_from_slice(&self.terrain_tick.to_le_bytes());
         raw.extend_from_slice(&(self.sleeping.len() as u32).to_le_bytes());
+        raw.extend_from_slice(&self.player.len.to_le_bytes());
+        raw.extend_from_slice(&self.player.digest);
         for &(x, y) in &self.sleeping {
             raw.extend_from_slice(&x.to_le_bytes());
             raw.extend_from_slice(&y.to_le_bytes());
@@ -93,6 +109,15 @@ impl CaptureIndex {
             u64::from_le_bytes(raw[12..20].try_into().map_err(|_| LazyError::Invalid)?);
         let count =
             u32::from_le_bytes(raw[20..24].try_into().map_err(|_| LazyError::Invalid)?) as usize;
+        let player_len =
+            u32::from_le_bytes(raw[24..28].try_into().map_err(|_| LazyError::Invalid)?);
+        if player_len as usize > MAX_PLAYER {
+            return Err(LazyError::TooLarge);
+        }
+        let player = Part {
+            len: player_len,
+            digest: raw[28..60].try_into().map_err(|_| LazyError::Invalid)?,
+        };
         if count > MAX_SLEEPING {
             return Err(LazyError::TooLarge);
         }
@@ -132,6 +157,7 @@ impl CaptureIndex {
         Ok(Self {
             sim_tick,
             terrain_tick,
+            player,
             sleeping,
             parts: descriptors,
         })
@@ -154,12 +180,47 @@ pub struct IndexVerifier {
     hash: Digest,
     valid: bool,
 }
+#[derive(Clone)]
 pub struct VerifiedIndex {
     index: CaptureIndex,
 }
 impl VerifiedIndex {
     pub fn sleeping(&self) -> &[(i32, i32)] {
         &self.index.sleeping
+    }
+    pub(super) fn matches_page(&self, page: PageId, bytes: &[u8], hash: Digest) -> bool {
+        let offset = match page {
+            PageId::Active(x, y) => {
+                let cols = WIDTH.div_ceil(SIDE);
+                let rows = HEIGHT.div_ceil(SIDE);
+                if x as usize >= cols || y as usize >= rows {
+                    return false;
+                }
+                1 + y as usize * cols + x as usize
+            }
+            PageId::Sleeping(x, y) => match self.index.sleeping.binary_search(&(x, y)) {
+                Ok(i) => 1 + TOTAL_ACTIVE + i,
+                Err(_) => return false,
+            },
+        };
+        self.index
+            .parts
+            .get(offset)
+            .is_some_and(|part| bytes.len() == part.len as usize && hash(bytes) == part.digest)
+    }
+    pub(super) fn matches(
+        &self,
+        metadata: &[u8],
+        player: &[u8],
+        sim_tick: u64,
+        hash: Digest,
+    ) -> bool {
+        let part = &self.index.parts[0];
+        self.index.sim_tick == sim_tick
+            && metadata.len() == part.len as usize
+            && hash(metadata) == part.digest
+            && player.len() == self.index.player.len as usize
+            && hash(player) == self.index.player.digest
     }
 }
 impl IndexVerifier {
@@ -169,11 +230,15 @@ impl IndexVerifier {
         metadata: &[u8],
         sim_tick: u64,
         part_count: usize,
+        player: &[u8],
         budget: usize,
         hash: Digest,
     ) -> Result<Self, LazyError> {
         let index = CaptureIndex::decode(index)?;
         if index.sim_tick != sim_tick || index.part_count() != part_count {
+            return Err(LazyError::Invalid);
+        }
+        if player.len() != index.player.len as usize || hash(player) != index.player.digest {
             return Err(LazyError::Invalid);
         }
         let meta = &index.parts[0];
@@ -250,7 +315,7 @@ mod tests {
         let mut world = World::from_level_settled(&level);
         assert!(world.follow_player(&level, 4400.0, 0.0));
         let frozen = FrozenChunks::capture(&world, MAX_CAPTURE_BYTES).unwrap();
-        let index = CaptureIndex::capture(&frozen, 17, test_hash).unwrap();
+        let index = CaptureIndex::capture(&frozen, 17, b"player", test_hash).unwrap();
         assert!(!index.sleeping().is_empty());
         (frozen, index)
     }
@@ -266,6 +331,7 @@ mod tests {
                 &metadata,
                 18,
                 index.part_count(),
+                b"player",
                 2_000_000,
                 test_hash
             ),
@@ -277,6 +343,7 @@ mod tests {
                 &metadata,
                 17,
                 index.part_count() - 1,
+                b"player",
                 2_000_000,
                 test_hash
             ),
@@ -287,6 +354,7 @@ mod tests {
             &metadata,
             17,
             index.part_count(),
+            b"player",
             2_000_000,
             test_hash,
         )
@@ -315,6 +383,7 @@ mod tests {
             &metadata,
             17,
             index.part_count(),
+            b"player",
             2_000_000,
             test_hash,
         )
@@ -330,6 +399,7 @@ mod tests {
             &metadata,
             17,
             index.part_count(),
+            b"player",
             2_000_000,
             test_hash,
         )
@@ -362,13 +432,14 @@ mod tests {
         });
         world.pebble_motion.push((0, 0, 0));
         let frozen = FrozenChunks::capture(&world, MAX_CAPTURE_BYTES).unwrap();
-        let index = CaptureIndex::capture(&frozen, 17, test_hash).unwrap();
+        let index = CaptureIndex::capture(&frozen, 17, b"player", test_hash).unwrap();
         assert!(matches!(
             IndexVerifier::new(
                 &index.encode(),
                 &frozen.metadata().unwrap(),
                 17,
                 index.part_count(),
+                b"player",
                 2_000_000,
                 test_hash
             ),

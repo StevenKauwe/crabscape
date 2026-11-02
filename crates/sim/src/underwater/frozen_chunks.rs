@@ -6,7 +6,7 @@
 mod restore;
 pub use restore::{
     CaptureIndex, CellState, GuardedBuilder, GuardedError, GuardedPlayable, IndexVerifier,
-    LazyError, LazyView, LoadTicket, PageId, VerifiedIndex,
+    LazyError, LazyView, LoadTicket, PageId, SavedSetup, VerifiedIndex,
 };
 
 use super::*;

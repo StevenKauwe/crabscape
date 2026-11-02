@@ -29,7 +29,7 @@ pub enum LazyError {
 #[derive(Clone)]
 pub struct LoadTicket {
     session: Arc<()>,
-    page: PageId,
+    pub(super) page: PageId,
 }
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellState {

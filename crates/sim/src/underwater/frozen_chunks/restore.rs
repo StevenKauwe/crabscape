@@ -9,7 +9,7 @@ mod manifest;
 mod playable;
 pub use lazy::{CellState, LazyError, LazyView, LoadTicket, PageId};
 pub use manifest::{CaptureIndex, IndexVerifier, VerifiedIndex};
-pub use playable::{GuardedBuilder, GuardedError, GuardedPlayable};
+pub use playable::{GuardedBuilder, GuardedError, GuardedPlayable, SavedSetup};
 
 const MAX_RESTORE_SLEEPING: usize = 256;
 const CHUNK_CELLS: usize = SIDE * SIDE;

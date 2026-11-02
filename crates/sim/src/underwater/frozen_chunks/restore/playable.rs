@@ -1,10 +1,149 @@
-//! Isolated guarded playable prototype. The caller supplies a complete `Sim`
-//! template, including player, progress, actors, RNG and simulation tick. This
-//! is not an implementation of the game's current save format or startup.
+//! Isolated guarded playable prototype. The saved-player constructor accepts
+//! a bounded version-2 player record, but is not wired to game startup.
 use super::*;
-use crate::{Controls, PlayerId, Sim, SimCrab};
+use crate::{
+    Controls, Feel, Level, Memory, MemorySave, Mover, PlayerId, Progress, Sim, SimCrab, Tuning,
+};
+use bevy_math::Vec2;
 
 const MAX_LOADED_SLEEPING: usize = 256;
+const MAX_PLAYER_BYTES: usize = 64 * 1024;
+type VerifiedPages = (VerifiedIndex, fn(&[u8]) -> [u8; 32]);
+
+/// Inputs held outside the v2 player record in the current game.
+pub struct SavedSetup {
+    pub level: Level,
+    pub tuning: Tuning,
+    pub feel: Feel,
+    pub sim_tick: u64,
+}
+
+#[derive(serde::Deserialize)]
+struct SavedPlayer {
+    version: u32,
+    x: f32,
+    y: f32,
+    #[serde(default)]
+    memory: Option<MemorySave>,
+    #[serde(default)]
+    progress: Option<Progress>,
+}
+
+struct SavedStartup {
+    setup: SavedSetup,
+    player: SavedPlayer,
+}
+enum Startup {
+    Template(Box<Sim>),
+    Saved(Box<SavedStartup>),
+}
+
+fn build_saved(start: SavedStartup, world: World) -> Result<Sim, GuardedError> {
+    let SavedStartup { setup, player } = start;
+    let mut sim = Sim::new(setup.tuning, setup.level);
+    sim.set_feel(setup.feel);
+    if !sim.restore_cellular_terrain(world, setup.sim_tick) {
+        return Err(GuardedError::Invalid);
+    }
+    if let Some(progress) = &player.progress {
+        let fresh = sim.fresh_progress();
+        if !progress.climb_xp.is_finite()
+            || !progress.swim_xp.is_finite()
+            || !progress.fight_xp.is_finite()
+            || progress.cast_offs.iter().any(|c| !c.pos.is_finite())
+            || u32::try_from(fresh.eaten.len())
+                .ok()
+                .and_then(|eggs| {
+                    progress
+                        .upgrades
+                        .checked_add(sim.tuning.swim_strokes)?
+                        .checked_add(eggs)
+                })
+                .is_none()
+            || progress.eaten.len() > fresh.eaten.len()
+            || progress.cultures_taken.len() > fresh.cultures_taken.len()
+            || progress.clues_found.len() > fresh.clues_found.len()
+            || progress.teeth_taken.len() > fresh.teeth_taken.len()
+            || progress.nets_cut.len() > fresh.nets_cut.len()
+            || progress.rocks_cracked.len() > fresh.rocks_cracked.len()
+            || progress.clams.len() > fresh.clams.len()
+            || progress.grit_taken.len() > fresh.grit_taken.len()
+            || progress.sponges_taken.len() > fresh.sponges_taken.len()
+            || progress.larder
+                > crate::world::larder_holds(
+                    sim.tuning.build.stage(progress.home_grit),
+                    &sim.tuning,
+                )
+            || progress
+                .wakes_at
+                .is_some_and(|i| i >= sim.level.crevices.len())
+        {
+            return Err(GuardedError::Invalid);
+        }
+    }
+    if player.memory.as_ref().is_some_and(|m| {
+        m.sightings
+            .iter()
+            .any(|s| !s.pos.is_finite() || !s.facing.is_finite())
+    }) {
+        return Err(GuardedError::Invalid);
+    }
+    let memory = player
+        .memory
+        .as_ref()
+        .map(|m| Memory::from_save(m, &sim.level, &sim.tuning.memory).ok_or(GuardedError::Invalid))
+        .transpose()?;
+    let size = player.progress.as_ref().map_or(1.0, |p| {
+        let mut mover = Mover::new(crate::SPAWN);
+        (mover.moults, mover.growing) = (p.moults, p.growing);
+        mover.grown(&sim.tuning)
+    });
+    let pos = Vec2::new(
+        player.x,
+        player
+            .y
+            .min(crate::level::WATER_SURFACE_Y - sim.tuning.body_height * size),
+    );
+    let hw = sim.tuning.body_half_width * size;
+    let height = sim.tuning.body_height * size;
+    let cells = sim.level.cells.as_ref().ok_or(GuardedError::Invalid)?;
+    let (left, bottom, width, active_height) = cells.game_bounds();
+    // A partly unloaded body cannot be checked against immutable CA rock.
+    if !pos.is_finite()
+        || !size.is_finite()
+        || !hw.is_finite()
+        || !height.is_finite()
+        || size <= 0.0
+        || hw <= 0.0
+        || height <= 0.0
+        || pos.x - hw < left
+        || pos.x + hw >= left + width
+        || pos.y < bottom
+        || pos.y + height >= bottom + active_height
+        || pos.x < sim.level.min_x + hw
+        || pos.x > sim.level.max_x - hw
+        || pos.y + height > crate::level::WATER_SURFACE_Y
+        || cells.game_rock_in_rect(pos.x - hw, pos.y, pos.x + hw, pos.y + height)
+        || sim.level.solids().any(|r| {
+            pos.x + hw > r.min.x + 0.01
+                && pos.x - hw < r.max.x - 0.01
+                && pos.y + height > r.min.y + 0.01
+                && pos.y < r.max.y - 0.01
+        })
+    {
+        return Err(GuardedError::Invalid);
+    }
+    sim.add_crab(PlayerId(0), pos);
+    if let Some(progress) = &player.progress {
+        sim.restore_progress(PlayerId(0), progress);
+    }
+    if let Some(memory) = memory {
+        sim.crab_mut(PlayerId(0))
+            .ok_or(GuardedError::Invalid)?
+            .memory = memory;
+    }
+    Ok(sim)
+}
 
 fn may_shift(world: &World, x: f32, y: f32) -> bool {
     let (cx, cy) = world.local_cell(x, y);
@@ -24,12 +163,13 @@ pub enum GuardedError {
 }
 
 pub struct GuardedBuilder {
-    sim: Sim,
+    startup: Startup,
     player: PlayerId,
     view: LazyView,
     restore: FrozenRestore,
     missing: BTreeSet<(i32, i32)>,
     seen: [bool; TOTAL_ACTIVE],
+    verified: Option<VerifiedPages>,
 }
 
 impl GuardedBuilder {
@@ -56,12 +196,53 @@ impl GuardedBuilder {
             .map_err(|_| GuardedError::Invalid)?;
         let restore = FrozenRestore::new(metadata, 0).map_err(|_| GuardedError::Invalid)?;
         Ok(Self {
-            sim,
+            startup: Startup::Template(Box::new(sim)),
             player,
             view,
             restore,
             missing: sleeping.iter().copied().collect(),
             seen: [false; TOTAL_ACTIVE],
+            verified: None,
+        })
+    }
+    /// Construct from the same JSON fields as a v2 cellular `SaveData`.
+    /// The index must already have been verified from the same pinned head;
+    /// callers must recheck its storage epoch before installation.
+    pub fn from_saved(
+        setup: SavedSetup,
+        player_json: &[u8],
+        metadata: &[u8],
+        verified: &VerifiedIndex,
+        hash: fn(&[u8]) -> [u8; 32],
+        budget: usize,
+    ) -> Result<Self, GuardedError> {
+        if player_json.len() > MAX_PLAYER_BYTES {
+            return Err(GuardedError::Limit);
+        }
+        if setup.sim_tick > u64::MAX - 1_000_000
+            || !verified.matches(metadata, player_json, setup.sim_tick, hash)
+        {
+            return Err(GuardedError::Invalid);
+        }
+        let player: SavedPlayer =
+            serde_json::from_slice(player_json).map_err(|_| GuardedError::Invalid)?;
+        if player.version != 2 || !player.x.is_finite() || !player.y.is_finite() {
+            return Err(GuardedError::Invalid);
+        }
+        let sleeping = verified.sleeping();
+        let view =
+            LazyView::new(metadata, sleeping, 2, budget).map_err(|_| GuardedError::Invalid)?;
+        view.validate_index_coverage()
+            .map_err(|_| GuardedError::Invalid)?;
+        let restore = FrozenRestore::new(metadata, 0).map_err(|_| GuardedError::Invalid)?;
+        Ok(Self {
+            startup: Startup::Saved(Box::new(SavedStartup { setup, player })),
+            player: PlayerId(0),
+            view,
+            restore,
+            missing: sleeping.iter().copied().collect(),
+            seen: [false; TOTAL_ACTIVE],
+            verified: Some((verified.clone(), hash)),
         })
     }
     /// Validate and stage one active chunk; no simulation may run yet.
@@ -69,6 +250,13 @@ impl GuardedBuilder {
         let cols = WIDTH.div_ceil(SIDE);
         let rows = HEIGHT.div_ceil(SIDE);
         if x as usize >= cols || y as usize >= rows || self.seen[y as usize * cols + x as usize] {
+            return Err(GuardedError::Invalid);
+        }
+        if self
+            .verified
+            .as_ref()
+            .is_some_and(|(index, hash)| !index.matches_page(PageId::Active(x, y), bytes, *hash))
+        {
             return Err(GuardedError::Invalid);
         }
         let ticket = self
@@ -91,7 +279,7 @@ impl GuardedBuilder {
         self.seen.iter().all(|v| *v)
     }
     /// Install atomically only after every active page has validated.
-    pub fn install(mut self) -> Result<GuardedPlayable, GuardedError> {
+    pub fn install(self) -> Result<GuardedPlayable, GuardedError> {
         if !self.is_ready() {
             return Err(GuardedError::Incomplete);
         }
@@ -99,12 +287,19 @@ impl GuardedBuilder {
         if !world.is_game_world() {
             return Err(GuardedError::Invalid);
         }
-        self.sim.level.cells = Some(world);
+        let sim = match self.startup {
+            Startup::Template(mut sim) => {
+                sim.level.cells = Some(world);
+                *sim
+            }
+            Startup::Saved(start) => build_saved(*start, world)?,
+        };
         Ok(GuardedPlayable {
-            sim: Some(self.sim),
+            sim: Some(sim),
             player: self.player,
             view: self.view,
             missing: self.missing,
+            verified: self.verified,
         })
     }
 }
@@ -122,6 +317,7 @@ pub struct GuardedPlayable {
     player: PlayerId,
     view: LazyView,
     missing: BTreeSet<(i32, i32)>,
+    verified: Option<VerifiedPages>,
 }
 impl GuardedPlayable {
     pub fn player(&self) -> Option<&SimCrab> {
@@ -153,6 +349,13 @@ impl GuardedPlayable {
     ) -> Result<(), GuardedError> {
         if self.sim.is_none() {
             return Err(GuardedError::Stale);
+        }
+        if self
+            .verified
+            .as_ref()
+            .is_some_and(|(index, hash)| !index.matches_page(ticket.page, bytes, *hash))
+        {
+            return Err(GuardedError::Invalid);
         }
         let sim = self.sim.as_mut().ok_or(GuardedError::Stale)?;
         let world = sim.level.cells.as_mut().ok_or(GuardedError::Invalid)?;

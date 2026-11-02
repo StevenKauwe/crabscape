@@ -298,6 +298,157 @@ mod tests {
     }
 
     #[test]
+    fn isolated_lazy_saved_start_matches_real_player_progress_and_ticks() {
+        use crabsim::{
+            Controls, Feel, Memory, PlayerId, Sim, Tuning,
+            underwater::frozen_chunks::{
+                CaptureIndex, FrozenChunks, GuardedBuilder, IndexVerifier, SavedSetup,
+            },
+        };
+        fn hash(bytes: &[u8]) -> [u8; 32] {
+            let word = crabsim::hash::fnv1a(bytes).to_le_bytes();
+            let mut out = [0; 32];
+            for part in out.chunks_mut(8) {
+                part.copy_from_slice(&word);
+            }
+            out
+        }
+        let level = Level::test_level();
+        let mut terrain = World::from_level_settled(&level);
+        assert!(terrain.follow_player(&level, 4400.0, 0.0));
+        assert!(terrain.follow_player(&level, 160.0, 0.0));
+        let mut source = Sim::new(Tuning::default(), level.clone());
+        source.set_feel(Feel::default());
+        assert!(source.restore_cellular_terrain(terrain, 17));
+        source.add_crab(PlayerId(0), crabsim::SPAWN);
+        let mut progress = source.progress(PlayerId(0)).unwrap();
+        progress.lantern = 1;
+        source.restore_progress(PlayerId(0), &progress);
+        for _ in 0..8 {
+            source.tick();
+        }
+        let crab = source.crab(PlayerId(0)).unwrap();
+        let mut saved = crate::save::snapshot(&source, PlayerId(0)).unwrap();
+        saved.x = crab.mover.pos.x;
+        saved.y = crab.mover.pos.y;
+        let tick = source.tick_count();
+        let player_bytes = serde_json::to_vec(&saved).unwrap();
+        let frozen =
+            FrozenChunks::capture(source.level.cells.as_ref().unwrap(), 64 * 1024 * 1024).unwrap();
+        let index = CaptureIndex::capture(&frozen, tick, &player_bytes, hash).unwrap();
+        let metadata = frozen.metadata().unwrap();
+        let mut verifier = IndexVerifier::new(
+            &index.encode(),
+            &metadata,
+            tick,
+            index.part_count(),
+            &player_bytes,
+            2_000_000,
+            hash,
+        )
+        .unwrap();
+        let (cols, rows) = frozen.active_dimensions();
+        let mut slot = 2;
+        for y in 0..rows {
+            for x in 0..cols {
+                verifier
+                    .accept(slot, &frozen.active(x, y).unwrap())
+                    .unwrap();
+                slot += 1;
+            }
+        }
+        for &id in index.sleeping() {
+            verifier
+                .accept(slot, &frozen.sleeping(id).unwrap())
+                .unwrap();
+            slot += 1;
+        }
+        let verified = verifier.finish().unwrap();
+        let setup = || SavedSetup {
+            level: level.clone(),
+            tuning: Tuning::default(),
+            feel: Feel::default(),
+            sim_tick: tick,
+        };
+        let mut different_player = saved.clone();
+        different_player.x += 1.0;
+        assert!(
+            GuardedBuilder::from_saved(
+                setup(),
+                &serde_json::to_vec(&different_player).unwrap(),
+                &metadata,
+                &verified,
+                hash,
+                2_000_000
+            )
+            .is_err()
+        );
+        let mut builder = GuardedBuilder::from_saved(
+            setup(),
+            &player_bytes,
+            &metadata,
+            &verified,
+            hash,
+            2_000_000,
+        )
+        .unwrap();
+        let mut altered_active = frozen.active(0, 0).unwrap();
+        let end = altered_active.len() - 1;
+        altered_active[end] ^= 1;
+        assert!(builder.active(0, 0, &altered_active).is_err());
+        for y in 0..rows {
+            for x in 0..cols {
+                builder
+                    .active(x as u16, y as u16, &frozen.active(x, y).unwrap())
+                    .unwrap();
+            }
+        }
+        let mut lazy = builder.install().unwrap();
+        let mut reference = Sim::new(Tuning::default(), level);
+        reference.set_feel(Feel::default());
+        assert!(reference.restore_cellular_terrain(source.level.cells.take().unwrap(), tick));
+        reference.add_crab(PlayerId(0), bevy::math::Vec2::new(saved.x, saved.y));
+        reference.restore_progress(PlayerId(0), saved.progress.as_ref().unwrap());
+        let memory = Memory::from_save(
+            saved.memory.as_ref().unwrap(),
+            &reference.level,
+            &reference.tuning.memory,
+        )
+        .unwrap();
+        reference.crab_mut(PlayerId(0)).unwrap().memory = memory;
+        assert_eq!(lazy.player(), reference.crab(PlayerId(0)));
+        assert_eq!(lazy.tick(), Some(tick));
+        for t in 0..12 {
+            let controls = Controls {
+                walk: if t < 6 { 0.4 } else { -0.4 },
+                ..Default::default()
+            };
+            lazy.step(controls).unwrap();
+            reference.set_controls(PlayerId(0), controls);
+            reference.tick();
+            assert_eq!(lazy.player(), reference.crab(PlayerId(0)));
+        }
+        for &id in index.sleeping() {
+            let ticket = lazy.begin_sleeping(id).unwrap();
+            let mut altered = frozen.sleeping(id).unwrap();
+            let end = altered.len() - 1;
+            altered[end] ^= 1;
+            assert!(lazy.accept_sleeping(ticket.clone(), &altered).is_err());
+            lazy.accept_sleeping(ticket, &frozen.sleeping(id).unwrap())
+                .unwrap();
+        }
+        let restored = lazy.finish().unwrap();
+        assert_eq!(
+            restored.state_hash_streamed(),
+            reference.state_hash_streamed()
+        );
+        assert_eq!(
+            restored.crab(PlayerId(0)).unwrap().memory.fingerprint(),
+            reference.crab(PlayerId(0)).unwrap().memory.fingerprint()
+        );
+    }
+
+    #[test]
     fn round_trip_includes_streamed_terrain_and_tick() {
         let level = Level::test_level();
         let mut terrain = World::from_level_settled(&level);

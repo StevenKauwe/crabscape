@@ -1,7 +1,7 @@
 //! Fixed-layout metadata for the isolated IndexedDB experiment.
 //! Lengths are checked before allocation; this is not a game save format.
 use sha2::{Digest, Sha256};
-const MAX_PLAYER: usize = 4096;
+const MAX_PLAYER: usize = 64 * 1024;
 const MAX_PARTS: usize = 512;
 const DESCRIPTOR: usize = 36;
 const STAGE_HEADER: usize = 40;

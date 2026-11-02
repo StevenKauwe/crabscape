@@ -118,7 +118,7 @@ validation. Do not relax existing live v1/v2 protections based on these models.
 The standalone Rust proof crate now includes an unwired IndexedDB primitive
 under `indexeddb`, gated to Wasm and restricted to names beginning with
 `crabscape.chunk-proof.`. It uses a separate database, a single writer, bounded
-binary metadata (512 parts, 4 KiB player data), batches of at most four parts
+binary metadata (512 parts, 64 KiB player data), batches of at most four parts
 and 128 KiB per part. A single read/write transaction commits each batch and
 its stage together; publication verifies all staged parts sequentially in the
 same transaction before swapping the head. Checksummed metadata records which
@@ -194,7 +194,7 @@ pages through the two-page validator, and checks that global pebble footprints
 have declared pages. Its hash callback must be collision-resistant; the proof
 uses SHA-256. This confirms consistency with the supplied index, not that an
 arbitrary self-consistent index is complete. Completeness still depends on
-trusted capture provenance and binding to the same saved player/tick. Reset
+trusted capture provenance. The index also binds the saved player bytes and tick. Reset
 and pin validity must be checked before using the result. Index construction
 currently encodes and hashes all pages synchronously and is not a production
 mobile performance design.
@@ -203,9 +203,13 @@ mobile performance design.
 
 `GuardedBuilder` can install the active window only after every active part
 validates. It requires a **complete, trusted** sleeping-page index and a
-complete in-memory `Sim` template containing the saved player, progress, actors,
-RNG and simulation tick; neither input is produced by the game's current save
-format. An incomplete index can make a missing region look pristine, so this
+trusted game configuration. The isolated `from_saved` path reconstructs a player
+from at most 64 KiB of version 2 save JSON, bound to the verified index and tick,
+instead of requiring an in-memory `Sim` template. Each subsequently fetched
+active or sleeping page is checked again against its verified index digest. The
+input byte limit is not a
+strict heap limit; configuration and capture provenance must be trusted. Actors
+are not restored by this proof, matching the existing save format limitation. An incomplete index can make a missing region look pristine, so this
 prototype must not be used with an unverified or partial manifest. Recording
 is rejected while terrain is incomplete.
 
@@ -231,6 +235,9 @@ representation reduced the test's observed Wasm linear-memory capacity from
 185,729,024 to 40,304,640 bytes on desktop Chrome. This is not total process
 peak memory and excludes browser/JS storage; the test still holds a full source
 world and frozen snapshot. It does not establish iPhone or WebKit safety.
-Migration, verified complete manifests, real player/progress reconstruction,
-actor and replay parity, bounded memory, and independent storage review remain
-required before any live integration.
+Migration, trusted complete capture provenance, actor and replay parity, bounded
+memory, mobile testing, and end-to-end storage integration remain required before
+any live integration. A native regression reconstructs actual game save data with
+nondefault progress and memory, compares player and tick through subsequent steps,
+and compares terrain after full hydration. The browser fixture uses a minimal
+version 2 player record and has not established mobile memory safety.

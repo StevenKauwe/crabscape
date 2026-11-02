@@ -882,16 +882,38 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
         World,
         frozen_chunks::{
             CaptureIndex, FrozenChunks, GuardedBuilder, GuardedError, IndexVerifier, LazyError,
-            LazyView, PageId,
+            LazyView, PageId, SavedSetup,
         },
     };
     let level = crabsim::Level::test_level();
     let mut world = World::from_level_settled(&level);
     world.follow_player(&level, 4000.0, 0.0);
     world.follow_player(&level, 8000.0, 0.0);
-    let frozen =
-        FrozenChunks::capture(&world, 64 * 1024 * 1024).map_err(|e| format!("capture: {e:?}"))?;
-    let index = CaptureIndex::capture(&frozen, frozen.tick(), digest)
+    let (left, bottom, width, height) = world.game_bounds();
+    let mut position = crabsim::level::SPAWN;
+    position.x = left + width * 0.5;
+    position.y = bottom + height * 0.5;
+    let mut reference = crabsim::Sim::new(crabsim::Tuning::default(), level.clone());
+    if !reference.restore_cellular_terrain(world, 17) {
+        return Err("reference setup".into());
+    }
+    reference.add_crab(crabsim::PlayerId(0), position);
+    let position = reference
+        .crab(crabsim::PlayerId(0))
+        .ok_or("missing player")?
+        .mover
+        .pos;
+    let player = format!(
+        r#"{{"version":2,"x":{},"y":{},"memory":null,"progress":null}}"#,
+        position.x, position.y
+    )
+    .into_bytes();
+    let frozen = FrozenChunks::capture(
+        reference.level.cells.as_ref().ok_or("missing terrain")?,
+        64 * 1024 * 1024,
+    )
+    .map_err(|e| format!("capture: {e:?}"))?;
+    let index = CaptureIndex::capture(&frozen, reference.tick_count(), &player, digest)
         .map_err(|e| format!("index: {e:?}"))?;
     let mut malformed_index = index.encode();
     malformed_index[20..24].copy_from_slice(&u32::MAX.to_le_bytes());
@@ -907,7 +929,7 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     }
     let (cols, rows) = frozen.active_dimensions();
     let h = db
-        .begin(db.epoch().await?, frozen.tick(), b"fixture-player".to_vec())
+        .begin(db.epoch().await?, reference.tick_count(), player)
         .await?;
     let mut count = 2;
     let mut batch = vec![
@@ -947,6 +969,7 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
         &metadata_bytes,
         pinned.tick,
         pinned.parts.len(),
+        &pinned.player,
         2_000_000,
         digest,
     )
@@ -981,8 +1004,20 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
                     let cell = view
                         .active_cell(lx, ly)
                         .map_err(|e| format!("active cell: {e:?}"))?;
-                    if cell.cell != world.cell(lx as i32, ly as i32)
-                        || cell.flow != world.flow_at(lx as i32, ly as i32)
+                    if cell.cell
+                        != reference
+                            .level
+                            .cells
+                            .as_ref()
+                            .ok_or("missing terrain")?
+                            .cell(lx as i32, ly as i32)
+                        || cell.flow
+                            != reference
+                                .level
+                                .cells
+                                .as_ref()
+                                .ok_or("missing terrain")?
+                                .flow_at(lx as i32, ly as i32)
                     {
                         return Err("lazy active world differs".into());
                     }
@@ -1009,24 +1044,22 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
             return Err("cache exceeded bound".into());
         }
     }
-    // Install a guarded active world from the persisted pages, while leaving
-    // sleeping pages on disk. The Sim template is an in-memory fixture; the
-    // real player/progress save format is intentionally not integrated here.
-    let (left, bottom, width, height) = world.game_bounds();
-    let mut position = crabsim::level::SPAWN;
-    position.x = left + width * 0.5;
-    position.y = bottom + height * 0.5;
-    let mut reference = crabsim::Sim::new(crabsim::Tuning::default(), level.clone());
-    if !reference.restore_cellular_terrain(world, 17) {
-        return Err("reference setup".into());
-    }
-    reference.add_crab(crabsim::PlayerId(0), position);
-    // Preserve the complete actor/progress template without cloning terrain.
-    let terrain = reference.level.cells.take().ok_or("missing terrain")?;
-    let template = reference.clone();
-    reference.level.cells = Some(terrain);
-    let mut builder = GuardedBuilder::new(template, &metadata_bytes, &ids, 2_000_000)
-        .map_err(|e| format!("builder: {e:?}"))?;
+    // Construct the player from the persisted record and verified index; no Sim template.
+    let setup = || SavedSetup {
+        level: level.clone(),
+        tuning: crabsim::Tuning::default(),
+        feel: crabsim::Feel::default(),
+        sim_tick: pinned.tick,
+    };
+    let mut builder = GuardedBuilder::from_saved(
+        setup(),
+        &pinned.player,
+        &metadata_bytes,
+        &verified,
+        digest,
+        2_000_000,
+    )
+    .map_err(|e| format!("builder: {e:?}"))?;
     for y in 0..rows {
         for x in 0..cols {
             builder
@@ -1076,10 +1109,16 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     if guarded.step(crabsim::Controls::default()) != Err(GuardedError::Stale) {
         return Err("finished session remained active".into());
     }
-    let mut reset_template = restored;
-    reset_template.level.cells = None;
-    let mut reset_builder = GuardedBuilder::new(reset_template, &metadata_bytes, &ids, 2_000_000)
-        .map_err(|e| format!("reset builder: {e:?}"))?;
+    drop(restored);
+    let mut reset_builder = GuardedBuilder::from_saved(
+        setup(),
+        &pinned.player,
+        &metadata_bytes,
+        &verified,
+        digest,
+        2_000_000,
+    )
+    .map_err(|e| format!("reset builder: {e:?}"))?;
     for y in 0..rows {
         for x in 0..cols {
             reset_builder
