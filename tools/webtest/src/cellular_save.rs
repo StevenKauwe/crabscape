@@ -1,6 +1,9 @@
 //! Full game regression, using the same WebKit session and phone frame as the other checks.
 use base64::{Engine, engine::general_purpose::STANDARD};
-use crabsim::{Level, Replay, Sim, underwater::World};
+use crabsim::{
+    Level, Replay, Sim,
+    underwater::{GAME_CELL, HEIGHT, WIDTH, World},
+};
 use serde_json::{Value, json};
 
 use crate::{CANVAS, Test, driver::Result, settings_button, settings_tab, start_over_centre};
@@ -87,6 +90,26 @@ fn decode(bytes: &[u8]) -> Result<Saved> {
     })
 }
 
+/// Compare actual materials in overlapping world coordinates. Tick, current,
+/// particle and other animation-only changes cannot satisfy this assertion.
+fn changed_material_cells(before: &World, after: &World) -> usize {
+    let (left, bottom, _, _) = before.game_bounds();
+    let mut changed = 0;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let wx = left + (x as f32 + 0.5) * GAME_CELL;
+            let wy = bottom + (y as f32 + 0.5) * GAME_CELL;
+            if after.contains_world(wx, wy) {
+                let (ax, ay) = after.local_cell(wx, wy);
+                changed += usize::from(
+                    before.cell(x as i32, y as i32) != after.cell(ax as i32, ay as i32),
+                );
+            }
+        }
+    }
+    changed
+}
+
 // Resolve on transaction completion, rather than only on request success.
 const READ: &str = r#"await new Promise((resolve, reject) => {
   const opening = indexedDB.open("crabscape.cells", 1);
@@ -128,6 +151,7 @@ impl Test<'_> {
         // Stop the previous game before replacing its fixture; an old autosave must not race setup.
         self.go("assets/crab/crab-atlas.png")?;
         let bytes = fixture()?;
+        let initial = decode(&bytes)?;
         let encoded = STANDARD.encode(&bytes);
         let normal = json!({"version": 2, "x": 918.0, "y": 0.0}).to_string();
         self.eval(&format!(r#"await new Promise((resolve, reject) => {{
@@ -162,9 +186,58 @@ impl Test<'_> {
             return Ok(());
         }
         self.key("keydown", "KeyD", "d")?;
-        self.hold(0.6, false)?;
+        let walked = self.wait_for(
+            &format!("Number({CANVAS}.getAttribute('data-crab').split(/\\s+/)[0]) > 430"),
+            15.0,
+        );
         self.key("keyup", "KeyD", "d")?;
-        let newer = self.wait_for(&format!("({READ}) !== {encoded:?}"), 60.0)?;
+        let walked = walked?;
+        self.check(
+            walked,
+            format!(
+                "the cellular crab actually walks before saving (at {:?})",
+                self.crab()?
+            ),
+        );
+        if !walked {
+            return Ok(());
+        }
+        self.key("keydown", "KeyC", "c")?;
+        self.key("keydown", "KeyS", "s")?;
+        let dug = self.wait_for(
+            &format!("Number({CANVAS}.getAttribute('data-crab').split(/\\s+/)[1]) < -16"),
+            20.0,
+        );
+        self.key("keyup", "KeyS", "s")?;
+        self.key("keyup", "KeyC", "c")?;
+        let dug = dug?;
+        self.check(
+            dug,
+            format!(
+                "the cellular crab digs below the original floor (at {:?})",
+                self.crab()?
+            ),
+        );
+        if !dug {
+            return Ok(());
+        }
+        // An earlier autosave may have committed while the slow browser was
+        // still walking. Wait specifically for a committed post-dig position.
+        let newer = self.wait_for(
+            &format!(
+                r#"await (async () => {{
+          const record = {READ};
+          if (!record) return false;
+          const bytes = atob(record);
+          if (bytes.slice(0, 8) !== "CRABCEL2") return false;
+          const size = (bytes.charCodeAt(16) | bytes.charCodeAt(17) << 8 |
+            bytes.charCodeAt(18) << 16 | bytes.charCodeAt(19) << 24) >>> 0;
+          const player = JSON.parse(bytes.slice(28, 28 + size));
+          return player.x > 405 && player.y < -12;
+        }})()"#
+            ),
+            60.0,
+        )?;
         self.check(
             newer,
             "the running game commits a newer cellular autosave through its real worker",
@@ -179,11 +252,14 @@ impl Test<'_> {
                 .cellular_record()?
                 .ok_or("autosave record disappeared")?,
         )?;
+        let material_changes = changed_material_cells(&initial.terrain, &saved.terrain);
         self.check(
             saved.tick > 17
                 && saved.player["x"].as_f64().is_some_and(|x| x > 405.0)
+                && saved.player["y"].as_f64().is_some_and(|y| y < -12.0)
+                && material_changes > 0
                 && saved.terrain.game_rock_at(MARKER.0, MARKER.1),
-            "the autosave contains advanced player/tick and the non-default terrain marker",
+            format!("the autosave contains the dug player, evolved material and terrain marker (tick {}, player ({}, {}), changed cells {material_changes})", saved.tick, saved.player["x"], saved.player["y"]),
         );
 
         let started = self.open("index.html?cells")?;
@@ -286,5 +362,45 @@ mod tests {
         let mut damaged = bytes;
         damaged[24] ^= 1;
         assert!(decode(&damaged).is_err());
+    }
+
+    #[test]
+    fn observed_dig_changes_materials_but_metadata_alone_does_not() {
+        use crabsim::{Controls, PlayerId, underwater::Cell};
+        let initial = decode(&fixture().unwrap()).unwrap();
+        let mut metadata_only = initial.terrain.clone();
+        let mut properties = metadata_only.sediment_properties(Cell::Sand).unwrap();
+        properties.push_cost += 1;
+        metadata_only.set_sediment_properties(Cell::Sand, properties);
+        assert_ne!(metadata_only.checkpoint(), initial.terrain.checkpoint());
+        assert_eq!(changed_material_cells(&initial.terrain, &metadata_only), 0);
+
+        let mut sim = Sim::new(crabsim::Tuning::default(), Level::test_level());
+        assert!(sim.restore_cellular_terrain(initial.terrain.clone(), initial.tick));
+        let mut start = crabsim::SPAWN;
+        start.x = 430.0;
+        sim.add_crab(PlayerId(0), start);
+        for _ in 0..600 {
+            sim.set_controls(
+                PlayerId(0),
+                Controls {
+                    dig_held: true,
+                    down: true,
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+            if sim.crab(PlayerId(0)).unwrap().mover.pos.y < -16.0 {
+                break;
+            }
+        }
+        let position = sim.crab(PlayerId(0)).unwrap().mover.pos;
+        assert!(
+            position.y < -16.0,
+            "fixture must support the browser's downward dig: {position:?}"
+        );
+        let terrain = sim.level.cells.as_ref().unwrap();
+        assert!(changed_material_cells(&initial.terrain, terrain) > 0);
+        assert!(terrain.game_rock_at(MARKER.0, MARKER.1));
     }
 }
