@@ -7,4 +7,5 @@ fetch("./cellworker-version.txt", { cache: "no-store" })
     import("./cellworker.js" + q).then((glue) =>
       glue.default({ module_or_path: new URL("./cellworker_bg.wasm" + q, self.location.href) }),
     ),
-  );
+  )
+  .catch((error) => self.postMessage({ state: "failed", error: String(error) }));
