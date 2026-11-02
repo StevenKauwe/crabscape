@@ -656,7 +656,9 @@ impl Sim {
             | Msg::CellFrameAck { .. }
             | Msg::CellProbeReady
             | Msg::CellWalkInput { .. }
-            | Msg::CellDownInput { .. } => {}
+            | Msg::CellDownInput { .. }
+            | Msg::CellUpInput { .. }
+            | Msg::CellUpFrame { .. } => {}
         }
     }
 
@@ -945,9 +947,12 @@ impl Sim {
             return None;
         }
         self.local_shared_walking_force_any_tick()
+            .filter(|force| force.dig.is_none_or(|dig| dig.dy != 1))
     }
 
-    fn local_shared_walking_force_any_tick(&self) -> Option<crate::underwater::HostPlayerForce> {
+    pub(crate) fn local_shared_walking_force_any_tick(
+        &self,
+    ) -> Option<crate::underwater::HostPlayerForce> {
         if !self.online()
             || self.crabs.len() > 2
             || !self.enemies.is_empty()
@@ -961,20 +966,25 @@ impl Sim {
         let walk = remaining.walk;
         let digging = remaining.dig_held;
         let down = digging && remaining.down;
+        let up = digging && remaining.dig_up;
         remaining.walk = 0.0;
         remaining.dig_held = false;
         if down {
             remaining.down = false;
+        }
+        if up {
+            remaining.dig_up = false;
         }
         let velocity = crab.mover.vel;
         if crab.remote
             || remaining != Controls::default()
             || !walk.is_finite()
             || !(-1.0..=1.0).contains(&walk)
-            || (digging && !down && walk.abs() <= 0.1)
+            || (digging && !down && !up && walk.abs() <= 0.1)
+            || (up && (down || walk != 0.0))
             || crab.events.jumped
             || !velocity.is_finite()
-            || velocity.y > 0.0
+            || (velocity.y > 0.0 && !up)
             || velocity.x.abs() > 1000.0
             || velocity.y.abs() > 1000.0
         {
@@ -1002,8 +1012,14 @@ impl Sim {
             grounded: crab.mover.grounded,
             jumped: false,
             dig: digging.then_some(crate::underwater::HostDig {
-                dx: if down { 0 } else { walk.signum() as i8 },
-                dy: if down { -1 } else { 0 },
+                dx: if down || up { 0 } else { walk.signum() as i8 },
+                dy: if up {
+                    1
+                } else if down {
+                    -1
+                } else {
+                    0
+                },
                 force: 48,
             }),
         })
@@ -1086,6 +1102,14 @@ impl Sim {
 
     /// Advance one guest tick only after the authoritative terrain frame.
     pub fn tick_guest_shared_walking(&mut self) -> bool {
+        self.tick_guest_external(false)
+    }
+
+    pub(crate) fn tick_guest_up_external(&mut self) -> bool {
+        self.tick_guest_external(true)
+    }
+
+    fn tick_guest_external(&mut self, allow_up: bool) -> bool {
         let Some(expected) = self
             .empty_shared_base
             .and_then(|b| b.checked_add(self.tick / 4 + 1))
@@ -1115,18 +1139,39 @@ impl Sim {
         let mut controls = crab.controls;
         let digging = controls.dig_held;
         let down = digging && controls.down;
+        let up = digging && controls.dig_up;
         controls.walk = 0.0;
         controls.dig_held = false;
         if down {
             controls.down = false;
         }
+        if up {
+            controls.dig_up = false;
+        }
         if controls != Controls::default()
             || crab.events.jumped
             || !crab.mover.vel.is_finite()
-            || crab.mover.vel.y > 0.0
+            || (crab.mover.vel.y > 0.0 && !up)
             || !crab.controls.walk.is_finite()
             || crab.controls.walk.abs() > 1.0
-            || (digging && !down && crab.controls.walk.abs() <= 0.1)
+            || (digging && !down && !up && crab.controls.walk.abs() <= 0.1)
+            || (up && (!allow_up || down || crab.controls.walk != 0.0))
+            || (allow_up && (down || crab.controls.walk != 0.0 || (digging && !up)))
+        {
+            return false;
+        }
+        self.tick_inner(true, None)
+    }
+
+    /// Advance the local host actor after an externally validated upward
+    /// terrain operation. Experimental; normal gameplay never calls this.
+    pub(crate) fn tick_host_up_external(&mut self) -> bool {
+        if !self.online()
+            || !self.is_host()
+            || self.tick >= u64::MAX - 1_000_000
+            || self
+                .local_shared_walking_force_any_tick()
+                .is_none_or(|force| force.walking != 0 || force.dig.is_some_and(|dig| dig.dy != 1))
         {
             return false;
         }
@@ -1141,7 +1186,9 @@ impl Sim {
             || !self.is_host()
             || self.tick.is_multiple_of(4)
             || self.tick >= u64::MAX - 1_000_000
-            || self.local_shared_walking_force_any_tick().is_none()
+            || self
+                .local_shared_walking_force_any_tick()
+                .is_none_or(|force| force.dig.is_some_and(|dig| dig.dy == 1))
         {
             return false;
         }

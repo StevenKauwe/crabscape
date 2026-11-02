@@ -615,6 +615,14 @@ fn a_message_from_a_newer_game_is_dropped_unread() {
         player: GUEST,
     };
     assert_eq!(Msg::from_bytes(&down.to_bytes()), Some(down));
+    let up = Msg::CellUpInput {
+        epoch: 1,
+        tick: 0,
+        sequence: 0,
+        player: GUEST,
+        up: true,
+    };
+    assert_eq!(Msg::from_bytes(&up.to_bytes()), Some(up));
     for kind in [99u8, 120, 127] {
         assert_eq!(Msg::from_bytes(&[kind, 1, 2, 3, 4]), None, "{kind}");
     }

@@ -166,6 +166,23 @@ pub enum Msg {
         sequence: u64,
         player: PlayerId,
     },
+    /// Experimental upward-mode tick input; ignored by gameplay.
+    CellUpInput {
+        epoch: u64,
+        tick: u64,
+        sequence: u64,
+        player: PlayerId,
+        up: bool,
+    },
+    /// Experimental authoritative upward-mode operation; ignored by gameplay.
+    CellUpFrame {
+        epoch: u64,
+        tick: u64,
+        world_tick: u64,
+        host: crate::underwater::HostPlayerForce,
+        guest: crate::underwater::HostPlayerForce,
+        digest: u64,
+    },
 }
 
 /// The longest name, in characters: short enough to sit over a crab.

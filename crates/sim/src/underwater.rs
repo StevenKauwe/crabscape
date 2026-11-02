@@ -2327,6 +2327,19 @@ impl World {
     }
 
     #[cfg(test)]
+    pub(crate) fn test_fill_dense_upward_region(&mut self) {
+        for x in 120..=230 {
+            for y in 160..=280 {
+                let i = Self::index(x, y).expect("fixture inside world");
+                self.pebble_owner[i] = 0;
+                self.suspended[i] = 0;
+                self.cells[i] = Cell::Sand;
+                self.grain[i] = 80;
+            }
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn test_place_loose_sand(&mut self, x: i32, y: i32) -> bool {
         let Some(index) = Self::index(x, y) else {
             return false;
@@ -2606,6 +2619,153 @@ impl World {
             p.wake_y * crate::physics::STEP / 4.0 * 0.45,
         );
         (self.crab, self.crab_half_x, self.crab_half_y) = old;
+        true
+    }
+
+    /// Transactional upward-only pair terrain operation for one game tick.
+    /// No material tick is advanced unless `material` is true. This remains
+    /// isolated until a source-bound 120 Hz frame protocol calls it.
+    pub(crate) fn step_up_pair(
+        &mut self,
+        level: &crate::Level,
+        tuning: &crate::Tuning,
+        host: &HostPlayerForce,
+        guest: &HostPlayerForce,
+        material: bool,
+    ) -> bool {
+        let valid = |p: &HostPlayerForce| {
+            let up = p
+                .dig
+                .is_some_and(|d| d.dx == 0 && d.dy == 1 && d.force == 48);
+            (p.dig.is_none() || up)
+                && p.walking == 0
+                && !p.jumped
+                && [p.x, p.y, p.half_width, p.half_height, p.wake_x, p.wake_y]
+                    .iter()
+                    .all(|v| v.is_finite())
+                && p.x.abs() <= 1_000_000.0
+                && p.y.abs() <= 1_000_000.0
+                && (0.0..=64.0).contains(&p.half_width)
+                && p.half_width > 0.0
+                && (0.0..=64.0).contains(&p.half_height)
+                && p.half_height > 0.0
+                && p.wake_x.abs() <= 1000.0
+                && p.wake_y.abs() <= 1000.0
+                && (p.wake_y <= 0.0 || up)
+        };
+        if !self.game
+            || self.tick >= u64::MAX - 1_000_000
+            || !tuning.walk_speed.is_finite()
+            || tuning.walk_speed <= 0.0
+            || host.player == guest.player
+            || !valid(host)
+            || !valid(guest)
+        {
+            return false;
+        }
+        let mut next = self.clone();
+        next.follow_player(level, host.x, host.y - host.half_height);
+        if !next.contains_world(host.x, host.y) {
+            return false;
+        }
+        let (hx, hy) = next.local_cell(host.x, host.y);
+        next.clear_game_crab();
+        next.set_game_crab(
+            hx,
+            hy,
+            host.half_width / GAME_CELL,
+            host.half_height / GAME_CELL,
+        );
+        let Some(body) = next.contact_reservation(guest) else {
+            return false;
+        };
+        let guest_load = if material && host.dig.is_some() {
+            guest.dig.map(|dig| next.reserved_dig_load(&body, &dig))
+        } else {
+            None
+        };
+        let mut chunks = chunk_flow::ChunkFlow::from_world(&next);
+        if chunks.set_extra_bodies(&[body]).is_err() {
+            return false;
+        }
+        let clear = |chunks: &chunk_flow::ChunkFlow, cx: i32, cy: i32, hx: i32, hy: i32| {
+            (-hy..=hy).all(|oy| {
+                (-hx..=hx).all(|ox| {
+                    let (Ok(x), Ok(y)) = (usize::try_from(cx + ox), usize::try_from(cy + oy))
+                    else {
+                        return false;
+                    };
+                    chunks.cell(x, y) == Some(Cell::Water)
+                })
+            })
+        };
+        if host.dig.is_some()
+            && !clear(
+                &chunks,
+                hx as i32,
+                hy as i32 + 4,
+                next.crab_half_x,
+                next.crab_half_y,
+            )
+        {
+            let blocked = Self::shared_cavity_has_rock(
+                &chunks,
+                hx,
+                hy + 4.0,
+                next.crab_half_x,
+                next.crab_half_y,
+            );
+            if !blocked && chunks.push_for_crab(hx, hy + 4.0, 0, 1, 48) != Ok(true) {
+                return false;
+            }
+        }
+        if let Some(before) = guest_load {
+            let mut after_host = next.clone();
+            if !chunks.write_material_to(&mut after_host)
+                || after_host.reserved_dig_load(&body, &guest.dig.expect("load requires guest dig"))
+                    != before
+            {
+                return false;
+            }
+        }
+        let (gx, gy) = next.local_cell(guest.x, guest.y);
+        if guest.dig.is_some()
+            && !clear(&chunks, gx as i32, gy as i32 + 4, body.half_x, body.half_y)
+        {
+            let blocked =
+                Self::shared_cavity_has_rock(&chunks, gx, gy + 4.0, body.half_x, body.half_y);
+            if !blocked
+                && chunks.push_for_extra_body(guest.player, gx, gy + 4.0, 0, 1, 48) != Ok(true)
+            {
+                return false;
+            }
+        }
+        if !chunks.write_material_to(&mut next) {
+            return false;
+        }
+        if material {
+            for p in [host, guest] {
+                let (x, y) = next.local_cell(p.x, p.y);
+                let saved = (next.crab, next.crab_half_x, next.crab_half_y);
+                if p.player == guest.player {
+                    next.set_game_crab(x, y, p.half_width / GAME_CELL, p.half_height / GAME_CELL);
+                }
+                let wx = (p.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+                let wy = (p.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+                next.react_to_swim(x, y, wx, wy);
+                next.stir(
+                    x,
+                    y,
+                    p.wake_x * crate::physics::STEP / 4.0 * 0.45,
+                    p.wake_y * crate::physics::STEP / 4.0 * 0.45,
+                );
+                (next.crab, next.crab_half_x, next.crab_half_y) = saved;
+            }
+            if !next.step_contact_pair(guest) {
+                return false;
+            }
+        }
+        *self = next;
         true
     }
 

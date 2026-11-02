@@ -19,6 +19,7 @@ pub enum InputError {
     Gap,
     Invalid,
     Unsupported,
+    Diverged,
     Paused,
 }
 
@@ -29,6 +30,7 @@ pub struct Host {
     epoch: u64,
     next: u64,
     paused: bool,
+    up_mode: bool,
 }
 
 fn inert_sandbox(sim: &Sim) -> bool {
@@ -85,6 +87,7 @@ impl Host {
             epoch,
             next: 0,
             paused: false,
+            up_mode: false,
         })
     }
     pub fn host(&self) -> &Sim {
@@ -95,6 +98,173 @@ impl Host {
     }
     pub fn paused(&self) -> bool {
         self.paused
+    }
+
+    /// Advance an isolated upward-only session by one ordered 120 Hz input.
+    /// Every accepted tick produces an authoritative operation for the guest.
+    pub fn accept_up(
+        &mut self,
+        sender: Peer,
+        selected: Option<Peer>,
+        input: &Msg,
+        host_up: bool,
+    ) -> Result<Msg, InputError> {
+        if selected != Some(self.guest) {
+            self.paused = true;
+            return Err(InputError::WrongPeer);
+        }
+        if sender != self.guest {
+            return Err(InputError::WrongPeer);
+        }
+        if self.paused {
+            return Err(InputError::Paused);
+        }
+        if self.next != 0 && !self.up_mode {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        let Msg::CellUpInput {
+            epoch,
+            tick,
+            sequence,
+            player,
+            up,
+        } = *input
+        else {
+            self.paused = true;
+            return Err(InputError::Invalid);
+        };
+        if player != self.guest.player {
+            return Err(InputError::WrongPlayer);
+        }
+        if epoch != self.epoch {
+            self.paused = true;
+            return Err(InputError::WrongEpoch);
+        }
+        if sequence < self.next || tick < self.next {
+            return Err(InputError::Stale);
+        }
+        if sequence != self.next || tick != self.next {
+            self.paused = true;
+            return Err(InputError::Gap);
+        }
+        let Some(next_tick) = self.next.checked_add(1) else {
+            self.paused = true;
+            return Err(InputError::Invalid);
+        };
+        let mut host = self.host.clone();
+        let mut shadow = self.shadow.clone();
+        let Some(host_id) = host.crabs().iter().find(|c| !c.remote).map(|c| c.id) else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        host.set_controls(
+            host_id,
+            Controls {
+                dig_held: host_up,
+                dig_up: host_up,
+                ..Default::default()
+            },
+        );
+        shadow.set_controls(
+            self.guest.player,
+            Controls {
+                dig_held: up,
+                dig_up: up,
+                ..Default::default()
+            },
+        );
+        let Some(h) = host.local_shared_walking_force_any_tick() else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        let Some(g) = shadow.local_shared_walking_force_any_tick() else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        let Some(mut host_world) = host.level.cells.take() else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        let Some(mut guest_world) = shadow.level.cells.take() else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        let world_tick = host_world.tick_count();
+        if guest_world != host_world
+            || shadow
+                .empty_shared_base()
+                .and_then(|base| base.checked_add(self.next.div_ceil(4)))
+                != Some(world_tick)
+        {
+            self.paused = true;
+            return Err(InputError::Diverged);
+        }
+        let material = self.next.is_multiple_of(4);
+        if material
+            && (!lockstep::apply_guest_dig_load(&mut host, &host_world, &h, &h)
+                || !lockstep::apply_guest_dig_load(&mut shadow, &guest_world, &h, &g))
+        {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        if !host_world.step_up_pair(&host.level, &host.tuning, &h, &g, material)
+            || !guest_world.step_up_pair(&shadow.level, &shadow.tuning, &h, &g, material)
+            || host_world != guest_world
+        {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        let Some(digest) = lockstep::digest(&host_world) else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        let frame = Msg::CellUpFrame {
+            epoch: self.epoch,
+            tick: self.next,
+            world_tick,
+            host: h,
+            guest: g,
+            digest,
+        };
+        if frame.to_bytes().len() > crate::net::MAX_BYTES {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        host.level.cells = Some(host_world);
+        shadow.level.cells = Some(guest_world);
+        if !host.tick_host_up_external()
+            || !shadow.tick_guest_up_external()
+            || !inert_sandbox(&host)
+            || !inert_sandbox(&shadow)
+        {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        let Some(mut actor) = shadow.crab(self.guest.player).cloned() else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        actor.remote = true;
+        let Some(remote) = host.crab_mut(self.guest.player) else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        *remote = actor;
+        if host
+            .take_outbox()
+            .into_iter()
+            .chain(shadow.take_outbox())
+            .any(|out| !matches!(out.msg, Msg::Crab { .. }))
+        {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        self.host = host;
+        self.shadow = shadow;
+        self.next = next_tick;
+        self.up_mode = true;
+        Ok(frame)
     }
 
     /// Apply one 120 Hz input, derived from the actual bound connection. The
@@ -140,6 +310,10 @@ impl Host {
         }
         if self.paused {
             return Err(InputError::Paused);
+        }
+        if self.up_mode {
+            self.paused = true;
+            return Err(InputError::Unsupported);
         }
         let (epoch, tick, sequence, player, walk, dig, down) = match *input {
             Msg::CellWalkInput {
@@ -320,6 +494,131 @@ impl Host {
     }
 }
 
+/// Guest receiver for a fresh upward-only sandbox epoch. It consumes every
+/// game tick and commits terrain plus the local actor atomically.
+pub struct UpGuest {
+    host: Peer,
+    epoch: u64,
+    next: u64,
+    paused: bool,
+}
+impl UpGuest {
+    pub fn from_join(join: &super::GuestJoin) -> Option<Self> {
+        if !join.installed || join.invalidated {
+            return None;
+        }
+        Some(Self {
+            host: join.host,
+            epoch: join.installed_epoch?,
+            next: 0,
+            paused: false,
+        })
+    }
+    pub fn paused(&self) -> bool {
+        self.paused
+    }
+    pub fn apply(
+        &mut self,
+        join: &super::GuestJoin,
+        sim: &mut Sim,
+        sender: Peer,
+        selected: Option<Peer>,
+        msg: &Msg,
+    ) -> Result<(), InputError> {
+        if selected != Some(self.host) {
+            self.paused = true;
+            if sim.online() && !sim.is_host() {
+                sim.go_offline();
+            }
+            return Err(InputError::WrongPeer);
+        }
+        if sender != self.host {
+            return Err(InputError::WrongPeer);
+        }
+        if self.paused {
+            return Err(InputError::Paused);
+        }
+        if join.host != self.host
+            || join.installed_epoch != Some(self.epoch)
+            || !join.installed
+            || join.invalidated
+            || !sim.online()
+            || sim.is_host()
+        {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        let Msg::CellUpFrame {
+            epoch,
+            tick,
+            world_tick,
+            host,
+            guest,
+            digest,
+        } = *msg
+        else {
+            self.paused = true;
+            return Err(InputError::Invalid);
+        };
+        if epoch != self.epoch {
+            self.paused = true;
+            return Err(InputError::WrongEpoch);
+        }
+        if tick < self.next {
+            return Err(InputError::Stale);
+        }
+        if tick != self.next || sim.tick_count() != tick {
+            self.paused = true;
+            return Err(InputError::Gap);
+        }
+        let Some(next) = self.next.checked_add(1) else {
+            self.paused = true;
+            return Err(InputError::Invalid);
+        };
+        if host.player != self.host.player
+            || sim.local_shared_walking_force_any_tick() != Some(guest)
+        {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        let mut trial = sim.clone();
+        let Some(mut world) = trial.level.cells.take() else {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        };
+        if world.tick_count() != world_tick
+            || trial
+                .empty_shared_base()
+                .and_then(|b| b.checked_add(tick.div_ceil(4)))
+                != Some(world_tick)
+        {
+            self.paused = true;
+            return Err(InputError::Diverged);
+        }
+        let material = tick.is_multiple_of(4);
+        if material && !lockstep::apply_guest_dig_load(&mut trial, &world, &host, &guest) {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        if !world.step_up_pair(&trial.level, &trial.tuning, &host, &guest, material) {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        if lockstep::digest(&world) != Some(digest) {
+            self.paused = true;
+            return Err(InputError::Diverged);
+        }
+        trial.level.cells = Some(world);
+        if !trial.tick_guest_up_external() || !inert_sandbox(&trial) {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
+        *sim = trial;
+        self.next = next;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,7 +659,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .test_dissolve_pebble_ownership();
-        if case != 0 {
+        if case != 0 && case != 11 && case != 12 {
             let cells = host.level.cells.as_mut().unwrap();
             cells.test_flat_loose_bed();
             if case == 1 {
@@ -393,7 +692,12 @@ mod tests {
                 assert!(cells.test_add_pebble(187, 115, 4));
             }
         }
-        let surface = if case == 0 {
+        if case == 12 {
+            let cells = host.level.cells.as_mut().unwrap();
+            assert!(cells.test_add_pebble(100, 228, 3));
+            assert!(cells.test_add_pebble(175, 228, 3));
+        }
+        let surface = if case == 0 || case == 11 || case == 12 {
             500.0
         } else if case == 8 || case == 9 {
             100.0
@@ -405,16 +709,27 @@ mod tests {
                 .game_surface_below(700.0, 30.0, 1000.0)
                 .unwrap()
         };
-        if (3..=5).contains(&case) || case == 7 || case == 9 || case == 10 {
+        if (3..=5).contains(&case)
+            || case == 7
+            || case == 9
+            || case == 10
+            || case == 11
+            || case == 12
+        {
             let host_crab = host.crab_mut(PlayerId(0)).unwrap();
             host_crab.mover.pos = Vec2::new(
                 if case == 5 || case == 10 {
                     600.0
+                } else if case == 11 || case == 12 {
+                    400.0
                 } else {
                     700.0
                 },
                 surface,
             );
+            if case == 11 || case == 12 {
+                host_crab.mover.grounded = false;
+            }
             host_crab.prev_pos = host_crab.mover.pos;
         }
         let mut guest = Sim::new(Tuning::default(), level);
@@ -427,7 +742,13 @@ mod tests {
             Vec2::new(700.0, surface)
         };
         guest.add_crab(PlayerId(1), guest_pos);
-        if case == 0 || (3..=4).contains(&case) || case == 7 || case == 9 {
+        if case == 0
+            || case == 11
+            || case == 12
+            || (3..=4).contains(&case)
+            || case == 7
+            || case == 9
+        {
             guest.crab_mut(PlayerId(1)).unwrap().mover.grounded = false;
         }
         host.add_remote_crab(PlayerId(1), guest.crab(PlayerId(1)).unwrap().mover.pos);
@@ -850,6 +1171,765 @@ mod tests {
                         .game_pebbles(),
                     initial_pebbles
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn upward_ticks_replicate_both_players_and_match_solo_over_fake_link() {
+        for (host_up, guest_up) in [(true, false), (false, true), (true, true)] {
+            let (mut c, mut guest, join, _) = setup_case(11);
+            let mut host_solo = c.host.clone();
+            let mut guest_solo = guest.clone();
+            let mut receiver = UpGuest::from_join(&join).unwrap();
+            let host_peer = peer(0, 10);
+            let guest_peer = peer(1, 20);
+            let mut link = FakeLink::steady(0);
+            for tick in 0..8 {
+                // Place a new grain in each active scoop on each game tick,
+                // including all three ticks without a material step.
+                let positions: Vec<_> = [(host_up, PlayerId(0)), (guest_up, PlayerId(1))]
+                    .into_iter()
+                    .filter_map(|(active, id)| {
+                        if !active {
+                            return None;
+                        }
+                        let crab = if id == PlayerId(0) {
+                            c.host.crab(id).unwrap()
+                        } else {
+                            c.shadow.crab(id).unwrap()
+                        };
+                        let center =
+                            crab.mover.pos + Vec2::Y * (crab.mover.height(&c.host.tuning) * 0.5);
+                        let world = c.host.level.cells.as_ref().unwrap();
+                        let (x, y) = world.local_cell(center.x, center.y);
+                        let solo_world = if id == PlayerId(0) {
+                            host_solo.level.cells.as_ref().unwrap()
+                        } else {
+                            guest_solo.level.cells.as_ref().unwrap()
+                        };
+                        let xy = (-8..=8)
+                            .map(|dx| (x as i32 + dx, y as i32 + 10))
+                            .find(|&(x, y)| {
+                                world.cell(x, y) == crate::underwater::Cell::Water
+                                    && solo_world.cell(x, y) == crate::underwater::Cell::Water
+                            })
+                            .unwrap();
+                        Some((id, xy))
+                    })
+                    .collect();
+                let injected = positions.clone();
+                for (id, (x, y)) in positions {
+                    for sim in [&mut c.host, &mut c.shadow, &mut guest] {
+                        assert!(
+                            sim.level
+                                .cells
+                                .as_mut()
+                                .unwrap()
+                                .test_place_loose_sand(x, y),
+                            "shared input grain at tick {tick}"
+                        );
+                    }
+                    let solo = if id == PlayerId(0) {
+                        &mut host_solo
+                    } else {
+                        &mut guest_solo
+                    };
+                    assert!(
+                        solo.level
+                            .cells
+                            .as_mut()
+                            .unwrap()
+                            .test_place_loose_sand(x, y),
+                        "solo input grain at tick {tick}"
+                    );
+                }
+                let count_sand = |w: &crate::underwater::World| {
+                    (0..360)
+                        .flat_map(|y| (0..640).map(move |x| (x, y)))
+                        .filter(|&(x, y)| w.cell(x, y) == crate::underwater::Cell::Sand)
+                        .count()
+                };
+                let before_sand = count_sand(c.host.level.cells.as_ref().unwrap());
+                let before_material_tick = c.host.level.cells.as_ref().unwrap().tick_count();
+                let input = Msg::CellUpInput {
+                    epoch: 77,
+                    tick,
+                    sequence: tick,
+                    player: PlayerId(1),
+                    up: guest_up,
+                };
+                assert!(input.reliable() && input.to_bytes().len() <= crate::net::MAX_BYTES);
+                link.test_post(1, 0, input);
+                let mut received = None;
+                link.carry_with(&mut [&mut c.host, &mut guest], |from, to, _, msg| {
+                    if matches!(msg, Msg::CellUpInput { .. }) {
+                        assert_eq!((from, to), (1, 0));
+                        received = Msg::from_bytes(&msg.to_bytes());
+                    }
+                });
+                let operation = c
+                    .accept_up(guest_peer, Some(guest_peer), &received.unwrap(), host_up)
+                    .unwrap_or_else(|e| {
+                        panic!("host_up={host_up} guest_up={guest_up} tick={tick} {e:?}")
+                    });
+                assert!(
+                    operation.reliable() && operation.to_bytes().len() <= crate::net::MAX_BYTES
+                );
+                let controls = |up| Controls {
+                    dig_held: up,
+                    dig_up: up,
+                    ..Default::default()
+                };
+                guest.set_controls(PlayerId(1), controls(guest_up));
+                host_solo.set_controls(PlayerId(0), controls(host_up));
+                guest_solo.set_controls(PlayerId(1), controls(guest_up));
+                link.test_post(0, 1, operation);
+                let mut applied = None;
+                link.carry_with(&mut [&mut c.host, &mut guest], |from, to, sim, msg| {
+                    if matches!(msg, Msg::CellUpFrame { .. }) {
+                        assert_eq!((from, to), (0, 1));
+                        let decoded = Msg::from_bytes(&msg.to_bytes()).unwrap();
+                        applied =
+                            Some(receiver.apply(&join, sim, host_peer, Some(host_peer), &decoded));
+                    }
+                });
+                assert_eq!(
+                    applied,
+                    Some(Ok(())),
+                    "host_up={host_up} guest_up={guest_up} tick={tick}"
+                );
+                host_solo.tick();
+                guest_solo.tick();
+                assert_eq!(guest.crab(PlayerId(1)), c.shadow().crab(PlayerId(1)));
+                assert!(
+                    guest.level.cells == c.host.level.cells,
+                    "world mismatch tick {tick}"
+                );
+                let actual_world = c.host.level.cells.as_ref().unwrap();
+                assert_eq!(
+                    count_sand(actual_world),
+                    before_sand,
+                    "sand conservation at tick {tick}"
+                );
+                assert_eq!(
+                    actual_world.tick_count(),
+                    before_material_tick + u64::from(tick.is_multiple_of(4)),
+                    "material clock at tick {tick}"
+                );
+                if !tick.is_multiple_of(4) {
+                    for (_, (x, y)) in &injected {
+                        assert_eq!(
+                            actual_world.cell(*x, *y),
+                            crate::underwater::Cell::Water,
+                            "off-material scoop at tick {tick}"
+                        );
+                    }
+                }
+                for (actual, expected) in [(&c.host, &host_solo), (&guest, &guest_solo)] {
+                    let id = if actual.is_host() {
+                        PlayerId(0)
+                    } else {
+                        PlayerId(1)
+                    };
+                    let a = &actual.crab(id).unwrap().mover;
+                    let b = &expected.crab(id).unwrap().mover;
+                    assert_eq!(a.pos, b.pos, "actor at tick {tick}");
+                    assert_eq!(a.dig_load, b.dig_load, "resistance at tick {tick}");
+                    let aw = actual.level.cells.as_ref().unwrap();
+                    let bw = expected.level.cells.as_ref().unwrap();
+                    let center = a.pos + Vec2::Y * (a.height(&actual.tuning) * 0.5);
+                    let (x, y) = aw.local_cell(center.x, center.y);
+                    for yy in y as i32 - 20..=y as i32 + 20 {
+                        for xx in x as i32 - 20..=x as i32 + 20 {
+                            assert_eq!(
+                                aw.cell(xx, yy),
+                                bw.cell(xx, yy),
+                                "cell at {xx},{yy} tick {tick}"
+                            );
+                            assert_eq!(
+                                aw.flow_at(xx, yy),
+                                bw.flow_at(xx, yy),
+                                "flow at {xx},{yy} tick {tick}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn upward_tick_component_profile() {
+        use std::time::Instant;
+        let (mut base, _, _, _) = setup_case(11);
+        let peer = peer(1, 20);
+        let msg = Msg::CellUpInput {
+            epoch: 77,
+            tick: 0,
+            sequence: 0,
+            player: PlayerId(1),
+            up: true,
+        };
+        base.accept_up(peer, Some(peer), &msg, false).unwrap();
+        let crab = base.shadow.crab(PlayerId(1)).unwrap();
+        let center = crab.mover.pos + Vec2::Y * (crab.mover.height(&base.shadow.tuning) * 0.5);
+        let (x, y) = base
+            .host
+            .level
+            .cells
+            .as_ref()
+            .unwrap()
+            .local_cell(center.x, center.y);
+        assert!(
+            base.host
+                .level
+                .cells
+                .as_mut()
+                .unwrap()
+                .test_place_loose_sand(x as i32, y as i32 + 10)
+        );
+        assert!(
+            base.shadow
+                .level
+                .cells
+                .as_mut()
+                .unwrap()
+                .test_place_loose_sand(x as i32, y as i32 + 10)
+        );
+        let mut samples: [Vec<f64>; 7] = std::array::from_fn(|_| Vec::new());
+        for _ in 0..9 {
+            let t = Instant::now();
+            let mut host = base.host.clone();
+            let mut shadow = base.shadow.clone();
+            samples[0].push(t.elapsed().as_secs_f64() * 1000.0);
+            let h = host.local_shared_walking_force_any_tick().unwrap();
+            let g = shadow.local_shared_walking_force_any_tick().unwrap();
+            let mut hw = host.level.cells.take().unwrap();
+            let mut gw = shadow.level.cells.take().unwrap();
+            let t = Instant::now();
+            assert!(hw == gw);
+            samples[1].push(t.elapsed().as_secs_f64() * 1000.0);
+            let t = Instant::now();
+            assert!(hw.step_up_pair(&host.level, &host.tuning, &h, &g, false));
+            samples[2].push(t.elapsed().as_secs_f64() * 1000.0);
+            let t = Instant::now();
+            assert!(gw.step_up_pair(&shadow.level, &shadow.tuning, &h, &g, false));
+            samples[3].push(t.elapsed().as_secs_f64() * 1000.0);
+            let t = Instant::now();
+            assert!(hw == gw);
+            samples[4].push(t.elapsed().as_secs_f64() * 1000.0);
+            let t = Instant::now();
+            std::hint::black_box(lockstep::digest(&hw).unwrap());
+            samples[5].push(t.elapsed().as_secs_f64() * 1000.0);
+            host.level.cells = Some(hw);
+            shadow.level.cells = Some(gw);
+            let t = Instant::now();
+            assert!(host.tick_host_up_external());
+            assert!(shadow.tick_guest_up_external());
+            samples[6].push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        for (label, mut values) in [
+            "clone two Sims",
+            "pre-world equality",
+            "host up terrain",
+            "shadow up replay",
+            "post-world equality",
+            "checkpoint digest",
+            "two actor ticks",
+        ]
+        .into_iter()
+        .zip(samples)
+        {
+            values.sort_by(f64::total_cmp);
+            eprintln!(
+                "{label}: {:.3} ms median (n={})",
+                values[values.len() / 2],
+                values.len()
+            );
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn upward_tick_profile() {
+        use std::time::Instant;
+        let mut material = Vec::new();
+        let mut between = Vec::new();
+        for _ in 0..3 {
+            let (mut c, _, _, _) = setup_case(11);
+            let peer = peer(1, 20);
+            for tick in 0..8 {
+                let crab = c.shadow.crab(PlayerId(1)).unwrap();
+                let center = crab.mover.pos + Vec2::Y * (crab.mover.height(&c.shadow.tuning) * 0.5);
+                let (x, y) = c
+                    .host
+                    .level
+                    .cells
+                    .as_ref()
+                    .unwrap()
+                    .local_cell(center.x, center.y);
+                let (x, y) = (-8..=8)
+                    .map(|dx| (x as i32 + dx, y as i32 + 10))
+                    .find(|&(x, y)| {
+                        c.host.level.cells.as_ref().unwrap().cell(x, y)
+                            == crate::underwater::Cell::Water
+                    })
+                    .unwrap();
+                assert!(
+                    c.host
+                        .level
+                        .cells
+                        .as_mut()
+                        .unwrap()
+                        .test_place_loose_sand(x, y)
+                );
+                assert!(
+                    c.shadow
+                        .level
+                        .cells
+                        .as_mut()
+                        .unwrap()
+                        .test_place_loose_sand(x, y)
+                );
+                let msg = Msg::CellUpInput {
+                    epoch: 77,
+                    tick,
+                    sequence: tick,
+                    player: PlayerId(1),
+                    up: true,
+                };
+                let start = Instant::now();
+                c.accept_up(peer, Some(peer), &msg, false).unwrap();
+                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                if tick % 4 == 0 {
+                    material.push(elapsed)
+                } else {
+                    between.push(elapsed)
+                }
+            }
+        }
+        material.sort_by(f64::total_cmp);
+        between.sort_by(f64::total_cmp);
+        eprintln!(
+            "upward guest material median {:.2} ms (n={}), off-material median {:.2} ms (n={})",
+            material[material.len() / 2],
+            material.len(),
+            between[between.len() / 2],
+            between.len()
+        );
+    }
+
+    #[test]
+    fn upward_ticks_move_whole_pebbles_for_both_players_with_conservation() {
+        for (host_up, guest_up) in [(true, false), (false, true), (true, true)] {
+            let (mut c, mut guest, join, _) = setup_case(12);
+            let mut receiver = UpGuest::from_join(&join).unwrap();
+            let mut host_solo = c.host.clone();
+            let mut guest_solo = guest.clone();
+            let host_peer = peer(0, 10);
+            let guest_peer = peer(1, 20);
+            let initial = c.host.level.cells.as_ref().unwrap().game_pebbles();
+            assert_eq!(initial.len(), 2);
+            let shapes: Vec<_> = initial.iter().map(|p| (p.2, p.3)).collect();
+            let mut moved = false;
+            for tick in 0..8 {
+                let msg = Msg::CellUpInput {
+                    epoch: 77,
+                    tick,
+                    sequence: tick,
+                    player: PlayerId(1),
+                    up: guest_up,
+                };
+                let frame = c
+                    .accept_up(guest_peer, Some(guest_peer), &msg, host_up)
+                    .unwrap_or_else(|e| panic!("tick {tick} {e:?}"));
+                guest.set_controls(
+                    PlayerId(1),
+                    Controls {
+                        dig_held: guest_up,
+                        dig_up: guest_up,
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(
+                    receiver.apply(&join, &mut guest, host_peer, Some(host_peer), &frame),
+                    Ok(())
+                );
+                host_solo.set_controls(
+                    PlayerId(0),
+                    Controls {
+                        dig_held: host_up,
+                        dig_up: host_up,
+                        ..Default::default()
+                    },
+                );
+                guest_solo.set_controls(
+                    PlayerId(1),
+                    Controls {
+                        dig_held: guest_up,
+                        dig_up: guest_up,
+                        ..Default::default()
+                    },
+                );
+                host_solo.tick();
+                guest_solo.tick();
+                assert_eq!(guest.crab(PlayerId(1)), c.shadow().crab(PlayerId(1)));
+                assert!(guest.level.cells == c.host.level.cells);
+                let pebbles = c.host.level.cells.as_ref().unwrap().game_pebbles();
+                let now: Vec<_> = pebbles.iter().map(|p| (p.2, p.3)).collect();
+                assert_eq!(now, shapes);
+                assert_eq!(
+                    pebbles[0],
+                    host_solo.level.cells.as_ref().unwrap().game_pebbles()[0],
+                    "host aggregate matches solo"
+                );
+                assert_eq!(
+                    pebbles[1],
+                    guest_solo.level.cells.as_ref().unwrap().game_pebbles()[1],
+                    "guest aggregate matches solo"
+                );
+                moved |= pebbles != initial;
+            }
+            assert!(moved, "active upward dig must move a pebble");
+        }
+    }
+
+    #[test]
+    fn upward_ticks_reject_overlapping_bodies_without_mutation() {
+        let peer = peer(1, 20);
+        for phase in 0..4 {
+            let (mut c, _, _, _) = setup_case(11);
+            for tick in 0..phase {
+                let msg = Msg::CellUpInput {
+                    epoch: 77,
+                    tick,
+                    sequence: tick,
+                    player: PlayerId(1),
+                    up: true,
+                };
+                c.accept_up(peer, Some(peer), &msg, true).unwrap();
+            }
+            let pos = c.host.crab(PlayerId(0)).unwrap().mover.pos;
+            c.host.crab_mut(PlayerId(1)).unwrap().mover.pos = pos;
+            c.shadow.crab_mut(PlayerId(1)).unwrap().mover.pos = pos;
+            let before = (snapshot(c.host()), snapshot(c.shadow()));
+            let msg = Msg::CellUpInput {
+                epoch: 77,
+                tick: phase,
+                sequence: phase,
+                player: PlayerId(1),
+                up: true,
+            };
+            assert_eq!(
+                c.accept_up(peer, Some(peer), &msg, true),
+                Err(InputError::Unsupported)
+            );
+            assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+        }
+    }
+
+    #[test]
+    fn upward_guest_overload_rolls_back_an_earlier_host_scoop() {
+        let (mut c, _, _, _) = setup_case(11);
+        for sim in [&mut c.host, &mut c.shadow] {
+            let world = sim.level.cells.as_mut().unwrap();
+            world.test_fill_dense_upward_region();
+            assert!(world.test_place_loose_sand(100, 231));
+        }
+        let mut host_reference = c.host.level.cells.clone().unwrap();
+        host_reference.set_game_crab(100.0, 221.0, 9.0, 6.0);
+        assert!(!host_reference.clear_for_crab(100.0, 225.0));
+        assert!(host_reference.push_for_crab(100.0, 225.0, 0, 1, 48));
+        assert_eq!(
+            host_reference.cell(100, 231),
+            crate::underwater::Cell::Water,
+            "host scoop must do work before the guest fails"
+        );
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        let peer = peer(1, 20);
+        let msg = Msg::CellUpInput {
+            epoch: 77,
+            tick: 0,
+            sequence: 0,
+            player: PlayerId(1),
+            up: true,
+        };
+        assert_eq!(
+            c.accept_up(peer, Some(peer), &msg, true),
+            Err(InputError::Unsupported)
+        );
+        assert_eq!(
+            (snapshot(c.host()), snapshot(c.shadow())),
+            before,
+            "guest overload must discard the earlier host scoop"
+        );
+        assert!(c.paused());
+    }
+
+    #[test]
+    fn upward_frames_reject_forgery_gaps_and_bad_digest_without_partial_commit() {
+        for phase in 0..4 {
+            let (mut c, mut guest, join, _) = setup_case(11);
+            let mut receiver = UpGuest::from_join(&join).unwrap();
+            let guest_peer = peer(1, 20);
+            let host_peer = peer(0, 10);
+            for tick in 0..phase {
+                let msg = Msg::CellUpInput {
+                    epoch: 77,
+                    tick,
+                    sequence: tick,
+                    player: PlayerId(1),
+                    up: true,
+                };
+                let frame = c
+                    .accept_up(guest_peer, Some(guest_peer), &msg, false)
+                    .unwrap();
+                guest.set_controls(
+                    PlayerId(1),
+                    Controls {
+                        dig_held: true,
+                        dig_up: true,
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(
+                    receiver.apply(&join, &mut guest, host_peer, Some(host_peer), &frame),
+                    Ok(())
+                );
+            }
+            let msg = Msg::CellUpInput {
+                epoch: 77,
+                tick: phase,
+                sequence: phase,
+                player: PlayerId(1),
+                up: true,
+            };
+            let mut frame = c
+                .accept_up(guest_peer, Some(guest_peer), &msg, false)
+                .unwrap();
+            guest.set_controls(
+                PlayerId(1),
+                Controls {
+                    dig_held: true,
+                    dig_up: true,
+                    ..Default::default()
+                },
+            );
+            let before = snapshot(&guest);
+            assert_eq!(
+                receiver.apply(&join, &mut guest, peer(0, 99), Some(host_peer), &frame),
+                Err(InputError::WrongPeer)
+            );
+            assert_eq!(snapshot(&guest), before);
+            if let Msg::CellUpFrame { digest, .. } = &mut frame {
+                *digest ^= 1;
+            }
+            assert_eq!(
+                receiver.apply(&join, &mut guest, host_peer, Some(host_peer), &frame),
+                Err(InputError::Diverged)
+            );
+            assert_eq!(snapshot(&guest), before);
+            assert!(receiver.paused());
+        }
+        let (mut c, _, _, _) = setup_case(11);
+        let guest_peer = peer(1, 20);
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        let gap = Msg::CellUpInput {
+            epoch: 77,
+            tick: 1,
+            sequence: 1,
+            player: PlayerId(1),
+            up: true,
+        };
+        assert_eq!(
+            c.accept_up(guest_peer, Some(guest_peer), &gap, false),
+            Err(InputError::Gap)
+        );
+        assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+        assert!(c.paused());
+    }
+
+    #[test]
+    fn upward_host_rolls_back_after_terrain_work_at_all_phases() {
+        for phase in 0..4 {
+            let (mut c, _, _, _) = setup_case(11);
+            let peer = peer(1, 20);
+            for tick in 0..phase {
+                let msg = Msg::CellUpInput {
+                    epoch: 77,
+                    tick,
+                    sequence: tick,
+                    player: PlayerId(1),
+                    up: true,
+                };
+                c.accept_up(peer, Some(peer), &msg, false).unwrap();
+            }
+            // The host's cloned terrain operation succeeds first; corrupting
+            // only shadow tuning makes its subsequent replay reject.
+            c.shadow.tuning.walk_speed = f32::NAN;
+            let before = (snapshot(c.host()), snapshot(c.shadow()));
+            let msg = Msg::CellUpInput {
+                epoch: 77,
+                tick: phase,
+                sequence: phase,
+                player: PlayerId(1),
+                up: true,
+            };
+            assert_eq!(
+                c.accept_up(peer, Some(peer), &msg, true),
+                Err(InputError::Unsupported)
+            );
+            assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+            assert!(c.paused());
+        }
+    }
+
+    #[test]
+    fn upward_host_change_restores_the_guest_solo_world() {
+        let (mut c, mut guest, join, _) = setup_case(11);
+        let guest_peer = peer(1, 20);
+        let host_peer = peer(0, 10);
+        let mut receiver = UpGuest::from_join(&join).unwrap();
+        let msg = Msg::CellUpInput {
+            epoch: 77,
+            tick: 0,
+            sequence: 0,
+            player: PlayerId(1),
+            up: true,
+        };
+        let frame = c
+            .accept_up(guest_peer, Some(guest_peer), &msg, false)
+            .unwrap();
+        let mut expected = guest.clone();
+        expected.go_offline();
+        assert_eq!(
+            receiver.apply(&join, &mut guest, host_peer, None, &frame),
+            Err(InputError::WrongPeer)
+        );
+        assert!(!guest.online());
+        assert!(
+            guest.level.cells == expected.level.cells,
+            "disconnect restores the guest's own terrain"
+        );
+        assert!(receiver.paused());
+    }
+
+    #[test]
+    fn upward_mode_cannot_be_mixed_with_the_material_only_protocol() {
+        let peer = peer(1, 20);
+        let (mut c, _, _, _) = setup_case(11);
+        let up = Msg::CellUpInput {
+            epoch: 77,
+            tick: 0,
+            sequence: 0,
+            player: PlayerId(1),
+            up: true,
+        };
+        c.accept_up(peer, Some(peer), &up, false).unwrap();
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        assert_eq!(
+            c.accept(peer, Some(peer), &message(1, 0.0), 0.0),
+            Err(InputError::Unsupported)
+        );
+        assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+        assert!(c.paused());
+        let (mut c, _, _, _) = setup_case(11);
+        c.accept(peer, Some(peer), &message(0, 0.0), 0.0).unwrap();
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        let up = Msg::CellUpInput {
+            epoch: 77,
+            tick: 1,
+            sequence: 1,
+            player: PlayerId(1),
+            up: true,
+        };
+        assert_eq!(
+            c.accept_up(peer, Some(peer), &up, false),
+            Err(InputError::Unsupported)
+        );
+        assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+        assert!(c.paused());
+    }
+
+    #[test]
+    fn upward_pair_terrain_operation_matches_solo_at_all_game_phases() {
+        for phase in 0..4 {
+            for (host_up, guest_up) in [(true, false), (false, true), (true, true)] {
+                let (mut c, _, _, _) = setup();
+                let mut h = c.host.local_shared_walking_force().unwrap();
+                let mut g = c.shadow.local_shared_walking_force().unwrap();
+                let up = Some(crate::underwater::HostDig {
+                    dx: 0,
+                    dy: 1,
+                    force: 48,
+                });
+                h.dig = if host_up { up } else { None };
+                g.dig = if guest_up { up } else { None };
+                let mut world = c.host.level.cells.take().unwrap();
+                let (hx, hy) = world.local_cell(h.x, h.y);
+                let (gx, gy) = world.local_cell(g.x, g.y);
+                if host_up {
+                    assert!(world.test_place_loose_sand(hx as i32, hy as i32 + 10));
+                }
+                if guest_up {
+                    assert!(world.test_place_loose_sand(gx as i32, gy as i32 + 10));
+                }
+                let initial = world.clone();
+                let material = phase == 0;
+                let mut references = Vec::new();
+                for (p, active) in [(h, host_up), (g, guest_up)] {
+                    let mut solo = initial.clone();
+                    solo.follow_player(&c.host.level, p.x, p.y - p.half_height);
+                    let (x, y) = solo.local_cell(p.x, p.y);
+                    solo.set_game_crab(
+                        x,
+                        y,
+                        p.half_width / crate::underwater::GAME_CELL,
+                        p.half_height / crate::underwater::GAME_CELL,
+                    );
+                    if active && !solo.clear_for_crab(x, y + 4.0) {
+                        let _ = solo.push_for_crab(x, y + 4.0, 0, 1, 48);
+                    }
+                    if material {
+                        solo.react_to_swim(x, y, 0.0, 0.0);
+                        solo.stir(x, y, 0.0, 0.0);
+                        solo.step(0.35);
+                    }
+                    references.push((p, solo));
+                }
+                assert!(world.step_up_pair(&c.host.level, &c.host.tuning, &h, &g, material));
+                assert_eq!(
+                    world.tick_count(),
+                    initial.tick_count() + u64::from(material)
+                );
+                for (p, expected) in references {
+                    let (x, y) = world.local_cell(p.x, p.y);
+                    for yy in y as i32 - 20..=y as i32 + 20 {
+                        for xx in x as i32 - 20..=x as i32 + 20 {
+                            assert_eq!(
+                                world.cell(xx, yy),
+                                expected.cell(xx, yy),
+                                "phase {phase} cell {xx},{yy}"
+                            );
+                            assert_eq!(
+                                world.flow_at(xx, yy),
+                                expected.flow_at(xx, yy),
+                                "phase {phase} flow {xx},{yy}"
+                            );
+                        }
+                    }
+                }
+                let count = |w: &crate::underwater::World| {
+                    (0..360)
+                        .flat_map(|y| (0..640).map(move |x| (x, y)))
+                        .filter(|&(x, y)| w.cell(x, y) == crate::underwater::Cell::Sand)
+                        .count()
+                };
+                assert_eq!(count(&world), count(&initial));
             }
         }
     }
