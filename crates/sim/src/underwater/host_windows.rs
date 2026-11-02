@@ -320,4 +320,22 @@ mod tests {
         );
         assert_eq!(one, unchanged);
     }
+
+    #[test]
+    fn a_single_host_window_matches_the_existing_material_step() {
+        let level = crate::Level::test_level();
+        let mut host = World::from_level_settled(&level);
+        host.clear_game_crab();
+        let mut solo = host.clone();
+        host.step_host_interests(&level, &[interest(1, 4, 4)], 0.35)
+            .unwrap();
+        solo.step(0.35);
+        assert_eq!(host.tick, solo.tick);
+        assert_eq!(host.cells, solo.cells);
+        assert_eq!(host.flow, solo.flow);
+        assert_eq!(host.grain, solo.grain);
+        assert_eq!(host.suspended, solo.suspended);
+        assert_eq!(host.pebble_owner, solo.pebble_owner);
+        assert_eq!(host.pebble_motion, solo.pebble_motion);
+    }
 }
