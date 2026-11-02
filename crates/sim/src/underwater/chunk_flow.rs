@@ -108,6 +108,58 @@ fn decode_test_journal(bytes: &[u8]) -> Option<MaterialJournal> {
     (remaining.is_empty() && !journal.overflow && !journal.unsupported).then_some(journal)
 }
 
+/// Test-only, one-region verifier. The caller must construct Peer from the
+/// actual authenticated transport and reject duplicate identity claims.
+#[cfg(test)]
+struct ScoopVerifier {
+    peer: crate::net::cell_join::Peer,
+    epoch: u64,
+    baseline: u64,
+    next: u64,
+    field: ChunkFlow,
+}
+#[cfg(test)]
+impl ScoopVerifier {
+    fn from_world(
+        world: &World,
+        peer: crate::net::cell_join::Peer,
+        epoch: u64,
+        advertised: u64,
+    ) -> Option<Self> {
+        (crate::net::cell_join::lockstep::digest(world) == Some(advertised)).then(|| Self {
+            peer,
+            epoch,
+            baseline: advertised,
+            next: 0,
+            field: ChunkFlow::from_world(world),
+        })
+    }
+    fn accept(
+        &mut self,
+        sender: crate::net::cell_join::Peer,
+        selected: Option<crate::net::cell_join::Peer>,
+        sequence: u64,
+        action: (f32, f32, i32, i32, usize),
+        frame: &[u8],
+    ) -> bool {
+        if sender != self.peer || selected != Some(self.peer) || sequence != self.next {
+            return false;
+        }
+        let Some(next) = self.next.checked_add(1) else {
+            return false;
+        };
+        if !self.field.verify_scoop_with_context(
+            (self.epoch, sequence, self.baseline),
+            action,
+            frame,
+        ) {
+            return false;
+        }
+        self.next = next;
+        true
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub struct ChunkFlow {
     chunks: Vec<Chunk>,
@@ -129,6 +181,7 @@ pub struct ChunkFlow {
 
 /// An additional local-cell body. The primary body's reservation is copied
 /// from the solo world; IDs make additional-body ordering deterministic.
+#[cfg_attr(test, derive(serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BodyReservation {
     pub player: crate::PlayerId,
@@ -511,6 +564,93 @@ impl ChunkFlow {
         let len = postcard::to_slice(&journal, &mut bytes).ok()?.len();
         bytes.truncate(len);
         Some((next, bytes))
+    }
+
+    /// Context binding is an additional test-only guard, not a complete
+    /// baseline or actor validator. The caller must have authenticated and
+    /// verified the initial digest and kept all intervening changes complete.
+    #[cfg(test)]
+    fn record_scoop_with_context(
+        &self,
+        binding: (u64, u64, u64),
+        action: (f32, f32, i32, i32, usize),
+    ) -> Option<(Self, Vec<u8>)> {
+        let (epoch, sequence, initial_digest) = binding;
+        let (x, y, dx, dy, force) = action;
+        #[derive(serde::Serialize)]
+        struct Frame<'a> {
+            version: u8,
+            epoch: u64,
+            sequence: u64,
+            initial_digest: u64,
+            game: bool,
+            origin: (i32, i32),
+            tick: u64,
+            crab: Option<(i32, i32)>,
+            half_x: i32,
+            half_y: i32,
+            other_bodies: &'a [BodyReservation],
+            sand: SedimentProperties,
+            mud: SedimentProperties,
+            pebbles: &'a [Pebble],
+            motion: &'a [(i8, i8, u8)],
+            silt: &'a [Silt],
+            x_bits: u32,
+            y_bits: u32,
+            dx: i32,
+            dy: i32,
+            force: usize,
+            journal: &'a [u8],
+        }
+        let (next, journal) = self.record_scoop_for_exact_compare(x, y, dx, dy, force)?;
+        let frame = Frame {
+            version: 1,
+            epoch,
+            sequence,
+            initial_digest,
+            game: self.game,
+            origin: self.origin,
+            tick: self.tick,
+            crab: self.crab,
+            half_x: self.crab_half_x,
+            half_y: self.crab_half_y,
+            other_bodies: &self.extra_bodies,
+            sand: self.sand_properties,
+            mud: self.mud_properties,
+            pebbles: &self.pebbles,
+            motion: &self.pebble_motion,
+            silt: &self.silt,
+            x_bits: x.to_bits(),
+            y_bits: y.to_bits(),
+            dx,
+            dy,
+            force,
+            journal: &journal,
+        };
+        let mut bytes = vec![0; 64 * 1024];
+        let len = postcard::to_slice(&frame, &mut bytes).ok()?.len();
+        bytes.truncate(len);
+        Some((next, bytes))
+    }
+
+    #[cfg(test)]
+    fn verify_scoop_with_context(
+        &mut self,
+        binding: (u64, u64, u64),
+        action: (f32, f32, i32, i32, usize),
+        expected: &[u8],
+    ) -> bool {
+        if expected.is_empty() || expected.len() > 64 * 1024 {
+            return false;
+        }
+        let Some((next, local)) = self.record_scoop_with_context(binding, action) else {
+            return false;
+        };
+        if local != expected {
+            return false;
+        }
+        *self = next;
+        true
     }
 
     #[cfg(test)]
@@ -4480,6 +4620,238 @@ mod tests {
         assert_ne!(
             host_world.tick, guest_world.tick,
             "event equality does not validate clocks"
+        );
+    }
+    #[test]
+    fn scoop_context_rejects_wrong_clock_origin_epoch_baseline_and_action() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 1;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            let i = World::index(x, 155).unwrap();
+            world.cells[i] = Cell::Sand;
+        }
+        let baseline = crate::net::cell_join::lockstep::digest(&world).unwrap();
+        let initial = ChunkFlow::from_world(&world);
+        let (host, frame) = initial
+            .record_scoop_with_context((11, 7, baseline), (63.0, 154.0, 0, 1, 48))
+            .unwrap();
+        let mut guest = initial.clone();
+        assert!(guest.verify_scoop_with_context(
+            (11, 7, baseline),
+            (63.0, 154.0, 0, 1, 48),
+            &frame
+        ));
+        assert!(guest == host);
+        for (epoch, sequence, digest, x, force) in [
+            (12, 7, baseline, 63.0, 48),
+            (11, 8, baseline, 63.0, 48),
+            (11, 7, baseline ^ 1, 63.0, 48),
+            (11, 7, baseline, 62.0, 48),
+            (11, 7, baseline, 63.0, 47),
+        ] {
+            let mut guest = initial.clone();
+            assert!(!guest.verify_scoop_with_context(
+                (epoch, sequence, digest),
+                (x, 154.0, 0, 1, force),
+                &frame
+            ));
+            assert!(guest == initial);
+        }
+        let mut changed_clock = initial.clone();
+        changed_clock.tick += 1;
+        let before = changed_clock.clone();
+        assert!(!changed_clock.verify_scoop_with_context(
+            (11, 7, baseline),
+            (63.0, 154.0, 0, 1, 48),
+            &frame
+        ));
+        assert!(changed_clock == before);
+        let mut changed_origin = initial.clone();
+        changed_origin.origin.0 += 1;
+        let before = changed_origin.clone();
+        assert!(!changed_origin.verify_scoop_with_context(
+            (11, 7, baseline),
+            (63.0, 154.0, 0, 1, 48),
+            &frame
+        ));
+        assert!(changed_origin == before);
+        let mut changed_reservation = initial.clone();
+        changed_reservation.extra_bodies.push(BodyReservation {
+            player: crate::PlayerId(3),
+            x: 300,
+            y: 150,
+            half_x: 3,
+            half_y: 2,
+        });
+        let before = changed_reservation.clone();
+        assert!(!changed_reservation.verify_scoop_with_context(
+            (11, 7, baseline),
+            (63.0, 154.0, 0, 1, 48),
+            &frame
+        ));
+        assert!(changed_reservation == before);
+        let mut changed_material = initial.clone();
+        changed_material.sand_properties.push_cost += 1;
+        let before = changed_material.clone();
+        assert!(!changed_material.verify_scoop_with_context(
+            (11, 7, baseline),
+            (63.0, 154.0, 0, 1, 48),
+            &frame
+        ));
+        assert!(changed_material == before);
+    }
+
+    #[test]
+    fn caller_supplied_baseline_token_does_not_detect_later_unrelated_corruption() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 1;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            let i = World::index(x, 155).unwrap();
+            world.cells[i] = Cell::Sand;
+        }
+        let baseline = crate::net::cell_join::lockstep::digest(&world).unwrap();
+        let initial = ChunkFlow::from_world(&world);
+        let (host, frame) = initial
+            .record_scoop_with_context((11, 7, baseline), (63.0, 154.0, 0, 1, 48))
+            .unwrap();
+        let mut corrupted = world.clone();
+        corrupted.cells[World::index(500, 300).unwrap()] = Cell::Rock;
+        let mut guest = ChunkFlow::from_world(&corrupted);
+        assert!(guest.verify_scoop_with_context(
+            (11, 7, baseline),
+            (63.0, 154.0, 0, 1, 48),
+            &frame
+        ));
+        assert!(
+            guest != host,
+            "a caller-provided token does not revalidate unrelated cells"
+        );
+    }
+    #[test]
+    fn source_bound_scoop_verifier_checks_initial_world_and_rejects_stale_or_forged_frames() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 1;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            world.cells[World::index(x, 155).unwrap()] = Cell::Sand;
+        }
+        let baseline = crate::net::cell_join::lockstep::digest(&world).unwrap();
+        let peer = crate::net::cell_join::Peer {
+            player: crate::PlayerId(1),
+            connection: 7,
+        };
+        let forged = crate::net::cell_join::Peer {
+            connection: 8,
+            ..peer
+        };
+        let mut bad_world = world.clone();
+        bad_world.cells[World::index(500, 300).unwrap()] = Cell::Rock;
+        assert!(ScoopVerifier::from_world(&bad_world, peer, 11, baseline).is_none());
+        let mut guest = ScoopVerifier::from_world(&world, peer, 11, baseline).unwrap();
+        let action = (63.0, 154.0, 0, 1, 48);
+        let (host, frame) = guest
+            .field
+            .record_scoop_with_context((11, 0, baseline), action)
+            .unwrap();
+        let before = guest.field.clone();
+        assert!(!guest.accept(forged, Some(peer), 0, action, &frame));
+        assert!(!guest.accept(peer, None, 0, action, &frame));
+        assert!(!guest.accept(peer, Some(peer), 1, action, &frame));
+        assert_eq!(guest.next, 0);
+        assert!(guest.field == before);
+        assert!(guest.accept(peer, Some(peer), 0, action, &frame));
+        assert!(guest.field == host);
+        let before = guest.field.clone();
+        assert!(!guest.accept(peer, Some(peer), 0, action, &frame));
+        assert_eq!(guest.next, 1);
+        assert!(guest.field == before);
+    }
+    #[test]
+    fn verifier_initial_token_does_not_detect_later_unrelated_corruption() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 1;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            world.cells[World::index(x, 155).unwrap()] = Cell::Sand;
+        }
+        let baseline = crate::net::cell_join::lockstep::digest(&world).unwrap();
+        let peer = crate::net::cell_join::Peer {
+            player: crate::PlayerId(1),
+            connection: 7,
+        };
+        let mut guest = ScoopVerifier::from_world(&world, peer, 11, baseline).unwrap();
+        let action = (63.0, 154.0, 0, 1, 48);
+        let (host, frame) = guest
+            .field
+            .record_scoop_with_context((11, 0, baseline), action)
+            .unwrap();
+        let (tile, slot) = ChunkFlow::locate(500, 300);
+        guest.field.chunks[tile].cells[slot] = Cell::Rock;
+        assert!(guest.accept(peer, Some(peer), 0, action, &frame));
+        assert_eq!(guest.next, 1);
+        assert!(
+            guest.field != host,
+            "initial token does not certify later untouched cells"
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn contextual_scoop_event_profile() {
+        use std::time::Instant;
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 0;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            let i = World::index(x, 155).unwrap();
+            world.cells[i] = if x % 2 == 0 { Cell::Sand } else { Cell::Mud };
+        }
+        let baseline = crate::net::cell_join::lockstep::digest(&world).unwrap();
+        let initial = ChunkFlow::from_world(&world);
+        let binding = (11, 0, baseline);
+        let action = (63.0, 154.0, 0, 1, 48);
+        let mut host_times = Vec::new();
+        let mut guest_times = Vec::new();
+        let mut size = 0;
+        for _ in 0..20 {
+            let start = Instant::now();
+            let (host, frame) = initial.record_scoop_with_context(binding, action).unwrap();
+            host_times.push(start.elapsed());
+            size = frame.len();
+            let mut guest = initial.clone();
+            let start = Instant::now();
+            assert!(guest.verify_scoop_with_context(binding, action, &frame));
+            guest_times.push(start.elapsed());
+            assert!(guest == host);
+        }
+        host_times.sort_unstable();
+        guest_times.sort_unstable();
+        eprintln!(
+            "context scoop host {:?}, guest {:?}, {} bytes, n=20; excludes baseline digest, peer/sequence handling, guest reset clone, World conversion, actors, streaming, transport and rendering",
+            host_times[10], guest_times[10], size
         );
     }
 }
