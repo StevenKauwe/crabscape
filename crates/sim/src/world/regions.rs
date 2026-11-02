@@ -9,6 +9,7 @@ use crate::underwater::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 pub mod journal;
+pub mod moving;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegionFrame {
@@ -73,6 +74,7 @@ pub enum RegionError {
 
 /// Everything needed to continue this area's gameplay on another browser.
 pub struct RegionKernel {
+    revision: u64,
     pub id: RegionId,
     pub epoch: RegionEpoch,
     pub sim: Sim,
@@ -142,11 +144,15 @@ impl EntityArchive {
 }
 #[derive(Serialize, Deserialize)]
 struct Header {
+    revision: u64,
     id: RegionId,
     epoch: RegionEpoch,
     npc_rng: BTreeMap<u32, Rng>,
 }
 impl RegionKernel {
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
     pub fn install_view(mut self, view: &mut Sim) -> Self {
         let empty = Sim::new(self.sim.tuning.clone(), crate::Level::test_level());
         *view = std::mem::replace(&mut self.sim, empty);
@@ -238,6 +244,7 @@ impl RegionKernel {
     }
     pub fn checkpoint(&self) -> Result<Vec<u8>, RegionError> {
         let header = serde_json::to_vec(&Header {
+            revision: self.revision,
             id: self.id,
             epoch: self.epoch,
             npc_rng: self.sim.owned_rng.clone().unwrap_or_default(),
@@ -281,6 +288,7 @@ impl RegionKernel {
         }
         sim.owned_rng = Some(h.npc_rng);
         Ok(Self {
+            revision: h.revision,
             id: h.id,
             epoch: h.epoch,
             sim,
@@ -356,6 +364,7 @@ impl Sim {
         region.owned_rng = Some(npc_rng);
         self.stop_recording();
         Ok(RegionKernel {
+            revision: 0,
             id,
             epoch,
             sim: region,

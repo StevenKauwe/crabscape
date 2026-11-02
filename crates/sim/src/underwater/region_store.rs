@@ -5,6 +5,7 @@ use super::{
     *,
 };
 use std::collections::BTreeMap;
+pub(crate) mod moving;
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -31,6 +32,7 @@ struct Lease {
     committed_tick: u64,
     // Each kernel's compact 1-based owner ID maps to the canonical table.
     pebble_ids: Vec<u16>,
+    revision: u64,
 }
 
 /// The owner keeps one canonical archive. Active kernels contain only their
@@ -40,6 +42,7 @@ pub struct TerrainStore {
     terrain: World,
     leases: BTreeMap<RegionId, Lease>,
     next_epoch: u64,
+    pending_moves: BTreeMap<RegionId, moving::TerrainMoveIn>,
 }
 impl TerrainStore {
     pub fn new(terrain: World) -> Result<Self, StoreError> {
@@ -50,6 +53,7 @@ impl TerrainStore {
             terrain,
             leases: BTreeMap::new(),
             next_epoch: 1,
+            pending_moves: BTreeMap::new(),
         })
     }
     pub fn terrain(&self) -> &World {
@@ -67,6 +71,12 @@ impl TerrainStore {
     ) -> Result<(), StoreError> {
         self.terrain.restore_default_window(level, x, y)?;
         Ok(())
+    }
+    pub fn revision(&self, id: RegionId, epoch: RegionEpoch) -> Option<u64> {
+        self.leases
+            .get(&id)
+            .filter(|l| l.epoch == epoch)
+            .map(|l| l.revision)
     }
     pub fn committed_tick(&self, id: RegionId) -> Option<u64> {
         self.leases.get(&id).map(|l| l.committed_tick)
@@ -104,6 +114,9 @@ impl TerrainStore {
         if self.leases.values().any(|l| l.bounds.overlaps(bounds)) {
             return Err(StoreError::Overlap);
         }
+        if self.pending_moves.values().any(|m| m.new.overlaps(bounds)) {
+            return Err(StoreError::Overlap);
+        }
         let (kernel, pebble_ids) = self.terrain.load_region(bounds, level)?;
         let epoch = RegionEpoch(self.next_epoch);
         self.next_epoch = self
@@ -117,6 +130,7 @@ impl TerrainStore {
                 bounds,
                 committed_tick: kernel.tick,
                 pebble_ids,
+                revision: 0,
             },
         );
         Ok((epoch, kernel))
@@ -271,6 +285,7 @@ impl TerrainStore {
             return Err(StoreError::StaleEpoch);
         }
         self.leases.remove(&id);
+        self.pending_moves.remove(&id);
         Ok(())
     }
 }
@@ -309,6 +324,14 @@ impl World {
         &self,
         bounds: CellRegion,
         level: &crate::Level,
+    ) -> Result<(World, Vec<u16>), StoreError> {
+        self.load_region_seeded(bounds, level, true)
+    }
+    fn load_region_seeded(
+        &self,
+        bounds: CellRegion,
+        level: &crate::Level,
+        seed: bool,
     ) -> Result<(World, Vec<u16>), StoreError> {
         let mut kernel = World::new();
         kernel.game = true;
@@ -433,7 +456,9 @@ impl World {
                     .then_some(q)
             })
             .collect();
-        kernel.seed_far_pebbles(level);
+        if seed {
+            kernel.seed_far_pebbles(level);
+        }
         Ok((kernel, pebble_ids))
     }
 }

@@ -5,6 +5,14 @@ use super::*;
 const MAX_TICKS: u64 = 120 * 60;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct MoveEvent {
+    tick: u64,
+    revision: u64,
+    #[serde(deserialize_with = "read_checkpoint")]
+    bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Run {
     first: u64,
     count: u32,
@@ -16,6 +24,9 @@ struct Run {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RegionJournal {
+    base_revision: u64,
+    #[serde(deserialize_with = "read_moves")]
+    moves: Vec<MoveEvent>,
     id: RegionId,
     epoch: RegionEpoch,
     authority: PlayerId,
@@ -27,6 +38,9 @@ pub struct RegionJournal {
     checkpoint: Vec<u8>,
     #[serde(deserialize_with = "read_runs")]
     runs: Vec<Run>,
+}
+fn read_moves<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<MoveEvent>, D::Error> {
+    read_list::<D, _, 128>(d)
 }
 fn read_members<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<PlayerId>, D::Error> {
     read_list::<D, _, 8>(d)
@@ -44,6 +58,8 @@ impl RegionJournal {
             return Err(RegionError::InvalidRoster);
         }
         Ok(Self {
+            base_revision: kernel.revision(),
+            moves: Vec::new(),
             id: kernel.id,
             epoch: kernel.epoch,
             authority,
@@ -53,6 +69,40 @@ impl RegionJournal {
             checkpoint: kernel.checkpoint()?,
             runs: Vec::new(),
         })
+    }
+    pub fn revision(&self) -> u64 {
+        self.moves.last().map_or(self.base_revision, |e| e.revision)
+    }
+    pub fn note_move(
+        &mut self,
+        authority: PlayerId,
+        tick: u64,
+        input: super::moving::MoveIn,
+    ) -> Result<(), RegionError> {
+        if authority != self.authority
+            || tick != self.next_tick
+            || input.id() != self.id
+            || input.epoch() != self.epoch
+            || self.revision().checked_add(1) != Some(input.revision())
+            || self.moves.len() >= 128
+        {
+            return Err(RegionError::InvalidFrame);
+        }
+        let bytes = input.to_bytes()?;
+        self.moves.push(MoveEvent {
+            tick,
+            revision: input.revision(),
+            bytes,
+        });
+        Ok(())
+    }
+    fn apply_events(&self, kernel: &mut RegionKernel) -> Result<(), RegionError> {
+        for event in &self.moves {
+            if event.tick == kernel.sim.tick_count() && event.revision > kernel.revision() {
+                kernel.rewindow(&super::moving::MoveIn::from_bytes(&event.bytes)?)?;
+            }
+        }
+        Ok(())
     }
     pub fn id(&self) -> RegionId {
         self.id
@@ -123,6 +173,7 @@ impl RegionJournal {
     /// recovery or a new checkpoint. Normal receipt remains inexpensive.
     pub fn materialize(&self) -> Result<RegionKernel, RegionError> {
         let mut kernel = RegionKernel::from_checkpoint(&self.checkpoint)?;
+        self.apply_events(&mut kernel)?;
         for run in &self.runs {
             for offset in 0..run.count {
                 kernel.tick(&RegionFrame {
@@ -130,6 +181,7 @@ impl RegionJournal {
                     controls: run.controls.clone(),
                     actions: run.actions.clone(),
                 })?;
+                self.apply_events(&mut kernel)?;
             }
         }
         if kernel.sim.tick_count() != self.next_tick {
@@ -140,6 +192,8 @@ impl RegionJournal {
     pub fn compact(&mut self) -> Result<(), RegionError> {
         let kernel = self.materialize()?;
         let checkpoint = kernel.checkpoint()?;
+        self.base_revision = kernel.revision();
+        self.moves.clear();
         self.checkpoint = checkpoint;
         self.base_tick = self.next_tick;
         self.runs.clear();
@@ -157,11 +211,14 @@ impl RegionJournal {
         let state = RegionKernel::from_checkpoint(&bytes)?;
         if state.id != self.id
             || state.epoch != self.epoch
+            || state.revision() != self.revision()
             || state.sim.tick_count() != self.next_tick
             || state.members() != self.members
         {
             return Err(RegionError::InvalidState);
         }
+        self.base_revision = state.revision();
+        self.moves.clear();
         self.checkpoint = bytes;
         self.base_tick = self.next_tick;
         self.runs.clear();
@@ -179,6 +236,7 @@ impl RegionJournal {
             return Err(RegionError::InvalidFrame);
         }
         if kernel.id != self.id
+            || kernel.revision() != self.revision()
             || kernel.sim.tick_count() != self.next_tick
             || kernel.members() != self.members
         {
@@ -187,6 +245,8 @@ impl RegionJournal {
         // Encode before changing the retained base, so a failed capture keeps
         // the previous checkpoint and complete acknowledged journal intact.
         let checkpoint = kernel.checkpoint()?;
+        self.base_revision = kernel.revision();
+        self.moves.clear();
         self.checkpoint = checkpoint;
         self.base_tick = self.next_tick;
         self.runs.clear();
@@ -212,6 +272,15 @@ impl RegionJournal {
         epoch: RegionEpoch,
         bytes: Vec<u8>,
     ) -> Result<(), RegionError> {
+        self.advance_checkpoint_retain(authority, epoch, bytes)
+            .map(drop)
+    }
+    pub fn advance_checkpoint_retain(
+        &mut self,
+        authority: PlayerId,
+        epoch: RegionEpoch,
+        bytes: Vec<u8>,
+    ) -> Result<RegionKernel, RegionError> {
         if authority != self.authority || epoch != self.epoch {
             return Err(RegionError::InvalidFrame);
         }
@@ -220,6 +289,12 @@ impl RegionJournal {
         if state.id != self.id
             || state.epoch != self.epoch
             || state.members() != self.members
+            || state.revision() < self.base_revision
+            || state.revision() > self.revision()
+            || self.moves.iter().any(|e| {
+                (e.revision <= state.revision() && e.tick > tick)
+                    || (e.revision > state.revision() && e.tick < tick)
+            })
             || tick < self.base_tick
             || tick > self.next_tick
         {
@@ -238,10 +313,12 @@ impl RegionJournal {
             }
             runs.push(kept);
         }
+        self.base_revision = state.revision();
+        self.moves.retain(|e| e.revision > state.revision());
         self.checkpoint = bytes;
         self.base_tick = tick;
         self.runs = runs;
-        Ok(())
+        Ok(state)
     }
     pub fn base_kernel(&self) -> Result<RegionKernel, RegionError> {
         RegionKernel::from_checkpoint(&self.checkpoint)
@@ -265,7 +342,10 @@ impl RegionJournal {
     }
     pub fn prepare_replay(&self, sim: &mut Sim) -> bool {
         match self.base_kernel() {
-            Ok(kernel) => {
+            Ok(mut kernel) => {
+                if self.apply_events(&mut kernel).is_err() {
+                    return false;
+                }
                 *sim = kernel.sim;
                 true
             }
@@ -300,6 +380,27 @@ impl RegionJournal {
             sim.set_controls(*id, *control);
         }
         sim.tick_fixed_terrain();
+        self.apply_replay_events(sim)
+    }
+    fn apply_replay_events(&self, sim: &mut Sim) -> bool {
+        let tick = sim.tick_count();
+        for event in self.moves.iter().filter(|e| e.tick == tick) {
+            let Ok(input) = super::moving::MoveIn::from_bytes(&event.bytes) else {
+                return false;
+            };
+            let placeholder = Sim::new(sim.tuning.clone(), crate::Level::test_level());
+            let mut kernel = RegionKernel {
+                id: self.id,
+                epoch: self.epoch,
+                revision: event.revision - 1,
+                sim: std::mem::replace(sim, placeholder),
+            };
+            let result = kernel.rewindow(&input);
+            *sim = kernel.sim;
+            if result.is_err() {
+                return false;
+            }
+        }
         true
     }
     pub fn to_bytes(&self) -> Result<Vec<u8>, RegionError> {
@@ -323,6 +424,7 @@ impl RegionJournal {
         let restored: Self = postcard::from_bytes(&raw).map_err(|_| RegionError::InvalidState)?;
         let base = RegionKernel::from_checkpoint(&restored.checkpoint)?;
         if base.id != restored.id
+            || base.revision() != restored.base_revision
             || base.epoch != restored.epoch
             || base.members() != restored.members
             || base.sim.tick_count() != restored.base_tick
@@ -331,7 +433,24 @@ impl RegionJournal {
         {
             return Err(RegionError::InvalidState);
         }
+        let mut revision = restored.base_revision;
+        let mut move_tick = restored.base_tick;
+        for event in &restored.moves {
+            let input = super::moving::MoveIn::from_bytes(&event.bytes)?;
+            if revision.checked_add(1) != Some(event.revision)
+                || event.tick < move_tick
+                || event.tick > restored.next_tick
+                || input.revision() != event.revision
+                || input.id() != restored.id
+                || input.epoch() != restored.epoch
+            {
+                return Err(RegionError::InvalidState);
+            }
+            revision = event.revision;
+            move_tick = event.tick;
+        }
         let mut next = restored.base_tick;
+
         for run in &restored.runs {
             if run.first != next
                 || run.count == 0
