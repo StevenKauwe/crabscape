@@ -11,6 +11,7 @@
 //! the guest and host terrain simultaneously; limits on each buffer are not
 //! a practical bound on peak phone memory. Chunk streaming is still needed.
 
+pub mod input;
 pub mod lockstep;
 pub mod paced;
 

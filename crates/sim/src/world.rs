@@ -654,7 +654,8 @@ impl Sim {
             | Msg::CellFrame(_)
             | Msg::CellTerrainAck { .. }
             | Msg::CellFrameAck { .. }
-            | Msg::CellProbeReady => {}
+            | Msg::CellProbeReady
+            | Msg::CellWalkInput { .. } => {}
         }
     }
 
