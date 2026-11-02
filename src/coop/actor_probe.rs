@@ -15,6 +15,22 @@ use crabsim::{
 
 const EPOCH: u64 = 77;
 const TICKS: u64 = 4;
+#[derive(Clone, Copy, Default)]
+pub(super) struct Timing {
+    pub samples: u32,
+    pub total_ms: f64,
+    pub max_ms: f64,
+}
+#[cfg(target_arch = "wasm32")]
+pub(super) fn clock_ms() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now())
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn clock_ms() -> f64 {
+    0.0
+}
 fn empty_level() -> Level {
     let mut level = Level::test_level();
     level.eggs.clear();
@@ -41,6 +57,7 @@ pub(super) enum ActorProbe {
         controller: Box<Host>,
         checkpoint: Option<CheckpointSender>,
         awaiting_final: bool,
+        timing: Timing,
         complete: bool,
     },
     Guest {
@@ -51,6 +68,10 @@ pub(super) enum ActorProbe {
         receiver: Option<UpGuest>,
         expected_piece: u32,
         next: u64,
+        offered: u64,
+        started: bool,
+        pipeline: bool,
+        timing: Timing,
         complete: bool,
     },
 }
@@ -78,12 +99,13 @@ impl ActorProbe {
                 controller: Box::new(controller),
                 checkpoint: Some(checkpoint),
                 awaiting_final: false,
+                timing: Timing::default(),
                 complete: false,
             },
             first,
         ))
     }
-    pub(super) fn guest(local: PlayerId, peer: Peer) -> Option<Self> {
+    pub(super) fn guest(local: PlayerId, peer: Peer, pipeline: bool) -> Option<Self> {
         (local != peer.player).then(|| Self::Guest {
             peer,
             player: local,
@@ -92,6 +114,10 @@ impl ActorProbe {
             receiver: None,
             expected_piece: 0,
             next: 0,
+            offered: 0,
+            started: false,
+            pipeline,
+            timing: Timing::default(),
             complete: false,
         })
     }
@@ -105,6 +131,23 @@ impl ActorProbe {
                 Err(PaceError::Busy | PaceError::Finished) => Ok(None),
                 Err(_) => Err(()),
             },
+            Self::Guest {
+                player,
+                offered,
+                started: true,
+                pipeline: true,
+                ..
+            } if *offered < TICKS => {
+                let tick = *offered;
+                *offered += 1;
+                Ok(Some(Msg::CellUpInput {
+                    epoch: EPOCH,
+                    tick,
+                    sequence: tick,
+                    player: *player,
+                    up: true,
+                }))
+            }
             _ => Ok(None),
         }
     }
@@ -124,7 +167,40 @@ impl ActorProbe {
             Self::Host { complete, .. } | Self::Guest { complete, .. } => *complete,
         }
     }
+    pub(super) fn timing(&self) -> Timing {
+        match self {
+            Self::Host { timing, .. } | Self::Guest { timing, .. } => *timing,
+        }
+    }
+    pub(super) fn profile_digest(&self) -> Option<u64> {
+        let world = match self {
+            Self::Host { controller, .. } => controller.host().level.cells.as_ref()?,
+            Self::Guest { sim, .. } => sim.level.cells.as_ref()?,
+        };
+        crabsim::net::cell_join::lockstep::digest(world)
+    }
     pub(super) fn receive(
+        &mut self,
+        sender: Peer,
+        selected: Option<Peer>,
+        msg: &Msg,
+    ) -> Result<Option<Msg>, ()> {
+        let measure = matches!(msg, Msg::CellUpInput { .. } | Msg::CellUpFrame { .. });
+        let active = !self.complete();
+        let start = if measure && active { clock_ms() } else { 0.0 };
+        let result = self.receive_inner(sender, selected, msg);
+        if measure && active && result.is_ok() {
+            let elapsed = (clock_ms() - start).max(0.0);
+            let timing = match self {
+                Self::Host { timing, .. } | Self::Guest { timing, .. } => timing,
+            };
+            timing.samples += 1;
+            timing.total_ms += elapsed;
+            timing.max_ms = timing.max_ms.max(elapsed);
+        }
+        result
+    }
+    fn receive_inner(
         &mut self,
         sender: Peer,
         selected: Option<Peer>,
@@ -141,6 +217,9 @@ impl ActorProbe {
                 complete,
                 ..
             } => {
+                if *complete {
+                    return Ok(None);
+                }
                 if let Some(sender_checkpoint) = checkpoint.as_mut() {
                     match sender_checkpoint.acknowledge(sender, selected, msg) {
                         Ok(()) => {}
@@ -188,10 +267,14 @@ impl ActorProbe {
                 receiver,
                 expected_piece,
                 next,
+                offered,
+                started,
+                pipeline,
                 complete,
+                ..
             } => {
                 if *complete {
-                    return Err(());
+                    return Ok(None);
                 }
                 if let Msg::CellTerrain(bytes) = msg {
                     let (id, index) =
@@ -212,9 +295,11 @@ impl ActorProbe {
                     return Ok(Some(ack));
                 }
                 if matches!(msg, Msg::CellProbeReady) {
-                    if receiver.is_none() || *next != 0 {
+                    if receiver.is_none() || *next != 0 || *started {
                         return Err(());
                     }
+                    *started = true;
+                    *offered = 1;
                     return Ok(Some(Msg::CellUpInput {
                         epoch: EPOCH,
                         tick: 0,
@@ -224,6 +309,9 @@ impl ActorProbe {
                     }));
                 }
                 if matches!(msg, Msg::CellUpFrame { .. }) {
+                    if !*started || *next >= *offered {
+                        return Err(());
+                    }
                     let mut trial = (**sim).clone();
                     trial.set_controls(
                         *player,
@@ -250,6 +338,13 @@ impl ActorProbe {
                     if *next > TICKS {
                         return Err(());
                     }
+                    if *pipeline {
+                        return Ok(None);
+                    }
+                    if *next != *offered {
+                        return Err(());
+                    }
+                    *offered += 1;
                     return Ok(Some(Msg::CellUpInput {
                         epoch: EPOCH,
                         tick: *next,
@@ -278,7 +373,7 @@ mod tests {
             connection: 22,
         };
         let (mut host, first) = ActorProbe::host(host_peer.player, guest_peer, 4).expect("host");
-        let mut guest = ActorProbe::guest(guest_peer.player, host_peer).unwrap();
+        let mut guest = ActorProbe::guest(guest_peer.player, host_peer, false).unwrap();
         let mut outbound = vec![first];
         while let Some(msg) = host.more().unwrap() {
             outbound.push(msg);
@@ -326,14 +421,32 @@ mod tests {
             player: guest_peer.player,
             up: true,
         };
-        assert!(host.receive(guest_peer, Some(guest_peer), &extra).is_err());
+        assert!(
+            host.receive(guest_peer, Some(guest_peer), &extra)
+                .unwrap()
+                .is_none()
+        );
         assert!(
             guest
                 .receive(host_peer, Some(host_peer), &Msg::CellProbeReady)
-                .is_err()
+                .unwrap()
+                .is_none()
+        );
+        let final_ack = Msg::CellFrameAck {
+            epoch: EPOCH,
+            frame: TICKS - 1,
+        };
+        assert!(
+            host.receive(guest_peer, Some(guest_peer), &final_ack)
+                .unwrap()
+                .is_none()
         );
         assert_eq!(host.ticks(), TICKS);
         assert_eq!(guest.ticks(), TICKS);
+        assert_eq!(host.timing().samples, TICKS as u32);
+        assert_eq!(guest.timing().samples, TICKS as u32);
+        assert!(host.profile_digest().is_some() && guest.profile_digest().is_some());
+        assert!(host.timing().total_ms >= host.timing().max_ms);
         let ActorProbe::Host { controller, .. } = &host else {
             panic!("host role")
         };
@@ -365,7 +478,7 @@ mod tests {
             connection: 22,
         };
         let (mut host, first) = ActorProbe::host(host_peer.player, guest_peer, 4).unwrap();
-        let mut guest = ActorProbe::guest(guest_peer.player, host_peer).unwrap();
+        let mut guest = ActorProbe::guest(guest_peer.player, host_peer, false).unwrap();
         let mut packets = vec![first];
         while let Some(msg) = host.more().unwrap() {
             packets.push(msg);
@@ -401,5 +514,60 @@ mod tests {
             }
         }
         panic!("did not receive an actor frame");
+    }
+    #[test]
+    fn four_predeclared_inputs_are_bounded_and_host_advances_without_frame_wait() {
+        let hp = Peer {
+            player: PlayerId(1),
+            connection: 11,
+        };
+        let gp = Peer {
+            player: PlayerId(2),
+            connection: 22,
+        };
+        let (mut host, first) = ActorProbe::host(hp.player, gp, 4).unwrap();
+        let mut guest = ActorProbe::guest(gp.player, hp, true).unwrap();
+        let mut outbound = vec![first];
+        while let Some(msg) = host.more().unwrap() {
+            outbound.push(msg);
+        }
+        let mut saw_pipelined = false;
+        for _ in 0..1000 {
+            if host.complete() {
+                break;
+            }
+            assert!(!outbound.is_empty() && outbound.len() <= 4);
+            let mut replies = Vec::new();
+            for msg in outbound.drain(..) {
+                if let Some(reply) = guest.receive(hp, Some(hp), &msg).unwrap() {
+                    replies.push(reply);
+                }
+                while let Some(reply) = guest.more().unwrap() {
+                    replies.push(reply);
+                }
+            }
+            assert!(replies.len() <= 4);
+            for reply in replies {
+                if let Some(msg) = host.receive(gp, Some(gp), &reply).unwrap() {
+                    outbound.push(msg);
+                }
+                while let Some(msg) = host.more().unwrap() {
+                    outbound.push(msg);
+                }
+            }
+            if host.ticks() == TICKS && guest.ticks() == 0 {
+                assert_eq!(outbound.len(), TICKS as usize);
+                saw_pipelined = true;
+            }
+        }
+        assert!(host.complete() && guest.complete() && saw_pipelined);
+        let ActorProbe::Host { controller, .. } = &host else {
+            panic!("host")
+        };
+        let ActorProbe::Guest { sim, .. } = &guest else {
+            panic!("guest")
+        };
+        assert_eq!(sim.crab(gp.player), controller.shadow().crab(gp.player));
+        assert_eq!(sim.level.cells, controller.host().level.cells);
     }
 }

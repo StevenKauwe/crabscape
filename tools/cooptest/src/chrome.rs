@@ -275,6 +275,16 @@ impl Chrome {
         self.eval(SLOW_GATHERING).map(drop)
     }
 
+    /// Capture the probe's peer connection in this and future documents.
+    pub fn actor_profile_hook(&mut self) -> Result<()> {
+        const HOOK: &str = "(() => { const Base = window.RTCPeerConnection; window.RTCPeerConnection = class extends Base { constructor(...args) { super(...args); window.__actorProfilePc = this; } }; })()";
+        self.call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": HOOK }),
+        )?;
+        self.eval(HOOK).map(drop)
+    }
+
     /// What the page shows, as a PNG at `path`.
     pub fn screenshot(&mut self, path: &Path) -> Result<()> {
         use base64::Engine as _;

@@ -578,7 +578,17 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 18] = [
+const SCENARIOS: [(&str, &str, u32); 20] = [
+    (
+        "cell-probe-actors-profile",
+        "developer actor processing and digest profile",
+        60,
+    ),
+    (
+        "cell-probe-actors-pipeline",
+        "developer bounded pipelined two-actor WebRTC probe",
+        60,
+    ),
     (
         "cell-probe-actors",
         "developer two-actor cellular WebRTC probe",
@@ -704,20 +714,40 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
         | "cell-probe-window"
         | "cell-probe-loss"
         | "cell-probe-disconnect"
-        | "cell-probe-actors" => {
+        | "cell-probe-actors"
+        | "cell-probe-actors-pipeline"
+        | "cell-probe-actors-profile" => {
             host.open(&site.url(""))?;
             host.b.eval(r#"(() => { window.__probeTimes = {}; const c = document.getElementById('crabscape'); new MutationObserver(() => { const s = c.getAttribute('data-cell-transport-probe'); if (s && window.__probeTimes[s] === undefined) window.__probeTimes[s] = performance.now(); }).observe(c, {attributes: true, attributeFilter: ['data-cell-transport-probe']}); })()"#)?;
             if name == "cell-probe" {
                 host.b
                     .eval("sessionStorage.setItem('__cell_probe_window','1')")?;
             }
-            if name == "cell-probe-actors" {
+            if name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
                 host.b
                     .eval("sessionStorage.setItem('__cell_probe_actors','1')")?;
                 guest.open(&site.url(""))?;
                 guest
                     .b
                     .eval("sessionStorage.setItem('__cell_probe_actors','1')")?;
+                if name == "cell-probe-actors-profile" {
+                    host.b
+                        .eval("sessionStorage.setItem('__cell_probe_profile','1')")?;
+                    guest
+                        .b
+                        .eval("sessionStorage.setItem('__cell_probe_profile','1')")?;
+                    for p in [&mut host, &mut guest] {
+                        p.b.actor_profile_hook()?;
+                    }
+                }
+                if name == "cell-probe-actors-pipeline" {
+                    guest
+                        .b
+                        .eval("sessionStorage.setItem('__cell_probe_pipeline','1')")?;
+                }
             }
             let code = host.invite()?;
             if name == "cell-probe-loss" || name == "cell-probe-disconnect" {
@@ -749,6 +779,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             let expected = if name == "cell-probe"
                 || name == "cell-probe-window"
                 || name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
             {
                 "complete"
             } else {
@@ -780,12 +812,20 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     guest.b.attr("data-cell-transport-probe")
                 ));
             }
-            if name == "cell-probe" || name == "cell-probe-window" || name == "cell-probe-actors" {
+            if name == "cell-probe"
+                || name == "cell-probe-window"
+                || name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
                 guest.until(5.0, "guest probe completion", |p| {
                     p.b.attr("data-cell-transport-probe").as_deref() == Some("complete")
                 })?;
             }
-            if name == "cell-probe-actors" {
+            if name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
                 for p in [&mut host, &mut guest] {
                     let ticks = p.b.attr("data-cell-actor-probe-ticks");
                     if ticks.as_deref() != Some("4") {
@@ -795,6 +835,26 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                             ticks
                         ));
                     }
+                }
+            }
+            if name == "cell-probe-actors-profile" {
+                for p in [&mut host, &mut guest] {
+                    let samples = p.b.attr("data-cell-actor-step-samples");
+                    let total = p.b.attr("data-cell-actor-step-total-ms");
+                    let max = p.b.attr("data-cell-actor-step-max-ms");
+                    let digest = p.b.attr("data-cell-actor-digest-ms");
+                    if samples.as_deref() != Some("4")
+                        || total.is_none()
+                        || max.is_none()
+                        || digest.is_none()
+                    {
+                        return Err(format!(
+                            "{} missing actor timing: {samples:?} {total:?} {max:?} {digest:?}",
+                            p.name()
+                        ));
+                    }
+                    let ice_rtt = p.b.eval("(async () => { if (!window.__actorProfilePc) return null; const stats = await window.__actorProfilePc.getStats(); for (const s of stats.values()) { if (s.type === 'candidate-pair' && s.state === 'succeeded' && s.nominated && typeof s.currentRoundTripTime === 'number') return s.currentRoundTripTime * 1000; } return null; })()").ok().and_then(|v| v.as_f64());
+                    found.push(format!("{} step total {total:?} ms, max {max:?} ms, extra full digest {digest:?} ms, ICE RTT {ice_rtt:?} ms", p.name()));
                 }
             }
             for p in [&mut host, &mut guest] {
@@ -816,6 +876,13 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 .ok()
                 .and_then(|v| v.as_f64());
             found.push(format!("isolated shadow transfer: {expected}, {:.1} s from guest navigation, transfer {:.2?} s", joining.elapsed().as_secs_f64(), transfer));
+            if name == "cell-probe-actors"
+                || name == "cell-probe-actors-pipeline"
+                || name == "cell-probe-actors-profile"
+            {
+                let actor_phase = host.b.eval("(window.__probeTimes.complete - window.__probeTimes['actor-running']) / 1000")?.as_f64().ok_or_else(|| "missing actor phase timing".to_string())?;
+                found.push(format!("four-tick actor phase {actor_phase:.3} s"));
+            }
         }
         "join" => {
             host.open(&site.url(""))?;

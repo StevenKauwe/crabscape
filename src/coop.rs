@@ -613,6 +613,18 @@ mod web {
                 Self::Actor(p) => p.peer(),
             }
         }
+        fn actor_timing(&self) -> Option<super::actor_probe::Timing> {
+            match self {
+                Self::Actor(p) => Some(p.timing()),
+                Self::Terrain(_) => None,
+            }
+        }
+        fn actor_digest(&self) -> Option<u64> {
+            match self {
+                Self::Actor(p) => p.profile_digest(),
+                Self::Terrain(_) => None,
+            }
+        }
         fn actor_ticks(&self) -> Option<u64> {
             match self {
                 Self::Actor(p) => Some(p.ticks()),
@@ -642,6 +654,22 @@ mod web {
                 Self::Actor(p) => p.receive(sender, selected, msg),
             }
         }
+    }
+    #[cfg(feature = "cellular-transport-probe")]
+    fn actor_profile_enabled() -> bool {
+        web_sys::window()
+            .and_then(|w| w.session_storage().ok().flatten())
+            .and_then(|s| s.get_item("__cell_probe_profile").ok().flatten())
+            .as_deref()
+            == Some("1")
+    }
+    #[cfg(feature = "cellular-transport-probe")]
+    fn actor_pipeline_enabled() -> bool {
+        web_sys::window()
+            .and_then(|w| w.session_storage().ok().flatten())
+            .and_then(|s| s.get_item("__cell_probe_pipeline").ok().flatten())
+            .as_deref()
+            == Some("1")
     }
     #[cfg(feature = "cellular-transport-probe")]
     fn actor_probe_enabled() -> bool {
@@ -1262,8 +1290,12 @@ mod web {
                         && let Some(selected) = probe_source(link, candidates[0])
                     {
                         link.probe = if actor_probe_enabled() {
-                            super::actor_probe::ActorProbe::guest(me.0, selected)
-                                .map(ActiveProbe::Actor)
+                            super::actor_probe::ActorProbe::guest(
+                                me.0,
+                                selected,
+                                actor_pipeline_enabled(),
+                            )
+                            .map(ActiveProbe::Actor)
                         } else {
                             Some(ActiveProbe::Terrain(super::probe::Probe::guest(selected)))
                         };
@@ -1434,9 +1466,42 @@ mod web {
                                 probe_status("host-changed");
                                 continue;
                             }
+                            let was_complete = probe.complete();
                             match probe.receive(source, Some(source), &msg) {
                                 Ok(reply) => {
-                                    if probe.complete() {
+                                    if matches!(&reply, Some(Msg::CellProbeReady))
+                                        && probe.actor_ticks().is_some()
+                                    {
+                                        probe_status("actor-running");
+                                    }
+                                    if !was_complete && probe.complete() {
+                                        if actor_profile_enabled()
+                                            && let Some(timing) = probe.actor_timing()
+                                            && let Some(canvas) = web_sys::window()
+                                                .and_then(|w| w.document())
+                                                .and_then(|d| d.get_element_by_id("crabscape"))
+                                        {
+                                            let _ = canvas.set_attribute(
+                                                "data-cell-actor-step-samples",
+                                                &timing.samples.to_string(),
+                                            );
+                                            let _ = canvas.set_attribute(
+                                                "data-cell-actor-step-total-ms",
+                                                &timing.total_ms.to_string(),
+                                            );
+                                            let _ = canvas.set_attribute(
+                                                "data-cell-actor-step-max-ms",
+                                                &timing.max_ms.to_string(),
+                                            );
+                                            let start = super::actor_probe::clock_ms();
+                                            if probe.actor_digest().is_some() {
+                                                let _ = canvas.set_attribute(
+                                                    "data-cell-actor-digest-ms",
+                                                    &(super::actor_probe::clock_ms() - start)
+                                                        .to_string(),
+                                                );
+                                            }
+                                        }
                                         if let Some(ticks) = probe.actor_ticks()
                                             && let Some(canvas) = web_sys::window()
                                                 .and_then(|w| w.document())
