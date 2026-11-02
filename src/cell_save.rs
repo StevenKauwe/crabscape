@@ -7,8 +7,6 @@
 #![allow(dead_code)]
 
 use crabsim::underwater::World;
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-use crabsim::underwater::WorldCheckpoint;
 
 use crate::save::{SAVE_VERSION, SaveData};
 
@@ -26,32 +24,7 @@ const HEADER: usize = 8 + 8 + 4 + 4 + 4;
 const MAX_RAW: usize = 64 * 1024 * 1024;
 const MAX_PLAYER: usize = 1024 * 1024;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Error {
-    TooLarge,
-    Damaged,
-    Unsupported,
-}
-
-/// The simulation tick must travel with the terrain: it controls both the
-/// next material step and time-dependent current. The caller is responsible
-/// for restoring that clock with the rest of the simulation state.
-pub struct Restored {
-    pub player: SaveData,
-    pub terrain: World,
-    pub sim_tick: u64,
-    pub replay: ReplayStart,
-}
-
-/// Replay handling is separate from save validity: a world may be too large
-/// to retain a safe replay token while its terrain remains fully saveable.
-#[derive(Default)]
-pub enum ReplayStart {
-    #[default]
-    Legacy,
-    Verified(Box<crabsim::VerifiedCellStart>),
-    Unavailable,
-}
+pub use crabsim::cell_codec::{Error, ReplayStart, Restored, decode};
 
 /// Pack a single point-in-time save. The backend must never replace an older
 /// save unless this succeeds *and* its own atomic write succeeds.
@@ -122,82 +95,6 @@ pub fn prepare(
         checksum: checksum(sim_tick, player_len, raw_len as u32, &raw),
     };
     Ok((header, raw))
-}
-
-/// Decode a bounded, complete save. This verifies accidental damage; it is not
-/// an authentication mechanism and must not be used for untrusted peers.
-pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
-    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-    if bytes.len() > 8 * 1024 * 1024
-        || (bytes.len() >= HEADER
-            && u32::from_le_bytes(bytes[20..24].try_into().map_err(|_| Error::Damaged)?) as usize
-                > 12 * 1024 * 1024)
-    {
-        return Err(Error::TooLarge);
-    }
-    if bytes.starts_with(v2::MAGIC) {
-        return v2::decode(bytes);
-    }
-    if bytes.len() < HEADER {
-        return Err(Error::Damaged);
-    }
-    if &bytes[..8] != MAGIC {
-        return Err(Error::Unsupported);
-    }
-    let sim_tick = u64::from_le_bytes(bytes[8..16].try_into().map_err(|_| Error::Damaged)?);
-    let player_len =
-        u32::from_le_bytes(bytes[16..20].try_into().map_err(|_| Error::Damaged)?) as usize;
-    let raw_len =
-        u32::from_le_bytes(bytes[20..24].try_into().map_err(|_| Error::Damaged)?) as usize;
-    let checksum = u32::from_le_bytes(bytes[24..28].try_into().map_err(|_| Error::Damaged)?);
-    if raw_len > MAX_RAW || bytes.len() > MAX_RAW || player_len > MAX_PLAYER {
-        return Err(Error::TooLarge);
-    }
-    if player_len > raw_len {
-        return Err(Error::Damaged);
-    }
-    let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&bytes[HEADER..], raw_len)
-        .map_err(|_| Error::Damaged)?;
-    if raw.len() != raw_len
-        || self::checksum(sim_tick, player_len as u32, raw_len as u32, &raw) != checksum
-    {
-        return Err(Error::Damaged);
-    }
-    let player: SaveData =
-        serde_json::from_slice(&raw[..player_len]).map_err(|_| Error::Damaged)?;
-    if player.version != SAVE_VERSION {
-        return Err(Error::Unsupported);
-    }
-    if !player.x.is_finite() || !player.y.is_finite() {
-        return Err(Error::Damaged);
-    }
-    let terrain = decode_checkpoint(&raw[player_len..]).ok_or(Error::Damaged)?;
-    Ok(Restored {
-        player,
-        terrain,
-        sim_tick,
-        replay: if raw_len > v2::MAX_REUSE_RAW || bytes.len() - HEADER > v2::MAX_REUSE_PACKED {
-            ReplayStart::Unavailable
-        } else {
-            ReplayStart::Legacy
-        },
-    })
-}
-
-fn decode_checkpoint(raw: &[u8]) -> Option<World> {
-    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-    {
-        crabsim::underwater::decode_browser_checkpoint(raw)
-    }
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-    {
-        let (checkpoint, trailing): (WorldCheckpoint, &[u8]) =
-            postcard::take_from_bytes(raw).ok()?;
-        if !trailing.is_empty() {
-            return None;
-        }
-        checkpoint.into_world()
-    }
 }
 
 /// `restore_progress` intentionally accepts old, shorter lists, but silently

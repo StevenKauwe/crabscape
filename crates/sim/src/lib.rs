@@ -49,6 +49,7 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
+pub mod cell_codec;
 pub mod codes;
 pub mod combat;
 pub mod craft;

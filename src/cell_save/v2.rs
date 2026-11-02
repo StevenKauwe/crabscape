@@ -4,16 +4,11 @@
 //! replay checkpoint after it is validated on load, when it fits the replay
 //! size bound. Larger terrain still saves and loads, but cannot resume a text
 //! replay. V1 remains readable; this is not yet selected by either save path.
-use super::{Error, HEADER, MAX_PLAYER, MAX_RAW, ReplayStart, Restored};
+use super::{Error, HEADER, MAX_PLAYER, MAX_RAW};
 use crate::save::{SAVE_VERSION, SaveData};
-use crabsim::{VerifiedCellStart, underwater::World};
+use crabsim::underwater::World;
 
 pub(super) const MAGIC: &[u8; 8] = b"CRABCEL2";
-/// Reuse temporarily retains the raw bytes, compressed replay text and
-/// multiple world copies. Bound these well below the general save limits;
-/// larger worlds still load, but start without a resumed replay token.
-pub(super) const MAX_REUSE_PACKED: usize = 4 * 1024 * 1024;
-pub(super) const MAX_REUSE_RAW: usize = 8 * 1024 * 1024;
 
 struct PreparedHeader {
     tick: u64,
@@ -157,74 +152,6 @@ fn prepare_raw(player: &SaveData, tick: u64, raw: Vec<u8>) -> Result<PreparedSav
     Ok(PreparedSave { header, raw })
 }
 
-pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
-    if bytes.len() < HEADER {
-        return Err(Error::Damaged);
-    }
-    if &bytes[..8] != MAGIC {
-        return Err(Error::Unsupported);
-    }
-    let tick = u64::from_le_bytes(bytes[8..16].try_into().map_err(|_| Error::Damaged)?);
-    if tick == 0 || tick > u64::MAX - 1_000_000 {
-        return Err(Error::Damaged);
-    }
-    let player_len =
-        u32::from_le_bytes(bytes[16..20].try_into().map_err(|_| Error::Damaged)?) as usize;
-    let raw_len =
-        u32::from_le_bytes(bytes[20..24].try_into().map_err(|_| Error::Damaged)?) as usize;
-    let expected = u32::from_le_bytes(bytes[24..28].try_into().map_err(|_| Error::Damaged)?);
-    if bytes.len() > MAX_RAW
-        || player_len > MAX_PLAYER
-        || player_len.checked_add(raw_len).is_none_or(|n| n > MAX_RAW)
-    {
-        return Err(Error::TooLarge);
-    }
-    let player_end = HEADER
-        .checked_add(player_len)
-        .filter(|&n| n <= bytes.len())
-        .ok_or(Error::Damaged)?;
-    let player_bytes = &bytes[HEADER..player_end];
-    let packed = &bytes[player_end..];
-    let (terrain, verified) = if packed.len() <= MAX_REUSE_PACKED && raw_len <= MAX_REUSE_RAW {
-        let verified = VerifiedCellStart::from_compressed_with_len(packed, tick, raw_len)
-            .ok_or(Error::Damaged)?;
-        if verified.raw().len() != raw_len
-            || checksum(tick, player_bytes, verified.raw()) != expected
-        {
-            return Err(Error::Damaged);
-        }
-        (
-            verified.world().clone(),
-            ReplayStart::Verified(Box::new(verified)),
-        )
-    } else {
-        // Preserve and restore large explored worlds even when they no longer
-        // fit the separate, bounded text replay format.
-        let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(packed, raw_len)
-            .map_err(|_| Error::Damaged)?;
-        if raw.len() != raw_len || checksum(tick, player_bytes, &raw) != expected {
-            return Err(Error::Damaged);
-        }
-        let world = super::decode_checkpoint(&raw)
-            .filter(World::is_game_world)
-            .ok_or(Error::Damaged)?;
-        (world, ReplayStart::Unavailable)
-    };
-    let player: SaveData = serde_json::from_slice(player_bytes).map_err(|_| Error::Damaged)?;
-    if player.version != SAVE_VERSION {
-        return Err(Error::Unsupported);
-    }
-    if !player.x.is_finite() || !player.y.is_finite() {
-        return Err(Error::Damaged);
-    }
-    Ok(Restored {
-        player,
-        terrain,
-        sim_tick: tick,
-        replay: verified,
-    })
-}
-
 fn checksum(tick: u64, player: &[u8], terrain: &[u8]) -> u32 {
     let mut hash = crc32fast::Hasher::new();
     hash.update(&tick.to_le_bytes());
@@ -238,6 +165,7 @@ fn checksum(tick: u64, player: &[u8], terrain: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cell_save::ReplayStart;
     use bevy::math::Vec2;
     use crabsim::{Level, PlayerId, Sim, Tuning};
 
@@ -386,7 +314,7 @@ mod tests {
         };
         let prepared = prepare(&player, &terrain, 17).unwrap();
         assert!(
-            prepared.raw.len() > MAX_REUSE_RAW,
+            prepared.raw.len() > 8 * 1024 * 1024,
             "raw terrain has only {} bytes",
             prepared.raw.len()
         );

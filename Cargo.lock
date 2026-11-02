@@ -2767,6 +2767,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "bevy_math",
+ "crc32fast",
  "libm",
  "miniz_oxide 0.8.9",
  "postcard",
