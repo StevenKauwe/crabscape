@@ -221,7 +221,8 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
 - **The far shelf**, out from the canyon's far wall in the still water beside the tide: the **fifth egg** drifts
   over it. Only riding the flood and pushing off it at the right height reaches it (four strokes from the floor in
   still water never do).
-- **The far rim**, at the top of the far wall (the canyon's shallowest end, ~200 m in the real ocean): a clam, and
+- **The far rim**, at the top of the far wall (the canyon's shallowest end, representing the ~200 m twilight boundary,
+  not a literal measurement of this compressed map): a clam, and
   at its end, under the rock, **an octopus's den** (see below).
 - Each thing in it is checked headless in `crates/sim/tests/canyon.rs` (reached with the strokes and the tide there
   are, and not without them).

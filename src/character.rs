@@ -268,8 +268,8 @@ pub fn summary(c: &Character, sim: &Sim) -> String {
         1 => "1 culture".to_string(),
         n => format!("{n} cultures"),
     };
-    let away =
-        Vec2::new(c.save.x, c.save.y).distance(sim.level.home_den) / crate::deep::UNITS_PER_METRE;
+    let away = Vec2::new(c.save.x, c.save.y).distance(sim.level.home_den)
+        / crabsim::level::UNITS_PER_METRE;
     let place = if away < 1.0 {
         "At home".to_string()
     } else {
@@ -1125,7 +1125,7 @@ mod tests {
             summary(&c, &sim),
             format!(
                 "Climbing 3, Swimming 1, Fighting 2\n2 of {eggs} eggs eaten, 2 cultures in its \
-                 lantern\n3 m from home\nFrom preview pr-183, build 5d3eb47, Oct 29"
+                 lantern\n2 m from home\nFrom preview pr-183, build 5d3eb47, Oct 29"
             )
         );
         let home = sim.level.home_den;
@@ -1143,7 +1143,7 @@ mod tests {
         );
         assert_eq!(lines[2], "At home");
         assert_eq!(lines[3], "From branch big-idea, build 5d3eb47, Oct 29");
-        (at_home.save.x, at_home.save.y) = (home.x + 480.0, home.y);
+        (at_home.save.x, at_home.save.y) = (home.x + crabsim::level::UNITS_PER_METRE, home.y);
         at_home.save.progress = None;
         at_home.copy = None;
         let lines = summary(&at_home, &sim);
