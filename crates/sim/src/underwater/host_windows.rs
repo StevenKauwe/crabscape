@@ -3,11 +3,15 @@
 //! This prototype advances fluid and sediment around every requested player
 //! on one clock, and coalesces nearby players into one authoritative window.
 //! It is not yet a co-op simulation: crossing between disjoint windows,
-//! multiple crab reservations and their forces, network synchronization,
-//! and particle visuals outside the host window are not implemented.
+//! digging, network synchronization, and particle visuals outside the host
+//! window are not implemented. Player bodies are temporarily treated as
+//! solid cells, an approximation that must be replaced before live co-op.
 //! Unsafe layouts are rejected transactionally instead of stepped twice.
 
-use super::{HEIGHT, TERRAIN_CHUNK_CELLS, WIDTH, World};
+use super::{
+    Cell, GAME_BOTTOM, GAME_CELL, HEIGHT, TERRAIN_CHUNK_CELLS, TerrainChunkId, WIDTH, World,
+};
+use crate::PlayerId;
 use crate::cell_interest::{Interest, InterestPlan, PlanError};
 
 const MARGIN: i32 = 16;
@@ -20,6 +24,24 @@ pub enum HostStepError {
     CrabReserved,
     UnsupportedLayout,
     PebbleBoundary,
+    UnsupportedPlayer,
+}
+
+/// A player's already-resolved motion, measured in world units. Wake values
+/// are dimensionless thrust impulses in the range -2.5 to 2.5; walking is
+/// -1, 0, or 1. This restricted prototype does not support digging.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HostPlayerForce {
+    pub player: PlayerId,
+    pub x: f32,
+    pub y: f32,
+    pub half_width: f32,
+    pub half_height: f32,
+    pub wake_x: f32,
+    pub wake_y: f32,
+    pub walking: i8,
+    pub grounded: bool,
+    pub jumped: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -62,6 +84,34 @@ impl World {
         interests: &[Interest],
         current: f32,
     ) -> Result<(), HostStepError> {
+        self.step_host_frame(level, interests, current, &[])
+    }
+
+    /// Apply player wakes, jump downwash, and walking brushes while stepping
+    /// host terrain. Every interest must have one matching player. Player
+    /// bodies must be disjoint, entirely water, and away from window edges.
+    /// A body temporarily blocks fluid and sediment as solid cells, so this
+    /// method deliberately rejects embedded or digging players for now.
+    pub fn step_host_players(
+        &mut self,
+        level: &crate::Level,
+        interests: &[Interest],
+        current: f32,
+        players: &[HostPlayerForce],
+    ) -> Result<(), HostStepError> {
+        if players.len() != interests.len() {
+            return Err(HostStepError::UnsupportedPlayer);
+        }
+        self.step_host_frame(level, interests, current, players)
+    }
+
+    fn step_host_frame(
+        &mut self,
+        level: &crate::Level,
+        interests: &[Interest],
+        current: f32,
+        players: &[HostPlayerForce],
+    ) -> Result<(), HostStepError> {
         if !self.game || !current.is_finite() || self.tick >= u64::MAX - 1 {
             return Err(HostStepError::InvalidWorld);
         }
@@ -73,6 +123,34 @@ impl World {
             .map_err(HostStepError::InvalidInterest)?;
         if interests.is_empty() {
             return Err(HostStepError::UnsupportedLayout);
+        }
+        let mut players = players.to_vec();
+        players.sort_unstable_by_key(|p| p.player);
+        for (i, player) in players.iter().enumerate() {
+            let numbers = [
+                player.x,
+                player.y,
+                player.half_width,
+                player.half_height,
+                player.wake_x,
+                player.wake_y,
+            ];
+            if numbers.iter().any(|n| !n.is_finite())
+                || !(0.0..=64.0).contains(&player.half_width)
+                || !(0.0..=64.0).contains(&player.half_height)
+                || player.half_width == 0.0
+                || player.half_height == 0.0
+                || player.wake_x.abs() > 2.5
+                || player.wake_y.abs() > 2.5
+                || !(-1..=1).contains(&player.walking)
+                || (i > 0 && players[i - 1].player == player.player)
+                || !interests.iter().any(|interest| {
+                    interest.player == player.player
+                        && interest.center == TerrainChunkId::at_world(player.x, player.y)
+                })
+            {
+                return Err(HostStepError::UnsupportedPlayer);
+            }
         }
         let side = TERRAIN_CHUNK_CELLS;
         let mut groups: Vec<Bounds> = interests
@@ -164,6 +242,22 @@ impl World {
                 }
             }
         }
+        // Reject positions near an active-window boundary: a wake, body, or
+        // downwash would otherwise reach into an inactive area.
+        for player in &players {
+            let x = (player.x / GAME_CELL).floor() as i32;
+            let y = ((player.y - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+            let safe = origins
+                .iter()
+                .filter(|&&(ox, oy)| {
+                    (ox + 32..ox + WIDTH as i32 - 32).contains(&x)
+                        && (oy + 32..oy + HEIGHT as i32 - 32).contains(&y)
+                })
+                .count();
+            if safe != 1 {
+                return Err(HostStepError::UnsupportedPlayer);
+            }
+        }
         let original = self.clone();
         for &origin in &origins {
             self.tick = old_tick;
@@ -191,8 +285,49 @@ impl World {
                 *self = original;
                 return Err(HostStepError::PebbleBoundary);
             }
+            let mut bodies = Vec::new();
+            let mut occupied = std::collections::BTreeSet::new();
+            for player in &players {
+                let x = (player.x / GAME_CELL).floor() as i32 - origin.0;
+                let y = ((player.y - GAME_BOTTOM) / GAME_CELL).floor() as i32 - origin.1;
+                if x < 0 || x >= WIDTH as i32 || y < 0 || y >= HEIGHT as i32 {
+                    continue;
+                }
+                let hx = (player.half_width / GAME_CELL).ceil().max(1.0) as i32;
+                let hy = (player.half_height / GAME_CELL).ceil().max(1.0) as i32;
+                for by in y - hy..=y + hy {
+                    for bx in x - hx..=x + hx {
+                        let Some(i) = Self::index(bx, by) else {
+                            *self = original;
+                            return Err(HostStepError::UnsupportedPlayer);
+                        };
+                        if self.cells[i] != Cell::Water || !occupied.insert(i) {
+                            *self = original;
+                            return Err(HostStepError::UnsupportedPlayer);
+                        }
+                    }
+                }
+                bodies.push((*player, x, y, hx, hy));
+            }
+            for &i in &occupied {
+                self.cells[i] = Cell::Rock;
+            }
+            for (player, x, y, hx, hy) in bodies {
+                self.set_game_crab(x as f32, y as f32, hx as f32, hy as f32);
+                self.react_to_swim(x as f32, y as f32, player.wake_x, player.wake_y);
+                if player.jumped {
+                    self.react_to_jump(x as f32, (y - hy) as f32);
+                }
+                if player.grounded && player.walking != 0 {
+                    self.brush_walking_sand(i32::from(player.walking));
+                }
+                self.clear_game_crab();
+            }
             self.tick = old_tick + 1;
             self.step_material(current);
+            for i in occupied {
+                self.cells[i] = Cell::Water;
+            }
         }
         // A pebble may have moved across an upcoming window edge during the
         // final step, so recheck before changing views.
@@ -264,6 +399,140 @@ mod tests {
                 .flat_map(|chunk| chunk.cells.iter().flatten())
                 .filter(|cell| is_sediment(cell.cell))
                 .count()
+    }
+
+    fn player(id: u32, x: i32, y: i32) -> HostPlayerForce {
+        HostPlayerForce {
+            player: PlayerId(id),
+            x: (x as f32 + 0.25) * GAME_CELL,
+            y: GAME_BOTTOM + (y as f32 + 0.25) * GAME_CELL,
+            half_width: 8.0,
+            half_height: 8.0,
+            wake_x: 1.2,
+            wake_y: 0.4,
+            walking: 1,
+            grounded: true,
+            jumped: true,
+        }
+    }
+
+    fn clear_for_player(world: &mut World, cx: i32, cy: i32) {
+        for y in cy - 5..=cy + 5 {
+            for x in cx - 5..=cx + 5 {
+                let i = World::index(x, y).unwrap();
+                assert_eq!(world.pebble_owner[i], 0);
+                world.cells[i] = Cell::Water;
+                world.flow[i] = (0.0, 0.0);
+            }
+        }
+        let brush = World::index(cx + 3, cy - 2).unwrap();
+        world.cells[brush] = Cell::Sand;
+        world.grain[brush] = 120;
+        let falling = World::index(cx, cy + 3).unwrap();
+        world.cells[falling] = Cell::Mud;
+        world.grain[falling] = 230;
+    }
+
+    #[test]
+    fn nearby_players_push_water_and_brush_sand_without_overwriting_either_body() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        clear_for_player(&mut world, 300, 300);
+        clear_for_player(&mut world, 340, 300);
+        let interests = [interest(1, 4, 4), interest(2, 5, 4)];
+        let players = [player(1, 300, 300), player(2, 340, 300)];
+        let mut reversed = world.clone();
+        let mut calm = world.clone();
+        let mut still = players;
+        for p in &mut still {
+            p.wake_x = 0.0;
+            p.wake_y = 0.0;
+            p.walking = 0;
+            p.jumped = false;
+        }
+        let before = sediment(&world);
+        world
+            .step_host_players(&level, &interests, 0.35, &players)
+            .unwrap();
+        reversed
+            .step_host_players(
+                &level,
+                &[interests[1], interests[0]],
+                0.35,
+                &[players[1], players[0]],
+            )
+            .unwrap();
+        calm.step_host_players(&level, &interests, 0.35, &still)
+            .unwrap();
+        assert_eq!(world, reversed, "host force order follows player IDs");
+        assert_eq!(sediment(&world), before);
+        for cx in [300, 340] {
+            for y in 298..=302 {
+                for x in cx - 2..=cx + 2 {
+                    assert_eq!(
+                        world.cell(x, y),
+                        Cell::Water,
+                        "material entered player at {x},{y}"
+                    );
+                }
+            }
+            assert_ne!(
+                world.flow_at(cx - 10, 300),
+                calm.flow_at(cx - 10, 300),
+                "swimming produced a wake"
+            );
+            assert_ne!(
+                world.cell(cx + 3, 298),
+                Cell::Sand,
+                "walking brushed sand aside"
+            );
+        }
+    }
+
+    #[test]
+    fn separated_players_both_affect_their_window_and_unsupported_bodies_roll_back() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.clear_game_crab();
+        clear_for_player(&mut world, 300, 300);
+        world.shift_window(&level, (1600, 0));
+        clear_for_player(&mut world, 300, 300);
+        world.shift_window(&level, (0, 0));
+        let interests = [interest(1, 4, 4), interest(2, 29, 4)];
+        let players = [player(1, 300, 300), player(2, 1900, 300)];
+        // Load both complete windows before counting, so newly generated terrain
+        // is not mistaken for material created by physics.
+        world.step_host_interests(&level, &interests, 0.35).unwrap();
+        clear_for_player(&mut world, 300, 300);
+        world.shift_window(&level, (1600, 0));
+        clear_for_player(&mut world, 300, 300);
+        world.shift_window(&level, (0, 0));
+        let before = sediment(&world);
+        world
+            .step_host_players(&level, &interests, 0.35, &players)
+            .unwrap();
+        assert_eq!(sediment(&world), before);
+        assert_ne!(world.cell(303, 298), Cell::Sand, "near player brushed sand");
+        world.shift_window(&level, (1600, 0));
+        assert_ne!(world.cell(303, 298), Cell::Sand, "far player brushed sand");
+        world.shift_window(&level, (0, 0));
+
+        let unchanged = world.clone();
+        let overlapping = [player(1, 300, 300), player(2, 301, 300)];
+        assert_eq!(
+            world.step_host_players(
+                &level,
+                &[interest(1, 4, 4), interest(2, 4, 4)],
+                0.35,
+                &overlapping
+            ),
+            Err(HostStepError::UnsupportedPlayer)
+        );
+        assert_eq!(
+            world, unchanged,
+            "failed body placement rolls back all mutations"
+        );
     }
 
     #[test]
