@@ -260,3 +260,16 @@ every page and fully reconstructs the original terrain, while leaving the source
 bytes unchanged and rejecting damaged input. This checks codec-to-capture
 compatibility only: it does not publish a migrated save to IndexedDB, exercise
 crash-safe migration or delete or replace the old save. Those remain open.
+
+A later isolated Chrome proof builds test v1 and v2 wire envelopes, stores each
+in a separate experimental IndexedDB source, and decodes it with the same
+shared Rust decoder used by the game. It captures the restored player and terrain,
+stages chunked data into a separate experimental destination, and rejects an
+incomplete publish. After reopening that destination it fences the interrupted
+stage while preserving its previous head and the source; a reset also fences a
+stale migration writer. A fresh document then reloads each published destination,
+checks that each source remains byte-identical, and runs the two-window playable
+comparison. These are test-created envelopes and proof databases; this is not
+yet migration from the live IndexedDB schema or a tested quota-exhaustion path.
+The observed Wasm linear-memory capacity reached 65,077,248 bytes in the desktop
+Chrome migration fixture; it is not a total process peak or an iPhone bound.

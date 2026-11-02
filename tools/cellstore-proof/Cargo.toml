@@ -27,4 +27,7 @@ wasm-bindgen-futures = "0.4"
 futures-util = "0.3"
 js-sys = "0.3"
 serde_json = "1"
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
+crc32fast = "1"
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
 web-sys = { version = "0.3", features = ["Window", "Event", "EventTarget", "DomException", "IdbFactory", "IdbDatabase", "IdbOpenDbRequest", "IdbRequest", "IdbObjectStore", "IdbTransaction", "IdbTransactionMode", "IdbCursor", "IdbKeyRange"] }

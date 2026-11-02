@@ -158,7 +158,8 @@ fn execute() -> Result<(), String> {
     let dom = String::from_utf8_lossy(&output.stdout);
     let pass = output.status.success()
         && dom.contains("data-result=\"PASS: bounded stage")
-        && dom.contains("real_reload=pass");
+        && dom.contains("migration_v1=real_reload=pass")
+        && dom.contains("migration_v2=real_reload=pass");
     let _ = fs::remove_dir_all(&scratch);
     if !pass {
         return Err(format!(

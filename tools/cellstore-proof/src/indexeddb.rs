@@ -1228,6 +1228,89 @@ fn reload_fixture() -> Result<(crabsim::Sim, crabsim::SaveData), String> {
     Ok((reference, player))
 }
 
+// These are test-built wire fixtures; decoding always uses the same shared
+// production decoder as the game. The source lives in a separate proof DB.
+#[cfg(feature = "browser-proof")]
+fn legacy_fixture(
+    sim: &crabsim::Sim,
+    player: &crabsim::SaveData,
+    version: u8,
+) -> Result<Vec<u8>, String> {
+    let player = serde_json::to_vec(player).map_err(|e| e.to_string())?;
+    let terrain = postcard::to_allocvec(
+        &sim.level
+            .cells
+            .as_ref()
+            .ok_or("fixture terrain")?
+            .checkpoint(),
+    )
+    .map_err(|e| e.to_string())?;
+    let tick = sim.tick_count();
+    let mut crc = crc32fast::Hasher::new();
+    crc.update(&tick.to_le_bytes());
+    crc.update(&(player.len() as u32).to_le_bytes());
+    let mut out = Vec::new();
+    if version == 1 {
+        out.extend_from_slice(b"CRABCEL1");
+        let mut raw = player.clone();
+        raw.extend_from_slice(&terrain);
+        crc.update(&(raw.len() as u32).to_le_bytes());
+        crc.update(&raw);
+        out.extend_from_slice(&tick.to_le_bytes());
+        out.extend_from_slice(&(player.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc.finalize().to_le_bytes());
+        out.extend_from_slice(&miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1));
+    } else if version == 2 {
+        out.extend_from_slice(b"CRABCEL2");
+        crc.update(&(terrain.len() as u32).to_le_bytes());
+        crc.update(&player);
+        crc.update(&terrain);
+        out.extend_from_slice(&tick.to_le_bytes());
+        out.extend_from_slice(&(player.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(terrain.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc.finalize().to_le_bytes());
+        out.extend_from_slice(&player);
+        out.extend_from_slice(&miniz_oxide::deflate::compress_to_vec_zlib(&terrain, 1));
+    } else {
+        return Err("unknown fixture version".into());
+    }
+    Ok(out)
+}
+
+#[cfg(feature = "browser-proof")]
+async fn source_bytes(db: &ChunkStore) -> Result<Vec<u8>, String> {
+    let pin = db.pin().await?;
+    let head = db.pin_info(pin).await?;
+    let mut bytes = Vec::new();
+    for slot in 0..head.parts.len() {
+        let part = db.pinned_part(pin, slot).await?;
+        if bytes
+            .len()
+            .checked_add(part.len())
+            .is_none_or(|n| n > 8 * 1024 * 1024)
+        {
+            return Err("legacy fixture too large".into());
+        }
+        bytes.extend_from_slice(&part);
+    }
+    db.unpin(pin).await?;
+    Ok(bytes)
+}
+
+#[cfg(feature = "browser-proof")]
+async fn seed_source(db: &ChunkStore, bytes: &[u8]) -> Result<(), String> {
+    db.reset().await?;
+    let h = db
+        .begin(db.epoch().await?, 1, b"legacy envelope".to_vec())
+        .await?;
+    let parts: Vec<Vec<u8>> = bytes.chunks(MAX_PART).map(|b| b.to_vec()).collect();
+    for group in parts.chunks(MAX_BATCH) {
+        db.stage(h, group.to_vec()).await?;
+    }
+    db.publish(h, parts.len()).await
+}
+
 /// Phase one persists a real SaveData and frozen terrain. The runner reloads
 /// the browser document and Wasm instance before starting phase two.
 #[cfg(feature = "browser-proof")]
@@ -1235,48 +1318,108 @@ fn reload_fixture() -> Result<(crabsim::Sim, crabsim::SaveData), String> {
 pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
     async fn run(name: &str) -> Result<(), String> {
         use crabsim::underwater::frozen_chunks::{CaptureIndex, FrozenChunks};
-        let db = ChunkStore::open(name).await?;
-        db.reset().await?;
         let (sim, player) = reload_fixture()?;
-        let player = serde_json::to_vec(&player).map_err(|e| e.to_string())?;
-        let frozen =
-            FrozenChunks::capture(sim.level.cells.as_ref().ok_or("terrain")?, 64 * 1024 * 1024)
+        for version in [1, 2] {
+            let source = ChunkStore::open(&format!("{name}.legacy-v{version}")).await?;
+            let db = ChunkStore::open(&format!("{name}.migrated-v{version}")).await?;
+            let legacy = legacy_fixture(&sim, &player, version)?;
+            seed_source(&source, &legacy).await?;
+            db.reset().await?;
+            let epoch = db.epoch().await?;
+            // Keep a previous target head while testing a failed/incomplete migration.
+            let previous = db.begin(epoch, 1, b"previous".to_vec()).await?;
+            db.stage(previous, vec![b"previous head".to_vec()]).await?;
+            db.publish(previous, 1).await?;
+            let original = source_bytes(&source).await?;
+            let mut corrupt = original.clone();
+            let last = corrupt.len().checked_sub(1).ok_or("empty fixture")?;
+            corrupt[last] ^= 1;
+            if crabsim::cell_codec::decode(&corrupt).is_ok() {
+                return Err("corrupt legacy accepted".into());
+            }
+            let restored = crabsim::cell_codec::decode(&original)
+                .map_err(|e| format!("legacy decode: {e:?}"))?;
+            if restored.player != player
+                || restored.sim_tick != sim.tick_count()
+                || restored.terrain.checkpoint()
+                    != sim.level.cells.as_ref().ok_or("terrain")?.checkpoint()
+            {
+                return Err("legacy decode mismatch".into());
+            }
+            let player_bytes = serde_json::to_vec(&restored.player).map_err(|e| e.to_string())?;
+            let frozen = FrozenChunks::capture(&restored.terrain, 64 * 1024 * 1024)
                 .map_err(|e| format!("capture: {e:?}"))?;
-        let index = CaptureIndex::capture(&frozen, sim.tick_count(), &player, digest)
-            .map_err(|e| format!("index: {e:?}"))?;
-        let handle = db
-            .begin(db.epoch().await?, sim.tick_count(), player)
-            .await?;
-        let mut batch = vec![
-            index.encode(),
-            frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?,
-        ];
-        let mut count = 2;
-        let (cols, rows) = frozen.active_dimensions();
-        for y in 0..rows {
-            for x in 0..cols {
-                batch.push(frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?);
+            let index = CaptureIndex::capture(&frozen, restored.sim_tick, &player_bytes, digest)
+                .map_err(|e| format!("index: {e:?}"))?;
+            let interrupted = db
+                .begin(epoch, restored.sim_tick, player_bytes.clone())
+                .await?;
+            db.stage(interrupted, vec![index.encode()]).await?;
+            if db.publish(interrupted, index.part_count()).await.is_ok() {
+                return Err("incomplete migration published".into());
+            }
+            // A new connection discovers an interrupted stage and can fence it
+            // without losing either the previous target head or the source.
+            drop(db);
+            let db = ChunkStore::open(&format!("{name}.migrated-v{version}")).await?;
+            if db.pending().await? != Some(interrupted) {
+                return Err("migration recovery lost pending stage".into());
+            }
+            db.abandon(interrupted).await?;
+            let pin = db.pin().await?;
+            if db.pinned_part(pin, 0).await? != b"previous head"
+                || source_bytes(&source).await? != original
+            {
+                return Err("failed migration changed prior data".into());
+            }
+            db.unpin(pin).await?;
+            let handle = db.begin(epoch, restored.sim_tick, player_bytes).await?;
+            let mut batch = vec![
+                index.encode(),
+                frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?,
+            ];
+            let mut count = 2;
+            let (cols, rows) = frozen.active_dimensions();
+            for y in 0..rows {
+                for x in 0..cols {
+                    batch.push(frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?);
+                    count += 1;
+                    if batch.len() == MAX_BATCH {
+                        db.stage(handle, std::mem::take(&mut batch)).await?;
+                    }
+                }
+            }
+            for &id in index.sleeping() {
+                batch.push(
+                    frozen
+                        .sleeping(id)
+                        .map_err(|e| format!("sleeping: {e:?}"))?,
+                );
                 count += 1;
                 if batch.len() == MAX_BATCH {
                     db.stage(handle, std::mem::take(&mut batch)).await?;
                 }
             }
-        }
-        for &id in index.sleeping() {
-            batch.push(
-                frozen
-                    .sleeping(id)
-                    .map_err(|e| format!("sleeping: {e:?}"))?,
-            );
-            count += 1;
-            if batch.len() == MAX_BATCH {
-                db.stage(handle, std::mem::take(&mut batch)).await?;
+            if !batch.is_empty() {
+                db.stage(handle, batch).await?;
+            }
+            db.publish(handle, count).await?;
+            if source_bytes(&source).await? != original {
+                return Err("migration changed legacy source".into());
+            }
+            let reset_db = ChunkStore::open(&format!("{name}.reset-v{version}")).await?;
+            reset_db.reset().await?;
+            let stale = reset_db
+                .begin(reset_db.epoch().await?, restored.sim_tick, vec![])
+                .await?;
+            reset_db.stage(stale, vec![b"pending".to_vec()]).await?;
+            reset_db.reset().await?;
+            if reset_db.publish(stale, 1).await.is_ok() || source_bytes(&source).await? != original
+            {
+                return Err("reset allowed a stale migration".into());
             }
         }
-        if !batch.is_empty() {
-            db.stage(handle, batch).await?;
-        }
-        db.publish(handle, count).await
+        Ok(())
     }
     run(&name).await.map_err(|e| JsValue::from_str(&e))
 }
@@ -1285,15 +1428,26 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
 #[cfg(feature = "browser-proof")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub async fn reload_verify(name: String) -> Result<String, JsValue> {
-    async fn run(name: &str) -> Result<String, String> {
+    async fn run(name: &str, version: u8) -> Result<String, String> {
         use crabsim::{
             Controls, Feel, Level, PlayerId, SaveData, Tuning,
             underwater::frozen_chunks::{GuardedBuilder, GuardedError, IndexVerifier, SavedSetup},
         };
-        let db = ChunkStore::open(name).await?;
+        let db = ChunkStore::open(&format!("{name}.migrated-v{version}")).await?;
+        let source = ChunkStore::open(&format!("{name}.legacy-v{version}")).await?;
         let pin = db.pin().await?;
         let pinned = db.pin_info(pin).await?;
         let (mut reference, expected_player) = reload_fixture()?;
+        let original = source_bytes(&source).await?;
+        if original != legacy_fixture(&reference, &expected_player, version)? {
+            return Err("legacy source changed across reload".into());
+        }
+        let original_save = crabsim::cell_codec::decode(&original)
+            .map_err(|e| format!("legacy after reload: {e:?}"))?;
+        if original_save.player != expected_player {
+            return Err("legacy player changed".into());
+        }
+        drop(original_save);
         let pebbles = reference
             .level
             .cells
@@ -1530,7 +1684,9 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
             Uint8Array::new(&memory.buffer()).length()
         ))
     }
-    run(&name).await.map_err(|e| JsValue::from_str(&e))
+    let v1 = run(&name, 1).await.map_err(|e| JsValue::from_str(&e))?;
+    let v2 = run(&name, 2).await.map_err(|e| JsValue::from_str(&e))?;
+    Ok(format!("migration_v1={v1}; migration_v2={v2}"))
 }
 
 /// Browser-only isolated transaction regression.

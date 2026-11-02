@@ -187,8 +187,11 @@ name = "cellstore-proof"
 version = "0.1.0"
 dependencies = [
  "crabsim",
+ "crc32fast",
  "futures-util",
  "js-sys",
+ "miniz_oxide",
+ "postcard",
  "serde_json",
  "sha2",
  "wasm-bindgen",
@@ -225,11 +228,21 @@ name = "crabsim"
 version = "0.1.0"
 dependencies = [
  "bevy_math",
+ "crc32fast",
  "libm",
  "miniz_oxide",
  "postcard",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "crc32fast"
+version = "1.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ba106e844045ddc02c20768ac4b0b7cb45f2cc2ecbd833ac9f5dacb183c2055"
+dependencies = [
+ "cfg-if",
 ]
 
 [[package]]
