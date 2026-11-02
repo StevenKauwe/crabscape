@@ -1157,21 +1157,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 }
             }
             pause_region(&mut host, true)?;
-            sleep(0.5);
-            host.b.eval("(()=>{const c=document.getElementById('crabscape');c.removeAttribute('data-cell-session-hash');c.setAttribute('data-want-cell-hash','1');})()")?;
-            host.until(15.0, "large-world owner hash", |p| {
-                p.b.attr("data-cell-session-hash").is_some()
-            })?;
-            let owner_hash = host
-                .b
-                .attr("data-cell-session-hash")
-                .ok_or("missing owner hash")?;
-            guest.until(30.0, "large-world guest matches owner", |p| {
-                let _ = p.b.eval(
-                    "document.getElementById('crabscape').setAttribute('data-want-cell-hash','1')",
-                );
-                p.b.attr("data-cell-session-hash").as_deref() == Some(owner_hash.as_str())
-            })?;
+            let (owner_hash, _) = shared_hashes(&mut host, &mut guest)?;
             guest.b.go("about:blank")?;
             host.until(30.0, "large-world guest departure recovers owner", |p| {
                 p.b.attr("data-cell-session").as_deref() == Some("solo")
@@ -1354,7 +1340,10 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 .as_ref()
                 .ok_or("missing after-dig terrain")?;
             let mut excavation = None;
-            for rise in (8..(start_guest.y - dug_guest.y).floor() as i32).step_by(4) {
+            // A slow frame may advance only a shallow dig. The cavity extends
+            // below the feet; searching only eight pixels above them omitted
+            // real excavations whose penetration was less than twelve pixels.
+            for rise in (-16..=(start_guest.y - dug_guest.y).floor() as i32).step_by(4) {
                 let at = (dug_guest.x, dug_guest.y + rise as f32);
                 let (bx, by) = before.local_cell(at.0, at.1);
                 let (ax, ay) = after.local_cell(at.0, at.1);
@@ -1366,7 +1355,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 }
             }
             let excavation =
-                excavation.ok_or("guest did not replace substrate material with water")?;
+                excavation.ok_or_else(|| format!("guest did not replace substrate material with water: {start_guest:?} -> {dug_guest:?}, ticks {} -> {}", before_dig.tick_count(), after_dig.tick_count()))?;
             eprintln!(
                 "cells-regions verified excavation material at {excavation:?}; both independent replays match native"
             );
