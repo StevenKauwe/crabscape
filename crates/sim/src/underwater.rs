@@ -2314,6 +2314,11 @@ impl World {
     }
 
     #[cfg(test)]
+    pub(crate) fn test_add_pebble(&mut self, x: i32, y: i32, side: u8) -> bool {
+        self.add_pebble(x, y, side, 250)
+    }
+
+    #[cfg(test)]
     pub(crate) fn test_dissolve_pebble_ownership(&mut self) {
         self.pebble_owner.fill(0);
         self.pebbles.clear();
@@ -2321,7 +2326,7 @@ impl World {
     }
 
     fn contact_reservation(&self, p: &HostPlayerForce) -> Option<chunk_flow::BodyReservation> {
-        if !self.pebbles.is_empty() || !self.contains_world(p.x, p.y) {
+        if !self.contains_world(p.x, p.y) {
             return None;
         }
         let (x, y) = self.local_cell(p.x, p.y);
@@ -2336,8 +2341,39 @@ impl World {
             .then_some(body)
     }
 
+    /// The solo brush does not protect a second body during pebble pushes.
+    /// Until it does, callers with multiple bodies must reject such contact.
+    pub(crate) fn walking_brush_has_pebble(&self, p: &HostPlayerForce) -> bool {
+        if !p.grounded || p.walking == 0 || p.dig.is_some() {
+            return false;
+        }
+        if !p.x.is_finite()
+            || !p.y.is_finite()
+            || !p.half_width.is_finite()
+            || !p.half_height.is_finite()
+            || p.x.abs() > 1_000_000.0
+            || p.y.abs() > 1_000_000.0
+            || !(0.0..=64.0).contains(&p.half_width)
+            || !(0.0..=64.0).contains(&p.half_height)
+            || !(-1..=1).contains(&p.walking)
+        {
+            return true;
+        }
+        let (x, y) = self.local_cell(p.x, p.y);
+        let hx = (p.half_width / GAME_CELL).ceil().max(1.0) as i32;
+        let hy = (p.half_height / GAME_CELL).ceil().max(1.0) as i32;
+        let foot = y as i32 - hy;
+        let front = x as i32 + i32::from(p.walking) * (hx + 1);
+        (foot - 2..=foot + 4).any(|y| {
+            (0..6).any(|offset| {
+                let x = front + i32::from(p.walking) * offset;
+                Self::index(x, y).is_some_and(|i| self.pebble_owner[i] != 0)
+            })
+        })
+    }
+
     /// Apply an additional grounded or swimming walker's solo brush/wake.
-    /// Separated bodies and pebble-free terrain are required.
+    /// Separated bodies are required; unprotected pebble brushes are rejected.
     pub(crate) fn apply_contact_walker(
         &mut self,
         tuning: &crate::Tuning,
@@ -2401,6 +2437,9 @@ impl World {
             *self = next;
             return true;
         }
+        if self.walking_brush_has_pebble(p) {
+            return false;
+        }
         let old = (self.crab, self.crab_half_x, self.crab_half_y);
         self.crab = Some((body.x, body.y));
         self.crab_half_x = body.half_x;
@@ -2422,7 +2461,7 @@ impl World {
         true
     }
 
-    /// Material/visual step using both separated reservations, without pebbles.
+    /// Material/visual step using both separated reservations.
     pub(crate) fn step_contact_pair(&mut self, p: &HostPlayerForce) -> bool {
         let Some(body) = self.contact_reservation(p) else {
             return false;
@@ -2490,6 +2529,9 @@ impl World {
         if next.contains_world(p.x, p.y) {
             let (x, y) = next.local_cell(p.x, p.y);
             next.set_game_crab(x, y, p.half_width / GAME_CELL, p.half_height / GAME_CELL);
+            if other.is_some() && next.walking_brush_has_pebble(p) {
+                return false;
+            }
             if p.grounded && p.walking != 0 {
                 next.brush_walking_sand(i32::from(p.walking));
             }
@@ -3089,6 +3131,34 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guest_walking_brush_near_pebble_is_rejected_before_mutation() {
+        let mut world = World::new();
+        world.game = true;
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.set_game_crab(100.0, 100.0, 9.0, 6.0);
+        assert!(world.add_pebble(164, 115, 2, 250));
+        let p = HostPlayerForce {
+            player: crate::PlayerId(1),
+            x: 700.0,
+            y: 124.0,
+            half_width: 36.0,
+            half_height: 24.0,
+            wake_x: -20.0,
+            wake_y: 0.0,
+            walking: -1,
+            grounded: true,
+            jumped: false,
+            dig: None,
+        };
+        let before = world.clone();
+        assert!(!world.apply_contact_walker(&crate::Tuning::default(), &p));
+        assert!(world == before);
+    }
 
     #[test]
     fn disjoint_walker_rejects_sediment_and_overlapping_bodies_atomically() {

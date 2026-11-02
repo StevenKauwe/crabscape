@@ -1129,6 +1129,11 @@ impl Sim {
                 .as_ref()
                 .is_none_or(|cells| !cells.is_game_world())
             || local.player == remote.player
+            || self
+                .level
+                .cells
+                .as_ref()
+                .is_some_and(|cells| cells.walking_brush_has_pebble(&local))
             || !self.crabs.iter().any(|c| c.remote && c.id == remote.player)
         {
             return false;

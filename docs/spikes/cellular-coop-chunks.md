@@ -310,9 +310,9 @@ sand and mud out of each protected area, and applies the existing slide-off
 rule to the body blocking a grain. A separated three-body fixture compares
 local behavior around each body with the one-body contiguous reference,
 checks seam behavior, material conservation and input-order determinism.
-Pebbles, jump forces and digging are rejected while extra reservations are
-present. This is not a full multi-player force model: body overlap, aggregate
-contact, shared digging and the real Sim integration still need work.
+At that stage, pebbles, jump forces and digging were rejected while extra
+reservations were present. Later guarded slices below extend pebble stepping
+and digging; body overlap and complete multi-player forces remain unsupported.
 
 A further guarded two-Sim fixture lets the guest walk on loose substrate. The
 host applies the guest's ordinary walking brush and wake, restores its own
@@ -323,8 +323,8 @@ the complete host and guest terrain states agree at material ticks, local
 fields match independently stepped single-body references, and sediment is
 conserved. Bad digests and unsupported input leave the staged state unchanged.
 The fixture deliberately dissolves all pebble ownership while preserving its
-sand cells: the contact path rejects any world containing aggregates. It also
-rejects overlap, window-edge bodies, jumping, digging and creatures. It copies
+sand cells; that original contact path rejected aggregate-bearing worlds. It
+also rejected overlap, window-edge bodies, jumping, digging and creatures. It copies
 the full field through the chunk representation and clones state for rollback,
 so it is not yet suitable for live gameplay or a phone performance claim.
 
@@ -340,8 +340,8 @@ at material ticks, compares each body's local terrain to independent solo
 references, and compares guest movement and nonzero dig resistance with a
 separately ticking solo guest. The real-tick prototype currently orders the
 host's walking action before the guest's dig; simultaneous host digging,
-other directions, fallback scoops, aggregate-bearing worlds, overlapping
-bodies and creatures remain unsupported. Authentication and sequencing of
+other directions, fallback scoops, overlapping bodies and creatures remained
+unsupported at that stage. Authentication and sequencing of
 guest input are still supplied by the test harness, not a live session.
 
 A desktop release profile of the earlier grounded walking contact path took
@@ -374,3 +374,17 @@ cover tile seams, edge rows and all material fields; the two-Sim, conservation
 and late-rollback checks still pass. These are desktop fixture results, not
 phone measurements, and they do not address the remaining co-op guards or
 full-state rollback/digest costs.
+
+The guarded material step now carries whole pebble ownership and momentum
+through the chunk field while checking both body reservations. A two-Sim
+FakeLink fixture adds a whole pebble to a controlled bed and uses actual guest
+dig controls; it checks the aggregate moves, terrain agreement, conservation,
+solo-local fields, guest position/resistance and digest rollback. Isolated
+two-body tests compare aggregate pushes and subsequent motion with solo at low
+and high force, verify deterministic player order and rollback, and cover
+movement away from a body. Ordinary walking brushes touching pebbles are
+rejected on both peers because that solo brush cannot yet protect a second
+body; incomplete/offscreen aggregates, overlapping bodies, fallback scoops,
+other dig directions and creatures also remain unsupported. The fixture
+removes naturally seeded aggregate ownership before adding a controlled pebble,
+so it does not establish parity for the full generated world.

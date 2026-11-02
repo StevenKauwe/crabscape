@@ -195,11 +195,7 @@ impl ChunkFlow {
     /// Only used by the isolated same-window prototype; streamed state and
     /// visuals stay owned by the world.
     pub(super) fn write_material_to(&self, world: &mut World) -> bool {
-        if self.game != world.game
-            || self.origin != world.origin
-            || !self.pebbles.is_empty()
-            || !world.pebbles.is_empty()
-        {
+        if self.game != world.game || self.origin != world.origin {
             return false;
         }
         for cy in 0..ROWS {
@@ -224,6 +220,8 @@ impl ChunkFlow {
             }
         }
         world.tick = self.tick;
+        world.pebbles.clone_from(&self.pebbles);
+        world.pebble_motion.clone_from(&self.pebble_motion);
         world.silt = self.silt.clone();
         true
     }
@@ -450,7 +448,6 @@ impl ChunkFlow {
             || !matches!((dx, dy), (1, 0) | (-1, 0) | (0, 1) | (0, -1))
             || force > 64
             || !self.supported_crab()
-            || (!self.extra_bodies.is_empty() && !self.pebbles.is_empty())
             || self.crab.is_none()
             || self.crab_half_x > 16
             || self.crab_half_y > 16
@@ -544,8 +541,8 @@ impl ChunkFlow {
         Ok(result)
     }
 
-    /// Apply a separated extra body's loose-sediment scoop while protecting
-    /// the primary body and all other reservations. Unsupported/blocked
+    /// Apply a separated extra body's sediment and aggregate scoop while
+    /// protecting the primary body and all other reservations. Unsupported/blocked
     /// scoops do not change the caller's state.
     pub fn push_for_extra_body(
         &mut self,
@@ -559,9 +556,6 @@ impl ChunkFlow {
         let Some(index) = self.extra_bodies.iter().position(|b| b.player == player) else {
             return Err(SedimentStepError::Unsupported);
         };
-        if !self.pebbles.is_empty() {
-            return Err(SedimentStepError::Unsupported);
-        }
         let Some((host_x, host_y)) = self.crab else {
             return Err(SedimentStepError::Unsupported);
         };
@@ -773,7 +767,6 @@ impl ChunkFlow {
             return Err(SedimentStepError::Invalid);
         }
         if !self.supported_crab()
-            || (!self.extra_bodies.is_empty() && !self.pebbles.is_empty())
             || !self.supported_pebbles()
             || self.tick + 1 > u64::MAX - self.pebbles.len() as u64
         {
@@ -1094,6 +1087,31 @@ impl ChunkFlow {
         self.move_pebble_water(id, dx, dy)
     }
 
+    fn pebble_destination_allowed(&self, x: i32, y: i32, p: Pebble, dx: i32, dy: i32) -> bool {
+        let side = i32::from(p.side);
+        let permits = |cx: i32, cy: i32, hx: i32, hy: i32| {
+            let in_margin = (x - cx).abs() <= hx + 4 && (y - cy).abs() <= hy + 4;
+            let outside_body = (x - cx).abs() > hx || (y - cy).abs() > hy;
+            let away = (p.x + side / 2 - cx) * dx + (p.y + side / 2 - cy) * dy;
+            !in_margin || (outside_body && away > 0)
+        };
+        self.crab
+            .is_none_or(|(cx, cy)| permits(cx, cy, self.crab_half_x, self.crab_half_y))
+            && self
+                .extra_bodies
+                .iter()
+                .all(|b| permits(b.x, b.y, b.half_x, b.half_y))
+    }
+
+    fn inside_any_body(&self, x: i32, y: i32) -> bool {
+        self.crab.is_some_and(|(cx, cy)| {
+            (x - cx).abs() <= self.crab_half_x && (y - cy).abs() <= self.crab_half_y
+        }) || self
+            .extra_bodies
+            .iter()
+            .any(|b| (x - b.x).abs() <= b.half_x && (y - b.y).abs() <= b.half_y)
+    }
+
     fn move_pebble_water(&mut self, id: u16, dx: i32, dy: i32) -> bool {
         let Some(pebble) = id
             .checked_sub(1)
@@ -1123,14 +1141,7 @@ impl ChunkFlow {
                 let dest = &self.chunks[dest_chunk];
                 if dest.owner[dest_slot] != id {
                     let water = dest.cells[dest_slot] == Cell::Water && dest.owner[dest_slot] == 0;
-                    let moving_away = self.crab.is_some_and(|(cx, cy)| {
-                        let outside = (nx - cx).abs() > self.crab_half_x
-                            || (ny - cy).abs() > self.crab_half_y;
-                        let away =
-                            (pebble.x + side / 2 - cx) * dx + (pebble.y + side / 2 - cy) * dy;
-                        outside && away > 0
-                    });
-                    if !water || !(self.can_receive_grain(nx, ny) || moving_away) {
+                    if !water || !self.pebble_destination_allowed(nx, ny, pebble, dx, dy) {
                         return false;
                     }
                 }
@@ -1197,10 +1208,7 @@ impl ChunkFlow {
                 if owner == id {
                     continue;
                 }
-                if self.crab.is_some_and(|(cx, cy)| {
-                    (p.x + ox + dx - cx).abs() <= self.crab_half_x
-                        && (p.y + oy + dy - cy).abs() <= self.crab_half_y
-                }) {
+                if self.inside_any_body(p.x + ox + dx, p.y + oy + dy) {
                     return false;
                 }
                 if owner != 0 {
@@ -1269,10 +1277,7 @@ impl ChunkFlow {
                 if tile.owner[i] != id
                     && (tile.owner[i] != 0
                         || tile.cells[i] == Cell::Rock
-                        || self.crab.is_some_and(|(cx, cy)| {
-                            (p.x + ox + dx - cx).abs() <= self.crab_half_x
-                                && (p.y + oy + dy - cy).abs() <= self.crab_half_y
-                        }))
+                        || self.inside_any_body(p.x + ox + dx, p.y + oy + dy))
                 {
                     return false;
                 }
@@ -2445,6 +2450,166 @@ mod tests {
     }
 
     #[test]
+    fn pebble_motion_respects_both_reservations_and_solo_escape_rule() {
+        for moving_away in [false, true] {
+            let mut world = sand_fixture(0);
+            world.cells.fill(Cell::Water);
+            world.flow.fill((0.0, 0.0));
+            world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+            let y = if moving_away { 105 } else { 108 };
+            assert!(world.add_pebble(190, y, 2, 250));
+            world.pebble_motion[0] = if moving_away { (0, 1, 1) } else { (0, -1, 1) };
+            let body = BodyReservation {
+                player: crate::PlayerId(1),
+                x: 192,
+                y: 100,
+                half_x: 3,
+                half_y: 3,
+            };
+            let mut chunked = ChunkFlow::from_world(&world);
+            chunked.set_extra_bodies(&[body]).unwrap();
+            let mut solo = world.clone();
+            solo.set_game_crab(192.0, 100.0, 3.0, 3.0);
+            solo.tick += 1;
+            solo.step_material(0.0);
+            assert_eq!(chunked.step_sediment(0.0), Ok(()));
+            compare(&solo, &chunked);
+            assert_eq!(solo.pebbles, chunked.pebbles);
+            assert_eq!(solo.pebble_motion, chunked.pebble_motion);
+            if moving_away {
+                assert_eq!(chunked.pebbles[0].y, y + 1);
+            } else {
+                assert_eq!(chunked.pebbles[0].y, y);
+            }
+        }
+    }
+
+    #[test]
+    fn ordered_two_body_pebble_digs_conserve_and_roll_back() {
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        world.flow.fill((0.0, 0.0));
+        world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+        assert!(world.add_pebble(62, 93, 4, 250));
+        assert!(world.add_pebble(190, 93, 4, 251));
+        let body = BodyReservation {
+            player: crate::PlayerId(1),
+            x: 192,
+            y: 100,
+            half_x: 3,
+            half_y: 3,
+        };
+        let a = BodyDig {
+            player: crate::PlayerId(0),
+            x: 64.0,
+            y: 99.0,
+            dx: 0,
+            dy: -1,
+            force: 48,
+        };
+        let b = BodyDig {
+            player: body.player,
+            x: 192.0,
+            y: 99.0,
+            dx: 0,
+            dy: -1,
+            force: 48,
+        };
+        let mut chunks = ChunkFlow::from_world(&world);
+        chunks.set_extra_bodies(&[body]).unwrap();
+        let before = chunks.clone();
+        let mut reverse = chunks.clone();
+        assert_eq!(chunks.apply_ordered_digs(a.player, &[a, b]), Ok(()));
+        assert_eq!(reverse.apply_ordered_digs(a.player, &[b, a]), Ok(()));
+        assert!(chunks == reverse);
+        for (cx, dig) in [(64, a), (192, b)] {
+            let mut solo = world.clone();
+            solo.set_game_crab(cx as f32, 100.0, 3.0, 3.0);
+            assert!(solo.push_for_crab(dig.x, dig.y, dig.dx, dig.dy, dig.force));
+            for y in 85..110 {
+                for x in cx - 15..=cx + 15 {
+                    let i = World::index(x, y).unwrap();
+                    let (c, slot) = ChunkFlow::locate(x as usize, y as usize);
+                    assert_eq!(chunks.chunks[c].cells[slot], solo.cells[i]);
+                    assert_eq!(chunks.chunks[c].owner[slot], solo.pebble_owner[i]);
+                    assert_eq!(chunks.chunks[c].flow[slot], solo.flow[i]);
+                }
+            }
+        }
+        let mut failed = before.clone();
+        let weak = BodyDig { force: 15, ..b };
+        assert_eq!(
+            failed.apply_ordered_digs(a.player, &[weak, a]),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(
+            failed == before,
+            "the earlier whole-pebble push must roll back"
+        );
+        for id in 1..=2 {
+            assert_eq!(
+                chunks
+                    .chunks
+                    .iter()
+                    .map(|c| c.owner.iter().filter(|&&v| v == id).count())
+                    .sum::<usize>(),
+                16
+            );
+        }
+    }
+
+    #[test]
+    fn two_body_pebble_digs_match_solo_and_keep_aggregates_whole() {
+        for force in [15, 64] {
+            let mut world = sand_fixture(-200);
+            world.cells.fill(Cell::Water);
+            world.flow.fill((0.0, 0.0));
+            world.set_game_crab(64.0, 100.0, 3.0, 3.0);
+            assert!(world.add_pebble(190, 93, 4, 250));
+            assert!(world.add_pebble(194, 93, 4, 251));
+            let extra = BodyReservation {
+                player: crate::PlayerId(1),
+                x: 192,
+                y: 100,
+                half_x: 3,
+                half_y: 3,
+            };
+            let mut chunks = ChunkFlow::from_world(&world);
+            chunks.set_extra_bodies(&[extra]).unwrap();
+            let before = chunks.clone();
+            let mut solo = world.clone();
+            solo.set_game_crab(192.0, 100.0, 3.0, 3.0);
+            let expected = solo.push_for_crab(192.0, 99.0, 0, -1, force);
+            assert_eq!(expected, force >= 16);
+            assert_eq!(
+                chunks.push_for_extra_body(extra.player, 192.0, 99.0, 0, -1, force),
+                Ok(expected)
+            );
+            if !expected {
+                assert!(chunks == before);
+            }
+            compare(&solo, &chunks);
+            assert_eq!(solo.pebbles, chunks.pebbles);
+            assert_eq!(solo.pebble_motion, chunks.pebble_motion);
+            assert_eq!(solo.cells.iter().filter(|&&c| c == Cell::Sand).count(), 32);
+            for id in 1..=2 {
+                assert_eq!(solo.pebble_owner.iter().filter(|&&v| v == id).count(), 16);
+            }
+            let mut repeated = chunks.clone();
+            for _ in 0..3 {
+                solo.tick += 1;
+                solo.step_material(0.0);
+                assert_eq!(chunks.step_sediment(0.0), Ok(()));
+                assert_eq!(repeated.step_sediment(0.0), Ok(()));
+                compare(&solo, &chunks);
+                assert_eq!(solo.pebbles, chunks.pebbles);
+                assert_eq!(solo.pebble_motion, chunks.pebble_motion);
+                assert!(chunks == repeated);
+            }
+        }
+    }
+
+    #[test]
     fn ordered_two_body_loose_digs_match_local_solo_and_roll_back() {
         let mut world = sand_fixture(0);
         world.cells.fill(Cell::Water);
@@ -2628,6 +2793,7 @@ mod tests {
             life: 20,
         });
         assert!(world.add_pebble(250, 200, 4, 250));
+        world.pebble_owner[World::index(250, 200).unwrap()] = 0;
         let body = BodyReservation {
             player: crate::PlayerId(1),
             x: 192,
@@ -2681,6 +2847,7 @@ mod tests {
         assert!(!chunked.react_to_jump(64.0, 150.0));
         assert!(chunked == before);
         assert!(world.add_pebble(250, 200, 4, 250));
+        world.pebble_owner[World::index(250, 200).unwrap()] = 0;
         let mut with_pebble = ChunkFlow::from_world(&world);
         assert_eq!(with_pebble.set_extra_bodies(&[body]), Ok(()));
         let before = with_pebble.clone();
