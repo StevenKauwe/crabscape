@@ -106,6 +106,49 @@ fn may_shift(world: &World, x: f32, y: f32) -> bool {
         || cy < 80.0
 }
 
+// Count retained and newly sleeping chunks without cloning their cell arrays.
+// shift_window consumes stored cells in the new window except where the old
+// active field supplies them, then stores every cell leaving the old window.
+fn sleeping_after_shift(world: &World, next: (i32, i32)) -> usize {
+    let inside = |x: i64, y: i64, origin: (i32, i32)| {
+        x >= i64::from(origin.0)
+            && x < i64::from(origin.0) + WIDTH as i64
+            && y >= i64::from(origin.1)
+            && y < i64::from(origin.1) + HEIGHT as i64
+    };
+    let side = i64::from(TERRAIN_CHUNK_CELLS);
+    let mut keys = BTreeSet::new();
+    for (&id, chunk) in &world.sleeping {
+        let base_x = i64::from(id.0) * side;
+        let base_y = i64::from(id.1) * side;
+        if chunk.cells.iter().enumerate().any(|(slot, cell)| {
+            let x = base_x + slot as i64 % side;
+            let y = base_y + slot as i64 / side;
+            cell.is_some() && (!inside(x, y, next) || inside(x, y, world.origin))
+        }) {
+            keys.insert(id);
+        }
+    }
+    let first_x = world.origin.0.div_euclid(TERRAIN_CHUNK_CELLS);
+    let last_x = (world.origin.0 + WIDTH as i32 - 1).div_euclid(TERRAIN_CHUNK_CELLS);
+    let first_y = world.origin.1.div_euclid(TERRAIN_CHUNK_CELLS);
+    let last_y = (world.origin.1 + HEIGHT as i32 - 1).div_euclid(TERRAIN_CHUNK_CELLS);
+    for cy in first_y..=last_y {
+        for cx in first_x..=last_x {
+            let x0 = (i64::from(cx) * side).max(i64::from(world.origin.0));
+            let y0 = (i64::from(cy) * side).max(i64::from(world.origin.1));
+            let x1 =
+                (i64::from(cx + 1) * side - 1).min(i64::from(world.origin.0) + WIDTH as i64 - 1);
+            let y1 =
+                (i64::from(cy + 1) * side - 1).min(i64::from(world.origin.1) + HEIGHT as i64 - 1);
+            if !inside(x0, y0, next) || !inside(x1, y1, next) {
+                keys.insert((cx, cy));
+            }
+        }
+    }
+    keys.len()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum GuardedError {
     Invalid,
@@ -346,21 +389,19 @@ impl GuardedPlayable {
             .ok_or(GuardedError::Invalid)?
             .mover
             .pos;
-        // Mirrors follow_player's trigger; the bounded clone is only needed
-        // near a window edge. Keep the equivalence regression below in sync.
+        // Mirrors follow_player's trigger without cloning the terrain arrays.
         if may_shift(world, position.x, position.y) {
-            let mut probe = world.clone();
-            if !probe.follow_player(&sim.level, position.x, position.y) {
+            let Some(next) = world.preview_window(position.x, position.y) else {
                 let sim = self.sim.as_mut().ok_or(GuardedError::Stale)?;
                 sim.set_controls(self.player, controls);
                 sim.tick();
                 return Ok(());
-            }
-            if probe.sleeping.len() > MAX_LOADED_SLEEPING {
+            };
+            if sleeping_after_shift(world, next) > MAX_LOADED_SLEEPING {
                 return Err(GuardedError::Limit);
             }
             let mut required = BTreeSet::new();
-            for origin in [world.origin, probe.origin] {
+            for origin in [world.origin, next] {
                 let first_x = origin.0.div_euclid(TERRAIN_CHUNK_CELLS);
                 let last_x = (origin.0 + WIDTH as i32 - 1).div_euclid(TERRAIN_CHUNK_CELLS);
                 let first_y = origin.1.div_euclid(TERRAIN_CHUNK_CELLS);
@@ -536,6 +577,30 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn preview_matches_real_shifts_and_sleeping_chunk_counts() {
+        let level = Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        for (x, y) in [
+            (160.0, 0.0),
+            (1930.0, 0.0),
+            (4400.0, -700.0),
+            (160.0, 0.0),
+            (7000.0, -9000.0),
+            (4400.0, -700.0),
+        ] {
+            let next = world.preview_window(x, y);
+            let predicted = next.map(|origin| sleeping_after_shift(&world, origin));
+            let mut actual = world.clone();
+            assert_eq!(actual.follow_player(&level, x, y), next.is_some());
+            if let Some(origin) = next {
+                assert_eq!(actual.origin, origin);
+                assert_eq!(actual.sleeping.len(), predicted.unwrap());
+            }
+            world = actual;
         }
     }
 

@@ -218,10 +218,11 @@ has all saved sleeping pages overlapping both old and new windows. Otherwise
 it returns the required page IDs without changing simulation state. Accepted
 pages retain their original global pebble IDs. Reset invalidates the session
 and rejects late page responses. The prototype limits loaded sleeping chunks
-to 256 and clones terrain to preflight near a window edge; it is not a memory
-budget or a deployable streaming engine. Its edge trigger currently mirrors
-`follow_player` rather than sharing the same implementation, so a future
-change there could invalidate the guard. Hydrating all pages permits the
+to 256. Near a window edge it shares `follow_player`'s origin selection and
+counts affected sleeping chunks without cloning the terrain, though the edge
+trigger still mirrors `follow_player` and must remain in sync. The shift itself
+still allocates active arrays; this is not a memory budget or deployable
+streaming engine. Hydrating all pages permits the
 caller to retrieve the complete `Sim`; replay capture is tested only after full
 hydration at a reproducible startup, not during partially loaded play.
 
