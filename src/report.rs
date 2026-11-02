@@ -8,7 +8,7 @@
 //! Each report carries the game as it was when the form opened: the replay
 //! so far (`cargo crabsim --inputs` plays it back exactly), the build,
 //! browser, screen, frame rate, where the crab was, co-op, the settings and
-//! the last log lines. Report replays omit the final state hash to avoid
+//! the last log lines. Cellular report replays omit the final state hash to avoid
 //! hashing the entire cellular world on the device when the form opens; F9
 //! recordings still include their hash.
 //!
@@ -388,7 +388,7 @@ mod web {
                 "Replay".into(),
                 "Omitted: the saved terrain checkpoint is too large for a report.".into(),
             ));
-        } else if replay_included {
+        } else if replay_included && sim.level.cells.is_some() {
             facts.push((
                 "Replay".into(),
                 "Final state hash omitted to keep reports responsive.".into(),
@@ -401,7 +401,7 @@ mod web {
         wire();
         note(if replay_omitted {
             "Replay omitted from this report because its saved terrain is too large."
-        } else if replay_included {
+        } else if replay_included && sim.level.cells.is_some() {
             "Replay included without a final state hash."
         } else {
             ""

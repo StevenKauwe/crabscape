@@ -1907,10 +1907,13 @@ impl Sim {
         self.recorder.is_some()
     }
 
-    /// Report attachment with the same recorded inputs and events as F9,
-    /// but without a final state hash. Hashing a cellular world formats the
-    /// entire terrain and can block or exhaust a phone when the form opens.
+    /// Report attachment with the same recorded inputs and events as F9.
+    /// Cellular reports omit the final hash: formatting the entire terrain
+    /// can block or exhaust a phone when the form opens.
     pub fn recording_for_report(&self) -> Option<crate::Replay> {
+        if self.level.cells.is_none() {
+            return self.recording();
+        }
         self.recorder.as_ref().map(|r| crate::Replay {
             hash: None,
             ..r.replay(self.tick)
@@ -2340,6 +2343,18 @@ mod tests {
         assert!(full.hash.is_some(), "F9 keeps the end-state hash");
         full.hash = None;
         assert_eq!(report, full);
+    }
+
+    #[test]
+    fn normal_report_recording_keeps_final_hash() {
+        let mut sim = Sim::with_one_crab(SPAWN);
+        sim.start_recording();
+        sim.tick();
+        assert_eq!(
+            sim.recording_for_report().unwrap(),
+            sim.recording().unwrap()
+        );
+        assert!(sim.recording_for_report().unwrap().hash.is_some());
     }
 
     #[test]
