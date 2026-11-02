@@ -662,6 +662,19 @@ impl World {
             }
             self.opening_edge_opened = true;
         }
+        let Some(target) = self.preview_window(x, y) else {
+            return false;
+        };
+        self.shift_window(level, target);
+        self.seed_far_pebbles(level);
+        true
+    }
+
+    /// Compute the exact next origin without moving or cloning the world.
+    fn preview_window(&self, x: f32, y: f32) -> Option<(i32, i32)> {
+        if !self.game {
+            return None;
+        }
         let (cx, cy) = self.local_cell(x, y);
         // Bring unseen terrain into the simulation well before the crab
         // reaches it, giving deposits time to settle outside the usual view.
@@ -682,7 +695,7 @@ impl World {
             self.origin.1
         };
         if (target_x, target_y) == self.origin {
-            return false;
+            return None;
         }
         // Never cut a pebble aggregate at the edge of the next window.
         let choose = |old: i32, wanted: i32, extent: i32, horizontal: bool| -> Option<i32> {
@@ -720,11 +733,9 @@ impl World {
         let nx = choose(self.origin.0, target_x, WIDTH as i32, true).unwrap_or(self.origin.0);
         let ny = choose(self.origin.1, target_y, HEIGHT as i32, false).unwrap_or(self.origin.1);
         if (nx, ny) == self.origin {
-            return false;
+            return None;
         }
-        self.shift_window(level, (nx, ny));
-        self.seed_far_pebbles(level);
-        true
+        Some((nx, ny))
     }
 
     /// Seed individual aggregates only in previously unseen, completely
