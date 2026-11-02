@@ -5,7 +5,44 @@ use serde::{Deserialize, Serialize};
 const PREFIX: &[u8] = b"CSIM1";
 pub(crate) use crabsim::replay::CellSessionTick as Tick;
 #[derive(Serialize, Deserialize)]
+pub(crate) enum RegionMsg {
+    Begin {
+        transfer: u64,
+    },
+    Piece(#[serde(deserialize_with = "crabsim::net::cell_transfer::deserialize_fragment")] Vec<u8>),
+    Ack {
+        transfer: u64,
+        piece: u32,
+    },
+    Ready {
+        transfer: u64,
+        tick: u64,
+    },
+    Batch {
+        region: u64,
+        epoch: u64,
+        frames: Box<[crabsim::world::regions::RegionFrame; 4]>,
+        pos: [f32; 2],
+    },
+    Applied {
+        region: u64,
+        epoch: u64,
+        tick: u64,
+    },
+    Stop {
+        tick: u64,
+        shared: bool,
+    },
+    Stopped {
+        tick: u64,
+    },
+}
+#[derive(Serialize, Deserialize)]
 pub(crate) enum Wire {
+    Region {
+        epoch: u64,
+        msg: RegionMsg,
+    },
     Join(String),
     Begin {
         epoch: u64,

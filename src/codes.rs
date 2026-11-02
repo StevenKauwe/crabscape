@@ -126,7 +126,7 @@ fn use_codes(
     let (id, at) = *crab;
     for Typed(text) in typed.read() {
         // Words that aren't a code are said to the friends here, if any.
-        if Code::parse(text).is_none() && sim.crabs().len() > 1 {
+        if Code::parse(text).is_none() && (sim.crabs().len() > 1 || crate::coop::cells_active()) {
             chat.say(names.mine(), text, time.elapsed_secs_f64());
             continue;
         }

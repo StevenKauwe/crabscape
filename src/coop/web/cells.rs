@@ -8,6 +8,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 const WINDOW: u32 = 8;
 const MAX_AHEAD: u64 = 60;
+mod regional;
 
 #[derive(Serialize, Deserialize)]
 struct GuestProfile {
@@ -32,6 +33,7 @@ enum Phase {
 }
 #[derive(Default)]
 struct Session {
+    regional: Option<regional::State>,
     failure: Option<String>,
     recording: Option<crabsim::replay::CellSessionRecording>,
     recording_error: Option<String>,
@@ -150,6 +152,9 @@ pub(crate) fn action(action: super::super::CellsAction) -> bool {
         if s.phase == Phase::Solo {
             return false;
         }
+        if regional::local_action(&mut s, action) {
+            return true;
+        }
         if s.phase == Phase::Guest {
             let epoch = s.epoch;
             let sequence = s.input_sequence;
@@ -183,6 +188,9 @@ pub(crate) fn controls(c: Controls) -> bool {
     })
 }
 fn end(s: &mut Session, sim: &mut Sim, local: PlayerId) {
+    if local == HOST {
+        regional::restore_owner(s, sim);
+    }
     if let Some(mut solo) = s.solo.take() {
         if s.phase == Phase::Guest {
             solo.return_cell_player(sim, local);
@@ -204,6 +212,9 @@ pub(crate) fn tick(sim: &mut Sim, local: PlayerId) -> bool {
         let mut s = slot.borrow_mut();
         if s.phase == Phase::Solo {
             return false;
+        }
+        if s.regional.is_some() {
+            return regional::tick(&mut s, sim, local);
         }
         if s.phase == Phase::Host {
             if s.partial.is_empty()
@@ -346,6 +357,12 @@ fn receive(
         return Ok(());
     }
     s.last_seen = now;
+    if let Wire::Region { epoch, msg } = wire {
+        if epoch != s.epoch {
+            return Err("regional session changed".into());
+        }
+        return regional::receive(s, sim, me, msg);
+    }
     match wire {
         Wire::Begin { epoch, guest }
             if me != HOST && guest == me && s.phase == Phase::Receiving =>
@@ -392,6 +409,7 @@ fn receive(
             s.phase = Phase::Host;
             s.snapshot.clear();
             s.applied = tick;
+            regional::boot(s, sim)?;
         }
         Wire::Input {
             epoch,
@@ -630,7 +648,7 @@ pub(super) fn take_in(
                 error = Some("Friend disconnected; your solo world is restored".into());
                 end(&mut s, sim, me);
             }
-            if s.phase == Phase::Guest {
+            if s.phase == Phase::Guest && regional::wants_inputs(&s) {
                 let controls = s.local;
                 s.local = s.local.held_only();
                 let epoch = s.epoch;
@@ -645,6 +663,10 @@ pub(super) fn take_in(
             if s.phase != Phase::Solo && now - s.last_ping >= 1.0 {
                 s.last_ping = now;
                 s.outgoing.push_back(Wire::Ping);
+            }
+            if let Err(reason) = regional::update(&mut s, sim, me) {
+                error = Some(reason);
+                end(&mut s, sim, me);
             }
             if s.phase == Phase::Sending {
                 for _ in 0..WINDOW {
@@ -697,7 +719,8 @@ pub(super) fn take_in(
                     }
                 }
                 Phase::Sending | Phase::Receiving => "Sharing the world…",
-                _ => "Playing together · stay within the shared view",
+                _ if s.regional.is_some() => "Playing together · regional simulation",
+                _ => "Playing together",
             }
             .into();
             if let Some(canvas) = web_sys::window()
