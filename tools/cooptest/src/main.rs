@@ -1166,7 +1166,16 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 host.until(30.0, "owner recovers departed regional authority", |p| {
                     p.b.attr("data-cell-session").as_deref() == Some("solo")
                 })?;
-                let saved_tick = saved_excavation(&mut host, after_dig.tick_count(), excavation)?;
+                // Regional clocks advance independently. An older owner save
+                // can have a higher tick than the guest's excavation and only
+                // contain its earlier backup. Require a capture after recovery.
+                let recovered_tick = host
+                    .b
+                    .attr("data-cell-session-tick")
+                    .ok_or("missing recovered owner tick")?
+                    .parse::<u64>()
+                    .map_err(|e| e.to_string())?;
+                let saved_tick = saved_excavation(&mut host, recovered_tick + 1, excavation)?;
                 host.reload()?;
                 let reloaded_tick = saved_excavation(&mut host, saved_tick + 1, excavation)?;
                 found.push(format!("both independent browser replays reproduce natively; guest excavation at {excavation:?} persists through authority departure, owner's IndexedDB and fresh post-reload save (ticks{saved_tick}→{reloaded_tick}); handoff pauses ms {pauses}"));
