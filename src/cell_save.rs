@@ -31,6 +31,7 @@ const HEADER: usize = 8 + 8 + 4 + 4 + 4;
 const MAX_RAW: usize = 64 * 1024 * 1024;
 const MAX_PLAYER: usize = 1024 * 1024;
 
+#[cfg(any(test, target_arch = "wasm32"))]
 pub use crabsim::cell_codec::paged;
 pub use crabsim::cell_codec::{Error, ReplayStart, Restored, decode};
 
