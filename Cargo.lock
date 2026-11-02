@@ -2752,6 +2752,7 @@ dependencies = [
  "js-sys",
  "matchbox_socket",
  "miniz_oxide 0.8.9",
+ "postcard",
  "proptest",
  "serde",
  "serde_json",

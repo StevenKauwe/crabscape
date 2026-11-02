@@ -77,6 +77,7 @@ bevy = { version = "0.20.0", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 # An exported character (src/character.rs): its checksum, and packing it about 4 times smaller. Both already in the
 # build: the PNG decoder uses them.
 crc32fast = "1"

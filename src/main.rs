@@ -66,6 +66,7 @@ mod background;
 mod brittle;
 mod build;
 mod canyon;
+mod cell_save;
 mod cellular;
 mod character;
 mod chat;
