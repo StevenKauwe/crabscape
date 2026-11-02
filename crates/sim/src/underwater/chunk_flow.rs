@@ -114,6 +114,33 @@ impl ChunkFlow {
         }
     }
 
+    /// Commit this active material field back into the same contiguous world.
+    /// Only used by the isolated same-window prototype; streamed state and
+    /// visuals stay owned by the world.
+    pub(super) fn write_material_to(&self, world: &mut World) -> bool {
+        if self.game != world.game
+            || self.origin != world.origin
+            || !self.pebbles.is_empty()
+            || !world.pebbles.is_empty()
+        {
+            return false;
+        }
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let (c, i) = Self::locate(x, y);
+                let index = y * WIDTH + x;
+                world.cells[index] = self.chunks[c].cells[i];
+                world.flow[index] = self.chunks[c].flow[i];
+                world.grain[index] = self.chunks[c].grain[i];
+                world.suspended[index] = self.chunks[c].suspended[i];
+                world.pebble_owner[index] = self.chunks[c].owner[i];
+            }
+        }
+        world.tick = self.tick;
+        world.silt = self.silt.clone();
+        true
+    }
+
     fn locate(x: usize, y: usize) -> (usize, usize) {
         ((y / SIDE) * COLS + x / SIDE, (y % SIDE) * SIDE + x % SIDE)
     }

@@ -1219,12 +1219,20 @@ impl Sim {
                 }
             }
             if self.tick.is_multiple_of(4) {
+                let mut stepped = false;
                 if let Some(remote) = remote_walk
                     && !cells.apply_disjoint_walker(&self.tuning, &remote)
                 {
-                    return false;
+                    if !cells.apply_contact_walker(&self.tuning, &remote)
+                        || !cells.step_contact_pair(&remote)
+                    {
+                        return false;
+                    }
+                    stepped = true;
                 }
-                cells.step(0.35);
+                if !stepped {
+                    cells.step(0.35);
+                }
             }
         }
         if let Some(rec) = &mut self.recorder

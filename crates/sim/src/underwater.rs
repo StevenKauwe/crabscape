@@ -2287,6 +2287,116 @@ impl World {
         true
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_place_loose_sand(&mut self, x: i32, y: i32) -> bool {
+        let Some(index) = Self::index(x, y) else {
+            return false;
+        };
+        if self.cells[index] != Cell::Water || self.pebble_owner[index] != 0 {
+            return false;
+        }
+        self.cells[index] = Cell::Sand;
+        self.grain[index] = 80;
+        true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_dissolve_pebble_ownership(&mut self) {
+        self.pebble_owner.fill(0);
+        self.pebbles.clear();
+        self.pebble_motion.clear();
+    }
+
+    fn contact_reservation(&self, p: &HostPlayerForce) -> Option<chunk_flow::BodyReservation> {
+        if !self.pebbles.is_empty() || !self.contains_world(p.x, p.y) {
+            return None;
+        }
+        let (x, y) = self.local_cell(p.x, p.y);
+        let body = chunk_flow::BodyReservation {
+            player: p.player,
+            x: x as i32,
+            y: y as i32,
+            half_x: (p.half_width / GAME_CELL).ceil().max(1.0) as i32,
+            half_y: (p.half_height / GAME_CELL).ceil().max(1.0) as i32,
+        };
+        let mut chunks = chunk_flow::ChunkFlow::from_world(self);
+        chunks.set_extra_bodies(&[body]).ok()?;
+        Some(body)
+    }
+
+    /// Apply an additional grounded or swimming walker's solo brush/wake.
+    /// Separated bodies and pebble-free terrain are required.
+    pub(crate) fn apply_contact_walker(
+        &mut self,
+        tuning: &crate::Tuning,
+        p: &HostPlayerForce,
+    ) -> bool {
+        if p.jumped
+            || p.dig.is_some()
+            || !(-1..=1).contains(&p.walking)
+            || [
+                p.x,
+                p.y,
+                p.half_width,
+                p.half_height,
+                p.wake_x,
+                p.wake_y,
+                tuning.walk_speed,
+            ]
+            .iter()
+            .any(|v| !v.is_finite())
+            || p.x.abs() > 1_000_000.0
+            || p.y.abs() > 1_000_000.0
+            || !(0.0..=64.0).contains(&p.half_width)
+            || !(0.0..=64.0).contains(&p.half_height)
+            || p.half_width == 0.0
+            || p.half_height == 0.0
+            || tuning.walk_speed <= 0.0
+            || p.wake_x.abs() > 1000.0
+            || !(-1000.0..=0.0).contains(&p.wake_y)
+        {
+            return false;
+        }
+        let Some(body) = self.contact_reservation(p) else {
+            return false;
+        };
+        let old = (self.crab, self.crab_half_x, self.crab_half_y);
+        self.crab = Some((body.x, body.y));
+        self.crab_half_x = body.half_x;
+        self.crab_half_y = body.half_y;
+        if p.grounded && p.walking != 0 {
+            self.brush_walking_sand(i32::from(p.walking));
+        }
+        let (x, y) = self.local_cell(p.x, p.y);
+        let wx = (p.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+        let wy = (p.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+        self.react_to_swim(x, y, wx, wy);
+        self.stir(
+            x,
+            y,
+            p.wake_x * crate::physics::STEP / 4.0 * 0.45,
+            p.wake_y * crate::physics::STEP / 4.0 * 0.45,
+        );
+        (self.crab, self.crab_half_x, self.crab_half_y) = old;
+        true
+    }
+
+    /// Material/visual step using both separated reservations, without pebbles.
+    pub(crate) fn step_contact_pair(&mut self, p: &HostPlayerForce) -> bool {
+        let Some(body) = self.contact_reservation(p) else {
+            return false;
+        };
+        let mut chunks = chunk_flow::ChunkFlow::from_world(self);
+        if chunks.set_extra_bodies(&[body]).is_err()
+            || chunks.step_sediment(0.35).is_err()
+            || !chunks.write_material_to(self)
+        {
+            return false;
+        }
+        self.step_visuals();
+        true
+    }
+
     /// Apply the terrain part of one solo crab's guarded walking tick.
     /// In this spectator-only frame, wake fields carry pre-tick velocity.
     pub(crate) fn step_walking_spectator(
@@ -2352,12 +2462,18 @@ impl World {
                 p.wake_y * crate::physics::STEP / 4.0 * 0.45,
             );
         }
+        let mut stepped = false;
         if let Some(other) = other
             && !next.apply_disjoint_walker(tuning, other)
         {
-            return false;
+            if !next.apply_contact_walker(tuning, other) || !next.step_contact_pair(other) {
+                return false;
+            }
+            stepped = true;
         }
-        next.step(0.35);
+        if !stepped {
+            next.step(0.35);
+        }
         *self = next;
         true
     }

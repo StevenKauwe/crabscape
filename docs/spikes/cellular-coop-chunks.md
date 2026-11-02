@@ -312,3 +312,17 @@ checks seam behavior, material conservation and input-order determinism.
 Pebbles, jump forces and digging are rejected while extra reservations are
 present. This is not a full multi-player force model: body overlap, aggregate
 contact, shared digging and the real Sim integration still need work.
+
+A further guarded two-Sim fixture lets the guest walk on loose substrate. The
+host applies the guest's ordinary walking brush and wake, restores its own
+reservation, and advances the active field with both separated reservations.
+The guest receives the same frame and advances its real local crab tick. In a
+12-tick fixture, both crabs move, an intentionally placed grain is brushed,
+the complete host and guest terrain states agree at material ticks, local
+fields match independently stepped single-body references, and sediment is
+conserved. Bad digests and unsupported input leave the staged state unchanged.
+The fixture deliberately dissolves all pebble ownership while preserving its
+sand cells: the contact path rejects any world containing aggregates. It also
+rejects overlap, window-edge bodies, jumping, digging and creatures. It copies
+the full field through the chunk representation and clones state for rollback,
+so it is not yet suitable for live gameplay or a phone performance claim.
