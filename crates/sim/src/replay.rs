@@ -74,6 +74,11 @@ use crate::progress::Progress;
 use crate::skills::Skill;
 use crate::tuning::Tuning;
 
+mod session;
+pub use session::{
+    CellSessionAction, CellSessionRecording, CellSessionTick, MAX_CELL_SESSION_TEXT,
+};
+
 mod cell_start;
 use cell_start::CellStart;
 pub use cell_start::VerifiedCellStart;
@@ -94,6 +99,7 @@ pub struct Input {
 /// A whole replay or input script.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Replay {
+    pub(crate) session: Option<session::SessionReplay>,
     /// Where player 0's crab stands at tick 0.
     pub start: Vec2,
     /// This recording started with the cellular terrain experiment enabled.
@@ -140,6 +146,7 @@ pub struct Spawn {
 impl Default for Replay {
     fn default() -> Self {
         Self {
+            session: None,
             start: SPAWN,
             cellular: false,
             cell_start: None,
@@ -167,6 +174,9 @@ pub fn ticks(seconds: f64) -> u64 {
 impl Replay {
     /// Read a replay or script. On a mistake, says which line and why.
     pub fn parse(text: &str) -> Result<Self, String> {
+        if session::SessionReplay::recognizes(text) {
+            return session::SessionReplay::parse(text);
+        }
         let mut replay = Replay::default();
         // First collect (tick, words) entries, then sort them by time.
         let mut entries: Vec<(u64, Vec<&str>, usize)> = Vec::new();
@@ -320,6 +330,15 @@ impl Replay {
     /// the changes are written, so a replay stays short: a few lines per
     /// second of play.
     pub fn to_text(&self) -> String {
+        if let Some(session) = &self.session {
+            let mut text = session
+                .to_text()
+                .unwrap_or_else(|reason| format!("# {reason}\n"));
+            if let Some(hash) = self.hash {
+                text.push_str(&format!("hash {hash:016x}\n"));
+            }
+            return text;
+        }
         let mut out = String::from(
             "# CrabScape replay. Play it without a window: cargo crabsim --inputs <this file>\n",
         );
@@ -446,6 +465,15 @@ impl Replay {
     /// its player. Other replays leave the supplied simulation untouched.
     /// Returns false if its starting checkpoint cannot safely be restored.
     pub fn prepare_start(&self, sim: &mut crate::Sim) -> bool {
+        if let Some(session) = &self.session {
+            return match session.restore() {
+                Ok(restored) => {
+                    *sim = restored;
+                    true
+                }
+                Err(_) => false,
+            };
+        }
         let Some(start) = &self.cell_start else {
             return true;
         };
@@ -488,13 +516,17 @@ impl Replay {
 
     /// Does this replay start from a saved cellular checkpoint?
     pub fn has_cell_start(&self) -> bool {
-        self.cell_start.is_some()
+        self.cell_start.is_some() || self.session.is_some()
     }
 
     /// What happens to the world just before tick number `sim.tick_count()`
     /// runs: enemies appear, the feel switches, codes are entered, things
     /// are made at the workbench and the crab goes home (for player 0).
     pub fn apply_at(&self, sim: &mut crate::Sim) {
+        if let Some(session) = &self.session {
+            session.apply_at(sim);
+            return;
+        }
         if self.cell_start.is_some() && sim.tick_count() == 0 && !self.prepare_start(sim) {
             return;
         }
@@ -531,6 +563,17 @@ impl Replay {
         if self.homes.contains(&tick) {
             sim.go_home(crate::PlayerId(0));
         }
+    }
+
+    /// Session playback must use this full step, including the shared tether,
+    /// instead of the single-player apply_at/next_controls/tick sequence.
+    pub fn is_cell_session(&self) -> bool {
+        self.session.is_some()
+    }
+    pub fn step_cell_session(&self, sim: &mut crate::Sim) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.step(sim))
     }
 
     /// Something that hands out the controls for tick 0, 1, 2, ... in turn.

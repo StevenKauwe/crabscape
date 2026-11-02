@@ -117,6 +117,8 @@ impl Sim {
         }
         progress.clams.clear();
         progress.grit_taken.clear();
+        // The old solo input log cannot reproduce progress earned elsewhere.
+        self.recorder = None;
         let local = self.crabs[0].id;
         self.restore_progress(local, &progress);
         let dest = &mut self.crabs[0];
@@ -363,7 +365,9 @@ mod tests {
         guest.mover.pizza = true;
         guest.fighter.vitals.health = 17.0;
         guest.mover.pos += Vec2::new(100.0, 100.0);
+        solo.recorder = Some(Recorder::new(own_pos, solo.tick_count(), &solo.tuning));
         assert!(solo.return_cell_player(&host, PlayerId(71)));
+        assert!(!solo.is_recording());
         assert_eq!(solo.shared, own_shared);
         assert_eq!(solo.level.cells, own_cells);
         assert_eq!(solo.crabs[0].mover.pos, own_pos);

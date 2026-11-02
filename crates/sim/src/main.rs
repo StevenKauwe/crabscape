@@ -199,9 +199,15 @@ fn run() -> Result<(), String> {
     let mut write_error = None;
     let mut playback = o.replay.playback();
     for _ in 0..total {
-        o.replay.apply_at(&mut sim);
-        sim.set_controls(PlayerId(0), playback.next_controls());
-        sim.tick();
+        if o.replay.is_cell_session() {
+            if !o.replay.step_cell_session(&mut sim) {
+                return Err("cell session replay ended or rejected a frame".into());
+            }
+        } else {
+            o.replay.apply_at(&mut sim);
+            sim.set_controls(PlayerId(0), playback.next_controls());
+            sim.tick();
+        }
         summary.after_tick(&sim);
 
         if let Some(out) = &mut dump {

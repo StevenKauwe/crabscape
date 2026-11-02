@@ -105,3 +105,5 @@ pub fn play(sim: &mut Sim, replay: &Replay, ticks: u64, mut after_tick: impl FnM
 pub mod cell_interest;
 mod navigation;
 pub mod underwater;
+
+pub use replay::{CellSessionAction, CellSessionRecording, CellSessionTick, MAX_CELL_SESSION_TEXT};
