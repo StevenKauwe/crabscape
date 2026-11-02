@@ -30,7 +30,7 @@ export async function openChunkPrototype(name) {
     const ready = () => {
       if (++count !== 2) return;
       const meta = m.result || { epoch: 0, revision: 0 };
-      if (meta.epoch !== epoch || !s.result || s.result.epoch !== epoch) {
+      if (meta.epoch !== epoch || !s.result || s.result.epoch !== epoch || s.result.kind !== 'writer') {
         fail(tx, 'stale writer'); return;
       }
       f(meta, s.result);
@@ -50,7 +50,7 @@ export async function openChunkPrototype(name) {
           const meta = metaRequest.result || { epoch: 0, revision: 0 };
           const stages = keys.result.filter(k => typeof k === 'string' && k.startsWith('stage:'));
           if (stages.length >= maxWriters || stages.includes('stage:' + id)) { fail(tx, 'writer busy'); return; }
-          store.put({ epoch: meta.epoch, revision: meta.revision, tick, player: frozenPlayer, chunks: [] }, 'stage:' + id);
+          store.put({ kind: 'writer', epoch: meta.epoch, revision: meta.revision, tick, player: frozenPlayer, chunks: [] }, 'stage:' + id);
           done(meta.epoch);
         };
         metaRequest.onsuccess = ready; keys.onsuccess = ready;
@@ -127,6 +127,62 @@ export async function openChunkPrototype(name) {
           store.clear();
           store.put({ epoch: meta.epoch + 1, revision: meta.revision + 1 }, 'meta');
         };
+      });
+    },
+    // A pin retains the exact manifest during multiple bounded readonly
+    // transactions. GC treats it like a stage; reset invalidates it by epoch.
+    pin(id) {
+      if (!validId(id)) return Promise.reject(new Error('invalid input'));
+      return transact('readwrite', (tx, store, done) => {
+        const m = store.get('meta'), h = store.get('head'), existing = store.get('stage:' + id);
+        let n = 0;
+        const ready = () => {
+          if (++n !== 3) return;
+          if (!h.result || existing.result) { fail(tx, 'missing head or duplicate pin'); return; }
+          const meta = m.result || { epoch: 0, revision: 0 };
+          const pin = { ...h.result, kind: 'pin', epoch: meta.epoch };
+          store.put(pin, 'stage:' + id);
+          done({ epoch: pin.epoch, tick: pin.tick, player: pin.player, count: pin.chunks.length });
+        };
+        m.onsuccess = ready; h.onsuccess = ready; existing.onsuccess = ready;
+      });
+    },
+    readPage(id, epoch, offset, limit) {
+      if (!validId(id) || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 32) return Promise.reject(new Error('invalid page'));
+      return transact('readonly', (tx, store, done) => {
+        const m = store.get('meta'), s = store.get('stage:' + id);
+        let n = 0;
+        const ready = () => {
+          if (++n !== 2) return;
+          const meta = m.result || { epoch: 0, revision: 0 }, pin = s.result;
+          if (!pin || pin.kind !== 'pin' || pin.epoch !== epoch || meta.epoch !== epoch || offset > pin.chunks.length) { fail(tx, 'stale pin'); return; }
+          const keys = pin.chunks.slice(offset, offset + limit), values = new Array(keys.length);
+          let remaining = keys.length;
+          if (!remaining) { done([]); return; }
+          keys.forEach((key, i) => {
+            const req = store.get('chunk:' + key);
+            req.onsuccess = () => {
+              if (!(req.result instanceof Uint8Array)) { fail(tx, 'missing chunk'); return; }
+              values[i] = { key, bytes: req.result };
+              if (--remaining === 0) done(values);
+            };
+          });
+        };
+        m.onsuccess = ready; s.onsuccess = ready;
+      });
+    },
+    unpin(id, epoch) {
+      if (!validId(id)) return Promise.reject(new Error('invalid input'));
+      return transact('readwrite', (tx, store) => {
+        const m = store.get('meta'), s = store.get('stage:' + id);
+        let n = 0;
+        const ready = () => {
+          if (++n !== 2) return;
+          const meta = m.result || { epoch: 0, revision: 0 };
+          if (!s.result || s.result.kind !== 'pin' || s.result.epoch !== epoch || meta.epoch !== epoch) { fail(tx, 'stale pin'); return; }
+          store.delete('stage:' + id);
+        };
+        m.onsuccess = ready; s.onsuccess = ready;
       });
     },
     read() {

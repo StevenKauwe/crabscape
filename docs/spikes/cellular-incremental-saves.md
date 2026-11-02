@@ -103,3 +103,38 @@ every mutation uses copy-on-write, and deal with snapshots held while many
 chunks change. Lazy disk reconstruction additionally needs per-chunk validation,
 an IO cache budget, deterministic missing-chunk behavior, cancellation and reset
 fencing, and a policy for when simulation may advance while a chunk is loading.
+
+## Isolated end-to-end proof
+
+`FrozenRestore` consumes bounded active and sleeping parts individually,
+rejects missing, duplicate, malformed or oversized parts, and checks the
+assembled world with the existing checkpoint validator. It eagerly holds all
+accepted chunks and currently caps sleeping chunks at 256; it is not a lazy
+loader. The isolated IndexedDB prototype can pin a manifest while reading it in
+pages, so collection cannot delete an old snapshot between page transactions.
+Reset invalidates the pin using the persistent epoch.
+
+The standalone Wasm harness can be built and served from the repository root:
+
+```sh
+cargo build --release --target wasm32-unknown-unknown --manifest-path tools/cellstore-prototype/harness/Cargo.toml
+wasm-bindgen --target web --out-dir tools/cellstore-prototype/pkg tools/cellstore-prototype/harness/target/wasm32-unknown-unknown/release/cellstore_proof.wasm
+python3 -m http.server
+```
+
+Open `tools/cellstore-prototype/proof.html` on that server. It freezes a real
+streamed terrain fixture, stages and publishes its parts, reloads the browser page, then restores four parts at
+a time, compares the entire reconstructed terrain and fixture player/tick, and
+checks interruption and reset behavior. A desktop Chrome run with 120 sleeping
+chunks used 46 pages: the frozen snapshot's logical heap estimate was 10,995,023
+bytes and the highest observed Wasm linear-memory **capacity** was 58,392,576
+bytes. The latter includes the harness's original world, snapshot, restoration,
+and comparison copies; it is not an allocation peak and excludes JS,
+IndexedDB, browser overhead, and actual game assets. It does not establish a
+mobile memory budget. The player is a small opaque fixture, not game progress.
+
+This proof does not yet verify cryptographic manifest/part integrity, install
+into the game, reconstruct on demand, migrate legacy saves, reclaim abandoned
+pins after crashes, or test quota and WebKit. A corrupt manifest that is
+internally plausible can still select the wrong chunks. Keep the live v1/v2
+path and its existing limits until these problems are solved and measured.

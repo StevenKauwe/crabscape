@@ -70,7 +70,7 @@ pub fn encode_browser_checkpoint(world: &World) -> Option<Vec<u8>> {
     postcard::to_allocvec(&borrowed).ok()
 }
 
-struct BoundedVec<T, const MAX: usize>(Vec<T>);
+pub(super) struct BoundedVec<T, const MAX: usize>(pub(super) Vec<T>);
 impl<'de, T: Deserialize<'de>, const MAX: usize> Deserialize<'de> for BoundedVec<T, MAX> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct BoundedVisitor<T, const MAX: usize>(PhantomData<T>);

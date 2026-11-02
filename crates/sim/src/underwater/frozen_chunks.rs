@@ -3,6 +3,9 @@
 //! This is not a save format or a browser loader. In particular it does not
 //! solve incremental dirty tracking, player capture, lazy reconstruction, or
 //! phone memory limits. The caller must capture player state at the same tick.
+mod restore;
+pub use restore::FrozenRestore;
+
 use super::*;
 use serde::Serialize;
 use std::mem::size_of;
