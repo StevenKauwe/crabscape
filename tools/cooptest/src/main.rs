@@ -578,7 +578,12 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 17] = [
+const SCENARIOS: [(&str, &str, u32); 18] = [
+    (
+        "cell-probe-actors",
+        "developer two-actor cellular WebRTC probe",
+        60,
+    ),
     (
         "cell-probe",
         "developer stop-and-wait shadow terrain WebRTC transfer",
@@ -695,12 +700,24 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
-        "cell-probe" | "cell-probe-window" | "cell-probe-loss" | "cell-probe-disconnect" => {
+        "cell-probe"
+        | "cell-probe-window"
+        | "cell-probe-loss"
+        | "cell-probe-disconnect"
+        | "cell-probe-actors" => {
             host.open(&site.url(""))?;
             host.b.eval(r#"(() => { window.__probeTimes = {}; const c = document.getElementById('crabscape'); new MutationObserver(() => { const s = c.getAttribute('data-cell-transport-probe'); if (s && window.__probeTimes[s] === undefined) window.__probeTimes[s] = performance.now(); }).observe(c, {attributes: true, attributeFilter: ['data-cell-transport-probe']}); })()"#)?;
             if name == "cell-probe" {
                 host.b
                     .eval("sessionStorage.setItem('__cell_probe_window','1')")?;
+            }
+            if name == "cell-probe-actors" {
+                host.b
+                    .eval("sessionStorage.setItem('__cell_probe_actors','1')")?;
+                guest.open(&site.url(""))?;
+                guest
+                    .b
+                    .eval("sessionStorage.setItem('__cell_probe_actors','1')")?;
             }
             let code = host.invite()?;
             if name == "cell-probe-loss" || name == "cell-probe-disconnect" {
@@ -729,7 +746,10 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 found.push("shadow probe abandoned; host retained its world".into());
                 return Ok(found);
             }
-            let expected = if name == "cell-probe" || name == "cell-probe-window" {
+            let expected = if name == "cell-probe"
+                || name == "cell-probe-window"
+                || name == "cell-probe-actors"
+            {
                 "complete"
             } else {
                 "timeout"
@@ -760,10 +780,22 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     guest.b.attr("data-cell-transport-probe")
                 ));
             }
-            if name == "cell-probe" || name == "cell-probe-window" {
+            if name == "cell-probe" || name == "cell-probe-window" || name == "cell-probe-actors" {
                 guest.until(5.0, "guest probe completion", |p| {
                     p.b.attr("data-cell-transport-probe").as_deref() == Some("complete")
                 })?;
+            }
+            if name == "cell-probe-actors" {
+                for p in [&mut host, &mut guest] {
+                    let ticks = p.b.attr("data-cell-actor-probe-ticks");
+                    if ticks.as_deref() != Some("4") {
+                        return Err(format!(
+                            "{} did not complete four actor ticks: {:?}",
+                            p.name(),
+                            ticks
+                        ));
+                    }
+                }
             }
             for p in [&mut host, &mut guest] {
                 let peak =

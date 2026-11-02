@@ -480,6 +480,11 @@ fn accepts_cell_terrain(
     feature = "cellular-transport-probe",
     any(target_arch = "wasm32", test)
 ))]
+mod actor_probe;
+#[cfg(all(
+    feature = "cellular-transport-probe",
+    any(target_arch = "wasm32", test)
+))]
 mod probe;
 
 #[cfg(target_arch = "wasm32")]
@@ -588,11 +593,63 @@ mod web {
         /// Messages for a player whose device we can't tell yet.
         waiting: Vec<(PlayerId, Packet, usize)>,
         #[cfg(feature = "cellular-transport-probe")]
-        probe: Option<super::probe::Probe>,
+        probe: Option<ActiveProbe>,
         #[cfg(feature = "cellular-transport-probe")]
         probe_started: f64,
         #[cfg(feature = "cellular-transport-probe")]
         probe_attempted: bool,
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    enum ActiveProbe {
+        Terrain(super::probe::Probe),
+        Actor(super::actor_probe::ActorProbe),
+    }
+    #[cfg(feature = "cellular-transport-probe")]
+    impl ActiveProbe {
+        fn peer(&self) -> crabsim::net::cell_join::Peer {
+            match self {
+                Self::Terrain(p) => p.peer(),
+                Self::Actor(p) => p.peer(),
+            }
+        }
+        fn actor_ticks(&self) -> Option<u64> {
+            match self {
+                Self::Actor(p) => Some(p.ticks()),
+                Self::Terrain(_) => None,
+            }
+        }
+        fn complete(&self) -> bool {
+            match self {
+                Self::Terrain(p) => p.complete(),
+                Self::Actor(p) => p.complete(),
+            }
+        }
+        fn more(&mut self) -> Result<Option<Msg>, ()> {
+            match self {
+                Self::Terrain(p) => p.more(),
+                Self::Actor(p) => p.more(),
+            }
+        }
+        fn receive(
+            &mut self,
+            sender: crabsim::net::cell_join::Peer,
+            selected: Option<crabsim::net::cell_join::Peer>,
+            msg: &Msg,
+        ) -> Result<Option<Msg>, ()> {
+            match self {
+                Self::Terrain(p) => p.receive(sender, selected, msg),
+                Self::Actor(p) => p.receive(sender, selected, msg),
+            }
+        }
+    }
+    #[cfg(feature = "cellular-transport-probe")]
+    fn actor_probe_enabled() -> bool {
+        web_sys::window()
+            .and_then(|w| w.session_storage().ok().flatten())
+            .and_then(|s| s.get_item("__cell_probe_actors").ok().flatten())
+            .as_deref()
+            == Some("1")
     }
 
     #[cfg(feature = "cellular-transport-probe")]
@@ -922,6 +979,45 @@ mod web {
                 },
                 Msg::CellFrame(vec![]),
                 Msg::CellFrameAck { epoch: 0, frame: 0 },
+                Msg::CellUpInput {
+                    epoch: 0,
+                    tick: 0,
+                    sequence: 0,
+                    player: PlayerId(0),
+                    up: false,
+                },
+                Msg::CellUpFrame {
+                    epoch: 0,
+                    tick: 0,
+                    world_tick: 0,
+                    host: crabsim::underwater::HostPlayerForce {
+                        player: PlayerId(0),
+                        x: 0.0,
+                        y: 0.0,
+                        half_width: 1.0,
+                        half_height: 1.0,
+                        wake_x: 0.0,
+                        wake_y: 0.0,
+                        walking: 0,
+                        grounded: false,
+                        jumped: false,
+                        dig: None,
+                    },
+                    guest: crabsim::underwater::HostPlayerForce {
+                        player: PlayerId(1),
+                        x: 0.0,
+                        y: 0.0,
+                        half_width: 1.0,
+                        half_height: 1.0,
+                        wake_x: 0.0,
+                        wake_y: 0.0,
+                        walking: 0,
+                        grounded: false,
+                        jumped: false,
+                        dig: None,
+                    },
+                    digest: 0,
+                },
             ];
             let tags: Vec<_> = messages.iter().map(|m| m.to_bytes()[0]).collect();
             matchbox_socket::probe_ingress::reset(&tags);
@@ -1165,7 +1261,17 @@ mod web {
                     if candidates.len() == 1
                         && let Some(selected) = probe_source(link, candidates[0])
                     {
-                        link.probe = Some(super::probe::Probe::guest(selected));
+                        link.probe = if actor_probe_enabled() {
+                            super::actor_probe::ActorProbe::guest(me.0, selected)
+                                .map(ActiveProbe::Actor)
+                        } else {
+                            Some(ActiveProbe::Terrain(super::probe::Probe::guest(selected)))
+                        };
+                        if link.probe.is_none() {
+                            link.probe_attempted = true;
+                            probe_status("rejected");
+                            return None;
+                        }
                         link.probe_attempted = true;
                         link.probe_started = now;
                         if link
@@ -1273,6 +1379,8 @@ mod web {
                             | Msg::CellTerrainAck { .. }
                             | Msg::CellFrame(_)
                             | Msg::CellFrameAck { .. }
+                            | Msg::CellUpInput { .. }
+                            | Msg::CellUpFrame { .. }
                     ) {
                         if channel != RELIABLE {
                             continue;
@@ -1280,16 +1388,21 @@ mod web {
                         let Some(source) = probe_source(link, peer) else {
                             continue;
                         };
-                        if matches!(msg, Msg::CellProbeReady) {
+                        if matches!(msg, Msg::CellProbeReady) && link.probe.is_none() {
                             if !host
                                 || link.probe_attempted
                                 || link.peers.iter().filter(|p| p.same_version()).count() != 1
                             {
                                 continue;
                             }
-                            if let Some((probe, first)) =
+                            let setup = if actor_probe_enabled() {
+                                super::actor_probe::ActorProbe::host(me.0, source, probe_window())
+                                    .map(|(p, first)| (ActiveProbe::Actor(p), first))
+                            } else {
                                 super::probe::Probe::host(source, probe_window())
-                            {
+                                    .map(|(p, first)| (ActiveProbe::Terrain(p), first))
+                            };
+                            if let Some((probe, first)) = setup {
                                 link.probe = Some(probe);
                                 link.probe_attempted = true;
                                 link.probe_started = now;
@@ -1324,6 +1437,16 @@ mod web {
                             match probe.receive(source, Some(source), &msg) {
                                 Ok(reply) => {
                                     if probe.complete() {
+                                        if let Some(ticks) = probe.actor_ticks()
+                                            && let Some(canvas) = web_sys::window()
+                                                .and_then(|w| w.document())
+                                                .and_then(|d| d.get_element_by_id("crabscape"))
+                                        {
+                                            let _ = canvas.set_attribute(
+                                                "data-cell-actor-probe-ticks",
+                                                &ticks.to_string(),
+                                            );
+                                        }
                                         probe_status("complete");
                                     }
                                     if let Some(reply) = reply {
