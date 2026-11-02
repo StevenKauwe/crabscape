@@ -81,6 +81,12 @@ jobs:
       # Includes the simulation's property tests (crates/sim/tests/properties.rs).
       - name: tests
         run: cargo test --workspace --locked
+      - name: cellular worker (fmt, clippy, tests)
+        run: |
+          cargo fmt --manifest-path tools/cellworker/Cargo.toml --check
+          cargo clippy --manifest-path tools/cellworker/Cargo.toml --all-targets --locked -- -D warnings
+          cargo clippy --manifest-path tools/cellworker/Cargo.toml --target wasm32-unknown-unknown --locked -- -D warnings
+          cargo test --manifest-path tools/cellworker/Cargo.toml --locked
       # Known security advisories, licences, duplicate versions and sources of every dependency (deny.toml). Three
       # graphs: native PC, the browser, and the introducer (its own workspace and lock file).
       - name: cargo deny (native)
@@ -89,6 +95,8 @@ jobs:
         run: cargo deny --workspace --locked --target wasm32-unknown-unknown check
       - name: cargo deny (introducer)
         run: cargo deny --manifest-path tools/introducer/Cargo.toml --config deny.toml --locked check
+      - name: cargo deny (cellular worker)
+        run: cargo deny --manifest-path tools/cellworker/Cargo.toml --config deny.toml --locked check
       - name: tidy tool (fmt, clippy, tests)
         run: |
           cargo fmt --manifest-path tools/tidy/Cargo.toml --check
@@ -201,6 +209,7 @@ jobs:
         run: |
           wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
           wasm-tools validate --features=-relaxed-simd web/listen/listen_bg.wasm
+          wasm-tools validate --features=-relaxed-simd web/cellworker/cellworker_bg.wasm
       - name: Size report (information only)
         run: |
           {

@@ -67,6 +67,8 @@ mod brittle;
 mod build;
 mod canyon;
 mod cell_save;
+#[cfg(target_arch = "wasm32")]
+mod cell_worker;
 mod cellular;
 mod character;
 mod chat;

@@ -1,0 +1,21 @@
+[package]
+name = "cellworker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.129"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["DedicatedWorkerGlobalScope", "WorkerGlobalScope", "MessageEvent"] }
+
+[lints.rust]
+unsafe_code = "forbid"
