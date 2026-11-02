@@ -157,9 +157,15 @@ fn run() -> Result<(), String> {
         });
 
     let mut sim = Sim::with_one_crab(o.replay.start);
+    if o.replay.cellular {
+        sim.enable_underwater_cells();
+    }
     // A feel switch on the first tick is the feel it was recorded with.
     let start_feel = o.replay.feels.iter().find(|(t, _)| *t == 0).map(|f| f.1);
-    let expected = start_feel.map_or(sim.tuning.fingerprint(), |f| f.tuning().fingerprint());
+    if let Some(feel) = start_feel {
+        sim.set_feel(feel);
+    }
+    let expected = sim.tuning.fingerprint();
     if let Some(code) = o.replay.tuning
         && code != expected
     {

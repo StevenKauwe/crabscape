@@ -156,9 +156,7 @@ pub fn spawn_local_crab(
     }
     // Always write down what the local player does, so a replay can be saved
     // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
-    if !crate::cellular::enabled() {
-        sim.start_recording();
-    }
+    sim.start_recording();
     sim.populate();
     commands.spawn((
         Crab,

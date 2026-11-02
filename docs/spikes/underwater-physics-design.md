@@ -59,6 +59,15 @@ Move toward a locally coupled velocity/pressure approximation with explicit boun
 
 Keep simulation independent of camera and zoom. Partition the world into chunks with stable IDs, deterministic updates, saved state, and explicit boundary transfers. A sleeping chunk may advance analytically only for state whose evolution and external influences can actually be summarized. For disturbed sediment and fluids, exact catch-up requires replaying the relevant history and boundary events; a cheaper coarse approximation must be explicitly defined and tested. Keep active creatures and their interactions in the activation rules. Measure worst-case wake-up time, memory, and work per frame before choosing a chunk size or promising phone performance.
 
+### Parity before making cells the default
+
+The cellular game needs the same progress, reporting, replay and co-op guarantees as the existing game before it can replace it. Removing the current guards would silently lose terrain or let friends see different ground, so keep them until the following are implemented and checked:
+
+- **Saved games:** checkpoint active and sleeping chunks, pebble ownership, currents and all state that affects later steps, together with character progress and position. Migrate existing character saves without overwriting them with a partial cellular save. A failed or interrupted write must leave the last complete save usable. Measure size and worst-case write time on a phone and respect browser storage limits.
+- **Replays and reports:** retain dig controls and start from the exact terrain and simulation state that existed when recording began, including after a reload. Replaying must reproduce the same state, not silently regenerate the original terrain. Bound and measure the recording and report payload; compare native and WebAssembly results before claiming cross-device determinism.
+- **Co-op:** the host owns authoritative terrain and its timeline. Joining players need a consistent checkpoint and ordered changes, split into bounded messages and validated like other network input. Include terrain around *each* active player, including friends far apart; a single moving window centered on the host cannot satisfy that promise. Define conflict handling, reconnect and host handover, and ensure a guest's solo world returns after leaving. Test simultaneous digs, late joins, losses, reconnects, travel and distant players in real browsers.
+- **Default and fallback:** enable cellular mode by default only after these guarantees and phone performance pass; keep the existing terrain reachable with `?boring` (and an equivalent desktop option). Verify ordinary invite links, saves and replay tools select the right mode.
+
 ## Checks for every iteration
 
 - Sand, mud, and pebble material is conserved across simulation and pushing; rock never moves from a loose-grain push. Visual silt cannot create collision or support.

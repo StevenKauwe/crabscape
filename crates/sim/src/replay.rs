@@ -33,6 +33,8 @@
 //! | `slow`          | let go of dodge (ends a sprint)                          |
 //! | `sprinting`     | hold dodge without a new press                           |
 //! | `down=on`       | hold down (climbs down kelp or coral); `down=off` lets go |
+//! | `dig=on`        | hold the independent dig control; `dig=off` lets go   |
+//! | `dig_up=on`     | push upward while digging; `dig_up=off` lets go       |
 //! | `smash`         | press the crusher (a heavy smash)                        |
 //! | `jab`           | press the cutter (a quick jab)                           |
 //! | `block`         | press block and keep holding it (claws up)               |
@@ -84,6 +86,8 @@ pub struct Input {
 pub struct Replay {
     /// Where player 0's crab stands at tick 0.
     pub start: Vec2,
+    /// This recording started with the cellular terrain experiment enabled.
+    pub cellular: bool,
     /// The [`Tuning::fingerprint`] it was recorded with, if known.
     pub tuning: Option<u64>,
     /// When the controls change, in tick order (at most one per tick).
@@ -123,6 +127,7 @@ impl Default for Replay {
     fn default() -> Self {
         Self {
             start: SPAWN,
+            cellular: false,
             tuning: None,
             inputs: Vec::new(),
             end: None,
@@ -159,6 +164,8 @@ impl Replay {
                 };
                 let err = |msg: String| format!("line {line_no}: {msg}");
                 match first {
+                    "world" if rest == ["cells"] => replay.cellular = true,
+                    "world" => return Err(err("`world` wants cells".into())),
                     "start" => {
                         for w in rest {
                             match w.split_once('=') {
@@ -263,6 +270,9 @@ impl Replay {
             "# CrabScape replay. Play it without a window: cargo crabsim --inputs <this file>\n",
         );
         out += &format!("start x={} y={}\n", self.start.x, self.start.y);
+        if self.cellular {
+            out += "world cells\n";
+        }
         if let Some(p) = &self.progress {
             let json = serde_json::to_string(p).expect("progress always serialises");
             out += &format!("progress {json}\n");
@@ -318,6 +328,16 @@ impl Replay {
             if c.down != before.down {
                 line += if c.down { " down=on" } else { " down=off" };
             }
+            if c.dig_held != before.dig_held {
+                line += if c.dig_held { " dig=on" } else { " dig=off" };
+            }
+            if c.dig_up != before.dig_up {
+                line += if c.dig_up {
+                    " dig_up=on"
+                } else {
+                    " dig_up=off"
+                };
+            }
             line += match (c.block_pressed, c.block_held, before.block_held) {
                 (true, true, _) => " block",
                 (true, false, _) => " parry",
@@ -366,6 +386,9 @@ impl Replay {
     /// are made at the workbench and the crab goes home (for player 0).
     pub fn apply_at(&self, sim: &mut crate::Sim) {
         let tick = sim.tick_count();
+        if tick == 0 && self.cellular && sim.level.cells.is_none() {
+            sim.enable_underwater_cells();
+        }
         if tick == 0
             && let Some(p) = &self.progress
         {
@@ -450,12 +473,18 @@ impl Recorder {
         }
     }
 
+    pub(crate) fn note_cellular(&mut self) {
+        self.replay.cellular = true;
+    }
+
     /// The controls used on `tick`. Only changes and presses are kept.
     pub fn note(&mut self, tick: u64, c: Controls) {
         let changed = c.walk != self.last.walk
             || c.jump_held != self.last.jump_held
             || c.dodge_held != self.last.dodge_held
             || c.down != self.last.down
+            || c.dig_held != self.last.dig_held
+            || c.dig_up != self.last.dig_up
             || c.block_held != self.last.block_held
             || c.smash_held != self.last.smash_held;
         if changed || c.any_press() {
@@ -587,6 +616,10 @@ fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
             }
             Some(("down", "on")) => c.down = true,
             Some(("down", "off")) => c.down = false,
+            Some(("dig", "on")) => c.dig_held = true,
+            Some(("dig", "off")) => c.dig_held = false,
+            Some(("dig_up", "on")) => c.dig_up = true,
+            Some(("dig_up", "off")) => c.dig_up = false,
             _ => return Err(format!("don't know `{word}`")),
         },
     }
@@ -622,6 +655,39 @@ fn walk_word(walk: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recording_round_trips_digging_and_direction_changes() {
+        let mut recorder = Recorder::new(Vec2::ZERO, 0, &Tuning::default());
+        let inputs = [
+            Controls {
+                dig_held: true,
+                down: true,
+                ..Controls::default()
+            },
+            Controls {
+                dig_held: true,
+                dig_up: true,
+                ..Controls::default()
+            },
+            Controls {
+                dig_held: true,
+                dig_up: false,
+                walk: 0.5,
+                ..Controls::default()
+            },
+            Controls::default(),
+        ];
+        for (tick, &controls) in inputs.iter().enumerate() {
+            recorder.note(tick as u64, controls);
+        }
+        let text = recorder.replay(inputs.len() as u64).to_text();
+        let replay = Replay::parse(&text).unwrap();
+        let mut playback = replay.playback();
+        for expected in inputs {
+            assert_eq!(playback.next_controls(), expected, "{text}");
+        }
+    }
 
     #[test]
     fn reads_a_script() {

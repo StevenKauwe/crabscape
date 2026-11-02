@@ -182,7 +182,7 @@ struct Pebble {
 
 /// State retained for cells that have left the active window. Sleeping
 /// cells do not advance; reactivation restores exactly this stored state.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SleepingCell {
     cell: Cell,
     flow: (f32, f32),
@@ -190,7 +190,7 @@ struct SleepingCell {
     grain: u8,
     owner: u16,
 }
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SleepingChunk {
     cells: Vec<Option<SleepingCell>>,
 }
@@ -241,6 +241,60 @@ pub struct World {
     pebble_seeded: std::collections::BTreeSet<(i32, i32)>,
 }
 
+/// A complete checkpoint, including streamed-out terrain. `World` itself
+/// keeps its old serialization layout for the bundled opening snapshot;
+/// this wrapper adds the streaming state needed by saves and replays.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct WorldCheckpoint {
+    version: u8,
+    world: World,
+    origin: (i32, i32),
+    sleeping: std::collections::BTreeMap<(i32, i32), SleepingChunk>,
+    opening_edge_opened: bool,
+    pebble_seeded: std::collections::BTreeSet<(i32, i32)>,
+}
+
+impl WorldCheckpoint {
+    /// Recover a checkpoint after checking its basic shape and cell values.
+    /// Callers handling untrusted bytes must also enforce an input-size cap.
+    pub fn into_world(self) -> Option<World> {
+        let mut world = self.world;
+        let count = WIDTH * HEIGHT;
+        if self.version != 1
+            || world.cells.len() != count
+            || world.flow.len() != count
+            || world.suspended.len() != count
+            || world.grain.len() != count
+            || world.pebble_owner.len() != count
+            || world.pebble_motion.len() != world.pebbles.len()
+            || world.pebbles.len() > u16::MAX as usize
+            || world
+                .pebble_owner
+                .iter()
+                .any(|&id| id as usize > world.pebbles.len())
+            || world
+                .flow
+                .iter()
+                .any(|&(x, y)| !x.is_finite() || !y.is_finite())
+            || self.sleeping.values().any(|chunk| {
+                chunk.cells.len() != (TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize
+                    || chunk.cells.iter().flatten().any(|cell| {
+                        cell.owner as usize > world.pebbles.len()
+                            || !cell.flow.0.is_finite()
+                            || !cell.flow.1.is_finite()
+                    })
+            })
+        {
+            return None;
+        }
+        world.origin = self.origin;
+        world.sleeping = self.sleeping;
+        world.opening_edge_opened = self.opening_edge_opened;
+        world.pebble_seeded = self.pebble_seeded;
+        Some(world)
+    }
+}
+
 mod giant_array {
     use super::GIANT_PARTS;
     use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
@@ -266,6 +320,24 @@ impl Default for World {
     }
 }
 impl World {
+    /// Capture the complete active and sleeping material state.
+    pub fn checkpoint(&self) -> WorldCheckpoint {
+        let mut world = self.clone();
+        // Streaming fields are stored separately for compatibility with the
+        // opening bake; do not retain a second in-memory copy in the wrapper.
+        let sleeping = std::mem::take(&mut world.sleeping);
+        let pebble_seeded = std::mem::take(&mut world.pebble_seeded);
+        world.origin = (0, 0);
+        world.opening_edge_opened = false;
+        WorldCheckpoint {
+            version: 1,
+            world,
+            origin: self.origin,
+            sleeping,
+            opening_edge_opened: self.opening_edge_opened,
+            pebble_seeded,
+        }
+    }
     pub fn sediment_properties(&self, material: Cell) -> Option<SedimentProperties> {
         match material {
             Cell::Sand => Some(self.sand_properties),
@@ -2584,6 +2656,76 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_cellular_replay_reproduces_digging() {
+        use crate::{Controls, Feel, Level, PlayerId, Replay, Sim, Tuning};
+        use bevy_math::Vec2;
+
+        let mut original = Sim::new(Tuning::default(), Level::test_level());
+        original.enable_underwater_cells();
+        original.set_feel(Feel::Heavy);
+        original.add_crab(PlayerId(0), Vec2::new(400.0, 0.0));
+        original.start_recording();
+        original.populate();
+        for tick in 0..120 {
+            let controls = if tick < 60 {
+                Controls {
+                    dig_held: true,
+                    down: true,
+                    ..Controls::default()
+                }
+            } else {
+                Controls {
+                    dig_held: true,
+                    dig_up: true,
+                    ..Controls::default()
+                }
+            };
+            original.set_controls(PlayerId(0), controls);
+            original.tick();
+        }
+        let recorded = original.recording().expect("fresh world is recorded");
+        let replay = Replay::parse(&recorded.to_text()).expect("recorded text parses");
+        assert!(replay.cellular);
+        let mut restored = Sim::with_one_crab(replay.start);
+        crate::play(&mut restored, &replay, replay.length(), |_| {});
+        assert_eq!(restored.state_hash(), original.state_hash());
+    }
+
+    #[test]
+    fn checkpoint_restores_streamed_terrain_and_its_future() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        // Preserve a changed grain in the opening, then move the window far
+        // enough that it becomes sleeping terrain.
+        let changed = World::index(100, 150).unwrap();
+        world.cells[changed] = Cell::Sand;
+        world.grain[changed] = 41;
+        assert!(world.follow_player(&level, 4400.0, -700.0));
+        for _ in 0..4 {
+            world.step(0.35);
+        }
+        let bytes = postcard::to_allocvec(&world.checkpoint()).unwrap();
+        let checkpoint: WorldCheckpoint = postcard::from_bytes(&bytes).unwrap();
+        let mut restored = checkpoint.into_world().expect("valid checkpoint");
+        assert_eq!(world, restored);
+        assert!(world.follow_player(&level, 160.0, 0.0));
+        assert!(restored.follow_player(&level, 160.0, 0.0));
+        for _ in 0..4 {
+            world.step(0.35);
+            restored.step(0.35);
+        }
+        assert_eq!(world, restored);
+    }
+
+    #[test]
+    fn checkpoint_rejects_invalid_cell_storage() {
+        let world = World::from_level_settled(&crate::Level::test_level());
+        let mut checkpoint = world.checkpoint();
+        checkpoint.world.cells.pop();
+        assert!(checkpoint.into_world().is_none());
+    }
 
     #[test]
     fn climbing_above_dug_out_bed_is_not_stopped_by_old_floor_or_loose_grains() {

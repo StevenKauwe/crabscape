@@ -1686,12 +1686,22 @@ impl Sim {
     /// be replayed later. Call this before the first tick: a replay starts
     /// from a crab standing still.
     pub fn start_recording(&mut self) {
+        // A mid-session cellular replay needs its starting terrain checkpoint.
+        // Until that is included, never emit an apparently exact replay from
+        // an already disturbed world.
+        if self.level.cells.is_some() && self.tick != 0 {
+            self.recorder = None;
+            return;
+        }
         let start = self
             .crabs
             .iter()
             .find(|c| !c.remote)
             .map_or(crate::level::SPAWN, |c| c.mover.pos);
         let mut rec = Recorder::new(start, self.tick, &self.tuning);
+        if self.level.cells.is_some() {
+            rec.note_cellular();
+        }
         // Progress brought back from a save goes with it, so the replay
         // starts the crab as it was (a fresh crab needs nothing).
         if let Some(p) = self
