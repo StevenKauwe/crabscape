@@ -1,8 +1,28 @@
-# Opening pebble migration: design only
+# Opening pebble migration
+
+## Implemented browser behavior
+
+Browser startup prepares a one-time cleanup of complete aggregates inside the
+opening's absolute cell rectangle `(0, 0)..(640, 360)`. The save, player and replay
+are validated before an IndexedDB transaction compares the captured source and
+epoch, retains the original as `cleanup_backup`, writes the candidate and marker,
+and advances the epoch. Autosaves maintain the marker; Start over clears the
+active record, marker and backup together. Current-version tabs with the old epoch
+cannot overwrite the result. Much older tabs without epoch checks must be closed.
+
+Preparation failure leaves the original valid save playable. Storage or source
+conflicts keep autosave disabled rather than overwriting unknown state. Fresh
+games already have a sandy opening. Desktop saves are not migrated by this path.
+The full-game WebKit test covers old opening restoration, exact backup, replay,
+continued autosaving, reload and reset. Large-world incremental saves and co-op
+remain separate unfinished work.
+
+## Original design notes
 
 Fresh standard worlds no longer contain the baked starting pebble bed. Existing
 cellular saves contain the actual evolving terrain, so changing the opening bake
-cannot update them. No migration is currently installed.
+cannot update them by itself. The following notes describe the design constraints
+that informed the browser implementation above.
 
 ## Eligibility and scope
 
