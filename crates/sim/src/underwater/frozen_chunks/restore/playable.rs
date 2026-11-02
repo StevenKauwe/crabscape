@@ -1,9 +1,7 @@
 //! Isolated guarded playable prototype. The saved-player constructor accepts
 //! a bounded version-2 player record, but is not wired to game startup.
 use super::*;
-use crate::{
-    Controls, Feel, Level, Memory, MemorySave, Mover, PlayerId, Progress, Sim, SimCrab, Tuning,
-};
+use crate::{Controls, Feel, Level, Memory, Mover, PlayerId, SaveData, Sim, SimCrab, Tuning};
 use bevy_math::Vec2;
 
 const MAX_LOADED_SLEEPING: usize = 256;
@@ -18,20 +16,9 @@ pub struct SavedSetup {
     pub sim_tick: u64,
 }
 
-#[derive(serde::Deserialize)]
-struct SavedPlayer {
-    version: u32,
-    x: f32,
-    y: f32,
-    #[serde(default)]
-    memory: Option<MemorySave>,
-    #[serde(default)]
-    progress: Option<Progress>,
-}
-
 struct SavedStartup {
     setup: SavedSetup,
-    player: SavedPlayer,
+    player: SaveData,
 }
 enum Startup {
     Template(Box<Sim>),
@@ -224,9 +211,9 @@ impl GuardedBuilder {
         {
             return Err(GuardedError::Invalid);
         }
-        let player: SavedPlayer =
+        let player: SaveData =
             serde_json::from_slice(player_json).map_err(|_| GuardedError::Invalid)?;
-        if player.version != 2 || !player.x.is_finite() || !player.y.is_finite() {
+        if player.version != crate::SAVE_VERSION || !player.x.is_finite() || !player.y.is_finite() {
             return Err(GuardedError::Invalid);
         }
         let sleeping = verified.sleeping();

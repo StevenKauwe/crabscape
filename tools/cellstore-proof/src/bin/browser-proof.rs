@@ -15,8 +15,9 @@ use std::{
 };
 
 const PAGE: &str = r#"<!doctype html><body data-result="running"><script>window.addEventListener('error',e=>{document.body.dataset.result='FAIL: '+e.message;fetch('/done')})</script><script type="module">
-import init,{browser_proof} from './cellstore_proof.js';
-init().then(()=>browser_proof('crabscape.chunk-proof.rust-runner')).then(x=>{document.body.dataset.result=x;fetch('/done')}).catch(e=>{document.body.dataset.result='FAIL: '+e;fetch('/done')});
+import init,{browser_proof,reload_prepare,reload_verify} from './cellstore_proof.js';
+const name='crabscape.chunk-proof.rust-runner';
+init().then(async()=>{if (!sessionStorage.getItem('reloaded')) { await reload_prepare(name); sessionStorage.setItem('reloaded','yes'); location.reload(); return; } const proof=await reload_verify(name); const rest=await browser_proof(name); document.body.dataset.result=rest+'; '+proof; fetch('/done')}).catch(e=>{document.body.dataset.result='FAIL: '+e;fetch('/done')});
 </script><iframe src="/delay" hidden></iframe></body>"#;
 fn run(program: &str, args: &[&str]) -> Result<(), String> {
     let status = Command::new(program)
@@ -155,7 +156,9 @@ fn execute() -> Result<(), String> {
     let _ = server.join();
     let output = result?;
     let dom = String::from_utf8_lossy(&output.stdout);
-    let pass = output.status.success() && dom.contains("data-result=\"PASS: bounded stage");
+    let pass = output.status.success()
+        && dom.contains("data-result=\"PASS: bounded stage")
+        && dom.contains("real_reload=pass");
     let _ = fs::remove_dir_all(&scratch);
     if !pass {
         return Err(format!(

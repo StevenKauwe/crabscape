@@ -1163,6 +1163,306 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     ))
 }
 
+#[cfg(feature = "browser-proof")]
+fn reload_fixture() -> Result<(crabsim::Sim, crabsim::SaveData), String> {
+    use crabsim::{Feel, Level, Memory, PlayerId, SaveData, Sim, Tuning, underwater::World};
+    let level = Level::test_level();
+    let mut terrain = World::from_level_settled(&level);
+    terrain.follow_player(&level, 4000.0, 0.0);
+    terrain.follow_player(&level, 8000.0, 0.0);
+    terrain.follow_player(&level, 160.0, 0.0);
+    let (left, bottom, width, height) = terrain.game_bounds();
+    let mut source = Sim::new(Tuning::default(), level.clone());
+    source.set_feel(Feel::default());
+    if !source.restore_cellular_terrain(terrain, 17) {
+        return Err("fixture terrain".into());
+    }
+    let mut center = crabsim::SPAWN;
+    center.x = left + width * 0.5;
+    center.y = bottom + height * 0.5;
+    source.add_crab(PlayerId(0), center);
+    let mut progress = source.progress(PlayerId(0)).ok_or("fixture progress")?;
+    progress.lantern = 1;
+    progress.climb_xp = 0.75;
+    source.restore_progress(PlayerId(0), &progress);
+    for _ in 0..8 {
+        source.tick();
+    }
+    let crab = source.crab(PlayerId(0)).ok_or("fixture player")?;
+    // Place the saved player just inside the loaded boundary but past the
+    // streaming threshold. The first tick must ask for sleeping pages.
+    let x = left + (crabsim::underwater::WIDTH as f32 - 159.0) * crabsim::underwater::GAME_CELL;
+    let y = crab.mover.pos.y;
+    let player = SaveData {
+        version: crabsim::SAVE_VERSION,
+        x,
+        y,
+        memory: Some(crab.memory.to_save()),
+        progress: source.progress(PlayerId(0)),
+    };
+    let tick = source.tick_count();
+    let terrain = source.level.cells.take().ok_or("fixture cells")?;
+    let mut reference = Sim::new(Tuning::default(), level);
+    reference.set_feel(Feel::default());
+    if !reference.restore_cellular_terrain(terrain, tick) {
+        return Err("reference terrain".into());
+    }
+    let mut pos = crabsim::SPAWN;
+    pos.x = x;
+    pos.y = y;
+    reference.add_crab(PlayerId(0), pos);
+    reference.restore_progress(
+        PlayerId(0),
+        player.progress.as_ref().ok_or("saved progress")?,
+    );
+    let memory = Memory::from_save(
+        player.memory.as_ref().ok_or("saved memory")?,
+        &reference.level,
+        &reference.tuning.memory,
+    )
+    .ok_or("saved memory invalid")?;
+    reference
+        .crab_mut(PlayerId(0))
+        .ok_or("reference player")?
+        .memory = memory;
+    Ok((reference, player))
+}
+
+/// Phase one persists a real SaveData and frozen terrain. The runner reloads
+/// the browser document and Wasm instance before starting phase two.
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
+    async fn run(name: &str) -> Result<(), String> {
+        use crabsim::underwater::frozen_chunks::{CaptureIndex, FrozenChunks};
+        let db = ChunkStore::open(name).await?;
+        db.reset().await?;
+        let (sim, player) = reload_fixture()?;
+        let player = serde_json::to_vec(&player).map_err(|e| e.to_string())?;
+        let frozen =
+            FrozenChunks::capture(sim.level.cells.as_ref().ok_or("terrain")?, 64 * 1024 * 1024)
+                .map_err(|e| format!("capture: {e:?}"))?;
+        let index = CaptureIndex::capture(&frozen, sim.tick_count(), &player, digest)
+            .map_err(|e| format!("index: {e:?}"))?;
+        let handle = db
+            .begin(db.epoch().await?, sim.tick_count(), player)
+            .await?;
+        let mut batch = vec![
+            index.encode(),
+            frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?,
+        ];
+        let mut count = 2;
+        let (cols, rows) = frozen.active_dimensions();
+        for y in 0..rows {
+            for x in 0..cols {
+                batch.push(frozen.active(x, y).map_err(|e| format!("active: {e:?}"))?);
+                count += 1;
+                if batch.len() == MAX_BATCH {
+                    db.stage(handle, std::mem::take(&mut batch)).await?;
+                }
+            }
+        }
+        for &id in index.sleeping() {
+            batch.push(
+                frozen
+                    .sleeping(id)
+                    .map_err(|e| format!("sleeping: {e:?}"))?,
+            );
+            count += 1;
+            if batch.len() == MAX_BATCH {
+                db.stage(handle, std::mem::take(&mut batch)).await?;
+            }
+        }
+        if !batch.is_empty() {
+            db.stage(handle, batch).await?;
+        }
+        db.publish(handle, count).await
+    }
+    run(&name).await.map_err(|e| JsValue::from_str(&e))
+}
+
+/// Phase two reconstructs after a real document reload from the pinned head.
+#[cfg(feature = "browser-proof")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub async fn reload_verify(name: String) -> Result<String, JsValue> {
+    async fn run(name: &str) -> Result<String, String> {
+        use crabsim::{
+            Controls, Feel, Level, PlayerId, SaveData, Tuning,
+            underwater::frozen_chunks::{GuardedBuilder, GuardedError, IndexVerifier, SavedSetup},
+        };
+        let db = ChunkStore::open(name).await?;
+        let pin = db.pin().await?;
+        let pinned = db.pin_info(pin).await?;
+        let (mut reference, expected_player) = reload_fixture()?;
+        let pebbles = reference
+            .level
+            .cells
+            .as_ref()
+            .ok_or("reference cells")?
+            .game_pebbles()
+            .len();
+        if pebbles == 0 {
+            return Err("reload fixture has no active pebbles".into());
+        }
+        let actual_player: SaveData =
+            serde_json::from_slice(&pinned.player).map_err(|e| e.to_string())?;
+        if actual_player != expected_player || pinned.tick != reference.tick_count() {
+            return Err("reloaded player/progress/tick differ".into());
+        }
+        let index_bytes = db.pinned_part(pin, 0).await?;
+        let metadata = db.pinned_part(pin, 1).await?;
+        let mut verifier = IndexVerifier::new(
+            &index_bytes,
+            &metadata,
+            pinned.tick,
+            pinned.parts.len(),
+            &pinned.player,
+            2_000_000,
+            digest,
+        )
+        .map_err(|e| format!("verify: {e:?}"))?;
+        for slot in 2..pinned.parts.len() {
+            verifier
+                .accept(slot, &db.pinned_part(pin, slot).await?)
+                .map_err(|e| format!("verify page: {e:?}"))?;
+        }
+        let verified = verifier.finish().map_err(|e| format!("index: {e:?}"))?;
+        db.pin_info(pin).await?;
+        let ids = verified.sleeping().to_vec();
+        let cols = crabsim::underwater::WIDTH.div_ceil(64);
+        let rows = crabsim::underwater::HEIGHT.div_ceil(64);
+        let setup = || SavedSetup {
+            level: Level::test_level(),
+            tuning: Tuning::default(),
+            feel: Feel::default(),
+            sim_tick: pinned.tick,
+        };
+        let mut builder = GuardedBuilder::from_saved(
+            setup(),
+            &pinned.player,
+            &metadata,
+            &verified,
+            digest,
+            2_000_000,
+        )
+        .map_err(|e| format!("builder: {e:?}"))?;
+        for y in 0..rows {
+            for x in 0..cols {
+                builder
+                    .active(
+                        x as u16,
+                        y as u16,
+                        &db.pinned_part(pin, 2 + y * cols + x).await?,
+                    )
+                    .map_err(|e| format!("active: {e:?}"))?;
+            }
+        }
+        let mut guarded = builder.install().map_err(|e| format!("install: {e:?}"))?;
+        if guarded.player() != reference.crab(PlayerId(0))
+            || guarded.tick() != Some(reference.tick_count())
+        {
+            return Err("reloaded playable mismatch".into());
+        }
+        let before = guarded.tick();
+        let required = match guarded.step(Controls::default()) {
+            Err(GuardedError::NeedsPages(ids)) if !ids.is_empty() => ids,
+            other => return Err(format!("expected transition page wait: {other:?}")),
+        };
+        let interrupted = guarded
+            .begin_sleeping(required[0])
+            .map_err(|e| format!("ticket: {e:?}"))?;
+        drop(interrupted);
+        if guarded.tick() != before {
+            return Err("interrupted load advanced tick".into());
+        }
+        for id in required {
+            let slot = ids.binary_search(&id).map_err(|_| "required page absent")?;
+            let ticket = guarded
+                .begin_sleeping(id)
+                .map_err(|e| format!("ticket: {e:?}"))?;
+            guarded
+                .accept_sleeping(ticket, &db.pinned_part(pin, 2 + cols * rows + slot).await?)
+                .map_err(|e| format!("sleeping: {e:?}"))?;
+        }
+        guarded
+            .step(Controls::default())
+            .map_err(|e| format!("transition: {e:?}"))?;
+        reference.tick();
+        if guarded.player() != reference.crab(PlayerId(0))
+            || guarded.tick() != Some(reference.tick_count())
+        {
+            return Err("transition player mismatch".into());
+        }
+        for (slot, &id) in ids.iter().enumerate() {
+            if let Ok(ticket) = guarded.begin_sleeping(id) {
+                guarded
+                    .accept_sleeping(ticket, &db.pinned_part(pin, 2 + cols * rows + slot).await?)
+                    .map_err(|e| format!("hydrate: {e:?}"))?;
+            }
+        }
+        let restored = guarded.finish().map_err(|e| format!("finish: {e:?}"))?;
+        if restored.state_hash_streamed() != reference.state_hash_streamed() {
+            return Err("reloaded full state/pebble ownership differs".into());
+        }
+        if restored
+            .crab(PlayerId(0))
+            .ok_or("restored crab")?
+            .memory
+            .fingerprint()
+            != reference
+                .crab(PlayerId(0))
+                .ok_or("reference crab")?
+                .memory
+                .fingerprint()
+        {
+            return Err("reloaded memory differs".into());
+        }
+        drop(restored);
+        let mut reset_builder = GuardedBuilder::from_saved(
+            setup(),
+            &pinned.player,
+            &metadata,
+            &verified,
+            digest,
+            2_000_000,
+        )
+        .map_err(|e| format!("reset builder: {e:?}"))?;
+        for y in 0..rows {
+            for x in 0..cols {
+                reset_builder
+                    .active(
+                        x as u16,
+                        y as u16,
+                        &db.pinned_part(pin, 2 + y * cols + x).await?,
+                    )
+                    .map_err(|e| format!("reset active: {e:?}"))?;
+            }
+        }
+        let mut reset_guard = reset_builder
+            .install()
+            .map_err(|e| format!("reset install: {e:?}"))?;
+        let ticket = reset_guard
+            .begin_sleeping(ids[0])
+            .map_err(|e| format!("reset ticket: {e:?}"))?;
+        let pending = db.pinned_part(pin, 2 + cols * rows).await?;
+        db.reset().await?;
+        reset_guard.invalidate();
+        if reset_guard.accept_sleeping(ticket, &pending) != Err(GuardedError::Stale)
+            || db.pinned_part(pin, 2).await.is_ok()
+        {
+            return Err("reset accepted a stale reloaded page".into());
+        }
+        let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
+        Ok(format!(
+            "real_reload=pass pages={} pebbles={} wasm_capacity={}",
+            ids.len() + cols * rows,
+            pebbles,
+            Uint8Array::new(&memory.buffer()).length()
+        ))
+    }
+    run(&name).await.map_err(|e| JsValue::from_str(&e))
+}
+
 /// Browser-only isolated transaction regression.
 #[cfg(feature = "browser-proof")]
 #[wasm_bindgen::prelude::wasm_bindgen]

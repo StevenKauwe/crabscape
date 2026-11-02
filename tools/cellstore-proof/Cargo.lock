@@ -189,6 +189,7 @@ dependencies = [
  "crabsim",
  "futures-util",
  "js-sys",
+ "serde_json",
  "sha2",
  "wasm-bindgen",
  "wasm-bindgen-futures",

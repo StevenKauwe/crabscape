@@ -26,36 +26,16 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
 
 use crate::player::{GameSet, LocalPlayer, PlayerId};
-use crabsim::{Memory, MemorySave, Mover, Progress, Sim};
-
-/// Bump this if the format ever changes, so old saves can be recognised.
-/// (Version 1 had no position.)
-pub const SAVE_VERSION: u32 = 2;
+use crabsim::{Memory, Mover, Progress, Sim};
+pub use crabsim::{SAVE_VERSION, SaveData};
 
 /// Set once a character has been imported: nothing more is written.
 static FROZEN: AtomicBool = AtomicBool::new(false);
 
 /// Save no more often than this many seconds.
 const SAVE_EVERY: f32 = 0.5;
-
-/// Everything we save. Small for now; an inventory will go here later.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct SaveData {
-    pub version: u32,
-    /// Where the crab's feet are, in world units.
-    pub x: f32,
-    pub y: f32,
-    /// What the crab has seen and remembers (`crabsim::memory`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub memory: Option<MemorySave>,
-    /// What it grew, fitted and took (`crabsim::progress`). Saves from
-    /// before it was kept have none, and start without it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub progress: Option<Progress>,
-}
 
 /// Save the memory at least this often (memory steps, 0.1 s each) while
 /// the crab rests, even if it hasn't moved.
@@ -405,6 +385,38 @@ mod tests {
         let text = serde_json::to_string(&data).unwrap();
         assert_eq!(text, r#"{"version":2,"x":640.0,"y":110.0}"#);
         assert_eq!(serde_json::from_str::<SaveData>(&text).unwrap(), data);
+    }
+
+    #[test]
+    fn older_player_json_with_short_progress_still_round_trips() {
+        let progress = crabsim::Progress::default();
+        let mut value = serde_json::to_value(&progress).unwrap();
+        let object = value.as_object_mut().unwrap();
+        for field in [
+            "swim_xp",
+            "fight_xp",
+            "rocks_cracked",
+            "clams",
+            "grit_taken",
+            "sponges_taken",
+            "feats",
+            "moults",
+            "soft",
+            "growing",
+            "stash",
+            "clam_guards",
+        ] {
+            object.remove(field);
+        }
+        let text =
+            serde_json::json!({"version": 2, "x": 160.0, "y": 0.0, "progress": value}).to_string();
+        let loaded: SaveData = serde_json::from_str(&text).unwrap();
+        assert_eq!(loaded.progress, Some(progress));
+        assert_eq!(loaded.memory, None);
+        assert_eq!(
+            serde_json::from_str::<SaveData>(&serde_json::to_string(&loaded).unwrap()).unwrap(),
+            loaded
+        );
     }
 
     #[test]

@@ -241,3 +241,13 @@ any live integration. A native regression reconstructs actual game save data wit
 nondefault progress and memory, compares player and tick through subsequent steps,
 and compares terrain after full hydration. The browser fixture uses a minimal
 version 2 player record and has not established mobile memory safety.
+
+The Rust-hosted Chrome test now also writes the game's actual `SaveData` with
+nondefault progress and memory, reloads the document and Wasm instance, then
+reconstructs from IndexedDB. The first post-reload tick waits for required
+sleeping pages; after hydration the simulation and pebble ownership match the
+full reference, and a reset rejects a pending page. Its fixture contained 31
+active pebbles and 180 pages. Desktop Chrome reported 31,653,888 bytes of Wasm
+linear-memory capacity on this run; capacity is not process peak memory and
+includes a full reference and frozen fixture. This is not a mobile memory bound,
+a quota/migration test, or live-save integration.
