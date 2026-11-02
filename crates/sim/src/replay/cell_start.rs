@@ -77,7 +77,7 @@ impl VerifiedCellStart {
 
 impl CellStart {
     pub fn checkpoint_bytes(world: &World) -> Option<Vec<u8>> {
-        let raw = postcard::to_allocvec(&world.checkpoint()).ok()?;
+        let raw = postcard::to_allocvec(&world.checkpoint_ref()).ok()?;
         (raw.len() <= MAX_RAW).then_some(raw)
     }
 

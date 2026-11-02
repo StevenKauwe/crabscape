@@ -3652,6 +3652,18 @@ mod tests {
                 assert_eq!(owned, borrowed);
             }
         }
+        // The borrowed encoder must not make a malformed shape acceptable:
+        // validation still happens before the replay checkpoint is installed.
+        let mut malformed = World::from_level_settled(&level);
+        let valid = postcard::to_allocvec(&malformed.checkpoint_ref()).unwrap();
+        let valid_packed = miniz_oxide::deflate::compress_to_vec_zlib(&valid, 1);
+        assert!(crate::VerifiedCellStart::from_compressed(&valid_packed, 17).is_some());
+        malformed.cells.pop();
+        let owned = postcard::to_allocvec(&malformed.checkpoint()).unwrap();
+        let borrowed = postcard::to_allocvec(&malformed.checkpoint_ref()).unwrap();
+        assert_eq!(owned, borrowed);
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&borrowed, 1);
+        assert!(crate::VerifiedCellStart::from_compressed(&packed, 17).is_none());
     }
 
     #[test]
