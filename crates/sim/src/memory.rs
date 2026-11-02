@@ -504,7 +504,7 @@ fn read_varint(bytes: &[u8], at: &mut usize) -> Option<u32> {
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn base64(bytes: &[u8]) -> String {
+pub(crate) fn base64(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let n = chunk
@@ -518,7 +518,7 @@ fn base64(bytes: &[u8]) -> String {
     s
 }
 
-fn unbase64(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn unbase64(s: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len() * 3 / 4);
     for chunk in s.as_bytes().chunks(4) {
         let mut n = 0u32;

@@ -2768,6 +2768,7 @@ dependencies = [
  "bevy_ecs",
  "bevy_math",
  "libm",
+ "miniz_oxide 0.8.9",
  "postcard",
  "proptest",
  "serde",

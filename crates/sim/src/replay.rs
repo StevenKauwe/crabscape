@@ -71,6 +71,9 @@ use crate::progress::Progress;
 use crate::skills::Skill;
 use crate::tuning::Tuning;
 
+mod cell_start;
+use cell_start::CellStart;
+
 /// The controls from one tick on.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Input {
@@ -88,6 +91,8 @@ pub struct Replay {
     pub start: Vec2,
     /// This recording started with the cellular terrain experiment enabled.
     pub cellular: bool,
+    /// Complete starting terrain and the absolute clock for a loaded world.
+    pub(crate) cell_start: Option<CellStart>,
     /// The [`Tuning::fingerprint`] it was recorded with, if known.
     pub tuning: Option<u64>,
     /// When the controls change, in tick order (at most one per tick).
@@ -128,6 +133,7 @@ impl Default for Replay {
         Self {
             start: SPAWN,
             cellular: false,
+            cell_start: None,
             tuning: None,
             inputs: Vec::new(),
             end: None,
@@ -166,6 +172,19 @@ impl Replay {
                 match first {
                     "world" if rest == ["cells"] => replay.cellular = true,
                     "world" => return Err(err("`world` wants cells".into())),
+                    "cell_start" => {
+                        if rest.len() != 2 || replay.cell_start.is_some() {
+                            return Err(err("`cell_start` needs one tick and checkpoint".into()));
+                        }
+                        let tick = rest[0]
+                            .parse()
+                            .map_err(|_| err("invalid cellular start tick".into()))?;
+                        replay.cell_start =
+                            Some(CellStart::parse(tick, rest[1]).ok_or_else(|| {
+                                err("invalid or oversized cellular checkpoint".into())
+                            })?);
+                        replay.cellular = true;
+                    }
                     "start" => {
                         for w in rest {
                             match w.split_once('=') {
@@ -272,6 +291,9 @@ impl Replay {
         out += &format!("start x={} y={}\n", self.start.x, self.start.y);
         if self.cellular {
             out += "world cells\n";
+        }
+        if let Some(start) = &self.cell_start {
+            out += &format!("cell_start {} {}\n", start.tick, start.text());
         }
         if let Some(p) = &self.progress {
             let json = serde_json::to_string(p).expect("progress always serialises");
@@ -381,11 +403,46 @@ impl Replay {
         self.spawns.iter().filter(move |s| s.tick == tick)
     }
 
+    /// Restore a loaded cellular world's terrain and clock before creating
+    /// its player. Other replays leave the supplied simulation untouched.
+    /// Returns false if its starting checkpoint cannot safely be restored.
+    pub fn prepare_start(&self, sim: &mut crate::Sim) -> bool {
+        let Some(start) = &self.cell_start else {
+            return true;
+        };
+        let Some(terrain) = start.restore() else {
+            return false;
+        };
+        let mut restored = crate::Sim::new(Tuning::default(), crate::Level::test_level());
+        if !restored.restore_cellular_terrain(terrain, start.tick) {
+            return false;
+        }
+        if let Some((_, feel)) = self.feels.iter().find(|(tick, _)| *tick == 0) {
+            restored.set_feel(*feel);
+        }
+        restored.add_crab(crate::PlayerId(0), self.start);
+        *sim = restored;
+        true
+    }
+
+    /// Does this replay start from a saved cellular checkpoint?
+    pub fn has_cell_start(&self) -> bool {
+        self.cell_start.is_some()
+    }
+
     /// What happens to the world just before tick number `sim.tick_count()`
     /// runs: enemies appear, the feel switches, codes are entered, things
     /// are made at the workbench and the crab goes home (for player 0).
     pub fn apply_at(&self, sim: &mut crate::Sim) {
-        let tick = sim.tick_count();
+        if self.cell_start.is_some() && sim.tick_count() == 0 && !self.prepare_start(sim) {
+            return;
+        }
+        let Some(tick) = sim
+            .tick_count()
+            .checked_sub(self.cell_start.as_ref().map_or(0, |s| s.tick))
+        else {
+            return;
+        };
         if tick == 0 && self.cellular && sim.level.cells.is_none() {
             sim.enable_underwater_cells();
         }
@@ -475,6 +532,23 @@ impl Recorder {
 
     pub(crate) fn note_cellular(&mut self) {
         self.replay.cellular = true;
+    }
+
+    pub(crate) fn note_cell_start(
+        &mut self,
+        terrain: &crate::underwater::World,
+        tick: u64,
+    ) -> bool {
+        let Some(start) = CellStart::capture(terrain, tick) else {
+            return false;
+        };
+        self.replay.cell_start = Some(start);
+        self.replay.cellular = true;
+        true
+    }
+
+    pub(crate) fn has_cell_start(&self) -> bool {
+        self.replay.has_cell_start()
     }
 
     /// The controls used on `tick`. Only changes and presses are kept.

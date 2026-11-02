@@ -154,6 +154,17 @@ fn shortcut_for_target(
     }
 }
 
+/// Leave room in the introducer's 512 KiB request limit for the report text,
+/// log, facts, and optional voice transcript. Include JSON string escaping.
+const MAX_REPORT_REPLAY: usize = 256 * 1024;
+
+fn replay_too_large(replay: &str) -> bool {
+    if replay.len() > MAX_REPORT_REPLAY {
+        return true;
+    }
+    serde_json::to_vec(replay).map_or(true, |bytes| bytes.len() > MAX_REPORT_REPLAY)
+}
+
 /// What the form sends to the introducer (`tools/introducer`'s `Report`):
 /// the voice chat only when the player ticked it and left something in it.
 pub(crate) fn payload(
@@ -164,13 +175,20 @@ pub(crate) fn payload(
     log: &str,
     voice: Option<&str>,
 ) -> serde_json::Value {
+    let omitted = replay_too_large(replay);
     let mut body = serde_json::json!({
         "kind": if idea { "idea" } else { "bug" },
         "text": text,
         "facts": facts,
-        "replay": replay,
+        "replay": if omitted { "" } else { replay },
         "log": log,
     });
+    if omitted && let Some(facts) = body["facts"].as_array_mut() {
+        facts.push(serde_json::json!([
+            "Replay",
+            "Omitted: the saved terrain checkpoint is too large for a report."
+        ]));
+    }
     if let Some(voice) = voice.map(str::trim).filter(|v| !v.is_empty()) {
         body["voice"] = voice.into();
     }
@@ -340,12 +358,17 @@ mod web {
             facts.push(("Co-op".into(), coop));
         }
         let replay = sim.recording().map(|r| r.to_text()).unwrap_or_default();
+        let replay_omitted = super::replay_too_large(&replay);
         with(|f| {
             f.facts = facts;
             f.replay = replay;
         });
         wire();
-        note("");
+        note(if replay_omitted {
+            "Replay omitted from this report because its saved terrain is too large."
+        } else {
+            ""
+        });
         voice_offer();
         let _ = form.remove_attribute("hidden");
         if let Some(t) = text_box() {
@@ -823,6 +846,19 @@ mod tests {
             "ticked but all deleted: none"
         );
         assert_eq!(payload(true, "x", &[], "", "", None)["kind"], "idea");
+    }
+
+    #[test]
+    fn oversized_replay_is_omitted_instead_of_exceeding_report_limit() {
+        let oversized = "x".repeat(MAX_REPORT_REPLAY + 1);
+        let body = payload(false, "stuck", &[], &oversized, "log", None);
+        assert_eq!(body["replay"], "");
+        assert!(body["facts"].to_string().contains("Omitted"));
+        assert!(serde_json::to_vec(&body).unwrap().len() < 512 * 1024);
+        // JSON escaping can enlarge even a shorter replay.
+        assert!(replay_too_large(&"\"".repeat(MAX_REPORT_REPLAY / 2 + 1)));
+        let small = payload(false, "stuck", &[], "world cells\n", "log", None);
+        assert_eq!(small["replay"], "world cells\n");
     }
 
     #[test]

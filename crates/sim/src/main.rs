@@ -157,7 +157,13 @@ fn run() -> Result<(), String> {
         });
 
     let mut sim = Sim::with_one_crab(o.replay.start);
-    if o.replay.cellular {
+    if o.replay.has_cell_start() && o.record.is_some() {
+        return Err("re-recording a saved cellular replay is not supported yet".into());
+    }
+    if !o.replay.prepare_start(&mut sim) {
+        return Err("could not restore the replay's cellular starting state".into());
+    }
+    if o.replay.cellular && sim.level.cells.is_none() {
         sim.enable_underwater_cells();
     }
     // A feel switch on the first tick is the feel it was recorded with.
@@ -174,7 +180,9 @@ fn run() -> Result<(), String> {
              ({code:016x}, now {expected:016x}), so it may play out differently"
         );
     }
-    sim.start_recording();
+    if !o.replay.has_cell_start() {
+        sim.start_recording();
+    }
 
     let mut dump: Option<Box<dyn Write>> = match o.dump.as_deref() {
         None => None,
@@ -186,6 +194,7 @@ fn run() -> Result<(), String> {
 
     // Numbers for the summary.
     let mut summary = Summary::new(&sim);
+    let start_time = sim.time();
     let started = Instant::now();
     let mut write_error = None;
     let mut playback = o.replay.playback();
@@ -207,7 +216,7 @@ fn run() -> Result<(), String> {
         }
         // At a chosen speed, wait until real time catches up with game time.
         if let Some(speed) = o.speed {
-            let due = Duration::from_secs_f64(sim.time() / speed);
+            let due = Duration::from_secs_f64((sim.time() - start_time) / speed);
             if let Some(wait) = due.checked_sub(started.elapsed()) {
                 if let Some(out) = &mut dump {
                     let _ = out.flush(); // so a watcher sees each line as it happens
@@ -250,6 +259,8 @@ fn run() -> Result<(), String> {
 /// What the summary at the end reports.
 struct Summary {
     start: (f32, f32),
+    start_tick: u64,
+    start_time: f64,
     highest: f32,
     lowest: f32,
     fastest_landing: f32,
@@ -264,6 +275,8 @@ impl Summary {
         let p = sim.crabs()[0].mover.pos;
         Self {
             start: (p.x, p.y),
+            start_tick: sim.tick_count(),
+            start_time: sim.time(),
             highest: p.y,
             lowest: p.y,
             fastest_landing: 0.0,
@@ -330,7 +343,7 @@ impl Summary {
                 let p = crab.mover.pos;
                 self.timeline.push(format!(
                     "{:.3}s {name} at ({:.1}, {:.1})",
-                    sim.time(),
+                    sim.time() - self.start_time,
                     p.x,
                     p.y
                 ));
@@ -342,13 +355,15 @@ impl Summary {
         let crab = &sim.crabs()[0];
         let m = &crab.mover;
         let secs = elapsed.as_secs_f64().max(1e-9);
+        let ticks = sim.tick_count() - self.start_tick;
+        let game_time = sim.time() - self.start_time;
         println!(
             "ran {} ticks ({:.2} s of game time) in {:.3} s: {:.0} ticks/s, {:.0}x real time",
-            sim.tick_count(),
-            sim.time(),
+            ticks,
+            game_time,
             elapsed.as_secs_f64(),
-            sim.tick_count() as f64 / secs,
-            sim.time() / secs,
+            ticks as f64 / secs,
+            game_time / secs,
         );
         println!(
             "crab: start ({:.1}, {:.1}) -> end ({:.1}, {:.1}), velocity ({:.1}, {:.1}), {}, health {}, poise {}",

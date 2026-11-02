@@ -1711,10 +1711,19 @@ impl Sim {
     /// be replayed later. Call this before the first tick: a replay starts
     /// from a crab standing still.
     pub fn start_recording(&mut self) {
-        // A mid-session cellular replay needs its starting terrain checkpoint.
-        // Until that is included, never emit an apparently exact replay from
-        // an already disturbed world.
-        if self.level.cells.is_some() && self.tick != 0 {
+        // A saved cellular session can start after tick zero. Arbitrary
+        // mid-session recordings would also need enemy, RNG, and transient
+        // player state; accept only a reproducible pre-population startup.
+        let resumed_cells = self.level.cells.is_some() && self.tick != 0;
+        if resumed_cells
+            && (self.net.is_some()
+                || !self.enemies.is_empty()
+                || self.next_enemy != 0
+                || self.crabs.len() != 1
+                || self.crabs[0].id != PlayerId(0)
+                || self.crabs[0].remote
+                || self.rng != Rng::new(SEED))
+        {
             self.recorder = None;
             return;
         }
@@ -1741,6 +1750,25 @@ impl Sim {
         if self.feel != Feel::default() {
             rec.note_feel(self.tick, self.feel);
         }
+        if resumed_cells {
+            let Some(terrain) = &self.level.cells else {
+                self.recorder = None;
+                return;
+            };
+            if !rec.note_cell_start(terrain, self.tick) {
+                self.recorder = None;
+                return;
+            }
+            // Verify the actual player/shared state is the state the replay
+            // format reconstructs. Never claim an exact replay otherwise.
+            let replay = rec.replay(self.tick);
+            let mut restored = Sim::with_one_crab(start);
+            replay.apply_at(&mut restored);
+            if restored.state_hash() != self.state_hash() {
+                self.recorder = None;
+                return;
+            }
+        }
         self.recorder = Some(rec);
     }
 
@@ -1748,7 +1776,7 @@ impl Sim {
     /// tick also carries the state hash now, which playing it again must reproduce.
     pub fn recording(&self) -> Option<crate::Replay> {
         self.recorder.as_ref().map(|r| crate::Replay {
-            hash: (r.first_tick == 0).then(|| self.state_hash()),
+            hash: (r.first_tick == 0 || r.has_cell_start()).then(|| self.state_hash()),
             ..r.replay(self.tick)
         })
     }
