@@ -99,20 +99,20 @@ fn write_published(
     meta.stage_id = 0;
     meta.stage_guarded = false;
     store
-        .delete(&JsValue::from_str("stage-source-proof"))
+        .delete(&JsValue::from_str("v3:stage-source-proof"))
         .map_err(|e| err("clear stage source proof", e))?;
-    put(store, "head", &stage.encode().ok_or("stage too large")?)?;
+    put(store, "v3:head", &stage.encode().ok_or("stage too large")?)?;
     match source {
-        Some(proof) => put(store, "source-proof", &proof.encode())?,
+        Some(proof) => put(store, "v3:source-proof", &proof.encode())?,
         None => {
             store
-                .delete(&JsValue::from_str("source-proof"))
+                .delete(&JsValue::from_str("v3:source-proof"))
                 .map_err(|e| err("clear source proof", e))?;
         }
     }
-    put(store, "meta", &meta.encode())?;
+    put(store, "v3:meta", &meta.encode())?;
     store
-        .delete(&JsValue::from_str("stage"))
+        .delete(&JsValue::from_str("v3:stage"))
         .map_err(|e| err("delete stage", e))?;
     Ok(())
 }
@@ -214,8 +214,9 @@ impl ChunkStore {
                 .ok()
                 .and_then(|v| v.dyn_into::<IdbDatabase>().ok())
                 .is_some_and(|db| {
-                    db.create_object_store(STORE)
-                        .is_ok_and(|store| put(&store, "meta", &Meta::default().encode()).is_ok())
+                    db.create_object_store(STORE).is_ok_and(|store| {
+                        put(&store, "v3:meta", &Meta::default().encode()).is_ok()
+                    })
                 });
             if !ok && let Some(tx) = upgrade_req.transaction() {
                 let _ = tx.abort();
@@ -345,13 +346,13 @@ impl ChunkStore {
             .map_err(|e| err("transaction", e))?;
         let store = tx.object_store(STORE).map_err(|e| err("object store", e))?;
         let mut requests: Vec<_> = [
-            "meta",
-            "stage",
-            "head",
-            "pin",
-            "source-proof",
-            "pin-source-proof",
-            "stage-source-proof",
+            "v3:meta",
+            "v3:stage",
+            "v3:head",
+            "v3:pin",
+            "v3:source-proof",
+            "v3:pin-source-proof",
+            "v3:stage-source-proof",
         ]
         .into_iter()
         .map(|k| store.get(&JsValue::from_str(k)).map_err(|e| err("get", e)))
@@ -533,7 +534,7 @@ impl ChunkStore {
             "v3:initialized",
             "active",
             "reset_epoch",
-            "v3:source-proof",
+            "v3:init-source",
         ]
         .into_iter()
         .map(|key| {
@@ -586,7 +587,7 @@ impl ChunkStore {
                             .ok_or("invalid initializer key")?;
                         if matches!(
                             key.as_str(),
-                            "v3:initialized" | "v3:meta" | "v3:source-proof"
+                            "v3:initialized" | "v3:meta" | "v3:init-source"
                         ) {
                             cursor
                                 .continue_()
@@ -643,7 +644,7 @@ impl ChunkStore {
                             };
                             put(&store, "v3:meta", &fresh.encode())?;
                             put(&store, "v3:initialized", &[1])?;
-                            put(&store, "v3:source-proof", &captured.encode())?;
+                            put(&store, "v3:init-source", &captured.encode())?;
                             Ok(LegacyInit::Created(captured))
                         }
                         (Some(raw), Some(marker), Some(proof)) if marker == [1] => {
@@ -736,6 +737,9 @@ impl ChunkStore {
             if meta.epoch != session_epoch {
                 return Err("stale session".into());
             }
+            if meta.head_guarded {
+                return Err("guarded head requires source-bound stage".into());
+            }
             if stage.is_some() {
                 return Err("writer busy".into());
             }
@@ -753,8 +757,8 @@ impl ChunkStore {
                 player,
                 parts: Vec::new(),
             };
-            put(store, "meta", &meta.encode())?;
-            put(store, "stage", &stage.encode().ok_or("stage too large")?)?;
+            put(store, "v3:meta", &meta.encode())?;
+            put(store, "v3:stage", &stage.encode().ok_or("stage too large")?)?;
             Ok(h)
         })
         .await
@@ -799,9 +803,9 @@ impl ChunkStore {
                     player,
                     parts: Vec::new(),
                 };
-                put(store, "meta", &meta.encode())?;
-                put(store, "stage", &stage.encode().ok_or("stage too large")?)?;
-                put(store, "stage-source-proof", &proof.encode())?;
+                put(store, "v3:meta", &meta.encode())?;
+                put(store, "v3:stage", &stage.encode().ok_or("stage too large")?)?;
+                put(store, "v3:stage-source-proof", &proof.encode())?;
                 Ok(handle)
             },
         )
@@ -822,13 +826,13 @@ impl ChunkStore {
             }
             for bytes in parts {
                 let index = stage.parts.len();
-                put(store, &format!("chunk:{}:{index}", h.id), &bytes)?;
+                put(store, &format!("v3:chunk:{}:{index}", h.id), &bytes)?;
                 stage.parts.push(Part {
                     digest: digest(&bytes),
                     len: bytes.len() as u32,
                 });
             }
-            put(store, "stage", &stage.encode().ok_or("stage too large")?)?;
+            put(store, "v3:stage", &stage.encode().ok_or("stage too large")?)?;
             Ok(())
         })
         .await
@@ -918,6 +922,9 @@ impl ChunkStore {
                     if source != stage_proof {
                         return Err("stage source proof mismatch".into());
                     }
+                    if source.is_none() && meta.head_guarded {
+                        return Err("guarded head requires source-bound publication".into());
+                    }
                     if let Some(proof) = source {
                         let bytes = part.ok_or("missing legacy source")?;
                         if !epoch.is_some_and(|epoch| proof.matches(epoch, &bytes)) {
@@ -980,7 +987,7 @@ impl ChunkStore {
                             let next = state
                                 .store
                                 .get(&JsValue::from_str(&format!(
-                                    "chunk:{}:{}",
+                                    "v3:chunk:{}:{}",
                                     state.stage.id, state.index
                                 )))
                                 .map_err(|e| err("read staged part", e))?;
@@ -1003,7 +1010,7 @@ impl ChunkStore {
                     });
                     *closure_holder.borrow_mut() = Some(callback);
                     let request = store
-                        .get(&JsValue::from_str(&format!("chunk:{}:0", h.id)))
+                        .get(&JsValue::from_str(&format!("v3:chunk:{}:0", h.id)))
                         .map_err(|e| err("read staged part", e))?;
                     let callback = closure_holder.borrow();
                     request.set_onsuccess(Some(
@@ -1034,14 +1041,14 @@ impl ChunkStore {
                 return Err("stale writer".into());
             }
             store
-                .delete(&JsValue::from_str("stage"))
+                .delete(&JsValue::from_str("v3:stage"))
                 .map_err(|e| err("delete stage", e))?;
             meta.stage_id = 0;
             meta.stage_guarded = false;
             store
-                .delete(&JsValue::from_str("stage-source-proof"))
+                .delete(&JsValue::from_str("v3:stage-source-proof"))
                 .map_err(|e| err("delete stage source proof", e))?;
-            put(store, "meta", &meta.encode())?;
+            put(store, "v3:meta", &meta.encode())?;
             Ok(())
         })
         .await
@@ -1099,8 +1106,8 @@ impl ChunkStore {
             // The pinned copy no longer needs the head's base revision;
             // reuse that field as a monotonically increasing reader token.
             head.base = h.token;
-            put(store, "meta", &meta.encode())?;
-            put(store, "pin", &head.encode().ok_or("pin too large")?)?;
+            put(store, "v3:meta", &meta.encode())?;
+            put(store, "v3:pin", &head.encode().ok_or("pin too large")?)?;
             Ok(h)
         })
         .await
@@ -1135,10 +1142,37 @@ impl ChunkStore {
                 meta.pin_token = handle.token;
                 meta.pin_guarded = true;
                 head.base = handle.token;
-                put(store, "meta", &meta.encode())?;
-                put(store, "pin", &head.encode().ok_or("pin too large")?)?;
-                put(store, "pin-source-proof", &proof.encode())?;
+                put(store, "v3:meta", &meta.encode())?;
+                put(store, "v3:pin", &head.encode().ok_or("pin too large")?)?;
+                put(store, "v3:pin-source-proof", &proof.encode())?;
                 Ok(handle)
+            },
+        )
+        .await
+    }
+
+    /// Read guarded pin metadata only while its source proof still matches.
+    async fn source_guarded_pin_info(&self, h: PinHandle) -> Result<Stage, String> {
+        let proof = h.source.ok_or("pin is not source guarded")?;
+        self.transaction_impl(
+            Some("active".into()),
+            false,
+            MAX_LEGACY_SOURCE,
+            true,
+            move |meta, _, _, pin, bytes, epoch, _, pin_proof, _, _| {
+                let bytes = bytes.ok_or("missing legacy source")?;
+                if pin_proof != Some(proof) || !epoch.is_some_and(|e| proof.matches(e, &bytes)) {
+                    return Err("legacy source changed or reset".into());
+                }
+                let pin = pin.ok_or("missing pin")?;
+                if meta.epoch != h.epoch
+                    || pin.epoch != h.epoch
+                    || pin.id != h.id
+                    || pin.base != h.token
+                {
+                    return Err("stale pin".into());
+                }
+                Ok(pin)
             },
         )
         .await
@@ -1182,7 +1216,7 @@ impl ChunkStore {
                     }
                     let descriptor = pin.parts.get(index).ok_or("missing descriptor")?.clone();
                     let request = store
-                        .get(&JsValue::from_str(&format!("chunk:{}:{index}", h.id)))
+                        .get(&JsValue::from_str(&format!("v3:chunk:{}:{index}", h.id)))
                         .map_err(|e| err("read pinned chunk", e))?;
                     let req = request.clone();
                     let tx = store.transaction();
@@ -1250,14 +1284,14 @@ impl ChunkStore {
                 return Err("stale pin".into());
             }
             store
-                .delete(&JsValue::from_str("pin"))
+                .delete(&JsValue::from_str("v3:pin"))
                 .map_err(|e| err("delete pin", e))?;
             store
-                .delete(&JsValue::from_str("pin-source-proof"))
+                .delete(&JsValue::from_str("v3:pin-source-proof"))
                 .map_err(|e| err("delete pin source proof", e))?;
             meta.pin_token = 0;
             meta.pin_guarded = false;
-            put(store, "meta", &meta.encode())?;
+            put(store, "v3:meta", &meta.encode())?;
             Ok(())
         })
         .await
@@ -1299,7 +1333,7 @@ impl ChunkStore {
             return Err("part index limit".into());
         }
         self.transaction_unguarded(
-            Some(format!("chunk:{}:{index}", h.id)),
+            Some(format!("v3:chunk:{}:{index}", h.id)),
             true,
             move |meta, _, _, pin, part, _| {
                 let pin = pin.ok_or("missing pin")?;
@@ -1327,7 +1361,7 @@ impl ChunkStore {
             return Err("part index limit".into());
         }
         self.transaction_unguarded(
-            Some(format!("chunk:{}:{index}", h.id)),
+            Some(format!("v3:chunk:{}:{index}", h.id)),
             false,
             move |meta, _, head, _, part, _| {
                 let head = head.ok_or("missing head")?;
@@ -1355,7 +1389,7 @@ impl ChunkStore {
             || limit > 32
             || after
                 .as_ref()
-                .is_some_and(|s| !s.starts_with("chunk:") || s.len() > 80)
+                .is_some_and(|s| !s.starts_with("v3:chunk:") || s.len() > 80)
         {
             return Err("invalid collection page".into());
         }
@@ -1364,8 +1398,8 @@ impl ChunkStore {
             .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readonly)
             .map_err(|e| err("scan transaction", e))?;
         let store = tx.object_store(STORE).map_err(|e| err("scan store", e))?;
-        let lower = JsValue::from_str(after.as_deref().unwrap_or("chunk:"));
-        let upper = JsValue::from_str("chunk:\u{ffff}");
+        let lower = JsValue::from_str(after.as_deref().unwrap_or("v3:chunk:"));
+        let upper = JsValue::from_str("v3:chunk:\u{ffff}");
         let range = IdbKeyRange::bound_with_lower_open(&lower, &upper, after.is_some())
             .map_err(|e| err("scan range", e))?;
         let request = store
@@ -1467,21 +1501,13 @@ impl ChunkStore {
                 };
                 let mut deleted = 0;
                 for key in keys {
-                    let mut components = key.split(':');
-                    let parsed = match (
-                        components.next(),
-                        components.next(),
-                        components.next(),
-                        components.next(),
-                    ) {
-                        (Some("chunk"), Some(id), Some(index), None) => {
-                            id.parse::<u64>().ok().zip(index.parse::<usize>().ok())
-                        }
-                        _ => None,
-                    };
+                    let parsed = key.strip_prefix("v3:chunk:").and_then(|rest| {
+                        let (id, index) = rest.split_once(':')?;
+                        id.parse::<u64>().ok().zip(index.parse::<usize>().ok())
+                    });
                     // Unknown or noncanonical keys are never collected.
                     if let Some((id, index)) = parsed
-                        && key == format!("chunk:{id}:{index}")
+                        && key == format!("v3:chunk:{id}:{index}")
                         && !referenced(id, index)
                     {
                         store
@@ -1496,7 +1522,59 @@ impl ChunkStore {
         Ok((deleted, next))
     }
 
-    pub async fn reset(&self) -> Result<(), String> {
+    /// Isolated model of a reset shared by legacy and v3 in one object store.
+    /// Unreachable chunks remain for bounded collection; unrelated keys stay.
+    async fn reset_legacy_and_v3(&self) -> Result<(), String> {
+        self.transaction_impl(
+            Some("reset_epoch".into()),
+            true,
+            8,
+            false,
+            |mut meta, _, _, _, raw_epoch, _, _, _, _, store| {
+                let epoch = match raw_epoch {
+                    None => 0,
+                    Some(bytes) => u64::from_le_bytes(
+                        bytes
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_| "invalid legacy epoch")?,
+                    ),
+                };
+                if epoch != meta.epoch {
+                    return Err("legacy and migration epochs differ".into());
+                }
+                let next = epoch.checked_add(1).ok_or("reset epoch exhausted")?;
+                meta.epoch = next;
+                meta.revision = meta.revision.checked_add(1).ok_or("revision exhausted")?;
+                meta.head_id = 0;
+                meta.stage_id = 0;
+                meta.pin_token = 0;
+                meta.head_guarded = false;
+                meta.pin_guarded = false;
+                meta.stage_guarded = false;
+                for key in [
+                    "active",
+                    "v3:head",
+                    "v3:stage",
+                    "v3:pin",
+                    "v3:source-proof",
+                    "v3:pin-source-proof",
+                    "v3:stage-source-proof",
+                ] {
+                    store
+                        .delete(&JsValue::from_str(key))
+                        .map_err(|e| err("reset delete", e))?;
+                }
+                put(store, "reset_epoch", &next.to_le_bytes())?;
+                put(store, "v3:meta", &meta.encode())?;
+                Ok(())
+            },
+        )
+        .await
+    }
+
+    #[cfg(feature = "browser-proof")]
+    async fn reset_fixture(&self) -> Result<(), String> {
         self.transaction(None, true, |mut meta, _, _, _, _, store| {
             meta.epoch = meta.epoch.checked_add(1).ok_or("epoch overflow")?;
             meta.revision = meta.revision.checked_add(1).ok_or("revision overflow")?;
@@ -1507,7 +1585,7 @@ impl ChunkStore {
             meta.pin_guarded = false;
             meta.stage_guarded = false;
             store.clear().map_err(|e| err("clear", e))?;
-            put(store, "meta", &meta.encode())?;
+            put(store, "v3:meta", &meta.encode())?;
             Ok(())
         })
         .await
@@ -1828,7 +1906,7 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
         .begin_load(PageId::Active(0, 0))
         .map_err(|e| format!("late ticket: {e:?}"))?;
     let pending = db.pinned_part(pin, 2).await?;
-    db.reset().await?;
+    db.reset_fixture().await?;
     view.invalidate();
     reset_guard.invalidate();
     if reset_guard.accept_sleeping(guard_ticket, &guard_pending) != Err(GuardedError::Stale) {
@@ -2097,39 +2175,6 @@ fn prepare_migration(
     Ok((player, frozen, index))
 }
 
-#[cfg(feature = "browser-proof")]
-async fn source_bytes(db: &ChunkStore) -> Result<Vec<u8>, String> {
-    let pin = db.pin().await?;
-    let head = db.pin_info(pin).await?;
-    let mut bytes = Vec::new();
-    for slot in 0..head.parts.len() {
-        let part = db.pinned_part(pin, slot).await?;
-        if bytes
-            .len()
-            .checked_add(part.len())
-            .is_none_or(|n| n > 8 * 1024 * 1024)
-        {
-            return Err("legacy fixture too large".into());
-        }
-        bytes.extend_from_slice(&part);
-    }
-    db.unpin(pin).await?;
-    Ok(bytes)
-}
-
-#[cfg(feature = "browser-proof")]
-async fn seed_source(db: &ChunkStore, bytes: &[u8]) -> Result<(), String> {
-    db.reset().await?;
-    let h = db
-        .begin(db.epoch().await?, 1, b"legacy envelope".to_vec())
-        .await?;
-    let parts: Vec<Vec<u8>> = bytes.chunks(MAX_PART).map(|b| b.to_vec()).collect();
-    for group in parts.chunks(MAX_BATCH) {
-        db.stage(h, group.to_vec()).await?;
-    }
-    db.publish(h, parts.len()).await
-}
-
 /// Phase one persists a real SaveData and frozen terrain. The runner reloads
 /// the browser document and Wasm instance before starting phase two.
 #[cfg(feature = "browser-proof")]
@@ -2138,20 +2183,25 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
     async fn run(name: &str) -> Result<(), String> {
         let (sim, player) = reload_fixture()?;
         for version in [1, 2] {
-            let source = ChunkStore::open(&format!("{name}.legacy-v{version}")).await?;
             let db = ChunkStore::open(&format!("{name}.migrated-v{version}")).await?;
             let legacy = legacy_fixture(&sim, &player, version)?;
-            seed_source(&source, &legacy).await?;
-            db.reset().await?;
+            db.reset_fixture().await?;
+            raw_legacy_edit(&db, vec![("active", legacy.clone())], vec!["v3:meta"]).await?;
+            let proof = match db.init_legacy_namespace().await? {
+                LegacyInit::Created(proof) => proof,
+                _ => return Err("migration namespace was not freshly initialized".into()),
+            };
             let epoch = db.epoch().await?;
             // Keep a previous target head while testing a failed/incomplete migration.
             let previous = db.begin(epoch, 1, b"previous".to_vec()).await?;
             db.stage(previous, vec![b"previous head".to_vec()]).await?;
             db.publish(previous, 1).await?;
-            let original = source_bytes(&source).await?;
-            // Valid CRC does not make impossible player progress safe. Keep a
-            // separate malformed source intact and retain the previous head.
-            let invalid_source = ChunkStore::open(&format!("{name}.invalid-v{version}")).await?;
+            let (original, captured) = db.read_source().await?;
+            if captured != proof {
+                return Err("legacy source changed after initialization".into());
+            }
+            // Valid CRC does not make impossible player progress safe. Test
+            // malformed bytes in the same source store as the previous head.
             let mut invalid_player = player.clone();
             invalid_player
                 .progress
@@ -2159,8 +2209,8 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
                 .ok_or("missing progress")?
                 .upgrades = u32::MAX;
             let invalid = legacy_fixture(&sim, &invalid_player, version)?;
-            seed_source(&invalid_source, &invalid).await?;
-            let invalid_read = source_bytes(&invalid_source).await?;
+            raw_legacy_edit(&db, vec![("active", invalid.clone())], vec![]).await?;
+            let (invalid_read, _) = db.read_source().await?;
             if crabsim::cell_codec::decode(&invalid_read).is_err()
                 || migration_decode(&invalid_read, &sim).is_ok()
             {
@@ -2168,7 +2218,7 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
             }
             let unchanged = db.pin().await?;
             if db.pinned_part(unchanged, 0).await? != b"previous head"
-                || source_bytes(&invalid_source).await? != invalid
+                || db.read_source().await?.0 != invalid
             {
                 return Err("invalid player changed prior data".into());
             }
@@ -2179,8 +2229,8 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
                 return Err("missing fixture XP".into());
             }
             let infinite = legacy_fixture_json(&sim, infinite_json.into_bytes(), version)?;
-            seed_source(&invalid_source, &infinite).await?;
-            let infinite_read = source_bytes(&invalid_source).await?;
+            raw_legacy_edit(&db, vec![("active", infinite.clone())], vec![]).await?;
+            let (infinite_read, _) = db.read_source().await?;
             if crabsim::cell_codec::decode(&infinite_read).is_err()
                 || migration_decode(&infinite_read, &sim).is_ok()
             {
@@ -2188,7 +2238,7 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
             }
             let unchanged = db.pin().await?;
             if db.pinned_part(unchanged, 0).await? != b"previous head"
-                || source_bytes(&invalid_source).await? != infinite
+                || db.read_source().await?.0 != infinite
             {
                 return Err("nonfinite player changed prior data".into());
             }
@@ -2196,19 +2246,20 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
             let mut unsafe_player = player.clone();
             unsafe_player.x = sim.level.max_x + 1000.0;
             let unsafe_bytes = legacy_fixture(&sim, &unsafe_player, version)?;
-            seed_source(&invalid_source, &unsafe_bytes).await?;
-            let unsafe_read = source_bytes(&invalid_source).await?;
+            raw_legacy_edit(&db, vec![("active", unsafe_bytes.clone())], vec![]).await?;
+            let (unsafe_read, _) = db.read_source().await?;
             let unsafe_saved = migration_decode(&unsafe_read, &sim)?;
             if prepare_migration(&unsafe_saved).is_ok() {
                 return Err("unsafe saved position accepted".into());
             }
             let unchanged = db.pin().await?;
             if db.pinned_part(unchanged, 0).await? != b"previous head"
-                || source_bytes(&invalid_source).await? != unsafe_bytes
+                || db.read_source().await?.0 != unsafe_bytes
             {
                 return Err("unsafe position changed prior data".into());
             }
             db.unpin(unchanged).await?;
+            raw_legacy_edit(&db, vec![("active", original.clone())], vec![]).await?;
             // Cross-world/legacy progress can contain more upgrades than this
             // level's eggs and shorter old lists; it must remain compatible.
             let mut compatible = player.clone();
@@ -2235,10 +2286,14 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
             }
             let (player_bytes, frozen, index) = prepare_migration(&restored)?;
             let interrupted = db
-                .begin(epoch, restored.sim_tick, player_bytes.clone())
+                .begin_from_source(epoch, restored.sim_tick, player_bytes.clone(), proof)
                 .await?;
             db.stage(interrupted, vec![index.encode()]).await?;
-            if db.publish(interrupted, index.part_count()).await.is_ok() {
+            if db
+                .publish_from_source(interrupted, index.part_count(), proof)
+                .await
+                .is_ok()
+            {
                 return Err("incomplete migration published".into());
             }
             // A new connection discovers an interrupted stage and can fence it
@@ -2251,12 +2306,14 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
             db.abandon(interrupted).await?;
             let pin = db.pin().await?;
             if db.pinned_part(pin, 0).await? != b"previous head"
-                || source_bytes(&source).await? != original
+                || db.read_source().await?.0 != original
             {
                 return Err("failed migration changed prior data".into());
             }
             db.unpin(pin).await?;
-            let handle = db.begin(epoch, restored.sim_tick, player_bytes).await?;
+            let handle = db
+                .begin_from_source(epoch, restored.sim_tick, player_bytes, proof)
+                .await?;
             let mut batch = vec![
                 index.encode(),
                 frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?,
@@ -2286,19 +2343,18 @@ pub async fn reload_prepare(name: String) -> Result<(), JsValue> {
             if !batch.is_empty() {
                 db.stage(handle, batch).await?;
             }
-            db.publish(handle, count).await?;
-            if source_bytes(&source).await? != original {
+            db.publish_from_source(handle, count, proof).await?;
+            if db.read_source().await?.0 != original {
                 return Err("migration changed legacy source".into());
             }
             let reset_db = ChunkStore::open(&format!("{name}.reset-v{version}")).await?;
-            reset_db.reset().await?;
+            reset_db.reset_fixture().await?;
             let stale = reset_db
                 .begin(reset_db.epoch().await?, restored.sim_tick, vec![])
                 .await?;
             reset_db.stage(stale, vec![b"pending".to_vec()]).await?;
-            reset_db.reset().await?;
-            if reset_db.publish(stale, 1).await.is_ok() || source_bytes(&source).await? != original
-            {
+            reset_db.reset_fixture().await?;
+            if reset_db.publish(stale, 1).await.is_ok() || db.read_source().await?.0 != original {
                 return Err("reset allowed a stale migration".into());
             }
         }
@@ -2317,11 +2373,10 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
             underwater::frozen_chunks::{GuardedBuilder, GuardedError, IndexVerifier, SavedSetup},
         };
         let db = ChunkStore::open(&format!("{name}.migrated-v{version}")).await?;
-        let source = ChunkStore::open(&format!("{name}.legacy-v{version}")).await?;
-        let pin = db.pin().await?;
-        let pinned = db.pin_info(pin).await?;
+        let pin = db.source_guarded_pin().await?;
+        let pinned = db.source_guarded_pin_info(pin).await?;
         let (mut reference, expected_player) = reload_fixture()?;
-        let original = source_bytes(&source).await?;
+        let (original, _) = db.read_source().await?;
         if original != legacy_fixture(&reference, &expected_player, version)? {
             return Err("legacy source changed across reload".into());
         }
@@ -2346,8 +2401,8 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
         if actual_player != expected_player || pinned.tick != reference.tick_count() {
             return Err("reloaded player/progress/tick differ".into());
         }
-        let index_bytes = db.pinned_part(pin, 0).await?;
-        let metadata = db.pinned_part(pin, 1).await?;
+        let index_bytes = db.source_guarded_part(pin, 0).await?;
+        let metadata = db.source_guarded_part(pin, 1).await?;
         let mut verifier = IndexVerifier::new(
             &index_bytes,
             &metadata,
@@ -2360,11 +2415,11 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
         .map_err(|e| format!("verify: {e:?}"))?;
         for slot in 2..pinned.parts.len() {
             verifier
-                .accept(slot, &db.pinned_part(pin, slot).await?)
+                .accept(slot, &db.source_guarded_part(pin, slot).await?)
                 .map_err(|e| format!("verify page: {e:?}"))?;
         }
         let verified = verifier.finish().map_err(|e| format!("index: {e:?}"))?;
-        db.pin_info(pin).await?;
+        db.source_guarded_pin_info(pin).await?;
         let ids = verified.sleeping().to_vec();
         let cols = crabsim::underwater::WIDTH.div_ceil(64);
         let rows = crabsim::underwater::HEIGHT.div_ceil(64);
@@ -2389,11 +2444,12 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
                     .active(
                         x as u16,
                         y as u16,
-                        &db.pinned_part(pin, 2 + y * cols + x).await?,
+                        &db.source_guarded_part(pin, 2 + y * cols + x).await?,
                     )
                     .map_err(|e| format!("active: {e:?}"))?;
             }
         }
+        db.source_guarded_pin_info(pin).await?;
         let mut guarded = builder.install().map_err(|e| format!("install: {e:?}"))?;
         if guarded.player() != reference.crab(PlayerId(0))
             || guarded.tick() != Some(reference.tick_count())
@@ -2424,9 +2480,13 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
                 .begin_sleeping(id)
                 .map_err(|e| format!("ticket: {e:?}"))?;
             guarded
-                .accept_sleeping(ticket, &db.pinned_part(pin, 2 + cols * rows + slot).await?)
+                .accept_sleeping(
+                    ticket,
+                    &db.source_guarded_part(pin, 2 + cols * rows + slot).await?,
+                )
                 .map_err(|e| format!("sleeping: {e:?}"))?;
         }
+        db.source_guarded_pin_info(pin).await?;
         guarded
             .step(Controls::default())
             .map_err(|e| format!("transition: {e:?}"))?;
@@ -2487,7 +2547,7 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
                         guarded
                             .accept_sleeping(
                                 ticket,
-                                &db.pinned_part(pin, 2 + cols * rows + slot).await?,
+                                &db.source_guarded_part(pin, 2 + cols * rows + slot).await?,
                             )
                             .map_err(|e| format!("next sleeping: {e:?}"))?;
                     }
@@ -2501,10 +2561,14 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
         for (slot, &id) in ids.iter().enumerate() {
             if let Ok(ticket) = guarded.begin_sleeping(id) {
                 guarded
-                    .accept_sleeping(ticket, &db.pinned_part(pin, 2 + cols * rows + slot).await?)
+                    .accept_sleeping(
+                        ticket,
+                        &db.source_guarded_part(pin, 2 + cols * rows + slot).await?,
+                    )
                     .map_err(|e| format!("hydrate: {e:?}"))?;
             }
         }
+        db.source_guarded_pin_info(pin).await?;
         let restored = guarded.finish().map_err(|e| format!("finish: {e:?}"))?;
         if restored.state_hash_streamed() != reference.state_hash_streamed() {
             return Err("reloaded full state/pebble ownership differs".into());
@@ -2538,7 +2602,7 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
                     .active(
                         x as u16,
                         y as u16,
-                        &db.pinned_part(pin, 2 + y * cols + x).await?,
+                        &db.source_guarded_part(pin, 2 + y * cols + x).await?,
                     )
                     .map_err(|e| format!("reset active: {e:?}"))?;
             }
@@ -2549,11 +2613,11 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
         let ticket = reset_guard
             .begin_sleeping(ids[0])
             .map_err(|e| format!("reset ticket: {e:?}"))?;
-        let pending = db.pinned_part(pin, 2 + cols * rows).await?;
-        db.reset().await?;
+        let pending = db.source_guarded_part(pin, 2 + cols * rows).await?;
+        db.reset_legacy_and_v3().await?;
         reset_guard.invalidate();
         if reset_guard.accept_sleeping(ticket, &pending) != Err(GuardedError::Stale)
-            || db.pinned_part(pin, 2).await.is_ok()
+            || db.source_guarded_part(pin, 2).await.is_ok()
         {
             return Err("reset accepted a stale reloaded page".into());
         }
@@ -2628,7 +2692,7 @@ async fn legacy_initializer_proof(name: &str) -> Result<(), String> {
     raw_legacy_edit(
         &a,
         vec![("active", b"untouched legacy".to_vec())],
-        vec!["meta"],
+        vec!["v3:meta"],
     )
     .await?;
     let (first, second) =
@@ -2727,7 +2791,7 @@ async fn legacy_initializer_proof(name: &str) -> Result<(), String> {
     raw_legacy_edit(
         &a,
         vec![("reset_epoch", vec![7])],
-        vec!["v3:chunk:orphan", "v3:source-proof"],
+        vec!["v3:chunk:orphan", "v3:init-source"],
     )
     .await?;
     if b.init_legacy_namespace().await.is_ok() {
@@ -2743,7 +2807,7 @@ async fn legacy_initializer_proof(name: &str) -> Result<(), String> {
     raw_legacy_edit(
         &writer,
         vec![("active", b"pre-reset".to_vec())],
-        vec!["meta"],
+        vec!["v3:meta"],
     )
     .await?;
     raw_legacy_edit(
@@ -2779,13 +2843,108 @@ async fn legacy_initializer_proof(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Connect the initializer, source-bound staging, guarded reads and reset in
+/// one isolated object store using the actual legacy key names.
+#[cfg(feature = "browser-proof")]
+async fn unified_legacy_store_proof(name: &str) -> Result<(), String> {
+    let dbname = format!("{name}.unified");
+    let a = ChunkStore::open(&dbname).await?;
+    let b = ChunkStore::open(&dbname).await?;
+    raw_legacy_edit(
+        &a,
+        vec![
+            ("active", b"legacy source".to_vec()),
+            ("unrelated", b"keep".to_vec()),
+        ],
+        vec!["v3:meta"],
+    )
+    .await?;
+    let proof = match a.init_legacy_namespace().await? {
+        LegacyInit::Created(proof) => proof,
+        _ => return Err("legacy store did not initialize".into()),
+    };
+    let epoch = a.epoch().await?;
+    let first = a
+        .begin_from_source(epoch, 17, b"player".to_vec(), proof)
+        .await?;
+    a.stage(first, vec![b"terrain page".to_vec()]).await?;
+    a.publish_from_source(first, 1, proof).await?;
+    let pin = a.source_guarded_pin().await?;
+    if a.source_guarded_part(pin, 0).await? != b"terrain page" {
+        return Err("unified page mismatch".into());
+    }
+    if b.init_legacy_namespace().await? != LegacyInit::Existing {
+        return Err("published head offered legacy fallback".into());
+    }
+    let pending = a
+        .begin_from_source(epoch, 18, b"later".to_vec(), proof)
+        .await?;
+    a.stage(pending, vec![b"later page".to_vec()]).await?;
+    b.reset_legacy_and_v3().await?;
+    if a.publish_from_source(pending, 1, proof).await.is_ok()
+        || a.publish(pending, 1).await.is_ok()
+        || a.source_guarded_part(pin, 0).await.is_ok()
+        || a.read_source().await.is_ok()
+    {
+        return Err("unified reset did not fence old operations".into());
+    }
+    // Model a current v2 tab retaining its old captured epoch: its check and
+    // put happen in the same transaction as the reset epoch read.
+    let old_write = a
+        .transaction_impl(
+            Some("reset_epoch".into()),
+            false,
+            8,
+            false,
+            |_, _, _, _, bytes, _, _, _, _, store| {
+                let epoch = bytes
+                    .map(|v| {
+                        v.as_slice()
+                            .try_into()
+                            .map(u64::from_le_bytes)
+                            .map_err(|_| "bad epoch".to_string())
+                    })
+                    .transpose()?
+                    .unwrap_or(0);
+                if epoch != 0 {
+                    return Err("stale v2 writer".into());
+                }
+                put(store, "active", b"stale old tab")
+            },
+        )
+        .await;
+    if old_write.is_ok() {
+        return Err("old v2 session survived unified reset".into());
+    }
+    let unrelated = a
+        .transaction(Some("unrelated".into()), false, |_, _, _, _, bytes, _| {
+            Ok(bytes)
+        })
+        .await?;
+    if unrelated.as_deref() != Some(b"keep") || a.epoch().await? != 1 {
+        return Err("unified reset damaged unrelated data or epoch".into());
+    }
+    // A later fresh legacy save must not silently reload the old migrated head.
+    raw_legacy_edit(&b, vec![("active", b"new legacy world".to_vec())], vec![]).await?;
+    if b.init_legacy_namespace().await? != LegacyInit::Existing
+        || b.source_guarded_head().await.is_ok()
+    {
+        return Err("unified reset allowed old migration fallback".into());
+    }
+    let (deleted, _) = b.collect_page(1, None, 32).await?;
+    if deleted == 0 {
+        return Err("unified reset left no collectable old chunks".into());
+    }
+    Ok(())
+}
+
 /// Same-object-store publication fence. The keys mirror current live v1/v2,
 /// but this runs only in an experimental proof database.
 #[cfg(feature = "browser-proof")]
 async fn same_store_fence(name: &str) -> Result<(), String> {
     let a = ChunkStore::open(&format!("{name}.same-store")).await?;
     let b = ChunkStore::open(&format!("{name}.same-store")).await?;
-    a.reset().await?;
+    a.reset_fixture().await?;
     a.transaction(None, false, |_, _, _, _, _, store| {
         put(store, "active", b"legacy-v2-first")?;
         // No reset_epoch is the supported legacy epoch-zero state.
@@ -2806,7 +2965,7 @@ async fn same_store_fence(name: &str) -> Result<(), String> {
     a.stage(staged, vec![b"new page".to_vec()]).await?;
     a.transaction(None, false, |_, _, _, _, _, store| {
         store
-            .delete(&JsValue::from_str("stage-source-proof"))
+            .delete(&JsValue::from_str("v3:stage-source-proof"))
             .map_err(|e| err("delete stage proof", e))?;
         Ok(())
     })
@@ -2815,14 +2974,18 @@ async fn same_store_fence(name: &str) -> Result<(), String> {
         return Err("missing stage proof bypassed fencing".into());
     }
     a.transaction(None, true, move |_, _, _, _, _, store| {
-        put(store, "stage-source-proof", &proof.encode())
+        put(store, "v3:stage-source-proof", &proof.encode())
     })
     .await?;
     if a.publish(staged, 1).await.is_ok() {
         return Err("guarded stage downgraded to generic publish".into());
     }
     a.transaction(None, false, move |_, _, _, _, _, store| {
-        put(store, &format!("chunk:{}:0", staged.id), b"corrupted page")
+        put(
+            store,
+            &format!("v3:chunk:{}:0", staged.id),
+            b"corrupted page",
+        )
     })
     .await?;
     if a.publish_from_source(staged, 1, proof).await.is_ok() || a.pending().await? != Some(staged) {
@@ -2834,7 +2997,7 @@ async fn same_store_fence(name: &str) -> Result<(), String> {
     }
     a.unpin(preserved).await?;
     a.transaction(None, false, move |_, _, _, _, _, store| {
-        put(store, &format!("chunk:{}:0", staged.id), b"new page")
+        put(store, &format!("v3:chunk:{}:0", staged.id), b"new page")
     })
     .await?;
     // An ordinary same-epoch legacy autosave must fence the pending snapshot.
@@ -2890,12 +3053,16 @@ async fn same_store_fence(name: &str) -> Result<(), String> {
     if a.source_guarded_head().await?.id != next.id {
         return Err("guarded head not readable".into());
     }
-    if a.head().await.is_ok() || a.pin().await.is_ok() || a.part(next, 0).await.is_ok() {
-        return Err("unguarded head read bypassed source fencing".into());
+    if a.head().await.is_ok()
+        || a.pin().await.is_ok()
+        || a.part(next, 0).await.is_ok()
+        || a.begin(epoch, 9, b"unguarded".to_vec()).await.is_ok()
+    {
+        return Err("unguarded head access bypassed source fencing".into());
     }
     a.transaction(None, false, |_, _, _, _, _, store| {
         store
-            .delete(&JsValue::from_str("source-proof"))
+            .delete(&JsValue::from_str("v3:source-proof"))
             .map_err(|e| err("delete source proof", e))?;
         Ok(())
     })
@@ -2904,7 +3071,7 @@ async fn same_store_fence(name: &str) -> Result<(), String> {
         return Err("missing head proof bypassed source fencing".into());
     }
     a.transaction(None, true, move |_, _, _, _, _, store| {
-        put(store, "source-proof", &fresh.encode())
+        put(store, "v3:source-proof", &fresh.encode())
     })
     .await?;
     let guarded_pin = a.source_guarded_pin().await?;
@@ -2928,7 +3095,7 @@ async fn same_store_fence(name: &str) -> Result<(), String> {
     }
     a.transaction(None, false, |_, _, _, _, _, store| {
         store
-            .delete(&JsValue::from_str("pin-source-proof"))
+            .delete(&JsValue::from_str("v3:pin-source-proof"))
             .map_err(|e| err("delete pin proof", e))?;
         Ok(())
     })
@@ -2940,7 +3107,7 @@ async fn same_store_fence(name: &str) -> Result<(), String> {
         return Err("missing pin proof bypassed source fencing".into());
     }
     a.transaction(None, true, move |_, _, _, _, _, store| {
-        put(store, "pin-source-proof", &fresh.encode())
+        put(store, "v3:pin-source-proof", &fresh.encode())
     })
     .await?;
     if a.source_guarded_part(guarded_pin, 0).await? != b"fresh page" {
@@ -3011,9 +3178,10 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
     async fn run(name: &str) -> Result<String, String> {
         same_store_fence(name).await?;
         legacy_initializer_proof(name).await?;
+        unified_legacy_store_proof(name).await?;
         let a = ChunkStore::open(name).await?;
         let b = ChunkStore::open(name).await?;
-        a.reset().await?;
+        a.reset_fixture().await?;
         let session_epoch = a.epoch().await?;
         let first = a.begin(session_epoch, 17, b"crab".to_vec()).await?;
         a.stage(first, vec![b"sand".to_vec(), b"mud".to_vec()])
@@ -3028,12 +3196,12 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         let request_error = a
             .transaction(None, false, move |_, _, _, _, _, store| {
                 store
-                    .delete(&JsValue::from_str(&format!("chunk:{}:0", first.id)))
+                    .delete(&JsValue::from_str(&format!("v3:chunk:{}:0", first.id)))
                     .map_err(|e| err("queue delete", e))?;
                 store
                     .add_with_key(
                         Uint8Array::from([1u8].as_slice()).as_ref(),
-                        &JsValue::from_str("head"),
+                        &JsValue::from_str("v3:head"),
                     )
                     .map_err(|e| err("queue duplicate add", e))?;
                 Ok(())
@@ -3050,7 +3218,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             let broken = a.begin(session_epoch, 18, b"broken".to_vec()).await?;
             a.stage(broken, vec![b"partial".to_vec()]).await?;
             a.transaction(None, false, move |_, _, _, _, _, store| {
-                let key = format!("chunk:{}:0", broken.id);
+                let key = format!("v3:chunk:{}:0", broken.id);
                 if missing {
                     store
                         .delete(&JsValue::from_str(&key))
@@ -3079,7 +3247,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         let good_head = a.head().await?.ok_or("missing good head")?;
         a.transaction(None, false, |_, _, _, _, _, store| {
             store
-                .delete(&JsValue::from_str("head"))
+                .delete(&JsValue::from_str("v3:head"))
                 .map_err(|e| err("delete head", e))?;
             Ok(())
         })
@@ -3091,7 +3259,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             return Err("missing published head was treated as empty".into());
         }
         a.transaction(None, true, move |_, _, _, _, _, store| {
-            put(store, "head", &good_head.encode().ok_or("bad head")?)
+            put(store, "v3:head", &good_head.encode().ok_or("bad head")?)
         })
         .await?;
         if a.part(first, 0).await? != b"sand" {
@@ -3106,7 +3274,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             .await?;
         a.transaction(None, false, |_, _, _, _, _, store| {
             store
-                .delete(&JsValue::from_str("stage"))
+                .delete(&JsValue::from_str("v3:stage"))
                 .map_err(|e| err("delete stage", e))?;
             Ok(())
         })
@@ -3117,7 +3285,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             return Err("missing staged ownership was treated as empty".into());
         }
         a.transaction(None, true, move |_, _, _, _, _, store| {
-            put(store, "stage", &saved_stage.encode().ok_or("bad stage")?)
+            put(store, "v3:stage", &saved_stage.encode().ok_or("bad stage")?)
         })
         .await?;
         b.abandon(lost_stage).await?;
@@ -3135,7 +3303,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             .await?;
         a.transaction(None, false, |_, _, _, _, _, store| {
             store
-                .delete(&JsValue::from_str("pin"))
+                .delete(&JsValue::from_str("v3:pin"))
                 .map_err(|e| err("delete pin", e))?;
             Ok(())
         })
@@ -3144,7 +3312,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             return Err("missing pin ownership was treated as empty".into());
         }
         a.transaction(None, true, move |_, _, _, _, _, store| {
-            put(store, "pin", &saved_pin.encode().ok_or("bad pin")?)
+            put(store, "v3:pin", &saved_pin.encode().ok_or("bad pin")?)
         })
         .await?;
         if b.pinned_part(pin, 0).await? != b"sand" {
@@ -3201,7 +3369,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         }
         let stage_part = a
             .transaction(
-                Some(format!("chunk:{}:0", active_stage.id)),
+                Some(format!("v3:chunk:{}:0", active_stage.id)),
                 false,
                 |_, _, _, _, part, _| part.ok_or("missing staged part".into()),
             )
@@ -3217,7 +3385,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
                 false,
                 move |_, _, _, _, _, store| -> Result<(), String> {
                     store
-                        .delete(&JsValue::from_str(&format!("chunk:{}:0", pin.id)))
+                        .delete(&JsValue::from_str(&format!("v3:chunk:{}:0", pin.id)))
                         .map_err(|e| err("injected delete", e))?;
                     Err("forced abort".into())
                 },
@@ -3238,14 +3406,18 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         let mut damaged_head = saved_head.encode().ok_or("bad saved head")?;
         damaged_head[24] ^= 1;
         a.transaction(None, false, move |_, _, _, _, _, store| {
-            put(store, "head", &damaged_head)
+            put(store, "v3:head", &damaged_head)
         })
         .await?;
         if a.collect_page(epoch, None, 2).await.is_ok() {
             return Err("collector accepted bad manifest".into());
         }
         a.transaction(None, true, move |_, _, _, _, _, store| {
-            put(store, "head", &saved_head.encode().ok_or("bad saved head")?)
+            put(
+                store,
+                "v3:head",
+                &saved_head.encode().ok_or("bad saved head")?,
+            )
         })
         .await?;
         if a.part(second, 0).await? != b"fresh" {
@@ -3253,7 +3425,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         }
         // Corruption and a missing part must never be returned as valid.
         a.transaction(None, false, move |_, _, _, _, _, store| {
-            put(store, &format!("chunk:{}:0", second.id), b"bad")
+            put(store, &format!("v3:chunk:{}:0", second.id), b"bad")
         })
         .await?;
         if b.part(second, 0).await.is_ok() {
@@ -3261,7 +3433,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         }
         a.transaction(None, false, move |_, _, _, _, _, store| {
             store
-                .delete(&JsValue::from_str(&format!("chunk:{}:0", second.id)))
+                .delete(&JsValue::from_str(&format!("v3:chunk:{}:0", second.id)))
                 .map_err(|e| err("delete part", e))?;
             Ok(())
         })
@@ -3271,8 +3443,10 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         }
         let reset_pin = b.pin().await?;
         let pending = a.begin(session_epoch, 20, b"pending".to_vec()).await?;
-        let (stage, reset) =
-            futures_util::join!(a.stage(pending, vec![b"pending".to_vec()]), b.reset());
+        let (stage, reset) = futures_util::join!(
+            a.stage(pending, vec![b"pending".to_vec()]),
+            b.reset_fixture()
+        );
         stage?;
         reset?;
         if a.publish(pending, 1).await.is_ok()
@@ -3296,7 +3470,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         {
             return Err("bad post-reset state".into());
         }
-        a.reset().await?;
+        a.reset_fixture().await?;
         let lazy = lazy_proof(&a).await?;
         Ok(format!(
             "PASS: bounded stage, abort, head preservation, part integrity, pinned pagination, recovery and reset fencing; {lazy}"

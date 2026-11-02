@@ -262,16 +262,17 @@ compatibility only: it does not publish a migrated save to IndexedDB, exercise
 crash-safe migration or delete or replace the old save. Those remain open.
 
 A later isolated Chrome proof builds test v1 and v2 wire envelopes, stores each
-in a separate experimental IndexedDB source, and decodes it with the same
-shared Rust decoder used by the game. It captures the restored player and terrain,
-stages chunked data into a separate experimental destination, and rejects an
+under the legacy `active` key in an experimental IndexedDB database, and decodes
+it with the same shared Rust decoder used by the game. It captures the restored
+player and terrain, stages chunked data under `v3:` keys in the same object store,
+and rejects an
 incomplete publish. After reopening that destination it fences the interrupted
 stage while preserving its previous head and the source; a reset also fences a
 stale migration writer. A fresh document then reloads each published destination,
 checks that each source remains byte-identical, and runs the two-window playable
 comparison. These are test-created envelopes and proof databases; this is not
 yet migration from the live IndexedDB schema or a tested quota-exhaustion path.
-The observed Wasm linear-memory capacity reached 65,077,248 bytes in the desktop
+The observed Wasm linear-memory capacity reached 63,242,240 bytes in the desktop
 Chrome migration fixture; it is not a total process peak or an iPhone bound.
 
 The migration fixture now applies the live player compatibility validator before
@@ -299,15 +300,15 @@ whole-process or mobile bound. Pausing is necessary for this view, and normal
 live autosaving remains on the existing path. The migration proof still holds
 several full world copies for decoding and candidate validation.
 
-The separate proof databases do not give source reset and destination publish a
-shared atomic fence. A source reset between reading and destination publication
+The earlier separate-database proof did not give source reset and destination
+publish a shared atomic fence. A source reset between reading and destination publication
 can therefore leave a stale migrated destination; checking the source epoch just
 before publication still leaves a race. Live migration needs one authoritative
 reset epoch that both operations can enforce atomically, or an independently
 proved cross-database coordination protocol. The current experiment must not be
 used to claim cross-database reset safety.
 
-A separate same-object-store proof mirrors the current legacy `active` and
+The same-object-store proof mirrors the current legacy `active` and
 `reset_epoch` keys without opening a real game database. It captures the source
 bytes and epoch in one transaction, binds a guarded stage to that snapshot, and
 checks source length/digest and epoch in the same transaction that verifies each
@@ -318,8 +319,9 @@ same-epoch source replacement, reset followed by byte-identical recreation,
 missing markers, attempted generic downgrade, an aborted corrupt-stage publish,
 recovery of a persisted guarded pin, and cancellation of a guarded page read
 followed by a successful retry. The prior head and source survive the tested
-failed publications. These transactions are still isolated prototypes,
-not connected to the migration/reload proof or the live save schema.
+failed publications. The v1/v2 playable reload fixture now uses these guarded
+transactions in the same experimental object store. It is not connected to the
+live save path or tested against an existing live database.
 
 A guarded page result is not a lock on later transactions: installation after
 an asynchronous read still needs a cancellation/reset handshake, and an old
@@ -342,9 +344,26 @@ automatic legacy fallback. Missing individual metadata/proof records, orphaned
 keys, malformed metadata and reset-epoch mismatches fail closed. Chrome tests
 exercise concurrent initializers and a reset race.
 
-This remains an isolated probe, not an initializer for the live store. If every
+The initializer and guarded store are now combined in the isolated proof; this
+is not an initializer for the live store. If every
 v3 record is deleted, the remaining legacy store is indistinguishable from one
 that never migrated; an external authority or stronger persistence assumption is
 needed to rule out silently reverting to an old legacy record. Existing stores,
 quota failures, namespaced upgrade/recovery, WebKit and older-client coexistence
 remain unproven.
+
+The unified proof reserves all experiment keys under `v3:` and models reset in
+one transaction: it increments the legacy epoch, removes `active` and v3
+head/stage/pin records, and retains unreachable chunks for bounded collection.
+It checks that old v2 sessions and pending guarded operations are fenced, and
+that unrelated keys survive. The reset leaves an initialized tombstone so it
+does not silently revive old migrated data. The game still uses its existing
+reset implementation; changing that is a separate, unvalidated integration.
+
+The combined proof re-reads and hashes the full legacy `active` value for every
+guarded page transaction. That is deliberately conservative, but repeated
+whole-record structured clones and hashing are not a practical mobile streaming
+design. A production protocol needs a collision-resistant, atomically maintained
+source revision or another verified fence, plus a final installation/cancellation
+handshake; checking after an async read alone leaves a later reset race. It also
+needs real quota-failure and WebKit/iPhone tests before enabling this path.
