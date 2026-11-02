@@ -122,7 +122,13 @@ and 128 KiB per part. A single read/write transaction commits each batch and
 its stage together; publication swaps the head only after the expected count
 is present. A persistent epoch and monotonic stage ID fence reset and explicit
 abandon across connections. Individual part reads check SHA-256 and reject a
-stale head. Abandon leaves orphaned part records for later collection.
+stale head. SHA-256 also protects metadata and the full manifest against
+accidental corruption (not against an attacker able to rewrite the digest).
+One uniquely fenced pin retains an older head while a newer one is published.
+Explicit recovery can discover and fence a pending writer or pin. Collection
+scans at most 32 keys per page and rechecks the persistent epoch and all live
+head, stage and pin references in its deletion transaction. Unknown keys are
+retained. Abandon leaves orphaned part records for later collection.
 
 To run the isolated Chrome proof, install the `wasm32-unknown-unknown` target,
 `wasm-bindgen` CLI and Chrome, then run:
@@ -134,14 +140,17 @@ cargo run --manifest-path tools/cellstore-proof/Cargo.toml --features browser-ru
 Set `CHROME_BIN` when Chrome is not at the default path. The Rust runner builds
 the Wasm proof, serves it on loopback and uses a temporary browser profile;
 its minimal generated browser bootstrap invokes the Rust test. The test covers
-publication abort, previous-head preservation, explicit abandonment, corrupted
-part detection and reset against a second database connection. Native record
+publication abort, previous-head preservation, crash-stage discovery, explicit
+abandonment, pinned readers, paged collection, malformed records, part
+integrity and reset against a second database connection. Native record
 and model tests also run with `cargo test --manifest-path
 tools/cellstore-proof/Cargo.toml`.
 
-This remains a transaction experiment. It does not verify a manifest-wide
-digest, pin a snapshot across page reads, automatically discover abandoned
-writers, collect orphaned chunks, bound JavaScript's structured-clone memory,
-handle quota recovery, migrate the old record, integrate the game, or establish
-mobile/WebKit safety. Reset deliberately clears only the separate experimental
+This remains a transaction experiment. It does not automatically determine
+whether a writer or pin belongs to a crashed tab, automatically schedule or
+resume collection, bound JavaScript's structured-clone memory, handle quota
+recovery, migrate the old record, integrate the game, or establish mobile/WebKit
+safety. The experimental metadata encoding changed during development and is
+not a stable format. A forced transaction abort is tested; actual quota
+exhaustion is not. Reset deliberately clears only the separate experimental
 database. Do not substitute it for the live save path.

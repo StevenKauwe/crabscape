@@ -27,16 +27,19 @@ pub struct Stage {
     pub parts: Vec<Part>,
 }
 impl Meta {
+    pub const ENCODED_LEN: usize = 24 + 32;
     pub fn encode(&self) -> Vec<u8> {
-        [
+        let mut b = [
             self.epoch.to_le_bytes(),
             self.revision.to_le_bytes(),
             self.next_id.to_le_bytes(),
         ]
-        .concat()
+        .concat();
+        b.extend_from_slice(&digest(&b));
+        b
     }
     pub fn decode(b: &[u8]) -> Option<Self> {
-        if b.len() != 24 {
+        if b.len() != Self::ENCODED_LEN || digest(&b[..24]) != b[24..] {
             return None;
         }
         Some(Self {
@@ -47,13 +50,14 @@ impl Meta {
     }
 }
 impl Stage {
-    pub const MAX_ENCODED: usize = STAGE_HEADER + MAX_PLAYER + MAX_PARTS * DESCRIPTOR;
+    pub const MAX_ENCODED: usize = STAGE_HEADER + MAX_PLAYER + MAX_PARTS * DESCRIPTOR + 32;
     pub fn encode(&self) -> Option<Vec<u8>> {
         if self.player.len() > MAX_PLAYER || self.parts.len() > MAX_PARTS {
             return None;
         }
-        let mut b =
-            Vec::with_capacity(STAGE_HEADER + self.player.len() + self.parts.len() * DESCRIPTOR);
+        let mut b = Vec::with_capacity(
+            STAGE_HEADER + self.player.len() + self.parts.len() * DESCRIPTOR + 32,
+        );
         for n in [self.epoch, self.base, self.id, self.tick] {
             b.extend_from_slice(&n.to_le_bytes());
         }
@@ -64,10 +68,11 @@ impl Stage {
             b.extend_from_slice(&part.digest);
             b.extend_from_slice(&part.len.to_le_bytes());
         }
+        b.extend_from_slice(&digest(&b));
         Some(b)
     }
     pub fn decode(b: &[u8]) -> Option<Self> {
-        if b.len() < STAGE_HEADER || b.len() > Self::MAX_ENCODED {
+        if b.len() < STAGE_HEADER + 32 || b.len() > Self::MAX_ENCODED {
             return None;
         }
         let read_u64 = |i: usize| Some(u64::from_le_bytes(b.get(i..i + 8)?.try_into().ok()?));
@@ -75,13 +80,20 @@ impl Stage {
         let count = u32::from_le_bytes(b[36..40].try_into().ok()?) as usize;
         if plen > MAX_PLAYER
             || count > MAX_PARTS
-            || b.len() != STAGE_HEADER + plen + count * DESCRIPTOR
+            || b.len() != STAGE_HEADER + plen + count * DESCRIPTOR + 32
         {
+            return None;
+        }
+        let payload_len = b.len() - 32;
+        if digest(&b[..payload_len]) != b[payload_len..] {
             return None;
         }
         let player = b[STAGE_HEADER..STAGE_HEADER + plen].to_vec();
         let mut parts = Vec::with_capacity(count);
-        for chunk in b[STAGE_HEADER + plen..].as_chunks::<DESCRIPTOR>().0 {
+        for chunk in b[STAGE_HEADER + plen..payload_len]
+            .as_chunks::<DESCRIPTOR>()
+            .0
+        {
             parts.push(Part {
                 digest: chunk[..32].try_into().ok()?,
                 len: u32::from_le_bytes(chunk[32..36].try_into().ok()?),
@@ -128,5 +140,14 @@ mod tests {
         extra.push(0);
         assert!(Stage::decode(&extra).is_none());
         assert!(Meta::decode(&[0; 23]).is_none());
+        let meta = Meta {
+            epoch: 1,
+            revision: 2,
+            next_id: 3,
+        };
+        let mut encoded = meta.encode();
+        assert_eq!(Meta::decode(&encoded), Some(meta));
+        encoded[8] ^= 1;
+        assert!(Meta::decode(&encoded).is_none());
     }
 }

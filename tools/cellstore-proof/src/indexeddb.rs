@@ -10,8 +10,8 @@ use std::{
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    Event, IdbDatabase, IdbObjectStore, IdbOpenDbRequest, IdbRequest, IdbTransaction,
-    IdbTransactionMode,
+    Event, IdbCursor, IdbDatabase, IdbKeyRange, IdbObjectStore, IdbOpenDbRequest, IdbRequest,
+    IdbTransaction, IdbTransactionMode,
 };
 
 const STORE: &str = "world";
@@ -77,6 +77,12 @@ pub struct Handle {
     pub epoch: u64,
     pub id: u64,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PinHandle {
+    pub epoch: u64,
+    pub id: u64,
+    token: u64,
+}
 
 impl ChunkStore {
     /// Use a separate experimental database, never the live cellular name.
@@ -96,7 +102,10 @@ impl ChunkStore {
                 .result()
                 .ok()
                 .and_then(|v| v.dyn_into::<IdbDatabase>().ok())
-                .is_some_and(|db| db.create_object_store(STORE).is_ok());
+                .is_some_and(|db| {
+                    db.create_object_store(STORE)
+                        .is_ok_and(|store| put(&store, "meta", &Meta::default().encode()).is_ok())
+                });
             if !ok && let Some(tx) = upgrade_req.transaction() {
                 let _ = tx.abort();
             }
@@ -152,6 +161,7 @@ impl ChunkStore {
             Meta,
             Option<Stage>,
             Option<Stage>,
+            Option<Stage>,
             Option<Vec<u8>>,
             &IdbObjectStore,
         ) -> Result<T, String>
@@ -162,7 +172,7 @@ impl ChunkStore {
             .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
             .map_err(|e| err("transaction", e))?;
         let store = tx.object_store(STORE).map_err(|e| err("object store", e))?;
-        let mut requests: Vec<_> = ["meta", "stage", "head"]
+        let mut requests: Vec<_> = ["meta", "stage", "head", "pin"]
             .into_iter()
             .map(|k| store.get(&JsValue::from_str(k)).map_err(|e| err("get", e)))
             .collect::<Result<_, _>>()?;
@@ -191,9 +201,9 @@ impl ChunkStore {
                     return;
                 }
                 let parsed = (|| {
-                    let meta = match read(&reqs[0], 24)? {
+                    let meta = match read(&reqs[0], Meta::ENCODED_LEN)? {
                         Some(b) => Meta::decode(&b).ok_or("bad metadata")?,
-                        None => Meta::default(),
+                        None => return Err("missing metadata".into()),
                     };
                     let decode_stage = |req: &IdbRequest| -> Result<Option<Stage>, String> {
                         read(req, Stage::MAX_ENCODED)?
@@ -210,13 +220,18 @@ impl ChunkStore {
                     } else {
                         decode_stage(&reqs[2])?
                     };
-                    let part = if reqs.len() > 3 {
-                        read(&reqs[3], MAX_PART)?
+                    let pin = if ignore_broken_entries {
+                        None
+                    } else {
+                        decode_stage(&reqs[3])?
+                    };
+                    let part = if reqs.len() > 4 {
+                        read(&reqs[4], MAX_PART)?
                     } else {
                         None
                     };
                     f.borrow_mut().take().ok_or("duplicate callback")?(
-                        meta, stage, head, part, &object,
+                        meta, stage, head, pin, part, &object,
                     )
                 })();
                 let failed = parsed.is_err();
@@ -261,7 +276,7 @@ impl ChunkStore {
     }
 
     pub async fn begin(&self, tick: u64, player: Vec<u8>) -> Result<Handle, String> {
-        self.transaction(None, false, move |mut meta, stage, _, _, store| {
+        self.transaction(None, false, move |mut meta, stage, _, _, _, store| {
             if stage.is_some() {
                 return Err("writer busy".into());
             }
@@ -288,7 +303,7 @@ impl ChunkStore {
         if parts.is_empty() || parts.len() > MAX_BATCH || parts.iter().any(|b| b.len() > MAX_PART) {
             return Err("batch limit".into());
         }
-        self.transaction(None, false, move |meta, stage, _, _, store| {
+        self.transaction(None, false, move |meta, stage, _, _, _, store| {
             let mut stage = stage.ok_or("missing stage")?;
             if meta.epoch != h.epoch || stage.epoch != h.epoch || stage.id != h.id {
                 return Err("stale writer".into());
@@ -310,7 +325,7 @@ impl ChunkStore {
         .await
     }
     pub async fn publish(&self, h: Handle, expected: usize) -> Result<(), String> {
-        self.transaction(None, false, move |mut meta, stage, _, _, store| {
+        self.transaction(None, false, move |mut meta, stage, _, _, _, store| {
             let stage = stage.ok_or("missing stage")?;
             if meta.epoch != h.epoch
                 || stage.epoch != h.epoch
@@ -334,7 +349,7 @@ impl ChunkStore {
     }
     /// Fence a stage while retaining its orphaned rows for later cleanup.
     pub async fn abandon(&self, h: Handle) -> Result<(), String> {
-        self.transaction(None, false, move |meta, stage, _, _, store| {
+        self.transaction(None, false, move |meta, stage, _, _, _, store| {
             let stage = stage.ok_or("missing stage")?;
             if meta.epoch != h.epoch || stage.epoch != h.epoch || stage.id != h.id {
                 return Err("stale writer".into());
@@ -347,7 +362,7 @@ impl ChunkStore {
         .await
     }
     pub async fn head(&self) -> Result<Option<Stage>, String> {
-        self.transaction(None, false, |meta, _, head, _, _| {
+        self.transaction(None, false, |meta, _, head, _, _, _| {
             if head.as_ref().is_some_and(|h| {
                 h.epoch != meta.epoch || h.base.checked_add(1) != Some(meta.revision)
             }) {
@@ -355,6 +370,111 @@ impl ChunkStore {
             }
             Ok(head)
         })
+        .await
+    }
+    /// Expose a stage for deliberate recovery after a crash. Abandoning an
+    /// active writer is safe but fences it, so callers must coordinate UX.
+    pub async fn pending(&self) -> Result<Option<Handle>, String> {
+        self.transaction(None, false, |meta, stage, _, _, _, _| {
+            if stage
+                .as_ref()
+                .is_some_and(|s| s.epoch != meta.epoch || s.base != meta.revision)
+            {
+                return Err("invalid pending stage".into());
+            }
+            Ok(stage.map(|s| Handle {
+                epoch: s.epoch,
+                id: s.id,
+            }))
+        })
+        .await
+    }
+    pub async fn epoch(&self) -> Result<u64, String> {
+        self.transaction(None, false, |meta, _, _, _, _, _| Ok(meta.epoch))
+            .await
+    }
+    /// Hold one published head across later publications and collection.
+    pub async fn pin(&self) -> Result<PinHandle, String> {
+        self.transaction(None, false, |mut meta, _, head, pin, _, store| {
+            if pin.is_some() {
+                return Err("reader busy".into());
+            }
+            let mut head = head.ok_or("missing head")?;
+            if head.epoch != meta.epoch || head.base.checked_add(1) != Some(meta.revision) {
+                return Err("invalid head".into());
+            }
+            meta.next_id = meta.next_id.checked_add(1).ok_or("pin token overflow")?;
+            let h = PinHandle {
+                epoch: head.epoch,
+                id: head.id,
+                token: meta.next_id,
+            };
+            // The pinned copy no longer needs the head's base revision;
+            // reuse that field as a monotonically increasing reader token.
+            head.base = h.token;
+            put(store, "meta", &meta.encode())?;
+            put(store, "pin", &head.encode().ok_or("pin too large")?)?;
+            Ok(h)
+        })
+        .await
+    }
+    pub async fn unpin(&self, h: PinHandle) -> Result<(), String> {
+        self.transaction(None, false, move |meta, _, _, pin, _, store| {
+            let pin = pin.ok_or("missing pin")?;
+            if meta.epoch != h.epoch
+                || pin.epoch != h.epoch
+                || pin.id != h.id
+                || pin.base != h.token
+            {
+                return Err("stale pin".into());
+            }
+            store
+                .delete(&JsValue::from_str("pin"))
+                .map_err(|e| err("delete pin", e))?;
+            Ok(())
+        })
+        .await
+    }
+    pub async fn pinned(&self) -> Result<Option<PinHandle>, String> {
+        self.transaction(None, false, |meta, _, _, pin, _, _| {
+            if pin
+                .as_ref()
+                .is_some_and(|p| p.epoch != meta.epoch || p.base == 0 || p.base > meta.next_id)
+            {
+                return Err("invalid pin".into());
+            }
+            Ok(pin.map(|p| PinHandle {
+                epoch: p.epoch,
+                id: p.id,
+                token: p.base,
+            }))
+        })
+        .await
+    }
+    pub async fn pinned_part(&self, h: PinHandle, index: usize) -> Result<Vec<u8>, String> {
+        if index >= MAX_PARTS {
+            return Err("part index limit".into());
+        }
+        self.transaction(
+            Some(format!("chunk:{}:{index}", h.id)),
+            false,
+            move |meta, _, _, pin, part, _| {
+                let pin = pin.ok_or("missing pin")?;
+                if meta.epoch != h.epoch
+                    || pin.epoch != h.epoch
+                    || pin.id != h.id
+                    || pin.base != h.token
+                {
+                    return Err("stale pin".into());
+                }
+                let descriptor = pin.parts.get(index).ok_or("missing descriptor")?;
+                let bytes = part.ok_or("missing part")?;
+                if bytes.len() != descriptor.len as usize || digest(&bytes) != descriptor.digest {
+                    return Err("corrupt part".into());
+                }
+                Ok(bytes)
+            },
+        )
         .await
     }
     /// Read and verify one part of the currently published head. A newer
@@ -366,7 +486,7 @@ impl ChunkStore {
         self.transaction(
             Some(format!("chunk:{}:{index}", h.id)),
             false,
-            move |meta, _, head, part, _| {
+            move |meta, _, head, _, part, _| {
                 let head = head.ok_or("missing head")?;
                 if meta.epoch != h.epoch
                     || head.epoch != h.epoch
@@ -385,8 +505,156 @@ impl ChunkStore {
         )
         .await
     }
+    /// Scan at most 32 key names without fetching part payloads. Deletion is
+    /// a separate transaction which rechecks all references and the epoch.
+    async fn scan_keys(&self, after: Option<String>, limit: usize) -> Result<Vec<String>, String> {
+        if limit == 0
+            || limit > 32
+            || after
+                .as_ref()
+                .is_some_and(|s| !s.starts_with("chunk:") || s.len() > 80)
+        {
+            return Err("invalid collection page".into());
+        }
+        let tx = self
+            .db
+            .transaction_with_str_and_mode(STORE, IdbTransactionMode::Readonly)
+            .map_err(|e| err("scan transaction", e))?;
+        let store = tx.object_store(STORE).map_err(|e| err("scan store", e))?;
+        let lower = JsValue::from_str(after.as_deref().unwrap_or("chunk:"));
+        let upper = JsValue::from_str("chunk:\u{ffff}");
+        let range = IdbKeyRange::bound_with_lower_open(&lower, &upper, after.is_some())
+            .map_err(|e| err("scan range", e))?;
+        let request = store
+            .open_key_cursor_with_range(range.as_ref())
+            .map_err(|e| err("scan cursor", e))?;
+        let keys = Rc::new(RefCell::new(Vec::<String>::new()));
+        let failure: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let got = keys.clone();
+        let bad = failure.clone();
+        let req = request.clone();
+        let transaction = tx.clone();
+        let cursor_callback = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let step = (|| -> Result<(), String> {
+                let value = req.result().map_err(|e| err("cursor result", e))?;
+                if value.is_null() || value.is_undefined() {
+                    return Ok(());
+                }
+                let cursor: IdbCursor = value.dyn_into().map_err(|_| "bad cursor")?;
+                let key = cursor
+                    .key()
+                    .map_err(|e| err("cursor key", e))?
+                    .as_string()
+                    .ok_or("bad key")?;
+                got.borrow_mut().push(key);
+                if got.borrow().len() < limit {
+                    cursor.continue_().map_err(|e| err("cursor continue", e))?;
+                }
+                Ok(())
+            })();
+            if let Err(e) = step {
+                *bad.borrow_mut() = Some(e);
+                let _ = transaction.abort();
+            }
+        });
+        request.set_onsuccess(Some(cursor_callback.as_ref().unchecked_ref()));
+        let (p, resolve, reject) = promise();
+        let complete = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        });
+        let abort = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = reject.call1(&JsValue::UNDEFINED, &JsValue::from_str("scan aborted"));
+        });
+        tx.set_oncomplete(Some(complete.as_ref().unchecked_ref()));
+        tx.set_onabort(Some(abort.as_ref().unchecked_ref()));
+        let guard = TransactionHandlers {
+            tx,
+            requests: vec![request],
+            _callbacks: vec![cursor_callback],
+            _complete: complete,
+            _abort: abort,
+        };
+        let committed = JsFuture::from(p).await.map_err(|e| err("scan commit", e));
+        let error = failure.borrow_mut().take();
+        drop(guard);
+        if let Some(error) = error {
+            return Err(error);
+        }
+        committed?;
+        let output = std::mem::take(&mut *keys.borrow_mut());
+        Ok(output)
+    }
+
+    /// One bounded collection page. `epoch` fences a reset between scan and
+    /// deletion; later pages may safely use the returned exclusive cursor.
+    pub async fn collect_page(
+        &self,
+        epoch: u64,
+        after: Option<String>,
+        limit: usize,
+    ) -> Result<(usize, Option<String>), String> {
+        let keys = self.scan_keys(after, limit).await?;
+        let next = if keys.len() == limit {
+            keys.last().cloned()
+        } else {
+            None
+        };
+        let deleted = self
+            .transaction(None, false, move |meta, stage, head, pin, _, store| {
+                if meta.epoch != epoch {
+                    return Err("stale collector".into());
+                }
+                if stage
+                    .as_ref()
+                    .is_some_and(|s| s.epoch != meta.epoch || s.base != meta.revision)
+                    || head.as_ref().is_some_and(|s| {
+                        s.epoch != meta.epoch || s.base.checked_add(1) != Some(meta.revision)
+                    })
+                    || pin.as_ref().is_some_and(|s| {
+                        s.epoch != meta.epoch || s.base == 0 || s.base > meta.next_id
+                    })
+                {
+                    return Err("invalid references".into());
+                }
+                let referenced = |id: u64, index: usize| {
+                    [stage.as_ref(), head.as_ref(), pin.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .any(|s| s.id == id && index < s.parts.len())
+                };
+                let mut deleted = 0;
+                for key in keys {
+                    let mut components = key.split(':');
+                    let parsed = match (
+                        components.next(),
+                        components.next(),
+                        components.next(),
+                        components.next(),
+                    ) {
+                        (Some("chunk"), Some(id), Some(index), None) => {
+                            id.parse::<u64>().ok().zip(index.parse::<usize>().ok())
+                        }
+                        _ => None,
+                    };
+                    // Unknown or noncanonical keys are never collected.
+                    if let Some((id, index)) = parsed
+                        && key == format!("chunk:{id}:{index}")
+                        && !referenced(id, index)
+                    {
+                        store
+                            .delete(&JsValue::from_str(&key))
+                            .map_err(|e| err("collect part", e))?;
+                        deleted += 1;
+                    }
+                }
+                Ok(deleted)
+            })
+            .await?;
+        Ok((deleted, next))
+    }
+
     pub async fn reset(&self) -> Result<(), String> {
-        self.transaction(None, true, |mut meta, _, _, _, store| {
+        self.transaction(None, true, |mut meta, _, _, _, _, store| {
             meta.epoch = meta.epoch.checked_add(1).ok_or("epoch overflow")?;
             meta.revision = meta.revision.checked_add(1).ok_or("revision overflow")?;
             store.clear().map_err(|e| err("clear", e))?;
@@ -415,11 +683,26 @@ impl Drop for TransactionHandlers {
     }
 }
 
-/// Browser-only proof entry point. Its database is isolated by the prefix
-/// restriction in `open`; no game state or existing save database is touched.
+/// Browser-only isolated transaction regression.
 #[cfg(feature = "browser-proof")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub async fn browser_proof(name: String) -> Result<String, JsValue> {
+    async fn collect_all(db: &ChunkStore, epoch: u64, limit: usize) -> Result<usize, String> {
+        let mut cursor = None;
+        let mut total = 0;
+        for _ in 0..100 {
+            let (deleted, next) = db.collect_page(epoch, cursor, limit).await?;
+            if deleted > limit {
+                return Err("collection exceeded page limit".into());
+            }
+            total += deleted;
+            cursor = next;
+            if cursor.is_none() {
+                return Ok(total);
+            }
+        }
+        Err("collection did not finish".into())
+    }
     async fn run(name: &str) -> Result<String, String> {
         let a = ChunkStore::open(name).await?;
         let b = ChunkStore::open(name).await?;
@@ -431,63 +714,154 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             return Err("incomplete publish accepted".into());
         }
         a.publish(first, 2).await?;
-        let head = b.head().await?.ok_or("missing head")?;
-        if head.tick != 17 || head.player != b"crab" || b.part(first, 1).await? != b"mud" {
-            return Err("incorrect head or part".into());
+        let stale_pin = b.pin().await?;
+        b.unpin(stale_pin).await?;
+        let pin = b.pin().await?;
+        if b.unpin(stale_pin).await.is_ok() {
+            return Err("stale pin released a new reader".into());
         }
-        let interrupted = a.begin(18, b"later".to_vec()).await?;
-        if a.stage(interrupted, vec![vec![0; MAX_PART + 1]])
-            .await
-            .is_ok()
-            || a.stage(interrupted, vec![vec![]; MAX_BATCH + 1])
+        let abandoned;
+        {
+            let crashed = ChunkStore::open(name).await?;
+            abandoned = crashed.begin(18, b"later".to_vec()).await?;
+            if crashed
+                .stage(abandoned, vec![vec![0; MAX_PART + 1]])
                 .await
                 .is_ok()
+                || crashed
+                    .stage(abandoned, vec![vec![]; MAX_BATCH + 1])
+                    .await
+                    .is_ok()
+            {
+                return Err("oversized batch accepted".into());
+            }
+            crashed
+                .stage(
+                    abandoned,
+                    vec![
+                        b"orphan1".to_vec(),
+                        b"orphan2".to_vec(),
+                        b"orphan3".to_vec(),
+                    ],
+                )
+                .await?;
+        }
+        if b.pending().await? != Some(abandoned) || b.head().await?.ok_or("lost head")?.tick != 17 {
+            return Err("failed crash recovery discovery".into());
+        }
+        b.abandon(abandoned).await?;
+        if a.publish(abandoned, 3).await.is_ok() {
+            return Err("abandoned writer published".into());
+        }
+        let second = a.begin(19, b"new".to_vec()).await?;
+        a.stage(second, vec![b"fresh".to_vec()]).await?;
+        a.publish(second, 1).await?;
+        let active_stage = a.begin(20, b"active".to_vec()).await?;
+        a.stage(active_stage, vec![b"still-staged".to_vec()])
+            .await?;
+        let epoch = a.epoch().await?;
+        if a.collect_page(epoch, None, 33).await.is_ok() {
+            return Err("oversized collection page accepted".into());
+        }
+        if collect_all(&a, epoch, 1).await? != 3
+            || b.pinned_part(pin, 0).await? != b"sand"
+            || a.part(second, 0).await? != b"fresh"
         {
-            return Err("oversized batch accepted".into());
+            return Err("pinned or live parts were lost during collection".into());
         }
-        a.stage(interrupted, vec![b"partial".to_vec()]).await?;
-        if b.head().await?.ok_or("lost head")?.tick != 17 {
-            return Err("incomplete stage replaced head".into());
+        let stage_part = a
+            .transaction(
+                Some(format!("chunk:{}:0", active_stage.id)),
+                false,
+                |_, _, _, _, part, _| part.ok_or("missing staged part".into()),
+            )
+            .await?;
+        if stage_part != b"still-staged" {
+            return Err("active stage was collected".into());
         }
-        b.abandon(interrupted).await?;
-        if a.publish(interrupted, 1).await.is_ok() || b.head().await?.ok_or("lost head")?.tick != 17
+        a.abandon(active_stage).await?;
+        // A transaction abort after issuing delete must not delete live data.
+        let aborted = a
+            .transaction(
+                None,
+                false,
+                move |_, _, _, _, _, store| -> Result<(), String> {
+                    store
+                        .delete(&JsValue::from_str(&format!("chunk:{}:0", pin.id)))
+                        .map_err(|e| err("injected delete", e))?;
+                    Err("forced abort".into())
+                },
+            )
+            .await;
+        if aborted.is_ok() || b.pinned_part(pin, 0).await? != b"sand" {
+            return Err("aborted deletion committed".into());
+        }
+        b.unpin(pin).await?;
+        if collect_all(&a, epoch, 1).await? != 3
+            || collect_all(&a, epoch, 2).await? != 0
+            || a.part(second, 0).await? != b"fresh"
         {
-            return Err("abandon did not fence the old writer".into());
+            return Err("collection or idempotence failed".into());
         }
-        // Corruption of a committed part is rejected. Preserve the old head.
-        a.transaction(None, false, move |_, _, _, _, store| {
-            put(store, &format!("chunk:{}:0", first.id), b"bad")
+        // Malformed head prevents collection rather than erasing recoverable rows.
+        let saved_head = a.head().await?.ok_or("missing head")?;
+        let mut damaged_head = saved_head.encode().ok_or("bad saved head")?;
+        damaged_head[24] ^= 1;
+        a.transaction(None, false, move |_, _, _, _, _, store| {
+            put(store, "head", &damaged_head)
         })
         .await?;
-        if b.part(first, 0).await.is_ok() {
+        if a.collect_page(epoch, None, 2).await.is_ok() {
+            return Err("collector accepted bad manifest".into());
+        }
+        a.transaction(None, true, move |_, _, _, _, _, store| {
+            put(store, "head", &saved_head.encode().ok_or("bad saved head")?)
+        })
+        .await?;
+        if a.part(second, 0).await? != b"fresh" {
+            return Err("head recovery lost part".into());
+        }
+        // Corruption and a missing part must never be returned as valid.
+        a.transaction(None, false, move |_, _, _, _, _, store| {
+            put(store, &format!("chunk:{}:0", second.id), b"bad")
+        })
+        .await?;
+        if b.part(second, 0).await.is_ok() {
             return Err("corrupt part accepted".into());
         }
-        a.transaction(None, false, move |_, _, _, _, store| {
+        a.transaction(None, false, move |_, _, _, _, _, store| {
             store
-                .delete(&JsValue::from_str(&format!("chunk:{}:1", first.id)))
+                .delete(&JsValue::from_str(&format!("chunk:{}:0", second.id)))
                 .map_err(|e| err("delete part", e))?;
             Ok(())
         })
         .await?;
-        if b.part(first, 1).await.is_ok() {
+        if b.part(second, 0).await.is_ok() {
             return Err("missing part accepted".into());
         }
-        let pending = a.begin(18, b"pending".to_vec()).await?;
+        let reset_pin = b.pin().await?;
+        let pending = a.begin(20, b"pending".to_vec()).await?;
         let (stage, reset) =
             futures_util::join!(a.stage(pending, vec![b"pending".to_vec()]), b.reset());
         stage?;
         reset?;
-        if a.publish(pending, 1).await.is_ok() || a.head().await?.is_some() {
-            return Err("reset failed to fence stage".into());
+        if a.publish(pending, 1).await.is_ok()
+            || a.head().await?.is_some()
+            || a.collect_page(epoch, None, 1).await.is_ok()
+        {
+            return Err("reset failed to fence old handles".into());
         }
-        let next = b.begin(19, b"new".to_vec()).await?;
+        let next = b.begin(21, b"new".to_vec()).await?;
         b.stage(next, vec![b"fresh".to_vec()]).await?;
         b.publish(next, 1).await?;
-        if a.part(next, 0).await? != b"fresh" || a.part(first, 0).await.is_ok() {
+        if a.collect_page(epoch, None, 1).await.is_ok()
+            || a.part(next, 0).await? != b"fresh"
+            || a.pinned_part(reset_pin, 0).await.is_ok()
+        {
             return Err("bad post-reset state".into());
         }
         a.reset().await?;
-        Ok("PASS: bounded stage, abort, head preservation, part integrity, two-connection reset fencing".into())
+        Ok("PASS: bounded stage, abort, head preservation, part integrity, pinned pagination, recovery and reset fencing".into())
     }
     run(&name).await.map_err(|e| JsValue::from_str(&e))
 }
