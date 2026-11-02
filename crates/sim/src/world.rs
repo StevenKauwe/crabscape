@@ -161,6 +161,10 @@ thread_local! {
 }
 
 impl Sim {
+    /// A shared input stream supersedes the single-player recorder.
+    pub fn stop_recording(&mut self) {
+        self.recorder = None;
+    }
     /// Install validated saved terrain and its simulation clock before the
     /// player or creatures are spawned. A running simulation cannot safely
     /// swap its underlying world out from under its entities.
@@ -1266,7 +1270,33 @@ impl Sim {
             // Do not leave an invisible crab-shaped exclusion behind when
             // the player leaves the experimental cell field.
             cells.clear_game_crab();
-            if let Some(crab) = self.crabs.iter_mut().find(|c| !c.remote) {
+            let bodies: Vec<_> = self
+                .crabs
+                .iter()
+                .filter(|c| !c.remote)
+                .map(|c| {
+                    let m = &c.mover;
+                    let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
+                    let (x, y) = cells.local_cell(center.x, center.y);
+                    (
+                        c.id,
+                        (
+                            x as i32,
+                            y as i32,
+                            (m.half_width(&self.tuning) / 4.0).ceil().max(1.0) as i32,
+                            (m.height(&self.tuning) / 8.0).ceil().max(1.0) as i32,
+                        ),
+                    )
+                })
+                .collect();
+            for crab in self.crabs.iter_mut().filter(|c| !c.remote) {
+                cells.reserve_other_crabs(
+                    bodies
+                        .iter()
+                        .filter(|(id, _)| *id != crab.id)
+                        .map(|(_, body)| *body)
+                        .collect(),
+                );
                 let m = &mut crab.mover;
                 let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
                 if cells.contains_world(center.x, center.y) {

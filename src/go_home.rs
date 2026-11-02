@@ -195,7 +195,9 @@ fn press(
     if waiting != asking.0 {
         asking.0 = waiting;
     }
-    if (clicked || tapped || pad || said_yes) && sim.go_home(**crab) {
+    if (clicked || tapped || pad || said_yes)
+        && (crate::coop::cells_action(crate::coop::CellsAction::Home) || sim.go_home(**crab))
+    {
         asking.0 = false;
         info!("home: the crab went home");
     }

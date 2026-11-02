@@ -379,14 +379,30 @@ mod web {
         {
             facts.push(("Co-op".into(), coop));
         }
-        let (replay, replay_omitted) = super::report_replay(sim.recording_cell_start_len(), || {
-            sim.recording_for_report().map(|r| r.to_text())
-        });
+        let session = crate::coop::cells_replay(true);
+        let shared = session.is_some();
+        let session_reason = session.as_ref().and_then(|r| r.as_ref().err()).cloned();
+        let (replay, replay_omitted) = match session {
+            Some(Ok(text)) => super::report_replay(None, || Some(text)),
+            Some(Err(_)) => (String::new(), true),
+            None => super::report_replay(sim.recording_cell_start_len(), || {
+                sim.recording_for_report().map(|r| r.to_text())
+            }),
+        };
         let replay_included = !replay.is_empty();
         if replay_omitted {
             facts.push((
                 "Replay".into(),
-                "Omitted: the saved terrain checkpoint is too large for a report.".into(),
+                if shared {
+                    format!(
+                        "Complete co-op replay omitted: {}.",
+                        session_reason
+                            .as_deref()
+                            .unwrap_or("exceeds the report attachment limit")
+                    )
+                } else {
+                    "Omitted: the saved terrain checkpoint is too large for a report.".into()
+                },
             ));
         } else if replay_included && sim.level.cells.is_some() {
             facts.push((
@@ -399,13 +415,23 @@ mod web {
             f.replay = replay;
         });
         wire();
-        note(if replay_omitted {
-            "Replay omitted from this report because its saved terrain is too large."
-        } else if replay_included && sim.level.cells.is_some() {
-            "Replay included without a final state hash."
-        } else {
-            ""
-        });
+        note(
+            if replay_omitted
+                && session_reason
+                    .as_deref()
+                    .is_some_and(|s| s.contains("report attachment limit"))
+            {
+                "Co-op replay is too large to attach. F9 / Replay exports it separately; your report can still be sent."
+            } else if replay_omitted && shared {
+                "A complete co-op replay is unavailable. Your report can still be sent."
+            } else if replay_omitted {
+                "Replay omitted from this report because its saved terrain is too large."
+            } else if replay_included && sim.level.cells.is_some() {
+                "Replay included without a final state hash."
+            } else {
+                ""
+            },
+        );
         voice_offer();
         let _ = form.remove_attribute("hidden");
         if let Some(t) = text_box() {

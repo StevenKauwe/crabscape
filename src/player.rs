@@ -397,7 +397,9 @@ pub(crate) fn valid_saved_spot(pos: Vec2, size: f32, sim: &Sim) -> bool {
 /// kept until a tick has used it, even if the button is already released.)
 fn apply_requests(mut requests: MessageReader<MoveRequest>, mut sim: ResMut<Sim>) {
     for req in requests.read() {
-        sim.set_controls(req.player, req.controls);
+        if !crate::coop::cells_controls(req.controls) {
+            sim.set_controls(req.player, req.controls);
+        }
     }
 }
 
@@ -405,6 +407,7 @@ fn apply_requests(mut requests: MessageReader<MoveRequest>, mut sim: ResMut<Sim>
 /// crab's new state onto its entity.
 fn simulate(
     time: Res<Time>,
+    local: Res<crate::coop::LocalId>,
     mut sim: ResMut<Sim>,
     mut clock: ResMut<StepClock>,
     mut crabs: Query<(
@@ -425,7 +428,13 @@ fn simulate(
         events.0 = StepEvents::default();
     }
     for _ in 0..steps {
-        sim.tick();
+        let before = sim.tick_count();
+        if !crate::coop::cells_tick(&mut sim, local.0) {
+            sim.tick();
+        }
+        if sim.tick_count() == before {
+            continue;
+        }
         // Collect what happened during each tick for the animation.
         for (id, _, _, _, mut events) in &mut crabs {
             if let Some(crab) = sim.crab(*id) {
@@ -450,6 +459,7 @@ type FriendOnly = (With<Crab>, Without<LocalPlayer>);
 fn follow_friends(
     mut commands: Commands,
     sim: Res<Sim>,
+    local: Res<crate::coop::LocalId>,
     friends: Query<(Entity, &PlayerId), FriendOnly>,
 ) {
     for (entity, id) in &friends {
@@ -457,7 +467,7 @@ fn follow_friends(
             commands.entity(entity).despawn();
         }
     }
-    for crab in sim.crabs().iter().filter(|c| c.remote) {
+    for crab in sim.crabs().iter().filter(|c| c.id != local.0) {
         if friends.iter().all(|(_, id)| *id != crab.id) {
             let pos = crab.mover.pos;
             commands.spawn((

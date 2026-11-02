@@ -37,11 +37,7 @@ pub struct Fragments<'a> {
 }
 
 impl<'a> Fragments<'a> {
-    pub(crate) fn piece(
-        id: u64,
-        bytes: &'a [u8],
-        index: u32,
-    ) -> Result<Option<Vec<u8>>, TransferError> {
+    pub fn piece(id: u64, bytes: &'a [u8], index: u32) -> Result<Option<Vec<u8>>, TransferError> {
         if bytes.is_empty() {
             return Err(TransferError::Empty);
         }
@@ -153,7 +149,7 @@ fn parse_fragment(packet: &[u8]) -> Result<Fragment<'_>, TransferError> {
 
 /// Bound the announced sequence length before allocating or reading its bytes.
 /// Also reject structurally invalid fragments at the message boundary.
-pub(super) fn deserialize_fragment<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+pub fn deserialize_fragment<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

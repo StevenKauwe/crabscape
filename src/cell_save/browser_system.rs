@@ -9,6 +9,16 @@ pub fn save_periodically(
     sim: Res<Sim>,
     crab: Single<(&Mover, &PlayerId), With<LocalPlayer>>,
 ) {
+    if crate::coop::cells_visiting() {
+        let Some(generation) = super::browser::reserve_save(time.delta_secs()) else {
+            return;
+        };
+        match crate::coop::cells_private_save(&sim) {
+            Some(Ok(prepared)) => super::browser::submit_save(generation, prepared),
+            _ => super::browser::capture_failed(generation),
+        }
+        return;
+    }
     let (mover, id) = *crab;
     // Contact or a knockback may briefly place the crab inside rock. Do not
     // replace a good save with a position startup would refuse; try again

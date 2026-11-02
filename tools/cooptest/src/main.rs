@@ -311,6 +311,21 @@ impl Player {
         code.ok_or_else(|| "no code".into())
     }
 
+    fn copied_invite(&mut self, code: &str, mode: &str) -> Result<String> {
+        let link = self
+            .b
+            .eval("navigator.clipboard.readText()")?
+            .as_str()
+            .ok_or("Invite did not copy a link")?
+            .to_string();
+        if !link.contains(&format!("join={code}")) || !link.contains(&format!("&{mode}")) {
+            return Err(format!(
+                "Invite did not preserve the selected {mode} world: {link}"
+            ));
+        }
+        Ok(link)
+    }
+
     /// Settings → `tab` → `choice`, twice (it asks "Sure?" first). Each tap is checked by what the panel says it shows
     /// (`data-settings`) and made again if a busy page missed it; the last one isn't (the panel closes).
     fn settings_twice(
@@ -438,6 +453,13 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
         }
         sleep(0.25);
     };
+    voices(players)?;
+    Ok(met)
+}
+
+/// The same real audio-call check applies to ordinary and cellular sessions.
+fn voices(players: &mut [&mut Player]) -> Result<()> {
+    let n = players.len() - 1;
     if players.iter().any(|p| p.voice) {
         for p in players.iter_mut() {
             p.mic_on()?;
@@ -480,7 +502,7 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
             }
         }
     }
-    Ok(met)
+    Ok(())
 }
 
 /// The second line of the one who stands in for the main host.
@@ -578,7 +600,12 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 20] = [
+const SCENARIOS: [(&str, &str, u32); 21] = [
+    (
+        "cells-session",
+        "playable cellular world, controls, determinism and solo recovery",
+        60,
+    ),
     (
         "cell-probe-actors-profile",
         "developer actor processing and digest profile",
@@ -710,6 +737,171 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
+        "cells-session" => {
+            host.open(&site.url("cells"))?;
+            guest.open(&site.url("cells"))?;
+            let code = host.invite()?;
+            let invite = host.copied_invite(&code, "cells")?;
+            guest.open(&invite)?;
+            host.until(90.0, "cellular host session", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("host")
+            })
+            .map_err(|error| format!("{error}; guest status: {}", guest.coop()))?;
+            guest.until(90.0, "cellular guest session", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("guest")
+            })?;
+            found.push(sees_name(&mut host, &mut guest)?);
+            found.push(sees_name(&mut guest, &mut host)?);
+            voices(&mut [&mut host, &mut guest])?;
+            host.b.type_line("cellular hello")?;
+            guest.until(5.0, "chat from the cellular host", |p| {
+                p.b.attr("data-chat")
+                    .is_some_and(|s| s.contains("cellular hello"))
+            })?;
+            let start = host.b.attr("data-cell-session-actors");
+            host.b.hold_key("KeyD", 0.7)?;
+            guest.b.hold_key("KeyA", 0.7)?;
+            guest.b.hold_key("Space", 0.2)?;
+            guest.b.hold_keys(&["KeyC", "ArrowDown"], 0.5)?;
+            guest.b.type_line("hulk")?;
+            sleep(0.5);
+            host.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')",
+            )?;
+            sleep(1.5);
+            for p in [&mut host, &mut guest] {
+                p.b.eval(
+                    "document.getElementById('crabscape').setAttribute('data-want-cell-hash','1')",
+                )?;
+            }
+            sleep(0.5);
+            let h = host.b.attr("data-cell-session-hash");
+            let g = guest.b.attr("data-cell-session-hash");
+            if h.is_none() || h != g {
+                return Err(
+                    host.failed(format!("cellular state mismatch: host {h:?}, guest {g:?}"))
+                );
+            }
+            if host.b.attr("data-cell-session-actors") == start {
+                return Err("cellular controls did not move actors".into());
+            }
+            guest.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-want-replay','1')",
+            )?;
+            guest.until(20.0, "complete cellular multiplayer replay", |p| {
+                p.b.attr("data-replay")
+                    .is_some_and(|s| s.starts_with("cell_session_v1 "))
+            })?;
+            let text = guest
+                .b
+                .attr("data-replay")
+                .ok_or("missing session replay")?;
+            let replay = crabsim::Replay::parse(&text)?;
+            let mut played = crabsim::Sim::with_one_crab(replay.start);
+            if !replay.prepare_start(&mut played) {
+                return Err("browser replay starting checkpoint was rejected natively".into());
+            }
+            for _ in 0..replay.length() {
+                if !replay.step_cell_session(&mut played) {
+                    return Err("browser replay could not complete natively".into());
+                }
+            }
+            let replayed = format!("{}:{:016x}", played.tick_count(), played.state_hash());
+            if Some(replayed.as_str()) != h.as_deref() || replay.hash != Some(played.state_hash()) {
+                return Err(format!(
+                    "browser/native session replay mismatch: browser {h:?}, native {replayed}"
+                ));
+            }
+            guest
+                .b
+                .eval("document.getElementById('replay-close').click()")?;
+            host.healthy()?;
+            guest.healthy()?;
+            found.push(format!(
+                "both cellular actors move, dig and use codes; identical full state {h:?}"
+            ));
+            found.push(format!(
+                "complete browser replay reproduces native state ({} KiB)",
+                text.len() / 1024
+            ));
+            host.b.screenshot(&site.dir.join("cellular-host.png"))?;
+            guest.b.screenshot(&site.dir.join("cellular-guest.png"))?;
+            if let Some(dir) = &site.shots {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                host.b.screenshot(&dir.join("cells-playing-host.png"))?;
+                guest.b.screenshot(&dir.join("cells-playing-guest.png"))?;
+            }
+            // Exercise the real report form and POST construction, without
+            // creating a public issue from an automated test.
+            guest.b.eval(r#"(() => {
+              const real = window.fetch.bind(window);
+              window.fetch = (url, init) => {
+                if (String(url).endsWith('/report') && init?.method === 'POST') {
+                  window.__cellReport = JSON.parse(init.body);
+                  return Promise.resolve(new Response('https://example.test/issues/42', {status: 200}));
+                }
+                return real(url, init);
+              };
+            })()"#)?;
+            guest.b.hold_key("KeyR", 0.1)?;
+            guest.until(5.0, "report opens during cellular co-op", |p| {
+                p.b.eval("!document.getElementById('report').hidden")
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    == Some(true)
+            })?;
+            guest.b.eval("document.getElementById('report-text').value = 'cellular session test'; document.getElementById('report-send').click()")?;
+            guest.until(5.0, "report POST during cellular co-op", |p| {
+                p.b.eval("window.__cellReport?.text === 'cellular session test'")
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    == Some(true)
+            })?;
+            if guest.b.eval("window.__cellReport.facts.some(f => f[0] === 'Replay' && f[1].includes('Complete co-op replay omitted'))")? != true {
+                return Err("oversized co-op replay was not explicitly marked omitted in report".into());
+            }
+            found.push(
+                "names, chat, voice roles and bug-report submission use the cellular session"
+                    .into(),
+            );
+            host.b.go("about:blank")?;
+            guest.until(40.0, "private solo world restored", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+            })?;
+            let restored = guest.b.attr("data-cell-session-actors").unwrap_or_default();
+            let actors: serde_json::Value =
+                serde_json::from_str(&restored).map_err(|e| e.to_string())?;
+            if actors.as_array().map(Vec::len) != Some(1) {
+                return Err("guest did not recover its solo actor".into());
+            }
+            found.push("guest disconnect restores private solo world".into());
+            guest
+                .b
+                .eval("document.getElementById('report-cancel').click()")?;
+            host.open(&site.url("cells"))?;
+            guest.until(90.0, "guest returns to the reloaded cellular host", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("guest")
+            })?;
+            host.until(10.0, "reloaded cellular host", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("host")
+            })?;
+            voices(&mut [&mut host, &mut guest])?;
+            guest.b.go("about:blank")?;
+            host.until(20.0, "departed cellular guest removed from the host", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+                    && p.b
+                        .attr("data-cell-session-actors")
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                        .and_then(|a| a.as_array().map(Vec::len))
+                        == Some(1)
+            })?;
+            guest.open(&site.url(&format!("cells&join={code}")))?;
+            guest.until(90.0, "cellular guest rejoins", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("guest")
+            })?;
+            voices(&mut [&mut host, &mut guest])?;
+            found.push("host reload and guest leave/rejoin recover both players".into());
+        }
         "cell-probe"
         | "cell-probe-window"
         | "cell-probe-loss"
@@ -891,7 +1083,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 p.coop().starts_with("Lobby open")
             })?;
             found.push(format!("lobby open {t:.1} s after Invite"));
-            guest.open(&site.url(&format!("join={code}")))?;
+            let invite = host.copied_invite(&code, "boring")?;
+            guest.open(&invite)?;
             let t = together(&mut [&mut host, &mut guest], limit::MEET)?;
             found.push(format!("met {t:.1} s after the friend's game started"));
             found.push(sees_name(&mut host, &mut guest)?);

@@ -245,6 +245,8 @@ pub struct World {
     crab: Option<(i32, i32)>,
     crab_half_x: i32,
     crab_half_y: i32,
+    #[serde(skip)]
+    pub(crate) other_crabs: Vec<(i32, i32, i32, i32)>,
     tracers: Vec<(f32, f32)>,
     silt: Vec<Silt>,
     kelp: [[f32; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
@@ -1403,6 +1405,7 @@ impl World {
             crab: None,
             crab_half_x: CRAB_HALF_X,
             crab_half_y: CRAB_HALF_Y,
+            other_crabs: Vec::new(),
             tracers: (0..900)
                 .map(|n| {
                     (
@@ -1504,6 +1507,9 @@ impl World {
                     return false;
                 };
                 if self.pebble_owner[i] != id {
+                    if self.other_body_contains(p.x + ox + dx, p.y + oy + dy, 0) {
+                        return false;
+                    }
                     let clear = if force == usize::MAX {
                         self.can_receive_grain(i)
                             || (self.cells[i] == Cell::Water
@@ -1587,9 +1593,11 @@ impl World {
                 if owner == id {
                     continue;
                 }
-                if self.crab.is_some_and(|(cx, cy)| {
-                    (x - cx).abs() <= self.crab_half_x && (y - cy).abs() <= self.crab_half_y
-                }) {
+                if self.other_body_contains(x, y, 0)
+                    || self.crab.is_some_and(|(cx, cy)| {
+                        (x - cx).abs() <= self.crab_half_x && (y - cy).abs() <= self.crab_half_y
+                    })
+                {
                     return false;
                 }
                 if owner != 0 {
@@ -1653,6 +1661,15 @@ impl World {
     }
     pub fn clear_game_crab(&mut self) {
         self.crab = None;
+        self.other_crabs.clear();
+    }
+    pub(crate) fn reserve_other_crabs(&mut self, bodies: Vec<(i32, i32, i32, i32)>) {
+        self.other_crabs = bodies;
+    }
+    fn other_body_contains(&self, x: i32, y: i32, margin: i32) -> bool {
+        self.other_crabs
+            .iter()
+            .any(|&(cx, cy, hx, hy)| (x - cx).abs() <= hx + margin && (y - cy).abs() <= hy + margin)
     }
     pub fn set_game_crab(&mut self, x: f32, y: f32, half_width: f32, half_height: f32) {
         self.crab_half_x = half_width.ceil().max(1.0) as i32;
@@ -1866,9 +1883,10 @@ impl World {
         }
         let x = (index % WIDTH) as i32;
         let y = (index / WIDTH) as i32;
-        !self.crab.is_some_and(|(cx, cy)| {
-            (x - cx).abs() <= self.crab_half_x + 4 && (y - cy).abs() <= self.crab_half_y + 4
-        })
+        !self.other_body_contains(x, y, 4)
+            && !self.crab.is_some_and(|(cx, cy)| {
+                (x - cx).abs() <= self.crab_half_x + 4 && (y - cy).abs() <= self.crab_half_y + 4
+            })
     }
 
     fn sediment_push_cost(&self, i: usize) -> usize {
@@ -2177,11 +2195,12 @@ impl World {
                     continue;
                 }
                 let Some(ln) = local(n) else { continue };
-                if (!through_body
-                    && self.crab.is_some_and(|(cx, cy)| {
-                        ((n % WIDTH) as i32 - cx).abs() <= self.crab_half_x
-                            && ((n / WIDTH) as i32 - cy).abs() <= self.crab_half_y
-                    }))
+                if self.other_body_contains((n % WIDTH) as i32, (n / WIDTH) as i32, 0)
+                    || (!through_body
+                        && self.crab.is_some_and(|(cx, cy)| {
+                            ((n % WIDTH) as i32 - cx).abs() <= self.crab_half_x
+                                && ((n / WIDTH) as i32 - cy).abs() <= self.crab_half_y
+                        }))
                     || protected.is_some_and(|(cx, cy, hx, hy)| {
                         ((n % WIDTH) as i32 - cx).abs() <= hx
                             && ((n / WIDTH) as i32 - cy).abs() <= hy

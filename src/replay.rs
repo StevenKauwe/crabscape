@@ -33,6 +33,16 @@ fn save_on_request(keys: Res<ButtonInput<KeyCode>>, sim: Res<Sim>) {
     if !keys.just_pressed(KeyCode::F9) && !page::replay_wanted() {
         return;
     }
+    if let Some(session) = crate::coop::cells_replay(false) {
+        match session {
+            Ok(mut text) => {
+                text += &format!("hash {:016x}\n", sim.state_hash());
+                page::hand_out(&text);
+            }
+            Err(reason) => page::hand_out(&format!("# Replay unavailable: {reason}\n")),
+        }
+        return;
+    }
     let Some(replay) = sim.recording() else {
         return;
     };

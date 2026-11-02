@@ -388,6 +388,24 @@ impl Chrome {
     }
 
     /// Type `text` as a player does in the game's box: Enter, the letters, Enter.
+    pub fn hold_keys(&mut self, codes: &[&str], secs: f64) -> Result<()> {
+        for code in codes {
+            self.call(
+                "Input.dispatchKeyEvent",
+                json!({"type":"rawKeyDown","code":code}),
+            )?;
+        }
+        std::thread::sleep(Duration::from_secs_f64(secs));
+        for code in codes {
+            self.call(
+                "Input.dispatchKeyEvent",
+                json!({"type":"keyUp","code":code}),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Type `text` as a player does in the game's box: Enter, the letters, Enter.
     pub fn type_line(&mut self, text: &str) -> Result<()> {
         let press = |me: &mut Self, key: &str, code: &str, text: Option<&str>| -> Result<()> {
             let mut event = json!({ "type": "keyDown", "key": key, "code": code });

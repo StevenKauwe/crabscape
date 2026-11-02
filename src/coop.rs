@@ -92,6 +92,85 @@ pub struct LocalId(pub PlayerId);
 pub struct NewLink;
 
 pub struct CoopPlugin;
+mod cells_wire;
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_visiting() -> bool {
+    web::cells::visiting()
+}
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_private_save(
+    sim: &crabsim::Sim,
+) -> Option<Result<crate::cell_save::v2::PreparedSave, crate::cell_save::Error>> {
+    web::cells::private_save(sim)
+}
+
+pub(crate) use crabsim::replay::CellSessionAction as CellsAction;
+
+pub(crate) fn cells_replay(report: bool) -> Option<Result<String, String>> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::replay(report)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = report;
+        None
+    }
+}
+pub(crate) fn cells_action(action: CellsAction) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::action(action)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = action;
+        false
+    }
+}
+
+pub(crate) fn cells_active() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::active()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+/// Both co-op protocols expose the same host role to voice transcription.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn world_host(sim: &crabsim::Sim) -> bool {
+    if crate::cellular::enabled() {
+        web::cells::role() == "host"
+    } else {
+        sim.online() && sim.is_host()
+    }
+}
+pub(crate) fn cells_controls(controls: crabsim::Controls) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::controls(controls)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = controls;
+        false
+    }
+}
+pub(crate) fn cells_tick(sim: &mut crabsim::Sim, local: PlayerId) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::tick(sim, local)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (sim, local);
+        false
+    }
+}
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
@@ -492,6 +571,7 @@ pub(crate) use web::{in_room, introducer, players};
 
 #[cfg(target_arch = "wasm32")]
 mod web {
+    pub(crate) mod cells;
     use std::cell::RefCell;
 
     use bevy::prelude::*;
@@ -815,11 +895,6 @@ mod web {
     struct StatusLine;
 
     pub fn build(app: &mut App) {
-        if crate::cellular::enabled() {
-            app.insert_resource(LocalId(HOST))
-                .insert_resource(Coop::default());
-            return;
-        }
         let invited = query("join").and_then(|c| clean_code(&c));
         let mine = lobby();
         let other_tab = open_in_other_tab(
@@ -924,7 +999,17 @@ mod web {
         if me.0 == HOST && coop.code.is_some() {
             coop.code = Some(code.clone());
             coop.watch = Watch::default();
-            rejoin(&mut sim, &code, true);
+            if crate::cellular::enabled() {
+                cells::disconnect(&mut sim, me.0);
+                LINK.with(|slot| {
+                    if let Some(mut link) = slot.borrow_mut().take() {
+                        link.socket.close();
+                    }
+                });
+                connect(&code);
+            } else {
+                rejoin(&mut sim, &code, true);
+            }
         }
         coop.flash = 0.0;
         show_lobby(Some(&code));
@@ -964,6 +1049,11 @@ mod web {
     /// The link a friend opens to join `code`.
     fn invite_link(code: &str) -> String {
         let mut link = format!("{}?join={code}", page());
+        if crate::cellular::enabled() {
+            link += "&cells";
+        } else {
+            link += "&boring";
+        }
         if let Some(i) = query("introducer") {
             link += &format!("&introducer={}", js_sys::encode_uri_component(&i));
         }
@@ -980,7 +1070,7 @@ mod web {
             return;
         };
         let host = me.0 == HOST;
-        if host {
+        if host && !crate::cellular::enabled() {
             sim.go_online(true);
         }
         connect(&code);
@@ -1051,9 +1141,14 @@ mod web {
             matchbox_socket::probe_ingress::reset(&tags);
         }
         let url = format!(
-            "{}/{}",
+            "{}/{}{}",
             introducer(),
-            room(save::build_slug().as_deref(), code)
+            room(save::build_slug().as_deref(), code),
+            if crate::cellular::enabled() {
+                "-cells"
+            } else {
+                ""
+            }
         );
         let (socket, run) = WebRtcSocket::builder(url)
             .add_reliable_channel()
@@ -1167,7 +1262,9 @@ mod web {
             js_sys::Date::now(),
         );
         if coop.code.is_none() && me.0 == HOST && !other_tab {
-            sim.go_online(true);
+            if !crate::cellular::enabled() {
+                sim.go_online(true);
+            }
             connect(&mine);
             coop.code = Some(mine.clone());
             coop.status = status(Hosting::Nobody, true, false, 0, None);
@@ -1226,6 +1323,10 @@ mod web {
         mut chat: ResMut<crate::chat::Chat>,
         me: Res<LocalId>,
     ) {
+        if crate::cellular::enabled() {
+            cells::take_in(&time, &mut sim, &mut coop, me.0, &mut names, &mut chat);
+            return;
+        }
         let Some(code) = coop.code.clone() else {
             return;
         };
@@ -1956,10 +2057,14 @@ mod web {
     ) {
         // Whose world this browser plays in, for the browser tests: a friend waiting for a host who isn't there
         // plays its own ("solo"), never half of someone else's.
-        let now = match (sim.online(), sim.is_host()) {
-            (false, _) => "solo",
-            (true, true) => "host",
-            (true, false) => "guest",
+        let now = if crate::cellular::enabled() {
+            cells::role()
+        } else {
+            match (sim.online(), sim.is_host()) {
+                (false, _) => "solo",
+                (true, true) => "host",
+                (true, false) => "guest",
+            }
         };
         if *world != now {
             *world = now;

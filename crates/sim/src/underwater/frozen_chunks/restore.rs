@@ -115,6 +115,7 @@ impl FrozenRestore {
             crab: m.crab,
             crab_half_x: m.crab_half_x,
             crab_half_y: m.crab_half_y,
+            other_crabs: Vec::new(),
             tracers: m.tracers.0,
             silt: m.silt.0,
             kelp: m.kelp,

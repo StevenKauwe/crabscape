@@ -1042,7 +1042,8 @@ fn press(
             if go.inflate(3.0).contains(p)
                 && let Some(feat) = offer.grow
             {
-                let done = sim.moult(*id, feat.skill());
+                let done = crate::coop::cells_action(crate::coop::CellsAction::Moult(feat.skill()))
+                    || sim.moult(*id, feat.skill());
                 info!("moult: {} -> {done}", feat.name());
                 pick.0 = 0;
             } else if offer.choice && next.inflate(3.0).contains(p) {
@@ -1050,7 +1051,9 @@ fn press(
             }
         }
         for (def, (_, make)) in RECIPES.iter().zip(&l.rows) {
-            if make.inflate(6.0).contains(p) {
+            if make.inflate(6.0).contains(p)
+                && !crate::coop::cells_action(crate::coop::CellsAction::Craft(def.recipe))
+            {
                 let _ = sim.make(*id, def.recipe);
             }
         }

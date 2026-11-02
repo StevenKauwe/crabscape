@@ -195,6 +195,7 @@ pub fn decode_browser_checkpoint(raw: &[u8]) -> Option<World> {
         crab: w.crab,
         crab_half_x: w.crab_half_x,
         crab_half_y: w.crab_half_y,
+        other_crabs: Vec::new(),
         tracers: w.tracers.0,
         silt: w.silt.0,
         kelp: w.kelp,
