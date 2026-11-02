@@ -2758,6 +2758,22 @@ impl World {
         if material {
             chunk_flow::reject_scoop_capture();
         }
+        #[cfg(test)]
+        if chunk_flow::incremental_archive::staged::staged_follow_enabled() {
+            if chunk_flow::incremental_archive::staged::follow_for_sim_test(
+                &mut next,
+                level,
+                host.x,
+                host.y - host.half_height,
+            )
+            .is_none()
+            {
+                return false;
+            }
+        } else {
+            next.follow_player(level, host.x, host.y - host.half_height);
+        }
+        #[cfg(not(test))]
         next.follow_player(level, host.x, host.y - host.half_height);
         #[cfg(test)]
         if next.origin != self.origin || next.opening_edge_opened != self.opening_edge_opened {

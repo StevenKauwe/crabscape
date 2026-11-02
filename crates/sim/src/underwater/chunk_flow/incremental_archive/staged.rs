@@ -17,6 +17,71 @@ const MAX_PAGES: usize = 64;
 const ITEMS: usize = 1024;
 const PAGE_CELLS: usize = 4096;
 
+// Disposable test seam only: production continues to use the normal path.
+// This synchronous driver deliberately drains every slice and clones a World;
+// it proves integration, not frame budget or bounded total memory.
+thread_local! {
+    static TEST_FOLLOW: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+pub(crate) fn with_staged_follow<R>(f: impl FnOnce() -> R) -> (R, usize) {
+    TEST_FOLLOW.with(|v| assert!(v.replace(Some(0)).is_none(), "nested staged follow"));
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_FOLLOW.with(|v| v.set(None));
+        }
+    }
+    let guard = Reset;
+    let result = f();
+    let count = TEST_FOLLOW.with(|v| v.get().unwrap_or(0));
+    drop(guard);
+    (result, count)
+}
+
+pub(crate) fn with_reference_follow<R>(f: impl FnOnce() -> R) -> R {
+    let previous = TEST_FOLLOW.with(|v| v.replace(None));
+    struct Restore(Option<usize>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_FOLLOW.with(|v| v.set(self.0));
+        }
+    }
+    let guard = Restore(previous);
+    let result = f();
+    drop(guard);
+    result
+}
+
+pub(crate) fn staged_follow_enabled() -> bool {
+    TEST_FOLLOW.with(|v| v.get().is_some())
+}
+
+pub(crate) fn follow_for_sim_test(
+    world: &mut World,
+    level: &Level,
+    x: f32,
+    y: f32,
+) -> Option<bool> {
+    let mut owner = Owner::new(world.clone())?;
+    if owner.world.opening_edge_opened && owner.world.preview_window(x, y).is_none() {
+        return Some(false);
+    }
+    let mut stage = owner.start_follow(level, x, y)?;
+    let moved = stage.moved();
+    while !stage.advance(1024) {
+        if stage.failed {
+            return None;
+        }
+    }
+    if !stage.commit() {
+        return None;
+    }
+    *world = owner.world;
+    TEST_FOLLOW.with(|v| v.set(v.get().map(|n| n.saturating_add(1))));
+    Some(moved)
+}
+
 struct Owner {
     world: World,
     generation: u64,

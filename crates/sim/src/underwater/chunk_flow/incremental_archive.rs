@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod owned;
 #[cfg(test)]
-mod staged;
+pub(crate) mod staged;
 
 use super::{Cell, HEIGHT, SIDE, TERRAIN_CHUNK_CELLS, WIDTH, World};
 use crate::underwater::SleepingChunk;

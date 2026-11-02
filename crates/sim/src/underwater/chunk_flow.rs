@@ -182,7 +182,7 @@ fn decode_test_journal(bytes: &[u8]) -> Option<MaterialJournal> {
 }
 
 #[cfg(test)]
-mod incremental_archive;
+pub(crate) mod incremental_archive;
 
 #[cfg(test)]
 mod verified_scoop {
