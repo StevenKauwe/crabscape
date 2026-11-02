@@ -479,6 +479,63 @@ impl ChunkFlow {
         true
     }
 
+    /// Independent exact event comparison for one restricted scoop. Callers
+    /// must already have a trusted identical complete pre-state: equal events
+    /// cannot detect different untouched fields or missing instrumentation.
+    /// This is not a world/network API; clocks, actors, streaming and all
+    /// mutations outside the instrumented scoop remain unsupported.
+    #[cfg(test)]
+    fn record_scoop_for_exact_compare(
+        &self,
+        x: f32,
+        y: f32,
+        dx: i32,
+        dy: i32,
+        force: usize,
+    ) -> Option<(Self, Vec<u8>)> {
+        if self.material_journal.is_some() {
+            return None;
+        }
+        let mut next = self.clone();
+        next.material_journal = Some(MaterialJournal::default());
+        if next.push_for_crab(x, y, dx, dy, force) != Ok(true) {
+            return None;
+        }
+        let journal = next.material_journal.take()?;
+        if journal.overflow || journal.unsupported || journal.events.len() > WIRE_JOURNAL_EVENTS {
+            return None;
+        }
+        // A fixed-capacity output prevents serialization from growing with an
+        // unchecked sender. Exact bytes preserve float bits, including signed zero.
+        let mut bytes = vec![0; 64 * 1024];
+        let len = postcard::to_slice(&journal, &mut bytes).ok()?.len();
+        bytes.truncate(len);
+        Some((next, bytes))
+    }
+
+    #[cfg(test)]
+    fn verify_scoop_exactly(
+        &mut self,
+        x: f32,
+        y: f32,
+        dx: i32,
+        dy: i32,
+        force: usize,
+        expected: &[u8],
+    ) -> bool {
+        if expected.is_empty() || expected.len() > 64 * 1024 {
+            return false;
+        }
+        let Some((next, local)) = self.record_scoop_for_exact_compare(x, y, dx, dy, force) else {
+            return false;
+        };
+        if local != expected {
+            return false;
+        }
+        *self = next;
+        true
+    }
+
     #[cfg(test)]
     fn record_event(&mut self, event: MaterialEvent) {
         if let Some(journal) = &mut self.material_journal {
@@ -4256,5 +4313,173 @@ mod tests {
         assert!(decode_test_journal(&bytes[..bytes.len() - 1]).is_none());
         assert_eq!((host.state_hash(), guest.state_hash()), before);
         assert_eq!(receiver.accept(peer, Some(peer), &pieces[0]), Ok(None));
+    }
+    #[test]
+    fn independent_exact_scoop_events_match_and_reject_loss_without_full_digest() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 0;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            let i = World::index(x, 155).unwrap();
+            world.cells[i] = if x % 2 == 0 { Cell::Sand } else { Cell::Mud };
+        }
+        let initial = ChunkFlow::from_world(&world);
+        let (host, bytes) = initial
+            .record_scoop_for_exact_compare(63.0, 154.0, 0, 1, 48)
+            .unwrap();
+        let journal = decode_test_journal(&bytes).unwrap();
+        assert!(
+            journal
+                .events
+                .iter()
+                .any(|e| matches!(e, MaterialEvent::Flow { .. }))
+        );
+        assert!(
+            journal
+                .events
+                .iter()
+                .any(|e| matches!(e, MaterialEvent::Silt { .. }))
+        );
+        let mut guest = initial.clone();
+        assert!(guest.verify_scoop_exactly(63.0, 154.0, 0, 1, 48, &bytes));
+        assert!(guest == host);
+        let mut host_world = world.clone();
+        let mut guest_world = world.clone();
+        assert!(
+            host.write_material_to(&mut host_world) && guest.write_material_to(&mut guest_world)
+        );
+        assert!(
+            super::super::dirty_oracle::dirty(&host_world, &guest_world)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            crate::net::cell_join::lockstep::digest(&host_world),
+            crate::net::cell_join::lockstep::digest(&guest_world)
+        );
+        let mut omitted = journal.clone();
+        omitted.events.pop();
+        let omitted = postcard::to_allocvec(&omitted).unwrap();
+        let mut guest = initial.clone();
+        assert!(!guest.verify_scoop_exactly(63.0, 154.0, 0, 1, 48, &omitted));
+        assert!(guest == initial);
+        let mut corrupt = bytes.clone();
+        *corrupt.last_mut().unwrap() ^= 1;
+        assert!(!guest.verify_scoop_exactly(63.0, 154.0, 0, 1, 48, &corrupt));
+        assert!(guest == initial);
+        assert!(!guest.verify_scoop_exactly(63.0, 154.0, 0, 1, 0, &bytes));
+        assert!(guest == initial);
+        assert!(!guest.verify_scoop_exactly(63.0, 154.0, 0, 1, 48, &vec![0; 64 * 1024 + 1]));
+        assert!(guest == initial);
+    }
+    #[test]
+    fn independent_exact_pebble_scoop_events_match_full_world() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 1;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        assert!(world.add_pebble(63, 155, 2, 200));
+        let initial = ChunkFlow::from_world(&world);
+        let (host, bytes) = initial
+            .record_scoop_for_exact_compare(63.0, 154.0, 0, 1, 48)
+            .unwrap();
+        let journal = decode_test_journal(&bytes).unwrap();
+        assert!(
+            journal
+                .events
+                .iter()
+                .any(|event| matches!(event, MaterialEvent::Pebble { .. }))
+        );
+        let mut guest = initial.clone();
+        assert!(guest.verify_scoop_exactly(63.0, 154.0, 0, 1, 48, &bytes));
+        assert!(guest == host);
+        let mut host_world = world.clone();
+        let mut guest_world = world.clone();
+        assert!(
+            host.write_material_to(&mut host_world) && guest.write_material_to(&mut guest_world)
+        );
+        assert!(
+            super::super::dirty_oracle::dirty(&host_world, &guest_world)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            crate::net::cell_join::lockstep::digest(&host_world),
+            crate::net::cell_join::lockstep::digest(&guest_world)
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn independent_exact_scoop_event_profile() {
+        use std::time::Instant;
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 0;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            let i = World::index(x, 155).unwrap();
+            world.cells[i] = if x % 2 == 0 { Cell::Sand } else { Cell::Mud };
+        }
+        let initial = ChunkFlow::from_world(&world);
+        let mut host_times = Vec::new();
+        let mut guest_times = Vec::new();
+        let mut size = 0;
+        for _ in 0..20 {
+            let start = Instant::now();
+            let (host, bytes) = initial
+                .record_scoop_for_exact_compare(63.0, 154.0, 0, 1, 48)
+                .unwrap();
+            host_times.push(start.elapsed());
+            size = bytes.len();
+            let mut guest = initial.clone();
+            let start = Instant::now();
+            assert!(guest.verify_scoop_exactly(63.0, 154.0, 0, 1, 48, &bytes));
+            guest_times.push(start.elapsed());
+            assert!(guest == host);
+        }
+        host_times.sort_unstable();
+        guest_times.sort_unstable();
+        eprintln!(
+            "exact independent scoop: host {:?}, guest {:?}, encoded {} bytes, n=20; excludes full world, actors, digest, transport and rendering",
+            host_times[10], guest_times[10], size
+        );
+    }
+    #[test]
+    fn matching_scoop_events_do_not_prove_equal_world_clocks() {
+        let mut host_world = World::new();
+        host_world.cells.fill(Cell::Water);
+        host_world.pebble_owner.fill(0);
+        host_world.pebbles.clear();
+        host_world.pebble_motion.clear();
+        host_world.tick = 1;
+        host_world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            let i = World::index(x, 155).unwrap();
+            host_world.cells[i] = Cell::Sand;
+        }
+        let mut guest_world = host_world.clone();
+        guest_world.tick = 2;
+        let host_initial = ChunkFlow::from_world(&host_world);
+        let (_, bytes) = host_initial
+            .record_scoop_for_exact_compare(63.0, 154.0, 0, 1, 48)
+            .unwrap();
+        let mut guest = ChunkFlow::from_world(&guest_world);
+        assert!(guest.verify_scoop_exactly(63.0, 154.0, 0, 1, 48, &bytes));
+        assert_ne!(
+            host_world.tick, guest_world.tick,
+            "event equality does not validate clocks"
+        );
     }
 }
