@@ -30,7 +30,7 @@ struct Chunk {
 #[cfg(test)]
 type JournalMaterial = (Cell, u8, u8, u16);
 #[cfg(test)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum MaterialEvent {
     Swap {
         a: (usize, usize),
@@ -58,14 +58,55 @@ enum MaterialEvent {
     },
 }
 #[cfg(test)]
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct MaterialJournal {
+    #[serde(deserialize_with = "bounded_journal_events")]
     events: Vec<MaterialEvent>,
     overflow: bool,
     unsupported: bool,
 }
 #[cfg(test)]
 const MATERIAL_JOURNAL_LIMIT: usize = 65_536;
+// Much lower than the internal recording cap: bounds allocations for the
+// isolated 64 KiB packet-reassembly experiment. Not a production codec.
+#[cfg(test)]
+const WIRE_JOURNAL_EVENTS: usize = 4096;
+#[cfg(test)]
+fn bounded_journal_events<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<MaterialEvent>, D::Error> {
+    use serde::de::{Error, SeqAccess, Visitor};
+    struct Events;
+    impl<'de> Visitor<'de> for Events {
+        type Value = Vec<MaterialEvent>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("bounded journal events")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            if seq.size_hint().is_some_and(|n| n > WIRE_JOURNAL_EVENTS) {
+                return Err(A::Error::custom("too many events"));
+            }
+            let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(0).min(WIRE_JOURNAL_EVENTS));
+            while let Some(event) = seq.next_element()? {
+                if out.len() == WIRE_JOURNAL_EVENTS {
+                    return Err(A::Error::custom("too many events"));
+                }
+                out.push(event);
+            }
+            Ok(out)
+        }
+    }
+    d.deserialize_seq(Events)
+}
+
+#[cfg(test)]
+fn decode_test_journal(bytes: &[u8]) -> Option<MaterialJournal> {
+    if bytes.is_empty() || bytes.len() > 64 * 1024 {
+        return None;
+    }
+    let (journal, remaining) = postcard::take_from_bytes::<MaterialJournal>(bytes).ok()?;
+    (remaining.is_empty() && !journal.overflow && !journal.unsupported).then_some(journal)
+}
 
 #[derive(Clone, PartialEq)]
 pub struct ChunkFlow {
@@ -4022,6 +4063,7 @@ mod tests {
         let mut recording = Vec::new();
         let mut replay = Vec::new();
         let mut count = 0;
+        let mut encoded = 0;
         for _ in 0..20 {
             let mut host = initial.clone();
             let start = Instant::now();
@@ -4038,6 +4080,7 @@ mod tests {
             recording.push(start.elapsed());
             let journal = host.material_journal.take().unwrap();
             count = journal.events.len();
+            encoded = postcard::to_allocvec(&journal).unwrap().len();
             let mut guest = initial.clone();
             let start = Instant::now();
             assert!(guest.replay_material_journal(&journal));
@@ -4048,12 +4091,170 @@ mod tests {
         recording.sort_unstable();
         replay.sort_unstable();
         eprintln!(
-            "pebble+wake baseline {:?}, recording {:?}, replay {:?}; {} events; fixed-size event cap <= {} bytes; n=20; excludes full digest, World and actors, transport and rendering",
+            "pebble+wake baseline {:?}, recording {:?}, replay {:?}; {} events, encoded {} bytes; fixed-size event cap <= {} bytes; n=20; excludes full digest, World and actors, transport and rendering",
             baseline[10],
             recording[10],
             replay[10],
             count,
+            encoded,
             MATERIAL_JOURNAL_LIMIT * std::mem::size_of::<MaterialEvent>()
         );
+    }
+    #[test]
+    fn bounded_journal_fragments_reassemble_over_fake_link_without_mutating_worlds() {
+        use crate::net::{
+            FakeLink, Msg,
+            cell_join::Peer,
+            cell_transfer::{Fragments, Receiver, fragment_identity},
+        };
+        const MAX_JOURNAL: usize = 64 * 1024;
+        struct JournalReceiver {
+            peer: Peer,
+            transfer: u64,
+            inner: Receiver,
+            closed: bool,
+        }
+        impl JournalReceiver {
+            fn accept(
+                &mut self,
+                sender: Peer,
+                selected: Option<Peer>,
+                msg: &Msg,
+            ) -> Result<Option<Vec<u8>>, &'static str> {
+                if self.closed {
+                    return Err("closed");
+                }
+                if selected != Some(self.peer) {
+                    self.inner = Receiver::default();
+                    self.closed = true;
+                    return Err("peer");
+                }
+                if sender != self.peer {
+                    return Err("peer");
+                }
+                let Msg::CellTerrain(piece) = msg else {
+                    return Err("message");
+                };
+                let (id, _) = fragment_identity(piece).map_err(|_| "malformed")?;
+                if id != self.transfer {
+                    return Err("transfer");
+                }
+                let total =
+                    u32::from_le_bytes(piece[8..12].try_into().map_err(|_| "malformed")?) as usize;
+                if total > MAX_JOURNAL {
+                    return Err("size");
+                }
+                self.inner.accept(piece).map_err(|_| "fragment")
+            }
+        }
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.clear_game_crab();
+        assert!(world.add_pebble(62, 100, 4, 250));
+        let mut chunks = ChunkFlow::from_world(&world);
+        chunks.material_journal = Some(MaterialJournal::default());
+        assert!(chunks.push_pebble_chain(1, 1, 0, 64));
+        chunks.stir(64.0, 102.0, 1.0, 0.5);
+        chunks.emit_silt(64.0, 102.0);
+        let journal = chunks.material_journal.take().unwrap();
+        let bytes = postcard::to_allocvec(&journal).unwrap();
+        assert!(bytes.len() > crate::net::MAX_BYTES && bytes.len() <= MAX_JOURNAL);
+        let pieces: Vec<_> = Fragments::new(7, &bytes)
+            .unwrap()
+            .map(Msg::CellTerrain)
+            .collect();
+        assert!(pieces.len() >= 2);
+        let peer = Peer {
+            player: crate::PlayerId(0),
+            connection: 99,
+        };
+        let forged = Peer {
+            player: crate::PlayerId(0),
+            connection: 100,
+        };
+        let mut receiver = JournalReceiver {
+            peer,
+            transfer: 7,
+            inner: Receiver::default(),
+            closed: false,
+        };
+        assert_eq!(receiver.accept(forged, Some(peer), &pieces[0]), Err("peer"));
+        let mut disconnected = JournalReceiver {
+            peer,
+            transfer: 7,
+            inner: Receiver::default(),
+            closed: false,
+        };
+        assert_eq!(disconnected.accept(peer, Some(peer), &pieces[0]), Ok(None));
+        assert_eq!(disconnected.accept(peer, None, &pieces[0]), Err("peer"));
+        assert_eq!(
+            disconnected.accept(peer, Some(peer), &pieces[1]),
+            Err("closed")
+        );
+        assert_eq!(
+            receiver.accept(peer, Some(peer), &Msg::CellProbeReady),
+            Err("message")
+        );
+        let unknown = Msg::CellTerrain(Fragments::new(8, &bytes).unwrap().next().unwrap());
+        assert_eq!(receiver.accept(peer, Some(peer), &unknown), Err("transfer"));
+        let oversized_bytes = vec![0; MAX_JOURNAL + 1];
+        let oversized =
+            Msg::CellTerrain(Fragments::new(7, &oversized_bytes).unwrap().next().unwrap());
+        assert_eq!(receiver.accept(peer, Some(peer), &oversized), Err("size"));
+        let last = pieces.len() - 1;
+        assert_eq!(receiver.accept(peer, Some(peer), &pieces[last]), Ok(None));
+        assert_eq!(receiver.accept(peer, Some(peer), &pieces[last]), Ok(None));
+        let mut conflicting = pieces[last].clone();
+        if let Msg::CellTerrain(data) = &mut conflicting {
+            *data.last_mut().unwrap() ^= 1;
+        }
+        assert_eq!(
+            receiver.accept(peer, Some(peer), &conflicting),
+            Err("fragment")
+        );
+        let level = crate::Level::test_level();
+        let mut host = crate::Sim::new(crate::Tuning::default(), level.clone());
+        let mut guest = crate::Sim::new(crate::Tuning::default(), level);
+        let before = (host.state_hash(), guest.state_hash());
+        let mut link = FakeLink::steady(0);
+        for piece in &pieces[..last] {
+            assert!(piece.to_bytes().len() <= crate::net::MAX_BYTES);
+            link.test_post(0, 1, piece.clone());
+        }
+        let mut complete = None;
+        link.carry_with(&mut [&mut host, &mut guest], |from, to, _, msg| {
+            assert_eq!((from, to), (0, 1));
+            let decoded = Msg::from_bytes(&msg.to_bytes()).unwrap();
+            if let Some(payload) = receiver.accept(peer, Some(peer), &decoded).unwrap() {
+                complete = Some(payload);
+            }
+        });
+        assert_eq!(complete.as_deref(), Some(bytes.as_slice()));
+        let decoded = decode_test_journal(complete.as_deref().unwrap()).unwrap();
+        assert_eq!(decoded, journal);
+        let mut host_world = world.clone();
+        assert!(chunks.write_material_to(&mut host_world));
+        let digest = crate::net::cell_join::lockstep::digest(&host_world).unwrap();
+        let mut guest_chunks = ChunkFlow::from_world(&world);
+        assert!(guest_chunks.replay_journal_with_full_digest(&world, &decoded, digest));
+        assert!(guest_chunks == chunks);
+        let mut incomplete = decoded.clone();
+        incomplete.events.pop();
+        let mut guest_chunks = ChunkFlow::from_world(&world);
+        let unchanged = guest_chunks.clone();
+        assert!(!guest_chunks.replay_journal_with_full_digest(&world, &incomplete, digest));
+        assert!(guest_chunks == unchanged);
+        let too_many = postcard::to_allocvec(&(WIRE_JOURNAL_EVENTS as u64 + 1)).unwrap();
+        assert!(decode_test_journal(&too_many).is_none());
+        assert!(decode_test_journal(&[1, 127, 0, 0]).is_none());
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(decode_test_journal(&trailing).is_none());
+        assert!(decode_test_journal(&bytes[..bytes.len() - 1]).is_none());
+        assert_eq!((host.state_hash(), guest.state_hash()), before);
+        assert_eq!(receiver.accept(peer, Some(peer), &pieces[0]), Ok(None));
     }
 }
