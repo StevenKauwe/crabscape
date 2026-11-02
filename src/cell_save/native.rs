@@ -8,7 +8,7 @@ use std::thread::JoinHandle;
 use bevy::prelude::*;
 use crabsim::{Sim, underwater::World};
 
-use super::{MAX_RAW, Restored};
+use super::{MAX_RAW, ReplayStart, Restored};
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 use crate::save::SaveData;
 
@@ -24,14 +24,30 @@ static WIPE_FAILED: AtomicBool = AtomicBool::new(false);
 pub struct Storage {
     disabled: bool,
     warned: bool,
+    write_failed: bool,
     elapsed: f32,
     generation: u64,
     worker: Option<JoinHandle<Result<(), String>>>,
+    replay: ReplayStart,
 }
 
 impl Storage {
     pub fn disable(&mut self) {
         self.disabled = true;
+    }
+
+    pub fn warning(&self) -> Option<&'static str> {
+        if self.disabled {
+            Some("Cellular save unavailable. Your previous save is kept; autosave is off.")
+        } else if self.write_failed {
+            Some("Autosave failed. Your previous cellular save is kept.")
+        } else {
+            None
+        }
+    }
+
+    pub fn take_replay_start(&mut self) -> ReplayStart {
+        std::mem::take(&mut self.replay)
     }
 }
 
@@ -57,6 +73,7 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
                 return None;
             }
             if sim.restore_cellular_terrain(saved.terrain, saved.sim_tick) {
+                storage.replay = saved.replay;
                 Some(saved.player)
             } else {
                 storage.disabled = true;
@@ -158,6 +175,7 @@ fn update_storage(
     if storage.generation != generation {
         storage.generation = generation;
         storage.disabled = WIPE_FAILED.load(Ordering::SeqCst);
+        storage.write_failed = false;
         storage.worker = None;
         storage.elapsed = 0.0;
     }
@@ -171,6 +189,7 @@ fn update_storage(
             .expect("checked worker")
             .join()
             .unwrap_or_else(|_| Err("save worker stopped unexpectedly".into()));
+        storage.write_failed = result.is_err();
         if let Err(e) = result
             && !storage.warned
         {
@@ -254,6 +273,7 @@ mod tests {
         let mut state = Storage::default();
         assert!(load_path(&mut sim(), &mut state, &path).is_none());
         assert!(state.disabled);
+        assert!(state.warning().is_some());
         assert_eq!(std::fs::read(&path).unwrap(), b"not a valid cellular save");
         std::fs::remove_file(path).unwrap();
     }
@@ -366,7 +386,40 @@ mod tests {
         let mut state = Storage::default();
         assert!(load_path(&mut sim(), &mut state, &path).is_none());
         assert!(!state.disabled);
+        assert!(state.warning().is_none());
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn v2_load_passes_verified_replay_token_to_startup() {
+        let path = path("v2-token");
+        let mut before = sim();
+        before.enable_underwater_cells();
+        let terrain = before.level.cells.as_ref().unwrap();
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 400.0,
+            y: 0.0,
+            memory: None,
+            progress: None,
+        };
+        let bytes = super::super::v2::prepare(&player, terrain, 17)
+            .unwrap()
+            .encode()
+            .unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut after = sim();
+        let mut state = Storage::default();
+        assert!(load_path(&mut after, &mut state, &path).is_some());
+        after.add_crab(
+            crabsim::PlayerId(0),
+            bevy::math::Vec2::new(player.x, player.y),
+        );
+        let ReplayStart::Verified(token) = state.take_replay_start() else {
+            panic!("verified token lost during startup")
+        };
+        assert!(after.start_recording_with_verified_terrain(&token));
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

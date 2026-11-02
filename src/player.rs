@@ -35,6 +35,13 @@ pub struct LocalPlayer;
 #[derive(Component)]
 pub struct Crab;
 
+#[derive(Component)]
+struct ReplayUnavailableNotice;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Component)]
+struct SavingUnavailableNotice;
+
 /// "Player `player` wants these controls." Sent every frame by whoever
 /// controls that crab. A *message* is a value that one system writes and
 /// others read later in the same or the next frame.
@@ -105,7 +112,10 @@ impl Plugin for PlayerPlugin {
                 (apply_requests, simulate, follow_friends, place_crabs)
                     .chain()
                     .in_set(GameSet::Simulate),
-            );
+            )
+            .add_systems(Update, hide_replay_notice.in_set(GameSet::Present));
+        #[cfg(not(target_arch = "wasm32"))]
+        app.add_systems(Update, hide_save_notice.in_set(GameSet::Present));
     }
 }
 
@@ -171,7 +181,60 @@ pub fn spawn_local_crab(
     }
     // Always write down what the local player does, so a replay can be saved
     // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::cellular::enabled() {
+        match cells_storage.take_replay_start() {
+            crate::cell_save::ReplayStart::Legacy => sim.start_recording(),
+            crate::cell_save::ReplayStart::Verified(token) => {
+                sim.start_recording_with_verified_terrain(&token);
+            }
+            crate::cell_save::ReplayStart::Unavailable => {}
+        }
+    } else {
+        sim.start_recording();
+    }
+    #[cfg(target_arch = "wasm32")]
     sim.start_recording();
+    if !sim.is_recording() {
+        commands.spawn((
+            ReplayUnavailableNotice,
+            Text::new("Replay unavailable for this saved world."),
+            TextFont {
+                font_size: FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            BackgroundColor(Color::srgba(0.05, 0.09, 0.1, 0.9)),
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(8.0),
+                left: Val::Px(8.0),
+                padding: UiRect::all(Val::Px(6.0)),
+                ..default()
+            },
+        ));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::cellular::enabled() {
+        commands.spawn((
+            SavingUnavailableNotice,
+            Text::new(""),
+            Visibility::Hidden,
+            TextFont {
+                font_size: FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            BackgroundColor(Color::srgba(0.25, 0.08, 0.05, 0.95)),
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(38.0),
+                left: Val::Px(8.0),
+                padding: UiRect::all(Val::Px(6.0)),
+                ..default()
+            },
+        ));
+    }
     sim.populate();
     commands.spawn((
         Crab,
@@ -184,6 +247,37 @@ pub fn spawn_local_crab(
         Transform::from_xyz(pos.x, pos.y, 10.0),
         Visibility::default(),
     ));
+}
+
+fn hide_replay_notice(
+    sim: Res<Sim>,
+    mut notices: Query<&mut Visibility, With<ReplayUnavailableNotice>>,
+) {
+    if sim.is_recording() {
+        for mut visible in &mut notices {
+            *visible = Visibility::Hidden;
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn hide_save_notice(
+    storage: Res<crate::cell_save::native::Storage>,
+    mut notices: Query<(&mut Visibility, &mut Text), With<SavingUnavailableNotice>>,
+) {
+    for (mut visible, mut text) in &mut notices {
+        match storage.warning() {
+            Some(message) => {
+                visible.set_if_neq(Visibility::Inherited);
+                if text.0 != message {
+                    text.0 = message.to_string();
+                }
+            }
+            None => {
+                visible.set_if_neq(Visibility::Hidden);
+            }
+        }
+    }
 }
 
 pub(crate) fn valid_saved_spot(pos: Vec2, size: f32, sim: &Sim) -> bool {
@@ -391,5 +485,32 @@ mod cellular_save_tests {
         assert!(cells.game_rock_in_rect(left - 1.0, bottom, left + width, bottom + height));
         assert!(cells.game_rock_in_rect(0.0, 0.0, f32::INFINITY, 100.0));
         assert!(cells.game_rock_in_rect(1.0, 1.0, 1.0, 10.0));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn save_failure_notice_is_visible_and_explains_the_old_save_is_kept() {
+        let mut app = App::new();
+        app.init_resource::<crate::cell_save::native::Storage>()
+            .add_systems(Update, hide_save_notice);
+        let notice = app
+            .world_mut()
+            .spawn((SavingUnavailableNotice, Text::new(""), Visibility::Hidden))
+            .id();
+        app.world_mut()
+            .resource_mut::<crate::cell_save::native::Storage>()
+            .disable();
+        app.update();
+        assert_eq!(
+            *app.world().get::<Visibility>(notice).unwrap(),
+            Visibility::Inherited
+        );
+        assert!(
+            app.world()
+                .get::<Text>(notice)
+                .unwrap()
+                .0
+                .contains("previous save is kept")
+        );
     }
 }

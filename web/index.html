@@ -308,7 +308,6 @@
         });
         observer.observe(canvas, { attributeFilter: ["data-cell-loading"] });
         const timeout = setTimeout(() => {
-          observer.disconnect();
           showError("The saved world took too long to load. Reload the page to try again.");
         }, 30000);
       }

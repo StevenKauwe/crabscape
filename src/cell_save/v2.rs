@@ -4,16 +4,18 @@
 //! replay checkpoint after it is validated on load, when it fits the replay
 //! size bound. Larger terrain still saves and loads, but cannot resume a text
 //! replay. V1 remains readable; this is not yet selected by either save path.
-use super::{Error, HEADER, MAX_PLAYER, MAX_RAW, Restored};
+use super::{Error, HEADER, MAX_PLAYER, MAX_RAW, ReplayStart, Restored};
 use crate::save::{SAVE_VERSION, SaveData};
 use crabsim::{VerifiedCellStart, underwater::World};
 
 pub(super) const MAGIC: &[u8; 8] = b"CRABCEL2";
-/// Larger saves remain valid, but do not carry a resumed replay token because
-/// the text replay format has this smaller bound.
-const MAX_PACKED: usize = 8 * 1024 * 1024;
+/// Reuse temporarily retains the raw bytes, compressed replay text and
+/// multiple world copies. Bound these well below the general save limits;
+/// larger worlds still load, but start without a resumed replay token.
+pub(super) const MAX_REUSE_PACKED: usize = 4 * 1024 * 1024;
+pub(super) const MAX_REUSE_RAW: usize = 8 * 1024 * 1024;
 
-pub struct PreparedHeader {
+struct PreparedHeader {
     tick: u64,
     player: Vec<u8>,
     raw_len: u32,
@@ -23,7 +25,7 @@ pub struct PreparedHeader {
 impl PreparedHeader {
     /// Complete the envelope with worker-compressed terrain. The caller must
     /// use a worker that verifies its output before replacing an older save.
-    pub fn finish(self, packed: &[u8]) -> Result<Vec<u8>, Error> {
+    fn finish(self, packed: &[u8]) -> Result<Vec<u8>, Error> {
         let len = HEADER
             .checked_add(self.player.len())
             .and_then(|n| n.checked_add(packed.len()))
@@ -43,14 +45,37 @@ impl PreparedHeader {
     }
 }
 
+/// The header and its exact terrain payload stay together across the async
+/// worker job, so results from different snapshots cannot be cross-paired.
+pub struct PreparedSave {
+    header: PreparedHeader,
+    raw: Vec<u8>,
+}
+
+impl PreparedSave {
+    #[cfg(target_arch = "wasm32")]
+    pub async fn encode_in_worker(
+        self,
+        worker: &mut crate::cell_worker::CellWorker,
+    ) -> Result<Vec<u8>, String> {
+        let packed = worker
+            .compress(&self.raw)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        self.header.finish(&packed).map_err(|e| format!("{e:?}"))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn encode(self) -> Result<Vec<u8>, Error> {
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&self.raw, 1);
+        self.header.finish(&packed)
+    }
+}
+
 /// Serialize once, then send the returned terrain bytes to the worker. This
 /// still copies and serializes on the calling thread, so its phone cost needs
 /// measurement before this format is used for autosaving.
-pub fn prepare(
-    player: &SaveData,
-    terrain: &World,
-    tick: u64,
-) -> Result<(PreparedHeader, Vec<u8>), Error> {
+pub fn prepare(player: &SaveData, terrain: &World, tick: u64) -> Result<PreparedSave, Error> {
     if player.version != SAVE_VERSION {
         return Err(Error::Unsupported);
     }
@@ -78,7 +103,7 @@ pub fn prepare(
         checksum: checksum(tick, &player, &raw),
         player,
     };
-    Ok((header, raw))
+    Ok(PreparedSave { header, raw })
 }
 
 pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
@@ -109,14 +134,18 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
         .ok_or(Error::Damaged)?;
     let player_bytes = &bytes[HEADER..player_end];
     let packed = &bytes[player_end..];
-    let (terrain, verified) = if packed.len() <= MAX_PACKED {
-        let verified = VerifiedCellStart::from_compressed(packed, tick).ok_or(Error::Damaged)?;
+    let (terrain, verified) = if packed.len() <= MAX_REUSE_PACKED && raw_len <= MAX_REUSE_RAW {
+        let verified = VerifiedCellStart::from_compressed_with_len(packed, tick, raw_len)
+            .ok_or(Error::Damaged)?;
         if verified.raw().len() != raw_len
             || checksum(tick, player_bytes, verified.raw()) != expected
         {
             return Err(Error::Damaged);
         }
-        (verified.world().clone(), Some(verified))
+        (
+            verified.world().clone(),
+            ReplayStart::Verified(Box::new(verified)),
+        )
     } else {
         // Preserve and restore large explored worlds even when they no longer
         // fit the separate, bounded text replay format.
@@ -134,7 +163,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
             .into_world()
             .filter(World::is_game_world)
             .ok_or(Error::Damaged)?;
-        (world, None)
+        (world, ReplayStart::Unavailable)
     };
     let player: SaveData = serde_json::from_slice(player_bytes).map_err(|_| Error::Damaged)?;
     if player.version != SAVE_VERSION {
@@ -147,7 +176,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
         player,
         terrain,
         sim_tick: tick,
-        verified,
+        replay: verified,
     })
 }
 
@@ -181,9 +210,7 @@ mod tests {
             memory: None,
             progress: None,
         };
-        let (header, raw) = prepare(&player, &terrain, 17).unwrap();
-        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
-        let bytes = header.finish(&packed).unwrap();
+        let bytes = prepare(&player, &terrain, 17).unwrap().encode().unwrap();
         let loaded = super::super::decode(&bytes).unwrap();
         assert_eq!(loaded.player, player);
         assert_eq!(loaded.terrain.checkpoint(), terrain.checkpoint());
@@ -191,7 +218,10 @@ mod tests {
         let mut sim = Sim::new(Tuning::default(), Level::test_level());
         assert!(sim.restore_cellular_terrain(loaded.terrain, loaded.sim_tick));
         sim.add_crab(PlayerId(0), Vec2::new(player.x, player.y));
-        assert!(sim.start_recording_with_verified_terrain(loaded.verified.as_ref().unwrap()));
+        let ReplayStart::Verified(verified) = &loaded.replay else {
+            panic!("missing verified replay token")
+        };
+        assert!(sim.start_recording_with_verified_terrain(verified));
         sim.populate();
         for _ in 0..12 {
             sim.tick();
@@ -201,7 +231,7 @@ mod tests {
         crabsim::play(&mut playback, &replay, replay.length(), |_| {});
         assert_eq!(playback.state_hash(), sim.state_hash());
         sim.level.cells.as_mut().unwrap().step(0.35);
-        assert!(!sim.start_recording_with_verified_terrain(loaded.verified.as_ref().unwrap()));
+        assert!(!sim.start_recording_with_verified_terrain(verified));
     }
 
     #[test]
@@ -216,23 +246,24 @@ mod tests {
         };
         let old = super::super::encode(&player, &terrain, 17).unwrap();
         let old = super::super::decode(&old).unwrap();
-        assert!(old.verified.is_none());
+        assert!(matches!(old.replay, ReplayStart::Legacy));
         assert_eq!(old.player, player);
-        let (header, raw) = prepare(&player, &terrain, 17).unwrap();
-        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
-        let valid = header.finish(&packed).unwrap();
+        let valid = prepare(&player, &terrain, 17).unwrap().encode().unwrap();
         let mut changed = valid.clone();
         changed[8] ^= 1;
         assert!(super::super::decode(&changed).is_err());
         let mut changed = valid.clone();
         changed[HEADER] ^= 1;
         assert!(super::super::decode(&changed).is_err());
+        let mut claimed_tiny = valid.clone();
+        claimed_tiny[20..24].copy_from_slice(&1u32.to_le_bytes());
+        assert!(super::super::decode(&claimed_tiny).is_err());
         assert!(super::super::decode(&valid[..valid.len() / 2]).is_err());
-        let (header, mut raw) = prepare(&player, &terrain, 17).unwrap();
-        let middle = raw.len() / 2;
-        raw[middle] ^= 1;
-        let wrong = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
-        assert!(super::super::decode(&header.finish(&wrong).unwrap()).is_err());
+        let mut first = prepare(&player, &terrain, 17).unwrap();
+        let middle = first.raw.len() / 2;
+        first.raw[middle] ^= 1;
+        let wrong = miniz_oxide::deflate::compress_to_vec_zlib(&first.raw, 1);
+        assert!(super::super::decode(&first.header.finish(&wrong).unwrap()).is_err());
     }
 
     #[test]
@@ -259,20 +290,73 @@ mod tests {
             memory: None,
             progress: None,
         };
-        let (header, raw) = prepare(&player, &terrain, 17).unwrap();
-        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+        let prepared = prepare(&player, &terrain, 17).unwrap();
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&prepared.raw, 1);
         assert!(
-            packed.len() > MAX_PACKED,
+            packed.len() > 8 * 1024 * 1024,
             "packed terrain has only {} bytes",
             packed.len()
         );
-        let bytes = header.finish(&packed).unwrap();
+        let bytes = prepared.header.finish(&packed).unwrap();
         let loaded = super::super::decode(&bytes).unwrap();
         assert_eq!(loaded.player, player);
         assert!(
-            loaded.verified.is_none(),
+            matches!(loaded.replay, ReplayStart::Unavailable),
             "large terrain exceeds replay limit"
         );
         assert_eq!(loaded.terrain.checkpoint(), terrain.checkpoint());
+        let legacy = super::super::encode(&player, &terrain, 17).unwrap();
+        let legacy = super::super::decode(&legacy).unwrap();
+        assert!(matches!(legacy.replay, ReplayStart::Unavailable));
+        assert_eq!(legacy.terrain.checkpoint(), terrain.checkpoint());
+    }
+
+    #[test]
+    fn replay_reuse_memory_bound_does_not_block_saving() {
+        let level = Level::test_level();
+        let mut terrain = World::from_level_settled(&level);
+        for (x, y) in [(4400.0, -700.0), (8000.0, -1400.0)] {
+            assert!(terrain.follow_player(&level, x, y));
+            for _ in 0..4 {
+                terrain.step(0.35);
+            }
+        }
+        let player = SaveData {
+            version: SAVE_VERSION,
+            x: 8000.0,
+            y: -1400.0,
+            memory: None,
+            progress: None,
+        };
+        let prepared = prepare(&player, &terrain, 17).unwrap();
+        assert!(
+            prepared.raw.len() > MAX_REUSE_RAW,
+            "raw terrain has only {} bytes",
+            prepared.raw.len()
+        );
+        let loaded = super::super::decode(&prepared.encode().unwrap()).unwrap();
+        assert!(matches!(loaded.replay, ReplayStart::Unavailable));
+        assert_eq!(loaded.terrain.checkpoint(), terrain.checkpoint());
+    }
+
+    #[test]
+    fn mismatched_worker_payload_does_not_decode_as_the_other_snapshot() {
+        let level = Level::test_level();
+        let mut terrain = World::from_level_settled(&level);
+        let player = SaveData {
+            version: SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: None,
+        };
+        let first = prepare(&player, &terrain, 17).unwrap();
+        terrain.step(0.35);
+        let second = prepare(&player, &terrain, 17).unwrap();
+        let wrong = miniz_oxide::deflate::compress_to_vec_zlib(&second.raw, 1);
+        let mismatch = first.header.finish(&wrong).unwrap();
+        assert!(super::super::decode(&mismatch).is_err());
+        // Integration cannot construct this pair: both fields and finish are
+        // private, and PreparedSave::encode_in_worker owns them together.
     }
 }

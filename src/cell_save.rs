@@ -36,9 +36,17 @@ pub struct Restored {
     pub player: SaveData,
     pub terrain: World,
     pub sim_tick: u64,
-    /// V2 records within the replay limit carry verified terrain. A larger v2
-    /// save still loads, but cannot start a resumed text replay.
-    pub verified: Option<crabsim::VerifiedCellStart>,
+    pub replay: ReplayStart,
+}
+
+/// Replay handling is separate from save validity: a world may be too large
+/// to retain a safe replay token while its terrain remains fully saveable.
+#[derive(Default)]
+pub enum ReplayStart {
+    #[default]
+    Legacy,
+    Verified(Box<crabsim::VerifiedCellStart>),
+    Unavailable,
 }
 
 /// Pack a single point-in-time save. The backend must never replace an older
@@ -161,7 +169,11 @@ pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
         player,
         terrain,
         sim_tick,
-        verified: None,
+        replay: if raw_len > v2::MAX_REUSE_RAW || bytes.len() - HEADER > v2::MAX_REUSE_PACKED {
+            ReplayStart::Unavailable
+        } else {
+            ReplayStart::Legacy
+        },
     })
 }
 
