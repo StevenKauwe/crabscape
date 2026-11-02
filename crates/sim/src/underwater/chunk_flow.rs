@@ -2,8 +2,8 @@
 //!
 //! Cells are uniquely owned by 64 × 64 tiles, and each tile reads its four
 //! neighbours from the previous complete field, including across tile seams.
-//! This is not yet a terrain simulator: its sediment step rejects pebbles,
-//! player reservations; it does not step pebble chains, apply player
+//! This is not yet a complete terrain simulator: its step rejects player
+//! reservations and incomplete aggregate footprints; it does not apply player
 //! forces, stream sleeping chunks, or run co-op.
 //! It must not replace the contiguous gameplay simulation.
 
@@ -208,11 +208,8 @@ impl ChunkFlow {
             return Err(SedimentStepError::Invalid);
         }
         if self.crab_reserved
-            || !self.pebbles.is_empty()
-            || self
-                .chunks
-                .iter()
-                .any(|chunk| chunk.owner.iter().any(|&id| id != 0))
+            || !self.supported_pebbles()
+            || self.tick + 1 > u64::MAX - self.pebbles.len() as u64
         {
             return Err(SedimentStepError::Unsupported);
         }
@@ -220,6 +217,7 @@ impl ChunkFlow {
         if !next.step_batched(current) {
             return Err(SedimentStepError::Invalid);
         }
+        next.step_pebbles();
         let tick = next.tick;
         let reverse = tick.is_multiple_of(2);
         let mut moved: Vec<Vec<bool>> = next
@@ -232,7 +230,10 @@ impl ChunkFlow {
                 let x = if reverse { WIDTH - 1 - n } else { n };
                 let (chunk, slot) = Self::locate(x, y);
                 let material = next.chunks[chunk].cells[slot];
-                if moved[chunk][slot] || !matches!(material, Cell::Sand | Cell::Mud) {
+                if moved[chunk][slot]
+                    || next.chunks[chunk].owner[slot] != 0
+                    || !matches!(material, Cell::Sand | Cell::Mud)
+                {
                     continue;
                 }
                 let world_x = x as i64
@@ -411,6 +412,92 @@ impl ChunkFlow {
         Ok(())
     }
 
+    fn supported_pebbles(&self) -> bool {
+        if self.pebbles.len() > u16::MAX as usize
+            || self.pebble_motion.len() > self.pebbles.len()
+            || self.pebble_motion.iter().any(|&(x, y, remaining)| {
+                remaining > 0 && (!(-1..=1).contains(&x) || !(-1..=1).contains(&y))
+            })
+        {
+            return false;
+        }
+        for (index, pebble) in self.pebbles.iter().enumerate() {
+            let side = i32::from(pebble.side);
+            if !(1..=64).contains(&side)
+                || pebble.x < 0
+                || pebble.y < 0
+                || pebble.x.checked_add(side).is_none_or(|x| x > WIDTH as i32)
+                || pebble.y.checked_add(side).is_none_or(|y| y > HEIGHT as i32)
+            {
+                return false;
+            }
+            for y in pebble.y..pebble.y + side {
+                for x in pebble.x..pebble.x + side {
+                    let (c, i) = Self::locate(x as usize, y as usize);
+                    if self.chunks[c].owner[i] as usize != index + 1
+                        || self.chunks[c].cells[i] != Cell::Sand
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let (c, i) = Self::locate(x, y);
+                let id = self.chunks[c].owner[i];
+                if id == 0 {
+                    continue;
+                }
+                let Some(p) = self.pebbles.get(id as usize - 1) else {
+                    return false;
+                };
+                let side = i32::from(p.side);
+                if (x as i32) < p.x
+                    || (x as i32) >= p.x + side
+                    || (y as i32) < p.y
+                    || (y as i32) >= p.y + side
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn step_pebbles(&mut self) {
+        self.pebble_motion.resize(self.pebbles.len(), (0, 0, 0));
+        let reverse = self.tick.is_multiple_of(2);
+        for n in 0..self.pebbles.len() {
+            let index = if reverse {
+                self.pebbles.len() - 1 - n
+            } else {
+                n
+            };
+            let id = (index + 1) as u16;
+            let p = self.pebbles[index];
+            let (vx, vy, remaining) = self.pebble_motion[index];
+            if remaining > 0 {
+                self.pebble_motion[index].2 -= 1;
+                if self.move_pebble_water(id, i32::from(vx), i32::from(vy)) {
+                    continue;
+                }
+                self.pebble_motion[index] = (0, 0, 0);
+            }
+            let side = if (u64::from(id) + self.tick).is_multiple_of(2) {
+                1
+            } else {
+                -1
+            };
+            let moved = self.move_pebble_water(id, 0, -1)
+                || self.move_pebble_water(id, side, -1)
+                || self.move_pebble_water(id, -side, -1);
+            if moved && (u64::from(id) + self.tick).is_multiple_of(53) {
+                self.stir((p.x + i32::from(p.side) / 2) as f32, p.y as f32, 0.0, -0.8);
+            }
+        }
+    }
+
     /// Move a single whole pebble one cell into empty water. This primitive
     /// deliberately rejects crab reservations, push chains and other solids;
     /// it does not yet implement the complete pebble step or force budget.
@@ -418,6 +505,10 @@ impl ChunkFlow {
         if self.crab_reserved || !matches!((dx, dy), (1, 0) | (-1, 0) | (0, 1) | (0, -1)) {
             return false;
         }
+        self.move_pebble_water(id, dx, dy)
+    }
+
+    fn move_pebble_water(&mut self, id: u16, dx: i32, dy: i32) -> bool {
         let Some(pebble) = id
             .checked_sub(1)
             .and_then(|i| self.pebbles.get(i as usize))
@@ -1438,9 +1529,136 @@ mod tests {
     }
 
     #[test]
+    fn integrated_pebbles_and_sediment_match_reference_across_seams() {
+        let mut reference = sand_fixture(-200);
+        reference.cells.fill(Cell::Water);
+        reference.flow.fill((0.0, 0.0));
+        reference.tick = 50;
+        reference.mud_properties.erosion_threshold = 10.0;
+        assert!(reference.add_pebble(62, 66, 4, 250));
+        assert!(reference.add_pebble(66, 66, 4, 251));
+        reference.pebble_motion[0] = (-1, 0, 2);
+        for (x, y, material) in [
+            (63, 63, Cell::Sand),
+            (67, 62, Cell::Mud),
+            (130, 64, Cell::Sand),
+        ] {
+            let i = World::index(x, y).unwrap();
+            reference.cells[i] = material;
+            reference.grain[i] = 70;
+        }
+        let mut chunked = ChunkFlow::from_world(&reference);
+        let mut replayed = chunked.clone();
+        let initial_sand = reference.cells.iter().filter(|&&c| c == Cell::Sand).count();
+        let initial_mud = reference.cells.iter().filter(|&&c| c == Cell::Mud).count();
+        for step in 0..6 {
+            reference.tick += 1;
+            reference.step_material(0.0);
+            assert_eq!(chunked.step_sediment(0.0), Ok(()));
+            assert_eq!(replayed.step_sediment(0.0), Ok(()));
+            compare(&reference, &chunked);
+            assert_eq!(reference.pebbles, chunked.pebbles);
+            assert_eq!(reference.pebble_motion, chunked.pebble_motion);
+            assert!(chunked == replayed);
+            assert_eq!(
+                reference.cells.iter().filter(|&&c| c == Cell::Sand).count(),
+                initial_sand
+            );
+            assert_eq!(
+                reference.cells.iter().filter(|&&c| c == Cell::Mud).count(),
+                initial_mud
+            );
+            for id in 1..=2 {
+                assert_eq!(
+                    reference.pebble_owner.iter().filter(|&&v| v == id).count(),
+                    16
+                );
+            }
+            if step == 0 {
+                assert_eq!(chunked.pebbles[0].x, 61);
+                assert_eq!(chunked.pebbles[1].y, 65);
+                assert_ne!(chunked.flow(68, 65), Some((0.0, 0.0)));
+            }
+        }
+    }
+
+    #[test]
+    fn generated_terrain_step_matches_contiguous_reference() {
+        let level = crate::Level::test_level();
+        let mut reference = World::from_level_settled(&level);
+        reference.clear_game_crab();
+        assert!(
+            !reference.pebbles.is_empty(),
+            "generated fixture must contain pebbles"
+        );
+        let mut chunked = ChunkFlow::from_world(&reference);
+        assert!(
+            chunked.supported_pebbles(),
+            "fixture must have complete active aggregates"
+        );
+        reference.tick += 1;
+        reference.step_material(0.2);
+        assert_eq!(chunked.step_sediment(0.2), Ok(()));
+        compare(&reference, &chunked);
+        assert_eq!(reference.pebbles, chunked.pebbles);
+        assert_eq!(reference.pebble_motion, chunked.pebble_motion);
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn integrated_generated_terrain_profile() {
+        let level = crate::Level::test_level();
+        let reference = World::from_level_settled(&level);
+        let chunked = ChunkFlow::from_world(&reference);
+        let start = std::time::Instant::now();
+        for _ in 0..10 {
+            let mut w = reference.clone();
+            w.tick += 1;
+            w.step_material(0.2);
+            std::hint::black_box(w);
+        }
+        let contiguous = start.elapsed();
+        let start = std::time::Instant::now();
+        for _ in 0..10 {
+            let mut c = chunked.clone();
+            assert_eq!(c.step_sediment(0.2), Ok(()));
+            std::hint::black_box(c);
+        }
+        eprintln!(
+            "10 generated steps with reset clones: contiguous {contiguous:?}; chunk {:?}; field {} bytes",
+            start.elapsed(),
+            chunked.field_capacity_bytes()
+        );
+    }
+
+    #[test]
+    fn unsupported_aggregate_impulses_and_clock_reject_without_mutation() {
+        let mut world = sand_fixture(0);
+        assert!(world.add_pebble(200, 200, 4, 250));
+        world.pebble_motion[0] = (i8::MIN, 0, 1);
+        let mut chunked = ChunkFlow::from_world(&world);
+        let before = chunked.clone();
+        assert_eq!(
+            chunked.step_sediment(0.0),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(chunked == before);
+        world.pebble_motion[0] = (0, 0, 0);
+        world.tick = u64::MAX - 1;
+        let mut chunked = ChunkFlow::from_world(&world);
+        let before = chunked.clone();
+        assert_eq!(
+            chunked.step_sediment(0.0),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(chunked == before);
+    }
+
+    #[test]
     fn guarded_sand_rejects_unimplemented_physics_without_mutation() {
         let mut world = sand_fixture(-200);
         assert!(world.add_pebble(200, 200, 4, 250));
+        world.pebble_owner[World::index(200, 200).unwrap()] = 0;
         let mut chunked = ChunkFlow::from_world(&world);
         let before = chunked.clone();
         assert_eq!(

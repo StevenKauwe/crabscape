@@ -35,8 +35,9 @@ The first isolated chunk-native primitives reproduce the existing flow
 diffusion phase, move unobstructed whole pebbles and bounded push chains across chunk seams, and
 advance guarded sand and mud, including cohesion, suspension, entrainment,
 and sediment wakes, in the same global order as the contiguous reference.
-The sediment slice rejects pebbles and body reservations. It does not run
-the full sediment simulation, pebble chains,
+The integrated material step handles complete in-window aggregates, and rejects
+body reservations and incomplete aggregate footprints. It does not run
+the full gameplay simulation, player-driven pushes,
 forces, inactive chunks or a shared game. In a 20-step release desktop test
 over one full 640 × 360 region, contiguous diffusion averaged 8.54 ms/step
 and the first chunked implementation 12.42 ms/step, about 45% slower. Its
@@ -169,7 +170,7 @@ row-major blocker discovery, leading-first aggregate movement, finite force
 costs and motion impulses in tested two-aggregate seam fixtures containing
 loose sand and mud. A failed push leaves the chunked state unchanged. This
 prototype rejects player reservations, non-cardinal pushes, unlimited force,
-and chains over 256 aggregates; its sediment step still rejects all pebbles.
+and chains over 256 aggregates; pushes remain a separate primitive.
 It does not implement full pebble stepping, streaming, or gameplay co-op.
 In one desktop release run, 20 pushes with fixture reset clones took 1.84 ms
 for the contiguous reference and 5.36 ms for chunks. The rollback implementation now journals at most 65,536 cell swaps and 256
@@ -181,3 +182,17 @@ not a phone memory or frame-time result. The chunk field itself occupies about
 3.19 MB excluding particles, metadata, scratch and other copies; the journal
 can add up to about 2 MiB for swaps on a 64-bit platform, plus aggregate
 states and plan storage.
+
+The guarded chunk material step now runs diffusion, aggregate motion and loose
+sediment in the same order as the contiguous step. A generated settled level
+with aggregates matched the reference for one step; a mixed sand/mud and
+two-pebble seam fixture matched for six, including an impulse, wake, particle
+state, aggregate ownership and deterministic replay. Incomplete/offscreen
+aggregate footprints and player reservations reject the entire step; actual
+streaming commonly requires such footprints, so this is not a full-world
+solution. Two desktop release runs of ten generated-level steps including
+fixture reset clones measured 97.4/92.8 ms contiguous and 95.4/98.2 ms
+chunked. The chunk field occupies 3.19 MB, but both reset and transactional
+step clones, flow and movement scratch, particles and the reference world add
+more; peak process memory could not be measured in the sandbox. These results
+do not establish phone suitability or a complete multiplayer simulation.
