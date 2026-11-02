@@ -5,7 +5,6 @@ use crate::{Controls, Feel, Level, Memory, Mover, PlayerId, SaveData, Sim, SimCr
 use bevy_math::Vec2;
 
 const MAX_LOADED_SLEEPING: usize = 256;
-const MAX_PLAYER_BYTES: usize = 64 * 1024;
 type VerifiedPages = (VerifiedIndex, fn(&[u8]) -> [u8; 32]);
 
 /// Inputs held outside the v2 player record in the current game.

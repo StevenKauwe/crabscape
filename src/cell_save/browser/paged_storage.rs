@@ -1,6 +1,6 @@
 //! One atomic IndexedDB record, encoded with one bounded raw page in flight.
 use super::*;
-use crabsim::cell_codec::paged::{PreparedSave, RESIDENT_BUDGET, hash};
+use crabsim::cell_codec::paged::{MAX_PLAYER_BYTES, PreparedSave, RESIDENT_BUDGET, hash};
 use crabsim::underwater::frozen_chunks::{CaptureIndex, CaptureIndexBuilder, PagedRestore};
 use js_sys::{Array, Object, Reflect};
 
@@ -98,7 +98,7 @@ pub(super) fn decode(value: JsValue) -> Result<Option<super::super::Restored>, S
     }
     let index = bytes(field(&value, "index")?, 256 * 1024)?;
     let parsed = CaptureIndex::decode(&index).map_err(issue)?;
-    let player_raw = bytes(field(&value, "player")?, 64 * 1024)?;
+    let player_raw = bytes(field(&value, "player")?, MAX_PLAYER_BYTES)?;
     let tick = bytes(field(&value, "tick")?, 8)?;
     let tick = u64::from_le_bytes(tick.try_into().map_err(|_| "invalid saved tick")?);
     let pages = field(&value, "pages")?

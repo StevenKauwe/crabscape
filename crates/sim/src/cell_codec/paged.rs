@@ -14,7 +14,7 @@ pub const MAGIC: &[u8; 8] = b"CRABPG01";
 pub const RESIDENT_BUDGET: usize = 128 * 1024 * 1024;
 pub const MAX_PACKED_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_INDEX_BYTES: usize = 256 * 1024;
-pub const MAX_PLAYER_BYTES: usize = 64 * 1024;
+pub use crate::underwater::frozen_chunks::MAX_PLAYER_BYTES;
 pub const MAX_PAGE_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_TERRAIN_PAGE_BYTES: usize = 256 * 1024;
 
@@ -226,6 +226,40 @@ pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_entire_demo_memory_survives_a_cellular_save() {
+        let level = crate::Level::test_level();
+        let tuning = crate::Tuning::default();
+        let mut memory = crate::Memory::new(&level, &tuning.memory).to_save();
+        // Every map cell visited, at the largest representable memory age.
+        // This covers exploration growth and long play, without discarding
+        // remembered cells to make an otherwise valid save fit.
+        memory.now = u32::MAX;
+        let mut cells = Vec::new();
+        for i in 0..memory.cols * memory.rows {
+            cells.extend_from_slice(&[u8::from(i != 0), 8, 255, 255, 255, 255, 15]);
+        }
+        memory.cells = crate::memory::base64(&cells);
+        assert!(crate::Memory::from_save(&memory, &level, &tuning.memory).is_some());
+        let player = SaveData {
+            version: SAVE_VERSION,
+            x: 160.0,
+            y: 8.0,
+            memory: Some(memory),
+            progress: None,
+        };
+        let player_bytes = serde_json::to_vec(&player).unwrap().len();
+        assert!(
+            player_bytes > 264_201,
+            "exceeds the real reported character"
+        );
+        let world = World::from_level_settled(&level);
+        let prepared = prepare(&player, &world, 120).unwrap();
+        let restored = decode(&prepared.encode().unwrap()).unwrap();
+        assert_eq!(restored.player, player);
+        assert_eq!(restored.terrain.checkpoint(), world.checkpoint());
+    }
     #[test]
     fn explored_world_beyond_old_browser_limit_saves_and_restores_every_cell() {
         let level = crate::Level::test_level();

@@ -7,7 +7,7 @@ const MAGIC: &[u8; 8] = b"CRABCEL1";
 const V2_MAGIC: &[u8; 8] = b"CRABCEL2";
 const HEADER: usize = 28;
 const MAX_RAW: usize = 64 * 1024 * 1024;
-const MAX_PLAYER: usize = 1024 * 1024;
+const MAX_PLAYER: usize = crate::underwater::frozen_chunks::MAX_PLAYER_BYTES;
 const MAX_REUSE_RAW: usize = 8 * 1024 * 1024;
 const MAX_REUSE_PACKED: usize = 4 * 1024 * 1024;
 

@@ -1124,6 +1124,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     .map_err(|e| format!("large saved snapshot: {e:?}"))?
                     .sleeping_ids()
                     .count();
+            save_fixture::verify_full_memory(&large_saved.player)?;
             if chunks <= 256 {
                 return Err(host.failed(format!("large save lost explored pages: {chunks}")));
             }

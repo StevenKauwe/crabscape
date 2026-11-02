@@ -5,7 +5,6 @@ use super::*;
 const MAGIC: &[u8; 4] = b"CCI2";
 const HEADER: usize = 60;
 const MAX_SLEEPING: usize = 4096;
-const MAX_PLAYER: usize = 64 * 1024;
 const DESCRIPTOR: usize = 36;
 type Digest = fn(&[u8]) -> [u8; 32];
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,7 +35,7 @@ impl CaptureIndexBuilder {
         player: &[u8],
         hash: Digest,
     ) -> Result<Self, LazyError> {
-        if sim_tick > u64::MAX - 1_000_000 || player.len() > MAX_PLAYER {
+        if sim_tick > u64::MAX - 1_000_000 || player.len() > MAX_PLAYER_BYTES {
             return Err(LazyError::TooLarge);
         }
         let sleeping: Vec<_> = world.sleeping_ids().collect();
@@ -219,7 +218,7 @@ impl CaptureIndex {
         if sim_tick > u64::MAX - 1_000_000 {
             return Err(LazyError::Invalid);
         }
-        if player.len() > MAX_PLAYER {
+        if player.len() > MAX_PLAYER_BYTES {
             return Err(LazyError::TooLarge);
         }
         let sleeping = world.sleeping_ids();
@@ -294,7 +293,7 @@ impl CaptureIndex {
             u32::from_le_bytes(raw[20..24].try_into().map_err(|_| LazyError::Invalid)?) as usize;
         let player_len =
             u32::from_le_bytes(raw[24..28].try_into().map_err(|_| LazyError::Invalid)?);
-        if player_len as usize > MAX_PLAYER {
+        if player_len as usize > MAX_PLAYER_BYTES {
             return Err(LazyError::TooLarge);
         }
         let player = Part {

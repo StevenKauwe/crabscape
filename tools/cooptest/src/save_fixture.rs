@@ -33,16 +33,51 @@ pub fn large_fixture() -> Result<Vec<u8>> {
         ));
     }
     drop(raw);
+    // A large terrain archive alone missed the real-world save failure:
+    // explored map memory outgrew the former 64 KiB player-record limit.
+    let mut memory = crabsim::Memory::new(&level, &crabsim::Tuning::default().memory).to_save();
+    memory.now = 1_000_000;
+    let mut remembered = Vec::new();
+    for i in 0..memory.cols * memory.rows {
+        remembered.extend_from_slice(&[u8::from(i != 0), 8, 192, 132, 61]);
+    }
+    memory.cells = STANDARD.encode(remembered);
     let player = crabsim::SaveData {
         version: crabsim::SAVE_VERSION,
         x: 400.0,
         y: 0.0,
-        memory: None,
+        memory: Some(memory),
         progress: None,
     };
+    if serde_json::to_vec(&player)
+        .map_err(|e| e.to_string())?
+        .len()
+        <= 264_201
+    {
+        return Err("fixture must exceed the reported desktop character size".into());
+    }
     crabsim::cell_codec::paged::prepare(&player, &terrain, 17)
         .and_then(|p| p.encode())
         .map_err(|e| format!("large fixture: {e:?}"))
+}
+
+pub fn verify_full_memory(player: &crabsim::SaveData) -> Result<()> {
+    let saved = player
+        .memory
+        .as_ref()
+        .ok_or("saved exploration is missing")?;
+    let memory = crabsim::Memory::from_save(
+        saved,
+        &Level::test_level(),
+        &crabsim::Tuning::default().memory,
+    )
+    .ok_or("saved exploration is invalid")?;
+    if saved.cells.len() <= 64 * 1024
+        || (0..memory.cols * memory.rows).any(|i| memory.visits(i) != 8)
+    {
+        return Err("large character lost remembered map cells".into());
+    }
+    Ok(())
 }
 
 pub fn object_from_frame(bytes: &[u8]) -> Result<Value> {

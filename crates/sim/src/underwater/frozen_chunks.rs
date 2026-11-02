@@ -17,6 +17,10 @@ use std::mem::size_of;
 const SIDE: usize = TERRAIN_CHUNK_CELLS as usize;
 const MAX_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PART_BYTES: usize = 4 * 1024 * 1024;
+// Player metadata includes the remembered map. It gets the same bounded
+// metadata-page budget as terrain metadata, rather than a tiny separate cap.
+// The full-demo-memory save regression must continue to fit this budget.
+pub const MAX_PLAYER_BYTES: usize = MAX_PART_BYTES;
 // At most about 119 MiB of sleeping cell arrays plus the active world.
 const MAX_SLEEPING_CHUNKS: usize = 1900;
 

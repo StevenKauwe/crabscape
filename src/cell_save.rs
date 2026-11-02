@@ -31,7 +31,7 @@ const MAGIC: &[u8; 8] = b"CRABCEL1";
 const HEADER: usize = 8 + 8 + 4 + 4 + 4;
 /// Bound allocations while reading a damaged or unexpectedly large save.
 const MAX_RAW: usize = 64 * 1024 * 1024;
-const MAX_PLAYER: usize = 1024 * 1024;
+const MAX_PLAYER: usize = crabsim::underwater::frozen_chunks::MAX_PLAYER_BYTES;
 
 #[cfg(any(test, target_arch = "wasm32"))]
 pub use crabsim::cell_codec::paged;
