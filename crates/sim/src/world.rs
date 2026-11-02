@@ -1263,9 +1263,9 @@ impl Sim {
             cells.follow_player(&self.level, pos.x, pos.y);
             self.level.cells = Some(cells);
         }
-        // The material experiment advances at 30 Hz inside the fixed-step
-        // simulation. Only the local crab participates; co-op is disabled by
-        // the experimental entry point until terrain can be synchronized.
+        // Material advances at 30 Hz inside the fixed-step simulation. Full
+        // cellular sessions simulate every actor locally from ordered inputs;
+        // the older force-transport probes supply their terrain separately.
         if !external_terrain && let Some(cells) = self.level.cells.as_mut() {
             // Do not leave an invisible crab-shaped exclusion behind when
             // the player leaves the experimental cell field.

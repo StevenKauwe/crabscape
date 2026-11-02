@@ -26,6 +26,8 @@
 //! arrived, and after the ticks it sends what the simulation wrote. Quick
 //! updates (where crabs and enemies are) go on an unreliable channel, where a
 //! late one is simply skipped; the rest (blows, hand-overs) on a reliable one.
+//! Cellular sessions instead use the existing reliable connection for ordered
+//! controls and a complete join checkpoint; see `web/cells.rs`.
 //!
 //! The main host's crab is always [`HOST`] (as in solo play); a guest's gets a
 //! random number, which it keeps if it stands in. Each device's hello says
