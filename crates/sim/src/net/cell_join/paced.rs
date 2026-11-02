@@ -1,8 +1,8 @@
-//! Isolated stop-and-wait terrain transport. Gameplay never calls this module.
+//! Isolated bounded-window terrain transport. Gameplay never calls this module.
 //!
 //! A source `Peer` must be built from the actual established connection and
-//! selected only after duplicate claims are rejected. At most one checkpoint
-//! fragment or one frame per sender can be outstanding. The caller must stop
+//! selected only after duplicate claims are rejected. At most one terrain frame
+//! per sender can be outstanding; checkpoint fragments use a fixed window. The caller must stop
 //! producing frames while awaiting acknowledgement, abort on failed sends or
 //! host changes, and impose a timeout; reliable send alone is not backpressure.
 
@@ -29,28 +29,50 @@ pub struct CheckpointSender {
     checkpoint: HostCheckpoint,
     transfer: u64,
     next: u32,
-    in_flight: bool,
-    finished: bool,
+    base: u32,
+    outstanding: std::collections::VecDeque<bool>,
+    window: usize,
+    exhausted: bool,
 }
 
 impl CheckpointSender {
+    pub const MAX_WINDOW: usize = 8;
+
     pub fn new(peer: Peer, checkpoint: HostCheckpoint, transfer: u64) -> Self {
-        Self {
+        Self::windowed(peer, checkpoint, transfer, 1).expect("one is a valid window")
+    }
+
+    pub fn windowed(
+        peer: Peer,
+        checkpoint: HostCheckpoint,
+        transfer: u64,
+        window: usize,
+    ) -> Option<Self> {
+        if !(1..=Self::MAX_WINDOW).contains(&window) {
+            return None;
+        }
+        Some(Self {
             peer,
             checkpoint,
             transfer,
             next: 0,
-            in_flight: false,
-            finished: false,
-        }
+            base: 0,
+            outstanding: std::collections::VecDeque::new(),
+            window,
+            exhausted: false,
+        })
     }
-    /// Mark one piece in flight. On transport send failure, abort the sender;
-    /// do not retry into an unbounded transport queue.
+    /// At most MAX_WINDOW pieces may be in transport, including acknowledged
+    /// holes after a lost ACK. Abort on failure, disconnect, or idle timeout.
     pub fn offer(&mut self) -> Result<Msg, PaceError> {
-        if self.finished {
-            return Err(PaceError::Finished);
+        if self.exhausted {
+            return Err(if self.outstanding.is_empty() {
+                PaceError::Finished
+            } else {
+                PaceError::Busy
+            });
         }
-        if self.in_flight {
+        if self.outstanding.len() >= self.window {
             return Err(PaceError::Busy);
         }
         let Some(piece) = self
@@ -58,10 +80,15 @@ impl CheckpointSender {
             .piece(self.transfer, self.next)
             .map_err(PaceError::Join)?
         else {
-            self.finished = true;
-            return Err(PaceError::Finished);
+            self.exhausted = true;
+            return Err(if self.outstanding.is_empty() {
+                PaceError::Finished
+            } else {
+                PaceError::Busy
+            });
         };
-        self.in_flight = true;
+        self.next = self.next.checked_add(1).ok_or(PaceError::Finished)?;
+        self.outstanding.push_back(false);
         Ok(piece)
     }
     pub fn acknowledge(
@@ -76,11 +103,19 @@ impl CheckpointSender {
         let Msg::CellTerrainAck { transfer, piece } = msg else {
             return Err(PaceError::Malformed);
         };
-        if *transfer != self.transfer || *piece != self.next || !self.in_flight {
+        if *transfer != self.transfer {
             return Err(PaceError::Stale);
         }
-        self.next = self.next.checked_add(1).ok_or(PaceError::Finished)?;
-        self.in_flight = false;
+        let index = piece.checked_sub(self.base).ok_or(PaceError::Stale)? as usize;
+        let slot = self.outstanding.get_mut(index).ok_or(PaceError::Stale)?;
+        if *slot {
+            return Err(PaceError::Stale);
+        }
+        *slot = true;
+        while self.outstanding.front() == Some(&true) {
+            self.outstanding.pop_front();
+            self.base = self.base.checked_add(1).ok_or(PaceError::Finished)?;
+        }
         Ok(())
     }
 }
@@ -183,6 +218,87 @@ mod tests {
             player: PlayerId(player),
             connection,
         }
+    }
+
+    #[test]
+    fn bounded_window_reorders_acks_and_stalls_on_missing_or_forged_ack() {
+        let mut host = Sim::new(Tuning::default(), Level::test_level());
+        host.enable_underwater_cells();
+        host.go_online(true);
+        let peer = peer(1, 20);
+        let capture = || HostCheckpoint::capture(&host).unwrap();
+        assert!(CheckpointSender::windowed(peer, capture(), 77, 0).is_none());
+        assert!(
+            CheckpointSender::windowed(peer, capture(), 77, CheckpointSender::MAX_WINDOW + 1)
+                .is_none()
+        );
+        let mut sender = CheckpointSender::windowed(peer, capture(), 77, 8).unwrap();
+        for index in 0..8 {
+            let Msg::CellTerrain(bytes) = sender.offer().unwrap() else {
+                panic!("expected fragment")
+            };
+            assert_eq!(fragment_identity(&bytes).unwrap(), (77, index));
+        }
+        assert_eq!(sender.offer(), Err(PaceError::Busy));
+        assert_eq!(
+            sender.acknowledge(
+                peer,
+                Some(peer),
+                &Msg::CellTerrainAck {
+                    transfer: 77,
+                    piece: 8
+                }
+            ),
+            Err(PaceError::Stale)
+        );
+        assert_eq!(
+            sender.acknowledge(
+                peer,
+                Some(peer),
+                &Msg::CellTerrainAck {
+                    transfer: 78,
+                    piece: 0
+                }
+            ),
+            Err(PaceError::Stale)
+        );
+        for index in (1..8).rev() {
+            let ack = Msg::CellTerrainAck {
+                transfer: 77,
+                piece: index,
+            };
+            assert_eq!(sender.acknowledge(peer, Some(peer), &ack), Ok(()));
+            assert_eq!(
+                sender.acknowledge(peer, Some(peer), &ack),
+                Err(PaceError::Stale)
+            );
+            assert_eq!(sender.offer(), Err(PaceError::Busy));
+        }
+        let first = Msg::CellTerrainAck {
+            transfer: 77,
+            piece: 0,
+        };
+        assert_eq!(
+            sender.acknowledge(
+                Peer {
+                    connection: 99,
+                    ..peer
+                },
+                Some(peer),
+                &first
+            ),
+            Err(PaceError::WrongPeer)
+        );
+        assert_eq!(
+            sender.acknowledge(peer, None, &first),
+            Err(PaceError::WrongPeer)
+        );
+        assert_eq!(sender.offer(), Err(PaceError::Busy));
+        assert_eq!(sender.acknowledge(peer, Some(peer), &first), Ok(()));
+        let Msg::CellTerrain(bytes) = sender.offer().unwrap() else {
+            panic!("expected next fragment")
+        };
+        assert_eq!(fragment_identity(&bytes).unwrap(), (77, 8));
     }
 
     #[test]

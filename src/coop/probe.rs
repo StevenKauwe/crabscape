@@ -40,13 +40,13 @@ pub(super) enum Probe {
 }
 
 impl Probe {
-    pub(super) fn host(peer: Peer) -> Option<(Self, Msg)> {
+    pub(super) fn host(peer: Peer, window: usize) -> Option<(Self, Msg)> {
         let mut sim = shadow(true);
         if !sim.begin_empty_shared_cells() {
             return None;
         }
         let mut checkpoint =
-            CheckpointSender::new(peer, HostCheckpoint::capture(&sim).ok()?, EPOCH);
+            CheckpointSender::windowed(peer, HostCheckpoint::capture(&sim).ok()?, EPOCH, window)?;
         let first = checkpoint.offer().ok()?;
         Some((
             Self::Host {
@@ -58,6 +58,20 @@ impl Probe {
             },
             first,
         ))
+    }
+    /// Fill the bounded window after the first piece or an acknowledgement.
+    pub(super) fn more(&mut self) -> Result<Option<Msg>, ()> {
+        match self {
+            Self::Host {
+                checkpoint: Some(sender),
+                ..
+            } => match sender.offer() {
+                Ok(msg) => Ok(Some(msg)),
+                Err(PaceError::Busy | PaceError::Finished) => Ok(None),
+                Err(_) => Err(()),
+            },
+            _ => Ok(None),
+        }
     }
     pub(super) fn guest(peer: Peer) -> Self {
         Self::Guest {
@@ -106,6 +120,7 @@ impl Probe {
                     }
                     match transfer.offer() {
                         Ok(msg) => return Ok(Some(msg)),
+                        Err(PaceError::Busy) => return Ok(None),
                         Err(PaceError::Finished) => {}
                         Err(_) => return Err(()),
                     }
@@ -133,6 +148,10 @@ impl Probe {
                     *frame = Some(stream);
                     Ok(Some(msg))
                 } else if let Some(stream) = frame.as_mut() {
+                    // Late duplicate checkpoint ACKs cannot acknowledge a frame.
+                    if matches!(msg, Msg::CellTerrainAck { .. }) {
+                        return Ok(None);
+                    }
                     match stream.acknowledge(sender, selected, msg) {
                         Ok(()) => {
                             *complete = true;
@@ -201,6 +220,59 @@ mod tests {
     use crabsim::PlayerId;
 
     #[test]
+    fn windowed_shadow_probe_survives_reordered_acks_with_bounded_queue() {
+        let host_peer = Peer {
+            player: PlayerId(0),
+            connection: 10,
+        };
+        let guest_peer = Peer {
+            player: PlayerId(1),
+            connection: 20,
+        };
+        let user = shadow(false);
+        let before = user.level.cells.clone();
+        let (mut host, first) = Probe::host(guest_peer, 8).unwrap();
+        let mut guest = Probe::guest(host_peer);
+        let mut packets = vec![first];
+        while let Some(piece) = host.more().unwrap() {
+            packets.push(piece);
+        }
+        let mut cycles = 0;
+        while !host.complete() {
+            assert!(!packets.is_empty());
+            assert!(packets.len() <= 8);
+            let mut acks = Vec::new();
+            for packet in packets.drain(..) {
+                acks.push(
+                    guest
+                        .receive(host_peer, Some(host_peer), &packet)
+                        .unwrap()
+                        .unwrap(),
+                );
+            }
+            for ack in acks.iter().rev() {
+                if let Some(next) = host.receive(guest_peer, Some(guest_peer), ack).unwrap() {
+                    if matches!(next, Msg::CellFrame(_)) {
+                        assert!(
+                            host.receive(guest_peer, Some(guest_peer), ack)
+                                .unwrap()
+                                .is_none()
+                        );
+                    }
+                    packets.push(next);
+                }
+                while let Some(next) = host.more().unwrap() {
+                    packets.push(next);
+                }
+            }
+            cycles += 1;
+            assert!(cycles < 1000);
+        }
+        assert!(guest.complete());
+        assert!(user.level.cells == before);
+    }
+
+    #[test]
     fn shadow_probe_finishes_one_piece_at_a_time_without_touching_user_world() {
         let host_peer = Peer {
             player: PlayerId(0),
@@ -212,7 +284,7 @@ mod tests {
         };
         let mut user = shadow(false);
         let before = user.level.cells.clone();
-        let (mut host, mut packet) = Probe::host(guest_peer).unwrap();
+        let (mut host, mut packet) = Probe::host(guest_peer, 1).unwrap();
         let mut guest = Probe::guest(host_peer);
         let mut count = 0;
         let mut packed_bytes = 0usize;

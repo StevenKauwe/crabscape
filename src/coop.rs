@@ -616,6 +616,34 @@ mod web {
     }
 
     #[cfg(feature = "cellular-transport-probe")]
+    fn probe_window() -> usize {
+        let setting = web_sys::window()
+            .and_then(|w| w.session_storage().ok().flatten())
+            .and_then(|s| s.get_item("__cell_probe_window").ok().flatten());
+        if setting.as_deref() == Some("1") {
+            1
+        } else {
+            8
+        }
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
+    fn probe_fill(link: &mut Link, peer: PeerId) -> Result<(), ()> {
+        loop {
+            let Some(probe) = link.probe.as_mut() else {
+                return Ok(());
+            };
+            let Some(piece) = probe.more()? else {
+                return Ok(());
+            };
+            link.socket
+                .channel_mut(RELIABLE)
+                .try_send(piece.to_bytes().into(), peer)
+                .map_err(|_| ())?;
+        }
+    }
+
+    #[cfg(feature = "cellular-transport-probe")]
     fn probe_source(link: &Link, id: PeerId) -> Option<crabsim::net::cell_join::Peer> {
         use crabsim::net::cell_join::{Peer, select_host};
         let peer = link
@@ -1216,7 +1244,9 @@ mod web {
                             {
                                 continue;
                             }
-                            if let Some((probe, first)) = super::probe::Probe::host(source) {
+                            if let Some((probe, first)) =
+                                super::probe::Probe::host(source, probe_window())
+                            {
                                 link.probe = Some(probe);
                                 link.probe_attempted = true;
                                 link.probe_started = now;
@@ -1229,7 +1259,12 @@ mod web {
                                     link.probe = None;
                                     probe_status("send-failed");
                                 } else {
-                                    probe_status("running");
+                                    if probe_fill(link, peer).is_err() {
+                                        link.probe = None;
+                                        probe_status("send-failed");
+                                    } else {
+                                        probe_status("running");
+                                    }
                                 }
                             }
                         } else if let Some(probe) = link.probe.as_mut() {
@@ -1260,6 +1295,10 @@ mod web {
                                             link.probe = None;
                                             probe_status("send-failed");
                                         }
+                                    }
+                                    if probe_fill(link, peer).is_err() {
+                                        link.probe = None;
+                                        probe_status("send-failed");
                                     }
                                 }
                                 Err(()) => {

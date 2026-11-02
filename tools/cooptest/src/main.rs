@@ -573,8 +573,17 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 16] = [
-    ("cell-probe", "developer shadow terrain WebRTC transfer", 40),
+const SCENARIOS: [(&str, &str, u32); 17] = [
+    (
+        "cell-probe",
+        "developer stop-and-wait shadow terrain WebRTC transfer",
+        60,
+    ),
+    (
+        "cell-probe-window",
+        "developer bounded-window shadow terrain WebRTC transfer",
+        45,
+    ),
     (
         "cell-probe-disconnect",
         "developer shadow transfer aborts on disconnect",
@@ -681,15 +690,21 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
-        "cell-probe" | "cell-probe-loss" | "cell-probe-disconnect" => {
+        "cell-probe" | "cell-probe-window" | "cell-probe-loss" | "cell-probe-disconnect" => {
             host.open(&site.url(""))?;
+            host.b.eval(r#"(() => { window.__probeTimes = {}; const c = document.getElementById('crabscape'); new MutationObserver(() => { const s = c.getAttribute('data-cell-transport-probe'); if (s && window.__probeTimes[s] === undefined) window.__probeTimes[s] = performance.now(); }).observe(c, {attributes: true, attributeFilter: ['data-cell-transport-probe']}); })()"#)?;
+            if name == "cell-probe" {
+                host.b
+                    .eval("sessionStorage.setItem('__cell_probe_window','1')")?;
+            }
             let code = host.invite()?;
-            if name != "cell-probe" {
+            if name == "cell-probe-loss" || name == "cell-probe-disconnect" {
                 guest.open(&site.url(""))?;
                 guest
                     .b
                     .eval("sessionStorage.setItem('__cell_probe_drop_ack','1')")?;
             }
+            let joining = Instant::now();
             guest.open(&site.url(&format!("join={code}")))?;
             together(&mut [&mut host, &mut guest], limit::MEET)?;
             if name == "cell-probe-disconnect" {
@@ -709,7 +724,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 found.push("shadow probe abandoned; host retained its world".into());
                 return Ok(found);
             }
-            let expected = if name == "cell-probe" {
+            let expected = if name == "cell-probe" || name == "cell-probe-window" {
                 "complete"
             } else {
                 "timeout"
@@ -740,12 +755,17 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     guest.b.attr("data-cell-transport-probe")
                 ));
             }
-            if name == "cell-probe" {
+            if name == "cell-probe" || name == "cell-probe-window" {
                 guest.until(5.0, "guest probe completion", |p| {
                     p.b.attr("data-cell-transport-probe").as_deref() == Some("complete")
                 })?;
             }
-            found.push(format!("isolated shadow transfer: {expected}"));
+            let transfer = host
+                .b
+                .eval("(window.__probeTimes.complete - window.__probeTimes.running) / 1000")
+                .ok()
+                .and_then(|v| v.as_f64());
+            found.push(format!("isolated shadow transfer: {expected}, {:.1} s from guest navigation, transfer {:.2?} s", joining.elapsed().as_secs_f64(), transfer));
         }
         "join" => {
             host.open(&site.url(""))?;
