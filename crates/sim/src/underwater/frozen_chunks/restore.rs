@@ -5,7 +5,9 @@ use crate::underwater::bounded_checkpoint::BoundedVec;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 mod lazy;
+mod playable;
 pub use lazy::{CellState, LazyError, LazyView, LoadTicket, PageId};
+pub use playable::{GuardedBuilder, GuardedError, GuardedPlayable};
 
 const MAX_RESTORE_SLEEPING: usize = 256;
 const CHUNK_CELLS: usize = SIDE * SIDE;

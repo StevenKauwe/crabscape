@@ -4,7 +4,10 @@
 //! solve incremental dirty tracking, player capture, lazy reconstruction, or
 //! phone memory limits. The caller must capture player state at the same tick.
 mod restore;
-pub use restore::{CellState, FrozenRestore, LazyError, LazyView, LoadTicket, PageId};
+pub use restore::{
+    CellState, FrozenRestore, GuardedBuilder, GuardedError, GuardedPlayable, LazyError, LazyView,
+    LoadTicket, PageId,
+};
 
 use super::*;
 use serde::Serialize;

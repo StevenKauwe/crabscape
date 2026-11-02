@@ -2294,6 +2294,40 @@ impl Sim {
         fnv1a(state.as_bytes())
     }
 
+    /// Experimental equivalent of `state_hash` that streams formatted state
+    /// into FNV instead of allocating a potentially enormous terrain string.
+    pub fn state_hash_streamed(&self) -> u64 {
+        use std::fmt::Write as _;
+        struct Sink(u64);
+        impl std::fmt::Write for Sink {
+            fn write_str(&mut self, value: &str) -> std::fmt::Result {
+                for byte in value.bytes() {
+                    self.0 ^= u64::from(byte);
+                    self.0 = self.0.wrapping_mul(0x100000001b3);
+                }
+                Ok(())
+            }
+        }
+        let crabs: Vec<SimCrab> = self
+            .crabs
+            .iter()
+            .map(|c| SimCrab {
+                controls: Controls::default(),
+                ..c.clone()
+            })
+            .collect();
+        let mut sink = Sink(0xcbf29ce484222325);
+        let _ = write!(
+            sink,
+            "{} {:?} {:?} {:?} {:?}",
+            self.tick, crabs, self.enemies, self.rng, self.shared
+        );
+        if let Some(cells) = &self.level.cells {
+            let _ = write!(sink, " {cells:?}");
+        }
+        sink.0
+    }
+
     /// One line of state per crab, for the headless runner's `--dump`.
     pub fn snapshots(&self) -> impl Iterator<Item = Snapshot> + '_ {
         self.crabs.iter().map(|c| Snapshot {

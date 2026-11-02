@@ -180,3 +180,37 @@ index from its in-memory capture; it does not yet reconstruct that index from a
 persisted manifest or install and advance a playable world. Its page limit,
 validation rules, memory estimate and experimental format are not production
 compatibility guarantees.
+
+## Guarded active-world experiment
+
+`GuardedBuilder` can install the active window only after every active part
+validates. It requires a **complete, trusted** sleeping-page index and a
+complete in-memory `Sim` template containing the saved player, progress, actors,
+RNG and simulation tick; neither input is produced by the game's current save
+format. An incomplete index can make a missing region look pristine, so this
+prototype must not be used with an unverified or partial manifest. Recording
+is rejected while terrain is incomplete.
+
+`GuardedPlayable` advances a tick only when any potential active-window shift
+has all saved sleeping pages overlapping both old and new windows. Otherwise
+it returns the required page IDs without changing simulation state. Accepted
+pages retain their original global pebble IDs. Reset invalidates the session
+and rejects late page responses. The prototype limits loaded sleeping chunks
+to 256 and clones terrain to preflight near a window edge; it is not a memory
+budget or a deployable streaming engine. Hydrating all pages permits the
+caller to retrieve the complete `Sim`; replay capture is tested only after full
+hydration at a reproducible startup, not during partially loaded play.
+
+Native tests compare each guarded step to a full reference, exercise a blocked
+transition and nondefault player progress, and replay the fully hydrated result
+to the exact reference hash. A Rust-hosted Chrome proof installs active pages
+from the isolated IndexedDB store, checks player steps, hydrates the saved
+sleeping pages, compares the resulting full state, and rejects a delayed page
+after reset. Avoiding extra terrain clones and streaming the existing FNV hash
+representation reduced the test's observed Wasm linear-memory capacity from
+185,729,024 to 40,304,640 bytes on desktop Chrome. This is not total process
+peak memory and excludes browser/JS storage; the test still holds a full source
+world and frozen snapshot. It does not establish iPhone or WebKit safety.
+Migration, verified complete manifests, real player/progress reconstruction,
+actor and replay parity, bounded memory, and independent storage review remain
+required before any live integration.

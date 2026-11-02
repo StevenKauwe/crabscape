@@ -687,7 +687,7 @@ impl Drop for TransactionHandlers {
 async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
     use crabsim::underwater::{
         World,
-        frozen_chunks::{FrozenChunks, LazyError, LazyView, PageId},
+        frozen_chunks::{FrozenChunks, GuardedBuilder, GuardedError, LazyError, LazyView, PageId},
     };
     let level = crabsim::Level::test_level();
     let mut world = World::from_level_settled(&level);
@@ -776,12 +776,111 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
             return Err("cache exceeded bound".into());
         }
     }
+    // Install a guarded active world from the persisted pages, while leaving
+    // sleeping pages on disk. The Sim template is an in-memory fixture; the
+    // real player/progress save format is intentionally not integrated here.
+    let (left, bottom, width, height) = world.game_bounds();
+    let mut position = crabsim::level::SPAWN;
+    position.x = left + width * 0.5;
+    position.y = bottom + height * 0.5;
+    let mut reference = crabsim::Sim::new(crabsim::Tuning::default(), level.clone());
+    if !reference.restore_cellular_terrain(world, 17) {
+        return Err("reference setup".into());
+    }
+    reference.add_crab(crabsim::PlayerId(0), position);
+    // Preserve the complete actor/progress template without cloning terrain.
+    let terrain = reference.level.cells.take().ok_or("missing terrain")?;
+    let template = reference.clone();
+    reference.level.cells = Some(terrain);
+    let mut builder =
+        GuardedBuilder::new(template, &db.pinned_part(pin, 0).await?, &ids, 2_000_000)
+            .map_err(|e| format!("builder: {e:?}"))?;
+    for y in 0..rows {
+        for x in 0..cols {
+            builder
+                .active(
+                    x as u16,
+                    y as u16,
+                    &db.pinned_part(pin, 1 + y * cols + x).await?,
+                )
+                .map_err(|e| format!("builder page: {e:?}"))?;
+        }
+    }
+    let mut guarded = builder.install().map_err(|e| format!("install: {e:?}"))?;
+    if guarded.player() != reference.crab(crabsim::PlayerId(0)) || guarded.tick() != Some(17) {
+        return Err("player or tick mismatch".into());
+    }
+    // Beginning a fetch without receiving it is an interrupted load, not a
+    // reason to change player state or advance the simulation.
+    let _interrupted = guarded
+        .begin_sleeping(ids[0])
+        .map_err(|e| format!("interrupted: {e:?}"))?;
+    if guarded.tick() != Some(17) {
+        return Err("interrupted load changed tick".into());
+    }
+    for _ in 0..4 {
+        guarded
+            .step(crabsim::Controls::default())
+            .map_err(|e| format!("guarded step: {e:?}"))?;
+        reference.tick();
+        if guarded.player() != reference.crab(crabsim::PlayerId(0)) {
+            return Err("guarded player differs".into());
+        }
+    }
+    for (i, &id) in ids.iter().enumerate() {
+        let ticket = guarded
+            .begin_sleeping(id)
+            .map_err(|e| format!("guarded ticket: {e:?}"))?;
+        guarded
+            .accept_sleeping(ticket, &db.pinned_part(pin, 1 + cols * rows + i).await?)
+            .map_err(|e| format!("guarded sleeping: {e:?}"))?;
+    }
+    let restored = guarded
+        .finish()
+        .map_err(|e| format!("guarded finish: {e:?}"))?;
+    if restored.state_hash_streamed() != reference.state_hash_streamed() {
+        return Err("guarded exact state differs".into());
+    }
+    if guarded.step(crabsim::Controls::default()) != Err(GuardedError::Stale) {
+        return Err("finished session remained active".into());
+    }
+    let mut reset_template = restored;
+    reset_template.level.cells = None;
+    let mut reset_builder = GuardedBuilder::new(
+        reset_template,
+        &db.pinned_part(pin, 0).await?,
+        &ids,
+        2_000_000,
+    )
+    .map_err(|e| format!("reset builder: {e:?}"))?;
+    for y in 0..rows {
+        for x in 0..cols {
+            reset_builder
+                .active(
+                    x as u16,
+                    y as u16,
+                    &db.pinned_part(pin, 1 + y * cols + x).await?,
+                )
+                .map_err(|e| format!("reset builder page: {e:?}"))?;
+        }
+    }
+    let mut reset_guard = reset_builder
+        .install()
+        .map_err(|e| format!("reset install: {e:?}"))?;
+    let guard_ticket = reset_guard
+        .begin_sleeping(ids[0])
+        .map_err(|e| format!("reset ticket: {e:?}"))?;
+    let guard_pending = db.pinned_part(pin, 1 + cols * rows).await?;
     let late = view
         .begin_load(PageId::Active(0, 0))
         .map_err(|e| format!("late ticket: {e:?}"))?;
     let pending = db.pinned_part(pin, 1).await?;
     db.reset().await?;
     view.invalidate();
+    reset_guard.invalidate();
+    if reset_guard.accept_sleeping(guard_ticket, &guard_pending) != Err(GuardedError::Stale) {
+        return Err("reset accepted stale guarded page".into());
+    }
     if view.finish_load(late, &pending) != Err(LazyError::Stale)
         || db.pinned_part(pin, 1).await.is_ok()
     {
