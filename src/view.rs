@@ -505,18 +505,22 @@ mod camera_stability_tests {
             );
         }
 
-        // The reported phone averaged 31 fps. These varying frame times
-        // average 31 fps and reproduced runaway shake in the old spring.
+        // The report smooths instantaneous FPS. This sequence reports about
+        // 31 fps with that same smoothing and made the old spring run away.
         let mut shake = Shake::default();
         shake.kick(Vec2::new(8.0, -2.8));
-        let frames = [0.050, 0.015, 0.050, 0.014];
+        let frames = [0.036, 0.042, 0.034, 0.018, 0.040, 0.038, 0.034, 0.032];
+        let mut reported_fps = 31.0;
         for frame in 0..120 {
-            let offset = shake.offset(frames[frame % frames.len()]);
+            let dt = frames[frame % frames.len()];
+            reported_fps = 0.95 * reported_fps + 0.05 / dt;
+            let offset = shake.offset(dt);
             assert!(
                 offset.is_finite() && offset.length() < 50.0,
                 "unstable mixed frame: {offset:?}"
             );
         }
+        assert!((30.0..32.0).contains(&reported_fps));
         assert!(shake.kick.length() < 0.01);
     }
 
