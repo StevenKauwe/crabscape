@@ -14,7 +14,7 @@ const ENVELOPE_ROOM: usize = 64;
 const HEADER: usize = 16;
 /// Largest piece of checkpoint carried by a fragment.
 pub const PIECE_BYTES: usize = MAX_BYTES - ENVELOPE_ROOM - HEADER;
-/// Hard memory bound for one peer's incomplete transfer. This is a limit,
+/// Maximum payload for one peer's incomplete transfer. This is a limit,
 /// not a promise that all explored worlds currently fit in a checkpoint.
 pub const MAX_CHECKPOINT_BYTES: usize = 16 * 1024 * 1024;
 
@@ -74,6 +74,91 @@ struct Pending {
     pieces: BTreeMap<usize, Vec<u8>>,
 }
 
+struct Fragment<'a> {
+    id: u64,
+    total: usize,
+    index: usize,
+    count: usize,
+    data: &'a [u8],
+}
+
+fn parse_fragment(packet: &[u8]) -> Result<Fragment<'_>, TransferError> {
+    if !(HEADER + 1..=MAX_BYTES - ENVELOPE_ROOM).contains(&packet.len()) {
+        return Err(TransferError::Malformed);
+    }
+    let id = u64::from_le_bytes(
+        packet[0..8]
+            .try_into()
+            .map_err(|_| TransferError::Malformed)?,
+    );
+    let total = u32::from_le_bytes(
+        packet[8..12]
+            .try_into()
+            .map_err(|_| TransferError::Malformed)?,
+    ) as usize;
+    let index = u32::from_le_bytes(
+        packet[12..16]
+            .try_into()
+            .map_err(|_| TransferError::Malformed)?,
+    ) as usize;
+    if total == 0 {
+        return Err(TransferError::Empty);
+    }
+    if total > MAX_CHECKPOINT_BYTES {
+        return Err(TransferError::TooLarge);
+    }
+    let count = total.div_ceil(PIECE_BYTES);
+    if index >= count {
+        return Err(TransferError::Malformed);
+    }
+    let expected = (total - index * PIECE_BYTES).min(PIECE_BYTES);
+    let data = &packet[HEADER..];
+    if data.len() != expected {
+        return Err(TransferError::Malformed);
+    }
+    Ok(Fragment {
+        id,
+        total,
+        index,
+        count,
+        data,
+    })
+}
+
+/// Bound the announced sequence length before allocating or reading its bytes.
+/// Also reject structurally invalid fragments at the message boundary.
+pub(super) fn deserialize_fragment<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{Error, SeqAccess, Visitor};
+    struct FragmentVisitor;
+    impl<'de> Visitor<'de> for FragmentVisitor {
+        type Value = Vec<u8>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a bounded cellular terrain fragment")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<u8>, A::Error> {
+            if seq
+                .size_hint()
+                .is_some_and(|len| len > MAX_BYTES - ENVELOPE_ROOM)
+            {
+                return Err(A::Error::custom("cellular fragment is too long"));
+            }
+            let mut bytes = Vec::new();
+            while let Some(byte) = seq.next_element::<u8>()? {
+                if bytes.len() == MAX_BYTES - ENVELOPE_ROOM {
+                    return Err(A::Error::custom("cellular fragment is too long"));
+                }
+                bytes.push(byte);
+            }
+            parse_fragment(&bytes).map_err(|_| A::Error::custom("invalid cellular fragment"))?;
+            Ok(bytes)
+        }
+    }
+    deserializer.deserialize_seq(FragmentVisitor)
+}
+
 /// Receives one transfer at a time. Each piece is stored only when received;
 /// a tiny packet claiming a large checkpoint cannot force a large allocation.
 #[derive(Default)]
@@ -88,39 +173,13 @@ impl Receiver {
     /// an exact duplicate is harmless, and a conflicting duplicate is an
     /// error. A newer transfer supersedes an incomplete older transfer.
     pub fn accept(&mut self, packet: &[u8]) -> Result<Option<Vec<u8>>, TransferError> {
-        if !(HEADER + 1..=MAX_BYTES - ENVELOPE_ROOM).contains(&packet.len()) {
-            return Err(TransferError::Malformed);
-        }
-        let id = u64::from_le_bytes(
-            packet[0..8]
-                .try_into()
-                .map_err(|_| TransferError::Malformed)?,
-        );
-        let total = u32::from_le_bytes(
-            packet[8..12]
-                .try_into()
-                .map_err(|_| TransferError::Malformed)?,
-        ) as usize;
-        let index = u32::from_le_bytes(
-            packet[12..16]
-                .try_into()
-                .map_err(|_| TransferError::Malformed)?,
-        ) as usize;
-        if total == 0 {
-            return Err(TransferError::Empty);
-        }
-        if total > MAX_CHECKPOINT_BYTES {
-            return Err(TransferError::TooLarge);
-        }
-        let count = total.div_ceil(PIECE_BYTES);
-        if index >= count {
-            return Err(TransferError::Malformed);
-        }
-        let expected = (total - index * PIECE_BYTES).min(PIECE_BYTES);
-        let data = &packet[HEADER..];
-        if data.len() != expected {
-            return Err(TransferError::Malformed);
-        }
+        let Fragment {
+            id,
+            total,
+            index,
+            count,
+            data,
+        } = parse_fragment(packet)?;
         if self.latest_completed.is_some_and(|latest| id <= latest)
             || self.pending.as_ref().is_some_and(|pending| id < pending.id)
         {
@@ -191,6 +250,33 @@ mod tests {
         assert_eq!(receiver.accept(&packets[0]), Ok(None));
         assert_eq!(receiver.accept(&packets[1]), Ok(Some(bytes)));
         assert_eq!(receiver.accept(&packets[0]), Ok(None));
+    }
+
+    #[test]
+    fn actual_coop_messages_are_reliable_bounded_and_validate_their_fragments() {
+        use crate::net::Msg;
+        let bytes = vec![17; PIECE_BYTES + 2];
+        let mut receiver = Receiver::default();
+        let mut completed = None;
+        for packet in Fragments::new(15, &bytes).unwrap() {
+            let message = Msg::CellTerrain(packet);
+            assert!(message.reliable());
+            let wire = message.to_bytes();
+            assert!(wire.len() <= MAX_BYTES);
+            let Some(Msg::CellTerrain(fragment)) = Msg::from_bytes(&wire) else {
+                panic!("valid terrain fragment did not round trip");
+            };
+            completed = receiver.accept(&fragment).unwrap().or(completed);
+        }
+        assert_eq!(completed, Some(bytes));
+        assert!(
+            Msg::from_bytes(&Msg::CellTerrain(vec![0; MAX_BYTES - ENVELOPE_ROOM + 1]).to_bytes())
+                .is_none()
+        );
+        assert!(Msg::from_bytes(&Msg::CellTerrain(vec![0; HEADER]).to_bytes()).is_none());
+        let mut bad = Fragments::new(16, &[1]).unwrap().next().unwrap();
+        bad[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(Msg::from_bytes(&Msg::CellTerrain(bad).to_bytes()).is_none());
     }
 
     #[test]

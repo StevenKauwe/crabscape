@@ -449,6 +449,13 @@ fn from_host(msg: &crabsim::net::Msg, sender: Option<PlayerId>, hosting: Hosting
         }
 }
 
+/// Only the selected host may send a terrain checkpoint, and only after the
+/// guest has entered that host's world. A fragment alone must never cause a
+/// guest to enter a world, or let an old stand-in overwrite the new host.
+fn accepts_cell_terrain(sender: Option<PlayerId>, hosting: Hosting, in_guest_world: bool) -> bool {
+    in_guest_world && matches!(hosting, Hosting::Friend(host) if sender == Some(host))
+}
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) use web::{in_room, introducer, players};
 
@@ -465,8 +472,9 @@ mod web {
 
     use super::{
         HOST, Hosting, INTRODUCER, LocalId, NewLink, OnLink, Start, Update, VERSION, Watch,
-        clean_code, from_host, hello, in_shared_world, make_code, on_version, open_in_other_tab,
-        param, read_hello, room, start, status, status_top, update_line, who_hosts,
+        accepts_cell_terrain, clean_code, from_host, hello, in_shared_world, make_code, on_version,
+        open_in_other_tab, param, read_hello, room, start, status, status_top, update_line,
+        who_hosts,
     };
     use crate::names::Names;
     use crate::player::{GameSet, spawn_local_crab};
@@ -1048,6 +1056,16 @@ mod web {
                         continue;
                     }
                     let from_host = from_host(&msg, p.said.map(|s| s.crab), hosting);
+                    if matches!(msg, Msg::CellTerrain(_))
+                        && (channel != RELIABLE
+                            || !accepts_cell_terrain(
+                                p.said.map(|s| s.crab),
+                                hosting,
+                                sim.online() && !sim.is_host(),
+                            ))
+                    {
+                        continue;
+                    }
                     // Only the host this device goes with says how the world stands.
                     if matches!(msg, Msg::World { .. }) && !from_host {
                         continue;
@@ -1814,5 +1832,19 @@ mod tests {
             assert!(!from_host(&host.world(), Some(HOST), hosting));
             assert!(!from_host(&crabs[0], Some(HOST), hosting));
         }
+    }
+
+    #[test]
+    fn cellular_terrain_only_comes_from_the_selected_host_in_its_world() {
+        let main = Hosting::Friend(HOST);
+        let stand_in = Hosting::Friend(PlayerId(7));
+        assert!(accepts_cell_terrain(Some(HOST), main, true));
+        assert!(!accepts_cell_terrain(Some(HOST), main, false));
+        assert!(!accepts_cell_terrain(None, main, true));
+        assert!(!accepts_cell_terrain(Some(PlayerId(7)), main, true));
+        assert!(accepts_cell_terrain(Some(PlayerId(7)), stand_in, true));
+        assert!(!accepts_cell_terrain(Some(HOST), stand_in, true));
+        assert!(!accepts_cell_terrain(Some(HOST), Hosting::Me, true));
+        assert!(!accepts_cell_terrain(Some(HOST), Hosting::Nobody, true));
     }
 }

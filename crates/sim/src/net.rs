@@ -138,6 +138,9 @@ pub enum Msg {
     /// a [`clean_chat`]. Who said it is the device it came from (never a
     /// name or crab in the message), so nobody can speak as someone else.
     Chat(String),
+    /// One fragment of the host's cellular terrain checkpoint. Guests must
+    /// verify the sender is their selected host before accepting it.
+    CellTerrain(#[serde(deserialize_with = "cell_transfer::deserialize_fragment")] Vec<u8>),
 }
 
 /// The longest name, in characters: short enough to sit over a crab.
@@ -279,6 +282,9 @@ impl Msg {
         // Chat is only words, and may well hold "inf" ("info").
         if let Msg::Chat(line) = &msg {
             return (clean_chat(line).as_ref() == Some(line)).then_some(msg);
+        }
+        if matches!(msg, Msg::CellTerrain(_)) {
+            return Some(msg); // Its bounded byte payload was validated during decoding.
         }
         // Every number in it, printed: `{:?}` writes a non-finite one as NaN
         // or inf, and no name in a message contains either (a test checks).
