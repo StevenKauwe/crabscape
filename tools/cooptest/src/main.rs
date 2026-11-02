@@ -797,7 +797,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             let link = away(site, &mut host)?;
             guest.open(&link)?;
             other.open(&link)?;
-            let (i, _) = together_with_stand_in(&mut [&mut guest, &mut other], limit::MEET)?;
+            let (i, _) = together_with_stand_in(&mut [&mut guest, &mut other], limit::STAND_IN)?;
             let (stand_in, stayed) = if i == 0 {
                 (&mut guest, &mut other)
             } else {
