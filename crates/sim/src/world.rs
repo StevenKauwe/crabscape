@@ -876,7 +876,7 @@ impl Sim {
 
     /// Advance the world by one [`STEP`].
     pub fn tick(&mut self) {
-        self.tick_inner(false);
+        let _ = self.tick_inner(false, None);
     }
 
     /// Capture the sole stationary host crab for the isolated spectator-frame
@@ -925,16 +925,24 @@ impl Sim {
     /// the guarded spectator experiment. Other actions and upward motion are
     /// rejected; the real game continues to own player physics.
     pub fn walking_shared_cell_force(&self) -> Option<crate::underwater::HostPlayerForce> {
+        if !self.online() || !self.is_host() || self.crabs.len() != 1 {
+            return None;
+        }
+        self.local_shared_walking_force()
+    }
+
+    /// Capture a single local walker's forces for the guarded two-player prototype.
+    pub fn local_shared_walking_force(&self) -> Option<crate::underwater::HostPlayerForce> {
         if !self.online()
-            || !self.is_host()
-            || self.crabs.len() != 1
+            || self.crabs.len() > 2
             || !self.enemies.is_empty()
             || self.recorder.is_some()
             || !self.tick.is_multiple_of(4)
+            || self.crabs.iter().filter(|c| !c.remote).count() != 1
         {
             return None;
         }
-        let crab = &self.crabs[0];
+        let crab = self.crabs.iter().find(|c| !c.remote)?;
         let mut remaining = crab.controls;
         let walk = remaining.walk;
         remaining.walk = 0.0;
@@ -1025,11 +1033,109 @@ impl Sim {
         {
             return false;
         }
-        self.tick_inner(true);
+        self.tick_inner(true, None)
+    }
+
+    /// Begin a fresh guarded guest session with exactly one local walker.
+    pub fn begin_guest_shared_walking(&mut self) -> bool {
+        if !self.online()
+            || self.is_host()
+            || self.tick != 0
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.empty_shared_base.is_some()
+            || self.crabs.len() > 2
+            || self.crabs.iter().filter(|c| !c.remote).count() != 1
+        {
+            return false;
+        }
+        let Some(cells) = &self.level.cells else {
+            return false;
+        };
+        if !cells.is_game_world() || cells.tick_count() >= u64::MAX - 1_000_000 {
+            return false;
+        }
+        self.empty_shared_base = Some(cells.tick_count());
         true
     }
 
-    fn tick_inner(&mut self, external_terrain: bool) {
+    /// Advance one guest tick only after the authoritative terrain frame.
+    pub fn tick_guest_shared_walking(&mut self) -> bool {
+        let Some(expected) = self
+            .empty_shared_base
+            .and_then(|b| b.checked_add(self.tick / 4 + 1))
+        else {
+            return false;
+        };
+        if !self.online()
+            || self.is_host()
+            || !self.enemies.is_empty()
+            || self.recorder.is_some()
+            || self.crabs.len() > 2
+            || self.crabs.iter().filter(|c| !c.remote).count() != 1
+            || self.tick >= u64::MAX - 1_000_000
+            || self
+                .level
+                .cells
+                .as_ref()
+                .is_none_or(|c| c.tick_count() != expected)
+        {
+            return false;
+        }
+        let crab = self
+            .crabs
+            .iter()
+            .find(|c| !c.remote)
+            .expect("one local crab checked");
+        let mut controls = crab.controls;
+        controls.walk = 0.0;
+        if controls != Controls::default()
+            || crab.events.jumped
+            || !crab.mover.vel.is_finite()
+            || crab.mover.vel.y > 0.0
+            || !crab.controls.walk.is_finite()
+            || crab.controls.walk.abs() > 1.0
+        {
+            return false;
+        }
+        self.tick_inner(true, None)
+    }
+
+    /// Transactionally advance a material tick with one authenticated remote
+    /// walker. Caller must bind the remote identity to its connection.
+    pub fn tick_host_with_shared_walker(
+        &mut self,
+        remote: crate::underwater::HostPlayerForce,
+    ) -> bool {
+        let Some(local) = self.local_shared_walking_force() else {
+            return false;
+        };
+        if !self.online()
+            || !self.is_host()
+            || !self.tick.is_multiple_of(4)
+            || self
+                .level
+                .cells
+                .as_ref()
+                .is_none_or(|cells| !cells.is_game_world())
+            || local.player == remote.player
+            || !self.crabs.iter().any(|c| c.remote && c.id == remote.player)
+        {
+            return false;
+        }
+        let mut next = self.clone();
+        if !next.tick_inner(false, Some(remote)) {
+            return false;
+        }
+        *self = next;
+        true
+    }
+
+    fn tick_inner(
+        &mut self,
+        external_terrain: bool,
+        remote_walk: Option<crate::underwater::HostPlayerForce>,
+    ) -> bool {
         // Move the detailed window before simulating, independent of camera.
         if !external_terrain
             && let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
@@ -1113,6 +1219,11 @@ impl Sim {
                 }
             }
             if self.tick.is_multiple_of(4) {
+                if let Some(remote) = remote_walk
+                    && !cells.apply_disjoint_walker(&self.tuning, &remote)
+                {
+                    return false;
+                }
                 cells.step(0.35);
             }
         }
@@ -1683,6 +1794,7 @@ impl Sim {
         }
         self.tick += 1;
         self.send_updates();
+        true
     }
 
     /// Co-op: note what happened to this device's crabs, and every

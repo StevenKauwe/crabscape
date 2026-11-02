@@ -2219,6 +2219,74 @@ impl World {
         true
     }
 
+    /// Apply a remote swimming wake when its full protected body and a
+    /// one-cell movement margin contain only water. This proves that omitting
+    /// its reservation cannot change the following material step.
+    pub(crate) fn apply_disjoint_walker(
+        &mut self,
+        tuning: &crate::Tuning,
+        p: &HostPlayerForce,
+    ) -> bool {
+        if !self.game
+            || p.grounded
+            || p.jumped
+            || p.dig.is_some()
+            || !(-1..=1).contains(&p.walking)
+            || [
+                p.x,
+                p.y,
+                p.half_width,
+                p.half_height,
+                p.wake_x,
+                p.wake_y,
+                tuning.walk_speed,
+            ]
+            .iter()
+            .any(|v| !v.is_finite())
+            || p.x.abs() > 1_000_000.0
+            || p.y.abs() > 1_000_000.0
+            || !(0.0..=64.0).contains(&p.half_width)
+            || !(0.0..=64.0).contains(&p.half_height)
+            || p.half_width == 0.0
+            || p.half_height == 0.0
+            || tuning.walk_speed <= 0.0
+            || p.wake_x.abs() > 1000.0
+            || !(-1000.0..=0.0).contains(&p.wake_y)
+            || !self.contains_world(p.x, p.y)
+        {
+            return false;
+        }
+        let Some((host_x, host_y)) = self.crab else {
+            return false;
+        };
+        let (x, y) = self.local_cell(p.x, p.y);
+        let (cx, cy) = (x as i32, y as i32);
+        let hx = (p.half_width / GAME_CELL).ceil().max(1.0) as i32 + 5;
+        let hy = (p.half_height / GAME_CELL).ceil().max(1.0) as i32 + 5;
+        if (cx - host_x).abs() <= hx + self.crab_half_x + 20
+            && (cy - host_y).abs() <= hy + self.crab_half_y + 20
+        {
+            return false;
+        }
+        for oy in -hy..=hy {
+            for ox in -hx..=hx {
+                if self.cell(cx + ox, cy + oy) != Cell::Water {
+                    return false;
+                }
+            }
+        }
+        let wake_x = (p.wake_x / tuning.walk_speed * 1.5).clamp(-2.5, 2.5);
+        let wake_y = (p.wake_y / tuning.walk_speed).clamp(-2.5, 2.5);
+        self.react_to_swim(x, y, wake_x, wake_y);
+        self.stir(
+            x,
+            y,
+            p.wake_x * crate::physics::STEP / 4.0 * 0.45,
+            p.wake_y * crate::physics::STEP / 4.0 * 0.45,
+        );
+        true
+    }
+
     /// Apply the terrain part of one solo crab's guarded walking tick.
     /// In this spectator-only frame, wake fields carry pre-tick velocity.
     pub(crate) fn step_walking_spectator(
@@ -2226,6 +2294,16 @@ impl World {
         level: &crate::Level,
         tuning: &crate::Tuning,
         p: &HostPlayerForce,
+    ) -> bool {
+        self.step_walking_pair(level, tuning, p, None)
+    }
+
+    pub(crate) fn step_walking_pair(
+        &mut self,
+        level: &crate::Level,
+        tuning: &crate::Tuning,
+        p: &HostPlayerForce,
+        other: Option<&HostPlayerForce>,
     ) -> bool {
         if !self.game
             || self.tick >= u64::MAX - 1_000_000
@@ -2273,6 +2351,11 @@ impl World {
                 p.wake_x * crate::physics::STEP / 4.0 * 0.45,
                 p.wake_y * crate::physics::STEP / 4.0 * 0.45,
             );
+        }
+        if let Some(other) = other
+            && !next.apply_disjoint_walker(tuning, other)
+        {
+            return false;
         }
         next.step(0.35);
         *self = next;
@@ -2849,6 +2932,43 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disjoint_walker_rejects_sediment_and_overlapping_bodies_atomically() {
+        let mut world = World::new();
+        world.game = true;
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.set_game_crab(100.0, 100.0, 3.0, 3.0);
+        let force = HostPlayerForce {
+            player: crate::PlayerId(1),
+            x: 200.0 * GAME_CELL,
+            y: GAME_BOTTOM + 200.0 * GAME_CELL,
+            half_width: 8.0,
+            half_height: 8.0,
+            wake_x: 100.0,
+            wake_y: 0.0,
+            walking: 1,
+            grounded: false,
+            jumped: false,
+            dig: None,
+        };
+        let tuning = crate::Tuning::default();
+        let i = World::index(200, 200).unwrap();
+        world.cells[i] = Cell::Mud;
+        let before = world.clone();
+        assert!(!world.apply_disjoint_walker(&tuning, &force));
+        assert_eq!(world, before);
+        world.cells[i] = Cell::Water;
+        world.set_game_crab(200.0, 200.0, 3.0, 3.0);
+        let before = world.clone();
+        assert!(!world.apply_disjoint_walker(&tuning, &force));
+        assert_eq!(world, before);
+        world.set_game_crab(100.0, 100.0, 3.0, 3.0);
+        assert!(world.apply_disjoint_walker(&tuning, &force));
+    }
 
     #[test]
     fn fresh_cellular_replay_reproduces_digging() {

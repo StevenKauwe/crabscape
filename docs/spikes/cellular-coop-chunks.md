@@ -285,3 +285,19 @@ does not establish off-tick collision or rendering parity. Jumping, digging,
 upward motion, guest crabs and creatures are still rejected. The spectator
 frame uses its wake fields for pre-tick velocity, unlike the separate host
 window prototype; the two interpretations are selected by the frame shape.
+
+A guarded two-player Sim-loop experiment now runs one host crab and one guest
+crab with real horizontal controls. It sends guest force commands, ordinary
+crab updates and host terrain frames through FakeLink, applies exactly one
+host material step, and matches an independently ordered shared-terrain
+reference at three material ticks. The fixture checks both crabs moved,
+sand/mud counts, rejected unsupported host input and bad-digest rollback.
+The guest crab must be ungrounded, in the same active window, separated from
+the host, with its entire protected region and a movement margin containing
+only water. That guard ensures a second reservation cannot affect the next
+material step; overlapping bodies, sediment near the guest, jumping, digging,
+creatures and host migration are unsupported. Input authentication and
+sequencing are performed by the test harness, not a wired production session.
+The prototype clones whole state and hashes terrain, and guest collision or
+window state between material frames is not reconciled. This is a narrow
+integration experiment, not playable co-op or evidence of phone performance.
