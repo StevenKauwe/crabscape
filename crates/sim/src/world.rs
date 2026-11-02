@@ -1374,6 +1374,19 @@ impl Sim {
                         && !cells.clear_for_crab(x, y + 4.0)
                     {
                         cells.push_for_crab(x, y + 4.0, 0, 1, 48);
+                    } else if self.tick.is_multiple_of(4)
+                        && !digging
+                        && !m.grounded
+                        && m.vel.y < 0.0
+                        && !cells.clear_for_crab(x, y)
+                    {
+                        if let Some(remote) = remote_walk {
+                            if !cells.dig_primary_shared(&remote, x, y, 0, -1) {
+                                return false;
+                            }
+                        } else {
+                            cells.push_for_crab(x, y, 0, -1, 48);
+                        }
                     } else if self.tick.is_multiple_of(4) && digging && crab.controls.down {
                         if let Some(remote) = remote_walk {
                             if !cells.dig_primary_shared(&remote, x, y - 2.0, 0, -1) {

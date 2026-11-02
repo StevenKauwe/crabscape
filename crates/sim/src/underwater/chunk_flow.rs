@@ -1590,7 +1590,7 @@ impl ChunkFlow {
 
     fn blocking_body_below(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         let blocks = |cx: i32, cy: i32, hx: i32, hy: i32| {
-            y > cy && (x - cx).abs() <= hx + 4 && (y - 1 - cy).abs() <= hy + 4
+            y > cy && super::grain_body_contains(x, y - 1, cx, cy, hx, hy)
         };
         if let Some((cx, cy)) = self.crab
             && blocks(cx, cy, self.crab_half_x, self.crab_half_y)
@@ -1616,12 +1616,12 @@ impl ChunkFlow {
         Self::signed_location(x, y).is_some_and(|(c, i)| {
             self.chunks[c].cells[i] == Cell::Water
                 && !self.crab.is_some_and(|(cx, cy)| {
-                    (x - cx).abs() <= self.crab_half_x + 4 && (y - cy).abs() <= self.crab_half_y + 4
+                    super::grain_body_contains(x, y, cx, cy, self.crab_half_x, self.crab_half_y)
                 })
                 && !self
                     .extra_bodies
                     .iter()
-                    .any(|b| (x - b.x).abs() <= b.half_x + 4 && (y - b.y).abs() <= b.half_y + 4)
+                    .any(|b| super::grain_body_contains(x, y, b.x, b.y, b.half_x, b.half_y))
         })
     }
 
@@ -1969,7 +1969,7 @@ impl ChunkFlow {
     fn pebble_destination_allowed(&self, x: i32, y: i32, p: Pebble, dx: i32, dy: i32) -> bool {
         let side = i32::from(p.side);
         let permits = |cx: i32, cy: i32, hx: i32, hy: i32| {
-            let in_margin = (x - cx).abs() <= hx + 4 && (y - cy).abs() <= hy + 4;
+            let in_margin = super::grain_body_contains(x, y, cx, cy, hx, hy);
             let outside_body = (x - cx).abs() > hx || (y - cy).abs() > hy;
             let away = (p.x + side / 2 - cx) * dx + (p.y + side / 2 - cy) * dy;
             !in_margin || (outside_body && away > 0)

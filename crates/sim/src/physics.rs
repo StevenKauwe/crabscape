@@ -1314,6 +1314,14 @@ fn move_and_collide_cells(
             pos.y + height - EPS,
         )
     };
+    let airborne_blocked = |pos: Vec2| {
+        let (left, right) = (pos.x - hw + EPS, pos.x + hw - EPS);
+        let (bottom, top) = (pos.y + EPS, pos.y + height - EPS);
+        (blocked(pos) && cells.game_airborne_blocked(left, bottom, right, top))
+            || level
+                .solids()
+                .any(|r| right > r.min.x && left < r.max.x && top > r.min.y && bottom < r.max.y)
+    };
     let was_grounded = m.grounded;
     let dx = m.vel.x * dt;
     let xsteps = (dx.abs() / 2.0).ceil().max(1.0) as usize;
@@ -1350,6 +1358,14 @@ fn move_and_collide_cells(
                     m.pos.y + step_up + hw * 0.8 + crate::underwater::GAME_CELL,
                 )
                 .filter(|&s| s >= m.pos.y - reach_down && s <= m.pos.y + reach_up)
+                .filter(|&s| {
+                    was_grounded
+                        || cells.game_airborne_support(
+                            candidate.x - hw * 0.8,
+                            candidate.x + hw * 0.8,
+                            s,
+                        )
+                })
         } else {
             None
         };
@@ -1415,6 +1431,8 @@ fn move_and_collide_cells(
                 candidate.x + hw - EPS,
                 candidate.y + height - EPS,
             )
+        } else if !was_grounded && !digging {
+            airborne_blocked(candidate)
         } else {
             blocked(candidate)
         };
@@ -1428,7 +1446,13 @@ fn move_and_collide_cells(
         }
         m.pos = candidate;
     }
-    m.grounded = touched || (dy <= 0.0 && blocked(m.pos - Vec2::Y * 1.0));
+    m.grounded = touched
+        || (dy <= 0.0
+            && if !was_grounded && !digging {
+                airborne_blocked(m.pos - Vec2::Y * 1.0)
+            } else {
+                blocked(m.pos - Vec2::Y * 1.0)
+            });
     if m.grounded && !was_grounded {
         ev.landed = Some(impact.max(0.0));
     }

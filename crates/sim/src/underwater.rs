@@ -40,6 +40,20 @@ fn baked_height() -> usize {
     HEIGHT
 }
 /// World units per cell and the position of the experiment's lower edge.
+// The collider keeps its rectangular cavity. The extra material clearance
+// above it follows a domed shell so grains are guided toward the sides.
+fn grain_body_contains(x: i32, y: i32, cx: i32, cy: i32, hx: i32, hy: i32) -> bool {
+    let (dx, dy) = ((x - cx).abs(), y - cy);
+    let (rx, top) = (hx + 4, hy + 4);
+    if dx <= rx && (-top..=top).contains(&dy) {
+        return true;
+    }
+    // A low rounded crest above the ordinary protected cavity guides grains
+    // outward before they can accumulate across its flat top.
+    let rise = 4 * (rx * rx - dx * dx).max(0) / (rx * rx).max(1);
+    dx <= rx && dy > top && dy <= top + rise
+}
+
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
 
@@ -1391,6 +1405,56 @@ impl World {
         }
         columns > 0 && grains >= 2 && grains * 3 >= columns
     }
+    // A falling loose column cannot carry an airborne crab. Rock and packed
+    // sediment extending beyond this active window retain their normal collision.
+    fn sediment_anchored(&self, x: i32, row: i32) -> bool {
+        (0..=row)
+            .rev()
+            .find_map(|below| match self.cell(x, below) {
+                Cell::Rock => Some(true),
+                Cell::Water => Some(false),
+                Cell::Sand | Cell::Mud => None,
+            })
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn game_airborne_support(&self, min_x: f32, max_x: f32, feet_y: f32) -> bool {
+        let (x0, y) = self.local_cell(min_x, feet_y - 0.5);
+        let (x1, _) = self.local_cell(max_x, feet_y - 0.5);
+        let row = y.floor() as i32;
+        let mut columns = 0;
+        let mut grains = 0;
+        for x in x0.floor() as i32..=x1.floor() as i32 {
+            if let Some(i) = self.index_at(x, row) {
+                columns += 1;
+                if self.cells[i] != Cell::Water && self.sediment_anchored(x, row) {
+                    grains += 1;
+                }
+            }
+        }
+        columns > 0 && grains >= 2 && grains * 3 >= columns
+    }
+
+    pub(crate) fn game_airborne_blocked(
+        &self,
+        min_x: f32,
+        min_y: f32,
+        max_x: f32,
+        max_y: f32,
+    ) -> bool {
+        let (x0, y0) = self.local_cell(min_x, min_y);
+        let (x1, y1) = self.local_cell(max_x, max_y);
+        for y in y0.floor() as i32..=y1.floor() as i32 {
+            for x in x0.floor() as i32..=x1.floor() as i32 {
+                match self.cell(x, y) {
+                    Cell::Rock => return true,
+                    Cell::Sand | Cell::Mud if self.sediment_anchored(x, y) => return true,
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
     /// Find a supported surface below an animal, filtering small pebbles
     /// using the same footprint test as the crab.
     pub fn game_surface_below(&self, x: f32, half_width: f32, ceiling: f32) -> Option<f32> {
@@ -1992,9 +2056,12 @@ impl World {
         }
         let x = (index % self.width) as i32;
         let y = (index / self.width) as i32;
-        !self.other_body_contains(x, y, 4)
+        !self
+            .other_crabs
+            .iter()
+            .any(|&(cx, cy, hx, hy)| grain_body_contains(x, y, cx, cy, hx, hy))
             && !self.crab.is_some_and(|(cx, cy)| {
-                (x - cx).abs() <= self.crab_half_x + 4 && (y - cy).abs() <= self.crab_half_y + 4
+                grain_body_contains(x, y, cx, cy, self.crab_half_x, self.crab_half_y)
             })
     }
 
@@ -4418,6 +4485,93 @@ mod tests {
             GIANT_ROOT as f32 * GAME_CELL
         );
     }
+    #[test]
+    fn suspended_sediment_bank_is_not_support() {
+        let mut w = World::new();
+        w.cells.fill(Cell::Water);
+        for x in 195..=205 {
+            for y in 95..=100 {
+                w.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        let feet = GAME_BOTTOM + 101.0 * GAME_CELL;
+        assert!(!w.game_airborne_support(195.0 * GAME_CELL, 205.0 * GAME_CELL, feet));
+        assert!(!w.game_airborne_blocked(
+            195.0 * GAME_CELL,
+            feet - 2.0,
+            205.0 * GAME_CELL,
+            feet + 10.0
+        ));
+    }
+
+    #[test]
+    fn airborne_crab_falls_through_suspended_bank() {
+        use crate::{PlayerId, Sim};
+        use bevy_math::Vec2;
+        let mut sim = Sim::with_one_crab(Vec2::new(400.0, 88.0));
+        sim.enable_underwater_cells();
+        let cells = sim.level.cells.as_mut().unwrap();
+        cells.cells.fill(Cell::Water);
+        cells.pebble_owner.fill(0);
+        cells.pebbles.clear();
+        for x in 85..=115 {
+            for y in 98..=105 {
+                cells.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        let crab = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
+        crab.pos = Vec2::new(400.0, 65.0);
+        crab.vel = Vec2::new(0.0, -30.0);
+        crab.grounded = false;
+        for _ in 0..12 {
+            sim.tick();
+        }
+        let crab = &sim.crab(PlayerId(0)).unwrap().mover;
+        assert!(!crab.grounded, "falling sediment held the crab");
+        assert!(crab.pos.y < 65.0, "the crab did not continue falling");
+    }
+
+    #[test]
+    fn crab_grain_reservation_guides_sand_over_a_rounded_crest() {
+        let mut w = World::new();
+        w.cells.fill(Cell::Water);
+        w.set_crab(200.0, 150.0);
+        let top = 150 + w.crab_half_y + 4;
+        let center = World::index(200, top + 3).unwrap();
+        let edge = World::index(200 + w.crab_half_x + 4, top + 3).unwrap();
+        assert!(!w.can_receive_grain(center));
+        assert!(w.can_receive_grain(edge));
+    }
+
+    #[test]
+    fn falling_sand_flows_around_the_shell_and_is_conserved() {
+        let mut w = World::new();
+        w.cells.fill(Cell::Water);
+        w.flow.fill((0.0, 0.0));
+        w.set_game_crab(200.0, 150.0, 12.0, 8.0);
+        for x in 195..=205 {
+            for y in 175..=178 {
+                w.cells[World::index(x, y).unwrap()] = Cell::Sand;
+            }
+        }
+        for _ in 0..90 {
+            w.step(0.0);
+        }
+        assert_eq!(
+            w.cells.iter().filter(|&&cell| cell == Cell::Sand).count(),
+            44
+        );
+        assert!(
+            w.cells
+                .iter()
+                .enumerate()
+                .filter(|(_, cell)| **cell == Cell::Sand)
+                .all(|(i, _)| i / WIDTH < 162),
+            "sand remained as a shelf above the crab"
+        );
+        assert!(w.clear_for_crab(200.0, 150.0));
+    }
+
     #[test]
     fn one_grain_does_not_define_the_surface() {
         let mut w = World::new();
