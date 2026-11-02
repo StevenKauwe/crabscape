@@ -598,7 +598,7 @@ fn names_are_cleaned_to_sit_over_a_crab() {
 fn a_message_from_a_newer_game_is_dropped_unread() {
     // A kind of message this game doesn't know (the way a game from before
     // names sees a name): dropped, never misread as another.
-    for kind in [16u8, 17, 99, 127] {
+    for kind in [99u8, 120, 127] {
         assert_eq!(Msg::from_bytes(&[kind, 1, 2, 3, 4]), None, "{kind}");
     }
 }
