@@ -1,18 +1,21 @@
-//! Isolated chunk-native flow and pebble-move primitives.
+//! Isolated chunk-native flow, guarded sand, and pebble-move primitives.
 //!
 //! Cells are uniquely owned by 64 × 64 tiles, and each tile reads its four
 //! neighbours from the previous complete field, including across tile seams.
-//! This is not yet a terrain simulator: it does not step sediment or pebble
-//! chains, apply player forces, stream sleeping chunks, or run co-op.
+//! This is not yet a terrain simulator: its sand step rejects mud, pebbles,
+//! suspension and entrainment; it does not step pebble chains, apply player
+//! forces, stream sleeping chunks, or run co-op.
 //! It must not replace the contiguous gameplay simulation.
 
-use super::{Cell, HEIGHT, Pebble, TERRAIN_CHUNK_CELLS, WIDTH, World};
+use super::{
+    Cell, HEIGHT, Pebble, SedimentProperties, TERRAIN_CHUNK_CELLS, WIDTH, World, phase_due,
+};
 
 const SIDE: usize = TERRAIN_CHUNK_CELLS as usize;
 const COLS: usize = WIDTH.div_ceil(SIDE);
 const ROWS: usize = HEIGHT.div_ceil(SIDE);
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Chunk {
     cells: Vec<Cell>,
     flow: Vec<(f32, f32)>,
@@ -23,6 +26,7 @@ struct Chunk {
 
 /// One active reference-sized area stored as separately owned chunks.
 /// The final chunk row is padded; padded cells are never simulated or exposed.
+#[derive(Clone, PartialEq)]
 pub struct ChunkFlow {
     chunks: Vec<Chunk>,
     game: bool,
@@ -30,6 +34,13 @@ pub struct ChunkFlow {
     tick: u64,
     pebbles: Vec<Pebble>,
     crab_reserved: bool,
+    sand_properties: SedimentProperties,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SandStepError {
+    Invalid,
+    Unsupported,
 }
 
 impl ChunkFlow {
@@ -63,6 +74,7 @@ impl ChunkFlow {
             tick: world.tick,
             pebbles: world.pebbles.clone(),
             crab_reserved: world.crab.is_some(),
+            sand_properties: world.sand_properties,
         }
     }
 
@@ -84,6 +96,158 @@ impl ChunkFlow {
 
     pub fn flow(&self, x: usize, y: usize) -> Option<(f32, f32)> {
         (x < WIDTH && y < HEIGHT).then(|| self.sample(x, y).1)
+    }
+
+    fn swap_material(&mut self, a: (usize, usize), b: (usize, usize)) {
+        let (a, ai) = a;
+        let (b, bi) = b;
+        let old = (
+            self.chunks[a].cells[ai],
+            self.chunks[a].grain[ai],
+            self.chunks[a].suspended[ai],
+            self.chunks[a].owner[ai],
+        );
+        let new = (
+            self.chunks[b].cells[bi],
+            self.chunks[b].grain[bi],
+            self.chunks[b].suspended[bi],
+            self.chunks[b].owner[bi],
+        );
+        (
+            self.chunks[a].cells[ai],
+            self.chunks[a].grain[ai],
+            self.chunks[a].suspended[ai],
+            self.chunks[a].owner[ai],
+        ) = new;
+        (
+            self.chunks[b].cells[bi],
+            self.chunks[b].grain[bi],
+            self.chunks[b].suspended[bi],
+            self.chunks[b].owner[bi],
+        ) = old;
+    }
+
+    fn signed_location(x: i32, y: i32) -> Option<(usize, usize)> {
+        (x >= 0 && x < WIDTH as i32 && y >= 0 && y < HEIGHT as i32)
+            .then(|| Self::locate(x as usize, y as usize))
+    }
+
+    /// Advance an intentionally narrow sand-only slice of the material
+    /// step. The whole operation is transactional. Any condition that needs
+    /// unimplemented physics returns `Unsupported` without changing state.
+    pub fn step_sand(&mut self, current: f32) -> Result<(), SandStepError> {
+        if !current.is_finite() || self.tick == u64::MAX {
+            return Err(SandStepError::Invalid);
+        }
+        if self.crab_reserved
+            || !self.pebbles.is_empty()
+            || self.sand_properties.cohesion_ticks != 0
+            || self.chunks.iter().any(|chunk| {
+                chunk.cells.contains(&Cell::Mud)
+                    || chunk.owner.iter().any(|&id| id != 0)
+                    || chunk.suspended.iter().any(|&ticks| ticks != 0)
+            })
+        {
+            return Err(SandStepError::Unsupported);
+        }
+        let mut next = self.clone();
+        if !next.step_batched(current) {
+            return Err(SandStepError::Invalid);
+        }
+        let tick = next.tick;
+        let reverse = tick.is_multiple_of(2);
+        let mut moved: Vec<Vec<bool>> = next
+            .chunks
+            .iter()
+            .map(|_| vec![false; SIDE * SIDE])
+            .collect();
+        for y in 1..HEIGHT {
+            for n in 0..WIDTH {
+                let x = if reverse { WIDTH - 1 - n } else { n };
+                let (chunk, slot) = Self::locate(x, y);
+                if moved[chunk][slot] || next.chunks[chunk].cells[slot] != Cell::Sand {
+                    continue;
+                }
+                let world_x = x as i64
+                    + if next.game {
+                        i64::from(next.origin.0)
+                    } else {
+                        0
+                    };
+                let world_y = y as i64
+                    + if next.game {
+                        i64::from(next.origin.1)
+                    } else {
+                        0
+                    };
+                if phase_due(tick, world_x * 13 + world_y * 7, 4) {
+                    continue;
+                }
+                let dir = if phase_due(tick, world_x + world_y, 2) {
+                    1
+                } else {
+                    -1
+                };
+                let (flow, _) = next.flow(x, y + 1).unwrap_or((0.0, 0.0));
+                let density = (i32::from(next.chunks[chunk].grain[slot])
+                    + i32::from(next.sand_properties.density_bias))
+                .clamp(0, 255) as u8;
+                let threshold = next.sand_properties.erosion_threshold
+                    + f32::from(density) / 255.0 * next.sand_properties.density_resistance
+                    + if next.chunks[chunk].grain[slot] >= 248 {
+                        0.45
+                    } else {
+                        0.0
+                    };
+                if flow.abs() > threshold {
+                    // Entrainment, even when not due on this tick, remains
+                    // explicitly outside this first slice.
+                    return Err(SandStepError::Unsupported);
+                }
+                let drift = if flow > 0.2 {
+                    1
+                } else if flow < -0.2 {
+                    -1
+                } else {
+                    0
+                };
+                let choices = if drift != 0 && tick.is_multiple_of(2) {
+                    [(drift, -1), (0, -1), (-drift, -1)]
+                } else {
+                    [(0, -1), (dir, -1), (-dir, -1)]
+                };
+                let mut did_move = false;
+                for (dx, dy) in choices {
+                    let Some(to) = Self::signed_location(x as i32 + dx, y as i32 + dy) else {
+                        continue;
+                    };
+                    if next.chunks[to.0].cells[to.1] != Cell::Water {
+                        continue;
+                    }
+                    if phase_due(tick, world_x * 17 + world_y * 11, 53) {
+                        // The real step emits water disturbance and perhaps
+                        // silt here; do not silently omit either effect.
+                        return Err(SandStepError::Unsupported);
+                    }
+                    next.swap_material((chunk, slot), to);
+                    moved[to.0][to.1] = true;
+                    did_move = true;
+                    break;
+                }
+                if !did_move
+                    && drift != 0
+                    && tick.is_multiple_of(8)
+                    && next.cell(x, y + 1) == Some(Cell::Water)
+                    && let Some(to) = Self::signed_location(x as i32 + drift, y as i32)
+                    && next.chunks[to.0].cells[to.1] == Cell::Water
+                {
+                    next.swap_material((chunk, slot), to);
+                    moved[to.0][to.1] = true;
+                }
+            }
+        }
+        *self = next;
+        Ok(())
     }
 
     /// Move a single whole pebble one cell into empty water. This primitive
@@ -133,30 +297,7 @@ impl ChunkFlow {
                 let (a, ai) = Self::locate((pebble.x + ox) as usize, (pebble.y + oy) as usize);
                 let (b, bi) =
                     Self::locate((pebble.x + ox + dx) as usize, (pebble.y + oy + dy) as usize);
-                let old = (
-                    self.chunks[a].cells[ai],
-                    self.chunks[a].grain[ai],
-                    self.chunks[a].suspended[ai],
-                    self.chunks[a].owner[ai],
-                );
-                let new = (
-                    self.chunks[b].cells[bi],
-                    self.chunks[b].grain[bi],
-                    self.chunks[b].suspended[bi],
-                    self.chunks[b].owner[bi],
-                );
-                (
-                    self.chunks[a].cells[ai],
-                    self.chunks[a].grain[ai],
-                    self.chunks[a].suspended[ai],
-                    self.chunks[a].owner[ai],
-                ) = new;
-                (
-                    self.chunks[b].cells[bi],
-                    self.chunks[b].grain[bi],
-                    self.chunks[b].suspended[bi],
-                    self.chunks[b].owner[bi],
-                ) = old;
+                self.swap_material((a, ai), (b, bi));
             }
         }
         self.pebbles[id as usize - 1].x += dx;
@@ -493,6 +634,144 @@ mod tests {
         assert!(!chunked.move_unobstructed_pebble(1, 1, 0));
         compare(&reference, &chunked);
         assert_eq!(chunked.pebbles, reference.pebbles);
+    }
+
+    fn sand_fixture(origin_y: i32) -> World {
+        let mut world = World::new();
+        world.game = true;
+        world.origin = (0, origin_y);
+        world.tick = 0;
+        world.cells.fill(Cell::Water);
+        world.flow.fill((0.0, 0.0));
+        world.suspended.fill(0);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.clear_game_crab();
+        world.sand_properties.erosion_threshold = 10.0;
+        for (x, y, grain) in [(63, 150, 51), (64, 152, 149)] {
+            let i = World::index(x, y).unwrap();
+            world.cells[i] = Cell::Sand;
+            world.grain[i] = grain;
+        }
+        for (x, y) in [(63, 149), (62, 149)] {
+            world.cells[World::index(x, y).unwrap()] = Cell::Rock;
+        }
+        world
+    }
+
+    #[test]
+    fn guarded_sand_crosses_a_chunk_seam_and_matches_global_reference_order() {
+        for origin_y in [0, -200] {
+            let mut reference = sand_fixture(origin_y);
+            let vertical = World::index(132, 64).unwrap();
+            reference.cells[vertical] = Cell::Sand;
+            reference.grain[vertical] = 87;
+            let count = reference
+                .cells
+                .iter()
+                .filter(|&&cell| cell == Cell::Sand)
+                .count();
+            let mut chunked = ChunkFlow::from_world(&reference);
+            let mut replayed = chunked.clone();
+            for step in 0..6 {
+                reference.tick += 1;
+                reference.step_material(0.0);
+                assert_eq!(chunked.step_sand(0.0), Ok(()));
+                assert_eq!(replayed.step_sand(0.0), Ok(()));
+                compare(&reference, &chunked);
+                assert!(
+                    chunked == replayed,
+                    "the same chunk state and inputs replay exactly"
+                );
+                assert_eq!(
+                    reference
+                        .cells
+                        .iter()
+                        .filter(|&&cell| cell == Cell::Sand)
+                        .count(),
+                    count
+                );
+                if step == 0 {
+                    assert_eq!(
+                        chunked.cell(64, 149),
+                        Some(Cell::Sand),
+                        "a grain crossed x=63 to x=64"
+                    );
+                    assert_eq!(
+                        chunked.cell(132, 63),
+                        Some(Cell::Sand),
+                        "a grain crossed y=64 to y=63"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn guarded_sand_rejects_unimplemented_physics_without_mutation() {
+        let mut world = sand_fixture(-200);
+        world.cells[World::index(200, 200).unwrap()] = Cell::Mud;
+        let mut chunked = ChunkFlow::from_world(&world);
+        let before = chunked.clone();
+        assert_eq!(chunked.step_sand(0.0), Err(SandStepError::Unsupported));
+        assert!(chunked == before);
+
+        let mut world = sand_fixture(0);
+        world.sand_properties.erosion_threshold = -1.0;
+        let mut chunked = ChunkFlow::from_world(&world);
+        let before = chunked.clone();
+        assert_eq!(chunked.step_sand(0.0), Err(SandStepError::Unsupported));
+        assert!(
+            chunked == before,
+            "the staged flow is rolled back when entrainment is unsupported"
+        );
+        assert_eq!(chunked.step_sand(f32::NAN), Err(SandStepError::Invalid));
+        assert!(chunked == before);
+
+        let mut world = sand_fixture(0);
+        world.cells.fill(Cell::Water);
+        let (x, y) = (100..150)
+            .flat_map(|y| (100..150).map(move |x| (x, y)))
+            .find(|&(x, y)| {
+                !phase_due(1, i64::from(x) * 13 + i64::from(y) * 7, 4)
+                    && phase_due(1, i64::from(x) * 17 + i64::from(y) * 11, 53)
+            })
+            .unwrap();
+        world.cells[World::index(x, y).unwrap()] = Cell::Sand;
+        let mut chunked = ChunkFlow::from_world(&world);
+        let before = chunked.clone();
+        assert_eq!(
+            chunked.step_sand(0.0),
+            Err(SandStepError::Unsupported),
+            "a grain that would stir water cannot silently omit its wake"
+        );
+        assert!(chunked == before);
+    }
+
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn chunked_sand_profile() {
+        let initial = sand_fixture(-200);
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut reference = initial.clone();
+            reference.tick += 1;
+            reference.step_material(0.0);
+            std::hint::black_box(reference);
+        }
+        let contiguous_ms = start.elapsed().as_secs_f64() * 50.0;
+        let initial = ChunkFlow::from_world(&initial);
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut chunked = initial.clone();
+            chunked.step_sand(0.0).unwrap();
+            std::hint::black_box(chunked);
+        }
+        let chunked_ms = start.elapsed().as_secs_f64() * 50.0;
+        eprintln!(
+            "guarded sand fixture, including reset clone: contiguous {contiguous_ms:.2} ms/step, chunked {chunked_ms:.2} ms/step"
+        );
     }
 
     #[test]

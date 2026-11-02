@@ -25,9 +25,12 @@ XOR was approximately 1.10 MB, against 1.33 MB for the compressed checkpoint.
 Those sizes and the larger buffers needed for decoding make full-world updates
 unsuitable for real-time play and do not establish a safe phone-memory bound.
 
-The first isolated chunk-native primitive reproduces the existing flow
-diffusion phase exactly and moves one unobstructed whole pebble across chunk
-seams without splitting it. It does not yet step sediment, pebble chains,
+The first isolated chunk-native primitives reproduce the existing flow
+diffusion phase, move one unobstructed whole pebble across chunk seams, and
+advance a guarded sand-only slice in the same global order as the contiguous
+reference. The sand slice rejects mud, pebbles, body reservations,
+suspension, entrainment and any movement that would produce silt or a water
+disturbance. It does not run the full sediment simulation, pebble chains,
 forces, inactive chunks or a shared game. In a 20-step release desktop test
 over one full 640 × 360 region, contiguous diffusion averaged 8.54 ms/step
 and the first chunked implementation 12.42 ms/step, about 45% slower. Its
@@ -129,3 +132,14 @@ networked game and does not yet capture every source of terrain change.
    host migration, then test with real phone browsers. Enable gameplay only
    after terrain, player movement and entity authority agree and performance
    is acceptable on the target devices.
+
+The guarded sand slice matched the contiguous reference for six steps on
+synthetic three-grain fixtures crossing both seam directions, including a
+negative world-Y origin; material was conserved and replay was deterministic.
+On a separate synthetic two-grain fixture, two release desktop runs of one
+step repeated 20 times, including reset clones, measured 11.71/11.50 ms per
+contiguous step and 10.06/9.78 ms per guarded chunked step. One test-process
+peak was 28.0 MB, including both versions. This is a sparse restricted case,
+not representative full-world or phone performance. The guarded step clones
+the complete chunk field before advancing so it can roll back, then allocates
+flow and moved-cell scratch; it is not an incremental or phone-memory design.
