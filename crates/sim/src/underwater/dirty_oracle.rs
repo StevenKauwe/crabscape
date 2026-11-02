@@ -396,6 +396,112 @@ mod tests {
     }
 
     #[test]
+    fn off_material_upward_step_marks_match_oracle() {
+        use crate::underwater::{HostDig, HostPlayerForce};
+        let level = crate::Level::test_level();
+        let tuning = crate::Tuning::default();
+        let force = |player, x| HostPlayerForce {
+            player: crate::PlayerId(player),
+            x,
+            y: 0.0,
+            half_width: 12.0,
+            half_height: 8.0,
+            wake_x: 0.0,
+            wake_y: 0.0,
+            walking: 0,
+            grounded: false,
+            jumped: false,
+            dig: Some(HostDig {
+                dx: 0,
+                dy: 1,
+                force: 48,
+            }),
+        };
+        let (host, guest) = (force(0, 400.0), force(1, 700.0));
+        let mut world = World::from_level_settled(&level);
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.follow_player(&level, host.x, host.y - host.half_height);
+        for p in [&host, &guest] {
+            let (x, y) = world.local_cell(p.x, p.y);
+            assert!(world.test_place_loose_sand(x as i32, y as i32 + 5));
+        }
+        let before = world.clone();
+        let touched =
+            trace_world(|| assert!(world.step_up_pair(&level, &tuning, &host, &guest, false)));
+        let changed = dirty(&before, &world).unwrap();
+        assert!(
+            before.cells != world.cells,
+            "fixture must actually scoop sediment"
+        );
+        assert!(
+            changed.active.is_subset(&touched.active),
+            "missing {:?}",
+            changed.active.difference(&touched.active)
+        );
+        assert!(changed.sleeping.is_subset(&touched.sleeping));
+        assert!(!changed.global || touched.global);
+        eprintln!(
+            "off-material upward scoop: {} touched / {} changed of {} tiles",
+            touched.active.len(),
+            changed.active.len(),
+            WIDTH.div_ceil(TERRAIN_CHUNK_CELLS as usize)
+                * HEIGHT.div_ceil(TERRAIN_CHUNK_CELLS as usize)
+        );
+    }
+
+    #[test]
+    fn off_material_upward_pebble_scoop_marks_match_oracle() {
+        use crate::underwater::{HostDig, HostPlayerForce};
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        let force = |player, x, dig| HostPlayerForce {
+            player: crate::PlayerId(player),
+            x,
+            y: 0.0,
+            half_width: 12.0,
+            half_height: 8.0,
+            wake_x: 0.0,
+            wake_y: 0.0,
+            walking: 0,
+            grounded: false,
+            jumped: false,
+            dig,
+        };
+        let host = force(
+            0,
+            400.0,
+            Some(HostDig {
+                dx: 0,
+                dy: 1,
+                force: 48,
+            }),
+        );
+        let guest = force(1, 700.0, None);
+        world.follow_player(&level, host.x, host.y - host.half_height);
+        let (x, y) = world.local_cell(host.x, host.y);
+        assert!(world.add_pebble(x as i32, y as i32 + 5, 2, 200));
+        let before = world.clone();
+        let touched = trace_world(|| {
+            assert!(world.step_up_pair(&level, &crate::Tuning::default(), &host, &guest, false))
+        });
+        let changed = dirty(&before, &world).unwrap();
+        assert!(
+            before.pebbles != world.pebbles,
+            "fixture must move an aggregate"
+        );
+        assert!(changed.active.is_subset(&touched.active));
+        assert!(changed.sleeping.is_subset(&touched.sleeping));
+        assert!(changed.global && touched.global);
+    }
+
+    #[test]
     fn version_overflow_does_not_partially_commit() {
         let mut versions = Versions::default();
         versions.active.insert((1, 0), u64::MAX);

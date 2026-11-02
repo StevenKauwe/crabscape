@@ -2708,6 +2708,8 @@ impl World {
         {
             return false;
         }
+        #[cfg(test)]
+        dirty_oracle::mark_global();
         let mut next = self.clone();
         next.follow_player(level, host.x, host.y - host.half_height);
         if !next.contains_world(host.x, host.y) {
