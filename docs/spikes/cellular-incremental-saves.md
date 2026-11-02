@@ -111,3 +111,37 @@ Production still requires a Rust/Wasm IndexedDB implementation, automatic
 crash and stale-pin recovery, safe bounded collection, quota handling, real
 player/progress capture, lazy world loading, legacy migration, and WebKit/iPhone
 validation. Do not relax existing live v1/v2 protections based on these models.
+
+## Rust/Wasm IndexedDB primitive
+
+The standalone Rust proof crate now includes an unwired IndexedDB primitive
+under `indexeddb`, gated to Wasm and restricted to names beginning with
+`crabscape.chunk-proof.`. It uses a separate database, a single writer, bounded
+binary metadata (512 parts, 4 KiB player data), batches of at most four parts
+and 128 KiB per part. A single read/write transaction commits each batch and
+its stage together; publication swaps the head only after the expected count
+is present. A persistent epoch and monotonic stage ID fence reset and explicit
+abandon across connections. Individual part reads check SHA-256 and reject a
+stale head. Abandon leaves orphaned part records for later collection.
+
+To run the isolated Chrome proof, install the `wasm32-unknown-unknown` target,
+`wasm-bindgen` CLI and Chrome, then run:
+
+```sh
+cargo run --manifest-path tools/cellstore-proof/Cargo.toml --features browser-runner --bin browser-proof
+```
+
+Set `CHROME_BIN` when Chrome is not at the default path. The Rust runner builds
+the Wasm proof, serves it on loopback and uses a temporary browser profile;
+its minimal generated browser bootstrap invokes the Rust test. The test covers
+publication abort, previous-head preservation, explicit abandonment, corrupted
+part detection and reset against a second database connection. Native record
+and model tests also run with `cargo test --manifest-path
+tools/cellstore-proof/Cargo.toml`.
+
+This remains a transaction experiment. It does not verify a manifest-wide
+digest, pin a snapshot across page reads, automatically discover abandoned
+writers, collect orphaned chunks, bound JavaScript's structured-clone memory,
+handle quota recovery, migrate the old record, integrate the game, or establish
+mobile/WebKit safety. Reset deliberately clears only the separate experimental
+database. Do not substitute it for the live save path.

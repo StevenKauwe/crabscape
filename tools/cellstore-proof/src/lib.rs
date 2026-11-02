@@ -381,3 +381,7 @@ mod tests {
         assert_eq!(store.publish(old, 1), Err(Error::Stale));
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+pub mod indexeddb;
+pub mod records;
