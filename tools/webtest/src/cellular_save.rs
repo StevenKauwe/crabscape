@@ -227,20 +227,45 @@ impl Test<'_> {
             return Ok(());
         }
         let at = self.crab()?;
-        self.check(
-            self.cellular_record()?.is_none()
-                && at.is_some_and(|(x, y, _)| (x - 160.0).abs() < 3.0 && y.abs() < 3.0),
-            "reset removes the previous checkpoint and returns the crab to spawn",
-        );
+        // Fresh status proves startup read no old record. If another five
+        // seconds elapsed on slow WebKit, a valid fresh autosave is allowed,
+        // but it must not contain the previous world's rock marker.
+        let record = self.cellular_record()?;
+        let (old_removed, record_description) = match record {
+            None => (true, "absent".to_string()),
+            Some(bytes) => {
+                let fresh = decode(&bytes)?;
+                let marker = fresh.terrain.game_rock_at(MARKER.0, MARKER.1);
+                (
+                    !marker,
+                    format!(
+                        "new save tick {}, player ({}, {}), old marker {marker}",
+                        fresh.tick, fresh.player["x"], fresh.player["y"]
+                    ),
+                )
+            }
+        };
+        self.check(old_removed, format!("reset removes the previous terrain checkpoint (record {record_description}; live crab {at:?})"));
         self.check(
             self.eval("localStorage.getItem('crabscape.save')")? == normal
                 && self.eval("localStorage.getItem('crabscape-style')")? == "ink",
             "cellular reset preserves the normal save and style",
         );
         let fresh = self.cellular_replay()?;
+        let mut expected = Sim::new(crabsim::Tuning::default(), Level::test_level());
+        expected.enable_underwater_cells();
+        if let Some((_, feel)) = fresh.feels.iter().find(|(tick, _)| *tick == 0) {
+            expected.set_feel(*feel);
+        }
+        expected.add_crab(crabsim::PlayerId(0), crabsim::SPAWN);
+        let expected_start = expected
+            .crab(crabsim::PlayerId(0))
+            .ok_or("missing expected fresh crab")?
+            .mover
+            .pos;
         self.check(
-            fresh.cellular && !fresh.has_cell_start(),
-            "reset records a fresh cellular world instead of reusing saved terrain",
+            fresh.cellular && !fresh.has_cell_start() && fresh.start == expected_start,
+            format!("reset records a fresh cellular world at its actual spawn surface (recorded {:?}, expected {expected_start:?}, live {at:?})", fresh.start),
         );
         self.no_error_on_page("after cellular autosave, reload and reset")?;
         Ok(())
