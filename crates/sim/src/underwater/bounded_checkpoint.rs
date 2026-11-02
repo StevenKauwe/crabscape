@@ -40,14 +40,28 @@ pub fn encode_browser_checkpoint(world: &World) -> Option<Vec<u8>> {
     if world.dimensions() != (WIDTH, HEIGHT) {
         return None;
     }
-    encode_sized_checkpoint(world, MAX_RAW, MAX_REGION_SILT)
+    encode_sized_checkpoint(world, MAX_RAW, MAX_REGION_SILT, &world.sleeping)
+}
+
+/// The frozen initial join view excludes sleeping terrain. The owner keeps
+/// that archive and grants scoped regional kernels before gameplay begins.
+pub fn encode_active_checkpoint(world: &World) -> Option<Vec<u8>> {
+    if world.dimensions() != (WIDTH, HEIGHT) {
+        return None;
+    }
+    encode_sized_checkpoint(world, MAX_RAW, MAX_REGION_SILT, &BTreeMap::new())
 }
 
 pub(super) fn encode_region_checkpoint(world: &World) -> Option<Vec<u8>> {
-    encode_sized_checkpoint(world, 24 * 1024 * 1024, MAX_REGION_SILT)
+    encode_sized_checkpoint(world, 24 * 1024 * 1024, MAX_REGION_SILT, &world.sleeping)
 }
 
-fn encode_sized_checkpoint(world: &World, raw_limit: usize, silt_limit: usize) -> Option<Vec<u8>> {
+fn encode_sized_checkpoint(
+    world: &World,
+    raw_limit: usize,
+    silt_limit: usize,
+    sleeping: &BTreeMap<(i32, i32), SleepingChunk>,
+) -> Option<Vec<u8>> {
     let (width, height) = world.dimensions();
     if !valid_region_size(width, height) {
         return None;
@@ -63,9 +77,8 @@ fn encode_sized_checkpoint(world: &World, raw_limit: usize, silt_limit: usize) -
         || world.tracers.len() > 4096
         || world.silt.len() > silt_limit
         || world.bubbles.len() > 4096
-        || world.sleeping.len() > MAX_SLEEPING
-        || world
-            .sleeping
+        || sleeping.len() > MAX_SLEEPING
+        || sleeping
             .values()
             .any(|chunk| chunk.cells.len() != CHUNK_CELLS)
         || world.pebble_seeded.len() > MAX_SEEDED
@@ -76,7 +89,7 @@ fn encode_sized_checkpoint(world: &World, raw_limit: usize, silt_limit: usize) -
         version: 1,
         world,
         origin: world.origin,
-        sleeping: &world.sleeping,
+        sleeping,
         opening_edge_opened: world.opening_edge_opened,
         pebble_seeded: &world.pebble_seeded,
     };

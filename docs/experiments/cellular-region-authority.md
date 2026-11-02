@@ -16,6 +16,8 @@ Use the complete gameplay kernel, with explicit variable-size active regions. Do
 
 Region grants are exclusive and carry a new epoch. Active kernels contain only assigned terrain, without copies of the owner's growing sleeping archive. The canonical terrain store maps each kernel's compact pebble IDs into the world's aggregate identities. Commits update only owned cells. Old epochs cannot overwrite newer ownership. Overlapping interests must merge at an agreed tick before both can modify the same area; split/merge uses hysteresis and material padding, not camera visibility.
 
+The frozen initial join offer also sends only the active terrain window. The owner retains its complete sleeping archive, then issues the normal scoped regional grant before gameplay starts. A growing saved world must not be serialized into the initial offer. The 400-chunk browser regression proves large-world save/load, invitation, exact shared state, guest departure and preservation of a distant terrain page.
+
 NPC state and random streams survive extraction, restoration and reunion. Each area's local actors, pickups, combat and creatures step together. Shared-resource commits are scoped to owned objects. Player Home and other distant transitions require coordinated reassignment rather than stepping outside the kernel.
 
 ## Delegation and recovery

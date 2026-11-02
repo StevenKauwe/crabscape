@@ -385,7 +385,7 @@ fn receive(
             crab.mover.pizza = profile.pizza;
         }
         sim.stop_recording();
-        let snapshot = match sim.session_checkpoint() {
+        let snapshot = match sim.join_checkpoint() {
             Ok(v) => v,
             Err(_) => {
                 *sim = previous;

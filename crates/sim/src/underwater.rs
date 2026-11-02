@@ -11,7 +11,9 @@ pub mod opening_cleanup;
 pub mod region;
 pub mod region_store;
 pub mod versioned_chunks;
-pub use bounded_checkpoint::{decode_browser_checkpoint, encode_browser_checkpoint};
+pub use bounded_checkpoint::{
+    decode_browser_checkpoint, encode_active_checkpoint, encode_browser_checkpoint,
+};
 mod host_windows;
 pub use host_windows::{HostDig, HostPlayerForce, HostStepError};
 

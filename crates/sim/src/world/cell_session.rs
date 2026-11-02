@@ -16,6 +16,12 @@ pub enum CheckpointError {
     Invalid,
 }
 
+enum TerrainScope {
+    World,
+    Region,
+    ActiveWindow,
+}
+
 #[derive(Serialize, Deserialize)]
 struct State {
     feel: String,
@@ -137,16 +143,27 @@ impl Sim {
 
     /// Capture at a tick boundary. Saves, recorder and transport ownership are excluded.
     pub fn session_checkpoint(&self) -> Result<Vec<u8>, CheckpointError> {
-        self.checkpoint_impl(self.level.cells.as_ref().is_some_and(|w| {
+        let region = self.level.cells.as_ref().is_some_and(|w| {
             w.dimensions() != (crate::underwater::WIDTH, crate::underwater::HEIGHT)
-        }))
+        });
+        self.checkpoint_impl(if region {
+            TerrainScope::Region
+        } else {
+            TerrainScope::World
+        })
     }
 
     pub fn region_checkpoint(&self) -> Result<Vec<u8>, CheckpointError> {
-        self.checkpoint_impl(true)
+        self.checkpoint_impl(TerrainScope::Region)
     }
 
-    fn checkpoint_impl(&self, region: bool) -> Result<Vec<u8>, CheckpointError> {
+    /// A frozen invitation view. Sleeping terrain remains exclusively in the
+    /// owner's canonical archive; the regional grant follows this handshake.
+    pub fn join_checkpoint(&self) -> Result<Vec<u8>, CheckpointError> {
+        self.checkpoint_impl(TerrainScope::ActiveWindow)
+    }
+
+    fn checkpoint_impl(&self, scope: TerrainScope) -> Result<Vec<u8>, CheckpointError> {
         if self.net.is_some() || self.empty_shared_base.is_some() {
             return Err(CheckpointError::Unsupported);
         }
@@ -155,12 +172,15 @@ impl Sim {
             .cells
             .as_ref()
             .ok_or(CheckpointError::Unsupported)?;
-        let terrain = if region {
-            cells
+        let region = matches!(scope, TerrainScope::Region);
+        let terrain = match scope {
+            TerrainScope::Region => cells
                 .region_bytes()
-                .map_err(|_| CheckpointError::TooLarge)?
-        } else {
-            crate::underwater::encode_browser_checkpoint(cells).ok_or(CheckpointError::TooLarge)?
+                .map_err(|_| CheckpointError::TooLarge)?,
+            TerrainScope::World => crate::underwater::encode_browser_checkpoint(cells)
+                .ok_or(CheckpointError::TooLarge)?,
+            TerrainScope::ActiveWindow => crate::underwater::encode_active_checkpoint(cells)
+                .ok_or(CheckpointError::TooLarge)?,
         };
         let state = StateRef {
             feel: self.feel.name(),
@@ -438,6 +458,54 @@ mod tests {
         progress.climb_xp = f32::NAN;
         assert!(!host.join_cell_player(PlayerId(99), crate::level::SPAWN, &progress));
         assert_eq!(host.session_checkpoint().unwrap(), before);
+    }
+
+    #[test]
+    fn initial_join_offers_active_view_without_discarding_explored_owner_terrain() {
+        use crate::underwater::region::CellRegion;
+        use crate::underwater::region_store::{RegionId, TerrainStore};
+        let mut host = session();
+        let world = host.level.cells.as_mut().unwrap();
+        for (x, y) in [
+            (4400.0, -700.0),
+            (8000.0, -1400.0),
+            (4000.0, -3000.0),
+            (8000.0, -5000.0),
+            (3000.0, -7000.0),
+            (8000.0, -9000.0),
+        ] {
+            assert!(world.follow_player(&Level::test_level(), x, y));
+            world.step(0.35);
+        }
+        world.follow_player(
+            &Level::test_level(),
+            crate::level::SPAWN.x,
+            crate::level::SPAWN.y,
+        );
+        let before = world.checkpoint();
+        assert!(
+            matches!(host.session_checkpoint(), Err(CheckpointError::TooLarge)),
+            "old whole-world handshake must reproduce the capacity rejection"
+        );
+        let offered = host.join_checkpoint().unwrap();
+        let guest = Sim::from_session_checkpoint(&offered).unwrap();
+        assert_eq!(guest.crabs, host.crabs);
+        assert_eq!(guest.enemies, host.enemies);
+        assert_eq!(guest.rng, host.rng);
+        assert_eq!(guest.join_checkpoint().unwrap(), offered);
+        assert_eq!(host.level.cells.as_ref().unwrap().checkpoint(), before);
+        let bounds = CellRegion::around_points(
+            &host.crabs.iter().map(|c| c.mover.pos).collect::<Vec<_>>(),
+            160,
+        )
+        .unwrap();
+        let mut store = TerrainStore::new(host.level.cells.take().unwrap()).unwrap();
+        store.grant(RegionId(1), bounds, &host.level).unwrap();
+        assert_eq!(
+            store.terrain().checkpoint(),
+            before,
+            "regional grant keeps all distant cells on owner"
+        );
     }
 
     #[test]
