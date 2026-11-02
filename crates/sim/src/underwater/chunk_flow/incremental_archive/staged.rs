@@ -2,7 +2,7 @@
 //! Initialization still performs a synchronous validation of the whole archive.
 //! Each advance visits <=1024 cells/items and clones at most one 4096-cell page;
 //! the final commit edits <=64 pages. The old World remains pinned and unchanged
-//! until commit. Opening-edge changes and `seed_far_pebbles` are not included.
+//! until commit. The first opening seam is staged; new pebble seeding is not.
 use super::{Status, Validator, World};
 use crate::{
     Level,
@@ -61,12 +61,10 @@ impl Owner {
         })
     }
 
-    // Match `follow_player` only when its opening-seam and seeding phases are
-    // already complete. Any work in those phases is explicitly unsupported.
+    // Stage the opening seam, but reject shifts requiring new pebble seeding.
     // Preview examines at most 64 aggregates with a fixed candidate range.
     fn start_follow<'a>(&'a mut self, level: &'a Level, x: f32, y: f32) -> Option<Stage<'a>> {
-        if !self.world.opening_edge_opened
-            || self.world.pebbles.len() > 64
+        if self.world.pebbles.len() > 64
             || !x.is_finite()
             || !y.is_finite()
             || x.abs() > 1_000_000.0
@@ -74,23 +72,39 @@ impl Owner {
         {
             return None;
         }
-        let target = self.world.preview_window(x, y)?;
+        let opening = !self.world.opening_edge_opened;
+        let target = match self.world.preview_window(x, y) {
+            Some(target) => target,
+            None if opening => self.world.origin,
+            None => return None,
+        };
         let side = TERRAIN_CHUNK_CELLS;
         let first_x = (target.0 + side - 1).div_euclid(side);
         let last_x = (target.0 + WIDTH as i32).div_euclid(side);
         let first_y = (target.1 + side - 1).div_euclid(side);
         let last_y = (target.1 + HEIGHT as i32).div_euclid(side);
-        for cy in first_y..last_y {
-            for cx in first_x..last_x {
-                if !self.world.pebble_seeded.contains(&(cx, cy)) {
-                    return None;
+        if target != self.world.origin {
+            for cy in first_y..last_y {
+                for cx in first_x..last_x {
+                    if !self.world.pebble_seeded.contains(&(cx, cy)) {
+                        return None;
+                    }
                 }
             }
         }
-        self.start(level, target)
+        self.start_impl(level, target, opening)
     }
 
     fn start<'a>(&'a mut self, level: &'a Level, target: (i32, i32)) -> Option<Stage<'a>> {
+        self.start_impl(level, target, false)
+    }
+
+    fn start_impl<'a>(
+        &'a mut self,
+        level: &'a Level,
+        target: (i32, i32),
+        opening: bool,
+    ) -> Option<Stage<'a>> {
         let old = self.world.origin;
         let dx = target.0.checked_sub(old.0)?;
         let dy = target.1.checked_sub(old.1)?;
@@ -101,7 +115,8 @@ impl Owner {
             || level.rocks.len() > 256
             || target.0.unsigned_abs() > 1_000_000
             || target.1.unsigned_abs() > 1_000_000
-            || (dx == 0) == (dy == 0)
+            || (dx == 0 && dy == 0 && !opening)
+            || (dx != 0 && dy != 0)
             || dx.unsigned_abs() > 192
             || dy.unsigned_abs() > 192
         {
@@ -119,6 +134,7 @@ impl Owner {
             target,
             dx,
             dy,
+            opening,
             phase: 0,
             index: 0,
             pages: BTreeMap::new(),
@@ -142,6 +158,7 @@ struct Stage<'a> {
     target: (i32, i32),
     dx: i32,
     dy: i32,
+    opening: bool,
     phase: u8,
     index: usize,
     pages: BTreeMap<(i32, i32), SleepingChunk>,
@@ -193,6 +210,24 @@ impl Stage<'_> {
         *cloned = true;
         true
     }
+    // `follow_player` opens the old local bottom row using absolute cell
+    // coordinates (column, 0), leaving pebble-owned cells untouched.
+    fn source_cell(&self, i: usize) -> SleepingCell {
+        let w = &self.owner.world;
+        let cell = if self.opening && i < WIDTH && w.pebble_owner[i] == 0 {
+            underwater::initial_terrain_cell(self.level, i as i32, 0)
+        } else {
+            w.cells[i]
+        };
+        SleepingCell {
+            cell,
+            flow: w.flow[i],
+            suspended: w.suspended[i],
+            grain: w.grain[i],
+            owner: w.pebble_owner[i],
+        }
+    }
+
     // Call with any budget: at most ITEMS visits and one page copy per call.
     // False means either pending or rejected; check `failed` for rejection.
     fn advance(&mut self, budget: usize) -> bool {
@@ -218,15 +253,8 @@ impl Stage<'_> {
                         if !self.page(key, &mut cloned) {
                             break;
                         }
-                        let w = &self.owner.world;
-                        let i = self.index;
-                        self.pages.get_mut(&key).unwrap().cells[slot] = Some(SleepingCell {
-                            cell: w.cells[i],
-                            flow: w.flow[i],
-                            suspended: w.suspended[i],
-                            grain: w.grain[i],
-                            owner: w.pebble_owner[i],
-                        });
+                        let value = self.source_cell(self.index);
+                        self.pages.get_mut(&key).unwrap().cells[slot] = Some(value);
                     }
                     self.index += 1;
                 }
@@ -242,14 +270,7 @@ impl Stage<'_> {
                     let (gx, gy) = (self.target.0 + x, self.target.1 + y);
                     let value = if Self::inside(gx, gy, old) {
                         let j = (gy - old.1) as usize * WIDTH + (gx - old.0) as usize;
-                        let w = &self.owner.world;
-                        SleepingCell {
-                            cell: w.cells[j],
-                            flow: w.flow[j],
-                            suspended: w.suspended[j],
-                            grain: w.grain[j],
-                            owner: w.pebble_owner[j],
-                        }
+                        self.source_cell(j)
                     } else {
                         let (key, slot) = Self::locate(gx, gy);
                         if !self.page(key, &mut cloned) {
@@ -326,7 +347,11 @@ impl Stage<'_> {
                         continue;
                     }
                     let (x, y) = self.owner.world.tracers[self.index];
-                    self.tracers.push((x - self.dx as f32, y - self.dy as f32));
+                    self.tracers.push(if self.dx == 0 && self.dy == 0 {
+                        (x, y)
+                    } else {
+                        (x - self.dx as f32, y - self.dy as f32)
+                    });
                     self.index += 1;
                 }
                 4 => {
@@ -336,8 +361,10 @@ impl Stage<'_> {
                         continue;
                     }
                     let mut p = self.owner.world.silt[self.index].clone();
-                    p.x -= self.dx as f32;
-                    p.y -= self.dy as f32;
+                    if self.dx != 0 || self.dy != 0 {
+                        p.x -= self.dx as f32;
+                        p.y -= self.dy as f32;
+                    }
                     self.silt.push(p);
                     self.index += 1;
                 }
@@ -347,8 +374,10 @@ impl Stage<'_> {
                         break;
                     }
                     let mut p = self.owner.world.bubbles[self.index].clone();
-                    p.x -= self.dx as f32;
-                    p.y -= self.dy as f32;
+                    if self.dx != 0 || self.dy != 0 {
+                        p.x -= self.dx as f32;
+                        p.y -= self.dy as f32;
+                    }
                     self.bubbles.push(p);
                     self.index += 1;
                 }
@@ -356,6 +385,11 @@ impl Stage<'_> {
             }
         }
         self.phase == 6 && !self.failed
+    }
+    // `commit` reports transaction success; this separately reports whether
+    // follow_player would return true (opening the seam alone returns false).
+    fn moved(&self) -> bool {
+        self.dx != 0 || self.dy != 0
     }
     fn commit(self) -> bool {
         if self.failed || self.phase != 6 {
@@ -379,7 +413,12 @@ impl Stage<'_> {
         world.silt = self.silt;
         world.bubbles = self.bubbles;
         world.origin = self.target;
-        world.crab = None;
+        if self.dx != 0 || self.dy != 0 {
+            world.crab = None;
+        }
+        if self.opening {
+            world.opening_edge_opened = true;
+        }
         self.owner.generation += 1;
         true
     }
@@ -508,6 +547,84 @@ mod tests {
         complete(&mut stage);
         assert!(stage.commit());
         assert_eq!(owner.world, expected);
+    }
+
+    #[test]
+    fn opening_seam_matches_follow_with_and_without_shift_and_can_cancel() {
+        let level = Level::test_level();
+        for origin in [(0, 0), (64, 64)] {
+            for moving in [false, true] {
+                let mut world = fixture();
+                world.origin = origin;
+                assert!(world.test_add_pebble(20, 0, 2));
+                world.set_game_crab(200.0, 200.0, 3.0, 3.0);
+                let x = (origin.0 as f32 + 200.0) * GAME_CELL;
+                let y = GAME_BOTTOM
+                    + (origin.1 as f32 + if moving { 285.0 } else { 215.0 }) * GAME_CELL;
+                if moving {
+                    let target = (origin.0, origin.1 + 64);
+                    let side = TERRAIN_CHUNK_CELLS;
+                    for cy in (target.1 + side - 1).div_euclid(side)
+                        ..(target.1 + HEIGHT as i32).div_euclid(side)
+                    {
+                        for cx in (target.0 + side - 1).div_euclid(side)
+                            ..(target.0 + WIDTH as i32).div_euclid(side)
+                        {
+                            world.pebble_seeded.insert((cx, cy));
+                        }
+                    }
+                }
+                let mut expected = world.clone();
+                assert_eq!(expected.follow_player(&level, x, y), moving);
+                let mut owner = Owner::new(world.clone()).unwrap();
+                {
+                    let mut stage = owner.start_follow(&level, x, y).unwrap();
+                    assert!(!stage.advance(200));
+                }
+                assert_eq!(owner.world, world);
+                assert_eq!(owner.generation, 0);
+                let mut stage = owner.start_follow(&level, x, y).unwrap();
+                assert_eq!(stage.moved(), moving);
+                complete(&mut stage);
+                assert!(stage.commit());
+                assert_eq!(owner.world, expected, "origin {origin:?}, moving {moving}");
+                assert_eq!(owner.generation, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn seam_only_preserves_particle_float_bits() {
+        let level = Level::test_level();
+        let mut world = fixture();
+        let special = f32::from_bits(0x7f80_0001);
+        world.tracers = vec![(special, -0.0)];
+        world.silt = vec![Silt {
+            x: special,
+            y: -0.0,
+            vx: 0.0,
+            vy: 0.0,
+            life: 2,
+        }];
+        world.bubbles = vec![Bubble {
+            x: special,
+            y: -0.0,
+            life: 2,
+            rest: 0,
+        }];
+        let x = 800.0;
+        let y = GAME_BOTTOM + 215.0 * GAME_CELL;
+        let mut expected = world.clone();
+        assert!(!expected.follow_player(&level, x, y));
+        let mut owner = Owner::new(world).unwrap();
+        let mut stage = owner.start_follow(&level, x, y).unwrap();
+        assert!(!stage.moved());
+        complete(&mut stage);
+        assert!(stage.commit());
+        assert_eq!(
+            postcard::to_allocvec(&owner.world.checkpoint()).unwrap(),
+            postcard::to_allocvec(&expected.checkpoint()).unwrap()
+        );
     }
 
     #[test]
