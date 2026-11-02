@@ -14,6 +14,7 @@ use crate::save::{SAVE_VERSION, SaveData};
 pub mod browser;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
+pub mod v2;
 
 const MAGIC: &[u8; 8] = b"CRABCEL1";
 const HEADER: usize = 8 + 8 + 4 + 4 + 4;
@@ -35,6 +36,8 @@ pub struct Restored {
     pub player: SaveData,
     pub terrain: World,
     pub sim_tick: u64,
+    /// Only v2 records carry separately compressed, already verified terrain.
+    pub verified: Option<crabsim::VerifiedCellStart>,
 }
 
 /// Pack a single point-in-time save. The backend must never replace an older
@@ -111,6 +114,9 @@ pub fn prepare(
 /// Decode a bounded, complete save. This verifies accidental damage; it is not
 /// an authentication mechanism and must not be used for untrusted peers.
 pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
+    if bytes.starts_with(v2::MAGIC) {
+        return v2::decode(bytes);
+    }
     if bytes.len() < HEADER {
         return Err(Error::Damaged);
     }
@@ -154,6 +160,7 @@ pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
         player,
         terrain,
         sim_tick,
+        verified: None,
     })
 }
 
