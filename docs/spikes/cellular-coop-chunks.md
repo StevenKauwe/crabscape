@@ -221,3 +221,24 @@ mixed mud, multiple force budgets, subsequent material steps, replay, and a
 late unsupported loose-scoop failure after a pebble moved in the staged
 state. The staged failure discards that movement. Incomplete/offscreen
 aggregates, alternate scoop fallback and multiple bodies remain unsupported.
+
+An executable two-Sim integration regression now joins a guest to a host
+checkpoint, creates distinct local and remote crabs, applies opposing real
+controls, advances both `Sim::tick` loops and delivers ordinary co-op
+messages with `FakeLink`. Their actual terrain fields diverge after eight
+ticks. This is an intentionally negative test and does not show playable
+co-op: each game loop independently follows its local crab and modifies
+terrain. The existing checkpoint/ordered-frame test advances terrain directly
+and never exercises these game loops.
+
+A genuine end-to-end test needs an explicit game-loop integration boundary:
+collect each player's actual movement/terrain commands at the right fixed
+tick; host-order and step all active regions exactly once; transmit ordered
+authoritative state or commands with gap/resync handling; and make guests
+consume that result instead of stepping a second independent local world.
+Remote crab movement/collision reconciliation, enemy and environmental forces,
+overlapping reservations, sleeping-region boundaries and streamed aggregate
+ownership must also be addressed. The current host-window solid-body model
+and whole-field clones are not substitutes for exact behavior and phone-ready
+performance. Until those constraints are met the game must keep cellular
+co-op disabled.

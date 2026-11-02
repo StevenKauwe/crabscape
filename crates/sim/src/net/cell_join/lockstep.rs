@@ -336,6 +336,47 @@ mod tests {
     }
 
     #[test]
+    fn live_two_player_ticks_still_diverge_after_cellular_join() {
+        // This is an executable integration blocker, not a co-op parity
+        // test: both game loops currently simulate their own terrain.
+        let (mut host, mut guest, _visit, _stream, _) = joined();
+        guest.crab_mut(PlayerId(0)).unwrap().id = PlayerId(1);
+        host.add_remote_crab(PlayerId(1), Vec2::new(800.0, 0.0));
+        guest.add_remote_crab(PlayerId(0), Vec2::new(400.0, 0.0));
+        let mut link = crate::net::FakeLink::steady(0);
+        host.set_controls(
+            PlayerId(0),
+            crate::Controls {
+                walk: 1.0,
+                ..Default::default()
+            },
+        );
+        guest.set_controls(
+            PlayerId(1),
+            crate::Controls {
+                walk: -1.0,
+                ..Default::default()
+            },
+        );
+        for _ in 0..8 {
+            host.tick();
+            guest.tick();
+            link.carry(&mut [&mut host, &mut guest]);
+        }
+        assert!(host.crab(PlayerId(1)).unwrap().remote);
+        assert!(guest.crab(PlayerId(0)).unwrap().remote);
+        let host_terrain = host.level.cells.as_ref().unwrap();
+        let guest_terrain = guest.level.cells.as_ref().unwrap();
+        assert!(
+            (0..360).any(
+                |y| (0..640).any(|x| host_terrain.cell(x, y) != guest_terrain.cell(x, y)
+                    || host_terrain.flow_at(x, y) != guest_terrain.flow_at(x, y))
+            ),
+            "the real per-device game loops independently altered terrain despite a shared checkpoint"
+        );
+    }
+
+    #[test]
     fn joined_guest_tracks_sparse_ordered_host_forces_and_keeps_own_world() {
         let (mut host, mut guest, mut visit, mut stream, own) = joined();
         assert!(Guest::from_join(&GuestJoin::new(peer(7))).is_none());
