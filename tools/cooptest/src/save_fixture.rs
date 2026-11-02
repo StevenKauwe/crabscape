@@ -81,7 +81,7 @@ pub fn verify_full_memory(player: &crabsim::SaveData) -> Result<()> {
 }
 
 pub fn object_from_frame(bytes: &[u8]) -> Result<Value> {
-    if bytes.len() < 28 || &bytes[..8] != b"CRABPG01" {
+    if bytes.len() < 28 || &bytes[..8] != b"CRABPG02" {
         return Err("invalid frame".into());
     }
     let n = |at: usize| {
@@ -109,12 +109,12 @@ pub fn object_from_frame(bytes: &[u8]) -> Result<Value> {
         return Err("trailing frame".into());
     }
     Ok(
-        json!({"format":"CRABPG01", "tick":STANDARD.encode(&bytes[8..16]), "player":player, "index":index, "pages":pages}),
+        json!({"format":"CRABPG02", "tick":STANDARD.encode(&bytes[8..16]), "player":player, "index":index, "pages":pages}),
     )
 }
 
 pub fn frame_from_object(value: &Value) -> Result<Vec<u8>> {
-    if value["format"] != "CRABPG01" {
+    if value["format"] != "CRABPG02" {
         return Err("invalid object format".into());
     }
     let get = |key: &str| -> Result<Vec<u8>> {

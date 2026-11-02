@@ -614,7 +614,10 @@ fn pause_region(p: &mut Player, paused: bool) -> Result<()> {
 /// Reproduce the real browser's current region, including its NPC random streams.
 fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
     for _ in 0..4 {
-        let revision_before = p.b.attr("data-cell-region-revision");
+        let revision_before = (
+            p.b.attr("data-cell-region-revision"),
+            p.b.attr("data-cell-state-revision"),
+        );
         p.b.eval("(() => {const c=document.getElementById('crabscape'); c.removeAttribute('data-replay'); c.removeAttribute('data-cell-session-hash'); c.setAttribute('data-want-replay','1'); c.setAttribute('data-want-cell-hash','1');})()")?;
         p.until(20.0, "regional replay export", |p| {
             p.b.attr("data-replay").is_some() && p.b.attr("data-cell-session-hash").is_some()
@@ -662,7 +665,10 @@ fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
         if browser.split(':').next() != hash.split(':').next() {
             continue;
         }
-        let revision_after = p.b.attr("data-cell-region-revision");
+        let revision_after = (
+            p.b.attr("data-cell-region-revision"),
+            p.b.attr("data-cell-state-revision"),
+        );
         if browser != hash && revision_before != revision_after {
             continue;
         }

@@ -99,7 +99,7 @@ fn decode(bytes: &[u8]) -> Result<Saved> {
 
 /// Translate the native test framing into the real IndexedDB object shape.
 fn object_from_frame(bytes: &[u8]) -> Result<Value> {
-    if bytes.len() < 28 || &bytes[..8] != b"CRABPG01" {
+    if bytes.len() < 28 || &bytes[..8] != b"CRABPG02" {
         return Err("invalid frame".into());
     }
     let n = |at: usize| {
@@ -127,12 +127,12 @@ fn object_from_frame(bytes: &[u8]) -> Result<Value> {
         return Err("trailing frame".into());
     }
     Ok(
-        json!({"format":"CRABPG01", "tick":STANDARD.encode(&bytes[8..16]), "player":player, "index":index, "pages":pages}),
+        json!({"format":"CRABPG02", "tick":STANDARD.encode(&bytes[8..16]), "player":player, "index":index, "pages":pages}),
     )
 }
 
 fn frame_from_object(value: &Value) -> Result<Vec<u8>> {
-    if value["format"] != "CRABPG01" {
+    if value["format"] != "CRABPG02" {
         return Err("invalid object format".into());
     }
     let get = |key: &str| -> Result<Vec<u8>> {
@@ -224,7 +224,7 @@ const READ_PLAYER: &str = r#"await new Promise((resolve, reject) => {
     tx.onabort = () => { db.close(); reject(String(tx.error)); };
     tx.oncomplete = () => {
       db.close(); const value = request.result;
-      if (!value || value.format !== "CRABPG01") { resolve(null); return; }
+      if (!value || value.format !== "CRABPG02") { resolve(null); return; }
       resolve({ tick: Number(new DataView(value.tick.buffer, value.tick.byteOffset, 8).getBigUint64(0, true)),
         player: JSON.parse(new TextDecoder().decode(value.player)) });
     };

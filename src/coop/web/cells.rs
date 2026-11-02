@@ -183,6 +183,7 @@ pub(crate) fn owner_save(
                 &mut owner.entities,
                 local.id,
                 local.epoch,
+                local.arrivals_delivered(),
                 None,
             )?;
             regional.owner_save_dirty = false;

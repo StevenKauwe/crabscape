@@ -7,6 +7,7 @@ use crabsim::underwater::{
     region_store::{RegionEpoch, RegionId, TerrainStore},
 };
 use crabsim::world::regions::{EntityArchive, RegionFrame, RegionKernel, journal::RegionJournal};
+mod falling;
 mod moving;
 
 #[derive(Default, PartialEq)]
@@ -48,6 +49,11 @@ pub(super) struct State {
     pub(super) owner_save_dirty: bool,
     moving: Option<moving::Transfer>,
     move_serial: u64,
+    falls_offered: u64,
+    falls_accepted: u64,
+    boundaries: VecDeque<falling::Boundary>,
+    arrival: Option<crabsim::world::regions::falling::Arrival>,
+    arrival_offered: u64,
     shared_move_cutoff: Option<u64>,
 }
 struct Backup {
@@ -148,10 +154,11 @@ pub(super) fn boot(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
 fn store_kernel(owner: &mut Owner, kernel: RegionKernel) -> Result<(), String> {
     owner
         .terrain
-        .commit(
+        .commit_state(
             kernel.id,
             kernel.epoch,
             kernel.sim.level.cells.as_ref().ok_or("Missing terrain")?,
+            kernel.arrivals_delivered(),
         )
         .map_err(fault)?;
     owner
@@ -173,10 +180,11 @@ fn collect(r: &mut State, sim: &mut Sim) -> Result<(), String> {
         .map_err(fault)?;
     if let Some(kernel) = r.kernel.take() {
         let kernel = kernel.take_view(sim);
-        if let Err(error) = owner.terrain.commit(
+        if let Err(error) = owner.terrain.commit_state(
             kernel.id,
             kernel.epoch,
             kernel.sim.level.cells.as_ref().ok_or("Missing terrain")?,
+            kernel.arrivals_delivered(),
         ) {
             r.kernel = Some(kernel.install_view(sim));
             return Err(fault(error));
@@ -235,6 +243,11 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
     };
     r.applied = local.sim.tick_count();
     r.shared_move_cutoff = None;
+    r.falls_offered = 0;
+    r.falls_accepted = 0;
+    r.boundaries.clear();
+    r.arrival = None;
+    r.arrival_offered = 0;
     r.journal = Some(RegionJournal::new(&local, HOST).map_err(fault)?);
     r.kernel = Some(local.install_view(sim));
     r.snapshot = remote;
@@ -374,6 +387,7 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
     if !matches!(r.stage, Stage::Running | Stage::Stopping) {
         return Ok(());
     }
+    falling::step(s, r, sim, local)?;
     moving::step(s, r, sim, local)?;
     let follows = local != HOST && r.shared;
     if follows {
@@ -552,6 +566,12 @@ fn receive_inner(
     msg: RegionMsg,
 ) -> Result<(), String> {
     match msg {
+        msg @ (RegionMsg::Falls { .. }
+        | RegionMsg::FallsAccepted { .. }
+        | RegionMsg::FallsCommitted { .. }
+        | RegionMsg::ArrivalOffer(_)
+        | RegionMsg::ArrivalApply { .. }
+        | RegionMsg::ArrivalApplied { .. }) => falling::receive(s, r, sim, local, msg)?,
         msg @ (RegionMsg::MoveBegin { .. }
         | RegionMsg::MovePiece(_)
         | RegionMsg::MoveAck { .. }
@@ -638,7 +658,7 @@ fn receive_inner(
                         let owner = r.owner.as_mut().ok_or("Missing owner")?;
                         owner
                             .terrain
-                            .commit(
+                            .commit_state(
                                 state.id,
                                 state.epoch,
                                 state
@@ -647,6 +667,7 @@ fn receive_inner(
                                     .cells
                                     .as_ref()
                                     .ok_or("Missing backup terrain")?,
+                                state.arrivals_delivered(),
                             )
                             .map_err(fault)?;
                         owner.entities.merge_resources(&state.sim).map_err(fault)?;
@@ -705,6 +726,11 @@ fn receive_inner(
                 r.shared = kernel.members().contains(&HOST);
                 r.next_batch = kernel.sim.tick_count();
                 r.applied = r.next_batch;
+                r.falls_offered = 0;
+                r.falls_accepted = 0;
+                r.boundaries.clear();
+                r.arrival = None;
+                r.arrival_offered = 0;
                 r.last_backup_tick = r.next_batch;
                 r.journal = Some(
                     RegionJournal::new(&kernel, if r.shared { HOST } else { local })
@@ -869,6 +895,7 @@ fn update_inner(
     sim: &mut Sim,
     local: PlayerId,
 ) -> Result<(), String> {
+    falling::update(r, sim);
     moving::update(s, r, sim, local)?;
     if local != HOST
         && !r.shared
@@ -935,6 +962,8 @@ fn update_inner(
         if let Some(k) = &r.kernel {
             let _ = canvas.set_attribute("data-cell-region-id", &k.id.0.to_string());
             let _ = canvas.set_attribute("data-cell-region-revision", &k.revision().to_string());
+            let _ =
+                canvas.set_attribute("data-cell-state-revision", &k.state_revision().to_string());
         }
     }
     if r.stage == Stage::Running

@@ -99,6 +99,12 @@ impl LazyView {
             || !coord(m.origin.0)
             || !coord(m.origin.1)
             || m.tick > u64::MAX / 4 - 1_000_000
+            || !crate::underwater::valid_fall_packets(
+                &m.pending_falls.0,
+                m.next_fall_sequence,
+                m.tick,
+            )
+            || (!m.bottom_open.0.is_empty() && m.bottom_open.0.len() != WIDTH)
             || m.pebbles.0.len() != m.pebble_motion.0.len()
             || !(0..=WIDTH as i32).contains(&m.crab_half_x)
             || !(0..=HEIGHT as i32).contains(&m.crab_half_y)
@@ -146,6 +152,8 @@ impl LazyView {
         let page_bytes = active_bytes.max(CHUNK_CELLS * size_of::<Option<SleepingCell>>()) + 512;
         // Decoding temporarily holds an incoming page before evicting one.
         let estimated_bytes = (max_pages + 1) * page_bytes
+            + m.pending_falls.0.len() * size_of::<FallPacket>()
+            + m.bottom_open.0.len()
             + ids.len() * 128
             + m.pebbles.0.len() * (size_of::<Pebble>() + size_of::<(i8, i8, u8)>())
             + m.pebble_seeded.0.len() * 128

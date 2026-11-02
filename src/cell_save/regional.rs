@@ -13,20 +13,27 @@ pub(crate) fn prepare_owner_save(
     entities: &mut EntityArchive,
     local_id: RegionId,
     local_epoch: RegionEpoch,
+    local_arrivals_delivered: u64,
     remote: Option<&RegionKernel>,
 ) -> Result<paged::PreparedSave, Error> {
     let local_terrain = view.level.cells.as_ref().ok_or(Error::Damaged)?;
     terrain
-        .commit(local_id, local_epoch, local_terrain)
+        .commit_state(
+            local_id,
+            local_epoch,
+            local_terrain,
+            local_arrivals_delivered,
+        )
         .map_err(|_| Error::Damaged)?;
     entities.merge_resources(view).map_err(|_| Error::Damaged)?;
     let mut tick = view.tick_count().max(entities.sim.tick_count());
     if let Some(remote) = remote {
         terrain
-            .commit(
+            .commit_state(
                 remote.id,
                 remote.epoch,
                 remote.sim.level.cells.as_ref().ok_or(Error::Damaged)?,
+                remote.arrivals_delivered(),
             )
             .map_err(|_| Error::Damaged)?;
         entities
@@ -184,6 +191,7 @@ mod tests {
             &mut entities,
             local.id,
             local.epoch,
+            local.arrivals_delivered(),
             Some(&backup),
         )
         .unwrap();
@@ -195,6 +203,7 @@ mod tests {
             &mut entities,
             local.id,
             local.epoch,
+            local.arrivals_delivered(),
             Some(&backup),
         )
         .unwrap()

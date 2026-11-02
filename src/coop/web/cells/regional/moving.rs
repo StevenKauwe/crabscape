@@ -15,7 +15,6 @@ pub(super) struct Transfer {
     all_sent: bool,
     returning: bool,
     ready: bool,
-    cutoff: Option<u64>,
     held: VecDeque<RegionMsg>,
 }
 impl Transfer {
@@ -32,7 +31,6 @@ impl Transfer {
             acks: BTreeSet::new(),
             all_sent: false,
             ready: false,
-            cutoff: None,
             held: VecDeque::new(),
         }
     }
@@ -85,6 +83,16 @@ fn apply_local(
     Ok(output)
 }
 
+pub(super) fn apply_shared(r: &mut State, sim: &mut Sim, transfer: u64) -> Result<(), String> {
+    let mut m = r
+        .moving
+        .take()
+        .filter(|m| m.serial == transfer && m.ready)
+        .ok_or("Missing shared move at boundary")?;
+    apply_local(r, sim, m.input.take().ok_or("Missing prepared move")?, HOST)?;
+    Ok(())
+}
+
 pub(super) fn step(
     s: &mut Session,
     r: &mut State,
@@ -95,7 +103,7 @@ pub(super) fn step(
         if local == HOST {
             r.stage == Stage::Running && r.shared && m.ready && r.partial.is_empty()
         } else if r.shared {
-            m.cutoff == Some(sim.tick_count())
+            false
         } else {
             r.stage == Stage::Running && m.ready && !m.returning && r.partial.is_empty()
         }
@@ -117,6 +125,11 @@ pub(super) fn step(
             RegionMsg::MoveApply {
                 transfer: m.serial,
                 tick,
+                state_revision: r
+                    .kernel
+                    .as_ref()
+                    .ok_or("Missing moved kernel")?
+                    .state_revision(),
             },
         );
     } else if !r.shared {
@@ -319,7 +332,9 @@ pub(super) fn receive(
                     }
                     let owner = r.owner.as_mut().ok_or("Missing owner")?;
                     let journal = owner.remote.as_mut().ok_or("Missing moving journal")?;
-                    if journal.acknowledged_tick() != output.tick() {
+                    if journal.acknowledged_tick() != output.tick()
+                        || journal.state_revision().checked_add(1) != Some(output.state_revision())
+                    {
                         return Err("Wrong move cutoff".into());
                     }
                     let next = output.new_bounds();
@@ -363,16 +378,24 @@ pub(super) fn receive(
                 m.ready = true;
             }
         }
-        RegionMsg::MoveApply { transfer, tick } if local != HOST && r.shared => {
-            let m = r
-                .moving
-                .as_mut()
+        RegionMsg::MoveApply {
+            transfer,
+            tick,
+            state_revision,
+        } if local != HOST && r.shared => {
+            r.moving
+                .as_ref()
                 .filter(|m| m.serial == transfer && m.ready)
                 .ok_or("Missing move at cutoff")?;
-            if tick < sim.tick_count() {
-                return Err("Late move cutoff".into());
-            }
-            m.cutoff = Some(tick);
+            falling::queue(
+                r,
+                sim,
+                falling::Boundary {
+                    tick,
+                    revision: state_revision,
+                    change: falling::Change::Move(transfer),
+                },
+            )?;
         }
         _ => return Err("Unexpected strip message".into()),
     }

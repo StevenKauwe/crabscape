@@ -32,6 +32,9 @@ struct CheckpointRef<'a> {
     sleeping: &'a BTreeMap<(i32, i32), SleepingChunk>,
     opening_edge_opened: bool,
     pebble_seeded: &'a BTreeSet<(i32, i32)>,
+    pending_falls: &'a [FallPacket],
+    next_fall_sequence: u64,
+    bottom_open: &'a [bool],
 }
 
 /// Serialize a browser-saveable world without cloning it. Refuse unsupported
@@ -82,6 +85,8 @@ fn encode_sized_checkpoint(
             .values()
             .any(|chunk| chunk.cells.len() != CHUNK_CELLS)
         || world.pebble_seeded.len() > MAX_SEEDED
+        || !world.valid_pending_falls()
+        || (!world.bottom_open.is_empty() && world.bottom_open.len() != width)
     {
         return None;
     }
@@ -92,6 +97,9 @@ fn encode_sized_checkpoint(
         sleeping,
         opening_edge_opened: world.opening_edge_opened,
         pebble_seeded: &world.pebble_seeded,
+        pending_falls: &world.pending_falls,
+        next_fall_sequence: world.next_fall_sequence,
+        bottom_open: &world.bottom_open,
     };
     if postcard::experimental::serialized_size(&borrowed).ok()? > raw_limit {
         return None;
@@ -197,6 +205,9 @@ struct BoundedCheckpoint<const MAX_CELLS: usize, const MAX_SILT: usize> {
     sleeping: BoundedMap<(i32, i32), BoundedChunk, MAX_SLEEPING>,
     opening_edge_opened: bool,
     pebble_seeded: BoundedVec<(i32, i32), MAX_SEEDED>,
+    pending_falls: BoundedVec<FallPacket, MAX_PENDING_FALLS>,
+    next_fall_sequence: u64,
+    bottom_open: BoundedVec<bool, 2048>,
 }
 
 /// Decode a single browser checkpoint with bounded heap expansion. Unknown,
@@ -259,6 +270,9 @@ fn decode_sized_checkpoint<const MAX_CELLS: usize, const MAX_SILT: usize>(
         sleeping: BTreeMap::new(),
         opening_edge_opened: false,
         pebble_seeded: BTreeSet::new(),
+        pending_falls: Vec::new(),
+        next_fall_sequence: 0,
+        bottom_open: Vec::new(),
     };
     let sleeping = bounded
         .sleeping
@@ -284,6 +298,9 @@ fn decode_sized_checkpoint<const MAX_CELLS: usize, const MAX_SILT: usize>(
         sleeping,
         opening_edge_opened: bounded.opening_edge_opened,
         pebble_seeded,
+        pending_falls: bounded.pending_falls.0,
+        next_fall_sequence: bounded.next_fall_sequence,
+        bottom_open: bounded.bottom_open.0,
     }
     .into_region(width, height)
 }
@@ -365,6 +382,9 @@ mod tests {
             many,
             false,
             BTreeSet::<(i32, i32)>::new(),
+            Vec::<FallPacket>::new(),
+            0u64,
+            Vec::<bool>::new(),
         ))
         .unwrap();
         assert!(raw.len() < MAX_RAW);
@@ -392,6 +412,9 @@ mod tests {
             malformed,
             false,
             BTreeSet::<(i32, i32)>::new(),
+            Vec::<FallPacket>::new(),
+            0u64,
+            Vec::<bool>::new(),
         ))
         .unwrap();
         assert!(decode_browser_checkpoint(&raw).is_none());

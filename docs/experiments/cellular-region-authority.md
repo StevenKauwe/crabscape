@@ -32,6 +32,31 @@ Commit each accepted guest backup to the canonical archive once, reusing the sta
 
 For a local frame trace, run `CRABSCAPE_FRAME_PROFILE=35 CRABSCAPE_PROFILE_WALK=1 CRABSCAPE_PROFILE_GPU=1 cargo cooptest --only cells-session --repeat 1 --voice off`. This holds the owner still and routes the guest across region boundaries, retains frame/task/operation timing files, and checks both regional replays against native physics. `CRABSCAPE_CPU_PROFILE=1` also retains Chrome CPU profiles. These options are excluded from normal acceptance runs. Hardware graphics avoids confusing software-rendered CI frames with simulation stalls.
 
+## Falling material outside active regions
+
+An open bottom edge transfers loose sand and mud into a mass-carrying queue,
+instead of making the edge a floor. Each grain retains its material, density
+variation, suspension state and absolute material-clock progress. Bounded passive
+work advances gravity against the edited terrain archive and the generated level;
+it does not replay distant fluid dynamics. Pebble aggregates keep their existing
+ownership and movement model. This is not a claim that all sleeping material or
+distant currents continue to run the detailed solver.
+
+The canonical owner cannot publish an outgoing grain while still saving an older
+source cell containing it. Accepted outflow is staged until a matching source
+terrain cut commits. An incoming grain remains reserved in the canonical archive
+after delivery acknowledgement, until a recipient checkpoint includes that
+delivery. Thus saving at either side of a handoff preserves one grain. A window
+move with sediment traffic includes a compressed material cut; ordinary moves
+without that traffic retain the strip-only path.
+
+Moves, outflow acknowledgements and deliveries share one ordered state revision
+and replay stream. Shared replicas apply them at the exact authority tick in that
+order. An independent authority acknowledges its applied delivery before sending
+later inputs. Passive advancement cannot modify live leases, prefetched regions
+or reserved grains. Save metadata includes the pending queue and bottom-edge
+guard. The paged format is replaced outright during pre-alpha.
+
 ## Verification required before enabling
 
 Preserve default-kernel physics and the last complete save on a failed write; do not add compatibility with previous formats. Test disjoint modifications followed by reunion, aggregate ID remapping and motion, current/flow/silt continuity, NPC identity and random-stream continuity, independent distant gameplay, transactional rejection of bad input batches, and recovery from acknowledged input history. Then run real browsers through separation, reunion, delegate departure, owner departure and save/reload. Include three players with two nearby and one distant. Compare replicas of the same regional epoch/tick and native/Wasm replay; separate regions intentionally have different world-state hashes.

@@ -62,6 +62,9 @@ struct Metadata<'a> {
     giant_base: f32,
     bubbles: &'a [Bubble],
     game: bool,
+    pending_falls: &'a [FallPacket],
+    next_fall_sequence: u64,
+    bottom_open: &'a [bool],
 }
 
 #[derive(Serialize, serde::Deserialize)]
@@ -103,6 +106,7 @@ impl FrozenChunks {
         let sleeping =
             world.sleeping.len() * (SIDE * SIDE * size_of::<Option<SleepingCell>>() + 256);
         let misc = world.pebbles.len() * (size_of::<Pebble>() + size_of::<(i8, i8, u8)>())
+            + world.pending_falls.len() * size_of::<FallPacket>()
             + world.tracers.len() * size_of::<(f32, f32)>()
             + world.silt.len() * size_of::<Silt>()
             + world.bubbles.len() * size_of::<Bubble>()
@@ -131,6 +135,7 @@ impl FrozenChunks {
                 + size_of::<u16>())
             + world.sleeping.len() * 256
             + world.pebbles.len() * (size_of::<Pebble>() + size_of::<(i8, i8, u8)>())
+            + world.pending_falls.len() * size_of::<FallPacket>()
             + world.tracers.len() * size_of::<(f32, f32)>()
             + world.silt.len() * size_of::<Silt>()
             + world.bubbles.len() * size_of::<Bubble>()
@@ -158,7 +163,15 @@ impl FrozenChunks {
 
     pub fn metadata(&self) -> Result<Vec<u8>, CaptureError> {
         let c = &self.checkpoint;
-        encode_metadata(&c.world, c.origin, c.opening_edge_opened, &c.pebble_seeded)
+        encode_metadata(
+            &c.world,
+            c.origin,
+            c.opening_edge_opened,
+            &c.pebble_seeded,
+            &c.pending_falls,
+            c.next_fall_sequence,
+            &c.bottom_open,
+        )
     }
     pub fn active(&self, x: usize, y: usize) -> Result<Vec<u8>, CaptureError> {
         encode_active(&self.checkpoint.world, x, y)
@@ -208,6 +221,9 @@ impl<'a> PausedChunks<'a> {
             self.world.origin,
             self.world.opening_edge_opened,
             &self.world.pebble_seeded,
+            &self.world.pending_falls,
+            self.world.next_fall_sequence,
+            &self.world.bottom_open,
         )
     }
     pub fn active(&self, x: usize, y: usize) -> Result<Vec<u8>, CaptureError> {
@@ -236,6 +252,8 @@ fn validate_world_shape(world: &World) -> Result<(), CaptureError> {
         || world.silt.len() > MAX_REGION_SILT
         || world.bubbles.len() > 4096
         || world.pebble_seeded.len() > 2048
+        || !world.valid_pending_falls()
+        || (!world.bottom_open.is_empty() && world.bottom_open.len() != WIDTH)
         || world
             .sleeping
             .values()
@@ -254,6 +272,9 @@ fn encode_metadata(
     origin: (i32, i32),
     opening_edge_opened: bool,
     pebble_seeded: &std::collections::BTreeSet<(i32, i32)>,
+    pending_falls: &[FallPacket],
+    next_fall_sequence: u64,
+    bottom_open: &[bool],
 ) -> Result<Vec<u8>, CaptureError> {
     encode(&Metadata {
         version: 1,
@@ -276,6 +297,9 @@ fn encode_metadata(
         giant_base: w.giant_base,
         bubbles: &w.bubbles,
         game: w.game,
+        pending_falls,
+        next_fall_sequence,
+        bottom_open,
     })
 }
 
@@ -314,6 +338,79 @@ fn encode_active(w: &World, x: usize, y: usize) -> Result<Vec<u8>, CaptureError>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_sediment_and_bottom_guard_survive_every_save_path() {
+        let mut world = World::from_level_settled(&crate::Level::test_level());
+        world.tick = 200;
+        world.pending_falls = vec![
+            FallPacket {
+                sequence: 3,
+                outbound: true,
+                x: 40,
+                y: -18,
+                emitted_tick: 100,
+                advanced_tick: 150,
+                cell: Cell::Sand,
+                grain: 91,
+                suspended: 4,
+            },
+            FallPacket {
+                sequence: 6,
+                outbound: false,
+                x: 44,
+                y: -20,
+                emitted_tick: 110,
+                advanced_tick: 190,
+                cell: Cell::Mud,
+                grain: 53,
+                suspended: 2,
+            },
+        ];
+        world.next_fall_sequence = 7;
+        world.bottom_open = vec![false; WIDTH];
+        world.bottom_open[17] = true;
+        let before = world.checkpoint();
+        let raw = crate::underwater::encode_browser_checkpoint(&world).unwrap();
+        assert_eq!(
+            crate::underwater::decode_browser_checkpoint(&raw)
+                .unwrap()
+                .checkpoint(),
+            before
+        );
+        assert_eq!(
+            World::from_region_bytes(&world.region_bytes().unwrap())
+                .unwrap()
+                .checkpoint(),
+            before
+        );
+        let player = crate::SaveData {
+            version: crate::SAVE_VERSION,
+            x: 160.0,
+            y: 8.0,
+            memory: None,
+            progress: None,
+        };
+        let frame = crate::cell_codec::paged::prepare(&player, &world, 800)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let mut restored = crate::cell_codec::paged::decode(&frame).unwrap().terrain;
+        assert_eq!(restored.checkpoint(), before);
+        let frozen = FrozenChunks::capture_cow(&world).unwrap();
+        let metadata = frozen.metadata().unwrap();
+        world.pending_falls[0].grain ^= 1;
+        assert_eq!(frozen.metadata().unwrap(), metadata);
+        world = before.into_world().unwrap();
+        for _ in 0..12 {
+            world.step(0.35);
+            restored.step(0.35);
+        }
+        assert_eq!(restored.checkpoint(), world.checkpoint());
+        world.pending_falls[0].advanced_tick = world.tick + 1;
+        assert!(FrozenChunks::capture_cow(&world).is_err());
+        assert!(crate::underwater::encode_browser_checkpoint(&world).is_none());
+    }
 
     #[test]
     fn paused_pages_match_owned_snapshot_for_streamed_world() {

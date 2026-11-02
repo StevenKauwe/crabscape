@@ -37,6 +37,9 @@ struct MetadataOwned {
     giant_base: f32,
     bubbles: BoundedVec<Bubble, 4096>,
     game: bool,
+    pending_falls: BoundedVec<FallPacket, MAX_PENDING_FALLS>,
+    next_fall_sequence: u64,
+    bottom_open: BoundedVec<bool, 2048>,
 }
 
 #[derive(Deserialize)]
@@ -88,6 +91,12 @@ impl FrozenRestore {
         if m.version != 1
             || seeded_len != pebble_seeded.len()
             || m.pebbles.0.len() != m.pebble_motion.0.len()
+            || !crate::underwater::valid_fall_packets(
+                &m.pending_falls.0,
+                m.next_fall_sequence,
+                m.tick,
+            )
+            || (!m.bottom_open.0.is_empty() && m.bottom_open.0.len() != WIDTH)
         {
             return Err(CaptureError::InvalidShape);
         }
@@ -131,6 +140,9 @@ impl FrozenRestore {
             sleeping: BTreeMap::new(),
             opening_edge_opened: false,
             pebble_seeded: BTreeSet::new(),
+            pending_falls: Vec::new(),
+            next_fall_sequence: 0,
+            bottom_open: Vec::new(),
         };
         Ok(Self {
             checkpoint: WorldCheckpoint {
@@ -140,6 +152,9 @@ impl FrozenRestore {
                 sleeping: BTreeMap::new(),
                 opening_edge_opened: m.opening_edge_opened,
                 pebble_seeded,
+                pending_falls: m.pending_falls.0,
+                next_fall_sequence: m.next_fall_sequence,
+                bottom_open: m.bottom_open.0,
             },
             active_seen: [false; TOTAL_ACTIVE],
             expected_sleeping,

@@ -6,6 +6,38 @@ const PREFIX: &[u8] = b"CSIM1";
 pub(crate) use crabsim::replay::CellSessionTick as Tick;
 #[derive(Serialize, Deserialize)]
 pub(crate) enum RegionMsg {
+    Falls {
+        region: u64,
+        epoch: u64,
+        #[serde(deserialize_with = "read_falls")]
+        packets: Vec<crabsim::underwater::FallPacket>,
+    },
+    FallsAccepted {
+        region: u64,
+        epoch: u64,
+        committed: u64,
+    },
+    FallsCommitted {
+        region: u64,
+        epoch: u64,
+        tick: u64,
+        committed: u64,
+        state_revision: u64,
+    },
+    ArrivalOffer(crabsim::world::regions::falling::Arrival),
+    ArrivalApply {
+        tick: u64,
+        state_revision: u64,
+        arrival: crabsim::world::regions::falling::Arrival,
+    },
+    ArrivalApplied {
+        region: u64,
+        epoch: u64,
+        delivery: u64,
+        tick: u64,
+        state_revision: u64,
+    },
+
     MoveBegin {
         transfer: u64,
         region: u64,
@@ -25,6 +57,7 @@ pub(crate) enum RegionMsg {
     MoveApply {
         transfer: u64,
         tick: u64,
+        state_revision: u64,
     },
     NeedRegion {
         region: u64,
@@ -131,6 +164,36 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<Wire> {
     let (msg, rest) = postcard::take_from_bytes(bytes.strip_prefix(PREFIX)?).ok()?;
     rest.is_empty().then_some(msg)
 }
+fn read_falls<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<crabsim::underwater::FallPacket>, D::Error> {
+    use serde::de::Error;
+    struct Packets;
+    impl<'de> serde::de::Visitor<'de> for Packets {
+        type Value = Vec<crabsim::underwater::FallPacket>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "at most 64 falling grains")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            if seq.size_hint().is_some_and(|n| n > 64) {
+                return Err(A::Error::custom("fall packet limit"));
+            }
+            let mut packets = Vec::new();
+            while let Some(p) = seq.next_element()? {
+                if packets.len() == 64 {
+                    return Err(A::Error::custom("fall packet limit"));
+                }
+                packets.push(p);
+            }
+            Ok(packets)
+        }
+    }
+    d.deserialize_seq(Packets)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,7 +10,7 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 
-pub const MAGIC: &[u8; 8] = b"CRABPG01";
+pub const MAGIC: &[u8; 8] = b"CRABPG02";
 pub const RESIDENT_BUDGET: usize = 128 * 1024 * 1024;
 pub const MAX_PACKED_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_INDEX_BYTES: usize = 256 * 1024;

@@ -69,7 +69,7 @@ pub(super) async fn encode(
         pages.push(Uint8Array::from(packed.as_slice()).as_ref());
     }
     let value = Object::new();
-    set(&value, "format", &JsValue::from_str("CRABPG01"))?;
+    set(&value, "format", &JsValue::from_str("CRABPG02"))?;
     set(
         &value,
         "index",
@@ -93,7 +93,7 @@ pub(super) fn decode(value: JsValue) -> Result<Option<super::super::Restored>, S
     if value.is_undefined() || value.is_instance_of::<Uint8Array>() {
         return Ok(None);
     }
-    if field(&value, "format")?.as_string().as_deref() != Some("CRABPG01") {
+    if field(&value, "format")?.as_string().as_deref() != Some("CRABPG02") {
         return Err("invalid paged save format".into());
     }
     let index = bytes(field(&value, "index")?, 256 * 1024)?;
