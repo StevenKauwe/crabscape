@@ -260,6 +260,9 @@ impl ChunkFlow {
                 let Some(ln) = local(nx, ny) else {
                     continue;
                 };
+                if self.chunks[loc.0].owner[loc.1] != 0 {
+                    continue;
+                }
                 if self.crab.is_some_and(|(cx, cy)| {
                     (nx - cx).abs() <= self.crab_half_x && (ny - cy).abs() <= self.crab_half_y
                 }) {
@@ -299,9 +302,8 @@ impl ChunkFlow {
         false
     }
 
-    /// Restricted solo digging: fully loose sediment with reference routing.
-    /// Returns Unsupported without mutation if pebble pushes or fallback scoops
-    /// would be needed. Rock-blocked movement returns Ok(false), as solo does.
+    /// Restricted solo digging with aggregate pushes and reference routing.
+    /// Returns Unsupported without mutation if a fallback scoop would be needed. Rock-blocked movement returns Ok(false), as solo does.
     pub fn push_for_crab(
         &mut self,
         x: f32,
@@ -321,7 +323,6 @@ impl ChunkFlow {
             || self.crab_half_x > 16
             || self.crab_half_y > 16
             || !self.supported_pebbles()
-            || !self.pebbles.is_empty()
         {
             return Err(SedimentStepError::Unsupported);
         }
@@ -354,8 +355,27 @@ impl ChunkFlow {
                         continue;
                     };
                     if matches!(next.chunks[c].cells[i], Cell::Sand | Cell::Mud) {
-                        if !next.push_loose_column(sx, sy, dx, dy, force, (cx, cy)) {
-                            return Err(SedimentStepError::Unsupported);
+                        let owner = next.chunks[c].owner[i];
+                        if owner == 0 {
+                            if !next.push_loose_column(sx, sy, dx, dy, force, (cx, cy)) {
+                                return Err(SedimentStepError::Unsupported);
+                            }
+                        } else {
+                            let pebble = next.pebbles[owner as usize - 1];
+                            let mid_x = pebble.x + i32::from(pebble.side) / 2;
+                            let mid_y = pebble.y + i32::from(pebble.side) / 2;
+                            let options = if dy != 0 {
+                                let side = if mid_x < cx { -1 } else { 1 };
+                                [(side, 0), (side, -dy), (-side, 0), (-side, -dy), (dx, dy)]
+                            } else {
+                                let side = if mid_y < cy { -1 } else { 1 };
+                                [(0, side), (-dx, side), (0, -side), (-dx, -side), (dx, dy)]
+                            };
+                            for (push_x, push_y) in options {
+                                if next.push_pebble_chain_inner(owner, push_x, push_y, force)? {
+                                    break;
+                                }
+                            }
                         }
                         moved |= next.chunks[c].cells[i] == Cell::Water;
                     }
@@ -927,6 +947,12 @@ impl ChunkFlow {
                 if owner == id {
                     continue;
                 }
+                if self.crab.is_some_and(|(cx, cy)| {
+                    (p.x + ox + dx - cx).abs() <= self.crab_half_x
+                        && (p.y + oy + dy - cy).abs() <= self.crab_half_y
+                }) {
+                    return false;
+                }
                 if owner != 0 {
                     if !blockers.contains(&owner) {
                         blockers.push(owner);
@@ -990,7 +1016,14 @@ impl ChunkFlow {
                     return false;
                 };
                 let tile = &self.chunks[c];
-                if tile.owner[i] != id && (tile.owner[i] != 0 || tile.cells[i] == Cell::Rock) {
+                if tile.owner[i] != id
+                    && (tile.owner[i] != 0
+                        || tile.cells[i] == Cell::Rock
+                        || self.crab.is_some_and(|(cx, cy)| {
+                            (p.x + ox + dx - cx).abs() <= self.crab_half_x
+                                && (p.y + oy + dy - cy).abs() <= self.crab_half_y
+                        }))
+                {
                     return false;
                 }
             }
@@ -1028,13 +1061,24 @@ impl ChunkFlow {
         {
             return false;
         }
+        self.push_pebble_chain_inner(id, dx, dy, force)
+            .unwrap_or(false)
+    }
+
+    fn push_pebble_chain_inner(
+        &mut self,
+        id: u16,
+        dx: i32,
+        dy: i32,
+        force: usize,
+    ) -> Result<bool, SedimentStepError> {
         let mut budget = force;
         let mut plan = Vec::new();
         if !self.plan_push(id, dx, dy, &mut budget, &mut Vec::new(), &mut plan) {
-            return false;
+            return Ok(false);
         }
         if self.pebble_motion.len() > self.pebbles.len() {
-            return false;
+            return Err(SedimentStepError::Unsupported);
         }
         let total_swaps: usize = plan
             .iter()
@@ -1044,7 +1088,7 @@ impl ChunkFlow {
             })
             .sum();
         if total_swaps > MAX_PUSH_SWAPS {
-            return false;
+            return Err(SedimentStepError::Unsupported);
         }
         let mut journal = PushJournal {
             original_motion_len: self.pebble_motion.len(),
@@ -1053,7 +1097,7 @@ impl ChunkFlow {
         if journal.swaps.try_reserve_exact(total_swaps).is_err()
             || journal.pebbles.try_reserve_exact(plan.len()).is_err()
         {
-            return false;
+            return Err(SedimentStepError::Unsupported);
         }
         for pebble in plan {
             if !self.move_pushed_pebble(pebble, dx, dy, force, &mut journal) {
@@ -1067,10 +1111,10 @@ impl ChunkFlow {
                     }
                 }
                 self.pebble_motion.truncate(journal.original_motion_len);
-                return false;
+                return Err(SedimentStepError::Unsupported);
             }
         }
-        true
+        Ok(true)
     }
 
     /// Advance the same water-diffusion rule by one material tick. Each
@@ -1904,6 +1948,102 @@ mod tests {
                 assert_ne!(chunked.flow(68, 65), Some((0.0, 0.0)));
             }
         }
+    }
+
+    #[test]
+    fn digging_pebbles_matches_solo_sweep_and_force_limits_across_seam() {
+        for force in [15, 48] {
+            let mut reference = sand_fixture(-200);
+            reference.cells.fill(Cell::Water);
+            reference.flow.fill((0.0, 0.0));
+            reference.set_game_crab(64.0, 100.0, 3.0, 3.0);
+            assert!(reference.add_pebble(62, 93, 4, 250));
+            let mut chunked = ChunkFlow::from_world(&reference);
+            let mut replay = chunked.clone();
+            let expected = reference.push_for_crab(64.0, 99.0, 0, -1, force);
+            assert_eq!(expected, force >= 16);
+            assert_eq!(
+                chunked.push_for_crab(64.0, 99.0, 0, -1, force),
+                Ok(expected)
+            );
+            assert_eq!(replay.push_for_crab(64.0, 99.0, 0, -1, force), Ok(expected));
+            compare(&reference, &chunked);
+            assert_eq!(reference.pebbles, chunked.pebbles);
+            assert_eq!(reference.pebble_motion, chunked.pebble_motion);
+            assert!(chunked == replay);
+            assert_eq!(
+                reference.pebble_owner.iter().filter(|&&id| id == 1).count(),
+                16
+            );
+            for _ in 0..3 {
+                reference.tick += 1;
+                reference.step_material(0.0);
+                assert_eq!(chunked.step_sediment(0.0), Ok(()));
+                compare(&reference, &chunked);
+                assert_eq!(reference.pebbles, chunked.pebbles);
+                assert_eq!(reference.pebble_motion, chunked.pebble_motion);
+            }
+        }
+    }
+
+    #[test]
+    fn digging_adjacent_pebbles_matches_solo_with_mixed_sediment() {
+        for force in [31, 48, 64] {
+            let mut reference = sand_fixture(-200);
+            reference.cells.fill(Cell::Water);
+            reference.flow.fill((0.0, 0.0));
+            reference.set_game_crab(64.0, 100.0, 3.0, 3.0);
+            assert!(reference.add_pebble(62, 93, 4, 250));
+            assert!(reference.add_pebble(66, 93, 4, 251));
+            for y in 93..97 {
+                let i = World::index(70, y).unwrap();
+                reference.cells[i] = Cell::Mud;
+                reference.grain[i] = 80;
+            }
+            let mut chunked = ChunkFlow::from_world(&reference);
+            let expected = reference.push_for_crab(64.0, 99.0, 0, -1, force);
+            assert_eq!(
+                chunked.push_for_crab(64.0, 99.0, 0, -1, force),
+                Ok(expected)
+            );
+            compare(&reference, &chunked);
+            assert_eq!(reference.pebbles, chunked.pebbles);
+            assert_eq!(reference.pebble_motion, chunked.pebble_motion);
+            for id in 1..=2 {
+                assert_eq!(
+                    reference.pebble_owner.iter().filter(|&&v| v == id).count(),
+                    16
+                );
+            }
+            assert_eq!(
+                reference.cells.iter().filter(|&&c| c == Cell::Mud).count(),
+                4
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_loose_scoop_after_a_pebble_sweep_rolls_back() {
+        let mut reference = sand_fixture(0);
+        reference.cells.fill(Cell::Water);
+        reference.set_game_crab(64.0, 100.0, 3.0, 3.0);
+        assert!(reference.add_pebble(62, 93, 4, 250));
+        let i = World::index(67, 100).unwrap();
+        reference.cells[i] = Cell::Mud;
+        reference.mud_properties.push_cost = 100;
+        let mut chunked = ChunkFlow::from_world(&reference);
+        let before = chunked.clone();
+        assert_eq!(
+            chunked.push_for_crab(64.0, 99.0, 0, -1, 48),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(chunked == before);
+        let mut solo = reference.clone();
+        solo.push_for_crab(64.0, 99.0, 0, -1, 48);
+        assert_ne!(
+            solo.pebbles, reference.pebbles,
+            "the reference had already moved the pebble"
+        );
     }
 
     #[test]

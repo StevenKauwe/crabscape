@@ -209,8 +209,15 @@ A restricted solo force prototype now applies the reference jump downwash and
 immediate entrainment and reproduces loose sand/mud digging using the same
 breadth-first scoop and force costs. Direct reference tests compare jump and
 dig outcomes, silt and flow, then continue material stepping across seams.
-Digging rejects aggregate-bearing worlds, force above 64, and searches needing
-the alternate scoop fallback; a rejected operation leaves state unchanged.
+Digging supports complete aggregate footprints using the journaled push planner,
+including solo body exclusion and diagonal sweep choices; it rejects force above
+64 and searches needing the alternate scoop fallback, leaving state unchanged.
 Jumping rejects aggregate cells in its entrainment footprint. Digging still
 clones the entire chunk field to roll back, and neither operation constitutes
 complete movement or multi-player force support. No game path uses them.
+
+Solo-reference pebble digging tests now cover a seam, adjacent aggregates,
+mixed mud, multiple force budgets, subsequent material steps, replay, and a
+late unsupported loose-scoop failure after a pebble moved in the staged
+state. The staged failure discards that movement. Incomplete/offscreen
+aggregates, alternate scoop fallback and multiple bodies remain unsupported.
