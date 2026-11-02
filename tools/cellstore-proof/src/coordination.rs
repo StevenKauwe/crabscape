@@ -257,16 +257,25 @@ pub(crate) async fn proof() -> Result<bool, String> {
     if outcome != Outcome::Done {
         return Err(format!("Web Locks first context: {outcome:?}"));
     }
+    // The work reports Done before the browser settles the request and
+    // releases its lock; wait for that settlement before checking the iframe.
+    for _ in 0..100 {
+        if !first.pending.get() {
+            break;
+        }
+        pause(&window, 10).await?;
+    }
+    if first.pending.get() {
+        return Err("first lock request did not settle".into());
+    }
     let count = visits.clone();
-    if second
+    let second_outcome = second
         .run_sync("crabscape.lock-proof", 3000, move || {
             count.set(count.get() + 1)
         })
-        .await
-        != Outcome::Done
-        || visits.get() != 2
-    {
-        return Err("Web Locks unavailable in second context".into());
+        .await;
+    if second_outcome != Outcome::Done || visits.get() != 2 {
+        return Err(format!("Web Locks second context: {second_outcome:?}"));
     }
     // Hold the lock in the iframe realm and prove the main context cannot
     // enter until that actual browser lock is released.
