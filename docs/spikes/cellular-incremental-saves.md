@@ -73,8 +73,15 @@ serializable-transaction model tests staged publication, content reuse, bounded
 batches, fail-closed conflicts, collection reachability and reset fencing across
 writers. It deliberately assumes transactions provide the stated semantics: it
 does not test IndexedDB event scheduling, storage eviction, quota, browser
-crashes, or worker lifetimes. It is not production code and does not establish
-browser safety.
+crashes, or worker lifetimes.
+
+`tools/cellstore-prototype/indexeddb.js` is a separate experimental implementation
+of those transactions, using its own database and no game integration. Serve the
+repository over localhost and open `tools/cellstore-prototype/test.html` in a
+browser to exercise it with two connections. The page's `data-result` reports
+PASS or the failure. This prototype still lacks production decoding, capture,
+crash recovery, quota testing and a bounded, paginated collector. Neither
+prototype establishes that enabling the format in the game is safe.
 
 A production implementation still needs actual IndexedDB integration tests in
 multiple tabs, reset/worker/transaction races, crash and quota injection,
