@@ -27,8 +27,38 @@ pub struct Interest {
     pub radius_y: u8,
 }
 
+impl Interest {
+    /// Convert a host-validated player position into a chunk interest. NaN,
+    /// infinity, and positions beyond the terrain coordinate limit are never
+    /// silently rounded or saturated into a valid-looking location.
+    pub fn at_world(
+        player: PlayerId,
+        x: f32,
+        y: f32,
+        radius_x: u8,
+        radius_y: u8,
+    ) -> Result<Self, PlanError> {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(PlanError::InvalidPosition);
+        }
+        let center = TerrainChunkId::at_world(x, y);
+        if !(-MAX_CHUNK_COORD..=MAX_CHUNK_COORD).contains(&center.x)
+            || !(-MAX_CHUNK_COORD..=MAX_CHUNK_COORD).contains(&center.y)
+        {
+            return Err(PlanError::CoordinateOutOfRange);
+        }
+        Ok(Self {
+            player,
+            center,
+            radius_x,
+            radius_y,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlanError {
+    InvalidPosition,
     TooManyPlayers,
     DuplicatePlayer,
     RadiusTooLarge,
@@ -217,5 +247,21 @@ mod tests {
         let removed = plan.update(&[]).unwrap();
         assert_eq!(removed.deactivate, vec![center]);
         assert_eq!(plan.chunks().count(), 0);
+    }
+
+    #[test]
+    fn rejects_nonfinite_and_unrepresentable_player_positions() {
+        assert_eq!(
+            Interest::at_world(PlayerId(1), f32::NAN, 0.0, 0, 0),
+            Err(PlanError::InvalidPosition)
+        );
+        assert_eq!(
+            Interest::at_world(PlayerId(1), 0.0, f32::INFINITY, 0, 0),
+            Err(PlanError::InvalidPosition)
+        );
+        assert_eq!(
+            Interest::at_world(PlayerId(1), f32::MAX, 0.0, 0, 0),
+            Err(PlanError::CoordinateOutOfRange)
+        );
     }
 }
