@@ -143,10 +143,12 @@ impl Chrome {
                 "--no-default-browser-check",
                 "--mute-audio",
                 "--autoplay-policy=no-user-gesture-required",
-                // WebGL without a GPU (CI machines have none).
-                "--enable-unsafe-swiftshader",
-                "--use-angle=swiftshader",
             ]);
+        if std::env::var_os("CRABSCAPE_PROFILE_GPU").is_none() {
+            // WebGL without a GPU (CI machines have none). Local profiling can
+            // opt into hardware so software rendering doesn't obscure hitches.
+            cmd.args(["--enable-unsafe-swiftshader", "--use-angle=swiftshader"]);
+        }
         if o.fake_mic {
             cmd.args([
                 "--use-fake-device-for-media-stream",
@@ -320,6 +322,15 @@ impl Chrome {
             const f = () => { n++; if (performance.now() - t < 1000) requestAnimationFrame(f); else done(n); }; \
             requestAnimationFrame(f); })";
         Ok(self.eval(count)?.as_u64().unwrap_or(0))
+    }
+
+    pub fn start_cpu_profile(&mut self) -> Result<()> {
+        self.call("Profiler.enable", json!({}))?;
+        self.call("Profiler.start", json!({})).map(drop)
+    }
+    pub fn stop_cpu_profile(&mut self) -> Result<Value> {
+        self.call("Profiler.stop", json!({}))
+            .map(|r| r["profile"].clone())
     }
 
     /// An attribute of the game's canvas (`data-coop`...), if the page has one now.

@@ -775,6 +775,98 @@ fn local_position(p: &mut Player) -> Result<(f64, f64)> {
     ))
 }
 
+/// Optional real frame trace; excluded from normal acceptance runs.
+fn profile_frames(host: &mut Player, guest: &mut Player) -> Result<()> {
+    let Some(seconds) = std::env::var("CRABSCAPE_FRAME_PROFILE")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+    else {
+        return Ok(());
+    };
+    for p in [&mut *host, &mut *guest] {
+        if std::env::var_os("CRABSCAPE_CPU_PROFILE").is_some() {
+            p.b.start_cpu_profile()?;
+        }
+        p.b.eval(r#"(()=>{
+          const c=document.getElementById('crabscape'); c.setAttribute('data-cell-work-profile','1');
+          const s=window.__cellFrameProfile={gaps:[],stalls:[],states:[],measures:[],longTasks:[],stop:false};
+          const observers=[];
+          for(const type of ['measure','longtask']){
+            if(!PerformanceObserver.supportedEntryTypes.includes(type))continue;
+            const o=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+              if(type==='measure'&&!e.name.startsWith('cell-'))continue;
+              const target=type==='measure'?s.measures:s.longTasks;
+              target.push({name:e.name,at:e.startTime,ms:e.duration}); if(target.length>512)target.shift();
+            }});o.observe({type,buffered:false});observers.push(o);
+          }
+          let previous=performance.now(),lastTick=c.getAttribute('data-cell-session-tick'),changed=previous,lastState='';
+          function frame(now){if(s.stop){observers.forEach(o=>o.disconnect());return;}
+            const tick=c.getAttribute('data-cell-session-tick'),stage=c.getAttribute('data-cell-region-state');
+            const state=stage+':'+c.getAttribute('data-cell-region-id')+':'+c.getAttribute('data-cell-region-revision');
+            if(state!==lastState){s.states.push({at:now,tick,state});lastState=state;}
+            if(now-previous>60)s.gaps.push({at:previous,ms:now-previous,tick,stage});
+            if(tick!==lastTick){if(now-changed>75)s.stalls.push({at:changed,ms:now-changed,tick,stage});changed=now;lastTick=tick;}
+            previous=now;requestAnimationFrame(frame);
+          }requestAnimationFrame(frame);return true;
+        })()"#)?;
+    }
+    if std::env::var_os("CRABSCAPE_PROFILE_WALK").is_some() {
+        guest.b.type_line("hulk")?;
+        guest.b.set_key("KeyD", true)?;
+        let started = Instant::now();
+        while started.elapsed().as_secs_f64() < seconds.clamp(1.0, 90.0) {
+            let (_, height) = local_position(guest)?;
+            if height < 200.0 {
+                guest.b.hold_key("Space", 0.6)?;
+            } else if height > 450.0 {
+                guest.b.hold_key("ArrowDown", 0.6)?;
+            } else {
+                sleep(0.6);
+            }
+            sleep(0.15);
+        }
+        for key in ["KeyD", "Space", "ArrowDown"] {
+            guest.b.set_key(key, false)?;
+        }
+        eprintln!(
+            "frame-profile route: host {}, guest {}",
+            region_status(host),
+            region_status(guest)
+        );
+    } else {
+        sleep(seconds.clamp(1.0, 90.0));
+    }
+    for p in [host, guest] {
+        if std::env::var_os("CRABSCAPE_CPU_PROFILE").is_some() {
+            let profile = p.b.stop_cpu_profile()?;
+            let file = std::env::temp_dir().join(format!(
+                "crabscape-{}-{}-cpu-profile.json",
+                std::process::id(),
+                p.name()
+            ));
+            std::fs::write(
+                &file,
+                serde_json::to_vec(&profile).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+            eprintln!("cpu-profile {}: {}", p.name(), file.display());
+        }
+        let value = p.b.eval("(()=>{const s=window.__cellFrameProfile;s.stop=true;document.getElementById('crabscape').removeAttribute('data-cell-work-profile');return s;})()")?;
+        let file = std::env::temp_dir().join(format!(
+            "crabscape-{}-{}-frame-profile.json",
+            std::process::id(),
+            p.name()
+        ));
+        std::fs::write(
+            &file,
+            serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        eprintln!("frame-profile {}: {}", p.name(), file.display());
+    }
+    Ok(())
+}
+
 /// `a` shows `b`'s name over `b`'s crab (`data-names`) within 5 s of meeting. A build from before names (no
 /// `data-name`) is let be.
 fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
@@ -1128,11 +1220,12 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     p.b.attr("data-cell-region-state").as_deref() == Some("running")
                 })?;
             }
-            host.b.eval(r#"(()=>{const c=document.getElementById('crabscape');let previous=c.getAttribute('data-cell-region-state'),started=null;window.__regionPauses=[];
-              new MutationObserver(()=>{const state=c.getAttribute('data-cell-region-state');if(state===previous)return;
+            host.b.eval(r#"(()=>{const c=document.getElementById('crabscape');let previous=c.getAttribute('data-cell-region-state'),revision=c.getAttribute('data-cell-region-revision'),started=null;window.__regionPauses=[];window.__windowMoves=0;
+              new MutationObserver(()=>{const nextRevision=c.getAttribute('data-cell-region-revision');if(nextRevision!==revision){if(Number(nextRevision)>0)window.__windowMoves++;revision=nextRevision;}
+                const state=c.getAttribute('data-cell-region-state');if(state===previous)return;
                 if(previous==='running'&&state!=='running')started=performance.now();
                 if(state==='running'&&started!==null){window.__regionPauses.push(performance.now()-started);started=null;}previous=state;
-              }).observe(c,{attributes:true,attributeFilter:['data-cell-region-state']});})()"#)?;
+              }).observe(c,{attributes:true,attributeFilter:['data-cell-region-state','data-cell-region-revision']});})()"#)?;
             guest.b.type_line("hulk")?;
             eprintln!(
                 "cells-regions joined: host {}, guest {}",
@@ -1282,6 +1375,11 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             }
             let pauses = host.b.eval("window.__regionPauses")?;
             eprintln!("cells-regions handoff pauses in milliseconds: {pauses}");
+            let moves = host.b.eval("window.__windowMoves")?.as_u64().unwrap_or(0);
+            if moves == 0 {
+                return Err("travel route never used a streamed region move".into());
+            }
+            eprintln!("cells-regions streamed window moves: {moves}");
             if name == "cells-region-save" {
                 // Freeze the authority through departure: physics must not refill
                 // the sampled cell between the known checkpoint and recovery.
@@ -1364,6 +1462,23 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     .is_some_and(|s| s.contains("cellular hello"))
             })?;
             let start = host.b.attr("data-cell-session-actors");
+            profile_frames(&mut host, &mut guest)?;
+            if std::env::var_os("CRABSCAPE_FRAME_PROFILE").is_some()
+                && std::env::var_os("CRABSCAPE_PROFILE_WALK").is_some()
+            {
+                for p in [&mut host, &mut guest] {
+                    pause_region(p, true)?;
+                }
+                sleep(1.5);
+                for p in [&mut host, &mut guest] {
+                    regional_scene(p)?;
+                    p.healthy()?;
+                }
+                found.push(
+                    "travel profile completed; both regional replays reproduce native state".into(),
+                );
+                return Ok(found);
+            }
             eprintln!(
                 "cells-session before controls: host {}, guest {}",
                 region_status(&mut host),
