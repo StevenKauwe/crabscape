@@ -326,7 +326,7 @@ fn real_crab_can_push_into_the_opening_floor() {
 }
 
 #[test]
-fn crab_digs_through_two_layers_of_the_starting_pebble_bed() {
+fn crab_digs_and_escapes_the_starting_sand() {
     let mut sim = Sim::with_one_crab(Vec2::new(400.0, 0.0));
     sim.enable_underwater_cells();
     let start = sim.crab(PlayerId(0)).unwrap().mover.pos.y;
@@ -345,7 +345,7 @@ fn crab_digs_through_two_layers_of_the_starting_pebble_bed() {
     }
     assert!(
         lowest <= start - 32.0,
-        "could not dig through two pebble layers: {start} to {lowest}"
+        "could not dig through the starting sand: {start} to {lowest}"
     );
     let mut highest = lowest;
     for _ in 0..600 {

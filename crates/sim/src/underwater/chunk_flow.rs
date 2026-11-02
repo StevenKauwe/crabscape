@@ -3984,7 +3984,7 @@ mod tests {
     #[test]
     fn generated_terrain_step_matches_contiguous_reference() {
         let level = crate::Level::test_level();
-        let mut reference = World::from_level_settled(&level);
+        let mut reference = World::opening_pebble_fixture(&level);
         reference.clear_game_crab();
         assert!(
             !reference.pebbles.is_empty(),

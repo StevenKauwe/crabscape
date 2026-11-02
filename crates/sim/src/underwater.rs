@@ -454,8 +454,21 @@ impl World {
     pub fn from_level_settled(level: &crate::Level) -> Self {
         let original = crate::Level::test_level();
         let mut world: Self = if level.floor == original.floor && level.rocks == original.rocks {
-            postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
-                .expect("the bundled opening snapshot is valid")
+            let mut opening: Self =
+                postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
+                    .expect("the bundled opening snapshot is valid");
+            // The older settled bake contains a solid bed of pebble aggregates
+            // in the opening. Keep their material as ordinary sand; distant
+            // pebble deposits are seeded independently as the world streams.
+            for (i, owner) in opening.pebble_owner.iter_mut().enumerate() {
+                if *owner != 0 {
+                    *owner = 0;
+                    opening.grain[i] = initial_grain((i % WIDTH) as i32, (i / WIDTH) as i32);
+                }
+            }
+            opening.pebbles.clear();
+            opening.pebble_motion.clear();
+            opening
         } else {
             Self::from_level(level)
         };
@@ -467,6 +480,24 @@ impl World {
             }
         }
         world.opening_edge_opened = true;
+        world
+    }
+
+    /// Keep the historical pebble bed available to focused physics tests.
+    #[cfg(test)]
+    fn opening_pebble_fixture(level: &crate::Level) -> Self {
+        let mut world = Self::from_level_settled(level);
+        let baked: Self =
+            postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
+                .expect("the bundled opening snapshot is valid");
+        for (i, &owner) in baked.pebble_owner.iter().enumerate() {
+            if owner != 0 {
+                world.pebble_owner[i] = owner;
+                world.grain[i] = baked.grain[i];
+            }
+        }
+        world.pebbles = baked.pebbles;
+        world.pebble_motion = baked.pebble_motion;
         world
     }
 
@@ -531,7 +562,7 @@ impl World {
     /// currents and the existing rocks shape these deposits before play.
     #[cfg(test)]
     fn seed_opening_deposits(&mut self, level: &crate::Level) {
-        // Replace the upper bed with distinct 4-by-4 cell aggregates.
+        // Retain the historical bake as a repeatable pebble physics fixture.
         for x in (36..200).step_by(4) {
             let floor = level.floor_height((x as f32 + 0.5) * GAME_CELL);
             let top = ((floor - GAME_BOTTOM) / GAME_CELL).floor() as i32;
@@ -561,7 +592,6 @@ impl World {
                 }
             }
         }
-        // Drop more pebbles separately so the settled surface is irregular.
         for x in (56..196).step_by(8) {
             let floor = level.floor_height((x as f32 + 0.5) * GAME_CELL);
             let top = ((floor - GAME_BOTTOM) / GAME_CELL).floor() as i32;
@@ -3658,7 +3688,8 @@ mod tests {
 
     #[test]
     fn checkpoint_rejects_unsafe_clocks_coordinates_and_particles() {
-        let world = World::from_level_settled(&crate::Level::test_level());
+        let mut world = World::from_level_settled(&crate::Level::test_level());
+        assert!(world.add_pebble(20, 200, 4, 248));
         let mut checkpoint = world.checkpoint();
         checkpoint.origin.0 = i32::MAX;
         assert!(checkpoint.into_world().is_none());
@@ -4094,34 +4125,11 @@ mod tests {
     fn opening_snapshot_is_a_live_five_minute_world() {
         let mut world = World::from_level_settled(&crate::Level::test_level());
         assert_eq!(world.tick, 9000);
-        let nearby_pebbles = world
-            .game_pebbles()
-            .into_iter()
-            .filter(|&(x, _, size, _)| (250.0..700.0).contains(&x) && size >= 15.0)
-            .count();
-        let mut top_pebbles = 0;
-        let mut top_sand = 0;
-        for x in 80..145 {
-            if let Some(i) = (70..110)
-                .rev()
-                .map(|y| y * WIDTH + x)
-                .find(|&i| world.cells[i] == Cell::Sand)
-            {
-                if world.grain[i] >= 248 {
-                    top_pebbles += 1;
-                } else {
-                    top_sand += 1;
-                }
-            }
-        }
         assert!(
-            top_pebbles > top_sand,
-            "pebble bed surface: {top_pebbles} pebble columns, {top_sand} sand columns"
+            world.pebbles.is_empty(),
+            "the opening should not start as a pebble bed"
         );
-        assert!(
-            nearby_pebbles >= 5,
-            "too few visible pebbles near the start: {nearby_pebbles}"
-        );
+        assert!(world.pebble_owner.iter().all(|&owner| owner == 0));
         let heights: Vec<_> = (240..480)
             .step_by(8)
             .filter_map(|x| world.game_surface_below(x as f32, GAME_CELL, 50.0))
@@ -5058,6 +5066,7 @@ mod tests {
         use bevy_math::Vec2;
         let mut sim = Sim::with_one_crab(Vec2::new(400.0, 0.0));
         sim.enable_underwater_cells();
+        sim.level.cells = Some(World::opening_pebble_fixture(&sim.level));
         let before = sim.level.cells.as_ref().unwrap();
         let counts = |w: &World| {
             [Cell::Sand, Cell::Mud, Cell::Rock]
@@ -5292,6 +5301,7 @@ mod tests {
         use bevy_math::Vec2;
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
         sim.enable_underwater_cells();
+        sim.level.cells = Some(World::opening_pebble_fixture(&sim.level));
         let mut pushed = false;
         for _ in 0..180 {
             sim.set_controls(
