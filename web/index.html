@@ -268,8 +268,11 @@
       );
 
     const message = document.getElementById("message");
+    let fatalError = false;
 
-    function showError(detail) {
+    function showError(detail, recoverable = false) {
+      if (!recoverable) fatalError = true;
+      if (recoverable && fatalError) return;
       message.classList.add("error");
       message.hidden = false;
       message.innerHTML =
@@ -297,7 +300,12 @@
       // point returns. Keep the loading message until its storage check has
       // finished; the ordinary synchronous startup takes the same fast path.
       function showGameWhenReady() {
-        const finish = () => { message.hidden = true; focusGame(); };
+        const finish = () => {
+          if (fatalError) return;
+          message.classList.remove("error");
+          message.hidden = true;
+          focusGame();
+        };
         if (!canvas.hasAttribute("data-cell-loading")) { finish(); return; }
         const observer = new MutationObserver(() => {
           if (!canvas.hasAttribute("data-cell-loading")) {
@@ -308,7 +316,7 @@
         });
         observer.observe(canvas, { attributeFilter: ["data-cell-loading"] });
         const timeout = setTimeout(() => {
-          showError("The saved world took too long to load. Reload the page to try again.");
+          showError("The saved world took too long to load. Reload the page to try again.", true);
         }, 30000);
       }
       // Not while typing a report or a character code: the box keeps the keys.

@@ -126,6 +126,28 @@ use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
 
 fn main() {
+    #[cfg(target_arch = "wasm32")]
+    if cellular::enabled() {
+        let canvas = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("crabscape"));
+        if let Some(canvas) = &canvas {
+            let _ = canvas.set_attribute("data-cell-loading", "1");
+        }
+        wasm_bindgen_futures::spawn_local(async move {
+            let loaded = cell_save::browser::preload().await;
+            cell_save::browser::remember_preloaded(loaded);
+            if let Some(canvas) = canvas {
+                let _ = canvas.remove_attribute("data-cell-loading");
+            }
+            run_app();
+        });
+        return;
+    }
+    run_app();
+}
+
+fn run_app() {
     App::new()
         .add_plugins(
             DefaultPlugins

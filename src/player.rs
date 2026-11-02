@@ -114,6 +114,12 @@ impl Plugin for PlayerPlugin {
                     .in_set(GameSet::Simulate),
             )
             .add_systems(Update, hide_replay_notice.in_set(GameSet::Present));
+        #[cfg(target_arch = "wasm32")]
+        app.configure_sets(
+            Update,
+            (GameSet::Input, GameSet::Simulate, GameSet::Present)
+                .run_if(crate::cell_save::browser::may_update),
+        );
         #[cfg(not(target_arch = "wasm32"))]
         app.add_systems(Update, hide_save_notice.in_set(GameSet::Present));
     }
@@ -139,7 +145,11 @@ pub fn spawn_local_crab(
         save::load()
     };
     #[cfg(target_arch = "wasm32")]
-    let saved = save::load();
+    let (saved, mut browser_replay, mut browser_load_error) = if crate::cellular::enabled() {
+        crate::cell_save::browser::install_preloaded(&mut sim)
+    } else {
+        (save::load(), crate::cell_save::ReplayStart::Legacy, None)
+    };
     // How big it has grown decides where it fits.
     let size = saved
         .as_ref()
@@ -165,6 +175,26 @@ pub fn spawn_local_crab(
     if crate::cellular::enabled() && saved.is_some() && saved_pos.is_none() {
         cells_storage.disable();
         warn!("cellular save has an invalid crab position; keeping the old file unchanged");
+    }
+    #[cfg(target_arch = "wasm32")]
+    if crate::cellular::enabled() && saved.is_some() && saved_pos.is_none() {
+        browser_load_error = Some("saved position is not safe".into());
+        browser_replay = crate::cell_save::ReplayStart::Unavailable;
+    }
+    #[cfg(target_arch = "wasm32")]
+    if crate::cellular::enabled()
+        && let Some(canvas) = web_sys::window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.get_element_by_id("crabscape"))
+    {
+        let status = if browser_load_error.is_some() {
+            "load-error"
+        } else if saved.is_some() {
+            "loaded-read-only"
+        } else {
+            "fresh-read-only"
+        };
+        let _ = canvas.set_attribute("data-cell-save", status);
     }
     let pos = saved_pos.unwrap_or(SPAWN);
     sim.add_crab(me, pos);
@@ -194,7 +224,17 @@ pub fn spawn_local_crab(
         sim.start_recording();
     }
     #[cfg(target_arch = "wasm32")]
-    sim.start_recording();
+    if crate::cellular::enabled() {
+        match browser_replay {
+            crate::cell_save::ReplayStart::Legacy => sim.start_recording(),
+            crate::cell_save::ReplayStart::Verified(token) => {
+                sim.start_recording_with_verified_terrain(&token);
+            }
+            crate::cell_save::ReplayStart::Unavailable => {}
+        }
+    } else {
+        sim.start_recording();
+    }
     if !sim.is_recording() {
         commands.spawn((
             ReplayUnavailableNotice,
@@ -209,6 +249,7 @@ pub fn spawn_local_crab(
                 position_type: PositionType::Absolute,
                 bottom: Val::Px(8.0),
                 left: Val::Px(8.0),
+                max_width: Val::Percent(90.0),
                 padding: UiRect::all(Val::Px(6.0)),
                 ..default()
             },
@@ -230,6 +271,30 @@ pub fn spawn_local_crab(
                 position_type: PositionType::Absolute,
                 bottom: Val::Px(38.0),
                 left: Val::Px(8.0),
+                max_width: Val::Percent(90.0),
+                padding: UiRect::all(Val::Px(6.0)),
+                ..default()
+            },
+        ));
+    }
+    #[cfg(target_arch = "wasm32")]
+    if crate::cellular::enabled() {
+        commands.spawn((
+            Text::new(match browser_load_error {
+                Some(error) => format!("Cellular save could not be loaded: {error}. Your previous save is kept; autosave is off."),
+                None => "Cellular autosave is not yet enabled in this preview.".to_string(),
+            }),
+            TextFont {
+                font_size: FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            BackgroundColor(Color::srgba(0.25, 0.08, 0.05, 0.95)),
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(38.0),
+                left: Val::Px(8.0),
+                max_width: Val::Percent(90.0),
                 padding: UiRect::all(Val::Px(6.0)),
                 ..default()
             },

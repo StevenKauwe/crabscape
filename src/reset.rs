@@ -13,6 +13,11 @@ use crate::save;
 /// the start too), then forget what this device kept and, in a browser, load
 /// the page afresh. (A desktop build just carries on, from the start.)
 pub fn start_over(sim: &mut Sim) {
+    #[cfg(target_arch = "wasm32")]
+    if crate::cellular::enabled() {
+        crate::cell_save::browser::clear_and_reload();
+        return;
+    }
     *sim = fresh();
     #[cfg(not(target_arch = "wasm32"))]
     if crate::cellular::enabled() {
