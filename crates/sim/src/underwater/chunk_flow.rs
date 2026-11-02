@@ -285,6 +285,7 @@ pub struct ChunkFlow {
     origin: (i32, i32),
     tick: u64,
     pebbles: Vec<Pebble>,
+    sleeping_pebbles_valid: bool,
     pebble_motion: Vec<(i8, i8, u8)>,
     silt: Vec<Silt>,
     crab: Option<(i32, i32)>,
@@ -410,6 +411,7 @@ impl ChunkFlow {
             origin: world.origin,
             tick: world.tick,
             pebbles: world.pebbles.clone(),
+            sleeping_pebbles_valid: Self::validate_sleeping_pebbles(world),
             pebble_motion: world.pebble_motion.clone(),
             silt: world.silt.clone(),
             crab: world.crab,
@@ -419,6 +421,111 @@ impl ChunkFlow {
             sand_properties: world.sand_properties,
             mud_properties: world.mud_properties,
         }
+    }
+
+    // Limit work for untrusted checkpoint metadata. A sleeping aggregate is
+    // supported only if every one of its archived cells still has its stable
+    // owner and material. A clipped aggregate is rejected by the active check.
+    fn validate_sleeping_pebbles(world: &World) -> bool {
+        let mut checked = 0usize;
+        for (index, pebble) in world.pebbles.iter().enumerate() {
+            let side = i32::from(pebble.side);
+            if !(1..=64).contains(&side) {
+                return false;
+            }
+            let (Some(right), Some(top)) = (pebble.x.checked_add(side), pebble.y.checked_add(side))
+            else {
+                return false;
+            };
+            if right > 0 && pebble.x < WIDTH as i32 && top > 0 && pebble.y < HEIGHT as i32 {
+                continue;
+            }
+            let Some(id) = index.checked_add(1).and_then(|v| u16::try_from(v).ok()) else {
+                return false;
+            };
+            checked += (side * side) as usize;
+            if checked > 65_536 {
+                return false;
+            }
+            for y in pebble.y..top {
+                for x in pebble.x..right {
+                    let (Some(gx), Some(gy)) =
+                        (world.origin.0.checked_add(x), world.origin.1.checked_add(y))
+                    else {
+                        return false;
+                    };
+                    let key = (
+                        gx.div_euclid(TERRAIN_CHUNK_CELLS),
+                        gy.div_euclid(TERRAIN_CHUNK_CELLS),
+                    );
+                    let slot = (gy.rem_euclid(TERRAIN_CHUNK_CELLS) * TERRAIN_CHUNK_CELLS
+                        + gx.rem_euclid(TERRAIN_CHUNK_CELLS))
+                        as usize;
+                    let Some(cell) = world
+                        .sleeping
+                        .get(&key)
+                        .and_then(|chunk| chunk.cells.get(slot))
+                        .and_then(Option::as_ref)
+                    else {
+                        return false;
+                    };
+                    if cell.owner != id || cell.cell != Cell::Sand {
+                        return false;
+                    }
+                }
+            }
+        }
+        // Check the reverse mapping too: orphaned owner cells must not later
+        // reactivate as part of an unrelated or incomplete aggregate.
+        const MAX_SLEEPING_SLOTS: usize = 262_144;
+        let Some(total_slots) = world.sleeping.len().checked_mul(SIDE * SIDE) else {
+            return false;
+        };
+        if total_slots > MAX_SLEEPING_SLOTS {
+            return false;
+        }
+        for (&(cx, cy), chunk) in &world.sleeping {
+            if chunk.cells.len() != SIDE * SIDE {
+                return false;
+            }
+            for (slot, cell) in chunk.cells.iter().enumerate() {
+                let Some(cell) = cell else { continue };
+                if cell.owner == 0 {
+                    continue;
+                }
+                let Some(pebble) = world.pebbles.get(usize::from(cell.owner) - 1) else {
+                    return false;
+                };
+                let Some(x) = cx
+                    .checked_mul(TERRAIN_CHUNK_CELLS)
+                    .and_then(|v| v.checked_add((slot % SIDE) as i32))
+                    .and_then(|v| v.checked_sub(world.origin.0))
+                else {
+                    return false;
+                };
+                let Some(y) = cy
+                    .checked_mul(TERRAIN_CHUNK_CELLS)
+                    .and_then(|v| v.checked_add((slot / SIDE) as i32))
+                    .and_then(|v| v.checked_sub(world.origin.1))
+                else {
+                    return false;
+                };
+                if (0..WIDTH as i32).contains(&x) && (0..HEIGHT as i32).contains(&y) {
+                    return false;
+                }
+                let side = i32::from(pebble.side);
+                let (Some(right), Some(top)) =
+                    (pebble.x.checked_add(side), pebble.y.checked_add(side))
+                else {
+                    return false;
+                };
+                if cell.cell != Cell::Sand || x < pebble.x || x >= right || y < pebble.y || y >= top
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     fn copy_from_world(chunks: &mut [Chunk], world: &World) {
@@ -449,8 +556,35 @@ impl ChunkFlow {
     /// Only used by the isolated same-window prototype; streamed state and
     /// visuals stay owned by the world.
     pub(super) fn write_material_to(&self, world: &mut World) -> bool {
-        if self.game != world.game || self.origin != world.origin {
+        if self.game != world.game
+            || self.origin != world.origin
+            || !self.sleeping_pebbles_valid
+            || self.pebbles.len() != world.pebbles.len()
+            || !Self::validate_sleeping_pebbles(world)
+        {
             return false;
+        }
+        // The destination owns sleeping cells. Never write an active field
+        // into a destination with different off-window aggregate identities.
+        for (index, (current, destination)) in self.pebbles.iter().zip(&world.pebbles).enumerate() {
+            let outside = |p: &Pebble| -> Option<bool> {
+                let side = i32::from(p.side);
+                let right = p.x.checked_add(side)?;
+                let top = p.y.checked_add(side)?;
+                Some(right <= 0 || p.x >= WIDTH as i32 || top <= 0 || p.y >= HEIGHT as i32)
+            };
+            let (Some(current_outside), Some(destination_outside)) =
+                (outside(current), outside(destination))
+            else {
+                return false;
+            };
+            if (current_outside || destination_outside)
+                && (current != destination
+                    || self.pebble_motion.get(index).copied().unwrap_or((0, 0, 0))
+                        != world.pebble_motion.get(index).copied().unwrap_or((0, 0, 0)))
+            {
+                return false;
+            }
         }
         for cy in 0..ROWS {
             for cx in 0..COLS {
@@ -1721,7 +1855,8 @@ impl ChunkFlow {
     }
 
     fn supported_pebbles(&self) -> bool {
-        if self.pebbles.len() > u16::MAX as usize
+        if !self.sleeping_pebbles_valid
+            || self.pebbles.len() > u16::MAX as usize
             || self.pebble_motion.len() > self.pebbles.len()
             || self.pebble_motion.iter().any(|&(x, y, remaining)| {
                 remaining > 0 && (!(-1..=1).contains(&x) || !(-1..=1).contains(&y))
@@ -1731,15 +1866,23 @@ impl ChunkFlow {
         }
         for (index, pebble) in self.pebbles.iter().enumerate() {
             let side = i32::from(pebble.side);
-            if !(1..=64).contains(&side)
-                || pebble.x < 0
-                || pebble.y < 0
-                || pebble.x.checked_add(side).is_none_or(|x| x > WIDTH as i32)
-                || pebble.y.checked_add(side).is_none_or(|y| y > HEIGHT as i32)
-            {
+            let (Some(right), Some(top)) = (pebble.x.checked_add(side), pebble.y.checked_add(side))
+            else {
+                return false;
+            };
+            if !(1..=64).contains(&side) {
                 return false;
             }
-            for y in pebble.y..pebble.y + side {
+            // World keeps stable aggregate IDs after their cells go to sleep.
+            // Entirely off-window aggregates stay unchanged until they return.
+            if right <= 0 || pebble.x >= WIDTH as i32 || top <= 0 || pebble.y >= HEIGHT as i32 {
+                continue;
+            }
+            // A clipped aggregate cannot be validated or moved atomically.
+            if pebble.x < 0 || pebble.y < 0 || right > WIDTH as i32 || top > HEIGHT as i32 {
+                return false;
+            }
+            for y in pebble.y..top {
                 for x in pebble.x..pebble.x + side {
                     let (c, i) = Self::locate(x as usize, y as usize);
                     if self.chunks[c].owner[i] as usize != index + 1
@@ -1784,6 +1927,10 @@ impl ChunkFlow {
             };
             let id = (index + 1) as u16;
             let p = self.pebbles[index];
+            let side = i32::from(p.side);
+            if p.x < 0 || p.y < 0 || p.x + side > WIDTH as i32 || p.y + side > HEIGHT as i32 {
+                continue;
+            }
             let (vx, vy, remaining) = self.pebble_motion[index];
             if remaining > 0 {
                 self.pebble_motion[index].2 -= 1;
@@ -3160,6 +3307,143 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    #[ignore = "manual release-mode validation cost measurement"]
+    fn sleeping_archive_validation_profile() {
+        use std::time::Instant;
+        for pages in [0, 16, 64] {
+            let mut world = sand_fixture(0);
+            for x in 0..pages {
+                world.sleeping.insert((x, -10), Default::default());
+            }
+            let mut samples = Vec::new();
+            for _ in 0..12 {
+                let start = Instant::now();
+                let field = ChunkFlow::from_world(&world);
+                let mut dest = world.clone();
+                assert!(field.write_material_to(&mut dest));
+                samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+            samples.sort_by(f64::total_cmp);
+            eprintln!(
+                "{pages} pages: median {:.3} ms; includes active-field allocation/copy, World clone and destination write; excludes simulation, digest, transport and rendering",
+                samples[samples.len() / 2]
+            );
+        }
+    }
+
+    #[test]
+    fn sleeping_pebbles_keep_ids_and_motion_across_streaming_material_step() {
+        let level = crate::Level::test_level();
+        let mut reference = sand_fixture(0);
+        assert!(reference.test_add_pebble(100, 228, 3));
+        assert!(reference.test_add_pebble(320, 228, 3));
+        reference.pebble_motion = vec![(1, 0, 3), (0, 0, 0)];
+        reference.shift_window(&level, (256, 0));
+        assert!(reference.pebbles[0].x < 0);
+        let asleep = reference.pebbles[0];
+        let motion = reference.pebble_motion[0];
+        let key = (
+            100_i32.div_euclid(TERRAIN_CHUNK_CELLS),
+            228_i32.div_euclid(TERRAIN_CHUNK_CELLS),
+        );
+        let slot = (228_i32.rem_euclid(TERRAIN_CHUNK_CELLS) * TERRAIN_CHUNK_CELLS
+            + 100_i32.rem_euclid(TERRAIN_CHUNK_CELLS)) as usize;
+        for missing in [true, false] {
+            let mut damaged = reference.clone();
+            let cell = &mut damaged.sleeping.get_mut(&key).unwrap().cells[slot];
+            if missing {
+                *cell = None;
+            } else {
+                cell.as_mut().unwrap().owner = 0;
+            }
+            let mut rejected = ChunkFlow::from_world(&damaged);
+            let before = rejected.clone();
+            assert_eq!(
+                rejected.step_sediment(0.35),
+                Err(SedimentStepError::Unsupported)
+            );
+            assert!(rejected == before);
+        }
+        // The reverse-owner scan refuses archives beyond 64 full pages,
+        // including archives without sleeping pebbles, to bound validation work.
+        let mut too_many_pages = sand_fixture(0);
+        for x in 0..65 {
+            too_many_pages.sleeping.insert((x, -10), Default::default());
+        }
+        let mut rejected = ChunkFlow::from_world(&too_many_pages);
+        let before = rejected.clone();
+        assert_eq!(
+            rejected.step_sediment(0.35),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(rejected == before);
+        let mut duplicate = reference.clone();
+        let active_cell = duplicate.sleeping.get(&key).unwrap().cells[slot].unwrap();
+        let duplicate_key = (
+            320_i32.div_euclid(TERRAIN_CHUNK_CELLS),
+            228_i32.div_euclid(TERRAIN_CHUNK_CELLS),
+        );
+        let duplicate_slot = (228_i32.rem_euclid(TERRAIN_CHUNK_CELLS) * TERRAIN_CHUNK_CELLS
+            + 320_i32.rem_euclid(TERRAIN_CHUNK_CELLS)) as usize;
+        duplicate.sleeping.entry(duplicate_key).or_default().cells[duplicate_slot] =
+            Some(super::super::SleepingCell {
+                owner: 2,
+                ..active_cell
+            });
+        let mut rejected = ChunkFlow::from_world(&duplicate);
+        let before = rejected.clone();
+        assert_eq!(
+            rejected.step_sediment(0.35),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(rejected == before);
+        let mut orphaned = reference.clone();
+        let orphan_slot = (228_i32.rem_euclid(TERRAIN_CHUNK_CELLS) * TERRAIN_CHUNK_CELLS
+            + 110_i32.rem_euclid(TERRAIN_CHUNK_CELLS)) as usize;
+        let orphan = orphaned.sleeping.get_mut(&key).unwrap().cells[orphan_slot]
+            .as_mut()
+            .unwrap();
+        orphan.cell = Cell::Sand;
+        orphan.owner = 1;
+        let mut rejected = ChunkFlow::from_world(&orphaned);
+        let before = rejected.clone();
+        assert_eq!(
+            rejected.step_sediment(0.35),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(rejected == before);
+        let valid = ChunkFlow::from_world(&reference);
+        let mut damaged_destination = reference.clone();
+        damaged_destination.sleeping.get_mut(&key).unwrap().cells[slot] = None;
+        let before_destination = damaged_destination.clone();
+        assert!(!valid.write_material_to(&mut damaged_destination));
+        assert_eq!(damaged_destination, before_destination);
+        let mut chunks = ChunkFlow::from_world(&reference);
+        let mut chunk_world = reference.clone();
+        reference.tick += 1;
+        reference.step_material(0.35);
+        assert_eq!(chunks.step_sediment(0.35), Ok(()));
+        compare(&reference, &chunks);
+        assert_eq!(chunks.pebbles, reference.pebbles);
+        assert_eq!(chunks.pebble_motion, reference.pebble_motion);
+        assert_eq!(chunks.pebbles[0], asleep);
+        assert_eq!(chunks.pebble_motion[0], motion);
+        assert!(chunks.write_material_to(&mut chunk_world));
+        reference.shift_window(&level, (0, 0));
+        chunk_world.shift_window(&level, (0, 0));
+        assert_eq!(reference, chunk_world);
+        assert_eq!(reference.pebbles[0].x, 100);
+        let mut clipped = ChunkFlow::from_world(&reference);
+        clipped.pebbles[0].x = -1;
+        let before = clipped.clone();
+        assert_eq!(
+            clipped.step_sediment(0.35),
+            Err(SedimentStepError::Unsupported)
+        );
+        assert!(clipped == before);
     }
 
     #[test]

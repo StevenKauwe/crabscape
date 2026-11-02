@@ -1176,6 +1176,91 @@ mod tests {
     }
 
     #[test]
+    fn material_tick_streams_and_synchronizes_real_sims_over_fake_link() {
+        let (mut host, mut guest, join, _) = setup_case(12);
+        for (sim, id, x) in [
+            (&mut host.host, PlayerId(0), 2300.0),
+            (&mut host.shadow, PlayerId(1), 2500.0),
+            (&mut guest, PlayerId(1), 2500.0),
+        ] {
+            let crab = sim.crab_mut(id).unwrap();
+            crab.mover.pos.x = x;
+            crab.prev_pos.x = x;
+            crab.mover.vel.x = 100.0;
+        }
+        let remote = host.host.crab_mut(PlayerId(1)).unwrap();
+        remote.mover.pos.x = 2500.0;
+        remote.prev_pos.x = 2500.0;
+        remote.mover.vel.x = 100.0;
+        let before = host.host.level.cells.as_ref().unwrap().clone();
+        let before_origin = before.local_cell(0.0, 0.0);
+        let before_tick = before.tick_count();
+        let selected = peer(1, 20);
+        let source = peer(0, 10);
+        let mut receiver = UpGuest::from_join(&join).unwrap();
+        let mut link = FakeLink::steady(0);
+        link.test_post(
+            1,
+            0,
+            Msg::CellUpInput {
+                epoch: 77,
+                tick: 0,
+                sequence: 0,
+                player: PlayerId(1),
+                up: false,
+            },
+        );
+        let mut input = None;
+        link.carry_with(&mut [&mut host.host, &mut guest], |from, to, _, msg| {
+            assert_eq!((from, to), (1, 0));
+            input = Msg::from_bytes(&msg.to_bytes());
+        });
+        let h = host.host.local_shared_walking_force_any_tick().unwrap();
+        let g = host.shadow.local_shared_walking_force_any_tick().unwrap();
+        let mut trial = before.clone();
+        assert!(
+            trial.step_up_pair(&host.host.level, &host.host.tuning, &h, &g, true),
+            "terrain step"
+        );
+        let frame = host
+            .accept_up(selected, Some(selected), &input.unwrap(), false)
+            .unwrap();
+        assert!(frame.reliable() && frame.to_bytes().len() <= crate::net::MAX_BYTES);
+        let after = host.host.level.cells.as_ref().unwrap();
+        assert_ne!(
+            before_origin,
+            after.local_cell(0.0, 0.0),
+            "fixture must stream"
+        );
+        assert_eq!(after.tick_count(), before_tick + 1);
+        assert!(after != &before);
+        assert_eq!(after, host.shadow.level.cells.as_ref().unwrap());
+        let mut bad_guest = guest.clone();
+        let bad_snapshot = snapshot(&bad_guest);
+        let mut bad_receiver = UpGuest::from_join(&join).unwrap();
+        let mut corrupt = frame.clone();
+        let Msg::CellUpFrame { digest, .. } = &mut corrupt else {
+            panic!("expected upward frame");
+        };
+        *digest ^= 1;
+        assert_eq!(
+            bad_receiver.apply(&join, &mut bad_guest, source, Some(source), &corrupt),
+            Err(InputError::Diverged)
+        );
+        assert_eq!(snapshot(&bad_guest), bad_snapshot);
+        link.test_post(0, 1, frame);
+        let mut result = None;
+        link.carry_with(&mut [&mut host.host, &mut guest], |from, to, sim, msg| {
+            assert_eq!((from, to), (0, 1));
+            let decoded = Msg::from_bytes(&msg.to_bytes()).unwrap();
+            result = Some(receiver.apply(&join, sim, source, Some(source), &decoded));
+        });
+        assert_eq!(result, Some(Ok(())));
+        assert_eq!(guest.level.cells, host.host.level.cells);
+        assert_eq!(guest.crab(PlayerId(1)), host.shadow.crab(PlayerId(1)));
+    }
+
+    #[test]
     fn staged_scoop_capture_refuses_real_material_and_streaming_steps() {
         // Capture refusal does not cancel the real host transaction.
         let (mut host, _, _, _) = setup_case(11);
