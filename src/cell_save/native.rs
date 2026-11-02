@@ -341,6 +341,117 @@ mod tests {
     }
 
     #[test]
+    fn malformed_numeric_progress_preserves_the_original_save() {
+        let path = path("bad-numeric-progress");
+        let original = sim();
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(original.fresh_progress()),
+        };
+        let terrain = World::from_level_settled(&original.level);
+        let (header, raw) = super::super::prepare(&player, &terrain, 17).unwrap();
+        let old_len = header.player_len as usize;
+        let json = std::str::from_utf8(&raw[..old_len]).unwrap();
+        let modified = json.replace("\"climb_xp\":0.0", "\"climb_xp\":1e99");
+        assert_ne!(modified, json);
+        let mut payload = modified.as_bytes().to_vec();
+        payload.extend_from_slice(&raw[old_len..]);
+        let player_len = modified.len() as u32;
+        let raw_len = payload.len() as u32;
+        let header = super::super::PreparedHeader {
+            tick: 17,
+            player_len,
+            raw_len,
+            checksum: super::super::checksum(17, player_len, raw_len, &payload),
+        };
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&payload, 1);
+        let bytes = header.finish(&packed).unwrap();
+        assert!(
+            !super::super::decode(&bytes)
+                .unwrap()
+                .player
+                .progress
+                .unwrap()
+                .climb_xp
+                .is_finite()
+        );
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut storage = Storage::default();
+        assert!(load_path(&mut restored, &mut storage, &path).is_none());
+        assert!(storage.disabled);
+        assert!(restored.level.cells.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn overflowing_v2_upgrades_preserve_the_original_save() {
+        let path = path("bad-v2-upgrades");
+        let original = sim();
+        let mut progress = original.fresh_progress();
+        progress.upgrades = u32::MAX;
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        let terrain = World::from_level_settled(&original.level);
+        let bytes = super::super::v2::prepare(&player, &terrain, 17)
+            .unwrap()
+            .encode()
+            .unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut storage = Storage::default();
+        assert!(load_path(&mut restored, &mut storage, &path).is_none());
+        assert!(storage.disabled);
+        assert!(restored.level.cells.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn numeric_progress_validation_keeps_cross_level_legacy_progress() {
+        let sim = sim();
+        let mut progress = sim.fresh_progress();
+        // Progress may come from a different world, whose eggs no longer
+        // correspond to the current world's saved flags.
+        progress.upgrades = progress.eaten.len() as u32 + 5;
+        progress.eaten.clear();
+        progress.climb_xp = -0.5;
+        let mut player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        assert!(super::super::player_fits_world(&sim, &player));
+        let progress = player.progress.as_mut().unwrap();
+        progress.upgrades = u32::MAX;
+        assert!(!super::super::player_fits_world(&sim, &player));
+        for set_bad in [
+            |p: &mut crabsim::Progress| p.climb_xp = f32::INFINITY,
+            |p: &mut crabsim::Progress| p.swim_xp = f32::INFINITY,
+            |p: &mut crabsim::Progress| p.fight_xp = f32::NEG_INFINITY,
+        ] {
+            let progress = player.progress.as_mut().unwrap();
+            progress.upgrades = 0;
+            progress.climb_xp = 0.0;
+            progress.swim_xp = 0.0;
+            progress.fight_xp = 0.0;
+            set_bad(progress);
+            assert!(!super::super::player_fits_world(&sim, &player));
+        }
+    }
+
+    #[test]
     fn older_shorter_progress_lists_are_still_compatible() {
         let sim = sim();
         let mut progress = sim.fresh_progress();
