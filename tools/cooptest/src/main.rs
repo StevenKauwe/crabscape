@@ -612,38 +612,82 @@ fn pause_region(p: &mut Player, paused: bool) -> Result<()> {
 
 /// Reproduce the real browser's current region, including its NPC random streams.
 fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
-    p.b.eval("(() => {const c=document.getElementById('crabscape'); c.removeAttribute('data-replay'); c.setAttribute('data-want-replay','1'); c.setAttribute('data-want-cell-hash','1');})()")?;
-    p.until(20.0, "regional replay export", |p| {
-        p.b.attr("data-replay").is_some()
-    })
-    .map_err(|error| format!("{error}; {}", region_status(p)))?;
-    let text = p.b.attr("data-replay").ok_or("missing regional replay")?;
-    if !text.starts_with("region_session_v1 ") {
-        return Err(format!(
-            "regional replay unavailable: {}; {}",
-            text.lines().next().unwrap_or("empty"),
-            region_status(p)
-        ));
+    for _ in 0..4 {
+        p.b.eval("(() => {const c=document.getElementById('crabscape'); c.removeAttribute('data-replay'); c.removeAttribute('data-cell-session-hash'); c.setAttribute('data-want-replay','1'); c.setAttribute('data-want-cell-hash','1');})()")?;
+        p.until(20.0, "regional replay export", |p| {
+            p.b.attr("data-replay").is_some() && p.b.attr("data-cell-session-hash").is_some()
+        })
+        .map_err(|error| format!("{error}; {}", region_status(p)))?;
+        let text = p.b.attr("data-replay").ok_or("missing regional replay")?;
+        if !text.starts_with("region_session_v1 ") {
+            return Err(format!(
+                "regional replay unavailable: {}; {}",
+                text.lines().next().unwrap_or("empty"),
+                region_status(p)
+            ));
+        }
+        let replay = crabsim::Replay::parse(&text)?;
+        let mut scene = crabsim::Sim::with_one_crab(replay.start);
+        if !replay.prepare_start(&mut scene) {
+            return Err("regional replay checkpoint rejected".into());
+        }
+        for _ in 0..replay.length() {
+            if !replay.step_cell_session(&mut scene) {
+                return Err("regional replay tick rejected".into());
+            }
+        }
+        let hash = format!("{}:{:016x}", scene.tick_count(), scene.state_hash());
+        let browser =
+            p.b.attr("data-cell-session-hash")
+                .ok_or("missing completed browser hash")?;
+        // Pausing finishes the authority's current four-tick batch. Export and
+        // hash requests can straddle that final batch on a slow browser frame.
+        if browser.split(':').next() != hash.split(':').next() {
+            continue;
+        }
+        if browser != hash {
+            return Err(format!(
+                "{} regional replay differs from browser: native {hash}, browser {browser}",
+                p.name()
+            ));
+        }
+        p.b.eval("document.getElementById('replay-close').click()")?;
+        return Ok(scene);
     }
-    let replay = crabsim::Replay::parse(&text)?;
-    let mut scene = crabsim::Sim::with_one_crab(replay.start);
-    if !replay.prepare_start(&mut scene) {
-        return Err("regional replay checkpoint rejected".into());
-    }
-    for _ in 0..replay.length() {
-        if !replay.step_cell_session(&mut scene) {
-            return Err("regional replay tick rejected".into());
+    Err(format!(
+        "{} did not finish its paused authority batch",
+        p.name()
+    ))
+}
+
+fn cell_hash(p: &mut Player) -> Result<String> {
+    p.b.eval("(()=>{const c=document.getElementById('crabscape');c.removeAttribute('data-cell-session-hash');c.setAttribute('data-want-cell-hash','1');})()")?;
+    p.until(20.0, "completed cellular state hash", |p| {
+        p.b.attr("data-cell-session-hash").is_some()
+    })?;
+    p.b.attr("data-cell-session-hash")
+        .ok_or("missing cellular hash".into())
+}
+
+fn shared_hashes(host: &mut Player, guest: &mut Player) -> Result<(String, String)> {
+    let started = Instant::now();
+    loop {
+        let h = cell_hash(host)?;
+        let g = cell_hash(guest)?;
+        if h.split(':').next() == g.split(':').next() {
+            if h != g {
+                return Err(format!(
+                    "same-tick cellular state mismatch: host {h}, guest {g}"
+                ));
+            }
+            return Ok((h, g));
+        }
+        if started.elapsed().as_secs() > 60 {
+            return Err(format!(
+                "guest did not drain the paused host batch: host {h}, guest {g}"
+            ));
         }
     }
-    let hash = format!("{}:{:016x}", scene.tick_count(), scene.state_hash());
-    if p.b.attr("data-cell-session-hash").as_deref() != Some(hash.as_str()) {
-        return Err(format!(
-            "{} regional replay differs from browser: {hash}",
-            p.name()
-        ));
-    }
-    p.b.eval("document.getElementById('replay-close').click()")?;
-    Ok(scene)
 }
 
 fn saved_cells(p: &mut Player) -> Result<Option<crabsim::cell_codec::Restored>> {
@@ -1099,7 +1143,16 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             guest.b.set_key("KeyD", true)?;
             let route_started = Instant::now();
             while route_started.elapsed().as_secs() < 180 {
-                guest.b.hold_key("Space", 0.9)?;
+                // Swim over the shelf without repeatedly accelerating upward
+                // through thousands of pixels while a slow runner catches up.
+                let (_, height) = local_position(&mut guest)?;
+                if height < 200.0 {
+                    guest.b.hold_key("Space", 0.9)?;
+                } else if height > 450.0 {
+                    guest.b.hold_key("ArrowDown", 0.9)?;
+                } else {
+                    sleep(0.9);
+                }
                 sleep(0.15);
                 host.healthy()?;
                 guest.healthy()?;
@@ -1121,12 +1174,13 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 ));
             }
             guest.b.set_key("ArrowDown", true)?;
-            guest.until(90.0, "guest lands on far substrate", |p| {
+            let landed = guest.until(90.0, "guest lands on far substrate", |p| {
                 p.b.attr("data-crab")
                     .is_some_and(|v| v.split_whitespace().last() == Some("1"))
                     && local_position(p).is_ok_and(|(_, y)| y < 100.0)
                     && p.b.attr("data-cell-region-state").as_deref() == Some("running")
-            })?;
+            });
+            landed.map_err(|why| format!("{why}; {}", region_status(&mut guest)))?;
             guest.b.set_key("ArrowDown", false)?;
             if name == "cells-region-save" {
                 // The owner's normal solo window reaches x2560. Put this
@@ -1266,19 +1320,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')",
             )?;
             sleep(1.5);
-            for p in [&mut host, &mut guest] {
-                p.b.eval(
-                    "document.getElementById('crabscape').setAttribute('data-want-cell-hash','1')",
-                )?;
-            }
-            sleep(0.3);
-            let h = host.b.attr("data-cell-session-hash");
-            let g = guest.b.attr("data-cell-session-hash");
-            if h.is_none() || h != g {
-                return Err(format!(
-                    "reunited regions disagree: host {h:?}, guest {g:?}"
-                ));
-            }
+            let (h, _) = shared_hashes(&mut host, &mut guest)?;
             host.b.eval(
                 "document.getElementById('crabscape').removeAttribute('data-cell-session-pause')",
             )?;
@@ -1337,20 +1379,13 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 "document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')",
             )?;
             sleep(1.5);
-            for p in [&mut host, &mut guest] {
-                p.b.eval(
-                    "document.getElementById('crabscape').setAttribute('data-want-cell-hash','1')",
-                )?;
-            }
-            sleep(0.5);
-            let h = host.b.attr("data-cell-session-hash");
-            let g = guest.b.attr("data-cell-session-hash");
+            let (h, g) = shared_hashes(&mut host, &mut guest)?;
             eprintln!(
                 "cells-session after controls: host {}, guest {}",
                 region_status(&mut host),
                 region_status(&mut guest)
             );
-            if h.is_none() || h != g {
+            if h != g {
                 return Err(
                     host.failed(format!("cellular state mismatch: host {h:?}, guest {g:?}"))
                 );
@@ -1381,7 +1416,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 }
             }
             let replayed = format!("{}:{:016x}", played.tick_count(), played.state_hash());
-            if Some(replayed.as_str()) != h.as_deref() || replay.hash != Some(played.state_hash()) {
+            if replayed != h || replay.hash != Some(played.state_hash()) {
                 return Err(format!(
                     "browser/native session replay mismatch: browser {h:?}, native {replayed}"
                 ));
