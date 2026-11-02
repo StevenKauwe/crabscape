@@ -27,9 +27,31 @@ struct Chunk {
 
 /// One active reference-sized area stored as separately owned chunks.
 /// The final chunk row is padded; padded cells are never simulated or exposed.
+#[cfg(test)]
+type JournalMaterial = (Cell, u8, u8, u16);
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq)]
+struct MaterialEvent {
+    a: (usize, usize),
+    b: (usize, usize),
+    old_a: JournalMaterial,
+    old_b: JournalMaterial,
+}
+#[cfg(test)]
+#[derive(Clone, Debug, Default, PartialEq)]
+struct MaterialJournal {
+    events: Vec<MaterialEvent>,
+    overflow: bool,
+    unsupported: bool,
+}
+#[cfg(test)]
+const MATERIAL_JOURNAL_LIMIT: usize = 65_536;
+
 #[derive(Clone, PartialEq)]
 pub struct ChunkFlow {
     chunks: Vec<Chunk>,
+    #[cfg(test)]
+    material_journal: Option<MaterialJournal>,
     game: bool,
     origin: (i32, i32),
     tick: u64,
@@ -152,6 +174,8 @@ impl ChunkFlow {
         Self::copy_from_world(&mut chunks, world);
         Self {
             chunks,
+            #[cfg(test)]
+            material_journal: None,
             game: world.game,
             origin: world.origin,
             tick: world.tick,
@@ -266,6 +290,19 @@ impl ChunkFlow {
             self.chunks[b].suspended[bi],
             self.chunks[b].owner[bi],
         );
+        #[cfg(test)]
+        if let Some(journal) = &mut self.material_journal {
+            if journal.events.len() == MATERIAL_JOURNAL_LIMIT {
+                journal.overflow = true;
+            } else {
+                journal.events.push(MaterialEvent {
+                    a: (a, ai),
+                    b: (b, bi),
+                    old_a: old,
+                    old_b: new,
+                });
+            }
+        }
         (
             self.chunks[a].cells[ai],
             self.chunks[a].grain[ai],
@@ -280,6 +317,35 @@ impl ChunkFlow {
         ) = old;
     }
 
+    /// Experimental exact replay of material swaps only. This is not a world
+    /// journal: it excludes flow, particles, pebbles, clocks and streaming.
+    #[cfg(test)]
+    fn replay_material_journal(&mut self, journal: &MaterialJournal) -> bool {
+        if journal.overflow || journal.unsupported || journal.events.len() > MATERIAL_JOURNAL_LIMIT
+        {
+            return false;
+        }
+        let mut next = self.clone();
+        next.material_journal = None;
+        for event in &journal.events {
+            let current = |location: (usize, usize)| -> Option<JournalMaterial> {
+                let chunk = next.chunks.get(location.0)?;
+                Some((
+                    *chunk.cells.get(location.1)?,
+                    *chunk.grain.get(location.1)?,
+                    *chunk.suspended.get(location.1)?,
+                    *chunk.owner.get(location.1)?,
+                ))
+            };
+            if current(event.a) != Some(event.old_a) || current(event.b) != Some(event.old_b) {
+                return false;
+            }
+            next.swap_material(event.a, event.b);
+        }
+        *self = next;
+        true
+    }
+
     fn signed_location(x: i32, y: i32) -> Option<(usize, usize)> {
         (x >= 0 && x < WIDTH as i32 && y >= 0 && y < HEIGHT as i32)
             .then(|| Self::locate(x as usize, y as usize))
@@ -289,6 +355,10 @@ impl ChunkFlow {
         let strength = (vx * vx + vy * vy).sqrt().min(2.0);
         if strength < 0.05 {
             return;
+        }
+        #[cfg(test)]
+        if let Some(journal) = &mut self.material_journal {
+            journal.unsupported = true;
         }
         let cx = x as i32;
         let cy = y as i32;
@@ -326,7 +396,12 @@ impl ChunkFlow {
             return;
         }
         #[cfg(test)]
-        super::dirty_oracle::mark_global();
+        {
+            super::dirty_oracle::mark_global();
+            if let Some(journal) = &mut self.material_journal {
+                journal.unsupported = true;
+            }
+        }
         for n in 0..6 {
             let angle = libm::sinf(self.tick as f32 * 0.37 + n as f32 * 2.4);
             self.silt.push(Silt {
@@ -1342,7 +1417,12 @@ impl ChunkFlow {
             }
         }
         #[cfg(test)]
-        super::dirty_oracle::mark_global();
+        {
+            super::dirty_oracle::mark_global();
+            if let Some(journal) = &mut self.material_journal {
+                journal.unsupported = true;
+            }
+        }
         self.pebbles[id as usize - 1].x += dx;
         self.pebbles[id as usize - 1].y += dy;
         true
@@ -1486,7 +1566,12 @@ impl ChunkFlow {
             }
         }
         #[cfg(test)]
-        super::dirty_oracle::mark_global();
+        {
+            super::dirty_oracle::mark_global();
+            if let Some(journal) = &mut self.material_journal {
+                journal.unsupported = true;
+            }
+        }
         self.pebbles[id as usize - 1].x += dx;
         self.pebbles[id as usize - 1].y += dy;
         self.pebble_motion.resize(self.pebbles.len(), (0, 0, 0));
@@ -2578,6 +2663,7 @@ mod tests {
         reference.set_game_crab(64.0, 64.0, 3.0, 3.0);
         reference.cells[World::index(68, 64).unwrap()] = Cell::Sand;
         let mut chunked = ChunkFlow::from_world(&reference);
+        chunked.material_journal = Some(MaterialJournal::default());
         let before = chunked.clone();
         assert_eq!(
             chunked.push_for_crab(68.0, 64.0, 1, 0, 0),
@@ -3576,6 +3662,123 @@ mod tests {
         let chunked_ms = start.elapsed().as_secs_f64() * 50.0;
         eprintln!(
             "guarded mud fixture, including reset clone: contiguous {contiguous_ms:.2} ms/step, chunked {chunked_ms:.2} ms/step"
+        );
+    }
+    #[test]
+    fn mutation_time_material_journal_replays_and_rejects_corruption_atomically() {
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 1; // This fixture excludes silt and flow writes.
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            let i = World::index(x, 155).unwrap();
+            world.cells[i] = if x % 2 == 0 { Cell::Sand } else { Cell::Mud };
+            world.grain[i] = 17 + x as u8;
+        }
+        let mut host = ChunkFlow::from_world(&world);
+        host.material_journal = Some(MaterialJournal::default());
+        assert_eq!(host.push_for_crab(63.0, 154.0, 0, 1, 48), Ok(true));
+        let journal = host.material_journal.take().unwrap();
+        assert!(!journal.events.is_empty());
+        assert!(!journal.overflow);
+        let mut guest = ChunkFlow::from_world(&world);
+        assert!(guest.replay_material_journal(&journal));
+        assert!(
+            guest == host,
+            "complete chunk state must agree in this restricted fixture"
+        );
+        let mut saturated = ChunkFlow::from_world(&world);
+        saturated.material_journal = Some(MaterialJournal {
+            events: vec![journal.events[0].clone(); MATERIAL_JOURNAL_LIMIT],
+            overflow: false,
+            unsupported: false,
+        });
+        let first = &journal.events[0];
+        saturated.swap_material(first.a, first.b);
+        assert!(saturated.material_journal.as_ref().unwrap().overflow);
+        assert_eq!(
+            saturated.material_journal.as_ref().unwrap().events.len(),
+            MATERIAL_JOURNAL_LIMIT
+        );
+        let mut incomplete = journal.clone();
+        incomplete.events.pop();
+        let mut unchecked = ChunkFlow::from_world(&world);
+        if unchecked.replay_material_journal(&incomplete) {
+            assert!(
+                unchecked != host,
+                "omitted final swap requires an independent full-state check"
+            );
+        }
+        let mut bad = journal.clone();
+        bad.events[0].old_a.1 ^= 1;
+        let mut guest = ChunkFlow::from_world(&world);
+        let untouched = guest.clone();
+        assert!(!guest.replay_material_journal(&bad));
+        assert!(guest == untouched);
+        bad = journal;
+        bad.overflow = true;
+        assert!(!guest.replay_material_journal(&bad));
+        assert!(guest == untouched);
+        let mut phase_zero = world.clone();
+        phase_zero.tick = 0;
+        let mut with_wake = ChunkFlow::from_world(&phase_zero);
+        with_wake.material_journal = Some(MaterialJournal::default());
+        assert_eq!(with_wake.push_for_crab(63.0, 154.0, 0, 1, 48), Ok(true));
+        let journal = with_wake.material_journal.take().unwrap();
+        assert!(journal.unsupported);
+        let mut guest = ChunkFlow::from_world(&phase_zero);
+        let untouched = guest.clone();
+        assert!(!guest.replay_material_journal(&journal));
+        assert!(guest == untouched);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual release-mode performance measurement"]
+    fn mutation_time_material_journal_profile() {
+        use std::time::Instant;
+        let mut world = World::new();
+        world.cells.fill(Cell::Water);
+        world.pebble_owner.fill(0);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.tick = 1;
+        world.set_game_crab(63.0, 150.0, 3.0, 2.0);
+        for x in 61..=65 {
+            let i = World::index(x, 155).unwrap();
+            world.cells[i] = Cell::Sand;
+        }
+        let initial = ChunkFlow::from_world(&world);
+        let mut baseline = Vec::new();
+        let mut recording = Vec::new();
+        let mut replay = Vec::new();
+        let mut count = 0;
+        for _ in 0..20 {
+            let mut host = initial.clone();
+            let start = Instant::now();
+            assert_eq!(host.push_for_crab(63.0, 154.0, 0, 1, 48), Ok(true));
+            baseline.push(start.elapsed());
+            let mut host = initial.clone();
+            host.material_journal = Some(MaterialJournal::default());
+            let start = Instant::now();
+            assert_eq!(host.push_for_crab(63.0, 154.0, 0, 1, 48), Ok(true));
+            recording.push(start.elapsed());
+            let journal = host.material_journal.take().unwrap();
+            count = journal.events.len();
+            let mut guest = initial.clone();
+            let start = Instant::now();
+            assert!(guest.replay_material_journal(&journal));
+            replay.push(start.elapsed());
+            assert!(guest == host);
+        }
+        baseline.sort_unstable();
+        recording.sort_unstable();
+        replay.sort_unstable();
+        eprintln!(
+            "material scoop baseline {:?}, mutation journal {:?}, verified replay {:?}; {} events, n=20; excludes full digest, transport and World/actor work",
+            baseline[10], recording[10], replay[10], count
         );
     }
 }
