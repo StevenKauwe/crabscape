@@ -22,6 +22,55 @@ pub struct CaptureIndex {
     sleeping: Vec<(i32, i32)>,
     parts: Vec<Part>,
 }
+trait ChunkPages {
+    fn tick(&self) -> u64;
+    fn active_dimensions(&self) -> (usize, usize);
+    fn sleeping_ids(&self) -> Vec<(i32, i32)>;
+    fn metadata(&self) -> Result<Vec<u8>, CaptureError>;
+    fn active(&self, x: usize, y: usize) -> Result<Vec<u8>, CaptureError>;
+    fn sleeping(&self, id: (i32, i32)) -> Result<Vec<u8>, CaptureError>;
+}
+impl ChunkPages for FrozenChunks {
+    fn tick(&self) -> u64 {
+        self.tick()
+    }
+    fn active_dimensions(&self) -> (usize, usize) {
+        self.active_dimensions()
+    }
+    fn sleeping_ids(&self) -> Vec<(i32, i32)> {
+        self.sleeping_ids().collect()
+    }
+    fn metadata(&self) -> Result<Vec<u8>, CaptureError> {
+        self.metadata()
+    }
+    fn active(&self, x: usize, y: usize) -> Result<Vec<u8>, CaptureError> {
+        self.active(x, y)
+    }
+    fn sleeping(&self, id: (i32, i32)) -> Result<Vec<u8>, CaptureError> {
+        self.sleeping(id)
+    }
+}
+impl ChunkPages for PausedChunks<'_> {
+    fn tick(&self) -> u64 {
+        self.tick()
+    }
+    fn active_dimensions(&self) -> (usize, usize) {
+        self.active_dimensions()
+    }
+    fn sleeping_ids(&self) -> Vec<(i32, i32)> {
+        self.sleeping_ids().collect()
+    }
+    fn metadata(&self) -> Result<Vec<u8>, CaptureError> {
+        self.metadata()
+    }
+    fn active(&self, x: usize, y: usize) -> Result<Vec<u8>, CaptureError> {
+        self.active(x, y)
+    }
+    fn sleeping(&self, id: (i32, i32)) -> Result<Vec<u8>, CaptureError> {
+        self.sleeping(id)
+    }
+}
+
 impl CaptureIndex {
     /// Derive the index from the same frozen world as all page bytes. The
     /// caller must capture player state at `sim_tick` in that same epoch.
@@ -33,13 +82,30 @@ impl CaptureIndex {
         player: &[u8],
         hash: Digest,
     ) -> Result<Self, LazyError> {
+        Self::capture_pages(world, sim_tick, player, hash)
+    }
+    /// Index the same immutable paused borrow that supplies subsequent pages.
+    pub fn capture_paused(
+        world: &PausedChunks<'_>,
+        sim_tick: u64,
+        player: &[u8],
+        hash: Digest,
+    ) -> Result<Self, LazyError> {
+        Self::capture_pages(world, sim_tick, player, hash)
+    }
+    fn capture_pages(
+        world: &impl ChunkPages,
+        sim_tick: u64,
+        player: &[u8],
+        hash: Digest,
+    ) -> Result<Self, LazyError> {
         if sim_tick > u64::MAX - 1_000_000 {
             return Err(LazyError::Invalid);
         }
         if player.len() > MAX_PLAYER {
             return Err(LazyError::TooLarge);
         }
-        let sleeping: Vec<_> = world.sleeping_ids().collect();
+        let sleeping = world.sleeping_ids();
         if sleeping.len() > MAX_SLEEPING {
             return Err(LazyError::TooLarge);
         }

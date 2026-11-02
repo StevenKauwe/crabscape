@@ -1310,18 +1310,17 @@ fn prepare_migration(
 ) -> Result<
     (
         Vec<u8>,
-        crabsim::underwater::frozen_chunks::FrozenChunks,
+        crabsim::underwater::frozen_chunks::PausedChunks<'_>,
         crabsim::underwater::frozen_chunks::CaptureIndex,
     ),
     String,
 > {
     use crabsim::underwater::frozen_chunks::{
-        CaptureIndex, FrozenChunks, GuardedBuilder, IndexVerifier, SavedSetup,
+        CaptureIndex, GuardedBuilder, IndexVerifier, PausedChunks, SavedSetup,
     };
     let player = serde_json::to_vec(&saved.player).map_err(|e| e.to_string())?;
-    let frozen = FrozenChunks::capture(&saved.terrain, 64 * 1024 * 1024)
-        .map_err(|e| format!("capture: {e:?}"))?;
-    let index = CaptureIndex::capture(&frozen, saved.sim_tick, &player, digest)
+    let frozen = PausedChunks::new(&saved.terrain).map_err(|e| format!("capture: {e:?}"))?;
+    let index = CaptureIndex::capture_paused(&frozen, saved.sim_tick, &player, digest)
         .map_err(|e| format!("index: {e:?}"))?;
     let metadata = frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?;
     let mut verifier = IndexVerifier::new(

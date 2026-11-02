@@ -285,3 +285,24 @@ position is rejected with both source and prior target untouched. This
 conservative validation can reject otherwise valid saves outside its active
 window or above its 256 sleeping-page hydration limit; it retains multiple world
 copies and is not a bounded-memory production migration.
+
+The isolated migrator now holds a `PausedChunks` immutable borrow of the decoded
+world while building the index and staging pages. This prevents mutation of that
+world during the async operation without making a second frozen terrain copy.
+Native tests compare every encoded active/sleeping page and the index with the
+owned snapshot, and a compile-fail test checks the borrow cannot outlive a
+mutation. In one native allocator probe of 120 sleeping chunks, borrowed view plus
+index added a 126,260-byte peak, versus 11,007,339 bytes for owned snapshot plus
+index. These figures exclude the original world, decoding, validation/reconstruction,
+allocator overhead outside the probe, JS/IndexedDB and the game; they are not a
+whole-process or mobile bound. Pausing is necessary for this view, and normal
+live autosaving remains on the existing path. The migration proof still holds
+several full world copies for decoding and candidate validation.
+
+The separate proof databases do not give source reset and destination publish a
+shared atomic fence. A source reset between reading and destination publication
+can therefore leave a stale migrated destination; checking the source epoch just
+before publication still leaves a race. Live migration needs one authoritative
+reset epoch that both operations can enforce atomically, or an independently
+proved cross-database coordination protocol. The current experiment must not be
+used to claim cross-database reset safety.
