@@ -115,13 +115,21 @@ fn queue(
 ) -> JoinHandle<Result<(), String>> {
     let generation = GENERATION.load(Ordering::SeqCst);
     std::thread::spawn(move || {
-        let bytes = super::encode(&player, &world, tick).map_err(|e| format!("{e:?}"))?;
+        let bytes = encode_snapshot(&player, &world, tick).map_err(|e| format!("{e:?}"))?;
         let _guard = GATE.lock().map_err(|e| e.to_string())?;
         if GENERATION.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
         super::write_atomic(&path, &bytes).map_err(|e| e.to_string())
     })
+}
+
+fn encode_snapshot(player: &SaveData, world: &World, tick: u64) -> Result<Vec<u8>, super::Error> {
+    if tick == 0 {
+        super::encode(player, world, tick)
+    } else {
+        super::v2::prepare(player, world, tick).and_then(super::v2::PreparedSave::encode)
+    }
 }
 
 /// Invalidate pending background writes before removing the old save.
@@ -419,6 +427,19 @@ mod tests {
             panic!("verified token lost during startup")
         };
         assert!(after.start_recording_with_verified_terrain(&token));
+        // The background writer's exact encoder must keep the v2 format;
+        // otherwise the next load silently loses the fast replay token.
+        let next = encode_snapshot(&player, after.level.cells.as_ref().unwrap(), 18).unwrap();
+        assert!(next.starts_with(b"CRABCEL2"));
+        super::super::write_atomic(&path, &next).unwrap();
+        let mut reloaded = sim();
+        let mut next_state = Storage::default();
+        assert!(load_path(&mut reloaded, &mut next_state, &path).is_some());
+        assert_eq!(reloaded.tick_count(), 18);
+        assert!(matches!(
+            next_state.take_replay_start(),
+            ReplayStart::Verified(_)
+        ));
         std::fs::remove_file(path).unwrap();
     }
 
