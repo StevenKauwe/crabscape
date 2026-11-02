@@ -420,8 +420,8 @@ impl World {
                         };
                         world.flow[i] = if world.cells[i] == Cell::Water {
                             (
-                                0.35 + (y as f32 * 0.055).sin() * 0.375
-                                    + (y as f32 * 0.021).sin() * 0.15,
+                                0.35 + libm::sinf(y as f32 * 0.055) * 0.375
+                                    + libm::sinf(y as f32 * 0.021) * 0.15,
                                 0.0,
                             )
                         } else {
@@ -1251,7 +1251,7 @@ impl World {
         };
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
-                let floor = (48.0 + (x as f32 * 0.015).sin() * 12.0) as usize;
+                let floor = (48.0 + libm::sinf(x as f32 * 0.015) * 12.0) as usize;
                 let rock = x == 0
                     || x == WIDTH - 1
                     || y == 0
@@ -1921,7 +1921,7 @@ impl World {
             return;
         }
         for n in 0..6 {
-            let angle = (self.tick as f32 * 0.37 + n as f32 * 2.4).sin();
+            let angle = libm::sinf(self.tick as f32 * 0.37 + n as f32 * 2.4);
             self.silt.push(Silt {
                 x: x + angle * 3.0,
                 y: y + n as f32 * 0.4,
@@ -2121,8 +2121,8 @@ impl World {
             let time = self.tick as f32;
             let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
             let shear = if self.game {
-                (world_y * 0.055 + time * 0.006).sin() * 0.375
-                    + (world_y * 0.021 - time * 0.0027).sin() * 0.15
+                libm::sinf(world_y * 0.055 + time * 0.006) * 0.375
+                    + libm::sinf(world_y * 0.021 - time * 0.0027) * 0.15
             } else {
                 0.0
             };
@@ -2136,8 +2136,8 @@ impl World {
                 // retaining its overall direction and stable boundaries.
                 let t = self.tick as f32 * 0.018;
                 let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
-                let eddy = (world_x * 0.047 + world_y * 0.023 + t).sin();
-                let cross = (world_x * 0.027 - world_y * 0.041 - t * 0.7).sin();
+                let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
+                let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
                 let feed = if self.game { 0.12 } else { 0.035 };
                 let mut vx = (current + shear + eddy * 0.08) * feed;
                 let mut vy = cross * 0.002;

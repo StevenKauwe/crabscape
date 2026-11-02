@@ -36,11 +36,13 @@ SCRIPTS
 # Cellular replay also depends on sediment and flow, not just crab motion.
 # Keep this short: the state hash covers the full active and streamed world.
 cell_script='world cells; t=0 walk=right dig=on down=on; t=1 down=off dig_up=on; t=1.5 dig=off dig_up=off'
-ha=$($native --script "$cell_script" --seconds 2 | grep '^state hash')
-hb=$($wasm --script "$cell_script" --seconds 2 | grep '^state hash')
-if [ "$ha" != "$hb" ]; then
-  echo "DIFFERENT cellular world: native $ha; wasm $hb" >&2
-  exit 1
-fi
-echo "same cellular world: $ha"
+for tick_count in 1 4 60 240; do
+  ha=$($native --script "$cell_script" --ticks "$tick_count" | grep '^state hash')
+  hb=$($wasm --script "$cell_script" --ticks "$tick_count" | grep '^state hash')
+  if [ "$ha" != "$hb" ]; then
+    echo "DIFFERENT cellular world at tick $tick_count: native $ha; wasm $hb" >&2
+    exit 1
+  fi
+  echo "same cellular world at tick $tick_count: $ha"
+done
 echo "native and wasm agree"
