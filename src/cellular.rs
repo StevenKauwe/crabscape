@@ -30,7 +30,7 @@ pub fn enabled() -> bool {
     }
 }
 
-/// The cellular draft and the mobile camera-fix preview default to the
+/// The cellular drafts and the mobile camera-fix preview default to the
 /// experiment. The live site and other previews keep their usual default.
 #[cfg(any(test, target_arch = "wasm32"))]
 fn browser_cells_enabled(path: &str, search: &str) -> bool {
@@ -41,7 +41,7 @@ fn browser_cells_enabled(path: &str, search: &str) -> bool {
     explicit
         || path
             .split('/')
-            .any(|part| matches!(part, "pr-345" | "pr-350"))
+            .any(|part| matches!(part, "pr-345" | "pr-350" | "pr-352"))
 }
 
 #[cfg(test)]
@@ -53,6 +53,7 @@ mod tests {
         assert!(browser_cells_enabled("/crabscape/pr-345/", ""));
         assert!(browser_cells_enabled("/crabscape/pr-345", "?zoom=2"));
         assert!(browser_cells_enabled("/crabscape/pr-350/", ""));
+        assert!(browser_cells_enabled("/crabscape/pr-352/", ""));
         assert!(!browser_cells_enabled("/crabscape/pr-3450/", ""));
         assert!(!browser_cells_enabled("/crabscape/", ""));
         assert!(!browser_cells_enabled("/crabscape/pr-346/", ""));
