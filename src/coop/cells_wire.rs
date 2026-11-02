@@ -6,6 +6,12 @@ const PREFIX: &[u8] = b"CSIM1";
 pub(crate) use crabsim::replay::CellSessionTick as Tick;
 #[derive(Serialize, Deserialize)]
 pub(crate) enum RegionMsg {
+    NeedRegion {
+        region: u64,
+        epoch: u64,
+        tick: u64,
+        pos: [f32; 2],
+    },
     Actions(Vec<CellsAction>),
     CheckpointBegin {
         transfer: u64,

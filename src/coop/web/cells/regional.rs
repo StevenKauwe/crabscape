@@ -15,6 +15,7 @@ enum Stage {
     Sending,
     Running,
     WaitingStop,
+    WaitingOwner,
     Stopping,
     Stopped,
 }
@@ -100,6 +101,21 @@ fn near_edge(b: CellRegion, p: Vec2) -> bool {
         || x > (b.x + b.width as i32) as f32 - 64.0
         || y < b.y as f32 + 64.0
         || y > (b.y + b.height as i32) as f32 - 64.0
+}
+fn needs_change(r: &State, sim: &Sim, guest_id: PlayerId) -> Result<bool, String> {
+    let host = point(sim, HOST)?;
+    let guest = if r.shared {
+        point(sim, guest_id)?
+    } else {
+        r.guest_pos.ok_or("Missing visitor position")?
+    };
+    let separate = !share_region(host, guest, r.shared)?;
+    let b = bounds(sim)?;
+    Ok(if r.shared {
+        separate || near_edge(b, host) || near_edge(b, guest)
+    } else {
+        !separate || near_edge(b, host) || r.remote_bounds.is_some_and(|b| near_edge(b, guest))
+    })
 }
 
 pub(super) fn boot(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
@@ -390,6 +406,27 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
         {
             return Ok(());
         }
+        // An authority knows its position before a remote browser can. Check
+        // at each complete input batch, including catch-up frames and dives.
+        if local == HOST && needs_change(r, sim, s.guest.ok_or("Missing visitor")?)? {
+            request_stop(s, r, sim);
+            return Ok(());
+        }
+        if local != HOST && near_edge(bounds(sim)?, point(sim, local)?) {
+            let k = r.kernel.as_ref().ok_or("Missing regional kernel")?;
+            let p = point(sim, local)?;
+            send(
+                s,
+                RegionMsg::NeedRegion {
+                    region: k.id.0,
+                    epoch: k.epoch.0,
+                    tick: sim.tick_count(),
+                    pos: [p.x, p.y],
+                },
+            );
+            r.stage = Stage::WaitingOwner;
+            return Ok(());
+        }
         if local == HOST
             && s.actions
                 .iter()
@@ -504,6 +541,27 @@ fn receive_inner(
     msg: RegionMsg,
 ) -> Result<(), String> {
     match msg {
+        RegionMsg::NeedRegion {
+            region,
+            epoch,
+            tick,
+            pos,
+        } if local == HOST && !r.shared => {
+            let journal = r
+                .owner
+                .as_ref()
+                .and_then(|o| o.remote.as_ref())
+                .ok_or("Missing delegated history")?;
+            if region != journal.id().0
+                || epoch != journal.epoch().0
+                || tick != journal.acknowledged_tick()
+                || !pos.iter().all(|v| v.is_finite())
+            {
+                return Err("Invalid regional boundary request".into());
+            }
+            r.guest_pos = Some(Vec2::new(pos[0], pos[1]));
+            request_stop(s, r, sim);
+        }
         RegionMsg::Actions(actions) if local != HOST => {
             if actions.len() + s.actions.len() > 32 {
                 return Err("Too many regional actions".into());
@@ -723,7 +781,9 @@ fn receive_inner(
             }
             r.applied = tick;
         }
-        RegionMsg::Stop { tick, shared } if local != HOST && r.stage == Stage::Running => {
+        RegionMsg::Stop { tick, shared }
+            if local != HOST && matches!(r.stage, Stage::Running | Stage::WaitingOwner) =>
+        {
             if shared != r.shared || (shared && tick < sim.tick_count()) {
                 return Err("Invalid regional stop".into());
             }
@@ -823,7 +883,7 @@ fn update_inner(
                 Stage::Running => "running",
                 Stage::Sending => "sending",
                 Stage::Receiving => "receiving",
-                Stage::WaitingStop | Stage::Stopping => "stopping",
+                Stage::WaitingStop | Stage::WaitingOwner | Stage::Stopping => "stopping",
                 Stage::Stopped => "stopped",
             },
         );
@@ -848,20 +908,7 @@ fn update_inner(
             .map_err(fault)?;
     }
     if local == HOST && r.stage == Stage::Running && r.partial.is_empty() {
-        let host = point(sim, HOST)?;
-        let guest = if r.shared {
-            point(sim, s.guest.ok_or("Missing visitor")?)?
-        } else {
-            r.guest_pos.ok_or("Missing visitor position")?
-        };
-        let separate = !share_region(host, guest, r.shared)?;
-        let b = bounds(sim)?;
-        let change = if r.shared {
-            separate || near_edge(b, host) || near_edge(b, guest)
-        } else {
-            !separate || near_edge(b, host) || r.remote_bounds.is_some_and(|b| near_edge(b, guest))
-        };
-        if change {
+        if needs_change(r, sim, s.guest.ok_or("Missing visitor")?)? {
             request_stop(s, r, sim);
         }
         if r.owner
