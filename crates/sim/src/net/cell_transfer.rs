@@ -224,6 +224,7 @@ impl Receiver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     use proptest::prelude::*;
 
     #[derive(serde::Serialize)]
@@ -325,6 +326,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     proptest! {
         #[test]
         fn arbitrary_packets_do_not_panic(packet in proptest::collection::vec(any::<u8>(), 0..MAX_BYTES + 1)) {
