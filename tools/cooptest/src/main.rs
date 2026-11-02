@@ -45,6 +45,9 @@ cargo cooptest [options]   play co-op in real browsers and check its promises
 mod limit {
     /// Two players meet once both are in the lobby.
     pub const MEET: f64 = 10.0;
+    /// A reloaded friend may need two capped address-gathering passes, plus
+    /// browser scheduling and a stable connection on a busy machine.
+    pub const GUEST_RELOAD: f64 = 15.0;
     /// Back together after the introducer restarted (it drops everyone: they join afresh 5 s later).
     pub const INTRODUCER_BACK: f64 = 15.0;
     /// Voice heard again once together, with the mic on.
@@ -695,7 +698,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             host.b.slow_gathering()?;
             guest.b.slow_gathering()?;
             guest.reload()?;
-            let t = together(&mut [&mut host, &mut guest], limit::MEET)?;
+            let t = together(&mut [&mut host, &mut guest], limit::GUEST_RELOAD)?;
             found.push(format!("back {t:.1} s after the reloaded game started"));
         }
         "host-reload" => {
@@ -1082,6 +1085,7 @@ fn stress(site: &mut Site, seed: u64, steps: usize, voice: bool) -> Result<()> {
         match thing {
             "friend reloads" => {
                 guest.reload()?;
+                limit = limit::GUEST_RELOAD;
             }
             "host reloads" => {
                 host.reload()?;
