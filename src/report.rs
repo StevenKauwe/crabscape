@@ -165,6 +165,26 @@ fn replay_too_large(replay: &str) -> bool {
     serde_json::to_vec(replay).map_or(true, |bytes| bytes.len() > MAX_REPORT_REPLAY)
 }
 
+/// A resumed cellular recording already owns its encoded starting checkpoint.
+/// If that part alone is too large for a report, don't clone the replay,
+/// format its text, or hash the (potentially much larger) running world.
+#[cfg(any(test, target_arch = "wasm32"))]
+fn report_replay(
+    checkpoint_len: Option<usize>,
+    materialize: impl FnOnce() -> Option<String>,
+) -> (String, bool) {
+    // Even an exactly-limit checkpoint needs a replay line around it.
+    if checkpoint_len.is_some_and(|len| len >= MAX_REPORT_REPLAY) {
+        return (String::new(), true);
+    }
+    let replay = materialize().unwrap_or_default();
+    if replay_too_large(&replay) {
+        (String::new(), true)
+    } else {
+        (replay, false)
+    }
+}
+
 /// What the form sends to the introducer (`tools/introducer`'s `Report`):
 /// the voice chat only when the player ticked it and left something in it.
 pub(crate) fn payload(
@@ -357,8 +377,15 @@ mod web {
         {
             facts.push(("Co-op".into(), coop));
         }
-        let replay = sim.recording().map(|r| r.to_text()).unwrap_or_default();
-        let replay_omitted = super::replay_too_large(&replay);
+        let (replay, replay_omitted) = super::report_replay(sim.recording_cell_start_len(), || {
+            sim.recording().map(|r| r.to_text())
+        });
+        if replay_omitted {
+            facts.push((
+                "Replay".into(),
+                "Omitted: the saved terrain checkpoint is too large for a report.".into(),
+            ));
+        }
         with(|f| {
             f.facts = facts;
             f.replay = replay;
@@ -859,6 +886,26 @@ mod tests {
         assert!(replay_too_large(&"\"".repeat(MAX_REPORT_REPLAY / 2 + 1)));
         let small = payload(false, "stuck", &[], "world cells\n", "log", None);
         assert_eq!(small["replay"], "world cells\n");
+    }
+
+    #[test]
+    fn oversized_start_checkpoint_does_not_materialize_or_hash_replay() {
+        let (text, omitted) = report_replay(Some(MAX_REPORT_REPLAY + 1), || {
+            panic!("large checkpoint must be rejected before materializing the replay")
+        });
+        assert!(omitted);
+        assert!(text.is_empty());
+        let (_, omitted) = report_replay(Some(MAX_REPORT_REPLAY), || {
+            panic!("checkpoint at the limit still needs a replay header")
+        });
+        assert!(omitted);
+
+        let (text, omitted) = report_replay(Some(10), || Some("world cells\n".to_owned()));
+        assert!(!omitted);
+        assert_eq!(text, "world cells\n");
+        let (text, omitted) = report_replay(None, || Some("x".repeat(MAX_REPORT_REPLAY + 1)));
+        assert!(omitted);
+        assert!(text.is_empty());
     }
 
     #[test]
