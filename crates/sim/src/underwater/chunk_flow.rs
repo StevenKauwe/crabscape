@@ -99,6 +99,79 @@ fn bounded_journal_events<'de, D: serde::Deserializer<'de>>(
     d.deserialize_seq(Events)
 }
 
+// Diagnostic-only capture for the actual off-material World path. The
+// surrounding real sandbox still uses its full digest as authority.
+#[cfg(test)]
+thread_local! {
+    static SCOOP_CAPTURE: std::cell::RefCell<Option<(Vec<Vec<u8>>, bool)>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+fn capture_active() -> bool {
+    SCOOP_CAPTURE.with_borrow(|slot| slot.is_some())
+}
+#[cfg(test)]
+pub(super) fn reject_scoop_capture() {
+    SCOOP_CAPTURE.with_borrow_mut(|slot| {
+        if let Some((_, failed)) = slot {
+            *failed = true;
+        }
+    });
+}
+#[cfg(test)]
+pub(super) fn capture_staged_scoop(field: &ChunkFlow) {
+    SCOOP_CAPTURE.with_borrow_mut(|slot| {
+        let Some((out, failed)) = slot else {
+            return;
+        };
+        let Some(journal) = &field.material_journal else {
+            *failed = true;
+            return;
+        };
+        if journal.overflow
+            || journal.unsupported
+            || journal.events.len() > WIRE_JOURNAL_EVENTS
+            || out.len() >= 4
+        {
+            *failed = true;
+            return;
+        }
+        let mut bytes = vec![0; 64 * 1024];
+        let Ok(encoded) = postcard::to_slice(journal, &mut bytes) else {
+            *failed = true;
+            return;
+        };
+        let len = encoded.len();
+        bytes.truncate(len);
+        out.push(bytes);
+    });
+}
+/// Diagnostic capture is bounded to four 64 KiB logs. A failed capture does
+/// not roll back the operation; callers must never use it as a verifier.
+/// An enclosing transaction may roll back staged logs; callers must check
+/// that the enclosing operation succeeded before inspecting them.
+#[cfg(test)]
+pub(crate) fn capture_scoop_journals<R>(f: impl FnOnce() -> R) -> Option<(R, Vec<Vec<u8>>)> {
+    if SCOOP_CAPTURE.with_borrow(|slot| slot.is_some()) {
+        return None;
+    }
+    SCOOP_CAPTURE.with_borrow_mut(|slot| *slot = Some((Vec::new(), false)));
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            SCOOP_CAPTURE.with_borrow_mut(|slot| *slot = None);
+        }
+    }
+    let guard = Reset;
+    let result = f();
+    let (entries, failed) = SCOOP_CAPTURE.with_borrow_mut(|slot| slot.take())?;
+    drop(guard);
+    (!failed).then_some((result, entries))
+}
+#[cfg(test)]
+pub(crate) fn captured_scoop_event_count(bytes: &[u8]) -> Option<usize> {
+    decode_test_journal(bytes).map(|j| j.events.len())
+}
+
 #[cfg(test)]
 fn decode_test_journal(bytes: &[u8]) -> Option<MaterialJournal> {
     if bytes.is_empty() || bytes.len() > 64 * 1024 {
@@ -332,7 +405,7 @@ impl ChunkFlow {
         Self {
             chunks,
             #[cfg(test)]
-            material_journal: None,
+            material_journal: capture_active().then(MaterialJournal::default),
             game: world.game,
             origin: world.origin,
             tick: world.tick,

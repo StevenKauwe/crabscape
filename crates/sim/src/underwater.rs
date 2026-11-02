@@ -2711,7 +2711,15 @@ impl World {
         #[cfg(test)]
         dirty_oracle::mark_global();
         let mut next = self.clone();
+        #[cfg(test)]
+        if material {
+            chunk_flow::reject_scoop_capture();
+        }
         next.follow_player(level, host.x, host.y - host.half_height);
+        #[cfg(test)]
+        if next.origin != self.origin || next.opening_edge_opened != self.opening_edge_opened {
+            chunk_flow::reject_scoop_capture();
+        }
         if !next.contains_world(host.x, host.y) {
             return false;
         }
@@ -2812,6 +2820,8 @@ impl World {
                 return false;
             }
         }
+        #[cfg(test)]
+        chunk_flow::capture_staged_scoop(&chunks);
         *self = next;
         true
     }

@@ -1268,11 +1268,22 @@ mod tests {
                         received = Msg::from_bytes(&msg.to_bytes());
                     }
                 });
-                let operation = c
-                    .accept_up(guest_peer, Some(guest_peer), &received.unwrap(), host_up)
-                    .unwrap_or_else(|e| {
-                        panic!("host_up={host_up} guest_up={guest_up} tick={tick} {e:?}")
-                    });
+                let received = received.unwrap();
+                let mut host_journals = None;
+                let result = if tick == 1 {
+                    let (result, journals) =
+                        crate::underwater::chunk_flow::capture_scoop_journals(|| {
+                            c.accept_up(guest_peer, Some(guest_peer), &received, host_up)
+                        })
+                        .expect("off-material capture must be supported");
+                    host_journals = Some(journals);
+                    result
+                } else {
+                    c.accept_up(guest_peer, Some(guest_peer), &received, host_up)
+                };
+                let operation = result.unwrap_or_else(|e| {
+                    panic!("host_up={host_up} guest_up={guest_up} tick={tick} {e:?}")
+                });
                 assert!(
                     operation.reliable() && operation.to_bytes().len() <= crate::net::MAX_BYTES
                 );
@@ -1290,8 +1301,34 @@ mod tests {
                     if matches!(msg, Msg::CellUpFrame { .. }) {
                         assert_eq!((from, to), (0, 1));
                         let decoded = Msg::from_bytes(&msg.to_bytes()).unwrap();
-                        applied =
-                            Some(receiver.apply(&join, sim, host_peer, Some(host_peer), &decoded));
+                        if tick == 1 {
+                            let (result, journals) =
+                                crate::underwater::chunk_flow::capture_scoop_journals(|| {
+                                    receiver.apply(&join, sim, host_peer, Some(host_peer), &decoded)
+                                })
+                                .expect("guest off-material capture must be supported");
+                            let host_journals = host_journals.as_ref().unwrap();
+                            assert_eq!(host_journals.len(), 2);
+                            assert_eq!(journals.len(), 1);
+                            assert_eq!(host_journals[0], host_journals[1]);
+                            assert_eq!(host_journals[0], journals[0]);
+                            assert!(
+                                crate::underwater::chunk_flow::captured_scoop_event_count(
+                                    &journals[0]
+                                )
+                                .unwrap()
+                                    > 0
+                            );
+                            applied = Some(result);
+                        } else {
+                            applied = Some(receiver.apply(
+                                &join,
+                                sim,
+                                host_peer,
+                                Some(host_peer),
+                                &decoded,
+                            ));
+                        }
                     }
                 });
                 assert_eq!(
