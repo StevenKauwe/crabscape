@@ -49,6 +49,11 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
     match read(path) {
         Ok(None) => None,
         Ok(Some(saved)) => {
+            if !super::player_fits_world(sim, &saved.player) {
+                storage.disabled = true;
+                warn!("cellular save has incompatible player data; keeping the old file unchanged");
+                return None;
+            }
             if sim.restore_cellular_terrain(saved.terrain, saved.sim_tick) {
                 Some(saved.player)
             } else {
@@ -227,6 +232,107 @@ mod tests {
         assert!(state.disabled);
         assert_eq!(std::fs::read(&path).unwrap(), b"not a valid cellular save");
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn incompatible_memory_keeps_the_existing_save_and_terrain_untouched() {
+        let path = path("bad-memory");
+        let original = sim();
+        let mut memory = crabsim::Memory::new(&original.level, &original.tuning.memory).to_save();
+        memory.cols += 1;
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: Some(memory),
+            progress: None,
+        };
+        let terrain = World::from_level_settled(&original.level);
+        let bytes = super::super::encode(&player, &terrain, 17).unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut storage = Storage::default();
+        assert!(load_path(&mut restored, &mut storage, &path).is_none());
+        assert!(storage.disabled, "autosaving must not replace the original");
+        assert_eq!(restored.tick_count(), 0);
+        assert!(restored.level.cells.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn incompatible_progress_keeps_the_existing_save_and_terrain_untouched() {
+        let path = path("bad-progress");
+        let original = sim();
+        let mut progress = original.fresh_progress();
+        // A shortened level would otherwise silently discard every collected
+        // egg when restore_progress finds this list too long.
+        progress.eaten.push(true);
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        let terrain = World::from_level_settled(&original.level);
+        let bytes = super::super::encode(&player, &terrain, 17).unwrap();
+        super::super::write_atomic(&path, &bytes).unwrap();
+        let mut restored = sim();
+        let mut storage = Storage::default();
+        assert!(load_path(&mut restored, &mut storage, &path).is_none());
+        assert!(storage.disabled, "autosaving must not replace the original");
+        assert_eq!(restored.tick_count(), 0);
+        assert!(restored.level.cells.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn older_shorter_progress_lists_are_still_compatible() {
+        let sim = sim();
+        let mut progress = sim.fresh_progress();
+        progress.eaten.clear();
+        progress.rocks_cracked.clear();
+        let player = SaveData {
+            version: crate::save::SAVE_VERSION,
+            x: 160.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        assert!(super::super::player_fits_world(&sim, &player));
+    }
+
+    #[test]
+    fn each_progress_component_that_restore_would_drop_is_rejected() {
+        let sim = sim();
+        let base = sim.fresh_progress();
+        let cases: Vec<fn(&mut crabsim::Progress)> = vec![
+            |p| p.eaten.push(true),
+            |p| p.cultures_taken.push(true),
+            |p| p.clues_found.push(true),
+            |p| p.teeth_taken.push(true),
+            |p| p.nets_cut.push(true),
+            |p| p.rocks_cracked.push(true),
+            |p| p.clams.push(1),
+            |p| p.grit_taken.push(true),
+            |p| p.sponges_taken.push(true),
+            |p| p.wakes_at = Some(usize::MAX),
+            |p| p.larder = u32::MAX,
+        ];
+        for invalidate in cases {
+            let mut progress = base.clone();
+            invalidate(&mut progress);
+            let player = SaveData {
+                version: crate::save::SAVE_VERSION,
+                x: 160.0,
+                y: 0.0,
+                memory: None,
+                progress: Some(progress),
+            };
+            assert!(!super::super::player_fits_world(&sim, &player));
+        }
     }
 
     #[test]
