@@ -10,6 +10,9 @@ use crabsim::underwater::{World, WorldCheckpoint};
 
 use crate::save::{SAVE_VERSION, SaveData};
 
+#[cfg(target_arch = "wasm32")]
+pub mod browser;
+
 const MAGIC: &[u8; 8] = b"CRABCEL1";
 const HEADER: usize = 8 + 8 + 4 + 4 + 4;
 /// Bound allocations while reading a damaged or unexpectedly large save.

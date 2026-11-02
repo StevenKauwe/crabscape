@@ -100,6 +100,8 @@ bevy = { version = "0.20.0", default-features = false, features = ["multi_thread
 # under web-sys) for the listener that switches sound on at the first touch.
 web-sys = { version = "0.3", features = [
     "Window", "Storage", "Navigator", "Document", "Element", "Location", "EventTarget",
+    "DomException", "IdbFactory", "IdbDatabase", "IdbOpenDbRequest", "IdbRequest",
+    "IdbObjectStore", "IdbTransaction", "IdbTransactionMode",
     "AudioContext", "BaseAudioContext", "AudioContextState", "AudioBuffer", "AudioBufferSourceNode",
     "AudioScheduledSourceNode", "AudioNode", "AudioDestinationNode", "AudioParam", "GainNode",
     "HtmlAudioElement", "HtmlMediaElement",
