@@ -40,6 +40,18 @@ pub struct ChunkFlow {
     mud_properties: SedimentProperties,
 }
 
+type CellLocation = (usize, usize);
+type CellSwap = (CellLocation, CellLocation);
+type PebbleUndo = (usize, Pebble, Option<(i8, i8, u8)>);
+const MAX_PUSH_SWAPS: usize = 65_536;
+
+#[derive(Default)]
+struct PushJournal {
+    swaps: Vec<CellSwap>,
+    pebbles: Vec<PebbleUndo>,
+    original_motion_len: usize,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SedimentStepError {
     Invalid,
@@ -531,7 +543,14 @@ impl ChunkFlow {
         true
     }
 
-    fn move_pushed_pebble(&mut self, id: u16, dx: i32, dy: i32, force: usize) -> bool {
+    fn move_pushed_pebble(
+        &mut self,
+        id: u16,
+        dx: i32,
+        dy: i32,
+        force: usize,
+        journal: &mut PushJournal,
+    ) -> bool {
         let Some(p) = id
             .checked_sub(1)
             .and_then(|i| self.pebbles.get(i as usize))
@@ -561,6 +580,10 @@ impl ChunkFlow {
                 }
             }
         }
+        let index = id as usize - 1;
+        journal
+            .pebbles
+            .push((index, p, self.pebble_motion.get(index).copied()));
         for row in 0..side {
             for col in 0..side {
                 let ox = if dx > 0 { side - 1 - col } else { col };
@@ -569,6 +592,7 @@ impl ChunkFlow {
                     .expect("source footprint checked above");
                 let to = Self::signed_location(p.x + ox + dx, p.y + oy + dy)
                     .expect("destination footprint checked above");
+                journal.swaps.push((from, to));
                 self.swap_material(from, to);
             }
         }
@@ -594,13 +618,43 @@ impl ChunkFlow {
         if !self.plan_push(id, dx, dy, &mut budget, &mut Vec::new(), &mut plan) {
             return false;
         }
-        let mut next = self.clone();
+        if self.pebble_motion.len() > self.pebbles.len() {
+            return false;
+        }
+        let total_swaps: usize = plan
+            .iter()
+            .map(|&id| {
+                let side = usize::from(self.pebbles[id as usize - 1].side);
+                side * side
+            })
+            .sum();
+        if total_swaps > MAX_PUSH_SWAPS {
+            return false;
+        }
+        let mut journal = PushJournal {
+            original_motion_len: self.pebble_motion.len(),
+            ..PushJournal::default()
+        };
+        if journal.swaps.try_reserve_exact(total_swaps).is_err()
+            || journal.pebbles.try_reserve_exact(plan.len()).is_err()
+        {
+            return false;
+        }
         for pebble in plan {
-            if !next.move_pushed_pebble(pebble, dx, dy, force) {
+            if !self.move_pushed_pebble(pebble, dx, dy, force, &mut journal) {
+                for &(from, to) in journal.swaps.iter().rev() {
+                    self.swap_material(from, to);
+                }
+                for &(index, original, motion) in journal.pebbles.iter().rev() {
+                    self.pebbles[index] = original;
+                    if let Some(motion) = motion {
+                        self.pebble_motion[index] = motion;
+                    }
+                }
+                self.pebble_motion.truncate(journal.original_motion_len);
                 return false;
             }
         }
-        *self = next;
         true
     }
 
@@ -1011,6 +1065,41 @@ mod tests {
     }
 
     #[test]
+    fn late_push_failure_reverts_prior_swaps_and_motion_resize() {
+        for short_motion in [false, true] {
+            let mut world = World::new();
+            world.cells.fill(Cell::Water);
+            world.pebble_owner.fill(0);
+            world.pebbles.clear();
+            world.pebble_motion.clear();
+            world.clear_game_crab();
+            assert!(world.add_pebble(58, 150, 4, 250));
+            assert!(world.add_pebble(62, 150, 4, 251));
+            if short_motion {
+                world.pebble_motion.clear();
+            }
+            let corrupt_source = World::index(58, 150).unwrap();
+            world.pebble_owner[corrupt_source] = 0;
+            world.cells[corrupt_source] = Cell::Water;
+            let mut chunked = ChunkFlow::from_world(&world);
+            let before = chunked.clone();
+            let mut budget = 64;
+            let mut plan = Vec::new();
+            assert!(chunked.plan_push(1, 1, 0, &mut budget, &mut Vec::new(), &mut plan));
+            assert_eq!(plan, vec![2, 1]);
+            let mut probe = chunked.clone();
+            let mut journal = PushJournal::default();
+            assert!(probe.move_pushed_pebble(2, 1, 0, 64, &mut journal));
+            assert!(!probe.move_pushed_pebble(1, 1, 0, 64, &mut journal));
+            assert!(!chunked.push_pebble_chain(1, 1, 0, 64));
+            assert!(
+                chunked == before,
+                "failure after the leading aggregate moved must roll back"
+            );
+        }
+    }
+
+    #[test]
     fn oversized_pebble_chain_is_rejected_without_partial_changes() {
         let mut world = World::new();
         world.cells.fill(Cell::Water);
@@ -1052,8 +1141,17 @@ mod tests {
             assert!(run.push_pebble_chain(1, 1, 0, 64));
             std::hint::black_box(run);
         }
+        let journal_time = start.elapsed();
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut run = chunked.clone();
+            let mut staged = run.clone();
+            assert!(staged.push_pebble_chain(1, 1, 0, 64));
+            run = staged;
+            std::hint::black_box(run);
+        }
         eprintln!(
-            "20 pushes with fixture resets: reference {reference_time:?}; chunked {:?}; chunk field {} bytes",
+            "20 pushes with fixture resets: reference {reference_time:?}; journal {journal_time:?}; extra full clone {:?}; chunk field {} bytes",
             start.elapsed(),
             chunked.field_capacity_bytes()
         );

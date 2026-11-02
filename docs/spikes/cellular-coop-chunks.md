@@ -172,7 +172,12 @@ prototype rejects player reservations, non-cardinal pushes, unlimited force,
 and chains over 256 aggregates; its sediment step still rejects all pebbles.
 It does not implement full pebble stepping, streaming, or gameplay co-op.
 In one desktop release run, 20 pushes with fixture reset clones took 1.84 ms
-for the contiguous reference and 5.36 ms for chunks. Each successful chunk
-push clones the full field for rollback, in addition to the fixture reset;
-the field alone occupies about 3.19 MB, excluding particles, metadata, and
-additional scratch/copies. This is not a phone memory or frame-time result.
+for the contiguous reference and 5.36 ms for chunks. The rollback implementation now journals at most 65,536 cell swaps and 256
+aggregate states rather than cloning the field; allocation failure or exceeding
+the bound rejects the push before mutation. A later desktop run with identical
+fixture resets measured 2.60 ms reference, 2.66 ms journal, and 4.91 ms with
+an added full-field rollback clone for 20 pushes. This small sparse fixture is
+not a phone memory or frame-time result. The chunk field itself occupies about
+3.19 MB excluding particles, metadata, scratch and other copies; the journal
+can add up to about 2 MiB for swaps on a 64-bit platform, plus aggregate
+states and plan storage.
