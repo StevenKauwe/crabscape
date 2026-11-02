@@ -31,7 +31,7 @@ pub async fn read() -> Result<Option<Vec<u8>>, String> {
 
 pub(crate) async fn read_from(database: &str) -> Result<Option<Vec<u8>>, String> {
     let db = Database(open(database).await?);
-    let result = async {
+    async {
         let tx =
             db.0.transaction_with_str_and_mode(STORE, IdbTransactionMode::Readonly)
                 .map_err(|e| problem("open read transaction", e))?;
@@ -53,8 +53,7 @@ pub(crate) async fn read_from(database: &str) -> Result<Option<Vec<u8>>, String>
         }
         Ok(Some(bytes.to_vec()))
     }
-    .await;
-    result
+    .await
 }
 
 /// Store the entire record atomically. A quota error or aborted transaction
@@ -68,7 +67,7 @@ pub(crate) async fn write_to(database: &str, bytes: &[u8]) -> Result<(), String>
         return Err("cellular save is too large".into());
     }
     let db = Database(open(database).await?);
-    let result = async {
+    async {
         let tx =
             db.0.transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
                 .map_err(|e| problem("open write transaction", e))?;
@@ -81,8 +80,7 @@ pub(crate) async fn write_to(database: &str, bytes: &[u8]) -> Result<(), String>
             .map_err(|e| problem("write save", e))?;
         committed(&tx).await
     }
-    .await;
-    result
+    .await
 }
 
 fn problem(operation: &str, error: JsValue) -> String {
