@@ -102,14 +102,14 @@ pub(crate) fn cells_visiting() -> bool {
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn cells_private_save(
     sim: &crabsim::Sim,
-) -> Option<Result<crate::cell_save::v2::PreparedSave, crate::cell_save::Error>> {
+) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
     web::cells::private_save(sim)
 }
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn cells_owner_save(
     sim: &crabsim::Sim,
-) -> Option<Result<crate::cell_save::v2::PreparedSave, crate::cell_save::Error>> {
+) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
     web::cells::owner_save(sim)
 }
 

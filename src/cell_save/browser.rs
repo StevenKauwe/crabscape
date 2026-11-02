@@ -18,6 +18,7 @@ use web_sys::{
 };
 
 mod cleanup_storage;
+mod paged_storage;
 
 const STORE: &str = "world";
 const KEY: &str = "active";
@@ -25,7 +26,6 @@ const EPOCH_KEY: &str = "reset_epoch";
 const STALE_EPOCH: &str = "cellular save was reset in another tab";
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STARTUP_PACKED: usize = 8 * 1024 * 1024;
-const MAX_STARTUP_RAW: usize = 12 * 1024 * 1024;
 const LOAD_TIMEOUT_MS: i32 = 20_000;
 const TOO_LARGE: &str = "saved world is too large to load safely on this device";
 type LoadedSession = Result<(Option<super::Restored>, u64), String>;
@@ -89,21 +89,29 @@ pub fn reserve_save(delta: f32) -> Option<u64> {
     })
 }
 
-/// Refuse oversized/invalid snapshots without touching the last good save.
-pub fn capture_failed(generation: u64) {
+/// Keep the previous save and retry a rejected capture. A transient invalid
+/// position or authority transfer must not disable saving for the session.
+pub fn capture_failed(generation: u64, reason: super::Error) {
     AUTOSAVE.with(|slot| {
         let mut state = slot.borrow_mut();
         if state.generation == generation && state.busy {
             state.busy = false;
-            state.enabled = false;
-            state.warning = Some("This cellular world is too large to save safely on this device. Your previous save is kept; autosave is off.".into());
+            let detail = match reason {
+                super::Error::TooLarge => "The world snapshot exceeds the current save limit.",
+                super::Error::Damaged => "Autosave could not capture a consistent world.",
+                super::Error::Unsupported => "Autosave could not encode this world.",
+            };
+            bevy::log::warn!("cellular snapshot rejected: {reason:?}; retrying");
+            state.warning = Some(format!(
+                "{detail} Your previous save is kept; saving will retry."
+            ));
         }
     });
 }
 
 /// Compress and commit one sealed snapshot. Both the worker response and
 /// asynchronous database open recheck its generation before copying/writing.
-pub fn submit_save(generation: u64, prepared: super::v2::PreparedSave) {
+pub fn submit_save(generation: u64, prepared: super::paged::PreparedSave) {
     if !current_save(generation) {
         return;
     }
@@ -147,28 +155,24 @@ pub fn submit_save(generation: u64, prepared: super::v2::PreparedSave) {
         }
     };
     wasm_bindgen_futures::spawn_local(async move {
-        use super::v2::WorkerEncodeError;
-        let encoded = prepared
-            .encode_in_worker_if_current(&mut worker, || current_save(generation))
-            .await;
-        let (result, permanent) = match encoded {
-            Ok(bytes) => (
-                write_if_current(bytes, epoch, move || current_save(generation))
-                    .await
-                    .map(|_| ()),
-                false,
-            ),
-            Err(WorkerEncodeError::TooLarge) => (
-                Err("cellular save exceeds browser storage limit".into()),
-                true,
-            ),
-            Err(WorkerEncodeError::Cancelled) => (Err("cellular save canceled".into()), false),
-            Err(WorkerEncodeError::Failed(error)) => (Err(error), false),
+        let encoded =
+            paged_storage::encode(prepared, &mut worker, || current_save(generation)).await;
+        let result = match encoded {
+            Ok(Some(value)) => paged_storage::write_if_current(
+                &crate::save::browser_key(".cells"),
+                value,
+                epoch,
+                move || current_save(generation),
+            )
+            .await
+            .map(|_| ()),
+            Ok(None) => Err("cellular save canceled".into()),
+            Err(error) => Err(error),
         };
         window.clear_timeout_with_handle(timer);
         drop(watchdog);
         let worker = result.is_ok().then_some(worker);
-        finish_save(generation, result, worker, permanent);
+        finish_save(generation, result, worker, false);
     });
 }
 
@@ -294,23 +298,12 @@ pub(crate) async fn preload_from(
         )
         .map_err(|e| problem("start loading timeout", e))?;
     wasm_bindgen_futures::spawn_local(async move {
-        let read = read_session_from(&database, MAX_STARTUP_PACKED, settled.clone()).await;
+        let loaded = paged_storage::read_from(&database).await;
         // A timed-out request may finish after the game has started. Never
         // spend a frame decoding it, and never publish its stale result.
         if settled.get() {
             return;
         }
-        let loaded = match read {
-            Ok((Some(bytes), epoch, migrated)) => {
-                if migrated {
-                    decode_for_startup(&bytes).map(|saved| (Some(saved), epoch))
-                } else {
-                    migrate_opening(&database, bytes, epoch, settled.clone()).await
-                }
-            }
-            Ok((None, epoch, _)) => Ok((None, epoch)),
-            Err(error) => Err(error),
-        };
         if !settled.replace(true) {
             *result.borrow_mut() = Some(loaded);
             let _ = resolve.call0(&JsValue::UNDEFINED);
@@ -323,66 +316,6 @@ pub(crate) async fn preload_from(
     completion.map_err(|e| problem("finish loading", e))?;
     let loaded = finished_result.borrow_mut().take();
     loaded.unwrap_or_else(|| Err("cellular save loading did not finish".into()))
-}
-
-async fn migrate_opening(
-    database: &str,
-    bytes: Vec<u8>,
-    epoch: u64,
-    settled: Rc<Cell<bool>>,
-) -> Result<(Option<super::Restored>, u64), String> {
-    let prepared = super::cleanup::PreparedCleanup::from_source(
-        bytes.clone(),
-        epoch,
-        super::cleanup::OPENING_REGION,
-    );
-    // Cleanup is optional: an older valid save must remain playable if the
-    // worker or replay preparation cannot handle it. No writes occurred yet.
-    let ready = match prepared {
-        Ok(prepared) => match crate::cell_worker::CellWorker::new() {
-            Ok(mut worker) => prepared
-                .finish_in_worker(&mut worker, || !settled.get())
-                .await
-                .ok(),
-            Err(_) => None,
-        },
-        Err(_) => None,
-    };
-    let Some(ready) = ready else {
-        return decode_for_startup(&bytes).map(|saved| (Some(saved), epoch));
-    };
-    drop(bytes);
-    let restored = decode_for_startup(ready.candidate())?;
-    let next_epoch = epoch
-        .checked_add(1)
-        .ok_or("cellular reset epoch exhausted")?;
-    let current = settled.clone();
-    if !cleanup_storage::mutate(
-        database,
-        cleanup_storage::Operation::Migrate(ready),
-        move || !current.get(),
-    )
-    .await?
-    {
-        return Err("opening cleanup was canceled".into());
-    }
-    Ok((Some(restored), next_epoch))
-}
-
-fn decode_for_startup(bytes: &[u8]) -> Result<super::Restored, String> {
-    if bytes.len() >= super::HEADER
-        && (bytes.starts_with(super::MAGIC) || bytes.starts_with(super::v2::MAGIC))
-    {
-        let raw_len = u32::from_le_bytes(
-            bytes[20..24]
-                .try_into()
-                .map_err(|_| "invalid save header")?,
-        ) as usize;
-        if raw_len > MAX_STARTUP_RAW {
-            return Err(TOO_LARGE.into());
-        }
-    }
-    super::decode(bytes).map_err(|e| format!("invalid cellular save: {e:?}"))
 }
 
 struct Database(IdbDatabase);

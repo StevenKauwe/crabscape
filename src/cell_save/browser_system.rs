@@ -15,7 +15,8 @@ pub fn save_periodically(
         };
         match crate::coop::cells_private_save(&sim) {
             Some(Ok(prepared)) => super::browser::submit_save(generation, prepared),
-            _ => super::browser::capture_failed(generation),
+            Some(Err(reason)) => super::browser::capture_failed(generation, reason),
+            None => super::browser::capture_failed(generation, super::Error::Damaged),
         }
         return;
     }
@@ -37,13 +38,13 @@ pub fn save_periodically(
     if let Some(owner_save) = crate::coop::cells_owner_save(&sim) {
         match owner_save {
             Ok(prepared) => super::browser::submit_save(generation, prepared),
-            Err(_) => super::browser::capture_failed(generation),
+            Err(reason) => super::browser::capture_failed(generation, reason),
         }
         return;
     }
     let (Some(terrain), Some(mut player)) = (&sim.level.cells, crate::save::snapshot(&sim, *id))
     else {
-        super::browser::capture_failed(generation);
+        super::browser::capture_failed(generation, super::Error::Damaged);
         return;
     };
     // Save the position and world from the same simulation tick; rounding can
@@ -51,11 +52,11 @@ pub fn save_periodically(
     player.x = mover.pos.x;
     player.y = mover.pos.y;
     if !super::player_fits_world(&sim, &player) {
-        super::browser::capture_failed(generation);
+        super::browser::capture_failed(generation, super::Error::Damaged);
         return;
     }
-    match super::v2::prepare_browser(&player, terrain, sim.tick_count()) {
+    match super::paged::prepare(&player, terrain, sim.tick_count()) {
         Ok(prepared) => super::browser::submit_save(generation, prepared),
-        Err(_) => super::browser::capture_failed(generation),
+        Err(reason) => super::browser::capture_failed(generation, reason),
     }
 }

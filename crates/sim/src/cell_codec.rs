@@ -2,6 +2,7 @@
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use crate::underwater::WorldCheckpoint;
 use crate::{SAVE_VERSION, SaveData, VerifiedCellStart, underwater::World};
+pub mod paged;
 const MAGIC: &[u8; 8] = b"CRABCEL1";
 const V2_MAGIC: &[u8; 8] = b"CRABCEL2";
 const HEADER: usize = 28;
@@ -40,6 +41,9 @@ pub enum ReplayStart {
 /// Decode a bounded, complete save. This verifies accidental damage; it is not
 /// an authentication mechanism and must not be used for untrusted peers.
 pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
+    if bytes.starts_with(paged::MAGIC) {
+        return paged::decode(bytes);
+    }
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     if bytes.len() > 8 * 1024 * 1024
         || (bytes.len() >= HEADER

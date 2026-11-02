@@ -132,7 +132,7 @@ pub(crate) fn visiting() -> bool {
 }
 pub(crate) fn private_save(
     visitor: &Sim,
-) -> Option<Result<crate::cell_save::v2::PreparedSave, crate::cell_save::Error>> {
+) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
     SESSION.with(|slot| {
         let s = slot.borrow();
         let solo = s.solo.as_ref()?;
@@ -154,7 +154,7 @@ pub(crate) fn private_save(
         if !crate::cell_save::player_fits_world(solo, &saved) {
             return Some(Err(crate::cell_save::Error::Damaged));
         }
-        Some(crate::cell_save::v2::prepare_browser(
+        Some(crate::cell_save::paged::prepare(
             &saved,
             solo.level.cells.as_ref()?,
             solo.tick_count(),
@@ -166,7 +166,7 @@ pub(crate) fn private_save(
 /// accepted visitor checkpoint, without replaying the visitor's journal.
 pub(crate) fn owner_save(
     view: &Sim,
-) -> Option<Result<crate::cell_save::v2::PreparedSave, crate::cell_save::Error>> {
+) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
     use crate::cell_save::Error;
     SESSION.with(|slot| {
         let mut session = slot.borrow_mut();

@@ -1,6 +1,6 @@
 //! Build an owner's whole-world save from its current local region and the
 //! latest acknowledged remote checkpoint. No network journal is replayed here.
-use super::{Error, v2};
+use super::{Error, paged};
 use crabsim::{
     Sim,
     underwater::region_store::{RegionEpoch, RegionId, TerrainStore},
@@ -14,7 +14,7 @@ pub(crate) fn prepare_owner_save(
     local_id: RegionId,
     local_epoch: RegionEpoch,
     remote: Option<&RegionKernel>,
-) -> Result<v2::PreparedSave, Error> {
+) -> Result<paged::PreparedSave, Error> {
     let local_terrain = view.level.cells.as_ref().ok_or(Error::Damaged)?;
     terrain
         .commit(local_id, local_epoch, local_terrain)
@@ -49,7 +49,7 @@ pub(crate) fn prepare_owner_save(
     snapshot
         .restore_default_window(&entities.sim.level, host.mover.pos.x, host.mover.pos.y)
         .map_err(|_| Error::Damaged)?;
-    v2::prepare_browser(&saved, &snapshot, tick)
+    paged::prepare(&saved, &snapshot, tick)
 }
 
 #[cfg(test)]
