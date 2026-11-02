@@ -188,9 +188,16 @@ reset/import fences and detection of an external overwrite.
 The focused proof also closes and reloads its document before checking v1 and
 v2 candidate, backup, marker and replay bytes, then directly restores the saved
 player and plays the stored replay. A clean, isolated desktop Chrome build
-reported 70,582,272 bytes of Wasm linear-memory capacity in the verification
-document. This is not total process peak memory or a phone limit; the proof
+reported 70,582,272 bytes of Wasm linear-memory capacity immediately after
+reload verification with the borrowed transform. An independent run measured
+80,019,456 after the later transaction checks in that same document. A later
+run with the owned transform reported 70,647,808 after reload verification;
+the coarse capacity figures do not show a measurable reduction. These are not
+total process peak memory or phone limits; the proof
 still holds several full records and reconstructs the complete candidate.
+The owned transform validates and plans before mutation and reuses the World's
+terrain buffers; invalid input returns the original unchanged World. This only
+removes that one terrain clone, not full-record copies or reconstruction.
 
 This is not production publication: it runs in a dedicated proof database, uses
 synchronous full-record work and retains multiple copies, and does not yet

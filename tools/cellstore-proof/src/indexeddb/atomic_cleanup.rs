@@ -219,7 +219,7 @@ fn real_fixture(version: u8) -> Result<RealFixture, String> {
         Level, PlayerId, Replay, SAVE_VERSION, SaveData, Sim, Tuning,
         underwater::{
             World,
-            opening_cleanup::{Rect, transform},
+            opening_cleanup::{Rect, transform_owned},
         },
     };
     let source: World = postcard::from_bytes(include_bytes!(
@@ -260,8 +260,10 @@ fn real_fixture(version: u8) -> Result<RealFixture, String> {
         crabsim::VerifiedCellStart::from_compressed(&old_packed, 17).ok_or("old replay token")?;
     drop(old_raw);
     drop(old_packed);
-    let (terrain, count) = transform(
-        old.level.cells.as_ref().ok_or("old cells")?,
+    let owned_source = old.level.cells.take().ok_or("old cells")?;
+    drop(old);
+    let (terrain, count) = transform_owned(
+        owned_source,
         Rect {
             left: 0,
             bottom: 0,
@@ -269,11 +271,10 @@ fn real_fixture(version: u8) -> Result<RealFixture, String> {
             top: 360,
         },
     )
-    .map_err(|e| format!("cleanup: {e:?}"))?;
+    .map_err(|error| format!("cleanup: {:?}", error.0))?;
     if count == 0 {
         return Err("old bake has no selected pebbles".into());
     }
-    drop(old);
     let mut candidate = Sim::new(Tuning::default(), level);
     if !candidate.restore_cellular_terrain(terrain, 17) {
         return Err("candidate terrain".into());

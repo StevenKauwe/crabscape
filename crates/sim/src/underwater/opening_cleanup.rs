@@ -18,7 +18,14 @@ pub enum Error {
 /// pebble's square must be represented exactly once across active and sleeping
 /// cells. Keep all sediment and flow in place; normalize selected pebble
 /// grains to ordinary sand and remap the remaining owner indices.
-pub fn transform(source: &World, bounds: Rect) -> Result<(World, usize), Error> {
+struct Plan {
+    remap: Vec<u16>,
+    kept: Vec<Pebble>,
+    motion: Vec<(i8, i8, u8)>,
+    removed: usize,
+}
+
+fn prepare(source: &World, bounds: Rect) -> Result<Plan, Error> {
     let n = source.pebbles.len();
     if bounds.left >= bounds.right
         || bounds.bottom >= bounds.top
@@ -114,16 +121,28 @@ pub fn transform(source: &World, bounds: Rect) -> Result<(World, usize), Error> 
             remap[i + 1] = kept.len() as u16;
         }
     }
-    let mut candidate = source.clone();
+    Ok(Plan {
+        remap,
+        kept,
+        motion,
+        removed,
+    })
+}
+
+fn apply(mut candidate: World, plan: Plan) -> (World, usize) {
+    let Plan {
+        remap,
+        kept,
+        motion,
+        removed,
+    } = plan;
+    let side = i64::from(TERRAIN_CHUNK_CELLS);
     for (i, owner) in candidate.pebble_owner.iter_mut().enumerate() {
         let mapped = remap[*owner as usize];
         if *owner != 0 && mapped == 0 {
-            let x = i64::from(source.origin.0) + (i % WIDTH) as i64;
-            let y = i64::from(source.origin.1) + (i / WIDTH) as i64;
-            candidate.grain[i] = initial_grain(
-                i32::try_from(x).map_err(|_| Error::Invalid)?,
-                i32::try_from(y).map_err(|_| Error::Invalid)?,
-            );
+            let x = i64::from(candidate.origin.0) + (i % WIDTH) as i64;
+            let y = i64::from(candidate.origin.1) + (i / WIDTH) as i64;
+            candidate.grain[i] = initial_grain(x as i32, y as i32);
         }
         *owner = mapped;
     }
@@ -134,17 +153,30 @@ pub fn transform(source: &World, bounds: Rect) -> Result<(World, usize), Error> 
             if cell.owner != 0 && mapped == 0 {
                 let x = i64::from(cx) * side + i as i64 % side;
                 let y = i64::from(cy) * side + i as i64 / side;
-                cell.grain = initial_grain(
-                    i32::try_from(x).map_err(|_| Error::Invalid)?,
-                    i32::try_from(y).map_err(|_| Error::Invalid)?,
-                );
+                cell.grain = initial_grain(x as i32, y as i32);
             }
             cell.owner = mapped;
         }
     }
     candidate.pebbles = kept;
     candidate.pebble_motion = motion;
-    Ok((candidate, removed))
+    (candidate, removed)
+}
+
+/// Preserve a borrowed source by cloning only after validation succeeds.
+pub fn transform(source: &World, bounds: Rect) -> Result<(World, usize), Error> {
+    let plan = prepare(source, bounds)?;
+    Ok(apply(source.clone(), plan))
+}
+
+/// Validate first, then transform an owned candidate without cloning the World.
+/// On validation failure the unchanged original is returned to the caller.
+pub fn transform_owned(source: World, bounds: Rect) -> Result<(World, usize), Box<(Error, World)>> {
+    let plan = match prepare(&source, bounds) {
+        Ok(plan) => plan,
+        Err(error) => return Err(Box::new((error, source))),
+    };
+    Ok(apply(source, plan))
 }
 
 #[cfg(test)]
@@ -256,6 +288,48 @@ mod tests {
             }
         }
         assert_eq!(actual.suspended, original.suspended);
+    }
+
+    #[test]
+    fn owned_transform_matches_borrowed_without_replacing_terrain_buffers() {
+        let source = fixture();
+        let bounds = Rect {
+            left: 0,
+            bottom: 0,
+            right: 150,
+            top: 362,
+        };
+        let expected = transform(&source, bounds).unwrap();
+        let cells = source.cells.as_ptr();
+        let flow = source.flow.as_ptr();
+        let grain = source.grain.as_ptr();
+        let owners = source.pebble_owner.as_ptr();
+        let sleeping = source.sleeping[&(1, 5)].cells.as_ptr();
+        let (actual, removed) = transform_owned(source, bounds).unwrap();
+        assert_eq!((actual.clone(), removed), expected);
+        assert_eq!(actual.cells.as_ptr(), cells);
+        assert_eq!(actual.flow.as_ptr(), flow);
+        assert_eq!(actual.grain.as_ptr(), grain);
+        assert_eq!(actual.pebble_owner.as_ptr(), owners);
+        assert_eq!(actual.sleeping[&(1, 5)].cells.as_ptr(), sleeping);
+    }
+
+    #[test]
+    fn owned_transform_returns_unchanged_input_on_validation_failure() {
+        let mut invalid = fixture();
+        invalid.pebble_owner[World::index(10, 20).unwrap()] = 0;
+        let expected = invalid.clone();
+        let cells = invalid.cells.as_ptr();
+        let bounds = Rect {
+            left: 0,
+            bottom: 0,
+            right: 150,
+            top: 362,
+        };
+        let rejected = transform_owned(invalid, bounds).unwrap_err();
+        assert_eq!(rejected.0, Error::Invalid);
+        assert_eq!(rejected.1, expected);
+        assert_eq!(rejected.1.cells.as_ptr(), cells);
     }
 
     #[test]
