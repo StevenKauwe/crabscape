@@ -32,6 +32,7 @@ ignore = [
     { id = "RUSTSEC-2026-0367", reason = "zip extract(): candle never extracts archives" },
     { id = "RUSTSEC-2026-0368", reason = "zip extract(): candle never extracts archives" },
     { id = "RUSTSEC-2026-0369", reason = "zip extract(): candle never extracts archives" },
+    { id = "RUSTSEC-2026-0429", reason = "zip extract(): candle never extracts archives" },
 ]
 
 [licenses]
