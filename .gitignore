@@ -21,6 +21,7 @@ mutants.out.old/
 /web/assets/
 /tools/tidy/target/
 /tools/introducer/target/
+/tools/cellstore-proof/target/
 
 # Teaser renders: rebuilt by docs/teaser/build.sh into docs/teaser/build/.
 /docs/teaser/build/

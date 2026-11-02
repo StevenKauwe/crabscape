@@ -11,6 +11,7 @@ use std::{
 const MAX_INDEX: usize = 4096;
 const MAX_CACHE: usize = 8;
 const MAX_PAGE_RAW: usize = 256 * 1024;
+const MAX_PEBBLE_CELLS: usize = 1_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PageId {
@@ -81,6 +82,17 @@ impl LazyView {
                 && p.push_cost <= 1_000_000
         };
         let ids: BTreeSet<_> = sleeping.iter().copied().collect();
+        let pebble_cells = m
+            .pebbles
+            .0
+            .iter()
+            .try_fold(0usize, |sum, p| {
+                sum.checked_add(usize::from(p.side) * usize::from(p.side))
+            })
+            .ok_or(LazyError::TooLarge)?;
+        if pebble_cells > MAX_PEBBLE_CELLS {
+            return Err(LazyError::TooLarge);
+        }
         if ids.len() != sleeping.len()
             || ids.iter().any(|&(x, y)| !coord(x) || !coord(y))
             || m.version != 1
@@ -248,6 +260,7 @@ impl LazyView {
                 Page::Sleeping(p)
             }
         };
+        self.validate_coverage(ticket.page, &page)?;
         self.clock = self.clock.checked_add(1).ok_or(LazyError::TooLarge)?;
         if !self.cache.contains_key(&ticket.page) && self.cache.len() == self.max_pages {
             let old = self
@@ -297,6 +310,63 @@ impl LazyView {
                 || y >= py + i64::from(p.side)
             {
                 return Err(LazyError::Inconsistent);
+            }
+        }
+        Ok(())
+    }
+    /// Check the inverse relation too: an owner may not silently disappear
+    /// from a cell covered by the global pebble table. Work is bounded by the
+    /// metadata's total pebble-footprint cap, before any page is installed.
+    fn validate_coverage(&self, id: PageId, page: &Page) -> Result<(), LazyError> {
+        let (left, bottom, width, height) = match id {
+            PageId::Active(x, y) => {
+                let (x, y) = (x as usize, y as usize);
+                (
+                    (x * SIDE) as i64,
+                    (y * SIDE) as i64,
+                    SIDE.min(WIDTH - x * SIDE),
+                    SIDE.min(HEIGHT - y * SIDE),
+                )
+            }
+            PageId::Sleeping(x, y) => (
+                i64::from(x) * SIDE as i64 - i64::from(self.metadata.origin.0),
+                i64::from(y) * SIDE as i64 - i64::from(self.metadata.origin.1),
+                SIDE,
+                SIDE,
+            ),
+        };
+        for (index, pebble) in self.metadata.pebbles.0.iter().enumerate() {
+            let expected = u16::try_from(index + 1).map_err(|_| LazyError::Invalid)?;
+            let (px, py) = (i64::from(pebble.x), i64::from(pebble.y));
+            let (x0, y0) = (left.max(px), bottom.max(py));
+            let (x1, y1) = (
+                (left + width as i64).min(px + i64::from(pebble.side)),
+                (bottom + height as i64).min(py + i64::from(pebble.side)),
+            );
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    if matches!(id, PageId::Sleeping(..))
+                        && x >= 0
+                        && y >= 0
+                        && x < WIDTH as i64
+                        && y < HEIGHT as i64
+                    {
+                        continue;
+                    }
+                    let slot = (y - bottom) as usize * width + (x - left) as usize;
+                    let actual = match page {
+                        Page::Active(p) => p.owner.0.get(slot).copied(),
+                        Page::Sleeping(p) => p
+                            .cells
+                            .0
+                            .get(slot)
+                            .and_then(|c| c.as_ref())
+                            .map(|c| c.owner),
+                    };
+                    if actual != Some(expected) {
+                        return Err(LazyError::Inconsistent);
+                    }
+                }
             }
         }
         Ok(())
@@ -429,6 +499,15 @@ mod tests {
         let capture = FrozenChunks::capture(&world, MAX_CAPTURE_BYTES).unwrap();
         let mut view = LazyView::new(&capture.metadata().unwrap(), &[], 2, 2_000_000).unwrap();
         assert_eq!(view.tick(), world.tick);
+        let mut omitted: ActiveChunk =
+            postcard::from_bytes(&capture.active(0, 0).unwrap()).unwrap();
+        omitted.owner[20 * SIDE + 62] = 0;
+        let ticket = view.begin_load(PageId::Active(0, 0)).unwrap();
+        assert_eq!(
+            view.finish_load(ticket, &postcard::to_allocvec(&omitted).unwrap()),
+            Err(LazyError::Inconsistent)
+        );
+        assert_eq!(view.resident_pages(), 0);
         load(&mut view, &capture, PageId::Active(0, 0)).unwrap();
         assert_eq!(view.check_aggregate(1), Err(LazyError::MissingPage));
         load(&mut view, &capture, PageId::Active(1, 0)).unwrap();
@@ -484,6 +563,14 @@ mod tests {
         let mut view = LazyView::new(&metadata, &[(0, 5)], 2, 2_000_000).unwrap();
         load(&mut view, &capture, PageId::Active(0, 5)).unwrap();
         assert_eq!(view.check_aggregate(1), Err(LazyError::MissingPage));
+        let mut omitted = world.sleeping[&(0, 5)].clone();
+        omitted.cells[40 * SIDE + 10].as_mut().unwrap().owner = 0;
+        let ticket = view.begin_load(PageId::Sleeping(0, 5)).unwrap();
+        let bytes = postcard::to_allocvec(&(1u8, (0i32, 5i32), omitted)).unwrap();
+        assert_eq!(
+            view.finish_load(ticket, &bytes),
+            Err(LazyError::Inconsistent)
+        );
         load(&mut view, &capture, PageId::Sleeping(0, 5)).unwrap();
         assert_eq!(view.check_aggregate(1), Ok(()));
         for (slot, value) in world.sleeping[&(0, 5)].cells.iter().enumerate() {

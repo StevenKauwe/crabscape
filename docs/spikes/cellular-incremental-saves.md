@@ -107,8 +107,9 @@ comparison copies; it is not an allocation peak and excludes JS, IndexedDB,
 browser overhead and game assets. The player was an opaque fixture, not game
 progress. These results do not establish a mobile memory budget.
 
-Production still requires a Rust/Wasm IndexedDB implementation, automatic
-crash and stale-pin recovery, safe bounded collection, quota handling, real
+Production still requires a fully integrated and independently validated
+Rust/Wasm IndexedDB implementation, automatic crash and stale-pin recovery,
+quota handling, real
 player/progress capture, lazy world loading, legacy migration, and WebKit/iPhone
 validation. Do not relax existing live v1/v2 protections based on these models.
 
@@ -119,9 +120,12 @@ under `indexeddb`, gated to Wasm and restricted to names beginning with
 `crabscape.chunk-proof.`. It uses a separate database, a single writer, bounded
 binary metadata (512 parts, 4 KiB player data), batches of at most four parts
 and 128 KiB per part. A single read/write transaction commits each batch and
-its stage together; publication swaps the head only after the expected count
-is present. A persistent epoch and monotonic stage ID fence reset and explicit
-abandon across connections. Individual part reads check SHA-256 and reject a
+its stage together; publication verifies all staged parts sequentially in the
+same transaction before swapping the head. Checksummed metadata records which
+head, stage and pin must exist, so a missing ownership record fails closed.
+Each session must retain its captured epoch when beginning a save; a persistent
+epoch and monotonic stage ID fence reset and explicit abandon across
+connections. Individual part reads check SHA-256 and reject a
 stale head. SHA-256 also protects metadata and the full manifest against
 accidental corruption (not against an attacker able to rewrite the digest).
 One uniquely fenced pin retains an older head while a newer one is published.
@@ -167,7 +171,9 @@ the caller must also enforce the persistent storage epoch. Page hashes are
 verified by the storage layer before the view receives bytes.
 
 Rust tests exercise active-page and active/sleeping boundaries, exact sleeping
-cells, eviction/reload, invalid owners, incomplete reads and invalidation. The
+cells, eviction/reload, invalid owners, omitted pebble-owner cells, incomplete
+reads and invalidation. A bounded inverse-footprint check rejects a page where
+the global pebble table expects ownership but a cell has none. The
 isolated Chrome proof reads 180 real active/sleeping pages through pinned
 IndexedDB, compares active material and flow against the fixture, and rejects a
 late page after reset. It observed two resident pages, a 304,383-byte logical
@@ -197,7 +203,9 @@ it returns the required page IDs without changing simulation state. Accepted
 pages retain their original global pebble IDs. Reset invalidates the session
 and rejects late page responses. The prototype limits loaded sleeping chunks
 to 256 and clones terrain to preflight near a window edge; it is not a memory
-budget or a deployable streaming engine. Hydrating all pages permits the
+budget or a deployable streaming engine. Its edge trigger currently mirrors
+`follow_player` rather than sharing the same implementation, so a future
+change there could invalidate the guard. Hydrating all pages permits the
 caller to retrieve the complete `Sim`; replay capture is tested only after full
 hydration at a reproducible startup, not during partially loaded play.
 

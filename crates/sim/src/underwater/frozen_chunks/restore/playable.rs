@@ -431,4 +431,73 @@ mod tests {
         assert_eq!(guard.step(Controls::default()), Err(GuardedError::Stale));
         assert!(guard.player().is_none());
     }
+
+    #[test]
+    fn omitted_pebble_owners_fail_before_install_or_hydration() {
+        let (reference, frozen, ids) = fixture();
+        let mut template = reference.clone();
+        template.level.cells = None;
+        let mut builder =
+            GuardedBuilder::new(template, &frozen.metadata().unwrap(), &ids, 2_000_000).unwrap();
+        // The fixture's last pebble crosses x=64 at y=200.
+        let mut bad: ActiveChunk = postcard::from_bytes(&frozen.active(0, 3).unwrap()).unwrap();
+        bad.owner[8 * SIDE + 62] = 0;
+        assert_eq!(
+            builder.active(0, 3, &postcard::to_allocvec(&bad).unwrap()),
+            Err(GuardedError::Invalid)
+        );
+        assert!(!builder.is_ready());
+        assert!(matches!(builder.install(), Err(GuardedError::Incomplete)));
+
+        let level = Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        world.pebbles.clear();
+        world.pebble_motion.clear();
+        world.pebble_owner.fill(0);
+        world.pebbles.push(Pebble {
+            x: 10,
+            y: 358,
+            side: 4,
+            shade: 250,
+        });
+        world.pebble_motion.push((0, 0, 0));
+        for y in 358..360 {
+            for x in 10..14 {
+                let i = World::index(x, y).unwrap();
+                world.cells[i] = Cell::Sand;
+                world.pebble_owner[i] = 1;
+            }
+        }
+        let mut chunk = SleepingChunk::default();
+        for y in 360..362 {
+            for x in 10..14 {
+                chunk.cells[(y % 64 * 64 + x) as usize] = Some(SleepingCell {
+                    cell: Cell::Sand,
+                    flow: (0.0, 0.0),
+                    suspended: 0,
+                    grain: 250,
+                    owner: 1,
+                });
+            }
+        }
+        world.sleeping.insert((0, 5), chunk);
+        let frozen = FrozenChunks::capture(&world, MAX_CAPTURE_BYTES).unwrap();
+        let mut sim = Sim::new(Tuning::default(), level);
+        assert!(sim.restore_cellular_terrain(world.clone(), 17));
+        sim.add_crab(PlayerId(0), Vec2::new(160.0, 0.0));
+        let mut guard = build(&sim, &frozen, &[(0, 5)]);
+        let before = guard.sim.as_ref().unwrap().state_hash();
+        let mut omitted = world.sleeping[&(0, 5)].clone();
+        omitted.cells[40 * SIDE + 10].as_mut().unwrap().owner = 0;
+        let bad = postcard::to_allocvec(&(1u8, (0i32, 5i32), omitted)).unwrap();
+        let ticket = guard.begin_sleeping((0, 5)).unwrap();
+        assert_eq!(
+            guard.accept_sleeping(ticket, &bad),
+            Err(GuardedError::Invalid)
+        );
+        assert_eq!(guard.missing_count(), 1);
+        assert_eq!(guard.sim.as_ref().unwrap().state_hash(), before);
+        load(&mut guard, &frozen, (0, 5));
+        assert_eq!(guard.finish().unwrap().state_hash(), sim.state_hash());
+    }
 }

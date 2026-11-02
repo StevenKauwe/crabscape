@@ -11,6 +11,9 @@ pub struct Meta {
     pub epoch: u64,
     pub revision: u64,
     pub next_id: u64,
+    pub head_id: u64,
+    pub stage_id: u64,
+    pub pin_token: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Part {
@@ -27,25 +30,31 @@ pub struct Stage {
     pub parts: Vec<Part>,
 }
 impl Meta {
-    pub const ENCODED_LEN: usize = 24 + 32;
+    pub const ENCODED_LEN: usize = 48 + 32;
     pub fn encode(&self) -> Vec<u8> {
         let mut b = [
             self.epoch.to_le_bytes(),
             self.revision.to_le_bytes(),
             self.next_id.to_le_bytes(),
+            self.head_id.to_le_bytes(),
+            self.stage_id.to_le_bytes(),
+            self.pin_token.to_le_bytes(),
         ]
         .concat();
         b.extend_from_slice(&digest(&b));
         b
     }
     pub fn decode(b: &[u8]) -> Option<Self> {
-        if b.len() != Self::ENCODED_LEN || digest(&b[..24]) != b[24..] {
+        if b.len() != Self::ENCODED_LEN || digest(&b[..48]) != b[48..] {
             return None;
         }
         Some(Self {
             epoch: u64::from_le_bytes(b[0..8].try_into().ok()?),
             revision: u64::from_le_bytes(b[8..16].try_into().ok()?),
             next_id: u64::from_le_bytes(b[16..24].try_into().ok()?),
+            head_id: u64::from_le_bytes(b[24..32].try_into().ok()?),
+            stage_id: u64::from_le_bytes(b[32..40].try_into().ok()?),
+            pin_token: u64::from_le_bytes(b[40..48].try_into().ok()?),
         })
     }
 }
@@ -144,6 +153,9 @@ mod tests {
             epoch: 1,
             revision: 2,
             next_id: 3,
+            head_id: 2,
+            stage_id: 3,
+            pin_token: 0,
         };
         let mut encoded = meta.encode();
         assert_eq!(Meta::decode(&encoded), Some(meta));

@@ -18,6 +18,7 @@ const STORE: &str = "world";
 const MAX_BATCH: usize = 4;
 const MAX_PART: usize = 128 * 1024;
 const MAX_PARTS: usize = 512;
+type PublishCallback = Rc<RefCell<Option<Closure<dyn FnMut(Event)>>>>;
 
 fn promise() -> (Promise, Function, Function) {
     let mut ends = None;
@@ -46,6 +47,53 @@ fn read(req: &IdbRequest, limit: usize) -> Result<Option<Vec<u8>>, String> {
         return Err("record too large".into());
     }
     Ok(Some(bytes.to_vec()))
+}
+fn references_valid(
+    meta: &Meta,
+    stage: &Option<Stage>,
+    head: &Option<Stage>,
+    pin: &Option<Stage>,
+) -> bool {
+    let stage_ok = match stage {
+        Some(s) => {
+            meta.stage_id != 0
+                && s.id == meta.stage_id
+                && s.epoch == meta.epoch
+                && s.base == meta.revision
+        }
+        None => meta.stage_id == 0,
+    };
+    let head_ok = match head {
+        Some(h) => {
+            meta.head_id != 0
+                && h.id == meta.head_id
+                && h.epoch == meta.epoch
+                && h.base.checked_add(1) == Some(meta.revision)
+        }
+        None => meta.head_id == 0,
+    };
+    let pin_ok = match pin {
+        Some(p) => meta.pin_token != 0 && p.base == meta.pin_token && p.epoch == meta.epoch,
+        None => meta.pin_token == 0,
+    };
+    stage_ok
+        && head_ok
+        && pin_ok
+        && meta.head_id <= meta.next_id
+        && meta.stage_id <= meta.next_id
+        && meta.pin_token <= meta.next_id
+}
+
+fn write_published(meta: &mut Meta, stage: &Stage, store: &IdbObjectStore) -> Result<(), String> {
+    meta.revision = meta.revision.checked_add(1).ok_or("revision overflow")?;
+    meta.head_id = stage.id;
+    meta.stage_id = 0;
+    put(store, "head", &stage.encode().ok_or("stage too large")?)?;
+    put(store, "meta", &meta.encode())?;
+    store
+        .delete(&JsValue::from_str("stage"))
+        .map_err(|e| err("delete stage", e))?;
+    Ok(())
 }
 
 struct OpenHandlers {
@@ -225,6 +273,9 @@ impl ChunkStore {
                     } else {
                         decode_stage(&reqs[3])?
                     };
+                    if !ignore_broken_entries && !references_valid(&meta, &stage, &head, &pin) {
+                        return Err("missing or inconsistent ownership record".into());
+                    }
                     let part = if reqs.len() > 4 {
                         read(&reqs[4], MAX_PART)?
                     } else {
@@ -275,8 +326,18 @@ impl ChunkStore {
         }
     }
 
-    pub async fn begin(&self, tick: u64, player: Vec<u8>) -> Result<Handle, String> {
+    /// `session_epoch` must be captured before preparing the snapshot. An old
+    /// tab must not refresh it after reset to publish pre-reset state.
+    pub async fn begin(
+        &self,
+        session_epoch: u64,
+        tick: u64,
+        player: Vec<u8>,
+    ) -> Result<Handle, String> {
         self.transaction(None, false, move |mut meta, stage, _, _, _, store| {
+            if meta.epoch != session_epoch {
+                return Err("stale session".into());
+            }
             if stage.is_some() {
                 return Err("writer busy".into());
             }
@@ -285,6 +346,7 @@ impl ChunkStore {
                 epoch: meta.epoch,
                 id: meta.next_id,
             };
+            meta.stage_id = h.id;
             let stage = Stage {
                 epoch: h.epoch,
                 base: meta.revision,
@@ -324,32 +386,121 @@ impl ChunkStore {
         })
         .await
     }
+    /// Verify every staged part sequentially in the *same* read/write
+    /// transaction as publication. Only one bounded payload is in flight;
+    /// no competing transaction can alter a checked part before the swap.
     pub async fn publish(&self, h: Handle, expected: usize) -> Result<(), String> {
-        self.transaction(None, false, move |mut meta, stage, _, _, _, store| {
-            let stage = stage.ok_or("missing stage")?;
-            if meta.epoch != h.epoch
-                || stage.epoch != h.epoch
-                || stage.id != h.id
-                || stage.base != meta.revision
-            {
-                return Err("stale writer".into());
-            }
-            if stage.parts.len() != expected {
-                return Err("incomplete stage".into());
-            }
-            meta.revision = meta.revision.checked_add(1).ok_or("revision overflow")?;
-            put(store, "head", &stage.encode().ok_or("stage too large")?)?;
-            put(store, "meta", &meta.encode())?;
-            store
-                .delete(&JsValue::from_str("stage"))
-                .map_err(|e| err("delete stage", e))?;
-            Ok(())
-        })
-        .await
+        let callbacks: PublishCallback = Rc::new(RefCell::new(None));
+        let current: Rc<RefCell<Option<IdbRequest>>> = Rc::new(RefCell::new(None));
+        let failure: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let guard = PublishHandlers {
+            callback: callbacks.clone(),
+            current: current.clone(),
+        };
+        let closure_holder = callbacks.clone();
+        let current_request = current.clone();
+        let check_failure = failure.clone();
+        let result = self
+            .transaction(None, false, move |mut meta, stage, _, _, _, store| {
+                let stage = stage.ok_or("missing stage")?;
+                if meta.epoch != h.epoch
+                    || stage.epoch != h.epoch
+                    || stage.id != h.id
+                    || stage.base != meta.revision
+                {
+                    return Err("stale writer".into());
+                }
+                if stage.parts.len() != expected {
+                    return Err("incomplete stage".into());
+                }
+                if stage.parts.is_empty() {
+                    return write_published(&mut meta, &stage, store);
+                }
+                let state = Rc::new(RefCell::new(PublishState {
+                    meta,
+                    stage,
+                    index: 0,
+                    store: store.clone(),
+                }));
+                let weak = Rc::downgrade(&closure_holder);
+                let callback_state = state.clone();
+                let callback_current = current_request.clone();
+                let failed = check_failure.clone();
+                let tx = store.transaction();
+                let callback = Closure::<dyn FnMut(Event)>::new(move |event: Event| {
+                    let step = (|| -> Result<(), String> {
+                        let request: IdbRequest = event
+                            .target()
+                            .ok_or("missing request")?
+                            .dyn_into()
+                            .map_err(|_| "bad request")?;
+                        let bytes = read(&request, MAX_PART)?.ok_or("missing staged part")?;
+                        let mut state = callback_state.borrow_mut();
+                        let descriptor =
+                            state.stage.parts.get(state.index).ok_or("bad part index")?;
+                        if bytes.len() != descriptor.len as usize
+                            || digest(&bytes) != descriptor.digest
+                        {
+                            return Err("corrupt staged part".into());
+                        }
+                        state.index += 1;
+                        if state.index == state.stage.parts.len() {
+                            let PublishState {
+                                meta, stage, store, ..
+                            } = &mut *state;
+                            return write_published(meta, stage, store);
+                        }
+                        let next = state
+                            .store
+                            .get(&JsValue::from_str(&format!(
+                                "chunk:{}:{}",
+                                state.stage.id, state.index
+                            )))
+                            .map_err(|e| err("read staged part", e))?;
+                        let holder = weak.upgrade().ok_or("publication canceled")?;
+                        let callback = holder.borrow();
+                        next.set_onsuccess(Some(
+                            callback
+                                .as_ref()
+                                .ok_or("missing callback")?
+                                .as_ref()
+                                .unchecked_ref(),
+                        ));
+                        *callback_current.borrow_mut() = Some(next);
+                        Ok(())
+                    })();
+                    if let Err(error) = step {
+                        *failed.borrow_mut() = Some(error);
+                        let _ = tx.abort();
+                    }
+                });
+                *closure_holder.borrow_mut() = Some(callback);
+                let request = store
+                    .get(&JsValue::from_str(&format!("chunk:{}:0", h.id)))
+                    .map_err(|e| err("read staged part", e))?;
+                let callback = closure_holder.borrow();
+                request.set_onsuccess(Some(
+                    callback
+                        .as_ref()
+                        .ok_or("missing callback")?
+                        .as_ref()
+                        .unchecked_ref(),
+                ));
+                *current_request.borrow_mut() = Some(request);
+                Ok(())
+            })
+            .await;
+        let error = failure.borrow_mut().take();
+        drop(guard);
+        if let Some(error) = error {
+            Err(error)
+        } else {
+            result
+        }
     }
     /// Fence a stage while retaining its orphaned rows for later cleanup.
     pub async fn abandon(&self, h: Handle) -> Result<(), String> {
-        self.transaction(None, false, move |meta, stage, _, _, _, store| {
+        self.transaction(None, false, move |mut meta, stage, _, _, _, store| {
             let stage = stage.ok_or("missing stage")?;
             if meta.epoch != h.epoch || stage.epoch != h.epoch || stage.id != h.id {
                 return Err("stale writer".into());
@@ -357,6 +508,8 @@ impl ChunkStore {
             store
                 .delete(&JsValue::from_str("stage"))
                 .map_err(|e| err("delete stage", e))?;
+            meta.stage_id = 0;
+            put(store, "meta", &meta.encode())?;
             Ok(())
         })
         .await
@@ -409,6 +562,7 @@ impl ChunkStore {
                 id: head.id,
                 token: meta.next_id,
             };
+            meta.pin_token = h.token;
             // The pinned copy no longer needs the head's base revision;
             // reuse that field as a monotonically increasing reader token.
             head.base = h.token;
@@ -419,7 +573,7 @@ impl ChunkStore {
         .await
     }
     pub async fn unpin(&self, h: PinHandle) -> Result<(), String> {
-        self.transaction(None, false, move |meta, _, _, pin, _, store| {
+        self.transaction(None, false, move |mut meta, _, _, pin, _, store| {
             let pin = pin.ok_or("missing pin")?;
             if meta.epoch != h.epoch
                 || pin.epoch != h.epoch
@@ -431,6 +585,8 @@ impl ChunkStore {
             store
                 .delete(&JsValue::from_str("pin"))
                 .map_err(|e| err("delete pin", e))?;
+            meta.pin_token = 0;
+            put(store, "meta", &meta.encode())?;
             Ok(())
         })
         .await
@@ -657,11 +813,33 @@ impl ChunkStore {
         self.transaction(None, true, |mut meta, _, _, _, _, store| {
             meta.epoch = meta.epoch.checked_add(1).ok_or("epoch overflow")?;
             meta.revision = meta.revision.checked_add(1).ok_or("revision overflow")?;
+            meta.head_id = 0;
+            meta.stage_id = 0;
+            meta.pin_token = 0;
             store.clear().map_err(|e| err("clear", e))?;
             put(store, "meta", &meta.encode())?;
             Ok(())
         })
         .await
+    }
+}
+
+struct PublishState {
+    meta: Meta,
+    stage: Stage,
+    index: usize,
+    store: IdbObjectStore,
+}
+struct PublishHandlers {
+    callback: PublishCallback,
+    current: Rc<RefCell<Option<IdbRequest>>>,
+}
+impl Drop for PublishHandlers {
+    fn drop(&mut self) {
+        if let Some(req) = self.current.borrow_mut().take() {
+            req.set_onsuccess(None);
+        }
+        self.callback.borrow_mut().take();
     }
 }
 
@@ -700,7 +878,9 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
         return Err("bad streamed fixture".into());
     }
     let (cols, rows) = frozen.active_dimensions();
-    let h = db.begin(frozen.tick(), b"fixture-player".to_vec()).await?;
+    let h = db
+        .begin(db.epoch().await?, frozen.tick(), b"fixture-player".to_vec())
+        .await?;
     let mut count = 0;
     let mut batch = vec![frozen.metadata().map_err(|e| format!("metadata: {e:?}"))?];
     count += 1;
@@ -921,23 +1101,123 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         let a = ChunkStore::open(name).await?;
         let b = ChunkStore::open(name).await?;
         a.reset().await?;
-        let first = a.begin(17, b"crab".to_vec()).await?;
+        let session_epoch = a.epoch().await?;
+        let first = a.begin(session_epoch, 17, b"crab".to_vec()).await?;
         a.stage(first, vec![b"sand".to_vec(), b"mud".to_vec()])
             .await?;
         if a.publish(first, 3).await.is_ok() {
             return Err("incomplete publish accepted".into());
         }
         a.publish(first, 2).await?;
+        // Missing or corrupt staged rows must never replace the good head.
+        for missing in [true, false] {
+            let broken = a.begin(session_epoch, 18, b"broken".to_vec()).await?;
+            a.stage(broken, vec![b"partial".to_vec()]).await?;
+            a.transaction(None, false, move |_, _, _, _, _, store| {
+                let key = format!("chunk:{}:0", broken.id);
+                if missing {
+                    store
+                        .delete(&JsValue::from_str(&key))
+                        .map_err(|e| err("delete staged part", e))?;
+                    Ok(())
+                } else {
+                    put(store, &key, b"damaged")
+                }
+            })
+            .await?;
+            if a.publish(broken, 1).await.is_ok()
+                || b.head().await?.ok_or("lost good head")?.id != first.id
+                || b.part(first, 0).await? != b"sand"
+            {
+                return Err("broken stage replaced the good head".into());
+            }
+            b.abandon(broken).await?;
+            let epoch = b.epoch().await?;
+            collect_all(&b, epoch, 2).await?;
+            if b.part(first, 0).await? != b"sand" {
+                return Err("collection lost good head".into());
+            }
+        }
+        // The persistent head ID distinguishes a damaged missing record from
+        // an empty/reset database, so collection must fail closed.
+        let good_head = a.head().await?.ok_or("missing good head")?;
+        a.transaction(None, false, |_, _, _, _, _, store| {
+            store
+                .delete(&JsValue::from_str("head"))
+                .map_err(|e| err("delete head", e))?;
+            Ok(())
+        })
+        .await?;
+        let epoch_before_loss = good_head.epoch;
+        if a.collect_page(epoch_before_loss, None, 1).await.is_ok()
+            || a.begin(session_epoch, 99, b"bad".to_vec()).await.is_ok()
+        {
+            return Err("missing published head was treated as empty".into());
+        }
+        a.transaction(None, true, move |_, _, _, _, _, store| {
+            put(store, "head", &good_head.encode().ok_or("bad head")?)
+        })
+        .await?;
+        if a.part(first, 0).await? != b"sand" {
+            return Err("missing-head recovery lost data".into());
+        }
+        let lost_stage = a.begin(session_epoch, 18, b"staged".to_vec()).await?;
+        a.stage(lost_stage, vec![b"recoverable".to_vec()]).await?;
+        let saved_stage = a
+            .transaction(None, false, |_, stage, _, _, _, _| {
+                stage.ok_or("missing stage".into())
+            })
+            .await?;
+        a.transaction(None, false, |_, _, _, _, _, store| {
+            store
+                .delete(&JsValue::from_str("stage"))
+                .map_err(|e| err("delete stage", e))?;
+            Ok(())
+        })
+        .await?;
+        if a.collect_page(session_epoch, None, 1).await.is_ok()
+            || a.begin(session_epoch, 99, b"bad".to_vec()).await.is_ok()
+        {
+            return Err("missing staged ownership was treated as empty".into());
+        }
+        a.transaction(None, true, move |_, _, _, _, _, store| {
+            put(store, "stage", &saved_stage.encode().ok_or("bad stage")?)
+        })
+        .await?;
+        b.abandon(lost_stage).await?;
+        collect_all(&b, session_epoch, 2).await?;
         let stale_pin = b.pin().await?;
         b.unpin(stale_pin).await?;
         let pin = b.pin().await?;
         if b.unpin(stale_pin).await.is_ok() {
             return Err("stale pin released a new reader".into());
         }
+        let saved_pin = a
+            .transaction(None, false, |_, _, _, pin, _, _| {
+                pin.ok_or("missing pin".into())
+            })
+            .await?;
+        a.transaction(None, false, |_, _, _, _, _, store| {
+            store
+                .delete(&JsValue::from_str("pin"))
+                .map_err(|e| err("delete pin", e))?;
+            Ok(())
+        })
+        .await?;
+        if a.collect_page(session_epoch, None, 1).await.is_ok() {
+            return Err("missing pin ownership was treated as empty".into());
+        }
+        a.transaction(None, true, move |_, _, _, _, _, store| {
+            put(store, "pin", &saved_pin.encode().ok_or("bad pin")?)
+        })
+        .await?;
+        if b.pinned_part(pin, 0).await? != b"sand" {
+            return Err("pin recovery lost data".into());
+        }
         let abandoned;
         {
             let crashed = ChunkStore::open(name).await?;
-            abandoned = crashed.begin(18, b"later".to_vec()).await?;
+            abandoned = crashed.begin(session_epoch, 18, b"later".to_vec()).await?;
             if crashed
                 .stage(abandoned, vec![vec![0; MAX_PART + 1]])
                 .await
@@ -967,10 +1247,10 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         if a.publish(abandoned, 3).await.is_ok() {
             return Err("abandoned writer published".into());
         }
-        let second = a.begin(19, b"new".to_vec()).await?;
+        let second = a.begin(session_epoch, 19, b"new".to_vec()).await?;
         a.stage(second, vec![b"fresh".to_vec()]).await?;
         a.publish(second, 1).await?;
-        let active_stage = a.begin(20, b"active".to_vec()).await?;
+        let active_stage = a.begin(session_epoch, 20, b"active".to_vec()).await?;
         a.stage(active_stage, vec![b"still-staged".to_vec()])
             .await?;
         let epoch = a.epoch().await?;
@@ -1054,7 +1334,7 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
             return Err("missing part accepted".into());
         }
         let reset_pin = b.pin().await?;
-        let pending = a.begin(20, b"pending".to_vec()).await?;
+        let pending = a.begin(session_epoch, 20, b"pending".to_vec()).await?;
         let (stage, reset) =
             futures_util::join!(a.stage(pending, vec![b"pending".to_vec()]), b.reset());
         stage?;
@@ -1065,7 +1345,13 @@ pub async fn browser_proof(name: String) -> Result<String, JsValue> {
         {
             return Err("reset failed to fence old handles".into());
         }
-        let next = b.begin(21, b"new".to_vec()).await?;
+        if a.begin(session_epoch, 22, b"old session".to_vec())
+            .await
+            .is_ok()
+        {
+            return Err("old tab began after reset".into());
+        }
+        let next = b.begin(b.epoch().await?, 21, b"new".to_vec()).await?;
         b.stage(next, vec![b"fresh".to_vec()]).await?;
         b.publish(next, 1).await?;
         if a.collect_page(epoch, None, 1).await.is_ok()
