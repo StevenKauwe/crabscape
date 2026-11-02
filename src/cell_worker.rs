@@ -20,6 +20,7 @@ pub enum Error {
     Timeout,
     WorkerFailed(String),
     MalformedReply,
+    Cancelled,
 }
 
 struct Pending {
@@ -215,11 +216,33 @@ impl CellWorker {
         self.compress_with_timeout(input, TIMEOUT_MS).await
     }
 
+    /// A stale response is rejected before copying its buffer into Wasm.
+    pub async fn compress_if_current(
+        &mut self,
+        input: &[u8],
+        still_current: impl Fn() -> bool,
+    ) -> Result<Vec<u8>, Error> {
+        self.compress_guarded(input, TIMEOUT_MS, still_current)
+            .await
+    }
+
     pub(crate) async fn compress_with_timeout(
         &mut self,
         input: &[u8],
         timeout_ms: i32,
     ) -> Result<Vec<u8>, Error> {
+        self.compress_guarded(input, timeout_ms, || true).await
+    }
+
+    async fn compress_guarded(
+        &mut self,
+        input: &[u8],
+        timeout_ms: i32,
+        still_current: impl Fn() -> bool,
+    ) -> Result<Vec<u8>, Error> {
+        if !still_current() {
+            return Err(Error::Cancelled);
+        }
         if input.len() > MAX_BYTES {
             return Err(Error::TooLarge);
         }
@@ -266,6 +289,9 @@ impl CellWorker {
         send_pending(&self.state, &self.worker);
         let response = JsFuture::from(promise).await;
         guard.finished = true;
+        if !still_current() {
+            return Err(Error::Cancelled);
+        }
         match response {
             Ok(value) => value
                 .dyn_into::<ArrayBuffer>()

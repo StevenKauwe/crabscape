@@ -52,20 +52,47 @@ pub struct PreparedSave {
     raw: Vec<u8>,
 }
 
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug)]
+pub enum WorkerEncodeError {
+    TooLarge,
+    Cancelled,
+    Failed(String),
+}
+
 impl PreparedSave {
     #[cfg(target_arch = "wasm32")]
     pub async fn encode_in_worker(
         self,
         worker: &mut crate::cell_worker::CellWorker,
     ) -> Result<Vec<u8>, String> {
-        let packed = worker
-            .compress(&self.raw)
+        self.encode_in_worker_if_current(worker, || true)
             .await
-            .map_err(|e| format!("{e:?}"))?;
-        if HEADER + self.header.player.len() + packed.len() > 8 * 1024 * 1024 {
-            return Err("cellular save is too large for this browser".into());
+            .map_err(|e| format!("{e:?}"))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn encode_in_worker_if_current(
+        self,
+        worker: &mut crate::cell_worker::CellWorker,
+        still_current: impl Fn() -> bool,
+    ) -> Result<Vec<u8>, WorkerEncodeError> {
+        let packed = worker
+            .compress_if_current(&self.raw, &still_current)
+            .await
+            .map_err(|e| match e {
+                crate::cell_worker::Error::Cancelled => WorkerEncodeError::Cancelled,
+                other => WorkerEncodeError::Failed(format!("{other:?}")),
+            })?;
+        if !still_current() {
+            return Err(WorkerEncodeError::Cancelled);
         }
-        self.header.finish(&packed).map_err(|e| format!("{e:?}"))
+        if HEADER + self.header.player.len() + packed.len() > 8 * 1024 * 1024 {
+            return Err(WorkerEncodeError::TooLarge);
+        }
+        self.header
+            .finish(&packed)
+            .map_err(|e| WorkerEncodeError::Failed(format!("{e:?}")))
     }
 
     #[cfg(any(test, not(target_arch = "wasm32")))]

@@ -42,6 +42,10 @@ struct ReplayUnavailableNotice;
 #[derive(Component)]
 struct SavingUnavailableNotice;
 
+#[cfg(target_arch = "wasm32")]
+#[derive(Component)]
+struct BrowserSavingNotice;
+
 /// "Player `player` wants these controls." Sent every frame by whoever
 /// controls that crab. A *message* is a value that one system writes and
 /// others read later in the same or the next frame.
@@ -120,6 +124,8 @@ impl Plugin for PlayerPlugin {
             (GameSet::Input, GameSet::Simulate, GameSet::Present)
                 .run_if(crate::cell_save::browser::may_update),
         );
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Update, update_browser_save_notice.in_set(GameSet::Present));
         #[cfg(not(target_arch = "wasm32"))]
         app.add_systems(Update, hide_save_notice.in_set(GameSet::Present));
     }
@@ -182,6 +188,10 @@ pub fn spawn_local_crab(
         browser_replay = crate::cell_save::ReplayStart::Unavailable;
     }
     #[cfg(target_arch = "wasm32")]
+    if crate::cellular::enabled() {
+        crate::cell_save::browser::configure_autosave(browser_load_error.as_deref());
+    }
+    #[cfg(target_arch = "wasm32")]
     if crate::cellular::enabled()
         && let Some(canvas) = web_sys::window()
             .and_then(|window| window.document())
@@ -190,9 +200,9 @@ pub fn spawn_local_crab(
         let status = if browser_load_error.is_some() {
             "load-error"
         } else if saved.is_some() {
-            "loaded-read-only"
+            "loaded"
         } else {
-            "fresh-read-only"
+            "fresh"
         };
         let _ = canvas.set_attribute("data-cell-save", status);
     }
@@ -280,10 +290,9 @@ pub fn spawn_local_crab(
     #[cfg(target_arch = "wasm32")]
     if crate::cellular::enabled() {
         commands.spawn((
-            Text::new(match browser_load_error {
-                Some(error) => format!("Cellular save could not be loaded: {error}. Your previous save is kept; autosave is off."),
-                None => "Cellular autosave is not yet enabled in this preview.".to_string(),
-            }),
+            BrowserSavingNotice,
+            Text::new(""),
+            Visibility::Hidden,
             TextFont {
                 font_size: FontSize::Px(14.0),
                 ..default()
@@ -312,6 +321,26 @@ pub fn spawn_local_crab(
         Transform::from_xyz(pos.x, pos.y, 10.0),
         Visibility::default(),
     ));
+}
+
+#[cfg(target_arch = "wasm32")]
+fn update_browser_save_notice(
+    mut notices: Query<(&mut Visibility, &mut Text), With<BrowserSavingNotice>>,
+) {
+    let warning = crate::cell_save::browser::autosave_warning();
+    for (mut visible, mut text) in &mut notices {
+        match &warning {
+            Some(message) => {
+                visible.set_if_neq(Visibility::Inherited);
+                if text.0 != *message {
+                    text.0.clone_from(message);
+                }
+            }
+            None => {
+                visible.set_if_neq(Visibility::Hidden);
+            }
+        }
+    }
 }
 
 fn hide_replay_notice(

@@ -68,6 +68,13 @@ impl Plugin for SavePlugin {
         app.add_systems(Update, save_when_resting.in_set(GameSet::Present));
         #[cfg(not(target_arch = "wasm32"))]
         crate::cell_save::native::install(app);
+        #[cfg(target_arch = "wasm32")]
+        if crate::cellular::enabled() {
+            app.add_systems(
+                Update,
+                crate::cell_save::browser_system::save_periodically.in_set(GameSet::Present),
+            );
+        }
     }
 }
 

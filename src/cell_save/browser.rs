@@ -28,6 +28,161 @@ const TOO_LARGE: &str = "saved world is too large to load safely on this device"
 thread_local! {
     static PRELOADED: RefCell<Option<Result<Option<super::Restored>, String>>> = const { RefCell::new(None) };
     static RESETTING: Cell<bool> = const { Cell::new(false) };
+    static AUTOSAVE: RefCell<Autosave> = RefCell::new(Autosave::default());
+}
+
+#[derive(Default)]
+struct Autosave {
+    generation: u64,
+    enabled: bool,
+    busy: bool,
+    elapsed: f32,
+    warning: Option<String>,
+    worker: Option<crate::cell_worker::CellWorker>,
+}
+
+/// Called exactly once after startup validation. A failed read remains
+/// fail-closed until the user explicitly resets and reloads.
+pub fn configure_autosave(error: Option<&str>) {
+    AUTOSAVE.with(|slot| {
+        let mut state = slot.borrow_mut();
+        state.enabled = error.is_none();
+        state.warning = error.map(|why| format!("Cellular save could not be loaded: {why}. Your previous save is kept; autosave is off."));
+    });
+}
+
+pub fn autosave_warning() -> Option<String> {
+    AUTOSAVE.with(|slot| slot.borrow().warning.clone())
+}
+
+fn current_save(generation: u64) -> bool {
+    may_update()
+        && AUTOSAVE.with(|slot| {
+            let state = slot.borrow();
+            state.enabled && state.busy && state.generation == generation
+        })
+}
+
+/// Reserve one snapshot; overlapping saves are never queued.
+pub fn reserve_save(delta: f32) -> Option<u64> {
+    AUTOSAVE.with(|slot| {
+        let mut state = slot.borrow_mut();
+        if !state.enabled || state.busy || !may_update() {
+            return None;
+        }
+        state.elapsed += delta;
+        if state.elapsed < 5.0 {
+            return None;
+        }
+        state.elapsed = 0.0;
+        state.busy = true;
+        Some(state.generation)
+    })
+}
+
+/// Refuse oversized/invalid snapshots without touching the last good save.
+pub fn capture_failed(generation: u64) {
+    AUTOSAVE.with(|slot| {
+        let mut state = slot.borrow_mut();
+        if state.generation == generation && state.busy {
+            state.busy = false;
+            state.enabled = false;
+            state.warning = Some("This cellular world is too large to save safely on this device. Your previous save is kept; autosave is off.".into());
+        }
+    });
+}
+
+/// Compress and commit one sealed snapshot. Both the worker response and
+/// asynchronous database open recheck its generation before copying/writing.
+pub fn submit_save(generation: u64, prepared: super::v2::PreparedSave) {
+    if !current_save(generation) {
+        return;
+    }
+    let existing = AUTOSAVE.with(|slot| slot.borrow_mut().worker.take());
+    let mut worker = match existing.map_or_else(crate::cell_worker::CellWorker::new, Ok) {
+        Ok(worker) => worker,
+        Err(error) => {
+            finish_save(generation, Err(format!("{error:?}")), None, false);
+            return;
+        }
+    };
+    let Some(window) = web_sys::window() else {
+        finish_save(generation, Err("no browser window".into()), None, false);
+        return;
+    };
+    let watchdog = Closure::<dyn FnMut()>::new(move || {
+        AUTOSAVE.with(|slot| {
+            let mut state = slot.borrow_mut();
+            if state.generation == generation && state.busy && state.enabled {
+                state.warning = Some("Autosave is taking longer than expected. Your previous save remains until it finishes.".into());
+            }
+        });
+    });
+    let timer = match window.set_timeout_with_callback_and_timeout_and_arguments_0(
+        watchdog.as_ref().unchecked_ref(),
+        10_000,
+    ) {
+        Ok(timer) => timer,
+        Err(_) => {
+            finish_save(
+                generation,
+                Err("cannot monitor autosave".into()),
+                None,
+                false,
+            );
+            return;
+        }
+    };
+    wasm_bindgen_futures::spawn_local(async move {
+        use super::v2::WorkerEncodeError;
+        let encoded = prepared
+            .encode_in_worker_if_current(&mut worker, || current_save(generation))
+            .await;
+        let (result, permanent) = match encoded {
+            Ok(bytes) => (
+                write_if_current(&bytes, || current_save(generation))
+                    .await
+                    .map(|_| ()),
+                false,
+            ),
+            Err(WorkerEncodeError::TooLarge) => (
+                Err("cellular save exceeds browser storage limit".into()),
+                true,
+            ),
+            Err(WorkerEncodeError::Cancelled) => (Err("cellular save canceled".into()), false),
+            Err(WorkerEncodeError::Failed(error)) => (Err(error), false),
+        };
+        window.clear_timeout_with_handle(timer);
+        drop(watchdog);
+        let worker = result.is_ok().then_some(worker);
+        finish_save(generation, result, worker, permanent);
+    });
+}
+
+fn finish_save(
+    generation: u64,
+    result: Result<(), String>,
+    worker: Option<crate::cell_worker::CellWorker>,
+    permanent: bool,
+) {
+    AUTOSAVE.with(|slot| {
+        let mut state = slot.borrow_mut();
+        if state.generation != generation || !state.busy || !state.enabled { return; }
+        state.busy = false;
+        state.worker = worker;
+        match result {
+            Ok(()) => state.warning = None,
+            Err(error) => {
+                bevy::log::warn!("cellular browser autosave failed; previous save retained: {error}");
+                if permanent {
+                    state.enabled = false;
+                    state.warning = Some("This cellular world is too large to save safely on this device. Your previous save is kept; autosave is off.".into());
+                } else {
+                    state.warning = Some("Cellular autosave failed. Your previous save is kept; the game will retry.".into());
+                }
+            }
+        }
+    });
 }
 
 /// Pause input, simulation and presentation while a reset may still commit.
@@ -288,12 +443,19 @@ pub async fn clear() -> Result<(), String> {
 
 /// The caller keeps the current game untouched until the clear transaction
 /// commits. Failure is shown instead of reloading into the old save silently.
-/// Browser autosaving must remain disabled until its generation/cancellation
-/// lifecycle is integrated with this reset path.
+/// Invalidate pending snapshots before the clear starts. Any existing write
+/// transaction is ordered before the later clear on the same object store.
 pub fn clear_and_reload() {
     if RESETTING.with(|resetting| resetting.replace(true)) {
         return;
     }
+    AUTOSAVE.with(|slot| {
+        let mut state = slot.borrow_mut();
+        state.generation = state.generation.wrapping_add(1);
+        state.enabled = false;
+        state.busy = false;
+        state.worker = None;
+    });
     let message = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id("message"));

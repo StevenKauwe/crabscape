@@ -14,6 +14,8 @@ use crate::save::{SAVE_VERSION, SaveData};
 
 #[cfg(target_arch = "wasm32")]
 pub mod browser;
+#[cfg(target_arch = "wasm32")]
+pub mod browser_system;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 pub mod v2;
