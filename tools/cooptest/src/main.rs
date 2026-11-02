@@ -1222,11 +1222,22 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             sleep(0.4);
             guest.b.set_key("KeyD", true)?;
             let route_started = Instant::now();
+            let mut route_progress = (local_position(&mut guest)?.0, Instant::now());
             while route_started.elapsed().as_secs() < 180 {
                 // Swim over the shelf without repeatedly accelerating upward
                 // through thousands of pixels while a slow runner catches up.
-                let (_, height) = local_position(&mut guest)?;
-                if height < 200.0 {
+                let (x, height) = local_position(&mut guest)?;
+                if x > route_progress.0 + 8.0 {
+                    route_progress = (x, Instant::now());
+                }
+                // A shelf or kelp grip can stop horizontal travel inside the
+                // altitude band. Swim up around it using ordinary controls.
+                let stalled = route_progress.1.elapsed().as_secs() >= 3;
+                if height < 200.0 || stalled {
+                    if stalled {
+                        eprintln!("cells-regions swimming around route obstacle at {x:.1},{height:.1}");
+                        route_progress = (x, Instant::now());
+                    }
                     guest.b.hold_key("Space", 0.9)?;
                 } else if height > 450.0 {
                     guest.b.hold_key("ArrowDown", 0.9)?;
