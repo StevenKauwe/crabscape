@@ -39,6 +39,23 @@ pub(super) struct State {
     guest_pos: Option<Vec2>,
     remote_bounds: Option<CellRegion>,
     home: Vec<PlayerId>,
+    backup: Option<Backup>,
+    incoming_backup: Option<IncomingBackup>,
+    backup_serial: u64,
+    last_backup_tick: u64,
+    pub(super) owner_save_dirty: bool,
+}
+struct Backup {
+    transfer: u64,
+    bytes: Vec<u8>,
+    offered: u32,
+    acks: BTreeSet<u32>,
+}
+struct IncomingBackup {
+    transfer: u64,
+    region: RegionId,
+    epoch: RegionEpoch,
+    receiver: Receiver,
 }
 pub(super) struct Owner {
     pub(super) terrain: TerrainStore,
@@ -210,6 +227,26 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
 
 pub(super) fn wants_inputs(s: &Session) -> bool {
     s.regional.as_ref().is_none_or(|r| r.shared)
+}
+pub(super) fn replay_journal(s: &Session) -> Option<Result<RegionJournal, String>> {
+    let r = s.regional.as_ref()?;
+    Some((|| {
+        let source = r
+            .journal
+            .as_ref()
+            .ok_or("Regional recording is not ready")?;
+        let mut journal =
+            RegionJournal::from_bytes(&source.to_bytes().map_err(fault)?).map_err(fault)?;
+        let authority = if r.shared || s.phase == Phase::Host {
+            HOST
+        } else {
+            s.guest.ok_or("Missing visitor")?
+        };
+        journal
+            .append(authority, journal.epoch(), &r.partial)
+            .map_err(fault)?;
+        Ok(journal)
+    })())
 }
 pub(super) fn local_action(s: &mut Session, action: super::super::super::CellsAction) -> bool {
     let Some(r) = s.regional.as_ref() else {
@@ -435,6 +472,78 @@ fn receive_inner(
     msg: RegionMsg,
 ) -> Result<(), String> {
     match msg {
+        RegionMsg::CheckpointBegin {
+            transfer,
+            region,
+            epoch,
+        } if local == HOST => {
+            if r.owner
+                .as_ref()
+                .and_then(|o| o.remote.as_ref())
+                .is_some_and(|j| j.id().0 == region && j.epoch().0 == epoch)
+            {
+                r.incoming_backup = Some(IncomingBackup {
+                    transfer,
+                    region: RegionId(region),
+                    epoch: RegionEpoch(epoch),
+                    receiver: Receiver::default(),
+                });
+            }
+        }
+        RegionMsg::CheckpointPiece(bytes) if local == HOST => {
+            let (transfer, piece) = fragment_identity(&bytes).map_err(fault)?;
+            let Some(incoming) = r
+                .incoming_backup
+                .as_mut()
+                .filter(|b| b.transfer == transfer)
+            else {
+                return Ok(());
+            };
+            let received = incoming.receiver.accept(&bytes).map_err(fault)?;
+            let complete = received.is_some();
+            if let Some(bytes) = received {
+                if let Some(journal) = r
+                    .owner
+                    .as_mut()
+                    .and_then(|o| o.remote.as_mut())
+                    .filter(|j| j.id() == incoming.region && j.epoch() == incoming.epoch)
+                {
+                    journal
+                        .advance_checkpoint(
+                            s.guest.ok_or("Missing visitor")?,
+                            incoming.epoch,
+                            bytes,
+                        )
+                        .map_err(fault)?;
+                    r.owner_save_dirty = true;
+                }
+                r.incoming_backup = None;
+            }
+            send(
+                s,
+                RegionMsg::CheckpointAck {
+                    transfer,
+                    piece,
+                    complete,
+                },
+            );
+        }
+        RegionMsg::CheckpointAck {
+            transfer,
+            piece,
+            complete,
+        } if local != HOST => {
+            if let Some(backup) = r
+                .backup
+                .as_mut()
+                .filter(|b| b.transfer == transfer && piece < b.offered)
+            {
+                backup.acks.insert(piece);
+                if complete {
+                    r.backup = None;
+                }
+            }
+        }
         RegionMsg::Begin { transfer } if local != HOST => {
             if transfer <= r.transfer {
                 return Err("Stale regional transfer".into());
@@ -444,6 +553,7 @@ fn receive_inner(
             r.stage = Stage::Receiving;
             r.frames.clear();
             r.partial.clear();
+            r.backup = None;
         }
         RegionMsg::Piece(bytes) if local != HOST && r.stage == Stage::Receiving => {
             let (transfer, piece) = fragment_identity(&bytes).map_err(fault)?;
@@ -458,6 +568,7 @@ fn receive_inner(
                 r.shared = kernel.members().contains(&HOST);
                 r.next_batch = kernel.sim.tick_count();
                 r.applied = r.next_batch;
+                r.last_backup_tick = r.next_batch;
                 r.journal = Some(
                     RegionJournal::new(&kernel, if r.shared { HOST } else { local })
                         .map_err(fault)?,
@@ -608,6 +719,46 @@ fn update_inner(
     sim: &mut Sim,
     local: PlayerId,
 ) -> Result<(), String> {
+    if local != HOST
+        && !r.shared
+        && r.stage == Stage::Running
+        && r.partial.is_empty()
+        && r.backup.is_none()
+        && sim.tick_count().saturating_sub(r.last_backup_tick) >= 600
+    {
+        let kernel = r.kernel.as_mut().ok_or("Missing regional kernel")?;
+        let bytes = kernel.checkpoint_view(sim).map_err(fault)?;
+        r.backup_serial += 1;
+        r.last_backup_tick = sim.tick_count();
+        send(
+            s,
+            RegionMsg::CheckpointBegin {
+                transfer: r.backup_serial,
+                region: kernel.id.0,
+                epoch: kernel.epoch.0,
+            },
+        );
+        r.backup = Some(Backup {
+            transfer: r.backup_serial,
+            bytes,
+            offered: 0,
+            acks: BTreeSet::new(),
+        });
+    }
+    if let Some(backup) = &mut r.backup {
+        for _ in 0..WINDOW {
+            if backup.offered.saturating_sub(backup.acks.len() as u32) >= WINDOW {
+                break;
+            }
+            let Some(piece) =
+                Fragments::piece(backup.transfer, &backup.bytes, backup.offered).map_err(fault)?
+            else {
+                break;
+            };
+            backup.offered += 1;
+            send(s, RegionMsg::CheckpointPiece(piece));
+        }
+    }
     if let Some(canvas) = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id("crabscape"))
@@ -615,6 +766,16 @@ fn update_inner(
         let _ = canvas.set_attribute(
             "data-cell-regions",
             if r.shared { "shared" } else { "separate" },
+        );
+        let _ = canvas.set_attribute(
+            "data-cell-region-state",
+            match r.stage {
+                Stage::Running => "running",
+                Stage::Sending => "sending",
+                Stage::Receiving => "receiving",
+                Stage::WaitingStop | Stage::Stopping => "stopping",
+                Stage::Stopped => "stopped",
+            },
         );
         if let Some(k) = &r.kernel {
             let _ = canvas.set_attribute("data-cell-region-id", &k.id.0.to_string());

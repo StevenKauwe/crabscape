@@ -722,7 +722,6 @@ pub(super) fn take_in(
                     }
                 }
                 Phase::Sending | Phase::Receiving => "Sharing the world…",
-                _ if s.regional.is_some() => "Playing together · regional simulation",
                 _ => "Playing together",
             }
             .into();
