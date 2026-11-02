@@ -1010,9 +1010,15 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             guest.open(&host.copied_invite(&invite, "cells")?)?;
             for p in [&mut host, &mut guest] {
                 p.until(120.0, "large-world regional lobby starts", |p| {
-                    p.b.attr("data-cell-region-state").as_deref() == Some("running")
-                        && p.b.attr("data-cell-regions").as_deref() == Some("shared")
+                    (p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                        && p.b.attr("data-cell-regions").as_deref() == Some("shared"))
+                        || p.coop().to_lowercase().contains("world too large to share")
                 })?;
+                if p.coop().to_lowercase().contains("world too large to share") {
+                    return Err(
+                        p.failed("explored owner world was rejected as too large to share".into())
+                    );
+                }
             }
             pause_region(&mut host, true)?;
             sleep(0.5);
