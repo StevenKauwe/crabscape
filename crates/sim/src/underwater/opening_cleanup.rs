@@ -1,5 +1,6 @@
-//! Feature-gated migration proof. Coordinates are absolute terrain cells;
-//! nothing here reads, writes, or installs a save.
+//! Pure terrain cleanup. Coordinates are absolute terrain cells; nothing here
+//! reads, writes, or installs a save. Callers must separately validate the
+//! complete checkpoint and safely publish any resulting save.
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -384,6 +385,22 @@ mod tests {
         }
         assert_eq!(transform(&candidate, bounds).unwrap(), (candidate, 0));
         assert_eq!(restored, source);
+    }
+
+    #[test]
+    fn opening_rectangle_matches_the_new_fresh_opening() {
+        let level = crate::Level::test_level();
+        let historical = World::opening_pebble_fixture(&level);
+        let fresh = World::from_level_settled(&level);
+        let bounds = Rect {
+            left: 0,
+            bottom: 0,
+            right: 640,
+            top: 360,
+        };
+        let (cleaned, removed) = transform_owned(historical, bounds).unwrap();
+        assert!(removed > 0);
+        assert_eq!(cleaned, fresh);
     }
 
     #[test]

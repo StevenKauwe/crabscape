@@ -85,6 +85,7 @@ postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 # An exported character (src/character.rs): its checksum, and packing it about 4 times smaller. Both already in the
 # build: the PNG decoder uses them.
 crc32fast = "1"
+sha2 = "0.10.9"
 miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
 
 # Property tests (src/character.rs: any pasted text is answered, never a crash). As in crates/sim: without the

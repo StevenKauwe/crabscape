@@ -2756,6 +2756,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "sha2",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -8036,6 +8037,7 @@ dependencies = [
  "crc32fast",
  "miniz_oxide 0.8.9",
  "png 0.18.1",
+ "postcard",
  "serde_json",
 ]
 

@@ -59,6 +59,28 @@ fn fixture() -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn old_opening_fixture() -> Result<Vec<u8>> {
+    let terrain: World = postcard::from_bytes(include_bytes!(
+        "../../../crates/sim/assets/opening-settled.postcard"
+    ))
+    .map_err(|error| error.to_string())?;
+    if terrain.game_pebbles().is_empty() {
+        return Err("historical opening must contain pebbles".into());
+    }
+    let raw =
+        crabsim::underwater::encode_browser_checkpoint(&terrain).ok_or("opening too large")?;
+    let player = serde_json::to_vec(&json!({"version":2,"x":200.25,"y":40.5})).unwrap();
+    let tick = 17u64;
+    let mut bytes = b"CRABCEL2".to_vec();
+    bytes.extend_from_slice(&tick.to_le_bytes());
+    bytes.extend_from_slice(&(player.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&checksum(tick, &player, &raw).to_le_bytes());
+    bytes.extend_from_slice(&player);
+    bytes.extend_from_slice(&miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1));
+    Ok(bytes)
+}
+
 fn decode(bytes: &[u8]) -> Result<Saved> {
     if bytes.len() < HEADER || !bytes.starts_with(b"CRABCEL2") {
         return Err("the game did not write a complete v2 cellular save".into());
@@ -415,6 +437,73 @@ impl Test<'_> {
         self.check(
             normal_replay.is_some_and(|replay| !replay.cellular),
             "boring mode opens the normal game even when cells is requested",
+        );
+        self.go("assets/crab/crab-atlas.png")?;
+        let opening = old_opening_fixture()?;
+        let encoded = STANDARD.encode(&opening);
+        self.eval(&format!(r#"await new Promise((resolve,reject)=>{{
+          const r=indexedDB.open({DATABASE:?},1);
+          r.onsuccess=()=>{{ const db=r.result,tx=db.transaction('world','readwrite'),s=tx.objectStore('world');
+            s.put(Uint8Array.from(atob({encoded:?}),c=>c.charCodeAt(0)),'active');
+            for(const k of ['reset_epoch','cleanup_marker','cleanup_backup']) s.delete(k);
+            tx.oncomplete=()=>{{db.close();resolve(true)}};tx.onabort=()=>reject('fixture write failed'); }};
+          r.onerror=()=>reject('fixture open failed');
+        }})"#))?;
+        let migrated = self.open("index.html?cells")?;
+        let saved = self
+            .cellular_record()?
+            .ok_or("opening migration lost save")?;
+        let state = decode(&saved)?;
+        self.check(
+            migrated
+                && state.terrain.game_pebbles().is_empty()
+                && state.tick == 17
+                && state.player["x"] == 200.25
+                && state.player["y"] == 40.5,
+            "real startup removes the saved opening pebble bed and preserves player/tick",
+        );
+        self.check(self.eval(&format!(r#"await new Promise((resolve,reject)=>{{
+          const r=indexedDB.open({DATABASE:?},1);r.onerror=()=>reject('open');r.onsuccess=()=>{{
+            const db=r.result,tx=db.transaction('world','readonly'),s=tx.objectStore('world');
+            const b=s.get('cleanup_backup'),m=s.get('cleanup_marker'),e=s.get('reset_epoch');
+            tx.oncomplete=()=>{{ const v=b.result,expected=atob({encoded:?});resolve(!!m.result && !!e.result && e.result[0]===1 && !!v && v.length===expected.length && v.every((c,i)=>c===expected.charCodeAt(i)));db.close(); }};
+          }};
+        }})"#))?.as_bool()==Some(true), "migration preserves exact backup and fences the previous epoch");
+        let replay = self.cellular_replay()?;
+        let mut restored = Sim::with_one_crab(replay.start);
+        self.check(
+            replay.prepare_start(&mut restored)
+                && restored
+                    .level
+                    .cells
+                    .as_ref()
+                    .is_some_and(|w| w.game_pebbles().is_empty()),
+            "migrated startup exports the new sandy replay checkpoint",
+        );
+        let migrated_bytes = STANDARD.encode(&saved);
+        let advanced = self.wait_for(
+            &format!("await (async () => ({READ}) !== {migrated_bytes:?})()"),
+            30.0,
+        )?;
+        self.check(advanced, "migrated world continues autosaving");
+        let reloaded = self.open("index.html?cells")?;
+        self.check(
+            reloaded && self.attr("data-cell-save")?.as_deref() == Some("loaded"),
+            "migrated autosave reloads with a matching marker",
+        );
+        let (x, y) = settings_button(self.o.width);
+        self.tap(x, y, 12, true)?;
+        let (x, y) = settings_tab(self.o.width, "game");
+        self.tap(x, y, 12, true)?;
+        let (x, y) = start_over_centre(self.o.width);
+        self.tap(x, y, 13, true)?;
+        self.tap(x, y, 14, true)?;
+        self.check(
+            self.wait_for(
+                &format!("{CANVAS}.getAttribute('data-cell-save') === 'fresh'"),
+                90.0,
+            )?,
+            "reset clears the migrated save and reloads fresh",
         );
         Ok(())
     }

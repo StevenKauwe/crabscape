@@ -17,6 +17,8 @@ use web_sys::{
     Event, IdbDatabase, IdbOpenDbRequest, IdbRequest, IdbTransaction, IdbTransactionMode,
 };
 
+mod cleanup_storage;
+
 const STORE: &str = "world";
 const KEY: &str = "active";
 const EPOCH_KEY: &str = "reset_epoch";
@@ -299,10 +301,14 @@ pub(crate) async fn preload_from(
             return;
         }
         let loaded = match read {
-            Ok((Some(bytes), epoch)) => {
-                decode_for_startup(&bytes).map(|saved| (Some(saved), epoch))
+            Ok((Some(bytes), epoch, migrated)) => {
+                if migrated {
+                    decode_for_startup(&bytes).map(|saved| (Some(saved), epoch))
+                } else {
+                    migrate_opening(&database, bytes, epoch, settled.clone()).await
+                }
             }
-            Ok((None, epoch)) => Ok((None, epoch)),
+            Ok((None, epoch, _)) => Ok((None, epoch)),
             Err(error) => Err(error),
         };
         if !settled.replace(true) {
@@ -317,6 +323,50 @@ pub(crate) async fn preload_from(
     completion.map_err(|e| problem("finish loading", e))?;
     let loaded = finished_result.borrow_mut().take();
     loaded.unwrap_or_else(|| Err("cellular save loading did not finish".into()))
+}
+
+async fn migrate_opening(
+    database: &str,
+    bytes: Vec<u8>,
+    epoch: u64,
+    settled: Rc<Cell<bool>>,
+) -> Result<(Option<super::Restored>, u64), String> {
+    let prepared = super::cleanup::PreparedCleanup::from_source(
+        bytes.clone(),
+        epoch,
+        super::cleanup::OPENING_REGION,
+    );
+    // Cleanup is optional: an older valid save must remain playable if the
+    // worker or replay preparation cannot handle it. No writes occurred yet.
+    let ready = match prepared {
+        Ok(prepared) => match crate::cell_worker::CellWorker::new() {
+            Ok(mut worker) => prepared
+                .finish_in_worker(&mut worker, || !settled.get())
+                .await
+                .ok(),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    };
+    let Some(ready) = ready else {
+        return decode_for_startup(&bytes).map(|saved| (Some(saved), epoch));
+    };
+    drop(bytes);
+    let restored = decode_for_startup(ready.candidate())?;
+    let next_epoch = epoch
+        .checked_add(1)
+        .ok_or("cellular reset epoch exhausted")?;
+    let current = settled.clone();
+    if !cleanup_storage::mutate(
+        database,
+        cleanup_storage::Operation::Migrate(ready),
+        move || !current.get(),
+    )
+    .await?
+    {
+        return Err("opening cleanup was canceled".into());
+    }
+    Ok((Some(restored), next_epoch))
 }
 
 fn decode_for_startup(bytes: &[u8]) -> Result<super::Restored, String> {
@@ -379,7 +429,7 @@ async fn read_session_from(
     database: &str,
     limit: usize,
     settled: Rc<Cell<bool>>,
-) -> Result<(Option<Vec<u8>>, u64), String> {
+) -> Result<(Option<Vec<u8>>, u64, bool), String> {
     let db = Database(open(database).await?);
     if settled.get() {
         return Err("cellular save load canceled".into());
@@ -390,14 +440,19 @@ async fn read_session_from(
     let store = tx
         .object_store(STORE)
         .map_err(|e| problem("open save store", e))?;
-    let requests: Vec<_> = [KEY, EPOCH_KEY]
-        .into_iter()
-        .map(|key| {
-            store
-                .get(&JsValue::from_str(key))
-                .map_err(|e| problem("read save session", e))
-        })
-        .collect::<Result<_, _>>()?;
+    let requests: Vec<_> = [
+        KEY,
+        EPOCH_KEY,
+        cleanup_storage::MARKER,
+        cleanup_storage::BACKUP,
+    ]
+    .into_iter()
+    .map(|key| {
+        store
+            .get(&JsValue::from_str(key))
+            .map_err(|e| problem("read save session", e))
+    })
+    .collect::<Result<_, _>>()?;
     let (signal, resolve, reject) = promise();
     let remaining = Rc::new(Cell::new(requests.len()));
     let mut successes = Vec::new();
@@ -451,7 +506,18 @@ async fn read_session_from(
         }
         Some(bytes.to_vec())
     };
-    Ok((save, epoch))
+    let migrated = cleanup_storage::validate(
+        epoch,
+        save.as_deref(),
+        handlers.requests[2]
+            .result()
+            .map_err(|e| problem("read cleanup marker", e))?,
+        handlers.requests[3]
+            .result()
+            .map_err(|e| problem("read cleanup backup", e))?,
+    )?
+    .is_some();
+    Ok((save, epoch, migrated))
 }
 
 /// Nothing stored yet is distinct from storage being blocked or damaged.
@@ -468,36 +534,14 @@ async fn read_from_limited(
     limit: usize,
     still_current: impl Fn() -> bool,
 ) -> Result<Option<Vec<u8>>, String> {
-    let db = Database(open(database).await?);
     if !still_current() {
         return Err("cellular save load canceled".into());
     }
-    async {
-        let tx =
-            db.0.transaction_with_str_and_mode(STORE, IdbTransactionMode::Readonly)
-                .map_err(|e| problem("open read transaction", e))?;
-        let store = tx
-            .object_store(STORE)
-            .map_err(|e| problem("open save store", e))?;
-        let req = store
-            .get(&JsValue::from_str(KEY))
-            .map_err(|e| problem("read save", e))?;
-        let value = request(&req).await?;
-        if !still_current() {
-            return Err("cellular save load canceled".into());
-        }
-        if value.is_undefined() {
-            return Ok(None);
-        }
-        let bytes: Uint8Array = value
-            .dyn_into()
-            .map_err(|_| "stored cellular save is not bytes".to_string())?;
-        if bytes.length() as usize > limit {
-            return Err(TOO_LARGE.into());
-        }
-        Ok(Some(bytes.to_vec()))
+    let (save, _, _) = read_session_from(database, limit, Rc::new(Cell::new(false))).await?;
+    if !still_current() {
+        return Err("cellular save load canceled".into());
     }
-    .await
+    Ok(save)
 }
 
 /// Atomically compare the session epoch and replace the save. A reset in
@@ -523,105 +567,27 @@ async fn mutate_epoch(
     write: Option<(u64, Vec<u8>)>,
     still_current: impl Fn() -> bool + 'static,
 ) -> Result<bool, String> {
-    if write
-        .as_ref()
-        .is_some_and(|(_, bytes)| bytes.len() > MAX_BYTES)
-    {
-        return Err("cellular save is too large".into());
-    }
-    if write.is_some() && !still_current() {
-        return Ok(false);
-    }
-    let db = Database(open(database).await?);
-    if write.is_some() && !still_current() {
-        return Ok(false);
-    }
-    let tx =
-        db.0.transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
-            .map_err(|e| problem("open save transaction", e))?;
-    let store = tx
-        .object_store(STORE)
-        .map_err(|e| problem("open save store", e))?;
-    let req = store
-        .get(&JsValue::from_str(EPOCH_KEY))
-        .map_err(|e| problem("read reset epoch", e))?;
-    let request_for_success = req.clone();
-    let tx_for_success = tx.clone();
-    let result: Rc<RefCell<Option<Result<bool, String>>>> = Rc::new(RefCell::new(None));
-    let result_for_success = result.clone();
-    let data = Rc::new(write);
-    let success = Closure::<dyn FnMut(Event)>::new(move |_| {
-        let operation = (|| -> Result<bool, String> {
-            if data.is_some() && !still_current() {
-                return Ok(false);
-            }
-            let epoch = decode_epoch(
-                request_for_success
-                    .result()
-                    .map_err(|e| problem("read reset epoch", e))?,
-            )?;
-            if let Some((expected, bytes)) = data.as_ref() {
-                if epoch != *expected {
-                    return Err(STALE_EPOCH.into());
-                }
-                store
-                    .put_with_key(
-                        Uint8Array::from(bytes.as_slice()).as_ref(),
-                        &JsValue::from_str(KEY),
-                    )
-                    .map_err(|e| problem("write save", e))?;
-                // Legacy epoch-zero sessions are upgraded atomically with the save.
-                store
-                    .put_with_key(
-                        Uint8Array::from(epoch.to_le_bytes().as_slice()).as_ref(),
-                        &JsValue::from_str(EPOCH_KEY),
-                    )
-                    .map_err(|e| problem("write reset epoch", e))?;
-            } else {
-                let next = epoch
-                    .checked_add(1)
-                    .ok_or("cellular reset epoch exhausted")?;
-                store
-                    .delete(&JsValue::from_str(KEY))
-                    .map_err(|e| problem("clear save", e))?;
-                store
-                    .put_with_key(
-                        Uint8Array::from(next.to_le_bytes().as_slice()).as_ref(),
-                        &JsValue::from_str(EPOCH_KEY),
-                    )
-                    .map_err(|e| problem("write reset epoch", e))?;
-            }
-            Ok(true)
-        })();
-        let failed = operation.is_err();
-        *result_for_success.borrow_mut() = Some(operation);
-        if failed {
-            let _ = tx_for_success.abort();
-        }
-    });
-    let error = Closure::<dyn FnMut(Event)>::new(move |_| {});
-    req.set_onsuccess(Some(success.as_ref().unchecked_ref()));
-    req.set_onerror(Some(error.as_ref().unchecked_ref()));
-    let handlers = RequestHandlers {
-        req,
-        _success: success,
-        _error: error,
+    let op = match write {
+        Some((epoch, bytes)) => cleanup_storage::Operation::Save { epoch, bytes },
+        None => cleanup_storage::Operation::Reset,
     };
-    let committed_result = committed(&tx).await;
-    let operation = result.borrow_mut().take();
-    drop(handlers);
-    match operation {
-        Some(Err(error)) => Err(error),
-        _ if committed_result.is_err() => Err(committed_result
-            .err()
-            .unwrap_or_else(|| "save transaction failed".into())),
-        Some(Ok(value)) => Ok(value),
-        None => Err("save transaction did not finish".into()),
-    }
+    cleanup_storage::mutate(database, op, still_current).await
 }
 
-/// Remove only this build's cellular save. Callers must invalidate pending
-/// compression jobs first and wait for this transaction before reloading.
+/// Atomically publish a prepared cleanup only if its exact source and epoch
+/// remain current. Startup does not invoke this operation yet.
+pub async fn commit_cleanup_if_current(
+    ready: super::cleanup::ReadyCleanup,
+    still_current: impl Fn() -> bool + 'static,
+) -> Result<bool, String> {
+    cleanup_storage::mutate(
+        &crate::save::browser_key(".cells"),
+        cleanup_storage::Operation::Migrate(ready),
+        still_current,
+    )
+    .await
+}
+
 pub async fn clear() -> Result<(), String> {
     clear_from(&crate::save::browser_key(".cells")).await
 }

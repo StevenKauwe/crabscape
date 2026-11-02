@@ -7,7 +7,6 @@ pub mod chunk_flow;
 #[cfg(test)]
 pub(crate) mod dirty_oracle;
 pub mod frozen_chunks;
-#[cfg(any(test, feature = "cleanup-proof"))]
 pub mod opening_cleanup;
 pub mod versioned_chunks;
 pub use bounded_checkpoint::{decode_browser_checkpoint, encode_browser_checkpoint};
