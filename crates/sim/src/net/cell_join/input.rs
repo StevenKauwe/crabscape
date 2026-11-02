@@ -1176,6 +1176,45 @@ mod tests {
     }
 
     #[test]
+    fn staged_scoop_capture_refuses_real_material_and_streaming_steps() {
+        // Capture refusal does not cancel the real host transaction.
+        let (mut host, _, _, _) = setup_case(11);
+        let selected = peer(1, 20);
+        let input = Msg::CellUpInput {
+            epoch: 77,
+            tick: 0,
+            sequence: 0,
+            player: PlayerId(1),
+            up: false,
+        };
+        let mut committed = false;
+        let capture = crate::underwater::chunk_flow::capture_scoop_journals(|| {
+            committed = host
+                .accept_up(selected, Some(selected), &input, false)
+                .is_ok();
+        });
+        assert!(capture.is_none());
+        assert!(committed);
+        assert_eq!(host.host.level.cells, host.shadow.level.cells);
+
+        // An off-material operation can also stream a window; this capture
+        // must refuse it even though the actual terrain step succeeds.
+        let mut h = host.host.local_shared_walking_force_any_tick().unwrap();
+        let mut g = host.shadow.local_shared_walking_force_any_tick().unwrap();
+        let mut world = host.host.level.cells.clone().unwrap();
+        let before = world.local_cell(0.0, 0.0);
+        h.x += 1900.0;
+        g.x += 1900.0;
+        let mut advanced = false;
+        let capture = crate::underwater::chunk_flow::capture_scoop_journals(|| {
+            advanced = world.step_up_pair(&host.host.level, &host.host.tuning, &h, &g, false);
+        });
+        assert!(advanced, "fixture must successfully stream a window");
+        assert_ne!(world.local_cell(0.0, 0.0), before);
+        assert!(capture.is_none());
+    }
+
+    #[test]
     fn upward_ticks_replicate_both_players_and_match_solo_over_fake_link() {
         for (host_up, guest_up) in [(true, false), (false, true), (true, true)] {
             let (mut c, mut guest, join, _) = setup_case(11);
