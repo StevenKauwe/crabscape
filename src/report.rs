@@ -8,7 +8,9 @@
 //! Each report carries the game as it was when the form opened: the replay
 //! so far (`cargo crabsim --inputs` plays it back exactly), the build,
 //! browser, screen, frame rate, where the crab was, co-op, the settings and
-//! the last log lines.
+//! the last log lines. Report replays omit the final state hash to avoid
+//! hashing the entire cellular world on the device when the form opens; F9
+//! recordings still include their hash.
 //!
 //! After co-op voice chat, "Add the last 15 min of voice chat" (unticked
 //! each time: reports are public) adds what was said, as written down by
@@ -378,12 +380,18 @@ mod web {
             facts.push(("Co-op".into(), coop));
         }
         let (replay, replay_omitted) = super::report_replay(sim.recording_cell_start_len(), || {
-            sim.recording().map(|r| r.to_text())
+            sim.recording_for_report().map(|r| r.to_text())
         });
+        let replay_included = !replay.is_empty();
         if replay_omitted {
             facts.push((
                 "Replay".into(),
                 "Omitted: the saved terrain checkpoint is too large for a report.".into(),
+            ));
+        } else if replay_included {
+            facts.push((
+                "Replay".into(),
+                "Final state hash omitted to keep reports responsive.".into(),
             ));
         }
         with(|f| {
@@ -393,6 +401,8 @@ mod web {
         wire();
         note(if replay_omitted {
             "Replay omitted from this report because its saved terrain is too large."
+        } else if replay_included {
+            "Replay included without a final state hash."
         } else {
             ""
         });

@@ -152,6 +152,11 @@ pub struct Sim {
 /// The seed every world starts with (a replay therefore needs no seed).
 pub const SEED: u64 = 0x00c0_ffee_c4ab_5eed;
 
+#[cfg(test)]
+thread_local! {
+    static STATE_HASH_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 impl Sim {
     /// Install validated saved terrain and its simulation clock before the
     /// player or creatures are spawned. A running simulation cannot safely
@@ -1894,6 +1899,16 @@ impl Sim {
         })
     }
 
+    /// Report attachment with the same recorded inputs and events as F9,
+    /// but without a final state hash. Hashing a cellular world formats the
+    /// entire terrain and can block or exhaust a phone when the form opens.
+    pub fn recording_for_report(&self) -> Option<crate::Replay> {
+        self.recorder.as_ref().map(|r| crate::Replay {
+            hash: None,
+            ..r.replay(self.tick)
+        })
+    }
+
     /// Size of a resumed replay's encoded terrain without cloning the replay
     /// or hashing the world. Reports can refuse oversized payloads cheaply.
     pub fn recording_cell_start_len(&self) -> Option<usize> {
@@ -1910,6 +1925,8 @@ impl Sim {
     /// replay in that same frame; the replay only carries controls a tick
     /// used.)
     pub fn state_hash(&self) -> u64 {
+        #[cfg(test)]
+        STATE_HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
         let crabs: Vec<SimCrab> = self
             .crabs
             .iter()
@@ -2282,6 +2299,39 @@ mod tests {
         }
         assert_eq!(sim.tick_count(), 240);
         assert!((sim.time() - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn report_recording_skips_world_hash_but_preserves_inputs_and_events() {
+        let mut sim = Sim::with_one_crab(SPAWN);
+        sim.enable_underwater_cells();
+        sim.start_recording();
+        sim.spawn_enemy(crate::enemy::Kind::Mantis, Vec2::new(420.0, 0.0));
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                walk: 0.5,
+                dig_held: true,
+                down: true,
+                ..Controls::default()
+            },
+        );
+        sim.tick();
+        sim.set_controls(PlayerId(0), Controls::default());
+        sim.tick();
+        STATE_HASH_CALLS.with(|calls| calls.set(0));
+
+        let report = sim.recording_for_report().unwrap();
+        assert_eq!(STATE_HASH_CALLS.with(|calls| calls.get()), 0);
+        assert!(report.hash.is_none());
+        assert!(!report.inputs.is_empty());
+        assert!(!report.spawns.is_empty());
+
+        let mut full = sim.recording().unwrap();
+        assert_eq!(STATE_HASH_CALLS.with(|calls| calls.get()), 1);
+        assert!(full.hash.is_some(), "F9 keeps the end-state hash");
+        full.hash = None;
+        assert_eq!(report, full);
     }
 
     #[test]
