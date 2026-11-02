@@ -194,3 +194,54 @@ fn causal_source_recipient_snapshots_and_reemission_preserve_one_grain() {
     );
     assert_eq!(store.terrain.pending_falls.len(), 1);
 }
+
+#[test]
+#[ignore = "manual regional material-cut performance measurement"]
+fn shared_size_material_cut_profile() {
+    for traffic in [false, true] {
+        for sample in 0..3 {
+            let mut sim = Sim::with_one_crab(bevy_math::Vec2::new(480.0, 800.0));
+            sim.enable_underwater_cells();
+            let mut terrain = sim.level.cells.take().unwrap();
+            terrain.pebbles.clear();
+            terrain.pebble_motion.clear();
+            terrain.pebble_owner.fill(0);
+            let mut store = TerrainStore::new(terrain).unwrap();
+            let mut archive = EntityArchive::new(sim).unwrap();
+            let bounds = CellRegion {
+                x: 0,
+                y: 0,
+                width: 384,
+                height: 384,
+            };
+            let id = RegionId(1);
+            let (epoch, world) = store.grant(id, bounds, &archive.sim.level).unwrap();
+            let mut kernel = archive.extract(id, epoch, &[PlayerId(0)], world).unwrap();
+            store.leases.get_mut(&id).unwrap().had_falls = traffic;
+            let input = prepare_move(
+                &mut store,
+                &archive,
+                id,
+                epoch,
+                CellRegion { x: 64, ..bounds },
+            )
+            .unwrap();
+            let start = std::time::Instant::now();
+            let output = kernel.rewindow(&input).unwrap();
+            let rewindow = start.elapsed();
+            let start = std::time::Instant::now();
+            let raw_size = postcard::experimental::serialized_size(&output).unwrap();
+            let sizing = start.elapsed();
+            let start = std::time::Instant::now();
+            let raw = postcard::to_allocvec(&output).unwrap();
+            let serialization = start.elapsed();
+            let start = std::time::Instant::now();
+            let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+            let compression = start.elapsed();
+            eprintln!(
+                "shared384 traffic={traffic} sample={sample} rewindow={rewindow:?} sizing={sizing:?} serialize={serialization:?} compress={compression:?} raw={raw_size} packed={}",
+                compressed.len() + 8
+            );
+        }
+    }
+}
