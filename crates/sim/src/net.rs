@@ -150,13 +150,14 @@ pub enum Msg {
     CellFrameAck { epoch: u64, frame: u64 },
     /// Test-only shadow probe ready signal; gameplay ignores it.
     CellProbeReady,
-    /// Experimental tick-stamped guest walking input; ignored by gameplay.
+    /// Experimental tick-stamped guest walk/dig input; ignored by gameplay.
     CellWalkInput {
         epoch: u64,
         tick: u64,
         sequence: u64,
         player: PlayerId,
         walk: f32,
+        dig: bool,
     },
 }
 

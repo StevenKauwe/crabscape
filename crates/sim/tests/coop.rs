@@ -605,6 +605,7 @@ fn a_message_from_a_newer_game_is_dropped_unread() {
         sequence: 0,
         player: GUEST,
         walk: 0.5,
+        dig: true,
     };
     assert_eq!(Msg::from_bytes(&input.to_bytes()), Some(input));
     for kind in [99u8, 120, 127] {

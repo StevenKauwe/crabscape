@@ -1,8 +1,8 @@
 //! Isolated host-owned guest-actor experiment. Not wired to gameplay.
 //!
 //! The caller must construct the guest shadow from trusted host-owned initial
-//! state, never from peer packets. This version accepts only horizontal input
-//! in a fresh, actor-limited test world. It clones both simulations per tick;
+//! state, never from peer packets. It accepts only horizontal walking and
+//! guest digging in a fresh, actor-limited test world. It clones both simulations per tick;
 //! it is a correctness probe, not a live network or performance solution.
 use super::{
     Peer,
@@ -122,6 +122,7 @@ impl Host {
             sequence,
             player,
             walk,
+            dig,
         } = *input
         else {
             self.paused = true;
@@ -149,6 +150,10 @@ impl Host {
             self.paused = true;
             return Err(InputError::Invalid);
         }
+        if dig && walk.abs() <= 0.1 {
+            self.paused = true;
+            return Err(InputError::Unsupported);
+        }
         let Some(next) = self.next.checked_add(1) else {
             self.paused = true;
             return Err(InputError::Invalid);
@@ -170,6 +175,7 @@ impl Host {
             self.guest.player,
             Controls {
                 walk,
+                dig_held: dig,
                 ..Default::default()
             },
         );
@@ -194,6 +200,11 @@ impl Host {
                 self.paused = true;
                 return Err(InputError::Unsupported);
             };
+            if !lockstep::apply_guest_dig_load(&mut shadow, &guest_world, &host_force, &guest_force)
+            {
+                self.paused = true;
+                return Err(InputError::Unsupported);
+            }
             if !guest_world.step_walking_pair(
                 &shadow.level,
                 &shadow.tuning,
@@ -289,6 +300,10 @@ mod tests {
         }
     }
     fn setup() -> (Host, Sim, GuestJoin, Guest) {
+        setup_case(0)
+    }
+    // 0: airborne walker, 1: loose sand, 2: pebble aggregate.
+    fn setup_case(case: u8) -> (Host, Sim, GuestJoin, Guest) {
         let mut level = Level::test_level();
         level.eggs.clear();
         level.cultures.clear();
@@ -306,12 +321,35 @@ mod tests {
             .as_mut()
             .unwrap()
             .test_dissolve_pebble_ownership();
+        if case != 0 {
+            let cells = host.level.cells.as_mut().unwrap();
+            cells.test_flat_loose_bed();
+            if case == 1 {
+                assert!(cells.test_place_loose_sand(165, 115));
+            }
+            if case == 2 {
+                assert!(cells.test_add_pebble(162, 124, 4));
+            }
+        }
+        let surface = if case == 0 {
+            500.0
+        } else {
+            host.level
+                .cells
+                .as_ref()
+                .unwrap()
+                .game_surface_below(700.0, 30.0, 1000.0)
+                .unwrap()
+        };
         let mut guest = Sim::new(Tuning::default(), level);
         guest.enable_underwater_cells();
-        guest.add_crab(PlayerId(1), Vec2::new(700.0, 500.0));
-        guest.crab_mut(PlayerId(1)).unwrap().mover.grounded = false;
+        guest.add_crab(PlayerId(1), Vec2::new(700.0, surface));
+        if case == 0 {
+            guest.crab_mut(PlayerId(1)).unwrap().mover.grounded = false;
+        }
         host.add_remote_crab(PlayerId(1), guest.crab(PlayerId(1)).unwrap().mover.pos);
-        host.crab_mut(PlayerId(1)).unwrap().mover.grounded = false;
+        host.crab_mut(PlayerId(1)).unwrap().mover.grounded =
+            guest.crab(PlayerId(1)).unwrap().mover.grounded;
         host.go_online(true);
         guest.go_online(false);
         let host_peer = peer(0, 10);
@@ -342,6 +380,7 @@ mod tests {
             sequence: tick,
             player: PlayerId(1),
             walk,
+            dig: false,
         }
     }
 
@@ -441,6 +480,213 @@ mod tests {
             assert_eq!(remote, *guest.crab(PlayerId(1)).unwrap());
         }
         assert!(guest.crab(PlayerId(1)).unwrap().mover.pos.x < start.x);
+    }
+
+    #[test]
+    fn host_derived_guest_dig_matches_solo_across_sand_and_pebbles() {
+        for case in [1, 2] {
+            let (mut controller, mut guest, join, mut stream) = setup_case(case);
+            let mut solo = guest.clone();
+            let mut link = FakeLink::steady(0);
+            let host_peer = peer(0, 10);
+            let guest_peer = peer(1, 20);
+            let initial_pebbles = controller
+                .host()
+                .level
+                .cells
+                .as_ref()
+                .unwrap()
+                .game_pebbles();
+            let initial_shapes: Vec<_> = initial_pebbles.iter().map(|p| (p.2, p.3)).collect();
+            let mut previous_counts = None;
+            let mut saw_resistance = false;
+            for tick in 0..12 {
+                let mut input = message(tick, -1.0);
+                if let Msg::CellWalkInput { dig, .. } = &mut input {
+                    *dig = true;
+                }
+                link.test_post(1, 0, input);
+                let mut received = None;
+                link.carry_with(
+                    &mut [&mut controller.host, &mut guest],
+                    |from, to, _, msg| {
+                        if matches!(msg, Msg::CellWalkInput { .. }) {
+                            assert_eq!((from, to), (1, 0));
+                            received = Msg::from_bytes(&msg.to_bytes());
+                        }
+                    },
+                );
+                let frame = controller
+                    .accept(guest_peer, Some(guest_peer), &received.unwrap(), 0.0)
+                    .unwrap();
+                let controls = Controls {
+                    walk: -1.0,
+                    dig_held: true,
+                    ..Default::default()
+                };
+                guest.set_controls(PlayerId(1), controls);
+                solo.set_controls(PlayerId(1), controls);
+                if let Some(frame) = frame {
+                    let Msg::CellFrame(bytes) = &frame else {
+                        panic!("expected terrain frame")
+                    };
+                    let decoded = Frame::from_bytes(bytes).unwrap();
+                    let dig = decoded.players[1].dig.expect("host-derived dig");
+                    assert_eq!((dig.dx, dig.dy, dig.force), (-1, 0, 48));
+                    link.test_post(0, 1, frame);
+                    let mut applied = None;
+                    link.carry_with(
+                        &mut [&mut controller.host, &mut guest],
+                        |from, to, sim, msg| {
+                            if let Some(Msg::CellFrame(bytes)) = Msg::from_bytes(&msg.to_bytes()) {
+                                assert_eq!((from, to), (0, 1));
+                                applied = Some(stream.apply(
+                                    &join,
+                                    sim,
+                                    host_peer,
+                                    Some(host_peer),
+                                    &bytes,
+                                ));
+                            }
+                        },
+                    );
+                    assert_eq!(applied, Some(Ok(())));
+                    assert!(guest.level.cells == controller.host().level.cells);
+                    let world = controller.host().level.cells.as_ref().unwrap();
+                    let count = |material| {
+                        (0..360)
+                            .flat_map(|y| (0..640).map(move |x| (x, y)))
+                            .filter(|&(x, y)| world.cell(x, y) == material)
+                            .count()
+                    };
+                    let counts = (
+                        count(crate::underwater::Cell::Sand),
+                        count(crate::underwater::Cell::Mud),
+                        world.game_pebbles().len(),
+                    );
+                    if let Some(previous) = previous_counts {
+                        assert_eq!(counts, previous);
+                    }
+                    let shapes: Vec<_> = world.game_pebbles().iter().map(|p| (p.2, p.3)).collect();
+                    assert_eq!(
+                        shapes, initial_shapes,
+                        "aggregate size and identity remain intact"
+                    );
+                    previous_counts = Some(counts);
+                }
+                assert!(guest.tick_guest_shared_walking());
+                solo.tick();
+                let actual = &guest.crab(PlayerId(1)).unwrap().mover;
+                let expected = &solo.crab(PlayerId(1)).unwrap().mover;
+                assert_eq!(actual.pos, expected.pos, "case {case}, tick {tick}");
+                assert_eq!(
+                    actual.dig_load, expected.dig_load,
+                    "case {case}, tick {tick}"
+                );
+                saw_resistance |= actual.dig_load > 0.0;
+                assert_eq!(
+                    guest.crab(PlayerId(1)),
+                    controller.shadow().crab(PlayerId(1))
+                );
+                if tick.is_multiple_of(4) {
+                    let actual_world = controller.host().level.cells.as_ref().unwrap();
+                    let solo_world = solo.level.cells.as_ref().unwrap();
+                    let center =
+                        actual.pos + Vec2::Y * (actual.height(&controller.host().tuning) * 0.5);
+                    let (cx, cy) = actual_world.local_cell(center.x, center.y);
+                    for y in cy as i32 - 20..=cy as i32 + 20 {
+                        for x in cx as i32 - 20..=cx as i32 + 20 {
+                            assert_eq!(
+                                actual_world.cell(x, y),
+                                solo_world.cell(x, y),
+                                "case {case} tick {tick} cell {x},{y}"
+                            );
+                            assert_eq!(
+                                actual_world.flow_at(x, y),
+                                solo_world.flow_at(x, y),
+                                "case {case} tick {tick} flow {x},{y}"
+                            );
+                        }
+                    }
+                }
+            }
+            assert!(saw_resistance, "case {case} must exercise resistance");
+            if case == 2 {
+                assert_ne!(
+                    controller
+                        .host()
+                        .level
+                        .cells
+                        .as_ref()
+                        .unwrap()
+                        .game_pebbles(),
+                    initial_pebbles,
+                    "dig moves the aggregate"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn host_derived_dig_moves_sand_differently_from_walking_and_rejects_guest_forces() {
+        let (mut digging, _, _, _) = setup_case(1);
+        let (mut walking, _, _, _) = setup_case(1);
+        let peer = peer(1, 20);
+        let mut dig_input = message(0, -1.0);
+        if let Msg::CellWalkInput { dig, .. } = &mut dig_input {
+            *dig = true;
+        }
+        let frame = digging
+            .accept(peer, Some(peer), &dig_input, 0.0)
+            .unwrap()
+            .unwrap();
+        walking
+            .accept(peer, Some(peer), &message(0, -1.0), 0.0)
+            .unwrap();
+        let a = digging.host().level.cells.as_ref().unwrap();
+        let b = walking.host().level.cells.as_ref().unwrap();
+        assert!(
+            (90..145).any(|y| (145..190).any(|x| a.cell(x, y) != b.cell(x, y))),
+            "dig must displace substrate differently from ordinary walking"
+        );
+        let (mut c, _, _, _) = setup_case(1);
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        assert_eq!(
+            c.accept(peer, Some(peer), &frame, 0.0),
+            Err(InputError::Invalid)
+        );
+        assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+        assert!(c.paused());
+    }
+
+    #[test]
+    fn invalid_or_late_failing_dig_does_not_commit() {
+        let (mut c, _, _, _) = setup_case(1);
+        let peer = peer(1, 20);
+        let mut invalid = message(0, 0.0);
+        if let Msg::CellWalkInput { dig, .. } = &mut invalid {
+            *dig = true;
+        }
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        assert_eq!(
+            c.accept(peer, Some(peer), &invalid, 0.0),
+            Err(InputError::Unsupported)
+        );
+        assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+        assert!(c.paused());
+        let (mut c, _, _, _) = setup_case(1);
+        c.shadow.level.cells = None;
+        let mut input = message(0, -1.0);
+        if let Msg::CellWalkInput { dig, .. } = &mut input {
+            *dig = true;
+        }
+        let before = (snapshot(c.host()), snapshot(c.shadow()));
+        assert_eq!(
+            c.accept(peer, Some(peer), &input, 0.0),
+            Err(InputError::Unsupported)
+        );
+        assert_eq!((snapshot(c.host()), snapshot(c.shadow())), before);
+        assert!(c.paused());
     }
 
     #[test]

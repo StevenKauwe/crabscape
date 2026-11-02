@@ -334,34 +334,50 @@ impl Guest {
             return Err(LockstepError::Diverged);
         }
         if frame.interests.is_empty() && frame.players.len() == 2 {
-            let p = frame.players[1];
-            let target = if let Some(dig) = p.dig {
-                let Some(mut before_world) = before.clone() else {
-                    guest.level.cells = Some(world);
-                    self.paused = true;
-                    return Err(LockstepError::Unsupported(HostStepError::UnsupportedPlayer));
-                };
-                let host = frame.players[0];
-                before_world.follow_player(&guest.level, host.x, host.y - host.half_height);
-                let (x, y) = before_world.local_cell(p.x, p.y);
-                before_world.set_game_crab(
-                    x,
-                    y,
-                    p.half_width / crate::underwater::GAME_CELL,
-                    p.half_height / crate::underwater::GAME_CELL,
-                );
-                before_world.game_dig_load(x, y, i32::from(dig.dx), i32::from(dig.dy))
-            } else {
-                0.0
+            let Some(before_world) = before.as_ref() else {
+                guest.level.cells = Some(world);
+                self.paused = true;
+                return Err(LockstepError::Unsupported(HostStepError::UnsupportedPlayer));
             };
-            if let Some(crab) = guest.crab_mut(p.player) {
-                crab.mover.dig_load += (target - crab.mover.dig_load) * 0.3;
+            if !apply_guest_dig_load(guest, before_world, &frame.players[0], &frame.players[1]) {
+                guest.level.cells = before;
+                self.paused = true;
+                return Err(LockstepError::Unsupported(HostStepError::UnsupportedPlayer));
             }
         }
         guest.level.cells = Some(world);
         self.next = next;
         Ok(())
     }
+}
+
+/// Update the guest actor's resistance from the same pre-step terrain in
+/// both the joining client and the host-owned actor shadow.
+pub(crate) fn apply_guest_dig_load(
+    guest: &mut Sim,
+    before: &World,
+    host: &HostPlayerForce,
+    player: &HostPlayerForce,
+) -> bool {
+    let target = if let Some(dig) = player.dig {
+        let mut world = before.clone();
+        world.follow_player(&guest.level, host.x, host.y - host.half_height);
+        let (x, y) = world.local_cell(player.x, player.y);
+        world.set_game_crab(
+            x,
+            y,
+            player.half_width / crate::underwater::GAME_CELL,
+            player.half_height / crate::underwater::GAME_CELL,
+        );
+        world.game_dig_load(x, y, i32::from(dig.dx), i32::from(dig.dy))
+    } else {
+        0.0
+    };
+    let Some(crab) = guest.crab_mut(player.player) else {
+        return false;
+    };
+    crab.mover.dig_load += (target - crab.mover.dig_load) * 0.3;
+    true
 }
 
 #[cfg(test)]
