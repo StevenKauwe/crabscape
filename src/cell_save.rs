@@ -315,6 +315,116 @@ mod tests {
     }
 
     #[test]
+    fn isolated_chunk_capture_accepts_existing_v1_and_v2_saves_without_mutating_them() {
+        use crabsim::underwater::frozen_chunks::{
+            CaptureIndex, FrozenChunks, GuardedBuilder, IndexVerifier, SavedSetup,
+        };
+        fn hash(bytes: &[u8]) -> [u8; 32] {
+            let mut out = [0; 32];
+            for word in out.chunks_mut(8) {
+                word.copy_from_slice(&crabsim::hash::fnv1a(bytes).to_le_bytes());
+            }
+            out
+        }
+        let level = Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        assert!(world.follow_player(&level, 4400.0, 0.0));
+        assert!(world.follow_player(&level, 160.0, 0.0));
+        let mut source = crabsim::Sim::new(crabsim::Tuning::default(), level.clone());
+        assert!(source.restore_cellular_terrain(world, 17));
+        source.add_crab(crabsim::PlayerId(0), crabsim::SPAWN);
+        let mut progress = source.progress(crabsim::PlayerId(0)).unwrap();
+        progress.lantern = 1;
+        source.restore_progress(crabsim::PlayerId(0), &progress);
+        let player = crate::save::snapshot(&source, crabsim::PlayerId(0)).unwrap();
+        let terrain = source.level.cells.as_ref().unwrap();
+        let v1 = encode(&player, terrain, 17).unwrap();
+        let v2 = v2::prepare(&player, terrain, 17).unwrap().encode().unwrap();
+        for original in [v1, v2] {
+            let original_copy = original.clone();
+            let saved = decode(&original).unwrap();
+            assert!(player_fits_world(&source, &saved.player));
+            let player_bytes = serde_json::to_vec(&saved.player).unwrap();
+            let frozen = FrozenChunks::capture(&saved.terrain, 64 * 1024 * 1024).unwrap();
+            let index =
+                CaptureIndex::capture(&frozen, saved.sim_tick, &player_bytes, hash).unwrap();
+            let metadata = frozen.metadata().unwrap();
+            let mut verifier = IndexVerifier::new(
+                &index.encode(),
+                &metadata,
+                saved.sim_tick,
+                index.part_count(),
+                &player_bytes,
+                2_000_000,
+                hash,
+            )
+            .unwrap();
+            let (cols, rows) = frozen.active_dimensions();
+            let mut slot = 2;
+            for y in 0..rows {
+                for x in 0..cols {
+                    verifier
+                        .accept(slot, &frozen.active(x, y).unwrap())
+                        .unwrap();
+                    slot += 1;
+                }
+            }
+            for &id in index.sleeping() {
+                verifier
+                    .accept(slot, &frozen.sleeping(id).unwrap())
+                    .unwrap();
+                slot += 1;
+            }
+            let verified = verifier.finish().unwrap();
+            let setup = SavedSetup {
+                level: level.clone(),
+                tuning: crabsim::Tuning::default(),
+                feel: crabsim::Feel::default(),
+                sim_tick: saved.sim_tick,
+            };
+            let mut builder = GuardedBuilder::from_saved(
+                setup,
+                &player_bytes,
+                &metadata,
+                &verified,
+                hash,
+                2_000_000,
+            )
+            .unwrap();
+            for y in 0..rows {
+                for x in 0..cols {
+                    builder
+                        .active(x as u16, y as u16, &frozen.active(x, y).unwrap())
+                        .unwrap();
+                }
+            }
+            let mut guard = builder.install().unwrap();
+            assert_eq!(guard.player(), source.crab(crabsim::PlayerId(0)));
+            assert_eq!(guard.tick(), Some(saved.sim_tick));
+            for &id in index.sleeping() {
+                let ticket = guard.begin_sleeping(id).unwrap();
+                guard
+                    .accept_sleeping(ticket, &frozen.sleeping(id).unwrap())
+                    .unwrap();
+            }
+            let restored = guard.finish().unwrap();
+            assert_eq!(
+                restored.level.cells.as_ref().unwrap().checkpoint(),
+                saved.terrain.checkpoint()
+            );
+            assert_eq!(
+                original, original_copy,
+                "migration must preserve source bytes"
+            );
+            let mut damaged = original.clone();
+            let last = damaged.len() - 1;
+            damaged[last] ^= 1;
+            assert!(decode(&damaged).is_err());
+            assert_eq!(original, original_copy);
+        }
+    }
+
+    #[test]
     fn isolated_lazy_saved_start_matches_real_player_progress_and_ticks() {
         use crabsim::{
             Controls, Feel, Memory, PlayerId, Sim, Tuning,

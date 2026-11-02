@@ -245,9 +245,18 @@ version 2 player record and has not established mobile memory safety.
 The Rust-hosted Chrome test now also writes the game's actual `SaveData` with
 nondefault progress and memory, reloads the document and Wasm instance, then
 reconstructs from IndexedDB. The first post-reload tick waits for required
-sleeping pages; after hydration the simulation and pebble ownership match the
-full reference, and a reset rejects a pending page. Its fixture contained 31
-active pebbles and 180 pages. Desktop Chrome reported 31,653,888 bytes of Wasm
+sleeping pages; it walks 260 normal-tuning ticks through a second window
+transition that requires another page wait. Player state and tick are checked
+at each step; after full hydration, terrain and pebble ownership match the
+reference. Reset rejects a held pending page. Its fixture contained 31 active
+pebbles and 180 pages. Desktop Chrome reported 31,195,136 bytes of Wasm
 linear-memory capacity on this run; capacity is not process peak memory and
 includes a full reference and frozen fixture. This is not a mobile memory bound,
 a quota/migration test, or live-save integration.
+
+The game-binary native test also decodes genuine v1 and v2 envelopes, captures
+each restored terrain and actual player state into the chunk format, verifies
+every page and fully reconstructs the original terrain, while leaving the source
+bytes unchanged and rejecting damaged input. This checks codec-to-capture
+compatibility only: it does not publish a migrated save to IndexedDB, exercise
+crash-safe migration or delete or replace the old save. Those remain open.

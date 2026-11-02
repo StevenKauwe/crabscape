@@ -1363,6 +1363,12 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
         {
             return Err("reloaded playable mismatch".into());
         }
+        let initial_bounds = reference
+            .level
+            .cells
+            .as_ref()
+            .ok_or("initial cells")?
+            .game_bounds();
         let before = guarded.tick();
         let required = match guarded.step(Controls::default()) {
             Err(GuardedError::NeedsPages(ids)) if !ids.is_empty() => ids,
@@ -1392,6 +1398,68 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
             || guarded.tick() != Some(reference.tick_count())
         {
             return Err("transition player mismatch".into());
+        }
+        let first_bounds = reference
+            .level
+            .cells
+            .as_ref()
+            .ok_or("transition cells")?
+            .game_bounds();
+        if initial_bounds == first_bounds {
+            return Err("first window did not shift".into());
+        }
+        let controls = Controls {
+            walk: 1.0,
+            ..Default::default()
+        };
+        let mut second_shift = false;
+        let mut second_waits = 0;
+        let mut stepped = 0;
+        for _ in 0..1000 {
+            match guarded.step(controls) {
+                Ok(()) => {
+                    stepped += 1;
+                    reference.set_controls(PlayerId(0), controls);
+                    reference.tick();
+                    if guarded.player() != reference.crab(PlayerId(0))
+                        || guarded.tick() != Some(reference.tick_count())
+                    {
+                        return Err("subsequent player/tick mismatch".into());
+                    }
+                    if reference
+                        .level
+                        .cells
+                        .as_ref()
+                        .ok_or("walk cells")?
+                        .game_bounds()
+                        != first_bounds
+                    {
+                        second_shift = true;
+                        break;
+                    }
+                }
+                Err(GuardedError::NeedsPages(required)) => {
+                    second_waits += 1;
+                    for id in required {
+                        let slot = ids
+                            .binary_search(&id)
+                            .map_err(|_| "next required page absent")?;
+                        let ticket = guarded
+                            .begin_sleeping(id)
+                            .map_err(|e| format!("next ticket: {e:?}"))?;
+                        guarded
+                            .accept_sleeping(
+                                ticket,
+                                &db.pinned_part(pin, 2 + cols * rows + slot).await?,
+                            )
+                            .map_err(|e| format!("next sleeping: {e:?}"))?;
+                    }
+                }
+                Err(e) => return Err(format!("subsequent step: {e:?}")),
+            }
+        }
+        if !second_shift || second_waits == 0 {
+            return Err("second window did not require sleeping-page hydration".into());
         }
         for (slot, &id) in ids.iter().enumerate() {
             if let Ok(ticket) = guarded.begin_sleeping(id) {
@@ -1454,9 +1522,11 @@ pub async fn reload_verify(name: String) -> Result<String, JsValue> {
         }
         let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
         Ok(format!(
-            "real_reload=pass pages={} pebbles={} wasm_capacity={}",
+            "real_reload=pass pages={} pebbles={} extra_steps={} later_waits={} wasm_capacity={}",
             ids.len() + cols * rows,
             pebbles,
+            stepped,
+            second_waits,
             Uint8Array::new(&memory.buffer()).length()
         ))
     }
