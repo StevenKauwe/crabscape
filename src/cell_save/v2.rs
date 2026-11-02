@@ -1,15 +1,16 @@
 //! A save envelope with separately compressed terrain.
 //!
 //! Unlike v1, the compressed terrain can be reused directly as a resumed
-//! replay checkpoint after it is validated on load. V1 remains readable; this
-//! format is not yet selected by the desktop or browser save paths.
+//! replay checkpoint after it is validated on load, when it fits the replay
+//! size bound. Larger terrain still saves and loads, but cannot resume a text
+//! replay. V1 remains readable; this is not yet selected by either save path.
 use super::{Error, HEADER, MAX_PLAYER, MAX_RAW, Restored};
 use crate::save::{SAVE_VERSION, SaveData};
 use crabsim::{VerifiedCellStart, underwater::World};
 
 pub(super) const MAGIC: &[u8; 8] = b"CRABCEL2";
-/// Replay text imposes a smaller limit than the terrain save itself. Do not
-/// silently write v2 when its compressed terrain cannot also be replayed.
+/// Larger saves remain valid, but do not carry a resumed replay token because
+/// the text replay format has this smaller bound.
 const MAX_PACKED: usize = 8 * 1024 * 1024;
 
 pub struct PreparedHeader {
@@ -27,7 +28,7 @@ impl PreparedHeader {
             .checked_add(self.player.len())
             .and_then(|n| n.checked_add(packed.len()))
             .ok_or(Error::TooLarge)?;
-        if packed.len() > MAX_PACKED || len > MAX_RAW {
+        if len > MAX_RAW {
             return Err(Error::TooLarge);
         }
         let mut bytes = Vec::with_capacity(len);
@@ -88,6 +89,9 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
         return Err(Error::Unsupported);
     }
     let tick = u64::from_le_bytes(bytes[8..16].try_into().map_err(|_| Error::Damaged)?);
+    if tick == 0 || tick > u64::MAX - 1_000_000 {
+        return Err(Error::Damaged);
+    }
     let player_len =
         u32::from_le_bytes(bytes[16..20].try_into().map_err(|_| Error::Damaged)?) as usize;
     let raw_len =
@@ -105,10 +109,33 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
         .ok_or(Error::Damaged)?;
     let player_bytes = &bytes[HEADER..player_end];
     let packed = &bytes[player_end..];
-    let verified = VerifiedCellStart::from_compressed(packed, tick).ok_or(Error::Damaged)?;
-    if verified.raw().len() != raw_len || checksum(tick, player_bytes, verified.raw()) != expected {
-        return Err(Error::Damaged);
-    }
+    let (terrain, verified) = if packed.len() <= MAX_PACKED {
+        let verified = VerifiedCellStart::from_compressed(packed, tick).ok_or(Error::Damaged)?;
+        if verified.raw().len() != raw_len
+            || checksum(tick, player_bytes, verified.raw()) != expected
+        {
+            return Err(Error::Damaged);
+        }
+        (verified.world().clone(), Some(verified))
+    } else {
+        // Preserve and restore large explored worlds even when they no longer
+        // fit the separate, bounded text replay format.
+        let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(packed, raw_len)
+            .map_err(|_| Error::Damaged)?;
+        if raw.len() != raw_len || checksum(tick, player_bytes, &raw) != expected {
+            return Err(Error::Damaged);
+        }
+        let (checkpoint, trailing): (crabsim::underwater::WorldCheckpoint, &[u8]) =
+            postcard::take_from_bytes(&raw).map_err(|_| Error::Damaged)?;
+        if !trailing.is_empty() {
+            return Err(Error::Damaged);
+        }
+        let world = checkpoint
+            .into_world()
+            .filter(World::is_game_world)
+            .ok_or(Error::Damaged)?;
+        (world, None)
+    };
     let player: SaveData = serde_json::from_slice(player_bytes).map_err(|_| Error::Damaged)?;
     if player.version != SAVE_VERSION {
         return Err(Error::Unsupported);
@@ -118,9 +145,9 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Restored, Error> {
     }
     Ok(Restored {
         player,
-        terrain: verified.world().clone(),
+        terrain,
         sim_tick: tick,
-        verified: Some(verified),
+        verified,
     })
 }
 
@@ -206,5 +233,46 @@ mod tests {
         raw[middle] ^= 1;
         let wrong = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
         assert!(super::super::decode(&header.finish(&wrong).unwrap()).is_err());
+    }
+
+    #[test]
+    fn large_explored_world_still_saves_when_replay_checkpoint_is_too_large() {
+        let level = Level::test_level();
+        let mut terrain = World::from_level_settled(&level);
+        for (x, y) in [
+            (4400.0, -700.0),
+            (8000.0, -1400.0),
+            (4000.0, -3000.0),
+            (8000.0, -5000.0),
+            (3000.0, -7000.0),
+            (8000.0, -9000.0),
+        ] {
+            assert!(terrain.follow_player(&level, x, y));
+            for _ in 0..4 {
+                terrain.step(0.35);
+            }
+        }
+        let player = SaveData {
+            version: SAVE_VERSION,
+            x: 8000.0,
+            y: -9000.0,
+            memory: None,
+            progress: None,
+        };
+        let (header, raw) = prepare(&player, &terrain, 17).unwrap();
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+        assert!(
+            packed.len() > MAX_PACKED,
+            "packed terrain has only {} bytes",
+            packed.len()
+        );
+        let bytes = header.finish(&packed).unwrap();
+        let loaded = super::super::decode(&bytes).unwrap();
+        assert_eq!(loaded.player, player);
+        assert!(
+            loaded.verified.is_none(),
+            "large terrain exceeds replay limit"
+        );
+        assert_eq!(loaded.terrain.checkpoint(), terrain.checkpoint());
     }
 }

@@ -36,7 +36,8 @@ pub struct Restored {
     pub player: SaveData,
     pub terrain: World,
     pub sim_tick: u64,
-    /// Only v2 records carry separately compressed, already verified terrain.
+    /// V2 records within the replay limit carry verified terrain. A larger v2
+    /// save still loads, but cannot start a resumed text replay.
     pub verified: Option<crabsim::VerifiedCellStart>,
 }
 
