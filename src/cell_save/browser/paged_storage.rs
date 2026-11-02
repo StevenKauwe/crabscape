@@ -94,7 +94,10 @@ pub(super) fn decode(value: JsValue) -> Result<Option<super::super::Restored>, S
         return Ok(None);
     }
     if field(&value, "format")?.as_string().as_deref() != Some("CRABPG02") {
-        return Err("invalid paged save format".into());
+        // Pre-alpha formats are replaced outright. An obsolete record is
+        // absent for this build; only invalid current-format data disables
+        // saving to protect the last complete checkpoint.
+        return Ok(None);
     }
     let index = bytes(field(&value, "index")?, 256 * 1024)?;
     let parsed = CaptureIndex::decode(&index).map_err(issue)?;

@@ -1096,6 +1096,44 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 .b
                 .eval("new URL('assets/crab/crab-atlas.png', location.href).href")?;
             host.b.go(asset.as_str().ok_or("missing asset URL")?)?;
+            // Reproduce an existing preview's retired save after a format
+            // replacement. It must start fresh rather than disable saving.
+            host.b.eval(r#"new Promise((resolve,reject)=>{
+              const parts=location.pathname.split('/').filter(Boolean);let slug=null;
+              for(let i=0;i<parts.length;i++){if(/^pr-\d+$/.test(parts[i])){slug=parts[i];break;}
+                if(parts[i]==='branches'&&parts[i+1]){slug='branches-'+parts[i+1];break;}}
+              if(slug)slug=slug.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase();
+              const request=indexedDB.open(slug?'crabscape@'+slug+'@.cells':'crabscape.cells',1);
+              request.onerror=()=>reject(String(request.error));
+              request.onsuccess=()=>{
+                const db=request.result,tx=db.transaction('world','readwrite'),store=tx.objectStore('world');
+                const get=store.get('active');
+                get.onsuccess=()=>{const value=get.result;if(!value){tx.abort();return;}value.format='retired-format';store.put(value,'active');};
+                tx.onabort=()=>{db.close();reject('missing prior save');};
+                tx.oncomplete=()=>{db.close();resolve(true);};
+              };
+            })"#)?;
+            host.open(&site.url("cells"))?;
+            host.until(15.0, "retired cellular save starts a fresh world", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("fresh")
+            })?;
+            let started = Instant::now();
+            loop {
+                if saved_cells(&mut host)?.is_some() {
+                    break;
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 20 {
+                    return Err(host.failed("retired format left autosave disabled".into()));
+                }
+                sleep(0.5);
+            }
+            host.reload()?;
+            host.until(15.0, "fresh replacement save reloads", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            found.push("retired save format starts fresh, autosaves and reloads".into());
+            host.b.go(asset.as_str().ok_or("missing asset URL")?)?;
             let large_frame = save_fixture::large_fixture()?;
             let baseline = crabsim::cell_codec::paged::decode(&large_frame)
                 .map_err(|e| format!("large fixture decode: {e:?}"))?;
