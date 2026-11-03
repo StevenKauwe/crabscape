@@ -430,11 +430,10 @@ impl CanyonRun {
         if self.catcher.contents == Some(2)
             && self.has_practice
             && self.practice_phase == PracticePhase::Caught
+            && self.practice.position != at
         {
-            if self.practice.position != at {
-                self.practice.position = at;
-                self.practice_revision = self.practice_revision.saturating_add(1);
-            }
+            self.practice.position = at;
+            self.practice_revision = self.practice_revision.saturating_add(1);
         }
         if let Some(i) = self.catcher.contents
             && let Some(slot) = self.slots.get_mut(i as usize)
