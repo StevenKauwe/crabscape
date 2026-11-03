@@ -25,10 +25,11 @@ pub struct FightPlugin;
 impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(hints::HintPlugin)
-            .add_systems(Startup, (spawn_bars, spawn_flash))
+            .add_systems(Startup, (spawn_bars, spawn_flash, spawn_counter))
             .add_systems(
                 Update,
-                (show_bars, show_flash, show_trail, fight_notes).in_set(GameSet::Present),
+                (show_bars, show_flash, show_trail, show_counter, fight_notes)
+                    .in_set(GameSet::Present),
             );
     }
 }
@@ -290,9 +291,6 @@ fn fight_notes(
     let cracked = f.armour_break > 0;
     let mut say =
         |text: &str, colour: Color, n: f32| notes::say(&mut commands, text, higher(n), colour);
-    if ev.parried {
-        say("Parry! Smash now", GOLD, 0.0);
-    }
     if ev.dropped_leg {
         say("Dropped a leg! It grows back next moult", SHELL, 0.0);
     }
@@ -312,4 +310,144 @@ fn fight_notes(
         say("Shell broken...", SHELL, 0.0);
     }
     *cracked_before = cracked;
+}
+
+/// Unlike a floating note, this opportunity must disappear when its actual
+/// simulation window ends. A parry note used to invite a smash for 1.8 s even
+/// though the default game's counter lasts only half a second.
+#[derive(Component)]
+struct CounterCue;
+
+#[derive(Component)]
+struct CounterFill;
+
+const COUNTER_WIDTH: f32 = 86.0;
+
+fn spawn_counter(mut commands: Commands) {
+    commands
+        .spawn((CounterCue, Transform::default(), Visibility::Hidden))
+        .with_children(|c| {
+            c.spawn((
+                Text2d::new("Parry! SMASH"),
+                TextFont {
+                    font_size: FontSize::Px(14.0),
+                    ..default()
+                },
+                TextColor(GOLD),
+                Transform::default(),
+            ));
+            c.spawn((
+                Sprite::from_color(
+                    Color::srgb(0.08, 0.12, 0.13),
+                    Vec2::new(COUNTER_WIDTH + 4.0, 6.0),
+                ),
+                Transform::from_xyz(0.0, -13.0, -0.1),
+            ));
+            c.spawn((
+                CounterFill,
+                Sprite::from_color(GOLD, Vec2::new(COUNTER_WIDTH, 2.0)),
+                Transform::from_xyz(0.0, -13.0, 0.0),
+            ));
+        });
+}
+
+fn show_counter(
+    sim: Res<Sim>,
+    crab: Query<(&Fighter, &Transform), With<LocalPlayer>>,
+    mut cue: Single<(&mut Transform, &mut Visibility), (With<CounterCue>, Without<LocalPlayer>)>,
+    mut fill: Single<&mut Sprite, With<CounterFill>>,
+) {
+    let (at, visible) = &mut *cue;
+    let Ok((fighter, crab_at)) = crab.single() else {
+        **visible = Visibility::Hidden;
+        return;
+    };
+    let ready = fighter.counter > 0
+        && fighter.dead.is_none()
+        && fighter.grabbed.is_none()
+        && fighter.vitals.stagger == 0;
+    **visible = if ready {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    if ready {
+        at.translation = crab_at.translation + Vec3::new(0.0, 150.0, 12.0);
+        let remaining = fighter.counter as f32 / sim.tuning.counter_ticks.max(1) as f32;
+        fill.custom_size = Some(Vec2::new(COUNTER_WIDTH * remaining.clamp(0.0, 1.0), 2.0));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counter_cue_tracks_the_simulation_window_and_consumption() {
+        let mut app = App::new();
+        let mut sim = Sim::with_one_crab(crabsim::SPAWN);
+        sim.tuning.counter_ticks = 60;
+        let mut fighter = Fighter::new(&sim.tuning);
+        fighter.counter = 60;
+        app.insert_resource(sim)
+            .add_systems(Startup, spawn_counter)
+            .add_systems(Update, show_counter);
+        let crab = app
+            .world_mut()
+            .spawn((LocalPlayer, fighter, Transform::default()))
+            .id();
+        app.update();
+        let cue = app
+            .world_mut()
+            .query_filtered::<Entity, With<CounterCue>>()
+            .single(app.world())
+            .unwrap();
+        let fill = app
+            .world_mut()
+            .query_filtered::<Entity, With<CounterFill>>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(
+            *app.world().get::<Visibility>(cue).unwrap(),
+            Visibility::Inherited
+        );
+        assert_eq!(
+            app.world()
+                .get::<Sprite>(fill)
+                .unwrap()
+                .custom_size
+                .unwrap()
+                .x,
+            COUNTER_WIDTH
+        );
+
+        app.world_mut().get_mut::<Fighter>(crab).unwrap().counter = 30;
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<Sprite>(fill)
+                .unwrap()
+                .custom_size
+                .unwrap()
+                .x,
+            COUNTER_WIDTH / 2.0
+        );
+
+        // Both expiration and starting the counter set this to zero. The
+        // cue must vanish on that frame, not linger like a floating note.
+        app.world_mut().get_mut::<Fighter>(crab).unwrap().counter = 0;
+        app.update();
+        assert_eq!(
+            *app.world().get::<Visibility>(cue).unwrap(),
+            Visibility::Hidden
+        );
+
+        app.world_mut().get_mut::<Fighter>(crab).unwrap().counter = 30;
+        app.world_mut().get_mut::<Fighter>(crab).unwrap().dead = Some(0);
+        app.update();
+        assert_eq!(
+            *app.world().get::<Visibility>(cue).unwrap(),
+            Visibility::Hidden
+        );
+    }
 }
