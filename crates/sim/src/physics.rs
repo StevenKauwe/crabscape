@@ -726,13 +726,14 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     } else {
         c.walk.clamp(-1.0, 1.0)
     };
-    // Two stable postures per half turn in open water: broadside and
-    // edge-on. On a surface, feet slowly right the body instead of making
-    // the visible orientation jump as soon as it touches down.
+    // Two stable postures per full turn in open water: upright and nose-down,
+    // separated by their bisectors. On a surface, feet right the body without
+    // an orientation jump on touchdown.
     let restoring = if m.grounded || m.climbing {
         -4.0 * libm::sinf(m.water_angle)
     } else {
-        -1.2 * libm::sinf(4.0 * m.water_angle)
+        let bisector = m.water_angle + std::f32::consts::FRAC_PI_4;
+        6.0 * libm::sinf(bisector) * (libm::cosf(bisector) - std::f32::consts::FRAC_1_SQRT_2)
     };
     m.water_spin =
         (m.water_spin + (9.0 * turn + restoring - 2.0 * m.water_spin) * dt).clamp(-3.0, 3.0);
@@ -1753,6 +1754,36 @@ mod tests {
     }
 
     #[test]
+    fn held_dig_can_turn_through_both_stable_postures() {
+        let level = Level::test_level();
+        for direction in [-1.0, 1.0] {
+            let mut mover = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+            mover.grounded = false;
+            let controls = Controls {
+                dig_held: true,
+                walk: direction,
+                ..default()
+            };
+            let mut total = 0.0;
+            for _ in 0..600 {
+                let previous = mover.water_angle;
+                step(
+                    &mut mover,
+                    &controls,
+                    &Tuning::default(),
+                    &level,
+                    crate::STEP,
+                );
+                let change = (mover.water_angle - previous + std::f32::consts::PI)
+                    .rem_euclid(std::f32::consts::TAU)
+                    - std::f32::consts::PI;
+                total -= change * direction;
+            }
+            assert!(total > std::f32::consts::TAU, "only turned {total} radians");
+        }
+    }
+
+    #[test]
     fn angled_shell_redirects_sinking_without_adding_energy() {
         let v = Vec2::new(0.0, -300.0);
         let left = water_resistance(v, std::f32::consts::FRAC_PI_4);
@@ -1802,11 +1833,11 @@ mod tests {
         broadside.grounded = false;
         broadside.water_angle = 0.3;
         let mut edge = broadside.clone();
-        edge.water_angle = 1.2;
+        edge.water_angle = -1.2;
         run(&mut broadside, Controls::default(), 4.0, &level);
         run(&mut edge, Controls::default(), 4.0, &level);
         assert!(broadside.water_angle.abs() < 0.1);
-        assert!((edge.water_angle - std::f32::consts::FRAC_PI_2).abs() < 0.1);
+        assert!((edge.water_angle + std::f32::consts::FRAC_PI_2).abs() < 0.1);
         assert!(broadside.water_spin.abs() < 0.1 && edge.water_spin.abs() < 0.1);
     }
 
