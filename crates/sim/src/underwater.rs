@@ -222,8 +222,11 @@ impl TerrainChunkId {
 /// reproduce any disturbances that occurred while a region was inactive.
 pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> Cell {
     let wx = (cell_x as f32 + 0.5) * GAME_CELL;
+    terrain_at_height(level, wx, cell_y, level.floor_height(wx))
+}
+
+fn terrain_at_height(level: &crate::Level, wx: f32, cell_y: i32, floor: f32) -> Cell {
     let wy = GAME_BOTTOM + (cell_y as f32 + 0.5) * GAME_CELL;
-    let floor = level.floor_height(wx);
     // An authored shelf at the Canyon Drift Run. New pages start with this
     // rock; saved, edited pages remain authoritative on every later load.
     if (6396.0..6452.0).contains(&wx) && (-3188.0..-3176.0).contains(&wy) {
@@ -1231,6 +1234,17 @@ impl World {
                 owner[dst].copy_from_slice(&self.pebble_owner[src]);
             }
         }
+        // Floor height depends only on world x. A newly exposed vertical strip
+        // can generate hundreds of cells from the same authored floor sample.
+        // An entirely archived strip needs no authored samples.
+        let floors = std::cell::LazyCell::new(|| {
+            (0..width)
+                .map(|col| {
+                    let wx = ((next_origin.0 + col as i32) as f32 + 0.5) * GAME_CELL;
+                    (wx, level.floor_height(wx))
+                })
+                .collect::<Vec<_>>()
+        });
         let mut touched = Vec::new();
         for (key, xs, ys) in pages(next_origin, next_size) {
             if covered(&xs, &ys) {
@@ -1259,7 +1273,8 @@ impl World {
                         grain[i] = saved.grain;
                         owner[i] = saved.owner;
                     } else {
-                        cells[i] = initial_terrain_cell(level, x, y);
+                        let (wx, floor) = floors[(x - next_origin.0) as usize];
+                        cells[i] = terrain_at_height(level, wx, y, floor);
                         grain[i] = initial_grain(x, y);
                         if cells[i] == Cell::Water {
                             flow[i] = ambient;

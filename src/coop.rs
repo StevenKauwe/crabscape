@@ -427,7 +427,7 @@ impl Watch {
     /// One frame of `dt` seconds: `together` (with the host, or as the host
     /// with anyone), `alive` (the connection to the introducer works).
     /// True: join the room afresh now.
-    fn step(&mut self, together: bool, alive: bool, dt: f32) -> bool {
+    fn step(&mut self, together: bool, alive: bool, dt: f32, real_dt: f32) -> bool {
         self.met |= together;
         if together && alive {
             self.lonely = 0.0;
@@ -436,7 +436,9 @@ impl Watch {
         if !(self.met || !alive) {
             return false;
         }
-        self.lonely += dt;
+        // A terminally closed socket cannot make progress. Its retry deadline
+        // uses wall time even when a slow frame caps the game clock at 250 ms.
+        self.lonely += if alive { dt } else { real_dt };
         let wait = if alive { ALONE_FOR } else { REJOIN_AFTER };
         if self.lonely >= wait {
             self.lonely = 0.0;
@@ -1442,6 +1444,7 @@ mod web {
     /// connection itself)? Join the room afresh every few seconds.
     fn take_in(
         time: Res<Time>,
+        real: Res<Time<Real>>,
         mut sim: ResMut<Sim>,
         mut coop: ResMut<Coop>,
         mut names: ResMut<Names>,
@@ -1449,7 +1452,15 @@ mod web {
         me: Res<LocalId>,
     ) {
         if crate::cellular::enabled() {
-            cells::take_in(&time, &mut sim, &mut coop, me.0, &mut names, &mut chat);
+            cells::take_in(
+                &time,
+                real.delta_secs(),
+                &mut sim,
+                &mut coop,
+                me.0,
+                &mut names,
+                &mut chat,
+            );
             return;
         }
         let Some(code) = coop.code.clone() else {
@@ -1921,7 +1932,7 @@ mod web {
             Hosting::Friend(h) => known.contains(&h),
             Hosting::Nobody => false,
         };
-        let rejoining = coop.watch.step(together, alive, dt);
+        let rejoining = coop.watch.step(together, alive, dt, real.delta_secs());
         if rejoining {
             let hosting = hosts_now(&sim);
             rejoin(&mut sim, &code, hosting);
@@ -2372,7 +2383,7 @@ mod tests {
     fn rejoins(w: &mut Watch, seconds: f32, together: bool, alive: bool) -> Vec<f32> {
         let dt = 0.1;
         (1..=(seconds / dt).round() as u32)
-            .filter(|_| w.step(together, alive, dt))
+            .filter(|_| w.step(together, alive, dt, dt))
             .map(|i| i as f32 * dt)
             .collect()
     }
@@ -2385,6 +2396,15 @@ mod tests {
         let times = rejoins(&mut Watch::default(), 12.0, false, false);
         assert_eq!(times.len(), 2, "{times:?}");
         assert!((times[0] - REJOIN_AFTER).abs() < 0.15, "{times:?}");
+    }
+
+    #[test]
+    fn a_dead_socket_retries_on_time_when_frames_take_a_second() {
+        let mut watch = Watch::default();
+        let retries: Vec<_> = (1..=11)
+            .filter(|_| watch.step(true, false, 0.25, 1.0))
+            .collect();
+        assert_eq!(retries, [5, 10]);
     }
 
     #[test]
@@ -2416,7 +2436,7 @@ mod tests {
                     return Some(t);
                 }
             }
-            if host.step(false, true, dt) {
+            if host.step(false, true, dt, dt) {
                 // Joining afresh cuts off a connection still being set up; it starts again in the new room.
                 setting_up = setting_up.map(|_| 0.0);
             }
