@@ -1643,7 +1643,18 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 })?;
             }
             if std::env::var_os("CRABSCAPE_SALVAGE_PROOF").is_some() {
-                host.b.hold_key("KeyD", 0.5)?;
+                for _ in 0..12 {
+                    if local_position(&mut host)
+                        .is_ok_and(|(x, y)| (x - 308.0).hypot(y - 24.0) < 55.0)
+                    {
+                        break;
+                    }
+                    host.b.hold_key("KeyD", 0.2)?;
+                }
+                host.until(10.0, "authoritative host reaches the valve", |p| {
+                    local_position(p).is_ok_and(|(x, y)| (x - 308.0).hypot(y - 24.0) < 65.0)
+                })?;
+                host.b.screenshot(&site.dir.join("salvage-approach.png"))?;
                 host.b.hold_key("KeyG", 0.15)?;
                 host.until(10.0, "host lifts the shared valve", |p| {
                     p.b.attr("data-salvage")
@@ -1672,7 +1683,16 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 );
             }
             if std::env::var_os("CRABSCAPE_SALVAGE_CLAIM_PROOF").is_some() {
-                host.b.hold_keys(&["KeyC", "ArrowDown"], 5.0)?;
+                for _ in 0..12 {
+                    if local_position(&mut host).is_ok_and(|(x, _)| x >= 250.0) {
+                        break;
+                    }
+                    host.b.hold_key("KeyD", 0.2)?;
+                }
+                host.until(10.0, "host reaches the buried find", |p| {
+                    local_position(p).is_ok_and(|(x, _)| (250.0..=290.0).contains(&x))
+                })?;
+                host.b.hold_keys(&["KeyC", "ArrowDown"], 8.0)?;
                 host.until(15.0, "find released by excavation", |p| {
                     p.b.attr("data-salvage").is_some_and(|s| {
                         s.starts_with("Free ")
