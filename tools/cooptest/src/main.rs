@@ -1395,6 +1395,9 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             );
             sleep(0.4);
             guest.b.set_key("KeyD", true)?;
+            // Clear the right end of the x2070..2220 stone ledge with the
+            // whole shell before diving for the lower, diggable ground.
+            let descent_x = 2300.0;
             let route_started = Instant::now();
             let mut route_progress = (local_position(&mut guest)?.0, Instant::now());
             while route_started.elapsed().as_secs() < 180 {
@@ -1407,7 +1410,25 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 // A shelf or kelp grip can stop horizontal travel inside the
                 // altitude band. Swim up around it using ordinary controls.
                 let stalled = route_progress.1.elapsed().as_secs() >= 3;
-                if height < 200.0 || stalled {
+                if stalled && (1890.0..1940.0).contains(&x) && height < 200.0 {
+                    // The first block has no shell-height gap underneath.
+                    // Back up onto the approach, plant the legs, and launch
+                    // over the rock instead of spending strokes on its face.
+                    guest.b.set_key("KeyD", false)?;
+                    guest.b.set_key("KeyA", true)?;
+                    guest.until(20.0, "guest backs away from the block", |p| {
+                        local_position(p).is_ok_and(|(x, _)| x < 1860.0)
+                    })?;
+                    guest.b.set_key("KeyA", false)?;
+                    guest.b.set_key("ArrowDown", true)?;
+                    guest.until(30.0, "guest plants its legs for the jump", |p| {
+                        p.b.attr("data-crab").is_some_and(|v| v.ends_with(" 1"))
+                    })?;
+                    guest.b.set_key("ArrowDown", false)?;
+                    guest.b.set_key("KeyD", true)?;
+                    guest.b.hold_key("Space", 0.9)?;
+                    route_progress = (local_position(&mut guest)?.0, Instant::now());
+                } else if height < 200.0 || stalled {
                     if stalled {
                         eprintln!(
                             "cells-regions swimming around route obstacle at {x:.1},{height:.1}"
@@ -1428,12 +1449,12 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     region_status(&mut host),
                     region_status(&mut guest)
                 );
-                if local_position(&mut guest)?.0 > 2200.0 {
+                if local_position(&mut guest)?.0 > descent_x {
                     break;
                 }
             }
             guest.b.set_key("KeyD", false)?;
-            if local_position(&mut guest)?.0 <= 2200.0 {
+            if local_position(&mut guest)?.0 <= descent_x {
                 return Err(format!(
                     "route did not reach the far substrate: host {}, guest {}",
                     region_status(&mut host),
