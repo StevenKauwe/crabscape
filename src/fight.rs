@@ -374,7 +374,7 @@ fn show_counter(
         Visibility::Hidden
     };
     if ready {
-        at.translation = crab_at.translation + Vec3::new(0.0, 150.0, 12.0);
+        at.translation = crab_at.translation + Vec3::new(0.0, 190.0, 12.0);
         let remaining = fighter.counter as f32 / sim.tuning.counter_ticks.max(1) as f32;
         fill.custom_size = Some(Vec2::new(COUNTER_WIDTH * remaining.clamp(0.0, 1.0), 2.0));
     }
