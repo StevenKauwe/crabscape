@@ -1655,16 +1655,28 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             }
             // Exercise the real report form and POST construction, without
             // creating a public issue from an automated test.
-            guest.b.eval(r#"(() => {
+            guest.b.eval(
+                r#"(() => {
               const real = window.fetch.bind(window);
               window.fetch = (url, init) => {
                 if (String(url).endsWith('/report') && init?.method === 'POST') {
                   window.__cellReport = JSON.parse(init.body);
-                  return Promise.resolve(new Response('https://example.test/issues/42', {status: 200}));
+                  const capture = window.__cellReport.reproduction || '';
+                  const bytes = new TextEncoder().encode(capture).length;
+                  const receipt = {
+                    url: 'https://github.com/StevenKauwe/crabscape/issues/42',
+                    reproduction_parts: bytes === 0 ? 0 : Math.ceil(bytes / 45000),
+                  };
+                  window.__cellReportReceipt = receipt;
+                  return Promise.resolve(new Response(JSON.stringify(receipt), {
+                    status: 200,
+                    headers: {'Content-Type': 'application/json'},
+                  }));
                 }
                 return real(url, init);
               };
-            })()"#)?;
+            })()"#,
+            )?;
             guest.b.hold_key("KeyR", 0.1)?;
             guest.until(5.0, "report opens during cellular co-op", |p| {
                 p.b.eval("!document.getElementById('report').hidden")
@@ -1679,9 +1691,40 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     .and_then(|v| v.as_bool())
                     == Some(true)
             })?;
+            guest.until(5.0, "complete reproduction upload receipt accepted", |p| {
+                p.b.eval(r#"(() => {
+                  const report = window.__cellReport;
+                  const receipt = window.__cellReportReceipt;
+                  const bytes = new TextEncoder().encode(report?.reproduction || '').length;
+                  const expected = bytes === 0 ? 0 : Math.ceil(bytes / 45000);
+                  return receipt?.url?.startsWith('https://github.com/StevenKauwe/crabscape/issues/')
+                    && receipt.reproduction_parts === expected
+                    && document.getElementById('report-text').value === '';
+                })()"#)
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    == Some(true)
+            })?;
             if guest.b.eval("window.__cellReport.facts.some(f => f[0] === 'Replay' && f[1].includes('Complete co-op replay omitted'))")? != true {
                 return Err("oversized co-op replay was not explicitly marked omitted in report".into());
             }
+            let report = guest.b.eval("window.__cellReport")?;
+            let capture = report["reproduction"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!("report has no local reproduction: {}", report["facts"]))?;
+            let replay = crabsim::Replay::parse(capture)?;
+            let mut captured = crabsim::Sim::with_one_crab(crabsim::SPAWN);
+            if !replay.prepare_start(&mut captured)
+                || captured.crab(replay.primary_player()).is_none()
+            {
+                return Err("report local state cannot be restored natively".into());
+            }
+            if report.to_string().len() > 512 * 1024
+                || guest.b.eval("window.__cellReport.facts.some(f => f[0] === 'Revision' && f[1] !== 'live' && f[1].length > 7)")? != true {
+                return Err("report exceeds request budget or lacks exact revision".into());
+            }
+            found.push("cellular report captures a native-restorable local state even when its complete history is omitted".into());
             found.push(
                 "names, chat, voice roles and bug-report submission use the cellular session"
                     .into(),

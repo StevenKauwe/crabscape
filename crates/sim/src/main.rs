@@ -193,7 +193,12 @@ fn run() -> Result<(), String> {
     };
 
     // Numbers for the summary.
-    let mut summary = Summary::new(&sim);
+    let report_player = sim
+        .crab(o.replay.primary_player())
+        .or_else(|| sim.crabs().first())
+        .ok_or("replay has no player")?
+        .id;
+    let mut summary = Summary::new(&sim, report_player);
     let start_time = sim.time();
     let started = Instant::now();
     let mut write_error = None;
@@ -205,13 +210,16 @@ fn run() -> Result<(), String> {
             }
         } else {
             o.replay.apply_at(&mut sim);
-            sim.set_controls(PlayerId(0), playback.next_controls());
-            sim.tick();
+            let controls = playback.next_controls();
+            if !o.replay.step_snapshot(&mut sim, controls) {
+                sim.set_controls(o.replay.primary_player(), controls);
+                sim.tick();
+            }
         }
         summary.after_tick(&sim);
 
         if let Some(out) = &mut dump {
-            let crab = &sim.crabs()[0];
+            let crab = sim.crab(report_player).expect("validated replay player");
             if sim.tick_count().is_multiple_of(o.every) || crab.events != Default::default() {
                 for line in sim.dump_lines() {
                     if let Err(e) = writeln!(out, "{line}") {
@@ -264,6 +272,7 @@ fn run() -> Result<(), String> {
 
 /// What the summary at the end reports.
 struct Summary {
+    player: PlayerId,
     start: (f32, f32),
     start_tick: u64,
     start_time: f64,
@@ -277,9 +286,10 @@ struct Summary {
 }
 
 impl Summary {
-    fn new(sim: &Sim) -> Self {
-        let p = sim.crabs()[0].mover.pos;
+    fn new(sim: &Sim, player: PlayerId) -> Self {
+        let p = sim.crab(player).expect("validated replay player").mover.pos;
         Self {
+            player,
             start: (p.x, p.y),
             start_tick: sim.tick_count(),
             start_time: sim.time(),
@@ -335,7 +345,7 @@ impl Summary {
     }
 
     fn after_tick(&mut self, sim: &Sim) {
-        let crab = &sim.crabs()[0];
+        let crab = sim.crab(self.player).expect("validated replay player");
         self.highest = self.highest.max(crab.mover.pos.y);
         self.lowest = self.lowest.min(crab.mover.pos.y);
         if let Some(speed) = crab.events.landed {
@@ -358,7 +368,7 @@ impl Summary {
     }
 
     fn print(&self, sim: &Sim, elapsed: Duration) {
-        let crab = &sim.crabs()[0];
+        let crab = sim.crab(self.player).expect("validated replay player");
         let m = &crab.mover;
         let secs = elapsed.as_secs_f64().max(1e-9);
         let ticks = sim.tick_count() - self.start_tick;

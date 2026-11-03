@@ -101,7 +101,7 @@ pub fn ask() {
 }
 
 /// Was the form asked for since last time?
-fn take_asked() -> bool {
+pub(crate) fn take_asked() -> bool {
     ASKED.swap(false, Ordering::Relaxed)
 }
 
@@ -179,7 +179,9 @@ fn report_replay(
     if checkpoint_len.is_some_and(|len| len >= MAX_REPORT_REPLAY) {
         return (String::new(), true);
     }
-    let replay = materialize().unwrap_or_default();
+    let Some(replay) = materialize() else {
+        return (String::new(), true);
+    };
     if replay_too_large(&replay) {
         (String::new(), true)
     } else {
@@ -217,6 +219,45 @@ pub(crate) fn payload(
     body
 }
 
+const REPRODUCTION_PART_BYTES: usize = 45_000;
+
+/// Count the UTF-8-safe parts the introducer will attach to the issue.
+fn reproduction_part_count(text: &str) -> usize {
+    let mut count = 0;
+    let mut rest = text;
+    while !rest.is_empty() {
+        let mut end = rest.len().min(REPRODUCTION_PART_BYTES);
+        while !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        rest = &rest[end..];
+        count += 1;
+    }
+    count
+}
+
+/// Accept only the explicit server receipt, and only after every expected
+/// reproduction comment is confirmed. The old plaintext URL has no fallback.
+fn receipt_url(body: &str, expected_parts: usize) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Receipt {
+        url: String,
+        reproduction_parts: usize,
+    }
+    let receipt: Receipt = serde_json::from_str(body).ok()?;
+    let issue_number = receipt
+        .url
+        .strip_prefix("https://github.com/StevenKauwe/crabscape/issues/")?;
+    if issue_number.is_empty()
+        || !issue_number.bytes().all(|b| b.is_ascii_digit())
+        || issue_number.parse::<u64>().ok()? == 0
+        || receipt.reproduction_parts != expected_parts
+    {
+        return None;
+    }
+    Some(receipt.url)
+}
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) use web::listened;
 
@@ -250,7 +291,7 @@ mod web {
         MediaStreamConstraints, OfflineAudioContext, RequestInit, Response,
     };
 
-    use super::Shortcut;
+    use super::{Shortcut, receipt_url, reproduction_part_count};
     use crate::coop::LocalId;
     use crate::input::TouchControls;
     use crate::listener::Reply;
@@ -266,6 +307,7 @@ mod web {
         /// The game when the form opened: facts and the replay.
         facts: Vec<(String, String)>,
         replay: String,
+        reproduction: String,
         recorder: Option<MediaRecorder>,
         /// While recording: when it started (seconds), and how loud the
         /// voice is, for the bar under the box.
@@ -338,9 +380,12 @@ mod web {
         let canvas = document().and_then(|d| d.get_element_by_id("crabscape"));
         let fps = with(|f| f.fps);
         let mut facts = vec![
+            ("Build".to_string(), crate::settings::build_line()),
             (
-                "Build".to_string(),
-                crate::save::build_slug().unwrap_or_else(|| "live".into()),
+                "Revision".into(),
+                option_env!("CRABSCAPE_VERSION")
+                    .unwrap_or("unversioned development build")
+                    .into(),
             ),
             (
                 "Page".into(),
@@ -390,6 +435,30 @@ mod web {
             }),
         };
         let replay_included = !replay.is_empty();
+        let reproduction = match sim.diagnostic_replay(me.0) {
+            Ok(replay) => {
+                facts.push(("Reproduction".into(), "Local state captured at report opening, with eight ticks of held-control continuation. Bounded terrain crop; earlier history and outside-world events are excluded.".into()));
+                replay.to_text()
+            }
+            Err(reason) => {
+                facts.push((
+                    "Reproduction".into(),
+                    format!("Local state capture unavailable: {reason:?}."),
+                ));
+                String::new()
+            }
+        };
+        facts.push(("Simulation tick".into(), sim.tick_count().to_string()));
+        if let Some(crab) = sim.crab(me.0) {
+            facts.push((
+                "Movement".into(),
+                format!(
+                    "velocity {:?}; grounded {}; climbing {}; side {}",
+                    crab.mover.vel, crab.mover.grounded, crab.mover.climbing, crab.mover.climb_side
+                ),
+            ));
+            facts.push(("Controls".into(), format!("{:?}", crab.controls)));
+        }
         if replay_omitted {
             facts.push((
                 "Replay".into(),
@@ -401,7 +470,12 @@ mod web {
                             .unwrap_or("exceeds the report attachment limit")
                     )
                 } else {
-                    "Omitted: the saved terrain checkpoint is too large for a report.".into()
+                    if sim.is_recording() {
+                        "Omitted: replay exceeds the attachment limit."
+                    } else {
+                        "Unavailable: no complete input recording is running."
+                    }
+                    .into()
                 },
             ));
         } else if replay_included && sim.level.cells.is_some() {
@@ -410,28 +484,30 @@ mod web {
                 "Final state hash omitted to keep reports responsive.".into(),
             ));
         }
+        let reproduction_included = !reproduction.is_empty();
         with(|f| {
             f.facts = facts;
             f.replay = replay;
+            f.reproduction = reproduction;
         });
         wire();
-        note(
-            if replay_omitted
-                && session_reason
-                    .as_deref()
-                    .is_some_and(|s| s.contains("report attachment limit"))
-            {
-                "Co-op replay is too large to attach. F9 / Replay exports it separately; your report can still be sent."
-            } else if replay_omitted && shared {
-                "A complete co-op replay is unavailable. Your report can still be sent."
-            } else if replay_omitted {
-                "Replay omitted from this report because its saved terrain is too large."
-            } else if replay_included && sim.level.cells.is_some() {
-                "Replay included without a final state hash."
-            } else {
-                ""
-            },
-        );
+        note(if reproduction_included {
+            "Local reproduction captured. Complete input history is attached when available."
+        } else if replay_omitted
+            && session_reason
+                .as_deref()
+                .is_some_and(|s| s.contains("report attachment limit"))
+        {
+            "Co-op replay is too large to attach. F9 / Replay exports it separately; your report can still be sent."
+        } else if replay_omitted && shared {
+            "A complete co-op replay is unavailable. Your report can still be sent."
+        } else if replay_omitted {
+            "Complete input history is unavailable; the report includes the reason."
+        } else if replay_included && sim.level.cells.is_some() {
+            "Replay included without a final state hash."
+        } else {
+            ""
+        });
         voice_offer();
         let _ = form.remove_attribute("hidden");
         if let Some(t) = text_box() {
@@ -815,16 +891,24 @@ mod web {
         stop_recording();
         let voice = voice_to_send();
         let body = with(|f| {
-            super::payload(
+            let mut body = super::payload(
                 f.idea,
                 &text,
                 &f.facts,
                 &f.replay,
                 &super::log_text(),
                 voice.as_deref(),
-            )
-            .to_string()
+            );
+            body["reproduction"] = f.reproduction.clone().into();
+            if body.to_string().len() > 480 * 1024 {
+                body["replay"] = "".into();
+                if let Some(facts) = body["facts"].as_array_mut() {
+                    facts.push(serde_json::json!(["Replay", "History omitted to prioritize the captured local state within the report request budget."]));
+                }
+            }
+            body.to_string()
         });
+        let expected_parts = with(|f| reproduction_part_count(&f.reproduction));
         note("Sending...");
         spawn_local(async move {
             let init = RequestInit::new();
@@ -849,9 +933,17 @@ mod web {
                 Err(_) => String::new(),
             };
             if response.ok() {
-                let number = words.rsplit('/').next().unwrap_or_default().to_string();
-                info!("report: sent as {words}");
-                if let Some(t) = text_box() {
+                let Some(url) = receipt_url(&words, expected_parts) else {
+                    note(
+                        "The report may exist, but its diagnostic upload was not confirmed. Your text is kept.",
+                    );
+                    return;
+                };
+                let number = url.rsplit('/').next().unwrap_or_default().to_string();
+                info!("report: sent as {url}");
+                if let Some(t) = text_box()
+                    && t.value() == text
+                {
                     t.set_value("");
                 }
                 voice_offer();
@@ -866,6 +958,47 @@ mod web {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receipt_requires_json_url_and_exact_reproduction_part_count() {
+        let url = "https://github.com/StevenKauwe/crabscape/issues/357";
+        let valid = format!(r#"{{"url":"{url}","reproduction_parts":2}}"#);
+        assert_eq!(receipt_url(&valid, 2).as_deref(), Some(url));
+        assert!(
+            receipt_url(url, 2).is_none(),
+            "plaintext legacy response is rejected"
+        );
+        assert!(
+            receipt_url(
+                r#"{"url":"https://github.com/StevenKauwe/crabscape/issues/357"}"#,
+                0
+            )
+            .is_none()
+        );
+        assert!(
+            receipt_url(&valid, 1).is_none(),
+            "partial comment upload is rejected"
+        );
+        assert!(
+            receipt_url(
+                r#"{"url":"https://evil.test/issues/357","reproduction_parts":2}"#,
+                2
+            )
+            .is_none()
+        );
+        assert!(receipt_url(r#"{"url":"https://github.com/StevenKauwe/crabscape/issues/0","reproduction_parts":0}"#, 0).is_none());
+    }
+
+    #[test]
+    fn expected_comment_count_uses_the_same_utf8_safe_slicing_rule() {
+        assert_eq!(reproduction_part_count(""), 0);
+        assert_eq!(reproduction_part_count(&"x".repeat(45_000)), 1);
+        assert_eq!(reproduction_part_count(&"x".repeat(45_001)), 2);
+        assert_eq!(
+            reproduction_part_count(&format!("{}é", "x".repeat(44_999))),
+            2
+        );
+    }
 
     #[test]
     fn the_report_key_opens_the_form() {
@@ -926,6 +1059,11 @@ mod tests {
 
     #[test]
     fn oversized_start_checkpoint_does_not_materialize_or_hash_replay() {
+        let (text, unavailable) = report_replay(None, || None);
+        assert!(
+            unavailable && text.is_empty(),
+            "missing recordings must never disappear silently"
+        );
         let (text, omitted) = report_replay(Some(MAX_REPORT_REPLAY + 1), || {
             panic!("large checkpoint must be rejected before materializing the replay")
         });
