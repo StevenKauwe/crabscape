@@ -242,6 +242,12 @@ pub fn spawn_local_crab(
     {
         site.world_id = identity;
     }
+    if let Some(run) = &mut sim.canyon
+        && run.world_id == 0
+    {
+        run.world_id = identity;
+    }
+
     if let Some(m) = saved
         .and_then(|s| s.memory)
         .and_then(|m| crabsim::Memory::from_save(&m, &sim.level, &sim.tuning.memory))

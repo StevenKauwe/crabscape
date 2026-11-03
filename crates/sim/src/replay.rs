@@ -114,7 +114,9 @@ pub struct Replay {
     /// The loaded crab's remembered map, when replaying a saved cellular game.
     pub(crate) memory: Option<MemorySave>,
     pub(crate) salvage_start: Option<Vec<crate::salvage::SalvageRegionRecord>>,
+    pub(crate) canyon_start: Option<Vec<crate::canyon_drift::record::CanyonRegionRecord>>,
     pub salvage_actions: Vec<(u64, crate::salvage::SalvageAction)>,
+    pub canyon_actions: Vec<(u64, crate::canyon_drift::CanyonAction)>,
     /// The [`Tuning::fingerprint`] it was recorded with, if known.
     pub tuning: Option<u64>,
     /// When the controls change, in tick order (at most one per tick).
@@ -161,7 +163,9 @@ impl Default for Replay {
             cell_start: None,
             memory: None,
             salvage_start: None,
+            canyon_start: None,
             salvage_actions: Vec::new(),
+            canyon_actions: Vec::new(),
             tuning: None,
             inputs: Vec::new(),
             end: None,
@@ -315,6 +319,21 @@ impl Replay {
                         }
                         replay.salvage_start = Some(records);
                     }
+                    "canyon_start" => {
+                        if replay.canyon_start.is_some()
+                            || rest.len() != 1
+                            || rest[0].len() > 16_384
+                        {
+                            return Err(err("invalid canyon start".into()));
+                        }
+                        let records: Vec<crate::canyon_drift::record::CanyonRegionRecord> =
+                            serde_json::from_str(rest[0])
+                                .map_err(|e| err(format!("invalid canyon start: {e}")))?;
+                        if crate::canyon_drift::run::CanyonRun::from_records(&records).is_none() {
+                            return Err(err("invalid canyon records".into()));
+                        }
+                        replay.canyon_start = Some(records);
+                    }
                     "memory" => {
                         let len = rest
                             .iter()
@@ -373,14 +392,21 @@ impl Replay {
                     .map_err(|e| err(format!("invalid salvage action: {e}")))?;
                 replay.salvage_actions.push((tick, action));
             }
+            for w in words.iter().filter_map(|w| w.strip_prefix("canyon=")) {
+                let action = serde_json::from_str(w)
+                    .map_err(|e| err(format!("invalid canyon action: {e}")))?;
+                replay.canyon_actions.push((tick, action));
+            }
             if words.contains(&"home") {
                 replay.homes.push(tick);
             }
             words.retain(|w| {
                 *w != "home"
-                    && !["spawn=", "feel=", "code=", "moult=", "craft=", "salvage="]
-                        .iter()
-                        .any(|p| w.starts_with(p))
+                    && ![
+                        "spawn=", "feel=", "code=", "moult=", "craft=", "salvage=", "canyon=",
+                    ]
+                    .iter()
+                    .any(|p| w.starts_with(p))
             });
             if words.is_empty() {
                 continue; // only spawns: no change to the controls
@@ -396,7 +422,10 @@ impl Replay {
             held = c;
             replay.inputs.push(Input { tick, controls: c });
         }
-        if (replay.salvage_start.is_some() || !replay.salvage_actions.is_empty())
+        if (replay.canyon_start.is_some()
+            || replay.salvage_start.is_some()
+            || !replay.salvage_actions.is_empty()
+            || !replay.canyon_actions.is_empty())
             && !replay.cellular
         {
             return Err("salvage requires a cellular world".into());
@@ -456,6 +485,10 @@ impl Replay {
             let json = serde_json::to_string(records).expect("salvage records serialise");
             out += &format!("salvage_start {json}\n");
         }
+        if let Some(records) = &self.canyon_start {
+            let json = serde_json::to_string(records).expect("canyon records serialise");
+            out += &format!("canyon_start {json}\n");
+        }
         if let Some(memory) = &self.memory {
             let json = serde_json::to_string(memory).expect("memory always serialises");
             out += &format!("memory {json}\n");
@@ -487,6 +520,10 @@ impl Replay {
         for (tick, action) in &self.salvage_actions {
             let json = serde_json::to_string(action).expect("salvage action serialises");
             out += &format!("@{tick} salvage={json}\n");
+        }
+        for (tick, action) in &self.canyon_actions {
+            let json = serde_json::to_string(action).expect("canyon action serialises");
+            out += &format!("@{tick} canyon={json}\n");
         }
         for tick in &self.homes {
             out += &format!("@{tick} home\n");
@@ -625,6 +662,11 @@ impl Replay {
         {
             return false;
         }
+        if let Some(records) = &self.canyon_start
+            && !restored.restore_canyon_records(records.clone())
+        {
+            return false;
+        }
         restored.add_crab(crate::PlayerId(0), self.start);
         if let Some(saved) = &self.memory {
             let Some(memory) =
@@ -692,6 +734,12 @@ impl Replay {
             let _ = sim.restore_salvage_records(records.clone());
         }
         if tick == 0
+            && self.cell_start.is_none()
+            && let Some(records) = &self.canyon_start
+        {
+            let _ = sim.restore_canyon_records(records.clone());
+        }
+        if tick == 0
             && let Some(p) = &self.progress
         {
             sim.restore_progress(crate::PlayerId(0), p);
@@ -714,6 +762,9 @@ impl Replay {
         }
         for (_, action) in self.salvage_actions.iter().filter(|(t, _)| *t == tick) {
             let _ = sim.salvage_action(crate::PlayerId(0), *action);
+        }
+        for (_, action) in self.canyon_actions.iter().filter(|(t, _)| *t == tick) {
+            let _ = sim.canyon_action(crate::PlayerId(0), *action);
         }
         if self.homes.contains(&tick) {
             sim.go_home(crate::PlayerId(0));
@@ -796,9 +847,26 @@ impl Recorder {
         self.replay.salvage_start = Some(records);
     }
 
+    pub(crate) fn note_canyon_start(
+        &mut self,
+        records: Vec<crate::canyon_drift::record::CanyonRegionRecord>,
+    ) {
+        self.replay.canyon_start = Some(records);
+    }
+
     pub(crate) fn note_salvage_action(&mut self, tick: u64, action: crate::salvage::SalvageAction) {
         self.replay
             .salvage_actions
+            .push((tick - self.first_tick, action));
+    }
+
+    pub(crate) fn note_canyon_action(
+        &mut self,
+        tick: u64,
+        action: crate::canyon_drift::CanyonAction,
+    ) {
+        self.replay
+            .canyon_actions
             .push((tick - self.first_tick, action));
     }
 

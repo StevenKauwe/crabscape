@@ -66,6 +66,7 @@ mod background;
 mod brittle;
 mod build;
 mod canyon;
+mod canyon_drift;
 mod cell_save;
 #[cfg(target_arch = "wasm32")]
 mod cell_worker;
@@ -201,6 +202,7 @@ fn run_app() {
         .add_plugins(monkeys::MonkeysPlugin)
         .add_plugins(cellular::CellularPlugin)
         .add_plugins(salvage::SalvagePlugin)
+        .add_plugins(canyon_drift::CanyonDriftPlugin)
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,

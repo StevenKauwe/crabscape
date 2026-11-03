@@ -35,6 +35,7 @@ struct State {
     owned_rng: Option<std::collections::BTreeMap<u32, Rng>>,
     shared: Shared,
     salvage: Option<crate::salvage::Shellwash>,
+    canyon: Option<crate::canyon_drift::run::CanyonRun>,
     other_crabs: Vec<(i32, i32, i32, i32)>,
 }
 
@@ -51,6 +52,7 @@ struct StateRef<'a> {
     owned_rng: &'a Option<std::collections::BTreeMap<u32, Rng>>,
     shared: &'a Shared,
     salvage: &'a Option<crate::salvage::Shellwash>,
+    canyon: &'a Option<crate::canyon_drift::run::CanyonRun>,
     other_crabs: &'a [(i32, i32, i32, i32)],
 }
 
@@ -157,6 +159,9 @@ impl Sim {
         if let Some(site) = &mut self.salvage {
             site.rebind(personal.salvage_identity, id);
         }
+        if let Some(run) = &mut self.canyon {
+            run.rebind(personal.salvage_identity, id);
+        }
         true
     }
 
@@ -173,6 +178,14 @@ impl Sim {
             let at = crab.mover.pos + Vec2::Y * crab.mover.height(&self.tuning);
             site.drop_carried(id, at);
             site.drop_valve(id, at);
+        }
+        if let (Some(crab), Some(run)) = (
+            self.crabs.iter().find(|crab| crab.id == id),
+            &mut self.canyon,
+        ) {
+            let at = crab.mover.pos + Vec2::Y * crab.mover.height(&self.tuning);
+            run.drop_practice(id, at);
+            run.drop_catcher(id, at);
         }
         self.crabs.retain(|crab| crab.id != id);
         for enemy in &mut self.enemies {
@@ -282,6 +295,7 @@ impl Sim {
             owned_rng: &self.owned_rng,
             shared: &self.shared,
             salvage: &self.salvage,
+            canyon: &self.canyon,
             other_crabs: &cells.other_crabs,
         };
         let metadata = serde_json::to_vec(&state).map_err(|_| CheckpointError::Invalid)?;
@@ -365,6 +379,10 @@ impl Sim {
             return Err(CheckpointError::Invalid);
         }
         sim.salvage = state.salvage;
+        if state.canyon.as_ref().is_some_and(|run| !run.valid()) {
+            return Err(CheckpointError::Invalid);
+        }
+        sim.canyon = state.canyon;
         if sim.tuning.fingerprint() != state.tuning
             || state.tick > u64::MAX - 1_000_000
             || state.crabs.is_empty()
@@ -386,6 +404,7 @@ impl Sim {
                     || c.sponges_taken.len() != sim.level.sponges.len()
                     || c.cast_offs.len() > 4096
                     || !valid_salvage_receipts(&c.salvage_receipts)
+                    || !crate::canyon_drift::run::valid_receipts(&c.drift_receipts)
                     || c.controls.walk.abs() > 1.0
             })
             || state.shared.clams.len() != sim.level.clams.len()
@@ -427,6 +446,7 @@ fn valid_salvage_receipts(receipts: &[crate::salvage::ClaimId]) -> bool {
 }
 fn valid_progress(progress: &crate::Progress) -> bool {
     valid_salvage_receipts(&progress.salvage_receipts)
+        && crate::canyon_drift::run::valid_receipts(&progress.drift_receipts)
         && [progress.climb_xp, progress.swim_xp, progress.fight_xp]
             .iter()
             .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1_000_000_000.0)

@@ -202,12 +202,12 @@ pub fn spatial_object_from_frame(bytes: &[u8]) -> Result<Value> {
         );
     }
     Ok(
-        json!({"format":"CRABSP03","head":STANDARD.encode(header),"epoch":STANDARD.encode(0u64.to_le_bytes()),"records":records}),
+        json!({"format":"CRABSP04","head":STANDARD.encode(header),"epoch":STANDARD.encode(0u64.to_le_bytes()),"records":records}),
     )
 }
 
 pub fn frame_from_object(value: &Value) -> Result<Vec<u8>> {
-    if value["format"] == "CRABSP03" {
+    if value["format"] == "CRABSP04" {
         return spatial_frame(value);
     }
     if value["format"] != "CRABPG02" {
@@ -262,7 +262,7 @@ pub const CAPTURE_SCRIPT: &str = r#"new Promise((resolve,reject)=>{
         const k=keys.result[i],v=values.result[i];
         if(Array.isArray(k)&&v instanceof Uint8Array)records.push([k,encode(v)]);
       }
-      resolve({format:'CRABSP03',head:encode(raw),epoch:encode(epoch<0?new Uint8Array(8):values.result[epoch]),records});
+      resolve({format:'CRABSP04',head:encode(raw),epoch:encode(epoch<0?new Uint8Array(8):values.result[epoch]),records});
     };
   };
 })"#;
@@ -279,7 +279,7 @@ fn spatial_frame(value: &Value) -> Result<Vec<u8>> {
             .map_err(|e| e.to_string())
     };
     let raw = decode(&value["head"])?;
-    if !raw.starts_with(b"CRABSP03") {
+    if !raw.starts_with(b"CRABSP04") {
         return Err("invalid spatial head".into());
     }
     let head: SpatialHead = postcard::from_bytes(&raw[8..]).map_err(|e| e.to_string())?;

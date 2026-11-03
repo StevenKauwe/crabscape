@@ -150,6 +150,7 @@ pub fn restored(
         ReplayStart::Unavailable
     };
     Ok(Restored {
+        canyon: None,
         salvage: None,
         player,
         terrain,

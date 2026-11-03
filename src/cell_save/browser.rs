@@ -383,8 +383,9 @@ pub fn install_preloaded(
     match loaded {
         Ok(None) => (None, super::ReplayStart::Legacy, None),
         Ok(Some(saved)) if super::player_fits_world(sim, &saved.player) => {
+            let mut candidate = sim.clone();
             if !super::install_terrain_and_validate(
-                sim,
+                &mut candidate,
                 saved.terrain,
                 saved.sim_tick,
                 &saved.player,
@@ -396,7 +397,7 @@ pub fn install_preloaded(
                 );
             }
             if let Some(records) = saved.salvage
-                && !sim.restore_salvage_records(records)
+                && !candidate.restore_salvage_records(records)
             {
                 return (
                     None,
@@ -404,6 +405,16 @@ pub fn install_preloaded(
                     Some("saved salvage ownership is not safe".into()),
                 );
             }
+            if let Some(records) = saved.canyon
+                && !candidate.restore_canyon_records(records)
+            {
+                return (
+                    None,
+                    super::ReplayStart::Unavailable,
+                    Some("saved Canyon ownership is not safe".into()),
+                );
+            }
+            *sim = candidate;
             let replay = match saved.replay {
                 super::ReplayStart::Legacy => super::ReplayStart::Unavailable,
                 other => other,

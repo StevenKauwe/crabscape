@@ -26,6 +26,7 @@ struct Entities {
     bodies: Vec<(u32, u32)>,
     midden: Vec<bool>,
     salvage: Option<crate::salvage::Shellwash>,
+    canyon: Option<crate::canyon_drift::run::CanyonRun>,
 }
 impl Entities {
     fn capture(sim: &Sim, rng: &BTreeMap<u32, Rng>, include: impl Fn(Vec2) -> bool) -> Self {
@@ -38,6 +39,7 @@ impl Entities {
         let ids: std::collections::BTreeSet<_> = enemies.iter().map(|e| e.id).collect();
         Self {
             midden: sim.shared.midden_taken.clone(),
+            canyon: sim.canyon.clone().and_then(|mut run| run.extract(&include)),
             salvage: sim
                 .salvage
                 .clone()
@@ -62,16 +64,19 @@ impl Entities {
         }
     }
     fn salvage_in(&self, include: impl Fn(Vec2) -> bool) -> bool {
-        self.salvage.as_ref().is_none_or(|site| {
-            (!site.has_valve || include(site.valve_position))
-                && (0..2).all(|i| !site.has_fragments[i] || include(site.fragment_positions[i]))
-                && (!site.has_find
-                    || if site.phase == crate::salvage::FindPhase::Caught {
-                        site.has_valve && include(site.valve_position)
-                    } else {
-                        include(site.position)
-                    })
-        })
+        self.canyon
+            .as_ref()
+            .is_none_or(|run| run.spatial_in(&include))
+            && self.salvage.as_ref().is_none_or(|site| {
+                (!site.has_valve || include(site.valve_position))
+                    && (0..2).all(|i| !site.has_fragments[i] || include(site.fragment_positions[i]))
+                    && (!site.has_find
+                        || if site.phase == crate::salvage::FindPhase::Caught {
+                            site.has_valve && include(site.valve_position)
+                        } else {
+                            include(site.position)
+                        })
+            })
     }
     fn valid(&self, sim: &Sim) -> bool {
         self.enemies.len() <= 4096
@@ -85,6 +90,7 @@ impl Entities {
             && self.grit.len() == sim.shared.grit_taken.len()
             && self.nets.len() == sim.level.nets.len()
             && self.rocks.len() == sim.level.brittle.len()
+            && self.canyon.as_ref().is_none_or(|run| run.valid())
             && self
                 .salvage
                 .as_ref()
@@ -134,6 +140,7 @@ pub struct MoveOut {
     entering_find: bool,
     entering_valve: bool,
     entering_fragments: [bool; 2],
+    entering_canyon: Option<crate::canyon_drift::run::CanyonRun>,
 }
 macro_rules! codec {
     ($name:ident,$magic:literal) => {
@@ -277,6 +284,21 @@ pub fn finish_move(
             salvage = Some(source.clone());
         }
     }
+    let mut canyon = archive.sim.canyon.clone();
+    if let Some(taken) = &output.entering_canyon
+        && canyon.as_mut().is_none_or(|run| !run.subtract(taken))
+    {
+        return Err(RegionError::InvalidState);
+    }
+    if let Some(source) = &output.entities.canyon {
+        if let Some(dest) = &mut canyon {
+            if !dest.absorb(source) {
+                return Err(RegionError::InvalidState);
+            }
+        } else {
+            canyon = Some(source.clone());
+        }
+    }
     store
         .finish_move_terrain(output.terrain, decoded)
         .map_err(err)?;
@@ -284,6 +306,7 @@ pub fn finish_move(
         .entities
         .resources(&mut archive.sim, |p| owns(old, p) && !owns(new, p));
     archive.sim.salvage = salvage;
+    archive.sim.canyon = canyon;
     archive
         .sim
         .enemies
@@ -369,10 +392,24 @@ impl RegionKernel {
                 salvage = Some(source.clone());
             }
         }
+        let mut canyon = self.sim.canyon.clone();
+        if let Some(run) = &mut canyon {
+            run.extract(|p| !owns(new, p));
+        }
+        if let Some(source) = &input.entities.canyon {
+            if let Some(dest) = &mut canyon {
+                if !dest.absorb(source) {
+                    return Err(RegionError::InvalidState);
+                }
+            } else {
+                canyon = Some(source.clone());
+            }
+        }
         input
             .entities
             .resources(&mut self.sim, |p| owns(new, p) && !owns(old, p));
         self.sim.salvage = salvage;
+        self.sim.canyon = canyon;
         self.sim.enemies.retain(|e| owns(new, e.pos));
         let rng = self.sim.owned_rng.as_mut().expect("validated streams");
         for e in &entities.enemies {
@@ -398,6 +435,7 @@ impl RegionKernel {
             entities,
             tick: self.sim.tick,
             entering: input.entities.enemies.iter().map(|e| e.id).collect(),
+            entering_canyon: input.entities.canyon.clone(),
             entering_find: input.entities.salvage.as_ref().is_some_and(|s| s.has_find),
             entering_valve: input.entities.salvage.as_ref().is_some_and(|s| s.has_valve),
             entering_fragments: std::array::from_fn(|i| {

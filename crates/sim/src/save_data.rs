@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Bump this if the format ever changes, so old saves can be recognised.
 /// (Version 1 had no position.)
-pub const SAVE_VERSION: u32 = 4;
+pub const SAVE_VERSION: u32 = 5;
 
 /// Everything we save. Small for now; an inventory will go here later.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -38,7 +38,8 @@ pub fn player_fits_world(sim: &crate::Sim, player: &SaveData) -> bool {
     }
     if let Some(progress) = &player.progress {
         let current = sim.fresh_progress();
-        if !progress.prepared_food.valid()
+        if !crate::canyon_drift::run::valid_receipts(&progress.drift_receipts)
+            || !progress.prepared_food.valid()
             || progress.salvage_receipts.len() > 32
             || progress
                 .salvage_receipts

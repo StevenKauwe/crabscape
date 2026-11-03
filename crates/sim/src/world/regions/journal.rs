@@ -490,6 +490,9 @@ impl RegionJournal {
                 CellSessionAction::Salvage(action) => {
                     sim.salvage_action(*id, *action);
                 }
+                CellSessionAction::Canyon(action) => {
+                    sim.canyon_action(*id, *action);
+                }
             }
         }
         for (id, control) in &run.controls {

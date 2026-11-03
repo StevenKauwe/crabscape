@@ -210,6 +210,55 @@ pub(super) async fn write(
             });
         }
     }
+    if let Some(canyon) = &capture.canyon {
+        use crabsim::cell_codec::spatial::CanyonIndex;
+        let index = CanyonIndex::new(canyon).map_err(issue)?;
+        let previous_head = Head {
+            revision: expected_revision,
+            ..head
+        };
+        let previous_raw = if expected_revision > 0 {
+            page(&db.0, previous_head, "canyon_index", 0, 0).await?
+        } else {
+            None
+        };
+        if let Some(raw) = &previous_raw {
+            if raw.len() > crabsim::cell_codec::spatial::CANYON_INDEX_LIMIT {
+                return Err("canyon index exceeds fixed bound".into());
+            }
+            let previous: CanyonIndex = postcard::from_bytes(raw).map_err(issue)?;
+            for &(x, y) in previous.keys().map_err(issue)? {
+                if !index.keys().map_err(issue)?.contains(&(x, y)) {
+                    records.push(Record {
+                        key: key(epoch, "canyon", x, y, 0),
+                        bytes: None,
+                    });
+                }
+            }
+        }
+        for record in canyon {
+            let raw = postcard::to_allocvec(record).map_err(issue)?;
+            let (x, y) = record.region_id;
+            let previous = if expected_revision > 0 {
+                page(&db.0, previous_head, "canyon", x, y).await?
+            } else {
+                None
+            };
+            if previous.as_deref() != Some(raw.as_slice()) {
+                records.push(Record {
+                    key: key(epoch, "canyon", x, y, 0),
+                    bytes: Some(encode(&raw, revision, worker, &current).await?),
+                });
+            }
+        }
+        let raw = postcard::to_allocvec(&index).map_err(issue)?;
+        if previous_raw.as_deref() != Some(raw.as_slice()) {
+            records.push(Record {
+                key: key(epoch, "canyon_index", 0, 0, 0),
+                bytes: Some(encode(&raw, revision, worker, &current).await?),
+            });
+        }
+    }
     if records
         .iter()
         .map(|record| record.bytes.as_ref().map_or(0, Vec::len))
@@ -282,6 +331,7 @@ pub(super) async fn write(
         Acknowledgement {
             player: Some(committed_player),
             salvage: capture.salvage,
+            canyon: capture.canyon,
             sleeping: capture.sleeping,
             memory: capture.memory,
         },
@@ -296,6 +346,8 @@ pub(super) async fn page(
     y: i32,
 ) -> Result<Option<Vec<u8>>, String> {
     let limit = match kind {
+        "canyon_index" => crabsim::cell_codec::spatial::CANYON_INDEX_LIMIT,
+        "canyon" => crabsim::cell_codec::spatial::CANYON_RECORD_LIMIT,
         "salvage_index" => 64,
         "salvage" => crabsim::cell_codec::spatial::SALVAGE_RECORD_LIMIT,
         _ => PAGE_LIMIT,
@@ -487,6 +539,24 @@ pub(super) async fn read_from(
             return Err("invalid salvage ownership".into());
         }
         restored.salvage = Some(salvage);
+    }
+    if let Some(raw) = page(&db.0, head, "canyon_index", 0, 0).await? {
+        use crabsim::cell_codec::spatial::{CanyonIndex, decode_canyon};
+        if raw.len() > crabsim::cell_codec::spatial::CANYON_INDEX_LIMIT {
+            return Err("canyon index exceeds fixed bound".into());
+        }
+        let index: CanyonIndex = postcard::from_bytes(&raw).map_err(issue)?;
+        let mut canyon = Vec::new();
+        for &(x, y) in index.keys().map_err(issue)? {
+            let raw = page(&db.0, head, "canyon", x, y)
+                .await?
+                .ok_or("missing canyon region")?;
+            canyon.push(decode_canyon(&raw, (x, y)).map_err(issue)?);
+        }
+        if crabsim::canyon_drift::run::CanyonRun::from_records(&canyon).is_none() {
+            return Err("invalid canyon ownership".into());
+        }
+        restored.canyon = Some(canyon);
     }
     current_head(&db.0, head).await?;
     STARTUP_REVISION.with(|revision| revision.set(head.revision));

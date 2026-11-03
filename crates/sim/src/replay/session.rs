@@ -15,6 +15,7 @@ pub enum CellSessionAction {
     Moult(crate::skills::Skill),
     Craft(crate::craft::Recipe),
     Salvage(crate::salvage::SalvageAction),
+    Canyon(crate::canyon_drift::CanyonAction),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -50,6 +51,9 @@ impl CellSessionTick {
                 }
                 CellSessionAction::Salvage(action) => {
                     sim.salvage_action(*id, *action);
+                }
+                CellSessionAction::Canyon(action) => {
+                    sim.canyon_action(*id, *action);
                 }
             }
         }
@@ -341,6 +345,7 @@ mod tests {
         sim.crab_mut(PlayerId(0)).unwrap().salvage_identity = 10;
         sim.crab_mut(PlayerId(91)).unwrap().salvage_identity = 11;
         sim.salvage.as_mut().unwrap().world_id = 77;
+        sim.canyon.as_mut().unwrap().world_id = 77;
         let packed = sim.session_checkpoint().unwrap();
         let mut recording = CellSessionRecording::new(&packed, PlayerId(0), PlayerId(91)).unwrap();
         for tick in 0..20 {

@@ -66,6 +66,15 @@ pub fn spawn_small(
     let (at, turn) = spot(slot);
     let (parts, scale) = match kind {
         Carry::Clam => (crate::food::clam_parts(false), CLAM_SCALE),
+        Carry::Valve => (
+            vec![(
+                Mesh::from(Ellipse::new(11.0, 4.0)),
+                Color::srgb(0.78, 0.71, 0.56),
+                Vec3::ZERO,
+                0.0,
+            )],
+            CLAM_SCALE,
+        ),
         _ => (crate::build::grit_parts(), GRIT_SCALE),
     };
     parent
@@ -122,7 +131,7 @@ fn attach(
     for (shell, of) in &shells {
         commands.entity(shell).with_children(|parent| {
             for slot in 0..most_carried(&sim.tuning) {
-                for kind in [Carry::Clam, Carry::Grit] {
+                for kind in [Carry::Clam, Carry::Grit, Carry::Valve] {
                     let thing = Clinging {
                         crab: of.0,
                         slot,

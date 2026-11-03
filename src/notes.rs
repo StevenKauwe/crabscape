@@ -137,6 +137,7 @@ fn note_events(
             Carry::Tooth => ("Take the tooth home!", PALE),
             Carry::Clam => ("A clam: meal or field portions.", YOLK),
             Carry::Grit => ("Shell grit for the home", PALE),
+            Carry::Valve => ("An empty valve for the workbench", PALE),
             Carry::Glass => ("Glass! Take it home.", PALE),
             Carry::Culture => ("Take it home!", WILD_GLOW),
         };

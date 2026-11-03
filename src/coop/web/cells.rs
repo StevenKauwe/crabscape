@@ -243,7 +243,8 @@ pub(crate) fn private_save(
                 solo.tick_count(),
                 crate::cell_save::browser::needs_initial_baseline(),
             )
-            .and_then(|capture| capture.with_salvage(solo.salvage_records())),
+            .and_then(|capture| capture.with_salvage(solo.salvage_records()))
+            .and_then(|capture| capture.with_canyon(solo.canyon_records())),
         )
     })
 }
@@ -575,6 +576,11 @@ fn receive(
                     action,
                     super::super::CellsAction::Salvage(
                         crabsim::salvage::SalvageAction::OfferFragment(..)
+                    ) | super::super::CellsAction::Canyon(
+                        crabsim::canyon_drift::CanyonAction::Offer(..)
+                            | crabsim::canyon_drift::CanyonAction::ConfirmFinalized(..)
+                            | crabsim::canyon_drift::CanyonAction::Retire(..)
+                            | crabsim::canyon_drift::CanyonAction::RetireOutflow(..)
                     )
                 )
             {

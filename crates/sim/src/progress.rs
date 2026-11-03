@@ -83,6 +83,7 @@ pub struct Progress {
     pub clam_guards: bool,
     #[serde(default)]
     pub salvage_receipts: Vec<crate::salvage::ClaimId>,
+    pub drift_receipts: Vec<crate::canyon_drift::run::DriftClaimId>,
     #[serde(default)]
     pub salvage_identity: u64,
     /// Prepared portions and the home auto-eat preference.
@@ -176,6 +177,7 @@ impl Sim {
             stash: crab.stash,
             clam_guards: m.clam_guards,
             salvage_receipts: crab.salvage_receipts.clone(),
+            drift_receipts: crab.drift_receipts.clone(),
             salvage_identity: crab.salvage_identity,
             prepared_food: m.prepared_food.clone(),
         })
@@ -234,6 +236,7 @@ impl Sim {
         };
         crab.wakes_at = p.wakes_at.filter(|&i| i < crevices);
         crab.salvage_receipts = p.salvage_receipts.clone();
+        crab.drift_receipts = p.drift_receipts.clone();
         crab.salvage_identity = p.salvage_identity;
         let m = &mut crab.mover;
         m.upgrades = p.upgrades;

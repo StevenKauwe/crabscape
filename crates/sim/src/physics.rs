@@ -96,6 +96,8 @@ pub enum Carry {
     Clam,
     /// A piece of shell grit (old, broken shells): built into the home.
     Grit,
+    /// An intact empty half-shell, kept as a valve at the workbench.
+    Valve,
     /// A dead glass sponge's skeleton: its glass points fitted to the leg
     /// tips at home, making glass grips.
     Glass,
@@ -106,7 +108,7 @@ impl Carry {
     /// several at once, like a decorator crab's trimmings; big finds (a
     /// culture, a tooth) ride on its back, one at a time.
     pub fn small(self) -> bool {
-        matches!(self, Carry::Clam | Carry::Grit)
+        matches!(self, Carry::Clam | Carry::Grit | Carry::Valve)
     }
 }
 

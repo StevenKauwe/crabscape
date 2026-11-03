@@ -146,7 +146,7 @@ const READ_PLAYER: &str = r#"await new Promise((resolve,reject)=>{
   tx.onabort=()=>{db.close();reject(String(tx.error));};
   tx.oncomplete=async()=>{db.close();try {
    const raw=head.result,data=player&&player.result;
-   if(!(raw instanceof Uint8Array)||new TextDecoder().decode(raw.subarray(0,8))!=='CRABSP03'||!(data instanceof Uint8Array)){resolve(null);return;}
+   if(!(raw instanceof Uint8Array)||new TextDecoder().decode(raw.subarray(0,8))!=='CRABSP04'||!(data instanceof Uint8Array)){resolve(null);return;}
    let at=8;const number=()=>{let n=0n,shift=0n;for(;;){const byte=raw[at++];n|=BigInt(byte&127)<<shift;if(!(byte&128))return Number(n);shift+=7n;}};
    number();number();const tick=number();
    const stream=new Blob([data.subarray(40)]).stream().pipeThrough(new DecompressionStream('deflate'));

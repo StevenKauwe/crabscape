@@ -139,17 +139,20 @@ fn edge_margin(b: CellRegion, p: Vec2, margin: f32) -> bool {
 /// A moving object that leaves an active lease must be returned to the
 /// owner archive and reassigned at the next ordered topology boundary.
 fn salvage_outside_lease(sim: &Sim) -> bool {
-    let Some(site) = &sim.salvage else {
-        return false;
-    };
     let Some(world) = &sim.level.cells else {
         return false;
     };
     let outside = |p: Vec2| !world.contains_world(p.x, p.y);
-    (site.has_find && outside(site.position))
-        || (site.has_valve && outside(site.valve_position))
-        || (0..2).any(|i| site.has_fragments[i] && outside(site.fragment_positions[i]))
+    sim.canyon
+        .as_ref()
+        .is_some_and(|run| !run.spatial_in(|p| !outside(p)))
+        || sim.salvage.as_ref().is_some_and(|site| {
+            (site.has_find && outside(site.position))
+                || (site.has_valve && outside(site.valve_position))
+                || (0..2).any(|i| site.has_fragments[i] && outside(site.fragment_positions[i]))
+        })
 }
+
 fn needs_change(r: &State, sim: &Sim, guest_id: PlayerId) -> Result<bool, String> {
     let host = point(sim, HOST)?;
     let guest = if r.shared {

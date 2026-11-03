@@ -197,6 +197,13 @@ pub fn load(sim: &mut Sim, storage: &mut Storage) -> Option<SaveData> {
 
 fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveData> {
     storage.generation = GENERATION.load(Ordering::SeqCst);
+    if path.is_dir()
+        && let Err(error) = Store::new(path).retire_obsolete()
+    {
+        storage.disabled = true;
+        warn!("could not retire obsolete cellular save; keeping it unchanged: {error}");
+        return None;
+    }
     storage.head = Store::new(path)
         .head()
         .ok()
@@ -211,8 +218,9 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
                 warn!("cellular save has incompatible player data; keeping the old file unchanged");
                 return None;
             }
+            let mut candidate = sim.clone();
             if !super::install_terrain_and_validate(
-                sim,
+                &mut candidate,
                 saved.terrain,
                 saved.sim_tick,
                 &saved.player,
@@ -222,12 +230,20 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
                 return None;
             }
             if let Some(records) = saved.salvage
-                && !sim.restore_salvage_records(records)
+                && !candidate.restore_salvage_records(records)
             {
                 storage.disabled = true;
                 warn!("saved salvage could not be safely restored; keeping the old save");
                 return None;
             }
+            if let Some(records) = saved.canyon
+                && !candidate.restore_canyon_records(records)
+            {
+                storage.disabled = true;
+                warn!("saved Canyon ownership could not be safely restored; keeping the old save");
+                return None;
+            }
+            *sim = candidate;
             storage.replay = saved.replay;
             Some(saved.player)
         }
@@ -388,6 +404,7 @@ fn update_storage(
         storage.write_failed = result.is_err();
         if let Ok(ack) = &result {
             crate::salvage::acknowledge_save(sim, id, ack, true);
+            crate::canyon_drift::acknowledge_save(sim, id, ack, true);
             storage.has_baseline = true;
             storage.head = storage.head.map_or(Some((0, 1)), |(epoch, revision)| {
                 Some((epoch, revision + 1))
@@ -444,6 +461,7 @@ fn update_storage(
         !storage.has_baseline,
     )
     .and_then(|capture| capture.with_salvage(sim.salvage_records()))
+    .and_then(|capture| capture.with_canyon(sim.canyon_records()))
     {
         Ok(capture) => storage.worker = Some(queue_spatial(path.to_owned(), capture, storage.head)),
         Err(reason) => {

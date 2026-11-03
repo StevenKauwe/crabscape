@@ -14,7 +14,11 @@ pub struct SpatialHead {
     pub rows: u16,
 }
 
+pub mod canyon;
+pub use canyon::{CANYON_INDEX_LIMIT, CANYON_RECORD_LIMIT, CanyonIndex, decode_canyon};
+
 pub struct Capture {
+    pub canyon: Option<Vec<crate::canyon_drift::record::CanyonRegionRecord>>,
     pub salvage: Option<Vec<crate::salvage::SalvageRegionRecord>>,
     pub active: paged::PreparedSave,
     pub sleeping: Vec<SleepingCut>,
@@ -22,6 +26,8 @@ pub struct Capture {
 }
 #[derive(Default)]
 pub struct Acknowledgement {
+    /// Exact Canyon records published with this player/head, never current RAM.
+    pub canyon: Option<Vec<crate::canyon_drift::record::CanyonRegionRecord>>,
     /// Exact player payload committed with this head; never current RAM.
     pub player: Option<SaveData>,
     /// Exact authored-region bundle committed alongside the player.
@@ -140,6 +146,7 @@ impl Capture {
             return Err(Error::TooLarge);
         }
         Ok(Self {
+            canyon: None,
             salvage: None,
             active: paged::PreparedSave {
                 snapshot,
@@ -155,7 +162,7 @@ impl Capture {
 #[cfg(not(target_arch = "wasm32"))]
 pub mod files;
 
-pub const SPATIAL_MAGIC: &[u8; 8] = b"CRABSP03";
+pub const SPATIAL_MAGIC: &[u8; 8] = b"CRABSP04";
 /// A bounded coordinate record identifies its last complete head revision and
 /// authenticates the uncompressed bytes. Stale multi-request reads are revoked
 /// by a head change before they may publish a candidate.

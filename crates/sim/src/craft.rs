@@ -42,6 +42,7 @@ impl Material {
             Carry::Culture => Some(Material::Culture),
             Carry::Tooth => Some(Material::Tooth),
             Carry::Grit => Some(Material::Grit),
+            Carry::Valve => Some(Material::Valve),
             Carry::Glass => Some(Material::Glass),
             Carry::Clam => None,
         }

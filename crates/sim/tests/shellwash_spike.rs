@@ -402,6 +402,7 @@ fn solo_salvage_action_round_trips_in_replay() {
     live.enable_underwater_cells();
     live.crab_mut(id).unwrap().salvage_identity = 77;
     live.salvage.as_mut().unwrap().world_id = 42;
+    live.canyon.as_mut().unwrap().world_id = 42;
     live.start_recording();
     assert!(live.salvage_action(id, SalvageAction::LiftValve));
     for _ in 0..10 {

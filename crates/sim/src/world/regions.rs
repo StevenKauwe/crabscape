@@ -286,6 +286,9 @@ impl RegionKernel {
                 CellSessionAction::Salvage(action) => {
                     self.sim.salvage_action(*id, *action);
                 }
+                CellSessionAction::Canyon(action) => {
+                    self.sim.canyon_action(*id, *action);
+                }
             }
         }
         for (id, c) in &frame.controls {
@@ -396,6 +399,7 @@ impl Sim {
         region.feel = self.feel;
         region.shared = self.shared.clone();
         region.salvage = self.salvage.as_mut().and_then(|site| site.extract(owns));
+        region.canyon = self.canyon.as_mut().and_then(|run| run.extract(owns));
         region.tick = self.tick;
         region.rng = Rng::new(SEED ^ id.0);
         region.next_enemy = (id.0 as u32)
@@ -456,8 +460,19 @@ impl Sim {
                 merged_salvage = Some(source.clone());
             }
         }
+        let mut merged_canyon = self.canyon.clone();
+        if let Some(source) = &kernel.sim.canyon {
+            if let Some(dest) = &mut merged_canyon {
+                if !dest.absorb(source) {
+                    return Err(RegionError::InvalidState);
+                }
+            } else {
+                merged_canyon = Some(source.clone());
+            }
+        }
         self.merge_region_resources(&kernel.sim)?;
         self.salvage = merged_salvage;
+        self.canyon = merged_canyon;
         let source = kernel.sim;
         self.tick = self.tick.max(source.tick);
         self.next_enemy = self.next_enemy.max(source.next_enemy);
@@ -750,5 +765,63 @@ mod tests {
             streams,
             "creatures retain their random histories across reunion"
         );
+    }
+    #[test]
+    fn canyon_loaded_valve_survives_split_checkpoint_and_reunion() {
+        use crate::canyon_drift::{DriftBody, DriftProfile, run::SlotPhase};
+        let level = crate::Level::test_level();
+        let mut terrain = crate::underwater::World::from_level(&level);
+        assert!(terrain.follow_player(&level, 6385.0, -3200.0));
+        let mut whole = Sim::new(crate::Tuning::default(), level);
+        assert!(whole.restore_cellular_terrain(terrain, 1));
+        whole.add_crab(PlayerId(0), Vec2::new(6380.0, -3200.0));
+        whole.add_crab(PlayerId(7), Vec2::new(6420.0, -3200.0));
+        whole.salvage.as_mut().unwrap().world_id = 42;
+        let run = whole.canyon.as_mut().unwrap();
+        run.world_id = 42;
+        let body = DriftBody {
+            profile: DriftProfile::Dense,
+            position: run.catcher.position + Vec2::new(0.0, 7.0),
+            velocity: Vec2::ZERO,
+        };
+        run.slots[0].generation = 1;
+        run.slots[0].location = body.position;
+        run.slots[0].phase = SlotPhase::Caught(body);
+        run.catcher.contents = Some(0);
+        let before = run.clone();
+        let mut store = TerrainStore::new(whole.level.cells.take().unwrap()).unwrap();
+        let mut archive = EntityArchive::new(whole).unwrap();
+        let left = CellRegion {
+            x: 1344,
+            y: -768,
+            width: 256,
+            height: 256,
+        };
+        let right = CellRegion { x: 1600, ..left };
+        let (ea, ta) = store.grant(RegionId(1), left, &archive.sim.level).unwrap();
+        let (eb, tb) = store.grant(RegionId(2), right, &archive.sim.level).unwrap();
+        let a = archive
+            .extract(RegionId(1), ea, &[PlayerId(0)], ta)
+            .unwrap();
+        let b = archive
+            .extract(RegionId(2), eb, &[PlayerId(7)], tb)
+            .unwrap();
+        assert!(a.sim.canyon.as_ref().unwrap().has_anchor);
+        let right_run = b.sim.canyon.as_ref().unwrap();
+        assert!(right_run.has_catcher && right_run.owned_slots[0]);
+        assert_eq!(right_run.catcher.contents, Some(0));
+        let restored = RegionKernel::from_checkpoint(&b.checkpoint().unwrap()).unwrap();
+        assert_eq!(restored.sim.canyon, b.sim.canyon);
+        let combined = archive
+            .sim
+            .combined_canyon_records(&[&a.sim, &b.sim])
+            .unwrap();
+        assert_eq!(
+            crate::canyon_drift::run::CanyonRun::from_records(&combined),
+            Some(before.clone())
+        );
+        archive.absorb(a).unwrap();
+        archive.absorb(b).unwrap();
+        assert_eq!(archive.sim.canyon, Some(before));
     }
 }

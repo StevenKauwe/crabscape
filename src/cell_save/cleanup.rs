@@ -101,6 +101,7 @@ impl PreparedCleanup {
             return Err(CleanupError::Invalid(Error::TooLarge));
         }
         let super::Restored {
+            canyon: _,
             salvage: _,
             player,
             terrain,
@@ -187,6 +188,7 @@ impl PreparedCleanup {
             return Err(CleanupError::Invalid(Error::TooLarge));
         }
         let super::Restored {
+            canyon: _,
             salvage: _,
             player: decoded_player,
             terrain: decoded_terrain,

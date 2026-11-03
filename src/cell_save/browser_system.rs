@@ -11,6 +11,12 @@ pub fn save_periodically(
 ) {
     if let Some(ack) = super::browser::take_acknowledgement() {
         crate::salvage::acknowledge_save(&mut sim, *crab.1, &ack, !crate::coop::cells_visiting());
+        crate::canyon_drift::acknowledge_save(
+            &mut sim,
+            *crab.1,
+            &ack,
+            !crate::coop::cells_visiting(),
+        );
         if !crate::coop::cells_acknowledge_save(&mut sim, &ack) {
             if let Some(world) = sim.level.cells.as_mut() {
                 world.acknowledge_sleeping(&ack.sleeping);
@@ -77,6 +83,7 @@ pub fn save_periodically(
         super::browser::needs_initial_baseline(),
     )
     .and_then(|capture| capture.with_salvage(sim.salvage_records()))
+    .and_then(|capture| capture.with_canyon(sim.canyon_records()))
     {
         Ok(prepared) => super::browser::submit_save(generation, prepared),
         Err(reason) => super::browser::capture_failed(generation, reason),

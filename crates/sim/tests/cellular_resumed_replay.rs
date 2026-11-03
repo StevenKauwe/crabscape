@@ -255,6 +255,7 @@ fn resumed_replay_restores_changed_salvage_records() {
         }
     }
     assert!(live.restore_salvage_records(records));
+    live.canyon.as_mut().unwrap().world_id = 123;
     live.add_crab(PlayerId(0), Vec2::new(320.0, 30.0));
     live.crab_mut(PlayerId(0)).unwrap().salvage_identity = 77;
     live.start_recording();
