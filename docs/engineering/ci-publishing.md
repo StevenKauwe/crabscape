@@ -28,12 +28,34 @@ The policy follows [GitHub's concurrency semantics](https://docs.github.com/en/a
 one running and one pending by default, pending replacement, and conditional cancellation. Do not set `queue: max`
 on validation: processing every main revision would restore a growing backlog.
 
-## Shared publisher follow-up (not implemented)
+## Publication transaction lock
 
-Main's deploy job currently has a `pages` lock; PR/branch preview publication and `previews.yml` cleanup do not share
-it. The store's force-with-lease retries protect store updates, but snapshots can still be deployed out of order.
-The live checks also do not assert the exact deployed commit. The cancellation change does not solve these races,
-late reruns regressing production, or the trust boundary of the current PR preview job.
+Main, PR/branch previews, and closed-PR cleanup all use the same job-level `pages` concurrency group with
+`cancel-in-progress: false` and `queue: max`. The lock covers the store mutation, fresh snapshot, upload, and
+completed Pages deployment. Builds and validation remain outside the lock. A preview can no longer deploy a
+snapshot captured before a main publication that already finished. Distinct cleanup jobs remain pending instead
+of replacing one another or a waiting main deployment. Only short publication transactions queue; main validation
+still coalesces intermediate commits as above.
+
+Before replacing the main root, the store checks the artifact's `pkg/commit.txt` against the tested `GITHUB_SHA`
+and requires the stored production commit to be its ancestor (or equal). An old/divergent/unverifiable rerun keeps
+the existing root. A tested intermediate commit can still advance production even when the branch tip is newer.
+The full-history main checkout supplies ancestry; previews and cleanup preserve the root.
+
+`bash tools/test-previews.sh` exercises the real local Git store: interleaved main/preview/cleanup, two distinct
+cleanups, old-main reruns, repeated publication and mismatched artifact identity. CI runs it with the normal check
+job. GitHub scheduling itself is verified after merge; local tests do not simulate GitHub's concurrency service.
+
+This is a targeted mitigation for competing Pages deployments, not the complete protected publisher below.
+GitHub's queue is bounded at 100 pending jobs. Workflow cancellation still cancels superseded preview work (the
+Pages action requests cancellation of any active deployment). A killed runner, API failure, or cancellation after
+a store write can require a later successful publication to expose that write. There is no durable reconciliation
+or claim of exactly-once publication. PR close/reopen ordering and privilege isolation remain follow-up work.
+
+## Protected publisher follow-up (not implemented)
+
+All three existing writers now share the transaction lock above. The live checks still do not assert the exact
+deployed commit, and the current PR preview job retains its existing trust boundary.
 
 Adding the same default concurrency group to all three writers is insufficient: a pending cleanup for PR 1 could
 be replaced by a preview for PR 2. Moving publication to `workflow_run` also grants a new privilege boundary and must

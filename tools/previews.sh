@@ -89,6 +89,18 @@ put_folder() { # site: copy web/ into $FOLDER with its build note
 }
 
 put_root() { # site: replace the root build, keep the preview folders
+  # Main can finish an intermediate tested commit, but an old rerun must not roll back a newer one.
+  # The deploy checkout has full history. Check the actual immutable artifact, not the workflow's current ref.
+  local candidate previous
+  candidate="$(cat web/pkg/commit.txt)"
+  [ "$candidate" = "${GITHUB_SHA:?}" ] || { echo "main artifact does not match the tested commit" >&2; return 1; }
+  if [ -f "$1/pkg/commit.txt" ]; then
+    previous="$(cat "$1/pkg/commit.txt")"
+    if ! git merge-base --is-ancestor "$previous" "$candidate"; then
+      echo "keeping main $previous: candidate $candidate is older, divergent, or unverifiable"
+      return 0
+    fi
+  fi
   rm -rf "${1:?}/index.html" "$1/pkg" "$1/assets"
   cp -r web/. "$1/"
 }

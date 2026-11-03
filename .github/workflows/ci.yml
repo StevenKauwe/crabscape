@@ -20,7 +20,7 @@ concurrency:
   group: ci-${{ github.ref }}
   # Finish main's active run (including deploy/smoke); newer pushes replace only its pending run. Keep GitHub's
   # default single pending slot: do not queue every intermediate main commit. PRs and other branches still cancel
-  # superseded runs. See docs/engineering/ci-publishing.md for the policy and the separate publisher follow-up.
+  # superseded runs. See docs/engineering/ci-publishing.md for the policy and publisher limitations.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
@@ -62,6 +62,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Preview store integration tests
+        run: bash tools/test-previews.sh
       - name: Rust (the version, targets and components in rust-toolchain.toml)
         run: rustup toolchain install && rustc --version
       - name: System libraries Bevy needs on Linux
@@ -423,6 +425,11 @@ jobs:
     if: (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !github.event.repository.private
     needs: web
     runs-on: ubuntu-latest
+    # Lock the entire store update -> snapshot -> deploy transaction, across all three writers.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+      queue: max
     permissions:
       contents: write # push the folder to the gh-pages store
       pull-requests: write # keep one "Play this change" comment per PR
@@ -479,6 +486,7 @@ jobs:
     concurrency:
       group: pages
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
