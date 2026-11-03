@@ -28,6 +28,11 @@ jobs:
   cleanup:
     name: remove the preview folder
     runs-on: ubuntu-latest
+    # Same transaction lock as main and preview publication; retain distinct waiting cleanups.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+      queue: max
     permissions:
       contents: write
       pages: write
