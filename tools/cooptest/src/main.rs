@@ -904,7 +904,7 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 26] = [
+const SCENARIOS: [(&str, &str, u32); 27] = [
     (
         "cell-probe-canyon-claim",
         "two browsers claim and retire a physical Canyon generation",
@@ -1022,8 +1022,13 @@ const SCENARIOS: [(&str, &str, u32); 26] = [
     ),
     (
         "introducer-restart",
-        "the introducer restarts mid-game: back together",
-        26,
+        "the introducer restarts mid-game: a new friend can join the same link",
+        38,
+    ),
+    (
+        "cells-introducer-restart",
+        "the cellular host reloads after the introducer restarts: the guest rejoins",
+        40,
     ),
     (
         "stall",
@@ -2410,26 +2415,45 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             let t = together(&mut [&mut host, &mut guest], limit::MEET)?;
             found.push(format!("new link: met {t:.1} s"));
         }
-        "introducer-restart" => {
+        "introducer-restart" | "cells-introducer-restart" => {
             if site.introducer.is_none() {
                 found.push("skipped (the live introducer isn't restarted)".into());
                 return Ok(found);
             }
-            meet(site, &mut host, &mut guest, limit::MEET)?;
-            let before = [host.b.coop_log().len(), guest.b.coop_log().len()];
-            restart_introducer(site)?;
-            let t = together(&mut [&mut host, &mut guest], limit::INTRODUCER_BACK)?;
-            // Whether each game had to join afresh (its connection ended with the introducer) or played straight on.
-            let afresh = [&mut host, &mut guest].map(|p| {
-                p.b.coop_log()
-                    .iter()
-                    .skip(before[usize::from(p.name() == "guest")])
-                    .any(|l| l.contains("afresh"))
-            });
-            found.push(format!(
-                "back together {t:.1} s after it restarted (joined afresh: host {}, friend {})",
-                afresh[0], afresh[1]
-            ));
+            if name == "cells-introducer-restart" {
+                let url = site.url("cells");
+                host.open(&url)?;
+                let code = host.invite()?;
+                guest.open(&host.copied_invite(&code, "cells")?)?;
+                guest.until(limit::MEET, "cellular guest joined", |p| {
+                    p.b.attr("data-cell-session").as_deref() == Some("guest")
+                })?;
+                restart_introducer(site)?;
+                host.b.go("about:blank")?;
+                guest.until(
+                    limit::INTRODUCER_BACK,
+                    "departed cellular host noticed",
+                    |p| p.b.attr("data-cell-session").as_deref() == Some("solo"),
+                )?;
+                host.open(&url)?;
+                guest.until(
+                    limit::INTRODUCER_BACK,
+                    "cellular guest rejoined the reloaded host",
+                    |p| p.b.attr("data-cell-session").as_deref() == Some("guest"),
+                )?;
+                voices(&mut [&mut host, &mut guest])?;
+                found.push("cellular guest rejoined the reloaded host".into());
+            } else {
+                let code = meet(site, &mut host, &mut guest, limit::MEET)?;
+                restart_introducer(site)?;
+                let t = together(&mut [&mut host, &mut guest], limit::INTRODUCER_BACK)?;
+                let mut other = Player::new(site, "guest2", o)?;
+                other.open(&site.url(&format!("join={code}")))?;
+                let joined = together(&mut [&mut host, &mut guest, &mut other], limit::MEET)?;
+                found.push(format!(
+                    "original pair together at {t:.1} s, new friend joined both in {joined:.1} s"
+                ));
+            }
         }
         "stall" => {
             meet(site, &mut host, &mut guest, limit::MEET)?;
