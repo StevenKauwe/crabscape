@@ -11,6 +11,7 @@
 //! | Walk   | A / D, or the arrows    | left stick, d-pad    | `<` `>`    |
 //! | Jump   | Space, W, Up, K         | A (south button)     | JUMP       |
 //! | Dodge  | Shift, J                | B, right trigger     | DODGE      |
+//! | Dig / turn | C + direction     | right stick          | DIG / TURN stick |
 //! | Smash  | L, E                    | Y (north button)     | SMASH      |
 //! | Jab    | O, Q                    | X (west button)      | JAB        |
 //! | Guard  | I, F (tap: parry)       | left bumper/trigger  | GUARD      |
@@ -87,7 +88,10 @@ impl Plugin for InputPlugin {
         })
         .add_systems(Startup, spawn_touch_buttons)
         .add_systems(Update, read_input.in_set(GameSet::Input))
-        .add_systems(Update, layout_touch_buttons.in_set(GameSet::Present));
+        .add_systems(
+            Update,
+            (layout_touch_buttons, label_dig_stick).in_set(GameSet::Present),
+        );
     }
 }
 
@@ -311,8 +315,8 @@ fn read_input(
         || touch(TouchAction::Dodge);
     // The captured finger can leave the pad without becoming a walk button.
     let stick_digging = dig_vector.length() > 0.2;
-    let digging = sim.level.cells.is_some() && (keys.pressed(KeyCode::KeyC) || stick_digging);
-    let dig_up = digging
+    let mut digging = sim.level.cells.is_some() && (keys.pressed(KeyCode::KeyC) || stick_digging);
+    let mut dig_up = digging
         && (dig_vector.y < -0.35
             || (keys.pressed(KeyCode::KeyC)
                 && any_key(&[KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::Space])));
@@ -333,6 +337,17 @@ fn read_input(
 
     for pad in &gamepads {
         let wants = pad_wants(pad.left_stick(), |b| pad.pressed(b));
+        let dig_stick = pad.right_stick();
+        if cells_enabled && dig_stick.length() > 0.2 {
+            digging = true;
+            walk += if dig_stick.x.abs() > 0.2 {
+                dig_stick.x
+            } else {
+                0.0
+            };
+            dig_up |= dig_stick.y > 0.35;
+            down |= dig_stick.y < -0.35;
+        }
         walk += wants.walk;
         down |= wants.down;
         jump |= wants.jump;
@@ -376,6 +391,30 @@ fn read_input(
 #[derive(Component)]
 struct DigKnob;
 
+#[derive(Component)]
+struct DigLabel;
+
+fn label_dig_stick(
+    sim: Res<crabsim::Sim>,
+    local: Query<&PlayerId, With<LocalPlayer>>,
+    mut labels: Query<&mut Text, With<DigLabel>>,
+) {
+    let falling = local
+        .single()
+        .ok()
+        .and_then(|id| sim.crab(*id))
+        .is_some_and(|crab| {
+            let m = &crab.mover;
+            !m.grounded && !m.climbing && m.vel.y < 0.0
+        });
+    for mut label in &mut labels {
+        let wanted = if falling { "TURN" } else { "DIG" };
+        if label.0 != wanted {
+            label.0 = wanted.into();
+        }
+    }
+}
+
 /// The on-screen buttons: Bevy UI boxes, placed by [`layout_touch_buttons`].
 fn spawn_touch_buttons(mut commands: Commands) {
     for action in ACTIONS {
@@ -406,7 +445,7 @@ fn spawn_touch_buttons(mut commands: Commands) {
                 Visibility::Hidden,
             ))
             .with_children(|b| {
-                b.spawn((
+                let mut text = b.spawn((
                     Text::new(label),
                     TextFont {
                         font_size: FontSize::Px(if label.len() > 1 { 15.0 } else { 26.0 }),
@@ -423,6 +462,9 @@ fn spawn_touch_buttons(mut commands: Commands) {
                         Node::default()
                     },
                 ));
+                if action == TouchAction::Dig {
+                    text.insert(DigLabel);
+                }
                 if action == TouchAction::Dig {
                     b.spawn((
                         DigKnob,

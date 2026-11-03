@@ -24,6 +24,16 @@ pub const STEP: f32 = 1.0 / TICKS_PER_SECOND as f32;
 /// How many physics steps ("ticks") make one second of game time.
 pub const TICKS_PER_SECOND: u32 = 120;
 
+/// Amount of edge-on rotation requested with the dig control while sinking.
+/// The same command is recorded and sent to other players as ordinary input.
+pub fn fall_turn(m: &Mover, c: &Controls) -> f32 {
+    if !m.grounded && !m.climbing && m.vel.y < 0.0 && c.dig_held && !c.dig_up {
+        c.walk.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 /// What a player is asking their crab to do. This is a *command*, not a
 /// keyboard or touch-screen reading, so it can come from anywhere: the local
 /// player's keys today, a network message from another player later.
@@ -166,8 +176,8 @@ pub struct Mover {
     /// Fighting experience: it grows with every blow the claws land on a
     /// creature (more for beating one), and each level hits harder.
     pub fight_xp: f32,
-    /// Paddle strokes left (fractions are strokes still resting). Only
-    /// standing on something solid gives them back, and only from the
+    /// Paddle strokes left (fractions are strokes still resting). Resting
+    /// on solid ground or slowly while sinking draws on the
     /// [`reserve`](Self::reserve).
     pub stamina: f32,
     /// The body's deeper reserve: 1 = full, 0 = empty. Resting the paddle
@@ -729,6 +739,10 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         if m.climbing && m.has(Feat::GrippingDactyls) {
             let full = m.strokes(t) as f32;
             rest_legs(m, t, full * dt / m.stamina_refill_time(t));
+        } else if !m.climbing && m.vel.y < 0.0 && !c.dig_held {
+            // Resting during a long descent is deliberately much slower than
+            // bracing on a surface and still draws on the finite reserve.
+            rest_legs(m, t, dt / 20.0);
         }
     }
     m.stroke_rest = (m.stroke_rest - dt).max(0.0);
@@ -1016,7 +1030,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         }
         m.vel.y -= g * dt;
         // Diving, the crab is streamlined: the water holds it back less.
-        let drag = if m.diving {
+        let drag = if fall_turn(m, c) != 0.0 {
+            // Turning edge-on presents less shell to the water. Interpolate
+            // continuously so a partial turn remains useful for steering.
+            t.water_drag * (1.0 - 0.55 * fall_turn(m, c).abs())
+        } else if m.diving {
             t.water_drag * t.dive_drag
         } else {
             t.water_drag
@@ -1678,6 +1696,53 @@ mod tests {
         run(&mut m, Controls::default(), 3.0, &level);
         // A steady, gentle sink: about 350, not a free fall.
         assert!((-380.0..-320.0).contains(&m.vel.y), "fell at {}", m.vel.y);
+    }
+
+    #[test]
+    fn dig_control_turns_a_falling_crab_and_changes_its_sink_speed() {
+        let level = Level::test_level();
+        let start = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        let mut flat = start.clone();
+        let mut partial = start.clone();
+        let mut edge = start;
+        let controls = |walk| Controls {
+            dig_held: true,
+            walk,
+            ..default()
+        };
+        run(&mut flat, controls(0.0), 3.0, &level);
+        run(&mut partial, controls(0.5), 3.0, &level);
+        run(&mut edge, controls(1.0), 3.0, &level);
+        assert!(edge.vel.y < partial.vel.y && partial.vel.y < flat.vel.y);
+        assert!(partial.vel.x > 0.0 && edge.vel.x > partial.vel.x);
+        assert_eq!(fall_turn(&edge, &controls(1.0)), 1.0);
+        edge.grounded = true;
+        assert_eq!(fall_turn(&edge, &controls(1.0)), 0.0);
+    }
+
+    #[test]
+    fn resting_while_sinking_is_slow_and_spends_reserve() {
+        let level = Level::test_level();
+        let mut resting = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        resting.grounded = false;
+        resting.upgrades = 1;
+        resting.stamina = 0.0;
+        let mut turning = resting.clone();
+        let reserve = resting.reserve;
+        run(&mut resting, Controls::default(), 2.0, &level);
+        run(
+            &mut turning,
+            Controls {
+                dig_held: true,
+                walk: 1.0,
+                ..default()
+            },
+            2.0,
+            &level,
+        );
+        assert!(resting.stamina > 0.0 && resting.stamina < 0.11);
+        assert_eq!(turning.stamina, 0.0);
+        assert!(resting.reserve < reserve);
     }
 
     #[test]
