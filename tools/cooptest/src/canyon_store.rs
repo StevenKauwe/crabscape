@@ -197,3 +197,151 @@ pub(super) fn run(player: &mut Player, site: &Site) -> Result<Found> {
     );
     Ok(found)
 }
+
+/// Start with a single physically caught generation, then use ordinary player input.
+pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result<Found> {
+    host.open(&site.url("cells"))?;
+    let name = database(host)?;
+    let asset = host
+        .b
+        .eval("new URL('assets/crab/crab-atlas.png',location.href).href")?
+        .as_str()
+        .ok_or("missing asset route")?
+        .to_owned();
+    host.b.go(&asset)?;
+    install(host, &name, &save_fixture::canyon_play_fixture()?)?;
+    host.open(&site.url("cells"))?;
+    host.until(30.0, "Canyon play fixture restores", |p| {
+        p.b.attr("data-cell-save").as_deref() == Some("loaded")
+    })?;
+    guest.open(&site.url("cells"))?;
+    let code = host.invite()?;
+    let invite = host.copied_invite(&code, "cells")?;
+    guest.open(&invite)?;
+    guest.b.click(600.0, 400.0)?;
+    guest.b.set_key("KeyA", true)?;
+    for p in [&mut *host, &mut *guest] {
+        p.until(90.0, "shared Canyon region", |p| {
+            p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                && p.b.attr("data-cell-regions").as_deref() == Some("shared")
+        })?;
+    }
+    guest.b.set_key("KeyA", false)?;
+    eprintln!(
+        "Canyon approach host {:?}, guest {:?}",
+        local_position(host),
+        local_position(guest)
+    );
+    guest.b.click(600.0, 400.0)?;
+    for _ in 0..24 {
+        let (x, _) = local_position(guest)?;
+        if (6385.0..=6445.0).contains(&x) {
+            break;
+        }
+        guest
+            .b
+            .hold_key(if x > 6445.0 { "KeyA" } else { "KeyD" }, 0.12)?;
+        sleep(0.1);
+    }
+    eprintln!("Canyon guest after approach {:?}", local_position(guest));
+    let approach = Instant::now();
+    loop {
+        let (x, y) = local_position(guest)?;
+        if (x - 6416.0).hypot(y + 24.0 + 3165.0) < 65.0 {
+            guest.b.hold_key("KeyG", 0.15)?;
+            break;
+        }
+        if approach.elapsed().as_secs() > 90 {
+            return Err(format!("guest could not reach Canyon catcher: ({x}, {y})"));
+        }
+        if (x - 6416.0).abs() > 15.0 {
+            guest
+                .b
+                .hold_key(if x > 6416.0 { "KeyA" } else { "KeyD" }, 0.12)?;
+        }
+        sleep(0.15);
+    }
+    guest
+        .b
+        .screenshot(&site.dir.join("canyon-after-claim.png"))?;
+    let began = Instant::now();
+    loop {
+        let host_value = capture(host)?;
+        let guest_value = capture(guest)?;
+        let run = save_fixture::canyon_from_object(&host_value)
+            .ok()
+            .flatten()
+            .and_then(|records| CanyonRun::from_records(&records));
+        let progress = save_fixture::frame_from_object(&guest_value)
+            .ok()
+            .and_then(|bytes| crabsim::cell_codec::paged::decode(&bytes).ok())
+            .and_then(|save| save.player.progress);
+        if let (Some(run), Some(progress)) = (run, progress)
+            && (run.slots[0].generation > 1
+                || (run.slots[0].generation == 1
+                    && matches!(run.slots[0].phase, SlotPhase::Vacant)))
+            && progress.drift_receipts.is_empty()
+            && progress
+                .clinging
+                .iter()
+                .filter(|item| **item == crabsim::Carry::Valve)
+                .count()
+                == 1
+        {
+            break;
+        }
+        if began.elapsed().as_secs() > 120 {
+            return Err(format!(
+                "Canyon guest claim did not durably retire; host {:?}; guest {:?}; progress {:?}",
+                save_fixture::canyon_from_object(&host_value),
+                local_position(guest),
+                save_fixture::frame_from_object(&guest_value)
+                    .ok()
+                    .and_then(|bytes| crabsim::cell_codec::paged::decode(&bytes).ok())
+                    .and_then(|save| save.player.progress)
+            ));
+        }
+        host.healthy()?;
+        guest.healthy()?;
+        sleep(0.5);
+    }
+    guest.reload()?;
+    guest.until(90.0, "guest rejoins after Canyon receipt retirement", |p| {
+        p.b.attr("data-cell-session").as_deref() == Some("guest")
+            && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+    })?;
+    let saved = capture(guest)?;
+    let progress = save_fixture::frame_from_object(&saved)
+        .ok()
+        .and_then(|bytes| crabsim::cell_codec::paged::decode(&bytes).ok())
+        .and_then(|save| save.player.progress)
+        .ok_or("guest progress missing after reload")?;
+    if !progress.drift_receipts.is_empty()
+        || progress
+            .clinging
+            .iter()
+            .filter(|item| **item == crabsim::Carry::Valve)
+            .count()
+            != 1
+    {
+        return Err("guest reload did not retain exactly one valve and clear receipt".into());
+    }
+    guest.b.go("about:blank")?;
+    host.until(30.0, "owner resumes alone", |p| {
+        p.b.attr("data-cell-session").as_deref() == Some("solo")
+    })?;
+    host.reload()?;
+    host.until(30.0, "Canyon owner reloads", |p| {
+        p.b.attr("data-cell-save").as_deref() == Some("loaded")
+    })?;
+    let saved = capture(host)?;
+    let run = save_fixture::canyon_from_object(&saved)?
+        .and_then(|records| CanyonRun::from_records(&records))
+        .ok_or("owner Canyon records missing after reload")?;
+    if run.slots[0].generation < 1
+        || (run.slots[0].generation == 1 && !matches!(run.slots[0].phase, SlotPhase::Vacant))
+    {
+        return Err("owner reload resurrected the claimed generation".into());
+    }
+    Ok(vec!["guest physically claims one caught generation; player receipt and owner retirement survive separate reloads".into()])
+}

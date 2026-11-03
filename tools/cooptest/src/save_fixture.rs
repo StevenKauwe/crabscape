@@ -421,9 +421,18 @@ mod tests {
 /// A real production-head fixture with five Canyon owner pages and two
 /// generation-keyed claims whose recipients are currently offline.
 pub fn canyon_fixture() -> Result<Value> {
+    canyon_fixture_for_play(false)
+}
+
+/// A disclosed starting condition with one loose generation beside the player.
+pub fn canyon_play_fixture() -> Result<Value> {
+    canyon_fixture_for_play(true)
+}
+
+fn canyon_fixture_for_play(play: bool) -> Result<Value> {
     use crabsim::{
         canyon_drift::{
-            DriftProfile,
+            DriftBody, DriftCatcher, DriftProfile,
             run::{ANCHOR, CanyonRun, DriftClaimId, Grant, GrantPhase, SlotPhase},
         },
         cell_codec::{
@@ -449,6 +458,19 @@ pub fn canyon_fixture() -> Result<Value> {
     let mut value = spatial_object_from_frame(&frame)?;
     let mut run = CanyonRun::new(71);
     for (index, slot) in run.slots.iter_mut().enumerate() {
+        if play {
+            if index == 0 {
+                let body = DriftBody {
+                    profile: DriftProfile::Flat,
+                    position: [6416.0, -3165.0].into(),
+                    velocity: Default::default(),
+                };
+                slot.generation = 1;
+                slot.location = body.position;
+                slot.phase = SlotPhase::Caught(body);
+            }
+            continue;
+        }
         slot.generation = 7 + index as u32;
         slot.revision = 11;
         slot.location.x = 7000.0 + index as f32 * 512.0;
@@ -466,12 +488,18 @@ pub fn canyon_fixture() -> Result<Value> {
             phase: GrantPhase::Requested,
         });
     }
-    run.catcher.position.x = 8050.0;
-    run.catcher.position.y = -3190.0;
-    run.practice.position.x = 8700.0;
-    run.practice.position.y = -3190.0;
+    if play {
+        run.catcher = DriftCatcher::placed([6416.0, -3172.0].into());
+        run.catcher.contents = Some(0);
+    }
+    if !play {
+        run.catcher.position.x = 8050.0;
+        run.catcher.position.y = -3190.0;
+        run.practice.position.x = 8700.0;
+        run.practice.position.y = -3190.0;
+    }
     let records = run.records();
-    if records.len() != 5 {
+    if !play && records.len() != 5 {
         return Err("Canyon fixture must exercise all five page coordinates".into());
     }
     let index = CanyonIndex::new(&records).map_err(|e| format!("Canyon index: {e:?}"))?;
