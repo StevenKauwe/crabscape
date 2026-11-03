@@ -352,6 +352,36 @@ impl Mover {
         t.body_height * self.grown(t)
     }
 
+    /// In open water the dig stick turns the shell. During excavation the
+    /// feet can be off the floor while the crab is still braced in its cut.
+    pub fn can_turn_in_water(&self, level: &Level, t: &Tuning, c: &Controls) -> bool {
+        if self.grounded || self.climbing {
+            return false;
+        }
+        let Some(cells) = &level.cells else {
+            return true;
+        };
+        // Probe the body and the three-cell cut immediately ahead of the
+        // working claws. Include a cell around the legs for uneven footing.
+        let cell = crate::underwater::GAME_CELL;
+        let reach = 3.0 * cell;
+        let half = self.half_width(t) + cell;
+        let mut left = self.pos.x - half;
+        let mut right = self.pos.x + half;
+        let mut bottom = self.pos.y - cell;
+        let mut top = self.pos.y + self.height(t) + cell;
+        if c.dig_up {
+            top += reach;
+        } else if c.down {
+            bottom -= reach;
+        } else if c.walk < -0.1 {
+            left -= reach;
+        } else if c.walk > 0.1 {
+            right += reach;
+        }
+        !cells.game_movement_blocked(left, bottom, right, top, 0.0)
+    }
+
     /// What its walking (and sprinting) speed is multiplied by: a bigger
     /// crab's longer legs take a longer stride.
     pub fn stride(&self, t: &Tuning) -> f32 {
@@ -715,7 +745,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
     let c = &effective_controls;
     let mut ev = StepEvents::default();
-    let turning = !m.grounded && !m.climbing && c.dig_held;
+    let turning = c.dig_held && m.can_turn_in_water(level, t, c);
     let turn = if turning {
         -c.walk.clamp(-1.0, 1.0)
     } else {
@@ -729,7 +759,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     // Two stable postures per full turn in open water: upright and nose-down,
     // separated by their bisectors. On a surface, feet right the body without
     // an orientation jump on touchdown.
-    let restoring = if m.grounded || m.climbing {
+    let restoring = if m.grounded || m.climbing || (c.dig_held && !turning) {
         -4.0 * libm::sinf(m.water_angle)
     } else {
         let bisector = m.water_angle + std::f32::consts::FRAC_PI_4;

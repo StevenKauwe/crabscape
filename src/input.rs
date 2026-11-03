@@ -411,16 +411,16 @@ fn label_dig_stick(
     local: Query<&PlayerId, With<LocalPlayer>>,
     mut labels: Query<&mut Text, With<DigLabel>>,
 ) {
-    let falling = local
+    let can_turn = local
         .single()
         .ok()
         .and_then(|id| sim.crab(*id))
         .is_some_and(|crab| {
-            let m = &crab.mover;
-            !m.grounded && !m.climbing
+            crab.mover
+                .can_turn_in_water(&sim.level, &sim.tuning, &crab.controls)
         });
     for mut label in &mut labels {
-        let wanted = if falling { "TURN" } else { "DIG" };
+        let wanted = if can_turn { "TURN" } else { "DIG" };
         if label.0 != wanted {
             label.0 = wanted.into();
         }

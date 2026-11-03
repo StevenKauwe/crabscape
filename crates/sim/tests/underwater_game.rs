@@ -828,3 +828,33 @@ fn swimming_moray_holds_the_crab_at_its_bite_until_it_drops_a_leg() {
     assert_eq!(crab.fighter.legs_lost, 1);
     assert!(crab.mover.pos.y < caught.y);
 }
+
+#[test]
+fn digging_down_and_reversing_inside_the_bed_keeps_the_shell_level() {
+    let mut sim = Sim::with_one_crab(Vec2::new(160.0, 8.0));
+    sim.enable_underwater_cells();
+    let id = PlayerId(0);
+    let mut off_feet = 0;
+    let mut max_tilt = 0.0_f32;
+    for tick in 0..160 {
+        sim.set_controls(
+            id,
+            Controls {
+                dig_held: true,
+                down: tick < 75,
+                dig_up: tick >= 135,
+                walk: if tick < 75 { 1.0 } else { -1.0 },
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        let m = &sim.crab(id).unwrap().mover;
+        off_feet += usize::from(!m.grounded);
+        max_tilt = max_tilt.max(m.water_angle.abs());
+    }
+    assert!(off_feet > 15, "digging should release the feet");
+    assert!(
+        max_tilt < 0.03,
+        "shell rotated {max_tilt} radians in the bed"
+    );
+}
