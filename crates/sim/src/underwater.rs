@@ -113,6 +113,58 @@ pub fn ambient_current(world_y: f32, tick: u64) -> (f32, f32) {
     (0.35 + layer * 0.375 + slow * 0.15, vertical * 0.05)
 }
 
+/// Find a reachable patch of water outside the working claw's cavity.
+fn scoop_destination(
+    size: (usize, usize),
+    (sx, sy): (i32, i32),
+    reach: i32,
+    (dx, dy): (i32, i32),
+    crab: Option<(i32, i32)>,
+    water: impl Fn(i32, i32) -> bool,
+    destination: impl Fn(i32, i32) -> bool,
+) -> Option<(i32, i32)> {
+    let left = (sx - reach).max(0);
+    let right = (sx + reach).min(size.0 as i32 - 1);
+    let bottom = (sy - reach).max(0);
+    let top = (sy + reach).min(size.1 as i32 - 1);
+    let width = (right - left + 1) as usize;
+    let mut visited = vec![false; width * (top - bottom + 1) as usize];
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back((sx, sy, 0));
+    visited[(sy - bottom) as usize * width + (sx - left) as usize] = true;
+    let (mut side_x, mut side_y) = (-dy, dx);
+    if let Some((cx, cy)) = crab
+        && (sx - cx) * side_x + (sy - cy) * side_y < 0
+    {
+        side_x = -side_x;
+        side_y = -side_y;
+    }
+    while let Some((x, y, distance)) = queue.pop_front() {
+        if distance >= reach {
+            continue;
+        }
+        for (ax, ay) in [(side_x, side_y), (-dx, -dy), (-side_x, -side_y), (dx, dy)] {
+            let (nx, ny) = (x + ax, y + ay);
+            if nx < left || nx > right || ny < bottom || ny > top {
+                continue;
+            }
+            let v = (ny - bottom) as usize * width + (nx - left) as usize;
+            if visited[v] {
+                continue;
+            }
+            visited[v] = true;
+            if !water(nx, ny) {
+                continue;
+            }
+            if destination(nx, ny) {
+                return Some((nx, ny));
+            }
+            queue.push_back((nx, ny, distance + 1));
+        }
+    }
+    None
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Cell {
     Water,
@@ -2636,50 +2688,20 @@ impl World {
             return;
         }
         let (sx, sy) = ((start % self.width) as i32, (start / self.width) as i32);
-        let left = (sx - reach).max(0);
-        let right = (sx + reach).min(self.width as i32 - 1);
-        let bottom = (sy - reach).max(0);
-        let top = (sy + reach).min(self.height as i32 - 1);
-        let width = (right - left + 1) as usize;
-        let mut visited = vec![false; width * (top - bottom + 1) as usize];
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back((sx, sy, 0));
-        visited[(sy - bottom) as usize * width + (sx - left) as usize] = true;
-        let (mut side_x, mut side_y) = (-dy, dx);
-        if let Some((cx, cy)) = self.crab
-            && (sx - cx) * side_x + (sy - cy) * side_y < 0
-        {
-            side_x = -side_x;
-            side_y = -side_y;
-        }
-        while let Some((x, y, distance)) = queue.pop_front() {
-            if distance >= reach {
-                continue;
-            }
-            for (ax, ay) in [(side_x, side_y), (-dx, -dy), (-side_x, -side_y), (dx, dy)] {
-                let (nx, ny) = (x + ax, y + ay);
-                if nx < left || nx > right || ny < bottom || ny > top {
-                    continue;
-                }
-                let v = (ny - bottom) as usize * width + (nx - left) as usize;
-                if visited[v] {
-                    continue;
-                }
-                visited[v] = true;
-                let Some(i) = self.index_at(nx, ny) else {
-                    continue;
-                };
-                if self.cells[i] != Cell::Water {
-                    continue;
-                }
-                let outside_target = (nx - target.0).abs() > self.crab_half_x
-                    || (ny - target.1).abs() > self.crab_half_y;
-                if outside_target && self.can_receive_grain(i) {
-                    self.swap_cells(start, i);
-                    return;
-                }
-                queue.push_back((nx, ny, distance + 1));
-            }
+        let found = scoop_destination(
+            self.dimensions(),
+            (sx, sy),
+            reach,
+            (dx, dy),
+            self.crab,
+            |x, y| self.cell(x, y) == Cell::Water,
+            |x, y| {
+                ((x - target.0).abs() > self.crab_half_x || (y - target.1).abs() > self.crab_half_y)
+                    && self.can_receive_grain(y as usize * self.width + x as usize)
+            },
+        );
+        if let Some((x, y)) = found {
+            self.swap_cells(start, y as usize * self.width + x as usize);
         }
     }
     pub fn step(&mut self, current: f32) {
@@ -4069,7 +4091,9 @@ impl World {
     fn diffuse_flow(&mut self, current: f32) {
         // Diffuse velocity locally and continuously feed the ambient current.
         // Solid neighbors redirect a small part of the flow vertically.
-        let mut next = self.flow.clone();
+        // Alternating world-anchored colors read only neighbors of the opposite color.
+        // This relaxes the field in place without a second velocity grid.
+        let parity = (self.tick as usize) ^ self.origin.0 as usize ^ self.origin.1 as usize;
         for y in 1..self.height - 1 {
             // Broad slow layers preserve the fine simulation's established
             // motion until it is coupled to the world-wide baseline.
@@ -4081,10 +4105,10 @@ impl World {
             } else {
                 0.0
             };
-            for x in 1..self.width - 1 {
+            for x in (1 + ((y ^ parity ^ 1) & 1)..self.width - 1).step_by(2) {
                 let i = y * self.width + x;
                 if self.cells[i] != Cell::Water {
-                    next[i] = (0.0, 0.0);
+                    self.flow[i] = (0.0, 0.0);
                     continue;
                 }
                 // Broad, slow eddies make the current less uniform while
@@ -4094,9 +4118,9 @@ impl World {
                 let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
                 let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
                 let feed = if self.game { 0.12 } else { 0.035 };
-                let mut vx = (current + shear + eddy * 0.08) * feed;
-                let mut vy = cross * 0.002;
-                let mut weight = feed;
+                let mut vx = self.flow[i].0 + (current + shear + eddy * 0.08) * feed;
+                let mut vy = self.flow[i].1 + cross * 0.002;
+                let mut weight = 1.0 + feed;
                 let deflect = current
                     * if world_y < (self.height / 2) as f32 {
                         0.12
@@ -4131,10 +4155,9 @@ impl World {
                     vy += self.flow[above].1;
                     weight += 1.0;
                 }
-                next[i] = (vx / weight, vy / weight);
+                self.flow[i] = (vx / weight, vy / weight);
             }
         }
-        self.flow = next;
     }
 
     #[cfg(test)]
@@ -4166,9 +4189,9 @@ impl World {
                 let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
                 let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
                 let feed = if self.game { 0.12 } else { 0.035 };
-                let mut vx = (current + shear + eddy * 0.08) * feed;
-                let mut vy = cross * 0.002;
-                let mut weight = feed;
+                let mut vx = self.flow[i].0 + (current + shear + eddy * 0.08) * feed;
+                let mut vy = self.flow[i].1 + cross * 0.002;
+                let mut weight = 1.0 + feed;
                 for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
                     let n = (y as i32 + dy) as usize * self.width + (x as i32 + dx) as usize;
                     if self.cells[n] == Cell::Water {
@@ -4453,7 +4476,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unrolled_flow_matches_reference_bits_in_streamed_worlds() {
+    fn alternating_flow_matches_reference_on_its_active_color() {
         let level = crate::Level::test_level();
         for mut world in [World::new(), World::from_level_settled(&level)] {
             for position in [(160.0, 0.0), (6800.0, -3200.0), (6800.0, -8200.0)] {
@@ -4469,6 +4492,15 @@ mod tests {
                             .flow
                             .iter()
                             .zip(&expected.flow)
+                            .enumerate()
+                            .filter(|(i, _)| ((i % world.width)
+                                ^ (i / world.width)
+                                ^ world.origin.0 as usize
+                                ^ world.origin.1 as usize
+                                ^ world.tick as usize)
+                                & 1
+                                == 0)
+                            .map(|(_, values)| values)
                             .all(|(a, b)| a.0.to_bits() == b.0.to_bits()
                                 && a.1.to_bits() == b.1.to_bits())
                     );
