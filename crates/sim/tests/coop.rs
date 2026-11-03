@@ -1465,3 +1465,38 @@ fn a_guests_prepared_portions_survive_reload_and_converge_after_packet_loss() {
     assert_eq!(g.host.crab(GUEST).unwrap().mover.prepared_food, own);
     assert_eq!(g.guest.crab(GUEST).unwrap().stash.valves, 2);
 }
+
+#[test]
+fn a_guest_stays_in_the_morays_jaws_and_the_host_sees_the_hold() {
+    let mut game = game(
+        Vec2::new(492.5, 421.0),
+        FakeLink::new(3, 0, 0.0, 6),
+        |sim| {
+            sim.enable_underwater_cells();
+            let id = sim.spawn_enemy(Kind::Moray, Vec2::new(450.0, 400.0));
+            let eel = sim.enemies_mut().iter_mut().find(|e| e.id == id).unwrap();
+            eel.pos = Vec2::new(450.0, 400.0);
+            eel.facing = 1.0;
+            eel.target = Some(GUEST);
+            eel.state = State::Attack;
+            eel.state_len = 100;
+        },
+    );
+    let mut contact = None;
+    let mut held_ticks = 0;
+    let mut seen = false;
+    play(&mut game, "", "", 45, |g| {
+        let crab = g.guest.crab(GUEST).unwrap();
+        if crab.fighter.grabbed.is_some() {
+            held_ticks += 1;
+            let pos = *contact.get_or_insert(crab.mover.pos);
+            assert_eq!(pos, crab.mover.pos);
+            let remote = g.host.crab(GUEST).unwrap();
+            seen |= remote.fighter.grabbed.is_some() && remote.mover.pos == pos;
+        }
+    });
+    assert!(
+        held_ticks > 20 && seen,
+        "held {held_ticks} ticks, seen={seen}"
+    );
+}
