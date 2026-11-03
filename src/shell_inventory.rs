@@ -41,6 +41,15 @@ const ROWS: [Choice; 9] = [
     Choice::Back,
 ];
 
+const SHORTCUTS: [(Choice, KeyCode); 6] = [
+    (Choice::Clams, KeyCode::Digit1),
+    (Choice::Grit, KeyCode::Digit2),
+    (Choice::Drop(Carry::Clam), KeyCode::Digit3),
+    (Choice::Drop(Carry::Grit), KeyCode::Digit4),
+    (Choice::Drop(Carry::Valve), KeyCode::Digit5),
+    (Choice::Back, KeyCode::Digit6),
+];
+
 #[derive(Component)]
 pub(crate) struct Panel;
 
@@ -77,10 +86,12 @@ fn spawn(mut commands: Commands) {
                             }),
                             height: px(if heading { 26 } else { 40 }),
                             border_radius: BorderRadius::all(px(if heading { 0 } else { 8 })),
+                            border: UiRect::all(px(if heading { 0 } else { 1 })),
                             padding: UiRect::horizontal(px(8)),
                             align_items: AlignItems::Center,
                             ..default()
                         },
+                        BorderColor::all(Color::srgb(0.41, 0.46, 0.39)),
                         BackgroundColor(if heading {
                             Color::srgb(0.05, 0.13, 0.15)
                         } else {
@@ -130,29 +141,13 @@ fn interact(
     let choice = if keys.just_pressed(KeyCode::KeyB) {
         Some(Choice::Open)
     } else {
-        let shortcuts = [
-            KeyCode::Digit1,
-            KeyCode::Digit2,
-            KeyCode::Digit3,
-            KeyCode::Digit4,
-            KeyCode::Digit5,
-            KeyCode::Digit6,
-        ];
         rows.iter()
             .find(|(c, b, t, n)| {
                 n.display != Display::None
                     && (tap.is_some_and(|p| b.contains_point(**t, p * window.scale_factor()))
-                        || [
-                            Choice::Clams,
-                            Choice::Grit,
-                            Choice::Drop(Carry::Clam),
-                            Choice::Drop(Carry::Grit),
-                            Choice::Drop(Carry::Valve),
-                            Choice::Back,
-                        ]
-                        .iter()
-                        .zip(shortcuts)
-                        .any(|(choice, key)| choice == *c && keys.just_pressed(key)))
+                        || SHORTCUTS
+                            .iter()
+                            .any(|(choice, key)| choice == *c && keys.just_pressed(*key)))
             })
             .map(|(choice, ..)| *choice)
     };
@@ -233,7 +228,7 @@ fn refresh(
             Choice::Cargo => Some(if carried == 0 {
                 "Carrying nothing".into()
             } else {
-                "Carried · tap to drop one".into()
+                "Carried - tap to drop one".into()
             }),
             Choice::Drop(kind) => {
                 let count = crab
@@ -242,7 +237,7 @@ fn refresh(
                     .iter()
                     .filter(|item| **item == kind)
                     .count();
-                (count > 0).then(|| format!("{} ×{}", name(kind), count))
+                (count > 0).then(|| format!("{} x{}", name(kind), count))
             }
             Choice::Back => crab
                 .mover
@@ -251,16 +246,7 @@ fn refresh(
         };
         let caption = caption.map(|text| {
             if !touching
-                && let Some(index) = [
-                    Choice::Clams,
-                    Choice::Grit,
-                    Choice::Drop(Carry::Clam),
-                    Choice::Drop(Carry::Grit),
-                    Choice::Drop(Carry::Valve),
-                    Choice::Back,
-                ]
-                .iter()
-                .position(|c| c == choice)
+                && let Some(index) = SHORTCUTS.iter().position(|(action, _)| action == choice)
             {
                 return format!("[{}] {text}", index + 1);
             }

@@ -5,6 +5,7 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 
 | Date | Decision | By |
 |---|---|---|
+| 2026-11-03 | Combine the inventory, underwater rotation and moray fixes in one pull request. Test the combined changes locally and publish them together to reduce GitHub Actions runs. | Owner |
 | 2026-11-03 | In water the dig stick turns the crab counter-clockwise to the left and clockwise to the right. Its orientation persists on release, with damped restoring torque toward the upright or nose-down posture; anisotropic water resistance turns falling momentum into a glide without adding energy. Slowly resting the paddle legs while sinking draws on the same finite reserve as resting on the ground. This is a simplified physical model, not a verified biological claim. | Owner (request), Codex |
 | 2026-11-03 | A sideways dig follows the floor under the legs. Scuttling brushes hanging grains and narrow lips of sediment off the front of the shell. Under a low rock roof the legs can stay bent on reachable footing, so the crab can retrace a cut with dig released. | Codex |
 | 2026-11-03 | A normally closed shell panel lets a crab choose whether to collect clams and grit and put carried items down. Dropped items remain that crab's property in its save; it must move away before picking them back up. | Owner (request), Codex |
