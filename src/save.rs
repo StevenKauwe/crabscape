@@ -405,12 +405,12 @@ mod tests {
             progress: None,
         };
         let text = serde_json::to_string(&data).unwrap();
-        assert_eq!(text, r#"{"version":4,"x":640.0,"y":110.0}"#);
+        assert_eq!(text, r#"{"version":5,"x":640.0,"y":110.0}"#);
         assert_eq!(serde_json::from_str::<SaveData>(&text).unwrap(), data);
     }
 
     #[test]
-    fn older_player_json_with_short_progress_still_round_trips() {
+    fn current_player_json_with_optional_progress_fields_omitted_round_trips() {
         let progress = crabsim::Progress::default();
         let mut value = serde_json::to_value(&progress).unwrap();
         let object = value.as_object_mut().unwrap();
@@ -431,7 +431,8 @@ mod tests {
             object.remove(field);
         }
         let text =
-            serde_json::json!({"version": 4, "x": 160.0, "y": 0.0, "progress": value}).to_string();
+            serde_json::json!({"version": SAVE_VERSION, "x": 160.0, "y": 0.0, "progress": value})
+                .to_string();
         let loaded: SaveData = serde_json::from_str(&text).unwrap();
         assert_eq!(loaded.progress, Some(progress));
         assert_eq!(loaded.memory, None);
