@@ -16,13 +16,14 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-const MAGIC: &[u8; 8] = b"CRABSP02";
+const MAGIC: &[u8; 8] = b"CRABSP03";
 const RECORD_LIMIT: usize = 8 * 1024 * 1024;
 const PAGE_LIMIT: usize = 256 * 1024;
 static TEMPORARY: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Head {
+    pub canyon_hash: Option<[u8; 32]>,
     pub epoch: u64,
     pub revision: u64,
     pub active_hash: [u8; 32],
@@ -82,12 +83,14 @@ impl Store {
         let Some(bytes) = read_optional(&self.root.join("head"), 128)? else {
             return Ok(false);
         };
-        if !bytes.starts_with(b"CRABSP01") {
+        if !bytes.starts_with(b"CRABSP01") && !bytes.starts_with(b"CRABSP02") {
             return Ok(false);
         }
-        let old: Head = postcard::from_bytes(&bytes[8..]).map_err(issue)?;
+        let (old_epoch, _, _): (u64, u64, [u8; 32]) =
+            postcard::from_bytes(&bytes[8..]).map_err(issue)?;
         let head = Head {
-            epoch: old.epoch.checked_add(1).ok_or("save epoch exhausted")?,
+            canyon_hash: None,
+            epoch: old_epoch.checked_add(1).ok_or("save epoch exhausted")?,
             revision: 0,
             active_hash: [0; 32],
         };
@@ -107,6 +110,7 @@ impl Store {
             })
             .map_err(str::to_owned)?;
         let head = Head {
+            canyon_hash: None,
             epoch,
             revision: 0,
             active_hash: [0; 32],
@@ -293,7 +297,16 @@ impl Store {
         if self.head()?.map(|h| (h.epoch, h.revision)) != before.map(|h| (h.epoch, h.revision)) {
             return Err("spatial save head changed".into());
         }
+        let canyon_hash = if let Some(records) = &capture.canyon {
+            Some(paged::hash(
+                &postcard::to_allocvec(&CanyonIndex::new(records).map_err(issue)?)
+                    .map_err(issue)?,
+            ))
+        } else {
+            before.and_then(|head| head.canyon_hash)
+        };
         let head = Head {
+            canyon_hash,
             epoch,
             revision,
             active_hash: paged::hash(&active),
@@ -473,8 +486,11 @@ impl Store {
         Ok(Some(records))
     }
     fn canyon_index(&self, head: Head) -> Result<Option<CanyonIndex>, String> {
-        let Some(raw) = self.page("canyon_index", (0, 0), head)? else {
-            return Ok(None);
+        let raw = self.page("canyon_index", (0, 0), head)?;
+        let raw = match (head.canyon_hash, raw) {
+            (None, None) => return Ok(None),
+            (Some(expected), Some(raw)) if paged::hash(&raw) == expected => raw,
+            _ => return Err("missing or mismatched published Canyon index".into()),
         };
         if raw.len() > CANYON_INDEX_LIMIT {
             return Err("canyon index exceeds fixed bound".into());
@@ -869,6 +885,130 @@ mod tests {
     }
 
     #[test]
+    fn published_canyon_index_cannot_disappear_or_be_reset_by_a_partial_capture() {
+        let (store, world, memory) = fixture("canyon-index-presence");
+        store.commit(capture(&world, &memory, 120), 0).unwrap();
+        let never_created = store.head().unwrap().unwrap();
+        assert!(never_created.canyon_hash.is_none());
+        assert!(store.startup(never_created).unwrap().canyon.is_none());
+        let records = canyon_at(1).records();
+        store
+            .commit(
+                capture(&world, &memory, 121)
+                    .with_canyon(records.clone())
+                    .unwrap(),
+                0,
+            )
+            .unwrap();
+        let published = store.head().unwrap().unwrap();
+        assert!(published.canyon_hash.is_some());
+        // A terrain-only capture preserves the marker and old authored state.
+        let ack = store.commit(capture(&world, &memory, 122), 0).unwrap();
+        assert!(ack.canyon.is_none());
+        let current = store.head().unwrap().unwrap();
+        assert_eq!(current.canyon_hash, published.canyon_hash);
+        assert_eq!(store.startup(current).unwrap().canyon, Some(records));
+        std::fs::remove_dir_all(store.directory(0, "canyon_index", (0, 0))).unwrap();
+        assert!(store.canyon(current).is_err());
+        assert!(
+            store.startup(current).is_err(),
+            "a missing published anchor index must never create a fresh Canyon"
+        );
+        assert_eq!(store.head().unwrap().unwrap().revision, current.revision);
+        std::fs::remove_dir_all(store.root).unwrap();
+    }
+
+    #[test]
+    fn canyon_player_receipt_and_terminal_record_commit_together_or_not_at_all() {
+        use crate::canyon_drift::{
+            DriftProfile,
+            run::{ANCHOR, CanyonRun, DriftClaimId, Grant, GrantPhase, SlotPhase},
+        };
+        use std::cell::Cell;
+        let (store, world, memory) = fixture("canyon-player-terminal");
+        let id = DriftClaimId {
+            world: 71,
+            anchor: ANCHOR,
+            slot: 0,
+            generation: 7,
+        };
+        let mut run = CanyonRun::new(71);
+        run.slots[0].generation = 7;
+        run.slots[0].revision = 100;
+        let grant = Grant {
+            id,
+            player: crate::PlayerId(0),
+            identity: 99,
+            profile: DriftProfile::Flat,
+            phase: GrantPhase::FinalizedSaved,
+        };
+        run.slots[0].phase = SlotPhase::Grant(grant);
+        let make = |tick, receipts: Vec<DriftClaimId>, run: &CanyonRun| {
+            let mut candidate = capture(&world, &memory, tick)
+                .with_canyon(run.records())
+                .unwrap();
+            let mut player: SaveData = serde_json::from_slice(&candidate.active.player).unwrap();
+            player.progress = Some(crate::Progress {
+                salvage_identity: 99,
+                drift_receipts: receipts,
+                ..crate::Sim::new(Tuning::default(), Level::test_level()).fresh_progress()
+            });
+            candidate.active.player = serde_json::to_vec(&player).unwrap();
+            candidate
+        };
+        let old_ack = store.commit(make(120, vec![id], &run), 0).unwrap();
+        let old_head = store.head().unwrap().unwrap();
+        run.slots[0].phase = SlotPhase::Grant(Grant {
+            phase: GrantPhase::ReceiptRetired,
+            ..grant
+        });
+        run.slots[0].revision = 101;
+        let checks = Cell::new(0);
+        assert!(
+            store
+                .commit_checked(make(121, vec![], &run), 0, || {
+                    let n = checks.get();
+                    checks.set(n + 1);
+                    n == 0
+                })
+                .is_err()
+        );
+        let previous = store.startup(old_head).unwrap();
+        assert_eq!(previous.player.progress.unwrap().drift_receipts, vec![id]);
+        let durable = CanyonRun::from_records(previous.canyon.as_ref().unwrap()).unwrap();
+        assert!(matches!(
+            durable.slots[0].phase,
+            SlotPhase::Grant(Grant {
+                phase: GrantPhase::FinalizedSaved,
+                ..
+            })
+        ));
+        let old_revision = CanyonRun::from_records(old_ack.canyon.as_ref().unwrap())
+            .unwrap()
+            .slots[0]
+            .revision;
+        assert!(!run.retire_durable(id, old_revision));
+        let ack = store.commit(make(122, vec![], &run), 0).unwrap();
+        assert!(
+            ack.player
+                .as_ref()
+                .unwrap()
+                .progress
+                .as_ref()
+                .unwrap()
+                .drift_receipts
+                .is_empty()
+        );
+        let saved = CanyonRun::from_records(ack.canyon.as_ref().unwrap()).unwrap();
+        assert_eq!(saved.slots[0].revision, 101);
+        assert!(run.retire_durable(id, saved.slots[0].revision));
+        let restored = store.startup(store.head().unwrap().unwrap()).unwrap();
+        assert!(restored.player.progress.unwrap().drift_receipts.is_empty());
+        assert_eq!(restored.canyon, ack.canyon);
+        std::fs::remove_dir_all(store.root).unwrap();
+    }
+
+    #[test]
     fn canyon_terminal_ack_cannot_retire_a_newer_ram_revision() {
         use crate::canyon_drift::{
             DriftProfile,
@@ -954,8 +1094,9 @@ mod tests {
                 0,
             )
             .unwrap();
-        let mut bytes = std::fs::read(store.root.join("head")).unwrap();
-        bytes[..8].copy_from_slice(b"CRABSP01");
+        let old = store.head().unwrap().unwrap();
+        let mut bytes = b"CRABSP01".to_vec();
+        bytes.extend(postcard::to_allocvec(&(old.epoch, old.revision, old.active_hash)).unwrap());
         std::fs::write(store.root.join("head"), bytes).unwrap();
         assert!(store.head().is_err());
         assert!(store.retire_obsolete().unwrap());

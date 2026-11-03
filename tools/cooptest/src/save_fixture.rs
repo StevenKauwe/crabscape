@@ -134,6 +134,7 @@ pub fn spatial_object_from_frame(bytes: &[u8]) -> Result<Value> {
             .map_err(|e| format!("fixture capture: {e:?}"))?;
     let (cols, rows) = snapshot.active_dimensions();
     let head = SpatialHead {
+        canyon_hash: None,
         epoch: 0,
         revision: 1,
         tick: restored.sim_tick,
@@ -202,12 +203,12 @@ pub fn spatial_object_from_frame(bytes: &[u8]) -> Result<Value> {
         );
     }
     Ok(
-        json!({"format":"CRABSP04","head":STANDARD.encode(header),"epoch":STANDARD.encode(0u64.to_le_bytes()),"records":records}),
+        json!({"format":"CRABSP05","head":STANDARD.encode(header),"epoch":STANDARD.encode(0u64.to_le_bytes()),"records":records}),
     )
 }
 
 pub fn frame_from_object(value: &Value) -> Result<Vec<u8>> {
-    if value["format"] == "CRABSP04" {
+    if value["format"] == "CRABSP05" {
         return spatial_frame(value);
     }
     if value["format"] != "CRABPG02" {
@@ -262,7 +263,7 @@ pub const CAPTURE_SCRIPT: &str = r#"new Promise((resolve,reject)=>{
         const k=keys.result[i],v=values.result[i];
         if(Array.isArray(k)&&v instanceof Uint8Array)records.push([k,encode(v)]);
       }
-      resolve({format:'CRABSP04',head:encode(raw),epoch:encode(epoch<0?new Uint8Array(8):values.result[epoch]),records});
+      resolve({format:'CRABSP05',head:encode(raw),epoch:encode(epoch<0?new Uint8Array(8):values.result[epoch]),records});
     };
   };
 })"#;
@@ -279,7 +280,7 @@ fn spatial_frame(value: &Value) -> Result<Vec<u8>> {
             .map_err(|e| e.to_string())
     };
     let raw = decode(&value["head"])?;
-    if !raw.starts_with(b"CRABSP04") {
+    if !raw.starts_with(b"CRABSP05") {
         return Err("invalid spatial head".into());
     }
     let head: SpatialHead = postcard::from_bytes(&raw[8..]).map_err(|e| e.to_string())?;
@@ -414,5 +415,239 @@ mod tests {
             crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&restored.terrain)
                 .unwrap();
         assert!(snapshot.sleeping_ids().count() > 256);
+    }
+}
+
+/// A real production-head fixture with five Canyon owner pages and two
+/// generation-keyed claims whose recipients are currently offline.
+pub fn canyon_fixture() -> Result<Value> {
+    use crabsim::{
+        canyon_drift::{
+            DriftProfile,
+            run::{ANCHOR, CanyonRun, DriftClaimId, Grant, GrantPhase, SlotPhase},
+        },
+        cell_codec::{
+            paged,
+            spatial::{CanyonIndex, SalvageIndex},
+        },
+    };
+    let level = Level::test_level();
+    let mut terrain = World::from_level_settled(&level);
+    if !terrain.follow_player(&level, 6385.0, -3160.0) {
+        return Err("Canyon fixture could not load its active terrain".into());
+    }
+    let player = crabsim::SaveData {
+        version: crabsim::SAVE_VERSION,
+        x: 6385.0,
+        y: -3160.0,
+        memory: None,
+        progress: None,
+    };
+    let frame = paged::prepare(&player, &terrain, 120)
+        .and_then(|save| save.encode())
+        .map_err(|e| format!("Canyon fixture: {e:?}"))?;
+    let mut value = spatial_object_from_frame(&frame)?;
+    let mut run = CanyonRun::new(71);
+    for (index, slot) in run.slots.iter_mut().enumerate() {
+        slot.generation = 7 + index as u32;
+        slot.revision = 11;
+        slot.location.x = 7000.0 + index as f32 * 512.0;
+        slot.location.y = -3190.0;
+        slot.phase = SlotPhase::Grant(Grant {
+            id: DriftClaimId {
+                world: 71,
+                anchor: ANCHOR,
+                slot: index as u8,
+                generation: slot.generation,
+            },
+            player: crabsim::PlayerId(80 + index as u32),
+            identity: 9000 + index as u64,
+            profile: DriftProfile::Flat,
+            phase: GrantPhase::Requested,
+        });
+    }
+    run.catcher.position.x = 8050.0;
+    run.catcher.position.y = -3190.0;
+    run.practice.position.x = 8700.0;
+    run.practice.position.y = -3190.0;
+    let records = run.records();
+    if records.len() != 5 {
+        return Err("Canyon fixture must exercise all five page coordinates".into());
+    }
+    let index = CanyonIndex::new(&records).map_err(|e| format!("Canyon index: {e:?}"))?;
+    append_spatial(
+        &mut value,
+        "canyon_index",
+        (0, 0),
+        &postcard::to_allocvec(&index).map_err(|e| e.to_string())?,
+    )?;
+    for record in &records {
+        append_spatial(
+            &mut value,
+            "canyon",
+            record.region_id,
+            &postcard::to_allocvec(record).map_err(|e| e.to_string())?,
+        )?;
+    }
+    let shellwash = crabsim::salvage::Shellwash {
+        world_id: 71,
+        ..Default::default()
+    };
+    let salvage = shellwash.records();
+    append_spatial(
+        &mut value,
+        "salvage_index",
+        (0, 0),
+        &postcard::to_allocvec(
+            &SalvageIndex::new(&salvage).map_err(|e| format!("salvage index: {e:?}"))?,
+        )
+        .map_err(|e| e.to_string())?,
+    )?;
+    for record in salvage {
+        append_spatial(
+            &mut value,
+            "salvage",
+            record.region_id,
+            &postcard::to_allocvec(&record).map_err(|e| e.to_string())?,
+        )?;
+    }
+    Ok(value)
+}
+fn append_spatial(value: &mut Value, kind: &str, coordinate: (i32, i32), raw: &[u8]) -> Result<()> {
+    use crabsim::cell_codec::spatial::encode_record;
+    let packed = miniz_oxide::deflate::compress_to_vec_zlib(raw, 1);
+    if kind == "canyon_index" {
+        use crabsim::cell_codec::spatial::{SPATIAL_MAGIC, SpatialHead};
+        let header = STANDARD
+            .decode(value["head"].as_str().ok_or("missing fixture head")?)
+            .map_err(|e| e.to_string())?;
+        let mut head: SpatialHead =
+            postcard::from_bytes(&header[8..]).map_err(|e| e.to_string())?;
+        head.canyon_hash = Some(crabsim::cell_codec::paged::hash(raw));
+        let mut header = SPATIAL_MAGIC.to_vec();
+        header.extend(postcard::to_allocvec(&head).map_err(|e| e.to_string())?);
+        value["head"] = Value::String(STANDARD.encode(header));
+    }
+    value["records"]
+        .as_array_mut()
+        .ok_or("missing spatial rows")?
+        .push(json!([
+            [
+                "00000000000000000000",
+                kind,
+                coordinate.0,
+                coordinate.1,
+                "00000000000000000000"
+            ],
+            STANDARD.encode(encode_record(raw, &packed, 1)),
+        ]));
+    Ok(())
+}
+pub fn canyon_from_object(
+    value: &Value,
+) -> Result<Option<Vec<crabsim::canyon_drift::record::CanyonRegionRecord>>> {
+    use crabsim::cell_codec::spatial::{
+        CANYON_INDEX_LIMIT, CANYON_RECORD_LIMIT, CanyonIndex, SPATIAL_MAGIC, SpatialHead,
+        decode_canyon, decode_record,
+    };
+    use std::collections::BTreeMap;
+    if value.is_null() {
+        return Ok(None);
+    }
+    let header = STANDARD
+        .decode(value["head"].as_str().ok_or("missing spatial head")?)
+        .map_err(|e| e.to_string())?;
+    if !header.starts_with(SPATIAL_MAGIC) {
+        return Err("invalid Canyon spatial head format".into());
+    }
+    let head: SpatialHead = postcard::from_bytes(&header[8..]).map_err(|e| e.to_string())?;
+    let mut index = None;
+    let mut pages = BTreeMap::new();
+    for entry in value["records"].as_array().ok_or("missing spatial rows")? {
+        let key = entry[0].as_array().ok_or("invalid coordinate key")?;
+        if key.len() != 5 {
+            return Err("invalid coordinate key size".into());
+        }
+        let epoch = key[0]
+            .as_str()
+            .ok_or("missing epoch")?
+            .parse::<u64>()
+            .map_err(|e| e.to_string())?;
+        if epoch != head.epoch {
+            continue;
+        }
+        let kind = key[1].as_str().ok_or("missing namespace")?;
+        if kind != "canyon" && kind != "canyon_index" {
+            continue;
+        }
+        if key[4].as_str().and_then(|v| v.parse::<u64>().ok()) != Some(0) {
+            return Err("Canyon retained historical coordinate slots".into());
+        }
+        let coordinate = (
+            i32::try_from(key[2].as_i64().ok_or("missing x")?).map_err(|e| e.to_string())?,
+            i32::try_from(key[3].as_i64().ok_or("missing y")?).map_err(|e| e.to_string())?,
+        );
+        let bytes = STANDARD
+            .decode(entry[1].as_str().ok_or("missing record bytes")?)
+            .map_err(|e| e.to_string())?;
+        let raw = decode_record(
+            &bytes,
+            head.revision,
+            if kind == "canyon" {
+                CANYON_RECORD_LIMIT
+            } else {
+                CANYON_INDEX_LIMIT
+            },
+        )
+        .map_err(|e| format!("Canyon row: {e:?}"))?;
+        if kind == "canyon_index" {
+            if coordinate != (0, 0) || index.is_some() {
+                return Err("Canyon has extra indexes".into());
+            }
+            if head.canyon_hash != Some(crabsim::cell_codec::paged::hash(&raw)) {
+                return Err("Canyon index digest mismatch".into());
+            }
+            index = Some(postcard::from_bytes::<CanyonIndex>(&raw).map_err(|e| e.to_string())?);
+        } else if pages.insert(coordinate, raw).is_some() {
+            return Err("duplicate Canyon page".into());
+        }
+    }
+    let Some(index) = index else {
+        if head.canyon_hash.is_some() || !pages.is_empty() {
+            return Err("orphan Canyon pages".into());
+        }
+        return Ok(None);
+    };
+    let keys = index.keys().map_err(|e| format!("Canyon keys: {e:?}"))?;
+    if keys.len() != pages.len() || pages.len() > 5 {
+        return Err("Canyon page count exceeds its fixed index".into());
+    }
+    let records = keys
+        .iter()
+        .map(|key| {
+            decode_canyon(pages.get(key).ok_or("missing Canyon owner page")?, *key)
+                .map_err(|e| format!("Canyon record: {e:?}"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if crabsim::canyon_drift::run::CanyonRun::from_records(&records).is_none() {
+        return Err("incomplete Canyon owners".into());
+    }
+    Ok(Some(records))
+}
+
+#[cfg(test)]
+mod canyon_tests {
+    use super::*;
+    #[test]
+    fn five_page_canyon_fixture_round_trips_and_rejects_orphan_history() {
+        let mut fixture = canyon_fixture().unwrap();
+        let records = canyon_from_object(&fixture).unwrap().unwrap();
+        assert_eq!(records.len(), 5);
+        let run = crabsim::canyon_drift::run::CanyonRun::from_records(&records).unwrap();
+        assert_eq!(run.slots[0].generation, 7);
+        assert_eq!(run.slots[1].generation, 8);
+        let raw = postcard::to_allocvec(&records[0]).unwrap();
+        append_spatial(&mut fixture, "canyon", (9999, 0), &raw).unwrap();
+        assert!(canyon_from_object(&fixture).is_err());
     }
 }

@@ -10,6 +10,7 @@
 //! (`cargo build --release --manifest-path tools/introducer/Cargo.toml`) and Chrome (`CHROME` names it if it's
 //! somewhere unusual). `--url` plays the live site with the real introducer instead.
 
+mod canyon_store;
 mod chrome;
 mod save_fixture;
 #[path = "../../webtest/src/serve.rs"]
@@ -903,7 +904,12 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 24] = [
+const SCENARIOS: [(&str, &str, u32); 25] = [
+    (
+        "cells-canyon-store",
+        "bounded Canyon records, atomic claims, reload, index loss and reset",
+        90,
+    ),
     (
         "cells-solo-save",
         "fresh and explored worlds save, reload, and accept a guest without losing distant terrain",
@@ -1055,6 +1061,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
+        "cells-canyon-store" => return canyon_store::run(&mut host, site),
         "cells-solo-save" => {
             // The actual landing URL must select cells without a query flag.
             host.open(&site.page)?;

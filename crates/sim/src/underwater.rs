@@ -162,7 +162,8 @@ pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> C
         return Cell::Rock;
     }
     if ((6380.0..6384.0).contains(&wx) || (6428.0..6432.0).contains(&wx))
-        && (-3240.0..-3224.0).contains(&wy) {
+        && (-3240.0..-3224.0).contains(&wy)
+    {
         return Cell::Rock;
     }
     if (6448.0..6452.0).contains(&wx) && (-3176.0..-3160.0).contains(&wy) {

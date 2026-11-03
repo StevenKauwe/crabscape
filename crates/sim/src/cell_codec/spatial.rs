@@ -7,6 +7,8 @@ use crate::{
 
 #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct SpatialHead {
+    /// None only before this world has ever published its Canyon owners.
+    pub canyon_hash: Option<[u8; 32]>,
     pub epoch: u64,
     pub revision: u64,
     pub tick: u64,
@@ -162,7 +164,7 @@ impl Capture {
 #[cfg(not(target_arch = "wasm32"))]
 pub mod files;
 
-pub const SPATIAL_MAGIC: &[u8; 8] = b"CRABSP04";
+pub const SPATIAL_MAGIC: &[u8; 8] = b"CRABSP05";
 /// A bounded coordinate record identifies its last complete head revision and
 /// authenticates the uncompressed bytes. Stale multi-request reads are revoked
 /// by a head change before they may publish a candidate.

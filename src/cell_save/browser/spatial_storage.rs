@@ -94,15 +94,32 @@ pub(super) async fn write(
     let revision = expected_revision
         .checked_add(1)
         .ok_or("save revision exhausted")?;
+    let db = Database(open(database).await?);
+    let before = decode_head(&get(&db.0, &JsValue::from_str(KEY)).await?)?;
+    if before.is_some_and(|head| head.epoch != epoch || head.revision != expected_revision)
+        || (before.is_none() && expected_revision != 0)
+    {
+        return Err("spatial save head changed before capture".into());
+    }
+    let canyon_hash = if let Some(records) = &capture.canyon {
+        Some(paged::hash(
+            &postcard::to_allocvec(
+                &crabsim::cell_codec::spatial::CanyonIndex::new(records).map_err(issue)?,
+            )
+            .map_err(issue)?,
+        ))
+    } else {
+        before.and_then(|head| head.canyon_hash)
+    };
     let (cols, rows) = capture.active.snapshot.active_dimensions();
     let head = Head {
+        canyon_hash,
         epoch,
         revision,
         tick: capture.active.sim_tick,
         cols: cols as u16,
         rows: rows as u16,
     };
-    let db = Database(open(database).await?);
     let mut records = Vec::new();
     records.push(Record {
         key: key(epoch, "player", 0, 0, 0),
@@ -164,10 +181,10 @@ pub(super) async fn write(
     if let Some(salvage) = &capture.salvage {
         use crabsim::cell_codec::spatial::SalvageIndex;
         let index = SalvageIndex::new(salvage).map_err(issue)?;
-        let previous_head = Head {
+        let previous_head = before.unwrap_or(Head {
             revision: expected_revision,
             ..head
-        };
+        });
         let previous_raw = if expected_revision > 0 {
             page(&db.0, previous_head, "salvage_index", 0, 0).await?
         } else {
@@ -213,10 +230,10 @@ pub(super) async fn write(
     if let Some(canyon) = &capture.canyon {
         use crabsim::cell_codec::spatial::CanyonIndex;
         let index = CanyonIndex::new(canyon).map_err(issue)?;
-        let previous_head = Head {
+        let previous_head = before.unwrap_or(Head {
             revision: expected_revision,
             ..head
-        };
+        });
         let previous_raw = if expected_revision > 0 {
             page(&db.0, previous_head, "canyon_index", 0, 0).await?
         } else {
@@ -540,7 +557,11 @@ pub(super) async fn read_from(
         }
         restored.salvage = Some(salvage);
     }
-    if let Some(raw) = page(&db.0, head, "canyon_index", 0, 0).await? {
+    let canyon_index = page(&db.0, head, "canyon_index", 0, 0).await?;
+    if canyon_index.as_ref().map(|raw| paged::hash(raw)) != head.canyon_hash {
+        return Err("missing or mismatched published Canyon index".into());
+    }
+    if let Some(raw) = canyon_index {
         use crabsim::cell_codec::spatial::{CanyonIndex, decode_canyon};
         if raw.len() > crabsim::cell_codec::spatial::CANYON_INDEX_LIMIT {
             return Err("canyon index exceeds fixed bound".into());

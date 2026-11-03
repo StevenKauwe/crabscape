@@ -49,6 +49,7 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
+pub mod canyon_drift;
 pub mod cell_codec;
 pub mod codes;
 pub mod combat;
@@ -68,7 +69,6 @@ pub mod prepared_food;
 pub mod progress;
 pub mod replay;
 pub mod rng;
-pub mod canyon_drift;
 pub mod salvage;
 pub mod save_data;
 pub mod shared;
