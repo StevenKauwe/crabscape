@@ -858,3 +858,31 @@ fn digging_down_and_reversing_inside_the_bed_keeps_the_shell_level() {
         "shell rotated {max_tilt} radians in the bed"
     );
 }
+
+#[test]
+fn the_dig_stick_turns_in_clear_water_and_braces_on_approach_to_the_bed() {
+    let id = PlayerId(0);
+    let mut sim = Sim::with_one_crab(Vec2::new(160.0, 180.0));
+    sim.enable_underwater_cells();
+    sim.crab_mut(id).unwrap().mover.grounded = false;
+    let input = Controls {
+        down: true,
+        dig_held: true,
+        walk: 1.0,
+        ..Default::default()
+    };
+    let mut turned = false;
+    let mut braced = false;
+    for _ in 0..180 {
+        let mover = &sim.crab(id).unwrap().mover;
+        if mover.can_turn_in_water(&sim.level, &sim.tuning, &input) {
+            turned |= mover.water_angle < -0.15;
+        } else {
+            braced |= turned && !mover.grounded;
+        }
+        sim.set_controls(id, input);
+        sim.tick();
+    }
+    assert!(turned, "clear water never allowed the turn");
+    assert!(braced, "the stick never engaged sediment before landing");
+}
