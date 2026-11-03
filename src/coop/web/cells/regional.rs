@@ -90,7 +90,7 @@ fn frame_fault(sim: &Sim, frame: &RegionFrame, error: impl std::fmt::Debug) -> S
         let _ = canvas.set_attribute(
             "data-cell-frame-error",
             &format!(
-                "world={} frame={} members={members:?} controls={controls:?} actions={actions:?}",
+                "world={} frame={} members={members:?} controls={controls:?} actions={actions:?} error={error:?}",
                 sim.tick_count(),
                 frame.tick
             ),
@@ -571,16 +571,8 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
     } else {
         vec![(local, s.local)]
     };
-    let mut actions = Vec::new();
     let members: Vec<_> = controls.iter().map(|(id, _)| *id).collect();
-    s.actions.retain(|(id, action)| {
-        if members.contains(id) {
-            actions.push((*id, *action));
-            false
-        } else {
-            true
-        }
-    });
+    let actions = crate::coop::take_region_frame_actions(&mut s.actions, &members);
     let frame = RegionFrame {
         tick: sim.tick_count(),
         controls,

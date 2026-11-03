@@ -137,6 +137,49 @@ pub(crate) fn cells_storage_replies(
 
 pub(crate) use crabsim::replay::CellSessionAction as CellsAction;
 
+/// Drain ordinary actions for a frame while preserving topology changes for
+/// the next complete regional input-batch boundary.
+fn take_region_frame_actions(
+    pending: &mut std::collections::VecDeque<(crabsim::PlayerId, CellsAction)>,
+    members: &[crabsim::PlayerId],
+) -> Vec<(crabsim::PlayerId, CellsAction)> {
+    let mut actions = Vec::new();
+    pending.retain(|(id, action)| {
+        if members.contains(id) && !matches!(action, CellsAction::Home) {
+            actions.push((*id, *action));
+            false
+        } else {
+            true
+        }
+    });
+    actions
+}
+
+#[cfg(test)]
+mod regional_action_queue_tests {
+    use super::*;
+    use crabsim::{PlayerId, canyon_drift::CanyonAction};
+
+    #[test]
+    fn home_waits_for_the_batch_boundary_while_other_actions_continue() {
+        let a = PlayerId(0);
+        let b = PlayerId(7);
+        let mut pending = std::collections::VecDeque::from([
+            (a, CellsAction::Home),
+            (a, CellsAction::Canyon(CanyonAction::ReleasePractice)),
+            (b, CellsAction::Canyon(CanyonAction::ReleasePractice)),
+        ]);
+        let frame = take_region_frame_actions(&mut pending, &[a]);
+        assert_eq!(
+            frame,
+            [(a, CellsAction::Canyon(CanyonAction::ReleasePractice))]
+        );
+        assert_eq!(pending.len(), 2);
+        assert!(matches!(pending[0], (id, CellsAction::Home) if id == a));
+        assert!(matches!(pending[1], (id, CellsAction::Canyon(_)) if id == b));
+    }
+}
+
 pub(crate) fn cells_replay(report: bool) -> Option<Result<String, String>> {
     #[cfg(target_arch = "wasm32")]
     {
