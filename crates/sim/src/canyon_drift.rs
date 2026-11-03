@@ -64,12 +64,15 @@ impl DriftBody {
 pub struct DriftCatcher {
     pub position: Vec2,
     pub contents: Option<u8>,
+    pub velocity: Vec2,
     pub phase: CatcherPhase,
+    pub support_lost_ticks: u8,
     pub revision: u64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CatcherPhase {
     Placed,
+    Free,
     Carried(crate::PlayerId, u64),
 }
 impl DriftCatcher {
@@ -77,7 +80,9 @@ impl DriftCatcher {
         Self {
             position,
             contents: None,
+            velocity: Vec2::ZERO,
             phase: CatcherPhase::Placed,
+            support_lost_ticks: 0,
             revision: 0,
         }
     }
@@ -123,6 +128,7 @@ pub enum CanyonAction {
     LiftPractice,
     DropPractice,
     LiftCatcher,
+    DropCatcher,
     PlaceCatcher(Vec2),
     Take(u8),
     Offer(run::DriftClaimId),

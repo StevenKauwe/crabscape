@@ -98,6 +98,7 @@ pub struct CanyonRun {
     pub practice: DriftBody,
     pub practice_phase: PracticePhase,
     pub practice_revision: u64,
+    pub practice_support_lost_ticks: u8,
     pub band: Band,
     pub last_active_tick: Option<u64>,
     pub last_admission_tick: Option<u64>,
@@ -120,6 +121,7 @@ impl CanyonRun {
             },
             practice_phase: PracticePhase::Settled,
             practice_revision: 0,
+            practice_support_lost_ticks: 0,
             band: Band::Slack,
             last_active_tick: None,
             last_admission_tick: None,
@@ -168,7 +170,8 @@ impl CanyonRun {
                 && b.velocity.abs().max_element() <= 1_000.0
         };
         if (self.has_practice && !body_valid(self.practice))
-            || (self.has_catcher && !self.catcher.position.is_finite())
+            || (self.has_catcher
+                && (!self.catcher.position.is_finite() || !self.catcher.velocity.is_finite()))
             || (self.has_catcher && self.catcher.position.abs().max_element() > 1_000_000.0)
             || self
                 .last_admission_tick
@@ -341,7 +344,8 @@ impl CanyonRun {
                 && (!self.has_practice
                     || self.practice != taken.practice
                     || self.practice_phase != taken.practice_phase
-                    || self.practice_revision != taken.practice_revision))
+                    || self.practice_revision != taken.practice_revision
+                    || self.practice_support_lost_ticks != taken.practice_support_lost_ticks))
             || (0..2).any(|i| {
                 taken.owned_slots[i] && (!self.owned_slots[i] || self.slots[i] != taken.slots[i])
             })
@@ -391,6 +395,7 @@ impl CanyonRun {
             merged.practice = source.practice;
             merged.practice_phase = source.practice_phase;
             merged.practice_revision = source.practice_revision;
+            merged.practice_support_lost_ticks = source.practice_support_lost_ticks;
         }
         for i in 0..2 {
             if source.owned_slots[i] {
@@ -402,6 +407,67 @@ impl CanyonRun {
             return false;
         }
         *self = merged;
+        true
+    }
+
+    fn sync_contents(&mut self) {
+        let at = self.catcher.position + Vec2::new(0.0, 7.0);
+        if self.catcher.contents == Some(2)
+            && self.has_practice
+            && self.practice_phase == PracticePhase::Caught
+        {
+            if self.practice.position != at {
+                self.practice.position = at;
+                self.practice_revision = self.practice_revision.saturating_add(1);
+            }
+        }
+        if let Some(i) = self.catcher.contents
+            && let Some(slot) = self.slots.get_mut(i as usize)
+            && self.owned_slots[i as usize]
+            && let SlotPhase::Caught(mut body) = slot.phase
+            && body.position != at
+        {
+            body.position = at;
+            slot.location = at;
+            slot.phase = SlotPhase::Caught(body);
+            slot.revision = slot.revision.saturating_add(1);
+        }
+    }
+
+    /// Follow the local carrier and keep a caught piece attached.
+    pub fn sync_carrier(&mut self, player: PlayerId, at: Vec2) {
+        if !at.is_finite() {
+            return;
+        }
+        if self.has_practice
+            && matches!(self.practice_phase, PracticePhase::Carried(id, _) if id == player)
+            && self.practice.position != at
+        {
+            self.practice.position = at;
+            self.practice_revision = self.practice_revision.saturating_add(1);
+        }
+        if self.has_catcher
+            && matches!(self.catcher.phase, CatcherPhase::Carried(id, _) if id == player)
+            && self.catcher.position != at
+        {
+            self.catcher.position = at;
+            self.catcher.revision = self.catcher.revision.saturating_add(1);
+            self.sync_contents();
+        }
+    }
+
+    pub fn drop_catcher(&mut self, player: PlayerId, at: Vec2) -> bool {
+        if !self.has_catcher
+            || !at.is_finite()
+            || !matches!(self.catcher.phase, CatcherPhase::Carried(id, _) if id == player)
+        {
+            return false;
+        }
+        self.catcher.position = at;
+        self.catcher.velocity = Vec2::ZERO;
+        self.catcher.phase = CatcherPhase::Free;
+        self.catcher.revision = self.catcher.revision.saturating_add(1);
+        self.sync_contents();
         true
     }
 
@@ -470,6 +536,41 @@ impl CanyonRun {
                 }
             }
         }
+        if self.has_catcher
+            && matches!(
+                self.catcher.phase,
+                CatcherPhase::Free | CatcherPhase::Placed
+            )
+            && world.contains_world(self.catcher.position.x, self.catcher.position.y)
+        {
+            let before = self.catcher;
+            let mut proxy = crate::salvage::Shellwash {
+                has_find: false,
+                has_fragments: [false; 2],
+                valve_phase: if self.catcher.phase == CatcherPhase::Free {
+                    crate::salvage::ValvePhase::Free
+                } else {
+                    crate::salvage::ValvePhase::Placed
+                },
+                valve_support_lost_ticks: self.catcher.support_lost_ticks,
+                valve_position: self.catcher.position,
+                valve_velocity: self.catcher.velocity,
+                ..Default::default()
+            };
+            let _ = proxy.step(world);
+            self.catcher.position = proxy.valve_position;
+            self.catcher.velocity = proxy.valve_velocity;
+            self.catcher.support_lost_ticks = proxy.valve_support_lost_ticks;
+            self.catcher.phase = if proxy.valve_phase == crate::salvage::ValvePhase::Placed {
+                CatcherPhase::Placed
+            } else {
+                CatcherPhase::Free
+            };
+            if before != self.catcher {
+                self.catcher.revision = self.catcher.revision.saturating_add(1);
+                self.sync_contents();
+            }
+        }
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if !self.owned_slots[index] {
                 continue;
@@ -491,6 +592,23 @@ impl CanyonRun {
                 if previous != body || matches!(slot.phase, SlotPhase::Caught(_)) {
                     slot.revision = slot.revision.saturating_add(1);
                 }
+            }
+        }
+        if self.has_practice
+            && self.practice_phase == PracticePhase::Settled
+            && world.contains_world(self.practice.position.x, self.practice.position.y)
+        {
+            let p = self.practice.position;
+            let supported = world.game_solid(p.x - 3.0, p.y - 7.0, p.x + 3.0, p.y - 3.1);
+            self.practice_support_lost_ticks = if supported {
+                0
+            } else {
+                self.practice_support_lost_ticks.saturating_add(1)
+            };
+            if self.practice_support_lost_ticks >= 6 {
+                self.practice_support_lost_ticks = 0;
+                self.practice_phase = PracticePhase::Free;
+                self.practice_revision = self.practice_revision.saturating_add(1);
             }
         }
         if self.has_practice && self.practice_phase == PracticePhase::Free {
@@ -604,6 +722,7 @@ impl CanyonRun {
             return false;
         }
         self.catcher.position = at;
+        self.catcher.velocity = Vec2::ZERO;
         self.catcher.phase = CatcherPhase::Placed;
         self.catcher.revision = self.catcher.revision.saturating_add(1);
         if self.catcher.contents == Some(2) && self.practice_phase == PracticePhase::Caught {

@@ -32,6 +32,7 @@ pub struct PracticeRecord {
     pub body: DriftBody,
     pub phase: PracticePhase,
     pub revision: u64,
+    pub support_lost_ticks: u8,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CanyonRegionRecord {
@@ -124,6 +125,7 @@ impl CanyonRegionRecord {
             run.practice = p.body;
             run.practice_phase = p.phase;
             run.practice_revision = p.revision;
+            run.practice_support_lost_ticks = p.support_lost_ticks;
         }
         for (i, slot) in self.slots.iter().enumerate() {
             if let Some(slot) = slot {
@@ -196,6 +198,7 @@ impl CanyonRun {
                 body: self.practice,
                 phase: self.practice_phase,
                 revision: self.practice_revision,
+                support_lost_ticks: self.practice_support_lost_ticks,
             });
         }
         for (index, page) in slots.into_iter().enumerate() {
@@ -260,6 +263,7 @@ impl CanyonRun {
                 run.practice = p.body;
                 run.practice_phase = p.phase;
                 run.practice_revision = p.revision;
+                run.practice_support_lost_ticks = p.support_lost_ticks;
             }
             for (i, slot) in record.slots.iter().enumerate() {
                 if let Some(slot) = slot {
