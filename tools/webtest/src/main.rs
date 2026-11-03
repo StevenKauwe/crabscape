@@ -125,7 +125,15 @@ fn main() {
     let scratch = root.join("target/webtest");
     let _ = std::fs::create_dir_all(&scratch);
     let log = scratch.join("browser.log");
-    let result = run(&o, &root, &scratch, &log);
+    let result = (|| {
+        let mut failures = 0;
+        if o.url.is_none() && !o.smoke && o.feel_shots.is_none() {
+            // Start with a clean browser and origin. The reset scenario deliberately
+            // leaves stale workers behind and should not share this fixture's store.
+            failures += run(&o, &root, &scratch, &log, true)?;
+        }
+        Ok::<_, String>(failures + run(&o, &root, &scratch, &log, false)?)
+    })();
     let failures = match result {
         Ok(n) => n,
         Err(e) => {
@@ -165,7 +173,7 @@ fn pump(seconds: f64) {
     std::thread::sleep(Duration::from_secs_f64(seconds));
 }
 
-fn run(o: &Options, root: &Path, scratch: &Path, log: &Path) -> Result<u32> {
+fn run(o: &Options, root: &Path, scratch: &Path, log: &Path, large_save: bool) -> Result<u32> {
     let base = match &o.url {
         Some(u) => u.trim_end_matches('/').to_string(),
         None => {
@@ -200,6 +208,7 @@ fn run(o: &Options, root: &Path, scratch: &Path, log: &Path) -> Result<u32> {
     let vw = if framed { o.width.max(500.0) } else { o.width };
     t.b.set_viewport(vw as u32, o.height as u32)?;
     match &o.feel_shots {
+        _ if large_save => t.large_cellular_autosave()?,
         _ if o.cellular_save => t.cellular_autosave()?,
         Some(prefix) => t.feel_strips(prefix)?,
         None => t.all()?,
