@@ -473,11 +473,17 @@ fn simulate(
     }
     for _ in 0..steps {
         let before = sim.tick_count();
-        if !crate::coop::cells_tick(&mut sim, local.0) {
+        if crate::coop::cells_tick(&mut sim, local.0) {
+            if sim.tick_count() == before {
+                continue;
+            }
+        } else {
             sim.tick();
-        }
-        if sim.tick_count() == before {
-            continue;
+            if sim.tick_count() == before {
+                // A cold page can arrive only after this browser task yields.
+                // Retrying the same blocked tick in this frame cannot progress it.
+                break;
+            }
         }
         // Collect what happened during each tick for the animation.
         for (id, _, _, _, mut events) in &mut crabs {

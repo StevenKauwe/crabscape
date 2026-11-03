@@ -19,7 +19,8 @@ pub(crate) fn requests(world: &mut World, memory: &mut Memory) -> Requests {
         memory.enable_paging();
     }
     Requests {
-        terrain: world.sleeping_page_requests(4),
+        // A fresh horizontal strip spans ten 64-cell pages of the active field.
+        terrain: world.sleeping_page_requests(12),
         memory: memory.page_requests(4),
         flush: world.paging_needs_flush() || memory.paging_needs_flush(),
         resident: (world.resident_sleeping_chunks(), memory.resident_chunks()),

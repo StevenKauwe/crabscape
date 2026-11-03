@@ -362,6 +362,11 @@ pub(super) async fn page(
     x: i32,
     y: i32,
 ) -> Result<Option<Vec<u8>>, String> {
+    let value = get(db, &key(head.epoch, kind, x, y, 0)).await?;
+    decode_page(head, kind, value)
+}
+
+fn decode_page(head: Head, kind: &str, value: JsValue) -> Result<Option<Vec<u8>>, String> {
     let limit = match kind {
         "canyon_index" => crabsim::cell_codec::spatial::CANYON_INDEX_LIMIT,
         "canyon" => crabsim::cell_codec::spatial::CANYON_RECORD_LIMIT,
@@ -369,7 +374,6 @@ pub(super) async fn page(
         "salvage" => crabsim::cell_codec::spatial::SALVAGE_RECORD_LIMIT,
         _ => PAGE_LIMIT,
     };
-    let value = get(db, &key(head.epoch, kind, x, y, 0)).await?;
     if value.is_undefined() {
         return Ok(None);
     }
@@ -591,11 +595,24 @@ pub(super) async fn read_pages(
     requests: super::super::paging::Requests,
 ) -> Result<super::super::paging::Replies, String> {
     let db = Database(open(database).await?);
+    let tx = db.0.transaction_with_str(STORE).map_err(issue)?;
+    let store = tx.object_store(STORE).map_err(issue)?;
+    let head_request = store.get(&JsValue::from_str(KEY)).map_err(issue)?;
+    let epoch_request = store.get(&JsValue::from_str(EPOCH_KEY)).map_err(issue)?;
+    let mut pending = Vec::with_capacity(requests.terrain.len() + requests.memory.len());
+    for (kind, tickets) in [("terrain", requests.terrain), ("memory", requests.memory)] {
+        for ticket in tickets {
+            let (x, y) = ticket.coordinate;
+            let read = store.get(&key(epoch, kind, x, y, 0)).map_err(issue)?;
+            pending.push((kind, ticket, read));
+        }
+    }
+    // IndexedDB delivers request results in issue order. Queue the entire
+    // bounded batch before yielding and wait once, on its last request.
+    request(pending.last().map_or(&epoch_request, |(_, _, read)| read)).await?;
     let head =
-        decode_head(&get(&db.0, &JsValue::from_str(KEY)).await?)?.ok_or("missing spatial head")?;
-    if head.epoch != epoch
-        || decode_epoch(get(&db.0, &JsValue::from_str(EPOCH_KEY)).await?)? != epoch
-    {
+        decode_head(&head_request.result().map_err(issue)?)?.ok_or("missing spatial head")?;
+    if head.epoch != epoch || decode_epoch(epoch_request.result().map_err(issue)?)? != epoch {
         return Err(STALE_EPOCH.into());
     }
     if head.revision != revision {
@@ -603,27 +620,13 @@ pub(super) async fn read_pages(
     }
     let mut terrain = Vec::new();
     let mut memory = Vec::new();
-    for ticket in requests.terrain {
-        let bytes = page(
-            &db.0,
-            head,
-            "terrain",
-            ticket.coordinate.0,
-            ticket.coordinate.1,
-        )
-        .await?;
-        terrain.push((ticket, bytes));
-    }
-    for ticket in requests.memory {
-        let bytes = page(
-            &db.0,
-            head,
-            "memory",
-            ticket.coordinate.0,
-            ticket.coordinate.1,
-        )
-        .await?;
-        memory.push((ticket, bytes));
+    for (kind, ticket, read) in pending {
+        let bytes = decode_page(head, kind, read.result().map_err(issue)?)?;
+        if kind == "terrain" {
+            terrain.push((ticket, bytes));
+        } else {
+            memory.push((ticket, bytes));
+        }
     }
     if decode_epoch(get(&db.0, &JsValue::from_str(EPOCH_KEY)).await?)? != epoch {
         return Err(STALE_EPOCH.into());

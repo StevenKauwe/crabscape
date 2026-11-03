@@ -290,6 +290,18 @@ impl Memory {
 
     /// The cells whose middles lie in a box.
     pub fn cells_in(&self, r: Rect, t: &MemoryTuning) -> impl Iterator<Item = u64> + '_ {
+        let (xs, ys) = self.cell_ranges(r, t);
+        ys.flat_map(move |y| {
+            xs.clone()
+                .map(move |x| y as u64 * u64::from(self.cols) + x as u64)
+        })
+    }
+
+    fn cell_ranges(
+        &self,
+        r: Rect,
+        t: &MemoryTuning,
+    ) -> (std::ops::RangeInclusive<i64>, std::ops::RangeInclusive<i64>) {
         let lo = ((r.min - self.origin) / t.cell - 0.5)
             .ceil()
             .max(Vec2::ZERO);
@@ -297,9 +309,7 @@ impl Memory {
         let (x0, y0) = (lo.x as u32, lo.y as u32);
         let x1 = (hi.x.max(-1.0) as i64).min(self.cols as i64 - 1);
         let y1 = (hi.y.max(-1.0) as i64).min(self.rows as i64 - 1);
-        (y0 as i64..=y1).flat_map(move |y| {
-            (x0 as i64..=x1).map(move |x| y as u64 * u64::from(self.cols) + x as u64)
-        })
+        (i64::from(x0)..=x1, i64::from(y0)..=y1)
     }
 
     fn locate(&self, i: u64) -> ((u32, u32), usize) {
@@ -547,17 +557,28 @@ impl Memory {
         }
         self.cache.protected.clear();
         let sight = Sight::new(eye, lantern, t);
-        let required: BTreeSet<_> = self
-            .cells_in(sight.bounds().inflate(4.0 * t.cell), t)
-            .map(|i| {
-                let (key, _) = self.locate(i);
-                (key.0 as i32, key.1 as i32)
-            })
-            .collect();
+        let (xs, ys) = self.cell_ranges(sight.bounds().inflate(4.0 * t.cell), t);
+        if xs.is_empty() || ys.is_empty() {
+            return true;
+        }
+        let side = i64::from(MEMORY_CHUNK_SIDE);
+        let (left, right) = (xs.start() / side, xs.end() / side);
+        let (bottom, top) = (ys.start() / side, ys.end() / side);
+        let max_x = i64::from(self.cols.div_ceil(MEMORY_CHUNK_SIDE)) - 1;
+        let max_y = i64::from(self.rows.div_ceil(MEMORY_CHUNK_SIDE)) - 1;
         let mut ready = true;
-        for key in required {
-            self.cache.protected.insert(key);
-            ready &= self.cache.require(key);
+        for y in (bottom - 1).max(0)..=(top + 1).min(max_y) {
+            for x in (left - 1).max(0)..=(right + 1).min(max_x) {
+                let key = (x as i32, y as i32);
+                self.cache.protected.insert(key);
+                if (left..=right).contains(&x) && (bottom..=top).contains(&y) {
+                    ready &= self.cache.require(key);
+                } else {
+                    // Read the next page before it comes into sight; a pending
+                    // speculative read never blocks simulation on this page.
+                    self.cache.prefetch(key);
+                }
+            }
         }
         ready
     }
@@ -1041,6 +1062,45 @@ mod cell_runs {
 #[cfg(test)]
 mod cold_memory_tests {
     use super::*;
+    #[test]
+    fn sight_prepares_neighbor_pages_without_blocking_on_them() {
+        let level = Level::test_level();
+        let t = &Tuning::default().memory;
+        let mut memory = Memory::new(&level, t);
+        memory.enable_paging();
+        let eye = Vec2::new(2400.0, -800.0);
+        let required: BTreeSet<_> = memory
+            .cells_in(Sight::new(eye, 0, t).bounds().inflate(4.0 * t.cell), t)
+            .map(|i| {
+                let ((x, y), _) = memory.locate(i);
+                (x as i32, y as i32)
+            })
+            .collect();
+        assert!(!required.is_empty());
+        assert!(!memory.paging_ready(eye, 0, t));
+        let tickets = memory.page_requests(256);
+        assert!(tickets.len() > required.len());
+        let (needed, ahead) = tickets.split_at(required.len());
+        assert_eq!(
+            needed
+                .iter()
+                .map(|ticket| ticket.coordinate)
+                .collect::<BTreeSet<_>>(),
+            required
+        );
+        for ticket in needed.iter().cloned() {
+            assert!(memory.accept_page(ticket, None).unwrap());
+        }
+        assert!(
+            memory.paging_ready(eye, 0, t),
+            "nearby speculative reads may still be in flight"
+        );
+        for ticket in ahead.iter().cloned() {
+            assert!(memory.accept_page(ticket, None).unwrap());
+        }
+        assert!(memory.paging_ready(eye + Vec2::X * t.cell * MEMORY_CHUNK_SIDE as f32, 0, t));
+    }
+
     #[test]
     fn distant_memory_reloads_after_eviction_without_rewriting_ages_or_losing_cells() {
         for count in [100u32, 1000, 10_000] {
