@@ -762,3 +762,127 @@ fn crab_can_dig_in_the_new_far_sandy_shelf() {
         "far shelf was not diggable: start {start}, low {low}"
     );
 }
+
+#[test]
+fn swimming_moray_holds_the_crab_at_its_bite_until_it_drops_a_leg() {
+    use crabsim::{Kind, enemy::State};
+    let id = PlayerId(0);
+    let mut sim = Sim::with_one_crab(Vec2::new(520.0, 400.0));
+    sim.enable_underwater_cells();
+    let eel_id = sim.spawn_enemy(Kind::Moray, Vec2::new(450.0, 400.0));
+    let tuning = sim.tuning.clone();
+    let eel = sim
+        .enemies_mut()
+        .iter_mut()
+        .find(|e| e.id == eel_id)
+        .unwrap();
+    eel.pos = Vec2::new(450.0, 400.0);
+    eel.facing = 1.0;
+    eel.target = Some(id);
+    eel.state = State::Attack;
+    eel.state_len = 100;
+    let (bite, _) = eel.strike_circle(&tuning);
+    sim.crab_mut(id).unwrap().mover.pos = bite;
+    sim.tick();
+    let crab = sim.crab(id).unwrap();
+    assert_eq!(crab.fighter.grabbed.unwrap().by, eel_id);
+    let caught = crab.mover.pos;
+    let mut replay = Sim::from_session_checkpoint(&sim.session_checkpoint().unwrap()).unwrap();
+    for _ in 0..45 {
+        replay.tick();
+        sim.tick();
+        let crab = sim.crab(id).unwrap();
+        assert!(crab.fighter.grabbed.is_some());
+        assert_eq!(crab.mover.pos, caught, "slipped out of the moray's bite");
+        assert_eq!(crab.mover.vel, Vec2::ZERO);
+        assert_eq!(replay.crab(id).unwrap().mover.pos, caught);
+        assert_eq!(
+            replay.crab(id).unwrap().fighter.grabbed,
+            crab.fighter.grabbed
+        );
+    }
+    // Killing the attacker releases the defender on its next movement tick.
+    let eel = replay
+        .enemies_mut()
+        .iter_mut()
+        .find(|e| e.id == eel_id)
+        .unwrap();
+    eel.state = State::Gone;
+    eel.state_len = 200;
+    eel.state_tick = 0;
+    replay.tick();
+    let freed = replay.crab(id).unwrap();
+    assert!(freed.fighter.grabbed.is_none());
+    assert!(freed.mover.pos.y < caught.y);
+    sim.set_controls(
+        id,
+        Controls {
+            down: true,
+            dodge_pressed: true,
+            ..Default::default()
+        },
+    );
+    sim.tick();
+    let crab = sim.crab(id).unwrap();
+    assert!(crab.fighter.grabbed.is_none());
+    assert_eq!(crab.fighter.legs_lost, 1);
+    assert!(crab.mover.pos.y < caught.y);
+}
+
+#[test]
+fn digging_down_and_reversing_inside_the_bed_keeps_the_shell_level() {
+    let mut sim = Sim::with_one_crab(Vec2::new(160.0, 8.0));
+    sim.enable_underwater_cells();
+    let id = PlayerId(0);
+    let mut off_feet = 0;
+    let mut max_tilt = 0.0_f32;
+    for tick in 0..160 {
+        sim.set_controls(
+            id,
+            Controls {
+                dig_held: true,
+                down: tick < 75,
+                dig_up: tick >= 135,
+                walk: if tick < 75 { 1.0 } else { -1.0 },
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        let m = &sim.crab(id).unwrap().mover;
+        off_feet += usize::from(!m.grounded);
+        max_tilt = max_tilt.max(m.water_angle.abs());
+    }
+    assert!(off_feet > 15, "digging should release the feet");
+    assert!(
+        max_tilt < 0.03,
+        "shell rotated {max_tilt} radians in the bed"
+    );
+}
+
+#[test]
+fn the_dig_stick_turns_in_clear_water_and_braces_on_approach_to_the_bed() {
+    let id = PlayerId(0);
+    let mut sim = Sim::with_one_crab(Vec2::new(160.0, 180.0));
+    sim.enable_underwater_cells();
+    sim.crab_mut(id).unwrap().mover.grounded = false;
+    let input = Controls {
+        down: true,
+        dig_held: true,
+        walk: 1.0,
+        ..Default::default()
+    };
+    let mut turned = false;
+    let mut braced = false;
+    for _ in 0..180 {
+        let mover = &sim.crab(id).unwrap().mover;
+        if mover.can_turn_in_water(&sim.level, &sim.tuning, &input) {
+            turned |= mover.water_angle < -0.15;
+        } else {
+            braced |= turned && !mover.grounded;
+        }
+        sim.set_controls(id, input);
+        sim.tick();
+    }
+    assert!(turned, "clear water never allowed the turn");
+    assert!(braced, "the stick never engaged sediment before landing");
+}

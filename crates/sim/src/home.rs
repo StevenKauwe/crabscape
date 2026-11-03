@@ -222,6 +222,8 @@ impl Sim {
             sprinting: still.sprinting,
             climbing: still.climbing,
             diving: still.diving,
+            water_angle: still.water_angle,
+            water_spin: still.water_spin,
             flip_left: still.flip_left,
             dash_left: still.dash_left,
             climb_dir: still.climb_dir,

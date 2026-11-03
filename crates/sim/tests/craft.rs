@@ -338,7 +338,7 @@ fn what_was_made_and_put_away_comes_back_after_a_reload() {
 fn progress_without_workbench_items_keeps_other_values() {
     let old = r#"{"drift_receipts":[],"prepared_food":{"auto_eat":true,"slots":[null,null],"next_batch":0},"upgrades":1,"lantern":1,"scissor_claw":true,"climb_xp":0.0,"carrying":null,
         "eaten":[true,false,false,false],"cultures_taken":[false],"clues_found":[false],
-        "teeth_taken":[false],"nets_cut":[false],"cast_offs":[],"larder":2,"clams":[0,0,0,0,0],
+        "teeth_taken":[false],"nets_cut":[false],"cast_offs":[],"pickup":{"clams":true,"grit":true},"larder":2,"clams":[0,0,0,0,0],
         "well_fed":0,"wakes_at":null,"grit_taken":[false,false,false,false,false,false],
         "home_grit":1}"#;
     let saved: Progress = serde_json::from_str(old).expect("progress reads");

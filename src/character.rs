@@ -1102,7 +1102,7 @@ mod tests {
             r#"{"build":"1a2b3c4, Aug 2","save":{"version":5,"x":900.0,"y":0.0,
                "progress":{"drift_receipts":[],"prepared_food":{"auto_eat":true,"slots":[null,null],"next_batch":0},"upgrades":2,"lantern":1,"scissor_claw":true,"climb_xp":40.0,
                "carrying":null,"eaten":[true,false],"cultures_taken":[true],"clues_found":[],
-               "teeth_taken":[],"nets_cut":[],"cast_offs":[]}},
+               "teeth_taken":[],"nets_cut":[],"cast_offs":[],"pickup":{"clams":true,"grit":true}}},
                "settings":"saver=0;hear=everyone;range=900;game=65;voices=150"}"#,
         );
         let c = decode(&old).unwrap();

@@ -97,7 +97,8 @@ pub struct Tuning {
     /// mashing doesn't help.
     pub stroke_interval: f32,
     /// Seconds standing on something solid (floor or rock) that rest the
-    /// paddle legs from spent to full. They don't rest while swimming.
+    /// paddle legs from spent to full. Sinking quietly rests them far more
+    /// slowly and also draws on the reserve.
     pub stamina_refill_time: f32,
     /// The body's reserve, in strokes: resting refills the paddle legs from
     /// it, and when it runs dry they stay tired. Keeps swimming from being

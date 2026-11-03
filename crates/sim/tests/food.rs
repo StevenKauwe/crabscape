@@ -270,7 +270,7 @@ fn food_comes_back_after_a_reload() {
 fn progress_without_food_keeps_other_values() {
     let old = r#"{"drift_receipts":[],"prepared_food":{"auto_eat":true,"slots":[null,null],"next_batch":0},"upgrades":1,"lantern":1,"scissor_claw":false,"climb_xp":0.0,"carrying":null,
         "eaten":[true,false,false,false],"cultures_taken":[false],"clues_found":[false],
-        "teeth_taken":[false],"nets_cut":[false],"cast_offs":[]}"#;
+        "teeth_taken":[false],"nets_cut":[false],"cast_offs":[],"pickup":{"clams":true,"grit":true}}"#;
     let saved: Progress = serde_json::from_str(old).expect("progress reads");
     assert_eq!((saved.larder, saved.well_fed), (0, 0));
 

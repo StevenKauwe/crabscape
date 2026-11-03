@@ -283,6 +283,9 @@ impl RegionKernel {
                 CellSessionAction::Craft(r) => {
                     let _ = self.sim.make(*id, *r);
                 }
+                CellSessionAction::Shell(action) => {
+                    self.sim.shell_action(*id, *action);
+                }
                 CellSessionAction::Salvage(action) => {
                     self.sim.salvage_action(*id, *action);
                 }

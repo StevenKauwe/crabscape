@@ -14,6 +14,7 @@ pub enum CellSessionAction {
     Code(crate::codes::Code),
     Moult(crate::skills::Skill),
     Craft(crate::craft::Recipe),
+    Shell(crate::world::ShellAction),
     Salvage(crate::salvage::SalvageAction),
     Canyon(crate::canyon_drift::CanyonAction),
 }
@@ -48,6 +49,9 @@ impl CellSessionTick {
                 }
                 CellSessionAction::Craft(recipe) => {
                     let _ = sim.make(*id, *recipe);
+                }
+                CellSessionAction::Shell(action) => {
+                    sim.shell_action(*id, *action);
                 }
                 CellSessionAction::Salvage(action) => {
                     sim.salvage_action(*id, *action);
@@ -335,6 +339,34 @@ mod tests {
             sim.tick();
         }
         sim
+    }
+    #[test]
+    fn session_replays_each_crabs_shell_choices() {
+        let mut sim = initial();
+        let guest = PlayerId(91);
+        sim.crab_mut(guest)
+            .unwrap()
+            .mover
+            .clinging
+            .push(crate::Carry::Grit);
+        let packed = sim.session_checkpoint().unwrap();
+        let mut recording = CellSessionRecording::new(&packed, PlayerId(0), guest).unwrap();
+        let mut frame = CellSessionTick::default();
+        frame.actions[0] = Some((guest, CellSessionAction::Shell(crate::ShellAction::Drop(0))));
+        frame.actions[1] = Some((
+            guest,
+            CellSessionAction::Shell(crate::ShellAction::ToggleGrit),
+        ));
+        assert!(recording.note(sim.tick_count(), frame));
+        assert!(sim.tick_cell_session(PlayerId(0), guest, &frame));
+        assert!(!sim.crab(guest).unwrap().pickup.grit);
+        assert_eq!(sim.crab(guest).unwrap().cast_offs.len(), 1);
+        assert!(sim.crab(PlayerId(0)).unwrap().pickup.grit);
+        let replay = Replay::parse(&recording.to_text().unwrap()).unwrap();
+        let mut restored = Sim::with_one_crab(crate::level::SPAWN);
+        assert!(replay.prepare_start(&mut restored));
+        assert!(replay.step_cell_session(&mut restored));
+        assert_eq!(sim.state_hash(), restored.state_hash());
     }
     #[test]
     fn session_replays_salvage_actions_and_identity_exactly() {

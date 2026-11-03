@@ -265,7 +265,7 @@ fn swimming_up_lasts_as_long_as_the_stamina() {
 }
 
 #[test]
-fn only_solid_ground_rests_the_paddle_legs() {
+fn solid_ground_quickly_rests_the_paddle_legs() {
     let t = strokes(2);
     let spend = swim_script(t.swim_strokes);
     let run2 = |script: &str| run_with(t.clone(), script, 7.0, |_| false);
@@ -933,6 +933,34 @@ fn pushing_a_way_while_sinking_dives() {
         dive.crab().vel.x > t.walk_speed + 20.0,
         "and moves across a little faster"
     );
+}
+
+#[test]
+fn falling_turn_replays_to_the_same_state() {
+    let mut live = Sim::with_one_crab(Vec2::new(3600.0, -2000.0));
+    live.start_recording();
+    for tick in 0..360 {
+        live.set_controls(
+            PlayerId(0),
+            Controls {
+                dig_held: tick < 240,
+                walk: if tick < 120 {
+                    0.5
+                } else if tick < 240 {
+                    -1.0
+                } else {
+                    0.0
+                },
+                ..Controls::default()
+            },
+        );
+        live.tick();
+    }
+    let text = live.recording().unwrap().to_text();
+    let replay = Replay::parse(&text).unwrap();
+    let mut again = Sim::with_one_crab(replay.start);
+    play(&mut again, &replay, replay.length(), |_| {});
+    assert_eq!(replay.hash, Some(again.state_hash()));
 }
 
 #[test]

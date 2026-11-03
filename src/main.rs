@@ -117,6 +117,7 @@ mod save;
 mod scribe;
 mod secrets;
 mod settings;
+mod shell_inventory;
 mod sound;
 mod stamina;
 mod style;
@@ -213,6 +214,7 @@ fn run_app() {
                 crevices::CrevicesPlugin,
                 build::BuildPlugin,
                 cling::ClingPlugin,
+                shell_inventory::ShellInventoryPlugin,
             ),
             feel::FeelPlugin,
             foes::FoesPlugin,

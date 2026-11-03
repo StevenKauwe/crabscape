@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::moult::Feat;
 use crate::physics::Carry;
-use crate::world::{CastOff, PlayerId, Sim};
+use crate::world::{CastOff, PickupPreferences, PlayerId, Sim};
 
 /// One crab's lasting progress. The lists follow the level's own lists
 /// (`eaten[i]` is the level's egg `i`).
@@ -39,6 +39,7 @@ pub struct Progress {
     #[serde(default)]
     pub rocks_cracked: Vec<bool>,
     pub cast_offs: Vec<CastOff>,
+    pub pickup: PickupPreferences,
     /// Clams in the larder at home.
     #[serde(default)]
     pub larder: u32,
@@ -162,6 +163,7 @@ impl Sim {
                 own.map(|o| &o.rocks_cracked),
             ),
             cast_offs: crab.cast_offs.clone(),
+            pickup: crab.pickup,
             larder: crab.larder,
             clams: shared.clams.clone(),
             well_fed: m.well_fed,
@@ -238,6 +240,7 @@ impl Sim {
         crab.salvage_receipts = p.salvage_receipts.clone();
         crab.drift_receipts = p.drift_receipts.clone();
         crab.salvage_identity = p.salvage_identity;
+        crab.pickup = p.pickup;
         let m = &mut crab.mover;
         m.upgrades = p.upgrades;
         m.lantern = p.lantern;

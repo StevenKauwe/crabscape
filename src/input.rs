@@ -11,6 +11,7 @@
 //! | Walk   | A / D, or the arrows    | left stick, d-pad    | `<` `>`    |
 //! | Jump   | Space, W, Up, K         | A (south button)     | JUMP       |
 //! | Dodge  | Shift, J                | B, right trigger     | DODGE      |
+//! | Dig / turn | C + direction     | right stick          | DIG / TURN stick |
 //! | Smash  | L, E                    | Y (north button)     | SMASH      |
 //! | Jab    | O, Q                    | X (west button)      | JAB        |
 //! | Guard  | I, F (tap: parry)       | left bumper/trigger  | GUARD      |
@@ -87,7 +88,10 @@ impl Plugin for InputPlugin {
         })
         .add_systems(Startup, spawn_touch_buttons)
         .add_systems(Update, read_input.in_set(GameSet::Input))
-        .add_systems(Update, layout_touch_buttons.in_set(GameSet::Present));
+        .add_systems(
+            Update,
+            (layout_touch_buttons, label_dig_stick).in_set(GameSet::Present),
+        );
     }
 }
 
@@ -175,6 +179,7 @@ fn touched_buttons(
     mouse: &ButtonInput<MouseButton>,
     window: &Window,
     dig_touch: Option<u64>,
+    covered: impl Fn(Vec2) -> bool,
 ) -> Vec<TouchAction> {
     let mut points: Vec<Vec2> = touches
         .iter()
@@ -186,6 +191,7 @@ fn touched_buttons(
     {
         points.push(cursor);
     }
+    points.retain(|point| !covered(*point));
     button_rects(size)
         .into_iter()
         // A slightly bigger hit area than the drawn button: thumbs are imprecise.
@@ -246,6 +252,10 @@ fn read_input(
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
     window: Single<&Window>,
+    inventory: Query<
+        (&ComputedNode, &UiGlobalTransform, &InheritedVisibility),
+        With<crate::shell_inventory::Panel>,
+    >,
     local: Single<&PlayerId, With<LocalPlayer>>,
     settings: Res<crate::settings::panel::Open>,
     sim: Res<crabsim::Sim>,
@@ -256,6 +266,11 @@ fn read_input(
     if touches.any_just_pressed() && !touch_controls.visible {
         touch_controls.visible = true;
     }
+    let covered = |p: Vec2| {
+        inventory
+            .iter()
+            .any(|(b, t, v)| v.get() && b.contains_point(*t, p * window.scale_factor()))
+    };
     let cells_enabled = sim.level.cells.is_some();
     let dig_rect = button_rects(window.size())[0].1;
     if !cells_enabled
@@ -268,7 +283,7 @@ fn read_input(
     if cells_enabled && touch_controls.dig_touch.is_none() {
         touch_controls.dig_touch = touches
             .iter_just_pressed()
-            .find(|t| dig_rect.inflate(3.0).contains(t.position()))
+            .find(|t| !covered(t.position()) && dig_rect.inflate(3.0).contains(t.position()))
             .map(|t| t.id());
     }
     let dig_vector = touch_controls
@@ -285,6 +300,7 @@ fn read_input(
             &mouse,
             &window,
             touch_controls.dig_touch,
+            covered,
         )
     } else {
         Vec::new()
@@ -311,8 +327,8 @@ fn read_input(
         || touch(TouchAction::Dodge);
     // The captured finger can leave the pad without becoming a walk button.
     let stick_digging = dig_vector.length() > 0.2;
-    let digging = sim.level.cells.is_some() && (keys.pressed(KeyCode::KeyC) || stick_digging);
-    let dig_up = digging
+    let mut digging = sim.level.cells.is_some() && (keys.pressed(KeyCode::KeyC) || stick_digging);
+    let mut dig_up = digging
         && (dig_vector.y < -0.35
             || (keys.pressed(KeyCode::KeyC)
                 && any_key(&[KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::Space])));
@@ -333,6 +349,17 @@ fn read_input(
 
     for pad in &gamepads {
         let wants = pad_wants(pad.left_stick(), |b| pad.pressed(b));
+        let dig_stick = pad.right_stick();
+        if cells_enabled && dig_stick.length() > 0.2 {
+            digging = true;
+            walk += if dig_stick.x.abs() > 0.2 {
+                dig_stick.x
+            } else {
+                0.0
+            };
+            dig_up |= dig_stick.y > 0.35;
+            down |= dig_stick.y < -0.35;
+        }
         walk += wants.walk;
         down |= wants.down;
         jump |= wants.jump;
@@ -376,6 +403,30 @@ fn read_input(
 #[derive(Component)]
 struct DigKnob;
 
+#[derive(Component)]
+struct DigLabel;
+
+fn label_dig_stick(
+    sim: Res<crabsim::Sim>,
+    local: Query<&PlayerId, With<LocalPlayer>>,
+    mut labels: Query<&mut Text, With<DigLabel>>,
+) {
+    let can_turn = local
+        .single()
+        .ok()
+        .and_then(|id| sim.crab(*id))
+        .is_some_and(|crab| {
+            crab.mover
+                .can_turn_in_water(&sim.level, &sim.tuning, &crab.controls)
+        });
+    for mut label in &mut labels {
+        let wanted = if can_turn { "TURN" } else { "DIG" };
+        if label.0 != wanted {
+            label.0 = wanted.into();
+        }
+    }
+}
+
 /// The on-screen buttons: Bevy UI boxes, placed by [`layout_touch_buttons`].
 fn spawn_touch_buttons(mut commands: Commands) {
     for action in ACTIONS {
@@ -406,7 +457,7 @@ fn spawn_touch_buttons(mut commands: Commands) {
                 Visibility::Hidden,
             ))
             .with_children(|b| {
-                b.spawn((
+                let mut text = b.spawn((
                     Text::new(label),
                     TextFont {
                         font_size: FontSize::Px(if label.len() > 1 { 15.0 } else { 26.0 }),
@@ -423,6 +474,9 @@ fn spawn_touch_buttons(mut commands: Commands) {
                         Node::default()
                     },
                 ));
+                if action == TouchAction::Dig {
+                    text.insert(DigLabel);
+                }
                 if action == TouchAction::Dig {
                     b.spawn((
                         DigKnob,
@@ -461,7 +515,14 @@ fn layout_touch_buttons(
 ) {
     let size = window.size();
     let rects = button_rects(size);
-    let pressed = touched_buttons(size, &touches, &mouse, &window, touch_controls.dig_touch);
+    let pressed = touched_buttons(
+        size,
+        &touches,
+        &mouse,
+        &window,
+        touch_controls.dig_touch,
+        |_| false,
+    );
     let rect = rects[0].1;
     let vector = touch_controls
         .dig_touch

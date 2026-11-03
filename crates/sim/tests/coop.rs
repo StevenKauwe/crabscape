@@ -77,6 +77,26 @@ const BUSY: &str = "t=0 walk=right; t=0.4 jump; t=0.7 jump; t=0.9 release; t=1.6
                     t=3 walk=right jump; t=3.4 jump; t=4 dodge; t=5.5 walk=left; t=6 jump; t=6.6 sprint; t=7.4 slow";
 
 #[test]
+fn friends_receive_the_crabs_actual_water_orientation() {
+    let mut g = game(Vec2::new(3600.0, -2000.0), FakeLink::steady(0), |_| {});
+    let mut seen = false;
+    play(
+        &mut g,
+        "",
+        "t=0 dig=on walk=right; t=0.3 dig=off walk=stop",
+        ticks(1.0),
+        |g| {
+            let remote = &g.host.crab(GUEST).unwrap().mover;
+            if remote.water_angle < -0.1 {
+                seen = true;
+                assert!(remote.water_spin.is_finite());
+            }
+        },
+    );
+    assert!(seen, "a remote player should see the actual tilted pose");
+}
+
+#[test]
 fn your_own_crab_moves_exactly_as_in_solo_whatever_the_lag() {
     let mut g = game(NEAR, FakeLink::new(LAG, 6, 0.2, 7), |_| {});
     let mut alone = solo(NEAR, |_| {});
@@ -1444,4 +1464,39 @@ fn a_guests_prepared_portions_survive_reload_and_converge_after_packet_loss() {
     assert_eq!(g.guest.crab(GUEST).unwrap().mover.prepared_food, own);
     assert_eq!(g.host.crab(GUEST).unwrap().mover.prepared_food, own);
     assert_eq!(g.guest.crab(GUEST).unwrap().stash.valves, 2);
+}
+
+#[test]
+fn a_guest_stays_in_the_morays_jaws_and_the_host_sees_the_hold() {
+    let mut game = game(
+        Vec2::new(492.5, 421.0),
+        FakeLink::new(3, 0, 0.0, 6),
+        |sim| {
+            sim.enable_underwater_cells();
+            let id = sim.spawn_enemy(Kind::Moray, Vec2::new(450.0, 400.0));
+            let eel = sim.enemies_mut().iter_mut().find(|e| e.id == id).unwrap();
+            eel.pos = Vec2::new(450.0, 400.0);
+            eel.facing = 1.0;
+            eel.target = Some(GUEST);
+            eel.state = State::Attack;
+            eel.state_len = 100;
+        },
+    );
+    let mut contact = None;
+    let mut held_ticks = 0;
+    let mut seen = false;
+    play(&mut game, "", "", 45, |g| {
+        let crab = g.guest.crab(GUEST).unwrap();
+        if crab.fighter.grabbed.is_some() {
+            held_ticks += 1;
+            let pos = *contact.get_or_insert(crab.mover.pos);
+            assert_eq!(pos, crab.mover.pos);
+            let remote = g.host.crab(GUEST).unwrap();
+            seen |= remote.fighter.grabbed.is_some() && remote.mover.pos == pos;
+        }
+    });
+    assert!(
+        held_ticks > 20 && seen,
+        "held {held_ticks} ticks, seen={seen}"
+    );
 }

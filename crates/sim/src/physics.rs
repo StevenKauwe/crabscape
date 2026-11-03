@@ -24,6 +24,18 @@ pub const STEP: f32 = 1.0 / TICKS_PER_SECOND as f32;
 /// How many physics steps ("ticks") make one second of game time.
 pub const TICKS_PER_SECOND: u32 = 120;
 
+/// Anisotropic water resistance. This symmetric positive-semidefinite
+/// matrix can redirect momentum along the shell but cannot create energy.
+/// At zero angle it preserves the existing broadside sinking resistance.
+fn water_resistance(velocity: Vec2, angle: f32) -> Vec2 {
+    let (s, c) = (libm::sinf(angle), libm::cosf(angle));
+    let cross = -0.55 * s * c;
+    Vec2::new(
+        0.55 * s * s * velocity.x + cross * velocity.y,
+        cross * velocity.x + (1.0 - 0.55 * s * s) * velocity.y,
+    )
+}
+
 /// What a player is asking their crab to do. This is a *command*, not a
 /// keyboard or touch-screen reading, so it can come from anywhere: the local
 /// player's keys today, a network message from another player later.
@@ -166,8 +178,8 @@ pub struct Mover {
     /// Fighting experience: it grows with every blow the claws land on a
     /// creature (more for beating one), and each level hits harder.
     pub fight_xp: f32,
-    /// Paddle strokes left (fractions are strokes still resting). Only
-    /// standing on something solid gives them back, and only from the
+    /// Paddle strokes left (fractions are strokes still resting). Resting
+    /// on solid ground or slowly while sinking draws on the
     /// [`reserve`](Self::reserve).
     pub stamina: f32,
     /// The body's deeper reserve: 1 = full, 0 = empty. Resting the paddle
@@ -196,6 +208,10 @@ pub struct Mover {
     /// Diving: pushing a way while sinking, tilted and streamlined, so a
     /// little faster down and sideways.
     pub diving: bool,
+    /// Body orientation and angular velocity in the water, in radians.
+    /// Positive angles rotate counter-clockwise.
+    pub water_angle: f32,
+    pub water_spin: f32,
     /// Time left in a flip (dodge in the water), and which way it turns
     /// (1 = clockwise, towards the right).
     pub flip_left: f32,
@@ -272,6 +288,8 @@ impl Mover {
             winded: false,
             climbing: false,
             diving: false,
+            water_angle: 0.0,
+            water_spin: 0.0,
             flip_left: 0.0,
             flip_dir: 1.0,
             dash_left: 0.0,
@@ -332,6 +350,36 @@ impl Mover {
     /// The height of its box against the level, as big as it has grown.
     pub fn height(&self, t: &Tuning) -> f32 {
         t.body_height * self.grown(t)
+    }
+
+    /// In open water the dig stick turns the shell. During excavation the
+    /// feet can be off the floor while the crab is still braced in its cut.
+    pub fn can_turn_in_water(&self, level: &Level, t: &Tuning, c: &Controls) -> bool {
+        if self.grounded || self.climbing {
+            return false;
+        }
+        let Some(cells) = &level.cells else {
+            return true;
+        };
+        // Probe the body and the three-cell cut immediately ahead of the
+        // working claws. Include a cell around the legs for uneven footing.
+        let cell = crate::underwater::GAME_CELL;
+        let reach = 3.0 * cell;
+        let half = self.half_width(t) + cell;
+        let mut left = self.pos.x - half;
+        let mut right = self.pos.x + half;
+        let mut bottom = self.pos.y - cell;
+        let mut top = self.pos.y + self.height(t) + cell;
+        if c.dig_up {
+            top += reach;
+        } else if c.down {
+            bottom -= reach;
+        } else if c.walk < -0.1 {
+            left -= reach;
+        } else if c.walk > 0.1 {
+            right += reach;
+        }
+        !cells.game_movement_blocked(left, bottom, right, top, 0.0)
     }
 
     /// What its walking (and sprinting) speed is multiplied by: a bigger
@@ -697,7 +745,31 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
     let c = &effective_controls;
     let mut ev = StepEvents::default();
-    let walk = c.walk.clamp(-1.0, 1.0);
+    let turning = c.dig_held && m.can_turn_in_water(level, t, c);
+    let turn = if turning {
+        -c.walk.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    let walk = if turning {
+        0.0
+    } else {
+        c.walk.clamp(-1.0, 1.0)
+    };
+    // Two stable postures per full turn in open water: upright and nose-down,
+    // separated by their bisectors. On a surface, feet right the body without
+    // an orientation jump on touchdown.
+    let restoring = if m.grounded || m.climbing || (c.dig_held && !turning) {
+        -4.0 * libm::sinf(m.water_angle)
+    } else {
+        let bisector = m.water_angle + std::f32::consts::FRAC_PI_4;
+        6.0 * libm::sinf(bisector) * (libm::cosf(bisector) - std::f32::consts::FRAC_1_SQRT_2)
+    };
+    m.water_spin =
+        (m.water_spin + (9.0 * turn + restoring - 2.0 * m.water_spin) * dt).clamp(-3.0, 3.0);
+    m.water_angle = (m.water_angle + m.water_spin * dt + std::f32::consts::PI)
+        .rem_euclid(std::f32::consts::TAU)
+        - std::f32::consts::PI;
     let walking = walk.abs() > 0.1;
     let dig_speed = if level.cells.is_some() && c.dig_held {
         (1.0 / (1.0 + m.dig_load.max(0.0) / 80.0)).clamp(0.3, 1.0)
@@ -729,6 +801,10 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         if m.climbing && m.has(Feat::GrippingDactyls) {
             let full = m.strokes(t) as f32;
             rest_legs(m, t, full * dt / m.stamina_refill_time(t));
+        } else if !m.climbing && m.vel.y < 0.0 && !c.dig_held {
+            // Resting during a long descent is deliberately much slower than
+            // bracing on a surface and still draws on the finite reserve.
+            rest_legs(m, t, dt / 20.0);
         }
     }
     m.stroke_rest = (m.stroke_rest - dt).max(0.0);
@@ -928,7 +1004,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             (true, true) if reversing => t.ground_turn,
             (true, true) if too_fast => t.overspeed_decel,
             (true, true) => t.ground_accel,
-            (false, false) => t.air_decel,
+            // A tilted shell glides on water instead of actively braking
+            // away the sideways momentum that its angled drag creates.
+            (false, false) => t.air_decel * (1.0 - 0.9 * libm::sinf(2.0 * m.water_angle).abs()),
             (false, true) if too_fast => t.overspeed_decel,
             (false, true) => t.air_accel,
         };
@@ -1029,8 +1107,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         // weight: it sinks faster. (Its legs grow with it, so a jump or a
         // stroke pushes it up as high.)
         let heavy = 1.0 + t.moult.weight * (m.grown(t) - 1.0);
-        let (up, down) = (through.max(0.0), through.min(0.0));
-        m.vel.y -= drag * (up * up - down * down / heavy) * dt;
+        let weight = if through < 0.0 { heavy } else { 1.0 };
+        let relative = Vec2::new(m.vel.x, through);
+        let resisted = water_resistance(relative, m.water_angle);
+        let amount = (drag * through.abs() * dt / weight).min(0.5);
+        m.vel -= resisted * amount;
     }
 
     if let Some(cells) = &level.cells {
@@ -1680,6 +1761,141 @@ mod tests {
         run(&mut m, Controls::default(), 3.0, &level);
         // A steady, gentle sink: about 350, not a free fall.
         assert!((-380.0..-320.0).contains(&m.vel.y), "fell at {}", m.vel.y);
+    }
+
+    #[test]
+    fn dig_control_rotates_in_the_requested_direction_and_angle_persists() {
+        let level = Level::test_level();
+        let mut start = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        start.grounded = false;
+        let mut left = start.clone();
+        let mut right = start;
+        let controls = |walk| Controls {
+            dig_held: true,
+            walk,
+            ..default()
+        };
+        run(&mut left, controls(-1.0), 0.3, &level);
+        run(&mut right, controls(1.0), 0.3, &level);
+        assert!(left.water_angle > 0.0 && right.water_angle < 0.0);
+        run(&mut right, Controls::default(), 0.2, &level);
+        assert!(
+            right.water_angle < -0.1,
+            "letting go must not flatten the crab"
+        );
+    }
+
+    #[test]
+    fn held_dig_can_turn_through_both_stable_postures() {
+        let level = Level::test_level();
+        for direction in [-1.0, 1.0] {
+            let mut mover = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+            mover.grounded = false;
+            let controls = Controls {
+                dig_held: true,
+                walk: direction,
+                ..default()
+            };
+            let mut total = 0.0;
+            for _ in 0..600 {
+                let previous = mover.water_angle;
+                step(
+                    &mut mover,
+                    &controls,
+                    &Tuning::default(),
+                    &level,
+                    crate::STEP,
+                );
+                let change = (mover.water_angle - previous + std::f32::consts::PI)
+                    .rem_euclid(std::f32::consts::TAU)
+                    - std::f32::consts::PI;
+                total -= change * direction;
+            }
+            assert!(total > std::f32::consts::TAU, "only turned {total} radians");
+        }
+    }
+
+    #[test]
+    fn angled_shell_redirects_sinking_without_adding_energy() {
+        let v = Vec2::new(0.0, -300.0);
+        let left = water_resistance(v, std::f32::consts::FRAC_PI_4);
+        let right = water_resistance(v, -std::f32::consts::FRAC_PI_4);
+        assert!(left.x > 0.0 && right.x < 0.0);
+        assert!(left.y.abs() < water_resistance(v, 0.0).y.abs());
+        for angle in -32..=32 {
+            for vx in [-500.0, 0.0, 500.0] {
+                for vy in [-500.0, 0.0, 500.0] {
+                    let velocity = Vec2::new(vx, vy);
+                    let drag = water_resistance(velocity, angle as f32 * 0.1);
+                    assert!(velocity.dot(drag) >= -0.1, "resistance added energy");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn opposite_tilts_glide_in_opposite_directions_without_input() {
+        let level = Level::test_level();
+        let mut left = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        left.grounded = false;
+        left.vel.y = -300.0;
+        left.water_angle = 0.65;
+        let mut right = left.clone();
+        right.water_angle = -left.water_angle;
+        let start = left.pos.x;
+        run(&mut left, Controls::default(), 0.5, &level);
+        run(&mut right, Controls::default(), 0.5, &level);
+        assert!(
+            left.pos.x < start - 5.0,
+            "leftward glide: {}",
+            left.pos.x - start
+        );
+        assert!(
+            right.pos.x > start + 5.0,
+            "rightward glide: {}",
+            right.pos.x - start
+        );
+        assert!(left.pos.y < 5000.0 && right.pos.y < 5000.0);
+    }
+
+    #[test]
+    fn released_tilts_settle_to_broadside_or_edge_on() {
+        let level = Level::test_level();
+        let mut broadside = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        broadside.grounded = false;
+        broadside.water_angle = 0.3;
+        let mut edge = broadside.clone();
+        edge.water_angle = -1.2;
+        run(&mut broadside, Controls::default(), 4.0, &level);
+        run(&mut edge, Controls::default(), 4.0, &level);
+        assert!(broadside.water_angle.abs() < 0.1);
+        assert!((edge.water_angle + std::f32::consts::FRAC_PI_2).abs() < 0.1);
+        assert!(broadside.water_spin.abs() < 0.1 && edge.water_spin.abs() < 0.1);
+    }
+
+    #[test]
+    fn resting_while_sinking_is_slow_and_spends_reserve() {
+        let level = Level::test_level();
+        let mut resting = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        resting.grounded = false;
+        resting.upgrades = 1;
+        resting.stamina = 0.0;
+        let mut turning = resting.clone();
+        let reserve = resting.reserve;
+        run(&mut resting, Controls::default(), 2.0, &level);
+        run(
+            &mut turning,
+            Controls {
+                dig_held: true,
+                walk: 1.0,
+                ..default()
+            },
+            2.0,
+            &level,
+        );
+        assert!(resting.stamina > 0.0 && resting.stamina < 0.11);
+        assert_eq!(turning.stamina, 0.0);
+        assert!(resting.reserve < reserve);
     }
 
     #[test]

@@ -172,7 +172,7 @@ fn spawn_card(mut commands: Commands) {
                 std::iter::once((key, text))
                     .chain(
                         (cellular && key == "S / Down")
-                            .then_some(("C + direction", "dig into sand")),
+                            .then_some(("C + direction", "dig on floor, turn in water")),
                     )
                     .chain(
                         (cellular && key == "F I")

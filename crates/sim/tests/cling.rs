@@ -174,7 +174,7 @@ fn an_old_save_with_a_clam_on_its_back_still_carries_it() {
     fields.insert("carrying".into(), "Clam".into());
     fields.insert(
         "cast_offs".into(),
-        serde_json::json!([{ "pos": [fell.x, fell.y], "carrying": "Grit" }]),
+        serde_json::json!([{ "pos": [fell.x, fell.y], "carrying": "Grit", "recoverable": true }]),
     );
     let saved: Progress = serde_json::from_value(old).expect("an old save still reads");
     sim.restore_progress(P0, &saved);
