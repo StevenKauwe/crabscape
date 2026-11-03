@@ -555,7 +555,7 @@ impl Memory {
         if !self.cache.enabled {
             return true;
         }
-        self.cache.protected.clear();
+        self.cache.begin_interest();
         let sight = Sight::new(eye, lantern, t);
         let (xs, ys) = self.cell_ranges(sight.bounds().inflate(4.0 * t.cell), t);
         if xs.is_empty() || ys.is_empty() {
@@ -570,8 +570,8 @@ impl Memory {
         for y in (bottom - 1).max(0)..=(top + 1).min(max_y) {
             for x in (left - 1).max(0)..=(right + 1).min(max_x) {
                 let key = (x as i32, y as i32);
-                self.cache.protected.insert(key);
                 if (left..=right).contains(&x) && (bottom..=top).contains(&y) {
+                    self.cache.protected.insert(key);
                     ready &= self.cache.require(key);
                 } else {
                     // Read the next page before it comes into sight; a pending
@@ -583,7 +583,8 @@ impl Memory {
         ready
     }
     pub fn page_requests(&self, limit: usize) -> Vec<crate::page_cache::PageTicket> {
-        self.cache.requests(limit)
+        self.cache
+            .requests(limit, |&(x, y)| self.dirty.contains(&(x as u32, y as u32)))
     }
     pub fn accept_page(
         &mut self,
@@ -1079,8 +1080,7 @@ mod cold_memory_tests {
         assert!(!required.is_empty());
         assert!(!memory.paging_ready(eye, 0, t));
         let tickets = memory.page_requests(256);
-        assert!(tickets.len() > required.len());
-        let (needed, ahead) = tickets.split_at(required.len());
+        let needed = &tickets;
         assert_eq!(
             needed
                 .iter()
@@ -1095,7 +1095,9 @@ mod cold_memory_tests {
             memory.paging_ready(eye, 0, t),
             "nearby speculative reads may still be in flight"
         );
-        for ticket in ahead.iter().cloned() {
+        let ahead = memory.page_requests(256);
+        assert!(!ahead.is_empty());
+        for ticket in ahead {
             assert!(memory.accept_page(ticket, None).unwrap());
         }
         assert!(memory.paging_ready(eye + Vec2::X * t.cell * MEMORY_CHUNK_SIDE as f32, 0, t));
