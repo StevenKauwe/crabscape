@@ -38,7 +38,8 @@ pub fn player_fits_world(sim: &crate::Sim, player: &SaveData) -> bool {
     }
     if let Some(progress) = &player.progress {
         let current = sim.fresh_progress();
-        if progress.salvage_receipts.len() > 32
+        if !progress.prepared_food.valid()
+            || progress.salvage_receipts.len() > 32
             || progress
                 .salvage_receipts
                 .iter()

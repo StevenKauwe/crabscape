@@ -303,3 +303,26 @@ fn one_long_hold_consumes_only_one_portion() {
         1
     );
 }
+
+#[test]
+fn duplicate_portions_are_rejected_before_restoring_a_saved_player() {
+    let sim = Sim::with_one_crab(Vec2::new(180.0, 0.0));
+    let mut progress = sim.progress(P).unwrap();
+    let (mut clams, mut valves) = (1, 0);
+    assert!(progress.prepared_food.prepare(
+        crabsim::prepared_food::PortionKind::Shell,
+        &mut clams,
+        &mut valves
+    ));
+    let mut player = crabsim::SaveData {
+        version: crabsim::SAVE_VERSION,
+        x: 180.0,
+        y: 0.0,
+        memory: None,
+        progress: Some(progress),
+    };
+    assert!(crabsim::save_data::player_fits_world(&sim, &player));
+    let food = &mut player.progress.as_mut().unwrap().prepared_food;
+    food.slots[1] = food.slots[0];
+    assert!(!crabsim::save_data::player_fits_world(&sim, &player));
+}
