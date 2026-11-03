@@ -80,6 +80,8 @@ pub struct CellMaterial {
     #[texture(4)]
     #[sampler(5)]
     cells: Handle<Image>,
+    #[uniform(6)]
+    crab_bounds: Vec4,
 }
 impl CellMaterial {
     pub fn set_memory_grid(&mut self, grid: Vec4) {
@@ -118,6 +120,7 @@ struct CellImage {
     handle: Handle<Image>,
     tick: u64,
     bounds: (f32, f32, f32, f32),
+    crab_bounds: Vec4,
 }
 
 pub struct CellularPlugin;
@@ -144,6 +147,8 @@ fn setup(
         return;
     };
     let (pixel_width, pixel_height) = cells.dimensions();
+    let mut raw = Vec::new();
+    cells.write_display_cells(&mut raw);
     let mut image = Image::new(
         Extent3d {
             width: pixel_width as u32,
@@ -151,8 +156,8 @@ fn setup(
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        cells.game_pixels(),
-        TextureFormat::Rgba8UnormSrgb,
+        raw,
+        TextureFormat::Rg8Unorm,
         RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
     );
     image.sampler = ImageSampler::nearest();
@@ -163,6 +168,7 @@ fn setup(
         memory: memory.image.clone(),
         bounds: Vec4::new(left, bottom, width, height),
         cells: handle.clone(),
+        crab_bounds: Vec4::from_array(cells.display_crab_bounds()),
     };
     commands.spawn((
         CellField,
@@ -218,6 +224,7 @@ fn setup(
         handle,
         tick: cells.tick_count(),
         bounds: cells.game_bounds(),
+        crab_bounds: Vec4::from_array(cells.display_crab_bounds()),
     });
 }
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -260,6 +267,14 @@ fn draw(
         }
     }
     if cells.tick_count() != output.tick || bounds != output.bounds {
+        let crab_bounds = Vec4::from_array(cells.display_crab_bounds());
+        if crab_bounds != output.crab_bounds
+            && let Ok((_, handle)) = field.single_mut()
+            && let Some(mut material) = materials.get_mut(&handle.0)
+        {
+            material.crab_bounds = crab_bounds;
+            output.crab_bounds = crab_bounds;
+        }
         if let Some(mut image) = images.get_mut(&output.handle) {
             let (width, height) = cells.dimensions();
             if image.texture_descriptor.size.width != width as u32
@@ -271,7 +286,7 @@ fn draw(
                     depth_or_array_layers: 1,
                 });
             }
-            image.data = Some(cells.game_pixels());
+            cells.write_display_cells(image.data.get_or_insert_default());
         }
         for (particle, mut transform, mut visibility) in &mut particles {
             if let Some((x, y, _)) = cells.game_particle(particle.0) {

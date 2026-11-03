@@ -22,6 +22,7 @@ struct MemoryUniform {
 @group(2) @binding(3) var<uniform> bounds: vec4<f32>;
 @group(2) @binding(4) var cell_texture: texture_2d<f32>;
 @group(2) @binding(5) var cell_sampler: sampler;
+@group(2) @binding(6) var<uniform> crab_bounds: vec4<f32>;
 
 struct FragmentInput {
     @location(0) world_position: vec4<f32>,
@@ -71,6 +72,61 @@ fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
     return c * min(exposure, 1.0 / strongest_channel);
 }
 
+fn is_mud(texel: vec2<i32>, dims: vec2<i32>) -> bool {
+    if any(texel < vec2<i32>(0)) || any(texel >= dims) { return false; }
+    return textureLoad(cell_texture, texel, 0).r > 2.5 / 255.0;
+}
+
+// The simulation uploads material and grain identity. Color and the soft mud
+// gap are presentation only; neither is read back by the simulation.
+fn terrain_color(at: vec2<i32>, dims: vec2<i32>) -> vec4<f32> {
+    let data = vec2<u32>(round(textureLoad(cell_texture, at, 0).rg * 255.0));
+    let x = u32(at.x);
+    let y = u32(dims.y - 1 - at.y);
+    var rgb: vec3<u32>;
+    switch data.x {
+        case 0u: {
+            let local = vec2<f32>(f32(x), f32(y));
+            if all(local >= crab_bounds.xy) && all(local <= crab_bounds.zw) { return vec4<f32>(0.0); }
+            let dx = vec2<i32>(1, 0);
+            let dy = vec2<i32>(0, 1);
+            let l = is_mud(at - dx, dims);
+            let r = is_mud(at + dx, dims);
+            let a = is_mud(at - dy, dims);
+            let b = is_mud(at + dy, dims);
+            if !(l || r || a || b) { return vec4<f32>(0.0); }
+            let left = l || is_mud(at - 2 * dx, dims);
+            let right = r || is_mud(at + 2 * dx, dims);
+            let above = a || is_mud(at - 2 * dy, dims);
+            let below = b || is_mud(at + 2 * dy, dims);
+            if !((left && right && (above || below)) || (above && below && (left || right))) { return vec4<f32>(0.0); }
+            let speck = (x * 7u + y * 13u) % 7u;
+            rgb = vec3<u32>(76u, 82u, 68u) + speck;
+        }
+        case 1u: {
+            let fleck = (x / 4u * 11u + y / 3u * 17u) % 9u;
+            rgb = vec3<u32>(38u, 66u, 67u) + fleck;
+        }
+        case 2u: {
+            if data.y >= 248u {
+                rgb = vec3<u32>(104u, 112u, 103u);
+            } else if data.y % 11u == 0u {
+                rgb = vec3<u32>(177u, 158u, 112u);
+            } else if data.y % 7u == 0u {
+                rgb = vec3<u32>(162u, 145u, 105u);
+            } else {
+                rgb = vec3<u32>(141u, 130u, 100u);
+            }
+        }
+        default: {
+            let tone = data.y / 40u;
+            rgb = vec3<u32>(84u + tone, 82u + tone, 69u + tone / 2u);
+        }
+    }
+    let srgb = vec3<f32>(rgb) / 255.0;
+    return vec4<f32>(pow((srgb + 0.055) / 1.055, vec3<f32>(2.4)), 1.0);
+}
+
 fn water_colour(p: vec2<f32>) -> vec3<f32> {
     let surface = clamp(p.y / 5000.0, 0.0, 1.0);
     let vertical = clamp(-p.y / 9000.0, 0.0, 1.0);
@@ -87,7 +143,9 @@ fn water_colour(p: vec2<f32>) -> vec3<f32> {
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let p = in.world_position.xy;
     let cell_uv = vec2<f32>((p.x - bounds.x) / bounds.z, 1.0 - (p.y - bounds.y) / bounds.w);
-    let cell = textureSample(cell_texture, cell_sampler, cell_uv);
+    let dims = vec2<i32>(textureDimensions(cell_texture));
+    let at = clamp(vec2<i32>(floor(cell_uv * vec2<f32>(dims))), vec2<i32>(0), dims - 1);
+    let cell = terrain_color(at, dims);
     if cell.a < 0.01 { discard; }
     let uv = vec2<f32>(
         (p.x - material.grid.x) / material.grid.z,

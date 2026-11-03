@@ -166,11 +166,12 @@ fn scoop_destination(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[repr(u8)]
 pub enum Cell {
-    Water,
-    Rock,
-    Sand,
-    Mud,
+    Water = 0,
+    Rock = 1,
+    Sand = 2,
+    Mud = 3,
 }
 
 /// Fixed world-space chunk coordinates for the planned full-map simulation.
@@ -1308,22 +1309,34 @@ impl World {
             ambient_current(y, self.tick * 4)
         }
     }
-    /// Transparent water lets the campaign's own background show through.
-    pub fn game_pixels(&self) -> Vec<u8> {
-        let mut pixels = self.pixels();
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let cell = y * self.width + x;
-                if self.cells[cell] == Cell::Water {
-                    let p = ((self.height - 1 - y) * self.width + x) * 4;
-                    let depth = (y * 10 / self.height) as u8;
-                    if pixels[p..p + 3] == [15 + depth / 2, 53 + depth, 65 + depth] {
-                        pixels[p + 3] = 0;
-                    }
-                }
+    /// Pack material and grain identity in top-to-bottom texture rows.
+    pub fn write_display_cells(&self, out: &mut Vec<u8>) {
+        out.resize(self.cells.len() * 2, 0);
+        for ((row, cells), grain) in out
+            .chunks_exact_mut(self.width * 2)
+            .zip(self.cells.chunks_exact(self.width).rev())
+            .zip(self.grain.chunks_exact(self.width).rev())
+        {
+            for ((pixel, cell), shade) in
+                row.as_chunks_mut::<2>().0.iter_mut().zip(cells).zip(grain)
+            {
+                pixel[0] = *cell as u8;
+                pixel[1] = *shade;
             }
         }
-        pixels
+    }
+    /// Inclusive local cell coordinates where the crab keeps the mud visually open.
+    pub fn display_crab_bounds(&self) -> [f32; 4] {
+        self.crab.map_or([1.0, 1.0, 0.0, 0.0], |(x, y)| {
+            let w = self.crab_half_x + 5;
+            let h = self.crab_half_y + 5;
+            [
+                (x - w) as f32,
+                (y - h) as f32,
+                (x + w) as f32,
+                (y + h) as f32,
+            ]
+        })
     }
     /// Fine particles are separate sprites so they can be smaller than one
     /// material cell without increasing the cost of the whole grid.
@@ -4474,6 +4487,23 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terrain_display_upload_preserves_grain_identity_and_texture_orientation() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        let mut out = Vec::new();
+        for (x, y) in [(160.0, 0.0), (6800.0, -3200.0), (160.0, 0.0)] {
+            world.follow_player(&level, x, y);
+            world.write_display_cells(&mut out);
+            assert_eq!(out.len(), world.width * world.height * 2);
+            for (offset, pair) in out.as_chunks::<2>().0.iter().enumerate() {
+                let i =
+                    (world.height - 1 - offset / world.width) * world.width + offset % world.width;
+                assert_eq!(*pair, [world.cells[i] as u8, world.grain[i]]);
+            }
+        }
+    }
 
     #[test]
     fn alternating_flow_matches_reference_on_its_active_color() {
