@@ -326,6 +326,31 @@ pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result
     {
         return Err("guest reload did not retain exactly one valve and clear receipt".into());
     }
+    // Send the original owner home using the normal prompt, leaving the guest
+    // to own the distant Canyon region before it departs.
+    host.b.hold_key("KeyH", 0.1)?;
+    host.b.eval(
+        "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))",
+    )?;
+    host.b.hold_key("KeyY", 0.1)?;
+    for p in [&mut *host, &mut *guest] {
+        p.until(90.0, "Canyon authority separates from the owner", |p| {
+            p.b.attr("data-cell-regions").as_deref() == Some("separate")
+                && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+        })?;
+    }
+    pause_region(guest, true)?;
+    let region = regional_scene(guest)?;
+    let canyon = region
+        .canyon
+        .as_ref()
+        .ok_or("guest lost Canyon authority")?;
+    if !canyon.owned_slots[0]
+        || canyon.slots[0].generation < 1
+        || (canyon.slots[0].generation == 1 && !matches!(canyon.slots[0].phase, SlotPhase::Vacant))
+    {
+        return Err("handoff lost or resurrected the claimed Canyon generation".into());
+    }
     guest.b.go("about:blank")?;
     host.until(30.0, "owner resumes alone", |p| {
         p.b.attr("data-cell-session").as_deref() == Some("solo")
@@ -343,5 +368,5 @@ pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result
     {
         return Err("owner reload resurrected the claimed generation".into());
     }
-    Ok(vec!["guest physically claims one caught generation; player receipt and owner retirement survive separate reloads".into()])
+    Ok(vec!["guest physically claims one caught generation; player receipt and owner retirement survive separate reloads and distant regional authority handoff".into()])
 }
