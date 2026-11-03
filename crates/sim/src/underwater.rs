@@ -1236,12 +1236,15 @@ impl World {
         }
         // Floor height depends only on world x. A newly exposed vertical strip
         // can generate hundreds of cells from the same authored floor sample.
-        let floors: Vec<_> = (0..width)
-            .map(|col| {
-                let wx = ((next_origin.0 + col as i32) as f32 + 0.5) * GAME_CELL;
-                (wx, level.floor_height(wx))
-            })
-            .collect();
+        // An entirely archived strip needs no authored samples.
+        let floors = std::cell::LazyCell::new(|| {
+            (0..width)
+                .map(|col| {
+                    let wx = ((next_origin.0 + col as i32) as f32 + 0.5) * GAME_CELL;
+                    (wx, level.floor_height(wx))
+                })
+                .collect::<Vec<_>>()
+        });
         let mut touched = Vec::new();
         for (key, xs, ys) in pages(next_origin, next_size) {
             if covered(&xs, &ys) {
