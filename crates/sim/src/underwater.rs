@@ -4083,6 +4083,78 @@ impl World {
                 let mut vx = (current + shear + eddy * 0.08) * feed;
                 let mut vy = cross * 0.002;
                 let mut weight = feed;
+                let deflect = current
+                    * if world_y < (self.height / 2) as f32 {
+                        0.12
+                    } else {
+                        -0.12
+                    };
+                let left = i - 1;
+                if self.cells[left] == Cell::Water {
+                    vx += self.flow[left].0;
+                    vy += self.flow[left].1;
+                    weight += 1.0;
+                } else {
+                    vy += deflect;
+                }
+                let right = i + 1;
+                if self.cells[right] == Cell::Water {
+                    vx += self.flow[right].0;
+                    vy += self.flow[right].1;
+                    weight += 1.0;
+                } else {
+                    vy += deflect;
+                }
+                let below = i - self.width;
+                if self.cells[below] == Cell::Water {
+                    vx += self.flow[below].0;
+                    vy += self.flow[below].1;
+                    weight += 1.0;
+                }
+                let above = i + self.width;
+                if self.cells[above] == Cell::Water {
+                    vx += self.flow[above].0;
+                    vy += self.flow[above].1;
+                    weight += 1.0;
+                }
+                next[i] = (vx / weight, vy / weight);
+            }
+        }
+        self.flow = next;
+    }
+
+    #[cfg(test)]
+    fn diffuse_flow_reference(&mut self, current: f32) {
+        // Diffuse velocity locally and continuously feed the ambient current.
+        // Solid neighbors redirect a small part of the flow vertically.
+        let mut next = self.flow.clone();
+        for y in 1..self.height - 1 {
+            // Broad slow layers preserve the fine simulation's established
+            // motion until it is coupled to the world-wide baseline.
+            let time = self.tick as f32;
+            let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
+            let shear = if self.game {
+                libm::sinf(world_y * 0.055 + time * 0.006) * 0.375
+                    + libm::sinf(world_y * 0.021 - time * 0.0027) * 0.15
+            } else {
+                0.0
+            };
+            for x in 1..self.width - 1 {
+                let i = y * self.width + x;
+                if self.cells[i] != Cell::Water {
+                    next[i] = (0.0, 0.0);
+                    continue;
+                }
+                // Broad, slow eddies make the current less uniform while
+                // retaining its overall direction and stable boundaries.
+                let t = self.tick as f32 * 0.018;
+                let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
+                let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
+                let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
+                let feed = if self.game { 0.12 } else { 0.035 };
+                let mut vx = (current + shear + eddy * 0.08) * feed;
+                let mut vy = cross * 0.002;
+                let mut weight = feed;
                 for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
                     let n = (y as i32 + dy) as usize * self.width + (x as i32 + dx) as usize;
                     if self.cells[n] == Cell::Water {
@@ -4365,6 +4437,32 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unrolled_flow_matches_reference_bits_in_streamed_worlds() {
+        let level = crate::Level::test_level();
+        for mut world in [World::new(), World::from_level_settled(&level)] {
+            for position in [(160.0, 0.0), (6800.0, -3200.0), (6800.0, -8200.0)] {
+                if world.game {
+                    world.follow_player(&level, position.0, position.1);
+                }
+                for current in [0.0, 0.35, -0.8, 1.2, 0.35, 0.0, -0.2, 0.35] {
+                    let mut expected = world.clone();
+                    expected.diffuse_flow_reference(current);
+                    world.diffuse_flow(current);
+                    assert!(
+                        world
+                            .flow
+                            .iter()
+                            .zip(&expected.flow)
+                            .all(|(a, b)| a.0.to_bits() == b.0.to_bits()
+                                && a.1.to_bits() == b.1.to_bits())
+                    );
+                    world.step(current);
+                }
+            }
+        }
+    }
 
     #[test]
     fn disjoint_walker_rejects_sediment_and_overlapping_bodies_atomically() {
