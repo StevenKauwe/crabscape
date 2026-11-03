@@ -1081,7 +1081,10 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             m.vel.y = m.vel.y.max(110.0);
         }
     }
-    move_and_collide(m, t, level, dt, &mut ev, c.dig_held);
+    // A sideways cut follows the floor under the crab's legs. Vertical
+    // digging must let go of that footing so the crab can enter the cut.
+    let side_dig = walking && !c.down && !c.dig_up;
+    move_and_collide(m, t, level, dt, &mut ev, c.dig_held && !side_dig);
     // Touching down rests one stroke at once (so a hop straight off again
     // has its double jump); the rest come back while it stands.
     if ev.landed.is_some() {
@@ -1425,10 +1428,23 @@ fn move_and_collide_cells(
                     .solids()
                     .any(|r| right > r.min.x && left < r.max.x && top > r.min.y && bottom < r.max.y)
         };
+        // If standing taller would meet a stone roof, the crab can keep
+        // its legs bent and scuttle until its feet find the floor again.
+        let can_pass_at_height = || {
+            let under_low_roof = || {
+                cells.game_rock_in_rect(
+                    candidate.x - hw,
+                    m.pos.y + height,
+                    candidate.x + hw,
+                    m.pos.y + height + step_up + hw * 0.8 + crate::underwater::GAME_CELL,
+                )
+            };
+            !digging && (m.vel.y > 0.0 || (was_grounded && under_low_roof())) && can_step(candidate)
+        };
         if let Some(surface) = footing.filter(|&s| can_step(Vec2::new(candidate.x, s))) {
             m.pos = Vec2::new(candidate.x, surface);
             walking_on_surface = true;
-        } else if !blocked(candidate) || (!digging && m.vel.y > 0.0 && can_step(candidate)) {
+        } else if !blocked(candidate) || can_pass_at_height() {
             m.pos = candidate;
             walking_on_surface = false;
         } else if was_grounded && !digging && dx.abs() > EPS && m.vel.y <= 0.0 {
@@ -1445,6 +1461,29 @@ fn move_and_collide_cells(
                     climbing_step = rise as f32 > leg_lift;
                     stepped = true;
                     break;
+                }
+            }
+            // Coming back downhill, the shell can be just above the lip
+            // of a low roof. Settle the legs into the soft footing first.
+            if !stepped
+                && cells.game_rock_in_rect(
+                    candidate.x - hw,
+                    m.pos.y + height - step_up,
+                    candidate.x + hw,
+                    m.pos.y + height,
+                )
+            {
+                let tuck = (1..=step_up.ceil() as usize)
+                    .map(|n| n as f32)
+                    .find(|drop| {
+                        let lower = Vec2::Y * *drop;
+                        can_step(candidate - lower) && can_step(m.pos - lower)
+                    });
+                if let Some(drop) = tuck {
+                    m.pos.y -= drop.min((dx.abs() / xsteps as f32 * 2.5).max(0.5));
+                    m.vel.y = 0.0;
+                    m.grounded = true;
+                    return;
                 }
             }
             if !stepped {

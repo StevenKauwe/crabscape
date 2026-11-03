@@ -1269,8 +1269,13 @@ impl ChunkFlow {
         let front = cx + direction * (self.crab_half_x + 1);
         let mut moved = 0;
         let mut remaining = 6usize;
-        for y in (foot - 2..=foot + 4).rev() {
-            for offset in 0..6 {
+        // The legs take their normal step first. Use any spare force to
+        // clear grains catching the leading edge of the shell.
+        let leg_rows = (foot - 2..=foot + 4).rev();
+        let shell_rows = (foot + 5..=cy + self.crab_half_y).rev();
+        for y in leg_rows.chain(shell_rows) {
+            let reach = if y > foot + 4 { 2 } else { 6 };
+            for offset in 0..reach {
                 let x = front + direction * offset;
                 let Some(from) = Self::signed_location(x, y) else {
                     continue;
@@ -1279,6 +1284,14 @@ impl ChunkFlow {
                     continue;
                 }
                 let owner = self.chunks[from.0].owner[from.1];
+                if y > foot + 4
+                    && (owner != 0
+                        || !super::shoulder_can_brush(x, y, direction, |cx, cy| {
+                            self.cell(cx as usize, cy as usize).unwrap_or(Cell::Rock)
+                        }))
+                {
+                    continue;
+                }
                 if owner != 0 {
                     for (dx, dy) in [(direction, 0), (direction, 1), (0, 1)] {
                         let mut journal = PushJournal::default();

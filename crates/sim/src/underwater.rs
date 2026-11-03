@@ -65,6 +65,24 @@ fn grain_body_contains(x: i32, y: i32, cx: i32, cy: i32, hx: i32, hy: i32) -> bo
     dy > top && dy <= top + rise
 }
 
+fn anchored_column(row: i32, cell_at: impl Fn(i32) -> Cell) -> bool {
+    (0..=row)
+        .rev()
+        .find_map(|below| match cell_at(below) {
+            Cell::Rock => Some(true),
+            Cell::Water => Some(false),
+            Cell::Sand | Cell::Mud => None,
+        })
+        .unwrap_or(true)
+}
+
+// A dangling grain or a narrow lip with water on its far side can give
+// under the shell. Reaching open water takes an actual grain swap below.
+fn shoulder_can_brush(x: i32, y: i32, direction: i32, cell: impl Fn(i32, i32) -> Cell) -> bool {
+    (1..=3).any(|step| cell(x + direction * step, y) == Cell::Water)
+        || !anchored_column(y, |row| cell(x, row))
+}
+
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
 
@@ -1663,14 +1681,7 @@ impl World {
     // A falling loose column cannot carry an airborne crab. Rock and packed
     // sediment extending beyond this active window retain their normal collision.
     fn sediment_anchored(&self, x: i32, row: i32) -> bool {
-        (0..=row)
-            .rev()
-            .find_map(|below| match self.cell(x, below) {
-                Cell::Rock => Some(true),
-                Cell::Water => Some(false),
-                Cell::Sand | Cell::Mud => None,
-            })
-            .unwrap_or(true)
+        anchored_column(row, |below| self.cell(x, below))
     }
 
     pub(crate) fn game_airborne_support(&self, min_x: f32, max_x: f32, feet_y: f32) -> bool {
@@ -1762,6 +1773,9 @@ impl World {
         }
         let (x0, y0) = self.local_cell(min_x, min_y);
         let (x1, y1) = self.local_cell(max_x, max_y);
+        // Count shoulder contact separately from grains already around
+        // the legs. A few specks at the rim of a cut yield to the shell.
+        let mut shoulder_grains = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
                 if let Some(i) = self.index_at(x, y) {
@@ -1771,7 +1785,10 @@ impl World {
                             if GAME_BOTTOM + (y + 1 + self.origin.1) as f32 * GAME_CELL
                                 > min_y + leg_reach =>
                         {
-                            return true;
+                            shoulder_grains += 1;
+                            if self.pebble_owner[i] != 0 || shoulder_grains > 6 {
+                                return true;
+                            }
                         }
                         _ => {}
                     }
@@ -2343,13 +2360,24 @@ impl World {
         let front = cx + direction * (self.crab_half_x + 1);
         let mut moved = 0;
         let mut remaining_force = 6usize;
-        for y in (foot - 2..=foot + 4).rev() {
-            for offset in 0..6 {
+        // The legs take their normal step first. Use any spare force to
+        // clear grains catching the leading edge of the shell.
+        let leg_rows = (foot - 2..=foot + 4).rev();
+        let shell_rows = (foot + 5..=cy + self.crab_half_y).rev();
+        for y in leg_rows.chain(shell_rows) {
+            let reach = if y > foot + 4 { 2 } else { 6 };
+            for offset in 0..reach {
                 let x = front + direction * offset;
                 let Some(from) = self.index_at(x, y) else {
                     continue;
                 };
                 if !matches!(self.cells[from], Cell::Sand | Cell::Mud) {
+                    continue;
+                }
+                if y > foot + 4
+                    && (self.pebble_owner[from] != 0
+                        || !shoulder_can_brush(x, y, direction, |cx, cy| self.cell(cx, cy)))
+                {
                     continue;
                 }
                 if self.pebble_owner[from] != 0 {
