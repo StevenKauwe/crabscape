@@ -186,3 +186,9 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Water-flow diffusion calls deterministic software sine for each water cell.
+# Keep its arithmetic unchanged, but compile that hot math for speed; the game
+# and every other dependency retain the small-download release profile above.
+[profile.release.package.libm]
+opt-level = 3
