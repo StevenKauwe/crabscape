@@ -77,9 +77,15 @@ fn show(
     mut hint: Single<(&mut Hint, &mut Text, &mut Visibility)>,
 ) {
     // Keep the phone's inventory/salvage rows above this hint. In landscape,
-    // use the space beside the skill readout instead of covering the crab.
-    let short = windows.iter().next().is_some_and(|w| w.height() < 600.0);
-    position.top = px(if short { 98.0 } else { 238.0 });
+    // use the upper-right space below Home: inventory moves to the centre
+    // at y=90, and salvage choices occupy the left 300 pixels at y=145.
+    let short = windows
+        .iter()
+        .next()
+        .is_some_and(|w| w.height() < 600.0 && w.width() > w.height());
+    position.top = px(if short { 145.0 } else { 238.0 });
+    position.left = px(if short { 320.0 } else { 0.0 });
+    position.right = px(if short { 12.0 } else { 0.0 });
     let (state, text, visible) = &mut *hint;
     state.left = (state.left - time.delta_secs()).max(0.0);
     for message in messages.read() {
@@ -182,7 +188,8 @@ mod tests {
             .resolution
             .set(742.0, 430.0);
         advance(&mut app, 0.0);
-        assert_eq!(app.world().get::<Node>(position).unwrap().top, px(98));
+        assert_eq!(app.world().get::<Node>(position).unwrap().top, px(145));
+        assert_eq!(app.world().get::<Node>(position).unwrap().left, px(320));
         app.world_mut().write_message(ShowHint::Released);
         advance(&mut app, 0.0);
         assert_eq!(
