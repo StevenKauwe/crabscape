@@ -870,8 +870,24 @@ pub fn step(
                             .max(0.0);
                         (x - e.head_x(t)) * e.facing < -margin
                     });
-                let near_attack =
-                    (x - e.head_x(t)).abs() <= k.strike_range && level_with_target && !behind_snout;
+                // Horizontal and vertical tolerances separately admit a
+                // diagonal corner that the circular jaws cannot reach. Keep
+                // swimming into alignment instead of repeating empty bites.
+                let reaches_body = !swimming_moray
+                    || target_body.is_some_and(|body| {
+                        let start = e.head_x(t);
+                        let end = start + e.facing * (k.strike.ahead + k.strike.lunge);
+                        let middle = (body.min.x + body.max.x) * 0.5;
+                        let centre = Vec2::new(
+                            middle.clamp(start.min(end), start.max(end)),
+                            e.pos.y + k.strike.height,
+                        );
+                        circle_meets(centre, k.strike.radius, body)
+                    });
+                let near_attack = (x - e.head_x(t)).abs() <= k.strike_range
+                    && level_with_target
+                    && !behind_snout
+                    && reaches_body;
                 let clear_to_prey = !swimming_moray
                     || !near_attack
                     || target_pos.is_some_and(|p| {
