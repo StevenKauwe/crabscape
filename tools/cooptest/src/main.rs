@@ -2429,6 +2429,18 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     p.b.attr("data-cell-session").as_deref() == Some("guest")
                 })?;
                 restart_introducer(site)?;
+                for p in [&mut host, &mut guest] {
+                    let closed =
+                        p.b.coop_log()
+                            .iter()
+                            .filter(|line| line.contains("co-op cellular: Connection closed"))
+                            .count();
+                    if closed > 1 {
+                        return Err(p.failed(format!(
+                            "reported one closed introducer connection {closed} times"
+                        )));
+                    }
+                }
                 host.b.go("about:blank")?;
                 guest.until(
                     limit::INTRODUCER_BACK,

@@ -327,6 +327,9 @@ pub(crate) fn controls(c: Controls) -> bool {
     })
 }
 fn end(s: &mut Session, sim: &mut Sim, local: PlayerId) {
+    // A solo crab's held controls belong to its own world even if the
+    // introducer has gone away. Only release inputs from a shared session.
+    let was_playing = s.phase != Phase::Solo;
     if local == HOST
         && let Err(reason) = regional::restore_owner(s, sim)
     {
@@ -342,7 +345,7 @@ fn end(s: &mut Session, sim: &mut Sim, local: PlayerId) {
         sim.remove_cell_player(guest);
     }
     *s = Session::default();
-    if sim.crab(local).is_some() {
+    if was_playing && sim.crab(local).is_some() {
         sim.set_controls(local, Controls::default());
     }
 }
@@ -641,7 +644,10 @@ pub(super) fn take_in(
     let mut alive = true;
     LINK.with(|slot| {
         let mut cell = slot.borrow_mut();
-        let Some(link) = cell.as_mut() else { return };
+        let Some(link) = cell.as_mut() else {
+            alive = coop.code.is_none();
+            return;
+        };
         SESSION.with(|session| {
             let mut s = session.borrow_mut();
             match link.socket.try_update_peers() {
@@ -909,6 +915,11 @@ pub(super) fn take_in(
                 }
             }
         });
+        // A closed peer-state channel never becomes readable again. Release
+        // this link once and let the existing reconnect timer reopen the room.
+        if !alive {
+            cell.take();
+        }
     });
     if let Some(e) = error {
         warn!("co-op cellular: {e}");
