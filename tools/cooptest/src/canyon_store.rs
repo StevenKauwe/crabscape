@@ -306,10 +306,13 @@ pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result
         sleep(0.5);
     }
     guest.reload()?;
+    guest.b.click(600.0, 400.0)?;
+    guest.b.set_key("KeyA", true)?;
     guest.until(90.0, "guest rejoins after Canyon receipt retirement", |p| {
         p.b.attr("data-cell-session").as_deref() == Some("guest")
             && p.b.attr("data-cell-region-state").as_deref() == Some("running")
     })?;
+    guest.b.set_key("KeyA", false)?;
     let saved = capture(guest)?;
     let progress = save_fixture::frame_from_object(&saved)
         .ok()
@@ -326,13 +329,31 @@ pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result
     {
         return Err("guest reload did not retain exactly one valve and clear receipt".into());
     }
-    // Send the original owner home using the normal prompt, leaving the guest
+    let settle = Instant::now();
+    loop {
+        let (x, y) = local_position(guest)?;
+        let grounded = guest
+            .b
+            .attr("data-crab")
+            .is_some_and(|value| value.split_whitespace().last() == Some("1"));
+        if (6400.0..=6440.0).contains(&x) && (-3200.0..=-3160.0).contains(&y) && grounded {
+            break;
+        }
+        if settle.elapsed().as_secs() > 90 {
+            return Err(format!(
+                "guest could not settle at Canyon after reload: ({x}, {y})"
+            ));
+        }
+        if !(6408.0..=6432.0).contains(&x) {
+            guest
+                .b
+                .hold_key(if x > 6432.0 { "KeyA" } else { "KeyD" }, 0.12)?;
+        }
+        sleep(0.15);
+    }
+    // Send the original owner home using the visible button, leaving the guest
     // to own the distant Canyon region before it departs.
-    host.b.hold_key("KeyH", 0.1)?;
-    host.b.eval(
-        "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))",
-    )?;
-    host.b.hold_key("KeyY", 0.1)?;
+    host.b.click(1140.0, 70.0)?;
     for p in [&mut *host, &mut *guest] {
         p.until(90.0, "Canyon authority separates from the owner", |p| {
             p.b.attr("data-cell-regions").as_deref() == Some("separate")
