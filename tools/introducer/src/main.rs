@@ -48,7 +48,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use axum::extract::{ConnectInfo, DefaultBodyLimit};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
+use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use matchbox_signaling::SignalingServer;
 use tower_http::cors::{Any, CorsLayer};
@@ -121,29 +122,32 @@ async fn main() -> Result<(), matchbox_signaling::Error> {
 }
 
 /// A report from the game: check it, then file it as an issue. Answers the
-/// issue's address, or a short reason the game can show.
+/// JSON receipt only after the issue and its requested comments are uploaded,
+/// or a short reason the game can show.
 async fn receive(
     limits: report::Shared,
     token: Option<Arc<str>>,
     headers: HeaderMap,
     ConnectInfo(from): ConnectInfo<SocketAddr>,
     body: String,
-) -> (StatusCode, String) {
+) -> Response {
     let Some(token) = token else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            "reports aren't switched on yet".into(),
-        );
+            String::from("reports aren't switched on yet"),
+        )
+            .into_response();
     };
     let Ok(sent) = serde_json::from_str::<report::Report>(&body) else {
         return (
             StatusCode::BAD_REQUEST,
-            "that report didn't make sense".into(),
-        );
+            String::from("that report didn't make sense"),
+        )
+            .into_response();
     };
     let (title, text) = match report::issue(&sent) {
         Ok(issue) => issue,
-        Err(why) => return (StatusCode::BAD_REQUEST, why.into()),
+        Err(why) => return (StatusCode::BAD_REQUEST, String::from(why)).into_response(),
     };
     // On Fly.io every request comes through its proxy, which names the sender.
     let sender = headers
@@ -156,21 +160,41 @@ async fn receive(
     if !allowed {
         return (
             StatusCode::TOO_MANY_REQUESTS,
-            "that's 100 reports in ten minutes: try again in a few minutes".into(),
-        );
+            String::from("that's 100 reports in ten minutes: try again in a few minutes"),
+        )
+            .into_response();
     }
-    match tokio::task::spawn_blocking(move || report::file(&token, &title, &text)).await {
-        Ok(Ok(url)) => (StatusCode::OK, url),
+    match tokio::task::spawn_blocking(move || {
+        report::file(&token, &title, &text, &sent.reproduction)
+    })
+    .await
+    {
+        Ok(Ok(receipt)) => (
+            StatusCode::OK,
+            [(CONTENT_TYPE, "application/json")],
+            serde_json::json!({
+                "url": receipt.url,
+                "reproduction_parts": receipt.reproduction_parts,
+            })
+            .to_string(),
+        )
+            .into_response(),
         Ok(Err(e)) => {
             println!("report not filed: {e}");
             (
                 StatusCode::BAD_GATEWAY,
-                "GitHub didn't take it: try again later".into(),
+                if e.starts_with("Issue ") {
+                    format!("{e}. The report exists; do not submit a duplicate.")
+                } else {
+                    "GitHub didn't take it: try again later".into()
+                },
             )
+                .into_response()
         }
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "something broke: try again later".into(),
-        ),
+            String::from("something broke: try again later"),
+        )
+            .into_response(),
     }
 }

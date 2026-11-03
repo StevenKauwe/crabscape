@@ -59,6 +59,10 @@ pub(super) fn encode_region_checkpoint(world: &World) -> Option<Vec<u8>> {
     encode_sized_checkpoint(world, 24 * 1024 * 1024, MAX_REGION_SILT, &world.sleeping)
 }
 
+pub(super) fn encode_active_region_checkpoint(world: &World) -> Option<Vec<u8>> {
+    encode_sized_checkpoint(world, 24 * 1024 * 1024, MAX_REGION_SILT, &BTreeMap::new())
+}
+
 fn encode_sized_checkpoint(
     world: &World,
     raw_limit: usize,

@@ -53,6 +53,76 @@ struct StateRef<'a> {
 }
 
 impl Sim {
+    /// A bounded local reproduction at this tick, including the actual mover,
+    /// nearby animals, material and flow. It is not a replay of earlier inputs.
+    pub fn diagnostic_replay(&self, player: PlayerId) -> Result<crate::Replay, CheckpointError> {
+        let crab = self.crab(player).ok_or(CheckpointError::Invalid)?;
+        let terrain = self
+            .level
+            .cells
+            .as_ref()
+            .ok_or(CheckpointError::Unsupported)?
+            .diagnostic_crop(&self.level, crab.mover.pos)
+            .ok_or(CheckpointError::TooLarge)?;
+        let bounds = terrain.game_bounds();
+        let nearby = |p: Vec2| {
+            p.x >= bounds.0
+                && p.x <= bounds.0 + bounds.2
+                && p.y >= bounds.1
+                && p.y <= bounds.1 + bounds.3
+        };
+        // Level serialization excludes terrain; cloning Level would copy the
+        // growing sleeping-archive index before replacing it with the crop.
+        let metadata = serde_json::to_vec(&self.level).map_err(|_| CheckpointError::Invalid)?;
+        let mut level: Level =
+            serde_json::from_slice(&metadata).map_err(|_| CheckpointError::Invalid)?;
+        level.cells = Some(terrain);
+        let mut local = Sim::new(self.tuning.clone(), level);
+        local.feel = self.feel;
+        local.tick = self.tick;
+        local.rng = self.rng.clone();
+        local.shared = self.shared.clone();
+        local.next_enemy = self.next_enemy;
+        local.crabs = self
+            .crabs
+            .iter()
+            .filter(|c| !c.remote && nearby(c.mover.pos))
+            .cloned()
+            .collect();
+        local.crab(player).ok_or(CheckpointError::Unsupported)?;
+        local.enemies = self
+            .enemies
+            .iter()
+            .filter(|e| nearby(e.pos))
+            .cloned()
+            .collect();
+        local.owned_rng = self.owned_rng.as_ref().map(|streams| {
+            streams
+                .iter()
+                .filter(|(id, _)| local.enemies.iter().any(|e| e.id == **id))
+                .map(|(id, stream)| (*id, stream.clone()))
+                .collect()
+        });
+        let bytes = local.region_checkpoint()?;
+        if bytes.len() > 180 * 1024 {
+            return Err(CheckpointError::TooLarge);
+        }
+        // Never label a capture usable unless the bounded consumer accepts it.
+        Self::from_session_checkpoint(&bytes)?;
+        Ok(crate::Replay {
+            snapshot: Some((player, bytes)),
+            cellular: true,
+            start: crab.mover.pos,
+            tuning: Some(self.tuning.fingerprint()),
+            inputs: vec![crate::replay::Input {
+                tick: 0,
+                controls: crab.controls.held_only(),
+            }],
+            end: Some(8),
+            ..crate::Replay::default()
+        })
+    }
+
     /// Add a visiting, fully simulated actor without importing its world's resources
     /// or opened obstacles. Invalid inputs leave the session untouched.
     pub fn join_cell_player(
@@ -366,6 +436,36 @@ fn valid_level(level: &Level) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_crop_keeps_only_its_animals_random_streams() {
+        let mut sim = session();
+        sim.owned_rng = Some(
+            sim.enemies
+                .iter()
+                .map(|e| (e.id, Rng::new(u64::from(e.id))))
+                .collect(),
+        );
+        assert!(!sim.enemies.is_empty());
+        let replay = sim.diagnostic_replay(PlayerId(71)).unwrap();
+        let text = replay.to_text();
+        let parsed = crate::Replay::parse(&text).unwrap();
+        let mut restored = Sim::with_one_crab(Vec2::ZERO);
+        assert!(parsed.prepare_start(&mut restored));
+        assert!(restored.enemies.len() < sim.enemies.len());
+        assert!(
+            restored
+                .owned_rng
+                .as_ref()
+                .unwrap()
+                .keys()
+                .all(|id| restored.enemies.iter().any(|e| e.id == *id))
+        );
+        assert_eq!(
+            restored.crab(PlayerId(71)).unwrap().mover,
+            sim.crab(PlayerId(71)).unwrap().mover
+        );
+    }
 
     fn session() -> Sim {
         let mut sim = Sim::new(Tuning::default(), Level::test_level());

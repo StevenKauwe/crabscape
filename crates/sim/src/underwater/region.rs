@@ -114,6 +114,39 @@ pub enum RegionError {
 }
 
 impl World {
+    /// Read-only diagnostic crop. Never clone or serialize the sleeping archive.
+    pub(crate) fn diagnostic_crop(
+        &self,
+        level: &crate::Level,
+        centre: bevy_math::Vec2,
+    ) -> Option<Self> {
+        let raw = super::bounded_checkpoint::encode_active_region_checkpoint(self)?;
+        let mut copy =
+            super::bounded_checkpoint::decode_region_checkpoint(&raw, self.width, self.height)?;
+        let active = self.region();
+        let mut bounds = CellRegion::around_points(&[centre], 32)?;
+        for _ in 0..4 {
+            if bounds.width > active.width || bounds.height > active.height {
+                return None;
+            }
+            bounds.x = bounds
+                .x
+                .clamp(active.x, active.x + (active.width - bounds.width) as i32);
+            bounds.y = bounds
+                .y
+                .clamp(active.y, active.y + (active.height - bounds.height) as i32);
+            if copy.fit_region(level, bounds).is_ok() {
+                copy.sleeping.clear();
+                return Some(copy);
+            }
+            bounds.x -= 4;
+            bounds.y -= 4;
+            bounds.width += 8;
+            bounds.height += 8;
+        }
+        None
+    }
+
     pub fn restore_default_window(
         &mut self,
         level: &crate::Level,

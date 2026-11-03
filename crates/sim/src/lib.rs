@@ -96,8 +96,11 @@ pub fn play(sim: &mut Sim, replay: &Replay, ticks: u64, mut after_tick: impl FnM
     let mut playback = replay.playback();
     for _ in 0..ticks {
         replay.apply_at(sim);
-        sim.set_controls(PlayerId(0), playback.next_controls());
-        sim.tick();
+        let controls = playback.next_controls();
+        if !replay.step_snapshot(sim, controls) {
+            sim.set_controls(replay.primary_player(), controls);
+            sim.tick();
+        }
         after_tick(sim);
     }
 }

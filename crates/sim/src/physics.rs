@@ -805,6 +805,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             0.0
         };
     let grip = level.climb_at(m.pos, grip_reach, m.glass_grips);
+    let was_climbing = m.climbing;
     let mut shuffle = 0.0;
     if m.climbing {
         if !walking {
@@ -855,6 +856,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.stroke_queued = false;
         m.dodge_left = 0.0;
         ev.gripped = true;
+    }
+    if was_climbing && !m.climbing {
+        clear_climb_exit(m, t, level);
     }
     if m.climbing {
         let down = c.down || c.dodge_held;
@@ -1099,6 +1103,39 @@ pub fn climb_box(m: &Mover, t: &Tuning) -> Rect {
         (m.pos.x - out, m.pos.x)
     };
     Rect::new(left, m.pos.y - half_tall, right, m.pos.y + half_tall)
+}
+
+/// The climbing position is a grip anchor, not the centre of the upright
+/// body. Unfold onto the exposed side before ordinary collision takes over.
+/// Otherwise stepping off beside a wall embeds half the walking body in rock.
+fn clear_climb_exit(m: &mut Mover, t: &Tuning, level: &Level) {
+    let Some(cells) = &level.cells else {
+        return;
+    };
+    let blocked = |x: f32| {
+        cells.game_rock_in_rect(
+            x - m.half_width(t),
+            m.pos.y,
+            x + m.half_width(t),
+            m.pos.y + m.height(t),
+        )
+    };
+    if !blocked(m.pos.x) {
+        return;
+    }
+    // Search only within the body that was exposed on the climbing side;
+    // this cannot move the crab through the wall to the opposite side.
+    let steps = (m.height(t) / crate::underwater::GAME_CELL).ceil() as i32;
+    for step in 1..=steps {
+        let x = m.pos.x + m.climb_side * step as f32 * crate::underwater::GAME_CELL;
+        if !blocked(x) {
+            m.pos.x = x;
+            m.grounded = false;
+            return;
+        }
+    }
+    // No room to unfold: keep the usable grip rather than enter solid rock.
+    m.climbing = true;
 }
 
 /// Does the climbing body overlap anything solid?

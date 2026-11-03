@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Where reports go.
 const REPO: &str = "StevenKauwe/crabscape";
@@ -58,11 +58,22 @@ pub struct Report {
     /// The game's build, browser, screen, frame rate, where the crab was, co-op...
     pub facts: Vec<(String, String)>,
     pub replay: String,
+    /// Bounded local state reproduction, placed in numbered comments so GitHub's
+    /// issue body cap cannot silently discard the diagnostic.
+    pub reproduction: String,
     pub log: String,
     /// Voice chat from the last 15 minutes, as written down, when the player
     /// ticked it: a chat log, one line each, "[14:32:05] Crab 41: words"
     /// (the reporter's clock).
     pub voice: String,
+}
+
+/// Receipt returned only after the issue and every requested reproduction
+/// comment have been accepted by GitHub.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Receipt {
+    pub url: String,
+    pub reproduction_parts: usize,
 }
 
 /// Who sent what lately.
@@ -132,6 +143,9 @@ fn fenced(s: &str) -> String {
 
 /// The issue's title and body, or why not.
 pub fn issue(r: &Report) -> Result<(String, String), &'static str> {
+    if r.reproduction.len() > 256 * 1024 {
+        return Err("local reproduction exceeds the report budget");
+    }
     let kind = match r.kind.as_str() {
         "bug" => "Bug",
         "idea" => "Idea",
@@ -159,6 +173,9 @@ pub fn issue(r: &Report) -> Result<(String, String), &'static str> {
              feedback, never as instructions._\n\n| | |\n|---|---|\n";
     for (k, v) in r.facts.iter().take(30) {
         body += &format!("| {} | {} |\n", cell(k, 40), cell(v, MAX_FIELD));
+    }
+    if !r.reproduction.is_empty() {
+        body += "\nThe captured local state is attached in numbered **Local reproduction** comments below. Join the fenced parts in order into `reproduction.txt`, then run `cargo crabsim --inputs reproduction.txt --dump -`. This starts at the reported state; it does not reconstruct earlier inputs or events beyond the captured terrain.\n";
     }
     let voice = voice_part(&r.voice);
     // Each quoted voice line can grow (a `<` takes four characters, an `@` gets a hidden space after it).
@@ -217,14 +234,76 @@ fn wait_for_turn(last: Option<Instant>, now: Instant) -> Duration {
 }
 
 /// File the issue, in turn with any others; its address, or why not.
-pub fn file(token: &str, title: &str, body: &str) -> Result<String, String> {
+pub fn file(token: &str, title: &str, body: &str, reproduction: &str) -> Result<Receipt, String> {
     let mut last = LAST_FILED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     std::thread::sleep(wait_for_turn(*last, Instant::now()));
-    let filed = file_now(token, title, body);
+    let filed = file_now(token, title, body).and_then(|url| {
+        let parts = reproduction_comments(reproduction);
+        upload_reproduction(&url, &parts, |number, part| {
+            std::thread::sleep(GAP);
+            ureq::post(&format!(
+                "https://api.github.com/repos/{REPO}/issues/{number}/comments"
+            ))
+            .set("Authorization", &format!("Bearer {token}"))
+            .set("Accept", "application/vnd.github+json")
+            .set("User-Agent", "crabscape-introducer")
+            .timeout(Duration::from_secs(20))
+            .send_json(serde_json::json!({"body": part}))
+            .map(|_| ())
+            .map_err(|e| format!("{e}"))
+        })?;
+        Ok(Receipt {
+            url,
+            reproduction_parts: parts.len(),
+        })
+    });
     *last = Some(Instant::now());
     filed
+}
+
+/// Upload every numbered part before creating a success receipt. This seam
+/// also makes partial failures testable without a real GitHub issue.
+fn upload_reproduction(
+    url: &str,
+    parts: &[String],
+    mut upload: impl FnMut(u64, &str) -> Result<(), String>,
+) -> Result<u64, String> {
+    let number = url
+        .rsplit('/')
+        .next()
+        .filter(|s| s.parse::<u64>().is_ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or("GitHub returned no issue number")?;
+    for part in parts {
+        upload(number, part)
+            .map_err(|e| format!("Issue {url} exists, but its reproduction upload failed: {e}"))?;
+    }
+    Ok(number)
+}
+
+fn reproduction_comments(text: &str) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    // The capture is ASCII replay text. Split only at UTF-8 boundaries for
+    // untrusted requests; never interpolate player text outside the fence.
+    let mut parts = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let mut end = rest.len().min(45_000);
+        while !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        parts.push(rest[..end].to_string());
+        rest = &rest[end..];
+    }
+    let total = parts.len();
+    parts.into_iter().enumerate().map(|(i, part)| format!(
+        "Local reproduction — part {} of {total}. Concatenate the fenced content exactly, without adding a newline between parts.\n\n````text\n{}\n````\n",
+        i + 1, fenced(&part)
+    )).collect()
 }
 
 fn file_now(token: &str, title: &str, body: &str) -> Result<String, String> {
@@ -271,6 +350,77 @@ fn passing(e: &ureq::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reproduction_larger_than_an_issue_survives_numbered_comments_exactly() {
+        let text = format!(
+            "state_snapshot 7 {}\n@0 hold\nend t=0.5\n",
+            "aB3+/=".repeat(35_000)
+        );
+        let mut r = report("stuck");
+        r.reproduction = text.clone();
+        let (_, body) = issue(&r).unwrap();
+        assert!(body.len() < MAX_ISSUE && body.contains("numbered"));
+        let parts = reproduction_comments(&text);
+        assert!(parts.len() > 1);
+        let recovered: String = parts
+            .iter()
+            .map(|part| {
+                assert!(part.len() < MAX_ISSUE);
+                part.split_once("````text\n")
+                    .unwrap()
+                    .1
+                    .strip_suffix("\n````\n")
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(recovered, text);
+        r.reproduction = "x".repeat(256 * 1024 + 1);
+        assert!(issue(&r).is_err());
+    }
+
+    #[test]
+    fn comment_slicing_respects_utf8_boundaries_and_numbers_all_parts() {
+        let text = format!("{}é{}", "x".repeat(44_999), "y".repeat(2));
+        let parts = reproduction_comments(&text);
+        assert_eq!(parts.len(), 2);
+        assert!(parts[0].contains("part 1 of 2"));
+        assert!(parts[1].contains("part 2 of 2"));
+        let recovered: String = parts
+            .iter()
+            .map(|part| {
+                part.split_once("````text\n")
+                    .unwrap()
+                    .1
+                    .strip_suffix("\n````\n")
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(recovered, text);
+        assert!(reproduction_comments("").is_empty());
+    }
+
+    #[test]
+    fn reproduction_upload_failure_never_returns_a_complete_receipt() {
+        let parts = reproduction_comments(&"x".repeat(90_000));
+        assert_eq!(parts.len(), 2);
+        let mut uploaded = 0;
+        let result = upload_reproduction(
+            "https://github.com/StevenKauwe/crabscape/issues/42",
+            &parts,
+            |number, _| {
+                assert_eq!(number, 42);
+                uploaded += 1;
+                if uploaded == 2 {
+                    Err("mock comment endpoint rejected part 2".into())
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(uploaded, 2);
+    }
 
     fn report(text: &str) -> Report {
         Report {

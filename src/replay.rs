@@ -23,16 +23,46 @@ pub struct ReplayPlugin;
 
 impl Plugin for ReplayPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, save_on_request.in_set(GameSet::Present));
+        app.init_resource::<CapturePoll>()
+            .add_systems(Update, save_on_request.in_set(GameSet::Present));
     }
 }
 
 /// When F9 is pressed (or the page's Replay button was clicked), hand out
 /// the replay so far.
-fn save_on_request(keys: Res<ButtonInput<KeyCode>>, sim: Res<Sim>) {
-    if !keys.just_pressed(KeyCode::F9) && !page::replay_wanted() {
+#[derive(Resource, Default)]
+struct CapturePoll {
+    elapsed: f32,
+}
+
+fn save_on_request(
+    keys: Res<ButtonInput<KeyCode>>,
+    sim: Res<Sim>,
+    me: Res<crate::coop::LocalId>,
+    time: Res<Time<Real>>,
+    mut poll: ResMut<CapturePoll>,
+) {
+    poll.elapsed += time.delta_secs();
+    let requested = if poll.elapsed >= 0.25 {
+        poll.elapsed = 0.0;
+        page::capture_requested()
+    } else {
+        false
+    };
+    if !requested && !keys.just_pressed(KeyCode::F9) && !page::replay_wanted() {
         return;
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    match sim.diagnostic_replay(me.0) {
+        Ok(replay) => page::capture(&format!(
+            "# {}\n{}",
+            crate::settings::build_line(),
+            replay.to_text()
+        )),
+        Err(reason) => warn!("local reproduction unavailable: {reason:?}"),
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = me;
     if let Some(session) = crate::coop::cells_replay(false) {
         match session {
             Ok(mut text) => {
@@ -44,6 +74,7 @@ fn save_on_request(keys: Res<ButtonInput<KeyCode>>, sim: Res<Sim>) {
         return;
     }
     let Some(replay) = sim.recording() else {
+        page::hand_out("# Replay unavailable: no complete input recording is running.\n");
         return;
     };
     page::hand_out(&replay.to_text());
@@ -57,6 +88,29 @@ mod page {
     /// There is no page on the desktop.
     pub fn replay_wanted() -> bool {
         false
+    }
+
+    pub fn capture_requested() -> bool {
+        if crate::report::take_asked() {
+            return true;
+        }
+        match std::fs::remove_file("crabscape-capture.request") {
+            Ok(()) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => {
+                warn!("couldn't consume local capture request: {e}");
+                false
+            }
+        }
+    }
+
+    pub fn capture(text: &str) {
+        let written = std::fs::write("crabscape-state.txt.tmp", text)
+            .and_then(|()| std::fs::rename("crabscape-state.txt.tmp", "crabscape-state.txt"));
+        match written {
+            Ok(()) => info!("local reproduction saved to crabscape-state.txt"),
+            Err(e) => warn!("couldn't save local reproduction: {e}"),
+        }
     }
 
     pub fn hand_out(text: &str) {
@@ -76,6 +130,9 @@ mod page {
 /// (`web/index.html`) shows the replay in a box to copy.
 #[cfg(target_arch = "wasm32")]
 mod page {
+    pub fn capture_requested() -> bool {
+        false
+    }
     fn canvas() -> Option<web_sys::Element> {
         web_sys::window()?
             .document()?

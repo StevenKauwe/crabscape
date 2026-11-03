@@ -99,6 +99,8 @@ pub struct Input {
 /// A whole replay or input script.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Replay {
+    /// A local diagnostic starts at the reported state, rather than the beginning of a visit.
+    pub(crate) snapshot: Option<(crate::PlayerId, Vec<u8>)>,
     pub(crate) regional: Option<crate::world::regions::journal::RegionJournal>,
     pub(crate) session: Option<session::SessionReplay>,
     /// Where player 0's crab stands at tick 0.
@@ -147,6 +149,7 @@ pub struct Spawn {
 impl Default for Replay {
     fn default() -> Self {
         Self {
+            snapshot: None,
             regional: None,
             session: None,
             start: SPAWN,
@@ -223,6 +226,28 @@ impl Replay {
                 };
                 let err = |msg: String| format!("line {line_no}: {msg}");
                 match first {
+                    "state_snapshot" => {
+                        if rest.len() != 2
+                            || replay.snapshot.is_some()
+                            || rest[1].len() > 512 * 1024
+                        {
+                            return Err(err("invalid diagnostic snapshot".into()));
+                        }
+                        let id = crate::PlayerId(
+                            rest[0]
+                                .parse()
+                                .map_err(|_| err("invalid snapshot player".into()))?,
+                        );
+                        let bytes = crate::memory::unbase64(rest[1])
+                            .ok_or_else(|| err("invalid snapshot encoding".into()))?;
+                        let sim = crate::Sim::from_session_checkpoint(&bytes)
+                            .map_err(|_| err("invalid snapshot state".into()))?;
+                        if sim.crab(id).is_none() {
+                            return Err(err("missing snapshot player".into()));
+                        }
+                        replay.snapshot = Some((id, bytes));
+                        replay.cellular = true;
+                    }
                     "world" if rest == ["cells"] => replay.cellular = true,
                     "world" => return Err(err("`world` wants cells".into())),
                     "cell_start" => {
@@ -385,6 +410,9 @@ impl Replay {
             "# CrabScape replay. Play it without a window: cargo crabsim --inputs <this file>\n",
         );
         out += &format!("start x={} y={}\n", self.start.x, self.start.y);
+        if let Some((id, bytes)) = &self.snapshot {
+            out += &format!("state_snapshot {} {}\n", id.0, crate::memory::base64(bytes));
+        }
         if self.cellular {
             out += "world cells\n";
         }
@@ -507,6 +535,15 @@ impl Replay {
     /// its player. Other replays leave the supplied simulation untouched.
     /// Returns false if its starting checkpoint cannot safely be restored.
     pub fn prepare_start(&self, sim: &mut crate::Sim) -> bool {
+        if let Some((_, bytes)) = &self.snapshot {
+            return match crate::Sim::from_session_checkpoint(bytes) {
+                Ok(restored) => {
+                    *sim = restored;
+                    true
+                }
+                Err(_) => false,
+            };
+        }
         if let Some(journal) = &self.regional {
             return journal.prepare_replay(sim);
         }
@@ -561,7 +598,26 @@ impl Replay {
 
     /// Does this replay start from a saved cellular checkpoint?
     pub fn has_cell_start(&self) -> bool {
-        self.cell_start.is_some() || self.session.is_some() || self.regional.is_some()
+        self.snapshot.is_some()
+            || self.cell_start.is_some()
+            || self.session.is_some()
+            || self.regional.is_some()
+    }
+
+    pub fn primary_player(&self) -> crate::PlayerId {
+        self.snapshot
+            .as_ref()
+            .map_or(crate::PlayerId(0), |(id, _)| *id)
+    }
+
+    /// Diagnostic continuation keeps its captured terrain window fixed.
+    pub fn step_snapshot(&self, sim: &mut crate::Sim, controls: Controls) -> bool {
+        if self.snapshot.is_none() {
+            return false;
+        }
+        sim.set_controls(self.primary_player(), controls);
+        sim.tick_fixed_terrain();
+        true
     }
 
     /// What happens to the world just before tick number `sim.tick_count()`
