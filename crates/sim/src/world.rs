@@ -2161,6 +2161,26 @@ impl Sim {
             } else {
                 crab.controls
             };
+            // A moray holds its extended jaws still. Leave the crab at the
+            // actual point of contact, including on the defender in co-op.
+            // An interrupted eel lets go before the crab's movement step.
+            let jaws = f.grabbed.and_then(|grab| {
+                self.enemies
+                    .iter()
+                    .find(|e| e.id == grab.by && e.kind == Kind::Moray)
+            });
+            if jaws.is_some_and(|eel| {
+                matches!(
+                    eel.state,
+                    enemy::State::Gone
+                        | enemy::State::Stagger
+                        | enemy::State::Flee
+                        | enemy::State::Recover
+                )
+            }) {
+                f.grabbed = None;
+                ev.freed = true;
+            }
             let mut controls =
                 combat::before_step(f, &mut crab.mover, &asked, &self.tuning, &mut ev);
             // Bulked up: a little slower on its feet.
@@ -2169,7 +2189,9 @@ impl Sim {
             }
             let f = &crab.fighter;
             let free = f.swing.is_none() && !f.blocking && f.knocked == 0;
-            if sheltered || home::walks_in(&crab.mover, &controls, free, &self.level) {
+            if jaws.is_some() && f.grabbed.is_some() {
+                crab.mover.vel = Vec2::ZERO;
+            } else if sheltered || home::walks_in(&crab.mover, &controls, free, &self.level) {
                 ev.merge(home::step(
                     &mut crab.mover,
                     &controls,
