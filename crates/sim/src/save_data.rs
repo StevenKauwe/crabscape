@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Bump this if the format ever changes, so old saves can be recognised.
 /// (Version 1 had no position.)
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 5;
 
 /// Everything we save. Small for now; an inventory will go here later.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -38,7 +38,19 @@ pub fn player_fits_world(sim: &crate::Sim, player: &SaveData) -> bool {
     }
     if let Some(progress) = &player.progress {
         let current = sim.fresh_progress();
-        if !progress.climb_xp.is_finite()
+        if !crate::canyon_drift::run::valid_receipts(&progress.drift_receipts)
+            || !progress.prepared_food.valid()
+            || progress.salvage_receipts.len() > 32
+            || progress
+                .salvage_receipts
+                .iter()
+                .any(|id| id.world == 0 || id.site != 1 || id.child > 1)
+            || progress
+                .salvage_receipts
+                .iter()
+                .enumerate()
+                .any(|(i, id)| progress.salvage_receipts[..i].contains(id))
+            || !progress.climb_xp.is_finite()
             || !progress.swim_xp.is_finite()
             || !progress.fight_xp.is_finite()
             || progress.cast_offs.iter().any(|c| !c.pos.is_finite())

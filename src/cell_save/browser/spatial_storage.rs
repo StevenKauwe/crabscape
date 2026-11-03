@@ -90,11 +90,30 @@ pub(super) async fn write(
     worker: &mut crate::cell_worker::CellWorker,
     current: impl Fn() -> bool + 'static,
 ) -> Result<(Acknowledgement, u64), String> {
+    let committed_player = serde_json::from_slice(&capture.active.player).map_err(issue)?;
     let revision = expected_revision
         .checked_add(1)
         .ok_or("save revision exhausted")?;
+    let db = Database(open(database).await?);
+    let before = decode_head(&get(&db.0, &JsValue::from_str(KEY)).await?)?;
+    if before.is_some_and(|head| head.epoch != epoch || head.revision != expected_revision)
+        || (before.is_none() && expected_revision != 0)
+    {
+        return Err("spatial save head changed before capture".into());
+    }
+    let canyon_hash = if let Some(records) = &capture.canyon {
+        Some(paged::hash(
+            &postcard::to_allocvec(
+                &crabsim::cell_codec::spatial::CanyonIndex::new(records).map_err(issue)?,
+            )
+            .map_err(issue)?,
+        ))
+    } else {
+        before.and_then(|head| head.canyon_hash)
+    };
     let (cols, rows) = capture.active.snapshot.active_dimensions();
     let head = Head {
+        canyon_hash,
         epoch,
         revision,
         tick: capture.active.sim_tick,
@@ -159,6 +178,104 @@ pub(super) async fn write(
             ),
         });
     }
+    if let Some(salvage) = &capture.salvage {
+        use crabsim::cell_codec::spatial::SalvageIndex;
+        let index = SalvageIndex::new(salvage).map_err(issue)?;
+        let previous_head = before.unwrap_or(Head {
+            revision: expected_revision,
+            ..head
+        });
+        let previous_raw = if expected_revision > 0 {
+            page(&db.0, previous_head, "salvage_index", 0, 0).await?
+        } else {
+            None
+        };
+        if let Some(raw) = &previous_raw {
+            if raw.len() > 64 {
+                return Err("salvage index exceeds fixed bound".into());
+            }
+            let previous: SalvageIndex = postcard::from_bytes(raw).map_err(issue)?;
+            for &(x, y) in previous.keys().map_err(issue)? {
+                if !index.keys().map_err(issue)?.contains(&(x, y)) {
+                    records.push(Record {
+                        key: key(epoch, "salvage", x, y, 0),
+                        bytes: None,
+                    });
+                }
+            }
+        }
+        for record in salvage {
+            let raw = postcard::to_allocvec(record).map_err(issue)?;
+            let (x, y) = record.region_id;
+            let previous = if expected_revision > 0 {
+                page(&db.0, previous_head, "salvage", x, y).await?
+            } else {
+                None
+            };
+            if previous.as_deref() != Some(raw.as_slice()) {
+                records.push(Record {
+                    key: key(epoch, "salvage", x, y, 0),
+                    bytes: Some(encode(&raw, revision, worker, &current).await?),
+                });
+            }
+        }
+        let raw = postcard::to_allocvec(&index).map_err(issue)?;
+        if previous_raw.as_deref() != Some(raw.as_slice()) {
+            records.push(Record {
+                key: key(epoch, "salvage_index", 0, 0, 0),
+                bytes: Some(encode(&raw, revision, worker, &current).await?),
+            });
+        }
+    }
+    if let Some(canyon) = &capture.canyon {
+        use crabsim::cell_codec::spatial::CanyonIndex;
+        let index = CanyonIndex::new(canyon).map_err(issue)?;
+        let previous_head = before.unwrap_or(Head {
+            revision: expected_revision,
+            ..head
+        });
+        let previous_raw = if expected_revision > 0 {
+            page(&db.0, previous_head, "canyon_index", 0, 0).await?
+        } else {
+            None
+        };
+        if let Some(raw) = &previous_raw {
+            if raw.len() > crabsim::cell_codec::spatial::CANYON_INDEX_LIMIT {
+                return Err("canyon index exceeds fixed bound".into());
+            }
+            let previous: CanyonIndex = postcard::from_bytes(raw).map_err(issue)?;
+            for &(x, y) in previous.keys().map_err(issue)? {
+                if !index.keys().map_err(issue)?.contains(&(x, y)) {
+                    records.push(Record {
+                        key: key(epoch, "canyon", x, y, 0),
+                        bytes: None,
+                    });
+                }
+            }
+        }
+        for record in canyon {
+            let raw = postcard::to_allocvec(record).map_err(issue)?;
+            let (x, y) = record.region_id;
+            let previous = if expected_revision > 0 {
+                page(&db.0, previous_head, "canyon", x, y).await?
+            } else {
+                None
+            };
+            if previous.as_deref() != Some(raw.as_slice()) {
+                records.push(Record {
+                    key: key(epoch, "canyon", x, y, 0),
+                    bytes: Some(encode(&raw, revision, worker, &current).await?),
+                });
+            }
+        }
+        let raw = postcard::to_allocvec(&index).map_err(issue)?;
+        if previous_raw.as_deref() != Some(raw.as_slice()) {
+            records.push(Record {
+                key: key(epoch, "canyon_index", 0, 0, 0),
+                bytes: Some(encode(&raw, revision, worker, &current).await?),
+            });
+        }
+    }
     if records
         .iter()
         .map(|record| record.bytes.as_ref().map_or(0, Vec::len))
@@ -173,7 +290,7 @@ pub(super) async fn write(
     let mut bytes = MAGIC.to_vec();
     bytes.extend(postcard::to_allocvec(&head).map_err(issue)?);
     let value = Uint8Array::from(bytes.as_slice());
-    let db = Database(open(database).await?);
+
     let tx =
         db.0.transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
             .map_err(issue)?;
@@ -229,6 +346,9 @@ pub(super) async fn write(
     committed?;
     Ok((
         Acknowledgement {
+            player: Some(committed_player),
+            salvage: capture.salvage,
+            canyon: capture.canyon,
             sleeping: capture.sleeping,
             memory: capture.memory,
         },
@@ -243,14 +363,25 @@ pub(super) async fn page(
     y: i32,
 ) -> Result<Option<Vec<u8>>, String> {
     let value = get(db, &key(head.epoch, kind, x, y, 0)).await?;
+    decode_page(head, kind, value)
+}
+
+fn decode_page(head: Head, kind: &str, value: JsValue) -> Result<Option<Vec<u8>>, String> {
+    let limit = match kind {
+        "canyon_index" => crabsim::cell_codec::spatial::CANYON_INDEX_LIMIT,
+        "canyon" => crabsim::cell_codec::spatial::CANYON_RECORD_LIMIT,
+        "salvage_index" => 64,
+        "salvage" => crabsim::cell_codec::spatial::SALVAGE_RECORD_LIMIT,
+        _ => PAGE_LIMIT,
+    };
     if value.is_undefined() {
         return Ok(None);
     }
     let bytes: Uint8Array = value.dyn_into().map_err(|_| "invalid spatial record")?;
-    if bytes.length() as usize > record_limit(PAGE_LIMIT) {
+    if bytes.length() as usize > record_limit(limit) {
         return Err("spatial record exceeds its internal bound".into());
     }
-    decode_record(&bytes.to_vec(), head.revision, PAGE_LIMIT)
+    decode_record(&bytes.to_vec(), head.revision, limit)
         .map(Some)
         .map_err(issue)
 }
@@ -412,6 +543,46 @@ pub(super) async fn read_from(
         memory.cells = pages;
     }
     restored.terrain.enable_paging();
+    if let Some(raw) = page(&db.0, head, "salvage_index", 0, 0).await? {
+        use crabsim::cell_codec::spatial::{SalvageIndex, decode_salvage};
+        if raw.len() > 64 {
+            return Err("salvage index exceeds fixed bound".into());
+        }
+        let index: SalvageIndex = postcard::from_bytes(&raw).map_err(issue)?;
+        let mut salvage = Vec::new();
+        for &(x, y) in index.keys().map_err(issue)? {
+            let raw = page(&db.0, head, "salvage", x, y)
+                .await?
+                .ok_or("missing salvage region")?;
+            salvage.push(decode_salvage(&raw, (x, y)).map_err(issue)?);
+        }
+        if !crabsim::salvage::valid_records(&salvage) {
+            return Err("invalid salvage ownership".into());
+        }
+        restored.salvage = Some(salvage);
+    }
+    let canyon_index = page(&db.0, head, "canyon_index", 0, 0).await?;
+    if canyon_index.as_ref().map(|raw| paged::hash(raw)) != head.canyon_hash {
+        return Err("missing or mismatched published Canyon index".into());
+    }
+    if let Some(raw) = canyon_index {
+        use crabsim::cell_codec::spatial::{CanyonIndex, decode_canyon};
+        if raw.len() > crabsim::cell_codec::spatial::CANYON_INDEX_LIMIT {
+            return Err("canyon index exceeds fixed bound".into());
+        }
+        let index: CanyonIndex = postcard::from_bytes(&raw).map_err(issue)?;
+        let mut canyon = Vec::new();
+        for &(x, y) in index.keys().map_err(issue)? {
+            let raw = page(&db.0, head, "canyon", x, y)
+                .await?
+                .ok_or("missing canyon region")?;
+            canyon.push(decode_canyon(&raw, (x, y)).map_err(issue)?);
+        }
+        if crabsim::canyon_drift::run::CanyonRun::from_records(&canyon).is_none() {
+            return Err("invalid canyon ownership".into());
+        }
+        restored.canyon = Some(canyon);
+    }
     current_head(&db.0, head).await?;
     STARTUP_REVISION.with(|revision| revision.set(head.revision));
     Ok((Some(restored), epoch))
@@ -424,11 +595,24 @@ pub(super) async fn read_pages(
     requests: super::super::paging::Requests,
 ) -> Result<super::super::paging::Replies, String> {
     let db = Database(open(database).await?);
+    let tx = db.0.transaction_with_str(STORE).map_err(issue)?;
+    let store = tx.object_store(STORE).map_err(issue)?;
+    let head_request = store.get(&JsValue::from_str(KEY)).map_err(issue)?;
+    let epoch_request = store.get(&JsValue::from_str(EPOCH_KEY)).map_err(issue)?;
+    let mut pending = Vec::with_capacity(requests.terrain.len() + requests.memory.len());
+    for (kind, tickets) in [("terrain", requests.terrain), ("memory", requests.memory)] {
+        for ticket in tickets {
+            let (x, y) = ticket.coordinate;
+            let read = store.get(&key(epoch, kind, x, y, 0)).map_err(issue)?;
+            pending.push((kind, ticket, read));
+        }
+    }
+    // IndexedDB delivers request results in issue order. Queue the entire
+    // bounded batch before yielding and wait once, on its last request.
+    request(pending.last().map_or(&epoch_request, |(_, _, read)| read)).await?;
     let head =
-        decode_head(&get(&db.0, &JsValue::from_str(KEY)).await?)?.ok_or("missing spatial head")?;
-    if head.epoch != epoch
-        || decode_epoch(get(&db.0, &JsValue::from_str(EPOCH_KEY)).await?)? != epoch
-    {
+        decode_head(&head_request.result().map_err(issue)?)?.ok_or("missing spatial head")?;
+    if head.epoch != epoch || decode_epoch(epoch_request.result().map_err(issue)?)? != epoch {
         return Err(STALE_EPOCH.into());
     }
     if head.revision != revision {
@@ -436,27 +620,13 @@ pub(super) async fn read_pages(
     }
     let mut terrain = Vec::new();
     let mut memory = Vec::new();
-    for ticket in requests.terrain {
-        let bytes = page(
-            &db.0,
-            head,
-            "terrain",
-            ticket.coordinate.0,
-            ticket.coordinate.1,
-        )
-        .await?;
-        terrain.push((ticket, bytes));
-    }
-    for ticket in requests.memory {
-        let bytes = page(
-            &db.0,
-            head,
-            "memory",
-            ticket.coordinate.0,
-            ticket.coordinate.1,
-        )
-        .await?;
-        memory.push((ticket, bytes));
+    for (kind, ticket, read) in pending {
+        let bytes = decode_page(head, kind, read.result().map_err(issue)?)?;
+        if kind == "terrain" {
+            terrain.push((ticket, bytes));
+        } else {
+            memory.push((ticket, bytes));
+        }
     }
     if decode_epoch(get(&db.0, &JsValue::from_str(EPOCH_KEY)).await?)? != epoch {
         return Err(STALE_EPOCH.into());

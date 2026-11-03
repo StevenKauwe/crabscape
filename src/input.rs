@@ -44,9 +44,10 @@ enum TouchAction {
     Jab,
     Guard,
     Dig,
+    Eat,
 }
 
-const ACTIONS: [TouchAction; 8] = [
+const ACTIONS: [TouchAction; 9] = [
     TouchAction::Left,
     TouchAction::Right,
     TouchAction::Jump,
@@ -55,6 +56,7 @@ const ACTIONS: [TouchAction; 8] = [
     TouchAction::Jab,
     TouchAction::Guard,
     TouchAction::Dig,
+    TouchAction::Eat,
 ];
 
 /// Whether the on-screen buttons are showing. They appear on touch screens,
@@ -109,7 +111,7 @@ pub(crate) fn has_touch_screen() -> bool {
 /// with the fighting row above them (smash over dodge, guard over jump, jab
 /// beside smash). Works in portrait and landscape: buttons scale with the
 /// shorter side.
-fn button_rects(size: Vec2) -> [(TouchAction, Rect); 8] {
+fn button_rects(size: Vec2) -> [(TouchAction, Rect); 9] {
     let button = (size.min_element() * 0.18).clamp(56.0, 96.0);
     let gap = button * 0.25;
     let margin = 18.0;
@@ -118,6 +120,10 @@ fn button_rects(size: Vec2) -> [(TouchAction, Rect); 8] {
     let square = |x: f32, y_bottom: f32| Rect::new(x, y_bottom - button, x + button, y_bottom);
     [
         (TouchAction::Dig, square(margin, bottom - button - gap)),
+        (
+            TouchAction::Eat,
+            square(margin, bottom - 2.0 * (button + gap)),
+        ),
         (TouchAction::Left, square(margin, bottom)),
         (TouchAction::Right, square(margin + button + gap, bottom)),
         (
@@ -148,7 +154,7 @@ fn button_rects(size: Vec2) -> [(TouchAction, Rect); 8] {
 
 /// Every on-screen button's box (for other buttons to keep clear of).
 #[cfg(test)]
-pub(crate) fn touch_rects(size: Vec2) -> [Rect; 8] {
+pub(crate) fn touch_rects(size: Vec2) -> [Rect; 9] {
     button_rects(size).map(|(_, r)| r)
 }
 
@@ -201,6 +207,7 @@ struct PadWants {
     smash: bool,
     jab: bool,
     guard: bool,
+    eat: bool,
 }
 
 /// A controller's left `stick` and its buttons (`pressed`) as moves. A stick
@@ -227,6 +234,7 @@ fn pad_wants(stick: Vec2, pressed: impl Fn(GamepadButton) -> bool) -> PadWants {
         smash: pressed(GamepadButton::North),
         jab: pressed(GamepadButton::West),
         guard: any(&[GamepadButton::LeftTrigger, GamepadButton::LeftTrigger2]),
+        eat: pressed(GamepadButton::DPadUp),
     }
 }
 
@@ -321,6 +329,7 @@ fn read_input(
     let mut smash = any_key(&[KeyCode::KeyL, KeyCode::KeyE]) || touch(TouchAction::Smash);
     let mut jab = any_key(&[KeyCode::KeyO, KeyCode::KeyQ]) || touch(TouchAction::Jab);
     let mut guard = any_key(&[KeyCode::KeyI, KeyCode::KeyF]) || touch(TouchAction::Guard);
+    let mut eat = any_key(&[KeyCode::KeyT]) || touch(TouchAction::Eat);
 
     for pad in &gamepads {
         let wants = pad_wants(pad.left_stick(), |b| pad.pressed(b));
@@ -331,10 +340,12 @@ fn read_input(
         smash |= wants.smash;
         jab |= wants.jab;
         guard |= wants.guard;
+        eat |= wants.eat;
     }
 
     // A "press" is held now but wasn't last frame.
     let controls = Controls {
+        eat_held: eat,
         walk: walk.clamp(-1.0, 1.0),
         jump_held: jump && !digging,
         jump_pressed: jump && !digging && !held_before.jump,
@@ -377,6 +388,7 @@ fn spawn_touch_buttons(mut commands: Commands) {
             TouchAction::Jab => "JAB",
             TouchAction::Guard => "GUARD",
             TouchAction::Dig => "DIG",
+            TouchAction::Eat => "EAT",
         };
         commands
             .spawn((
@@ -469,7 +481,7 @@ fn layout_touch_buttons(
         // make way for the crafting menu.
         let fighting = matches!(
             action,
-            TouchAction::Smash | TouchAction::Jab | TouchAction::Guard
+            TouchAction::Smash | TouchAction::Jab | TouchAction::Guard | TouchAction::Eat
         );
         let wanted = if touch_controls.visible
             && !(fighting && inside.on)

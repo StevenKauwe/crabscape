@@ -6,7 +6,7 @@ pub const MAX_CELL_SESSION_TEXT: usize = 4 * 1024 * 1024 - 128;
 const MAX_RAW: usize = 8 * 1024 * 1024;
 const MAX_RUNS: usize = 16_384;
 const MAX_TICKS: u64 = 120 * 60 * 60;
-const PREFIX: &str = "cell_session_v1 ";
+const PREFIX: &str = "cell_session_v2 ";
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CellSessionAction {
@@ -14,6 +14,8 @@ pub enum CellSessionAction {
     Code(crate::codes::Code),
     Moult(crate::skills::Skill),
     Craft(crate::craft::Recipe),
+    Salvage(crate::salvage::SalvageAction),
+    Canyon(crate::canyon_drift::CanyonAction),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -46,6 +48,12 @@ impl CellSessionTick {
                 }
                 CellSessionAction::Craft(recipe) => {
                     let _ = sim.make(*id, *recipe);
+                }
+                CellSessionAction::Salvage(action) => {
+                    sim.salvage_action(*id, *action);
+                }
+                CellSessionAction::Canyon(action) => {
+                    sim.canyon_action(*id, *action);
                 }
             }
         }
@@ -182,7 +190,7 @@ impl SessionReplay {
         })
     }
     pub(super) fn recognizes(text: &str) -> bool {
-        text.trim_start().starts_with("cell_session_v1")
+        text.trim_start().starts_with("cell_session_v2")
     }
     pub(super) fn restore(&self) -> Result<Sim, String> {
         if self.checkpoint.len() > MAX_CELL_SESSION_TEXT || self.host == self.guest {
@@ -329,6 +337,59 @@ mod tests {
         sim
     }
     #[test]
+    fn session_replays_salvage_actions_and_identity_exactly() {
+        use crate::salvage::SalvageAction;
+        let mut sim = Sim::with_one_crab(bevy_math::Vec2::new(300.0, 30.0));
+        sim.enable_underwater_cells();
+        sim.add_crab(PlayerId(91), bevy_math::Vec2::new(150.0, 30.0));
+        sim.crab_mut(PlayerId(0)).unwrap().salvage_identity = 10;
+        sim.crab_mut(PlayerId(91)).unwrap().salvage_identity = 11;
+        sim.salvage.as_mut().unwrap().world_id = 77;
+        sim.canyon.as_mut().unwrap().world_id = 77;
+        let packed = sim.session_checkpoint().unwrap();
+        let mut recording = CellSessionRecording::new(&packed, PlayerId(0), PlayerId(91)).unwrap();
+        for tick in 0..20 {
+            let mut frame = CellSessionTick::default();
+            if tick == 0 {
+                frame.actions[0] = Some((
+                    PlayerId(0),
+                    CellSessionAction::Salvage(SalvageAction::LiftValve),
+                ));
+            }
+            if tick == 10 {
+                frame.actions[0] = Some((
+                    PlayerId(0),
+                    CellSessionAction::Salvage(SalvageAction::DropValve),
+                ));
+            }
+            assert!(recording.note(sim.tick_count(), frame));
+            assert!(sim.tick_cell_session(PlayerId(0), PlayerId(91), &frame));
+            if tick == 0 {
+                assert_eq!(
+                    sim.salvage.as_ref().unwrap().valve_phase,
+                    crate::salvage::ValvePhase::Carried(PlayerId(0))
+                );
+            }
+            if tick == 10 {
+                assert_ne!(
+                    sim.salvage.as_ref().unwrap().valve_phase,
+                    crate::salvage::ValvePhase::Carried(PlayerId(0))
+                );
+            }
+        }
+        let replay = Replay::parse(&recording.to_text().unwrap()).unwrap();
+        let mut restored = Sim::with_one_crab(crate::level::SPAWN);
+        assert!(replay.prepare_start(&mut restored));
+        for _ in 0..replay.length() {
+            assert!(replay.step_cell_session(&mut restored));
+        }
+        assert_eq!(sim.state_hash(), restored.state_hash());
+        assert_eq!(
+            sim.session_checkpoint().unwrap(),
+            restored.session_checkpoint().unwrap()
+        );
+    }
+    #[test]
     fn session_text_replays_both_actors_actions_and_absolute_clock_exactly() {
         let mut sim = initial();
         let packed = sim.session_checkpoint().unwrap();
@@ -398,10 +459,54 @@ mod tests {
         assert_eq!(Replay::parse(&replay.to_text()).unwrap(), replay);
     }
     #[test]
+    fn two_player_recording_replays_a_prepared_portion_once() {
+        let mut sim = initial();
+        let crab = sim.crab_mut(PlayerId(91)).unwrap();
+        crab.larder = 1;
+        assert!(crab.mover.prepared_food.prepare(
+            crate::prepared_food::PortionKind::Shell,
+            &mut crab.larder,
+            &mut crab.stash.valves
+        ));
+        let packed = sim.session_checkpoint().unwrap();
+        let mut recording = CellSessionRecording::new(&packed, PlayerId(0), PlayerId(91)).unwrap();
+        for _ in 0..300 {
+            let mut frame = CellSessionTick::default();
+            frame.controls[1].eat_held = true;
+            assert!(recording.note(sim.tick_count(), frame));
+            assert!(sim.tick_cell_session(PlayerId(0), PlayerId(91), &frame));
+        }
+        let text = format!(
+            "{}hash {:016x}\n",
+            recording.to_text().unwrap(),
+            sim.state_hash()
+        );
+        let replay = Replay::parse(&text).unwrap();
+        let mut restored = Sim::with_one_crab(crate::level::SPAWN);
+        assert!(replay.prepare_start(&mut restored));
+        for _ in 0..replay.length() {
+            assert!(replay.step_cell_session(&mut restored));
+        }
+        assert_eq!(restored.state_hash(), sim.state_hash());
+        assert_eq!(
+            restored
+                .crab(PlayerId(91))
+                .unwrap()
+                .mover
+                .prepared_food
+                .slots
+                .iter()
+                .flatten()
+                .count(),
+            1
+        );
+        assert_eq!(restored.crab(PlayerId(91)).unwrap().stash.valves, 2);
+    }
+    #[test]
     fn bounded_recording_rejects_bad_order_and_malformed_data() {
         for text in [
-            "cell_session_v1 ?".into(),
-            "cell_session_v1 ".to_owned() + &"A".repeat(MAX_CELL_SESSION_TEXT),
+            "cell_session_v2 ?".into(),
+            "cell_session_v2 ".to_owned() + &"A".repeat(MAX_CELL_SESSION_TEXT),
         ] {
             assert!(Replay::parse(&text).is_err());
         }

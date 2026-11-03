@@ -78,6 +78,8 @@ pub struct Outgoing {
 pub const MAX_BYTES: usize = 4096;
 
 /// What one device tells another.
+// Crab updates are frequent; keeping the state inline avoids an allocation per update.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Msg {
     /// A crab's state, from its own device (often; a newer one replaces it).

@@ -10,6 +10,7 @@
 //! (`cargo build --release --manifest-path tools/introducer/Cargo.toml`) and Chrome (`CHROME` names it if it's
 //! somewhere unusual). `--url` plays the live site with the real introducer instead.
 
+mod canyon_store;
 mod chrome;
 mod save_fixture;
 #[path = "../../webtest/src/serve.rs"]
@@ -192,6 +193,11 @@ impl Player {
     fn failed(&mut self, why: String) -> String {
         let stem = self.dir.join(format!("{}-{}", self.name(), now_ms()));
         let shot = stem.with_extension("png");
+        let why = if let Some(detail) = self.b.attr("data-cell-frame-error") {
+            format!("{why}; frame: {detail}")
+        } else {
+            why
+        };
         let why = match self.b.screenshot(&shot) {
             Ok(()) => format!("{why} (screenshot {})", shot.display()),
             Err(_) => why,
@@ -626,7 +632,7 @@ fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
         })
         .map_err(|error| format!("{error}; {}", region_status(p)))?;
         let text = p.b.attr("data-replay").ok_or("missing regional replay")?;
-        if !text.starts_with("region_session_v1 ") {
+        if !text.starts_with("region_session_v2 ") {
             return Err(format!(
                 "regional replay unavailable: {}; {}",
                 text.lines().next().unwrap_or("empty"),
@@ -898,7 +904,17 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 24] = [
+const SCENARIOS: [(&str, &str, u32); 26] = [
+    (
+        "cell-probe-canyon-claim",
+        "two browsers claim and retire a physical Canyon generation",
+        120,
+    ),
+    (
+        "cells-canyon-store",
+        "bounded Canyon records, atomic claims, reload, index loss and reset",
+        90,
+    ),
     (
         "cells-solo-save",
         "fresh and explored worlds save, reload, and accept a guest without losing distant terrain",
@@ -1052,6 +1068,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
+        "cells-canyon-store" => return canyon_store::run(&mut host, site),
+        "cell-probe-canyon-claim" => return canyon_store::play(&mut host, &mut guest, site),
         "cells-solo-save" => {
             // The actual landing URL must select cells without a query flag.
             host.open(&site.page)?;
@@ -1639,6 +1657,183 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     p.b.attr("data-cell-session-tick") != tick
                 })?;
             }
+            if std::env::var_os("CRABSCAPE_SALVAGE_PROOF").is_some() {
+                for _ in 0..12 {
+                    if local_position(&mut host)
+                        .is_ok_and(|(x, y)| (x - 308.0).hypot(y - 24.0) < 55.0)
+                    {
+                        break;
+                    }
+                    host.b.hold_key("KeyD", 0.2)?;
+                }
+                host.until(10.0, "authoritative host reaches the valve", |p| {
+                    local_position(p).is_ok_and(|(x, y)| (x - 308.0).hypot(y - 24.0) < 65.0)
+                })?;
+                host.b.screenshot(&site.dir.join("salvage-approach.png"))?;
+                host.b.hold_key("KeyG", 0.15)?;
+                host.until(10.0, "host lifts the shared valve", |p| {
+                    p.b.attr("data-salvage")
+                        .is_some_and(|s| s.contains("Carried("))
+                })?;
+                guest.until(10.0, "guest sees the shared valve carried", |p| {
+                    p.b.attr("data-salvage")
+                        .is_some_and(|s| s.contains("Carried("))
+                })?;
+                guest.b.hold_key("KeyG", 0.15)?;
+                host.until(5.0, "guest cannot take the carried valve", |p| {
+                    p.b.attr("data-salvage")
+                        .is_some_and(|s| s.contains("Carried("))
+                })?;
+                host.b.hold_key("KeyV", 0.15)?;
+                host.until(10.0, "host releases the shared valve", |p| {
+                    p.b.attr("data-salvage")
+                        .is_some_and(|s| !s.contains("Carried("))
+                })?;
+                guest.until(10.0, "guest sees the released valve", |p| {
+                    p.b.attr("data-salvage")
+                        .is_some_and(|s| !s.contains("Carried("))
+                })?;
+                found.push(
+                    "shared salvage lift, contention, and release observed by both players".into(),
+                );
+            }
+            if std::env::var_os("CRABSCAPE_SALVAGE_CLAIM_PROOF").is_some() {
+                for _ in 0..12 {
+                    if local_position(&mut host).is_ok_and(|(x, _)| x >= 250.0) {
+                        break;
+                    }
+                    host.b.hold_key("KeyD", 0.2)?;
+                }
+                host.until(10.0, "host reaches the buried find", |p| {
+                    local_position(p).is_ok_and(|(x, _)| (250.0..=290.0).contains(&x))
+                })?;
+                host.b.hold_keys(&["KeyC", "ArrowDown"], 8.0)?;
+                host.until(15.0, "find released by excavation", |p| {
+                    p.b.attr("data-salvage").is_some_and(|s| {
+                        s.starts_with("Free ")
+                            || s.starts_with("Settled ")
+                            || s.starts_with("Caught ")
+                    })
+                })?;
+                host.b.hold_key("KeyV", 0.15)?;
+                host.until(10.0, "host crushes the accessible find", |p| {
+                    p.b.attr("data-salvage")
+                        .is_some_and(|s| s.starts_with("Consumed "))
+                })?;
+                eprintln!(
+                    "claim setup host {}, guest {}, state {:?}",
+                    region_status(&mut host),
+                    region_status(&mut guest),
+                    host.b.attr("data-salvage")
+                );
+                host.b.hold_key("KeyA", 0.7)?;
+                guest.b.click(600.0, 400.0)?;
+                host.b.eval("document.getElementById('crabscape').setAttribute('data-cell-control-probe','1')")?;
+                guest.b.set_key("KeyD", true)?;
+                sleep(1.0);
+                eprintln!(
+                    "guest held-right controls {:?}",
+                    host.b.attr("data-cell-controls")
+                );
+                guest.b.set_key("KeyD", false)?;
+                guest.b.hold_keys(&["KeyD", "Space"], 1.0)?;
+                for _ in 0..40 {
+                    let x = guest
+                        .b
+                        .attr("data-crab")
+                        .and_then(|value| {
+                            value
+                                .split_whitespace()
+                                .next()
+                                .and_then(|word| word.parse::<f32>().ok())
+                        })
+                        .unwrap_or(0.0);
+                    if (320.0..=340.0).contains(&x) {
+                        break;
+                    }
+                    guest
+                        .b
+                        .hold_key(if x > 340.0 { "KeyA" } else { "KeyD" }, 0.08)?;
+                    sleep(0.1);
+                }
+                sleep(1.5);
+                eprintln!(
+                    "claim approach guest {}, state {:?}",
+                    region_status(&mut guest),
+                    guest.b.attr("data-salvage")
+                );
+                guest.b.screenshot(&site.dir.join("guest-claim-ui.png"))?;
+                for _ in 0..6 {
+                    let crab_pos = guest.b.attr("data-crab").unwrap_or_default();
+                    let mut crab_words = crab_pos.split_whitespace();
+                    let x = crab_words
+                        .next()
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .unwrap_or(0.0);
+                    let y = crab_words
+                        .next()
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .unwrap_or(0.0)
+                        + 24.0;
+                    let salvage = guest.b.attr("data-salvage").unwrap_or_default();
+                    let mut words = salvage.split_whitespace();
+                    let _ = words.next();
+                    let find_x = words
+                        .next()
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .unwrap_or(0.0);
+                    let _ = words.next();
+                    let _ = words.next();
+                    let vx = words
+                        .next()
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .unwrap_or(0.0);
+                    let vy = words
+                        .next()
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .unwrap_or(0.0);
+                    let valve_near = ((vx - x).powi(2) + (vy - y).powi(2)).sqrt() <= 75.0;
+                    guest
+                        .b
+                        .hold_key(if valve_near { "KeyV" } else { "KeyG" }, 0.15)?;
+                    sleep(0.5);
+                    if host.b.attr("data-salvage").is_some_and(|s| {
+                        s.contains("Some(Requested)") || s.contains("Some(Offered)")
+                    }) {
+                        break;
+                    }
+                    let direction = if (find_x - x).abs() < 8.0 {
+                        "ArrowDown"
+                    } else if find_x < x {
+                        "KeyA"
+                    } else {
+                        "KeyD"
+                    };
+                    guest.b.hold_keys(&["KeyC", direction], 0.3)?;
+                    sleep(0.3);
+                }
+                eprintln!(
+                    "claim action result host {:?}; guest {:?}",
+                    host.b.attr("data-salvage"),
+                    guest.b.attr("data-salvage")
+                );
+                host.until(10.0, "guest requests a grit claim", |p| {
+                    p.b.attr("data-salvage").is_some_and(|s| {
+                        s.contains("Some(Requested)") || s.contains("Some(Offered)")
+                    })
+                })?;
+                guest.reload()?;
+                guest.until(90.0, "guest rejoins after interrupted claim", |p| {
+                    p.b.attr("data-cell-session").as_deref() == Some("guest")
+                        && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+                host.until(90.0, "interrupted guest claim becomes durable", |p| {
+                    p.b.attr("data-salvage")
+                        .is_some_and(|s| s.contains("Some(Finalized)"))
+                })?;
+                found.push("guest claim survives a reload and finalizes once".into());
+                return Ok(found);
+            }
             found.push(sees_name(&mut host, &mut guest)?);
             found.push(sees_name(&mut guest, &mut host)?);
             voices(&mut [&mut host, &mut guest])?;
@@ -1699,7 +1894,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             )?;
             guest.until(20.0, "complete cellular multiplayer replay", |p| {
                 p.b.attr("data-replay").is_some_and(|s| {
-                    s.starts_with("cell_session_v1 ") || s.starts_with("region_session_v1 ")
+                    s.starts_with("cell_session_v2 ") || s.starts_with("region_session_v2 ")
                 })
             })?;
             let text = guest

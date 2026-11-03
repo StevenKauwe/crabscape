@@ -9,14 +9,21 @@ pub fn save_periodically(
     mut sim: ResMut<Sim>,
     crab: Single<(&Mover, &PlayerId), With<LocalPlayer>>,
 ) {
-    if let Some(ack) = super::browser::take_acknowledgement()
-        && !crate::coop::cells_acknowledge_save(&mut sim, &ack)
-    {
-        if let Some(world) = sim.level.cells.as_mut() {
-            world.acknowledge_sleeping(&ack.sleeping);
-        }
-        if let Some(crab) = sim.crab_mut(*crab.1) {
-            crab.memory.acknowledge_chunks(&ack.memory);
+    if let Some(ack) = super::browser::take_acknowledgement() {
+        crate::salvage::acknowledge_save(&mut sim, *crab.1, &ack, !crate::coop::cells_visiting());
+        crate::canyon_drift::acknowledge_save(
+            &mut sim,
+            *crab.1,
+            &ack,
+            !crate::coop::cells_visiting(),
+        );
+        if !crate::coop::cells_acknowledge_save(&mut sim, &ack) {
+            if let Some(world) = sim.level.cells.as_mut() {
+                world.acknowledge_sleeping(&ack.sleeping);
+            }
+            if let Some(crab) = sim.crab_mut(*crab.1) {
+                crab.memory.acknowledge_chunks(&ack.memory);
+            }
         }
     }
     super::browser::maintain_pages(&mut sim, *crab.1, time.delta_secs());
@@ -74,7 +81,10 @@ pub fn save_periodically(
         &sim.crab(*id).expect("local crab captured above").memory,
         sim.tick_count(),
         super::browser::needs_initial_baseline(),
-    ) {
+    )
+    .and_then(|capture| capture.with_salvage(sim.salvage_records()))
+    .and_then(|capture| capture.with_canyon(sim.canyon_records()))
+    {
         Ok(prepared) => super::browser::submit_save(generation, prepared),
         Err(reason) => super::browser::capture_failed(generation, reason),
     }

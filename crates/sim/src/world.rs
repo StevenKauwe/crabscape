@@ -56,8 +56,18 @@ pub struct SimCrab {
     pub prev_pos: Vec2,
     /// The controls the next tick will use.
     pub controls: Controls,
+    /// Current interruptible eating action.
+    pub eating: crate::prepared_food::Eating,
     /// What happened during the latest tick.
     pub events: StepEvents,
+    /// Bounded durable idempotence receipts for salvage grants.
+    #[serde(default)]
+    pub salvage_receipts: Vec<crate::salvage::ClaimId>,
+    /// Unresolved durable receipts for renewable Canyon generations.
+    pub drift_receipts: Vec<crate::canyon_drift::run::DriftClaimId>,
+    /// Private persistent identity for rejoining pending salvage claims.
+    #[serde(default)]
+    pub salvage_identity: u64,
     // What unlocks progression is each crab's own (`crate::shared`): it
     // takes its own wherever it is.
     /// Which of the level's eggs this crab has eaten (each crab finds its own).
@@ -136,6 +146,10 @@ pub struct Sim {
     /// What lies in the world for everyone: clams, shell grit, bodies (see
     /// [`crate::shared`]). Ghost nets and brittle rock are in the level.
     pub shared: Shared,
+    /// Bounded authored shellwash site, present in cellular worlds.
+    pub salvage: Option<crate::salvage::Shellwash>,
+    /// Fixed-capacity renewable Canyon Drift anchor.
+    pub canyon: Option<crate::canyon_drift::run::CanyonRun>,
     /// How many ticks have run.
     tick: u64,
     /// Every crab, always in the order they were added (so every run loops
@@ -196,6 +210,12 @@ impl Sim {
             return;
         }
         self.level.cells = Some(crate::underwater::World::from_level_settled(&self.level));
+        if let Some(cells) = &mut self.level.cells {
+            cells.seed_shellwash_site();
+            cells.seed_shallow_shortcut();
+        }
+        self.salvage = Some(crate::salvage::Shellwash::default());
+        self.canyon = Some(crate::canyon_drift::run::CanyonRun::new(0));
         // A larger individual reads clearly against the player crab; keep
         // its hurtbox and bite aligned with the scaled puppet.
         Self::scale_experimental_moray(&mut self.tuning);
@@ -217,6 +237,8 @@ impl Sim {
             tuning,
             feel: Feel::default(),
             shared: Shared::new(&level),
+            salvage: None,
+            canyon: None,
             level,
             tick: 0,
             crabs: Vec::new(),
@@ -236,6 +258,501 @@ impl Sim {
         let mut sim = Self::new(Tuning::default(), Level::test_level());
         sim.add_crab(PlayerId(0), start);
         sim
+    }
+
+    /// Capture at most four independently keyed salvage records.
+    pub fn salvage_records(&self) -> Vec<crate::salvage::SalvageRegionRecord> {
+        self.salvage
+            .as_ref()
+            .map_or_else(Vec::new, |site| site.records())
+    }
+
+    /// Assemble one canonical save view without granting archive copies
+    /// authority while a region lease still owns the corresponding object.
+    pub fn combined_salvage_records(
+        &self,
+        sources: &[&Sim],
+    ) -> Option<Vec<crate::salvage::SalvageRegionRecord>> {
+        let mut combined = crate::salvage::Shellwash {
+            has_find: false,
+            has_valve: false,
+            has_fragments: [false; 2],
+            ..Default::default()
+        };
+        let mut world_id = None;
+        for sim in std::iter::once(self).chain(sources.iter().copied()) {
+            if let Some(site) = &sim.salvage {
+                if site.has_find || site.has_valve || site.has_fragments.iter().any(|owned| *owned)
+                {
+                    if world_id.is_some_and(|id| id != site.world_id) {
+                        return None;
+                    }
+                    world_id = Some(site.world_id);
+                }
+                if site.has_find {
+                    if combined.has_find {
+                        return None;
+                    }
+                    combined.install_find(site.find_record());
+                }
+                if site.has_valve {
+                    if combined.has_valve {
+                        return None;
+                    }
+                    combined.install_valve(site.valve_record());
+                }
+                for i in 0..2 {
+                    if site.has_fragments[i] {
+                        if combined.has_fragments[i] {
+                            return None;
+                        }
+                        combined.install_fragment(site.fragment_record(i));
+                    }
+                }
+            }
+        }
+        let records = combined.records();
+        crate::salvage::valid_records(&records).then_some(records)
+    }
+
+    /// Install complete checked records before exposing a restored world.
+    pub fn restore_salvage_records(
+        &mut self,
+        records: Vec<crate::salvage::SalvageRegionRecord>,
+    ) -> bool {
+        if self.level.cells.is_none() || !crate::salvage::valid_records(&records) {
+            return false;
+        }
+        let mut site = crate::salvage::Shellwash {
+            has_find: false,
+            has_valve: false,
+            has_fragments: [false; 2],
+            ..Default::default()
+        };
+        for record in records {
+            if let Some(find) = record.find {
+                if site.has_find {
+                    return false;
+                }
+                site.install_find(find);
+            }
+            if let Some(valve) = record.valve {
+                if site.has_valve {
+                    return false;
+                }
+                site.install_valve(valve);
+            }
+            for fragment in record.fragments.into_iter().flatten() {
+                let i = usize::from(fragment.index);
+                if i >= 2 || site.has_fragments[i] {
+                    return false;
+                }
+                site.install_fragment(fragment);
+            }
+        }
+        if !site.has_find || !site.has_valve || site.has_fragments != [true, true] {
+            return false;
+        }
+        self.salvage = Some(site);
+        true
+    }
+
+    /// Capture the fixed Canyon component records at their physical pages.
+    pub fn canyon_records(&self) -> Vec<crate::canyon_drift::record::CanyonRegionRecord> {
+        self.canyon
+            .as_ref()
+            .map_or_else(Vec::new, |run| run.records())
+    }
+
+    /// Assemble one complete Canyon view from the archive and active regions.
+    pub fn combined_canyon_records(
+        &self,
+        sources: &[&Sim],
+    ) -> Option<Vec<crate::canyon_drift::record::CanyonRegionRecord>> {
+        let mut combined: Option<crate::canyon_drift::run::CanyonRun> = None;
+        for sim in std::iter::once(self).chain(sources.iter().copied()) {
+            if let Some(source) = &sim.canyon {
+                if let Some(dest) = &mut combined {
+                    if !dest.absorb(source) {
+                        return None;
+                    }
+                } else {
+                    combined = Some(source.clone());
+                }
+            }
+        }
+        let run = combined?;
+        if !run.complete() {
+            return None;
+        }
+        Some(run.records())
+    }
+
+    /// Install complete checked Canyon records before exposing a restored world.
+    pub fn restore_canyon_records(
+        &mut self,
+        records: Vec<crate::canyon_drift::record::CanyonRegionRecord>,
+    ) -> bool {
+        if self.level.cells.is_none() {
+            return false;
+        }
+        let Some(run) = crate::canyon_drift::run::CanyonRun::from_records(&records) else {
+            return false;
+        };
+        if self
+            .salvage
+            .as_ref()
+            .is_some_and(|site| site.world_id != run.world_id)
+        {
+            return false;
+        }
+        self.canyon = Some(run);
+        true
+    }
+
+    /// Apply a contextual salvage command for an actor owned by this sim.
+    /// Call through the session's ordered action stream in co-op.
+    pub fn salvage_action(&mut self, id: PlayerId, action: crate::salvage::SalvageAction) -> bool {
+        let applied = self.apply_salvage_action(id, action);
+        if applied
+            && id == PlayerId(0)
+            && let Some(rec) = &mut self.recorder
+        {
+            rec.note_salvage_action(self.tick, action);
+        }
+        applied
+    }
+
+    fn apply_salvage_action(
+        &mut self,
+        id: PlayerId,
+        action: crate::salvage::SalvageAction,
+    ) -> bool {
+        use crate::salvage::SalvageAction;
+        let Some(crab) = self
+            .crabs
+            .iter()
+            .find(|c| c.id == id && !c.remote && c.fighter.dead.is_none())
+        else {
+            return false;
+        };
+        let from = crab.mover.pos + Vec2::Y * (crab.mover.height(&self.tuning) * 0.5);
+        let room = crab.mover.carrying.is_none()
+            && self.salvage.as_ref().is_none_or(|site| {
+                (!site.has_find || site.phase != crate::salvage::FindPhase::Carried(id))
+                    && (!site.has_valve
+                        || site.valve_phase != crate::salvage::ValvePhase::Carried(id))
+            });
+        let small_room = crab.mover.clinging.len() < crab.mover.carries(&self.tuning)
+            && crab.salvage_receipts.len() < 32;
+        let recipient_identity = crab.salvage_identity;
+        let at_home =
+            crab.mover.tucked_in() && self.level.place_at(crab.mover.pos) == Some(Place::Home);
+        let clear = match action {
+            SalvageAction::PlaceValve(at) => {
+                self.level.place_at(at).is_none()
+                    && self.crabs.iter().all(|c| {
+                        (c.mover.pos.x - at.x).abs() > c.mover.half_width(&self.tuning) + 20.0
+                            || (c.mover.pos.y - at.y).abs() > c.mover.height(&self.tuning)
+                    })
+            }
+            _ => true,
+        };
+        if let SalvageAction::OfferFragment(index, claim_id) = action {
+            if self.crabs.len() > 1 && id != PlayerId(0) {
+                return false;
+            }
+            let Some(site) = &mut self.salvage else {
+                return false;
+            };
+            let Some(Some(claim)) = site.claims.get_mut(usize::from(index)) else {
+                return false;
+            };
+            if !site.has_fragments[usize::from(index)]
+                || claim.id != claim_id
+                || claim.phase != crate::salvage::ClaimPhase::Requested
+            {
+                return false;
+            }
+            claim.phase = crate::salvage::ClaimPhase::Offered;
+            site.fragment_revisions[usize::from(index)] =
+                site.fragment_revisions[usize::from(index)].saturating_add(1);
+            return true;
+        }
+        if let SalvageAction::GrantFragment(index, claim_id) = action {
+            let Some(claim) = self
+                .salvage
+                .as_ref()
+                .and_then(|s| {
+                    s.has_fragments
+                        .get(usize::from(index))
+                        .filter(|owned| **owned)
+                        .and_then(|_| s.claims.get(usize::from(index)))
+                })
+                .copied()
+                .flatten()
+            else {
+                return false;
+            };
+            if claim.id != claim_id
+                || claim.recipient != id
+                || claim.recipient_identity != recipient_identity
+                || claim.phase != crate::salvage::ClaimPhase::Offered
+            {
+                return false;
+            }
+            let Some(crab) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote) else {
+                return false;
+            };
+            if crab.salvage_receipts.contains(&claim_id) {
+                return true;
+            }
+            if crab.salvage_receipts.len() >= 32
+                || crab.mover.clinging.len() >= crab.mover.carries(&self.tuning)
+            {
+                return false;
+            }
+            crab.mover.clinging.push(Carry::Grit);
+            crab.salvage_receipts.push(claim_id);
+            return true;
+        }
+        if let SalvageAction::FinalizeFragment(index, claim_id) = action {
+            let Some(site) = &mut self.salvage else {
+                return false;
+            };
+            let Some(Some(claim)) = site.claims.get_mut(usize::from(index)) else {
+                return false;
+            };
+            if !site.has_fragments[usize::from(index)]
+                || claim.id != claim_id
+                || claim.recipient != id
+                || claim.recipient_identity != recipient_identity
+                || claim.phase != crate::salvage::ClaimPhase::Offered
+            {
+                return false;
+            }
+            claim.phase = crate::salvage::ClaimPhase::Finalized;
+            site.fragment_revisions[usize::from(index)] =
+                site.fragment_revisions[usize::from(index)].saturating_add(1);
+            return true;
+        }
+        if let SalvageAction::TakeFragment(index) = action {
+            return if let (Some(cells), Some(site)) = (&self.level.cells, &mut self.salvage) {
+                site.request_fragment(
+                    cells,
+                    usize::from(index),
+                    from,
+                    id,
+                    recipient_identity,
+                    small_room,
+                )
+            } else {
+                false
+            };
+        }
+        let (Some(cells), Some(site)) = (&self.level.cells, &mut self.salvage) else {
+            return false;
+        };
+        match action {
+            SalvageAction::Take => site.take(cells, id, recipient_identity, from, room),
+            SalvageAction::DropShell => site.drop_carried(id, from),
+            SalvageAction::DropValve => site.drop_valve(id, from),
+            SalvageAction::TakeFragment(_)
+            | SalvageAction::OfferFragment(..)
+            | SalvageAction::GrantFragment(..)
+            | SalvageAction::FinalizeFragment(..) => false,
+            SalvageAction::Crush => site.crush(cells, from),
+            SalvageAction::LiftValve => site.lift_valve(id, recipient_identity, from, room),
+            SalvageAction::PlaceValve(at) => site.place_valve(cells, id, from, at, clear),
+            SalvageAction::Display => site.display(id, at_home),
+            SalvageAction::RetrieveDisplay => {
+                site.retrieve_display(id, recipient_identity, at_home, room)
+            }
+        }
+    }
+
+    /// Ordered Canyon interactions. The device holding a crab alone mutates
+    /// its inventory; shared slot ownership stays with the regional owner.
+    pub fn canyon_action(
+        &mut self,
+        id: PlayerId,
+        action: crate::canyon_drift::CanyonAction,
+    ) -> bool {
+        let applied = self.apply_canyon_action(id, action);
+        if applied
+            && id == PlayerId(0)
+            && let Some(rec) = &mut self.recorder
+        {
+            rec.note_canyon_action(self.tick, action);
+        }
+        applied
+    }
+
+    fn apply_canyon_action(
+        &mut self,
+        id: PlayerId,
+        action: crate::canyon_drift::CanyonAction,
+    ) -> bool {
+        use crate::canyon_drift::{
+            CanyonAction, DriftProfile,
+            run::{GrantPhase, SlotPhase},
+        };
+        let Some(crab) = self
+            .crabs
+            .iter()
+            .find(|c| c.id == id && !c.remote && c.fighter.dead.is_none())
+        else {
+            return false;
+        };
+        let identity = crab.salvage_identity;
+        let from = crab.mover.pos + Vec2::Y * (crab.mover.height(&self.tuning) * 0.5);
+        let small_room = crab.mover.clinging.len() < crab.mover.carries(&self.tuning)
+            && crab.drift_receipts.len() < 32;
+        let big_room = crab.mover.carrying.is_none() && self.salvage.as_ref().is_none_or(|site| {
+            (!site.has_find || site.phase != crate::salvage::FindPhase::Carried(id))
+                && (!site.has_valve || site.valve_phase != crate::salvage::ValvePhase::Carried(id))
+        }) && self.canyon.as_ref().is_none_or(|run| {
+            (!run.has_catcher || !matches!(run.catcher.phase, crate::canyon_drift::CatcherPhase::Carried(player, _) if player == id))
+                && (!run.has_practice || !matches!(run.practice_phase, crate::canyon_drift::run::PracticePhase::Carried(player, _) if player == id))
+        });
+        let receipt_absent = match action {
+            CanyonAction::AcknowledgeReceipt(claim) => !crab.drift_receipts.contains(&claim),
+            _ => true,
+        };
+        if let CanyonAction::ForgetReceipt(proof) = action {
+            let recorded = self
+                .canyon
+                .as_ref()
+                .and_then(|run| {
+                    let i = usize::from(proof.id.slot);
+                    run.owned_slots
+                        .get(i)
+                        .filter(|owned| **owned)
+                        .and_then(|_| run.slots.get(i))
+                })
+                .is_some_and(|slot| matches!(slot.phase, SlotPhase::Grant(g) if g == proof));
+            if !recorded
+                || proof.phase != GrantPhase::FinalizedSaved
+                || proof.player != id
+                || proof.identity != identity
+            {
+                return false;
+            }
+            let Some(crab) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote) else {
+                return false;
+            };
+            crab.drift_receipts.retain(|receipt| *receipt != proof.id);
+            return true;
+        }
+        if let CanyonAction::Grant(claim_id) = action {
+            let grant = self
+                .canyon
+                .as_ref()
+                .and_then(|run| {
+                    let i = usize::from(claim_id.slot);
+                    run.owned_slots
+                        .get(i)
+                        .filter(|owned| **owned)
+                        .and_then(|_| run.slots.get(i))
+                })
+                .and_then(|slot| {
+                    if let SlotPhase::Grant(grant) = slot.phase {
+                        Some(grant)
+                    } else {
+                        None
+                    }
+                });
+            let Some(grant) = grant else {
+                return false;
+            };
+            if grant.id != claim_id
+                || grant.player != id
+                || grant.identity != identity
+                || grant.phase != GrantPhase::Offered
+            {
+                return false;
+            }
+            let Some(crab) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote) else {
+                return false;
+            };
+            if crab.drift_receipts.contains(&claim_id) {
+                return true;
+            }
+            if !small_room {
+                return false;
+            }
+            crab.mover.clinging.push(match grant.profile {
+                DriftProfile::Flat => Carry::Valve,
+                DriftProfile::Dense => Carry::Grit,
+            });
+            crab.drift_receipts.push(claim_id);
+            return true;
+        }
+        let clear = if let CanyonAction::PlaceCatcher(at) = action {
+            self.level.place_at(at).is_none()
+                && self.crabs.iter().all(|c| {
+                    (c.mover.pos.x - at.x).abs() > c.mover.half_width(&self.tuning) + 20.0
+                        || (c.mover.pos.y - at.y).abs() > c.mover.height(&self.tuning)
+                })
+        } else {
+            true
+        };
+        let Some(world) = &self.level.cells else {
+            return false;
+        };
+        let Some(run) = &mut self.canyon else {
+            return false;
+        };
+        let catcher_room = match run.catcher.contents {
+            None => true,
+            Some(i) if i < 2 => small_room,
+            Some(_) => false,
+        };
+        match action {
+            CanyonAction::LiftPractice => run.lift_practice(id, identity, from, big_room, world),
+            CanyonAction::ReleasePractice => run.release_practice(from, world),
+            CanyonAction::DropPractice => {
+                let at = from + Vec2::Y * 16.0;
+                world.contains_world(at.x, at.y)
+                    && !world.game_solid(at.x - 4.0, at.y - 3.0, at.x + 4.0, at.y + 3.0)
+                    && run.drop_practice(id, at)
+            }
+            CanyonAction::LiftCatcher => {
+                run.lift_catcher(id, identity, from, big_room && catcher_room, world)
+            }
+            CanyonAction::DropCatcher => {
+                let at = from + Vec2::Y * 16.0;
+                world.contains_world(at.x, at.y)
+                    && !world.game_solid(at.x - 20.0, at.y - 3.0, at.x + 20.0, at.y + 3.0)
+                    && run.drop_catcher(id, at)
+            }
+            CanyonAction::PlaceCatcher(at) => run.place_catcher(id, from, at, clear, world),
+            CanyonAction::ReleaseOutflow(index) => {
+                run.release_outflow(usize::from(index), from, world)
+            }
+            CanyonAction::RetireOutflow(claim, revision) => {
+                (self.crabs.len() <= 1 || id == PlayerId(0))
+                    && run.retire_outflow_durable(claim, revision)
+            }
+            CanyonAction::Take(index) => run
+                .request(usize::from(index), id, identity, from, small_room, world)
+                .is_some(),
+            CanyonAction::Offer(claim) => {
+                (self.crabs.len() <= 1 || id == PlayerId(0)) && run.offer(claim)
+            }
+            CanyonAction::Finalize(claim) => run.finalize(claim, id, identity),
+            CanyonAction::ConfirmFinalized(claim, revision) => {
+                (self.crabs.len() <= 1 || id == PlayerId(0))
+                    && run.confirm_finalized_save(claim, revision)
+            }
+            CanyonAction::AcknowledgeReceipt(claim) => {
+                receipt_absent && run.acknowledge_retired_receipt(claim, id, identity)
+            }
+            CanyonAction::Retire(claim, revision) => {
+                (self.crabs.len() <= 1 || id == PlayerId(0)) && run.retire_durable(claim, revision)
+            }
+            CanyonAction::Grant(_) | CanyonAction::ForgetReceipt(_) => false,
+        }
     }
 
     /// Which feel preset the tuning came from ([`Feel::default`] unless
@@ -314,7 +831,11 @@ impl Sim {
             mover,
             prev_pos: pos,
             controls: Controls::default(),
+            eating: crate::prepared_food::Eating::default(),
             events: StepEvents::default(),
+            salvage_receipts: Vec::new(),
+            drift_receipts: Vec::new(),
+            salvage_identity: 0,
             eaten: vec![false; self.level.eggs.len()],
             cultures_taken: vec![false; self.level.cultures.len()],
             clues_found: vec![false; self.level.clues.len()],
@@ -793,6 +1314,7 @@ impl Sim {
         if let Some(crab) = self.crab_mut(id) {
             let c = &mut crab.controls;
             c.walk = new.walk;
+            c.eat_held = new.eat_held;
             c.jump_held = new.jump_held;
             c.dodge_held = new.dodge_held;
             c.dig_held = new.dig_held;
@@ -888,6 +1410,7 @@ impl Sim {
             }
             return Outcome::Ignored;
         }
+        crab.eating.cancel();
         let mut ev = StepEvents::default();
         let outcome = combat::crab_defends(&mut crab.fighter, &mut crab.mover, hit, t, &mut ev);
         crab.pending.merge(ev);
@@ -1503,6 +2026,54 @@ impl Sim {
                 }
             }
         }
+        if !external_terrain
+            && let (Some(salvage), Some(cells)) = (&mut self.salvage, &self.level.cells)
+        {
+            for c in &self.crabs {
+                if c.fighter.dead.is_some() || c.mover.carrying.is_some() {
+                    let at = c.mover.pos + Vec2::Y * c.mover.height(&self.tuning);
+                    salvage.drop_carried(c.id, at);
+                    salvage.drop_valve(c.id, at);
+                }
+            }
+            if let crate::salvage::FindPhase::Carried(id) = salvage.phase
+                && salvage.has_find
+                && let Some(c) = self.crabs.iter().find(|c| c.id == id && !c.remote)
+            {
+                let at = c.mover.pos + Vec2::Y * c.mover.height(&self.tuning);
+                if salvage.position != at {
+                    salvage.position = at;
+                    salvage.revision = salvage.revision.saturating_add(1);
+                }
+            }
+            if let crate::salvage::ValvePhase::Carried(id) = salvage.valve_phase
+                && salvage.has_valve
+                && let Some(c) = self.crabs.iter().find(|c| c.id == id && !c.remote)
+            {
+                let at = c.mover.pos + Vec2::Y * c.mover.height(&self.tuning);
+                if salvage.valve_position != at {
+                    salvage.valve_position = at;
+                    salvage.valve_revision = salvage.valve_revision.saturating_add(1);
+                }
+            }
+            let _events = salvage.step(cells);
+        }
+        if !external_terrain && let (Some(run), Some(cells)) = (&mut self.canyon, &self.level.cells)
+        {
+            for crab in &self.crabs {
+                if crab.remote {
+                    continue;
+                }
+                let at = crab.mover.pos + Vec2::Y * crab.mover.height(&self.tuning);
+                if crab.fighter.dead.is_some() || crab.mover.carrying.is_some() {
+                    run.drop_practice(crab.id, at);
+                    run.drop_catcher(crab.id, at);
+                } else {
+                    run.sync_carrier(crab.id, at);
+                }
+            }
+            run.step(self.tick, cells, &self.level, &self.tuning);
+        }
         if let Some(rec) = &mut self.recorder
             && let Some(crab) = self.crabs.iter().find(|c| !c.remote)
         {
@@ -1525,6 +2096,7 @@ impl Sim {
         }
         self.shared
             .forget_bodies(|id| self.enemies.iter().find(|e| e.id == id).map(|e| e.deaths));
+        let health_before: Vec<f32> = self.crabs.iter().map(|c| c.fighter.vitals.health).collect();
         for crab in &mut self.crabs {
             crab.prev_pos = crab.mover.pos;
             let mut ev = std::mem::take(&mut crab.pending);
@@ -1557,6 +2129,7 @@ impl Sim {
                 let place = crab.wakes_at.map_or(Place::Home, Place::Crevice);
                 let (_, den) = self.level.door_and_den(place);
                 crab.mover = crate::physics::Mover {
+                    prepared_food: std::mem::take(&mut crab.mover.prepared_food),
                     upgrades: crab.mover.upgrades,
                     lantern: crab.mover.lantern,
                     scissor_claw: crab.mover.scissor_claw,
@@ -1815,7 +2388,8 @@ impl Sim {
                 // shell and reserve for a while, both filled.
                 let food = &self.tuning.food;
                 // (Not soft after a moult: it eats nothing then.)
-                if crab.larder > 0
+                if m.prepared_food.auto_eat
+                    && crab.larder > 0
                     && m.well_fed == 0
                     && !m.is_soft()
                     && crab.resting >= food.eat_after_ticks
@@ -2042,6 +2616,45 @@ impl Sim {
                 {
                     hunter.landed = true;
                     hunter.vitals.hitstop = hunter.vitals.hitstop.max(hit.hitstop);
+                }
+            }
+        }
+        for (crab, before) in self.crabs.iter_mut().zip(health_before) {
+            if crab.remote {
+                continue;
+            }
+            let c = crab.controls;
+            let stationary = crab.mover.pos.distance_squared(crab.prev_pos) < 0.000001
+                && c.walk == 0.0
+                && !c.jump_held
+                && !c.dodge_held
+                && !c.dig_held
+                && !c.smash_held
+                && !c.block_held;
+            let eligible = crab.fighter.dead.is_none()
+                && !crab.mover.is_soft()
+                && crab.mover.shelter == Shelter::Out
+                && crab.fighter.vitals.hitstop == 0;
+            let damaged = crab.fighter.vitals.health < before;
+            if let Some(kind) = crab.eating.tick(
+                &mut crab.mover.prepared_food,
+                c.eat_held,
+                stationary,
+                damaged,
+                eligible,
+            ) {
+                crab.events.ate_portion = true;
+                match kind {
+                    crate::prepared_food::PortionKind::Shell => {
+                        let max = crab.mover.max_shell(&self.tuning);
+                        crab.fighter.vitals.health =
+                            (crab.fighter.vitals.health + max * 0.2).min(max);
+                    }
+                    crate::prepared_food::PortionKind::Reserve => {
+                        crab.mover.reserve = (crab.mover.reserve
+                            + 3.0 / crab.mover.reserve_strokes(&self.tuning))
+                        .min(1.0);
+                    }
                 }
             }
         }
@@ -2332,6 +2945,19 @@ impl Sim {
         let mut rec = Recorder::new(start, self.tick, &self.tuning);
         if self.level.cells.is_some() {
             rec.note_cellular();
+            let records = self.salvage_records();
+            if !crate::salvage::valid_records(&records) {
+                self.recorder = None;
+                return;
+            }
+            rec.note_salvage_start(records);
+            if let Some(run) = &self.canyon {
+                if !run.complete() {
+                    self.recorder = None;
+                    return;
+                }
+                rec.note_canyon_start(run.records());
+            }
         }
         // Progress brought back from a save goes with it, so the replay
         // starts the crab as it was (a fresh crab needs nothing).
@@ -2401,7 +3027,9 @@ impl Sim {
                 })
                 .collect()
         };
-        if self.tick != other.tick
+        if self.canyon != other.canyon
+            || self.salvage != other.salvage
+            || self.tick != other.tick
             || self.crabs.len() != other.crabs.len()
             || self
                 .crabs
@@ -2499,6 +3127,12 @@ impl Sim {
             "{} {:?} {:?} {:?} {:?}",
             self.tick, crabs, self.enemies, self.rng, self.shared
         );
+        if let Some(canyon) = &self.canyon {
+            state.push_str(&format!(" {canyon:?}"));
+        }
+        if let Some(salvage) = &self.salvage {
+            state.push_str(&format!(" {salvage:?}"));
+        }
         if let Some(streams) = &self.owned_rng {
             state.push_str(&format!(" {streams:?}"));
         }
@@ -2536,6 +3170,12 @@ impl Sim {
             "{} {:?} {:?} {:?} {:?}",
             self.tick, crabs, self.enemies, self.rng, self.shared
         );
+        if let Some(canyon) = &self.canyon {
+            let _ = write!(sink, " {canyon:?}");
+        }
+        if let Some(salvage) = &self.salvage {
+            let _ = write!(sink, " {salvage:?}");
+        }
         if let Some(streams) = &self.owned_rng {
             let _ = write!(sink, " {streams:?}");
         }

@@ -389,7 +389,9 @@ mod tests {
             b.step(0.35);
         }
         assert_eq!(a, b);
-        assert_eq!(a.game_pixels().len(), 768 * 448 * 4);
+        let mut display = Vec::new();
+        a.write_display_cells(&mut display);
+        assert_eq!(display.len(), 768 * 448 * 2);
     }
     #[test]
     fn invalid_region_changes_and_truncated_snapshots_are_rejected() {

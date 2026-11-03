@@ -61,7 +61,21 @@ pub(crate) fn prepare_owner_save(
     let initial = super::browser::needs_initial_baseline();
     #[cfg(not(target_arch = "wasm32"))]
     let initial = false;
+    let mut sources = vec![view];
+    if let Some(remote) = remote {
+        sources.push(&remote.sim);
+    }
+    let salvage = entities
+        .sim
+        .combined_salvage_records(&sources)
+        .ok_or(Error::Damaged)?;
+    let canyon = entities
+        .sim
+        .combined_canyon_records(&sources)
+        .ok_or(Error::Damaged)?;
     Capture::with_initial_baseline(saved, terrain.terrain(), &host.memory, tick, initial)
+        .and_then(|capture| capture.with_salvage(salvage))
+        .and_then(|capture| capture.with_canyon(canyon))
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

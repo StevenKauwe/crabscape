@@ -2,6 +2,7 @@
 //! Coordinates increase right and up. Water occupies every non-solid cell;
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
+mod shellwash_content;
 mod sleeping_archive;
 use sleeping_archive::SleepingArchive;
 pub use sleeping_archive::SleepingCut;
@@ -64,6 +65,24 @@ fn grain_body_contains(x: i32, y: i32, cx: i32, cy: i32, hx: i32, hy: i32) -> bo
     dy > top && dy <= top + rise
 }
 
+fn anchored_column(row: i32, cell_at: impl Fn(i32) -> Cell) -> bool {
+    (0..=row)
+        .rev()
+        .find_map(|below| match cell_at(below) {
+            Cell::Rock => Some(true),
+            Cell::Water => Some(false),
+            Cell::Sand | Cell::Mud => None,
+        })
+        .unwrap_or(true)
+}
+
+// A dangling grain or a narrow lip with water on its far side can give
+// under the shell. Reaching open water takes an actual grain swap below.
+fn shoulder_can_brush(x: i32, y: i32, direction: i32, cell: impl Fn(i32, i32) -> Cell) -> bool {
+    (1..=3).any(|step| cell(x + direction * step, y) == Cell::Water)
+        || !anchored_column(y, |row| cell(x, row))
+}
+
 pub const GAME_CELL: f32 = 4.0;
 pub const GAME_BOTTOM: f32 = -360.0;
 
@@ -112,12 +131,65 @@ pub fn ambient_current(world_y: f32, tick: u64) -> (f32, f32) {
     (0.35 + layer * 0.375 + slow * 0.15, vertical * 0.05)
 }
 
+/// Find a reachable patch of water outside the working claw's cavity.
+fn scoop_destination(
+    size: (usize, usize),
+    (sx, sy): (i32, i32),
+    reach: i32,
+    (dx, dy): (i32, i32),
+    crab: Option<(i32, i32)>,
+    water: impl Fn(i32, i32) -> bool,
+    destination: impl Fn(i32, i32) -> bool,
+) -> Option<(i32, i32)> {
+    let left = (sx - reach).max(0);
+    let right = (sx + reach).min(size.0 as i32 - 1);
+    let bottom = (sy - reach).max(0);
+    let top = (sy + reach).min(size.1 as i32 - 1);
+    let width = (right - left + 1) as usize;
+    let mut visited = vec![false; width * (top - bottom + 1) as usize];
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back((sx, sy, 0));
+    visited[(sy - bottom) as usize * width + (sx - left) as usize] = true;
+    let (mut side_x, mut side_y) = (-dy, dx);
+    if let Some((cx, cy)) = crab
+        && (sx - cx) * side_x + (sy - cy) * side_y < 0
+    {
+        side_x = -side_x;
+        side_y = -side_y;
+    }
+    while let Some((x, y, distance)) = queue.pop_front() {
+        if distance >= reach {
+            continue;
+        }
+        for (ax, ay) in [(side_x, side_y), (-dx, -dy), (-side_x, -side_y), (dx, dy)] {
+            let (nx, ny) = (x + ax, y + ay);
+            if nx < left || nx > right || ny < bottom || ny > top {
+                continue;
+            }
+            let v = (ny - bottom) as usize * width + (nx - left) as usize;
+            if visited[v] {
+                continue;
+            }
+            visited[v] = true;
+            if !water(nx, ny) {
+                continue;
+            }
+            if destination(nx, ny) {
+                return Some((nx, ny));
+            }
+            queue.push_back((nx, ny, distance + 1));
+        }
+    }
+    None
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[repr(u8)]
 pub enum Cell {
-    Water,
-    Rock,
-    Sand,
-    Mud,
+    Water = 0,
+    Rock = 1,
+    Sand = 2,
+    Mud = 3,
 }
 
 /// Fixed world-space chunk coordinates for the planned full-map simulation.
@@ -152,6 +224,22 @@ pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> C
     let wx = (cell_x as f32 + 0.5) * GAME_CELL;
     let wy = GAME_BOTTOM + (cell_y as f32 + 0.5) * GAME_CELL;
     let floor = level.floor_height(wx);
+    // An authored shelf at the Canyon Drift Run. New pages start with this
+    // rock; saved, edited pages remain authoritative on every later load.
+    if (6396.0..6452.0).contains(&wx) && (-3188.0..-3176.0).contains(&wy) {
+        return Cell::Rock;
+    }
+    if (6380.0..6432.0).contains(&wx) && (-3252.0..-3240.0).contains(&wy) {
+        return Cell::Rock;
+    }
+    if ((6380.0..6384.0).contains(&wx) || (6428.0..6432.0).contains(&wx))
+        && (-3240.0..-3224.0).contains(&wy)
+    {
+        return Cell::Rock;
+    }
+    if (6448.0..6452.0).contains(&wx) && (-3176.0..-3160.0).contains(&wy) {
+        return Cell::Rock;
+    }
     if wy < floor - 100.0
         || level
             .rocks
@@ -647,6 +735,51 @@ impl World {
         world
     }
 
+    /// Seed the first shellwash as actual cellular material: a shallow rock
+    /// slope with a loose sand cap and a low downstream catch lip. Called
+    /// only when constructing a fresh opening, before any saved world loads.
+    pub fn seed_shellwash_site(&mut self) {
+        for gx in 55..=86 {
+            let wx = (gx as f32 + 0.5) * GAME_CELL;
+            let slope = 30.0 - (wx - 220.0) * 0.15;
+            for gy in 0..self.height as i32 {
+                let wy = GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL;
+                let Some(i) = self.index_at(gx - self.origin.0, gy - self.origin.1) else {
+                    continue;
+                };
+                if wy > slope + 32.0 || wy < -100.0 {
+                    continue;
+                }
+                if self.pebble_owner[i] != 0 {
+                    continue;
+                }
+                self.cells[i] = if wy < slope {
+                    Cell::Rock
+                } else if wx < 290.0 {
+                    Cell::Sand
+                } else {
+                    Cell::Water
+                };
+                self.flow[i] = if self.cells[i] == Cell::Water {
+                    (0.35, 0.0)
+                } else {
+                    (0.0, 0.0)
+                };
+            }
+        }
+        // A low lip contains a missed find without sealing the crab's route.
+        for gx in 84..=86 {
+            for gy in 90..=95 {
+                if let Some(i) = self.index_at(gx - self.origin.0, gy - self.origin.1)
+                    && self.pebble_owner[i] == 0
+                {
+                    self.cells[i] = Cell::Rock;
+                    self.flow[i] = (0.0, 0.0);
+                }
+            }
+        }
+    }
+
     /// Keep the historical pebble bed available to focused physics tests.
     #[cfg(any(test, feature = "cleanup-proof"))]
     pub fn opening_pebble_fixture(level: &crate::Level) -> Self {
@@ -1032,37 +1165,50 @@ impl World {
         let (width, height) = next_size;
         let dx = next_origin.0 - old.0;
         let dy = next_origin.1 - old.1;
-        let inside = |x: i32, y: i32, origin: (i32, i32), size: (usize, usize)| {
-            x >= origin.0
-                && x < origin.0 + size.0 as i32
-                && y >= origin.1
-                && y < origin.1 + size.1 as i32
+        // Visit each archive page once. Overlapping rows stay in contiguous arrays.
+        let side = TERRAIN_CHUNK_CELLS;
+        let pages = |origin: (i32, i32), size: (usize, usize)| {
+            let last = (origin.0 + size.0 as i32 - 1, origin.1 + size.1 as i32 - 1);
+            (origin.1.div_euclid(side)..=last.1.div_euclid(side)).flat_map(move |cy| {
+                (origin.0.div_euclid(side)..=last.0.div_euclid(side)).map(move |cx| {
+                    let x = (cx * side).max(origin.0)..((cx + 1) * side).min(last.0 + 1);
+                    let y = (cy * side).max(origin.1)..((cy + 1) * side).min(last.1 + 1);
+                    ((cx, cy), x, y)
+                })
+            })
         };
-        let locate = |x: i32, y: i32| {
-            let side = TERRAIN_CHUNK_CELLS;
-            let key = (x.div_euclid(side), y.div_euclid(side));
-            let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
-            (key, slot)
+        let overlap_x =
+            old.0.max(next_origin.0)..(old.0 + old_size.0 as i32).min(next_origin.0 + width as i32);
+        let overlap_y = old.1.max(next_origin.1)
+            ..(old.1 + old_size.1 as i32).min(next_origin.1 + height as i32);
+        let covered = |x: &std::ops::Range<i32>, y: &std::ops::Range<i32>| {
+            x.start >= overlap_x.start
+                && x.end <= overlap_x.end
+                && y.start >= overlap_y.start
+                && y.end <= overlap_y.end
         };
-        let mut touched = std::collections::BTreeSet::new();
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let (gx, gy) = (old.0 + x as i32, old.1 + y as i32);
-                if inside(gx, gy, next_origin, next_size) {
-                    continue;
+        let slot = |x: i32, y: i32| (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
+        for (key, xs, ys) in pages(old, old_size) {
+            if covered(&xs, &ys) {
+                continue;
+            }
+            #[cfg(test)]
+            dirty_oracle::mark_sleeping(key);
+            let page = self.sleeping.entry(key).or_default();
+            for y in ys {
+                for x in xs.clone() {
+                    if overlap_y.contains(&y) && overlap_x.contains(&x) {
+                        continue;
+                    }
+                    let i = (y - old.1) as usize * old_size.0 + (x - old.0) as usize;
+                    page.cells[slot(x, y)] = Some(SleepingCell {
+                        cell: self.cells[i],
+                        flow: self.flow[i],
+                        suspended: self.suspended[i],
+                        grain: self.grain[i],
+                        owner: self.pebble_owner[i],
+                    });
                 }
-                let i = y * self.width + x;
-                let (key, slot) = locate(gx, gy);
-                touched.insert(key);
-                #[cfg(test)]
-                dirty_oracle::mark_sleeping(key);
-                self.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
-                    cell: self.cells[i],
-                    flow: self.flow[i],
-                    suspended: self.suspended[i],
-                    grain: self.grain[i],
-                    owner: self.pebble_owner[i],
-                });
             }
         }
         let mut cells = vec![Cell::Water; width * height];
@@ -1070,55 +1216,56 @@ impl World {
         let mut suspended = vec![0; width * height];
         let mut grain = vec![0; width * height];
         let mut owner = vec![0; width * height];
-        for y in 0..height {
-            for x in 0..width {
-                let (gx, gy) = (next_origin.0 + x as i32, next_origin.1 + y as i32);
-                let i = y * width + x;
-                let value = if inside(gx, gy, old, old_size) {
-                    let j = (gy - old.1) as usize * old_size.0 + (gx - old.0) as usize;
-                    SleepingCell {
-                        cell: self.cells[j],
-                        flow: self.flow[j],
-                        suspended: self.suspended[j],
-                        grain: self.grain[j],
-                        owner: self.pebble_owner[j],
+        if !overlap_x.is_empty() {
+            let count = overlap_x.len();
+            for y in overlap_y.clone() {
+                let from = (y - old.1) as usize * old_size.0 + (overlap_x.start - old.0) as usize;
+                let to = (y - next_origin.1) as usize * width
+                    + (overlap_x.start - next_origin.0) as usize;
+                let src = from..from + count;
+                let dst = to..to + count;
+                cells[dst.clone()].copy_from_slice(&self.cells[src.clone()]);
+                flow[dst.clone()].copy_from_slice(&self.flow[src.clone()]);
+                suspended[dst.clone()].copy_from_slice(&self.suspended[src.clone()]);
+                grain[dst.clone()].copy_from_slice(&self.grain[src.clone()]);
+                owner[dst].copy_from_slice(&self.pebble_owner[src]);
+            }
+        }
+        let mut touched = Vec::new();
+        for (key, xs, ys) in pages(next_origin, next_size) {
+            if covered(&xs, &ys) {
+                continue;
+            }
+            #[cfg(test)]
+            dirty_oracle::mark_sleeping(key);
+            let mut page = self.sleeping.get_mut(&key);
+            if page.is_some() {
+                touched.push(key);
+            }
+            for y in ys {
+                let ambient =
+                    ambient_current(GAME_BOTTOM + (y as f32 + 0.5) * GAME_CELL, self.tick * 4);
+                for x in xs.clone() {
+                    if overlap_y.contains(&y) && overlap_x.contains(&x) {
+                        continue;
                     }
-                } else {
-                    let (key, slot) = locate(gx, gy);
-                    touched.insert(key);
-                    #[cfg(test)]
-                    dirty_oracle::mark_sleeping(key);
-                    self.sleeping
-                        .get_mut(&key)
-                        .and_then(|chunk| {
-                            chunk.cells[slot]?;
-                            chunk.cells[slot].take()
-                        })
-                        .unwrap_or_else(|| {
-                            let cell = initial_terrain_cell(level, gx, gy);
-                            let shade = initial_grain(gx, gy);
-                            let water = if cell == Cell::Water {
-                                ambient_current(
-                                    GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL,
-                                    self.tick * 4,
-                                )
-                            } else {
-                                (0.0, 0.0)
-                            };
-                            SleepingCell {
-                                cell,
-                                flow: water,
-                                suspended: 0,
-                                grain: shade,
-                                owner: 0,
-                            }
-                        })
-                };
-                cells[i] = value.cell;
-                flow[i] = value.flow;
-                suspended[i] = value.suspended;
-                grain[i] = value.grain;
-                owner[i] = value.owner;
+                    let i = (y - next_origin.1) as usize * width + (x - next_origin.0) as usize;
+                    if let Some(saved) =
+                        page.as_deref_mut().and_then(|p| p.cells[slot(x, y)].take())
+                    {
+                        cells[i] = saved.cell;
+                        flow[i] = saved.flow;
+                        suspended[i] = saved.suspended;
+                        grain[i] = saved.grain;
+                        owner[i] = saved.owner;
+                    } else {
+                        cells[i] = initial_terrain_cell(level, x, y);
+                        grain[i] = initial_grain(x, y);
+                        if cells[i] == Cell::Water {
+                            flow[i] = ambient;
+                        }
+                    }
+                }
             }
         }
         #[cfg(test)]
@@ -1180,22 +1327,34 @@ impl World {
             ambient_current(y, self.tick * 4)
         }
     }
-    /// Transparent water lets the campaign's own background show through.
-    pub fn game_pixels(&self) -> Vec<u8> {
-        let mut pixels = self.pixels();
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let cell = y * self.width + x;
-                if self.cells[cell] == Cell::Water {
-                    let p = ((self.height - 1 - y) * self.width + x) * 4;
-                    let depth = (y * 10 / self.height) as u8;
-                    if pixels[p..p + 3] == [15 + depth / 2, 53 + depth, 65 + depth] {
-                        pixels[p + 3] = 0;
-                    }
-                }
+    /// Pack material and grain identity in top-to-bottom texture rows.
+    pub fn write_display_cells(&self, out: &mut Vec<u8>) {
+        out.resize(self.cells.len() * 2, 0);
+        for ((row, cells), grain) in out
+            .chunks_exact_mut(self.width * 2)
+            .zip(self.cells.chunks_exact(self.width).rev())
+            .zip(self.grain.chunks_exact(self.width).rev())
+        {
+            for ((pixel, cell), shade) in
+                row.as_chunks_mut::<2>().0.iter_mut().zip(cells).zip(grain)
+            {
+                pixel[0] = *cell as u8;
+                pixel[1] = *shade;
             }
         }
-        pixels
+    }
+    /// Inclusive local cell coordinates where the crab keeps the mud visually open.
+    pub fn display_crab_bounds(&self) -> [f32; 4] {
+        self.crab.map_or([1.0, 1.0, 0.0, 0.0], |(x, y)| {
+            let w = self.crab_half_x + 5;
+            let h = self.crab_half_y + 5;
+            [
+                (x - w) as f32,
+                (y - h) as f32,
+                (x + w) as f32,
+                (y + h) as f32,
+            ]
+        })
     }
     /// Fine particles are separate sprites so they can be smaller than one
     /// material cell without increasing the cost of the whole grid.
@@ -1522,14 +1681,7 @@ impl World {
     // A falling loose column cannot carry an airborne crab. Rock and packed
     // sediment extending beyond this active window retain their normal collision.
     fn sediment_anchored(&self, x: i32, row: i32) -> bool {
-        (0..=row)
-            .rev()
-            .find_map(|below| match self.cell(x, below) {
-                Cell::Rock => Some(true),
-                Cell::Water => Some(false),
-                Cell::Sand | Cell::Mud => None,
-            })
-            .unwrap_or(true)
+        anchored_column(row, |below| self.cell(x, below))
     }
 
     pub(crate) fn game_airborne_support(&self, min_x: f32, max_x: f32, feet_y: f32) -> bool {
@@ -1621,6 +1773,9 @@ impl World {
         }
         let (x0, y0) = self.local_cell(min_x, min_y);
         let (x1, y1) = self.local_cell(max_x, max_y);
+        // Count shoulder contact separately from grains already around
+        // the legs. A few specks at the rim of a cut yield to the shell.
+        let mut shoulder_grains = 0;
         for y in y0.floor() as i32..=y1.floor() as i32 {
             for x in x0.floor() as i32..=x1.floor() as i32 {
                 if let Some(i) = self.index_at(x, y) {
@@ -1630,7 +1785,10 @@ impl World {
                             if GAME_BOTTOM + (y + 1 + self.origin.1) as f32 * GAME_CELL
                                 > min_y + leg_reach =>
                         {
-                            return true;
+                            shoulder_grains += 1;
+                            if self.pebble_owner[i] != 0 || shoulder_grains > 6 {
+                                return true;
+                            }
                         }
                         _ => {}
                     }
@@ -2202,13 +2360,24 @@ impl World {
         let front = cx + direction * (self.crab_half_x + 1);
         let mut moved = 0;
         let mut remaining_force = 6usize;
-        for y in (foot - 2..=foot + 4).rev() {
-            for offset in 0..6 {
+        // The legs take their normal step first. Use any spare force to
+        // clear grains catching the leading edge of the shell.
+        let leg_rows = (foot - 2..=foot + 4).rev();
+        let shell_rows = (foot + 5..=cy + self.crab_half_y).rev();
+        for y in leg_rows.chain(shell_rows) {
+            let reach = if y > foot + 4 { 2 } else { 6 };
+            for offset in 0..reach {
                 let x = front + direction * offset;
                 let Some(from) = self.index_at(x, y) else {
                     continue;
                 };
                 if !matches!(self.cells[from], Cell::Sand | Cell::Mud) {
+                    continue;
+                }
+                if y > foot + 4
+                    && (self.pebble_owner[from] != 0
+                        || !shoulder_can_brush(x, y, direction, |cx, cy| self.cell(cx, cy)))
+                {
                     continue;
                 }
                 if self.pebble_owner[from] != 0 {
@@ -2560,50 +2729,20 @@ impl World {
             return;
         }
         let (sx, sy) = ((start % self.width) as i32, (start / self.width) as i32);
-        let left = (sx - reach).max(0);
-        let right = (sx + reach).min(self.width as i32 - 1);
-        let bottom = (sy - reach).max(0);
-        let top = (sy + reach).min(self.height as i32 - 1);
-        let width = (right - left + 1) as usize;
-        let mut visited = vec![false; width * (top - bottom + 1) as usize];
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back((sx, sy, 0));
-        visited[(sy - bottom) as usize * width + (sx - left) as usize] = true;
-        let (mut side_x, mut side_y) = (-dy, dx);
-        if let Some((cx, cy)) = self.crab
-            && (sx - cx) * side_x + (sy - cy) * side_y < 0
-        {
-            side_x = -side_x;
-            side_y = -side_y;
-        }
-        while let Some((x, y, distance)) = queue.pop_front() {
-            if distance >= reach {
-                continue;
-            }
-            for (ax, ay) in [(side_x, side_y), (-dx, -dy), (-side_x, -side_y), (dx, dy)] {
-                let (nx, ny) = (x + ax, y + ay);
-                if nx < left || nx > right || ny < bottom || ny > top {
-                    continue;
-                }
-                let v = (ny - bottom) as usize * width + (nx - left) as usize;
-                if visited[v] {
-                    continue;
-                }
-                visited[v] = true;
-                let Some(i) = self.index_at(nx, ny) else {
-                    continue;
-                };
-                if self.cells[i] != Cell::Water {
-                    continue;
-                }
-                let outside_target = (nx - target.0).abs() > self.crab_half_x
-                    || (ny - target.1).abs() > self.crab_half_y;
-                if outside_target && self.can_receive_grain(i) {
-                    self.swap_cells(start, i);
-                    return;
-                }
-                queue.push_back((nx, ny, distance + 1));
-            }
+        let found = scoop_destination(
+            self.dimensions(),
+            (sx, sy),
+            reach,
+            (dx, dy),
+            self.crab,
+            |x, y| self.cell(x, y) == Cell::Water,
+            |x, y| {
+                ((x - target.0).abs() > self.crab_half_x || (y - target.1).abs() > self.crab_half_y)
+                    && self.can_receive_grain(y as usize * self.width + x as usize)
+            },
+        );
+        if let Some((x, y)) = found {
+            self.swap_cells(start, y as usize * self.width + x as usize);
         }
     }
     pub fn step(&mut self, current: f32) {
@@ -3993,6 +4132,79 @@ impl World {
     fn diffuse_flow(&mut self, current: f32) {
         // Diffuse velocity locally and continuously feed the ambient current.
         // Solid neighbors redirect a small part of the flow vertically.
+        // Alternating world-anchored colors read only neighbors of the opposite color.
+        // This relaxes the field in place without a second velocity grid.
+        let parity = (self.tick as usize) ^ self.origin.0 as usize ^ self.origin.1 as usize;
+        for y in 1..self.height - 1 {
+            // Broad slow layers preserve the fine simulation's established
+            // motion until it is coupled to the world-wide baseline.
+            let time = self.tick as f32;
+            let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
+            let shear = if self.game {
+                libm::sinf(world_y * 0.055 + time * 0.006) * 0.375
+                    + libm::sinf(world_y * 0.021 - time * 0.0027) * 0.15
+            } else {
+                0.0
+            };
+            for x in (1 + ((y ^ parity ^ 1) & 1)..self.width - 1).step_by(2) {
+                let i = y * self.width + x;
+                if self.cells[i] != Cell::Water {
+                    self.flow[i] = (0.0, 0.0);
+                    continue;
+                }
+                // Broad, slow eddies make the current less uniform while
+                // retaining its overall direction and stable boundaries.
+                let t = self.tick as f32 * 0.018;
+                let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
+                let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
+                let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
+                let feed = if self.game { 0.12 } else { 0.035 };
+                let mut vx = self.flow[i].0 + (current + shear + eddy * 0.08) * feed;
+                let mut vy = self.flow[i].1 + cross * 0.002;
+                let mut weight = 1.0 + feed;
+                let deflect = current
+                    * if world_y < (self.height / 2) as f32 {
+                        0.12
+                    } else {
+                        -0.12
+                    };
+                let left = i - 1;
+                if self.cells[left] == Cell::Water {
+                    vx += self.flow[left].0;
+                    vy += self.flow[left].1;
+                    weight += 1.0;
+                } else {
+                    vy += deflect;
+                }
+                let right = i + 1;
+                if self.cells[right] == Cell::Water {
+                    vx += self.flow[right].0;
+                    vy += self.flow[right].1;
+                    weight += 1.0;
+                } else {
+                    vy += deflect;
+                }
+                let below = i - self.width;
+                if self.cells[below] == Cell::Water {
+                    vx += self.flow[below].0;
+                    vy += self.flow[below].1;
+                    weight += 1.0;
+                }
+                let above = i + self.width;
+                if self.cells[above] == Cell::Water {
+                    vx += self.flow[above].0;
+                    vy += self.flow[above].1;
+                    weight += 1.0;
+                }
+                self.flow[i] = (vx / weight, vy / weight);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn diffuse_flow_reference(&mut self, current: f32) {
+        // Diffuse velocity locally and continuously feed the ambient current.
+        // Solid neighbors redirect a small part of the flow vertically.
         let mut next = self.flow.clone();
         for y in 1..self.height - 1 {
             // Broad slow layers preserve the fine simulation's established
@@ -4018,9 +4230,9 @@ impl World {
                 let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
                 let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
                 let feed = if self.game { 0.12 } else { 0.035 };
-                let mut vx = (current + shear + eddy * 0.08) * feed;
-                let mut vy = cross * 0.002;
-                let mut weight = feed;
+                let mut vx = self.flow[i].0 + (current + shear + eddy * 0.08) * feed;
+                let mut vy = self.flow[i].1 + cross * 0.002;
+                let mut weight = 1.0 + feed;
                 for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
                     let n = (y as i32 + dy) as usize * self.width + (x as i32 + dx) as usize;
                     if self.cells[n] == Cell::Water {
@@ -4303,6 +4515,58 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terrain_display_upload_preserves_grain_identity_and_texture_orientation() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        let mut out = Vec::new();
+        for (x, y) in [(160.0, 0.0), (6800.0, -3200.0), (160.0, 0.0)] {
+            world.follow_player(&level, x, y);
+            world.write_display_cells(&mut out);
+            assert_eq!(out.len(), world.width * world.height * 2);
+            for (offset, pair) in out.as_chunks::<2>().0.iter().enumerate() {
+                let i =
+                    (world.height - 1 - offset / world.width) * world.width + offset % world.width;
+                assert_eq!(*pair, [world.cells[i] as u8, world.grain[i]]);
+            }
+        }
+    }
+
+    #[test]
+    fn alternating_flow_matches_reference_on_its_active_color() {
+        let level = crate::Level::test_level();
+        for mut world in [World::new(), World::from_level_settled(&level)] {
+            for position in [(160.0, 0.0), (6800.0, -3200.0), (6800.0, -8200.0)] {
+                if world.game {
+                    world.follow_player(&level, position.0, position.1);
+                }
+                for current in [0.0, 0.35, -0.8, 1.2, 0.35, 0.0, -0.2, 0.35] {
+                    let mut expected = world.clone();
+                    expected.diffuse_flow_reference(current);
+                    world.diffuse_flow(current);
+                    assert!(
+                        world
+                            .flow
+                            .iter()
+                            .zip(&expected.flow)
+                            .enumerate()
+                            .filter(|(i, _)| ((i % world.width)
+                                ^ (i / world.width)
+                                ^ world.origin.0 as usize
+                                ^ world.origin.1 as usize
+                                ^ world.tick as usize)
+                                & 1
+                                == 0)
+                            .map(|(_, values)| values)
+                            .all(|(a, b)| a.0.to_bits() == b.0.to_bits()
+                                && a.1.to_bits() == b.1.to_bits())
+                    );
+                    world.step(current);
+                }
+            }
+        }
+    }
 
     #[test]
     fn disjoint_walker_rejects_sediment_and_overlapping_bodies_atomically() {
@@ -6659,7 +6923,7 @@ mod tests {
     fn digging_up_does_not_fly_or_jump_in_open_water() {
         use crate::{Controls, PlayerId, Sim};
         use bevy_math::Vec2;
-        let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+        let mut sim = Sim::with_one_crab(Vec2::new(450.0, 0.0));
         sim.enable_underwater_cells();
         let start = sim.crab(PlayerId(0)).unwrap().mover.pos.y;
         let mut max_speed = 0.0_f32;

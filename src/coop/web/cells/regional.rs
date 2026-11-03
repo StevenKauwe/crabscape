@@ -79,6 +79,25 @@ pub(super) struct Owner {
 fn fault(e: impl std::fmt::Debug) -> String {
     format!("Regional world: {e:?}")
 }
+fn frame_fault(sim: &Sim, frame: &RegionFrame, error: impl std::fmt::Debug) -> String {
+    if let Some(canvas) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("crabscape"))
+    {
+        let members: Vec<_> = sim.crabs().iter().map(|c| c.id.0).collect();
+        let controls: Vec<_> = frame.controls.iter().map(|(id, _)| id.0).collect();
+        let actions: Vec<_> = frame.actions.iter().map(|(id, _)| id.0).collect();
+        let _ = canvas.set_attribute(
+            "data-cell-frame-error",
+            &format!(
+                "world={} frame={} members={members:?} controls={controls:?} actions={actions:?} error={error:?}",
+                sim.tick_count(),
+                frame.tick
+            ),
+        );
+    }
+    fault(error)
+}
 fn send(s: &mut Session, msg: RegionMsg) {
     s.outgoing.push_back(Wire::Region {
         epoch: s.epoch,
@@ -117,6 +136,23 @@ fn edge_margin(b: CellRegion, p: Vec2, margin: f32) -> bool {
         || y < b.y as f32 + margin
         || y > (b.y + b.height as i32) as f32 - margin
 }
+/// A moving object that leaves an active lease must be returned to the
+/// owner archive and reassigned at the next ordered topology boundary.
+fn salvage_outside_lease(sim: &Sim) -> bool {
+    let Some(world) = &sim.level.cells else {
+        return false;
+    };
+    let outside = |p: Vec2| !world.contains_world(p.x, p.y);
+    sim.canyon
+        .as_ref()
+        .is_some_and(|run| !run.spatial_in(|p| !outside(p)))
+        || sim.salvage.as_ref().is_some_and(|site| {
+            (site.has_find && outside(site.position))
+                || (site.has_valve && outside(site.valve_position))
+                || (0..2).any(|i| site.has_fragments[i] && outside(site.fragment_positions[i]))
+        })
+}
+
 fn needs_change(r: &State, sim: &Sim, guest_id: PlayerId) -> Result<bool, String> {
     let host = point(sim, HOST)?;
     let guest = if r.shared {
@@ -128,9 +164,12 @@ fn needs_change(r: &State, sim: &Sim, guest_id: PlayerId) -> Result<bool, String
     let b = bounds(sim)?;
     let waiting = r.moving.is_some() || r.move_paging;
     Ok(if r.shared {
-        separate || (!waiting && (near_edge(b, host) || near_edge(b, guest)))
+        salvage_outside_lease(sim)
+            || separate
+            || (!waiting && (near_edge(b, host) || near_edge(b, guest)))
     } else {
-        !separate
+        salvage_outside_lease(sim)
+            || !separate
             || (!waiting
                 && (near_edge(b, host) || r.remote_bounds.is_some_and(|b| near_edge(b, guest))))
     })
@@ -421,7 +460,7 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
                 .as_mut()
                 .ok_or("Missing kernel")?
                 .tick_view(sim, &frame)
-                .map_err(fault)?;
+                .map_err(|error| frame_fault(sim, &frame, error))?;
             if let Some(journal) = &mut r.journal {
                 journal
                     .append(HOST, r.kernel.as_ref().expect("kernel").epoch, &[frame])
@@ -466,10 +505,7 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
             request_stop(s, r, sim);
             return Ok(());
         }
-        // A prepared same-authority move owns its entering strips. At the
-        // safety edge, let reads/transport finish without consuming more input
-        // or canceling that move for a full regrant. Topology changes above
-        // still use the coordinated handoff.
+        // Let a prepared same-authority move finish before another edge handoff.
         if local == HOST
             && (r.moving.is_some() || r.move_paging)
             && (near_edge(bounds(sim)?, point(sim, HOST)?)
@@ -478,7 +514,9 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
         {
             return Ok(());
         }
-        if local != HOST && near_edge(bounds(sim)?, point(sim, local)?) {
+        if local != HOST
+            && (near_edge(bounds(sim)?, point(sim, local)?) || salvage_outside_lease(sim))
+        {
             let k = r.kernel.as_ref().ok_or("Missing regional kernel")?;
             let p = point(sim, local)?;
             send(
@@ -533,16 +571,8 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
     } else {
         vec![(local, s.local)]
     };
-    let mut actions = Vec::new();
     let members: Vec<_> = controls.iter().map(|(id, _)| *id).collect();
-    s.actions.retain(|(id, action)| {
-        if members.contains(id) {
-            actions.push((*id, *action));
-            false
-        } else {
-            true
-        }
-    });
+    let actions = crate::coop::take_region_frame_actions(&mut s.actions, &members);
     let frame = RegionFrame {
         tick: sim.tick_count(),
         controls,
@@ -552,7 +582,7 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
         .as_mut()
         .ok_or("Missing kernel")?
         .tick_view(sim, &frame)
-        .map_err(fault)?;
+        .map_err(|error| frame_fault(sim, &frame, error))?;
     s.local = s.local.held_only();
     if r.shared {
         s.remote = s.remote.held_only();

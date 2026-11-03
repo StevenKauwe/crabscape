@@ -7,6 +7,9 @@ use serde_json::Value;
 
 use crate::{CANVAS, Test, driver::Result, settings_button, settings_tab, start_over_centre};
 
+#[path = "fixture_install.rs"]
+mod fixture_install;
+
 const DATABASE: &str = "crabscape.cells";
 const MARKER: (f32, f32) = (1000.0, 700.0);
 
@@ -146,7 +149,7 @@ const READ_PLAYER: &str = r#"await new Promise((resolve,reject)=>{
   tx.onabort=()=>{db.close();reject(String(tx.error));};
   tx.oncomplete=async()=>{db.close();try {
    const raw=head.result,data=player&&player.result;
-   if(!(raw instanceof Uint8Array)||new TextDecoder().decode(raw.subarray(0,8))!=='CRABSP03'||!(data instanceof Uint8Array)){resolve(null);return;}
+   if(!(raw instanceof Uint8Array)||new TextDecoder().decode(raw.subarray(0,8))!=='CRABSP05'||!(data instanceof Uint8Array)){resolve(null);return;}
    let at=8;const number=()=>{let n=0n,shift=0n;for(;;){const byte=raw[at++];n|=BigInt(byte&127)<<shift;if(!(byte&128))return Number(n);shift+=7n;}};
    number();number();const tick=number();
    const stream=new Blob([data.subarray(40)]).stream().pipeThrough(new DecompressionStream('deflate'));
@@ -466,21 +469,8 @@ impl Test<'_> {
         );
         self.go("assets/crab/crab-atlas.png")?;
         let large = object_from_frame(&large_fixture()?)?;
-        self.eval(&format!(
-            r#"await new Promise((resolve, reject) => {{
-          const request = indexedDB.open({DATABASE:?}, 1);
-          request.onerror = () => reject(String(request.error));
-          request.onsuccess = () => {{
-            const db = request.result, tx = db.transaction('world', 'readwrite');
-            const raw = {large}, decode = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-            const store=tx.objectStore('world');store.clear();
-            store.put(decode(raw.head),'active');store.put(decode(raw.epoch),'reset_epoch');
-            for(const [key,bytes] of raw.records)store.put(decode(bytes),key);
-            tx.onabort = () => {{ db.close(); reject(String(tx.error)); }};
-            tx.oncomplete = () => {{ db.close(); resolve(true); }};
-          }};
-        }})"#
-        ))?;
+        fixture_install::install(DATABASE, &large, |script| self.eval(script))?;
+        println!("     committed large cellular fixture; opening game");
         let started = self.open("index.html?cells")?;
         let loaded = started && self.attr("data-cell-save")?.as_deref() == Some("loaded");
         let saved_large = loaded && self.wait_for(&format!(

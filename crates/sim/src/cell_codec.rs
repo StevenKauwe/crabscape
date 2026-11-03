@@ -23,6 +23,8 @@ pub enum Error {
 /// next material step and time-dependent current. The caller is responsible
 /// for restoring that clock with the rest of the simulation state.
 pub struct Restored {
+    pub canyon: Option<Vec<crate::canyon_drift::record::CanyonRegionRecord>>,
+    pub salvage: Option<Vec<crate::salvage::SalvageRegionRecord>>,
     pub player: SaveData,
     pub terrain: World,
     pub sim_tick: u64,
@@ -91,6 +93,8 @@ pub fn decode(bytes: &[u8]) -> Result<Restored, Error> {
     }
     let terrain = decode_checkpoint(&raw[player_len..]).ok_or(Error::Damaged)?;
     Ok(Restored {
+        canyon: None,
+        salvage: None,
         player,
         terrain,
         sim_tick,
@@ -179,6 +183,8 @@ fn decode_v2(bytes: &[u8]) -> Result<Restored, Error> {
         return Err(Error::Damaged);
     }
     Ok(Restored {
+        canyon: None,
+        salvage: None,
         player,
         terrain,
         sim_tick: tick,

@@ -69,8 +69,9 @@ impl SleepingArchive {
     }
     pub(super) fn get_mut(&mut self, key: &(i32, i32)) -> Option<&mut SleepingChunk> {
         self.cache.require(*key);
+        let page = self.pages.get_mut(key)?;
         self.dirty.insert(*key);
-        self.pages.get_mut(key)
+        Some(page)
     }
     pub(super) fn insert(&mut self, key: (i32, i32), page: SleepingChunk) -> Option<SleepingChunk> {
         self.dirty.insert(key);
@@ -230,7 +231,9 @@ impl super::World {
         self.sleeping.cache.enabled
     }
     pub fn sleeping_page_requests(&self, limit: usize) -> Vec<crate::page_cache::PageTicket> {
-        self.sleeping.cache.requests(limit)
+        self.sleeping
+            .cache
+            .requests(limit, |key| self.sleeping.dirty.contains(key))
     }
     pub fn accept_sleeping_page(
         &mut self,
@@ -265,8 +268,9 @@ impl super::World {
         } else {
             self.sleeping.pages.remove(&ticket.coordinate);
         }
-        self.sleeping.cache.protected.insert(ticket.coordinate);
-        self.sleeping.cache.loaded(ticket.coordinate);
+        if self.sleeping.cache.loaded(ticket.coordinate) {
+            self.sleeping.cache.protected.insert(ticket.coordinate);
+        }
         Ok(true)
     }
     fn evict_clean_sleeping(&mut self, limit: usize) {
@@ -294,7 +298,7 @@ impl super::World {
         }
         if self.sleeping.cache.operation != Some(tick) {
             self.sleeping.cache.operation = Some(tick);
-            self.sleeping.cache.protected.clear();
+            self.sleeping.cache.begin_interest();
         }
         let next = self.preview_window(x, y).unwrap_or(self.origin);
         let side = super::TERRAIN_CHUNK_CELLS;
@@ -304,7 +308,6 @@ impl super::World {
             for cx in (next.0 - 128).max(0).div_euclid(side)
                 ..=(next.0 + self.width as i32 + 127).div_euclid(side)
             {
-                self.sleeping.cache.protected.insert((cx, cy));
                 self.sleeping.cache.prefetch((cx, cy));
             }
         }
@@ -320,7 +323,7 @@ impl super::World {
         if self.sleeping.cache.waiting() {
             return false;
         }
-        if !self.prepare_owned_region(self.region()) {
+        if !self.prepare_departing_pages(self.region(), Some(bounds)) {
             return false;
         }
         if self.preview_window(x, y).is_none()
@@ -373,7 +376,7 @@ impl super::World {
 
 impl super::World {
     pub(crate) fn begin_region_prefetch(&mut self) {
-        self.sleeping.cache.protected.clear();
+        self.sleeping.cache.begin_interest();
     }
     pub(crate) fn pin_regions(&mut self, regions: &[super::region::CellRegion]) {
         self.sleeping.cache.pinned.clear();
@@ -394,6 +397,13 @@ impl super::World {
         }
     }
     pub(crate) fn prepare_owned_region(&mut self, bounds: super::region::CellRegion) -> bool {
+        self.prepare_departing_pages(bounds, None)
+    }
+    fn prepare_departing_pages(
+        &mut self,
+        bounds: super::region::CellRegion,
+        retained: Option<super::region::CellRegion>,
+    ) -> bool {
         if !self.sleeping.cache.enabled {
             return true;
         }
@@ -405,6 +415,16 @@ impl super::World {
             for x in (bounds.x + side - 1).div_euclid(side)
                 ..(bounds.x + bounds.width as i32).div_euclid(side)
             {
+                // The overlap stays in the active arrays. Only pages leaving
+                // that overlap can acquire sleeping cells during this remap.
+                if retained.is_some_and(|r| {
+                    x * side >= r.x
+                        && y * side >= r.y
+                        && (x + 1) * side <= r.x + r.width as i32
+                        && (y + 1) * side <= r.y + r.height as i32
+                }) {
+                    continue;
+                }
                 written.insert((x, y));
             }
         }
@@ -454,6 +474,21 @@ impl super::World {
 mod tests {
     use super::*;
     #[test]
+    fn probing_unexplored_pages_does_not_queue_deletions_for_autosave() {
+        let mut archive = SleepingArchive::default();
+        for x in 0..64 {
+            assert!(archive.get_mut(&(x, -7)).is_none());
+        }
+        assert_eq!(archive.dirty().count(), 0);
+        archive.insert((0, -7), SleepingChunk::default());
+        archive.remove(&(0, -7));
+        assert!(
+            archive
+                .dirty()
+                .any(|(key, page)| key == (0, -7) && page.is_none())
+        );
+    }
+    #[test]
     fn dirty_capture_work_is_independent_of_archive_size_and_acks_are_revision_safe() {
         let mut world = super::super::World::new();
         let template = SleepingChunk::default();
@@ -502,6 +537,29 @@ mod cold_tests {
         Level, Memory, SAVE_VERSION, SaveData, Tuning,
         cell_codec::spatial::{Capture, files::Store},
     };
+    #[test]
+    fn resident_dirty_pages_leave_room_for_the_departing_strip() {
+        let side = super::super::TERRAIN_CHUNK_CELLS;
+        let mut world = super::super::World::from_level_settled(&Level::test_level());
+        let old = super::super::region::CellRegion {
+            x: 0,
+            y: 0,
+            width: 10 * side as usize,
+            height: 6 * side as usize,
+        };
+        let new = super::super::region::CellRegion { y: side, ..old };
+        let occupied =
+            (1000..1000 + crate::page_cache::RESIDENT_PAGE_LIMIT as i32 - 10).map(|x| (x, 0));
+        world.sleeping.cache.enable(occupied.clone());
+        world.sleeping.dirty.extend(occupied);
+        assert!(world.prepare_departing_pages(old, Some(new)));
+        assert_eq!(world.sleeping.cache.protected.len(), 10);
+        assert_eq!(
+            world.sleeping.cache.known.len(),
+            crate::page_cache::RESIDENT_PAGE_LIMIT
+        );
+        assert!(!world.prepare_owned_region(old));
+    }
     fn capture(world: &super::super::World, memory: &Memory, tick: u64) -> Capture {
         let (left, bottom, width, height) = world.game_bounds();
         Capture::new(

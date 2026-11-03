@@ -3,8 +3,8 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
-const MAGIC: &[u8; 8] = b"CRBSES01";
-const REGION_MAGIC: &[u8; 8] = b"CRBSES02";
+const MAGIC: &[u8; 8] = b"CRBSES03";
+const REGION_MAGIC: &[u8; 8] = b"CRBSES04";
 const MAX_META: usize = 8 * 1024 * 1024;
 const MAX_RAW: usize = 20 * 1024 * 1024;
 pub const MAX_SESSION_CHECKPOINT: usize = crate::net::cell_transfer::MAX_CHECKPOINT_BYTES;
@@ -34,6 +34,8 @@ struct State {
     rng: Rng,
     owned_rng: Option<std::collections::BTreeMap<u32, Rng>>,
     shared: Shared,
+    salvage: Option<crate::salvage::Shellwash>,
+    canyon: Option<crate::canyon_drift::run::CanyonRun>,
     other_crabs: Vec<(i32, i32, i32, i32)>,
 }
 
@@ -49,6 +51,8 @@ struct StateRef<'a> {
     rng: &'a Rng,
     owned_rng: &'a Option<std::collections::BTreeMap<u32, Rng>>,
     shared: &'a Shared,
+    salvage: &'a Option<crate::salvage::Shellwash>,
+    canyon: &'a Option<crate::canyon_drift::run::CanyonRun>,
     other_crabs: &'a [(i32, i32, i32, i32)],
 }
 
@@ -137,6 +141,11 @@ impl Sim {
             || self.crabs.len() >= 8
             || !bounded_pos(pos)
             || !valid_progress(progress)
+            || (progress.salvage_identity != 0
+                && self
+                    .crabs
+                    .iter()
+                    .any(|crab| crab.salvage_identity == progress.salvage_identity))
         {
             return false;
         }
@@ -147,6 +156,12 @@ impl Sim {
         personal.rocks_cracked.clear();
         self.add_crab(id, pos);
         self.restore_progress(id, &personal);
+        if let Some(site) = &mut self.salvage {
+            site.rebind(personal.salvage_identity, id);
+        }
+        if let Some(run) = &mut self.canyon {
+            run.rebind(personal.salvage_identity, id);
+        }
         true
     }
 
@@ -155,6 +170,22 @@ impl Sim {
     pub fn remove_cell_player(&mut self, id: PlayerId) -> bool {
         if self.net.is_some() || self.level.cells.is_none() || self.crab(id).is_none() {
             return false;
+        }
+        if let (Some(crab), Some(site)) = (
+            self.crabs.iter().find(|crab| crab.id == id),
+            &mut self.salvage,
+        ) {
+            let at = crab.mover.pos + Vec2::Y * crab.mover.height(&self.tuning);
+            site.drop_carried(id, at);
+            site.drop_valve(id, at);
+        }
+        if let (Some(crab), Some(run)) = (
+            self.crabs.iter().find(|crab| crab.id == id),
+            &mut self.canyon,
+        ) {
+            let at = crab.mover.pos + Vec2::Y * crab.mover.height(&self.tuning);
+            run.drop_practice(id, at);
+            run.drop_catcher(id, at);
         }
         self.crabs.retain(|crab| crab.id != id);
         for enemy in &mut self.enemies {
@@ -263,6 +294,8 @@ impl Sim {
             rng: &self.rng,
             owned_rng: &self.owned_rng,
             shared: &self.shared,
+            salvage: &self.salvage,
+            canyon: &self.canyon,
             other_crabs: &cells.other_crabs,
         };
         let metadata = serde_json::to_vec(&state).map_err(|_| CheckpointError::Invalid)?;
@@ -335,6 +368,21 @@ impl Sim {
         let mut sim = Sim::new(feel.tuning(), state.level);
         sim.level.cells = Some(terrain);
         sim.set_feel(feel);
+        if state.salvage.as_ref().is_some_and(|site| {
+            let records = site.records();
+            if region {
+                records.iter().any(|record| !record.valid())
+            } else {
+                !crate::salvage::valid_records(&records)
+            }
+        }) {
+            return Err(CheckpointError::Invalid);
+        }
+        sim.salvage = state.salvage;
+        if state.canyon.as_ref().is_some_and(|run| !run.valid()) {
+            return Err(CheckpointError::Invalid);
+        }
+        sim.canyon = state.canyon;
         if sim.tuning.fingerprint() != state.tuning
             || state.tick > u64::MAX - 1_000_000
             || state.crabs.is_empty()
@@ -343,6 +391,8 @@ impl Sim {
             || !valid_level(&sim.level)
             || state.crabs.iter().any(|c| {
                 c.remote
+                    || !c.mover.prepared_food.valid()
+                    || !c.eating.valid()
                     || !bounded_pos(c.mover.pos)
                     || !bounded_pos(c.mover.vel)
                     || !c.memory.session_valid(&sim.level, &sim.tuning.memory)
@@ -353,6 +403,8 @@ impl Sim {
                     || c.teeth_taken.len() != sim.level.teeth.len()
                     || c.sponges_taken.len() != sim.level.sponges.len()
                     || c.cast_offs.len() > 4096
+                    || !valid_salvage_receipts(&c.salvage_receipts)
+                    || !crate::canyon_drift::run::valid_receipts(&c.drift_receipts)
                     || c.controls.walk.abs() > 1.0
             })
             || state.shared.clams.len() != sim.level.clams.len()
@@ -386,10 +438,19 @@ impl Sim {
     }
 }
 
+fn valid_salvage_receipts(receipts: &[crate::salvage::ClaimId]) -> bool {
+    receipts.len() <= 32
+        && receipts.iter().enumerate().all(|(i, id)| {
+            id.world != 0 && id.site == 1 && id.child <= 1 && !receipts[..i].contains(id)
+        })
+}
 fn valid_progress(progress: &crate::Progress) -> bool {
-    [progress.climb_xp, progress.swim_xp, progress.fight_xp]
-        .iter()
-        .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1_000_000_000.0)
+    valid_salvage_receipts(&progress.salvage_receipts)
+        && crate::canyon_drift::run::valid_receipts(&progress.drift_receipts)
+        && [progress.climb_xp, progress.swim_xp, progress.fight_xp]
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1_000_000_000.0)
+        && progress.prepared_food.valid()
         && progress.upgrades <= 10_000
         && progress.lantern <= 10_000
         && progress.moults <= 10_000
@@ -650,6 +711,74 @@ mod tests {
             original.session_checkpoint().unwrap(),
             restored.session_checkpoint().unwrap()
         );
+    }
+
+    #[test]
+    fn eating_action_and_portion_ids_survive_a_session_checkpoint() {
+        let mut original = session();
+        let crab = original.crab_mut(PlayerId(0)).unwrap();
+        crab.larder = 1;
+        assert!(crab.mover.prepared_food.prepare(
+            crate::prepared_food::PortionKind::Shell,
+            &mut crab.larder,
+            &mut crab.stash.valves
+        ));
+        original.set_controls(
+            PlayerId(0),
+            Controls {
+                eat_held: true,
+                ..Controls::default()
+            },
+        );
+        for _ in 0..120 {
+            original.tick();
+        }
+        let bytes = original.session_checkpoint().unwrap();
+        let mut restored = Sim::from_session_checkpoint(&bytes).unwrap();
+        assert_eq!(
+            restored.crab(PlayerId(0)).unwrap().mover.prepared_food,
+            original.crab(PlayerId(0)).unwrap().mover.prepared_food
+        );
+        for _ in 0..150 {
+            original.tick();
+            restored.tick();
+        }
+        assert_eq!(original.state_hash(), restored.state_hash());
+        assert_eq!(
+            original
+                .crab(PlayerId(0))
+                .unwrap()
+                .mover
+                .prepared_food
+                .slots
+                .iter()
+                .flatten()
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_duplicate_portion_identity_is_rejected_at_join_and_restore() {
+        let mut host = session();
+        assert!(host.remove_cell_player(PlayerId(71)));
+        let mut progress = host.fresh_progress();
+        let mut valves = 0;
+        let mut clams = 1;
+        assert!(progress.prepared_food.prepare(
+            crate::prepared_food::PortionKind::Shell,
+            &mut clams,
+            &mut valves
+        ));
+        progress.prepared_food.slots[1] = progress.prepared_food.slots[0];
+        assert!(!host.join_cell_player(PlayerId(71), crate::level::SPAWN, &progress));
+        let crab = host.crab_mut(PlayerId(0)).unwrap();
+        crab.mover.prepared_food = progress.prepared_food;
+        let bytes = host.session_checkpoint().unwrap();
+        assert!(matches!(
+            Sim::from_session_checkpoint(&bytes),
+            Err(CheckpointError::Invalid)
+        ));
     }
 
     #[test]

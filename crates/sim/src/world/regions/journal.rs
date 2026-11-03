@@ -438,7 +438,7 @@ impl RegionJournal {
     }
     pub fn to_text(&self) -> Result<String, RegionError> {
         Ok(format!(
-            "region_session_v1 {}\n",
+            "region_session_v2 {}\n",
             crate::memory::base64(&self.to_bytes()?)
         ))
     }
@@ -448,7 +448,7 @@ impl RegionJournal {
         }
         let encoded = text
             .trim()
-            .strip_prefix("region_session_v1 ")
+            .strip_prefix("region_session_v2 ")
             .ok_or(RegionError::InvalidState)?;
         let bytes = crate::memory::unbase64(encoded).ok_or(RegionError::InvalidState)?;
         Self::from_bytes(&bytes)
@@ -486,6 +486,12 @@ impl RegionJournal {
                 }
                 CellSessionAction::Craft(recipe) => {
                     let _ = sim.make(*id, *recipe);
+                }
+                CellSessionAction::Salvage(action) => {
+                    sim.salvage_action(*id, *action);
+                }
+                CellSessionAction::Canyon(action) => {
+                    sim.canyon_action(*id, *action);
                 }
             }
         }

@@ -1124,11 +1124,30 @@ impl ChunkFlow {
                 queue.push_back(next);
             }
         }
-        false
+        let start = Self::locate(x as usize, y as usize);
+        let reach = (force / self.loose_push_cost(start).max(1)).min(32) as i32;
+        let found = super::scoop_destination(
+            (WIDTH, HEIGHT),
+            (x, y),
+            reach,
+            (dx, dy),
+            self.crab,
+            |x, y| self.cell(x as usize, y as usize) == Some(Cell::Water),
+            |x, y| {
+                ((x - target.0).abs() > self.crab_half_x || (y - target.1).abs() > self.crab_half_y)
+                    && self.can_receive_grain(x, y)
+            },
+        );
+        if let Some((x, y)) = found {
+            self.swap_material(start, Self::locate(x as usize, y as usize));
+            true
+        } else {
+            false
+        }
     }
 
     /// Restricted solo digging with aggregate pushes and reference routing.
-    /// Returns Unsupported without mutation if a fallback scoop would be needed. Rock-blocked movement returns Ok(false), as solo does.
+    /// Returns Unsupported without mutation if a trapped grain has no outlet. Rock-blocked movement returns Ok(false), as solo does.
     pub fn push_for_crab(
         &mut self,
         x: f32,
@@ -1250,8 +1269,13 @@ impl ChunkFlow {
         let front = cx + direction * (self.crab_half_x + 1);
         let mut moved = 0;
         let mut remaining = 6usize;
-        for y in (foot - 2..=foot + 4).rev() {
-            for offset in 0..6 {
+        // The legs take their normal step first. Use any spare force to
+        // clear grains catching the leading edge of the shell.
+        let leg_rows = (foot - 2..=foot + 4).rev();
+        let shell_rows = (foot + 5..=cy + self.crab_half_y).rev();
+        for y in leg_rows.chain(shell_rows) {
+            let reach = if y > foot + 4 { 2 } else { 6 };
+            for offset in 0..reach {
                 let x = front + direction * offset;
                 let Some(from) = Self::signed_location(x, y) else {
                     continue;
@@ -1260,6 +1284,14 @@ impl ChunkFlow {
                     continue;
                 }
                 let owner = self.chunks[from.0].owner[from.1];
+                if y > foot + 4
+                    && (owner != 0
+                        || !super::shoulder_can_brush(x, y, direction, |cx, cy| {
+                            self.cell(cx as usize, cy as usize).unwrap_or(Cell::Rock)
+                        }))
+                {
+                    continue;
+                }
                 if owner != 0 {
                     for (dx, dy) in [(direction, 0), (direction, 1), (0, 1)] {
                         let mut journal = PushJournal::default();
@@ -2371,7 +2403,8 @@ impl ChunkFlow {
             } else {
                 0.0
             };
-            for x in 1..WIDTH - 1 {
+            let parity = tick as usize ^ self.origin.0 as usize ^ self.origin.1 as usize;
+            for x in (1 + ((y ^ parity ^ 1) & 1)..WIDTH - 1).step_by(2) {
                 let (chunk, slot) = Self::locate(x, y);
                 if self.chunks[chunk].cells[slot] != Cell::Water {
                     next[chunk][slot] = (0.0, 0.0);
@@ -2382,9 +2415,9 @@ impl ChunkFlow {
                 let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
                 let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
                 let feed = if self.game { 0.12 } else { 0.035 };
-                let mut vx = (current + shear + eddy * 0.08) * feed;
-                let mut vy = cross * 0.002;
-                let mut weight = feed;
+                let mut vx = next[chunk][slot].0 + (current + shear + eddy * 0.08) * feed;
+                let mut vy = next[chunk][slot].1 + cross * 0.002;
+                let mut weight = 1.0 + feed;
                 for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
                     let (cell, flow) =
                         self.sample((x as i32 + dx) as usize, (y as i32 + dy) as usize);
@@ -2452,7 +2485,9 @@ impl ChunkFlow {
                     };
                     for lx in 0..local_width {
                         let x = cx * SIDE + lx;
-                        if x == 0 || x + 1 == WIDTH {
+                        let parity =
+                            tick as usize ^ self.origin.0 as usize ^ self.origin.1 as usize;
+                        if x == 0 || x + 1 == WIDTH || (x ^ y ^ parity) & 1 != 0 {
                             continue;
                         }
                         let slot = ly * SIDE + lx;
@@ -2465,9 +2500,9 @@ impl ChunkFlow {
                         let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
                         let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
                         let feed = if self.game { 0.12 } else { 0.035 };
-                        let mut vx = (current + shear + eddy * 0.08) * feed;
-                        let mut vy = cross * 0.002;
-                        let mut weight = feed;
+                        let mut vx = next[index][slot].0 + (current + shear + eddy * 0.08) * feed;
+                        let mut vy = next[index][slot].1 + cross * 0.002;
+                        let mut weight = 1.0 + feed;
                         let neighbour = |chunk_index: usize, at: usize| {
                             let other = &self.chunks[chunk_index];
                             (other.cells[at], other.flow[at])
@@ -2639,20 +2674,22 @@ mod tests {
         reference.origin = (0, -200);
         reference.cells.fill(Cell::Water);
         reference.flow.fill((0.0, 0.0));
-        // Disturb both a vertical and a horizontal seam. Both sides must
-        // read the same previous field, never an already-updated neighbour.
+        // An isolated impulse survives either starting color and reaches
+        // neighbors across both seams over the two-color cycle.
         reference.flow[World::index(63, 150).unwrap()] = (1.0, 0.0);
         reference.flow[World::index(280, 63).unwrap()] = (0.0, 1.0);
         reference.cells[World::index(100, 64).unwrap()] = Cell::Rock;
         let materials = reference.cells.clone();
         let mut chunked = ChunkFlow::from_world(&reference);
         let mut batched = ChunkFlow::from_world(&reference);
-        reference.tick += 1;
-        reference.diffuse_flow(0.0);
-        assert!(chunked.step(0.0));
-        assert!(batched.step_batched(0.0));
-        compare(&reference, &chunked);
-        compare(&reference, &batched);
+        for _ in 0..2 {
+            reference.tick += 1;
+            reference.diffuse_flow(0.0);
+            assert!(chunked.step(0.0));
+            assert!(batched.step_batched(0.0));
+            compare(&reference, &chunked);
+            compare(&reference, &batched);
+        }
         assert!(
             chunked.flow(64, 150).unwrap().0 > 0.0,
             "velocity crossed the vertical seam"

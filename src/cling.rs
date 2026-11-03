@@ -66,6 +66,15 @@ pub fn spawn_small(
     let (at, turn) = spot(slot);
     let (parts, scale) = match kind {
         Carry::Clam => (crate::food::clam_parts(false), CLAM_SCALE),
+        Carry::Valve => (
+            vec![(
+                Mesh::from(Ellipse::new(11.0, 4.0)),
+                Color::srgb(0.78, 0.71, 0.56),
+                Vec3::ZERO,
+                0.0,
+            )],
+            CLAM_SCALE,
+        ),
         _ => (crate::build::grit_parts(), GRIT_SCALE),
     };
     parent
@@ -103,6 +112,13 @@ struct Clinging {
     kind: Carry,
 }
 
+#[derive(Component)]
+struct FoodPortion {
+    crab: Entity,
+    slot: usize,
+    kind: crabsim::prepared_food::PortionKind,
+}
+
 /// A new crab's carapace gets a clam and a piece of grit in every slot the
 /// biggest shell has, hidden until something clings there.
 fn attach(
@@ -115,7 +131,7 @@ fn attach(
     for (shell, of) in &shells {
         commands.entity(shell).with_children(|parent| {
             for slot in 0..most_carried(&sim.tuning) {
-                for kind in [Carry::Clam, Carry::Grit] {
+                for kind in [Carry::Clam, Carry::Grit, Carry::Valve] {
                     let thing = Clinging {
                         crab: of.0,
                         slot,
@@ -125,6 +141,30 @@ fn attach(
                     let extra = (thing, Visibility::Hidden);
                     spawn_small(parent, meshes, materials, kind, slot, DEPTH, extra);
                 }
+                for (kind, colour) in [
+                    (
+                        crabsim::prepared_food::PortionKind::Shell,
+                        Color::srgb(0.92, 0.60, 0.40),
+                    ),
+                    (
+                        crabsim::prepared_food::PortionKind::Reserve,
+                        Color::srgb(0.66, 0.80, 0.52),
+                    ),
+                ] {
+                    let (at, turn) = spot(slot);
+                    parent.spawn((
+                        FoodPortion {
+                            crab: of.0,
+                            slot,
+                            kind,
+                        },
+                        Mesh2d(meshes.add(Ellipse::new(7.0, 4.0))),
+                        MeshMaterial2d(materials.add(colour)),
+                        Transform::from_translation(at.extend(DEPTH + slot as f32 * 0.002))
+                            .with_rotation(Quat::from_rotation_z(turn)),
+                        Visibility::Hidden,
+                    ));
+                }
             }
         });
     }
@@ -132,10 +172,29 @@ fn attach(
 
 /// Show what clings to each crab's shell (none once it's out of sight in
 /// its home).
-fn show(crabs: Query<&Mover>, mut things: Query<(&Clinging, &mut Visibility)>) {
+fn show(
+    crabs: Query<&Mover>,
+    mut things: Query<(&Clinging, &mut Visibility), Without<FoodPortion>>,
+    mut portions: Query<(&FoodPortion, &mut Visibility), Without<Clinging>>,
+) {
     for (thing, mut shown) in &mut things {
         let on = crabs.get(thing.crab).is_ok_and(|m| {
             m.tucked < OUT_OF_SIGHT && m.clinging.get(thing.slot) == Some(&thing.kind)
+        });
+        shown.set_if_neq(if on {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+    for (portion, mut shown) in &mut portions {
+        let on = crabs.get(portion.crab).is_ok_and(|m| {
+            m.tucked < OUT_OF_SIGHT
+                && portion
+                    .slot
+                    .checked_sub(m.clinging.len())
+                    .and_then(|i| m.prepared_food.slots.iter().flatten().nth(i))
+                    .is_some_and(|p| p.kind == portion.kind)
         });
         shown.set_if_neq(if on {
             Visibility::Inherited

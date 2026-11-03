@@ -52,6 +52,8 @@ pub struct Controls {
     pub smash_held: bool,
     /// Was the cutter (jab) pressed since the last step?
     pub jab_pressed: bool,
+    /// Hold to eat one prepared portion while stationary.
+    pub eat_held: bool,
     /// Is block (claws up) held?
     pub block_held: bool,
     /// Was block freshly pressed since the last step? (A press just before
@@ -94,6 +96,8 @@ pub enum Carry {
     Clam,
     /// A piece of shell grit (old, broken shells): built into the home.
     Grit,
+    /// An intact empty half-shell, kept as a valve at the workbench.
+    Valve,
     /// A dead glass sponge's skeleton: its glass points fitted to the leg
     /// tips at home, making glass grips.
     Glass,
@@ -104,7 +108,7 @@ impl Carry {
     /// several at once, like a decorator crab's trimmings; big finds (a
     /// culture, a tooth) ride on its back, one at a time.
     pub fn small(self) -> bool {
-        matches!(self, Carry::Clam | Carry::Grit)
+        matches!(self, Carry::Clam | Carry::Grit | Carry::Valve)
     }
 }
 
@@ -139,6 +143,8 @@ pub struct Mover {
     /// order it took them: up to [`Mover::carries`] at once (more on a
     /// bigger shell), besides the big find on its back.
     pub clinging: Vec<Carry>,
+    /// Prepared food occupies the same small carrying space.
+    pub prepared_food: crate::prepared_food::PreparedFood,
     /// Scissor claws: a shed tooth's edges fitted along both fingers of its
     /// crusher claw (at the workbench at home). They cut through ghost nets.
     pub scissor_claw: bool,
@@ -246,6 +252,7 @@ impl Mover {
             upgrades: 0,
             carrying: None,
             clinging: Vec::new(),
+            prepared_food: crate::prepared_food::PreparedFood::default(),
             scissor_claw: false,
             glass_grips: false,
             clam_guards: false,
@@ -292,7 +299,8 @@ impl Mover {
     /// on the shell for a small one?
     pub fn room_for(&self, thing: Carry, t: &Tuning) -> bool {
         if thing.small() {
-            self.clinging.len() < self.carries(t)
+            self.clinging.len() + self.prepared_food.slots.iter().flatten().count()
+                < self.carries(t)
         } else {
             self.carrying.is_none()
         }
@@ -508,6 +516,8 @@ pub struct StepEvents {
     pub larder_full: bool,
     /// Ate a clam from the larder: well fed.
     pub ate_clam: bool,
+    /// Finished eating a prepared field portion.
+    pub ate_portion: bool,
     /// Being well fed wore off.
     pub hungry: bool,
     /// Tucked into a crevice it didn't already wake in: it wakes there now
@@ -580,6 +590,7 @@ impl StepEvents {
         self.stored |= other.stored;
         self.larder_full |= other.larder_full;
         self.ate_clam |= other.ate_clam;
+        self.ate_portion |= other.ate_portion;
         self.hungry |= other.hungry;
         self.wakes_here |= other.wakes_here;
         self.built |= other.built;
@@ -1070,7 +1081,10 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             m.vel.y = m.vel.y.max(110.0);
         }
     }
-    move_and_collide(m, t, level, dt, &mut ev, c.dig_held);
+    // A sideways cut follows the floor under the crab's legs. Vertical
+    // digging must let go of that footing so the crab can enter the cut.
+    let side_dig = walking && !c.down && !c.dig_up;
+    move_and_collide(m, t, level, dt, &mut ev, c.dig_held && !side_dig);
     // Touching down rests one stroke at once (so a hop straight off again
     // has its double jump); the rest come back while it stands.
     if ev.landed.is_some() {
@@ -1414,10 +1428,23 @@ fn move_and_collide_cells(
                     .solids()
                     .any(|r| right > r.min.x && left < r.max.x && top > r.min.y && bottom < r.max.y)
         };
+        // If standing taller would meet a stone roof, the crab can keep
+        // its legs bent and scuttle until its feet find the floor again.
+        let can_pass_at_height = || {
+            let under_low_roof = || {
+                cells.game_rock_in_rect(
+                    candidate.x - hw,
+                    m.pos.y + height,
+                    candidate.x + hw,
+                    m.pos.y + height + step_up + hw * 0.8 + crate::underwater::GAME_CELL,
+                )
+            };
+            !digging && (m.vel.y > 0.0 || (was_grounded && under_low_roof())) && can_step(candidate)
+        };
         if let Some(surface) = footing.filter(|&s| can_step(Vec2::new(candidate.x, s))) {
             m.pos = Vec2::new(candidate.x, surface);
             walking_on_surface = true;
-        } else if !blocked(candidate) || (!digging && m.vel.y > 0.0 && can_step(candidate)) {
+        } else if !blocked(candidate) || can_pass_at_height() {
             m.pos = candidate;
             walking_on_surface = false;
         } else if was_grounded && !digging && dx.abs() > EPS && m.vel.y <= 0.0 {
@@ -1434,6 +1461,29 @@ fn move_and_collide_cells(
                     climbing_step = rise as f32 > leg_lift;
                     stepped = true;
                     break;
+                }
+            }
+            // Coming back downhill, the shell can be just above the lip
+            // of a low roof. Settle the legs into the soft footing first.
+            if !stepped
+                && cells.game_rock_in_rect(
+                    candidate.x - hw,
+                    m.pos.y + height - step_up,
+                    candidate.x + hw,
+                    m.pos.y + height,
+                )
+            {
+                let tuck = (1..=step_up.ceil() as usize)
+                    .map(|n| n as f32)
+                    .find(|drop| {
+                        let lower = Vec2::Y * *drop;
+                        can_step(candidate - lower) && can_step(m.pos - lower)
+                    });
+                if let Some(drop) = tuck {
+                    m.pos.y -= drop.min((dx.abs() / xsteps as f32 * 2.5).max(0.5));
+                    m.vel.y = 0.0;
+                    m.grounded = true;
+                    return;
                 }
             }
             if !stepped {
@@ -1573,6 +1623,7 @@ mod tests {
         jab_pressed: false,
         block_held: false,
         block_pressed: false,
+        eat_held: false,
     };
 
     #[test]

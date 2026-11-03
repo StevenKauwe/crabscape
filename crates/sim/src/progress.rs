@@ -81,6 +81,13 @@ pub struct Progress {
     pub stash: crate::craft::Stash,
     #[serde(default)]
     pub clam_guards: bool,
+    #[serde(default)]
+    pub salvage_receipts: Vec<crate::salvage::ClaimId>,
+    pub drift_receipts: Vec<crate::canyon_drift::run::DriftClaimId>,
+    #[serde(default)]
+    pub salvage_identity: u64,
+    /// Prepared portions and the home auto-eat preference.
+    pub prepared_food: crate::prepared_food::PreparedFood,
 }
 
 impl Progress {
@@ -169,6 +176,10 @@ impl Sim {
             growing: m.growing,
             stash: crab.stash,
             clam_guards: m.clam_guards,
+            salvage_receipts: crab.salvage_receipts.clone(),
+            drift_receipts: crab.drift_receipts.clone(),
+            salvage_identity: crab.salvage_identity,
+            prepared_food: m.prepared_food.clone(),
         })
     }
 
@@ -224,12 +235,16 @@ impl Sim {
             return;
         };
         crab.wakes_at = p.wakes_at.filter(|&i| i < crevices);
+        crab.salvage_receipts = p.salvage_receipts.clone();
+        crab.drift_receipts = p.drift_receipts.clone();
+        crab.salvage_identity = p.salvage_identity;
         let m = &mut crab.mover;
         m.upgrades = p.upgrades;
         m.lantern = p.lantern;
         m.scissor_claw = p.scissor_claw;
         m.glass_grips = p.glass_grips;
         m.clam_guards = p.clam_guards;
+        m.prepared_food = p.prepared_food.clone();
         m.climb_xp = p.climb_xp;
         m.swim_xp = p.swim_xp;
         m.fight_xp = p.fight_xp;

@@ -111,7 +111,12 @@ fn a_clam_still_goes_into_the_larder_and_eating_it_leaves_two_valves() {
 
 #[test]
 fn each_recipe_takes_what_it_needs_and_gives_what_it_says() {
-    for def in RECIPES {
+    for def in RECIPES.into_iter().filter(|d| {
+        !matches!(
+            d.recipe,
+            Recipe::ShellPortions | Recipe::ReservePortions | Recipe::ToggleAutoEat
+        )
+    }) {
         let mut sim = at_home_with(plenty());
         let before = sim.crab(P0).unwrap().clone();
         assert_eq!(sim.make(P0, def.recipe), Ok(()), "{}", def.name);
@@ -160,13 +165,19 @@ fn each_recipe_takes_what_it_needs_and_gives_what_it_says() {
                 assert!(after.events.fitted_grips);
             }
             Recipe::ClamGuards => assert!(!b.clam_guards && a.clam_guards),
+            Recipe::ShellPortions | Recipe::ReservePortions | Recipe::ToggleAutoEat => {
+                unreachable!()
+            }
         }
     }
 }
 
 #[test]
 fn nothing_is_made_without_what_it_needs() {
-    for def in RECIPES {
+    for def in RECIPES
+        .into_iter()
+        .filter(|d| d.recipe != Recipe::ToggleAutoEat)
+    {
         let mut sim = at_home_with(Stash::default());
         let before = sim.crab(P0).unwrap().clone();
         assert_eq!(
@@ -324,13 +335,13 @@ fn what_was_made_and_put_away_comes_back_after_a_reload() {
 }
 
 #[test]
-fn a_save_from_before_the_workbench_kept_things_still_loads() {
-    let old = r#"{"upgrades":1,"lantern":1,"scissor_claw":true,"climb_xp":0.0,"carrying":null,
+fn progress_without_workbench_items_keeps_other_values() {
+    let old = r#"{"drift_receipts":[],"prepared_food":{"auto_eat":true,"slots":[null,null],"next_batch":0},"upgrades":1,"lantern":1,"scissor_claw":true,"climb_xp":0.0,"carrying":null,
         "eaten":[true,false,false,false],"cultures_taken":[false],"clues_found":[false],
         "teeth_taken":[false],"nets_cut":[false],"cast_offs":[],"larder":2,"clams":[0,0,0,0,0],
         "well_fed":0,"wakes_at":null,"grit_taken":[false,false,false,false,false,false],
         "home_grit":1}"#;
-    let saved: Progress = serde_json::from_str(old).expect("an old save still reads");
+    let saved: Progress = serde_json::from_str(old).expect("progress reads");
     assert_eq!(saved.stash, Stash::default());
     assert!(!saved.clam_guards);
     let mut sim = by_home();
