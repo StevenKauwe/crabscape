@@ -1,0 +1,37 @@
+name: AWS domain configuration
+
+on:
+  push:
+    branches: [main]
+    paths: [infra/aws/pages-dns.json, .github/workflows/aws-dns.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-dns
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: aws-actions/configure-aws-credentials@75e767d0518f9e9b5657df48836f6003d3b15fdb
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: '719048844874'
+          role-session-name: crabscape-dns-${{ github.run_id }}
+      - name: Verify temporary AWS identity
+        run: aws sts get-caller-identity
+      - name: Apply website records and wait for Route 53
+        run: |
+          change_id=$(aws route53 change-resource-record-sets \
+            --hosted-zone-id Z0020678U90RAAERPBGR \
+            --change-batch file://infra/aws/pages-dns.json \
+            --query ChangeInfo.Id --output text)
+          aws route53 wait resource-record-sets-changed --id "$change_id"
