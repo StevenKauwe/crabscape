@@ -64,7 +64,7 @@ pub(crate) fn prepare_owner_save(
     Capture::with_initial_baseline(saved, terrain.terrain(), &host.memory, tick, initial)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use bevy::math::Vec2;
