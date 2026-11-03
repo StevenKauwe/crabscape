@@ -159,7 +159,7 @@ impl Chrome {
             // CI containers run as a user Chrome's sandbox can't use.
             cmd.arg("--no-sandbox");
         }
-        let child = cmd
+        let mut child = cmd
             .arg("about:blank")
             .stdin(Stdio::null())
             .stdout(log.try_clone().map_err(|e| e.to_string())?)
@@ -168,7 +168,8 @@ impl Chrome {
             .map_err(|e| format!("couldn't start {}: {e}", chrome.display()))?;
         // Chrome writes its DevTools port and address into the profile once it listens.
         let active = dir.join("DevToolsActivePort");
-        let ready = Instant::now() + Duration::from_secs(30);
+        // Cold, heavily loaded CI runners can take over 30 seconds to open DevTools.
+        let ready = Instant::now() + Duration::from_secs(60);
         let (port, path) = loop {
             if let Ok(text) = std::fs::read_to_string(&active) {
                 let mut lines = text.lines();
@@ -177,6 +178,8 @@ impl Chrome {
                 }
             }
             if Instant::now() > ready {
+                let _ = child.kill();
+                let _ = child.wait();
                 return Err(format!(
                     "{name}: Chrome didn't start (see {})",
                     dir.join("chrome.log").display()
