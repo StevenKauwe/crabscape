@@ -633,6 +633,7 @@ fn receive(
 
 pub(super) fn take_in(
     time: &Time,
+    real_dt: f32,
     sim: &mut Sim,
     coop: &mut Coop,
     me: PlayerId,
@@ -926,7 +927,7 @@ pub(super) fn take_in(
         SESSION.with(|s| s.borrow_mut().failure = Some(e.clone()));
         coop.status = e;
     }
-    if coop.watch.step(active(), alive, time.delta_secs())
+    if coop.watch.step(active(), alive, time.delta_secs(), real_dt)
         && let Some(code) = coop.code.clone()
     {
         disconnect(sim, me);

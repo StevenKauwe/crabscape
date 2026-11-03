@@ -2425,7 +2425,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 host.open(&url)?;
                 let code = host.invite()?;
                 guest.open(&host.copied_invite(&code, "cells")?)?;
-                guest.until(limit::MEET, "cellular guest joined", |p| {
+                guest.until(90.0, "cellular guest joined", |p| {
                     p.b.attr("data-cell-session").as_deref() == Some("guest")
                 })?;
                 restart_introducer(site)?;
