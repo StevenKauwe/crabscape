@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub struct AnchorRecord {
     pub world: u64,
     pub band: Band,
+    pub revision: u64,
     pub last_active_tick: Option<u64>,
     pub last_admission_tick: Option<u64>,
     pub deck_cursor: u64,
@@ -106,6 +107,7 @@ impl CanyonRegionRecord {
             }
             run.has_anchor = true;
             run.band = a.band;
+            run.anchor_revision = a.revision;
             run.last_active_tick = a.last_active_tick;
             run.last_admission_tick = a.last_admission_tick;
             run.deck_cursor = a.deck_cursor;
@@ -181,6 +183,7 @@ impl CanyonRun {
             pages[i].anchor = Some(AnchorRecord {
                 world: self.world_id,
                 band: self.band,
+                revision: self.anchor_revision,
                 last_active_tick: self.last_active_tick,
                 last_admission_tick: self.last_admission_tick,
                 deck_cursor: self.deck_cursor,
@@ -244,6 +247,7 @@ impl CanyonRun {
                 }
                 run.has_anchor = true;
                 run.band = a.band;
+                run.anchor_revision = a.revision;
                 run.last_active_tick = a.last_active_tick;
                 run.last_admission_tick = a.last_admission_tick;
                 run.deck_cursor = a.deck_cursor;

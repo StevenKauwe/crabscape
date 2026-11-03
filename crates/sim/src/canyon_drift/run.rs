@@ -100,6 +100,7 @@ pub struct CanyonRun {
     pub practice_revision: u64,
     pub practice_support_lost_ticks: u8,
     pub band: Band,
+    pub anchor_revision: u64,
     pub last_active_tick: Option<u64>,
     pub last_admission_tick: Option<u64>,
     pub deck_cursor: u64,
@@ -123,6 +124,7 @@ impl CanyonRun {
             practice_revision: 0,
             practice_support_lost_ticks: 0,
             band: Band::Slack,
+            anchor_revision: 0,
             last_active_tick: None,
             last_admission_tick: None,
             deck_cursor: 0,
@@ -347,6 +349,7 @@ impl CanyonRun {
             || (taken.has_anchor
                 && (!self.has_anchor
                     || self.band != taken.band
+                    || self.anchor_revision != taken.anchor_revision
                     || self.last_active_tick != taken.last_active_tick
                     || self.last_admission_tick != taken.last_admission_tick
                     || self.deck_cursor != taken.deck_cursor))
@@ -393,6 +396,7 @@ impl CanyonRun {
         if source.has_anchor {
             merged.has_anchor = true;
             merged.band = source.band;
+            merged.anchor_revision = source.anchor_revision;
             merged.last_active_tick = source.last_active_tick;
             merged.last_admission_tick = source.last_admission_tick;
             merged.deck_cursor = source.deck_cursor;
@@ -493,6 +497,7 @@ impl CanyonRun {
                 .last_active_tick
                 .is_some_and(|last| tick == last.saturating_add(1));
             self.last_active_tick = Some(tick);
+            self.anchor_revision = self.anchor_revision.saturating_add(1);
             let previous = self.band;
             self.band = previous.observe(level.tide);
             if continuous
@@ -604,11 +609,15 @@ impl CanyonRun {
         {
             let p = self.practice.position;
             let supported = world.game_solid(p.x - 3.0, p.y - 7.0, p.x + 3.0, p.y - 3.1);
+            let before = self.practice_support_lost_ticks;
             self.practice_support_lost_ticks = if supported {
                 0
             } else {
-                self.practice_support_lost_ticks.saturating_add(1)
+                before.saturating_add(1)
             };
+            if before != self.practice_support_lost_ticks {
+                self.practice_revision = self.practice_revision.saturating_add(1);
+            }
             if self.practice_support_lost_ticks >= 6 {
                 self.practice_support_lost_ticks = 0;
                 self.practice_phase = PracticePhase::Free;
