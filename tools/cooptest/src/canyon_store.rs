@@ -329,6 +329,25 @@ pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result
     {
         return Err("guest reload did not retain exactly one valve and clear receipt".into());
     }
+    pause_region(host, true)?;
+    let rejoined = regional_scene(guest)?;
+    let restored = rejoined
+        .crabs()
+        .iter()
+        .find(|crab| crab.salvage_identity == progress.salvage_identity)
+        .ok_or("rejoined guest missing from Canyon replay")?;
+    if !restored.drift_receipts.is_empty()
+        || restored
+            .mover
+            .clinging
+            .iter()
+            .filter(|item| **item == crabsim::Carry::Valve)
+            .count()
+            != 1
+    {
+        return Err("rejoined guest runtime did not restore exactly one valve".into());
+    }
+    pause_region(host, false)?;
     let settle = Instant::now();
     loop {
         let (x, y) = local_position(guest)?;
