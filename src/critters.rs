@@ -96,6 +96,41 @@ fn moray_tail_clear(level: &crabsim::Level, start: Vec2, end: Vec2) -> bool {
     })
 }
 
+/// Bend the swimming neck around a nearby wall instead of hiding the
+/// entire animal behind the first obstructed straight segment.
+fn swimming_neck(
+    level: &crabsim::Level,
+    origin: Vec2,
+    facing: f32,
+    scale: f32,
+    time: f32,
+    moving: f32,
+) -> [Option<(Vec2, f32)>; NECK as usize] {
+    let backward = Vec2::new(-facing, 0.0);
+    let mut previous = origin;
+    let mut blocked = false;
+    std::array::from_fn(|n| {
+        if blocked {
+            return None;
+        }
+        let distance = (n as f32 + 0.5) * 12.0 * scale;
+        let wave = (time * 6.0 - distance / (20.0 * scale)).sin() * 5.0 * scale * moving;
+        let length = if n == 0 { 22.0 } else { 12.0 } * scale;
+        for eighths in [0, -1, 1, -2, 2, -3, 3, -4, 4] {
+            let turn = eighths as f32 * std::f32::consts::FRAC_PI_4 * 0.5;
+            let direction = Vec2::from_angle(backward.to_angle() + turn);
+            let point = previous + direction * length + Vec2::Y * wave * 0.2;
+            if moray_tail_clear(level, previous, point) {
+                let angle = (previous - point).to_angle();
+                previous = point;
+                return Some((point, angle));
+            }
+        }
+        blocked = true;
+        None
+    })
+}
+
 /// Build a naturally irregular opening out of rock cells only. Sand and open
 /// water never receive cave art, and no physical terrain is removed.
 fn moray_cave_mesh(level: &crabsim::Level, home: Vec2, offset: Vec2, size: Vec2) -> Mesh {
@@ -480,6 +515,16 @@ fn pose_critters(
             moray_mid + moray_scale * (7.0 * coil + 2.0 * (c.time * 2.0).sin() * (1.0 - coil)),
         );
         let head_turn = -0.3 * coil;
+        let swim_neck = (e.kind == Kind::Moray && sim.level.cells.is_some()).then(|| {
+            swimming_neck(
+                &sim.level,
+                e.pos + Vec2::new(e.facing * head.x, head.y),
+                e.facing,
+                moray_scale,
+                c.time,
+                ((e.pos.distance(e.home) + e.reach) / (55.0 * moray_scale)).clamp(0.0, 1.0),
+            )
+        });
         let crevice = -k.body.0 / 2.0 - 22.0;
         let gape = match e.state {
             State::Tell => 0.0,
@@ -548,20 +593,18 @@ fn pose_critters(
                         // wave. Segments still inside the cave are hidden.
                         let out = e.pos.distance(e.home) + e.reach + 22.0 * moray_scale;
                         let distance = (f32::from(*n) + 0.5) * 12.0 * moray_scale;
-                        let moving = ((e.pos.distance(e.home) + e.reach) / (55.0 * moray_scale))
-                            .clamp(0.0, 1.0);
-                        let phase = c.time * 6.0 - distance / (20.0 * moray_scale);
-                        let wave = phase.sin() * 5.0 * moray_scale * moving;
-                        tr.translation.x = head.x - 16.0 * moray_scale - distance;
-                        tr.translation.y = head.y + wave;
-                        tr.rotation = Quat::from_rotation_z(-phase.cos() * 0.25 * moving);
+                        let pose = swim_neck.as_ref().and_then(|neck| neck[*n as usize]);
+                        if let Some((point, angle)) = pose {
+                            tr.translation.x = (point.x - e.pos.x) * e.facing;
+                            tr.translation.y = point.y - e.pos.y;
+                            tr.rotation = Quat::from_rotation_z(if e.facing > 0.0 {
+                                angle
+                            } else {
+                                std::f32::consts::PI - angle
+                            });
+                        }
                         if let Some(mut visible) = vis {
-                            let origin = e.pos + Vec2::new(0.0, head.y);
-                            let segment =
-                                e.pos + Vec2::new(e.facing * tr.translation.x, tr.translation.y);
-                            *visible = if distance < out
-                                && moray_tail_clear(&sim.level, origin, segment)
-                            {
+                            *visible = if distance < out && pose.is_some() {
                                 Visibility::Inherited
                             } else {
                                 Visibility::Hidden
@@ -664,6 +707,24 @@ fn neck_at(
 mod cave_tests {
     use super::*;
     use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn swimming_body_bends_below_the_reported_rock_corner() {
+        let mut sim = Sim::with_one_crab(Vec2::new(1907.0, 200.0));
+        sim.enable_underwater_cells();
+        let origin = Vec2::new(2047.3544, 119.16704);
+        let neck = swimming_neck(&sim.level, origin, 1.0, 1.75, 0.0, 1.0);
+        let mut previous = origin;
+        for (point, _) in neck
+            .into_iter()
+            .map(|p| p.expect("body must remain visible"))
+        {
+            assert!(moray_tail_clear(&sim.level, previous, point));
+            previous = point;
+        }
+        assert!(previous.x < 2020.0, "tail never passed below the rock");
+        assert!(previous.y < 110.0, "tail crossed through the rock");
+    }
 
     #[test]
     fn moray_opening_is_drawn_only_inside_hard_rock() {
