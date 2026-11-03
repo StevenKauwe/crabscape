@@ -1094,37 +1094,50 @@ impl World {
         let (width, height) = next_size;
         let dx = next_origin.0 - old.0;
         let dy = next_origin.1 - old.1;
-        let inside = |x: i32, y: i32, origin: (i32, i32), size: (usize, usize)| {
-            x >= origin.0
-                && x < origin.0 + size.0 as i32
-                && y >= origin.1
-                && y < origin.1 + size.1 as i32
+        // Visit each archive page once. Overlapping rows stay in contiguous arrays.
+        let side = TERRAIN_CHUNK_CELLS;
+        let pages = |origin: (i32, i32), size: (usize, usize)| {
+            let last = (origin.0 + size.0 as i32 - 1, origin.1 + size.1 as i32 - 1);
+            (origin.1.div_euclid(side)..=last.1.div_euclid(side)).flat_map(move |cy| {
+                (origin.0.div_euclid(side)..=last.0.div_euclid(side)).map(move |cx| {
+                    let x = (cx * side).max(origin.0)..((cx + 1) * side).min(last.0 + 1);
+                    let y = (cy * side).max(origin.1)..((cy + 1) * side).min(last.1 + 1);
+                    ((cx, cy), x, y)
+                })
+            })
         };
-        let locate = |x: i32, y: i32| {
-            let side = TERRAIN_CHUNK_CELLS;
-            let key = (x.div_euclid(side), y.div_euclid(side));
-            let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
-            (key, slot)
+        let overlap_x =
+            old.0.max(next_origin.0)..(old.0 + old_size.0 as i32).min(next_origin.0 + width as i32);
+        let overlap_y = old.1.max(next_origin.1)
+            ..(old.1 + old_size.1 as i32).min(next_origin.1 + height as i32);
+        let covered = |x: &std::ops::Range<i32>, y: &std::ops::Range<i32>| {
+            x.start >= overlap_x.start
+                && x.end <= overlap_x.end
+                && y.start >= overlap_y.start
+                && y.end <= overlap_y.end
         };
-        let mut touched = std::collections::BTreeSet::new();
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let (gx, gy) = (old.0 + x as i32, old.1 + y as i32);
-                if inside(gx, gy, next_origin, next_size) {
-                    continue;
+        let slot = |x: i32, y: i32| (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
+        for (key, xs, ys) in pages(old, old_size) {
+            if covered(&xs, &ys) {
+                continue;
+            }
+            #[cfg(test)]
+            dirty_oracle::mark_sleeping(key);
+            let page = self.sleeping.entry(key).or_default();
+            for y in ys {
+                for x in xs.clone() {
+                    if overlap_y.contains(&y) && overlap_x.contains(&x) {
+                        continue;
+                    }
+                    let i = (y - old.1) as usize * old_size.0 + (x - old.0) as usize;
+                    page.cells[slot(x, y)] = Some(SleepingCell {
+                        cell: self.cells[i],
+                        flow: self.flow[i],
+                        suspended: self.suspended[i],
+                        grain: self.grain[i],
+                        owner: self.pebble_owner[i],
+                    });
                 }
-                let i = y * self.width + x;
-                let (key, slot) = locate(gx, gy);
-                touched.insert(key);
-                #[cfg(test)]
-                dirty_oracle::mark_sleeping(key);
-                self.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
-                    cell: self.cells[i],
-                    flow: self.flow[i],
-                    suspended: self.suspended[i],
-                    grain: self.grain[i],
-                    owner: self.pebble_owner[i],
-                });
             }
         }
         let mut cells = vec![Cell::Water; width * height];
@@ -1132,55 +1145,56 @@ impl World {
         let mut suspended = vec![0; width * height];
         let mut grain = vec![0; width * height];
         let mut owner = vec![0; width * height];
-        for y in 0..height {
-            for x in 0..width {
-                let (gx, gy) = (next_origin.0 + x as i32, next_origin.1 + y as i32);
-                let i = y * width + x;
-                let value = if inside(gx, gy, old, old_size) {
-                    let j = (gy - old.1) as usize * old_size.0 + (gx - old.0) as usize;
-                    SleepingCell {
-                        cell: self.cells[j],
-                        flow: self.flow[j],
-                        suspended: self.suspended[j],
-                        grain: self.grain[j],
-                        owner: self.pebble_owner[j],
+        if !overlap_x.is_empty() {
+            let count = overlap_x.len();
+            for y in overlap_y.clone() {
+                let from = (y - old.1) as usize * old_size.0 + (overlap_x.start - old.0) as usize;
+                let to = (y - next_origin.1) as usize * width
+                    + (overlap_x.start - next_origin.0) as usize;
+                let src = from..from + count;
+                let dst = to..to + count;
+                cells[dst.clone()].copy_from_slice(&self.cells[src.clone()]);
+                flow[dst.clone()].copy_from_slice(&self.flow[src.clone()]);
+                suspended[dst.clone()].copy_from_slice(&self.suspended[src.clone()]);
+                grain[dst.clone()].copy_from_slice(&self.grain[src.clone()]);
+                owner[dst].copy_from_slice(&self.pebble_owner[src]);
+            }
+        }
+        let mut touched = Vec::new();
+        for (key, xs, ys) in pages(next_origin, next_size) {
+            if covered(&xs, &ys) {
+                continue;
+            }
+            #[cfg(test)]
+            dirty_oracle::mark_sleeping(key);
+            let mut page = self.sleeping.get_mut(&key);
+            if page.is_some() {
+                touched.push(key);
+            }
+            for y in ys {
+                let ambient =
+                    ambient_current(GAME_BOTTOM + (y as f32 + 0.5) * GAME_CELL, self.tick * 4);
+                for x in xs.clone() {
+                    if overlap_y.contains(&y) && overlap_x.contains(&x) {
+                        continue;
                     }
-                } else {
-                    let (key, slot) = locate(gx, gy);
-                    touched.insert(key);
-                    #[cfg(test)]
-                    dirty_oracle::mark_sleeping(key);
-                    self.sleeping
-                        .get_mut(&key)
-                        .and_then(|chunk| {
-                            chunk.cells[slot]?;
-                            chunk.cells[slot].take()
-                        })
-                        .unwrap_or_else(|| {
-                            let cell = initial_terrain_cell(level, gx, gy);
-                            let shade = initial_grain(gx, gy);
-                            let water = if cell == Cell::Water {
-                                ambient_current(
-                                    GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL,
-                                    self.tick * 4,
-                                )
-                            } else {
-                                (0.0, 0.0)
-                            };
-                            SleepingCell {
-                                cell,
-                                flow: water,
-                                suspended: 0,
-                                grain: shade,
-                                owner: 0,
-                            }
-                        })
-                };
-                cells[i] = value.cell;
-                flow[i] = value.flow;
-                suspended[i] = value.suspended;
-                grain[i] = value.grain;
-                owner[i] = value.owner;
+                    let i = (y - next_origin.1) as usize * width + (x - next_origin.0) as usize;
+                    if let Some(saved) =
+                        page.as_deref_mut().and_then(|p| p.cells[slot(x, y)].take())
+                    {
+                        cells[i] = saved.cell;
+                        flow[i] = saved.flow;
+                        suspended[i] = saved.suspended;
+                        grain[i] = saved.grain;
+                        owner[i] = saved.owner;
+                    } else {
+                        cells[i] = initial_terrain_cell(level, x, y);
+                        grain[i] = initial_grain(x, y);
+                        if cells[i] == Cell::Water {
+                            flow[i] = ambient;
+                        }
+                    }
+                }
             }
         }
         #[cfg(test)]
