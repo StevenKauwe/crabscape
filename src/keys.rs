@@ -46,7 +46,7 @@ const TAB: Vec2 = Vec2::new(70.0, 26.0);
 /// The card's box, open or folded, in window pixels from the top-left.
 pub(crate) fn card_rect(window: Vec2, open: bool) -> Rect {
     let size = if open {
-        let extra = usize::from(crate::cellular::enabled());
+        let extra = 2 * usize::from(crate::cellular::enabled());
         Vec2::new(
             WIDTH,
             2.0 * PAD + LINE * ((KEYS.len() + extra) as f32 + 1.0),
@@ -168,9 +168,15 @@ fn spawn_card(mut commands: Commands) {
             ));
             let cellular = crate::cellular::enabled();
             let entries = KEYS.into_iter().flat_map(|(key, text)| {
-                std::iter::once((key, text)).chain(
-                    (cellular && key == "S / Down").then_some(("C + direction", "dig into sand")),
-                )
+                std::iter::once((key, text))
+                    .chain(
+                        (cellular && key == "S / Down")
+                            .then_some(("C + direction", "dig into sand")),
+                    )
+                    .chain(
+                        (cellular && key == "F I")
+                            .then_some(("G / V", "salvage: first / second choice")),
+                    )
             });
             for (keys, does) in entries {
                 card.spawn(Node {

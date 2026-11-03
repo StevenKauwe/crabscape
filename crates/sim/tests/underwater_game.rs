@@ -120,7 +120,8 @@ fn current_does_not_flicker_ground_contact_while_walking() {
 fn walking_climbs_a_short_ledge_but_not_a_tall_wall() {
     for (ledge_height, should_climb) in [(36.0, true), (96.0, false)] {
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
-        sim.enable_underwater_cells();
+        // Isolate the synthetic ledge from the authored Shellwash bank.
+        sim.level.cells = Some(crabsim::underwater::World::from_level_settled(&sim.level));
         sim.level
             .rocks
             .push(Rect::new(300.0, -4.0, 400.0, ledge_height));

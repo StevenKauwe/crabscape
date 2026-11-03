@@ -395,6 +395,15 @@ pub fn install_preloaded(
                     Some("saved terrain or position is not safe".into()),
                 );
             }
+            if let Some(records) = saved.salvage
+                && !sim.restore_salvage_records(records)
+            {
+                return (
+                    None,
+                    super::ReplayStart::Unavailable,
+                    Some("saved salvage ownership is not safe".into()),
+                );
+            }
             let replay = match saved.replay {
                 super::ReplayStart::Legacy => super::ReplayStart::Unavailable,
                 other => other,

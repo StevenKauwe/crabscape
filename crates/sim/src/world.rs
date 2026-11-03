@@ -58,6 +58,12 @@ pub struct SimCrab {
     pub controls: Controls,
     /// What happened during the latest tick.
     pub events: StepEvents,
+    /// Bounded durable idempotence receipts for salvage grants.
+    #[serde(default)]
+    pub salvage_receipts: Vec<crate::salvage::ClaimId>,
+    /// Private persistent identity for rejoining pending salvage claims.
+    #[serde(default)]
+    pub salvage_identity: u64,
     // What unlocks progression is each crab's own (`crate::shared`): it
     // takes its own wherever it is.
     /// Which of the level's eggs this crab has eaten (each crab finds its own).
@@ -136,6 +142,8 @@ pub struct Sim {
     /// What lies in the world for everyone: clams, shell grit, bodies (see
     /// [`crate::shared`]). Ghost nets and brittle rock are in the level.
     pub shared: Shared,
+    /// Bounded authored shellwash site, present in cellular worlds.
+    pub salvage: Option<crate::salvage::Shellwash>,
     /// How many ticks have run.
     tick: u64,
     /// Every crab, always in the order they were added (so every run loops
@@ -196,6 +204,10 @@ impl Sim {
             return;
         }
         self.level.cells = Some(crate::underwater::World::from_level_settled(&self.level));
+        if let Some(cells) = &mut self.level.cells {
+            cells.seed_shellwash_site();
+        }
+        self.salvage = Some(crate::salvage::Shellwash::default());
         // A larger individual reads clearly against the player crab; keep
         // its hurtbox and bite aligned with the scaled puppet.
         Self::scale_experimental_moray(&mut self.tuning);
@@ -217,6 +229,7 @@ impl Sim {
             tuning,
             feel: Feel::default(),
             shared: Shared::new(&level),
+            salvage: None,
             level,
             tick: 0,
             crabs: Vec::new(),
@@ -236,6 +249,264 @@ impl Sim {
         let mut sim = Self::new(Tuning::default(), Level::test_level());
         sim.add_crab(PlayerId(0), start);
         sim
+    }
+
+    /// Capture at most four independently keyed salvage records.
+    pub fn salvage_records(&self) -> Vec<crate::salvage::SalvageRegionRecord> {
+        self.salvage
+            .as_ref()
+            .map_or_else(Vec::new, |site| site.records())
+    }
+
+    /// Assemble one canonical save view without granting archive copies
+    /// authority while a region lease still owns the corresponding object.
+    pub fn combined_salvage_records(
+        &self,
+        sources: &[&Sim],
+    ) -> Option<Vec<crate::salvage::SalvageRegionRecord>> {
+        let mut combined = crate::salvage::Shellwash {
+            has_find: false,
+            has_valve: false,
+            has_fragments: [false; 2],
+            ..Default::default()
+        };
+        let mut world_id = None;
+        for sim in std::iter::once(self).chain(sources.iter().copied()) {
+            if let Some(site) = &sim.salvage {
+                if site.has_find || site.has_valve || site.has_fragments.iter().any(|owned| *owned)
+                {
+                    if world_id.is_some_and(|id| id != site.world_id) {
+                        return None;
+                    }
+                    world_id = Some(site.world_id);
+                }
+                if site.has_find {
+                    if combined.has_find {
+                        return None;
+                    }
+                    combined.install_find(site.find_record());
+                }
+                if site.has_valve {
+                    if combined.has_valve {
+                        return None;
+                    }
+                    combined.install_valve(site.valve_record());
+                }
+                for i in 0..2 {
+                    if site.has_fragments[i] {
+                        if combined.has_fragments[i] {
+                            return None;
+                        }
+                        combined.install_fragment(site.fragment_record(i));
+                    }
+                }
+            }
+        }
+        let records = combined.records();
+        crate::salvage::valid_records(&records).then_some(records)
+    }
+
+    /// Install complete checked records before exposing a restored world.
+    pub fn restore_salvage_records(
+        &mut self,
+        records: Vec<crate::salvage::SalvageRegionRecord>,
+    ) -> bool {
+        if self.level.cells.is_none() || !crate::salvage::valid_records(&records) {
+            return false;
+        }
+        let mut site = crate::salvage::Shellwash {
+            has_find: false,
+            has_valve: false,
+            has_fragments: [false; 2],
+            ..Default::default()
+        };
+        for record in records {
+            if let Some(find) = record.find {
+                if site.has_find {
+                    return false;
+                }
+                site.install_find(find);
+            }
+            if let Some(valve) = record.valve {
+                if site.has_valve {
+                    return false;
+                }
+                site.install_valve(valve);
+            }
+            for fragment in record.fragments.into_iter().flatten() {
+                let i = usize::from(fragment.index);
+                if i >= 2 || site.has_fragments[i] {
+                    return false;
+                }
+                site.install_fragment(fragment);
+            }
+        }
+        if !site.has_find || !site.has_valve || site.has_fragments != [true, true] {
+            return false;
+        }
+        self.salvage = Some(site);
+        true
+    }
+
+    /// Apply a contextual salvage command for an actor owned by this sim.
+    /// Call through the session's ordered action stream in co-op.
+    pub fn salvage_action(&mut self, id: PlayerId, action: crate::salvage::SalvageAction) -> bool {
+        let applied = self.apply_salvage_action(id, action);
+        if applied
+            && id == PlayerId(0)
+            && let Some(rec) = &mut self.recorder
+        {
+            rec.note_salvage_action(self.tick, action);
+        }
+        applied
+    }
+
+    fn apply_salvage_action(
+        &mut self,
+        id: PlayerId,
+        action: crate::salvage::SalvageAction,
+    ) -> bool {
+        use crate::salvage::SalvageAction;
+        let Some(crab) = self
+            .crabs
+            .iter()
+            .find(|c| c.id == id && !c.remote && c.fighter.dead.is_none())
+        else {
+            return false;
+        };
+        let from = crab.mover.pos + Vec2::Y * (crab.mover.height(&self.tuning) * 0.5);
+        let room = crab.mover.carrying.is_none()
+            && self.salvage.as_ref().is_none_or(|site| {
+                (!site.has_find || site.phase != crate::salvage::FindPhase::Carried(id))
+                    && (!site.has_valve
+                        || site.valve_phase != crate::salvage::ValvePhase::Carried(id))
+            });
+        let small_room = crab.mover.clinging.len() < crab.mover.carries(&self.tuning)
+            && crab.salvage_receipts.len() < 32;
+        let recipient_identity = crab.salvage_identity;
+        let at_home =
+            crab.mover.tucked_in() && self.level.place_at(crab.mover.pos) == Some(Place::Home);
+        let clear = match action {
+            SalvageAction::PlaceValve(at) => {
+                self.level.place_at(at).is_none()
+                    && self.crabs.iter().all(|c| {
+                        (c.mover.pos.x - at.x).abs() > c.mover.half_width(&self.tuning) + 20.0
+                            || (c.mover.pos.y - at.y).abs() > c.mover.height(&self.tuning)
+                    })
+            }
+            _ => true,
+        };
+        if let SalvageAction::OfferFragment(index, claim_id) = action {
+            if self.crabs.len() > 1 && id != PlayerId(0) {
+                return false;
+            }
+            let Some(site) = &mut self.salvage else {
+                return false;
+            };
+            let Some(Some(claim)) = site.claims.get_mut(usize::from(index)) else {
+                return false;
+            };
+            if !site.has_fragments[usize::from(index)]
+                || claim.id != claim_id
+                || claim.phase != crate::salvage::ClaimPhase::Requested
+            {
+                return false;
+            }
+            claim.phase = crate::salvage::ClaimPhase::Offered;
+            site.fragment_revisions[usize::from(index)] =
+                site.fragment_revisions[usize::from(index)].saturating_add(1);
+            return true;
+        }
+        if let SalvageAction::GrantFragment(index, claim_id) = action {
+            let Some(claim) = self
+                .salvage
+                .as_ref()
+                .and_then(|s| {
+                    s.has_fragments
+                        .get(usize::from(index))
+                        .filter(|owned| **owned)
+                        .and_then(|_| s.claims.get(usize::from(index)))
+                })
+                .copied()
+                .flatten()
+            else {
+                return false;
+            };
+            if claim.id != claim_id
+                || claim.recipient != id
+                || claim.recipient_identity != recipient_identity
+                || claim.phase != crate::salvage::ClaimPhase::Offered
+            {
+                return false;
+            }
+            let Some(crab) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote) else {
+                return false;
+            };
+            if crab.salvage_receipts.contains(&claim_id) {
+                return true;
+            }
+            if crab.salvage_receipts.len() >= 32
+                || crab.mover.clinging.len() >= crab.mover.carries(&self.tuning)
+            {
+                return false;
+            }
+            crab.mover.clinging.push(Carry::Grit);
+            crab.salvage_receipts.push(claim_id);
+            return true;
+        }
+        if let SalvageAction::FinalizeFragment(index, claim_id) = action {
+            let Some(site) = &mut self.salvage else {
+                return false;
+            };
+            let Some(Some(claim)) = site.claims.get_mut(usize::from(index)) else {
+                return false;
+            };
+            if !site.has_fragments[usize::from(index)]
+                || claim.id != claim_id
+                || claim.recipient != id
+                || claim.recipient_identity != recipient_identity
+                || claim.phase != crate::salvage::ClaimPhase::Offered
+            {
+                return false;
+            }
+            claim.phase = crate::salvage::ClaimPhase::Finalized;
+            site.fragment_revisions[usize::from(index)] =
+                site.fragment_revisions[usize::from(index)].saturating_add(1);
+            return true;
+        }
+        if let SalvageAction::TakeFragment(index) = action {
+            return if let (Some(cells), Some(site)) = (&self.level.cells, &mut self.salvage) {
+                site.request_fragment(
+                    cells,
+                    usize::from(index),
+                    from,
+                    id,
+                    recipient_identity,
+                    small_room,
+                )
+            } else {
+                false
+            };
+        }
+        let (Some(cells), Some(site)) = (&self.level.cells, &mut self.salvage) else {
+            return false;
+        };
+        match action {
+            SalvageAction::Take => site.take(cells, id, recipient_identity, from, room),
+            SalvageAction::DropShell => site.drop_carried(id, from),
+            SalvageAction::DropValve => site.drop_valve(id, from),
+            SalvageAction::TakeFragment(_)
+            | SalvageAction::OfferFragment(..)
+            | SalvageAction::GrantFragment(..)
+            | SalvageAction::FinalizeFragment(..) => false,
+            SalvageAction::Crush => site.crush(cells, from),
+            SalvageAction::LiftValve => site.lift_valve(id, recipient_identity, from, room),
+            SalvageAction::PlaceValve(at) => site.place_valve(cells, id, from, at, clear),
+            SalvageAction::Display => site.display(id, at_home),
+            SalvageAction::RetrieveDisplay => {
+                site.retrieve_display(id, recipient_identity, at_home, room)
+            }
+        }
     }
 
     /// Which feel preset the tuning came from ([`Feel::default`] unless
@@ -315,6 +586,8 @@ impl Sim {
             prev_pos: pos,
             controls: Controls::default(),
             events: StepEvents::default(),
+            salvage_receipts: Vec::new(),
+            salvage_identity: 0,
             eaten: vec![false; self.level.eggs.len()],
             cultures_taken: vec![false; self.level.cultures.len()],
             clues_found: vec![false; self.level.clues.len()],
@@ -1503,6 +1776,38 @@ impl Sim {
                 }
             }
         }
+        if !external_terrain
+            && let (Some(salvage), Some(cells)) = (&mut self.salvage, &self.level.cells)
+        {
+            for c in &self.crabs {
+                if c.fighter.dead.is_some() || c.mover.carrying.is_some() {
+                    let at = c.mover.pos + Vec2::Y * c.mover.height(&self.tuning);
+                    salvage.drop_carried(c.id, at);
+                    salvage.drop_valve(c.id, at);
+                }
+            }
+            if let crate::salvage::FindPhase::Carried(id) = salvage.phase
+                && salvage.has_find
+                && let Some(c) = self.crabs.iter().find(|c| c.id == id && !c.remote)
+            {
+                let at = c.mover.pos + Vec2::Y * c.mover.height(&self.tuning);
+                if salvage.position != at {
+                    salvage.position = at;
+                    salvage.revision = salvage.revision.saturating_add(1);
+                }
+            }
+            if let crate::salvage::ValvePhase::Carried(id) = salvage.valve_phase
+                && salvage.has_valve
+                && let Some(c) = self.crabs.iter().find(|c| c.id == id && !c.remote)
+            {
+                let at = c.mover.pos + Vec2::Y * c.mover.height(&self.tuning);
+                if salvage.valve_position != at {
+                    salvage.valve_position = at;
+                    salvage.valve_revision = salvage.valve_revision.saturating_add(1);
+                }
+            }
+            let _events = salvage.step(cells);
+        }
         if let Some(rec) = &mut self.recorder
             && let Some(crab) = self.crabs.iter().find(|c| !c.remote)
         {
@@ -2332,6 +2637,12 @@ impl Sim {
         let mut rec = Recorder::new(start, self.tick, &self.tuning);
         if self.level.cells.is_some() {
             rec.note_cellular();
+            let records = self.salvage_records();
+            if !crate::salvage::valid_records(&records) {
+                self.recorder = None;
+                return;
+            }
+            rec.note_salvage_start(records);
         }
         // Progress brought back from a save goes with it, so the replay
         // starts the crab as it was (a fresh crab needs nothing).
@@ -2401,7 +2712,8 @@ impl Sim {
                 })
                 .collect()
         };
-        if self.tick != other.tick
+        if self.salvage != other.salvage
+            || self.tick != other.tick
             || self.crabs.len() != other.crabs.len()
             || self
                 .crabs
@@ -2499,6 +2811,9 @@ impl Sim {
             "{} {:?} {:?} {:?} {:?}",
             self.tick, crabs, self.enemies, self.rng, self.shared
         );
+        if let Some(salvage) = &self.salvage {
+            state.push_str(&format!(" {salvage:?}"));
+        }
         if let Some(streams) = &self.owned_rng {
             state.push_str(&format!(" {streams:?}"));
         }
@@ -2536,6 +2851,9 @@ impl Sim {
             "{} {:?} {:?} {:?} {:?}",
             self.tick, crabs, self.enemies, self.rng, self.shared
         );
+        if let Some(salvage) = &self.salvage {
+            let _ = write!(sink, " {salvage:?}");
+        }
         if let Some(streams) = &self.owned_rng {
             let _ = write!(sink, " {streams:?}");
         }

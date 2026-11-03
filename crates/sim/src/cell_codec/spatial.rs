@@ -15,12 +15,17 @@ pub struct SpatialHead {
 }
 
 pub struct Capture {
+    pub salvage: Option<Vec<crate::salvage::SalvageRegionRecord>>,
     pub active: paged::PreparedSave,
     pub sleeping: Vec<SleepingCut>,
     pub memory: Vec<crate::memory::MemoryChunk>,
 }
 #[derive(Default)]
 pub struct Acknowledgement {
+    /// Exact player payload committed with this head; never current RAM.
+    pub player: Option<SaveData>,
+    /// Exact authored-region bundle committed alongside the player.
+    pub salvage: Option<Vec<crate::salvage::SalvageRegionRecord>>,
     pub sleeping: Vec<SleepingCut>,
     pub memory: Vec<crate::memory::MemoryChunk>,
 }
@@ -30,7 +35,74 @@ impl Acknowledgement {
         memory.acknowledge_chunks(&self.memory);
     }
 }
+pub const SALVAGE_RECORD_LIMIT: usize = 4096;
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SalvageIndex {
+    count: u8,
+    coordinates: [(i32, i32); 4],
+}
+impl SalvageIndex {
+    pub fn new(records: &[crate::salvage::SalvageRegionRecord]) -> Result<Self, Error> {
+        if !crate::salvage::valid_records(records) {
+            return Err(Error::Damaged);
+        }
+        let mut coordinates = [(0, 0); 4];
+        for (slot, record) in records.iter().enumerate() {
+            coordinates[slot] = record.region_id;
+        }
+        Ok(Self {
+            count: records.len() as u8,
+            coordinates,
+        })
+    }
+    pub fn keys(&self) -> Result<&[(i32, i32)], Error> {
+        if !(1..=4).contains(&self.count) {
+            return Err(Error::Damaged);
+        }
+        let keys = &self.coordinates[..usize::from(self.count)];
+        if keys
+            .iter()
+            .enumerate()
+            .any(|(i, key)| keys[..i].contains(key))
+        {
+            return Err(Error::Damaged);
+        }
+        Ok(keys)
+    }
+}
+pub fn decode_salvage(
+    bytes: &[u8],
+    key: (i32, i32),
+) -> Result<crate::salvage::SalvageRegionRecord, Error> {
+    if bytes.len() > SALVAGE_RECORD_LIMIT {
+        return Err(Error::TooLarge);
+    }
+    let record: crate::salvage::SalvageRegionRecord =
+        postcard::from_bytes(bytes).map_err(|_| Error::Damaged)?;
+    if record.region_id != key || !record.valid() {
+        return Err(Error::Damaged);
+    }
+    Ok(record)
+}
 impl Capture {
+    pub fn with_salvage(
+        mut self,
+        records: Vec<crate::salvage::SalvageRegionRecord>,
+    ) -> Result<Self, Error> {
+        SalvageIndex::new(&records)?;
+        for record in &records {
+            if postcard::to_allocvec(record)
+                .map_err(|_| Error::Damaged)?
+                .len()
+                > SALVAGE_RECORD_LIMIT
+            {
+                return Err(Error::TooLarge);
+            }
+        }
+        self.salvage = Some(records);
+        Ok(self)
+    }
+
     pub fn with_initial_baseline(
         player: SaveData,
         world: &World,
@@ -68,6 +140,7 @@ impl Capture {
             return Err(Error::TooLarge);
         }
         Ok(Self {
+            salvage: None,
             active: paged::PreparedSave {
                 snapshot,
                 player,

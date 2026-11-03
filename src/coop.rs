@@ -148,6 +148,19 @@ pub(crate) fn cells_replay(report: bool) -> Option<Result<String, String>> {
         None
     }
 }
+/// Route an owner-durable offer to the region currently holding the find.
+pub(crate) fn cells_salvage_offer(action: CellsAction, local_owns: bool) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::cells::salvage_offer(action, local_owns)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (action, local_owns);
+        false
+    }
+}
+
 pub(crate) fn cells_action(action: CellsAction) -> bool {
     #[cfg(target_arch = "wasm32")]
     {

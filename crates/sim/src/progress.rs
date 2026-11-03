@@ -81,6 +81,10 @@ pub struct Progress {
     pub stash: crate::craft::Stash,
     #[serde(default)]
     pub clam_guards: bool,
+    #[serde(default)]
+    pub salvage_receipts: Vec<crate::salvage::ClaimId>,
+    #[serde(default)]
+    pub salvage_identity: u64,
 }
 
 impl Progress {
@@ -169,6 +173,8 @@ impl Sim {
             growing: m.growing,
             stash: crab.stash,
             clam_guards: m.clam_guards,
+            salvage_receipts: crab.salvage_receipts.clone(),
+            salvage_identity: crab.salvage_identity,
         })
     }
 
@@ -224,6 +230,8 @@ impl Sim {
             return;
         };
         crab.wakes_at = p.wakes_at.filter(|&i| i < crevices);
+        crab.salvage_receipts = p.salvage_receipts.clone();
+        crab.salvage_identity = p.salvage_identity;
         let m = &mut crab.mover;
         m.upgrades = p.upgrades;
         m.lantern = p.lantern;

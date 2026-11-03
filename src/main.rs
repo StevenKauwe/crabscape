@@ -111,6 +111,7 @@ mod puppet;
 mod replay;
 mod report;
 mod reset;
+mod salvage;
 mod save;
 mod scribe;
 mod secrets;
@@ -199,6 +200,7 @@ fn run_app() {
         ))
         .add_plugins(monkeys::MonkeysPlugin)
         .add_plugins(cellular::CellularPlugin)
+        .add_plugins(salvage::SalvagePlugin)
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,

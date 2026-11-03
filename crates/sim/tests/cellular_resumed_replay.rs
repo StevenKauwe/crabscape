@@ -233,3 +233,39 @@ fn worker_compressed_recording_rejects_corrupt_and_stale_terrain() {
     assert!(!stale.start_recording_with_verified_terrain(&verified));
     assert!(stale.recording().is_none());
 }
+
+#[test]
+fn resumed_replay_restores_changed_salvage_records() {
+    use crabsim::salvage::{FindPhase, SalvageAction};
+    let mut base = Sim::new(Tuning::default(), Level::test_level());
+    base.enable_underwater_cells();
+    for _ in 0..5 {
+        base.tick();
+    }
+    let terrain = base.level.cells.as_ref().unwrap().clone();
+    let mut live = Sim::new(Tuning::default(), Level::test_level());
+    assert!(live.restore_cellular_terrain(terrain, base.tick_count()));
+    let mut records = live.salvage_records();
+    let find = records.iter_mut().find_map(|r| r.find.as_mut()).unwrap();
+    find.phase = FindPhase::Displayed;
+    find.world_id = 123;
+    for record in &mut records {
+        for fragment in record.fragments.iter_mut().flatten() {
+            fragment.world_id = 123;
+        }
+    }
+    assert!(live.restore_salvage_records(records));
+    live.add_crab(PlayerId(0), Vec2::new(320.0, 30.0));
+    live.crab_mut(PlayerId(0)).unwrap().salvage_identity = 77;
+    live.start_recording();
+    assert!(live.recording().is_some());
+    assert!(live.salvage_action(PlayerId(0), SalvageAction::LiftValve));
+    for _ in 0..10 {
+        live.tick();
+    }
+    let replay = Replay::parse(&live.recording().unwrap().to_text()).unwrap();
+    let mut again = Sim::with_one_crab(replay.start);
+    crabsim::play(&mut again, &replay, replay.end.unwrap(), |_| {});
+    assert_eq!(again.salvage, live.salvage);
+    assert_eq!(replay.hash, Some(again.state_hash()));
+}

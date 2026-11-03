@@ -34,6 +34,7 @@ struct State {
     rng: Rng,
     owned_rng: Option<std::collections::BTreeMap<u32, Rng>>,
     shared: Shared,
+    salvage: Option<crate::salvage::Shellwash>,
     other_crabs: Vec<(i32, i32, i32, i32)>,
 }
 
@@ -49,6 +50,7 @@ struct StateRef<'a> {
     rng: &'a Rng,
     owned_rng: &'a Option<std::collections::BTreeMap<u32, Rng>>,
     shared: &'a Shared,
+    salvage: &'a Option<crate::salvage::Shellwash>,
     other_crabs: &'a [(i32, i32, i32, i32)],
 }
 
@@ -137,6 +139,11 @@ impl Sim {
             || self.crabs.len() >= 8
             || !bounded_pos(pos)
             || !valid_progress(progress)
+            || (progress.salvage_identity != 0
+                && self
+                    .crabs
+                    .iter()
+                    .any(|crab| crab.salvage_identity == progress.salvage_identity))
         {
             return false;
         }
@@ -147,6 +154,9 @@ impl Sim {
         personal.rocks_cracked.clear();
         self.add_crab(id, pos);
         self.restore_progress(id, &personal);
+        if let Some(site) = &mut self.salvage {
+            site.rebind(personal.salvage_identity, id);
+        }
         true
     }
 
@@ -155,6 +165,14 @@ impl Sim {
     pub fn remove_cell_player(&mut self, id: PlayerId) -> bool {
         if self.net.is_some() || self.level.cells.is_none() || self.crab(id).is_none() {
             return false;
+        }
+        if let (Some(crab), Some(site)) = (
+            self.crabs.iter().find(|crab| crab.id == id),
+            &mut self.salvage,
+        ) {
+            let at = crab.mover.pos + Vec2::Y * crab.mover.height(&self.tuning);
+            site.drop_carried(id, at);
+            site.drop_valve(id, at);
         }
         self.crabs.retain(|crab| crab.id != id);
         for enemy in &mut self.enemies {
@@ -263,6 +281,7 @@ impl Sim {
             rng: &self.rng,
             owned_rng: &self.owned_rng,
             shared: &self.shared,
+            salvage: &self.salvage,
             other_crabs: &cells.other_crabs,
         };
         let metadata = serde_json::to_vec(&state).map_err(|_| CheckpointError::Invalid)?;
@@ -335,6 +354,17 @@ impl Sim {
         let mut sim = Sim::new(feel.tuning(), state.level);
         sim.level.cells = Some(terrain);
         sim.set_feel(feel);
+        if state.salvage.as_ref().is_some_and(|site| {
+            let records = site.records();
+            if region {
+                records.iter().any(|record| !record.valid())
+            } else {
+                !crate::salvage::valid_records(&records)
+            }
+        }) {
+            return Err(CheckpointError::Invalid);
+        }
+        sim.salvage = state.salvage;
         if sim.tuning.fingerprint() != state.tuning
             || state.tick > u64::MAX - 1_000_000
             || state.crabs.is_empty()
@@ -353,6 +383,7 @@ impl Sim {
                     || c.teeth_taken.len() != sim.level.teeth.len()
                     || c.sponges_taken.len() != sim.level.sponges.len()
                     || c.cast_offs.len() > 4096
+                    || !valid_salvage_receipts(&c.salvage_receipts)
                     || c.controls.walk.abs() > 1.0
             })
             || state.shared.clams.len() != sim.level.clams.len()
@@ -386,10 +417,17 @@ impl Sim {
     }
 }
 
+fn valid_salvage_receipts(receipts: &[crate::salvage::ClaimId]) -> bool {
+    receipts.len() <= 32
+        && receipts.iter().enumerate().all(|(i, id)| {
+            id.world != 0 && id.site == 1 && id.child <= 1 && !receipts[..i].contains(id)
+        })
+}
 fn valid_progress(progress: &crate::Progress) -> bool {
-    [progress.climb_xp, progress.swim_xp, progress.fight_xp]
-        .iter()
-        .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1_000_000_000.0)
+    valid_salvage_receipts(&progress.salvage_receipts)
+        && [progress.climb_xp, progress.swim_xp, progress.fight_xp]
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1_000_000_000.0)
         && progress.upgrades <= 10_000
         && progress.lantern <= 10_000
         && progress.moults <= 10_000

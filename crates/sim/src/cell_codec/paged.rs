@@ -150,6 +150,7 @@ pub fn restored(
         ReplayStart::Unavailable
     };
     Ok(Restored {
+        salvage: None,
         player,
         terrain,
         sim_tick,

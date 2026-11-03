@@ -242,7 +242,8 @@ pub(crate) fn private_save(
                 &solo.crab(id)?.memory,
                 solo.tick_count(),
                 crate::cell_save::browser::needs_initial_baseline(),
-            ),
+            )
+            .and_then(|capture| capture.with_salvage(solo.salvage_records())),
         )
     })
 }
@@ -276,6 +277,13 @@ pub(crate) fn owner_save(
         Some(result)
     })
 }
+pub(crate) fn salvage_offer(action: super::super::CellsAction, local_owns: bool) -> bool {
+    if !local_owns {
+        return SESSION.with(|slot| regional::forward_action(&mut slot.borrow_mut(), action));
+    }
+    self::action(action)
+}
+
 pub(crate) fn action(action: super::super::CellsAction) -> bool {
     SESSION.with(|slot| {
         let mut s = slot.borrow_mut();
@@ -560,7 +568,16 @@ fn receive(
             sequence,
             action,
         } if me == HOST && s.phase == Phase::Host => {
-            if epoch != s.epoch || sequence != s.heard_sequence || s.actions.len() >= 16 {
+            if epoch != s.epoch
+                || sequence != s.heard_sequence
+                || s.actions.len() >= 16
+                || matches!(
+                    action,
+                    super::super::CellsAction::Salvage(
+                        crabsim::salvage::SalvageAction::OfferFragment(..)
+                    )
+                )
+            {
                 return Err("invalid action sequence".into());
             }
             s.heard_sequence += 1;

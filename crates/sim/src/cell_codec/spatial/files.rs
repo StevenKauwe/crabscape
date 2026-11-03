@@ -1,6 +1,6 @@
 //! Native spatial records. A small head advances only after all changed
 //! records have reached disk. Unpublished generations are invisible to reads.
-use super::{Acknowledgement, Capture};
+use super::{Acknowledgement, Capture, SALVAGE_RECORD_LIMIT, SalvageIndex, decode_salvage};
 use crate::{
     cell_codec::{Restored, paged},
     memory::MemoryChunk,
@@ -116,6 +116,44 @@ impl Store {
                 h.revision.checked_add(1).ok_or("save revision exhausted")
             })
             .map_err(str::to_owned)?;
+        let mut salvage_writes = Vec::new();
+        let mut salvage_remove = Vec::new();
+        if let Some(records) = &capture.salvage {
+            let index = SalvageIndex::new(records).map_err(issue)?;
+            let previous = before
+                .filter(|head| head.revision > 0)
+                .map(|head| self.salvage_index(head))
+                .transpose()?
+                .flatten();
+            if let Some(previous) = previous {
+                for key in previous.keys().map_err(issue)? {
+                    if !index.keys().map_err(issue)?.contains(key) {
+                        salvage_remove.push(*key);
+                    }
+                }
+            }
+            for record in records {
+                let raw = postcard::to_allocvec(record).map_err(issue)?;
+                let old = before
+                    .filter(|head| head.revision > 0)
+                    .map(|head| self.page("salvage", record.region_id, head))
+                    .transpose()?
+                    .flatten();
+                if old.as_deref() != Some(raw.as_slice()) {
+                    salvage_writes.push(("salvage", record.region_id, raw));
+                }
+            }
+            let raw = postcard::to_allocvec(&index).map_err(issue)?;
+            let old = before
+                .filter(|head| head.revision > 0)
+                .map(|head| self.page("salvage_index", (0, 0), head))
+                .transpose()?
+                .flatten();
+            if old.as_deref() != Some(raw.as_slice()) {
+                salvage_writes.push(("salvage_index", (0, 0), raw));
+            }
+        }
+        let committed_player = serde_json::from_slice(&capture.active.player).map_err(issue)?;
         let active = capture.active.encode().map_err(issue)?;
         let mut keys = vec![("active".to_owned(), (0, 0))];
         keys.extend(
@@ -130,6 +168,16 @@ impl Store {
                 .iter()
                 .map(|page| ("memory".to_owned(), (page.x as i32, page.y as i32))),
         );
+        keys.extend(
+            salvage_writes
+                .iter()
+                .map(|(kind, key, _)| (kind.to_string(), *key)),
+        );
+        keys.extend(
+            salvage_remove
+                .iter()
+                .map(|key| ("salvage".to_owned(), *key)),
+        );
         let intent = Intent {
             epoch,
             revision,
@@ -140,6 +188,10 @@ impl Store {
             &postcard::to_allocvec(&intent).map_err(issue)?,
         )?;
         self.put(epoch, "active", (0, 0), revision, &active, RECORD_LIMIT)?;
+        for (kind, key, raw) in &salvage_writes {
+            self.put(epoch, kind, *key, revision, raw, SALVAGE_RECORD_LIMIT)?;
+        }
+
         for cut in &capture.sleeping {
             self.put(
                 epoch,
@@ -187,8 +239,13 @@ impl Store {
                 }
             }
         }
+        for key in salvage_remove {
+            let _ = std::fs::remove_dir_all(self.directory(epoch, "salvage", key));
+        }
         let _ = std::fs::remove_file(self.root.join("pending"));
         Ok(Acknowledgement {
+            player: Some(committed_player),
+            salvage: capture.salvage,
             sleeping: capture.sleeping,
             memory: capture.memory,
         })
@@ -209,7 +266,7 @@ impl Store {
             .is_some_and(|head| head.epoch == intent.epoch && head.revision == intent.revision);
         for (kind, key) in intent.keys {
             let directory = self.directory(intent.epoch, &kind, key);
-            let entries = match std::fs::read_dir(directory) {
+            let entries = match std::fs::read_dir(&directory) {
                 Ok(entries) => entries,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(issue(error)),
@@ -230,6 +287,7 @@ impl Store {
                     std::fs::remove_file(entry.path()).map_err(issue)?;
                 }
             }
+            let _ = std::fs::remove_dir(directory);
         }
         std::fs::remove_file(self.root.join("pending")).map_err(issue)
     }
@@ -292,12 +350,48 @@ impl Store {
         let Some(revision) = latest else {
             return Ok(None);
         };
-        let bytes = read_optional(&dir.join(revision.to_string()), RECORD_LIMIT + 32)?
+        let limit = if kind.starts_with("salvage") {
+            SALVAGE_RECORD_LIMIT
+        } else {
+            RECORD_LIMIT
+        };
+        let bytes = read_optional(&dir.join(revision.to_string()), limit + 32)?
             .ok_or("missing spatial record")?;
         if bytes.len() < 32 || paged::hash(&bytes[32..]) != bytes[..32] {
             return Err("damaged spatial record".into());
         }
         Ok(Some(bytes[32..].to_vec()))
+    }
+    fn salvage_index(&self, head: Head) -> Result<Option<SalvageIndex>, String> {
+        let Some(raw) = self.page("salvage_index", (0, 0), head)? else {
+            return Ok(None);
+        };
+        if raw.len() > 64 {
+            return Err("salvage index exceeds fixed bound".into());
+        }
+        let index: SalvageIndex = postcard::from_bytes(&raw).map_err(issue)?;
+        index.keys().map_err(issue)?;
+        Ok(Some(index))
+    }
+    pub fn salvage(
+        &self,
+        head: Head,
+    ) -> Result<Option<Vec<crate::salvage::SalvageRegionRecord>>, String> {
+        let Some(index) = self.salvage_index(head)? else {
+            return Ok(None);
+        };
+        let mut records = Vec::new();
+        for key in index.keys().map_err(issue)? {
+            let raw = self
+                .page("salvage", *key, head)?
+                .ok_or("missing salvage region")?;
+            records.push(decode_salvage(&raw, *key).map_err(issue)?);
+        }
+        if !crate::salvage::valid_records(&records) {
+            return Err("invalid salvage ownership".into());
+        }
+        self.validate_head(head)?;
+        Ok(Some(records))
     }
     pub fn validate_head(&self, head: Head) -> Result<(), String> {
         if self
@@ -360,6 +454,7 @@ impl Store {
         if let (Some(memory), Some(pages)) = (&mut restored.player.memory, pages) {
             memory.cells = pages;
         }
+        restored.salvage = self.salvage(head)?;
         self.validate_head(head)?;
         Ok(restored)
     }
@@ -407,6 +502,7 @@ impl Store {
             memory.complete = true;
         }
         restored.terrain.enable_paging();
+        restored.salvage = self.salvage(head)?;
         self.validate_head(head)?;
         Ok(restored)
     }
@@ -509,6 +605,137 @@ mod tests {
             tick,
         )
         .unwrap()
+    }
+    #[test]
+    fn salvage_relocation_is_bounded_and_preserves_physical_state_on_restart() {
+        use crate::salvage::{FindPhase, Shellwash};
+        let (store, world, memory) = fixture("salvage-moves");
+        let mut site = Shellwash {
+            phase: FindPhase::Free,
+            ..Shellwash::default()
+        };
+        for step in 0..16 {
+            site.position.x = 300.0 + step as f32 * 300.0;
+            site.velocity.x = step as f32;
+            site.fragment_positions = [site.position; 2];
+            let records = site.records();
+            let prepared = capture(&world, &memory, 120 + step)
+                .with_salvage(records.clone())
+                .unwrap();
+            let expected_player: crate::SaveData =
+                serde_json::from_slice(&prepared.active.player).unwrap();
+            let ack = store.commit(prepared, 0).unwrap();
+            assert_eq!(ack.player, Some(expected_player));
+            assert_eq!(ack.salvage, Some(records.clone()));
+            let head = store.head().unwrap().unwrap();
+            let restored = store.startup(head).unwrap();
+            assert_eq!(restored.salvage, Some(records));
+            assert!(
+                store.keys(0, "salvage").unwrap().len() <= 4,
+                "old spatial owners must be reclaimed"
+            );
+            assert_eq!(store.keys(0, "salvage_index").unwrap().len(), 1);
+        }
+        site.phase = FindPhase::Consumed;
+        site.fragments = [true, true];
+        site.fragment_positions = [
+            bevy_math::Vec2::new(8000.0, 10.0),
+            bevy_math::Vec2::new(9000.0, 10.0),
+        ];
+        let records = site.records();
+        assert_eq!(records.len(), 4);
+        store
+            .commit(
+                capture(&world, &memory, 150)
+                    .with_salvage(records.clone())
+                    .unwrap(),
+                0,
+            )
+            .unwrap();
+        assert_eq!(
+            store.salvage(store.head().unwrap().unwrap()).unwrap(),
+            Some(records)
+        );
+        site.fragment_positions[0].x += 512.0;
+        site.fragment_positions[1].x += 512.0;
+        let relocated = site.records();
+        store
+            .commit(
+                capture(&world, &memory, 151)
+                    .with_salvage(relocated.clone())
+                    .unwrap(),
+                0,
+            )
+            .unwrap();
+        assert_eq!(
+            store.salvage(store.head().unwrap().unwrap()).unwrap(),
+            Some(relocated)
+        );
+        assert!(store.keys(0, "salvage").unwrap().len() <= 4);
+        store.reset().unwrap();
+        assert!(
+            store
+                .salvage(store.head().unwrap().unwrap())
+                .unwrap()
+                .is_none()
+        );
+        std::fs::remove_dir_all(store.root).unwrap();
+    }
+    #[test]
+    fn failed_salvage_move_keeps_previous_world_and_retry_reclaims_orphans() {
+        use crate::salvage::Shellwash;
+        use std::cell::Cell;
+        let (store, world, memory) = fixture("salvage-abort");
+        let mut site = Shellwash::default();
+        let original = site.records();
+        store
+            .commit(
+                capture(&world, &memory, 120)
+                    .with_salvage(original.clone())
+                    .unwrap(),
+                0,
+            )
+            .unwrap();
+        let before = store.head().unwrap().unwrap();
+        let before_player = store.active(before).unwrap().player;
+        site.position.x = 5000.0;
+        site.fragment_positions = [site.position; 2];
+        let mut candidate = capture(&world, &memory, 121)
+            .with_salvage(site.records())
+            .unwrap();
+        let mut next_player: crate::SaveData =
+            serde_json::from_slice(&candidate.active.player).unwrap();
+        next_player.x += 5.0;
+        candidate.active.player = serde_json::to_vec(&next_player).unwrap();
+        let current = Cell::new(0);
+        assert!(
+            store
+                .commit_checked(candidate, 0, || {
+                    let n = current.get();
+                    current.set(n + 1);
+                    n == 0
+                })
+                .is_err()
+        );
+        assert_eq!(store.head().unwrap().unwrap().revision, before.revision);
+        assert_eq!(store.salvage(before).unwrap(), Some(original.clone()));
+        assert_eq!(store.active(before).unwrap().player, before_player);
+        assert!(Acknowledgement::default().player.is_none());
+        assert!(Acknowledgement::default().salvage.is_none());
+        store
+            .commit(
+                capture(&world, &memory, 122)
+                    .with_salvage(original.clone())
+                    .unwrap(),
+                0,
+            )
+            .unwrap();
+        assert_eq!(
+            store.salvage(store.head().unwrap().unwrap()).unwrap(),
+            Some(original)
+        );
+        assert!(store.keys(0, "salvage").unwrap().len() <= 4);
+        std::fs::remove_dir_all(store.root).unwrap();
     }
     #[test]
     fn changed_records_round_trip_and_old_readers_are_revoked() {

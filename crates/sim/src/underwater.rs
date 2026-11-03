@@ -647,6 +647,51 @@ impl World {
         world
     }
 
+    /// Seed the first shellwash as actual cellular material: a shallow rock
+    /// slope with a loose sand cap and a low downstream catch lip. Called
+    /// only when constructing a fresh opening, before any saved world loads.
+    pub fn seed_shellwash_site(&mut self) {
+        for gx in 55..=86 {
+            let wx = (gx as f32 + 0.5) * GAME_CELL;
+            let slope = 30.0 - (wx - 220.0) * 0.15;
+            for gy in 0..self.height as i32 {
+                let wy = GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL;
+                let Some(i) = self.index_at(gx - self.origin.0, gy - self.origin.1) else {
+                    continue;
+                };
+                if wy > slope + 32.0 || wy < -100.0 {
+                    continue;
+                }
+                if self.pebble_owner[i] != 0 {
+                    continue;
+                }
+                self.cells[i] = if wy < slope {
+                    Cell::Rock
+                } else if wx < 290.0 {
+                    Cell::Sand
+                } else {
+                    Cell::Water
+                };
+                self.flow[i] = if self.cells[i] == Cell::Water {
+                    (0.35, 0.0)
+                } else {
+                    (0.0, 0.0)
+                };
+            }
+        }
+        // A low lip contains a missed find without sealing the crab's route.
+        for gx in 84..=86 {
+            for gy in 90..=95 {
+                if let Some(i) = self.index_at(gx - self.origin.0, gy - self.origin.1)
+                    && self.pebble_owner[i] == 0
+                {
+                    self.cells[i] = Cell::Rock;
+                    self.flow[i] = (0.0, 0.0);
+                }
+            }
+        }
+    }
+
     /// Keep the historical pebble bed available to focused physics tests.
     #[cfg(any(test, feature = "cleanup-proof"))]
     pub fn opening_pebble_fixture(level: &crate::Level) -> Self {
@@ -6621,7 +6666,7 @@ mod tests {
     fn digging_up_does_not_fly_or_jump_in_open_water() {
         use crate::{Controls, PlayerId, Sim};
         use bevy_math::Vec2;
-        let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+        let mut sim = Sim::with_one_crab(Vec2::new(450.0, 0.0));
         sim.enable_underwater_cells();
         let start = sim.crab(PlayerId(0)).unwrap().mover.pos.y;
         let mut max_speed = 0.0_f32;

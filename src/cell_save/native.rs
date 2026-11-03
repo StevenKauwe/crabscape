@@ -221,6 +221,13 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
                 warn!("cellular save could not be safely restored; keeping the old file unchanged");
                 return None;
             }
+            if let Some(records) = saved.salvage
+                && !sim.restore_salvage_records(records)
+            {
+                storage.disabled = true;
+                warn!("saved salvage could not be safely restored; keeping the old save");
+                return None;
+            }
             storage.replay = saved.replay;
             Some(saved.player)
         }
@@ -380,6 +387,7 @@ fn update_storage(
             .unwrap_or_else(|_| Err("save worker stopped unexpectedly".into()));
         storage.write_failed = result.is_err();
         if let Ok(ack) = &result {
+            crate::salvage::acknowledge_save(sim, id, ack, true);
             storage.has_baseline = true;
             storage.head = storage.head.map_or(Some((0, 1)), |(epoch, revision)| {
                 Some((epoch, revision + 1))
@@ -434,7 +442,9 @@ fn update_storage(
         memory,
         sim.tick_count(),
         !storage.has_baseline,
-    ) {
+    )
+    .and_then(|capture| capture.with_salvage(sim.salvage_records()))
+    {
         Ok(capture) => storage.worker = Some(queue_spatial(path.to_owned(), capture, storage.head)),
         Err(reason) => {
             storage.write_failed = true;

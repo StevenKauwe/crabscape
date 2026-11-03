@@ -283,6 +283,9 @@ impl RegionKernel {
                 CellSessionAction::Craft(r) => {
                     let _ = self.sim.make(*id, *r);
                 }
+                CellSessionAction::Salvage(action) => {
+                    self.sim.salvage_action(*id, *action);
+                }
             }
         }
         for (id, c) in &frame.controls {
@@ -392,6 +395,7 @@ impl Sim {
         let mut region = Sim::new(self.tuning.clone(), level);
         region.feel = self.feel;
         region.shared = self.shared.clone();
+        region.salvage = self.salvage.as_mut().and_then(|site| site.extract(owns));
         region.tick = self.tick;
         region.rng = Rng::new(SEED ^ id.0);
         region.next_enemy = (id.0 as u32)
@@ -442,7 +446,18 @@ impl Sim {
         {
             return Err(RegionError::InvalidState);
         }
+        let mut merged_salvage = self.salvage.clone();
+        if let Some(source) = &kernel.sim.salvage {
+            if let Some(dest) = &mut merged_salvage {
+                if !dest.absorb(source) {
+                    return Err(RegionError::InvalidState);
+                }
+            } else {
+                merged_salvage = Some(source.clone());
+            }
+        }
         self.merge_region_resources(&kernel.sim)?;
+        self.salvage = merged_salvage;
         let source = kernel.sim;
         self.tick = self.tick.max(source.tick);
         self.next_enemy = self.next_enemy.max(source.next_enemy);
@@ -582,6 +597,65 @@ mod tests {
             Err(RegionError::InvalidState)
         );
         assert_eq!(archive.sim.shared.clams, [30, 20]);
+    }
+    #[test]
+    fn crossing_fragment_moves_through_ordered_stop_and_regrant() {
+        use crate::salvage::FindPhase;
+        let mut whole = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+        whole.enable_underwater_cells();
+        whole.add_crab(PlayerId(7), Vec2::new(1500.0, 400.0));
+        let site = whole.salvage.as_mut().unwrap();
+        site.world_id = 9;
+        site.phase = FindPhase::Consumed;
+        site.fragments = [true, true];
+        site.fragment_positions = [Vec2::new(1023.5, 600.0), Vec2::new(260.0, 70.0)];
+        site.fragment_velocities[0] = Vec2::new(30.0, 0.0);
+        let mut store = TerrainStore::new(whole.level.cells.take().unwrap()).unwrap();
+        let mut archive = EntityArchive::new(whole).unwrap();
+        let left = CellRegion {
+            x: 0,
+            y: 0,
+            width: 256,
+            height: 256,
+        };
+        let right = CellRegion { x: 256, ..left };
+        let (ea, ta) = store.grant(RegionId(1), left, &archive.sim.level).unwrap();
+        let (eb, tb) = store.grant(RegionId(2), right, &archive.sim.level).unwrap();
+        let mut a = archive
+            .extract(RegionId(1), ea, &[PlayerId(0)], ta)
+            .unwrap();
+        let b = archive
+            .extract(RegionId(2), eb, &[PlayerId(7)], tb)
+            .unwrap();
+        assert!(a.sim.salvage.as_ref().unwrap().has_fragments[0]);
+        for tick in 0..30 {
+            a.tick(&RegionFrame {
+                tick,
+                controls: vec![(PlayerId(0), Controls::default())],
+                actions: vec![],
+            })
+            .unwrap();
+            if a.sim.salvage.as_ref().unwrap().fragment_positions[0].x >= 1024.0 {
+                break;
+            }
+        }
+        assert!(a.sim.salvage.as_ref().unwrap().fragment_positions[0].x >= 1024.0);
+        store
+            .commit(a.id, a.epoch, a.sim.level.cells.as_ref().unwrap())
+            .unwrap();
+        store
+            .commit(b.id, b.epoch, b.sim.level.cells.as_ref().unwrap())
+            .unwrap();
+        archive.absorb(a).unwrap();
+        archive.absorb(b).unwrap();
+        store.release(RegionId(1), ea).unwrap();
+        store.release(RegionId(2), eb).unwrap();
+        let (ec, tc) = store.grant(RegionId(3), right, &archive.sim.level).unwrap();
+        let c = archive
+            .extract(RegionId(3), ec, &[PlayerId(7)], tc)
+            .unwrap();
+        assert!(c.sim.salvage.as_ref().unwrap().has_fragments[0]);
+        assert!(!archive.sim.salvage.as_ref().unwrap().has_fragments[0]);
     }
     #[test]
     fn two_distant_regions_step_independently_and_restore_both_players_and_creatures() {

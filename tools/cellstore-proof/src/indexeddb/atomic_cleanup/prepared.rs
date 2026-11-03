@@ -24,6 +24,7 @@ impl Prepared {
         }
         drop(prepare_migration(&decoded)?);
         let crabsim::cell_codec::Restored {
+            salvage: _,
             player,
             terrain,
             sim_tick,

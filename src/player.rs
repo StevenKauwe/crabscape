@@ -26,6 +26,25 @@ use crate::save;
 
 pub use crabsim::PlayerId;
 
+/// A private persistent identifier, used for idempotent salvage receipts;
+/// this is an identity hint, not an authentication credential.
+fn new_salvage_identity() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let high = (js_sys::Math::random() * f64::from(u32::MAX)) as u32;
+        let low = (js_sys::Math::random() * f64::from(u32::MAX)) as u32;
+        ((u64::from(high) << 32) | u64::from(low)).max(1)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::hash::{BuildHasher, Hasher};
+        std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish()
+            .max(1)
+    }
+}
+
 /// Marks the crab controlled by *this* browser tab.
 #[derive(Component)]
 pub struct LocalPlayer;
@@ -211,6 +230,17 @@ pub fn spawn_local_crab(
     // What it grew, took and remembers comes back with it.
     if let Some(p) = saved.as_ref().and_then(|s| s.progress.as_ref()) {
         sim.restore_progress(me, p);
+    }
+    if let Some(crab) = sim.crab_mut(me)
+        && crab.salvage_identity == 0
+    {
+        crab.salvage_identity = new_salvage_identity();
+    }
+    let identity = sim.crab(me).map_or(0, |crab| crab.salvage_identity);
+    if let Some(site) = &mut sim.salvage
+        && site.world_id == 0
+    {
+        site.world_id = identity;
     }
     if let Some(m) = saved
         .and_then(|s| s.memory)

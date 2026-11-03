@@ -487,6 +487,9 @@ impl RegionJournal {
                 CellSessionAction::Craft(recipe) => {
                     let _ = sim.make(*id, *recipe);
                 }
+                CellSessionAction::Salvage(action) => {
+                    sim.salvage_action(*id, *action);
+                }
             }
         }
         for (id, control) in &run.controls {

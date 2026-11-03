@@ -465,6 +465,45 @@ mod page_bridge {
             .and_then(|d| d.get_element_by_id("crabscape"))
         {
             let _ = canvas.set_attribute("data-crab", &value);
+            if canvas.has_attribute("data-cell-control-probe") {
+                let controls = sim
+                    .crabs()
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "{}:{:.2}:{}:{}:{}:{}:{:?}:{:.1},{:.1}",
+                            c.id.0,
+                            c.controls.walk,
+                            c.controls.down,
+                            c.controls.dig_held,
+                            c.remote,
+                            c.fighter.vitals.hitstop,
+                            c.mover.shelter,
+                            c.mover.vel.x,
+                            c.mover.vel.y
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";");
+                let _ = canvas.set_attribute("data-cell-controls", &controls);
+            }
+            // Read-only browser test hook; no player identity or save data.
+            if let Some(site) = &sim.salvage {
+                let salvage = format!(
+                    "{:?} {:.1} {:.1} {:?} {:.1} {:.1} fragments={:?} claims={:?}",
+                    site.phase,
+                    site.position.x,
+                    site.position.y,
+                    site.valve_phase,
+                    site.valve_position.x,
+                    site.valve_position.y,
+                    site.fragments,
+                    site.claims.map(|claim| claim.map(|claim| claim.phase))
+                );
+                let _ = canvas.set_attribute("data-salvage", &salvage);
+            } else {
+                let _ = canvas.remove_attribute("data-salvage");
+            }
             // The fight, for the WebKit test: the crab's shell, then each
             // enemy's kind=state:phase:health.
             let mut fight = format!("{:.0}", fighter.vitals.health);

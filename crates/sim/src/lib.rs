@@ -67,6 +67,7 @@ pub mod physics;
 pub mod progress;
 pub mod replay;
 pub mod rng;
+pub mod salvage;
 pub mod save_data;
 pub mod shared;
 pub mod skills;

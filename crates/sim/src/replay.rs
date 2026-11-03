@@ -111,6 +111,8 @@ pub struct Replay {
     pub(crate) cell_start: Option<CellStart>,
     /// The loaded crab's remembered map, when replaying a saved cellular game.
     pub(crate) memory: Option<MemorySave>,
+    pub(crate) salvage_start: Option<Vec<crate::salvage::SalvageRegionRecord>>,
+    pub salvage_actions: Vec<(u64, crate::salvage::SalvageAction)>,
     /// The [`Tuning::fingerprint`] it was recorded with, if known.
     pub tuning: Option<u64>,
     /// When the controls change, in tick order (at most one per tick).
@@ -156,6 +158,8 @@ impl Default for Replay {
             cellular: false,
             cell_start: None,
             memory: None,
+            salvage_start: None,
+            salvage_actions: Vec::new(),
             tuning: None,
             inputs: Vec::new(),
             end: None,
@@ -296,6 +300,19 @@ impl Replay {
                             .map_err(|e| err(format!("`progress` doesn't read: {e}")))?;
                         replay.progress = Some(p);
                     }
+                    "salvage_start" => {
+                        if replay.salvage_start.is_some() || rest.len() != 1 || rest[0].len() > 4096
+                        {
+                            return Err(err("invalid salvage start".into()));
+                        }
+                        let records: Vec<crate::salvage::SalvageRegionRecord> =
+                            serde_json::from_str(rest[0])
+                                .map_err(|e| err(format!("invalid salvage start: {e}")))?;
+                        if !crate::salvage::valid_records(&records) {
+                            return Err(err("invalid salvage records".into()));
+                        }
+                        replay.salvage_start = Some(records);
+                    }
                     "memory" => {
                         let len = rest
                             .iter()
@@ -349,12 +366,17 @@ impl Replay {
                 let recipe = Recipe::parse(w).ok_or_else(|| err(format!("no recipe `{w}`")))?;
                 replay.crafts.push((tick, recipe));
             }
+            for w in words.iter().filter_map(|w| w.strip_prefix("salvage=")) {
+                let action = serde_json::from_str(w)
+                    .map_err(|e| err(format!("invalid salvage action: {e}")))?;
+                replay.salvage_actions.push((tick, action));
+            }
             if words.contains(&"home") {
                 replay.homes.push(tick);
             }
             words.retain(|w| {
                 *w != "home"
-                    && !["spawn=", "feel=", "code=", "moult=", "craft="]
+                    && !["spawn=", "feel=", "code=", "moult=", "craft=", "salvage="]
                         .iter()
                         .any(|p| w.starts_with(p))
             });
@@ -371,6 +393,11 @@ impl Replay {
             }
             held = c;
             replay.inputs.push(Input { tick, controls: c });
+        }
+        if (replay.salvage_start.is_some() || !replay.salvage_actions.is_empty())
+            && !replay.cellular
+        {
+            return Err("salvage requires a cellular world".into());
         }
         if replay.memory.is_some() {
             if !replay.has_cell_start() {
@@ -423,6 +450,10 @@ impl Replay {
             let json = serde_json::to_string(p).expect("progress always serialises");
             out += &format!("progress {json}\n");
         }
+        if let Some(records) = &self.salvage_start {
+            let json = serde_json::to_string(records).expect("salvage records serialise");
+            out += &format!("salvage_start {json}\n");
+        }
         if let Some(memory) = &self.memory {
             let json = serde_json::to_string(memory).expect("memory always serialises");
             out += &format!("memory {json}\n");
@@ -450,6 +481,10 @@ impl Replay {
         }
         for (tick, recipe) in &self.crafts {
             out += &format!("@{tick} craft={}\n", recipe.def().word);
+        }
+        for (tick, action) in &self.salvage_actions {
+            let json = serde_json::to_string(action).expect("salvage action serialises");
+            out += &format!("@{tick} salvage={json}\n");
         }
         for tick in &self.homes {
             out += &format!("@{tick} home\n");
@@ -580,6 +615,11 @@ impl Replay {
         if let Some((_, feel)) = self.feels.iter().find(|(tick, _)| *tick == 0) {
             restored.set_feel(*feel);
         }
+        if let Some(records) = &self.salvage_start
+            && !restored.restore_salvage_records(records.clone())
+        {
+            return false;
+        }
         restored.add_crab(crate::PlayerId(0), self.start);
         if let Some(saved) = &self.memory {
             let Some(memory) =
@@ -641,6 +681,12 @@ impl Replay {
             sim.enable_underwater_cells();
         }
         if tick == 0
+            && self.cell_start.is_none()
+            && let Some(records) = &self.salvage_start
+        {
+            let _ = sim.restore_salvage_records(records.clone());
+        }
+        if tick == 0
             && let Some(p) = &self.progress
         {
             sim.restore_progress(crate::PlayerId(0), p);
@@ -660,6 +706,9 @@ impl Replay {
         for (_, recipe) in self.crafts.iter().filter(|(t, _)| *t == tick) {
             // It could be made when recorded, so it can now.
             let _ = sim.make(crate::PlayerId(0), *recipe);
+        }
+        for (_, action) in self.salvage_actions.iter().filter(|(t, _)| *t == tick) {
+            let _ = sim.salvage_action(crate::PlayerId(0), *action);
         }
         if self.homes.contains(&tick) {
             sim.go_home(crate::PlayerId(0));
@@ -736,6 +785,16 @@ impl Recorder {
             first_tick,
             last: Controls::default(),
         }
+    }
+
+    pub(crate) fn note_salvage_start(&mut self, records: Vec<crate::salvage::SalvageRegionRecord>) {
+        self.replay.salvage_start = Some(records);
+    }
+
+    pub(crate) fn note_salvage_action(&mut self, tick: u64, action: crate::salvage::SalvageAction) {
+        self.replay
+            .salvage_actions
+            .push((tick - self.first_tick, action));
     }
 
     pub(crate) fn note_cellular(&mut self) {

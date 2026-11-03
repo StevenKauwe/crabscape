@@ -90,6 +90,7 @@ pub(super) async fn write(
     worker: &mut crate::cell_worker::CellWorker,
     current: impl Fn() -> bool + 'static,
 ) -> Result<(Acknowledgement, u64), String> {
+    let committed_player = serde_json::from_slice(&capture.active.player).map_err(issue)?;
     let revision = expected_revision
         .checked_add(1)
         .ok_or("save revision exhausted")?;
@@ -101,6 +102,7 @@ pub(super) async fn write(
         cols: cols as u16,
         rows: rows as u16,
     };
+    let db = Database(open(database).await?);
     let mut records = Vec::new();
     records.push(Record {
         key: key(epoch, "player", 0, 0, 0),
@@ -159,6 +161,55 @@ pub(super) async fn write(
             ),
         });
     }
+    if let Some(salvage) = &capture.salvage {
+        use crabsim::cell_codec::spatial::SalvageIndex;
+        let index = SalvageIndex::new(salvage).map_err(issue)?;
+        let previous_head = Head {
+            revision: expected_revision,
+            ..head
+        };
+        let previous_raw = if expected_revision > 0 {
+            page(&db.0, previous_head, "salvage_index", 0, 0).await?
+        } else {
+            None
+        };
+        if let Some(raw) = &previous_raw {
+            if raw.len() > 64 {
+                return Err("salvage index exceeds fixed bound".into());
+            }
+            let previous: SalvageIndex = postcard::from_bytes(raw).map_err(issue)?;
+            for &(x, y) in previous.keys().map_err(issue)? {
+                if !index.keys().map_err(issue)?.contains(&(x, y)) {
+                    records.push(Record {
+                        key: key(epoch, "salvage", x, y, 0),
+                        bytes: None,
+                    });
+                }
+            }
+        }
+        for record in salvage {
+            let raw = postcard::to_allocvec(record).map_err(issue)?;
+            let (x, y) = record.region_id;
+            let previous = if expected_revision > 0 {
+                page(&db.0, previous_head, "salvage", x, y).await?
+            } else {
+                None
+            };
+            if previous.as_deref() != Some(raw.as_slice()) {
+                records.push(Record {
+                    key: key(epoch, "salvage", x, y, 0),
+                    bytes: Some(encode(&raw, revision, worker, &current).await?),
+                });
+            }
+        }
+        let raw = postcard::to_allocvec(&index).map_err(issue)?;
+        if previous_raw.as_deref() != Some(raw.as_slice()) {
+            records.push(Record {
+                key: key(epoch, "salvage_index", 0, 0, 0),
+                bytes: Some(encode(&raw, revision, worker, &current).await?),
+            });
+        }
+    }
     if records
         .iter()
         .map(|record| record.bytes.as_ref().map_or(0, Vec::len))
@@ -173,7 +224,7 @@ pub(super) async fn write(
     let mut bytes = MAGIC.to_vec();
     bytes.extend(postcard::to_allocvec(&head).map_err(issue)?);
     let value = Uint8Array::from(bytes.as_slice());
-    let db = Database(open(database).await?);
+
     let tx =
         db.0.transaction_with_str_and_mode(STORE, IdbTransactionMode::Readwrite)
             .map_err(issue)?;
@@ -229,6 +280,8 @@ pub(super) async fn write(
     committed?;
     Ok((
         Acknowledgement {
+            player: Some(committed_player),
+            salvage: capture.salvage,
             sleeping: capture.sleeping,
             memory: capture.memory,
         },
@@ -242,15 +295,20 @@ pub(super) async fn page(
     x: i32,
     y: i32,
 ) -> Result<Option<Vec<u8>>, String> {
+    let limit = match kind {
+        "salvage_index" => 64,
+        "salvage" => crabsim::cell_codec::spatial::SALVAGE_RECORD_LIMIT,
+        _ => PAGE_LIMIT,
+    };
     let value = get(db, &key(head.epoch, kind, x, y, 0)).await?;
     if value.is_undefined() {
         return Ok(None);
     }
     let bytes: Uint8Array = value.dyn_into().map_err(|_| "invalid spatial record")?;
-    if bytes.length() as usize > record_limit(PAGE_LIMIT) {
+    if bytes.length() as usize > record_limit(limit) {
         return Err("spatial record exceeds its internal bound".into());
     }
-    decode_record(&bytes.to_vec(), head.revision, PAGE_LIMIT)
+    decode_record(&bytes.to_vec(), head.revision, limit)
         .map(Some)
         .map_err(issue)
 }
@@ -412,6 +470,24 @@ pub(super) async fn read_from(
         memory.cells = pages;
     }
     restored.terrain.enable_paging();
+    if let Some(raw) = page(&db.0, head, "salvage_index", 0, 0).await? {
+        use crabsim::cell_codec::spatial::{SalvageIndex, decode_salvage};
+        if raw.len() > 64 {
+            return Err("salvage index exceeds fixed bound".into());
+        }
+        let index: SalvageIndex = postcard::from_bytes(&raw).map_err(issue)?;
+        let mut salvage = Vec::new();
+        for &(x, y) in index.keys().map_err(issue)? {
+            let raw = page(&db.0, head, "salvage", x, y)
+                .await?
+                .ok_or("missing salvage region")?;
+            salvage.push(decode_salvage(&raw, (x, y)).map_err(issue)?);
+        }
+        if !crabsim::salvage::valid_records(&salvage) {
+            return Err("invalid salvage ownership".into());
+        }
+        restored.salvage = Some(salvage);
+    }
     current_head(&db.0, head).await?;
     STARTUP_REVISION.with(|revision| revision.set(head.revision));
     Ok((Some(restored), epoch))
