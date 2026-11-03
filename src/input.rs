@@ -335,6 +335,13 @@ fn pad_wants(stick: Vec2, pressed: impl Fn(GamepadButton) -> bool) -> PadWants {
     }
 }
 
+const JUMP_KEYS: [KeyCode; 3] = [KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::KeyK];
+
+fn jump_pressed(keys: &ButtonInput<KeyCode>, held: bool, previously_held: bool) -> bool {
+    // A release and a new press can both arrive between rendered frames.
+    keys.any_just_pressed(JUMP_KEYS) || (held && !previously_held)
+}
+
 /// Read every device and send one [`MoveRequest`] for the local crab.
 #[allow(clippy::too_many_arguments)] // Bevy systems often need many inputs
 fn read_input(
@@ -419,8 +426,7 @@ fn read_input(
     if any_key(&[KeyCode::KeyD]) || keys.pressed(KeyCode::ArrowRight) || touch(TouchAction::Right) {
         walk += 1.0;
     }
-    let mut jump =
-        any_key(&[KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::KeyK]) || touch(TouchAction::Jump);
+    let mut jump = keys.any_pressed(JUMP_KEYS) || touch(TouchAction::Jump);
     let mut dodge = any_key(&[KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ])
         || touch(TouchAction::Dodge);
     let mut stick = (dig_vector.length() > 0.2).then_some(Vec2::new(dig_vector.x, -dig_vector.y));
@@ -449,7 +455,8 @@ fn read_input(
     }
 
     let digging = cells_enabled && (keys.pressed(KeyCode::Space) || stick.is_some());
-    let mut dig_up = digging && any_key(&[KeyCode::KeyW, KeyCode::ArrowUp]);
+    let aim_up = [KeyCode::KeyW, KeyCode::ArrowUp];
+    let mut dig_up = digging && (keys.any_pressed(aim_up) || keys.any_just_pressed(aim_up));
     if let Some(stick) = stick.filter(|_| cells_enabled) {
         // While the action stick is engaged, its aim owns the action.
         // Walking in the opposite direction must never cancel or reverse it.
@@ -457,12 +464,11 @@ fn read_input(
         down = stick.y < -0.35;
         dig_up = stick.y > 0.35;
     }
-    // A "press" is held now but wasn't last frame.
     let mut controls = Controls {
         eat_held: eat,
         walk: walk.clamp(-1.0, 1.0),
         jump_held: jump,
-        jump_pressed: jump && !held_before.jump,
+        jump_pressed: jump_pressed(&keys, jump, held_before.jump),
         dodge_pressed: dodge && !held_before.dodge,
         dodge_held: dodge,
         dig_held: digging,
@@ -682,6 +688,32 @@ mod tests {
     use super::*;
 
     /// A controller with only `held` pressed and the stick at `stick`.
+    #[test]
+    fn jump_edges_survive_batched_keyboard_events() {
+        for key in JUMP_KEYS {
+            let mut keys = ButtonInput::default();
+            keys.press(key);
+            keys.release(key);
+            assert!(jump_pressed(&keys, keys.pressed(key), false), "quick tap");
+
+            keys.press(key);
+            keys.clear();
+            keys.release(key);
+            keys.press(key);
+            assert!(jump_pressed(&keys, keys.pressed(key), true), "repress");
+
+            keys.clear();
+            keys.press(key);
+            assert!(!jump_pressed(&keys, keys.pressed(key), true), "held repeat");
+
+            keys.release(key);
+            keys.press(key);
+            keys.reset(key); // Menu owns both the edge and the held state.
+            assert!(!jump_pressed(&keys, keys.pressed(key), false), "menu close");
+            assert!(jump_pressed(&keys, true, false), "touch or controller");
+        }
+    }
+
     #[test]
     fn held_mouse_buttons_keep_their_press_owner() {
         let mut combat = MouseCombat::default();
