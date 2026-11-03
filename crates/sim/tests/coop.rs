@@ -77,6 +77,26 @@ const BUSY: &str = "t=0 walk=right; t=0.4 jump; t=0.7 jump; t=0.9 release; t=1.6
                     t=3 walk=right jump; t=3.4 jump; t=4 dodge; t=5.5 walk=left; t=6 jump; t=6.6 sprint; t=7.4 slow";
 
 #[test]
+fn friends_receive_the_crabs_actual_water_orientation() {
+    let mut g = game(Vec2::new(3600.0, -2000.0), FakeLink::steady(0), |_| {});
+    let mut seen = false;
+    play(
+        &mut g,
+        "",
+        "t=0 dig=on walk=right; t=0.3 dig=off walk=stop",
+        ticks(1.0),
+        |g| {
+            let remote = &g.host.crab(GUEST).unwrap().mover;
+            if remote.water_angle < -0.1 {
+                seen = true;
+                assert!(remote.water_spin.is_finite());
+            }
+        },
+    );
+    assert!(seen, "a remote player should see the actual tilted pose");
+}
+
+#[test]
 fn your_own_crab_moves_exactly_as_in_solo_whatever_the_lag() {
     let mut g = game(NEAR, FakeLink::new(LAG, 6, 0.2, 7), |_| {});
     let mut alone = solo(NEAR, |_| {});

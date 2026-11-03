@@ -592,7 +592,8 @@ fn place_crabs(
         } else {
             0.0
         };
-        let target = Quat::from_rotation_z(slope);
+        let angle = slope + mover.water_angle;
+        let target = Quat::from_rotation_z(angle);
         transform.rotation = transform
             .rotation
             .slerp(target, 1.0 - (-10.0 * time.delta_secs()).exp());
