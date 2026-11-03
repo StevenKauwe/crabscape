@@ -89,3 +89,47 @@ fn cross_bank(approach: f32, turn: f32, idle: u32, pause: u32) {
         }
     }
 }
+
+#[test]
+fn scuttle_can_brake_or_reverse_down_the_shallow_bank_step() {
+    let id = PlayerId(0);
+    for walk in [0.0, -1.0] {
+        let mut sim = Sim::with_one_crab(Vec2::new(160.0, 8.0));
+        sim.enable_underwater_cells();
+        sim.set_controls(
+            id,
+            Controls {
+                walk: 1.0,
+                ..Default::default()
+            },
+        );
+        for _ in 0..240 {
+            sim.tick();
+            if sim.crab(id).unwrap().mover.pos.x >= 380.0 {
+                break;
+            }
+        }
+        let start = sim.crab(id).unwrap().mover.pos;
+        assert!((380.0..383.0).contains(&start.x));
+        sim.set_controls(
+            id,
+            Controls {
+                walk,
+                ..Default::default()
+            },
+        );
+        for _ in 0..18 {
+            sim.tick();
+            let m = &sim.crab(id).unwrap().mover;
+            assert!(m.grounded, "lost footing at {:?}", m.pos);
+            assert!(m.pos.x - start.x < 16.0, "overshot the step at {:?}", m.pos);
+        }
+        let m = &sim.crab(id).unwrap().mover;
+        if walk == 0.0 {
+            // Water flow still nudges a planted crab.
+            assert!(m.vel.x.abs() < 1.0);
+        } else {
+            assert!(m.vel.x < 0.0);
+        }
+    }
+}
