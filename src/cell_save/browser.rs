@@ -136,9 +136,11 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
     });
     let Some((generation, epoch)) = AUTOSAVE.with(|slot| {
         let mut state = slot.borrow_mut();
-        if state.busy
-            || state.read_busy
-            || (can_save && state.elapsed >= 5.0)
+        // A sealed save may spend several seconds compressing off-thread.
+        // Let a crossing read its current durable revision in that interval.
+        // Completion above discards the batch if publication advanced it.
+        if state.read_busy
+            || (!state.busy && can_save && state.elapsed >= 5.0)
             || (state.read_warning.is_some() && state.read_retry < 1.0)
         {
             return None;

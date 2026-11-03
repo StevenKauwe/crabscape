@@ -69,8 +69,9 @@ impl SleepingArchive {
     }
     pub(super) fn get_mut(&mut self, key: &(i32, i32)) -> Option<&mut SleepingChunk> {
         self.cache.require(*key);
+        let page = self.pages.get_mut(key)?;
         self.dirty.insert(*key);
-        self.pages.get_mut(key)
+        Some(page)
     }
     pub(super) fn insert(&mut self, key: (i32, i32), page: SleepingChunk) -> Option<SleepingChunk> {
         self.dirty.insert(key);
@@ -453,6 +454,21 @@ impl super::World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn probing_unexplored_pages_does_not_queue_deletions_for_autosave() {
+        let mut archive = SleepingArchive::default();
+        for x in 0..64 {
+            assert!(archive.get_mut(&(x, -7)).is_none());
+        }
+        assert_eq!(archive.dirty().count(), 0);
+        archive.insert((0, -7), SleepingChunk::default());
+        archive.remove(&(0, -7));
+        assert!(
+            archive
+                .dirty()
+                .any(|(key, page)| key == (0, -7) && page.is_none())
+        );
+    }
     #[test]
     fn dirty_capture_work_is_independent_of_archive_size_and_acks_are_revision_safe() {
         let mut world = super::super::World::new();
