@@ -116,7 +116,7 @@ impl CanyonRun {
             catcher: DriftCatcher::placed(Vec2::new(6405.0, -3237.0)),
             practice: DriftBody {
                 profile: DriftProfile::Dense,
-                position: Vec2::new(6390.0, -3237.0),
+                position: Vec2::new(6403.0, -3173.0),
                 velocity: Vec2::ZERO,
             },
             practice_phase: PracticePhase::Settled,
@@ -128,6 +128,17 @@ impl CanyonRun {
             deck_cursor: 0,
         }
     }
+    /// The leading profile is visible at the inlet before a crossing.
+    pub fn upcoming_profile(&self) -> DriftProfile {
+        let deck = [
+            DriftProfile::Flat,
+            DriftProfile::Dense,
+            DriftProfile::Dense,
+            DriftProfile::Flat,
+        ];
+        deck[((self.deck_cursor.wrapping_add(self.world_id)) % deck.len() as u64) as usize]
+    }
+
     /// Rebind transient player IDs on reconnect using the durable identity.
     pub fn rebind(&mut self, identity: u64, player: PlayerId) {
         if identity == 0 {
@@ -491,14 +502,7 @@ impl CanyonRun {
                     .last_admission_tick
                     .is_none_or(|last| tick.saturating_sub(last) >= MIN_CROSSING_TICKS)
             {
-                let deck = [
-                    DriftProfile::Flat,
-                    DriftProfile::Dense,
-                    DriftProfile::Dense,
-                    DriftProfile::Flat,
-                ];
-                let profile =
-                    deck[((self.deck_cursor + self.world_id) % deck.len() as u64) as usize];
+                let profile = self.upcoming_profile();
                 let inlet = match profile {
                     DriftProfile::Flat => UPPER_INLET,
                     DriftProfile::Dense => LOWER_INLET,
@@ -790,6 +794,64 @@ impl CanyonRun {
         }
         Some(id)
     }
+    /// Deliberately send a physical ordinary piece through the local outlet.
+    /// It stays terminal until its exact state is durably acknowledged.
+    pub fn release_outflow(&mut self, index: usize, from: Vec2, world: &World) -> bool {
+        if !self.owned_slots.get(index).copied().unwrap_or(false) {
+            return false;
+        }
+        let Some(slot) = self.slots.get_mut(index) else {
+            return false;
+        };
+        let body = match slot.phase {
+            SlotPhase::Free(body) | SlotPhase::Caught(body) => body,
+            _ => return false,
+        };
+        let outlet = Vec2::new(6420.0, -3236.0);
+        if from.distance(body.position) > 75.0 || body.position.distance(outlet) > 14.0 {
+            return false;
+        }
+        if !(0..=8).all(|i| {
+            let p = from.lerp(body.position, i as f32 / 8.0);
+            world.contains_world(p.x, p.y)
+                && !world.game_solid(p.x - 1.0, p.y - 1.0, p.x + 1.0, p.y + 1.0)
+        }) {
+            return false;
+        }
+        slot.phase = SlotPhase::WashedOut;
+        slot.revision = slot.revision.saturating_add(1);
+        if self.has_catcher && self.catcher.contents == Some(index as u8) {
+            self.catcher.contents = None;
+            self.catcher.revision = self.catcher.revision.saturating_add(1);
+        }
+        true
+    }
+    pub fn retire_outflow_durable(&mut self, id: DriftClaimId, revision: u64) -> bool {
+        if !self
+            .owned_slots
+            .get(id.slot as usize)
+            .copied()
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        let Some(slot) = self.slots.get_mut(id.slot as usize) else {
+            return false;
+        };
+        if id.world != self.world_id
+            || id.anchor != ANCHOR
+            || id.generation != slot.generation
+            || slot.revision != revision
+            || slot.phase != SlotPhase::WashedOut
+        {
+            return false;
+        }
+        slot.phase = SlotPhase::Vacant;
+        slot.location = UPPER_INLET;
+        slot.revision = slot.revision.saturating_add(1);
+        true
+    }
+
     pub fn offer(&mut self, id: DriftClaimId) -> bool {
         if !self
             .owned_slots

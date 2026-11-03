@@ -131,6 +131,8 @@ pub enum CanyonAction {
     DropCatcher,
     PlaceCatcher(Vec2),
     Take(u8),
+    ReleaseOutflow(u8),
+    RetireOutflow(run::DriftClaimId, u64),
     Offer(run::DriftClaimId),
     Grant(run::DriftClaimId),
     Finalize(run::DriftClaimId),
