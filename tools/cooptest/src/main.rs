@@ -906,7 +906,7 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
 const SCENARIOS: [(&str, &str, u32); 26] = [
     (
-        "cells-canyon-claim",
+        "cell-probe-canyon-claim",
         "two browsers claim and retire a physical Canyon generation",
         120,
     ),
@@ -1067,7 +1067,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut guest = Player::new(site, "guest", o)?;
     match name {
         "cells-canyon-store" => return canyon_store::run(&mut host, site),
-        "cells-canyon-claim" => return canyon_store::play(&mut host, &mut guest, site),
+        "cell-probe-canyon-claim" => return canyon_store::play(&mut host, &mut guest, site),
         "cells-solo-save" => {
             // The actual landing URL must select cells without a query flag.
             host.open(&site.page)?;

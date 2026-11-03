@@ -247,7 +247,17 @@ pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result
     let approach = Instant::now();
     loop {
         let (x, y) = local_position(guest)?;
-        if (x - 6416.0).hypot(y + 24.0 + 3165.0) < 65.0 {
+        let rendered = guest.b.attr("data-crab").and_then(|value| {
+            let mut words = value.split_whitespace();
+            Some((
+                words.next()?.parse::<f64>().ok()?,
+                words.next()?.parse::<f64>().ok()?,
+            ))
+        });
+        if (x - 6416.0).hypot(y + 24.0 + 3165.0) < 55.0
+            && rendered.is_some_and(|(x, y)| (x - 6416.0).hypot(y + 24.0 + 3165.0) < 55.0)
+        {
+            guest.b.eval("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))")?;
             guest.b.hold_key("KeyG", 0.15)?;
             break;
         }
