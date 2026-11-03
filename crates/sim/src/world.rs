@@ -1427,6 +1427,12 @@ impl Sim {
     /// leave the level empty unless they ask.
     pub fn populate(&mut self) {
         for (kind, at) in self.level.foes.clone() {
+            // The cellular opening leaves room to practise digging, kelp
+            // climbing and the first boulder before the plateau mantis.
+            // Keep the authored level intact for checkpoints and legacy play.
+            if self.level.cells.is_some() && kind == Kind::Snapper && at.x < 720.0 {
+                continue;
+            }
             self.spawn_enemy(kind, at);
         }
     }

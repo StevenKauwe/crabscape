@@ -95,6 +95,10 @@ no damage, the attacker staggers, and a smash *started* in the next 45 ticks is 
 cue and shrinking bar show the actual remaining counter opportunity; they disappear when it expires or is spent. **Dodge** (and flip):
 invulnerable on its ticks 2–13. Enemies (`crates/sim/src/enemy.rs`) run the bestiary's state machine with a
 `tell` whose last stretch is `cocked`, and take the crab's blows by the same rules.
+**In the cellular game, the opening is a safe practice pocket:** dig the shallow bank, climb the kelp, reach the
+first egg and return home before fighting. The first encounter is the mantis beyond the first boulder; the
+snapping shrimp past the trench still teaches jumping or dodging its shock. The older terrain mode retains the
+two opening snapping shrimp described below.
 **The test level's creatures** (placeholder shapes until their puppets), easy to hard along the route: two
 snapping shrimp in the shallows rubble (they feel your steps within 120; creep past at under half speed; their snap
 runs a shock along the floor: jump or dodge it, it can't be parried), the mantis shrimp on the plateau, a snowflake
