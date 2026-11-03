@@ -405,6 +405,56 @@ fn dig_joystick_can_push_up_out_of_the_seabed_without_jumping() {
 }
 
 #[test]
+fn holding_jump_catches_moving_kelp_and_a_kick_stays_free() {
+    let mut sim = Sim::with_one_crab(Vec2::new(440.0, 600.0));
+    sim.enable_underwater_cells();
+    let mover = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
+    mover.upgrades = 1;
+    mover.stamina = 1.0;
+    let mut grips = 0;
+    for tick in 0..120 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                walk: -1.0,
+                jump_pressed: tick == 0,
+                jump_held: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        grips += u32::from(sim.crab(PlayerId(0)).unwrap().events.gripped);
+    }
+    assert_eq!(
+        grips, 1,
+        "holding jump catches the swaying stalk on approach"
+    );
+    assert!(sim.crab(PlayerId(0)).unwrap().mover.climbing);
+    sim.set_controls(PlayerId(0), Controls::default());
+    sim.tick();
+    let departure = sim.crab(PlayerId(0)).unwrap().mover.pos;
+    for tick in 0..45 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                walk: 1.0,
+                jump_pressed: tick == 0,
+                jump_held: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        assert!(
+            !sim.crab(PlayerId(0)).unwrap().mover.climbing,
+            "kick must not regrab"
+        );
+    }
+    let mover = &sim.crab(PlayerId(0)).unwrap().mover;
+    assert!(mover.pos.x > departure.x + 60.0);
+    assert!(mover.pos.y > departure.y);
+}
+
+#[test]
 fn moving_experimental_kelp_can_be_climbed_toward_the_existing_surface() {
     let mut sim = Sim::with_one_crab(Vec2::new(280.0, 0.0));
     sim.enable_underwater_cells();

@@ -34,7 +34,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   little faster and moves across a little quicker. Dodge in the water is a flip, a quick somersault (a flourish:
   it doesn't carry the crab further, so the trench and the cliff stay fair) until **broad paddles** make it a dash.
 - **Climb kelp and coral.** In the water, press jump while touching a kelp stalk or a coral to grip it instead of
-  stroking. With the walking legs (no stamina): hold jump to climb up, hold down (or dodge) to climb down, let go of
+  stroking, or keep jump held while steering into its reach after a paddle. A kick off stays free even if jump
+  remains held. With the walking legs (no stamina): hold jump to climb up, hold down (or dodge) to climb down, let go of
   both to hang on. Sideways shuffles along the stalk (fidgeting is safe); pushing on past the edge steps off; jump with a direction kicks off it. The crab turns sideways onto the stalk, on the side it came from (crabs climb sideways), and swings round to the other side if something is in the way; its body box turns with it. Climbing past the top pulls the crab up over it. Slow but free: the
   way home from the deep when the stamina is spent. **Glass grips** (from a glass sponge, `world.md`) let it grip
   bare rock the same way: the pale, pitted bands on a few walls, which it otherwise slides off.

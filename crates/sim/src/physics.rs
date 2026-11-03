@@ -924,7 +924,20 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
                 m.rising = true;
             }
         }
-    } else if let Some(g) = grip.filter(|_| !m.grounded && m.jump_buffer > 0.0) {
+    } else if let Some(g) = grip.filter(|g| {
+        // Holding jump while swimming into a stalk asks to climb it too.
+        // The paddle consumed the press, but should not make the player tap
+        // again at exactly the right moment. Only catch on approach: a kick
+        // or shuffle away must stay free even while jump remains held.
+        let toward = g.x - m.pos.x;
+        let entered_reach = (toward + m.vel.x * dt).abs() > grip_reach;
+        let approaching = c.jump_held
+            && walking
+            && walk * toward > 0.0
+            && m.vel.x * toward > 0.0
+            && entered_reach;
+        !m.grounded && (m.jump_buffer > 0.0 || approaching)
+    }) {
         m.climbing = true;
         m.climb_dir = if walking { walk.signum() } else { 0.0 };
         // Cling on the side it came from (or was heading in from).
