@@ -54,9 +54,6 @@ pub struct LocalPlayer;
 #[derive(Component)]
 pub struct Crab;
 
-#[derive(Component)]
-struct ReplayUnavailableNotice;
-
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Component)]
 struct SavingUnavailableNotice;
@@ -135,8 +132,7 @@ impl Plugin for PlayerPlugin {
                 (apply_requests, simulate, follow_friends, place_crabs)
                     .chain()
                     .in_set(GameSet::Simulate),
-            )
-            .add_systems(Update, hide_replay_notice.in_set(GameSet::Present));
+            );
         #[cfg(target_arch = "wasm32")]
         app.configure_sets(
             Update,
@@ -289,26 +285,6 @@ pub fn spawn_local_crab(
     } else {
         sim.start_recording();
     }
-    if !sim.is_recording() {
-        commands.spawn((
-            ReplayUnavailableNotice,
-            Text::new("Replay unavailable for this saved world."),
-            TextFont {
-                font_size: FontSize::Px(14.0),
-                ..default()
-            },
-            TextColor(Color::WHITE),
-            BackgroundColor(Color::srgba(0.05, 0.09, 0.1, 0.9)),
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(8.0),
-                left: Val::Px(8.0),
-                max_width: Val::Percent(90.0),
-                padding: UiRect::all(Val::Px(6.0)),
-                ..default()
-            },
-        ));
-    }
     #[cfg(not(target_arch = "wasm32"))]
     if crate::cellular::enabled() {
         commands.spawn((
@@ -383,17 +359,6 @@ fn update_browser_save_notice(
             None => {
                 visible.set_if_neq(Visibility::Hidden);
             }
-        }
-    }
-}
-
-fn hide_replay_notice(
-    sim: Res<Sim>,
-    mut notices: Query<&mut Visibility, With<ReplayUnavailableNotice>>,
-) {
-    if sim.is_recording() {
-        for mut visible in &mut notices {
-            *visible = Visibility::Hidden;
         }
     }
 }

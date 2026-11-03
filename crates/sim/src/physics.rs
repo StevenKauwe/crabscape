@@ -1468,7 +1468,9 @@ fn move_and_collide_cells(
         // This follows small hills without pushing into them, but doesn't
         // pull the crab onto a high wall or bridge over a deep drop.
         let step_up = t.step_up * m.grown(t);
-        let snap_down = t.ground_snap * m.grown(t);
+        // A cell surface is quantized to its top edge. Let the planted legs
+        // reach one more row when following a descending seabed.
+        let snap_down = t.ground_snap * m.grown(t) + crate::underwater::GAME_CELL;
         let footing = if !digging && m.vel.y <= 0.0 {
             // A moving pebble can briefly remove support. Reacquire a
             // nearby surface while falling rather than treating its edge as
