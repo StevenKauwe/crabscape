@@ -21,6 +21,9 @@ pub struct DriftBody {
     pub velocity: Vec2,
 }
 impl DriftBody {
+    const HALF_WIDTH: f32 = 4.0;
+    const HALF_HEIGHT: f32 = 3.0;
+
     /// Caller must own the region and run this exactly once per fixed tick.
     pub fn step(&mut self, world: &World, level: &Level, tuning: &Tuning) {
         if !world.contains_world(self.position.x, self.position.y) {
@@ -43,7 +46,12 @@ impl DriftBody {
             let d = delta / n as f32;
             let clear = |p: Vec2| {
                 world.contains_world(p.x, p.y)
-                    && !world.game_solid(p.x - 4.0, p.y - 3.0, p.x + 4.0, p.y + 3.0)
+                    && !world.game_solid(
+                        p.x - Self::HALF_WIDTH,
+                        p.y - Self::HALF_HEIGHT,
+                        p.x + Self::HALF_WIDTH,
+                        p.y + Self::HALF_HEIGHT,
+                    )
             };
             if clear(self.position + Vec2::new(d.x, 0.0)) {
                 self.position.x += d.x;
@@ -98,9 +106,8 @@ impl DriftCatcher {
         let mouth = self.position.y + 4.0;
         if self.phase != CatcherPhase::Placed
             || self.contents.is_some()
-            || before.y - 3.0 < mouth
-            || body.position.y - 3.0 > mouth
-            || (body.position.x - self.position.x).abs() > 16.0
+            || before.y - DriftBody::HALF_HEIGHT < mouth
+            || body.position.y - DriftBody::HALF_HEIGHT > mouth
             || body.velocity.y.abs() > 35.0
             || world.game_solid(
                 self.position.x - 16.0,
@@ -109,6 +116,18 @@ impl DriftCatcher {
                 mouth + 6.0,
             )
         {
+            return false;
+        }
+        // Use the same footprint as terrain collision. Current can carry
+        // the leading corner over the lip before the centre reaches it.
+        let fall = before.y - body.position.y;
+        let fraction = if fall > 0.0 {
+            (before.y - DriftBody::HALF_HEIGHT - mouth) / fall
+        } else {
+            0.0
+        };
+        let contact_x = before.x + (body.position.x - before.x) * fraction;
+        if (contact_x - self.position.x).abs() >= 16.0 + DriftBody::HALF_WIDTH {
             return false;
         }
         self.contents = Some(slot);

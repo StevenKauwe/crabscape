@@ -110,6 +110,29 @@ fn flat_reaches_an_upper_downward_intercept_in_eight_seconds() {
 }
 
 #[test]
+fn only_the_body_overlap_at_the_mouth_crossing_counts() {
+    let level = Level::test_level();
+    let mut world = World::from_level(&level);
+    let at = Vec2::new(6405.0, -3237.0);
+    assert!(world.follow_player(&level, at.x, at.y));
+    for (start_x, end_x, caught) in [
+        (-16.4, -16.2, true),
+        (-20.2, -20.1, false),
+        (-20.2, -19.9, false),
+    ] {
+        let mut catcher = DriftCatcher::placed(at);
+        let before = at + Vec2::new(start_x, 7.1);
+        let mut body = DriftBody {
+            profile: DriftProfile::Dense,
+            position: at + Vec2::new(end_x, 6.9),
+            velocity: Vec2::new(12.0, -24.0),
+        };
+        assert_eq!(catcher.intercept(&world, before, &mut body, 0), caught);
+        assert_eq!(catcher.contents, caught.then_some(0));
+    }
+}
+
+#[test]
 fn dense_piece_reaches_a_supported_lower_valve() {
     use crabsim::{
         PlayerId,
