@@ -1259,6 +1259,17 @@ impl Sim {
         external_terrain: bool,
         remote_walk: Option<crate::underwater::HostPlayerForce>,
     ) -> bool {
+        // A portable solo replay requires a complete starting archive. Cold
+        // paging has a separate lifetime; never export a replay whose hash
+        // would depend on payloads already evicted from the runtime.
+        if self
+            .level
+            .cells
+            .as_ref()
+            .is_some_and(|world| world.archive_incomplete())
+        {
+            self.recorder = None;
+        }
         let mut owned = self.owned_rng.take();
         let result = self.tick_region_inner(external_terrain, remote_walk, owned.as_mut(), false);
         if let Some(streams) = &mut owned {
@@ -1287,6 +1298,25 @@ impl Sim {
         self.owned_rng = owned;
     }
 
+    /// Queue personal-memory reads before accepting an authoritative frame.
+    /// A caller may wait here without consuming controls or journal ticks.
+    pub fn memory_pages_ready(&mut self) -> bool {
+        if !self
+            .tick
+            .is_multiple_of(self.tuning.memory.step_ticks as u64)
+        {
+            return true;
+        }
+        let mut ready = true;
+        for crab in self.crabs.iter_mut().filter(|crab| !crab.remote) {
+            let eye = crab.mover.pos + Vec2::new(0.0, crab.mover.height(&self.tuning));
+            ready &= crab
+                .memory
+                .paging_ready(eye, crab.mover.lantern_glow(), &self.tuning.memory);
+        }
+        ready
+    }
+
     fn tick_region_inner(
         &mut self,
         external_terrain: bool,
@@ -1294,12 +1324,19 @@ impl Sim {
         mut regional_rng: Option<&mut std::collections::BTreeMap<u32, Rng>>,
         fixed_region: bool,
     ) -> bool {
+        if !self.memory_pages_ready() {
+            return false;
+        }
         // Move the detailed window before simulating, independent of camera.
         if !external_terrain
             && !fixed_region
             && let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
             && let Some(mut cells) = self.level.cells.take()
         {
+            if !cells.prepare_paged_follow(&self.level, pos.x, pos.y, self.tick) {
+                self.level.cells = Some(cells);
+                return false;
+            }
             cells.follow_player(&self.level, pos.x, pos.y);
             self.level.cells = Some(cells);
         }

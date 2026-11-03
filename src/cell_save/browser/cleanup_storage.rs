@@ -55,6 +55,7 @@ pub(super) fn validate(
 pub(super) enum Operation {
     Save { epoch: u64, bytes: Vec<u8> },
     Reset,
+    Retire,
     Migrate(super::super::cleanup::ReadyCleanup),
 }
 
@@ -66,11 +67,11 @@ pub(super) async fn mutate(
     op: Operation,
     still_current: impl Fn() -> bool + 'static,
 ) -> Result<bool, String> {
-    if !matches!(op, Operation::Reset) && !still_current() {
+    if !matches!(op, Operation::Reset | Operation::Retire) && !still_current() {
         return Ok(false);
     }
     let db = Database(open(database).await?);
-    if !matches!(op, Operation::Reset) && !still_current() {
+    if !matches!(op, Operation::Reset | Operation::Retire) && !still_current() {
         return Ok(false);
     }
     let tx =
@@ -111,7 +112,7 @@ pub(super) async fn mutate(
                     .borrow_mut()
                     .take()
                     .ok_or("duplicate cleanup operation")?;
-                if !matches!(op, Operation::Reset) && !current() {
+                if !matches!(op, Operation::Reset | Operation::Retire) && !current() {
                     return Ok(false);
                 }
                 let epoch = decode_epoch(
@@ -119,15 +120,24 @@ pub(super) async fn mutate(
                         .result()
                         .map_err(|e| problem("read reset epoch", e))?,
                 )?;
-                if matches!(op, Operation::Reset) {
+                if matches!(op, Operation::Reset | Operation::Retire) {
                     let next = epoch
                         .checked_add(1)
                         .ok_or("cellular reset epoch exhausted")?;
-                    for key in [KEY, MARKER, BACKUP] {
-                        store
-                            .delete(&JsValue::from_str(key))
-                            .map_err(|e| problem("clear cleanup state", e))?;
+                    if matches!(op, Operation::Retire)
+                        && super::spatial_storage::has_current_head(
+                            &requests[0]
+                                .result()
+                                .map_err(|e| problem("read retired head", e))?,
+                        )?
+                    {
+                        return Err("save changed while retiring obsolete format".into());
                     }
+                    // Reset removes all coordinate rows in the same transaction
+                    // as the durable epoch, reclaiming the previous dataset.
+                    store
+                        .clear()
+                        .map_err(|e| problem("clear spatial records", e))?;
                     store
                         .put_with_key(
                             Uint8Array::from(next.to_le_bytes().as_slice()).as_ref(),
@@ -221,7 +231,7 @@ pub(super) async fn mutate(
                             )
                             .map_err(|e| problem("write cleanup epoch", e))?;
                     }
-                    Operation::Reset => unreachable!(),
+                    Operation::Reset | Operation::Retire => unreachable!(),
                 }
                 Ok(true)
             })();

@@ -1697,8 +1697,10 @@ async fn lazy_proof(db: &ChunkStore) -> Result<String, String> {
         .mover
         .pos;
     let player = format!(
-        r#"{{"version":2,"x":{},"y":{},"memory":null,"progress":null}}"#,
-        position.x, position.y
+        r#"{{"version":{},"x":{},"y":{},"memory":null,"progress":null}}"#,
+        crabsim::SAVE_VERSION,
+        position.x,
+        position.y
     )
     .into_bytes();
     let frozen = FrozenChunks::capture(

@@ -62,6 +62,7 @@ pub mod memory;
 pub mod moult;
 pub mod net;
 pub mod octopus;
+pub mod page_cache;
 pub mod physics;
 pub mod progress;
 pub mod replay;

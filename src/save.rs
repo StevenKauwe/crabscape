@@ -144,6 +144,19 @@ pub fn snapshot(sim: &Sim, id: PlayerId) -> Option<SaveData> {
     ))
 }
 
+/// Bounded player record for incremental cellular storage. Personal map pages
+/// are captured separately; exports continue to use `snapshot` above.
+pub fn snapshot_metadata(sim: &Sim, id: PlayerId) -> Option<SaveData> {
+    let crab = sim.crab(id)?;
+    Some(SaveData {
+        version: SAVE_VERSION,
+        x: crab.mover.pos.x,
+        y: crab.mover.pos.y,
+        memory: Some(crab.memory.metadata()),
+        progress: sim.progress(id),
+    })
+}
+
 /// Write nothing more: the save and settings were just replaced, and the
 /// page is reloading into them.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -383,7 +396,7 @@ mod tests {
             progress: None,
         };
         let text = serde_json::to_string(&data).unwrap();
-        assert_eq!(text, r#"{"version":2,"x":640.0,"y":110.0}"#);
+        assert_eq!(text, r#"{"version":3,"x":640.0,"y":110.0}"#);
         assert_eq!(serde_json::from_str::<SaveData>(&text).unwrap(), data);
     }
 
@@ -409,7 +422,7 @@ mod tests {
             object.remove(field);
         }
         let text =
-            serde_json::json!({"version": 2, "x": 160.0, "y": 0.0, "progress": value}).to_string();
+            serde_json::json!({"version": 3, "x": 160.0, "y": 0.0, "progress": value}).to_string();
         let loaded: SaveData = serde_json::from_str(&text).unwrap();
         assert_eq!(loaded.progress, Some(progress));
         assert_eq!(loaded.memory, None);

@@ -345,7 +345,7 @@ impl Sim {
                 c.remote
                     || !bounded_pos(c.mover.pos)
                     || !bounded_pos(c.mover.vel)
-                    || !c.memory.session_valid(&sim.level)
+                    || !c.memory.session_valid(&sim.level, &sim.tuning.memory)
                     || c.wakes_at.is_some_and(|i| i >= sim.level.crevices.len())
                     || c.eaten.len() != sim.level.eggs.len()
                     || c.cultures_taken.len() != sim.level.cultures.len()

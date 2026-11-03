@@ -68,6 +68,7 @@ pub enum RegionError {
     InvalidRoster,
     InvalidState,
     InvalidFrame,
+    NeedsPages,
     OutsideRegion,
     TooLarge,
     TopologyRequired,
@@ -248,6 +249,9 @@ impl RegionKernel {
                 .any(|(id, _)| self.sim.crab(*id).is_none())
         {
             return Err(RegionError::InvalidFrame);
+        }
+        if !self.sim.memory_pages_ready() {
+            return Err(RegionError::NeedsPages);
         }
         if frame
             .actions
@@ -513,6 +517,38 @@ impl Sim {
 mod tests {
     use super::*;
     use crate::underwater::region_store::TerrainStore;
+    #[test]
+    fn cold_personal_memory_does_not_consume_a_regional_frame() {
+        let mut source = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+        source.enable_underwater_cells();
+        source.crab_mut(PlayerId(0)).unwrap().memory.enable_paging();
+        let terrain = source.level.cells.as_ref().unwrap().clone();
+        let mut archive = EntityArchive::new(source).unwrap();
+        let mut kernel = archive
+            .extract(RegionId(1), RegionEpoch(1), &[PlayerId(0)], terrain)
+            .unwrap();
+        let frame = RegionFrame {
+            tick: kernel.sim.tick_count(),
+            controls: vec![(PlayerId(0), crate::Controls::default())],
+            actions: vec![],
+        };
+        let before = kernel.sim.tick_count();
+        assert_eq!(kernel.tick(&frame), Err(RegionError::NeedsPages));
+        assert_eq!(kernel.sim.tick_count(), before);
+        for _ in 0..16 {
+            if kernel.sim.memory_pages_ready() {
+                break;
+            }
+            let memory = &mut kernel.sim.crab_mut(PlayerId(0)).unwrap().memory;
+            let requests = memory.page_requests(8);
+            assert!(!requests.is_empty());
+            for request in requests {
+                assert!(memory.accept_page(request, None).unwrap());
+            }
+        }
+        kernel.tick(&frame).unwrap();
+        assert_eq!(kernel.sim.tick_count(), before + 1);
+    }
     #[test]
     fn autosave_merges_only_owned_resources_without_transferring_actors() {
         let mut source = Sim::with_one_crab(Vec2::new(160.0, 0.0));

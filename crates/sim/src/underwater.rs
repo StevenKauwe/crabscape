@@ -2,6 +2,9 @@
 //! Coordinates increase right and up. Water occupies every non-solid cell;
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
+mod sleeping_archive;
+use sleeping_archive::SleepingArchive;
+pub use sleeping_archive::SleepingCut;
 mod bounded_checkpoint;
 pub mod chunk_flow;
 #[cfg(test)]
@@ -366,7 +369,7 @@ pub struct World {
     #[serde(skip)]
     origin: (i32, i32),
     #[serde(skip)]
-    sleeping: std::collections::BTreeMap<(i32, i32), SleepingChunk>,
+    sleeping: SleepingArchive,
     #[serde(skip)]
     opening_edge_opened: bool,
     #[serde(skip)]
@@ -425,7 +428,7 @@ impl WorldCheckpoint {
         world.width = width;
         world.height = height;
         world.origin = self.origin;
-        world.sleeping = self.sleeping;
+        world.sleeping = self.sleeping.into();
         world.opening_edge_opened = self.opening_edge_opened;
         world.pebble_seeded = self.pebble_seeded;
         world.pending_falls = self.pending_falls;
@@ -571,7 +574,7 @@ impl World {
         let mut world = self.clone();
         // Streaming fields are stored separately for compatibility with the
         // opening bake; do not retain a second in-memory copy in the wrapper.
-        let sleeping = std::mem::take(&mut world.sleeping);
+        let sleeping = std::mem::take(&mut world.sleeping).into_map();
         let pebble_seeded = std::mem::take(&mut world.pebble_seeded);
         let pending_falls = std::mem::take(&mut world.pending_falls);
         let next_fall_sequence = std::mem::take(&mut world.next_fall_sequence);
@@ -832,6 +835,9 @@ impl World {
     /// Cells outside it sleep with their exact state; they are not simulated
     /// or analytically fast-forwarded while asleep.
     pub fn follow_player(&mut self, level: &crate::Level, x: f32, y: f32) -> bool {
+        if let Some(shifted) = self.sleeping.prepared_follow.take() {
+            return shifted;
+        }
         if !self.game {
             return false;
         }
@@ -940,6 +946,19 @@ impl World {
 
     /// Seed individual aggregates only in previously unseen, completely
     /// active chunks on the far sandy shelf. A chunk is seeded once per run.
+    fn has_far_pebble_source(level: &crate::Level, cx: i32, cy: i32) -> bool {
+        let side = TERRAIN_CHUNK_CELLS;
+        (4..side - 4).step_by(8).any(|offset| {
+            let gx = cx * side + offset;
+            let wx = (gx as f32 + 2.0) * GAME_CELL;
+            if !(4490.0..5900.0).contains(&wx) {
+                return false;
+            }
+            let ground = ((level.floor_height(wx) - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+            let gy = ground - 4 - gx.div_euclid(8).rem_euclid(3) * 4;
+            gy >= cy * side && gy + 4 <= (cy + 1) * side
+        })
+    }
     fn seed_far_pebbles(&mut self, level: &crate::Level) {
         let side = TERRAIN_CHUNK_CELLS;
         let first_x = (self.origin.0 + side - 1).div_euclid(side);
@@ -948,6 +967,13 @@ impl World {
         let last_y = (self.origin.1 + self.height as i32).div_euclid(side);
         for cy in first_y..last_y {
             for cx in first_x..last_x {
+                // Only chunks with a procedural pebble source need a seed
+                // marker. Recording every empty deep-water chunk made this
+                // metadata grow with exploration even where no aggregate
+                // could ever be generated.
+                if !Self::has_far_pebble_source(level, cx, cy) {
+                    continue;
+                }
                 if !self.pebble_seeded.insert((cx, cy)) {
                     continue;
                 }
@@ -1018,6 +1044,7 @@ impl World {
             let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
             (key, slot)
         };
+        let mut touched = std::collections::BTreeSet::new();
         for y in 0..self.height {
             for x in 0..self.width {
                 let (gx, gy) = (old.0 + x as i32, old.1 + y as i32);
@@ -1026,6 +1053,7 @@ impl World {
                 }
                 let i = y * self.width + x;
                 let (key, slot) = locate(gx, gy);
+                touched.insert(key);
                 #[cfg(test)]
                 dirty_oracle::mark_sleeping(key);
                 self.sleeping.entry(key).or_default().cells[slot] = Some(SleepingCell {
@@ -1057,6 +1085,7 @@ impl World {
                     }
                 } else {
                     let (key, slot) = locate(gx, gy);
+                    touched.insert(key);
                     #[cfg(test)]
                     dirty_oracle::mark_sleeping(key);
                     self.sleeping
@@ -1096,8 +1125,15 @@ impl World {
         for key in self.sleeping.keys() {
             dirty_oracle::mark_sleeping(*key);
         }
-        self.sleeping
-            .retain(|_, chunk| chunk.cells.iter().any(Option::is_some));
+        for key in touched {
+            if self
+                .sleeping
+                .get(&key)
+                .is_some_and(|chunk| chunk.cells.iter().all(Option::is_none))
+            {
+                self.sleeping.remove(&key);
+            }
+        }
         self.cells = cells;
         self.flow = flow;
         self.suspended = suspended;
@@ -1669,7 +1705,7 @@ impl World {
             game: false,
             tick: 0,
             origin: (0, 0),
-            sleeping: std::collections::BTreeMap::new(),
+            sleeping: SleepingArchive::default(),
             opening_edge_opened: false,
             pebble_seeded: std::collections::BTreeSet::new(),
             pending_falls: Vec::new(),
@@ -2705,7 +2741,8 @@ impl World {
         order.sort_unstable_by_key(|&i| (self.pending_falls[i].y, self.pending_falls[i].sequence));
         let mut done = vec![false; self.pending_falls.len()];
         let mut work = 0;
-        for i in order {
+        let mut archive_work = std::collections::BTreeSet::new();
+        'packets: for i in order {
             let mut packet = self.pending_falls[i];
             while packet.advanced_tick < until_tick && work < budget {
                 let Some(below) = packet.y.checked_sub(1) else {
@@ -2714,9 +2751,29 @@ impl World {
                 if below < -1_000_000 || blocked.iter().any(|b| b.contains(packet.x, below)) {
                     break;
                 }
-                work += 1;
                 let local_x = packet.x - self.origin.0;
                 let local_y = below - self.origin.1;
+                // Bound the geographic footprint as well as the grain checks.
+                // The rule is identical with and without cold storage, so a
+                // replay never depends on which pages happened to be cached.
+                let side = TERRAIN_CHUNK_CELLS;
+                let page_at = |gy: i32| {
+                    self.index_at(local_x, gy - self.origin.1)
+                        .is_none()
+                        .then_some((packet.x.div_euclid(side), gy.div_euclid(side)))
+                };
+                let first = page_at(below);
+                let second = page_at(packet.y);
+                let extra = usize::from(first.is_some_and(|key| !archive_work.contains(&key)))
+                    + usize::from(
+                        second != first && second.is_some_and(|key| !archive_work.contains(&key)),
+                    );
+                if archive_work.len() + extra > 16 {
+                    break 'packets;
+                }
+                archive_work.extend(first);
+                archive_work.extend(second);
+                work += 1;
                 let tile = if let Some(index) = self.index_at(local_x, local_y) {
                     self.cells[index]
                 } else {

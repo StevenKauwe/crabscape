@@ -15,6 +15,8 @@ pub mod browser;
 #[cfg(target_arch = "wasm32")]
 pub mod browser_system;
 #[cfg(target_arch = "wasm32")]
+pub(crate) mod paging;
+#[cfg(target_arch = "wasm32")]
 pub(crate) mod work;
 // Desktop uses a different decoder and has not yet received the browser's
 // deserialization-time allocation bounds. Keep migration preparation off
@@ -33,8 +35,6 @@ const HEADER: usize = 8 + 8 + 4 + 4 + 4;
 const MAX_RAW: usize = 64 * 1024 * 1024;
 const MAX_PLAYER: usize = crabsim::underwater::frozen_chunks::MAX_PLAYER_BYTES;
 
-#[cfg(any(test, target_arch = "wasm32"))]
-pub use crabsim::cell_codec::paged;
 pub use crabsim::cell_codec::{Error, ReplayStart, Restored, decode};
 
 /// Pack a single point-in-time save. The backend must never replace an older

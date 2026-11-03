@@ -107,6 +107,7 @@ web-sys = { version = "0.3", features = [
     "Window", "Storage", "Navigator", "Document", "Element", "Location", "EventTarget", "Performance",
     "DomException", "IdbFactory", "IdbDatabase", "IdbOpenDbRequest", "IdbRequest",
     "IdbObjectStore", "IdbTransaction", "IdbTransactionMode",
+    "IdbKeyRange", "IdbCursor", "IdbCursorWithValue", "IdbCursorDirection",
     "AudioContext", "BaseAudioContext", "AudioContextState", "AudioBuffer", "AudioBufferSourceNode",
     "AudioScheduledSourceNode", "AudioNode", "AudioDestinationNode", "AudioParam", "GainNode",
     "HtmlAudioElement", "HtmlMediaElement",

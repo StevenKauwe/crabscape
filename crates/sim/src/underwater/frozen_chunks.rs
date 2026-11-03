@@ -5,9 +5,9 @@
 //! phone memory limits. The caller must capture player state at the same tick.
 mod restore;
 pub use restore::{
-    CaptureIndex, CaptureIndexBuilder, CellState, GuardedBuilder, GuardedError, GuardedPlayable,
-    IndexVerifier, LazyError, LazyView, LoadTicket, PageId, PagedRestore, SavedSetup,
-    VerifiedIndex,
+    ActiveRestore, CaptureIndex, CaptureIndexBuilder, CellState, GuardedBuilder, GuardedError,
+    GuardedPlayable, IndexVerifier, LazyError, LazyView, LoadTicket, PageId, PagedRestore,
+    SavedSetup, VerifiedIndex,
 };
 
 use super::*;
@@ -333,6 +333,14 @@ fn encode_active(w: &World, x: usize, y: usize) -> Result<Vec<u8>, CaptureError>
         part.owner.extend_from_slice(&w.pebble_owner[range]);
     }
     encode(&part)
+}
+
+impl FrozenChunks {
+    /// Capture only the active kernel. Dirty sleeping pages are independently
+    /// frozen with `World::dirty_sleeping`, without copying the explored index.
+    pub fn capture_active(world: &World) -> Result<Self, CaptureError> {
+        Self::capture_cow(&world.active_copy())
+    }
 }
 
 #[cfg(test)]

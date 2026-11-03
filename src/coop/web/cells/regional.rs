@@ -14,6 +14,7 @@ mod moving;
 enum Stage {
     #[default]
     Receiving,
+    Paging,
     Sending,
     Running,
     WaitingStop,
@@ -48,6 +49,7 @@ pub(super) struct State {
     last_backup_tick: u64,
     pub(super) owner_save_dirty: bool,
     moving: Option<moving::Transfer>,
+    move_paging: bool,
     move_serial: u64,
     falls_offered: u64,
     falls_accepted: u64,
@@ -124,10 +126,13 @@ fn needs_change(r: &State, sim: &Sim, guest_id: PlayerId) -> Result<bool, String
     };
     let separate = !share_region(host, guest, r.shared)?;
     let b = bounds(sim)?;
+    let waiting = r.moving.is_some() || r.move_paging;
     Ok(if r.shared {
-        separate || near_edge(b, host) || near_edge(b, guest)
+        separate || (!waiting && (near_edge(b, host) || near_edge(b, guest)))
     } else {
-        !separate || near_edge(b, host) || r.remote_bounds.is_some_and(|b| near_edge(b, guest))
+        !separate
+            || (!waiting
+                && (near_edge(b, host) || r.remote_bounds.is_some_and(|b| near_edge(b, guest))))
     })
 }
 
@@ -229,6 +234,16 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
     let host_area = area(&[host_at])?;
     let guest_area = area(&[guest_at])?;
     r.shared = share_region(host_at, guest_at, r.shared)?;
+    let regions = if r.shared {
+        vec![area(&[host_at, guest_at])?]
+    } else {
+        vec![host_area, guest_area]
+    };
+    if !owner.terrain.prefetch_regions(&regions) {
+        r.stage = Stage::Paging;
+        return Ok(());
+    }
+
     let (local, remote) = if r.shared {
         let local = extract(owner, &[HOST, guest], area(&[host_at, guest_at])?)?;
         let remote = local.checkpoint().map_err(fault)?;
@@ -384,11 +399,21 @@ fn flush(s: &mut Session, r: &mut State, sim: &Sim, local: PlayerId) -> Result<(
     Ok(())
 }
 fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Result<(), String> {
+    // A guest paused at the old edge must still install the incoming move
+    // that satisfies its boundary request; it cannot advance inputs yet.
+    if r.stage == Stage::WaitingOwner {
+        moving::step(s, r, sim, local)?;
+    }
     if !matches!(r.stage, Stage::Running | Stage::Stopping) {
         return Ok(());
     }
     falling::step(s, r, sim, local)?;
     moving::step(s, r, sim, local)?;
+    // Storage can pause personal memory without consuming a network frame.
+    // In particular, keep replica frames queued and preserve local actions.
+    if !sim.memory_pages_ready() {
+        return Ok(());
+    }
     let follows = local != HOST && r.shared;
     if follows {
         if let Some(frame) = r.frames.pop_front() {
@@ -431,10 +456,26 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
         {
             return Ok(());
         }
+        // Render frames can finish partway through an input batch. Prefetch
+        // here too, so catch-up ticks cannot reach the safety edge before a
+        // render update has had a chance to start the same-authority move.
+        moving::prefetch(s, r, sim, local)?;
         // An authority knows its position before a remote browser can. Check
         // at each complete input batch, including catch-up frames and dives.
         if local == HOST && needs_change(r, sim, s.guest.ok_or("Missing visitor")?)? {
             request_stop(s, r, sim);
+            return Ok(());
+        }
+        // A prepared same-authority move owns its entering strips. At the
+        // safety edge, let reads/transport finish without consuming more input
+        // or canceling that move for a full regrant. Topology changes above
+        // still use the coordinated handoff.
+        if local == HOST
+            && (r.moving.is_some() || r.move_paging)
+            && (near_edge(bounds(sim)?, point(sim, HOST)?)
+                || (r.shared
+                    && near_edge(bounds(sim)?, point(sim, s.guest.ok_or("Missing visitor")?)?)))
+        {
             return Ok(());
         }
         if local != HOST && near_edge(bounds(sim)?, point(sim, local)?) {
@@ -596,7 +637,8 @@ fn receive_inner(
                 return Err("Invalid regional boundary request".into());
             }
             r.guest_pos = Some(Vec2::new(pos[0], pos[1]));
-            request_stop(s, r, sim);
+            // Decide at the next complete authority batch. Its prefetch must
+            // run before an edge request can cancel a same-authority move.
         }
         RegionMsg::Actions(actions) if local != HOST => {
             if actions.len() + s.actions.len() > 32 {
@@ -895,6 +937,12 @@ fn update_inner(
     sim: &mut Sim,
     local: PlayerId,
 ) -> Result<(), String> {
+    if local == HOST && r.stage == Stage::Paging {
+        grant(s, r, sim)?;
+        if r.stage == Stage::Paging {
+            return Ok(());
+        }
+    }
     falling::update(r, sim);
     moving::update(s, r, sim, local)?;
     if local != HOST
@@ -955,6 +1003,7 @@ fn update_inner(
                 Stage::Running => "running",
                 Stage::Sending => "sending",
                 Stage::Receiving => "receiving",
+                Stage::Paging => "paging",
                 Stage::WaitingStop | Stage::WaitingOwner | Stage::Stopping => "stopping",
                 Stage::Stopped => "stopped",
             },

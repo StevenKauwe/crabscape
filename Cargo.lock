@@ -2620,6 +2620,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "crabsim",
+ "miniz_oxide 0.8.9",
  "postcard",
  "serde_json",
  "tungstenite",

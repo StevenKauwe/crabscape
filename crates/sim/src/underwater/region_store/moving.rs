@@ -87,6 +87,9 @@ impl TerrainStore {
         {
             return Err(StoreError::Overlap);
         }
+        if !self.prefetch_regions(&[new]) {
+            return Err(StoreError::NeedsPages);
+        }
         let revision = lease
             .revision
             .checked_add(1)

@@ -23,6 +23,7 @@ pub enum StoreError {
     StaleCommit,
     InvalidState,
     TooManyRegions,
+    NeedsPages,
 }
 
 #[derive(Clone)]
@@ -82,6 +83,31 @@ impl TerrainStore {
     pub fn terrain(&self) -> &World {
         &self.terrain
     }
+    pub fn terrain_for_storage(&mut self) -> &mut World {
+        let pinned: Vec<_> = self
+            .leases
+            .values()
+            .map(|lease| lease.bounds)
+            .chain(
+                self.pending_moves
+                    .values()
+                    .flat_map(|moving| [moving.old, moving.new]),
+            )
+            .collect();
+        self.terrain.pin_regions(&pinned);
+        &mut self.terrain
+    }
+    pub fn prefetch_regions(&mut self, regions: &[CellRegion]) -> bool {
+        self.terrain_for_storage().begin_region_prefetch();
+        let mut ready = true;
+        for &region in regions {
+            ready &= self.terrain.require_region_pages(region);
+        }
+        ready
+    }
+    pub fn acknowledge_sleeping(&mut self, saved: &[super::SleepingCut]) {
+        self.terrain.acknowledge_sleeping(saved);
+    }
     /// Keep the canonical archive in the owner's save window. Lease bounds
     /// and aggregate IDs are absolute/stable, so changing the active window
     /// does not change any authority's assignment or local-to-global ID map.
@@ -139,6 +165,9 @@ impl TerrainStore {
         }
         if self.pending_moves.values().any(|m| m.new.overlaps(bounds)) {
             return Err(StoreError::Overlap);
+        }
+        if !self.prefetch_regions(&[bounds]) {
+            return Err(StoreError::NeedsPages);
         }
         let (mut kernel, pebble_ids) = self.terrain.load_region(bounds, level)?;
         let arrivals: Vec<_> = self
@@ -224,6 +253,9 @@ impl TerrainStore {
         }
         if kernel.tick < lease.committed_tick {
             return Err(StoreError::StaleCommit);
+        }
+        if !self.terrain.prepare_owned_region(lease.bounds) {
+            return Err(StoreError::NeedsPages);
         }
         if kernel.pebbles.len() - lease.pebble_ids.len() + self.terrain.pebbles.len()
             > u16::MAX as usize
@@ -393,7 +425,6 @@ impl TerrainStore {
         until_tick: u64,
         budget: usize,
     ) -> usize {
-        self.terrain.tick = self.terrain.tick.max(until_tick);
         let blocked: Vec<_> = self
             .leases
             .values()
@@ -412,21 +443,23 @@ impl TerrainStore {
                     .flat_map(|a| a.input.packets().iter().map(|p| p.sequence)),
             )
             .collect();
-        let mut held = Vec::new();
-        self.terrain.pending_falls.retain(|p| {
-            if reserved.contains(&p.sequence) {
-                held.push(*p);
-                false
-            } else {
-                true
-            }
-        });
-        let work = self
-            .terrain
-            .advance_pending_falls(level, until_tick, budget, &blocked);
-        self.terrain.pending_falls.extend(held);
-        self.terrain.pending_falls.sort_by_key(|p| p.sequence);
-        work
+        self.terrain_for_storage();
+        self.terrain.passive_transaction(|terrain| {
+            terrain.tick = terrain.tick.max(until_tick);
+            let mut held = Vec::new();
+            terrain.pending_falls.retain(|p| {
+                if reserved.contains(&p.sequence) {
+                    held.push(*p);
+                    false
+                } else {
+                    true
+                }
+            });
+            let work = terrain.advance_pending_falls(level, until_tick, budget, &blocked);
+            terrain.pending_falls.extend(held);
+            terrain.pending_falls.sort_by_key(|p| p.sequence);
+            work
+        })
     }
     fn prepare_flux(
         &self,
@@ -530,7 +563,11 @@ impl TerrainStore {
         epoch: RegionEpoch,
     ) -> Result<Option<crate::world::regions::falling::Arrival>, StoreError> {
         use crate::world::regions::falling::Arrival;
-        let lease = self.leases.get(&id).ok_or(StoreError::UnknownRegion)?;
+        let lease = self
+            .leases
+            .get(&id)
+            .ok_or(StoreError::UnknownRegion)?
+            .clone();
         if lease.epoch != epoch {
             return Err(StoreError::StaleEpoch);
         }
@@ -543,6 +580,9 @@ impl TerrainStore {
             .and_then(|v| v.iter().find(|a| !a.delivered))
         {
             return Ok(Some(pending.input.clone()));
+        }
+        if !self.prefetch_regions(&[lease.bounds]) {
+            return Ok(None);
         }
         let reserved: std::collections::BTreeSet<_> = self
             .arrivals
@@ -835,8 +875,12 @@ impl World {
 }
 
 impl From<RegionError> for StoreError {
-    fn from(_: RegionError) -> Self {
-        Self::InvalidRegion
+    fn from(error: RegionError) -> Self {
+        if error == RegionError::NeedsPages {
+            Self::NeedsPages
+        } else {
+            Self::InvalidRegion
+        }
     }
 }
 
