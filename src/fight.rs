@@ -2,6 +2,8 @@
 //! top-left corner, a flash where the crab's blow lands, and short notes for
 //! a parry, a counter, a cracked guard. It only reads the simulation.
 
+mod hints;
+
 use bevy::prelude::*;
 
 use crabsim::combat::Claw;
@@ -22,7 +24,8 @@ pub struct FightPlugin;
 
 impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_bars, spawn_flash))
+        app.add_plugins(hints::HintPlugin)
+            .add_systems(Startup, (spawn_bars, spawn_flash))
             .add_systems(
                 Update,
                 (show_bars, show_flash, show_trail, fight_notes).in_set(GameSet::Present),
@@ -238,11 +241,11 @@ fn show_trail(
 /// the crab: what to do about it.
 fn hint(kind: Kind) -> Option<&'static str> {
     match kind {
-        Kind::Snapper => Some("A snapping shrimp! Jump or dodge its shock"),
-        Kind::Mantis => Some("It holds still: GUARD right then to parry"),
-        Kind::Moray => Some("A moray coils: dodge, or GUARD to parry"),
-        Kind::Octopus => Some("An octopus! DODGE its pounce and web, GUARD its arm tips"),
-        Kind::Monkey => Some("Space monkeys! Their asparagus arms reach far"),
+        Kind::Snapper => Some("Snapping shrimp send a floor shock.\nJUMP or DODGE through it."),
+        Kind::Mantis => Some("A mantis holds still before it strikes.\nTap GUARD then to parry."),
+        Kind::Moray => Some("A moray coils before its bite.\nDODGE, or tap GUARD to parry."),
+        Kind::Octopus => Some("Octopus: DODGE the pounce and web.\nGUARD its reaching arm tips."),
+        Kind::Monkey => Some("Space monkeys!\nWatch those long asparagus arms."),
         Kind::Fixture => None,
     }
 }
@@ -254,31 +257,32 @@ fn fight_notes(
     mut cracked_before: Local<bool>,
     mut hinted: Local<Vec<Kind>>,
     mut grabbed_before: Local<bool>,
+    mut instructions: MessageWriter<hints::ShowHint>,
 ) {
     let Ok((ev, f, m, at)) = crab.single() else {
         return;
     };
+    let grabbed = f.grabbed.is_some();
+    if grabbed && !*grabbed_before {
+        instructions.write(hints::ShowHint::Grabbed);
+    }
+    if !grabbed && *grabbed_before {
+        instructions.write(hints::ShowHint::Released);
+    }
+    *grabbed_before = grabbed;
     let near_tell = sim.enemies().iter().find(|e| {
-        e.state == State::Tell && (e.pos.x - m.pos.x).abs() < 400.0 && !hinted.contains(&e.kind)
+        !grabbed
+            && f.dead.is_none()
+            && e.state == State::Tell
+            && e.pos.distance_squared(m.pos) < 400.0 * 400.0
+            && !hinted.contains(&e.kind)
     });
     if let Some(e) = near_tell {
         hinted.push(e.kind);
         if let Some(text) = hint(e.kind) {
-            let above = at.translation.truncate() + Vec2::Y * 130.0;
-            notes::say(&mut commands, text, above, PALE);
+            instructions.write(hints::ShowHint::Encounter(text));
         }
     }
-    let grabbed = f.grabbed.is_some();
-    if grabbed && !*grabbed_before {
-        let above = at.translation.truncate() + Vec2::Y * 110.0;
-        notes::say(
-            &mut commands,
-            "Held! Tap DODGE to struggle, hold it to drop a leg",
-            above,
-            SHELL,
-        );
-    }
-    *grabbed_before = grabbed;
     let ev = ev.0;
     let above = at.translation.truncate() + Vec2::Y * 92.0;
     // Later beats of a parry stack higher, so they don't overlap.
