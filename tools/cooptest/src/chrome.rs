@@ -20,6 +20,11 @@ pub const HEIGHT: f64 = 800.0;
 /// reload doesn't lose them. (Two harmless ones are skipped, as the page itself does: winit's "exceptions for
 /// control flow" and the "ResizeObserver loop" warning.)
 const RECORD_ERRORS: &str = r#"(() => {
+  // Timestamp actual readiness/status changes, even when DevTools polling is delayed.
+  new MutationObserver(records => {
+    for (const r of records) if (r.target.id === "crabscape")
+      console.info("co-op timing: " + r.attributeName + "=" + r.target.getAttribute(r.attributeName));
+  }).observe(document, {subtree:true, attributes:true, attributeFilter:["data-world", "data-coop"]});
   const key = "cooptest-errors";
   const add = (m) => {
     m = String(m || "unknown error");
