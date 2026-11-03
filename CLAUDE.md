@@ -100,6 +100,10 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   and block the merge). Pushes to `main` always run everything. A new kind of file? Add it to `tools/changes.sh`.
 - **Main is broken?** A failed CI run on `main` opens (or adds to) the `main-broken` issue "main is broken"; a green
   run closes it. Fix it before anything else (`/next-task` picks it first; the session-start check says so too).
+- **Main CI makes progress:** a new push leaves the active main CI run to finish validation, deployment and smoke,
+  replacing only the pending run. PR updates still cancel superseded checks. A tested main commit may deploy while
+  newer main work waits; never replace its artifact with a newer untested build. See `docs/engineering/ci-publishing.md`
+  for the concurrency policy and the planned shared publisher.
 - **Playable previews** (`tools/previews.sh`): CI publishes each PR's web build to `/pr-<n>/` on the Pages site
   (link commented on the PR, refreshed per push; `previews.yml` removes it on close); a named branch on demand with
   `gh workflow run ci.yml --ref <name>` to `/branches/<name>/`; `/builds/` lists them all. Each build keeps its own
