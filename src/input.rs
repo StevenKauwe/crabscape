@@ -120,7 +120,7 @@ impl InputUi<'_, '_> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn page_dialog_open() -> bool {
+pub(crate) fn page_dialog_open() -> bool {
     web_sys::window()
         .and_then(|w| w.document())
         .is_some_and(|doc| {
@@ -133,7 +133,7 @@ fn page_dialog_open() -> bool {
         })
 }
 #[cfg(not(target_arch = "wasm32"))]
-fn page_dialog_open() -> bool {
+pub(crate) fn page_dialog_open() -> bool {
     false
 }
 

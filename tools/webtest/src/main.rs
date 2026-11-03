@@ -578,7 +578,21 @@ impl Test<'_> {
             5.0,
         )?;
         self.check(enabled, "automatic clam pickup can be switched back on");
+        // A direction held over the panel stays the panel's until release,
+        // including the frame when a finger closes inventory.
+        let before = self.crab()?;
+        self.key("keydown", "KeyD", "d")?;
+        self.hold(0.2, false)?;
         self.tap(inventory_x, inventory_y + 18.0, 2, true)?;
+        self.hold(0.4, false)?;
+        self.key("keyup", "KeyD", "d")?;
+        let after = self.crab()?;
+        self.check(
+            before
+                .zip(after)
+                .is_some_and(|(a, b)| (a.0 - b.0).abs() < 2.0),
+            "a held inventory key does not move the crab upon closing the panel",
+        );
         if self.framed {
             self.cellular_worker("/__worker_preview")?;
             self.cellular_worker("/__worker_preview/")?;

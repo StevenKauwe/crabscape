@@ -66,11 +66,24 @@ fn type_code(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut code_box: ResMut<CodeBox>,
     mut typed: MessageWriter<Typed>,
+    settings: Res<crate::settings::panel::Open>,
+    inventory: Res<crate::shell_inventory::Open>,
+    mut owned_keys: Local<Vec<KeyCode>>,
 ) {
     // A line sent in the frame its letters were typed in must not leave them pressed for the game's keys (R opens the
     // report form): the keys are cleared for every frame the box was open in.
+    let page = crate::input::page_dialog_open();
+    let menu = page || settings.is_open() || inventory.0;
     let was_open = code_box.open;
     for key in keys_in.read() {
+        // A physical release ends the menu's ownership. A fresh non-repeating
+        // press also recovers from losing focus before the release arrived.
+        if !key.repeat {
+            owned_keys.retain(|code| *code != key.key_code);
+        }
+        if menu {
+            continue;
+        }
         if key.state != ButtonState::Pressed {
             continue;
         }
@@ -107,7 +120,30 @@ fn type_code(
             }
         }
     }
-    if was_open || code_box.open {
+    let typing = was_open || code_box.open;
+    if menu || typing {
+        for &key in keys.get_pressed().chain(keys.get_just_pressed()) {
+            if !owned_keys.contains(&key) {
+                owned_keys.push(key);
+            }
+        }
+    }
+    for &key in owned_keys.iter() {
+        let menu_uses_key = !page
+            && !typing
+            && if settings.is_open() {
+                matches!(
+                    key,
+                    KeyCode::Escape | KeyCode::ArrowLeft | KeyCode::ArrowRight
+                )
+            } else {
+                inventory.0 && crate::shell_inventory::is_shortcut(key)
+            };
+        if !menu_uses_key {
+            keys.reset(key);
+        }
+    }
+    if typing {
         keys.reset_all();
     }
 }
