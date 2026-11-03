@@ -78,6 +78,30 @@ pub struct Sighting {
     pub seen: u32,
 }
 
+// A dense *sight window*, independent of the explored world's size. Row-major
+// lookup avoids allocating tree nodes and walking a tree for every ray sample.
+#[derive(Clone, Default)]
+struct Obstruction {
+    x: u32,
+    y: u32,
+    width: u32,
+    cells: Vec<bool>,
+}
+impl Obstruction {
+    fn get(&self, i: u64, cols: u32) -> Option<bool> {
+        let x = (i % u64::from(cols)) as u32;
+        let y = (i / u64::from(cols)) as u32;
+        let dx = x.checked_sub(self.x)?;
+        let dy = y.checked_sub(self.y)?;
+        if dx >= self.width {
+            return None;
+        }
+        self.cells
+            .get(dy as usize * self.width as usize + dx as usize)
+            .copied()
+    }
+}
+
 /// One crab's memory of the level.
 #[derive(Clone, Serialize)]
 pub struct Memory {
@@ -100,8 +124,8 @@ pub struct Memory {
     pub nets: Vec<Option<bool>>,
     /// Geometry sampled only around the latest sight ellipse.
     #[serde(skip)]
-    obstruction: BTreeMap<u64, bool>,
-    live_cells: BTreeSet<u64>,
+    obstruction: Obstruction,
+    live_cells: Vec<u64>,
     #[serde(skip)]
     cache: crate::page_cache::PageCache,
 }
@@ -120,9 +144,11 @@ impl<'de> Deserialize<'de> for Memory {
             home: Vec<u64>,
             sightings: Vec<Sighting>,
             nets: Vec<Option<bool>>,
-            live_cells: BTreeSet<u64>,
+            live_cells: Vec<u64>,
         }
-        let state = State::deserialize(deserializer)?;
+        let mut state = State::deserialize(deserializer)?;
+        state.live_cells.sort_unstable();
+        state.live_cells.dedup();
         let dirty = state.chunks.keys().copied().collect();
         Ok(Self {
             origin: state.origin,
@@ -135,7 +161,7 @@ impl<'de> Deserialize<'de> for Memory {
             home: state.home,
             sightings: state.sightings,
             nets: state.nets,
-            obstruction: BTreeMap::new(),
+            obstruction: Obstruction::default(),
             live_cells: state.live_cells,
             cache: Default::default(),
         })
@@ -217,8 +243,8 @@ impl Memory {
             home: Vec::new(),
             sightings: Vec::new(),
             nets: vec![None; level.nets.len()],
-            obstruction: BTreeMap::new(),
-            live_cells: BTreeSet::new(),
+            obstruction: Obstruction::default(),
+            live_cells: Vec::new(),
             cache: Default::default(),
         };
         // Solid: inside a rock (or a dark hidden place, or past the walls),
@@ -243,7 +269,7 @@ impl Memory {
 
     /// Is this cell in sight right now (on the latest step)?
     pub fn in_sight(&self, i: u64) -> bool {
-        self.live_cells.contains(&i)
+        self.live_cells.binary_search(&i).is_ok()
     }
 
     /// Nothing solid between two points (sampled every half cell, ignoring
@@ -306,8 +332,7 @@ impl Memory {
 
     fn solid(&self, i: u64, level: &Level, t: &MemoryTuning) -> bool {
         self.obstruction
-            .get(&i)
-            .copied()
+            .get(i, self.cols)
             .unwrap_or_else(|| self.sample_solid(i, level, t))
     }
 
@@ -439,16 +464,22 @@ impl Memory {
         // the floor's whole shape reads at once) or water with a clear line
         // to it (nothing seen through rock).
         let cells: Vec<u64> = self.cells_in(sight.bounds(), t).collect();
-        self.obstruction.clear();
-        for &i in &cells {
-            self.obstruction.insert(i, self.sample_solid(i, level, t));
+        self.obstruction.cells.clear();
+        if let (Some(&first), Some(&last)) = (cells.first(), cells.last()) {
+            self.obstruction.x = (first % u64::from(self.cols)) as u32;
+            self.obstruction.y = (first / u64::from(self.cols)) as u32;
+            self.obstruction.width = (last % u64::from(self.cols)) as u32 - self.obstruction.x + 1;
+            for &i in &cells {
+                let solid = self.sample_solid(i, level, t);
+                self.obstruction.cells.push(solid);
+            }
         }
         for i in cells {
             let c = self.centre(i, t);
             if !sight.sees(c) || !(self.solid(i, level, t) || self.clear_line(eye, c, t, level)) {
                 continue;
             }
-            self.live_cells.insert(i);
+            self.live_cells.push(i);
             let now = self.now;
             let home = self.home.contains(&i);
             let cell = self.cell_mut(i);
@@ -796,6 +827,27 @@ pub(crate) fn unbase64(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sight_window_cache_matches_geometry_without_world_sized_storage() {
+        let level = Level::test_level();
+        let tuning = Tuning::default();
+        let mut memory = Memory::new(&level, &tuning.memory);
+        for eye in [Vec2::new(160.0, 20.0), Vec2::new(918.0, 130.0)] {
+            memory.step(eye, 0, &level, &[], &tuning);
+            for i in memory.cells_in(
+                Rect::from_center_size(eye, Vec2::splat(800.0)),
+                &tuning.memory,
+            ) {
+                assert_eq!(
+                    memory.solid(i, &level, &tuning.memory),
+                    memory.sample_solid(i, &level, &tuning.memory)
+                );
+            }
+            assert!(memory.live_cells.windows(2).all(|p| p[0] < p[1]));
+            assert!(memory.obstruction.cells.len() < 10_000);
+        }
+    }
 
     #[test]
     fn sparse_memory_round_trip_preserves_absolute_seen_times() {
