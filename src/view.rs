@@ -465,6 +465,15 @@ mod page_bridge {
             .and_then(|d| d.get_element_by_id("crabscape"))
         {
             let _ = canvas.set_attribute("data-crab", &value);
+            if let Some(local) = sim.crabs().iter().find(|c| !c.remote) {
+                let shell = format!(
+                    "{} {} {}",
+                    local.pickup.clams,
+                    local.pickup.grit,
+                    local.mover.clinging.len()
+                );
+                let _ = canvas.set_attribute("data-shell", &shell);
+            }
             if canvas.has_attribute("data-cell-control-probe") {
                 let controls = sim
                     .crabs()

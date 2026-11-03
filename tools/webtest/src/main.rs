@@ -554,6 +554,23 @@ impl Test<'_> {
         if !started {
             return Ok(()); // nothing else can work
         }
+        self.tap(50.0, 68.0, 2, true)?;
+        self.tap(50.0, 107.0, 2, true)?;
+        let disabled = self.wait_for(
+            &format!(r#"{CANVAS}.getAttribute("data-shell")?.startsWith("false true ")"#),
+            5.0,
+        )?;
+        self.check(
+            disabled,
+            "the shell panel switches off automatic clam pickup",
+        );
+        self.tap(50.0, 107.0, 2, true)?;
+        let enabled = self.wait_for(
+            &format!(r#"{CANVAS}.getAttribute("data-shell")?.startsWith("true true ")"#),
+            5.0,
+        )?;
+        self.check(enabled, "automatic clam pickup can be switched back on");
+        self.tap(50.0, 68.0, 2, true)?;
         if self.framed {
             self.cellular_worker("/__worker_preview")?;
             self.cellular_worker("/__worker_preview/")?;

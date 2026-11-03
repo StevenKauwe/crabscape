@@ -92,6 +92,8 @@ pub struct SimCrab {
     /// Its cast-off shells, each where it died carrying something
     /// (`docs/design/world.md`, Death): touch one to take its load back.
     pub cast_offs: Vec<CastOff>,
+    /// Which common materials this crab automatically picks up.
+    pub pickup: PickupPreferences,
     /// What it keeps at its workbench at home to make things from (see
     /// [`crate::craft`]); it stays there through death, like the larder.
     pub stash: Stash,
@@ -131,6 +133,42 @@ impl SimCrab {
 pub struct CastOff {
     pub pos: Vec2,
     pub carrying: Carry,
+    /// A deliberate drop cannot be picked up until its owner moves away.
+    pub recoverable: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PickupPreferences {
+    pub clams: bool,
+    pub grit: bool,
+}
+
+/// A deliberate inventory choice, recorded alongside other game actions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ShellAction {
+    ToggleClams,
+    ToggleGrit,
+    Drop(usize),
+    DropBack,
+}
+
+impl Default for PickupPreferences {
+    fn default() -> Self {
+        Self {
+            clams: true,
+            grit: true,
+        }
+    }
+}
+
+impl PickupPreferences {
+    fn accepts(self, carry: Carry) -> bool {
+        match carry {
+            Carry::Clam => self.clams,
+            Carry::Grit => self.grit,
+            _ => true,
+        }
+    }
 }
 
 /// The game world, as far as the rules are concerned. (In the game it is a
@@ -178,6 +216,49 @@ thread_local! {
 }
 
 impl Sim {
+    /// Change a local crab's collection preferences or put one shell item
+    /// down. Dropped items remain that crab's recoverable property.
+    pub fn shell_action(&mut self, id: PlayerId, action: ShellAction) -> bool {
+        let Some(crab) = self
+            .crabs
+            .iter_mut()
+            .find(|c| c.id == id && !c.remote && c.fighter.dead.is_none())
+        else {
+            return false;
+        };
+        match action {
+            ShellAction::ToggleClams => crab.pickup.clams = !crab.pickup.clams,
+            ShellAction::ToggleGrit => crab.pickup.grit = !crab.pickup.grit,
+            ShellAction::Drop(index) => {
+                if index >= crab.mover.clinging.len() || crab.cast_offs.len() >= 4096 {
+                    return false;
+                }
+                let carrying = crab.mover.clinging.remove(index);
+                crab.cast_offs.push(CastOff {
+                    pos: crab.mover.pos,
+                    carrying,
+                    recoverable: false,
+                });
+            }
+            ShellAction::DropBack => {
+                if crab.cast_offs.len() >= 4096 {
+                    return false;
+                }
+                let Some(carrying) = crab.mover.carrying.take() else {
+                    return false;
+                };
+                crab.cast_offs.push(CastOff {
+                    pos: crab.mover.pos,
+                    carrying,
+                    recoverable: false,
+                });
+            }
+        }
+        if let Some(recorder) = &mut self.recorder {
+            recorder.note_shell_action(self.tick, action);
+        }
+        true
+    }
     /// A shared input stream supersedes the single-player recorder.
     pub fn stop_recording(&mut self) {
         self.recorder = None;
@@ -846,6 +927,7 @@ impl Sim {
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
             cast_offs: Vec::new(),
+            pickup: PickupPreferences::default(),
             stash: Stash::default(),
             pending: StepEvents::default(),
             resting: 0,
@@ -2124,6 +2206,7 @@ impl Sim {
                 crab.cast_offs.extend(m.load().map(|carrying| CastOff {
                     pos: m.pos,
                     carrying,
+                    recoverable: true,
                 }));
                 *f = Fighter::new(&self.tuning);
                 let place = crab.wakes_at.map_or(Place::Home, Place::Crevice);
@@ -2259,8 +2342,15 @@ impl Sim {
             // Its cast-off shell, back where it died: what it carried goes
             // back on (whatever there's room for; the rest waits there).
             if crab.fighter.dead.is_none() {
-                crab.cast_offs.retain(|off| {
-                    let back = in_reach(m, off.pos, t) && take_up(m, ev, off.carrying, t);
+                crab.cast_offs.retain_mut(|off| {
+                    let near = in_reach(m, off.pos, t);
+                    if !near {
+                        off.recoverable = true;
+                    }
+                    let back = near
+                        && off.recoverable
+                        && crab.pickup.accepts(off.carrying)
+                        && take_up(m, ev, off.carrying, t);
                     ev.recovered |= back;
                     !back
                 });
@@ -3420,6 +3510,9 @@ fn food_timers(crab: &mut SimCrab, t: &Tuning, ev: &mut StepEvents) {
 /// everyone). A guest's crab asks the host, and gets it only when the host
 /// says it's theirs; it's gone on this screen meanwhile.
 fn reach(c: &mut SimCrab, thing: Thing, shared: &mut Shared, net: &mut Option<Net>, t: &Tuning) {
+    if thing.carry().is_some_and(|carry| !c.pickup.accepts(carry)) {
+        return;
+    }
     if !shared.there(thing, t) {
         return;
     }

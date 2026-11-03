@@ -262,7 +262,7 @@ fn the_wake_point_is_saved_and_comes_back() {
 fn progress_without_rest_still_wakes_at_home() {
     let old = r#"{"drift_receipts":[],"prepared_food":{"auto_eat":true,"slots":[null,null],"next_batch":0},"upgrades":1,"lantern":0,"scissor_claw":false,"climb_xp":0.0,"carrying":null,
         "eaten":[true,false,false,false],"cultures_taken":[false],"clues_found":[false],
-        "teeth_taken":[false],"nets_cut":[false],"cast_offs":[],"larder":1,"clams":[0,0,0,0,0],
+        "teeth_taken":[false],"nets_cut":[false],"cast_offs":[],"pickup":{"clams":true,"grit":true},"larder":1,"clams":[0,0,0,0,0],
         "well_fed":0}"#;
     let saved: Progress = serde_json::from_str(old).expect("progress reads");
     assert_eq!(saved.wakes_at, None);

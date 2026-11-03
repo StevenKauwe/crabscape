@@ -31,6 +31,7 @@ fn progress_comes_back_in_a_fresh_world() {
         crab.cast_offs.push(CastOff {
             pos: Vec2::new(700.0, 0.0),
             carrying: Carry::Culture,
+            recoverable: true,
         });
     }
     sim.level.nets[0].cut = true;

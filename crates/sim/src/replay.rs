@@ -117,6 +117,7 @@ pub struct Replay {
     pub(crate) canyon_start: Option<Vec<crate::canyon_drift::record::CanyonRegionRecord>>,
     pub salvage_actions: Vec<(u64, crate::salvage::SalvageAction)>,
     pub canyon_actions: Vec<(u64, crate::canyon_drift::CanyonAction)>,
+    pub shell_actions: Vec<(u64, crate::world::ShellAction)>,
     /// The [`Tuning::fingerprint`] it was recorded with, if known.
     pub tuning: Option<u64>,
     /// When the controls change, in tick order (at most one per tick).
@@ -166,6 +167,7 @@ impl Default for Replay {
             canyon_start: None,
             salvage_actions: Vec::new(),
             canyon_actions: Vec::new(),
+            shell_actions: Vec::new(),
             tuning: None,
             inputs: Vec::new(),
             end: None,
@@ -397,6 +399,11 @@ impl Replay {
                     .map_err(|e| err(format!("invalid canyon action: {e}")))?;
                 replay.canyon_actions.push((tick, action));
             }
+            for w in words.iter().filter_map(|w| w.strip_prefix("shell=")) {
+                let action = serde_json::from_str(w)
+                    .map_err(|e| err(format!("invalid shell action: {e}")))?;
+                replay.shell_actions.push((tick, action));
+            }
             if words.contains(&"home") {
                 replay.homes.push(tick);
             }
@@ -404,6 +411,7 @@ impl Replay {
                 *w != "home"
                     && ![
                         "spawn=", "feel=", "code=", "moult=", "craft=", "salvage=", "canyon=",
+                        "shell=",
                     ]
                     .iter()
                     .any(|p| w.starts_with(p))
@@ -516,6 +524,10 @@ impl Replay {
         }
         for (tick, recipe) in &self.crafts {
             out += &format!("@{tick} craft={}\n", recipe.def().word);
+        }
+        for (tick, action) in &self.shell_actions {
+            let json = serde_json::to_string(action).expect("shell action serialises");
+            out += &format!("@{tick} shell={json}\n");
         }
         for (tick, action) in &self.salvage_actions {
             let json = serde_json::to_string(action).expect("salvage action serialises");
@@ -760,6 +772,9 @@ impl Replay {
             // It could be made when recorded, so it can now.
             let _ = sim.make(crate::PlayerId(0), *recipe);
         }
+        for (_, action) in self.shell_actions.iter().filter(|(t, _)| *t == tick) {
+            let _ = sim.shell_action(crate::PlayerId(0), *action);
+        }
         for (_, action) in self.salvage_actions.iter().filter(|(t, _)| *t == tick) {
             let _ = sim.salvage_action(crate::PlayerId(0), *action);
         }
@@ -971,6 +986,12 @@ impl Recorder {
     /// Something was made at the workbench at `tick`.
     pub fn note_craft(&mut self, tick: u64, recipe: Recipe) {
         self.replay.crafts.push((tick - self.first_tick, recipe));
+    }
+
+    pub fn note_shell_action(&mut self, tick: u64, action: crate::world::ShellAction) {
+        self.replay
+            .shell_actions
+            .push((tick - self.first_tick, action));
     }
 
     /// Player 0 went straight home at `tick`.

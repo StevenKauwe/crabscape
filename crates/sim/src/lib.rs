@@ -91,7 +91,7 @@ pub use replay::{Replay, VerifiedCellStart};
 pub use save_data::{SAVE_VERSION, SaveData};
 pub use skills::Skill;
 pub use tuning::Tuning;
-pub use world::{CastOff, PlayerId, Sim, SimCrab, Snapshot};
+pub use world::{CastOff, PickupPreferences, PlayerId, ShellAction, Sim, SimCrab, Snapshot};
 
 /// Play `replay` (as player 0) in `sim` for `ticks` ticks, calling
 /// `after_tick` after every tick. Use [`Sim::with_one_crab`] with
