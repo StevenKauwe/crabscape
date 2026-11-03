@@ -351,10 +351,12 @@ fn spawn_counter(mut commands: Commands) {
         });
 }
 
+type CounterCueOnly = (With<CounterCue>, Without<LocalPlayer>);
+
 fn show_counter(
     sim: Res<Sim>,
     crab: Query<(&Fighter, &Transform), With<LocalPlayer>>,
-    mut cue: Single<(&mut Transform, &mut Visibility), (With<CounterCue>, Without<LocalPlayer>)>,
+    mut cue: Single<(&mut Transform, &mut Visibility), CounterCueOnly>,
     mut fill: Single<&mut Sprite, With<CounterFill>>,
 ) {
     let (at, visible) = &mut *cue;
