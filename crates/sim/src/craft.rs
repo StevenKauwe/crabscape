@@ -127,6 +127,12 @@ pub enum Recipe {
     BuildHome,
     /// A clam valve fitted over each claw.
     ClamGuards,
+    /// Prepare two shell-restoring portions.
+    ShellPortions,
+    /// Prepare two reserve-restoring portions.
+    ReservePortions,
+    /// Change the home auto-eat preference.
+    ToggleAutoEat,
 }
 
 /// One row of the recipe list.
@@ -144,41 +150,62 @@ pub struct RecipeDef {
 }
 
 /// Every recipe, in the menu's order.
-pub const RECIPES: [RecipeDef; 5] = [
+pub const RECIPES: [RecipeDef; 8] = [
     RecipeDef {
         recipe: Recipe::ScissorClaws,
         word: "scissors",
         name: "Scissor claws",
         needs: &[(Material::Tooth, 1)],
-        does: "The tooth's edges along your crusher: it cuts through ghost nets.",
+        does: "Cut through ghost nets.",
     },
     RecipeDef {
         recipe: Recipe::GlassGrips,
         word: "grips",
         name: "Glass grips",
         needs: &[(Material::Glass, 1)],
-        does: "The sponge's glass points on your leg tips: grip and climb bare rock.",
+        does: "Grip and climb bare rock.",
     },
     RecipeDef {
         recipe: Recipe::Lantern,
         word: "lantern",
         name: "Brighter lantern",
         needs: &[(Material::Culture, 1)],
-        does: "Grow the culture into your lantern: it reaches about a third further.",
+        does: "Increase lantern range.",
     },
     RecipeDef {
         recipe: Recipe::BuildHome,
         word: "build",
         name: "Build into the home",
         needs: &[(Material::Grit, 1)],
-        does: "Pack the grit into the shell. The home grows at 1, 3 and 5 pieces.",
+        does: "Grow the home at 1, 3 and 5 pieces.",
     },
     RecipeDef {
         recipe: Recipe::ClamGuards,
         word: "guards",
         name: "Clam-shell guards",
         needs: &[(Material::Valve, 2)],
-        does: "A valve over each claw: blocked blows hurt half as much.",
+        does: "Blocked blows hurt half as much.",
+    },
+    RecipeDef {
+        recipe: Recipe::ShellPortions,
+        word: "shell-food",
+        name: "Shell food",
+        needs: &[],
+        does: "Mends 20% shell. 1 clam makes 2.",
+    },
+    RecipeDef {
+        recipe: Recipe::ReservePortions,
+        word: "reserve-food",
+        name: "Reserve food",
+        needs: &[],
+        does: "3 reserve strokes. 1 clam makes 2.",
+    },
+    RecipeDef {
+        recipe: Recipe::ToggleAutoEat,
+        word: "auto-eat",
+        name: "Automatic meals",
+        needs: &[],
+        does: "Toggle automatic meals at home.",
     },
 ];
 
@@ -227,10 +254,23 @@ impl Sim {
             Recipe::ScissorClaws => m.scissor_claw,
             Recipe::GlassGrips => m.glass_grips,
             Recipe::ClamGuards => m.clam_guards,
-            Recipe::Lantern | Recipe::BuildHome => false,
+            Recipe::Lantern
+            | Recipe::BuildHome
+            | Recipe::ShellPortions
+            | Recipe::ReservePortions
+            | Recipe::ToggleAutoEat => false,
         };
         if made {
             return Err(CantMake::Made);
+        }
+        if matches!(recipe, Recipe::ShellPortions | Recipe::ReservePortions)
+            && (crab.larder == 0
+                || m.prepared_food.slots.iter().any(Option::is_some)
+                || m.clinging.len() + 2 > m.carries(&self.tuning)
+                || m.prepared_food.next_batch == u64::MAX
+                || crab.stash.valves.checked_add(2).is_none())
+        {
+            return Err(CantMake::Missing);
         }
         if !crab.stash.has(recipe.def().needs) {
             return Err(CantMake::Missing);
@@ -272,6 +312,20 @@ impl Sim {
                 ev.home_grew = build.stage(crab.home_grit) > stage_before;
             }
             Recipe::ClamGuards => m.clam_guards = true,
+            Recipe::ShellPortions | Recipe::ReservePortions => {
+                let kind = if recipe == Recipe::ShellPortions {
+                    crate::prepared_food::PortionKind::Shell
+                } else {
+                    crate::prepared_food::PortionKind::Reserve
+                };
+                if !m
+                    .prepared_food
+                    .prepare(kind, &mut crab.larder, &mut crab.stash.valves)
+                {
+                    return Err(CantMake::Missing);
+                }
+            }
+            Recipe::ToggleAutoEat => m.prepared_food.auto_eat = !m.prepared_food.auto_eat,
         }
         if recorded {
             self.note_craft(tick, recipe);

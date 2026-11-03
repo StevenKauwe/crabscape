@@ -56,6 +56,8 @@ pub struct SimCrab {
     pub prev_pos: Vec2,
     /// The controls the next tick will use.
     pub controls: Controls,
+    /// Current interruptible eating action.
+    pub eating: crate::prepared_food::Eating,
     /// What happened during the latest tick.
     pub events: StepEvents,
     /// Bounded durable idempotence receipts for salvage grants.
@@ -585,6 +587,7 @@ impl Sim {
             mover,
             prev_pos: pos,
             controls: Controls::default(),
+            eating: crate::prepared_food::Eating::default(),
             events: StepEvents::default(),
             salvage_receipts: Vec::new(),
             salvage_identity: 0,
@@ -1066,6 +1069,7 @@ impl Sim {
         if let Some(crab) = self.crab_mut(id) {
             let c = &mut crab.controls;
             c.walk = new.walk;
+            c.eat_held = new.eat_held;
             c.jump_held = new.jump_held;
             c.dodge_held = new.dodge_held;
             c.dig_held = new.dig_held;
@@ -1161,6 +1165,7 @@ impl Sim {
             }
             return Outcome::Ignored;
         }
+        crab.eating.cancel();
         let mut ev = StepEvents::default();
         let outcome = combat::crab_defends(&mut crab.fighter, &mut crab.mover, hit, t, &mut ev);
         crab.pending.merge(ev);
@@ -1830,6 +1835,7 @@ impl Sim {
         }
         self.shared
             .forget_bodies(|id| self.enemies.iter().find(|e| e.id == id).map(|e| e.deaths));
+        let health_before: Vec<f32> = self.crabs.iter().map(|c| c.fighter.vitals.health).collect();
         for crab in &mut self.crabs {
             crab.prev_pos = crab.mover.pos;
             let mut ev = std::mem::take(&mut crab.pending);
@@ -1862,6 +1868,7 @@ impl Sim {
                 let place = crab.wakes_at.map_or(Place::Home, Place::Crevice);
                 let (_, den) = self.level.door_and_den(place);
                 crab.mover = crate::physics::Mover {
+                    prepared_food: std::mem::take(&mut crab.mover.prepared_food),
                     upgrades: crab.mover.upgrades,
                     lantern: crab.mover.lantern,
                     scissor_claw: crab.mover.scissor_claw,
@@ -2120,7 +2127,8 @@ impl Sim {
                 // shell and reserve for a while, both filled.
                 let food = &self.tuning.food;
                 // (Not soft after a moult: it eats nothing then.)
-                if crab.larder > 0
+                if m.prepared_food.auto_eat
+                    && crab.larder > 0
                     && m.well_fed == 0
                     && !m.is_soft()
                     && crab.resting >= food.eat_after_ticks
@@ -2347,6 +2355,45 @@ impl Sim {
                 {
                     hunter.landed = true;
                     hunter.vitals.hitstop = hunter.vitals.hitstop.max(hit.hitstop);
+                }
+            }
+        }
+        for (crab, before) in self.crabs.iter_mut().zip(health_before) {
+            if crab.remote {
+                continue;
+            }
+            let c = crab.controls;
+            let stationary = crab.mover.pos.distance_squared(crab.prev_pos) < 0.000001
+                && c.walk == 0.0
+                && !c.jump_held
+                && !c.dodge_held
+                && !c.dig_held
+                && !c.smash_held
+                && !c.block_held;
+            let eligible = crab.fighter.dead.is_none()
+                && !crab.mover.is_soft()
+                && crab.mover.shelter == Shelter::Out
+                && crab.fighter.vitals.hitstop == 0;
+            let damaged = crab.fighter.vitals.health < before;
+            if let Some(kind) = crab.eating.tick(
+                &mut crab.mover.prepared_food,
+                c.eat_held,
+                stationary,
+                damaged,
+                eligible,
+            ) {
+                crab.events.ate_portion = true;
+                match kind {
+                    crate::prepared_food::PortionKind::Shell => {
+                        let max = crab.mover.max_shell(&self.tuning);
+                        crab.fighter.vitals.health =
+                            (crab.fighter.vitals.health + max * 0.2).min(max);
+                    }
+                    crate::prepared_food::PortionKind::Reserve => {
+                        crab.mover.reserve = (crab.mover.reserve
+                            + 3.0 / crab.mover.reserve_strokes(&self.tuning))
+                        .min(1.0);
+                    }
                 }
             }
         }

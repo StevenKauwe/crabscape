@@ -322,7 +322,7 @@ fn the_home_and_the_grit_taken_come_back_after_a_reload() {
 
 #[test]
 fn a_save_from_before_building_still_loads() {
-    let old = r#"{"upgrades":1,"lantern":0,"scissor_claw":false,"climb_xp":0.0,"carrying":null,
+    let old = r#"{"prepared_food":{"auto_eat":true,"slots":[null,null],"next_batch":0},"upgrades":1,"lantern":0,"scissor_claw":false,"climb_xp":0.0,"carrying":null,
         "eaten":[true,false,false,false],"cultures_taken":[false],"clues_found":[false],
         "teeth_taken":[false],"nets_cut":[false],"cast_offs":[],"larder":2,"clams":[0,0,0,0,0],
         "well_fed":0,"wakes_at":null}"#;

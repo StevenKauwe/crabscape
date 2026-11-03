@@ -631,7 +631,7 @@ fn regional_scene(p: &mut Player) -> Result<crabsim::Sim> {
         })
         .map_err(|error| format!("{error}; {}", region_status(p)))?;
         let text = p.b.attr("data-replay").ok_or("missing regional replay")?;
-        if !text.starts_with("region_session_v1 ") {
+        if !text.starts_with("region_session_v2 ") {
             return Err(format!(
                 "regional replay unavailable: {}; {}",
                 text.lines().next().unwrap_or("empty"),
@@ -1859,7 +1859,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             )?;
             guest.until(20.0, "complete cellular multiplayer replay", |p| {
                 p.b.attr("data-replay").is_some_and(|s| {
-                    s.starts_with("cell_session_v1 ") || s.starts_with("region_session_v1 ")
+                    s.starts_with("cell_session_v2 ") || s.starts_with("region_session_v2 ")
                 })
             })?;
             let text = guest

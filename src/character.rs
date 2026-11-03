@@ -1034,21 +1034,21 @@ mod tests {
         assert_eq!(
             refused(&code_with(
                 "1",
-                r#"{"build":"x","save":{"version":3,"x":"far"}}"#
+                r#"{"build":"x","save":{"version":4,"x":"far"}}"#
             )),
             Some(NotACharacter)
         );
         assert_eq!(
             refused(&code_with(
                 "1",
-                r#"{"build":"x","save":{"version":3,"x":1e300,"y":0}}"#
+                r#"{"build":"x","save":{"version":4,"x":1e300,"y":0}}"#
             )),
             Some(NotACharacter)
         );
         assert_eq!(
             refused(&code_with(
                 "1",
-                r#"{"build":"x","save":{"version":3,"x":5,"y":-1e300}}"#
+                r#"{"build":"x","save":{"version":4,"x":5,"y":-1e300}}"#
             )),
             Some(NotACharacter)
         );
@@ -1058,7 +1058,7 @@ mod tests {
         assert_eq!(
             refused(&code_with(
                 "1",
-                r#"{"build":"x","save":{"version":4,"x":1,"y":2,"stars":9}}"#
+                r#"{"build":"x","save":{"version":5,"x":1,"y":2,"stars":9}}"#
             )),
             Some(Newer)
         );
@@ -1100,8 +1100,8 @@ mod tests {
         // what it lacks starts fresh, as with a save kept on the device.
         let old = code_with(
             "1",
-            r#"{"build":"1a2b3c4, Aug 2","save":{"version":3,"x":900.0,"y":0.0,
-               "progress":{"upgrades":2,"lantern":1,"scissor_claw":true,"climb_xp":40.0,
+            r#"{"build":"1a2b3c4, Aug 2","save":{"version":4,"x":900.0,"y":0.0,
+               "progress":{"prepared_food":{"auto_eat":true,"slots":[null,null],"next_batch":0},"upgrades":2,"lantern":1,"scissor_claw":true,"climb_xp":40.0,
                "carrying":null,"eaten":[true,false],"cultures_taken":[true],"clues_found":[],
                "teeth_taken":[],"nets_cut":[],"cast_offs":[]}},
                "settings":"saver=0;hear=everyone;range=900;game=65;voices=150"}"#,
@@ -1125,6 +1125,15 @@ mod tests {
         let mut sim = Sim::with_one_crab(Vec2::new(c.save.x, c.save.y));
         sim.restore_progress(PlayerId(0), p);
         assert_eq!(sim.crab(PlayerId(0)).unwrap().mover.upgrades, 2);
+        // Prepared portions use a new save schema; older versions are
+        // explicitly refused instead of being decoded as the current format.
+        assert_eq!(
+            decode(&code_with(
+                "1",
+                r#"{"build":"x","save":{"version":3,"x":1,"y":2}}"#
+            )),
+            Err(Refusal::TooOld)
+        );
         // Version 1 saves (before positions) the game never read.
         assert_eq!(
             decode(&code_with(

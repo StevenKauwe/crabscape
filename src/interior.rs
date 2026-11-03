@@ -71,6 +71,10 @@ pub struct Inside {
 #[derive(Resource, Default)]
 struct Pick(usize);
 
+/// Which group of recipes is visible at the workbench.
+#[derive(Resource, Default)]
+struct RecipePage(usize);
+
 /// The keepsakes: each moult's shed shell on the shelf along the back wall,
 /// this much smaller than on the crab, dull and a little see-through.
 pub const KEEPSAKE_SCALE: f32 = 0.45;
@@ -106,6 +110,7 @@ impl Plugin for InteriorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Inside>()
             .init_resource::<Pick>()
+            .init_resource::<RecipePage>()
             .add_systems(Startup, spawn_scene)
             .add_systems(Update, press.in_set(GameSet::Input))
             // Once the crabs are placed for this frame, before anything is
@@ -516,6 +521,8 @@ const NEXT_W: f32 = 52.0;
 /// The menu's width on a wide screen: as wide as on an upright phone, so
 /// each row's name and needs fit on one line and its description on two.
 const WIDTH: f32 = 410.0;
+const PAGE_ROWS: usize = 4;
+const PAGE_ROW: f32 = 34.0;
 
 /// Where the menu and its buttons are, in window pixels from the top-left,
 /// and the part of the screen left for the cut-away.
@@ -527,6 +534,7 @@ struct Layout {
     /// Each recipe's row and its Make button, in [`RECIPES`]' order.
     rows: Vec<(Rect, Rect)>,
     scene: Rect,
+    page_button: Rect,
 }
 
 /// The on-screen buttons' size (as `input.rs` sizes them).
@@ -536,7 +544,7 @@ fn touch_button(window: Vec2) -> f32 {
 
 fn layout(window: Vec2, moult_row: bool) -> Layout {
     let top_row = if moult_row { MOULT_ROW } else { HEADER };
-    let height = top_row + RECIPES.len() as f32 * ROW + PAD;
+    let height = top_row + PAGE_ROW + PAGE_ROWS as f32 * ROW + PAD;
     let b = touch_button(window);
     let (panel, scene) = if window.x < 600.0 {
         // A phone held upright: across the screen, just above the jump
@@ -556,9 +564,15 @@ fn layout(window: Vec2, moult_row: bool) -> Layout {
         let panel = Rect::new(right - WIDTH, top, right, top + height);
         (panel, Rect::new(0.0, 80.0, panel.min.x - 8.0, window.y))
     };
-    let rows = (0..RECIPES.len())
+    let page_button = Rect::new(
+        panel.max.x - PAD - 100.0,
+        panel.min.y + top_row,
+        panel.max.x - PAD,
+        panel.min.y + top_row + PAGE_ROW,
+    );
+    let rows = (0..PAGE_ROWS)
         .map(|i| {
-            let y = panel.min.y + top_row + i as f32 * ROW;
+            let y = panel.min.y + top_row + PAGE_ROW + i as f32 * ROW;
             let row = Rect::new(panel.min.x, y, panel.max.x, y + ROW);
             let make = Rect::new(
                 row.max.x - PAD - MAKE_W,
@@ -586,6 +600,7 @@ fn layout(window: Vec2, moult_row: bool) -> Layout {
         moult,
         rows,
         scene,
+        page_button,
     }
 }
 
@@ -654,14 +669,15 @@ fn lay_out_menu(
     mut commands: Commands,
     window: Single<&Window>,
     inside: Res<Inside>,
+    page: Res<RecipePage>,
     menus: Query<Entity, With<Menu>>,
-    mut laid: Local<Option<(Vec2, bool)>>,
+    mut laid: Local<Option<(Vec2, bool, usize)>>,
 ) {
     let size = window.size();
-    if *laid == Some((size, inside.moult_row)) {
+    if *laid == Some((size, inside.moult_row, page.0)) {
         return;
     }
-    *laid = Some((size, inside.moult_row));
+    *laid = Some((size, inside.moult_row, page.0));
     for m in &menus {
         commands.entity(m).despawn();
     }
@@ -746,7 +762,30 @@ fn lay_out_menu(
                     text("Walk out, jump or dodge to leave.", 11.0, DIM),
                 ));
             }
-            for (def, (row, make)) in RECIPES.iter().zip(&l.rows) {
+            p.spawn((
+                Node {
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    border: UiRect::all(px(1.0)),
+                    border_radius: BorderRadius::all(px(12.0)),
+                    ..at(l.page_button, o)
+                },
+                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
+                BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+            ))
+            .with_children(|b| {
+                b.spawn(text(
+                    if page.0 == 0 { "Food + gear" } else { "Gear" },
+                    13.0,
+                    INK,
+                ));
+            });
+            for (def, (row, make)) in RECIPES
+                .iter()
+                .skip(page.0 * PAGE_ROWS)
+                .take(PAGE_ROWS)
+                .zip(&l.rows)
+            {
                 // A faint line between rows.
                 p.spawn((
                     at(
@@ -908,7 +947,19 @@ fn show_menu(
         let def = recipe.def();
         // Gear made once: the Fitted button says it all, so no need shows.
         let fitted = matches!(sim.can_make(id, *recipe), Err(CantMake::Made));
-        let words = if fitted {
+        let words = if matches!(recipe, Recipe::ShellPortions | Recipe::ReservePortions) {
+            format!(
+                "clams {}; slots {}/2",
+                crab.larder,
+                crab.mover.prepared_food.slots.iter().flatten().count()
+            )
+        } else if *recipe == Recipe::ToggleAutoEat {
+            if crab.mover.prepared_food.auto_eat {
+                "On".into()
+            } else {
+                "Off".into()
+            }
+        } else if fitted {
             String::new()
         } else {
             needs_text(&crab.stash, def.needs)
@@ -935,6 +986,7 @@ fn show_menu(
     }
     for (MakeText(recipe), mut t, mut colour) in &mut make_text {
         let (words, c) = match sim.can_make(id, *recipe) {
+            Ok(()) if *recipe == Recipe::ToggleAutoEat => ("Switch", INK),
             Ok(()) => ("Make", INK),
             Err(CantMake::Made) => ("Fitted", DIM),
             Err(_) => ("Make", Color::srgba(1.0, 0.9, 0.7, 0.35)),
@@ -1020,6 +1072,7 @@ fn press(
     window: Single<&Window>,
     mut sim: ResMut<Sim>,
     mut pick: ResMut<Pick>,
+    mut page: ResMut<RecipePage>,
     me: Query<&PlayerId, With<LocalPlayer>>,
 ) {
     if !inside.on || settings.is_open() {
@@ -1036,6 +1089,10 @@ fn press(
     }
     let l = layout(window.size(), inside.moult_row);
     for p in taps {
+        if l.page_button.contains(p) {
+            page.0 = 1 - page.0;
+            continue;
+        }
         if let Some((_, go, next)) = l.moult
             && let Some(offer) = moult_offer(&sim, *id, pick.0)
         {
@@ -1050,8 +1107,13 @@ fn press(
                 pick.0 += 1;
             }
         }
-        for (def, (_, make)) in RECIPES.iter().zip(&l.rows) {
-            if make.inflate(6.0).contains(p)
+        for (def, (_, make)) in RECIPES
+            .iter()
+            .skip(page.0 * PAGE_ROWS)
+            .take(PAGE_ROWS)
+            .zip(&l.rows)
+        {
+            if make.contains(p)
                 && !crate::coop::cells_action(crate::coop::CellsAction::Craft(def.recipe))
             {
                 let _ = sim.make(*id, def.recipe);
@@ -1085,7 +1147,13 @@ mod tests {
                     l.scene.height() > 150.0,
                     "room for the cut-away at {window}"
                 );
-                for (row, make) in &l.rows {
+                for (i, (row, make)) in l.rows.iter().enumerate() {
+                    for (_, other) in l.rows.iter().skip(i + 1) {
+                        assert!(
+                            make.intersect(*other).is_empty(),
+                            "recipe buttons overlap at {window}"
+                        );
+                    }
                     assert!(
                         make.width() >= 44.0 && make.height() >= 32.0,
                         "a thumb fits"

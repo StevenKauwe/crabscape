@@ -135,7 +135,7 @@ fn note_events(
     {
         let what = match thing {
             Carry::Tooth => ("Take the tooth home!", PALE),
-            Carry::Clam => ("A clam! Take it home.", YOLK),
+            Carry::Clam => ("A clam: meal or field portions.", YOLK),
             Carry::Grit => ("Shell grit for the home", PALE),
             Carry::Glass => ("Glass! Take it home.", PALE),
             Carry::Culture => ("Take it home!", WILD_GLOW),
@@ -209,6 +209,9 @@ fn note_events(
     if ev.wakes_here {
         notes.push(("A safe crevice.".into(), PALE));
         notes.push(("You'll wake here.".into(), PALE));
+    }
+    if ev.ate_portion {
+        notes.push(("Ate a prepared portion".into(), GOLD));
     }
     if ev.ate_clam {
         notes.push(("Cracked a clam: well fed".into(), GOLD));

@@ -64,6 +64,7 @@ pub mod net;
 pub mod octopus;
 pub mod page_cache;
 pub mod physics;
+pub mod prepared_food;
 pub mod progress;
 pub mod replay;
 pub mod rng;

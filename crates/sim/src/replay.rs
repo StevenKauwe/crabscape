@@ -41,6 +41,8 @@
 //! | `parry`         | press block and let go at once (a timed parry)           |
 //! | `guard`         | hold block without a new press (never a parry)           |
 //! | `unblock`       | let go of block                                          |
+//! | `eat`           | hold the field eating action                              |
+//! | `stop-eating`   | release the field eating action                           |
 //! | `smash`         | (above) a tap: with a charging crusher, the shortest wind-up |
 //! | `charge`        | press smash and keep holding it (a charging crusher winds up) |
 //! | `loose`         | let go of smash (a charged smash strikes)                |
@@ -183,7 +185,7 @@ pub fn ticks(seconds: f64) -> u64 {
 impl Replay {
     /// Read a replay or script. On a mistake, says which line and why.
     pub fn parse(text: &str) -> Result<Self, String> {
-        if text.trim_start().starts_with("region_session_v1 ") {
+        if text.trim_start().starts_with("region_session_v2 ") {
             let mut lines = text.trim().lines();
             let journal = crate::world::regions::journal::RegionJournal::from_text(
                 lines.next().ok_or("missing region replay")?,
@@ -510,6 +512,9 @@ impl Replay {
                 (false, false, true) => " slow",
                 _ => "",
             };
+            if c.eat_held != before.eat_held {
+                line += if c.eat_held { " eat" } else { " stop-eating" };
+            }
             if c.down != before.down {
                 line += if c.down { " down=on" } else { " down=off" };
             }
@@ -860,6 +865,7 @@ impl Recorder {
         let changed = c.walk != self.last.walk
             || c.jump_held != self.last.jump_held
             || c.dodge_held != self.last.dodge_held
+            || c.eat_held != self.last.eat_held
             || c.down != self.last.down
             || c.dig_held != self.last.dig_held
             || c.dig_up != self.last.dig_up
@@ -942,6 +948,8 @@ fn when_tick(word: &str) -> Result<u64, String> {
 /// Change `c` by one word of an entry.
 fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
     match word {
+        "eat" => c.eat_held = true,
+        "stop-eating" => c.eat_held = false,
         "jump" => {
             c.jump_pressed = true;
             c.jump_held = true;

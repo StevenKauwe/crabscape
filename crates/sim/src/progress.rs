@@ -85,6 +85,8 @@ pub struct Progress {
     pub salvage_receipts: Vec<crate::salvage::ClaimId>,
     #[serde(default)]
     pub salvage_identity: u64,
+    /// Prepared portions and the home auto-eat preference.
+    pub prepared_food: crate::prepared_food::PreparedFood,
 }
 
 impl Progress {
@@ -175,6 +177,7 @@ impl Sim {
             clam_guards: m.clam_guards,
             salvage_receipts: crab.salvage_receipts.clone(),
             salvage_identity: crab.salvage_identity,
+            prepared_food: m.prepared_food.clone(),
         })
     }
 
@@ -238,6 +241,7 @@ impl Sim {
         m.scissor_claw = p.scissor_claw;
         m.glass_grips = p.glass_grips;
         m.clam_guards = p.clam_guards;
+        m.prepared_food = p.prepared_food.clone();
         m.climb_xp = p.climb_xp;
         m.swim_xp = p.swim_xp;
         m.fight_xp = p.fight_xp;

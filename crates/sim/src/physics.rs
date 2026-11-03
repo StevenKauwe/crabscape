@@ -52,6 +52,8 @@ pub struct Controls {
     pub smash_held: bool,
     /// Was the cutter (jab) pressed since the last step?
     pub jab_pressed: bool,
+    /// Hold to eat one prepared portion while stationary.
+    pub eat_held: bool,
     /// Is block (claws up) held?
     pub block_held: bool,
     /// Was block freshly pressed since the last step? (A press just before
@@ -139,6 +141,8 @@ pub struct Mover {
     /// order it took them: up to [`Mover::carries`] at once (more on a
     /// bigger shell), besides the big find on its back.
     pub clinging: Vec<Carry>,
+    /// Prepared food occupies the same small carrying space.
+    pub prepared_food: crate::prepared_food::PreparedFood,
     /// Scissor claws: a shed tooth's edges fitted along both fingers of its
     /// crusher claw (at the workbench at home). They cut through ghost nets.
     pub scissor_claw: bool,
@@ -246,6 +250,7 @@ impl Mover {
             upgrades: 0,
             carrying: None,
             clinging: Vec::new(),
+            prepared_food: crate::prepared_food::PreparedFood::default(),
             scissor_claw: false,
             glass_grips: false,
             clam_guards: false,
@@ -292,7 +297,8 @@ impl Mover {
     /// on the shell for a small one?
     pub fn room_for(&self, thing: Carry, t: &Tuning) -> bool {
         if thing.small() {
-            self.clinging.len() < self.carries(t)
+            self.clinging.len() + self.prepared_food.slots.iter().flatten().count()
+                < self.carries(t)
         } else {
             self.carrying.is_none()
         }
@@ -508,6 +514,8 @@ pub struct StepEvents {
     pub larder_full: bool,
     /// Ate a clam from the larder: well fed.
     pub ate_clam: bool,
+    /// Finished eating a prepared field portion.
+    pub ate_portion: bool,
     /// Being well fed wore off.
     pub hungry: bool,
     /// Tucked into a crevice it didn't already wake in: it wakes there now
@@ -580,6 +588,7 @@ impl StepEvents {
         self.stored |= other.stored;
         self.larder_full |= other.larder_full;
         self.ate_clam |= other.ate_clam;
+        self.ate_portion |= other.ate_portion;
         self.hungry |= other.hungry;
         self.wakes_here |= other.wakes_here;
         self.built |= other.built;
@@ -1573,6 +1582,7 @@ mod tests {
         jab_pressed: false,
         block_held: false,
         block_pressed: false,
+        eat_held: false,
     };
 
     #[test]

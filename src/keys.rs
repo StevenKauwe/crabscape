@@ -13,7 +13,7 @@ use crate::player::GameSet;
 /// The keys and what they do, in the order a new player needs them (the
 /// same keys as `input.rs`, `go_home.rs`, `view.rs`, `codes.rs`,
 /// `report.rs`, `style.rs` and `replay.rs` read).
-pub(crate) const KEYS: [(&str, &str); 14] = [
+pub(crate) const KEYS: [(&str, &str); 15] = [
     ("A D / Left Right", "walk"),
     ("Space W Up K", "jump; again in the water: swim"),
     ("Shift J + a way", "dodge; hold it: sprint"),
@@ -21,6 +21,7 @@ pub(crate) const KEYS: [(&str, &str); 14] = [
     ("E L", "smash (the crusher)"),
     ("Q O", "jab (the cutter)"),
     ("F I", "guard; tap before a blow: parry"),
+    ("T", "hold still to eat a portion"),
     ("H / Home, then Y", "go home (it asks first)"),
     ("- = / wheel", "zoom out: the crab's memory"),
     ("Enter", "type a code, or chat"),
@@ -240,11 +241,12 @@ fn toggle(
 fn show(
     card: Res<Card>,
     touch: Res<TouchControls>,
+    inside: Res<crate::interior::Inside>,
     mut open: Single<&mut Visibility, (With<Open>, Without<Folded>)>,
     mut folded: Single<&mut Visibility, (With<Folded>, Without<Open>)>,
 ) {
     let shown = |yes: bool| {
-        if yes && !touch.visible {
+        if yes && !touch.visible && !inside.on {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -288,8 +290,8 @@ mod tests {
     fn every_key_the_game_reads_is_on_the_card() {
         let card: String = KEYS.iter().map(|(k, _)| format!("{k} ")).collect();
         for key in [
-            "A", "D", "Space", "W", "Shift", "J", "S", "E", "L", "Q", "O", "F", "I", "H", "Y", "-",
-            "=", "Enter", "R", "P", "F9", "?",
+            "A", "D", "Space", "W", "Shift", "J", "S", "E", "L", "Q", "O", "F", "I", "T", "H", "Y",
+            "-", "=", "Enter", "R", "P", "F9", "?",
         ] {
             assert!(card.split_whitespace().any(|k| k == key), "{key} missing");
         }

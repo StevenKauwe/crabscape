@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Bump this if the format ever changes, so old saves can be recognised.
 /// (Version 1 had no position.)
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 4;
 
 /// Everything we save. Small for now; an inventory will go here later.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

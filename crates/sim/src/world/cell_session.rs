@@ -3,8 +3,8 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
-const MAGIC: &[u8; 8] = b"CRBSES01";
-const REGION_MAGIC: &[u8; 8] = b"CRBSES02";
+const MAGIC: &[u8; 8] = b"CRBSES03";
+const REGION_MAGIC: &[u8; 8] = b"CRBSES04";
 const MAX_META: usize = 8 * 1024 * 1024;
 const MAX_RAW: usize = 20 * 1024 * 1024;
 pub const MAX_SESSION_CHECKPOINT: usize = crate::net::cell_transfer::MAX_CHECKPOINT_BYTES;
@@ -373,6 +373,8 @@ impl Sim {
             || !valid_level(&sim.level)
             || state.crabs.iter().any(|c| {
                 c.remote
+                    || !c.mover.prepared_food.valid()
+                    || !c.eating.valid()
                     || !bounded_pos(c.mover.pos)
                     || !bounded_pos(c.mover.vel)
                     || !c.memory.session_valid(&sim.level, &sim.tuning.memory)
@@ -428,6 +430,7 @@ fn valid_progress(progress: &crate::Progress) -> bool {
         && [progress.climb_xp, progress.swim_xp, progress.fight_xp]
             .iter()
             .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1_000_000_000.0)
+        && progress.prepared_food.valid()
         && progress.upgrades <= 10_000
         && progress.lantern <= 10_000
         && progress.moults <= 10_000
@@ -688,6 +691,74 @@ mod tests {
             original.session_checkpoint().unwrap(),
             restored.session_checkpoint().unwrap()
         );
+    }
+
+    #[test]
+    fn eating_action_and_portion_ids_survive_a_session_checkpoint() {
+        let mut original = session();
+        let crab = original.crab_mut(PlayerId(0)).unwrap();
+        crab.larder = 1;
+        assert!(crab.mover.prepared_food.prepare(
+            crate::prepared_food::PortionKind::Shell,
+            &mut crab.larder,
+            &mut crab.stash.valves
+        ));
+        original.set_controls(
+            PlayerId(0),
+            Controls {
+                eat_held: true,
+                ..Controls::default()
+            },
+        );
+        for _ in 0..120 {
+            original.tick();
+        }
+        let bytes = original.session_checkpoint().unwrap();
+        let mut restored = Sim::from_session_checkpoint(&bytes).unwrap();
+        assert_eq!(
+            restored.crab(PlayerId(0)).unwrap().mover.prepared_food,
+            original.crab(PlayerId(0)).unwrap().mover.prepared_food
+        );
+        for _ in 0..150 {
+            original.tick();
+            restored.tick();
+        }
+        assert_eq!(original.state_hash(), restored.state_hash());
+        assert_eq!(
+            original
+                .crab(PlayerId(0))
+                .unwrap()
+                .mover
+                .prepared_food
+                .slots
+                .iter()
+                .flatten()
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_duplicate_portion_identity_is_rejected_at_join_and_restore() {
+        let mut host = session();
+        assert!(host.remove_cell_player(PlayerId(71)));
+        let mut progress = host.fresh_progress();
+        let mut valves = 0;
+        let mut clams = 1;
+        assert!(progress.prepared_food.prepare(
+            crate::prepared_food::PortionKind::Shell,
+            &mut clams,
+            &mut valves
+        ));
+        progress.prepared_food.slots[1] = progress.prepared_food.slots[0];
+        assert!(!host.join_cell_player(PlayerId(71), crate::level::SPAWN, &progress));
+        let crab = host.crab_mut(PlayerId(0)).unwrap();
+        crab.mover.prepared_food = progress.prepared_food;
+        let bytes = host.session_checkpoint().unwrap();
+        assert!(matches!(
+            Sim::from_session_checkpoint(&bytes),
+            Err(CheckpointError::Invalid)
+        ));
     }
 
     #[test]

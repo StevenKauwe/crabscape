@@ -64,6 +64,15 @@ pub fn load() -> Option<SaveData> {
         return None;
     }
     let text = backend::read()?;
+    // Read the version before the body, so an older schema missing required
+    // fields is identified as a different format rather than malformed data.
+    let version = serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|v| v.get("version").and_then(serde_json::Value::as_u64));
+    if version != Some(u64::from(SAVE_VERSION)) {
+        info!("ignoring a save from a different format version ({version:?})");
+        return None;
+    }
     match serde_json::from_str::<SaveData>(&text) {
         Ok(data) if data.version == SAVE_VERSION => Some(data),
         Ok(data) => {
@@ -396,7 +405,7 @@ mod tests {
             progress: None,
         };
         let text = serde_json::to_string(&data).unwrap();
-        assert_eq!(text, r#"{"version":3,"x":640.0,"y":110.0}"#);
+        assert_eq!(text, r#"{"version":4,"x":640.0,"y":110.0}"#);
         assert_eq!(serde_json::from_str::<SaveData>(&text).unwrap(), data);
     }
 
@@ -422,7 +431,7 @@ mod tests {
             object.remove(field);
         }
         let text =
-            serde_json::json!({"version": 3, "x": 160.0, "y": 0.0, "progress": value}).to_string();
+            serde_json::json!({"version": 4, "x": 160.0, "y": 0.0, "progress": value}).to_string();
         let loaded: SaveData = serde_json::from_str(&text).unwrap();
         assert_eq!(loaded.progress, Some(progress));
         assert_eq!(loaded.memory, None);
