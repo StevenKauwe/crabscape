@@ -323,7 +323,7 @@ impl super::World {
         if self.sleeping.cache.waiting() {
             return false;
         }
-        if !self.prepare_owned_region(self.region()) {
+        if !self.prepare_departing_pages(self.region(), Some(bounds)) {
             return false;
         }
         if self.preview_window(x, y).is_none()
@@ -397,6 +397,13 @@ impl super::World {
         }
     }
     pub(crate) fn prepare_owned_region(&mut self, bounds: super::region::CellRegion) -> bool {
+        self.prepare_departing_pages(bounds, None)
+    }
+    fn prepare_departing_pages(
+        &mut self,
+        bounds: super::region::CellRegion,
+        retained: Option<super::region::CellRegion>,
+    ) -> bool {
         if !self.sleeping.cache.enabled {
             return true;
         }
@@ -408,6 +415,16 @@ impl super::World {
             for x in (bounds.x + side - 1).div_euclid(side)
                 ..(bounds.x + bounds.width as i32).div_euclid(side)
             {
+                // The overlap stays in the active arrays. Only pages leaving
+                // that overlap can acquire sleeping cells during this remap.
+                if retained.is_some_and(|r| {
+                    x * side >= r.x
+                        && y * side >= r.y
+                        && (x + 1) * side <= r.x + r.width as i32
+                        && (y + 1) * side <= r.y + r.height as i32
+                }) {
+                    continue;
+                }
                 written.insert((x, y));
             }
         }
@@ -520,6 +537,29 @@ mod cold_tests {
         Level, Memory, SAVE_VERSION, SaveData, Tuning,
         cell_codec::spatial::{Capture, files::Store},
     };
+    #[test]
+    fn resident_dirty_pages_leave_room_for_the_departing_strip() {
+        let side = super::super::TERRAIN_CHUNK_CELLS;
+        let mut world = super::super::World::from_level_settled(&Level::test_level());
+        let old = super::super::region::CellRegion {
+            x: 0,
+            y: 0,
+            width: 10 * side as usize,
+            height: 6 * side as usize,
+        };
+        let new = super::super::region::CellRegion { y: side, ..old };
+        let occupied =
+            (1000..1000 + crate::page_cache::RESIDENT_PAGE_LIMIT as i32 - 10).map(|x| (x, 0));
+        world.sleeping.cache.enable(occupied.clone());
+        world.sleeping.dirty.extend(occupied);
+        assert!(world.prepare_departing_pages(old, Some(new)));
+        assert_eq!(world.sleeping.cache.protected.len(), 10);
+        assert_eq!(
+            world.sleeping.cache.known.len(),
+            crate::page_cache::RESIDENT_PAGE_LIMIT
+        );
+        assert!(!world.prepare_owned_region(old));
+    }
     fn capture(world: &super::super::World, memory: &Memory, tick: u64) -> Capture {
         let (left, bottom, width, height) = world.game_bounds();
         Capture::new(
