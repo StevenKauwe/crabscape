@@ -44,6 +44,14 @@ fn answer(mut stream: TcpStream, root: &Path, (w, h): (u32, u32)) -> std::io::Re
             html.as_bytes(),
         );
     }
+    if target == "/__fixture_setup" {
+        return reply(
+            &mut stream,
+            "200 OK",
+            "text/html",
+            b"<!doctype html><title>Save fixture</title>",
+        );
+    }
     let path = target;
     let path = path.split(['?', '#']).next().unwrap_or("/");
     // Exercise worker URLs under a preview prefix without creating a second
