@@ -517,6 +517,12 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
         if local != HOST
             && (near_edge(bounds(sim)?, point(sim, local)?) || salvage_outside_lease(sim))
         {
+            // The owner validates this tick against the guest input journal.
+            // At the safety edge, wait here until the returning window strips
+            // and their buffered input batches have been sent in order.
+            if moving::return_pending(r) {
+                return Ok(());
+            }
             let k = r.kernel.as_ref().ok_or("Missing regional kernel")?;
             let p = point(sim, local)?;
             send(
