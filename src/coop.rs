@@ -178,6 +178,44 @@ mod regional_action_queue_tests {
         assert!(matches!(pending[0], (id, CellsAction::Home) if id == a));
         assert!(matches!(pending[1], (id, CellsAction::Canyon(_)) if id == b));
     }
+
+    #[test]
+    fn home_at_each_mid_batch_tick_does_not_stop_the_region() {
+        use crabsim::{
+            Controls, Sim,
+            underwater::region_store::{RegionEpoch, RegionId},
+            world::regions::{EntityArchive, RegionError, RegionFrame},
+        };
+        for arrival in 1..4 {
+            let actor = PlayerId(0);
+            let mut sim = Sim::with_one_crab([160.0, 0.0].into());
+            sim.enable_underwater_cells();
+            let terrain = sim.level.cells.as_ref().unwrap().clone();
+            let mut archive = EntityArchive::new(sim).unwrap();
+            let mut region = archive
+                .extract(RegionId(1), RegionEpoch(1), &[actor], terrain)
+                .unwrap();
+            let mut pending = std::collections::VecDeque::new();
+            for tick in 0..4 {
+                if tick == arrival {
+                    pending.push_back((actor, CellsAction::Home));
+                    let rejected = RegionFrame {
+                        tick: region.sim.tick_count(),
+                        controls: vec![(actor, Controls::default())],
+                        actions: vec![(actor, CellsAction::Home)],
+                    };
+                    assert_eq!(region.tick(&rejected), Err(RegionError::TopologyRequired));
+                }
+                let frame = RegionFrame {
+                    tick: region.sim.tick_count(),
+                    controls: vec![(actor, Controls::default())],
+                    actions: take_region_frame_actions(&mut pending, &[actor]),
+                };
+                region.tick(&frame).unwrap();
+            }
+            assert!(matches!(pending.pop_front(), Some((id, CellsAction::Home)) if id == actor));
+        }
+    }
 }
 
 pub(crate) fn cells_replay(report: bool) -> Option<Result<String, String>> {
