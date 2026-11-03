@@ -1023,8 +1023,10 @@ const SCENARIOS: [(&str, &str, u32); 24] = [
 
 /// The scenarios in part `part` (from 1) of `parts`: longest first, each to the part with the least time so far, so
 /// the parts take about as long and every scenario is in exactly one. In `--list` order.
-fn shard(part: usize, parts: usize) -> Vec<&'static str> {
-    let mut longest_first: Vec<usize> = (0..SCENARIOS.len()).collect();
+fn shard(part: usize, parts: usize, selected: &[&str]) -> Vec<&'static str> {
+    let mut longest_first: Vec<usize> = (0..SCENARIOS.len())
+        .filter(|&i| selected.contains(&SCENARIOS[i].0))
+        .collect();
     longest_first.sort_by_key(|&i| std::cmp::Reverse(SCENARIOS[i].2));
     let mut time = vec![0; parts];
     let mut part_of = vec![0; SCENARIOS.len()];
@@ -2635,16 +2637,24 @@ fn main() {
             }
         }
     } else {
-        let part = a.shard.map(|(i, n)| shard(i, n));
-        let names: Vec<&str> = SCENARIOS
+        let selected: Vec<&str> = SCENARIOS
             .iter()
             .map(|(n, _, _)| *n)
             .filter(|n| {
                 (!n.starts_with("cell-probe") && a.only.is_empty()) || a.only.iter().any(|o| o == n)
             })
-            .filter(|n| part.as_ref().is_none_or(|p| p.contains(n)))
             .collect();
-        if names.is_empty() {
+        if a.only.iter().any(|name| !selected.contains(&name.as_str())) {
+            eprintln!(
+                "cooptest: unknown scenario in {:?} (--list names them)",
+                a.only
+            );
+            std::process::exit(2);
+        }
+        let names = a
+            .shard
+            .map_or_else(|| selected.clone(), |(i, n)| shard(i, n, &selected));
+        if names.is_empty() && a.shard.is_none() {
             eprintln!(
                 "cooptest: no scenario called {:?} in this part (--list names them)",
                 a.only
@@ -2722,7 +2732,9 @@ mod tests {
     #[test]
     fn every_scenario_is_in_exactly_one_part() {
         for parts in 1..=SCENARIOS.len() + 1 {
-            let mut all: Vec<&str> = (1..=parts).flat_map(|p| shard(p, parts)).collect();
+            let mut all: Vec<&str> = (1..=parts)
+                .flat_map(|p| shard(p, parts, &SCENARIOS.iter().map(|s| s.0).collect::<Vec<_>>()))
+                .collect();
             all.sort_unstable();
             let mut want: Vec<&str> = SCENARIOS.iter().map(|s| s.0).collect();
             want.sort_unstable();
@@ -2734,13 +2746,41 @@ mod tests {
     fn parts_take_about_as_long() {
         let longest = SCENARIOS.iter().map(|s| s.2).max().unwrap_or(0);
         for parts in 2..=4 {
-            let times: Vec<u32> = (1..=parts).map(|p| seconds(&shard(p, parts))).collect();
+            let times: Vec<u32> = (1..=parts)
+                .map(|p| {
+                    seconds(&shard(
+                        p,
+                        parts,
+                        &SCENARIOS.iter().map(|s| s.0).collect::<Vec<_>>(),
+                    ))
+                })
+                .collect();
             let (min, max) = (times.iter().min(), times.iter().max());
             assert!(
                 max.zip(min).is_some_and(|(max, min)| max - min <= longest),
                 "{parts} parts: {times:?}"
             );
         }
+    }
+
+    #[test]
+    fn sharding_balances_only_the_selected_scenarios() {
+        let selected: Vec<&str> = SCENARIOS
+            .iter()
+            .map(|s| s.0)
+            .filter(|n| !n.starts_with("cell-probe"))
+            .collect();
+        let mut all: Vec<&str> = (1..=3).flat_map(|p| shard(p, 3, &selected)).collect();
+        all.sort_unstable();
+        let mut expected = selected.clone();
+        expected.sort_unstable();
+        assert_eq!(all, expected);
+        let times: Vec<u32> = (1..=3).map(|p| seconds(&shard(p, 3, &selected))).collect();
+        assert!(
+            times.iter().max().unwrap() - times.iter().min().unwrap() <= 35,
+            "{times:?}"
+        );
+        assert!(shard(3, 3, &["join"]).is_empty());
     }
 
     #[test]

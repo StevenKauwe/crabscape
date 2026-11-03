@@ -100,11 +100,12 @@ checked by fast tests (the browser runs can't, without downloading the 110 MB mo
 | What | Command | Where |
 |---|---|---|
 | Every scenario once, voice off (CI, every PR) | `cargo cooptest --repeat 1 --shard I/3` | the `co-op promises, part I of 3` jobs, at once (behind the required `browser` check) |
-| Every scenario 3 times, voice off and on, and a stress run | `cargo cooptest --voice both`, `cargo cooptest --stress --steps 12` | `coop.yml`, after each deploy to main and daily, local introducer |
-| The live site and the real introducer | `cargo cooptest --url https://stevenkauwe.github.io/crabscape/` | `coop.yml`, same times |
+| Cellular session and delayed guest reconnect with voice on, live site and real introducer | `cargo cooptest --url https://stevenkauwe.github.io/crabscape/ --only cells-session,guest-reload --repeat 1 --voice on` | `coop.yml`, after each successful main CI |
+| Every scenario 3 times, voice off and on, and a stress run | `cargo cooptest --voice both --shard I/3`, `cargo cooptest --stress --steps 12` | `coop.yml`, daily or manually, local introducer |
+| Every scenario once in both voice modes, live site and real introducer | `cargo cooptest --url https://stevenkauwe.github.io/crabscape/ --repeat 1 --voice both --shard I/3` | `coop.yml`, daily or manually |
 | A failed stress seed again | the `replay:` line it printed | anywhere |
 
-Failures on `main` (the after-deploy and daily runs) open or add to the `main-broken` issue.
+Failures on `main` (the after-deploy and daily runs) open or add to the `main-broken` issue. The smaller post-deploy smoke moves other live-only failures to the daily run. The live site may advance while a run is in progress. Manual runs require a green CI build for the exact selected commit (`gh workflow run ci.yml --ref <branch>` first for a branch).
 
 ## How the game keeps them
 
