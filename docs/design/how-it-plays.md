@@ -91,7 +91,7 @@ blow lands, and a creature hunting it gives up and goes back to its den; backing
 The mantis stalks: walking past or away doesn't escape it, only a sprint or a fight does.
 **Block** (hold): damage ×0.2, poise in full, walk at 40%. **Parry**: block pressed ≤ 10 ticks before a blow lands
 (a fresh press; a tap counts, a held block never does, and presses closer than 0.2 s apart open no new window):
-no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. A "Parry! Smash now"
+no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. A "Parry! SMASH"
 cue and shrinking bar show the actual remaining counter opportunity; they disappear when it expires or is spent. **Dodge** (and flip):
 invulnerable on its ticks 2–13. Enemies (`crates/sim/src/enemy.rs`) run the bestiary's state machine with a
 `tell` whose last stretch is `cocked`, and take the crab's blows by the same rules.
