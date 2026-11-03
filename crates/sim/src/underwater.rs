@@ -2,6 +2,7 @@
 //! Coordinates increase right and up. Water occupies every non-solid cell;
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
+mod shellwash_content;
 mod sleeping_archive;
 use sleeping_archive::SleepingArchive;
 pub use sleeping_archive::SleepingCut;

@@ -208,6 +208,7 @@ impl Sim {
         self.level.cells = Some(crate::underwater::World::from_level_settled(&self.level));
         if let Some(cells) = &mut self.level.cells {
             cells.seed_shellwash_site();
+            cells.seed_shallow_shortcut();
         }
         self.salvage = Some(crate::salvage::Shellwash::default());
         // A larger individual reads clearly against the player crab; keep
