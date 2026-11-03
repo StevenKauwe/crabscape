@@ -15,6 +15,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # Tools installed with `cargo install` live here; make sure we can find them.
 export PATH="$HOME/.cargo/bin:$PATH"
+# Honor isolated Cargo caches for every build and wasm-bindgen input.
+build_target="${CARGO_TARGET_DIR:-target}"
 
 # 1. Compile Rust to WebAssembly. RUSTFLAGS is cleared on purpose so no
 #    extra CPU features (like relaxed SIMD, which iPhones reject) sneak in
@@ -42,14 +44,14 @@ if [[ "$want" != "$have" ]]; then
 fi
 rm -rf web/pkg
 wasm-bindgen --target web --no-typescript --out-dir web/pkg \
-  target/wasm32-unknown-unknown/release/crabscape.wasm
+  "$build_target"/wasm32-unknown-unknown/release/crabscape.wasm
 
 # The speech-to-text listener for spoken reports and voice chat (crates/listen):
 # its own small module, loaded in a background worker only when used.
 RUSTFLAGS='' cargo build --release --target wasm32-unknown-unknown -p listen
 rm -f web/listen/listen*
 wasm-bindgen --target web --no-typescript --out-dir web/listen \
-  target/wasm32-unknown-unknown/release/listen.wasm
+  "$build_target"/wasm32-unknown-unknown/release/listen.wasm
 
 # Checkpoint compression is a small standalone Rust worker. Keep its
 # wasm-bindgen glue at the same version as the game's loader.
@@ -59,10 +61,10 @@ if [[ "$worker_want" != "$want" ]]; then
   exit 1
 fi
 RUSTFLAGS='' cargo build --release --locked --manifest-path tools/cellworker/Cargo.toml \
-  --target wasm32-unknown-unknown --target-dir target
+  --target wasm32-unknown-unknown --target-dir "$build_target"
 rm -f web/cellworker/cellworker*
 wasm-bindgen --target web --no-typescript --out-dir web/cellworker \
-  target/wasm32-unknown-unknown/release/cellworker.wasm
+  "$build_target"/wasm32-unknown-unknown/release/cellworker.wasm
 
 # 3. Optionally squeeze it further.
 wasm=web/pkg/crabscape_bg.wasm

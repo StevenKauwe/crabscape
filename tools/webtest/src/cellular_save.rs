@@ -3,7 +3,7 @@ use crabsim::{
     Level, Replay, Sim,
     underwater::{GAME_CELL, HEIGHT, WIDTH, World},
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::{CANVAS, Test, driver::Result, settings_button, settings_tab, start_over_centre};
 
@@ -155,6 +155,16 @@ const READ_PLAYER: &str = r#"await new Promise((resolve,reject)=>{
  };
 })"#;
 
+fn preserved_normal_save() -> crabsim::SaveData {
+    crabsim::SaveData {
+        version: crabsim::SAVE_VERSION,
+        x: 918.0,
+        y: Level::test_level().floor_height(918.0),
+        memory: None,
+        progress: None,
+    }
+}
+
 impl Test<'_> {
     fn cellular_record(&self) -> Result<Option<Vec<u8>>> {
         let record = self.eval(&format!("await ({})", spatial_fixture::CAPTURE_SCRIPT))?;
@@ -180,7 +190,7 @@ impl Test<'_> {
         let bytes = fixture()?;
         let initial = decode(&bytes)?;
         let object = object_from_frame(&bytes)?;
-        let normal = json!({"version": crabsim::SAVE_VERSION, "x": 918.0, "y": 0.0}).to_string();
+        let normal = serde_json::to_string(&preserved_normal_save()).map_err(|e| e.to_string())?;
         self.eval(&format!(
             r#"await new Promise((resolve, reject) => {{
           localStorage.setItem("crabscape.save", {normal:?});
@@ -501,6 +511,23 @@ impl Test<'_> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn preserved_normal_fixture_has_a_current_valid_restore_position() {
+        let saved = preserved_normal_save();
+        assert_eq!(saved.version, crabsim::SAVE_VERSION);
+        let mut position = crabsim::SPAWN;
+        position.x = saved.x;
+        position.y = saved.y;
+        assert!(
+            crabsim::physics::is_valid_spot(
+                position,
+                1.0,
+                &crabsim::Tuning::default(),
+                &Level::test_level()
+            ),
+            "normal fixture would be rejected and restore SPAWN"
+        );
+    }
     #[test]
     fn fixture_has_distinct_terrain_player_and_checked_paged_record() {
         let bytes = fixture().unwrap();

@@ -1311,6 +1311,42 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 return Err(host.failed("large-world join/departure lost distant terrain".into()));
             }
             found.push(format!("400-page owner world accepts guest with exact shared hash {owner_hash}, then retains distant terrain after guest leaves and owner saves"));
+            // Current-schema normal saves must restore as well as cellular
+            // records. Replay start checks the loaded pose before physics.
+            for (x, y) in [
+                (918.0, crabsim::Level::test_level().floor_height(918.0)),
+                (870.0, 110.0),
+                (760.0, 100.0),
+                (1350.0, 0.0),
+            ] {
+                host.b.go(asset.as_str().ok_or("missing asset URL")?)?;
+                let normal = serde_json::to_string(&crabsim::SaveData {
+                    version: crabsim::SAVE_VERSION,
+                    x,
+                    y,
+                    memory: None,
+                    progress: None,
+                })
+                .map_err(|e| e.to_string())?;
+                host.b.eval(&format!(
+                    "(localStorage.setItem('crabscape.save',{normal:?}),true)"
+                ))?;
+                host.open(&site.url("cells&boring"))?;
+                host.b.eval("(()=>{const c=document.getElementById('crabscape');c.removeAttribute('data-replay');c.setAttribute('data-want-replay','1');return true;})()")?;
+                host.until(15.0, "normal save replay start", |p| {
+                    p.b.attr("data-replay").is_some()
+                })?;
+                let replay = crabsim::Replay::parse(
+                    &host.b.attr("data-replay").ok_or("missing normal replay")?,
+                )?;
+                if replay.cellular || replay.start.x != x || replay.start.y != y {
+                    return Err(host.failed(format!(
+                        "normal saved pose ({x},{y}) restored as {:?}",
+                        replay.start
+                    )));
+                }
+            }
+            found.push("current-schema normal saves restore the original x918, mantis and scent poses before physics".into());
         }
         "cells-regions" | "cells-region-save" => {
             eprintln!("cells-regions: opening both browsers");

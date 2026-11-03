@@ -216,51 +216,6 @@ impl super::World {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn dirty_capture_work_is_independent_of_archive_size_and_acks_are_revision_safe() {
-        let mut world = super::super::World::new();
-        let template = SleepingChunk::default();
-        for count in [100, 10_000] {
-            for x in world.sleeping.len()..count {
-                world.sleeping.insert((x as i32, -50), template.clone());
-            }
-            let full = world.dirty_sleeping();
-            world.acknowledge_sleeping(&full);
-            world.sleeping.get_mut(&(7, -50)).unwrap().cells[0] =
-                Some(super::super::SleepingCell {
-                    cell: super::super::Cell::Sand,
-                    flow: (0.25, 0.5),
-                    suspended: 0,
-                    grain: 8,
-                    owner: 0,
-                });
-            let cut = world.dirty_sleeping();
-            assert_eq!(
-                cut.len(),
-                1,
-                "{count} explored pages require one changed-page capture"
-            );
-            assert!(cut[0].encode().unwrap().len() <= 256 * 1024);
-            world.sleeping.get_mut(&(7, -50)).unwrap().cells[0]
-                .as_mut()
-                .unwrap()
-                .grain = 9;
-            world.acknowledge_sleeping(&cut);
-            assert_eq!(
-                world.dirty_sleeping().len(),
-                1,
-                "old acknowledgement must retain newer edits"
-            );
-            let latest = world.dirty_sleeping();
-            world.acknowledge_sleeping(&latest);
-            assert!(world.dirty_sleeping().is_empty());
-        }
-    }
-}
-
 impl super::World {
     pub fn enable_paging(&mut self) {
         self.sleeping
@@ -416,7 +371,131 @@ impl super::World {
     }
 }
 
+impl super::World {
+    pub(crate) fn begin_region_prefetch(&mut self) {
+        self.sleeping.cache.protected.clear();
+    }
+    pub(crate) fn pin_regions(&mut self, regions: &[super::region::CellRegion]) {
+        self.sleeping.cache.pinned.clear();
+        if !self.sleeping.cache.enabled {
+            return;
+        }
+        let side = super::TERRAIN_CHUNK_CELLS;
+        for bounds in regions {
+            for y in
+                bounds.y.div_euclid(side)..=(bounds.y + bounds.height as i32 - 1).div_euclid(side)
+            {
+                for x in bounds.x.div_euclid(side)
+                    ..=(bounds.x + bounds.width as i32 - 1).div_euclid(side)
+                {
+                    self.sleeping.cache.pinned.insert((x, y));
+                }
+            }
+        }
+    }
+    pub(crate) fn prepare_owned_region(&mut self, bounds: super::region::CellRegion) -> bool {
+        if !self.sleeping.cache.enabled {
+            return true;
+        }
+        let side = super::TERRAIN_CHUNK_CELLS;
+        let mut written = BTreeSet::new();
+        for y in (bounds.y + side - 1).div_euclid(side)
+            ..(bounds.y + bounds.height as i32).div_euclid(side)
+        {
+            for x in (bounds.x + side - 1).div_euclid(side)
+                ..(bounds.x + bounds.width as i32).div_euclid(side)
+            {
+                written.insert((x, y));
+            }
+        }
+        let extra = written
+            .iter()
+            .filter(|key| !self.sleeping.cache.known.contains(key))
+            .count();
+        self.sleeping
+            .cache
+            .protected
+            .extend(written.iter().copied());
+        self.evict_clean_sleeping(crate::page_cache::RESIDENT_PAGE_LIMIT.saturating_sub(extra));
+        if self.sleeping.cache.known.len() + extra > crate::page_cache::RESIDENT_PAGE_LIMIT {
+            return false;
+        }
+        for key in written {
+            if !self.sleeping.cache.known.contains(&key) {
+                self.sleeping.cache.loaded(key);
+            }
+        }
+        true
+    }
+    pub(crate) fn passive_transaction(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> usize,
+    ) -> usize {
+        if !self.sleeping.cache.enabled {
+            return operation(self);
+        }
+        if self.sleeping.cache.waiting() {
+            return 0;
+        }
+        let mut candidate = self.active_copy();
+        candidate.sleeping = self.sleeping.clone();
+        let work = operation(&mut candidate);
+        if self.sleeping.cache.waiting()
+            || candidate.sleeping.pages.len() > crate::page_cache::RESIDENT_PAGE_LIMIT
+        {
+            return 0;
+        }
+        *self = candidate;
+        work
+    }
+}
+
 #[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn dirty_capture_work_is_independent_of_archive_size_and_acks_are_revision_safe() {
+        let mut world = super::super::World::new();
+        let template = SleepingChunk::default();
+        for count in [100, 10_000] {
+            for x in world.sleeping.len()..count {
+                world.sleeping.insert((x as i32, -50), template.clone());
+            }
+            let full = world.dirty_sleeping();
+            world.acknowledge_sleeping(&full);
+            world.sleeping.get_mut(&(7, -50)).unwrap().cells[0] =
+                Some(super::super::SleepingCell {
+                    cell: super::super::Cell::Sand,
+                    flow: (0.25, 0.5),
+                    suspended: 0,
+                    grain: 8,
+                    owner: 0,
+                });
+            let cut = world.dirty_sleeping();
+            assert_eq!(
+                cut.len(),
+                1,
+                "{count} explored pages require one changed-page capture"
+            );
+            assert!(cut[0].encode().unwrap().len() <= 256 * 1024);
+            world.sleeping.get_mut(&(7, -50)).unwrap().cells[0]
+                .as_mut()
+                .unwrap()
+                .grain = 9;
+            world.acknowledge_sleeping(&cut);
+            assert_eq!(
+                world.dirty_sleeping().len(),
+                1,
+                "old acknowledgement must retain newer edits"
+            );
+            let latest = world.dirty_sleeping();
+            world.acknowledge_sleeping(&latest);
+            assert!(world.dirty_sleeping().is_empty());
+        }
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod cold_tests {
     use super::*;
     use crate::{
@@ -548,84 +627,5 @@ mod cold_tests {
         for count in [100, 1000, 10_000] {
             exercise(count);
         }
-    }
-}
-
-impl super::World {
-    pub(crate) fn begin_region_prefetch(&mut self) {
-        self.sleeping.cache.protected.clear();
-    }
-    pub(crate) fn pin_regions(&mut self, regions: &[super::region::CellRegion]) {
-        self.sleeping.cache.pinned.clear();
-        if !self.sleeping.cache.enabled {
-            return;
-        }
-        let side = super::TERRAIN_CHUNK_CELLS;
-        for bounds in regions {
-            for y in
-                bounds.y.div_euclid(side)..=(bounds.y + bounds.height as i32 - 1).div_euclid(side)
-            {
-                for x in bounds.x.div_euclid(side)
-                    ..=(bounds.x + bounds.width as i32 - 1).div_euclid(side)
-                {
-                    self.sleeping.cache.pinned.insert((x, y));
-                }
-            }
-        }
-    }
-    pub(crate) fn prepare_owned_region(&mut self, bounds: super::region::CellRegion) -> bool {
-        if !self.sleeping.cache.enabled {
-            return true;
-        }
-        let side = super::TERRAIN_CHUNK_CELLS;
-        let mut written = BTreeSet::new();
-        for y in (bounds.y + side - 1).div_euclid(side)
-            ..(bounds.y + bounds.height as i32).div_euclid(side)
-        {
-            for x in (bounds.x + side - 1).div_euclid(side)
-                ..(bounds.x + bounds.width as i32).div_euclid(side)
-            {
-                written.insert((x, y));
-            }
-        }
-        let extra = written
-            .iter()
-            .filter(|key| !self.sleeping.cache.known.contains(key))
-            .count();
-        self.sleeping
-            .cache
-            .protected
-            .extend(written.iter().copied());
-        self.evict_clean_sleeping(crate::page_cache::RESIDENT_PAGE_LIMIT.saturating_sub(extra));
-        if self.sleeping.cache.known.len() + extra > crate::page_cache::RESIDENT_PAGE_LIMIT {
-            return false;
-        }
-        for key in written {
-            if !self.sleeping.cache.known.contains(&key) {
-                self.sleeping.cache.loaded(key);
-            }
-        }
-        true
-    }
-    pub(crate) fn passive_transaction(
-        &mut self,
-        operation: impl FnOnce(&mut Self) -> usize,
-    ) -> usize {
-        if !self.sleeping.cache.enabled {
-            return operation(self);
-        }
-        if self.sleeping.cache.waiting() {
-            return 0;
-        }
-        let mut candidate = self.active_copy();
-        candidate.sleeping = self.sleeping.clone();
-        let work = operation(&mut candidate);
-        if self.sleeping.cache.waiting()
-            || candidate.sleeping.pages.len() > crate::page_cache::RESIDENT_PAGE_LIMIT
-        {
-            return 0;
-        }
-        *self = candidate;
-        work
     }
 }

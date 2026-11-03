@@ -400,6 +400,11 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
     }
     falling::step(s, r, sim, local)?;
     moving::step(s, r, sim, local)?;
+    // Storage can pause personal memory without consuming a network frame.
+    // In particular, keep replica frames queued and preserve local actions.
+    if !sim.memory_pages_ready() {
+        return Ok(());
+    }
     let follows = local != HOST && r.shared;
     if follows {
         if let Some(frame) = r.frames.pop_front() {

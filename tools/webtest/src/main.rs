@@ -50,6 +50,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crabsim::{Replay, Sim};
+const SAVE_VERSION: u32 = crabsim::SAVE_VERSION;
 use driver::{Browser, Result};
 use serde_json::Value;
 
@@ -833,7 +834,8 @@ impl Test<'_> {
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or_default();
         self.check(
-            saved["version"] == 2 && (saved["x"].as_f64().unwrap_or(-1e9) - resting.0).abs() < 1.5,
+            saved["version"] == SAVE_VERSION
+                && (saved["x"].as_f64().unwrap_or(-1e9) - resting.0).abs() < 1.5,
             format!("the resting position is saved in localStorage ({raw})"),
         );
         // `?replay` adds a Replay button (for phones); a reload must keep the place and the style.
@@ -856,9 +858,8 @@ impl Test<'_> {
         self.replay_matches("the ?replay page's Replay button", standing)?;
 
         // --- a fight: start by the mantis shrimp's burrow on the plateau ------------------------------------------
-        self.eval(
-            r#"(localStorage.setItem("crabscape.save", JSON.stringify({version: 2, x: 870, y: 110})), true)"#,
-        )?;
+        self.go("assets/crab/crab-atlas.png")?;
+        self.eval(&format!(r#"(localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: 870, y: 110}})), true)"#))?;
         self.open("index.html")?;
         let by_burrow = self.crab()?;
         self.check(
@@ -1041,9 +1042,7 @@ impl Test<'_> {
         // A slow sim gives the camera and memory time to settle before the
         // crab, loaded in water by the kelp, sinks away from the surface.
         if let Some(prefix) = self.o.shots.clone() {
-            self.eval(
-                r#"(localStorage.clear(), localStorage.setItem("crabscape.save", JSON.stringify({version: 2, x: 900, y: 4920})), true)"#,
-            )?;
+            self.eval(&format!(r#"(localStorage.clear(), localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: 900, y: 4920}})), true)"#))?;
             let started = self.open("index.html?slow=10")?;
             self.check(started, "the game starts near the water surface");
             pump(1.0);
@@ -1062,7 +1061,7 @@ impl Test<'_> {
                 // otherwise its autosave can overwrite the new position.
                 self.go("assets/crab/crab-atlas.png")?;
                 self.eval(&format!(
-                    r#"(localStorage.clear(), localStorage.setItem("crabscape-keys", "folded"), localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: {x}, y: {y}}})), true)"#
+                    r#"(localStorage.clear(), localStorage.setItem("crabscape-keys", "folded"), localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: {x}, y: {y}}})), true)"#
                 ))?;
                 let started = self.open(&format!("index.html?slow=10&zoom={zoom}"))?;
                 self.check(started, format!("the {name} scent screenshot starts"));
@@ -1088,9 +1087,10 @@ impl Test<'_> {
         // The new creatures' tells, 10x slow: walk up to a snapping shrimp (it feels the steps), stand by a
         // moray's crevice (it smells the crab).
         for (kind, x, y, walk) in [("snapper", 210, 0, true), ("moray", 2480, 20, false)] {
+            self.go("assets/crab/crab-atlas.png")?;
             self.eval(&format!(
                 r#"(localStorage.clear(),
-                    localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: {x}, y: {y}}})), true)"#
+                    localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: {x}, y: {y}}})), true)"#
             ))?;
             self.open("index.html?slow=10")?;
             if walk {
@@ -1120,6 +1120,7 @@ impl Test<'_> {
             ("tank", true, false),
         ];
         for (feel, counter, turn) in runs {
+            self.go("assets/crab/crab-atlas.png")?;
             let name = if counter {
                 format!("{feel}-crush")
             } else if turn {
@@ -1129,7 +1130,7 @@ impl Test<'_> {
             };
             self.eval(&format!(
                 r#"(localStorage.clear(),
-                    localStorage.setItem("crabscape.save", JSON.stringify({{version: 2, x: 870, y: 110}})),
+                    localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: 870, y: 110}})),
                     localStorage.setItem("crabscape-feel", "{feel}"),
                     localStorage.setItem("crabscape-juice", "on"), true)"#
             ))?;
