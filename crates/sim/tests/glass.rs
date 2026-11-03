@@ -174,7 +174,9 @@ fn bare_rock_is_gripped_only_with_glass_grips() {
     let bare = run_with(still_water(), &up, 30.0, Kit::default());
     assert_eq!(bare.count("gripped"), 0, "it slides off bare rock");
     assert!(bare.stood.iter().all(|p| p.y == -9400.0));
-    let glass = run_with(still_water(), &up, 30.0, GLASS);
+    // Release after clearing the wall to land on its shelf. Keeping jump
+    // held now intentionally catches the next coral while steering left.
+    let glass = run_with(still_water(), &format!("{up}; t=18 release"), 30.0, GLASS);
     assert_eq!(glass.count("gripped"), 1);
     assert!(
         glass.stood_on(SHELF.0, SHELF.1, SHELF.2),
