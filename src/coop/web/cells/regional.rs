@@ -399,6 +399,11 @@ fn flush(s: &mut Session, r: &mut State, sim: &Sim, local: PlayerId) -> Result<(
     Ok(())
 }
 fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Result<(), String> {
+    // A guest paused at the old edge must still install the incoming move
+    // that satisfies its boundary request; it cannot advance inputs yet.
+    if r.stage == Stage::WaitingOwner {
+        moving::step(s, r, sim, local)?;
+    }
     if !matches!(r.stage, Stage::Running | Stage::Stopping) {
         return Ok(());
     }

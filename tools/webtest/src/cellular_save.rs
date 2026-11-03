@@ -166,6 +166,14 @@ fn preserved_normal_save() -> crabsim::SaveData {
 }
 
 impl Test<'_> {
+    fn close_cellular_replay(&self) -> Result<()> {
+        let focused = self.eval("await (() => { document.getElementById('replay-close').click(); return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(document.activeElement === document.getElementById('crabscape') && document.getElementById('replay-box').hidden)))); })()")?;
+        if focused != serde_json::Value::Bool(true) {
+            return Err("closing the cellular replay did not restore game focus".into());
+        }
+        Ok(())
+    }
+
     fn cellular_record(&self) -> Result<Option<Vec<u8>>> {
         let record = self.eval(&format!("await ({})", spatial_fixture::CAPTURE_SCRIPT))?;
         if record.is_null() {
@@ -316,7 +324,7 @@ impl Test<'_> {
             && (f64::from(replay.start.y) - saved.player["y"].as_f64().unwrap_or(f64::NAN)).abs() < 0.001
             && restored.level.cells.as_ref().is_some_and(|world| world.checkpoint() == saved.terrain.checkpoint()),
             "the reloaded game's replay proves exact terrain, player and simulation-clock restoration");
-        self.eval("(document.getElementById('replay-box').hidden = true, true)")?;
+        self.close_cellular_replay()?;
         self.check(
             self.eval("localStorage.getItem('crabscape.save')")? == normal,
             "cellular autosave and reload leave the normal game's save untouched",
@@ -324,12 +332,24 @@ impl Test<'_> {
 
         let (x, y) = settings_button(self.o.width);
         self.tap(x, y, 12, true)?;
+        let opened = self.wait_for(
+            &format!("{CANVAS}.getAttribute('data-settings') !== 'closed'"),
+            5.0,
+        )?;
         let (x, y) = settings_tab(self.o.width, "game");
         self.tap(x, y, 12, true)?;
+        let game = self.wait_for(
+            &format!("{CANVAS}.getAttribute('data-settings') === 'Game'"),
+            5.0,
+        )?;
         let (x, y) = start_over_centre(self.o.width);
         self.tap(x, y, 13, true)?;
+        let armed = self.wait_for(
+            &format!("{CANVAS}.getAttribute('data-settings') === 'Game armed StartOver'"),
+            5.0,
+        )?;
         self.check(
-            self.cellular_record()?.is_some(),
+            opened && game && armed && self.cellular_record()?.is_some(),
             "one Start over tap keeps the cellular checkpoint",
         );
         self.eval("(window.__cellularResetBefore = true, true)")?;
@@ -383,7 +403,7 @@ impl Test<'_> {
             fresh.cellular && !fresh.has_cell_start() && fresh.start == expected_start,
             format!("reset records a fresh cellular world at its actual spawn surface (recorded {:?}, expected {expected_start:?}, live {at:?})", fresh.start),
         );
-        self.eval("(document.getElementById('replay-box').hidden = true, true)")?;
+        self.close_cellular_replay()?;
         // A second browsing context performs the same atomic reset while the
         // original game remains alive. Its next real worker save must be
         // fenced, and a newly loaded session must still be able to save.

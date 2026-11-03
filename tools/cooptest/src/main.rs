@@ -1434,9 +1434,17 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 // excavation beyond it so natural mud flow cannot refill the
                 // sample while the owner waits for its disk write.
                 guest.b.set_key("KeyD", true)?;
-                guest.until(20.0, "guest reaches sleeping-world save sample", |p| {
-                    local_position(p).is_ok_and(|(x, _)| x > 2580.0)
-                })?;
+                guest
+                    .until(20.0, "guest reaches sleeping-world save sample", |p| {
+                        local_position(p).is_ok_and(|(x, _)| x > 2580.0)
+                    })
+                    .map_err(|why| {
+                        format!(
+                            "{why}; host {}; guest {}",
+                            region_status(&mut host),
+                            region_status(&mut guest)
+                        )
+                    })?;
                 guest.b.set_key("KeyD", false)?;
                 guest.until(20.0, "guest settles before distant excavation", |p| {
                     p.b.attr("data-crab")

@@ -106,7 +106,10 @@ pub(super) fn step(
         } else if r.shared {
             false
         } else {
-            r.stage == Stage::Running && m.ready && !m.returning && r.partial.is_empty()
+            matches!(r.stage, Stage::Running | Stage::WaitingOwner)
+                && m.ready
+                && !m.returning
+                && r.partial.is_empty()
         }
     });
     if !apply {
@@ -117,6 +120,9 @@ pub(super) fn step(
     let authority = if r.shared { HOST } else { local };
     let tick = sim.tick_count();
     let output = apply_local(r, sim, input, authority)?;
+    if r.stage == Stage::WaitingOwner {
+        r.stage = Stage::Running;
+    }
     if local == HOST {
         r.shared_move_cutoff = Some(tick);
         let owner = r.owner.as_mut().ok_or("Missing owner")?;
