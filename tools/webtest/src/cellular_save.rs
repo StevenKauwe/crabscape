@@ -180,7 +180,7 @@ impl Test<'_> {
         let bytes = fixture()?;
         let initial = decode(&bytes)?;
         let object = object_from_frame(&bytes)?;
-        let normal = json!({"version": 2, "x": 918.0, "y": 0.0}).to_string();
+        let normal = json!({"version": crabsim::SAVE_VERSION, "x": 918.0, "y": 0.0}).to_string();
         self.eval(&format!(
             r#"await new Promise((resolve, reject) => {{
           localStorage.setItem("crabscape.save", {normal:?});
@@ -431,8 +431,8 @@ impl Test<'_> {
             None
         };
         self.check(
-            normal_replay.is_some_and(|replay| !replay.cellular),
-            "boring mode opens the normal game even when cells is requested",
+            normal_replay.is_some_and(|replay| !replay.cellular && replay.start.x == 918.0),
+            "boring mode restores the preserved normal save at x918 even when cells is requested",
         );
         self.go("assets/crab/crab-atlas.png")?;
         let large = object_from_frame(&large_fixture()?)?;
