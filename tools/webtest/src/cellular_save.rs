@@ -467,7 +467,11 @@ impl Test<'_> {
             normal_replay.is_some_and(|replay| !replay.cellular && replay.start.x == 918.0),
             "boring mode restores the preserved normal save at x918 even when cells is requested",
         );
-        self.go("assets/crab/crab-atlas.png")?;
+        Ok(())
+    }
+
+    pub(super) fn large_cellular_autosave(&mut self) -> Result<()> {
+        self.go("__fixture_setup")?;
         let large = object_from_frame(&large_fixture()?)?;
         fixture_install::install(DATABASE, &large, |script| self.eval(script))?;
         println!("     committed large cellular fixture; opening game");
