@@ -154,8 +154,9 @@ fn walking_climbs_a_short_ledge_but_not_a_tall_wall() {
 
 #[test]
 fn repeated_walking_over_disturbed_sand_keeps_its_ground_speed() {
-    let mut sim = Sim::with_one_crab(Vec2::new(200.0, 0.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(140.0, 0.0));
     sim.enable_underwater_cells();
+    // Stay west of the authored shortcut, whose low entrance is intentionally blocked.
     for (direction, ticks) in [(1.0, 135), (-1.0, 135), (1.0, 135)] {
         for tick in 0..ticks {
             sim.set_controls(
@@ -179,7 +180,7 @@ fn repeated_walking_over_disturbed_sand_keeps_its_ground_speed() {
     }
     let pos = sim.crab(PlayerId(0)).unwrap().mover.pos;
     assert!(
-        pos.x > 380.0,
+        pos.x > 320.0,
         "got stuck walking back across the sand: {pos:?}"
     );
 }
