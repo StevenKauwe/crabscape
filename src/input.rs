@@ -405,7 +405,7 @@ fn label_dig_stick(
         .and_then(|id| sim.crab(*id))
         .is_some_and(|crab| {
             let m = &crab.mover;
-            !m.grounded && !m.climbing && m.vel.y < 0.0
+            !m.grounded && !m.climbing
         });
     for mut label in &mut labels {
         let wanted = if falling { "TURN" } else { "DIG" };

@@ -592,10 +592,8 @@ fn place_crabs(
         } else {
             0.0
         };
-        let turn = sim
-            .crab(*id)
-            .map_or(0.0, |crab| physics::fall_turn(mover, &crab.controls));
-        let target = Quat::from_rotation_z(slope - turn * std::f32::consts::FRAC_PI_2);
+        let angle = slope + mover.water_angle;
+        let target = Quat::from_rotation_z(angle);
         transform.rotation = transform
             .rotation
             .slerp(target, 1.0 - (-10.0 * time.delta_secs()).exp());

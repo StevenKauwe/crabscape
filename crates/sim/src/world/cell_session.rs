@@ -395,6 +395,10 @@ impl Sim {
                     || !c.eating.valid()
                     || !bounded_pos(c.mover.pos)
                     || !bounded_pos(c.mover.vel)
+                    || !c.mover.water_angle.is_finite()
+                    || c.mover.water_angle.abs() > std::f32::consts::PI
+                    || !c.mover.water_spin.is_finite()
+                    || c.mover.water_spin.abs() > 3.0
                     || !c.memory.session_valid(&sim.level, &sim.tuning.memory)
                     || c.wakes_at.is_some_and(|i| i >= sim.level.crevices.len())
                     || c.eaten.len() != sim.level.eggs.len()

@@ -24,14 +24,16 @@ pub const STEP: f32 = 1.0 / TICKS_PER_SECOND as f32;
 /// How many physics steps ("ticks") make one second of game time.
 pub const TICKS_PER_SECOND: u32 = 120;
 
-/// Amount of edge-on rotation requested with the dig control while sinking.
-/// The same command is recorded and sent to other players as ordinary input.
-pub fn fall_turn(m: &Mover, c: &Controls) -> f32 {
-    if !m.grounded && !m.climbing && m.vel.y < 0.0 && c.dig_held && !c.dig_up {
-        c.walk.clamp(-1.0, 1.0)
-    } else {
-        0.0
-    }
+/// Anisotropic water resistance. This symmetric positive-semidefinite
+/// matrix can redirect momentum along the shell but cannot create energy.
+/// At zero angle it preserves the existing broadside sinking resistance.
+fn water_resistance(velocity: Vec2, angle: f32) -> Vec2 {
+    let (s, c) = (libm::sinf(angle), libm::cosf(angle));
+    let cross = -0.55 * s * c;
+    Vec2::new(
+        0.55 * s * s * velocity.x + cross * velocity.y,
+        cross * velocity.x + (1.0 - 0.55 * s * s) * velocity.y,
+    )
 }
 
 /// What a player is asking their crab to do. This is a *command*, not a
@@ -206,6 +208,10 @@ pub struct Mover {
     /// Diving: pushing a way while sinking, tilted and streamlined, so a
     /// little faster down and sideways.
     pub diving: bool,
+    /// Body orientation and angular velocity in the water, in radians.
+    /// Positive angles rotate counter-clockwise.
+    pub water_angle: f32,
+    pub water_spin: f32,
     /// Time left in a flip (dodge in the water), and which way it turns
     /// (1 = clockwise, towards the right).
     pub flip_left: f32,
@@ -282,6 +288,8 @@ impl Mover {
             winded: false,
             climbing: false,
             diving: false,
+            water_angle: 0.0,
+            water_spin: 0.0,
             flip_left: 0.0,
             flip_dir: 1.0,
             dash_left: 0.0,
@@ -707,7 +715,30 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
     let c = &effective_controls;
     let mut ev = StepEvents::default();
-    let walk = c.walk.clamp(-1.0, 1.0);
+    let turning = !m.grounded && !m.climbing && c.dig_held;
+    let turn = if turning {
+        -c.walk.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    let walk = if turning {
+        0.0
+    } else {
+        c.walk.clamp(-1.0, 1.0)
+    };
+    // Two stable postures per half turn in open water: broadside and
+    // edge-on. On a surface, feet slowly right the body instead of making
+    // the visible orientation jump as soon as it touches down.
+    let restoring = if m.grounded || m.climbing {
+        -4.0 * libm::sinf(m.water_angle)
+    } else {
+        -1.2 * libm::sinf(4.0 * m.water_angle)
+    };
+    m.water_spin =
+        (m.water_spin + (9.0 * turn + restoring - 2.0 * m.water_spin) * dt).clamp(-3.0, 3.0);
+    m.water_angle = (m.water_angle + m.water_spin * dt + std::f32::consts::PI)
+        .rem_euclid(std::f32::consts::TAU)
+        - std::f32::consts::PI;
     let walking = walk.abs() > 0.1;
     let dig_speed = if level.cells.is_some() && c.dig_held {
         (1.0 / (1.0 + m.dig_load.max(0.0) / 80.0)).clamp(0.3, 1.0)
@@ -942,7 +973,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             (true, true) if reversing => t.ground_turn,
             (true, true) if too_fast => t.overspeed_decel,
             (true, true) => t.ground_accel,
-            (false, false) => t.air_decel,
+            // A tilted shell glides on water instead of actively braking
+            // away the sideways momentum that its angled drag creates.
+            (false, false) => t.air_decel * (1.0 - 0.9 * libm::sinf(2.0 * m.water_angle).abs()),
             (false, true) if too_fast => t.overspeed_decel,
             (false, true) => t.air_accel,
         };
@@ -1030,11 +1063,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         }
         m.vel.y -= g * dt;
         // Diving, the crab is streamlined: the water holds it back less.
-        let drag = if fall_turn(m, c) != 0.0 {
-            // Turning edge-on presents less shell to the water. Interpolate
-            // continuously so a partial turn remains useful for steering.
-            t.water_drag * (1.0 - 0.55 * fall_turn(m, c).abs())
-        } else if m.diving {
+        let drag = if m.diving {
             t.water_drag * t.dive_drag
         } else {
             t.water_drag
@@ -1047,8 +1076,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         // weight: it sinks faster. (Its legs grow with it, so a jump or a
         // stroke pushes it up as high.)
         let heavy = 1.0 + t.moult.weight * (m.grown(t) - 1.0);
-        let (up, down) = (through.max(0.0), through.min(0.0));
-        m.vel.y -= drag * (up * up - down * down / heavy) * dt;
+        let weight = if through < 0.0 { heavy } else { 1.0 };
+        let relative = Vec2::new(m.vel.x, through);
+        let resisted = water_resistance(relative, m.water_angle);
+        let amount = (drag * through.abs() * dt / weight).min(0.5);
+        m.vel -= resisted * amount;
     }
 
     if let Some(cells) = &level.cells {
@@ -1699,25 +1731,83 @@ mod tests {
     }
 
     #[test]
-    fn dig_control_turns_a_falling_crab_and_changes_its_sink_speed() {
+    fn dig_control_rotates_in_the_requested_direction_and_angle_persists() {
         let level = Level::test_level();
-        let start = Mover::new(Vec2::new(SPAWN.x, 5000.0));
-        let mut flat = start.clone();
-        let mut partial = start.clone();
-        let mut edge = start;
+        let mut start = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        start.grounded = false;
+        let mut left = start.clone();
+        let mut right = start;
         let controls = |walk| Controls {
             dig_held: true,
             walk,
             ..default()
         };
-        run(&mut flat, controls(0.0), 3.0, &level);
-        run(&mut partial, controls(0.5), 3.0, &level);
-        run(&mut edge, controls(1.0), 3.0, &level);
-        assert!(edge.vel.y < partial.vel.y && partial.vel.y < flat.vel.y);
-        assert!(partial.vel.x > 0.0 && edge.vel.x > partial.vel.x);
-        assert_eq!(fall_turn(&edge, &controls(1.0)), 1.0);
-        edge.grounded = true;
-        assert_eq!(fall_turn(&edge, &controls(1.0)), 0.0);
+        run(&mut left, controls(-1.0), 0.3, &level);
+        run(&mut right, controls(1.0), 0.3, &level);
+        assert!(left.water_angle > 0.0 && right.water_angle < 0.0);
+        run(&mut right, Controls::default(), 0.2, &level);
+        assert!(
+            right.water_angle < -0.1,
+            "letting go must not flatten the crab"
+        );
+    }
+
+    #[test]
+    fn angled_shell_redirects_sinking_without_adding_energy() {
+        let v = Vec2::new(0.0, -300.0);
+        let left = water_resistance(v, std::f32::consts::FRAC_PI_4);
+        let right = water_resistance(v, -std::f32::consts::FRAC_PI_4);
+        assert!(left.x > 0.0 && right.x < 0.0);
+        assert!(left.y.abs() < water_resistance(v, 0.0).y.abs());
+        for angle in -32..=32 {
+            for vx in [-500.0, 0.0, 500.0] {
+                for vy in [-500.0, 0.0, 500.0] {
+                    let velocity = Vec2::new(vx, vy);
+                    let drag = water_resistance(velocity, angle as f32 * 0.1);
+                    assert!(velocity.dot(drag) >= -0.1, "resistance added energy");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn opposite_tilts_glide_in_opposite_directions_without_input() {
+        let level = Level::test_level();
+        let mut left = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        left.grounded = false;
+        left.vel.y = -300.0;
+        left.water_angle = 0.65;
+        let mut right = left.clone();
+        right.water_angle = -left.water_angle;
+        let start = left.pos.x;
+        run(&mut left, Controls::default(), 0.5, &level);
+        run(&mut right, Controls::default(), 0.5, &level);
+        assert!(
+            left.pos.x < start - 5.0,
+            "leftward glide: {}",
+            left.pos.x - start
+        );
+        assert!(
+            right.pos.x > start + 5.0,
+            "rightward glide: {}",
+            right.pos.x - start
+        );
+        assert!(left.pos.y < 5000.0 && right.pos.y < 5000.0);
+    }
+
+    #[test]
+    fn released_tilts_settle_to_broadside_or_edge_on() {
+        let level = Level::test_level();
+        let mut broadside = Mover::new(Vec2::new(SPAWN.x, 5000.0));
+        broadside.grounded = false;
+        broadside.water_angle = 0.3;
+        let mut edge = broadside.clone();
+        edge.water_angle = 1.2;
+        run(&mut broadside, Controls::default(), 4.0, &level);
+        run(&mut edge, Controls::default(), 4.0, &level);
+        assert!(broadside.water_angle.abs() < 0.1);
+        assert!((edge.water_angle - std::f32::consts::FRAC_PI_2).abs() < 0.1);
+        assert!(broadside.water_spin.abs() < 0.1 && edge.water_spin.abs() < 0.1);
     }
 
     #[test]

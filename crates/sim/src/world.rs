@@ -2169,6 +2169,7 @@ impl Sim {
             }
             let f = &crab.fighter;
             let free = f.swing.is_none() && !f.blocking && f.knocked == 0;
+            let held_angle = f.grabbed.map(|_| crab.mover.water_angle);
             if sheltered || home::walks_in(&crab.mover, &controls, free, &self.level) {
                 ev.merge(home::step(
                     &mut crab.mover,
@@ -2185,6 +2186,10 @@ impl Sim {
                     &self.level,
                     STEP,
                 ));
+            }
+            if let Some(angle) = held_angle {
+                crab.mover.water_angle = angle;
+                crab.mover.water_spin = 0.0;
             }
             combat::after_step(&mut crab.fighter, &crab.mover);
             crush(crab, &mut self.enemies, &self.tuning, &mut ev);
