@@ -33,8 +33,8 @@ pub struct Typed(pub String);
 
 /// The code box: open or not, and what has been typed so far.
 #[derive(Resource, Default)]
-struct CodeBox {
-    open: bool,
+pub(crate) struct CodeBox {
+    pub(crate) open: bool,
     text: String,
 }
 

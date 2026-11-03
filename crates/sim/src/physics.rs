@@ -733,8 +733,9 @@ fn approach(value: f32, target: f32, amount: f32) -> f32 {
 
 /// Advance one crab by `dt` seconds.
 pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> StepEvents {
+    let turning = c.dig_held && m.can_turn_in_water(level, t, c);
     let mut effective_controls = *c;
-    if level.cells.is_some() && c.dig_held {
+    if level.cells.is_some() && c.dig_held && !turning {
         // Up and jump share a keyboard key, but digging is a controlled
         // push: it must not queue a jump or a swimming stroke.
         effective_controls.jump_pressed = false;
@@ -745,7 +746,6 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
     let c = &effective_controls;
     let mut ev = StepEvents::default();
-    let turning = c.dig_held && m.can_turn_in_water(level, t, c);
     let turn = if turning {
         -c.walk.clamp(-1.0, 1.0)
     } else {
@@ -1141,7 +1141,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         }
         // A crab under the original surface can always work upward out of
         // loosened sediment, even if it has spent its swimming strokes.
-        if c.dig_held && c.dig_up {
+        if c.dig_held && c.dig_up && !turning {
             let half = m.half_width(t);
             let near_sediment = level.cells.as_ref().is_some_and(|cells| {
                 cells.game_dig_support(
@@ -1158,7 +1158,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
                 m.vel.y = m.vel.y.min(0.0);
             }
             m.rising = false;
-        } else if c.jump_held && m.pos.y < level.floor_height(m.pos.x) - 2.0 {
+        } else if !turning && c.jump_held && m.pos.y < level.floor_height(m.pos.x) - 2.0 {
             m.vel.y = m.vel.y.max(110.0);
         }
     }

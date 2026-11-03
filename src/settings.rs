@@ -846,6 +846,7 @@ pub(crate) mod panel {
         let r = button_rect(size);
         commands
             .spawn((
+                crate::input::PointerUi,
                 SettingsButton,
                 Node {
                     position_type: PositionType::Absolute,

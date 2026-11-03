@@ -256,14 +256,14 @@ impl Test<'_> {
         if !walked {
             return Ok(());
         }
-        self.key("keydown", "KeyC", "c")?;
+        self.key("keydown", "Space", " ")?;
         self.key("keydown", "KeyS", "s")?;
         let dug = self.wait_for(
             &format!("Number({CANVAS}.getAttribute('data-crab').split(/\\s+/)[1]) < -16"),
             20.0,
         );
         self.key("keyup", "KeyS", "s")?;
-        self.key("keyup", "KeyC", "c")?;
+        self.key("keyup", "Space", " ")?;
         let dug = dug?;
         self.check(
             dug,

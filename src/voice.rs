@@ -719,6 +719,7 @@ mod web {
         let r = button_rect(size);
         commands
             .spawn((
+                crate::input::PointerUi,
                 MicButton,
                 Node {
                     position_type: PositionType::Absolute,

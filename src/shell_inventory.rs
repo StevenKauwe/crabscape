@@ -16,7 +16,7 @@ impl Plugin for ShellInventoryPlugin {
 }
 
 #[derive(Resource, Default)]
-struct Open(bool);
+pub(crate) struct Open(pub(crate) bool);
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum Choice {
@@ -56,6 +56,7 @@ pub(crate) struct Panel;
 fn spawn(mut commands: Commands) {
     commands
         .spawn((
+            crate::input::PointerUi,
             Panel,
             GlobalZIndex(3),
             Node {

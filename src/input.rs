@@ -9,11 +9,11 @@
 //! | Action | Keyboard                | Controller           | Touch      |
 //! |--------|-------------------------|----------------------|------------|
 //! | Walk   | A / D, or the arrows    | left stick, d-pad    | `<` `>`    |
-//! | Jump   | Space, W, Up, K         | A (south button)     | JUMP       |
+//! | Jump   | W, Up, K               | A (south button)     | JUMP       |
 //! | Dodge  | Shift, J                | B, right trigger     | DODGE      |
-//! | Dig / turn | C + direction     | right stick          | DIG / TURN stick |
-//! | Smash  | L, E                    | Y (north button)     | SMASH      |
-//! | Jab    | O, Q                    | X (west button)      | JAB        |
+//! | Dig / turn | Space + direction     | right stick          | DIG / TURN stick |
+//! | Smash  | right mouse, E, L       | Y (north button)     | SMASH      |
+//! | Jab    | left mouse, Q, O        | X (west button)      | JAB        |
 //! | Guard  | I, F (tap: parry)       | left bumper/trigger  | GUARD      |
 //! | Home   | H, Home                 | Select               | Home (top right, `go_home.rs`) |
 //!
@@ -29,7 +29,7 @@
 //! Press jump again in the water for a paddle stroke: the double jump, then
 //! more strokes to swim up while the stamina lasts.
 
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemParam, prelude::*};
 
 use crate::player::{GameSet, LocalPlayer, MoveRequest, PlayerId};
 use crabsim::Controls;
@@ -66,6 +66,100 @@ const ACTIONS: [TouchAction; 9] = [
 pub struct TouchControls {
     pub visible: bool,
     pub dig_touch: Option<u64>,
+}
+
+/// Visible canvas controls own clicks inside their hit areas.
+#[derive(Component)]
+pub(crate) struct PointerUi;
+
+#[derive(SystemParam)]
+struct InputUi<'w, 's> {
+    settings: Res<'w, crate::settings::panel::Open>,
+    inventory: Res<'w, crate::shell_inventory::Open>,
+    chat: Res<'w, crate::codes::CodeBox>,
+    panels: Query<
+        'w,
+        's,
+        (
+            &'static ComputedNode,
+            &'static UiGlobalTransform,
+            &'static InheritedVisibility,
+            Option<&'static TouchAction>,
+        ),
+        With<PointerUi>,
+    >,
+}
+
+impl InputUi<'_, '_> {
+    fn modal(&self) -> bool {
+        self.settings.is_open() || self.inventory.0 || self.chat.open || page_dialog_open()
+    }
+
+    fn covers(&self, position: Vec2, scale: f32, include_touch: bool) -> bool {
+        self.panels.iter().any(|(node, transform, visible, touch)| {
+            (include_touch || touch.is_none())
+                && visible.get()
+                && node.size().min_element() > 0.0
+                && transform.try_inverse().is_some_and(|inverse| {
+                    let local = inverse.transform_point2(position * scale);
+                    // The larger canvas buttons include a six-pixel touch margin.
+                    local
+                        .abs()
+                        .cmple(
+                            node.size() * 0.5
+                                + Vec2::splat(if touch.is_some() {
+                                    10.0 * scale
+                                } else {
+                                    6.0 * scale
+                                }),
+                        )
+                        .all()
+                })
+        })
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn page_dialog_open() -> bool {
+    web_sys::window()
+        .and_then(|w| w.document())
+        .is_some_and(|doc| {
+            doc.active_element()
+                .is_some_and(|e| matches!(e.tag_name().as_str(), "INPUT" | "TEXTAREA" | "SELECT"))
+                || ["report", "character", "replay-box"].iter().any(|id| {
+                    doc.get_element_by_id(id)
+                        .is_some_and(|e| !e.has_attribute("hidden"))
+                })
+        })
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn page_dialog_open() -> bool {
+    false
+}
+
+/// Mouse holds belong to where the press began. Dragging out of an inventory
+/// button cannot turn that press into a jab or a charged smash.
+#[derive(Default)]
+struct MouseCombat {
+    jab: bool,
+    smash: bool,
+    on_pad: bool,
+}
+impl MouseCombat {
+    fn update(
+        &mut self,
+        mouse: &ButtonInput<MouseButton>,
+        can_start: bool,
+        modal: bool,
+    ) -> (bool, bool) {
+        let start = |button| !modal && can_start && mouse.just_pressed(button);
+        let jab = start(MouseButton::Left);
+        let smash = start(MouseButton::Right);
+        self.jab = !modal && mouse.pressed(MouseButton::Left) && (self.jab || jab);
+        self.smash = !modal && mouse.pressed(MouseButton::Right) && (self.smash || smash);
+        // A quick click can press and release between two rendered frames.
+        (jab, smash)
+    }
 }
 
 /// Which buttons were held last frame, to notice new presses.
@@ -176,8 +270,7 @@ pub fn on_a_button(size: Vec2, p: Vec2) -> bool {
 fn touched_buttons(
     size: Vec2,
     touches: &Touches,
-    mouse: &ButtonInput<MouseButton>,
-    window: &Window,
+    mouse_cursor: Option<Vec2>,
     dig_touch: Option<u64>,
     covered: impl Fn(Vec2) -> bool,
 ) -> Vec<TouchAction> {
@@ -186,9 +279,7 @@ fn touched_buttons(
         .filter(|t| Some(t.id()) != dig_touch)
         .map(|t| t.position())
         .collect();
-    if mouse.pressed(MouseButton::Left)
-        && let Some(cursor) = window.cursor_position()
-    {
+    if let Some(cursor) = mouse_cursor {
         points.push(cursor);
     }
     points.retain(|point| !covered(*point));
@@ -252,12 +343,9 @@ fn read_input(
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
     window: Single<&Window>,
-    inventory: Query<
-        (&ComputedNode, &UiGlobalTransform, &InheritedVisibility),
-        With<crate::shell_inventory::Panel>,
-    >,
+    ui: InputUi,
     local: Single<&PlayerId, With<LocalPlayer>>,
-    settings: Res<crate::settings::panel::Open>,
+    mut combat_mouse: Local<MouseCombat>,
     sim: Res<crabsim::Sim>,
     mut touch_controls: ResMut<TouchControls>,
     mut held_before: Local<Held>,
@@ -266,11 +354,28 @@ fn read_input(
     if touches.any_just_pressed() && !touch_controls.visible {
         touch_controls.visible = true;
     }
-    let covered = |p: Vec2| {
-        inventory
-            .iter()
-            .any(|(b, t, v)| v.get() && b.contains_point(*t, p * window.scale_factor()))
-    };
+    let covered = |p| ui.covers(p, window.scale_factor(), false);
+    let modal = ui.modal();
+    let can_start = mouse.any_just_pressed([MouseButton::Left, MouseButton::Right])
+        && !touches.any_just_pressed()
+        && window
+            .cursor_position()
+            .is_some_and(|p| !ui.covers(p, window.scale_factor(), true));
+    if mouse.just_pressed(MouseButton::Left) {
+        combat_mouse.on_pad = window
+            .cursor_position()
+            .is_some_and(|p| !covered(p) && ui.covers(p, window.scale_factor(), true));
+    }
+    combat_mouse.on_pad &= !modal && mouse.pressed(MouseButton::Left);
+    let (clicked_jab, clicked_smash) = combat_mouse.update(&mouse, can_start, modal);
+    if modal {
+        touch_controls.dig_touch = None;
+        requests.write(MoveRequest {
+            player: **local,
+            controls: Controls::default(),
+        });
+        return;
+    }
     let cells_enabled = sim.level.cells.is_some();
     let dig_rect = button_rects(window.size())[0].1;
     if !cells_enabled
@@ -297,8 +402,7 @@ fn read_input(
         touched_buttons(
             window.size(),
             &touches,
-            &mouse,
-            &window,
+            window.cursor_position().filter(|_| combat_mouse.on_pad),
             touch_controls.dig_touch,
             covered,
         )
@@ -308,57 +412,31 @@ fn read_input(
     let touch = |a: TouchAction| on_screen.contains(&a);
 
     let any_key = |list: &[KeyCode]| keys.any_pressed(list.iter().copied());
-    // While the settings panel is open, left and right switch its tabs.
-    let arrow = |key: KeyCode| !settings.is_open() && keys.pressed(key);
     let mut walk = 0.0;
-    if any_key(&[KeyCode::KeyA]) || arrow(KeyCode::ArrowLeft) || touch(TouchAction::Left) {
+    if any_key(&[KeyCode::KeyA]) || keys.pressed(KeyCode::ArrowLeft) || touch(TouchAction::Left) {
         walk -= 1.0;
     }
-    if any_key(&[KeyCode::KeyD]) || arrow(KeyCode::ArrowRight) || touch(TouchAction::Right) {
+    if any_key(&[KeyCode::KeyD]) || keys.pressed(KeyCode::ArrowRight) || touch(TouchAction::Right) {
         walk += 1.0;
     }
-    let mut jump = any_key(&[
-        KeyCode::Space,
-        KeyCode::KeyW,
-        KeyCode::ArrowUp,
-        KeyCode::KeyK,
-    ]) || touch(TouchAction::Jump);
+    let mut jump =
+        any_key(&[KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::KeyK]) || touch(TouchAction::Jump);
     let mut dodge = any_key(&[KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ])
         || touch(TouchAction::Dodge);
-    // The captured finger can leave the pad without becoming a walk button.
-    let stick_digging = dig_vector.length() > 0.2;
-    let mut digging = sim.level.cells.is_some() && (keys.pressed(KeyCode::KeyC) || stick_digging);
-    let mut dig_up = digging
-        && (dig_vector.y < -0.35
-            || (keys.pressed(KeyCode::KeyC)
-                && any_key(&[KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::Space])));
-    if stick_digging {
-        walk += if dig_vector.x.abs() > 0.2 {
-            dig_vector.x
-        } else {
-            0.0
-        };
-    }
-    // Down climbs down kelp or coral. (On a phone, holding DODGE does too.)
-    let mut down =
-        any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]) || (stick_digging && dig_vector.y > 0.35);
-    let mut smash = any_key(&[KeyCode::KeyL, KeyCode::KeyE]) || touch(TouchAction::Smash);
-    let mut jab = any_key(&[KeyCode::KeyO, KeyCode::KeyQ]) || touch(TouchAction::Jab);
+    let mut stick = (dig_vector.length() > 0.2).then_some(Vec2::new(dig_vector.x, -dig_vector.y));
+    let mut down = any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]);
+    let mut smash =
+        any_key(&[KeyCode::KeyL, KeyCode::KeyE]) || touch(TouchAction::Smash) || combat_mouse.smash;
+    let mut jab =
+        any_key(&[KeyCode::KeyO, KeyCode::KeyQ]) || touch(TouchAction::Jab) || combat_mouse.jab;
     let mut guard = any_key(&[KeyCode::KeyI, KeyCode::KeyF]) || touch(TouchAction::Guard);
     let mut eat = any_key(&[KeyCode::KeyT]) || touch(TouchAction::Eat);
 
     for pad in &gamepads {
         let wants = pad_wants(pad.left_stick(), |b| pad.pressed(b));
         let dig_stick = pad.right_stick();
-        if cells_enabled && dig_stick.length() > 0.2 {
-            digging = true;
-            walk += if dig_stick.x.abs() > 0.2 {
-                dig_stick.x
-            } else {
-                0.0
-            };
-            dig_up |= dig_stick.y > 0.35;
-            down |= dig_stick.y < -0.35;
+        if stick.is_none() && dig_stick.length() > 0.2 {
+            stick = Some(dig_stick);
         }
         walk += wants.walk;
         down |= wants.down;
@@ -370,23 +448,44 @@ fn read_input(
         eat |= wants.eat;
     }
 
+    let digging = cells_enabled && (keys.pressed(KeyCode::Space) || stick.is_some());
+    let mut dig_up = digging && any_key(&[KeyCode::KeyW, KeyCode::ArrowUp]);
+    if let Some(stick) = stick.filter(|_| cells_enabled) {
+        // While the action stick is engaged, its aim owns the action.
+        // Walking in the opposite direction must never cancel or reverse it.
+        walk = if stick.x.abs() > 0.2 { stick.x } else { 0.0 };
+        down = stick.y < -0.35;
+        dig_up = stick.y > 0.35;
+    }
     // A "press" is held now but wasn't last frame.
-    let controls = Controls {
+    let mut controls = Controls {
         eat_held: eat,
         walk: walk.clamp(-1.0, 1.0),
-        jump_held: jump && !digging,
-        jump_pressed: jump && !digging && !held_before.jump,
+        jump_held: jump,
+        jump_pressed: jump && !held_before.jump,
         dodge_pressed: dodge && !held_before.dodge,
         dodge_held: dodge,
         dig_held: digging,
         dig_up,
         down,
-        smash_pressed: smash && !held_before.smash,
+        smash_pressed: clicked_smash || (smash && !held_before.smash),
         smash_held: smash,
-        jab_pressed: jab && !held_before.jab,
+        jab_pressed: clicked_jab || (jab && !held_before.jab),
         block_held: guard,
         block_pressed: guard && !held_before.guard,
     };
+    if digging && let Some(crab) = sim.crab(**local) {
+        if crab
+            .mover
+            .can_turn_in_water(&sim.level, &sim.tuning, &controls)
+        {
+            // The vertical key is a paddle in water. Turning stays independent.
+            controls.dig_up = false;
+        } else {
+            controls.jump_pressed = false;
+            controls.jump_held = false;
+        }
+    }
     *held_before = Held {
         jump,
         dodge,
@@ -443,6 +542,7 @@ fn spawn_touch_buttons(mut commands: Commands) {
         };
         commands
             .spawn((
+                PointerUi,
                 action,
                 Node {
                     position_type: PositionType::Absolute,
@@ -518,8 +618,9 @@ fn layout_touch_buttons(
     let pressed = touched_buttons(
         size,
         &touches,
-        &mouse,
-        &window,
+        window
+            .cursor_position()
+            .filter(|_| mouse.pressed(MouseButton::Left)),
         touch_controls.dig_touch,
         |_| false,
     );
@@ -581,6 +682,25 @@ mod tests {
     use super::*;
 
     /// A controller with only `held` pressed and the stick at `stick`.
+    #[test]
+    fn held_mouse_buttons_keep_their_press_owner() {
+        let mut combat = MouseCombat::default();
+        let mut mouse = ButtonInput::default();
+        mouse.press(MouseButton::Right);
+        combat.update(&mouse, false, false);
+        mouse.clear();
+        combat.update(&mouse, true, false);
+        assert!(!combat.smash);
+        mouse.release(MouseButton::Right);
+        mouse.press(MouseButton::Left);
+        combat.update(&mouse, true, false);
+        assert!(combat.jab && !combat.smash);
+        mouse.clear();
+        combat.update(&mouse, false, true);
+        combat.update(&mouse, true, false);
+        assert!(!combat.jab);
+    }
+
     fn pad(stick: Vec2, held: &[GamepadButton]) -> PadWants {
         pad_wants(stick, |b| held.contains(&b))
     }

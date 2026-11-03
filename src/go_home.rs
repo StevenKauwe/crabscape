@@ -69,6 +69,7 @@ fn spawn_button(mut commands: Commands, window: Single<&Window>) {
     let r = button_rect(size);
     commands
         .spawn((
+            crate::input::PointerUi,
             HomeButton,
             Node {
                 position_type: PositionType::Absolute,
@@ -112,6 +113,7 @@ fn spawn_question(mut commands: Commands) {
     };
     commands
         .spawn((
+            crate::input::PointerUi,
             Question,
             Node {
                 position_type: PositionType::Absolute,
