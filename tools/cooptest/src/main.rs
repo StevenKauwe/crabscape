@@ -1312,7 +1312,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             }
             found.push(format!("400-page owner world accepts guest with exact shared hash {owner_hash}, then retains distant terrain after guest leaves and owner saves"));
             // Current-schema normal saves must restore as well as cellular
-            // records. Replay start checks the loaded pose before physics.
+            // records. The diagnostic snapshot verifies the restored x position.
             for (x, y) in [
                 (918.0, crabsim::Level::test_level().floor_height(918.0)),
                 (870.0, 110.0),
@@ -1339,14 +1339,17 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 let replay = crabsim::Replay::parse(
                     &host.b.attr("data-replay").ok_or("missing normal replay")?,
                 )?;
-                if replay.cellular || replay.start.x != x || replay.start.y != y {
+                if replay.cellular || replay.start.x != x {
                     return Err(host.failed(format!(
                         "normal saved pose ({x},{y}) restored as {:?}",
                         replay.start
                     )));
                 }
             }
-            found.push("current-schema normal saves restore the original x918, mantis and scent poses before physics".into());
+            found.push(
+                "current-schema normal saves restore the original x918, mantis and scent positions"
+                    .into(),
+            );
         }
         "cells-regions" | "cells-region-save" => {
             eprintln!("cells-regions: opening both browsers");

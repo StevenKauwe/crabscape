@@ -137,7 +137,10 @@ impl World {
                 .y
                 .clamp(active.y, active.y + (active.height - bounds.height) as i32);
             if copy.fit_region(level, bounds).is_ok() {
-                copy.sleeping.clear();
+                // fit_region may archive cells leaving the bounded active
+                // kernel; discard that local archive without touching the
+                // source world or requiring a mutable archive dereference.
+                copy.sleeping = Default::default();
                 return Some(copy);
             }
             bounds.x -= 4;
@@ -308,6 +311,19 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn diagnostic_crop_keeps_the_source_archive_and_exports_no_sleeping_pages() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        let template = super::super::SleepingChunk::default();
+        for x in 0..10_000 {
+            world.sleeping.insert((x, -50), template.clone());
+        }
+        let count = world.sleeping.len();
+        let cropped = world.diagnostic_crop(&level, crate::level::SPAWN).unwrap();
+        assert!(cropped.sleeping.is_empty());
+        assert_eq!(world.sleeping.len(), count);
+    }
     #[test]
     fn resizing_keeps_overlap_and_resumes_the_exact_archived_cells() {
         let level = crate::Level::test_level();
