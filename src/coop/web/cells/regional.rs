@@ -161,10 +161,14 @@ fn needs_change(r: &State, sim: &Sim, guest_id: PlayerId) -> Result<bool, String
     let b = bounds(sim)?;
     let waiting = r.moving.is_some() || r.move_paging;
     Ok(if r.shared {
-        salvage_outside_lease(sim) || separate || (!waiting && (near_edge(b, host) || near_edge(b, guest)))
+        salvage_outside_lease(sim)
+            || separate
+            || (!waiting && (near_edge(b, host) || near_edge(b, guest)))
     } else {
-        salvage_outside_lease(sim) || !separate
-            || (!waiting && (near_edge(b, host) || r.remote_bounds.is_some_and(|b| near_edge(b, guest))))
+        salvage_outside_lease(sim)
+            || !separate
+            || (!waiting
+                && (near_edge(b, host) || r.remote_bounds.is_some_and(|b| near_edge(b, guest))))
     })
 }
 
