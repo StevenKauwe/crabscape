@@ -631,11 +631,47 @@ impl CanyonRun {
             if self.has_catcher && self.catcher.intercept(world, before, &mut self.practice, 2) {
                 self.practice_phase = PracticePhase::Caught;
             }
-            if previous != self.practice || self.practice_phase == PracticePhase::Caught {
+            if self.practice_phase == PracticePhase::Free
+                && self.practice.velocity.length_squared() < 1.0
+            {
+                let p = self.practice.position;
+                if world.game_solid(p.x - 3.0, p.y - 7.0, p.x + 3.0, p.y - 3.1) {
+                    self.practice_phase = PracticePhase::Settled;
+                }
+            }
+            if previous != self.practice || self.practice_phase != PracticePhase::Free {
                 self.practice_revision = self.practice_revision.saturating_add(1);
             }
         }
     }
+    /// Start another practice pass without consuming an inventory slot.
+    pub fn release_practice(&mut self, from: Vec2, world: &World) -> bool {
+        if !self.has_practice
+            || matches!(self.practice_phase, PracticePhase::Carried(..))
+            || from.distance(self.practice.position) > 75.0
+        {
+            return false;
+        }
+        if !(0..=8).all(|i| {
+            let p = from.lerp(self.practice.position, i as f32 / 8.0);
+            world.contains_world(p.x, p.y)
+                && !world.game_solid(p.x - 1.0, p.y - 1.0, p.x + 1.0, p.y + 1.0)
+        }) {
+            return false;
+        }
+        if self.practice_phase == PracticePhase::Caught {
+            if !self.has_catcher || self.catcher.contents != Some(2) {
+                return false;
+            }
+            self.catcher.contents = None;
+            self.catcher.revision = self.catcher.revision.saturating_add(1);
+        }
+        self.practice.velocity = Vec2::new(-18.0, 0.0);
+        self.practice_phase = PracticePhase::Free;
+        self.practice_revision = self.practice_revision.saturating_add(1);
+        true
+    }
+
     /// Practice is a real reusable object; it never creates a material claim.
     pub fn lift_practice(
         &mut self,

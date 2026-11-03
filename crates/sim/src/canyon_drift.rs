@@ -126,6 +126,7 @@ pub mod run;
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CanyonAction {
     LiftPractice,
+    ReleasePractice,
     DropPractice,
     LiftCatcher,
     DropCatcher,
