@@ -80,6 +80,21 @@ struct FrozenRestore {
     expected_sleeping: usize,
 }
 
+/// Bounded active-kernel reconstruction. Spatial stores authenticate each
+/// independent page before handing it to this builder.
+pub struct ActiveRestore(FrozenRestore);
+impl ActiveRestore {
+    pub fn new(metadata: &[u8]) -> Result<Self, CaptureError> {
+        FrozenRestore::new(metadata, 0).map(Self)
+    }
+    pub fn active(&mut self, bytes: &[u8]) -> Result<(), CaptureError> {
+        self.0.active(bytes)
+    }
+    pub fn finish(self) -> Result<World, CaptureError> {
+        self.0.finish()
+    }
+}
+
 impl FrozenRestore {
     pub fn new(metadata: &[u8], expected_sleeping: usize) -> Result<Self, CaptureError> {
         if expected_sleeping > MAX_RESTORE_SLEEPING {
@@ -137,7 +152,7 @@ impl FrozenRestore {
             game: m.game,
             tick: m.tick,
             origin: (0, 0),
-            sleeping: BTreeMap::new(),
+            sleeping: SleepingArchive::default(),
             opening_edge_opened: false,
             pebble_seeded: BTreeSet::new(),
             pending_falls: Vec::new(),

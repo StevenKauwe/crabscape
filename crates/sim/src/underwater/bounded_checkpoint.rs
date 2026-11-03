@@ -271,7 +271,7 @@ fn decode_sized_checkpoint<const MAX_CELLS: usize, const MAX_SILT: usize>(
         game: w.game,
         tick: w.tick,
         origin: (0, 0),
-        sleeping: BTreeMap::new(),
+        sleeping: SleepingArchive::default(),
         opening_edge_opened: false,
         pebble_seeded: BTreeSet::new(),
         pending_falls: Vec::new(),

@@ -726,30 +726,7 @@ fn shared_hashes(host: &mut Player, guest: &mut Player) -> Result<(String, Strin
 }
 
 fn saved_cells(p: &mut Player) -> Result<Option<crabsim::cell_codec::Restored>> {
-    let value=p.b.eval(r#"new Promise((resolve,reject)=>{
-      const parts=location.pathname.split('/').filter(Boolean);
-      let slug=null;
-      for(let i=0;i<parts.length;i++){
-        if(/^pr-\d+$/.test(parts[i])){slug=parts[i];break;}
-        if(parts[i]==='branches'&&parts[i+1]){slug='branches-'+parts[i+1];break;}
-      }
-      if(slug)slug=slug.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase();
-      const opening=indexedDB.open(slug?'crabscape@'+slug+'@.cells':'crabscape.cells',1);
-      opening.onerror=()=>reject(String(opening.error));
-      opening.onsuccess=()=>{
-        const db=opening.result,tx=db.transaction('world','readonly');
-        const request=tx.objectStore('world').get('active');
-        tx.onabort=()=>{db.close();reject(String(tx.error));};
-        tx.oncomplete=()=>{db.close();if(request.result===undefined){resolve(null);return;}
-          const raw=request.result;
-          if(raw.format!=='CRABPG02'){resolve(null);return;}
-          const encode=bytes=>{const pieces=[];
-            for(let i=0;i<bytes.length;i+=32768)pieces.push(String.fromCharCode(...bytes.subarray(i,i+32768)));
-            return btoa(pieces.join(''));};
-          resolve({format:raw.format,tick:encode(raw.tick),player:encode(raw.player),index:encode(raw.index),pages:raw.pages.map(encode)});
-        };
-      };
-    })"#)?;
+    let value = p.b.eval(save_fixture::CAPTURE_SCRIPT)?;
     if value.is_null() {
         return Ok(None);
     }
@@ -785,7 +762,7 @@ fn saved_excavation(p: &mut Player, min_tick: u64, at: (f32, f32)) -> Result<u64
             return Ok(saved.sim_tick);
         }
         p.healthy()?;
-        if started.elapsed().as_secs_f64() > 30.0 {
+        if started.elapsed().as_secs_f64() > 60.0 {
             return Err(format!(
                 "owner did not write a fresh regional save after tick{min_tick}"
             ));
@@ -1089,11 +1066,53 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     return Err(host.failed(format!("fresh solo save disabled: {warning}")));
                 }
                 host.healthy()?;
-                if started.elapsed().as_secs() > 20 {
-                    return Err(host.failed("fresh solo game wrote no save in 20 seconds".into()));
+                // A worker request itself permits 45 seconds. Allow startup
+                // plus that bounded operation before declaring persistence lost.
+                if started.elapsed().as_secs() > 60 {
+                    return Err(host.failed("fresh solo game wrote no save in 60 seconds".into()));
                 }
                 sleep(0.5);
             };
+            // Fail only final head publication, after changed rows have been
+            // queued, proving the entire IndexedDB transaction rolls back.
+            host.b.eval(r#"(()=>{window.__originalCellPut=IDBObjectStore.prototype.put;window.__quotaAborts=0;
+              IDBObjectStore.prototype.put=function(value,key){if(this.name==='world'&&key==='active'){
+                window.__quotaAborts++;throw new DOMException('acceptance quota failure','QuotaExceededError');}
+                return window.__originalCellPut.call(this,value,key);};return true;})()"#)?;
+            let before_failed_commit = host.b.eval(save_fixture::CAPTURE_SCRIPT)?;
+            let failed_baseline_tick = crabsim::cell_codec::paged::decode(
+                &save_fixture::frame_from_object(&before_failed_commit)?,
+            )
+            .map_err(|e| format!("failure baseline: {e:?}"))?
+            .sim_tick;
+            host.until(60.0, "quota failure aborts head publication", |p| {
+                p.b.eval("window.__quotaAborts>0").ok() == Some(serde_json::Value::Bool(true))
+            })?;
+            let after_failed_commit = host.b.eval(save_fixture::CAPTURE_SCRIPT)?;
+            if before_failed_commit != after_failed_commit {
+                return Err(
+                    host.failed("failed atomic save changed published coordinate records".into())
+                );
+            }
+            host.b.eval(
+                "(()=>{IDBObjectStore.prototype.put=window.__originalCellPut;return true;})()",
+            )?;
+            let started = Instant::now();
+            loop {
+                if saved_cells(&mut host)?.is_some_and(|next| next.sim_tick > failed_baseline_tick)
+                {
+                    break;
+                }
+                host.healthy()?;
+                if started.elapsed().as_secs() > 60 {
+                    return Err(host.failed("autosave did not retry after quota failure".into()));
+                }
+                sleep(0.5);
+            }
+            found.push(
+                "aborted final head publication preserves every saved row and retries successfully"
+                    .into(),
+            );
             host.reload()?;
             host.until(15.0, "solo cellular save restored", |p| {
                 p.b.attr("data-cell-save").as_deref() == Some("loaded")
@@ -1119,7 +1138,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
               request.onsuccess=()=>{
                 const db=request.result,tx=db.transaction('world','readwrite'),store=tx.objectStore('world');
                 const get=store.get('active');
-                get.onsuccess=()=>{const value=get.result;if(!value){tx.abort();return;}value.format='retired-format';store.put(value,'active');};
+                get.onsuccess=()=>{const value=get.result;if(!value){tx.abort();return;}store.put({format:'retired-format'},'active');};
                 tx.onabort=()=>{db.close();reject('missing prior save');};
                 tx.oncomplete=()=>{db.close();resolve(true);};
               };
@@ -1134,7 +1153,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     break;
                 }
                 host.healthy()?;
-                if started.elapsed().as_secs() > 20 {
+                if started.elapsed().as_secs() > 60 {
                     return Err(host.failed("retired format left autosave disabled".into()));
                 }
                 sleep(0.5);
@@ -1159,9 +1178,10 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 .sleeping(distant_id)
                 .map_err(|e| format!("fixture page: {e:?}"))?;
             drop(baseline);
-            let fixture = save_fixture::object_from_frame(&large_frame)?;
+            let fixture = save_fixture::spatial_object_from_frame(&large_frame)?;
             drop(large_frame);
-            host.b.eval(&format!(r#"new Promise((resolve,reject)=>{{
+            host.b.eval(&format!(
+                r#"new Promise((resolve,reject)=>{{
               const parts=location.pathname.split('/').filter(Boolean); let slug=null;
               for(let i=0;i<parts.length;i++){{if(/^pr-\d+$/.test(parts[i])){{slug=parts[i];break;}}
                 if(parts[i]==='branches'&&parts[i+1]){{slug='branches-'+parts[i+1];break;}}}}
@@ -1170,13 +1190,14 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
               opening.onerror=()=>reject(String(opening.error)); opening.onsuccess=()=>{{
                 const db=opening.result,tx=db.transaction('world','readwrite'),raw={fixture};
                 const decode=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-                tx.objectStore('world').put({{format:raw.format,tick:decode(raw.tick),player:decode(raw.player),
-                  index:decode(raw.index),pages:raw.pages.map(decode)}},'active');
-                tx.objectStore('world').delete('reset_epoch');
+                const store=tx.objectStore('world');store.clear();
+                store.put(decode(raw.head),'active');store.put(decode(raw.epoch),'reset_epoch');
+                for(const [key,bytes] of raw.records)store.put(decode(bytes),key);
                 tx.onabort=()=>{{db.close();reject(String(tx.error));}};
                 tx.oncomplete=()=>{{db.close();resolve(true);}};
               }};
-            }})"#))?;
+            }})"#
+            ))?;
             host.open(&site.url("cells"))?;
             host.until(30.0, "large solo saved world restored", |p| {
                 p.b.attr("data-cell-save").as_deref() == Some("loaded")
@@ -1218,6 +1239,24 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             host.until(30.0, "large solo worker autosave restored", |p| {
                 p.b.attr("data-cell-save").as_deref() == Some("loaded")
             })?;
+            let resident = host
+                .b
+                .attr("data-cell-cache")
+                .ok_or("missing resident-cache diagnostic")?;
+            let counts = resident
+                .split(':')
+                .map(|n| n.parse::<usize>().map_err(|e| e.to_string()))
+                .collect::<Result<Vec<_>>>()?;
+            if counts.len() != 2
+                || counts
+                    .iter()
+                    .any(|n| *n > crabsim::page_cache::RESIDENT_PAGE_LIMIT)
+            {
+                return Err(host.failed(format!(
+                    "large archive exceeds resident cache bound: {resident}"
+                )));
+            }
+            found.push(format!("large archive cold startup has resident terrain:memory pages {resident} (limit {} each)",crabsim::page_cache::RESIDENT_PAGE_LIMIT));
             found.push(format!("large solo world retains {chunks} sleeping chunks through browser load, worker autosave tick{}, and reload",large_saved.sim_tick));
             let invite = host.invite()?;
             guest.open(&host.copied_invite(&invite, "cells")?)?;

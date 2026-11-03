@@ -6,9 +6,20 @@ use crate::player::{LocalPlayer, PlayerId};
 
 pub fn save_periodically(
     time: Res<Time>,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     crab: Single<(&Mover, &PlayerId), With<LocalPlayer>>,
 ) {
+    if let Some(ack) = super::browser::take_acknowledgement()
+        && !crate::coop::cells_acknowledge_save(&mut sim, &ack)
+    {
+        if let Some(world) = sim.level.cells.as_mut() {
+            world.acknowledge_sleeping(&ack.sleeping);
+        }
+        if let Some(crab) = sim.crab_mut(*crab.1) {
+            crab.memory.acknowledge_chunks(&ack.memory);
+        }
+    }
+    super::browser::maintain_pages(&mut sim, *crab.1, time.delta_secs());
     if crate::coop::cells_visiting() {
         let Some(generation) = super::browser::reserve_save(time.delta_secs()) else {
             return;
@@ -43,7 +54,8 @@ pub fn save_periodically(
         }
         return;
     }
-    let (Some(terrain), Some(mut player)) = (&sim.level.cells, crate::save::snapshot(&sim, *id))
+    let (Some(terrain), Some(mut player)) =
+        (&sim.level.cells, crate::save::snapshot_metadata(&sim, *id))
     else {
         super::browser::capture_failed(generation, super::Error::Damaged);
         return;
@@ -56,7 +68,13 @@ pub fn save_periodically(
         super::browser::capture_failed(generation, super::Error::Damaged);
         return;
     }
-    match super::paged::prepare(&player, terrain, sim.tick_count()) {
+    match crabsim::cell_codec::spatial::Capture::with_initial_baseline(
+        player,
+        terrain,
+        &sim.crab(*id).expect("local crab captured above").memory,
+        sim.tick_count(),
+        super::browser::needs_initial_baseline(),
+    ) {
         Ok(prepared) => super::browser::submit_save(generation, prepared),
         Err(reason) => super::browser::capture_failed(generation, reason),
     }

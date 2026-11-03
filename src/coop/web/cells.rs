@@ -130,15 +130,95 @@ pub(crate) fn disconnect(sim: &mut Sim, local: PlayerId) {
 pub(crate) fn visiting() -> bool {
     SESSION.with(|s| s.borrow().solo.is_some())
 }
+pub(crate) fn storage_requests(sim: &mut Sim) -> Option<crate::cell_save::paging::Requests> {
+    SESSION.with(|slot| {
+        let mut session = slot.borrow_mut();
+        let guest = session.guest;
+        if let Some(solo) = &mut session.solo {
+            return crate::cell_save::paging::with_local(
+                solo,
+                guest?,
+                crate::cell_save::paging::requests,
+            );
+        }
+        let owner = session.regional.as_mut()?.owner.as_mut()?;
+        let memory = if let Some(crab) = sim.crab_mut(HOST) {
+            &mut crab.memory
+        } else {
+            &mut owner.entities.sim.crab_mut(HOST)?.memory
+        };
+        Some(crate::cell_save::paging::requests(
+            owner.terrain.terrain_for_storage(),
+            memory,
+        ))
+    })
+}
+pub(crate) fn storage_replies(
+    sim: &mut Sim,
+    replies: &mut crate::cell_save::paging::Replies,
+) -> Option<Result<(), &'static str>> {
+    SESSION.with(|slot| {
+        let mut session = slot.borrow_mut();
+        let guest = session.guest;
+        if let Some(solo) = &mut session.solo {
+            return crate::cell_save::paging::with_local(solo, guest?, |world, memory| {
+                crate::cell_save::paging::apply(world, memory, replies)
+            });
+        }
+        let owner = session.regional.as_mut()?.owner.as_mut()?;
+        let memory = if let Some(crab) = sim.crab_mut(HOST) {
+            &mut crab.memory
+        } else {
+            &mut owner.entities.sim.crab_mut(HOST)?.memory
+        };
+        Some(crate::cell_save::paging::apply(
+            owner.terrain.terrain_for_storage(),
+            memory,
+            replies,
+        ))
+    })
+}
+pub(crate) fn acknowledge_save(
+    sim: &mut Sim,
+    ack: &crabsim::cell_codec::spatial::Acknowledgement,
+) -> bool {
+    SESSION.with(|slot| {
+        let mut session = slot.borrow_mut();
+        let guest = session.guest;
+        if let Some(solo) = &mut session.solo {
+            if let Some(world) = solo.level.cells.as_mut() {
+                world.acknowledge_sleeping(&ack.sleeping);
+            }
+            if let Some(crab) = guest.and_then(|id| solo.crab_mut(id)) {
+                crab.memory.acknowledge_chunks(&ack.memory);
+            }
+            return true;
+        }
+        if let Some(owner) = session
+            .regional
+            .as_mut()
+            .and_then(|regional| regional.owner.as_mut())
+        {
+            owner.terrain.acknowledge_sleeping(&ack.sleeping);
+            if let Some(crab) = sim.crab_mut(HOST) {
+                crab.memory.acknowledge_chunks(&ack.memory);
+            } else if let Some(crab) = owner.entities.sim.crab_mut(HOST) {
+                crab.memory.acknowledge_chunks(&ack.memory);
+            }
+            return true;
+        }
+        false
+    })
+}
 pub(crate) fn private_save(
     visitor: &Sim,
-) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
+) -> Option<Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error>> {
     SESSION.with(|slot| {
         let s = slot.borrow();
         let solo = s.solo.as_ref()?;
         let _profile = crate::cell_save::work::begin("cell-private-save");
         let id = s.guest?;
-        let mut saved = crate::save::snapshot(solo, id)?;
+        let mut saved = crate::save::snapshot_metadata(solo, id)?;
         if s.phase == Phase::Guest {
             let mut progress = visitor.progress(id)?;
             let base = solo.progress(id)?;
@@ -155,11 +235,15 @@ pub(crate) fn private_save(
         if !crate::cell_save::player_fits_world(solo, &saved) {
             return Some(Err(crate::cell_save::Error::Damaged));
         }
-        Some(crate::cell_save::paged::prepare(
-            &saved,
-            solo.level.cells.as_ref()?,
-            solo.tick_count(),
-        ))
+        Some(
+            crabsim::cell_codec::spatial::Capture::with_initial_baseline(
+                saved,
+                solo.level.cells.as_ref()?,
+                &solo.crab(id)?.memory,
+                solo.tick_count(),
+                crate::cell_save::browser::needs_initial_baseline(),
+            ),
+        )
     })
 }
 
@@ -167,7 +251,7 @@ pub(crate) fn private_save(
 /// accepted visitor checkpoint, without replaying the visitor's journal.
 pub(crate) fn owner_save(
     view: &Sim,
-) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
+) -> Option<Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error>> {
     use crate::cell_save::Error;
     SESSION.with(|slot| {
         let mut session = slot.borrow_mut();

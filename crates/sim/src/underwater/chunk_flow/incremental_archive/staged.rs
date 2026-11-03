@@ -478,7 +478,9 @@ impl Stage<'_> {
                     let chunk_index = self.index / 7;
                     let offset_index = self.index % 7;
                     let (cx, cy) = self.seed_chunks[chunk_index];
-                    if self.owner.world.pebble_seeded.contains(&(cx, cy)) {
+                    if self.owner.world.pebble_seeded.contains(&(cx, cy))
+                        || !World::has_far_pebble_source(self.level, cx, cy)
+                    {
                         self.index = (chunk_index + 1) * 7;
                         continue;
                     }

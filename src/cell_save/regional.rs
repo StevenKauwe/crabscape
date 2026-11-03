@@ -1,6 +1,7 @@
 //! Build an owner's whole-world save from its current local region and the
 //! latest acknowledged remote checkpoint. No network journal is replayed here.
-use super::{Error, paged};
+use super::Error;
+use crabsim::cell_codec::spatial::Capture;
 use crabsim::{
     Sim,
     underwater::region_store::{RegionEpoch, RegionId, TerrainStore},
@@ -15,7 +16,7 @@ pub(crate) fn prepare_owner_save(
     local_epoch: RegionEpoch,
     local_arrivals_delivered: u64,
     remote: Option<&RegionKernel>,
-) -> Result<paged::PreparedSave, Error> {
+) -> Result<Capture, Error> {
     let local_terrain = view.level.cells.as_ref().ok_or(Error::Damaged)?;
     terrain
         .commit_state(
@@ -42,7 +43,8 @@ pub(crate) fn prepare_owner_save(
         tick = tick.max(remote.sim.tick_count());
     }
     let host = view.crab(crate::coop::HOST).ok_or(Error::Damaged)?;
-    let mut saved = crate::save::snapshot(view, crate::coop::HOST).ok_or(Error::Damaged)?;
+    let mut saved =
+        crate::save::snapshot_metadata(view, crate::coop::HOST).ok_or(Error::Damaged)?;
     // A dug cavity can be narrower than one world unit; keep the exact
     // position from the same simulation frame as this terrain snapshot.
     saved.x = host.mover.pos.x;
@@ -55,7 +57,11 @@ pub(crate) fn prepare_owner_save(
     terrain
         .prepare_save_window(&entities.sim.level, host.mover.pos.x, host.mover.pos.y)
         .map_err(|_| Error::Damaged)?;
-    paged::prepare(&saved, terrain.terrain(), tick)
+    #[cfg(target_arch = "wasm32")]
+    let initial = super::browser::needs_initial_baseline();
+    #[cfg(not(target_arch = "wasm32"))]
+    let initial = false;
+    Capture::with_initial_baseline(saved, terrain.terrain(), &host.memory, tick, initial)
 }
 
 #[cfg(test)]
@@ -67,6 +73,26 @@ mod tests {
         underwater::{Cell, GAME_BOTTOM, GAME_CELL, region::CellRegion},
         world::regions::{RegionFrame, journal::RegionJournal},
     };
+
+    fn portable(capture: Capture) -> Vec<u8> {
+        use crabsim::cell_codec::{paged, spatial::files::Store};
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "crab-owner-save-{}-{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        let store = Store::new(&root);
+        store.commit(capture, 0).unwrap();
+        let restored = store.materialize(store.head().unwrap().unwrap()).unwrap();
+        let bytes = paged::prepare(&restored.player, &restored.terrain, restored.sim_tick)
+            .unwrap()
+            .encode()
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        bytes
+    }
 
     // Use the public movement force so the fixture exercises real substrate
     // mutation, then find one cell that changed for a compact assertion.
@@ -195,20 +221,20 @@ mod tests {
             Some(&backup),
         )
         .unwrap();
-        let bytes = result.encode().unwrap();
+        let bytes = portable(result);
         let stable_window = terrain.terrain().region();
-        let repeated = prepare_owner_save(
-            &local.sim,
-            &mut terrain,
-            &mut entities,
-            local.id,
-            local.epoch,
-            local.arrivals_delivered(),
-            Some(&backup),
-        )
-        .unwrap()
-        .encode()
-        .unwrap();
+        let repeated = portable(
+            prepare_owner_save(
+                &local.sim,
+                &mut terrain,
+                &mut entities,
+                local.id,
+                local.epoch,
+                local.arrivals_delivered(),
+                Some(&backup),
+            )
+            .unwrap(),
+        );
         assert_eq!(terrain.terrain().region(), stable_window);
         assert_eq!(
             repeated, bytes,

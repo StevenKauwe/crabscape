@@ -14,6 +14,7 @@ mod moving;
 enum Stage {
     #[default]
     Receiving,
+    Paging,
     Sending,
     Running,
     WaitingStop,
@@ -229,6 +230,16 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
     let host_area = area(&[host_at])?;
     let guest_area = area(&[guest_at])?;
     r.shared = share_region(host_at, guest_at, r.shared)?;
+    let regions = if r.shared {
+        vec![area(&[host_at, guest_at])?]
+    } else {
+        vec![host_area, guest_area]
+    };
+    if !owner.terrain.prefetch_regions(&regions) {
+        r.stage = Stage::Paging;
+        return Ok(());
+    }
+
     let (local, remote) = if r.shared {
         let local = extract(owner, &[HOST, guest], area(&[host_at, guest_at])?)?;
         let remote = local.checkpoint().map_err(fault)?;
@@ -895,6 +906,12 @@ fn update_inner(
     sim: &mut Sim,
     local: PlayerId,
 ) -> Result<(), String> {
+    if local == HOST && r.stage == Stage::Paging {
+        grant(s, r, sim)?;
+        if r.stage == Stage::Paging {
+            return Ok(());
+        }
+    }
     falling::update(r, sim);
     moving::update(s, r, sim, local)?;
     if local != HOST
@@ -955,6 +972,7 @@ fn update_inner(
                 Stage::Running => "running",
                 Stage::Sending => "sending",
                 Stage::Receiving => "receiving",
+                Stage::Paging => "paging",
                 Stage::WaitingStop | Stage::WaitingOwner | Stage::Stopping => "stopping",
                 Stage::Stopped => "stopped",
             },

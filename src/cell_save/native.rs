@@ -1,4 +1,5 @@
 //! Desktop cellular saves. Encoding and disk writes run off the render thread.
+use crabsim::cell_codec::spatial::{Acknowledgement, Capture, files::Store};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -6,13 +7,15 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 
 use bevy::prelude::*;
-use crabsim::{Sim, underwater::World};
+use crabsim::Sim;
+#[cfg(test)]
+use crabsim::underwater::World;
 
 use super::{MAX_RAW, ReplayStart, Restored};
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 use crate::save::SaveData;
 
-const FILE: &str = "crabscape-cells.save";
+const FILE: &str = "crabscape-world.store";
 /// Capture during movement too: waiting until the crab rests can otherwise
 /// leave an arbitrarily long swimming session unsaved.
 const SAVE_EVERY: f32 = 5.0;
@@ -27,11 +30,30 @@ pub struct Storage {
     write_failed: bool,
     elapsed: f32,
     generation: u64,
-    worker: Option<JoinHandle<Result<(), String>>>,
+    has_baseline: bool,
+    head: Option<(u64, u64)>,
+    worker: Option<JoinHandle<Result<Acknowledgement, String>>>,
+    reader: Option<JoinHandle<Result<PageBatch, String>>>,
+    read_failed: bool,
     replay: ReplayStart,
 }
 
 impl Storage {
+    pub fn activate_paging(&self, sim: &mut Sim, id: PlayerId) {
+        if !self.has_baseline {
+            return;
+        }
+        if let Some(world) = sim.level.cells.as_mut()
+            && !world.paging_enabled()
+        {
+            world.enable_paging();
+        }
+        if let Some(crab) = sim.crab_mut(id)
+            && !crab.memory.paging_enabled()
+        {
+            crab.memory.enable_paging();
+        }
+    }
     pub fn disable(&mut self) {
         self.disabled = true;
     }
@@ -39,6 +61,10 @@ impl Storage {
     pub fn warning(&self) -> Option<&'static str> {
         if self.disabled {
             Some("Cellular save unavailable. Your previous save is kept; autosave is off.")
+        } else if self.read_failed {
+            Some(
+                "Nearby saved terrain could not be loaded. Your previous save is kept; loading will retry.",
+            )
         } else if self.write_failed {
             Some("Autosave failed. Your previous cellular save is kept.")
         } else {
@@ -49,6 +75,113 @@ impl Storage {
     pub fn take_replay_start(&mut self) -> ReplayStart {
         std::mem::take(&mut self.replay)
     }
+}
+struct PageBatch {
+    epoch: u64,
+    generation: u64,
+    revision: u64,
+    terrain: Vec<(crabsim::page_cache::PageTicket, Option<Vec<u8>>)>,
+    memory: Vec<(crabsim::page_cache::PageTicket, Option<Vec<u8>>)>,
+}
+
+fn page_storage(storage: &mut Storage, sim: &mut Sim, id: PlayerId, path: &Path) {
+    if !storage.has_baseline || storage.disabled {
+        return;
+    }
+    if let Some(world) = sim.level.cells.as_mut()
+        && !world.paging_enabled()
+    {
+        world.enable_paging();
+    }
+    if let Some(crab) = sim.crab_mut(id)
+        && !crab.memory.paging_enabled()
+    {
+        crab.memory.enable_paging();
+    }
+    if storage.reader.as_ref().is_some_and(JoinHandle::is_finished) {
+        let result = storage
+            .reader
+            .take()
+            .expect("finished page reader")
+            .join()
+            .unwrap_or_else(|_| Err("page reader stopped unexpectedly".into()));
+        match result {
+            Ok(batch)
+                if batch.generation == GENERATION.load(Ordering::SeqCst)
+                    && storage.head == Some((batch.epoch, batch.revision))
+                    && Store::new(path).head().ok().flatten().is_some_and(|head| {
+                        head.revision == batch.revision && head.epoch == batch.epoch
+                    }) =>
+            {
+                storage.read_failed = false;
+                for (ticket, bytes) in batch.terrain {
+                    if let Some(world) = sim.level.cells.as_mut()
+                        && world
+                            .accept_sleeping_page(ticket, bytes.as_deref())
+                            .is_err()
+                    {
+                        storage.read_failed = true;
+                    }
+                }
+                for (ticket, bytes) in batch.memory {
+                    if let Some(crab) = sim.crab_mut(id)
+                        && crab.memory.accept_page(ticket, bytes.as_deref()).is_err()
+                    {
+                        storage.read_failed = true;
+                    }
+                }
+            }
+            Ok(_) => (),
+            Err(reason) => {
+                storage.read_failed = true;
+                warn!("cold page read failed: {reason}");
+            }
+        }
+    }
+    if storage.reader.is_some() {
+        return;
+    }
+    let terrain = sim
+        .level
+        .cells
+        .as_ref()
+        .map_or_else(Vec::new, |world| world.sleeping_page_requests(4));
+    let memory = sim
+        .crab(id)
+        .map_or_else(Vec::new, |crab| crab.memory.page_requests(4));
+    if terrain.is_empty() && memory.is_empty() {
+        return;
+    }
+    let root = path.to_owned();
+    let generation = GENERATION.load(Ordering::SeqCst);
+    let expected = storage.head;
+    storage.reader = Some(std::thread::spawn(move || {
+        let _guard = GATE.lock().map_err(|e| e.to_string())?;
+        let store = Store::new(root);
+        let head = store.head()?.ok_or("missing cold-page head")?;
+        if Some((head.epoch, head.revision)) != expected {
+            return Err("spatial page session changed in another process".into());
+        }
+        let read = |kind, tickets: Vec<crabsim::page_cache::PageTicket>| -> Result<_, String> {
+            tickets
+                .into_iter()
+                .map(|ticket| {
+                    let bytes = store.page(kind, ticket.coordinate, head)?;
+                    Ok((ticket, bytes))
+                })
+                .collect()
+        };
+        let terrain = read("terrain", terrain)?;
+        let memory = read("memory", memory)?;
+        store.validate_head(head)?;
+        Ok(PageBatch {
+            epoch: head.epoch,
+            generation,
+            revision: head.revision,
+            terrain,
+            memory,
+        })
+    }));
 }
 
 pub fn install(app: &mut App) {
@@ -64,9 +197,15 @@ pub fn load(sim: &mut Sim, storage: &mut Storage) -> Option<SaveData> {
 
 fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveData> {
     storage.generation = GENERATION.load(Ordering::SeqCst);
+    storage.head = Store::new(path)
+        .head()
+        .ok()
+        .flatten()
+        .map(|h| (h.epoch, h.revision));
     match read(path) {
         Ok(None) => None,
         Ok(Some(saved)) => {
+            storage.has_baseline = path.is_dir();
             if !super::player_fits_world(sim, &saved.player) {
                 storage.disabled = true;
                 warn!("cellular save has incompatible player data; keeping the old file unchanged");
@@ -94,6 +233,14 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
 }
 
 fn read(path: &Path) -> Result<Option<Restored>, String> {
+    if path.is_dir() {
+        let store = Store::new(path);
+        let head = store.head()?.ok_or("spatial save has no complete head")?;
+        if head.revision == 0 {
+            return Ok(None);
+        }
+        return store.startup(head).map(Some);
+    }
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -111,6 +258,7 @@ fn read(path: &Path) -> Result<Option<Restored>, String> {
         .map_err(|e| format!("{e:?}"))
 }
 
+#[cfg(test)]
 fn queue(
     path: PathBuf,
     player: SaveData,
@@ -128,12 +276,30 @@ fn queue(
     })
 }
 
+#[cfg(test)]
 fn encode_snapshot(player: &SaveData, world: &World, tick: u64) -> Result<Vec<u8>, super::Error> {
     if tick == 0 {
         super::encode(player, world, tick)
     } else {
         super::v2::prepare(player, world, tick).and_then(super::v2::PreparedSave::encode)
     }
+}
+
+fn queue_spatial(
+    path: PathBuf,
+    capture: Capture,
+    expected: Option<(u64, u64)>,
+) -> JoinHandle<Result<Acknowledgement, String>> {
+    let generation = GENERATION.load(Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let _guard = GATE.lock().map_err(|e| e.to_string())?;
+        if GENERATION.load(Ordering::SeqCst) != generation {
+            return Ok(Acknowledgement::default());
+        }
+        Store::new(path).commit_at(capture, expected.map_or(0, |h| h.0), expected, || {
+            GENERATION.load(Ordering::SeqCst) == generation
+        })
+    })
 }
 
 /// Invalidate pending background writes before removing the old save.
@@ -144,10 +310,14 @@ pub fn wipe() -> Result<(), String> {
 fn wipe_path(path: &Path) -> Result<(), String> {
     let _guard = GATE.lock().map_err(|e| e.to_string())?;
     GENERATION.fetch_add(1, Ordering::SeqCst);
-    let result = match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.to_string()),
+    let result = if !path.is_file() {
+        Store::new(path).reset()
+    } else {
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
     };
     WIPE_FAILED.store(result.is_err(), Ordering::SeqCst);
     result
@@ -155,7 +325,7 @@ fn wipe_path(path: &Path) -> Result<(), String> {
 
 fn save_periodically(
     time: Res<Time>,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     crab: Single<(&crabsim::Mover, &PlayerId), With<LocalPlayer>>,
     mut storage: ResMut<Storage>,
 ) {
@@ -166,7 +336,7 @@ fn save_periodically(
     update_storage(
         &mut storage,
         time.delta_secs(),
-        &sim,
+        &mut sim,
         mover,
         *id,
         Path::new(FILE),
@@ -178,7 +348,7 @@ fn save_periodically(
 fn update_storage(
     storage: &mut Storage,
     elapsed: f32,
-    sim: &Sim,
+    sim: &mut Sim,
     mover: &crabsim::Mover,
     id: PlayerId,
     path: &Path,
@@ -190,10 +360,17 @@ fn update_storage(
         storage.write_failed = false;
         storage.worker = None;
         storage.elapsed = 0.0;
+        storage.has_baseline = false;
+        storage.head = Store::new(path)
+            .head()
+            .ok()
+            .flatten()
+            .map(|h| (h.epoch, h.revision));
     }
     if storage.disabled {
         return;
     }
+    page_storage(storage, sim, id, path);
     if storage.worker.as_ref().is_some_and(JoinHandle::is_finished) {
         let result = storage
             .worker
@@ -202,6 +379,18 @@ fn update_storage(
             .join()
             .unwrap_or_else(|_| Err("save worker stopped unexpectedly".into()));
         storage.write_failed = result.is_err();
+        if let Ok(ack) = &result {
+            storage.has_baseline = true;
+            storage.head = storage.head.map_or(Some((0, 1)), |(epoch, revision)| {
+                Some((epoch, revision + 1))
+            });
+            if let Some(world) = sim.level.cells.as_mut() {
+                world.acknowledge_sleeping(&ack.sleeping);
+            }
+            if let Some(crab) = sim.crab_mut(id) {
+                crab.memory.acknowledge_chunks(&ack.memory);
+            }
+        }
         if let Err(e) = result
             && !storage.warned
         {
@@ -210,25 +399,48 @@ fn update_storage(
         }
     }
     storage.elapsed += elapsed;
+    if sim
+        .level
+        .cells
+        .as_ref()
+        .is_some_and(|world| world.paging_needs_flush())
+        || sim
+            .crab(id)
+            .is_some_and(|crab| crab.memory.paging_needs_flush())
+    {
+        storage.elapsed = storage.elapsed.max(SAVE_EVERY);
+    }
     if storage.elapsed < SAVE_EVERY
         || storage.worker.is_some()
         || !crate::player::valid_saved_spot(mover.pos, mover.grown(&sim.tuning), sim)
     {
         return;
     }
-    let (Some(world), Some(mut player)) = (&sim.level.cells, crate::save::snapshot(sim, id)) else {
+    let (Some(world), Some(mut player)) =
+        (&sim.level.cells, crate::save::snapshot_metadata(sim, id))
+    else {
         return;
     };
     // Unlike old saves, a cellular position can be inside a narrow dug space.
     player.x = mover.pos.x;
     player.y = mover.pos.y;
     storage.elapsed = 0.0;
-    storage.worker = Some(queue(
-        path.to_owned(),
+    let Some(memory) = sim.crab(id).map(|crab| &crab.memory) else {
+        return;
+    };
+    match Capture::with_initial_baseline(
         player,
-        world.clone(),
+        world,
+        memory,
         sim.tick_count(),
-    ));
+        !storage.has_baseline,
+    ) {
+        Ok(capture) => storage.worker = Some(queue_spatial(path.to_owned(), capture, storage.head)),
+        Err(reason) => {
+            storage.write_failed = true;
+            warn!("could not capture incremental cellular save: {reason:?}");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -666,8 +878,10 @@ mod tests {
         let _serial = TEST_IO.lock().unwrap();
         let path = path("swimming");
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&path);
         let mut sim = sim();
         sim.enable_underwater_cells();
+        sim.tick();
         let id = PlayerId(0);
         sim.add_crab(id, Vec2::new(400.0, 300.0));
         let mut storage = Storage {
@@ -680,15 +894,29 @@ mod tests {
             crab.mover.vel = Vec2::new(90.0, 20.0);
             crab.mover.grounded = false;
             let mover = crab.mover.clone();
-            update_storage(&mut storage, 1.0, &sim, &mover, id, &path);
+            update_storage(&mut storage, 1.0, &mut sim, &mover, id, &path);
             if second % 5 == 0 {
-                storage
+                let ack = storage
                     .worker
                     .take()
                     .expect("moving player is saved")
                     .join()
                     .unwrap()
                     .unwrap();
+                sim.level
+                    .cells
+                    .as_mut()
+                    .unwrap()
+                    .acknowledge_sleeping(&ack.sleeping);
+                sim.crab_mut(id)
+                    .unwrap()
+                    .memory
+                    .acknowledge_chunks(&ack.memory);
+                storage.has_baseline = true;
+                storage.head = Store::new(&path)
+                    .head()
+                    .unwrap()
+                    .map(|h| (h.epoch, h.revision));
                 let saved = read(&path).unwrap().unwrap();
                 assert_eq!(saved.player.x, mover.pos.x);
                 assert_eq!(saved.player.y, mover.pos.y);
@@ -702,28 +930,42 @@ mod tests {
         let crab = sim.crab_mut(id).unwrap();
         crab.mover.pos.x = -10.0;
         let invalid = crab.mover.clone();
-        update_storage(&mut storage, SAVE_EVERY, &sim, &invalid, id, &path);
+        update_storage(&mut storage, SAVE_EVERY, &mut sim, &invalid, id, &path);
         assert!(storage.worker.is_none());
         assert_eq!(read(&path).unwrap().unwrap().player.x, 410.0);
         let crab = sim.crab_mut(id).unwrap();
         crab.mover.pos.x = 420.0;
         let valid = crab.mover.clone();
-        update_storage(&mut storage, 0.0, &sim, &valid, id, &path);
-        storage
+        update_storage(&mut storage, 0.0, &mut sim, &valid, id, &path);
+        let ack = storage
             .worker
             .take()
             .expect("safe position is saved")
             .join()
             .unwrap()
             .unwrap();
+        sim.level
+            .cells
+            .as_mut()
+            .unwrap()
+            .acknowledge_sleeping(&ack.sleeping);
+        sim.crab_mut(id)
+            .unwrap()
+            .memory
+            .acknowledge_chunks(&ack.memory);
+        storage.head = Store::new(&path)
+            .head()
+            .unwrap()
+            .map(|h| (h.epoch, h.revision));
         assert_eq!(read(&path).unwrap().unwrap().player.x, 420.0);
         // A reset between capture and completion must still win, regardless
         // of whether the background encoder has reached the file yet.
         let mover = sim.crab(id).unwrap().mover.clone();
-        update_storage(&mut storage, SAVE_EVERY, &sim, &mover, id, &path);
+        update_storage(&mut storage, SAVE_EVERY, &mut sim, &mover, id, &path);
         let worker = storage.worker.take().expect("third moving snapshot");
         wipe_path(&path).unwrap();
-        worker.join().unwrap().unwrap();
-        assert!(!path.exists());
+        let _ = worker.join().unwrap();
+        assert!(read(&path).unwrap().is_none());
+        std::fs::remove_dir_all(path).unwrap();
     }
 }

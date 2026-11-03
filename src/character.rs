@@ -518,40 +518,59 @@ mod web {
         let build = option_env!("CRABSCAPE_BUILD").unwrap_or("dev");
         let copy = crate::save::build_slug();
         let name = names.mine();
-        let Some(c) = Character::of(&sim, me.0, *settings, *style, name, build, copy.clone())
+        let Some(mut c) = Character::of(&sim, me.0, *settings, *style, name, build, copy.clone())
         else {
             return;
         };
-        let code = encode(&c);
-        let today = js_sys::Date::new_0();
-        let date = (
-            today.get_full_year(),
-            today.get_month() + 1,
-            today.get_date(),
-        );
+        let description = summary(&c, &sim);
         open(false);
-        set_text("character-summary", &summary(&c, &sim));
-        if let Some(t) = text_box() {
-            t.set_value(&code);
-        }
-        info!("export: a character code of {} letters", code.len());
-        tell_tests(&format!("exported {}", code.len()));
-        with(|d| {
-            d.file = file_name(date, copy.as_deref());
-            d.code = code;
+        note("Preparing complete character memory…");
+        spawn_local(async move {
+            c.save = match crate::cell_save::browser::complete_export(c.save).await {
+                Ok(save) => save,
+                Err(error) => {
+                    note(&format!(
+                        "Character export could not be completed: {error}. Try again after autosave."
+                    ));
+                    return;
+                }
+            };
+            let code = encode(&c);
+            if code.len() > MAX_TEXT || decode(&code).is_err() {
+                note("This complete character exceeds the portable character limit.");
+                return;
+            }
+
+            let today = js_sys::Date::new_0();
+            let date = (
+                today.get_full_year(),
+                today.get_month() + 1,
+                today.get_date(),
+            );
+            open(false);
+            set_text("character-summary", &description);
+            if let Some(t) = text_box() {
+                t.set_value(&code);
+            }
+            info!("export: a character code of {} letters", code.len());
+            tell_tests(&format!("exported {}", code.len()));
+            with(|d| {
+                d.file = file_name(date, copy.as_deref());
+                d.code = code;
+            });
+            // Not from a tap on the page itself, so some browsers refuse: then
+            // the Copy button does it.
+            match start_copy() {
+                Some(copying) => spawn_local(async move {
+                    note(if JsFuture::from(copying).await.is_ok() {
+                        COPIED
+                    } else {
+                        "Tap Copy code to copy it, or Save file."
+                    });
+                }),
+                None => note("Tap Copy code to copy it, or Save file."),
+            }
         });
-        // Not from a tap on the page itself, so some browsers refuse: then
-        // the Copy button does it.
-        match start_copy() {
-            Some(copying) => spawn_local(async move {
-                note(if JsFuture::from(copying).await.is_ok() {
-                    COPIED
-                } else {
-                    "Tap Copy code to copy it, or Save file."
-                });
-            }),
-            None => note("Tap Copy code to copy it, or Save file."),
-        }
     }
 
     fn navigator() -> Option<Navigator> {
@@ -893,7 +912,7 @@ mod tests {
     fn importing_writes_the_save_settings_and_style_but_keeps_the_lobby_and_the_battery_saver() {
         let c = travelled();
         let mut device: std::collections::HashMap<&str, String> = [
-            (".save", r#"{"version":2,"x":160.0,"y":0.0}"#.to_string()),
+            (".save", r#"{"version":3,"x":160.0,"y":0.0}"#.to_string()),
             ("-settings", "saver=0;master=20".to_string()),
             ("-style", "oil".to_string()),
             ("-lobby", "k3m9px".to_string()),
@@ -978,7 +997,7 @@ mod tests {
             "crab:0:abc:00000000",
             "crab:one:abc:00000000",
             "CRAB:1:abc:00000000",
-            "{\"version\":2,\"x\":1,\"y\":2}",
+            "{\"version\":3,\"x\":1,\"y\":2}",
         ] {
             assert_eq!(refused(junk), Some(NotACharacter), "{junk:?}");
         }
@@ -1015,21 +1034,21 @@ mod tests {
         assert_eq!(
             refused(&code_with(
                 "1",
-                r#"{"build":"x","save":{"version":2,"x":"far"}}"#
+                r#"{"build":"x","save":{"version":3,"x":"far"}}"#
             )),
             Some(NotACharacter)
         );
         assert_eq!(
             refused(&code_with(
                 "1",
-                r#"{"build":"x","save":{"version":2,"x":1e300,"y":0}}"#
+                r#"{"build":"x","save":{"version":3,"x":1e300,"y":0}}"#
             )),
             Some(NotACharacter)
         );
         assert_eq!(
             refused(&code_with(
                 "1",
-                r#"{"build":"x","save":{"version":2,"x":5,"y":-1e300}}"#
+                r#"{"build":"x","save":{"version":3,"x":5,"y":-1e300}}"#
             )),
             Some(NotACharacter)
         );
@@ -1039,7 +1058,7 @@ mod tests {
         assert_eq!(
             refused(&code_with(
                 "1",
-                r#"{"build":"x","save":{"version":3,"x":1,"y":2,"stars":9}}"#
+                r#"{"build":"x","save":{"version":4,"x":1,"y":2,"stars":9}}"#
             )),
             Some(Newer)
         );
@@ -1081,7 +1100,7 @@ mod tests {
         // what it lacks starts fresh, as with a save kept on the device.
         let old = code_with(
             "1",
-            r#"{"build":"1a2b3c4, Aug 2","save":{"version":2,"x":900.0,"y":0.0,
+            r#"{"build":"1a2b3c4, Aug 2","save":{"version":3,"x":900.0,"y":0.0,
                "progress":{"upgrades":2,"lantern":1,"scissor_claw":true,"climb_xp":40.0,
                "carrying":null,"eaten":[true,false],"cultures_taken":[true],"clues_found":[],
                "teeth_taken":[],"nets_cut":[],"cast_offs":[]}},

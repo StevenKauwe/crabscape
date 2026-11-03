@@ -18,7 +18,7 @@ use web_sys::{
 };
 
 mod cleanup_storage;
-mod paged_storage;
+mod spatial_storage;
 
 const STORE: &str = "world";
 const KEY: &str = "active";
@@ -46,6 +46,12 @@ struct Autosave {
     elapsed: f32,
     warning: Option<String>,
     worker: Option<crate::cell_worker::CellWorker>,
+    revision: u64,
+    acknowledgement: Option<crabsim::cell_codec::spatial::Acknowledgement>,
+    read_busy: bool,
+    read_result: Option<(u64, Result<super::paging::Replies, String>)>,
+    read_warning: Option<String>,
+    read_retry: f32,
 }
 
 /// Called exactly once after startup validation. A failed read remains
@@ -54,6 +60,7 @@ pub fn configure_autosave(error: Option<&str>) {
     AUTOSAVE.with(|slot| {
         let mut state = slot.borrow_mut();
         state.epoch = STARTUP_EPOCH.with(|epoch| epoch.take());
+        state.revision = spatial_storage::startup_revision();
         state.enabled = error.is_none() && state.epoch.is_some();
         state.warning = error.map(|why| format!("Cellular save could not be loaded: {why}. Your previous save is kept; autosave is off."));
         if !state.enabled && state.warning.is_none() { state.warning = Some("Cellular save session could not be verified. Autosave is off.".into()); }
@@ -61,7 +68,103 @@ pub fn configure_autosave(error: Option<&str>) {
 }
 
 pub fn autosave_warning() -> Option<String> {
-    AUTOSAVE.with(|slot| slot.borrow().warning.clone())
+    AUTOSAVE.with(|slot| {
+        let state = slot.borrow();
+        state.read_warning.clone().or_else(|| state.warning.clone())
+    })
+}
+
+pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f32) {
+    let (enabled, revision) = AUTOSAVE.with(|slot| {
+        let mut state = slot.borrow_mut();
+        state.read_retry += elapsed;
+        (state.enabled, state.revision)
+    });
+    if !enabled || revision == 0 || !may_update() {
+        return;
+    }
+    let completed = AUTOSAVE.with(|slot| slot.borrow_mut().read_result.take());
+    if let Some((read_revision, result)) = completed
+        && read_revision == revision
+    {
+        let result = result.and_then(|mut replies| {
+            crate::coop::cells_storage_replies(sim, &mut replies)
+                .or_else(|| {
+                    super::paging::with_local(sim, id, |world, memory| {
+                        super::paging::apply(world, memory, &mut replies)
+                    })
+                })
+                .unwrap_or(Err("persistent world changed during page read"))
+                .map_err(str::to_owned)
+        });
+        AUTOSAVE.with(|slot| {
+                let mut state = slot.borrow_mut();
+                match result {
+                    Ok(()) => state.read_warning = None,
+                    Err(reason) => {
+                        state.read_warning = Some(format!("Nearby saved terrain could not be loaded: {reason}. Your previous save is kept; loading will retry."));
+                        state.read_retry = 0.0;
+                    }
+                }
+            });
+    }
+    let Some(requests) = crate::coop::cells_storage_requests(sim)
+        .or_else(|| super::paging::with_local(sim, id, super::paging::requests))
+    else {
+        return;
+    };
+    if let Some(canvas) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id("crabscape"))
+    {
+        let _ = canvas.set_attribute(
+            "data-cell-cache",
+            &format!("{}:{}", requests.resident.0, requests.resident.1),
+        );
+    }
+    if requests.flush {
+        AUTOSAVE.with(|slot| {
+            let mut state = slot.borrow_mut();
+            state.elapsed = state.elapsed.max(5.0);
+        });
+    }
+    if requests.terrain.is_empty() && requests.memory.is_empty() {
+        return;
+    }
+    let can_save = sim.crab(id).is_some_and(|crab| {
+        crate::player::valid_saved_spot(crab.mover.pos, crab.mover.grown(&sim.tuning), sim)
+    });
+    let Some((generation, epoch)) = AUTOSAVE.with(|slot| {
+        let mut state = slot.borrow_mut();
+        if state.busy
+            || state.read_busy
+            || (can_save && state.elapsed >= 5.0)
+            || (state.read_warning.is_some() && state.read_retry < 1.0)
+        {
+            return None;
+        }
+        let epoch = state.epoch?;
+        state.read_busy = true;
+        Some((state.generation, epoch))
+    }) else {
+        return;
+    };
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = spatial_storage::read_pages(
+            &crate::save::browser_key(".cells"),
+            epoch,
+            revision,
+            requests,
+        )
+        .await;
+        AUTOSAVE.with(|slot| {
+            let mut state = slot.borrow_mut();
+            if state.generation == generation && state.enabled && may_update() {
+                state.read_busy = false;
+                state.read_result = Some((revision, result));
+            }
+        });
+    });
 }
 
 fn current_save(generation: u64) -> bool {
@@ -76,10 +179,13 @@ fn current_save(generation: u64) -> bool {
 pub fn reserve_save(delta: f32) -> Option<u64> {
     AUTOSAVE.with(|slot| {
         let mut state = slot.borrow_mut();
-        if !state.enabled || state.busy || !may_update() {
+        if !state.enabled || !may_update() {
             return None;
         }
         state.elapsed += delta;
+        if state.busy || state.read_busy {
+            return None;
+        }
         if state.elapsed < 5.0 {
             return None;
         }
@@ -111,7 +217,7 @@ pub fn capture_failed(generation: u64, reason: super::Error) {
 
 /// Compress and commit one sealed snapshot. Both the worker response and
 /// asynchronous database open recheck its generation before copying/writing.
-pub fn submit_save(generation: u64, prepared: super::paged::PreparedSave) {
+pub fn submit_save(generation: u64, prepared: crabsim::cell_codec::spatial::Capture) {
     if !current_save(generation) {
         return;
     }
@@ -155,24 +261,49 @@ pub fn submit_save(generation: u64, prepared: super::paged::PreparedSave) {
         }
     };
     wasm_bindgen_futures::spawn_local(async move {
-        let encoded =
-            paged_storage::encode(prepared, &mut worker, || current_save(generation)).await;
-        let result = match encoded {
-            Ok(Some(value)) => paged_storage::write_if_current(
-                &crate::save::browser_key(".cells"),
-                value,
-                epoch,
-                move || current_save(generation),
-            )
-            .await
-            .map(|_| ()),
-            Ok(None) => Err("cellular save canceled".into()),
-            Err(error) => Err(error),
-        };
+        let revision = AUTOSAVE.with(|slot| slot.borrow().revision);
+        let written = spatial_storage::write(
+            &crate::save::browser_key(".cells"),
+            prepared,
+            epoch,
+            revision,
+            &mut worker,
+            move || current_save(generation),
+        )
+        .await;
+        let result = written.map(|(acknowledgement, revision)| {
+            AUTOSAVE.with(|slot| {
+                let mut state = slot.borrow_mut();
+                if state.generation == generation && state.enabled {
+                    state.revision = revision;
+                    state.acknowledgement = Some(acknowledgement);
+                }
+            });
+        });
         window.clear_timeout_with_handle(timer);
         drop(watchdog);
         let worker = result.is_ok().then_some(worker);
         finish_save(generation, result, worker, false);
+    });
+}
+
+pub fn take_acknowledgement() -> Option<crabsim::cell_codec::spatial::Acknowledgement> {
+    AUTOSAVE.with(|slot| slot.borrow_mut().acknowledgement.take())
+}
+pub fn needs_initial_baseline() -> bool {
+    AUTOSAVE.with(|slot| slot.borrow().revision == 0)
+}
+pub fn activate_local_paging(sim: &mut crabsim::Sim, id: crabsim::PlayerId) {
+    if needs_initial_baseline() {
+        return;
+    }
+    let _ = super::paging::with_local(sim, id, |world, memory| {
+        if !world.paging_enabled() {
+            world.enable_paging();
+        }
+        if !memory.paging_enabled() {
+            memory.enable_paging();
+        }
     });
 }
 
@@ -199,7 +330,13 @@ fn finish_save(
                     }
                 } else if permanent {
                     state.enabled = false;
-                    state.warning = Some("This cellular world is too large to save safely on this device. Your previous save is kept; autosave is off.".into());
+                    state.warning = Some("A cellular save record exceeded its internal bound. Your previous save is kept; autosave is off.".into());
+                } else if error.contains("QuotaExceeded") {
+                    state.warning=Some("Device storage is full. Your previous save is kept; free space and autosave will retry.".into());
+                } else if error.contains("SecurityError") || error.contains("NotAllowedError") {
+                    state.warning=Some("The browser denied storage access. Your previous save is kept; autosave will retry.".into());
+                } else if error.contains("internal bound") || error.contains("transaction budget") {
+                    state.warning=Some("A cellular save record exceeded its internal bound. Your previous save is kept; autosave will retry.".into());
                 } else {
                     state.warning = Some("Cellular autosave failed. Your previous save is kept; the game will retry.".into());
                 }
@@ -298,7 +435,7 @@ pub(crate) async fn preload_from(
         )
         .map_err(|e| problem("start loading timeout", e))?;
     wasm_bindgen_futures::spawn_local(async move {
-        let loaded = paged_storage::read_from(&database).await;
+        let loaded = spatial_storage::read_from(&database).await;
         // A timed-out request may finish after the game has started. Never
         // spend a frame decoding it, and never publish its stale result.
         if settled.get() {
@@ -539,6 +676,9 @@ pub fn clear_and_reload() {
         state.enabled = false;
         state.busy = false;
         state.worker = None;
+        state.acknowledgement = None;
+        state.read_busy = false;
+        state.read_result = None;
     });
     let message = web_sys::window()
         .and_then(|w| w.document())
@@ -731,4 +871,8 @@ pub(crate) async fn committed(tx: &IdbTransaction) -> Result<(), String> {
         .await
         .map(|_| ())
         .map_err(|e| problem("commit save", e))
+}
+
+pub async fn complete_export(save: crate::save::SaveData) -> Result<crate::save::SaveData, String> {
+    spatial_storage::complete_memory(save).await
 }

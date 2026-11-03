@@ -123,6 +123,7 @@ pub struct MemoryTexture {
     pub image: Handle<Image>,
     /// Left, bottom, width, height (world units).
     grid: Vec4,
+    made_at: Option<(u32, u64, Vec4)>,
 }
 
 impl MemoryTexture {
@@ -147,11 +148,11 @@ pub fn setup_memory_texture(
     mut images: ResMut<Assets<Image>>,
 ) {
     let t = &sim.tuning.memory;
-    let blank = Memory::new(&sim.level, t);
+
     let mut image = Image::new_fill(
         Extent3d {
-            width: blank.cols,
-            height: blank.rows,
+            width: MEMORY_TEXTURE_SIDE,
+            height: MEMORY_TEXTURE_SIDE,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -161,10 +162,16 @@ pub fn setup_memory_texture(
     );
     // Soft edges between cells: linear filtering.
     image.sampler = ImageSampler::linear();
-    let size = Vec2::new(blank.cols as f32, blank.rows as f32) * t.cell;
+    let size = Vec2::splat(MEMORY_TEXTURE_SIDE as f32 * t.cell);
     commands.insert_resource(MemoryTexture {
         image: images.add(image),
-        grid: Vec4::new(blank.origin.x, blank.origin.y, size.x, size.y),
+        grid: Vec4::new(
+            crabsim::SPAWN.x - size.x * 0.5,
+            crabsim::SPAWN.y - size.y * 0.5,
+            size.x,
+            size.y,
+        ),
+        made_at: None,
     });
 }
 
@@ -173,15 +180,9 @@ pub fn setup_memory_texture(
 #[derive(Resource, Default)]
 pub struct Known {
     pub sight: Option<Sight>,
-    origin: Vec2,
-    cell: f32,
-    cols: u32,
-    rows: u32,
-    bytes: Vec<u8>,
-    /// The memory step and crab spot the bytes were made for.
-    made_at: Option<(u32, Vec2)>,
-    /// When every cell's fade was last worked out.
-    faded_at: u32,
+    memory: Option<Memory>,
+    tuning: Option<crabsim::tuning::MemoryTuning>,
+    made_at: Option<(u32, u64)>,
 }
 
 impl Known {
@@ -236,77 +237,99 @@ impl Known {
     }
 
     fn byte(&self, p: Vec2) -> u8 {
-        let q = (p - self.origin) / self.cell;
-        if q.x < 0.0 || q.y < 0.0 || q.x as u32 >= self.cols || q.y as u32 >= self.rows {
+        let (Some(memory), Some(tuning)) = (&self.memory, &self.tuning) else {
             return 0;
+        };
+        let Some(i) = memory.cell_at(p, tuning) else {
+            return 0;
+        };
+        if memory.in_sight(i) {
+            255
+        } else {
+            (memory.clarity(i, tuning) * 254.0).round() as u8
         }
-        let i = q.y as u32 * self.cols + q.x as u32;
-        self.bytes.get(i as usize).copied().unwrap_or(0)
     }
 }
 
-/// Every this many memory steps, every cell's fade is worked out again
-/// (otherwise only the cells around the crab).
-const REFADE_STEPS: u32 = 20;
+/// One bounded viewport texture, independent of level extent or exploration.
+const MEMORY_TEXTURE_SIDE: u32 = 256;
 
-/// Bring [`Known`] and the texture up to date with the local crab's memory.
+/// Keep exact nearby perception and sample a bounded fog texture for the view.
+#[allow(clippy::too_many_arguments)]
 fn update_known(
     sim: Res<Sim>,
-    tex: Option<Res<MemoryTexture>>,
+    tex: Option<ResMut<MemoryTexture>>,
     crab: Query<&PlayerId, With<LocalPlayer>>,
     mut known: ResMut<Known>,
     mut images: ResMut<Assets<Image>>,
+    camera: Option<Single<(&Camera, &GlobalTransform), With<Camera2d>>>,
+    mut materials: ResMut<Assets<MemoryMaterial>>,
+    mut cells: ResMut<Assets<crate::cellular::CellMaterial>>,
 ) {
-    let (Ok(id), Some(tex)) = (crab.single(), tex) else {
+    let (Ok(id), Some(mut tex)) = (crab.single(), tex) else {
         return;
     };
     let Some(me) = sim.crab(*id) else {
         return;
     };
     let t = &sim.tuning.memory;
-    let m = &me.memory;
+    let memory = &me.memory;
     let eye = me.mover.pos + Vec2::new(0.0, me.mover.height(&sim.tuning));
-    let sight = Sight::new(eye, me.mover.lantern_glow(), t);
-    known.sight = Some(sight);
-    // What's in sight changes only on a memory step.
-    if known.made_at.is_some_and(|(now, _)| now == m.now) {
+    known.sight = Some(Sight::new(eye, me.mover.lantern_glow(), t));
+    let revision = memory.cache_revision();
+    if known.made_at != Some((memory.now, revision)) {
+        known.memory = Some(memory.clone());
+        known.tuning = Some(t.clone());
+        known.made_at = Some((memory.now, revision));
+    }
+    let viewport = camera
+        .and_then(|camera| {
+            let (camera, transform) = *camera;
+            let size = camera.logical_viewport_size()?;
+            let a = camera.viewport_to_world_2d(transform, Vec2::ZERO).ok()?;
+            let b = camera.viewport_to_world_2d(transform, size).ok()?;
+            Some(Rect::from_corners(a.min(b), a.max(b)))
+        })
+        .unwrap_or_else(|| Rect::from_center_size(eye, Vec2::new(1600.0, 1000.0)));
+    let ratio = (viewport.width().max(viewport.height())
+        / ((MEMORY_TEXTURE_SIDE - 4) as f32 * t.cell))
+        .max(1.0);
+    let pitch = t.cell * ratio.log2().ceil().exp2();
+    let origin = (viewport.min / pitch).floor() * pitch - Vec2::splat(2.0 * pitch);
+    let grid = Vec4::new(
+        origin.x,
+        origin.y,
+        pitch * MEMORY_TEXTURE_SIDE as f32,
+        pitch * MEMORY_TEXTURE_SIDE as f32,
+    );
+    if tex.made_at == Some((memory.now, revision, grid)) {
         return;
     }
-    let n = (m.cols * m.rows) as usize;
-    let full = known.bytes.len() != n || m.now.wrapping_sub(known.faded_at) >= REFADE_STEPS;
-    if known.bytes.len() != n {
-        known.bytes = vec![0; n];
+    tex.grid = grid;
+    tex.made_at = Some((memory.now, revision, grid));
+    for (_, material) in materials.iter_mut() {
+        material.uniform.grid = grid;
     }
-    known.origin = m.origin;
-    known.cell = t.cell;
-    (known.cols, known.rows) = (m.cols, m.rows);
-    // Work out the fade of every cell now and then, else just around the
-    // crab (where things change between refades).
-    let cells: Vec<u32> = if full {
-        (0..n as u32).collect()
-    } else {
-        let around = Rect::from_center_half_size(eye, sight.radii + 6.0 * t.cell);
-        m.cells_in(around, t).collect()
-    };
-    for i in cells {
-        known.bytes[i as usize] = if m.in_sight(i) {
-            255
-        } else {
-            (m.clarity(i, t) * 254.0).round() as u8
-        };
+    for (_, material) in cells.iter_mut() {
+        material.set_memory_grid(grid);
     }
-    if full {
-        known.faded_at = m.now;
-    }
-    known.made_at = Some((m.now, eye));
-    // The texture's first row is the top of the world.
-    if let Some(mut image) = images.get_mut(&tex.image) {
-        let cols = m.cols as usize;
-        let mut data = vec![0u8; n];
-        for (r, row) in known.bytes.chunks(cols).enumerate() {
-            let top = m.rows as usize - 1 - r;
-            data[top * cols..(top + 1) * cols].copy_from_slice(row);
+    let cols = (((viewport.max.x - origin.x) / pitch).ceil() as u32 + 1).min(MEMORY_TEXTURE_SIDE);
+    let rows = (((viewport.max.y - origin.y) / pitch).ceil() as u32 + 1).min(MEMORY_TEXTURE_SIDE);
+    let mut data = vec![0; (MEMORY_TEXTURE_SIDE * MEMORY_TEXTURE_SIDE) as usize];
+    for y in 0..rows {
+        for x in 0..cols {
+            let point = origin + (Vec2::new(x as f32, y as f32) + 0.5) * pitch;
+            if let Some(i) = memory.cell_at(point, t) {
+                data[((MEMORY_TEXTURE_SIDE - 1 - y) * MEMORY_TEXTURE_SIDE + x) as usize] =
+                    if memory.in_sight(i) {
+                        255
+                    } else {
+                        (memory.clarity(i, t) * 254.0).round() as u8
+                    };
+            }
         }
+    }
+    if let Some(mut image) = images.get_mut(&tex.image) {
         image.data = Some(data);
     }
 }

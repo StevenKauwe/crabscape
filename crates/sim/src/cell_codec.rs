@@ -3,6 +3,7 @@
 use crate::underwater::WorldCheckpoint;
 use crate::{SAVE_VERSION, SaveData, VerifiedCellStart, underwater::World};
 pub mod paged;
+pub mod spatial;
 const MAGIC: &[u8; 8] = b"CRABCEL1";
 const V2_MAGIC: &[u8; 8] = b"CRABCEL2";
 const HEADER: usize = 28;

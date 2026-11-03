@@ -102,15 +102,37 @@ pub(crate) fn cells_visiting() -> bool {
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn cells_private_save(
     sim: &crabsim::Sim,
-) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
+) -> Option<Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error>> {
     web::cells::private_save(sim)
 }
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn cells_owner_save(
     sim: &crabsim::Sim,
-) -> Option<Result<crate::cell_save::paged::PreparedSave, crate::cell_save::Error>> {
+) -> Option<Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error>> {
     web::cells::owner_save(sim)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_acknowledge_save(
+    sim: &mut crabsim::Sim,
+    ack: &crabsim::cell_codec::spatial::Acknowledgement,
+) -> bool {
+    web::cells::acknowledge_save(sim, ack)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_storage_requests(
+    sim: &mut crabsim::Sim,
+) -> Option<crate::cell_save::paging::Requests> {
+    web::cells::storage_requests(sim)
+}
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn cells_storage_replies(
+    sim: &mut crabsim::Sim,
+    replies: &mut crate::cell_save::paging::Replies,
+) -> Option<Result<(), &'static str>> {
+    web::cells::storage_replies(sim, replies)
 }
 
 pub(crate) use crabsim::replay::CellSessionAction as CellsAction;

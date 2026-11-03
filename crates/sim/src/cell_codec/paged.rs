@@ -236,11 +236,20 @@ mod tests {
         // This covers exploration growth and long play, without discarding
         // remembered cells to make an otherwise valid save fit.
         memory.now = u32::MAX;
-        let mut cells = Vec::new();
-        for i in 0..memory.cols * memory.rows {
-            cells.extend_from_slice(&[u8::from(i != 0), 8, 255, 255, 255, 255, 15]);
+        memory.cells.clear();
+        for y in 0..memory.rows.div_ceil(crate::memory::MEMORY_CHUNK_SIDE) {
+            for x in 0..memory.cols.div_ceil(crate::memory::MEMORY_CHUNK_SIDE) {
+                memory.cells.push(crate::memory::MemoryChunk {
+                    x,
+                    y,
+                    cells: std::sync::Arc::new(
+                        (0..1024)
+                            .map(|seen| crate::memory::MemoryCell { visits: 8, seen })
+                            .collect(),
+                    ),
+                });
+            }
         }
-        memory.cells = crate::memory::base64(&cells);
         assert!(crate::Memory::from_save(&memory, &level, &tuning.memory).is_some());
         let player = SaveData {
             version: SAVE_VERSION,

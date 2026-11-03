@@ -111,6 +111,7 @@ pub enum RegionError {
     InvalidBounds,
     PebbleBoundary,
     InvalidCheckpoint,
+    NeedsPages,
 }
 
 impl World {
@@ -217,6 +218,12 @@ impl World {
         }
         if self.region() == next {
             return Ok(());
+        }
+        if !self.require_region_pages(self.region())
+            || !self.require_region_pages(next)
+            || !self.prepare_owned_region(self.region())
+        {
+            return Err(RegionError::NeedsPages);
         }
         let cuts = self.pebbles.iter().any(|p| {
             let x = p.x + self.origin.0;

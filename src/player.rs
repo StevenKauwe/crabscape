@@ -223,6 +223,14 @@ pub fn spawn_local_crab(
     // at any moment (F9, see `replay.rs`). It's tiny: a few lines per second.
     #[cfg(not(target_arch = "wasm32"))]
     if crate::cellular::enabled() {
+        cells_storage.activate_paging(&mut sim, me);
+    }
+    #[cfg(target_arch = "wasm32")]
+    if crate::cellular::enabled() {
+        crate::cell_save::browser::activate_local_paging(&mut sim, me);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if crate::cellular::enabled() {
         match cells_storage.take_replay_start() {
             crate::cell_save::ReplayStart::Legacy => sim.start_recording(),
             crate::cell_save::ReplayStart::Verified(token) => {

@@ -82,6 +82,9 @@ pub struct CellMaterial {
     cells: Handle<Image>,
 }
 impl CellMaterial {
+    pub fn set_memory_grid(&mut self, grid: Vec4) {
+        self.uniform.grid = grid;
+    }
     pub fn set_water(&mut self, water: Color) {
         self.uniform.water = LinearRgba::from(water).to_vec4();
     }

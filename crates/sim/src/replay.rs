@@ -775,6 +775,9 @@ impl Recorder {
 
     pub(crate) fn note_memory(&mut self, memory: &crate::Memory) -> bool {
         let saved = memory.to_save();
+        if !saved.complete {
+            return false;
+        }
         if serde_json::to_vec(&saved).map_or(true, |json| json.len() > MAX_START_MEMORY) {
             return false;
         }
