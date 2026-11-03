@@ -153,6 +153,21 @@ pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> C
     let wx = (cell_x as f32 + 0.5) * GAME_CELL;
     let wy = GAME_BOTTOM + (cell_y as f32 + 0.5) * GAME_CELL;
     let floor = level.floor_height(wx);
+    // An authored shelf at the Canyon Drift Run. New pages start with this
+    // rock; saved, edited pages remain authoritative on every later load.
+    if (6396.0..6452.0).contains(&wx) && (-3188.0..-3176.0).contains(&wy) {
+        return Cell::Rock;
+    }
+    if (6380.0..6432.0).contains(&wx) && (-3252.0..-3240.0).contains(&wy) {
+        return Cell::Rock;
+    }
+    if ((6380.0..6384.0).contains(&wx) || (6428.0..6432.0).contains(&wx))
+        && (-3240.0..-3224.0).contains(&wy) {
+        return Cell::Rock;
+    }
+    if (6448.0..6452.0).contains(&wx) && (-3176.0..-3160.0).contains(&wy) {
+        return Cell::Rock;
+    }
     if wy < floor - 100.0
         || level
             .rocks
