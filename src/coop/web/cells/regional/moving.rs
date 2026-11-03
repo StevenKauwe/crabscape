@@ -37,6 +37,7 @@ impl Transfer {
 }
 
 pub(super) fn cancel(r: &mut State) -> Result<(), String> {
+    r.move_paging = false;
     if let Some(m) = r.moving.take()
         && let Some(owner) = &mut r.owner
     {
@@ -153,8 +154,14 @@ pub(super) fn step(
     Ok(())
 }
 
-fn prefetch(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Result<(), String> {
+pub(super) fn prefetch(
+    s: &mut Session,
+    r: &mut State,
+    sim: &mut Sim,
+    local: PlayerId,
+) -> Result<(), String> {
     if local == HOST && r.stage == Stage::Running && r.partial.is_empty() {
+        r.move_paging = false;
         let guest = s.guest.ok_or("Missing visitor")?;
         let host_at = point(sim, HOST)?;
         let guest_at = if r.shared {
@@ -170,12 +177,23 @@ fn prefetch(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> R
                 if next != local_bounds {
                     let k = r.kernel.as_ref().ok_or("Missing owner kernel")?;
                     let owner = r.owner.as_mut().ok_or("Missing owner")?;
-                    let Ok(input) =
-                        prepare_move(&mut owner.terrain, &owner.entities, k.id, k.epoch, next)
-                    else {
-                        // A cut aggregate or another lease may require a full
-                        // coordinated handoff. Keep the current area running.
-                        return Ok(());
+                    let input = match prepare_move(
+                        &mut owner.terrain,
+                        &owner.entities,
+                        k.id,
+                        k.epoch,
+                        next,
+                    ) {
+                        Ok(input) => input,
+                        Err(crabsim::world::regions::RegionError::NeedsPages) => {
+                            r.move_paging = true;
+                            return Ok(());
+                        }
+                        Err(_) => {
+                            // A cut aggregate or another lease may require a full
+                            // coordinated handoff. Keep the current area running.
+                            return Ok(());
+                        }
                     };
                     let output = apply_local(r, sim, input, HOST)?;
                     let owner = r.owner.as_mut().ok_or("Missing owner")?;
@@ -209,10 +227,19 @@ fn prefetch(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> R
                     if next != old {
                         let _profile = crate::cell_save::work::begin("cell-move-prefetch");
                         let owner = r.owner.as_mut().ok_or("Missing owner")?;
-                        let Ok(input) =
-                            prepare_move(&mut owner.terrain, &owner.entities, id, epoch, next)
-                        else {
-                            return Ok(());
+                        let input = match prepare_move(
+                            &mut owner.terrain,
+                            &owner.entities,
+                            id,
+                            epoch,
+                            next,
+                        ) {
+                            Ok(input) => input,
+                            Err(crabsim::world::regions::RegionError::NeedsPages) => {
+                                r.move_paging = true;
+                                return Ok(());
+                            }
+                            Err(_) => return Ok(()),
                         };
                         r.move_serial += 1;
                         let mut m = Transfer::new(r.move_serial, id, epoch, false);

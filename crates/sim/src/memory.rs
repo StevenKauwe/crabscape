@@ -85,6 +85,7 @@ struct Obstruction {
     x: u32,
     y: u32,
     width: u32,
+    height: u32,
     cells: Vec<bool>,
 }
 impl Obstruction {
@@ -93,7 +94,7 @@ impl Obstruction {
         let y = (i / u64::from(cols)) as u32;
         let dx = x.checked_sub(self.x)?;
         let dy = y.checked_sub(self.y)?;
-        if dx >= self.width {
+        if dx >= self.width || dy >= self.height {
             return None;
         }
         self.cells
@@ -469,6 +470,7 @@ impl Memory {
             self.obstruction.x = (first % u64::from(self.cols)) as u32;
             self.obstruction.y = (first / u64::from(self.cols)) as u32;
             self.obstruction.width = (last % u64::from(self.cols)) as u32 - self.obstruction.x + 1;
+            self.obstruction.height = (last / u64::from(self.cols)) as u32 - self.obstruction.y + 1;
             for &i in &cells {
                 let solid = self.sample_solid(i, level, t);
                 self.obstruction.cells.push(solid);

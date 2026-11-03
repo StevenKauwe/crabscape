@@ -169,7 +169,10 @@ pub fn prepare_move(
 ) -> Result<MoveIn, RegionError> {
     let terrain = store
         .prepare_move_terrain(id, epoch, bounds, &archive.sim.level)
-        .map_err(err)?;
+        .map_err(|error| match error {
+            crate::underwater::region_store::StoreError::NeedsPages => RegionError::NeedsPages,
+            error => err(error),
+        })?;
     let entities = Entities::capture(&archive.sim, &archive.npc_rng, |p| {
         owns(bounds, p) && !owns(terrain.old, p)
     });
@@ -326,6 +329,49 @@ impl RegionKernel {
 mod tests {
     use super::super::journal::RegionJournal;
     use super::*;
+    #[test]
+    fn cold_move_keeps_its_lease_and_retries_after_page_replies() {
+        let mut sim = Sim::with_one_crab(Vec2::new(480.0, 1000.0));
+        sim.enable_underwater_cells();
+        let mut store = TerrainStore::new(sim.level.cells.take().unwrap()).unwrap();
+        let archive = EntityArchive::new(sim).unwrap();
+        let old = CellRegion {
+            x: 1024,
+            y: 256,
+            width: 256,
+            height: 256,
+        };
+        let new = CellRegion { x: 1088, ..old };
+        let id = RegionId(1);
+        let (epoch, _) = store.grant(id, old, &archive.sim.level).unwrap();
+        store.terrain_for_storage().enable_paging();
+        assert!(matches!(
+            prepare_move(&mut store, &archive, id, epoch, new),
+            Err(RegionError::NeedsPages)
+        ));
+        assert_eq!(store.active_regions(), 1);
+        assert_eq!(store.revision(id, epoch), Some(0));
+        let mut replies = 0;
+        loop {
+            let requests = store.terrain().sleeping_page_requests(4);
+            if requests.is_empty() {
+                break;
+            }
+            for ticket in requests {
+                store
+                    .terrain_for_storage()
+                    .accept_sleeping_page(ticket, None)
+                    .unwrap();
+                replies += 1;
+            }
+        }
+        assert!(replies > 0);
+        let input = prepare_move(&mut store, &archive, id, epoch, new).unwrap();
+        assert_eq!(input.revision(), 1);
+        assert_eq!(input.old_bounds(), old);
+        assert_eq!(store.active_regions(), 1);
+    }
+
     #[test]
     fn move_keeps_live_overlap_npc_streams_and_replays_same_tick_checkpoint_race() {
         let mut sim = Sim::with_one_crab(Vec2::new(480.0, 1000.0));
