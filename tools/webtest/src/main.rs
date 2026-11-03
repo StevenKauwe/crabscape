@@ -437,7 +437,26 @@ impl Test<'_> {
 
     /// Load a page of the site (in the phone frame, when there is one).
     fn go(&self, page: &str) -> Result<()> {
-        self.b.go(&format!("{}{page}", self.pages))?;
+        // Historical movement/art scenarios explicitly exercise boring mode;
+        // live-site smoke and cellular regressions exercise the new default.
+        let legacy = !self.o.smoke
+            && page.starts_with("index.html")
+            && !page
+                .split('?')
+                .nth(1)
+                .unwrap_or("")
+                .split('&')
+                .any(|p| p == "cells" || p == "cells=1");
+        let mode = if legacy {
+            if page.contains('?') {
+                "&boring"
+            } else {
+                "?boring"
+            }
+        } else {
+            ""
+        };
+        self.b.go(&format!("{}{page}{mode}", self.pages))?;
         if self.framed {
             self.b.enter_frame()?;
         }
@@ -557,8 +576,28 @@ impl Test<'_> {
         );
         let start = self.rest()?;
         println!("     crab at {start:?}");
+        let expected_y = if self.o.smoke {
+            self.check(
+                self.attr("data-cell-save")?.is_some(),
+                "the bare live URL starts the cellular game",
+            );
+            let mut expected =
+                crabsim::Sim::new(crabsim::Tuning::default(), crabsim::Level::test_level());
+            expected.enable_underwater_cells();
+            expected.add_crab(crabsim::PlayerId(0), crabsim::SPAWN);
+            f64::from(
+                expected
+                    .crab(crabsim::PlayerId(0))
+                    .ok_or("missing expected spawn")?
+                    .mover
+                    .pos
+                    .y,
+            )
+        } else {
+            0.0
+        };
         self.check(
-            start.2 && (start.0 - 160.0).abs() < 1.0 && start.1.abs() < 1.0,
+            start.2 && (start.0 - 160.0).abs() < 1.0 && (start.1 - expected_y).abs() < 1.0,
             "a fresh game starts the crab on the sea floor at the spawn point",
         );
         let warm = self.numbered_shot(1)?;

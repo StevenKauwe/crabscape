@@ -12,8 +12,8 @@ use crabsim::underwater::{GAME_BUBBLES, GAME_PEBBLES, GAME_SILT, GAME_TRACERS};
 
 use crate::player::GameSet;
 
-/// The dedicated draft preview starts the experiment automatically.
-/// Elsewhere use `--cells` on desktop or `?cells` in the browser.
+/// Browsers start the cellular game; `?boring` selects the older terrain.
+/// Desktop can opt in with `--cells`.
 pub fn enabled() -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -30,23 +30,13 @@ pub fn enabled() -> bool {
     }
 }
 
-/// The cellular drafts and the mobile camera-fix preview default to the
-/// experiment; `?boring` selects the normal game. The live site and other
-/// previews keep their usual default.
+/// Use the same default on the live site, previews and local builds.
 #[cfg(any(test, target_arch = "wasm32"))]
-fn browser_cells_enabled(path: &str, search: &str) -> bool {
-    let mut params = search.trim_start_matches('?').split('&');
-    if params
-        .clone()
+fn browser_cells_enabled(_path: &str, search: &str) -> bool {
+    !search
+        .trim_start_matches('?')
+        .split('&')
         .any(|part| part == "boring" || part == "boring=1")
-    {
-        return false;
-    }
-    let explicit = params.any(|part| part == "cells" || part == "cells=1");
-    explicit
-        || path
-            .split('/')
-            .any(|part| matches!(part, "pr-345" | "pr-350" | "pr-352"))
 }
 
 #[cfg(test)]
@@ -54,14 +44,15 @@ mod tests {
     use super::browser_cells_enabled;
 
     #[test]
-    fn cellular_test_previews_enable_cells_without_a_query() {
+    fn live_and_preview_urls_default_to_cells_with_explicit_boring_override() {
         assert!(browser_cells_enabled("/crabscape/pr-345/", ""));
         assert!(browser_cells_enabled("/crabscape/pr-345", "?zoom=2"));
         assert!(browser_cells_enabled("/crabscape/pr-350/", ""));
         assert!(browser_cells_enabled("/crabscape/pr-352/", ""));
-        assert!(!browser_cells_enabled("/crabscape/pr-3450/", ""));
-        assert!(!browser_cells_enabled("/crabscape/", ""));
-        assert!(!browser_cells_enabled("/crabscape/pr-346/", ""));
+        assert!(browser_cells_enabled("/crabscape/pr-3450/", ""));
+        assert!(browser_cells_enabled("/crabscape/", ""));
+        assert!(browser_cells_enabled("/index.html", ""));
+        assert!(browser_cells_enabled("/crabscape/pr-346/", ""));
         assert!(browser_cells_enabled("/crabscape/", "?zoom=2&cells"));
         assert!(browser_cells_enabled("/crabscape/", "?cells=1"));
         assert!(!browser_cells_enabled("/crabscape/pr-352/", "?boring"));

@@ -83,11 +83,13 @@ struct Site {
 impl Site {
     /// The page's address with `extra` (`join=<code>`) added.
     fn url(&self, extra: &str) -> String {
-        if extra.is_empty() {
-            return self.page.clone();
-        }
         let sep = if self.page.contains('?') { '&' } else { '?' };
-        format!("{}{sep}{extra}", self.page)
+        let mode = if extra.split('&').any(|p| p == "cells" || p == "cells=1") {
+            ""
+        } else {
+            "&boring"
+        };
+        format!("{}{sep}{extra}{mode}", self.page)
     }
 }
 
@@ -1072,7 +1074,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut guest = Player::new(site, "guest", o)?;
     match name {
         "cells-solo-save" => {
-            host.open(&site.url("cells"))?;
+            // The actual landing URL must select cells without a query flag.
+            host.open(&site.page)?;
             let started = Instant::now();
             let saved = loop {
                 if let Some(saved) = saved_cells(&mut host)? {
@@ -2102,7 +2105,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             older_build(&site.web, &served)?;
             let base = serve::start(&served, chrome::WIDTH as u32, chrome::HEIGHT as u32)
                 .map_err(|e| e.to_string())?;
-            let page = format!("{base}/index.html?introducer=ws://127.0.0.1:{port}");
+            let page = format!("{base}/index.html?introducer=ws://127.0.0.1:{port}&boring");
             host.open(&page)?;
             let code = host.invite()?;
             host.until(5.0, "the lobby open", |p| {
