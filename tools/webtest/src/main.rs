@@ -554,8 +554,16 @@ impl Test<'_> {
         if !started {
             return Ok(()); // nothing else can work
         }
-        self.tap(50.0, 68.0, 2, true)?;
-        self.tap(50.0, 107.0, 2, true)?;
+        let (inventory_x, inventory_y) = if w > h {
+            ((w - 258.0) * 0.5 + 50.0, 90.0)
+        } else {
+            (58.0, 142.0)
+        };
+        self.tap(inventory_x, inventory_y + 18.0, 2, true)?;
+        if let Some(prefix) = &self.o.shots {
+            self.shot(PathBuf::from(format!("{prefix}-inventory.png")), true)?;
+        }
+        self.tap(inventory_x, inventory_y + 86.0, 2, true)?;
         let disabled = self.wait_for(
             &format!(r#"{CANVAS}.getAttribute("data-shell")?.startsWith("false true ")"#),
             5.0,
@@ -564,13 +572,13 @@ impl Test<'_> {
             disabled,
             "the shell panel switches off automatic clam pickup",
         );
-        self.tap(50.0, 107.0, 2, true)?;
+        self.tap(inventory_x, inventory_y + 86.0, 2, true)?;
         let enabled = self.wait_for(
             &format!(r#"{CANVAS}.getAttribute("data-shell")?.startsWith("true true ")"#),
             5.0,
         )?;
         self.check(enabled, "automatic clam pickup can be switched back on");
-        self.tap(50.0, 68.0, 2, true)?;
+        self.tap(inventory_x, inventory_y + 18.0, 2, true)?;
         if self.framed {
             self.cellular_worker("/__worker_preview")?;
             self.cellular_worker("/__worker_preview/")?;

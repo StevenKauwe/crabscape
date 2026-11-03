@@ -175,6 +175,7 @@ fn touched_buttons(
     mouse: &ButtonInput<MouseButton>,
     window: &Window,
     dig_touch: Option<u64>,
+    covered: impl Fn(Vec2) -> bool,
 ) -> Vec<TouchAction> {
     let mut points: Vec<Vec2> = touches
         .iter()
@@ -186,6 +187,7 @@ fn touched_buttons(
     {
         points.push(cursor);
     }
+    points.retain(|point| !covered(*point));
     button_rects(size)
         .into_iter()
         // A slightly bigger hit area than the drawn button: thumbs are imprecise.
@@ -246,6 +248,10 @@ fn read_input(
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
     window: Single<&Window>,
+    inventory: Query<
+        (&ComputedNode, &UiGlobalTransform, &InheritedVisibility),
+        With<crate::shell_inventory::Panel>,
+    >,
     local: Single<&PlayerId, With<LocalPlayer>>,
     settings: Res<crate::settings::panel::Open>,
     sim: Res<crabsim::Sim>,
@@ -256,6 +262,11 @@ fn read_input(
     if touches.any_just_pressed() && !touch_controls.visible {
         touch_controls.visible = true;
     }
+    let covered = |p: Vec2| {
+        inventory
+            .iter()
+            .any(|(b, t, v)| v.get() && b.contains_point(*t, p * window.scale_factor()))
+    };
     let cells_enabled = sim.level.cells.is_some();
     let dig_rect = button_rects(window.size())[0].1;
     if !cells_enabled
@@ -268,7 +279,7 @@ fn read_input(
     if cells_enabled && touch_controls.dig_touch.is_none() {
         touch_controls.dig_touch = touches
             .iter_just_pressed()
-            .find(|t| dig_rect.inflate(3.0).contains(t.position()))
+            .find(|t| !covered(t.position()) && dig_rect.inflate(3.0).contains(t.position()))
             .map(|t| t.id());
     }
     let dig_vector = touch_controls
@@ -285,6 +296,7 @@ fn read_input(
             &mouse,
             &window,
             touch_controls.dig_touch,
+            covered,
         )
     } else {
         Vec::new()
@@ -461,7 +473,14 @@ fn layout_touch_buttons(
 ) {
     let size = window.size();
     let rects = button_rects(size);
-    let pressed = touched_buttons(size, &touches, &mouse, &window, touch_controls.dig_touch);
+    let pressed = touched_buttons(
+        size,
+        &touches,
+        &mouse,
+        &window,
+        touch_controls.dig_touch,
+        |_| false,
+    );
     let rect = rects[0].1;
     let vector = touch_controls
         .dig_touch
