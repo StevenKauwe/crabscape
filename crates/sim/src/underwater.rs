@@ -5911,6 +5911,44 @@ mod tests {
     }
 
     #[test]
+    fn moray_aligns_its_jaws_with_shrimp_below_a_rock_corner() {
+        use crate::{Kind, Sim};
+        use bevy_math::Vec2;
+        let mut sim = Sim::with_one_crab(Vec2::new(1907.0, 200.0));
+        sim.enable_underwater_cells();
+        let moray = sim.spawn_enemy(Kind::Moray, Vec2::new(1760.0, -176.0));
+        let shrimp = sim.spawn_enemy(Kind::Snapper, Vec2::new(2060.0, 88.0));
+        let eel = sim
+            .enemies_mut()
+            .iter_mut()
+            .find(|e| e.id == moray)
+            .unwrap();
+        eel.pos = Vec2::new(2047.3544, 98.16704);
+        eel.facing = 1.0;
+        eel.animal_target = Some(shrimp);
+        eel.enter_now(crate::enemy::State::Approach, 0);
+        for _ in 0..1200 {
+            sim.tick();
+            if sim
+                .enemies()
+                .iter()
+                .find(|e| e.id == shrimp)
+                .unwrap()
+                .vitals
+                .health
+                <= 0.0
+            {
+                break;
+            }
+        }
+        let prey = sim.enemies().iter().find(|e| e.id == shrimp).unwrap();
+        assert!(
+            prey.vitals.health <= 0.0,
+            "moray kept whiffing at corner: {prey:?}"
+        );
+    }
+
+    #[test]
     fn moray_locks_onto_and_bites_a_nearby_shrimp() {
         use crate::{Kind, PlayerId, Sim};
         use bevy_math::Vec2;
