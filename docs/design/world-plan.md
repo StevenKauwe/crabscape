@@ -13,10 +13,29 @@ one GitHub issue (label `world-plan`) that stands on its own.
 3. **One worktree per package**, cut from the latest `origin/main`:
    `git fetch origin && git worktree add .claude/worktrees/<slug> -b issue-<n>-<slug> origin/main`. Never work in the
    main checkout. **At most 3 packages at once, never two that touch the same file** (each issue lists its files).
-4. **Farming out to Codex:** `codex exec -m gpt-6-astra -c model_reasoning_effort=low "<brief>"` run inside that
-   worktree, in the background, with a time limit (`timeout 3600`). (`-m astra-low` is rejected on this account;
-   astra at low effort is the same thing.) The brief is the issue body plus: "Read docs/design/world-vision-brief.md
-   first. Write the failing tests first. Decide; do not ask. Do not touch files not listed."
+4. **Farming out to Codex.** The exact command that works on this account (`-m astra-low` is rejected: "not
+   supported when using Codex with a ChatGPT account"; astra at low effort is the same thing):
+   ```sh
+   L=.claude/worktrees/_codex-logs; W=.claude/worktrees/<slug>
+   timeout 3600 codex exec -m gpt-6-astra -c model_reasoning_effort=low -c approval_policy=never \
+     -s workspace-write -c sandbox_workspace_write.network_access=true \
+     --add-dir ~/.cargo --add-dir ~/Library/Caches/Mozilla.sccache -C $W - < $L/brief_<n>.txt > $L/codex_<n>.log 2>&1
+   ```
+   Run it in the background. The brief is the issue body, then "package notes" (what already exists on `main`, the
+   exact files, the decisions the issue leaves open), then the common rules (read the brief first, tests first,
+   decide, only the listed files, no commit, the checks to run). Lessons from the first runs:
+   - **Keep briefs and logs in `.claude/worktrees/_codex-logs/`**, never under `/tmp`: Codex tidies "scratch
+     files" and deleted a whole temp folder of briefs and logs once. Say "do not delete anything outside this
+     worktree" in every brief.
+   - Codex cannot `git fetch`, commit or push in its sandbox. The reviewer commits, rebases and opens the PR.
+   - Codex cannot take screenshots (no GPU in the sandbox). Visual changes get their look checked at the taste
+     gates, or by the reviewer.
+   - A run takes 15 to 60 minutes. Codex sometimes stops early with only part of the package done and no summary:
+     check the worktree against the issue's test list, and start a second run with "STATE: already done ... WHAT
+     IS LEFT ..." rather than starting over.
+   - Codex resolves merge conflicts well if the brief says which behaviours to keep.
+   - Every diff so far needed a small fix: a stored field that should have been derived, an unused import, a
+     double-applied darkening, a slow test. Read every diff.
 5. **Review checklist for every diff** (whoever opens the PR does all of it):
    - The issue's **taste check**: answer every question yes, and every numeric target in range (print the numbers in
      the PR).
@@ -49,6 +68,22 @@ one GitHub issue (label `world-plan`) that stands on its own.
    `save_data.rs`, `cell_save*`), deploy (`.github/`, `tools/previews.sh`), or the cellular engine
    (`crates/sim/src/underwater.rs`, `crates/sim/src/underwater/`, `src/cellular*`) unless the issue says it is a
    **gated engine package**.
+
+## Hidden rules found while building (read before any package)
+- **The seed fingerprint.** See item 8: only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the
+  level's floor and rocks force a rebake. A 30-step probe digest test (`probe_digest_matches_committed`) catches
+  terrain changes from anywhere else and says "rebake". Two PRs that both rebake conflict on the binary seed: the
+  second rebases and bakes again.
+- **The route solver is slow.** `crates/sim/tests/common/route.rs` plays real ticks. Give every survey a tight stop
+  predicate (stop past the region you test); keep each test file under about 60 s on CI. Exhaustive kit matrices
+  are `#[ignore]` and run by hand (`-- --ignored --nocapture`).
+- **The canyon has no refuges in open water yet** (W0.3's ignored test lists five places). Do not add an
+  open-water hunter (W1.2) before W1.3 adds them: it would break the fairness rule.
+- **CI flake:** two `cell_save::native` tests fail on most Linux runs and pass locally (#482). Rerun the failed job
+  (`gh run rerun <id> --failed`) and add to #482; do not change saves code inside a world package.
+- **`Level` derives `PartialEq` and serde:** never add derived or static data to it as a field (it breaks saves'
+  round trip); add a method that derives it (`Level::landmarks()`, `Level::bands()`).
+- **Remote crabs** show no scars yet: their appearance travels over net code that world packages must not touch.
 
 ## What already exists (build on it, do not redo)
 The current level (`crates/sim/src/level.rs`, `level/`) is already the upper half of the canyon: home shell and
@@ -93,8 +128,8 @@ existing gates hold for every ability kit. Human gate: none (no feel change).
 | ID | Package | Size | Needs | Parallel with |
 |---|---|---|---|---|
 | W1.1 (#457) | Depth bands as data (light, sound, grain, smell, residents per bed) and the lantern's colour and reach by band | M | W0.1 | W1.2 |
-| W1.2 (#458) | The open-water hunter: the sixgill shark becomes a sim hunter with a long tell | M | W0.3 | W1.1 |
-| W1.3 (#459) | **Rock batch 1:** the lower canyon (slump dam, narrows lock, vent field) plus every bedrock frame phases 3 to 5 need | M | W0.3, W1.1 | none |
+| W1.2 (#458) | The open-water hunter: the sixgill shark becomes a sim hunter with a long tell | M | W0.3, W1.3 (refuges) | W1.4 |
+| W1.3 (#459) | **Rock batch 1:** the open-water refuges W0.3 found missing, the lower canyon (slump dam, narrows lock, vent field) and every bedrock frame phases 3 to 5 need | M | W0.3, W1.1 | W2.2 |
 | W1.4 (#460) | Keys, gate, tether and loop on the lower canyon (no rock) | M | W1.3 | W2.1 |
 
 **Milestone 1 gate: the first open-water crossing (W1.2 PR is a gate).** A human plays the preview and judges:
