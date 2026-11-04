@@ -406,9 +406,15 @@ pub(super) fn receive(
                 m.acks.insert(piece);
             }
         }
-        RegionMsg::MoveReady { transfer } if local == HOST && r.shared => {
-            if let Some(m) = r.moving.as_mut().filter(|m| m.serial == transfer) {
-                m.ready = true;
+        RegionMsg::MoveReady { transfer } if local == HOST => {
+            // collect() cancels strips before grant() can change topology and
+            // wait for paging. A late ready packet belongs to that old move.
+            if crate::coop::cells_wire::move_ready_matches(
+                r.moving.as_ref().map(|m| m.serial),
+                transfer,
+                r.shared,
+            )? {
+                r.moving.as_mut().expect("matched current move").ready = true;
             }
         }
         RegionMsg::MoveApply {
