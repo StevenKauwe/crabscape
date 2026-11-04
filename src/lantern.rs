@@ -241,10 +241,13 @@ fn flicker(
     flicker.0 = wave;
     for (glow, mut sprite) in &mut glows {
         let cultures = crabs.get(glow.crab).map_or(0, |m| m.lantern_glow()) as f32;
-        let reach = 1.0 + BRIGHTER_PER_CULTURE * cultures;
+        let factor = crabs
+            .get(glow.crab)
+            .map_or(1.0, |m| m.lantern_light_factor());
+        let reach = (1.0 + BRIGHTER_PER_CULTURE * cultures) * factor;
         sprite
             .color
-            .set_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures));
+            .set_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures) * factor);
         sprite.custom_size = Some(Vec2::splat(glow.size * reach));
     }
 }
@@ -265,6 +268,10 @@ fn fill_jars(
         });
     }
     for (core, mut sprite) in &mut cores {
+        let factor = movers
+            .get(core.crab)
+            .map_or(1.0, |m| m.lantern_light_factor());
+        sprite.color = CORE.with_alpha(CORE.alpha() * factor);
         let n = cultures(core.crab).min(SPECKS.len() as u32) as f32;
         let size = Some(Vec2::splat(CORE_SIZE * (1.0 + 0.18 * n)));
         if sprite.custom_size != size {
@@ -313,9 +320,12 @@ fn measure_light(
         .iter()
         .map(|(g, core)| {
             let cultures = crabs.get(core.crab).map_or(0, |m| m.lantern_glow());
+            let factor = crabs
+                .get(core.crab)
+                .map_or(1.0, |m| m.lantern_light_factor());
             (
                 g.translation().truncate(),
-                light_reach(&tuning, cultures) / tuning.light_outer * flicker.0,
+                light_reach(&tuning, cultures) / tuning.light_outer * flicker.0 * factor,
             )
         })
         .collect();
@@ -350,9 +360,12 @@ fn light_level(
         .iter()
         .map(|(l, core)| {
             let cultures = crabs.get(core.crab).map_or(0, |m| m.lantern_glow());
+            let factor = crabs
+                .get(core.crab)
+                .map_or(1.0, |m| m.lantern_light_factor());
             (
                 l.translation().truncate(),
-                light_reach(&tuning, cultures) * flicker.0,
+                light_reach(&tuning, cultures) * flicker.0 * factor,
             )
         })
         .collect();

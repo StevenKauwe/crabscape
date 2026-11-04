@@ -21,6 +21,10 @@
 pub(crate) const SNAPPER_SNAP_LIMIT: u8 = 5;
 pub(crate) const SNAPPER_SNAP_WINDOW: u16 = 10 * 120;
 pub(crate) const SNAPPER_REST_TICKS: u32 = 180;
+// Shading a lantern is a tuned visibility tradeoff, never invisibility.
+pub(crate) const DIM_LANTERN_LIGHT: f32 = 0.45;
+pub(crate) const DIM_LANTERN_NOTICE: f32 = 0.6;
+pub(crate) const DIM_LANTERN_CLOSE: f32 = 140.0;
 
 // Eastern moray excursions: gameplay timing in fixed ticks, not a diel cycle.
 pub(crate) const MORAY_FORAGE_CYCLE_TICKS: u32 = 2400;

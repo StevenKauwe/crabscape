@@ -62,13 +62,7 @@ const ABYSS_WATER: Color = Color::srgb(0.005, 0.016, 0.022);
 /// The canyon represents twilight, even though its rim is only a few screens
 /// below home. This is art tuning, not a measured depth or irradiance.
 pub fn depth_factor(at: Vec2) -> f32 {
-    let smooth = |a: f32, b: f32, x: f32| {
-        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
-        t * t * (3.0 - 2.0 * t)
-    };
-    let vertical = (-at.y / 9000.0).clamp(0.0, 1.0);
-    let canyon = smooth(5350.0, 6150.0, at.x) * (1.0 - smooth(-1500.0, 1000.0, at.y));
-    vertical.max(0.75 * canyon)
+    crabsim::memory::depth_factor(at)
 }
 
 /// The water's colour at the view: sunlit in the shallows, darker in the
@@ -275,7 +269,7 @@ fn update_known(
     let t = &sim.tuning.memory;
     let memory = &me.memory;
     let eye = me.mover.pos + Vec2::new(0.0, me.mover.height(&sim.tuning));
-    known.sight = Some(Sight::new(eye, me.mover.lantern_glow(), t));
+    known.sight = Some(me.mover.lantern_sight(&sim.tuning));
     let revision = memory.cache_revision();
     if known.made_at != Some((memory.now, revision)) {
         known.memory = Some(memory.clone());
@@ -442,7 +436,8 @@ fn show_scent_directions(
 ) {
     let Some(sight) = known.sight else { return };
     let cultures = crab.single().map_or(0, |m| m.lantern_glow());
-    let cue_radius = crate::lantern::light_reach(&view_tuning, cultures) * 0.9;
+    let factor = crab.single().map_or(1.0, |m| m.lantern_light_factor());
+    let cue_radius = crate::lantern::light_reach(&view_tuning, cultures) * 0.9 * factor;
     for (entity, wisp, mut at, mut shown) in &mut wisps {
         let Some(enemy) = sim.enemies().iter().find(|e| e.id == wisp.0) else {
             commands.entity(entity).despawn();

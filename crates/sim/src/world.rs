@@ -156,6 +156,7 @@ pub enum ShellAction {
     ToggleGrit,
     Drop(usize),
     DropBack,
+    ToggleLantern,
 }
 
 impl Default for PickupPreferences {
@@ -233,6 +234,7 @@ impl Sim {
             return false;
         };
         match action {
+            ShellAction::ToggleLantern => crab.mover.lantern_dim = !crab.mover.lantern_dim,
             ShellAction::ToggleClams => crab.pickup.clams = !crab.pickup.clams,
             ShellAction::ToggleGrit => crab.pickup.grit = !crab.pickup.grit,
             ShellAction::Drop(index) => {
@@ -2221,6 +2223,7 @@ impl Sim {
                     prepared_food: std::mem::take(&mut crab.mover.prepared_food),
                     upgrades: crab.mover.upgrades,
                     lantern: crab.mover.lantern,
+                    lantern_dim: crab.mover.lantern_dim,
                     scissor_claw: crab.mover.scissor_claw,
                     glass_grips: crab.mover.glass_grips,
                     climb_xp: crab.mover.climb_xp,
@@ -2806,10 +2809,8 @@ impl Sim {
             .is_multiple_of(self.tuning.memory.step_ticks as u64)
         {
             for c in self.crabs.iter_mut().filter(|c| !c.remote) {
-                let eye = c.mover.pos + Vec2::new(0.0, c.mover.height(&self.tuning));
-                c.memory.step(
-                    eye,
-                    c.mover.lantern_glow(),
+                c.memory.step_with_sight(
+                    c.mover.lantern_sight(&self.tuning),
                     &self.level,
                     &self.enemies,
                     &self.tuning,
