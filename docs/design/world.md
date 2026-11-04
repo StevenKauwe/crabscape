@@ -304,3 +304,60 @@ A hardcore option (lose everything on death) can come later.
   424:899–900 (via search results and a PNAS follow-up's summary, not opened: not verified).
 - [MBARI-GC] MBARI, "Glow-in-the-dark corals light up the deep sea" (2020; Bessho-Uehara, Francis & Haddock 2020,
   *Marine Biology* 167:144). <https://www.mbari.org/glowing-corals/>
+
+
+## Settled terrain on first arrival
+
+Owner directive (2026-11-04): a newly discovered place must already look like an
+established ocean floor. The opening's five-minute simulation bake is the model;
+first arrival must not trigger a conspicuous initial sand collapse. Generate or
+precompute deterministic settled starting material before it becomes visible,
+without doing minutes of synchronous simulation at a cell-window boundary.
+
+Settled means an initial condition, not frozen scenery. Currents, animals, digging,
+and later disturbances must still move material, including the existing bounded
+transport of falling sediment beyond the active window. Saved, edited terrain is
+authoritative: this rule does not reset visited chunks or silently rebuild saves.
+It does not promise a complete fluid simulation of every dormant region.
+
+Boundary work must have a repeatable regression guard. Measure representative
+fresh entries and archived returns, including paged simulation work, separately
+from opening FPS. A 10 ms CPU budget is a useful calibrated target, not a universal
+claim about storage, GPU latency, all phones, or an overloaded CI runner. The
+`cell_transition_budget` example reports median/p95/max and accepts
+`CRAB_TRANSITION_BUDGET_MS` for an explicit environment-specific clone-plus-remap p95 gate. Full paged and
+ordinary material ticks are reported separately; ordinary
+unit tests also protect material equivalence and bounded per-cell generation work.
+
+### Transition measurement (2026-11-04)
+
+On the development ARM64 Mac, 30 samples per case, actual workspace release
+settings (`opt-level=z`, LTO, one codegen unit, `libm=3`), the column-local rock
+sampler reduced fresh full-paged-tick medians as follows. The unchanged-main
+comparison uses `69e0730` simulation code and the same benchmark/release settings.
+
+| Crossing | Main median | Column sampler median | Column sampler p95 |
+| --- | ---: | ---: | ---: |
+| Opening east | 9.431 ms | 6.360 ms | 6.685 ms |
+| Silt east | 13.427 ms | 7.342 ms | 7.830 ms |
+| Canyon down | 18.201 ms | 9.774 ms | 11.089 ms |
+
+The explicit 10 ms **clone + remap** p95 gate passed all six fresh/archived cases
+(worst 4.164 ms); the full canyon tick did **not** meet 10 ms at p95. Full ticks
+also include ordinary material physics (canyon ordinary material p95 3.157 ms),
+page bookkeeping and simulation work. Disk requests are fulfilled as in-memory
+missing-page replies; this is not an IndexedDB, rendering, network or phone
+latency guarantee. Archived return timings remained approximately unchanged.
+
+Run on an otherwise idle calibrated machine:
+
+```sh
+CRAB_TRANSITION_BUDGET_MS=10 cargo run -p crabsim --release --example cell_transition_budget
+```
+
+Without the environment variable it reports measurements without an uncalibrated
+wall-clock failure. CI's deterministic structural test adds 1,000 distant rocks
+and verifies the per-cell column list and resulting material remain unchanged;
+the equivalence test checks floor bands and all authored rectangle edges.
+The settled unseen-terrain bake remains follow-up work; this sampler optimization
+intentionally produces exactly the same initial materials.
