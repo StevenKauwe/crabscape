@@ -66,7 +66,7 @@ fn delayed_pages_keep_canyon_ticks_running_and_match_resident_terrain() {
                 let tick = paged.tick_count();
                 let swimming = active && tick < 600;
                 let controls = Controls {
-                    jump_pressed: swimming && tick % 60 == 0,
+                    jump_pressed: swimming && tick.is_multiple_of(60),
                     jump_held: swimming && tick % 60 < 15,
                     dig_held: active && tick < 900,
                     walk: if active && tick < 900 {
