@@ -117,8 +117,14 @@ fn show_bars(
     };
     // Well fed, the shell holds more: a longer bar.
     let whole = mover.max_shell(&sim.tuning);
+    // Hulk changes capacity temporarily, not the HUD footprint.
+    let displayed = if mover.hulk {
+        whole / crabsim::codes::HULK_SHELL
+    } else {
+        whole
+    };
     for mut n in &mut back {
-        let w = px(SHELL_BAR * whole / t.health);
+        let w = px(SHELL_BAR * displayed / t.health);
         if n.width != w {
             n.width = w;
         }
