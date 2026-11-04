@@ -17,6 +17,11 @@
 //! Fighting numbers are in *ticks* (120 = 1 s), as in the combat spec
 //! (`docs/design/creatures/README.md`), so a window can be tried tick by tick.
 
+// Repeated-snap recovery is a game rhythm, not measured shrimp exhaustion.
+pub(crate) const SNAPPER_SNAP_LIMIT: u8 = 5;
+pub(crate) const SNAPPER_SNAP_WINDOW: u16 = 10 * 120;
+pub(crate) const SNAPPER_REST_TICKS: u32 = 180;
+
 // Eastern moray excursions: gameplay timing in fixed ticks, not a diel cycle.
 pub(crate) const MORAY_FORAGE_CYCLE_TICKS: u32 = 2400;
 pub(crate) const MORAY_FORAGE_REST_TICKS: u32 = 720;

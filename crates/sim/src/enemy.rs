@@ -174,6 +174,12 @@ pub struct Enemy {
     pub swim_retry: u8,
     /// Strikes so far in this combo (0 = the first).
     pub combo: u32,
+    /// Completed snaps in the current short contest window (shrimp only).
+    #[serde(default)]
+    pub snap_count: u8,
+    /// Fixed ticks left before the repeated-snap count expires.
+    #[serde(default)]
+    pub snap_window: u16,
     /// The current strike got through to a body.
     pub landed: bool,
     /// Crabs the current strike has already reached (once each).
@@ -237,6 +243,8 @@ impl Enemy {
             swim_goal: pos,
             swim_retry: 0,
             combo: 0,
+            snap_count: 0,
+            snap_window: 0,
             landed: false,
             struck: Vec::new(),
             follow_ups: Vec::new(),
@@ -300,6 +308,12 @@ impl Enemy {
     /// The finer part of its state, for dumps and the drawing: the tell's
     /// last stretch is "cocked" (the hold-still beat before the blow).
     pub fn phase(&self, t: &Tuning) -> &'static str {
+        if self.kind == Kind::Snapper
+            && self.state == State::Recover
+            && self.state_len == crate::tuning::SNAPPER_REST_TICKS
+        {
+            return "rest";
+        }
         if self.kind == Kind::Triggerfish {
             return match (self.state, self.combo) {
                 (State::Tell, 0) => "hover",
@@ -435,6 +449,15 @@ impl Enemy {
 
     /// Start a state; the next tick is its first.
     pub(crate) fn enter(&mut self, state: State, len: u32) {
+        if self.kind == Kind::Snapper
+            && matches!(
+                state,
+                State::Idle | State::Flee | State::Stagger | State::Gone
+            )
+        {
+            self.snap_count = 0;
+            self.snap_window = 0;
+        }
         self.state = state;
         self.state_tick = 0;
         self.state_len = len;
@@ -642,6 +665,13 @@ pub fn step(
     bounded_region: bool,
 ) -> Vec<(PlayerId, Outcome)> {
     let mut blows = Vec::new();
+    if e.kind == Kind::Snapper {
+        e.snap_window = e.snap_window.saturating_sub(1);
+        if e.snap_window == 0 || e.held {
+            e.snap_count = 0;
+            e.snap_window = 0;
+        }
+    }
     if e.vitals.hitstop > 0 {
         e.vitals.hitstop -= 1;
         return blows;
@@ -742,7 +772,19 @@ pub fn step(
             }
             State::Attack => {
                 e.combo = 0;
-                e.enter(State::Recover, k.recover_ticks);
+                let mut recovery = k.recover_ticks;
+                if e.kind == Kind::Snapper {
+                    if e.snap_window == 0 {
+                        e.snap_window = crate::tuning::SNAPPER_SNAP_WINDOW;
+                    }
+                    e.snap_count = e.snap_count.saturating_add(1);
+                    if e.snap_count >= crate::tuning::SNAPPER_SNAP_LIMIT {
+                        recovery = crate::tuning::SNAPPER_REST_TICKS;
+                        e.snap_count = 0;
+                        e.snap_window = 0;
+                    }
+                }
+                e.enter(State::Recover, recovery);
             }
             State::Recover | State::Stagger => {
                 let pause = rng.range(k.pause_ticks.0, k.pause_ticks.1).max(1);

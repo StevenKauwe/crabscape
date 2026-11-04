@@ -240,6 +240,8 @@ fn load_art(mut commands: Commands, sim: Res<Sim>, assets: Res<AssetServer>) {
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum Part {
     Body,
+    /// The whole snapping claw lowers during the extended recovery.
+    Claw,
     /// The snapper's finger, pivoting at the top of its palm.
     Dactyl,
     /// The shrimp's abdomen and tail fan: flicked under when it's hit.
@@ -323,6 +325,7 @@ fn spawn_critters(
                     .id();
                 let pieces = art.shrimp.spawn(&mut commands, body);
                 for (name, part) in [
+                    ("claw", Part::Claw),
                     ("dactyl", Part::Dactyl),
                     ("abdomen", Part::Tail),
                     ("antenna", Part::Feeler(0)),
@@ -631,12 +634,18 @@ fn pose_critters(
                     tr.translation.x = out;
                     tr.translation.y = -out * (gape / 2.0).tan();
                 }
+                Part::Claw => {
+                    tr.rotation = Quat::from_rotation_z(if phase == "rest" { -0.25 } else { 0.0 });
+                }
                 Part::Dactyl => {
                     // Swung up ~100 degrees through the tell and held, shut
                     // on the snap, creeping open while it re-cocks.
                     let up = match (e.state, phase) {
                         (State::Tell, "cocked") => 1.75,
                         (State::Tell, _) => 1.75 * (tick / 24.0).min(1.0),
+                        // A deliberate pause after repeated snaps: keep the
+                        // claw lowered rather than visibly re-cocking early.
+                        (State::Recover, "rest") => 0.0,
                         (State::Recover, _) => 0.4 * tick / k.recover_ticks as f32,
                         _ => 0.0,
                     };
