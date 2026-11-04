@@ -837,7 +837,7 @@ fn profile_frames(host: &mut Player, guest: &mut Player) -> Result<()> {
         while started.elapsed().as_secs_f64() < seconds.clamp(1.0, 90.0) {
             let (_, height) = local_position(guest)?;
             if height < 200.0 {
-                guest.b.hold_key("Space", 0.6)?;
+                guest.b.hold_key("KeyW", 0.6)?;
             } else if height > 450.0 {
                 guest.b.hold_key("ArrowDown", 0.6)?;
             } else {
@@ -845,7 +845,7 @@ fn profile_frames(host: &mut Player, guest: &mut Player) -> Result<()> {
             }
             sleep(0.15);
         }
-        for key in ["KeyD", "Space", "ArrowDown"] {
+        for key in ["KeyD", "KeyW", "ArrowDown"] {
             guest.b.set_key(key, false)?;
         }
         eprintln!(
@@ -1431,7 +1431,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     })?;
                     guest.b.set_key("ArrowDown", false)?;
                     guest.b.set_key("KeyD", true)?;
-                    guest.b.hold_key("Space", 0.9)?;
+                    guest.b.hold_key("KeyW", 0.9)?;
                     route_progress = (local_position(&mut guest)?.0, Instant::now());
                 } else if height < 200.0 || stalled {
                     if stalled {
@@ -1440,7 +1440,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                         );
                         route_progress = (x, Instant::now());
                     }
-                    guest.b.hold_key("Space", 0.9)?;
+                    guest.b.hold_key("KeyW", 0.9)?;
                 } else if height > 450.0 {
                     guest.b.hold_key("ArrowDown", 0.9)?;
                 } else {
@@ -1524,7 +1524,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             let before_dig = regional_scene(&mut guest)?;
             let start_guest = before_dig.crabs()[0].mover.pos;
             for p in [&mut host, &mut guest] {
-                p.b.set_key("KeyC", true)?;
+                p.b.set_key("Space", true)?;
                 p.b.set_key("ArrowDown", true)?;
                 pause_region(p, false)?;
             }
@@ -1540,7 +1540,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                         .is_some_and(|tick| tick >= first + 108)
                 })?;
                 pause_region(p, true)?;
-                p.b.set_key("KeyC", false)?;
+                p.b.set_key("Space", false)?;
                 p.b.set_key("ArrowDown", false)?;
             }
             sleep(0.3);
@@ -1733,7 +1733,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 host.until(10.0, "host reaches the buried find", |p| {
                     local_position(p).is_ok_and(|(x, _)| (250.0..=290.0).contains(&x))
                 })?;
-                host.b.hold_keys(&["KeyC", "ArrowDown"], 8.0)?;
+                host.b.hold_keys(&["Space", "ArrowDown"], 8.0)?;
                 host.until(15.0, "find released by excavation", |p| {
                     p.b.attr("data-salvage").is_some_and(|s| {
                         s.starts_with("Free ")
@@ -1762,7 +1762,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     host.b.attr("data-cell-controls")
                 );
                 guest.b.set_key("KeyD", false)?;
-                guest.b.hold_keys(&["KeyD", "Space"], 1.0)?;
+                guest.b.hold_keys(&["KeyD", "KeyW"], 1.0)?;
                 for _ in 0..40 {
                     let x = guest
                         .b
@@ -1835,7 +1835,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     } else {
                         "KeyD"
                     };
-                    guest.b.hold_keys(&["KeyC", direction], 0.3)?;
+                    guest.b.hold_keys(&["Space", direction], 0.3)?;
                     sleep(0.3);
                 }
                 eprintln!(
@@ -1893,8 +1893,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             );
             host.b.hold_key("KeyD", 0.7)?;
             guest.b.hold_key("KeyA", 0.7)?;
-            guest.b.hold_key("Space", 0.2)?;
-            guest.b.hold_keys(&["KeyC", "ArrowDown"], 0.5)?;
+            guest.b.hold_key("KeyW", 0.2)?;
+            guest.b.hold_keys(&["Space", "ArrowDown"], 0.5)?;
             guest.b.type_line("hulk")?;
             sleep(0.5);
             host.b.eval(

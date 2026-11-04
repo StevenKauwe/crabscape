@@ -137,6 +137,7 @@ fn reach_the_end(
     };
     commands
         .spawn((
+            crate::input::PointerUi,
             Card,
             Node {
                 position_type: PositionType::Absolute,

@@ -685,6 +685,7 @@ fn lay_out_menu(
     let o = l.panel.min;
     commands
         .spawn((
+            crate::input::PointerUi,
             Menu,
             Node {
                 border: UiRect::all(px(1.5)),

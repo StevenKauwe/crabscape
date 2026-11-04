@@ -1310,6 +1310,7 @@ mod web {
         let right = px(window.size().x - r.max.x);
         commands
             .spawn((
+                crate::input::PointerUi,
                 InviteButton,
                 Node {
                     position_type: PositionType::Absolute,

@@ -15,7 +15,7 @@
 //! - the crab's pictures load, the style starts as Oil, and the P key and the settings panel's Ink and Oil (opened
 //!   by the "Settings" button, on its Graphics tab) switch between them (the canvas's `data-style` says which);
 //! - the settings panel's tab is kept, the arrow keys switch tabs while it is open, and Esc closes it;
-//! - holding D walks the crab right, Space makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
+//! - holding D walks the crab right, W makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
 //! - next to the mantis shrimp's burrow, it comes out and winds up, and blows land (`data-fight`);
 //! - mid-fight, a tap on "Home" puts the crab straight into its home shell, and out again, so does the H key;
@@ -578,7 +578,21 @@ impl Test<'_> {
             5.0,
         )?;
         self.check(enabled, "automatic clam pickup can be switched back on");
+        // A direction held over the panel stays the panel's until release,
+        // including the frame when a finger closes inventory.
+        let before = self.crab()?;
+        self.key("keydown", "KeyD", "d")?;
+        self.hold(0.2, false)?;
         self.tap(inventory_x, inventory_y + 18.0, 2, true)?;
+        self.hold(0.4, false)?;
+        self.key("keyup", "KeyD", "d")?;
+        let after = self.crab()?;
+        self.check(
+            before
+                .zip(after)
+                .is_some_and(|(a, b)| (a.0 - b.0).abs() < 2.0),
+            "a held inventory key does not move the crab upon closing the panel",
+        );
         if self.framed {
             self.cellular_worker("/__worker_preview")?;
             self.cellular_worker("/__worker_preview/")?;
@@ -760,28 +774,28 @@ impl Test<'_> {
                 start.0, moved.0
             ),
         );
-        self.key("keydown", "Space", " ")?;
+        self.key("keydown", "KeyW", "w")?;
         let mut top = self.hold(0.25, true)?;
         self.numbered_shot(2)?; // mid-jump
         top = top.max(self.hold(0.2, true)?);
-        self.key("keyup", "Space", " ")?;
+        self.key("keyup", "KeyW", "w")?;
         top = top.max(self.hold(1.2, true)?);
         self.check(
             top > moved.1 + 120.0,
-            format!("holding Space jumps (height {:.0} -> {top:.0})", moved.1),
+            format!("holding W jumps (height {:.0} -> {top:.0})", moved.1),
         );
         // Jump, let go, then press again on the way down. A fresh crab has grown no paddle strokes yet (they come
         // from eating eggs, see Tuning::swim_strokes), so the second press must not lift it.
         self.rest()?;
-        self.key("keydown", "Space", " ")?;
+        self.key("keydown", "KeyW", "w")?;
         self.hold(0.45, false)?;
-        self.key("keyup", "Space", " ")?;
+        self.key("keyup", "KeyW", "w")?;
         // Long enough for the game to see the key up (a few frames even with slow software drawing).
         pump(0.25);
         let before = self.crab()?;
-        self.key("keydown", "Space", " ")?;
+        self.key("keydown", "KeyW", "w")?;
         let top = self.hold(0.35, true)?;
-        self.key("keyup", "Space", " ")?;
+        self.key("keyup", "KeyW", "w")?;
         let from = before.map_or(f64::MAX, |c| c.1);
         self.check(
             top < from + 5.0,

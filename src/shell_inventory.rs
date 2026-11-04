@@ -16,7 +16,7 @@ impl Plugin for ShellInventoryPlugin {
 }
 
 #[derive(Resource, Default)]
-struct Open(bool);
+pub(crate) struct Open(pub(crate) bool);
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum Choice {
@@ -50,12 +50,17 @@ const SHORTCUTS: [(Choice, KeyCode); 6] = [
     (Choice::Back, KeyCode::Digit6),
 ];
 
+pub(crate) fn is_shortcut(key: KeyCode) -> bool {
+    key == KeyCode::KeyB || SHORTCUTS.iter().any(|(_, shortcut)| key == *shortcut)
+}
+
 #[derive(Component)]
 pub(crate) struct Panel;
 
 fn spawn(mut commands: Commands) {
     commands
         .spawn((
+            crate::input::PointerUi,
             Panel,
             GlobalZIndex(3),
             Node {
@@ -122,9 +127,10 @@ fn interact(
     touches: Res<Touches>,
     window: Single<&Window>,
     settings: Res<crate::settings::panel::Open>,
+    chat: Res<crate::codes::CodeBox>,
     rows: Query<(&Choice, &ComputedNode, &UiGlobalTransform, &Node)>,
 ) {
-    if settings.is_open() {
+    if settings.is_open() || chat.open || crate::input::page_dialog_open() {
         return;
     }
     let Ok(&id) = local.single() else { return };

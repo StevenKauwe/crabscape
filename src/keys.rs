@@ -13,14 +13,15 @@ use crate::player::GameSet;
 /// The keys and what they do, in the order a new player needs them (the
 /// same keys as `input.rs`, `go_home.rs`, `view.rs`, `codes.rs`,
 /// `report.rs`, `style.rs` and `replay.rs` read).
-pub(crate) const KEYS: [(&str, &str); 15] = [
+pub(crate) const KEYS: [(&str, &str); 16] = [
     ("A D / Left Right", "walk"),
-    ("Space W Up K", "jump; again in the water: swim"),
+    ("W / Up / K", "jump or paddle; hold to climb"),
     ("Shift J + a way", "dodge; hold it: sprint"),
     ("S / Down", "climb down kelp or coral"),
-    ("E L", "smash (the crusher)"),
-    ("Q O", "jab (the cutter)"),
+    ("Right click / E L", "smash; hold to charge"),
+    ("Left click / Q O", "jab with the cutter"),
     ("F I", "guard; tap before a blow: parry"),
+    ("B", "inventory; number keys choose"),
     ("T", "hold still to eat a portion"),
     ("H / Home, then Y", "go home (it asks first)"),
     ("- = / wheel", "zoom out: the crab's memory"),
@@ -31,13 +32,26 @@ pub(crate) const KEYS: [(&str, &str); 15] = [
     ("?", "fold these away"),
 ];
 
+fn entries(cellular: bool) -> impl Iterator<Item = (&'static str, &'static str)> {
+    KEYS.into_iter().flat_map(move |(key, text)| {
+        std::iter::once((key, text))
+            .chain(
+                (cellular && key == "S / Down")
+                    .then_some(("Space + direction", "dig at bed, turn in water")),
+            )
+            .chain(
+                (cellular && key == "F I").then_some(("G / V", "salvage: first / second choice")),
+            )
+    })
+}
+
 /// Where the device keeps whether the card is folded.
 const KEPT: &str = "-keys";
 /// Its margin from the window's corner, width, line height, padding, the
 /// keys' column's width and the words' size.
 const MARGIN: f32 = 12.0;
 const WIDTH: f32 = 390.0;
-const LINE: f32 = 17.0;
+const LINE: f32 = 14.5;
 const PAD: f32 = 10.0;
 const KEY_COLUMN: f32 = 130.0;
 const TEXT: f32 = 12.0;
@@ -47,11 +61,8 @@ const TAB: Vec2 = Vec2::new(70.0, 26.0);
 /// The card's box, open or folded, in window pixels from the top-left.
 pub(crate) fn card_rect(window: Vec2, open: bool) -> Rect {
     let size = if open {
-        let extra = 2 * usize::from(crate::cellular::enabled());
-        Vec2::new(
-            WIDTH,
-            2.0 * PAD + LINE * ((KEYS.len() + extra) as f32 + 1.0),
-        )
+        let rows = entries(crate::cellular::enabled()).count();
+        Vec2::new(WIDTH, 2.0 * PAD + LINE * (rows as f32 + 1.0))
     } else {
         TAB
     };
@@ -142,6 +153,7 @@ fn spawn_card(mut commands: Commands) {
     let open = card_rect(Vec2::ZERO, true);
     commands
         .spawn((
+            crate::input::PointerUi,
             Open,
             Node {
                 width: px(open.width()),
@@ -167,19 +179,7 @@ fn spawn_card(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(1.0, 0.75, 0.35)),
             ));
-            let cellular = crate::cellular::enabled();
-            let entries = KEYS.into_iter().flat_map(|(key, text)| {
-                std::iter::once((key, text))
-                    .chain(
-                        (cellular && key == "S / Down")
-                            .then_some(("C + direction", "dig on floor, turn in water")),
-                    )
-                    .chain(
-                        (cellular && key == "F I")
-                            .then_some(("G / V", "salvage: first / second choice")),
-                    )
-            });
-            for (keys, does) in entries {
+            for (keys, does) in entries(crate::cellular::enabled()) {
                 card.spawn(Node {
                     height: px(LINE),
                     flex_direction: FlexDirection::Row,
@@ -199,6 +199,7 @@ fn spawn_card(mut commands: Commands) {
         });
     commands
         .spawn((
+            crate::input::PointerUi,
             Folded,
             Node {
                 width: px(TAB.x),
@@ -288,10 +289,10 @@ mod tests {
 
     #[test]
     fn every_key_the_game_reads_is_on_the_card() {
-        let card: String = KEYS.iter().map(|(k, _)| format!("{k} ")).collect();
+        let card: String = entries(true).map(|(k, _)| format!("{k} ")).collect();
         for key in [
-            "A", "D", "Space", "W", "Shift", "J", "S", "E", "L", "Q", "O", "F", "I", "T", "H", "Y",
-            "-", "=", "Enter", "R", "P", "F9", "?",
+            "A", "D", "Space", "W", "K", "B", "G", "V", "Shift", "J", "S", "E", "L", "Q", "O", "F",
+            "I", "T", "H", "Y", "-", "=", "Enter", "R", "P", "F9", "?",
         ] {
             assert!(card.split_whitespace().any(|k| k == key), "{key} missing");
         }

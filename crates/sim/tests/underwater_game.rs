@@ -886,3 +886,36 @@ fn the_dig_stick_turns_in_clear_water_and_braces_on_approach_to_the_bed() {
     assert!(turned, "clear water never allowed the turn");
     assert!(braced, "the stick never engaged sediment before landing");
 }
+
+#[test]
+fn jump_while_turning_uses_a_paddle_but_jump_while_digging_aims_up() {
+    let id = PlayerId(0);
+    let input = Controls {
+        dig_held: true,
+        dig_up: true,
+        walk: -1.0,
+        jump_held: true,
+        jump_pressed: true,
+        ..Default::default()
+    };
+    for (y, grounded) in [(8.0, true), (460.0, false)] {
+        let mut sim = Sim::with_one_crab(Vec2::new(160.0, y));
+        sim.enable_underwater_cells();
+        let m = &mut sim.crab_mut(id).unwrap().mover;
+        m.grounded = grounded;
+        m.upgrades = 1;
+        m.stamina = 1.0;
+        m.coyote = 0.0;
+        sim.set_controls(id, input);
+        sim.tick();
+        let crab = sim.crab(id).unwrap();
+        assert_eq!(crab.events.paddled, !grounded);
+        assert!(!crab.events.jumped);
+        if grounded {
+            assert_eq!(crab.mover.stamina, 1.0);
+        } else {
+            assert!(crab.mover.vel.y > 0.0 && crab.mover.water_spin > 0.0);
+            assert!(crab.mover.stamina < 1.0);
+        }
+    }
+}

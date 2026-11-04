@@ -354,6 +354,7 @@ fn spawn_lab(mut commands: Commands, lab: Res<FeelLab>, window: Single<&Window>)
         let r = button_rect(window.size(), which);
         commands
             .spawn((
+                crate::input::PointerUi,
                 which,
                 Node {
                     position_type: PositionType::Absolute,
@@ -440,10 +441,11 @@ fn switch(
     mouse: Res<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
     window: Single<&Window>,
+    inventory: Res<crate::shell_inventory::Open>,
     mut lab: ResMut<FeelLab>,
     mut sim: ResMut<Sim>,
 ) {
-    if !lab.available {
+    if !lab.available || inventory.0 {
         return;
     }
     // The backtick key opens the hidden lab first (preview builds).

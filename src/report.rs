@@ -140,8 +140,8 @@ pub(crate) fn shortcut(code: &str, typing: bool, alt: bool, command: bool) -> Op
     }
 }
 
-/// The canvas keeps its gameplay keys while the form is open, except Escape,
-/// which must always be able to dismiss the form.
+/// Canvas keystrokes do not select form options. Escape dismisses the form
+/// from either the form or the canvas.
 fn shortcut_for_target(
     code: &str,
     typing: bool,

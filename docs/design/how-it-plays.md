@@ -159,14 +159,16 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
   The first six enemies and the shared combat model (health, poise, block, parry, statuses): `creatures/README.md`.
 
 ## Controls today
-| Action | Keyboard | Controller | Phone |
+| Action | Keyboard and mouse | Controller | Phone |
 |---|---|---|---|
 | Walk | A / D, arrows | left stick, d-pad | `<` `>` |
-| Jump (hold = higher) | Space, W, Up, K | A | JUMP |
+| Jump (hold = higher) | W, Up, K | A | JUMP |
 | Swim (double jump, then more strokes; one per egg eaten) | jump again in water | A again | JUMP again |
+| Dig at the bed or turn in open water | Hold Space and aim with movement keys. Space + W digs up at the bed. In open water, left turns counter-clockwise, right turns clockwise, and W paddles. | Aim with right stick, A paddles in open water | DIG / TURN stick, JUMP paddles in open water |
+| Inventory | B opens or closes, use the labelled number keys or click a choice | | Tap Inventory, then a choice |
 | Dodge (on floor, + a direction; hold to sprint; in the water: a flip) | Shift, J | B, right trigger | DODGE |
-| Smash (crusher) | E, L | Y | SMASH |
-| Jab (cutter) | Q, O | X | JAB |
+| Smash (crusher, hold to charge) | Right mouse, E, L | Y | SMASH |
+| Jab (cutter) | Left mouse, Q, O | X | JAB |
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Go into the home shell or a rest-stop crevice to rest (what you carried home is put by the workbench) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |

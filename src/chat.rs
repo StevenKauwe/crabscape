@@ -115,6 +115,7 @@ impl Plugin for ChatPlugin {
 fn spawn_rows(mut commands: Commands) {
     for i in 0..SHOWN {
         commands.spawn((
+            crate::input::PointerUi,
             Row(i),
             Text::new(""),
             TextFont {

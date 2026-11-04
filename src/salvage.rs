@@ -116,6 +116,7 @@ fn spawn(mut commands: Commands) {
     for i in 0..2 {
         commands
             .spawn((
+                crate::input::PointerUi,
                 Choice(i),
                 Node {
                     position_type: PositionType::Absolute,
