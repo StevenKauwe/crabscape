@@ -17,6 +17,13 @@
 //! Fighting numbers are in *ticks* (120 = 1 s), as in the combat spec
 //! (`docs/design/creatures/README.md`), so a window can be tried tick by tick.
 
+// Eastern moray excursions: gameplay timing in fixed ticks, not a diel cycle.
+pub(crate) const MORAY_FORAGE_CYCLE_TICKS: u32 = 2400;
+pub(crate) const MORAY_FORAGE_REST_TICKS: u32 = 720;
+pub(crate) const MORAY_FORAGE_OUTBOUND_TICKS: u32 = 720;
+pub(crate) const MORAY_FORAGE_STAGGER_TICKS: u32 = 240;
+pub(crate) const MORAY_FORAGE_LEASH: f32 = 400.0;
+
 /// The feel of the crab's movement. In the game it is a Bevy *resource* (one
 /// shared copy), inside the [`Sim`](crate::Sim).
 #[derive(Clone, Debug, PartialEq)]
