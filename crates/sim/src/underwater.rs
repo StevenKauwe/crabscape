@@ -2,6 +2,9 @@
 //! Coordinates increase right and up. Water occupies every non-solid cell;
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
+#[cfg(any(test, feature = "terrain-bake"))]
+pub mod seed_bake;
+pub(crate) mod settled_seed;
 mod shellwash_content;
 mod sleeping_archive;
 use sleeping_archive::SleepingArchive;
@@ -221,6 +224,10 @@ impl TerrainChunkId {
 /// opening and, eventually, chunks elsewhere; this does not advance or
 /// reproduce any disturbances that occurred while a region was inactive.
 pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> Cell {
+    settled_seed::Sampler::new(level).cell(cell_x, cell_y)
+}
+
+fn authored_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> Cell {
     let wx = (cell_x as f32 + 0.5) * GAME_CELL;
     terrain_at_height(level, wx, cell_y, level.floor_height(wx))
 }
@@ -325,9 +332,13 @@ pub fn initial_terrain_chunk(level: &crate::Level, id: TerrainChunkId) -> Vec<Ce
     let columns: Vec<_> = (0..TERRAIN_CHUNK_CELLS)
         .map(|dx| TerrainColumn::new(level, x + dx))
         .collect();
+    let seed = settled_seed::for_level(level);
     for dy in 0..TERRAIN_CHUNK_CELLS {
-        for column in &columns {
-            cells.push(column.cell(y + dy));
+        for (dx, column) in columns.iter().enumerate() {
+            cells.push(
+                seed.and_then(|s| s.at(x + dx as i32, y + dy))
+                    .map_or_else(|| column.cell(y + dy), |g| g.cell),
+            );
         }
     }
     cells
@@ -757,6 +768,18 @@ impl World {
     /// simulation so startup does not spend that time warming the world.
     /// Custom levels still initialize from their own terrain.
     pub fn from_level_settled(level: &crate::Level) -> Self {
+        if settled_seed::available(level) {
+            // The global seed replaces (rather than replays) the historical
+            // opening-only bake. Every new cell shares one offline history.
+            let mut world = Self::from_level(level);
+            world.tick = settled_seed::BAKE_TICKS;
+            world.opening_edge_opened = true;
+            let sampler = settled_seed::Sampler::new(level);
+            for col in 0..WIDTH {
+                world.cells[col] = sampler.cell(col as i32, 0);
+            }
+            return world;
+        }
         let original = crate::Level::test_level();
         let mut world: Self = if level.floor == original.floor && level.rocks == original.rocks {
             let mut opening: Self =
@@ -838,18 +861,20 @@ impl World {
     /// Keep the historical pebble bed available to focused physics tests.
     #[cfg(any(test, feature = "cleanup-proof"))]
     pub fn opening_pebble_fixture(level: &crate::Level) -> Self {
-        let mut world = Self::from_level_settled(level);
-        let baked: Self =
+        // A historical proof must keep the historical cells as well as their
+        // owner table; overlaying those owners onto the new global seed makes
+        // invalid aggregates and silently rewrites the fixture's old terrain.
+        let mut world: Self =
             postcard::from_bytes(include_bytes!("../assets/opening-settled.postcard"))
-                .expect("the bundled opening snapshot is valid");
-        for (i, &owner) in baked.pebble_owner.iter().enumerate() {
-            if owner != 0 {
-                world.pebble_owner[i] = owner;
-                world.grain[i] = baked.grain[i];
+                .expect("the bundled historical opening snapshot is valid");
+        world.width = WIDTH;
+        world.height = HEIGHT;
+        for col in 0..WIDTH {
+            if world.pebble_owner[col] == 0 {
+                world.cells[col] = authored_terrain_cell(level, col as i32, 0);
             }
         }
-        world.pebbles = baked.pebbles;
-        world.pebble_motion = baked.pebble_motion;
+        world.opening_edge_opened = true;
         world
     }
 
@@ -903,6 +928,20 @@ impl World {
                         } else {
                             (0.0, 0.0)
                         };
+                    }
+                }
+            }
+        }
+        if let Some(seed) = settled_seed::for_level(level) {
+            for x in 0..WIDTH {
+                for grain in seed.column(x as i32) {
+                    if let Some(i) = world.index_at(x as i32, grain.y) {
+                        world.cells[i] = grain.cell;
+                        world.grain[i] = grain.grain;
+                        world.suspended[i] = grain.suspended;
+                        if grain.cell != Cell::Water {
+                            world.flow[i] = (0.0, 0.0);
+                        }
                     }
                 }
             }
@@ -1294,6 +1333,7 @@ impl World {
         // Floor height depends only on world x. A newly exposed vertical strip
         // can generate hundreds of cells from the same authored floor sample.
         // An entirely archived strip needs no authored samples.
+        let seed = settled_seed::for_level(level);
         let floors = std::cell::LazyCell::new(|| {
             (0..width)
                 .map(|col| TerrainColumn::new(level, next_origin.0 + col as i32))
@@ -1327,8 +1367,14 @@ impl World {
                         grain[i] = saved.grain;
                         owner[i] = saved.owner;
                     } else {
-                        cells[i] = floors[(x - next_origin.0) as usize].cell(y);
-                        grain[i] = initial_grain(x, y);
+                        if let Some(baked) = seed.and_then(|seed| seed.at(x, y)) {
+                            cells[i] = baked.cell;
+                            grain[i] = baked.grain;
+                            suspended[i] = baked.suspended;
+                        } else {
+                            cells[i] = floors[(x - next_origin.0) as usize].cell(y);
+                            grain[i] = initial_grain(x, y);
+                        }
                         if cells[i] == Cell::Water {
                             flow[i] = ambient;
                         }
@@ -2840,6 +2886,7 @@ impl World {
             return;
         };
         let side = TERRAIN_CHUNK_CELLS;
+        let sampler = settled_seed::Sampler::new(level);
         let open: Vec<_> = (0..self.width)
             .map(|x| {
                 let gx = self.origin.0 + x as i32;
@@ -2848,7 +2895,7 @@ impl World {
                 self.sleeping
                     .get(&key)
                     .and_then(|c| c.cells[slot])
-                    .map_or_else(|| initial_terrain_cell(level, gx, y), |c| c.cell)
+                    .map_or_else(|| sampler.cell(gx, y), |c| c.cell)
                     == Cell::Water
             })
             .collect();
@@ -2947,6 +2994,7 @@ impl World {
         let mut order: Vec<usize> = (0..self.pending_falls.len()).collect();
         order.sort_unstable_by_key(|&i| (self.pending_falls[i].y, self.pending_falls[i].sequence));
         let mut done = vec![false; self.pending_falls.len()];
+        let sampler = settled_seed::Sampler::new(level);
         let mut work = 0;
         let mut archive_work = std::collections::BTreeSet::new();
         'packets: for i in order {
@@ -2990,10 +3038,7 @@ impl World {
                     self.sleeping
                         .get(&key)
                         .and_then(|chunk| chunk.cells[slot])
-                        .map_or_else(
-                            || initial_terrain_cell(level, packet.x, below),
-                            |cell| cell.cell,
-                        )
+                        .map_or_else(|| sampler.cell(packet.x, below), |cell| cell.cell)
                 };
                 if tile != Cell::Water {
                     if blocked.iter().any(|b| b.contains(packet.x, packet.y)) {
@@ -3021,8 +3066,7 @@ impl World {
                             (packet.y.rem_euclid(side) * side + packet.x.rem_euclid(side)) as usize;
                         let old = self.sleeping.get(&key).and_then(|chunk| chunk.cells[slot]);
                         if old.is_some_and(|cell| cell.cell != Cell::Water)
-                            || (old.is_none()
-                                && initial_terrain_cell(level, packet.x, packet.y) != Cell::Water)
+                            || (old.is_none() && sampler.cell(packet.x, packet.y) != Cell::Water)
                         {
                             break;
                         }
@@ -4600,7 +4644,7 @@ mod tests {
             for gy in floor_y - 80..=floor_y + 200 {
                 assert_eq!(
                     column.cell(gy),
-                    initial_terrain_cell(&level, gx, gy),
+                    authored_terrain_cell(&level, gx, gy),
                     "{gx},{gy}"
                 );
             }
@@ -4608,7 +4652,7 @@ mod tests {
                 for edge in [rock.min.y, rock.max.y] {
                     let gy = ((edge - GAME_BOTTOM) / GAME_CELL).floor() as i32;
                     for gy in gy - 1..=gy + 1 {
-                        assert_eq!(column.cell(gy), initial_terrain_cell(&level, gx, gy));
+                        assert_eq!(column.cell(gy), authored_terrain_cell(&level, gx, gy));
                     }
                 }
             }

@@ -192,3 +192,8 @@ strip = true
 # and every other dependency retain the small-download release profile above.
 [profile.release.package.libm]
 opt-level = 3
+
+# Offline material authoring: same deterministic rules, optimized for bake time.
+[profile.terrain-bake]
+inherits = "release"
+opt-level = 3

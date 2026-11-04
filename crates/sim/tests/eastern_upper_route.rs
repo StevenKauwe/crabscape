@@ -186,15 +186,22 @@ fn rubble_haven_is_a_usable_side_stop_at_the_cap() {
         let level = Level::test_level();
         let index = level.crevices.len() - 2;
         let haven = level.crevices[index];
-        let mut sim = Sim::with_one_crab(Vec2::new(10420.0, level.floor_height(10420.0)));
+        let mut sim = Sim::with_one_crab(Vec2::new(10480.0, level.floor_height(10480.0)));
         sim.crab_mut(P0).unwrap().mover.moults = moults;
+        sim.crab_mut(P0).unwrap().mover.upgrades = 4;
         sim.enable_underwater_cells();
         sim.populate();
-        for _ in 0..600 {
+        // Let ordinary gravity establish ground contact before jumping.
+        for _ in 0..120 {
+            tick(&mut sim, Controls::default());
+        }
+        for frame in 0..600 {
             tick(
                 &mut sim,
                 Controls {
-                    walk: -1.0,
+                    walk: if frame < 40 { 0.0 } else { -1.0 },
+                    jump_held: frame < 90,
+                    jump_pressed: frame == 0 || frame == 35,
                     ..Default::default()
                 },
             );

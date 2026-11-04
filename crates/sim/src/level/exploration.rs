@@ -43,6 +43,10 @@ pub(super) fn extend(level: &mut Level) {
         // loosened-sand lip even after it has cleared the rock cap.
         Rect::new(10200.0, -2100.0, 10240.0, -1880.0),
         Rect::new(10220.0, -1920.0, 10390.0, -1880.0),
+        // The mature sand bank can erode below its old authored surface.
+        // Anchor the side haven on the cap itself, leaving the excavation
+        // mouth below this shallow overhang open even for a grown body.
+        Rect::new(10200.0, -2048.0, 10400.0, -2016.0),
         // A rock buttress at the end anchors the last coral and discovery.
         Rect::new(17330.0, -2300.0, 17400.0, -1800.0),
     ]);
@@ -78,7 +82,7 @@ pub(super) fn extend(level: &mut Level) {
         .push(Rect::new(13320.0, -3120.0, 13450.0, -2860.0));
     // Retain haven indices: one beside the cap, one on the gallery ledge.
     // Neither interrupts the continuous lower route east of the cap.
-    for (x, y) in [(10255.0, -2200.0), (14280.0, -3740.0)] {
+    for (x, y) in [(10255.0, -2016.0), (14280.0, -3740.0)] {
         level.crevices.push(Crevice {
             door: Rect::new(x, y - 1.0, x + 90.0, y + 40.0),
             den: Vec2::new(x + 40.0, y),

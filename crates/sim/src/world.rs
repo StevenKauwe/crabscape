@@ -297,7 +297,9 @@ impl Sim {
             return;
         }
         self.level.cells = Some(crate::underwater::World::from_level_settled(&self.level));
-        if let Some(cells) = &mut self.level.cells {
+        if !crate::underwater::settled_seed::available(&self.level)
+            && let Some(cells) = &mut self.level.cells
+        {
             cells.seed_shellwash_site();
             cells.seed_shallow_shortcut();
         }

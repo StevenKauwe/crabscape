@@ -388,10 +388,12 @@ mod tests {
     }
 
     #[test]
-    fn opening_rectangle_matches_the_new_fresh_opening() {
+    fn opening_cleanup_preserves_historical_material_instead_of_installing_current_seed() {
         let level = crate::Level::test_level();
         let historical = World::opening_pebble_fixture(&level);
-        let fresh = World::from_level_settled(&level);
+        let historical_cells = historical.cells.clone();
+        let historical_flow = historical.flow.clone();
+        let historical_tick = historical.tick;
         let bounds = Rect {
             left: 0,
             bottom: 0,
@@ -400,7 +402,11 @@ mod tests {
         };
         let (cleaned, removed) = transform_owned(historical, bounds).unwrap();
         assert!(removed > 0);
-        assert_eq!(cleaned, fresh);
+        assert_eq!(cleaned.cells, historical_cells);
+        assert_eq!(cleaned.flow, historical_flow);
+        assert_eq!(cleaned.tick, historical_tick);
+        assert!(cleaned.pebbles.is_empty());
+        assert!(cleaned.pebble_owner.iter().all(|&owner| owner == 0));
     }
 
     #[test]

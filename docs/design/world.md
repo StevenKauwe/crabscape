@@ -359,5 +359,6 @@ Without the environment variable it reports measurements without an uncalibrated
 wall-clock failure. CI's deterministic structural test adds 1,000 distant rocks
 and verifies the per-cell column list and resulting material remain unchanged;
 the equivalence test checks floor bands and all authored rectangle edges.
-The settled unseen-terrain bake remains follow-up work; this sampler optimization
-intentionally produces exactly the same initial materials.
+The sampler optimization above intentionally preserved the original initial
+materials. The subsequent [settled initial terrain](settled-terrain.md) work uses
+an offline global material bake, with saved cells retaining precedence.
