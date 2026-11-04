@@ -55,7 +55,8 @@ read and avoid. Teaches spacing and jumping.
   first, recovery lasts 180 ticks with the whole claw lowered and its finger closed. The first four recoveries,
   first attack, quiet passage and shock defenses are unchanged. Window expiry, losing the target, retreat,
   stagger, death and being held reset the sequence. A compact count/window travel with the existing serialized
-  enemy state; there is no migration of older enemy snapshots. The timing and pose are game choices, not a
+  enemy state; missing counters in older snapshots initialize to zero, without terrain or progression migration.
+  The timing and pose are game choices, not a
   claim of physiological exhaustion. Not yet: the stun on a poise break.
 
 ## Rig notes

@@ -210,3 +210,30 @@ fn wire_state_preserves_the_window_and_only_the_local_defender_takes_damage() {
         serde_json::from_str::<crabsim::enemy::Enemy>(&data).unwrap()
     );
 }
+
+#[test]
+fn a_loaded_maximum_count_enters_rest_without_overflow() {
+    let mut s = encounter(0);
+    let e = &mut s.enemies_mut()[0];
+    e.state = State::Attack;
+    e.state_tick = 2;
+    e.state_len = 2;
+    e.target = Some(P);
+    e.snap_count = u8::MAX;
+    e.snap_window = 100;
+    tick(&mut s, Controls::default());
+    let e = &s.enemies()[0];
+    assert_eq!(e.phase(&s.tuning), "rest");
+    assert_eq!((e.snap_count, e.snap_window), (0, 0));
+}
+
+#[test]
+fn older_enemy_snapshots_start_with_no_pending_snap_sequence() {
+    let e = encounter(0).enemies()[0].clone();
+    let mut value = serde_json::to_value(&e).unwrap();
+    let fields = value.as_object_mut().unwrap();
+    fields.remove("snap_count");
+    fields.remove("snap_window");
+    let restored = serde_json::from_value::<crabsim::enemy::Enemy>(value).unwrap();
+    assert_eq!(restored, e);
+}

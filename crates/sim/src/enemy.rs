@@ -175,8 +175,10 @@ pub struct Enemy {
     /// Strikes so far in this combo (0 = the first).
     pub combo: u32,
     /// Completed snaps in the current short contest window (shrimp only).
+    #[serde(default)]
     pub snap_count: u8,
     /// Fixed ticks left before the repeated-snap count expires.
+    #[serde(default)]
     pub snap_window: u16,
     /// The current strike got through to a body.
     pub landed: bool,
@@ -775,7 +777,7 @@ pub fn step(
                     if e.snap_window == 0 {
                         e.snap_window = crate::tuning::SNAPPER_SNAP_WINDOW;
                     }
-                    e.snap_count += 1;
+                    e.snap_count = e.snap_count.saturating_add(1);
                     if e.snap_count >= crate::tuning::SNAPPER_SNAP_LIMIT {
                         recovery = crate::tuning::SNAPPER_REST_TICKS;
                         e.snap_count = 0;
