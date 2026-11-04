@@ -75,7 +75,9 @@ hit size x harder, and the shell carries 4 x size² small things (5 after one mo
 In the sim now: the crab's shell (health) and poise, hits with knockback and hit-stop, and the two claws: the
 crusher's **smash** (14-tick wind-up, 6 active, 22 recovery; 12 damage, 25 poise) and the cutter's quick **jab**
 (6/4/12; 5 damage, 8 poise). A swing plants the feet (the crab slides to a stop: momentum); dodge cancels its
-recovery. The claws aim at what they strike: a blow comes down (up to 16 units) onto a creature that is short or a
+recovery. Holding guard during a blow raises the claws on its first recovery tick; it never cancels the wind-up or
+active hit. Guard discards an older queued attack. A fresh attack can leave a held guard, but a new guard press wins
+simultaneous inputs. Holding does not refresh the parry window. The claws aim at what they strike: a blow comes down (up to 16 units) onto a creature that is short or a
 step below, or up (up to 28) at one a little above, and anything overlapping the crab's shell is struck too; behind
 the shell, far above or out of reach it misses. Numbers: `crates/sim/src/tuning.rs`. Dying sinks the crab into the sand and it wakes 1.25 s later tucked in
 its home shell, or in the last crevice it rested in (rest stops, `world.md`), with full health and everything it had grown or fitted (lantern, scissor claws, climbing). What it
@@ -89,7 +91,8 @@ blow lands, and a creature hunting it gives up and goes back to its den; backing
 The mantis stalks: walking past or away doesn't escape it, only a sprint or a fight does.
 **Block** (hold): damage ×0.2, poise in full, walk at 40%. **Parry**: block pressed ≤ 10 ticks before a blow lands
 (a fresh press; a tap counts, a held block never does, and presses closer than 0.2 s apart open no new window):
-no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. **Dodge** (and flip):
+no damage, the attacker staggers, and a smash *started* in the next 45 ticks is a ×2 counter. A "Parry! SMASH"
+cue and shrinking bar show the actual remaining counter opportunity; they disappear when it expires or is spent. **Dodge** (and flip):
 invulnerable on its ticks 2–13. Enemies (`crates/sim/src/enemy.rs`) run the bestiary's state machine with a
 `tell` whose last stretch is `cocked`, and take the crab's blows by the same rules.
 **The test level's creatures** (placeholder shapes until their puppets), easy to hard along the route: two

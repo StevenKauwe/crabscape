@@ -694,13 +694,21 @@ pub fn before_step(
     }
 
     // A claw press: now if free, or queued for a moment.
-    let pressed = if c.smash_pressed {
+    let pressed = if c.block_pressed {
+        None
+    } else if c.smash_pressed {
         Some(Claw::Crusher)
     } else if c.jab_pressed {
         Some(Claw::Cutter)
     } else {
         None
     };
+    // Choosing defence discards an older buffered blow. A fresh attack can
+    // still leave a held guard (including a counter), but pressing guard
+    // wins simultaneous presses and must never spend that counter for us.
+    if c.block_pressed || (c.block_held && pressed.is_none()) {
+        f.queued = None;
+    }
     if let Some(claw) = pressed {
         f.queued = Some((claw, t.swing_buffer_ticks));
     }
@@ -723,7 +731,8 @@ pub fn before_step(
             .tuning(t)
             .chain_after
             .is_some_and(|n| s.recovery_tick(t) >= n);
-        let cut = c.dodge_pressed || c.block_pressed || (chains && f.queued.is_some());
+        let cut =
+            c.dodge_pressed || c.block_pressed || c.block_held || (chains && f.queued.is_some());
         if s.done(t) || (recovering && cut) {
             f.swing = None;
         }
