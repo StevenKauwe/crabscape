@@ -1,0 +1,35 @@
+//! Pressure expressed by the body alone. TMAO inspiration is sourced in
+//! `docs/design/ocean-shaped.md` row 13. Cracking, tremor and the adaptation
+//! cadence are game abstractions, not verified biological mechanisms.
+use crate::{STEP, SimCrab, tuning::StrainTuning};
+
+pub(crate) fn starting_depth() -> f32 {
+    StrainTuning::default().starting_depth
+}
+
+impl SimCrab {
+    /// Adapt to additional downward world units. W1.4's deep-food find will
+    /// call this same hook. A remote crab belongs to its own device.
+    pub fn adapt_deeper(&mut self, units: f32) {
+        if !self.remote && units.is_finite() && units > 0.0 {
+            self.adapted_depth = (self.adapted_depth - units).max(f32::MIN);
+        }
+    }
+}
+
+pub(crate) fn step(crab: &mut SimCrab, tuning: &StrainTuning) {
+    if crab.remote || crab.fighter.dead.is_some() {
+        return;
+    }
+    let before = crab.strain;
+    if crab.mover.pos.y < crab.adapted_depth {
+        crab.strain = (before + STEP / tuning.full_seconds).min(1.0);
+        for threshold in [0.25, 0.5, 0.75, 1.0] {
+            if before < threshold && crab.strain >= threshold {
+                crab.scars = crab.scars.saturating_add(1).min(8);
+            }
+        }
+    } else if crab.mover.pos.y > crab.adapted_depth {
+        crab.strain = (before - STEP / tuning.ease_seconds).max(0.0);
+    }
+}

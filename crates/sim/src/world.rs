@@ -35,6 +35,9 @@ use crate::shared::{self, OwnWorld, Shared, Thing};
 use crate::skills::Skill;
 use crate::tuning::Tuning;
 
+#[path = "strain.rs"]
+mod strain;
+
 /// Identifies a player. Only one exists for now, but co-op will add more.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -46,6 +49,15 @@ pub struct PlayerId(pub u32);
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SimCrab {
     pub id: PlayerId,
+    /// Pressure's body cue, independent of movement and combat.
+    #[serde(default)]
+    pub strain: f32,
+    /// Fine shell cracks retained until the next moult, at most eight.
+    #[serde(default)]
+    pub scars: u8,
+    /// Lowest adapted world y (more negative means deeper).
+    #[serde(default = "strain::starting_depth")]
+    pub adapted_depth: f32,
     /// Runs on another player's device (co-op): never stepped here, only set
     /// from its updates (see [`crate::net`]).
     pub remote: bool,
@@ -916,6 +928,9 @@ impl Sim {
         mover.stamina = mover.strokes(&self.tuning) as f32; // rested
         self.crabs.push(SimCrab {
             id,
+            strain: 0.0,
+            scars: 0,
+            adapted_depth: self.tuning.strain.starting_depth,
             remote: false,
             mover,
             prev_pos: pos,
@@ -2210,6 +2225,7 @@ impl Sim {
                 crab.events = ev;
                 continue;
             }
+            strain::step(crab, &self.tuning.strain);
             // Time passes for food whatever the crab is doing.
             food_timers(crab, &self.tuning, &mut ev);
             crate::moult::harden(crab, &self.tuning, &mut ev);

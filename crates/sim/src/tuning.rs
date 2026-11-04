@@ -37,6 +37,7 @@ pub(crate) const MORAY_FORAGE_LEASH: f32 = 400.0;
 /// shared copy), inside the [`Sim`](crate::Sim).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tuning {
+    pub strain: StrainTuning,
     // --- Walking --------------------------------------------------------
     /// Top walking speed.
     pub walk_speed: f32,
@@ -946,6 +947,7 @@ impl Tuning {
     /// laid over (preset A's swing numbers).
     pub fn base() -> Self {
         Self {
+            strain: StrainTuning::default(),
             walk_speed: 270.0,
             ground_accel: 1900.0,
             ground_decel: 2600.0,
@@ -1642,4 +1644,26 @@ pub fn alarm_jelly_tuning() -> &'static EnemyTuning {
         k.respawn_ticks = 0;
         k
     })
+}
+
+/// Body-only pressure cues. Timing and adaptation distances are game choices.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrainTuning {
+    /// World y just below the canyon shelf at -3400.
+    pub starting_depth: f32,
+    pub full_seconds: f32,
+    pub ease_seconds: f32,
+    /// Additional downward world units tolerated after a successful moult.
+    pub moult_depth: f32,
+}
+
+impl Default for StrainTuning {
+    fn default() -> Self {
+        Self {
+            starting_depth: -3600.0,
+            full_seconds: 120.0,
+            ease_seconds: 45.0,
+            moult_depth: 600.0,
+        }
+    }
 }
