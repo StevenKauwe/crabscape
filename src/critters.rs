@@ -133,7 +133,7 @@ fn swimming_neck(
 
 /// Build a naturally irregular opening out of rock cells only. Sand and open
 /// water never receive cave art, and no physical terrain is removed.
-fn moray_cave_mesh(level: &crabsim::Level, home: Vec2, offset: Vec2, size: Vec2) -> Mesh {
+fn moray_cave_mesh(level: &crabsim::Level, home: Vec2, offset: Vec2, size: Vec2) -> Option<Mesh> {
     let cell = crabsim::underwater::GAME_CELL;
     let centre = home + offset;
     let left = ((centre.x - size.x * 0.5) / cell).floor() as i32;
@@ -163,22 +163,34 @@ fn moray_cave_mesh(level: &crabsim::Level, home: Vec2, offset: Vec2, size: Vec2)
         }
     }
     let count = vertices.len();
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    if count == 0 {
+        return None;
+    }
+    Some(
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; count])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
+        .with_inserted_indices(Indices::U32(indices)),
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; count])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
-    .with_inserted_indices(Indices::U32(indices))
 }
 
 fn move_moray_caves(
+    mut commands: Commands,
     sim: Res<Sim>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut caves: Query<(&mut MorayCave, &Mesh2d, &mut Transform, &mut Remembered)>,
+    mut caves: Query<(
+        Entity,
+        &mut MorayCave,
+        Option<&Mesh2d>,
+        &mut Transform,
+        &mut Remembered,
+    )>,
 ) {
-    for (mut cave, mesh, mut transform, mut remembered) in &mut caves {
+    for (entity, mut cave, mesh, mut transform, mut remembered) in &mut caves {
         if let Some(e) = sim.enemies().iter().find(|e| e.id == cave.enemy) {
             let cell = crabsim::underwater::GAME_CELL;
             let position = (
@@ -190,8 +202,25 @@ fn move_moray_caves(
                 ((x / cell).round() as i32, (y / cell).round() as i32)
             });
             if position != cave.last_cell || bounds != cave.last_bounds {
-                if let Some(mut mesh) = meshes.get_mut(&mesh.0) {
-                    *mesh = moray_cave_mesh(&sim.level, e.home, cave.offset, cave.size);
+                match (
+                    moray_cave_mesh(&sim.level, e.home, cave.offset, cave.size),
+                    mesh,
+                ) {
+                    (Some(next), Some(handle)) => {
+                        if let Some(mut current) = meshes.get_mut(&handle.0) {
+                            *current = next;
+                        }
+                    }
+                    (Some(next), None) => {
+                        commands.entity(entity).insert(Mesh2d(meshes.add(next)));
+                    }
+                    (None, Some(handle)) => {
+                        // Never submit an empty asset to the renderer. Keep
+                        // the cave entity so later rock can restore its art.
+                        meshes.remove(handle.0.id());
+                        commands.entity(entity).remove::<Mesh2d>();
+                    }
+                    (None, None) => {}
                 }
                 cave.last_cell = position;
                 cave.last_bounds = bounds;
@@ -373,8 +402,7 @@ fn spawn_critters(
                     let (x, y, _, _) = w.game_bounds();
                     ((x / cell).round() as i32, (y / cell).round() as i32)
                 });
-                commands.spawn((
-                    Mesh2d(meshes.add(cave_mesh)),
+                let mut cave = commands.spawn((
                     MeshMaterial2d(materials.add(tex.material(ROCK))),
                     Transform::from_translation(e.home.extend(1.2)),
                     MorayCave {
@@ -386,6 +414,9 @@ fn spawn_critters(
                     },
                     Remembered(e.home),
                 ));
+                if let Some(mesh) = cave_mesh {
+                    cave.insert(Mesh2d(meshes.add(mesh)));
+                }
                 for n in 0..NECK {
                     let neck = commands
                         .spawn((
@@ -736,6 +767,54 @@ mod cave_tests {
     }
 
     #[test]
+    fn cave_render_asset_disappears_in_water_and_returns_with_rock() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+        sim.enable_underwater_cells();
+        sim.spawn_enemy(Kind::Moray, Vec2::new(1760.0, -260.0));
+        let eel = &sim.enemies()[0];
+        let (len, deep) = sim.tuning.moray.body;
+        let offset = Vec2::new(-eel.facing * (len / 2.0 + 16.0), deep * 0.48);
+        let home = eel.home;
+        let id = eel.id;
+        let mut app = App::new();
+        app.insert_resource(sim).init_resource::<Assets<Mesh>>();
+        let entity = app
+            .world_mut()
+            .spawn((
+                MorayCave {
+                    enemy: id,
+                    offset,
+                    size: Vec2::new(len * 1.15, deep * 1.65),
+                    last_cell: (i32::MIN, i32::MIN),
+                    last_bounds: None,
+                },
+                Transform::default(),
+                Remembered(home),
+            ))
+            .id();
+        app.world_mut().run_system_once(move_moray_caves).unwrap();
+        assert!(app.world().get::<Mesh2d>(entity).is_some());
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 1);
+        {
+            let mut cave = app.world_mut().get_mut::<MorayCave>(entity).unwrap();
+            cave.offset = Vec2::new(0.0, 10000.0);
+            cave.last_cell = (i32::MIN, i32::MIN);
+        }
+        app.world_mut().run_system_once(move_moray_caves).unwrap();
+        assert!(app.world().get::<Mesh2d>(entity).is_none());
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 0);
+        {
+            let mut cave = app.world_mut().get_mut::<MorayCave>(entity).unwrap();
+            cave.offset = offset;
+            cave.last_cell = (i32::MIN, i32::MIN);
+        }
+        app.world_mut().run_system_once(move_moray_caves).unwrap();
+        assert!(app.world().get::<Mesh2d>(entity).is_some());
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 1);
+    }
+
+    #[test]
     fn moray_opening_is_drawn_only_inside_hard_rock() {
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
         sim.enable_underwater_cells();
@@ -748,7 +827,8 @@ mod cave_tests {
             eel.home,
             offset,
             Vec2::new(len * 1.15, deep * 1.65),
-        );
+        )
+        .expect("the trench moray has a rock opening");
         let Some(VertexAttributeValues::Float32x3(vertices)) =
             mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
