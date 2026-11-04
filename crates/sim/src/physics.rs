@@ -11,7 +11,7 @@
 use bevy_math::{Rect, Vec2};
 
 use crate::home::Shelter;
-use crate::level::Level;
+use crate::level::{Growth, Level};
 use crate::moult::Feat;
 use crate::skills::Skill;
 use crate::tuning::Tuning;
@@ -900,6 +900,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             0.0
         };
     let grip = level.climb_at(m.pos, grip_reach, m.glass_grips);
+    let rock_grip = grip.is_some_and(|g| g.kind == Growth::Rock);
     let was_climbing = m.climbing;
     let mut shuffle = 0.0;
     if m.climbing {
@@ -909,8 +910,8 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         let fresh = walking && walk.signum() != m.climb_dir;
         let off_centre = grip.map_or(0.0, |g| m.pos.x - g.x);
         let at_edge = off_centre * walk.signum() >= t.climb_reach - 1.0;
-        let step_off = fresh && at_edge;
-        if fresh && !at_edge {
+        let step_off = fresh && (at_edge || (rock_grip && walk * m.climb_side > 0.0));
+        if fresh && !at_edge && !rock_grip {
             shuffle = walk * t.climb_shuffle;
         }
         if m.grounded {
@@ -969,6 +970,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         clear_climb_exit(m, t, level);
     }
     if m.climbing {
+        if rock_grip {
+            attach_rock_grip(m, t, level);
+        }
         let down = c.down || c.dodge_held;
         let speed = m.climb_speed(t);
         let climb = match (c.jump_held, down) {
@@ -984,7 +988,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         let xp = (m.pos.y - from).abs() * t.climb_xp_per_unit;
         ev.levelled = ev.levelled.or(m.earn(Skill::Climbing, xp, t));
         // Shuffling stops at the edge of the reach; pushing on steps off.
-        if let Some(g) = level.climb_at(m.pos, grip_reach + 5.0, m.glass_grips) {
+        if !rock_grip && let Some(g) = level.climb_at(m.pos, grip_reach + 5.0, m.glass_grips) {
             let edge = t.climb_reach - 0.5;
             m.pos.x = m.pos.x.clamp(g.x - edge, g.x + edge);
         }
@@ -1221,6 +1225,63 @@ pub fn climb_box(m: &Mover, t: &Tuning) -> Rect {
     Rect::new(left, m.pos.y - half_tall, right, m.pos.y + half_tall)
 }
 
+/// Bring a bare-rock grip to the exposed face only when the entire rotated
+/// body can sweep there. The feet are the anchor; body dimensions stay fixed.
+fn attach_rock_grip(m: &mut Mover, t: &Tuning, level: &Level) {
+    let from = climb_box(m, t);
+    let side = m.climb_side;
+    let target = if let Some(cells) = &level.cells {
+        let step = crate::underwater::GAME_CELL;
+        let mut face = None;
+        for n in 0..=(2.0 * t.climb_reach / step).ceil() as i32 {
+            let x = m.pos.x - side * n as f32 * step;
+            if !cells.contains_world(x, m.pos.y) {
+                return;
+            }
+            if cells.game_rock_at(x, m.pos.y) {
+                face = Some(if side > 0.0 {
+                    (x / step).floor() * step + step + EPS
+                } else {
+                    (x / step).floor() * step - EPS
+                });
+                break;
+            }
+        }
+        face
+    } else {
+        level
+            .solids()
+            .filter(|r| m.pos.y >= r.min.y && m.pos.y <= r.max.y)
+            .map(|r| {
+                if side > 0.0 {
+                    r.max.x + EPS
+                } else {
+                    r.min.x - EPS
+                }
+            })
+            .filter(|x| (m.pos.x - x) * side >= 0.0 && (m.pos.x - x).abs() <= 2.0 * t.climb_reach)
+            .min_by(|a, b| (m.pos.x - a).abs().total_cmp(&(m.pos.x - b).abs()))
+    };
+    let Some(x) = target else {
+        return;
+    };
+    let old = m.pos.x;
+    m.pos.x = x;
+    let to = climb_box(m, t);
+    let sweep = Rect::from_corners(from.min.min(to.min), from.max.max(to.max));
+    let blocked = level.solids().any(|r| {
+        sweep.min.x < r.max.x - EPS
+            && sweep.max.x > r.min.x + EPS
+            && sweep.min.y < r.max.y - EPS
+            && sweep.max.y > r.min.y + EPS
+    }) || level.cells.as_ref().is_some_and(|cells| {
+        cells.game_rock_in_rect(sweep.min.x, sweep.min.y, sweep.max.x, sweep.max.y)
+    });
+    if blocked {
+        m.pos.x = old;
+    }
+}
+
 /// The climbing position is a grip anchor, not the centre of the upright
 /// body. Unfold onto the exposed side before ordinary collision takes over.
 /// Otherwise stepping off beside a wall embeds half the walking body in rock.
@@ -1300,10 +1361,22 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
         // on a supported material surface while climbing down; isolated
         // grains and an old floor above an excavated bed cannot release grip.
         let bottom_before = before - m.half_width(t);
+        let rock = level
+            .climb_at(m.pos, t.climb_reach + 20.0, m.glass_grips)
+            .is_some_and(|g| g.kind == Growth::Rock);
+        // A rock grip's feet touch the wall; only its exposed body can
+        // stand on the floor. Sampling across the anchor mistakes wall
+        // cells for footing and prevents climbing down.
+        let foot_x = m.pos.x
+            + if rock {
+                m.climb_side * m.height(t) * 0.5
+            } else {
+                0.0
+            };
         if m.vel.y < 0.0
             && let Some(floor) = cells.game_footing_height(
-                m.pos.x,
-                m.height(t) * 0.5,
+                foot_x,
+                m.height(t) * 0.5 - if rock { EPS } else { 0.0 },
                 bottom_before + crate::underwater::GAME_CELL,
             )
             && m.pos.y - m.half_width(t) <= floor

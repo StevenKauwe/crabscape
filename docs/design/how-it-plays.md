@@ -206,3 +206,12 @@ Nothing moves the crab directly: input sends a `MoveRequest` message and fixed-s
 co-op can later feed remote players through the same path. Keep it that way.
 
 The optional `rave` code (Enter, or Settings → Enter a code) makes your crab dance while standing still, on your screen only. Movement and combat take over immediately. Enter `rave` again to stop; it also resets on reload.
+
+### Bare-rock grip contact (#266)
+Glass grips attach the climbing feet to the exposed rock face rather than leaving
+the crab floating within stalk reach. Cellular worlds use their actual loaded rock
+cells; the full rotated body must have a clear swept path before attachment. Its
+width and height do not shrink. A blocked sweep retains the old safe position.
+Rock descent checks footing on the body's exposed side, and an away press steps
+off; jump with a direction still kicks off. Kelp and coral keep their existing
+shuffle and grip behavior. No new control, gear gate or saved state is introduced.
