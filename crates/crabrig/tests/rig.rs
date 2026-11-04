@@ -347,3 +347,27 @@ fn the_pizza_crab_has_the_crabs_pieces_in_its_own_places() {
     };
     assert_eq!(names(GAME_JSON), names(PIZZA_JSON));
 }
+
+#[test]
+fn triggerfish_rig_and_game_atlas_match_the_rust_puppet() {
+    let svg = include_str!("../../../art/creatures/queen-triggerfish/queen-triggerfish-parts.svg");
+    assert_eq!(crabrig::triggerfish::parts_svg(), svg);
+    let export = crabrig::export::export(
+        svg,
+        &crabrig::export::Options {
+            zoom: 1.0,
+            source_name: "art/creatures/queen-triggerfish/queen-triggerfish-parts.svg".into(),
+            name: "queen-triggerfish".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(export.parts, 8);
+    assert_eq!(
+        export.json,
+        include_str!("../../../assets/creatures/queen-triggerfish-parts.json")
+    );
+    assert_eq!(
+        export.atlas_png,
+        include_bytes!("../../../assets/creatures/queen-triggerfish-atlas.png")
+    );
+}

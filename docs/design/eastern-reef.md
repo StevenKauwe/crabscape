@@ -84,3 +84,15 @@ Persisted terrain chunks remain authoritative. The revised terrain is validated
 in fresh worlds and previously unexplored chunks; visited chunks keep their saved
 geometry and may not expose the revised chamber or its relocated find. No terrain
 migration or destructive save reset is performed.
+
+## Queen triggerfish clam pocket
+
+The existing lower clam pocket at x 11,600 now has one queen-triggerfish
+encounter: nose-down water warning, bracing or dodging, then a separately
+telegraphed bite and an exposed recovery. The upper coral crossing remains a
+reversible four-stroke bypass. No pickup slots or progression requirements
+change. This is the first playable portion of #72; forced overturning, spine
+unlocking and scale armour remain deferred. See the creature page for the
+opened species sources and the explicitly extrapolated crab encounter.
+The new occupant is authored for fresh worlds; existing saved enemy lists
+are not rewritten to insert it.

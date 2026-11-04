@@ -26,3 +26,5 @@ pub mod palette;
 pub mod parts;
 pub mod shrimp;
 pub mod svg;
+
+pub mod triggerfish;

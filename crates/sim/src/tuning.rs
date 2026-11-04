@@ -1502,3 +1502,72 @@ impl Tuning {
         self.gravity * (1.0 - self.buoyancy)
     }
 }
+
+// First queen-triggerfish slice: all timings and distances below are tuned.
+pub const TRIGGER_JET_TICKS: u32 = 12;
+pub const TRIGGER_JET_LENGTH: f32 = 180.0;
+pub const TRIGGER_JET_COS: f32 = 0.9396926; // 20-degree half-angle
+pub const TRIGGER_JET_PUSH: f32 = 240.0;
+pub const TRIGGER_JET_POISE: f32 = 65.0;
+pub const TRIGGER_BRACE_POISE: f32 = 30.0;
+pub const TRIGGER_HOVER: f32 = 100.0;
+/// Full diamond plus the raised tail during the nose-down warning.
+pub const TRIGGER_CLEARANCE_HEIGHT: f32 = 260.0;
+pub const TRIGGER_BITE_TELL: u32 = 30;
+pub const TRIGGER_BITE_TICKS: u32 = 6;
+pub const TRIGGER_BITE_APPROACH_TICKS: u32 = 120;
+pub const TRIGGER_IDLE_SPEED: f32 = 60.0;
+pub const TRIGGER_GOAL_TOLERANCE: f32 = 18.0;
+pub const TRIGGER_MOUTH_X: f32 = 140.0;
+pub const TRIGGER_MOUTH_Y: f32 = 45.0;
+
+/// A self-contained kind tuning; no persisted player or world fields added.
+pub fn triggerfish_tuning() -> &'static EnemyTuning {
+    static T: std::sync::OnceLock<EnemyTuning> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut k = Tuning::default().fixture;
+        k.vitals = VitalsTuning {
+            health: 150.0,
+            poise: 120.0,
+            poise_refill: 25.0,
+            poise_delay_ticks: 60,
+            stagger_ticks: 50,
+        };
+        k.body = (281.0, 155.0);
+        k.head = 1.0;
+        k.head_recover = 2.0;
+        k.tail = 1.0;
+        k.tail_damage = 0.5;
+        k.burrows = false;
+        k.notice_range = 360.0;
+        k.notice_ticks = 24;
+        k.give_up_range = 600.0;
+        k.approach_speed = 240.0;
+        k.strike_range = 150.0;
+        k.tell_ticks = 72;
+        k.active_ticks = TRIGGER_JET_TICKS;
+        k.recover_ticks = 72;
+        k.parried_ticks = 50;
+        k.flee_below = 0.0; // Spine-lock escape puzzle is a later slice.
+        k.respawn_ticks = 8 * 60 * 120;
+        k.sight = true;
+        k.strike = StrikeTuning {
+            damage: 20.0,
+            poise: 40.0,
+            ahead: TRIGGER_MOUTH_X,
+            height: TRIGGER_MOUTH_Y,
+            radius: 28.0,
+            knockback: (180.0, 40.0),
+            hitstop_ticks: 8,
+            parryable: true,
+            blockable: true,
+            block_damage: None,
+            armour_break_ticks: 0,
+            follow_up: None,
+            floor_len: 0.0,
+            lunge: 0.0,
+            grab: None,
+        };
+        k
+    })
+}

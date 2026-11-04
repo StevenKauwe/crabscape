@@ -39,16 +39,19 @@ pub enum Kind {
     /// A monkey from outer space with asparagus arms, from the `monkeys`
     /// code (`crate::codes`): weak, long-armed, and gone after a while.
     Monkey,
+    /// Queen triggerfish: a water jet followed by a separately telegraphed bite.
+    Triggerfish,
 }
 
 /// Every kind, for parsing and lists.
-pub const KINDS: [Kind; 6] = [
+pub const KINDS: [Kind; 7] = [
     Kind::Fixture,
     Kind::Mantis,
     Kind::Snapper,
     Kind::Moray,
     Kind::Octopus,
     Kind::Monkey,
+    Kind::Triggerfish,
 ];
 
 impl Kind {
@@ -60,6 +63,7 @@ impl Kind {
             Kind::Moray => &t.moray,
             Kind::Octopus => &t.octopus.base,
             Kind::Monkey => crate::codes::monkey_tuning(),
+            Kind::Triggerfish => crate::tuning::triggerfish_tuning(),
         }
     }
 
@@ -71,6 +75,7 @@ impl Kind {
             Kind::Moray => "moray",
             Kind::Octopus => "octopus",
             Kind::Monkey => "monkey",
+            Kind::Triggerfish => "triggerfish",
         }
     }
 
@@ -295,6 +300,15 @@ impl Enemy {
     /// The finer part of its state, for dumps and the drawing: the tell's
     /// last stretch is "cocked" (the hold-still beat before the blow).
     pub fn phase(&self, t: &Tuning) -> &'static str {
+        if self.kind == Kind::Triggerfish {
+            return match (self.state, self.combo) {
+                (State::Tell, 0) => "hover",
+                (State::Attack, 0) => "jet",
+                (State::Tell, _) => "bite-tell",
+                (State::Attack, _) => "bite",
+                _ => self.state.name(),
+            };
+        }
         if let Some(o) = &self.octo {
             return octopus::phase(self, o);
         }
@@ -663,6 +677,9 @@ pub fn step(
             deaths: e.deaths,
             ..Enemy::new(e.id, e.kind, home, t)
         };
+    }
+    if e.kind == Kind::Triggerfish {
+        return crate::triggerfish::step(e, crabs, t, level, bounded_region);
     }
     if e.octo.is_some() {
         return octopus::step(e, crabs, t, level);
@@ -1315,6 +1332,9 @@ pub fn grabs(k: &EnemyTuning, outcome: Outcome) -> Option<GrabTuning> {
 /// that runs it, the outcome may come from the crab's own device
 /// ([`crate::net::Msg::Blow`]). True when this blow is over.
 pub fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning) -> bool {
+    if e.kind == Kind::Triggerfish {
+        return crate::triggerfish::feels(e, crab, outcome, t);
+    }
     if e.octo.is_some() && e.state == State::Probe {
         octopus::tip_feels(e, outcome, t);
         return true;

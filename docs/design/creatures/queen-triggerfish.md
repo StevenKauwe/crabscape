@@ -17,6 +17,51 @@ Concept sheet: `art/creatures/queen-triggerfish/queen-triggerfish.png`. Shared r
 - **Swimming:** slow cruising by rippling the soft dorsal and anal fins; the tail for fast bursts (Wikipedia, citing a
   reef-keeping site: not verified).
 
+## Playable first slice (#72 remains partial)
+
+One queen triggerfish hovers over the existing clam pocket at x 11,600 in the
+Rubble Banks. The established upper coral route bypasses it in either direction
+with four available strokes; it is not a progression gate. The ordinary lower
+approach is a deliberate encounter. It adds one bounded habitat slot, preserves
+all pickup indices, and uses the existing away-from-player replenishment rule.
+Existing saved enemy lists and terrain remain authoritative: this placement is
+validated in fresh worlds, with no migration or destructive reset of old worlds.
+
+The delivered sequence is notice → approach → 72-tick nose-down warning →
+12-tick water jet → approach → separate 30-tick bite warning → 6-tick bite →
+72-tick exposed recovery. Holding GUARD braces against the zero-damage jet,
+reducing its push and poise strain; dodging leaves its locked cone. The bite
+can be parried, blocked, or avoided. Unanswered bites deal 20 damage. Recovery
+opens the front to double claw damage; the rear half takes half damage.
+Timings, forces and distances are gameplay tuning in `tuning.rs`, not measured
+biology. The water warning and hit test share the mouth and locked aim, and
+both stop at solid terrain. The visible fish has conservative full-width
+clearance plus room for its raised tail, rather than the slender-animal mask.
+
+**Not delivered:** forced upside-down combat posture, struggling to right,
+doubled belly damage, the trigger-spine unlocking puzzle, armour crafting or
+scale-plate drops, harmless food-uncovering puffs, and a day/night cycle. The
+existing voluntary water flip is a dodge, not combat overturning. The full
+specification below remains the goal; this first slice deliberately uses
+push/poise strain instead of pretending the overturning mechanic exists.
+The fish currently leaves ordinary food when defeated.
+
+The Rust cut-out puppet supplies neutral, nose-down, jet, bite and recovery
+poses, with animated fins, small jaw and dorsal spine, an eye, blue facial bands,
+and both ink/oil atlases. `cargo run -p crabrig --profile art --example
+triggerfish_poses` writes an assembled phone-sized neutral/tell/jet inspection
+strip to `/tmp/queen-triggerfish-poses.png`; this is a static art inspection,
+not a screenshot of a running game. Rig/atlas reproduction is tested.
+
+Sources reopened for this implementation: FishBase [FB-BV] documents Atlantic
+*Balistes vetula*, benthic invertebrate feeding, and water-blowing to overturn
+urchins. Using that behavior against this crab is an explicit design
+extrapolation, not verified predation on a 12 cm crab. The museum [AM] describes
+juvenile crevice wedging and adult spine displays separately; it does not
+establish the planned adult hide/unlock fight. The local game geography mixes
+encounters and is not a claim that this Atlantic fish shares a natural reef
+with the Indo-Pacific snowflake moray.
+
 ## Combat design
 **Role: tank + ranged.** A big armoured fish that flips you with water, then bites the soft side. Teaches bracing and
 finding weak spots.

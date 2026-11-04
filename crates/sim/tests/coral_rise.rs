@@ -246,7 +246,7 @@ fn bank_encloses_the_find_and_separates_sediment_from_bedrock() {
     };
     assert_eq!(level.cultures.len(), 5);
     assert_eq!(level.cultures[4], Vec2::new(17130.0, -2784.0));
-    assert_eq!(level.foes.len(), 17);
+    assert_eq!(level.foes.len(), 18);
     assert_eq!(cell(17130.0, -2300.0), Cell::Rock);
     assert_eq!(cell(17280.0, -2740.0), Cell::Rock);
     assert_eq!(cell(17130.0, -2784.0), Cell::Water);
