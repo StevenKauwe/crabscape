@@ -4,6 +4,15 @@ Silksong-style movement and combat, but you are a crab: **a heavy-hitting tank.*
 timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** Every movement feel number lives in
 `crates/sim/src/tuning.rs` (camera and light in `src/tuning.rs`); `cargo crabsim` measures them headless.
 
+## Shade the lantern
+Press **H**, or tap the **Lantern** row in Inventory on a phone, to switch between full and dim light.
+The jar and nearby light visibly dim. In dark regions this shortens what you can currently see and delays
+initial notice by sight hunters; close contact still alerts them, and dimming never shakes an alerted hunter.
+Moray scent and snapping-shrimp vibration are unaffected. Shallow daylight still provides visibility.
+Brighten again freely: cultures, remembered places and terrain loading capacity are retained. The personal
+setting survives saving and respawning; existing saves default to full. This is a shaded-lamp game abstraction,
+not a claim that bacterial light instantly changes metabolism or that every species follows light.
+
 ## Movement (the first four are in the game)
 - **Weight you can feel.** A crab is denser than water, so it sinks. Jumps are strong push-offs from the floor with a
   short wind-up that the water soon brakes; the way down is a slow, steady sink, not a drop (about 0.8 s back down

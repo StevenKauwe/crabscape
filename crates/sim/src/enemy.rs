@@ -541,7 +541,16 @@ impl Enemy {
                 } else {
                     200.0
                 };
-                *d <= range && (c.mover.pos.y - self.pos.y).abs() < vertical
+                let notice = if sight && c.mover.lantern_dim && self.target != Some(c.id) {
+                    let depth = crate::memory::depth_factor(c.mover.pos);
+                    let factor = 1.0 - (1.0 - crate::tuning::DIM_LANTERN_NOTICE) * depth;
+                    (range * factor)
+                        .max(crate::tuning::DIM_LANTERN_CLOSE)
+                        .min(range)
+                } else {
+                    range
+                };
+                *d <= notice && (c.mover.pos.y - self.pos.y).abs() < vertical
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(id, _, _)| id)

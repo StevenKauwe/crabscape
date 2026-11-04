@@ -16,6 +16,8 @@ pub struct Progress {
     pub upgrades: u32,
     /// Cultures grown into the lantern.
     pub lantern: u32,
+    #[serde(default)]
+    pub lantern_dim: bool,
     pub scissor_claw: bool,
     pub climb_xp: f32,
     /// Saves from before the Swimming and Fighting skills have no such
@@ -146,6 +148,7 @@ impl Sim {
         Some(Progress {
             upgrades: m.upgrades,
             lantern: m.lantern,
+            lantern_dim: m.lantern_dim,
             scissor_claw: m.scissor_claw,
             climb_xp: m.climb_xp,
             swim_xp: m.swim_xp,
@@ -246,6 +249,7 @@ impl Sim {
         let m = &mut crab.mover;
         m.upgrades = p.upgrades;
         m.lantern = p.lantern;
+        m.lantern_dim = p.lantern_dim;
         m.scissor_claw = p.scissor_claw;
         m.glass_grips = p.glass_grips;
         m.clam_guards = p.clam_guards;
