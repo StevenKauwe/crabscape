@@ -57,6 +57,7 @@ fn key(epoch: u64, kind: &str, x: i32, y: i32, slot: u64) -> JsValue {
 }
 async fn get(db: &IdbDatabase, key: &JsValue) -> Result<JsValue, String> {
     let tx = db.transaction_with_str(STORE).map_err(issue)?;
+    let _abort = AbortRead(tx.clone());
     let req = tx
         .object_store(STORE)
         .map_err(issue)?
@@ -594,8 +595,9 @@ pub(super) async fn read_pages(
     revision: u64,
     requests: super::super::paging::Requests,
 ) -> Result<super::super::paging::Replies, String> {
-    let db = Database(open(database).await?);
+    let db = open_for_pages(database.to_owned()).await?;
     let tx = db.0.transaction_with_str(STORE).map_err(issue)?;
+    let _abort = AbortRead(tx.clone());
     let store = tx.object_store(STORE).map_err(issue)?;
     let head_request = store.get(&JsValue::from_str(KEY)).map_err(issue)?;
     let epoch_request = store.get(&JsValue::from_str(EPOCH_KEY)).map_err(issue)?;

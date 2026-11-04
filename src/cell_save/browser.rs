@@ -27,6 +27,7 @@ const STALE_EPOCH: &str = "cellular save was reset in another tab";
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STARTUP_PACKED: usize = 8 * 1024 * 1024;
 const LOAD_TIMEOUT_MS: i32 = 20_000;
+const PAGE_READ_TIMEOUT_MS: i32 = 5_000;
 const TOO_LARGE: &str = "saved world is too large to load safely on this device";
 type LoadedSession = Result<(Option<super::Restored>, u64), String>;
 
@@ -36,6 +37,7 @@ thread_local! {
     static PLAYER_RESET: Cell<bool> = const { Cell::new(false) };
     static RESETTING: Cell<bool> = const { Cell::new(false) };
     static AUTOSAVE: RefCell<Autosave> = RefCell::new(Autosave::default());
+    static PAGE_OPEN_GATE: super::read_deadline::OpenGate = super::read_deadline::OpenGate::default();
 }
 
 #[derive(Default)]
@@ -53,6 +55,7 @@ struct Autosave {
     read_result: Option<(u64, Result<super::paging::Replies, String>)>,
     read_warning: Option<String>,
     read_retry: f32,
+    read_started_ms: Option<f64>,
 }
 
 /// Called exactly once after startup validation. A failed read remains
@@ -76,6 +79,20 @@ pub fn autosave_warning() -> Option<String> {
     AUTOSAVE.with(|slot| {
         let state = slot.borrow();
         state.read_warning.clone().or_else(|| state.warning.clone())
+    })
+}
+
+/// Bounded metadata only: diagnostic snapshots omit the live storage waits.
+pub fn paging_diagnostics() -> String {
+    AUTOSAVE.with(|slot| {
+        let state = slot.borrow();
+        let age = state
+            .read_started_ms
+            .map_or(0.0, |start| (js_sys::Date::now() - start).max(0.0));
+        format!(
+            "enabled={} revision={} saving={} reading={} read_age_ms={age:.0} retry_seconds={:.1}",
+            state.enabled, state.revision, state.busy, state.read_busy, state.read_retry
+        )
     })
 }
 
@@ -152,13 +169,14 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
         }
         let epoch = state.epoch?;
         state.read_busy = true;
+        state.read_started_ms = Some(js_sys::Date::now());
         Some((state.generation, epoch))
     }) else {
         return;
     };
     wasm_bindgen_futures::spawn_local(async move {
-        let result = spatial_storage::read_pages(
-            &crate::save::browser_key(".cells"),
+        let result = read_pages_with_deadline(
+            crate::save::browser_key(".cells"),
             epoch,
             revision,
             requests,
@@ -168,10 +186,53 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
             let mut state = slot.borrow_mut();
             if state.generation == generation && state.enabled && may_update() {
                 state.read_busy = false;
+                state.read_started_ms = None;
                 state.read_result = Some((revision, result));
             }
         });
     });
+}
+
+struct ReadTimer {
+    window: web_sys::Window,
+    id: i32,
+    _callback: Closure<dyn FnMut()>,
+}
+impl Drop for ReadTimer {
+    fn drop(&mut self) {
+        self.window.clear_timeout_with_handle(self.id);
+    }
+}
+
+async fn read_pages_with_deadline(
+    database: String,
+    epoch: u64,
+    revision: u64,
+    requests: super::paging::Requests,
+) -> Result<super::paging::Replies, String> {
+    let window = web_sys::window().ok_or("no browser window")?;
+    let (signal, resolve, _) = promise();
+    let callback = Closure::<dyn FnMut()>::new(move || {
+        let _ = resolve.call0(&JsValue::UNDEFINED);
+    });
+    let id = window
+        .set_timeout_with_callback_and_timeout_and_arguments_0(
+            callback.as_ref().unchecked_ref(),
+            PAGE_READ_TIMEOUT_MS,
+        )
+        .map_err(|e| problem("monitor saved terrain read", e))?;
+    let _timer = ReadTimer {
+        window,
+        id,
+        _callback: callback,
+    };
+    super::read_deadline::read(
+        spatial_storage::read_pages(&database, epoch, revision, requests),
+        async {
+            let _ = JsFuture::from(signal).await;
+        },
+    )
+    .await
 }
 
 fn current_save(generation: u64) -> bool {
@@ -489,6 +550,33 @@ impl Drop for Database {
     }
 }
 
+/// `close` waits for transactions; cancellation must abort a pending read.
+struct AbortRead(IdbTransaction);
+impl Drop for AbortRead {
+    fn drop(&mut self) {
+        let _ = self.0.abort();
+    }
+}
+
+async fn open_for_pages(database: String) -> Result<Database, String> {
+    let permit = PAGE_OPEN_GATE
+        .with(|gate| gate.start())
+        .ok_or("storage connection is still pending; reload if loading does not resume")?;
+    let (receiver, sender) = super::read_deadline::delivery();
+    let (signal, resolve, _) = promise();
+    wasm_bindgen_futures::spawn_local(async move {
+        let _permit = permit;
+        sender.deliver(open(&database).await.map(Database));
+        let _ = resolve.call0(&JsValue::UNDEFINED);
+    });
+    JsFuture::from(signal)
+        .await
+        .map_err(|e| problem("open saved terrain", e))?;
+    receiver
+        .take()
+        .ok_or_else(|| "saved terrain connection did not finish".to_string())?
+}
+
 fn decode_epoch(value: JsValue) -> Result<u64, String> {
     if value.is_undefined() {
         return Ok(0);
@@ -706,6 +794,7 @@ pub fn clear_and_reload() {
         state.acknowledgement = None;
         state.read_busy = false;
         state.read_result = None;
+        state.read_started_ms = None;
     });
     let message = web_sys::window()
         .and_then(|w| w.document())

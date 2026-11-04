@@ -366,6 +366,7 @@ mod web {
         zoom: Res<crate::view::Zoom>,
         touch: Res<TouchControls>,
         window: Single<&Window>,
+        time: Res<Time<Virtual>>,
     ) {
         if !super::take_asked() {
             return;
@@ -411,7 +412,28 @@ mod web {
             ("Frame rate".into(), format!("{fps:.0} a second")),
             ("Settings".into(), settings.describe()),
             ("Zoomed out".into(), format!("{:.2}", zoom.out)),
+            (
+                "Clock".into(),
+                format!(
+                    "paused={} delta={:.4}s",
+                    time.is_paused(),
+                    time.delta_secs()
+                ),
+            ),
+            (
+                "Cellular storage".into(),
+                crate::cell_save::browser::paging_diagnostics(),
+            ),
         ];
+        if let Some(warning) = crate::cell_save::browser::autosave_warning() {
+            facts.push(("Storage warning".into(), warning));
+        }
+        if let Some(cache) = canvas
+            .as_ref()
+            .and_then(|c| c.get_attribute("data-cell-cache"))
+        {
+            facts.push(("Resident terrain:memory pages".into(), cache));
+        }
         if let Some(crab) = sim.crab(me.0) {
             facts.push((
                 "Crab".into(),
