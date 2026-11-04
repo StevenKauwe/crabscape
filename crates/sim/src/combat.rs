@@ -324,7 +324,7 @@ pub struct Fighter {
     /// Venom in it: ticks left of each dose (they stack).
     pub venom: Vec<u32>,
     /// Walking legs it has dropped to get free of a hold (autotomy); they
-    /// grow back at the next moult, which in the game is waking after death.
+    /// grow back when a growth moult completes (also on waking after death).
     pub legs_lost: u32,
     /// Ticks dodge has been held since a press while held (held long enough,
     /// a leg drops).
