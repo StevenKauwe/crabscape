@@ -1,11 +1,28 @@
 //! Runtime-only bounded coordinate knowledge and asynchronous read tickets.
 //! Cache eviction never changes durable records.
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 pub const RESIDENT_PAGE_LIMIT: usize = 256;
 pub type Coordinate = (i32, i32);
+/// Retain demand reads across the four-tick material cadence. Speculation
+/// must not immediately evict a falling grain's next offscreen page.
+#[derive(Clone, Default)]
+struct Recent {
+    operation: u64,
+    used: BTreeMap<Coordinate, u64>,
+}
+impl Recent {
+    fn touch(&mut self, key: Coordinate) {
+        self.used.insert(key, self.operation);
+    }
+    fn advance(&mut self) {
+        self.operation = self.operation.wrapping_add(1);
+        self.used
+            .retain(|_, at| self.operation.wrapping_sub(*at) <= 8);
+    }
+}
 #[derive(Clone)]
 pub struct PageTicket {
     pub coordinate: Coordinate,
@@ -18,6 +35,7 @@ pub(crate) struct PageCache {
     pub known: BTreeSet<Coordinate>,
     requests: Arc<Mutex<BTreeSet<Coordinate>>>,
     urgent: Arc<Mutex<BTreeSet<Coordinate>>>,
+    recent: Arc<Mutex<Recent>>,
     pub protected: BTreeSet<Coordinate>,
     lookahead: BTreeSet<Coordinate>,
     pub pinned: BTreeSet<Coordinate>,
@@ -33,7 +51,11 @@ impl PageCache {
         };
     }
     pub fn require(&self, key: Coordinate) -> bool {
-        if !self.enabled || self.known.contains(&key) {
+        if !self.enabled {
+            return true;
+        }
+        if self.known.contains(&key) {
+            self.recent.lock().expect("page access lock").touch(key);
             return true;
         }
         self.requests.lock().expect("page request lock").insert(key);
@@ -44,6 +66,7 @@ impl PageCache {
         false
     }
     pub fn begin_interest(&mut self) {
+        self.recent.lock().expect("page access lock").advance();
         self.protected.clear();
         self.lookahead.clear();
     }
@@ -71,12 +94,16 @@ impl PageCache {
         // speculative page. Speculation cannot evict another page in the
         // same lookahead ring, or unreadable slots would cycle every frame.
         let needed = !urgent.is_empty();
+        let recent = self.recent.lock().expect("page access lock");
         let free = RESIDENT_PAGE_LIMIT.saturating_sub(self.known.len());
         let replaceable = || {
             self.known
                 .iter()
                 .filter(|key| {
-                    !self.reserved(key) && !dirty(key) && (needed || !self.lookahead.contains(key))
+                    !self.reserved(key)
+                        && !dirty(key)
+                        && (needed
+                            || (!self.lookahead.contains(key) && !recent.used.contains_key(key)))
                 })
                 .take(limit.saturating_sub(free))
                 .count()
@@ -119,10 +146,15 @@ impl PageCache {
             .lock()
             .expect("page request lock")
             .remove(&key);
-        self.urgent
+        let needed = self
+            .urgent
             .lock()
             .expect("urgent page request lock")
-            .remove(&key)
+            .remove(&key);
+        if needed {
+            self.recent.lock().expect("page access lock").touch(key);
+        }
+        needed
     }
     /// Evict knowledge only when its owner confirms the page is clean. Empty
     /// durable lookups consume cache slots too, so an unseen walk stays bounded.
@@ -131,22 +163,25 @@ impl PageCache {
             return Vec::new();
         }
         let evictable = |key: &&Coordinate| !dirty.contains(key) && !self.reserved(key);
-        let candidates: Vec<_> = self
-            .known
-            .iter()
-            .filter(evictable)
-            .filter(|key| !self.lookahead.contains(key))
-            .chain(
+        let mut recent = self.recent.lock().expect("page access lock");
+        let used_pages = &recent.used;
+        let lookahead = &self.lookahead;
+        let candidates: Vec<_> = [(false, false), (false, true), (true, false), (true, true)]
+            .into_iter()
+            .flat_map(|(used, ahead)| {
                 self.known
                     .iter()
                     .filter(evictable)
-                    .filter(|key| self.lookahead.contains(key)),
-            )
-            .copied()
+                    .filter(move |key| {
+                        used_pages.contains_key(key) == used && lookahead.contains(key) == ahead
+                    })
+                    .copied()
+            })
             .take(self.known.len() - limit)
             .collect();
         for key in &candidates {
             self.known.remove(key);
+            recent.used.remove(key);
         }
         if !candidates.is_empty() {
             self.revision = self.revision.wrapping_add(1);
@@ -158,6 +193,55 @@ impl PageCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speculative_ring_does_not_repeatedly_evict_an_offscreen_material_page() {
+        let mut cache = PageCache::default();
+        cache.enable((0..256).map(|x| (x, 0)));
+        let falling = (0, 0);
+        for tick in 0..120 {
+            cache.begin_interest();
+            for x in 1..=256 {
+                cache.prefetch((x, 0));
+            }
+            // Material consults this page only once per four simulation ticks.
+            if tick % 4 == 0 {
+                assert!(cache.require(falling), "repeated cold read at tick {tick}");
+            }
+            assert!(cache.requests(12, |_| false).is_empty());
+            assert_eq!(cache.known.len(), RESIDENT_PAGE_LIMIT);
+        }
+        // A genuine new demand can still displace speculative knowledge.
+        let needed = (300, 0);
+        assert!(!cache.require(needed));
+        let tickets = cache.requests(12, |_| false);
+        assert_eq!(tickets.len(), 1);
+        assert_eq!(tickets[0].coordinate, needed);
+        let evicted = cache.evict(255, &BTreeSet::new());
+        assert_eq!(evicted.len(), 1);
+        assert_ne!(evicted[0], falling);
+        cache.loaded(needed);
+        assert!(cache.require(falling));
+        assert_eq!(cache.known.len(), RESIDENT_PAGE_LIMIT);
+    }
+
+    #[test]
+    fn demand_priority_expires_without_pinning_old_routes_or_dirty_pages() {
+        let mut cache = PageCache::default();
+        cache.enable((0..256).map(|x| (x, 0)));
+        assert!(cache.require((0, 0)));
+        for _ in 0..9 {
+            cache.begin_interest();
+        }
+        for x in 1..=256 {
+            cache.prefetch((x, 0));
+        }
+        assert_eq!(cache.requests(12, |_| false).len(), 1);
+        let dirty = BTreeSet::from([(0, 0)]);
+        assert!(cache.requests(12, |key| dirty.contains(key)).is_empty());
+        assert_eq!(cache.evict(255, &BTreeSet::new()), vec![(0, 0)]);
+        assert!(cache.recent.lock().unwrap().used.is_empty());
+    }
 
     #[test]
     fn speculative_pages_cannot_cycle_a_full_cache_or_block_a_required_read() {

@@ -46,7 +46,7 @@ fn save_on_request(
     // Capture the diagnostic hash here, after simulation, so a simultaneous
     // replay request sees exactly the same immutable snapshot.
     #[cfg(target_arch = "wasm32")]
-    page::hash_if_requested(&sim);
+    page::hash_if_requested(&sim, time.delta_secs());
     poll.elapsed += time.delta_secs();
     let requested = if poll.elapsed >= 0.25 {
         poll.elapsed = 0.0;
@@ -135,10 +135,18 @@ mod page {
 /// (`web/index.html`) shows the replay in a box to copy.
 #[cfg(target_arch = "wasm32")]
 mod page {
-    pub fn hash_if_requested(sim: &crabsim::Sim) {
+    pub fn hash_if_requested(sim: &crabsim::Sim, real_delta: f32) {
         let Some(canvas) = canvas() else {
             return;
         };
+        // Opt-in tick telemetry avoids hashing the whole world just to
+        // distinguish slow simulation from slow rendering during profiling.
+        if canvas.has_attribute("data-cell-performance-probe") {
+            let _ = canvas.set_attribute(
+                "data-cell-performance",
+                &format!("{}:{real_delta:.6}", sim.tick_count()),
+            );
+        }
         if canvas.has_attribute("data-want-cell-hash") {
             let _ = canvas.remove_attribute("data-want-cell-hash");
             let _ = canvas.set_attribute(

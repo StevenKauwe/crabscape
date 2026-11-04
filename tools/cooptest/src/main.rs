@@ -593,6 +593,57 @@ fn meet(site: &Site, host: &mut Player, guest: &mut Player, setup: f64) -> Resul
 /// What a scenario found: a line for each promise it checked, with the time it took.
 type Found = Vec<String>;
 
+/// A network/paging pause is not evidence of a physical route obstacle.
+struct RouteProgress {
+    x: f64,
+    since: u64,
+    last: u64,
+}
+impl RouteProgress {
+    fn new(x: f64, tick: u64) -> Self {
+        Self {
+            x,
+            since: tick,
+            last: tick,
+        }
+    }
+    fn stalled(&mut self, x: f64, tick: u64) -> bool {
+        if x > self.x + 8.0 || tick < self.last {
+            *self = Self::new(x, tick);
+            return false;
+        }
+        let advanced = tick > self.last;
+        self.last = tick;
+        advanced && tick.saturating_sub(self.since) >= 360
+    }
+}
+
+fn route_tick(p: &mut Player) -> Result<u64> {
+    p.b.attr("data-cell-session-tick")
+        .and_then(|v| v.parse().ok())
+        .ok_or("missing regional route tick".into())
+}
+
+fn route_should_paddle(height: f64, stalled: bool) -> bool {
+    height <= 450.0 && (height < 200.0 || stalled)
+}
+
+#[test]
+fn route_obstacles_require_simulated_motion_and_respect_altitude() {
+    let mut progress = RouteProgress::new(1944.0, 1858);
+    // The failing CI trace repeats this exact tick while a region waits.
+    for _ in 0..100 {
+        assert!(!progress.stalled(1944.0, 1858));
+    }
+    assert!(!progress.stalled(1944.0, 1859));
+    assert!(progress.stalled(1944.0, 2218));
+    assert!(route_should_paddle(300.0, true));
+    assert!(!route_should_paddle(3068.7, true));
+    assert!(!progress.stalled(1953.0, 2219));
+    assert!(!progress.stalled(1953.0, 17));
+    assert!(!progress.stalled(1953.0, 18));
+}
+
 fn region_status(p: &mut Player) -> String {
     [
         "data-cell-region-state",
@@ -1405,17 +1456,16 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             // whole shell before diving for the lower, diggable ground.
             let descent_x = 2300.0;
             let route_started = Instant::now();
-            let mut route_progress = (local_position(&mut guest)?.0, Instant::now());
+            let mut route_progress =
+                RouteProgress::new(local_position(&mut guest)?.0, route_tick(&mut guest)?);
             while route_started.elapsed().as_secs() < 180 {
                 // Swim over the shelf without repeatedly accelerating upward
                 // through thousands of pixels while a slow runner catches up.
                 let (x, height) = local_position(&mut guest)?;
-                if x > route_progress.0 + 8.0 {
-                    route_progress = (x, Instant::now());
-                }
                 // A shelf or kelp grip can stop horizontal travel inside the
                 // altitude band. Swim up around it using ordinary controls.
-                let stalled = route_progress.1.elapsed().as_secs() >= 3;
+                let tick = route_tick(&mut guest)?;
+                let stalled = route_progress.stalled(x, tick);
                 if stalled && (1890.0..1940.0).contains(&x) && height < 200.0 {
                     // The first block has no shell-height gap underneath.
                     // Back up onto the approach, plant the legs, and launch
@@ -1433,13 +1483,14 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     guest.b.set_key("ArrowDown", false)?;
                     guest.b.set_key("KeyD", true)?;
                     guest.b.hold_key("KeyW", 0.9)?;
-                    route_progress = (local_position(&mut guest)?.0, Instant::now());
-                } else if height < 200.0 || stalled {
+                    route_progress =
+                        RouteProgress::new(local_position(&mut guest)?.0, route_tick(&mut guest)?);
+                } else if route_should_paddle(height, stalled) {
                     if stalled {
                         eprintln!(
                             "cells-regions swimming around route obstacle at {x:.1},{height:.1}"
                         );
-                        route_progress = (x, Instant::now());
+                        route_progress = RouteProgress::new(x, tick);
                     }
                     guest.b.hold_key("KeyW", 0.9)?;
                 } else if height > 450.0 {
