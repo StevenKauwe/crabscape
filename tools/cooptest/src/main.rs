@@ -451,7 +451,8 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
         }
         if since.unwrap_or(now) > secs {
             let why = format!(
-                "not together and staying together within {secs} s: {}",
+                "not together and staying together within {secs} s (last observation sweep {now:.3}–{:.3} s): {}",
+                t.elapsed().as_secs_f64(),
                 says.join(", ")
             );
             let mut why = Some(why);
@@ -2461,7 +2462,12 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 let t = together(&mut [&mut host, &mut guest], limit::INTRODUCER_BACK)?;
                 let mut other = Player::new(site, "guest2", o)?;
                 other.open(&site.url(&format!("join={code}")))?;
-                let joined = together(&mut [&mut host, &mut guest, &mut other], limit::MEET)?;
+                // The documented introducer-restart promise includes the new friend:
+                // both recovery stages use its 15 s budget; ordinary joins stay at 10 s.
+                let joined = together(
+                    &mut [&mut host, &mut guest, &mut other],
+                    limit::INTRODUCER_BACK,
+                )?;
                 found.push(format!(
                     "original pair together at {t:.1} s, new friend joined both in {joined:.1} s"
                 ));
