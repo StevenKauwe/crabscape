@@ -110,3 +110,12 @@ The focused cellular scenarios additionally prove normal/max safe lower return,
 guarded bell approach drawing the actual local hunter upward, bounded expiry,
 nearest/range/obstruction behavior, serialized continuation and guest-hit/host
 investigation with defender-owned sting effects.
+
+## The canyon jelly (2026-11-04)
+
+A second jelly hangs at the canyon's first drift spot (7520, -6500), in the deep still water by the far wall, below the
+fifth egg's cave. The canyon reaches toward the twilight, which fits *Atolla*'s midwater habitat only loosely (MBARI
+gives 500-5,000 m; this map is compressed). A crab sinking home from the cave with its claws down meets the trailing
+tentacle (one sting in the tested descent); with claws up it takes none; the flood still carries a crab up to the egg
+past it. No hunter lives in the canyon, so its alarm draws nothing there yet: the blue pinwheel is only a warning
+light. Appended to the foes list, so it appears in fresh populated worlds; saved rosters are kept.
