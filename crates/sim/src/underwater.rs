@@ -226,6 +226,47 @@ pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> C
 }
 
 fn terrain_at_height(level: &crate::Level, wx: f32, cell_y: i32, floor: f32) -> Cell {
+    terrain_with_rocks(wx, cell_y, floor, |wy| {
+        level
+            .rocks
+            .iter()
+            .any(|r| r.contains(bevy_math::Vec2::new(wx, wy)))
+    })
+}
+
+/// Sample authored rock membership once per column, not once per cell.
+/// This is transient generation work; saved cells always take precedence.
+struct TerrainColumn {
+    wx: f32,
+    floor: f32,
+    rock_spans: Vec<(f32, f32)>,
+}
+
+impl TerrainColumn {
+    fn new(level: &crate::Level, gx: i32) -> Self {
+        let wx = (gx as f32 + 0.5) * GAME_CELL;
+        Self {
+            wx,
+            floor: level.floor_height(wx),
+            rock_spans: level
+                .rocks
+                .iter()
+                .filter(|r| wx >= r.min.x && wx <= r.max.x)
+                .map(|r| (r.min.y, r.max.y))
+                .collect(),
+        }
+    }
+
+    fn cell(&self, gy: i32) -> Cell {
+        terrain_with_rocks(self.wx, gy, self.floor, |wy| {
+            self.rock_spans
+                .iter()
+                .any(|&(bottom, top)| wy >= bottom && wy <= top)
+        })
+    }
+}
+
+fn terrain_with_rocks(wx: f32, cell_y: i32, floor: f32, rock_at: impl FnOnce(f32) -> bool) -> Cell {
     let wy = GAME_BOTTOM + (cell_y as f32 + 0.5) * GAME_CELL;
     // An authored shelf at the Canyon Drift Run. New pages start with this
     // rock; saved, edited pages remain authoritative on every later load.
@@ -252,12 +293,7 @@ fn terrain_at_height(level: &crate::Level, wx: f32, cell_y: i32, floor: f32) -> 
     } else {
         100.0
     };
-    if wy < floor - sediment_depth
-        || level
-            .rocks
-            .iter()
-            .any(|r| r.contains(bevy_math::Vec2::new(wx, wy)))
-    {
+    if wy < floor - sediment_depth || rock_at(wy) {
         Cell::Rock
     } else if wy < floor {
         // The far basin is a sandy shelf; the trench and canyon retain finer mud.
@@ -286,9 +322,12 @@ fn initial_grain(cell_x: i32, cell_y: i32) -> u8 {
 pub fn initial_terrain_chunk(level: &crate::Level, id: TerrainChunkId) -> Vec<Cell> {
     let (x, y) = id.origin_cell();
     let mut cells = Vec::with_capacity((TERRAIN_CHUNK_CELLS * TERRAIN_CHUNK_CELLS) as usize);
+    let columns: Vec<_> = (0..TERRAIN_CHUNK_CELLS)
+        .map(|dx| TerrainColumn::new(level, x + dx))
+        .collect();
     for dy in 0..TERRAIN_CHUNK_CELLS {
-        for dx in 0..TERRAIN_CHUNK_CELLS {
-            cells.push(initial_terrain_cell(level, x + dx, y + dy));
+        for column in &columns {
+            cells.push(column.cell(y + dy));
         }
     }
     cells
@@ -1257,10 +1296,7 @@ impl World {
         // An entirely archived strip needs no authored samples.
         let floors = std::cell::LazyCell::new(|| {
             (0..width)
-                .map(|col| {
-                    let wx = ((next_origin.0 + col as i32) as f32 + 0.5) * GAME_CELL;
-                    (wx, level.floor_height(wx))
-                })
+                .map(|col| TerrainColumn::new(level, next_origin.0 + col as i32))
                 .collect::<Vec<_>>()
         });
         let mut touched = Vec::new();
@@ -1291,8 +1327,7 @@ impl World {
                         grain[i] = saved.grain;
                         owner[i] = saved.owner;
                     } else {
-                        let (wx, floor) = floors[(x - next_origin.0) as usize];
-                        cells[i] = terrain_at_height(level, wx, y, floor);
+                        cells[i] = floors[(x - next_origin.0) as usize].cell(y);
                         grain[i] = initial_grain(x, y);
                         if cells[i] == Cell::Water {
                             flow[i] = ambient;
@@ -4548,6 +4583,53 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn column_generation_matches_original_material_at_every_authored_rock_edge() {
+        let level = crate::Level::test_level();
+        let mut xs: Vec<i32> = (0..=4400).step_by(17).collect();
+        for rock in &level.rocks {
+            for edge in [rock.min.x, rock.max.x] {
+                let gx = (edge / GAME_CELL).floor() as i32;
+                xs.extend([gx - 1, gx, gx + 1]);
+            }
+        }
+        for gx in xs {
+            let column = TerrainColumn::new(&level, gx);
+            let floor_y = ((column.floor - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+            for gy in floor_y - 80..=floor_y + 200 {
+                assert_eq!(
+                    column.cell(gy),
+                    initial_terrain_cell(&level, gx, gy),
+                    "{gx},{gy}"
+                );
+            }
+            for rock in &level.rocks {
+                for edge in [rock.min.y, rock.max.y] {
+                    let gy = ((edge - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+                    for gy in gy - 1..=gy + 1 {
+                        assert_eq!(column.cell(gy), initial_terrain_cell(&level, gx, gy));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn distant_authored_rocks_do_not_grow_per_cell_column_work() {
+        let mut level = crate::Level::test_level();
+        let before = TerrainColumn::new(&level, 490);
+        let distant = *level.rocks.iter().find(|r| r.min.x > 8800.0).unwrap();
+        level.rocks.extend(std::iter::repeat_n(distant, 1000));
+        let after = TerrainColumn::new(&level, 490);
+        assert_eq!(before.rock_spans, after.rock_spans);
+        for gy in -300..600 {
+            assert_eq!(before.cell(gy), after.cell(gy));
+        }
+        // The inner cell sampler owns only this local list, so world growth
+        // cannot reintroduce a full authored-rock scan for every entering cell.
+        assert!(after.rock_spans.len() < 4);
+    }
 
     #[test]
     fn terrain_display_upload_preserves_grain_identity_and_texture_orientation() {
