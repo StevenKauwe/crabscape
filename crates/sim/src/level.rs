@@ -16,6 +16,7 @@ use bevy_math::{Rect, Vec2};
 use crate::enemy::Kind;
 use crate::tuning::TideTuning;
 
+pub mod bands;
 mod circulation;
 pub(crate) mod coral_rise;
 mod exploration;
@@ -232,6 +233,11 @@ pub struct Level {
 }
 
 impl Level {
+    /// The authored bed at this depth, shared by all players.
+    pub fn band_at(&self, pos: Vec2) -> &bands::Band {
+        bands::band_at(pos)
+    }
+
     /// Vertical component, retained for scent and legacy scalar queries.
     pub fn water_at(&self, pos: Vec2, tide: &TideTuning) -> f32 {
         self.water_velocity(pos, tide).y

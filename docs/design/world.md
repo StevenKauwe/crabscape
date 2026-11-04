@@ -404,3 +404,33 @@ the equivalence test checks floor bands and all authored rectangle edges.
 The sampler optimization above intentionally preserved the original initial
 materials. The subsequent [settled initial terrain](settled-terrain.md) work uses
 an offline global material bake, with saved cells retaining precedence.
+
+## Bands
+
+`Level::bands()` exposes immutable sim data in descending world y. `band_at` uses
+only depth, with each border belonging to the deeper bed. The trench floor is
+-260, the pit lip -700, the crack mouth -560 and its doorstep -1500, and the canyon
+shelf -3400. Twilight begins at the pit lip so it covers the entire descent to the
+shelf, including the crack. Deep starts at -9500, below the canyon floor at -9400,
+reserved for W1.3. The first and last beds extend without limit.
+
+| Name | World y range | Ambient light | Lantern reach factor | Sound activity | Grain hint | Smell | Intended residents |
+|---|---|---|---|---|---|---|---|
+| Shallows | y > -260 | 1.00 | 1.00 | 1.00 | Silt | Weed | Snapping shrimp, clams |
+| Basin and mudbanks | -700 < y ≤ -260 | 0.45 | 0.95 | 0.70 | Silt over clay | Clay | Mantis, moray |
+| Canyon walls / twilight | -3400 < y ≤ -700 | 0.12 | 0.82 | 0.40 | Clay | Clay | Lanternfish, octopus, alarm jelly |
+| Canyon floor / midnight | -9500 < y ≤ -3400 | 0.03 | 0.65 | 0.12 | Pebbles | Sulfur | Whale-fall scavengers, sixgill |
+| Deep | y ≤ -9500 | 0.00 | 0.55 | 0.04 | Crust | Metallic | Seep life, guardians |
+
+Smells, grain hints and resident ranges are design choices, biology not verified.
+Resident lists include planned animals and leave placement to their own packages.
+Sound activity is data for W2.2. Grain hints describe future beds without changing
+the settled terrain. The basin's primary grain hint remains silt.
+
+Lantern drawing and memory both multiply their existing culture-dependent reach
+by the bed factor sampled at the crab's eyes. The jar and halo shift from warm to
+blue through sRGB multipliers, with identity tint in the shallows. Smell wisps use
+the observer's bed and follow its reduced lantern reach. Sprite daylight uses the
+ambient-light factor. Terrain retains its existing per-shape daylight curve and
+receives the reduced lantern radius through its existing light uniforms. Opening
+values remain identical. The depth gauge retains its existing long tail.

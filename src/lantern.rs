@@ -21,7 +21,7 @@ use bevy::color::Mix;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 
-use crabsim::Mover;
+use crabsim::{Mover, Sim};
 
 use crate::effects::SoftTextures;
 use crate::memory::{MemoryMaterial, depth_factor};
@@ -92,6 +92,15 @@ const BRIGHTER_PER_CULTURE: f32 = 0.35;
 /// cultures brought home.
 pub fn light_reach(tuning: &ViewTuning, cultures: u32) -> f32 {
     tuning.light_outer * (1.0 + BRIGHTER_PER_CULTURE * cultures as f32)
+}
+
+/// The same band multiplier used by sim perception, applied to drawing's reach.
+pub fn band_light_reach(
+    tuning: &ViewTuning,
+    cultures: u32,
+    band: &crabsim::level::bands::Band,
+) -> f32 {
+    light_reach(tuning, cultures) * band.lantern_reach_factor
 }
 
 /// The current light radius after flicker, shared by the systems below.
@@ -231,6 +240,7 @@ pub fn spawn_lantern(
 /// Living light flickers a little: two slow waves added together. Each
 /// culture the crab has brought home makes it reach further.
 fn flicker(
+    sim: Res<Sim>,
     time: Res<Time>,
     mut flicker: ResMut<Flicker>,
     crabs: Query<&Mover>,
@@ -242,16 +252,17 @@ fn flicker(
     for (glow, mut sprite) in &mut glows {
         let cultures = crabs.get(glow.crab).map_or(0, |m| m.lantern_glow()) as f32;
         let reach = 1.0 + BRIGHTER_PER_CULTURE * cultures;
-        sprite
-            .color
-            .set_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures));
-        sprite.custom_size = Some(Vec2::splat(glow.size * reach));
+        let band = mover_band(&sim, crabs.get(glow.crab).ok());
+        sprite.color = band_colour(WARM, band.lantern_tint)
+            .with_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures));
+        sprite.custom_size = Some(Vec2::splat(glow.size * reach * band.lantern_reach_factor));
     }
 }
 
 /// Each crab's jar shows the cultures grown into its lantern: a speck each,
 /// and a bigger glowing middle.
 fn fill_jars(
+    sim: Res<Sim>,
     movers: Query<&Mover>,
     mut specks: Query<(&JarCulture, &mut Visibility)>,
     mut cores: Query<(&JarCore, &mut Sprite)>,
@@ -265,12 +276,30 @@ fn fill_jars(
         });
     }
     for (core, mut sprite) in &mut cores {
+        let band = mover_band(&sim, movers.get(core.crab).ok());
+        sprite.color = band_colour(CORE, band.lantern_tint);
         let n = cultures(core.crab).min(SPECKS.len() as u32) as f32;
         let size = Some(Vec2::splat(CORE_SIZE * (1.0 + 0.18 * n)));
         if sprite.custom_size != size {
             sprite.custom_size = size;
         }
     }
+}
+
+/// Sample at the crab's eyes, exactly as memory does, including remote drawings.
+fn mover_band<'a>(sim: &'a Sim, mover: Option<&Mover>) -> &'a crabsim::level::bands::Band {
+    let eye = mover.map_or(Vec2::ZERO, |m| m.pos + Vec2::Y * m.height(&sim.tuning));
+    sim.level.band_at(eye)
+}
+
+fn band_colour(colour: Color, tint: [f32; 3]) -> Color {
+    let c = colour.to_srgba();
+    Color::srgba(
+        c.red * tint[0],
+        c.green * tint[1],
+        c.blue * tint[2],
+        c.alpha,
+    )
 }
 
 /// Smooth step from 0 (at `edge0`) to 1 (at `edge1`).
@@ -287,7 +316,8 @@ pub fn light_at(distance: f32, tuning: &ViewTuning, flicker: f32) -> f32 {
 /// Approximate daylight in the vertically compressed demo. The canyon's
 /// rim represents the edge of the twilight zone, even though it is only a
 /// few screens below home. These are art-direction values, not a depth meter
-/// or measured irradiance. Keep the same curve in `memory.wgsl`.
+/// or measured irradiance. Keep the same curve in `memory.wgsl` (the bands'
+/// `ambient_light` describes the same fall-off; it is not applied twice).
 fn daylight(at: Vec2) -> f32 {
     (1.0 - depth_factor(at)).powi(2)
 }
@@ -303,6 +333,7 @@ fn strongest_light(at: Vec2, lights: &[(Vec2, f32)], tuning: &ViewTuning) -> f32
 
 /// Work out every [`Lit`] thing's [`LightBlend`] from all nearby lanterns.
 fn measure_light(
+    sim: Res<Sim>,
     tuning: Res<ViewTuning>,
     flicker: Res<Flicker>,
     lights: Query<(&GlobalTransform, &JarCore), With<LightSource>>,
@@ -315,7 +346,12 @@ fn measure_light(
             let cultures = crabs.get(core.crab).map_or(0, |m| m.lantern_glow());
             (
                 g.translation().truncate(),
-                light_reach(&tuning, cultures) / tuning.light_outer * flicker.0,
+                band_light_reach(
+                    &tuning,
+                    cultures,
+                    mover_band(&sim, crabs.get(core.crab).ok()),
+                ) / tuning.light_outer
+                    * flicker.0,
             )
         })
         .collect();
@@ -334,7 +370,9 @@ fn tint_by_light(mut sprites: Query<(&LightBlend, &LitTint, &mut Sprite)>) {
 }
 
 /// Light the level's own shapes without drawing a coloured haze over them.
+#[allow(clippy::too_many_arguments)] // Bevy system parameters
 fn light_level(
+    sim: Res<Sim>,
     tuning: Res<ViewTuning>,
     flicker: Res<Flicker>,
     lights: Query<(&GlobalTransform, &JarCore), With<LightSource>>,
@@ -352,7 +390,11 @@ fn light_level(
             let cultures = crabs.get(core.crab).map_or(0, |m| m.lantern_glow());
             (
                 l.translation().truncate(),
-                light_reach(&tuning, cultures) * flicker.0,
+                band_light_reach(
+                    &tuning,
+                    cultures,
+                    mover_band(&sim, crabs.get(core.crab).ok()),
+                ) * flicker.0,
             )
         })
         .collect();
@@ -375,6 +417,24 @@ fn light_level(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bands_preserve_opening_light_and_scale_cultured_lanterns() {
+        let tuning = ViewTuning::default();
+        let bands = crabsim::Level::test_level().bands();
+        assert_eq!(band_colour(WARM, bands[0].lantern_tint), WARM);
+        assert_eq!(band_colour(CORE, bands[0].lantern_tint), CORE);
+        for cultures in [0, 1, 4] {
+            for band in bands {
+                assert_eq!(
+                    band_light_reach(&tuning, cultures, band),
+                    light_reach(&tuning, cultures) * band.lantern_reach_factor
+                );
+            }
+        }
+        let deep = band_colour(WARM, bands[3].lantern_tint).to_srgba();
+        assert!(deep.blue > deep.red);
+    }
 
     #[test]
     fn light_falls_off_fast() {
