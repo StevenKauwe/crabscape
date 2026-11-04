@@ -29,11 +29,18 @@ fn a_jelly_hangs_in_the_canyons_still_water_and_stays_there() {
     let mut sim = populated(Vec2::new(160.0, 0.0));
     let home = canyon_jelly(&sim).home;
     let moving = sim.level.currents.iter().chain(&sim.level.upwelling);
-    assert!(!moving.into_iter().any(|c| c.contains(home)), "out of the tide");
+    assert!(
+        !moving.into_iter().any(|c| c.contains(home)),
+        "out of the tide"
+    );
     for _ in 0..120 * 120 {
         sim.tick();
         let e = canyon_jelly(&sim);
-        assert!(e.pos.distance(home) < 200.0, "drifts near its spot: {}", e.pos);
+        assert!(
+            e.pos.distance(home) < 200.0,
+            "drifts near its spot: {}",
+            e.pos
+        );
         assert!(!sim.level.currents.iter().any(|c| c.contains(e.pos)));
     }
 }
@@ -48,22 +55,39 @@ fn sink_from_the_cave(guard: bool) -> (usize, Vec2) {
         sim.set_controls(
             P0,
             Controls {
-                walk: if i < 120 * 2 { -0.5 } else { 0.0 },
+                // Guarding walks at 40%: the same distance out takes longer.
+                walk: if i < if guard { 300 } else { 120 } * 2 {
+                    -0.5
+                } else {
+                    0.0
+                },
                 block_held: guard,
                 ..Default::default()
             },
         );
         let before = sim.crab(P0).unwrap().fighter.venom.len();
         sim.tick();
-        doses += sim.crab(P0).unwrap().fighter.venom.len().saturating_sub(before);
+        doses += sim
+            .crab(P0)
+            .unwrap()
+            .fighter
+            .venom
+            .len()
+            .saturating_sub(before);
     }
     (doses, sim.crab(P0).unwrap().mover.pos)
 }
 
 #[test]
 fn sinking_home_from_the_cave_past_the_jelly_with_claws_up_is_safe() {
+    // Claws down, the tentacle finds it on the way: the jelly is a real
+    // hazard on the descent...
     let (bare, landed) = sink_from_the_cave(false);
-    println!("unguarded: {bare} stings, landed at {landed}");
+    assert!(
+        bare > 0,
+        "the tentacle hangs across the way down ({landed})"
+    );
+    // ...and claws up, the way home is safe.
     let (guarded, landed) = sink_from_the_cave(true);
     assert_eq!(guarded, 0, "claws up block every sting");
     assert!(landed.y < -9000.0, "down on the canyon floor: {landed}");
