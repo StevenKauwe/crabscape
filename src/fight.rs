@@ -264,6 +264,7 @@ fn hint(kind: Kind) -> Option<&'static str> {
 struct EncounterMemory {
     kinds: Vec<Kind>,
     regions: [bool; 3],
+    silt_current: bool,
 }
 
 fn fight_notes(
@@ -304,6 +305,16 @@ fn fight_notes(
     {
         hinted.regions[index] = true;
         instructions.write(hints::ShowHint::Encounter(words));
+    }
+    if !hinted.silt_current
+        && (13200.0..13600.0).contains(&m.pos.x)
+        && m.pos.y < -2800.0
+        && f.dead.is_none()
+    {
+        hinted.silt_current = true;
+        instructions.write(hints::ShowHint::Encounter(
+            "Watch the drifting specks. Jump into rising water.\nCoral on the right climbs past ebb or slack.",
+        ));
     }
     let grabbed = f.grabbed.is_some();
     if grabbed && !*grabbed_before {

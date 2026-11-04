@@ -70,6 +70,12 @@ pub(super) fn extend(level: &mut Level) {
             kind: Growth::Coral,
         });
     }
+    // A short tidal lane rises beside the Silt shelf. Its lower edge is
+    // above even a grown walking crab; jumping in is an optional choice.
+    // The neighbouring coral at 13500 remains outside the reversing flow.
+    level
+        .currents
+        .push(Rect::new(13320.0, -3120.0, 13450.0, -2860.0));
     // Retain haven indices: one beside the cap, one on the gallery ledge.
     // Neither interrupts the continuous lower route east of the cap.
     for (x, y) in [(10255.0, -2200.0), (14280.0, -3740.0)] {

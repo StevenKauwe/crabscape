@@ -96,3 +96,27 @@ unlocking and scale armour remain deferred. See the creature page for the
 opened species sources and the explicitly extrapolated crab encounter.
 The new occupant is authored for fresh worlds; existing saved enemy lists
 are not rewritten to insert it.
+
+
+## Silt Hollow tidal shortcut
+
+A short reversing current beside the eastern end of the Silt shelf offers an
+optional ride from the lower route. At x13320–13450, jump into rising water, then
+move left towards the shelf or right towards the next coral crown. Both sides are
+open exits. The lane begins 130 units above the flat seabed and ends below the
+shelf top; ordinary and maximum-growth crabs can walk underneath throughout the
+tide. Coral at x13500 remains outside the flow and works during ebb or slack.
+Four egg upgrades suffice; no new equipment, food or pickup is required.
+
+Existing marine snow samples the same water velocity as movement, visibly rising
+on flood and falling faster on ebb. The local hint points out that cue and the
+coral alternative. The lane reuses the shared fixed-tick tide and its existing
+one-minute cycle; it adds no saved state, population or resource slots.
+
+[NOAA describes reversing flood/ebb currents and slack water](https://oceanservice.noaa.gov/education/tutorial_currents/02tidal1.html)
+and [how basin shape changes tidal magnitude](https://oceanservice.noaa.gov/education/tutorial_currents/02tidal2.html).
+These are inspiration for a localized flow corridor, not evidence that an
+isolated vertical elevator occurs between these corals. The vertical lane,
+130-unit width, height and accelerated timing are explicit game abstractions
+using the canyon's existing current model. No terrain cells are rewritten;
+persisted terrain remains authoritative.
