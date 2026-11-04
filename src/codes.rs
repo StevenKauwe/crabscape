@@ -44,12 +44,24 @@ struct BoxPanel;
 #[derive(Component)]
 struct BoxText;
 
+/// Optional local presentation only; never sent as a simulation command.
+#[derive(Resource, Default)]
+pub(crate) struct Rave(pub bool);
+
+fn hints() -> String {
+    format!(
+        "{} · rave: idle dance (again: off; only on your screen)",
+        crabsim::codes::hints()
+    )
+}
+
 pub struct CodesPlugin;
 
 impl Plugin for CodesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Typed>()
             .init_resource::<CodeBox>()
+            .init_resource::<Rave>()
             .add_systems(Startup, spawn_box)
             // Straight after Bevy reads the keyboard, before anything else
             // looks at the keys: while the box is open, they only type.
@@ -150,10 +162,12 @@ fn type_code(
 
 /// Each typed code goes to the sim for the local crab; a note says what
 /// happened.
+#[allow(clippy::too_many_arguments)]
 fn use_codes(
     mut commands: Commands,
     mut typed: MessageReader<Typed>,
     mut sim: ResMut<Sim>,
+    mut rave: ResMut<Rave>,
     time: Res<Time>,
     names: Res<crate::names::Names>,
     mut chat: ResMut<crate::chat::Chat>,
@@ -161,6 +175,20 @@ fn use_codes(
 ) {
     let (id, at) = *crab;
     for Typed(text) in typed.read() {
+        if text.trim().eq_ignore_ascii_case("rave") {
+            rave.0 = !rave.0;
+            say(
+                &mut commands,
+                if rave.0 {
+                    "Rave on! Stand still to dance. Type rave again to stop."
+                } else {
+                    "Rave off."
+                },
+                at.translation.truncate() + Vec2::Y * ABOVE,
+                GOLD,
+            );
+            continue;
+        }
         // Words that aren't a code are said to the friends here, if any.
         if Code::parse(text).is_none()
             && !Code::is_level_command(text)
@@ -252,7 +280,7 @@ fn spawn_box(mut commands: Commands) {
                 TextColor(Color::srgba(1.0, 0.9, 0.7, 0.55)),
             ));
             b.spawn((
-                Text::new(crabsim::codes::hints()),
+                Text::new(hints()),
                 TextFont {
                     font_size: FontSize::Px(11.0),
                     ..default()
@@ -287,7 +315,7 @@ pub fn prompt() -> Option<String> {
     web_sys::window()?
         .prompt_with_message(&format!(
             "Enter a code, or say something to your friends\n\n{}",
-            crabsim::codes::hints()
+            hints()
         ))
         .ok()
         .flatten()

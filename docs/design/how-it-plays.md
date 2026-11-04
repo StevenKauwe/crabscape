@@ -204,3 +204,5 @@ replay carries them as `code=hulk`). Power and appearance codes last until reloa
 ## Architecture rule
 Nothing moves the crab directly: input sends a `MoveRequest` message and fixed-step physics (1/120 s) acts on it, so
 co-op can later feed remote players through the same path. Keep it that way.
+
+The optional `rave` code (Enter, or Settings → Enter a code) makes your crab dance while standing still, on your screen only. Movement and combat take over immediately. Enter `rave` again to stop; it also resets on reload.
