@@ -26,6 +26,8 @@ pub mod cleanup;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 #[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) mod read_deadline;
+#[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) mod regional;
 pub mod v2;
 
