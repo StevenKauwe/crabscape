@@ -78,22 +78,21 @@ const BUSY: &str = "t=0 walk=right; t=0.4 jump; t=0.7 jump; t=0.9 release; t=1.6
 
 #[test]
 fn friends_receive_the_crabs_actual_water_orientation() {
-    let mut g = game(Vec2::new(3600.0, -2000.0), FakeLink::steady(0), |_| {});
-    let mut seen = false;
-    play(
-        &mut g,
-        "",
+    for script in [
         "t=0 dig=on walk=right; t=0.3 dig=off walk=stop",
-        ticks(1.0),
-        |g| {
+        "t=0 down=on",
+    ] {
+        let mut g = game(Vec2::new(3600.0, -2000.0), FakeLink::steady(0), |_| {});
+        let mut seen = false;
+        play(&mut g, "", script, ticks(1.0), |g| {
             let remote = &g.host.crab(GUEST).unwrap().mover;
             if remote.water_angle < -0.1 {
                 seen = true;
                 assert!(remote.water_spin.is_finite());
             }
-        },
-    );
-    assert!(seen, "a remote player should see the actual tilted pose");
+        });
+        assert!(seen, "a remote player should see the actual tilted pose");
+    }
 }
 
 #[test]

@@ -271,6 +271,7 @@ struct EncounterMemory {
     regions: [bool; 3],
     silt_current: bool,
     roof_cache: bool,
+    downward_dive: bool,
 }
 
 fn fight_notes(
@@ -287,6 +288,18 @@ fn fight_notes(
     };
     // Geography is visible before an encounter starts. Give each new area
     // one brief orientation hint, using the same phone-safe instruction UI.
+    if !hinted.downward_dive
+        && (3300.0..4300.0).contains(&m.pos.x)
+        && m.pos.y < -800.0
+        && m.vel.y < 0.0
+        && !m.grounded
+        && f.dead.is_none()
+    {
+        hinted.downward_dive = true;
+        instructions.write(hints::ShowHint::Encounter(
+            "Hold down for an edge-on dive.\nOn touch, pull the TURN stick down. JUMP paddles up.",
+        ));
+    }
     let region = if m.pos.x >= 14900.0 {
         Some((
             2,

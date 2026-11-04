@@ -12,6 +12,7 @@
 //! | Jump   | W, Up, K               | A (south button)     | JUMP       |
 //! | Dodge  | Shift, J                | B, right trigger     | DODGE      |
 //! | Dig / turn | Space + direction     | right stick          | DIG / TURN stick |
+//! | Dive down | S / Down | stick / D-pad down | DIG / TURN stick down |
 //! | Smash  | right mouse, E, L       | Y (north button)     | SMASH      |
 //! | Jab    | left mouse, Q, O        | X (west button)      | JAB        |
 //! | Guard  | I, F (tap: parry)       | left bumper/trigger  | GUARD      |
@@ -460,9 +461,7 @@ fn read_input(
     if let Some(stick) = stick.filter(|_| cells_enabled) {
         // While the action stick is engaged, its aim owns the action.
         // Walking in the opposite direction must never cancel or reverse it.
-        walk = if stick.x.abs() > 0.2 { stick.x } else { 0.0 };
-        down = stick.y < -0.35;
-        dig_up = stick.y > 0.35;
+        (walk, down, dig_up) = action_stick_aim(stick);
     }
     let mut controls = Controls {
         eat_held: eat,
@@ -511,6 +510,15 @@ struct DigKnob;
 #[derive(Component)]
 struct DigLabel;
 
+/// The phone action stick and controller right stick share this aim mapping.
+fn action_stick_aim(stick: Vec2) -> (f32, bool, bool) {
+    (
+        if stick.x.abs() > 0.2 { stick.x } else { 0.0 },
+        stick.y < -0.35,
+        stick.y > 0.35,
+    )
+}
+
 fn label_dig_stick(
     sim: Res<crabsim::Sim>,
     local: Query<&PlayerId, With<LocalPlayer>>,
@@ -524,8 +532,19 @@ fn label_dig_stick(
             crab.mover
                 .can_turn_in_water(&sim.level, &sim.tuning, &crab.controls)
         });
+    let down = local
+        .single()
+        .ok()
+        .and_then(|id| sim.crab(*id))
+        .is_some_and(|crab| crab.controls.down && crab.controls.walk.abs() <= 0.1);
     for mut label in &mut labels {
-        let wanted = if can_turn { "TURN" } else { "DIG" };
+        let wanted = if can_turn && down {
+            "DIVE"
+        } else if can_turn {
+            "TURN"
+        } else {
+            "DIG"
+        };
         if label.0 != wanted {
             label.0 = wanted.into();
         }
@@ -756,6 +775,13 @@ mod tests {
             !pad(Vec2::new(0.0, 0.6), &[]).down,
             "up on the stick isn't down"
         );
+    }
+
+    #[test]
+    fn action_stick_down_selects_dive_without_a_manual_side_turn() {
+        assert_eq!(action_stick_aim(Vec2::new(0.1, -1.0)), (0.0, true, false));
+        assert_eq!(action_stick_aim(Vec2::new(0.0, 1.0)), (0.0, false, true));
+        assert_eq!(action_stick_aim(Vec2::new(-1.0, -0.7)), (-1.0, true, false));
     }
 
     #[test]
