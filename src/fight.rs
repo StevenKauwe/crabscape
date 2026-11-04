@@ -285,7 +285,7 @@ fn fight_notes(
     } else if m.pos.x >= 12000.0 {
         Some((
             1,
-            "Silt Hollow\nSheltered clam beds below; coral shelves above.",
+            "Silt Hollow\nCoral crowns lead to a sponge. Clam beds lie below.",
         ))
     } else if m.pos.x >= 8900.0 {
         Some((

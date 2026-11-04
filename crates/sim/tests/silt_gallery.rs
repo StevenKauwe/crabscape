@@ -20,20 +20,7 @@ fn both_mouths_remain_traversable_without_taking_the_optional_culture() {
                 },
             );
             let mut arrived = false;
-            let mut hopped_past_haven = false;
             for _ in 0..2400 {
-                let x = sim.crab(P0).unwrap().mover.pos.x;
-                let hop = walk < 0.0 && x < 14620.0 && !hopped_past_haven;
-                hopped_past_haven |= hop;
-                sim.set_controls(
-                    P0,
-                    Controls {
-                        walk,
-                        jump_pressed: hop,
-                        jump_held: walk < 0.0 && (14450.0..14620.0).contains(&x),
-                        ..Default::default()
-                    },
-                );
                 sim.tick();
 
                 let crab = sim.crab(P0).unwrap();
@@ -237,13 +224,48 @@ fn discovery_is_enclosed_in_rock_with_two_open_mouths() {
 }
 
 #[test]
-fn lowered_haven_can_still_be_entered_and_left() {
+fn raised_haven_can_be_reached_rested_in_and_left() {
     for moults in [0, 100] {
         let level = Level::test_level();
         let haven = *level.crevices.last().unwrap();
-        let mut sim = Sim::with_one_crab(Vec2::new(14610.0, level.floor_height(14610.0)));
+        let mut sim = Sim::with_one_crab(Vec2::new(14170.0, level.floor_height(14170.0)));
         sim.crab_mut(P0).unwrap().mover.moults = moults;
         sim.enable_underwater_cells();
+        for frame in 0..480 {
+            sim.set_controls(
+                P0,
+                Controls {
+                    jump_held: true,
+                    jump_pressed: frame % 60 == 0,
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+            if sim.crab(P0).unwrap().mover.pos.y > -3710.0 {
+                break;
+            }
+        }
+        assert!(sim.crab(P0).unwrap().mover.pos.y > -3710.0);
+        for frame in 0..360 {
+            sim.set_controls(
+                P0,
+                Controls {
+                    walk: 1.0,
+                    jump_held: true,
+                    jump_pressed: frame == 0,
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+            if sim.crab(P0).unwrap().mover.pos.x >= 14410.0 {
+                break;
+            }
+        }
+        assert!(sim.crab(P0).unwrap().mover.pos.x >= 14410.0);
+        sim.set_controls(P0, Controls::default());
+        for _ in 0..180 {
+            sim.tick();
+        }
         sim.set_controls(
             P0,
             Controls {
@@ -259,7 +281,7 @@ fn lowered_haven_can_still_be_entered_and_left() {
         }
         assert!(
             sim.crab(P0).unwrap().mover.tucked_in(),
-            "haven missed at {:?}, den {:?}",
+            "haven missed: {:?}, den {:?}",
             sim.crab(P0).unwrap().mover.pos,
             haven.den
         );
@@ -267,6 +289,11 @@ fn lowered_haven_can_still_be_entered_and_left() {
             sim.crab(P0).unwrap().wakes_at,
             Some(sim.level.crevices.len() - 1)
         );
+        sim.set_controls(P0, Controls::default());
+        for _ in 0..120 {
+            sim.tick();
+        }
+        assert!(sim.crab(P0).unwrap().mover.tucked_in());
         sim.set_controls(
             P0,
             Controls {

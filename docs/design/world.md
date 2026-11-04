@@ -239,6 +239,29 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
 - The tide's column is x 6450–7350, y -9400 to -700 (`Level::currents`): anything drifting in it should move with
   `Level::water_at`.
 
+## Eastern reef routes
+
+Past the canyon rim, Rubble Banks leads down through Silt Hollow and back up toward Coral Rise.
+The seabed remains the continuous route, with clam beds and resident predators. Two rest
+crevices sit off that route: one against the rubble cap, one on the raised gallery ledge.
+From the coral at x11100, an upper branch links coral crowns and three existing shelves to the
+Silt Hollow gallery roof, then rejoins the seabed beside Coral Rise at x14900. The gaps and heights
+vary: climb, kick toward the next crown, paddle if needed, then grip it. Landing on the middle
+shelf offers the existing glass-sponge skeleton for crafting grips at home; passing above it
+leaves the back free for the optional culture inside the gallery. The lower beds trade more
+encounters for food; the upper branch trades climbing and paddle control for a quieter crossing.
+
+Four eggs acquired before the eastern expedition are sufficient in the live-cell simulations,
+including at maximum body size; the route does not require a feat, meal or glass grips. Both
+directions work; stop on the broad upper shelf to refill paddle strokes before the final
+uphill transfers. The gallery mouth returns to the lower seabed, where the crab can simply
+walk back west without accidentally entering a haven. For a deliberate rest, enter a niche
+to the left and leave it to the right. Both haven indices stay unchanged.
+
+These are authored local reef shapes, not measured coral sizes or a claim about species
+co-occurrence. Biology and resource behavior reuse the existing coral and glass-sponge design
+assumptions above; no new biological claim or species is introduced.
+
 ## Zones and economy
 Like RuneScape, rarer resources come from rarer, more dangerous places: depth is wealth.
 
