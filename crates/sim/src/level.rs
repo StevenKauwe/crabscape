@@ -292,8 +292,8 @@ impl Level {
                 Rect::new(4060.0, -5080.0, 4300.0, -5040.0),
                 // Under the ghost net, through the passage floor's sediment:
                 // frame rock, so digging never sneaks under the net (the
-                // scissor claw's gate). Below the floor, so the drawn level
-                // is unchanged.
+                // scissor claw's gate). It sits in the floor, a strip of
+                // bare rock under the net's foot.
                 Rect::new(4300.0, -4520.0, 4340.0, -4380.0),
                 // Above the passage: the rest of the pit's right wall, the
                 // tunnel's roof and the shaft's left side, in one.
