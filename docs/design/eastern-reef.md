@@ -38,3 +38,21 @@ implement reproduction, migrating populations, or wall-clock catch-up.
 
 This is one expanded expedition with existing movement, excavation and
 combat. It is not a claim of five hours of finished content.
+
+## Silt Hollow gallery
+
+One of the exposed discovery shelves is now a roofed gallery in a local
+seabed depression, between x 14,000 and 14,800. Its two recessed mouths and
+sloping floor permit an ordinary walk in either direction. The lantern
+culture retains its existing pickup index, but sits on a raised interior
+shelf behind the entrance lip: walking through below does not take it.
+Existing coral reaches the find without equipment or extra swim strokes.
+The exterior coral provides a return over the roof to the other mouth.
+The nearby rest stop follows the lowered floor; the opening progression
+and the remaining discovery locations keep their identities.
+
+This is a local response to player feedback
+[#304](https://github.com/StevenKauwe/crabscape/issues/304) and
+[#305](https://github.com/StevenKauwe/crabscape/issues/305), asking for finds
+inside wall caves rather than obvious protruding ledges. It does not
+replace every exposed shelf or resolve that feedback across the whole map.
