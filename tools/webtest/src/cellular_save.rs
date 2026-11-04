@@ -177,6 +177,24 @@ impl Test<'_> {
         Ok(())
     }
 
+    // The confirmation expires after four seconds. Do not export and rebuild
+    // the entire world between taps just to ask whether its checkpoint exists.
+    fn cellular_record_exists(&self) -> Result<bool> {
+        let exists = self.eval(
+            r#"await new Promise((resolve, reject) => {
+            const opening = indexedDB.open('crabscape.cells', 1);
+            opening.onerror = () => reject(String(opening.error));
+            opening.onsuccess = () => {
+                const db = opening.result, tx = db.transaction('world', 'readonly');
+                const key = tx.objectStore('world').getKey('active');
+                tx.oncomplete = () => { db.close(); resolve(key.result !== undefined); };
+                tx.onabort = () => { db.close(); reject(String(tx.error)); };
+            };
+        })"#,
+        )?;
+        Ok(exists == Value::Bool(true))
+    }
+
     fn cellular_record(&self) -> Result<Option<Vec<u8>>> {
         let record = self.eval(&format!("await ({})", spatial_fixture::CAPTURE_SCRIPT))?;
         if record.is_null() {
@@ -352,7 +370,7 @@ impl Test<'_> {
             5.0,
         )?;
         self.check(
-            opened && game && armed && self.cellular_record()?.is_some(),
+            opened && game && armed && self.cellular_record_exists()?,
             "one Start over tap keeps the cellular checkpoint",
         );
         self.eval("(window.__cellularResetBefore = true, true)")?;
@@ -363,6 +381,8 @@ impl Test<'_> {
             "confirmed Start over commits deletion and reloads the full game fresh",
         );
         if !reset {
+            let details = self.eval(&format!("(() => {{ const c = {CANVAS}; return {{ samePage: !!window.__cellularResetBefore, settings: c?.getAttribute('data-settings'), save: c?.getAttribute('data-cell-save'), message: document.getElementById('message')?.textContent }}; }})()"))?;
+            println!("     reset failure state: {details}");
             return Ok(());
         }
         let at = self.crab()?;
