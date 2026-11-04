@@ -124,8 +124,13 @@ pub struct Tuning {
     /// it, and when it runs dry they stay tired. Keeps swimming from being
     /// endless.
     pub stamina_reserve: u32,
-    /// Seconds for the reserve to come back by itself from empty to full.
+    /// Seconds for the reserve to come back by itself from empty to full,
+    /// at home's depth. It only comes back while the crab isn't climbing.
     pub reserve_refill_time: f32,
+    /// The deep is colder, and a cold crab recovers more slowly: the reserve
+    /// takes `1 + depth / cold_depth` times as long to come back, `depth`
+    /// being how far below home's floor the crab is (see `ocean-shaped.md`).
+    pub cold_depth: f32,
     /// Top speed of the sprint: holding dodge (on the floor) after the dodge
     /// keeps the crab scuttling fast. Between walking and the dodge burst.
     pub sprint_speed: f32,
@@ -133,8 +138,16 @@ pub struct Tuning {
     pub sprint_cost: f32,
 
     // --- Climbing -------------------------------------------------------
-    /// How fast the crab climbs kelp or coral (walking legs: no stamina).
+    /// How fast the crab climbs kelp or coral, with the walking legs (no
+    /// paddle strokes, but it tires the body: see `climb_cost`).
     pub climb_speed: f32,
+    /// What climbing up costs, in reserve strokes per 1000 units climbed:
+    /// the way home from the deep is a debt paid from the reserve. Climbing
+    /// down and hanging on are free.
+    pub climb_cost: f32,
+    /// With the reserve spent, the crab still climbs, this much slower (a
+    /// share of its climbing speed): never stuck, only slow.
+    pub tired_climb: f32,
     /// How close the crab's middle must be to a stalk to grip it, and how far
     /// either side of it the crab can shuffle while holding on.
     pub climb_reach: f32,
@@ -963,12 +976,21 @@ impl Tuning {
             // A stroke back every 1.7 s: a double jump every few seconds
             // never runs it dry, and a spent reserve is whole in 10 s.
             reserve_refill_time: 10.0,
+            // At the pit's floor (8,700 below home) it takes about twice as
+            // long (a game scale, not a measured rate).
+            cold_depth: 8000.0,
             sprint_speed: 480.0,
             // Less than it comes back by: a full reserve lasts about 15 s
             // of sprinting.
             sprint_cost: 1.0,
 
-            climb_speed: 320.0, // the whole pit in about 25 s
+            climb_speed: 320.0, // the whole pit in about 25 s, rested
+            // The pit's coral and kelp (8,000 up) cost 8 strokes: more than
+            // the 6 a rested crab holds, so the climb home needs a rest on
+            // the way (the shelf), a full larder (well fed: 9) or a firm
+            // grip (gripping dactyls pay half).
+            climb_cost: 1.0,
+            tired_climb: 0.35,
             climb_reach: 48.0,
             climb_shuffle: 110.0, // about half a second from the middle to the edge
             climb_pull_up: 700.0,

@@ -335,6 +335,13 @@ impl Level {
                 Rect::new(640.0, 0.0, 720.0, 100.0),
                 // A high ledge over the plateau: needs the paddle stroke.
                 Rect::new(930.0, 300.0, 1080.0, 330.0),
+                // A sea arch at the plateau's seaward end: a rock pinnacle
+                // standing up to the surface, with the plateau running on
+                // under it. It stops a crab that climbs the shallow kelp
+                // from gliding off the surface over the trench and the
+                // cliff (#449): the gates are passed by swimming, not from
+                // above.
+                Rect::new(1150.0, 430.0, 1250.0, WATER_SURFACE_Y),
                 // A stepping stone inside the trench, to climb back out.
                 Rect::new(1330.0, -260.0, 1430.0, -130.0),
                 // A block and a ledge above it, past the trench.
