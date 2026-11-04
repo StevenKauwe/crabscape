@@ -110,3 +110,8 @@ still crossed the lower boundary. Silt's supported-bed counts were 262/277 and
 Rubble's 379/353; those results are mixed, not evidence of uniformly quieter water.
 The seed supplies real prior history without freezing the bed or resetting moving
 grains to manufacture a zero-motion arrival.
+
+The Canyon Drift starter valve, practice piece and outlet use the aged shelf
+surfaces. Existing saved catcher state remains authoritative. Canyon regressions
+retain physical support, reach, eight-second interception and inventory/ownership
+requirements; crab approach fixtures start in clear water beside the bed.

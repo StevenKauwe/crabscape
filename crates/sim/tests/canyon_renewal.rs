@@ -34,9 +34,12 @@ fn occupied_slots_bound_arrivals_and_reload_does_not_catch_up() {
     let encoded = postcard::to_allocvec(&run).unwrap();
     let mut restored: CanyonRun = postcard::from_bytes(&encoded).unwrap();
     level.tide = -1.0;
+    // Resume one ordinary physics step, never thousands of missed steps.
+    let mut one_step = run.clone();
+    one_step.step(run.last_active_tick.unwrap() + 1, &world, &level, &tuning);
     restored.step(10_000, &world, &level, &tuning);
     assert_eq!(restored.slots.map(|s| s.generation), before);
-    assert_eq!(restored.practice, run.practice);
+    assert_eq!(restored.practice, one_step.practice);
 }
 
 #[test]
@@ -128,7 +131,7 @@ fn loaded_valve_keeps_one_body_while_repositioned_and_bad_state_is_rejected() {
     let lower_from = run.catcher.position + Vec2::new(-55.0, 35.0);
     assert!(!run.lift_catcher(PlayerId(0), 77, lower_from, false, &world));
     assert!(run.lift_catcher(PlayerId(0), 77, lower_from, true, &world));
-    let upper = Vec2::new(6416.0, -3172.0);
+    let upper = Vec2::new(6416.0, -3166.0);
     assert!(run.place_catcher(PlayerId(0), Vec2::new(6350.0, -3150.0), upper, true, &world));
     assert!(
         matches!(run.slots[0].phase, SlotPhase::Caught(b) if b.position == upper + Vec2::new(0.0, 7.0))
@@ -319,10 +322,11 @@ fn solo_crab_can_lift_and_stage_the_basic_valve_on_upper_shelf() {
     let id = PlayerId(0);
     let level = Level::test_level();
     let mut terrain = World::from_level(&level);
-    assert!(terrain.follow_player(&level, 6390.0, -3240.0));
+    assert!(terrain.follow_player(&level, 6360.0, -3240.0));
     let mut sim = Sim::new(Tuning::default(), level);
     assert!(sim.restore_cellular_terrain(terrain, 1));
-    sim.add_crab(id, Vec2::new(6390.0, -3240.0));
+    // Approach from open water beside the aged bank, not inside its sediment.
+    sim.add_crab(id, Vec2::new(6360.0, -3240.0));
     sim.crab_mut(id).unwrap().salvage_identity = 77;
     sim.salvage.as_mut().unwrap().world_id = 40;
     sim.canyon.as_mut().unwrap().world_id = 40;
@@ -331,7 +335,7 @@ fn solo_crab_can_lift_and_stage_the_basic_valve_on_upper_shelf() {
         "crab {:?}",
         sim.crab(id).unwrap().mover.pos
     );
-    let target = Vec2::new(6416.0, -3172.0);
+    let target = Vec2::new(6416.0, -3166.0);
     let mut placed = false;
     for _ in 0..600 {
         sim.set_controls(
@@ -392,10 +396,11 @@ fn natural_dense_arrival_uses_the_lower_basic_valve() {
     let id = PlayerId(0);
     let level = Level::test_level();
     let mut terrain = World::from_level(&level);
-    assert!(terrain.follow_player(&level, 6390.0, -3240.0));
+    assert!(terrain.follow_player(&level, 6360.0, -3240.0));
     let mut sim = Sim::new(Tuning::default(), level);
     assert!(sim.restore_cellular_terrain(terrain, 1));
-    sim.add_crab(id, Vec2::new(6390.0, -3240.0));
+    // Approach from open water beside the aged bank, not inside its sediment.
+    sim.add_crab(id, Vec2::new(6360.0, -3240.0));
     sim.salvage.as_mut().unwrap().world_id = 42;
     sim.canyon.as_mut().unwrap().world_id = 42;
     for _ in 0..300 {
@@ -758,7 +763,7 @@ fn full_inventory_can_send_an_ordinary_piece_out_without_a_reward() {
     let (_, _, world, mut run) = setup();
     let body = DriftBody {
         profile: DriftProfile::Dense,
-        position: Vec2::new(6420.0, -3236.0),
+        position: Vec2::new(6420.0, -3210.0),
         velocity: Vec2::ZERO,
     };
     run.slots[0].generation = 3;
@@ -858,10 +863,11 @@ fn loaded_catcher_stays_available_when_the_shell_is_full() {
     let id = PlayerId(0);
     let level = Level::test_level();
     let mut terrain = World::from_level(&level);
-    assert!(terrain.follow_player(&level, 6390.0, -3240.0));
+    assert!(terrain.follow_player(&level, 6360.0, -3240.0));
     let mut sim = Sim::new(Tuning::default(), level);
     assert!(sim.restore_cellular_terrain(terrain, 1));
-    sim.add_crab(id, Vec2::new(6390.0, -3240.0));
+    // Approach from open water beside the aged bank, not inside its sediment.
+    sim.add_crab(id, Vec2::new(6360.0, -3240.0));
     sim.crab_mut(id).unwrap().salvage_identity = 77;
     sim.salvage.as_mut().unwrap().world_id = 42;
     sim.canyon.as_mut().unwrap().world_id = 42;

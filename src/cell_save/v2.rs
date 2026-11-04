@@ -256,6 +256,11 @@ mod tests {
             (4000.0, -3000.0),
             (8000.0, -5000.0),
             (3000.0, -7000.0),
+            // Aged terrain compresses better; keep this fixture above 8 MiB.
+            (12000.0, -7000.0),
+            (15000.0, -5000.0),
+            (15000.0, -9000.0),
+            (15000.0, -11000.0),
             (8000.0, -9000.0),
         ] {
             assert!(terrain.follow_player(&level, x, y));
