@@ -35,8 +35,9 @@ enum Choice {
 
 const ROWS: [Choice; 12] = [
     Choice::Open,
-    Choice::Lantern,
+    // Pickup stays the first row under Open: the WebKit test taps it there.
     Choice::Pickup,
+    Choice::Lantern,
     Choice::Clams,
     Choice::Grit,
     Choice::Cargo,
