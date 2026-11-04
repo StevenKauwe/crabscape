@@ -63,6 +63,15 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   crusher** (what each does: `how-it-plays.md`). But a crab's body only changes at a moult: growth and shape change
   happen when it sheds its old shell, and a fresh moult is soft ([CQ] in `art/crab/anatomy-notes.md`). The note
   says so ("Climbing level 5! A feat is ready: moult to grow it.") and the skill row reads "Climbing 5: moult" (then "growing" while soft, "feat" once grown).
+  - **Proving moments: a feat is earned, not only ground out.** Long before level 5, one deed of the skill makes
+    its feat ready at once, said with the same gold note and stinger: **Climbing**, one unbroken climb of 5000
+    (up out of the pit, or the canyon's bare rock with glass grips; not the home kelp, which is 4870 to the
+    light): "One long climb without letting go!"; **Swimming**, five paddle strokes in one swim touching nothing
+    (a crab makes about one more stroke a swim than it has eggs, so it takes four of the six eggs, the hidden pit alcove's or the canyon shelf's among them): "A long swim
+    touching nothing!"; **Fighting**, beating a creature with a parry's counter (the counter smash or the crush it
+    clamps into): "Beaten with a counter!". Level 5 still makes it ready the long way. Each proof is the crab's
+    own (`proven`, saved with it, kept through death, carried to friends in its updates). That deeds rather than
+    size and hormones trigger a moult is a game rule, not biology (not verified as a mechanism).
   - **Getting ready:** be **well fed** (a clam eaten at home). The moult uses the meal up. (That a crab builds
     reserves before a moult: not verified.)
   - **Moulting:** tucked into the home shell, well fed, with a feat ready, the crab moults to grow **one** ready

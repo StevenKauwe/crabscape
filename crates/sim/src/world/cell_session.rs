@@ -459,6 +459,7 @@ fn valid_progress(progress: &crate::Progress) -> bool {
         && progress.lantern <= 10_000
         && progress.moults <= 10_000
         && progress.feats.len() <= 128
+        && progress.proven.len() <= 128
         && progress.clinging.len() <= 4096
         && progress.cast_offs.len() <= 4096
         && progress

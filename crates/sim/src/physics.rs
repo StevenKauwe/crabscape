@@ -251,6 +251,17 @@ pub struct Mover {
     pub soft: u32,
     /// The feat the soft new body is growing: its own once it hardens.
     pub growing: Option<Feat>,
+    /// Skills whose proving moment the crab has done: their feat is ready
+    /// without the level (see [`crate::moult`]).
+    #[serde(default)]
+    pub proven: Vec<Skill>,
+    /// The lowest point of the climb it is on now (`None` off a climb): an
+    /// unbroken climb measures from here.
+    #[serde(default)]
+    pub climb_low: Option<f32>,
+    /// Paddle strokes made since it last touched the floor or a climb.
+    #[serde(default)]
+    pub swim_run: u32,
 }
 
 impl Mover {
@@ -305,6 +316,9 @@ impl Mover {
             moults: 0,
             soft: 0,
             growing: None,
+            proven: Vec::new(),
+            climb_low: None,
+            swim_run: 0,
         }
     }
 
@@ -507,6 +521,8 @@ pub struct StepEvents {
     pub delivered: bool,
     /// A skill went up a level: which one.
     pub levelled: Option<Skill>,
+    /// A skill's proving moment, just done: its feat is ready.
+    pub proven: Option<Skill>,
     /// Started a flip (dodge in the water).
     pub flipped: bool,
     /// Found a clue (which one, in [`Level::clues`](crate::Level::clues)).
@@ -615,6 +631,7 @@ impl StepEvents {
         self.rested |= other.rested;
         self.delivered |= other.delivered;
         self.levelled = self.levelled.or(other.levelled);
+        self.proven = self.proven.or(other.proven);
         self.flipped |= other.flipped;
         self.found_clue = self.found_clue.or(other.found_clue);
         self.fitted_scissors |= other.fitted_scissors;
@@ -679,6 +696,7 @@ impl StepEvents {
             (self.rested, "rested"),
             (self.delivered, "delivered"),
             (self.levelled.is_some(), "levelled"),
+            (self.proven.is_some(), "proven"),
             (self.flipped, "flipped"),
             (self.found_clue.is_some(), "found a clue"),
             (self.fitted_scissors, "fitted scissor claws"),
@@ -754,6 +772,14 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
     let c = &effective_controls;
     let mut ev = StepEvents::default();
+    // A climb or a swim is broken by letting go of the climb or touching
+    // the floor.
+    if !m.climbing {
+        m.climb_low = None;
+    }
+    if m.grounded || m.climbing {
+        m.swim_run = 0;
+    }
     let turn = if turning {
         -c.walk.clamp(-1.0, 1.0)
     } else {
@@ -1005,6 +1031,13 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         // Climbing is a skill: it grows with every bit climbed.
         let xp = (m.pos.y - from).abs() * t.climb_xp_per_unit;
         ev.levelled = ev.levelled.or(m.earn(Skill::Climbing, xp, t));
+        // One unbroken climb, high enough, proves the climber.
+        let low = m.climb_low.map_or(from, |l| l.min(from)).min(m.pos.y);
+        m.climb_low = Some(low);
+        m.swim_run = 0;
+        if m.pos.y - low >= t.moult.proving_climb {
+            ev.proven = ev.proven.or(m.prove(Skill::Climbing));
+        }
         // Shuffling stops at the edge of the reach; pushing on steps off.
         if !rock_grip && let Some(g) = level.climb_at(m.pos, grip_reach + 5.0, m.glass_grips) {
             let edge = t.climb_reach - 0.5;
@@ -1114,6 +1147,11 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         ev.levelled = ev
             .levelled
             .or(m.earn(Skill::Swimming, t.swim_xp_per_stroke, t));
+        // A long swim, touching nothing, proves the swimmer (in Hulk mode strokes cost nothing, so it proves at once: a cheat).
+        m.swim_run = m.swim_run.saturating_add(1);
+        if m.swim_run >= t.moult.proving_strokes {
+            ev.proven = ev.proven.or(m.prove(Skill::Swimming));
+        }
     }
     // The legs are ready (or the crab is standing): a press kept for the
     // rhythm that still made no stroke (no strokes left) is let go.

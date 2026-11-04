@@ -2251,6 +2251,7 @@ impl Sim {
                     moults: crab.mover.moults,
                     soft: crab.mover.soft,
                     growing: crab.mover.growing,
+                    proven: std::mem::take(&mut crab.mover.proven),
                     shelter: Shelter::In,
                     tucked: 1.0,
                     ..crate::physics::Mover::new(den)
@@ -2999,9 +3000,14 @@ impl Sim {
                     continue;
                 }
                 let health = e.health_left();
+                let countered = swing.counter;
                 if let Some(took) = e.takes_at(part, &hit, crab.mover.pos.x, t) {
                     let levelled = fought(&mut crab.mover, health - e.health_left(), took, t);
                     crab.events.levelled = crab.events.levelled.or(levelled);
+                    if countered && took.died {
+                        let proven = crab.mover.prove(Skill::Fighting);
+                        crab.events.proven = crab.events.proven.or(proven);
+                    }
                     // Run elsewhere: shown here at once, applied there when
                     // the message arrives.
                     if !runs && let Some(net) = &mut self.net {
@@ -3527,6 +3533,11 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         if let Some(took) = e.takes(&blow, crab.mover.pos.x, t) {
             let levelled = fought(&mut crab.mover, health - e.vitals.health, took, t);
             ev.levelled = ev.levelled.or(levelled);
+            // The crush is a counter's: beating a creature with it proves
+            // the fighter.
+            if took.died {
+                ev.proven = ev.proven.or(crab.mover.prove(Skill::Fighting));
+            }
         }
         f.vitals.hitstop = f.vitals.hitstop.max(t.counter_hitstop_ticks);
         // Straight into the recovery.

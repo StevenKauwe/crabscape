@@ -354,8 +354,14 @@ pub struct Tuning {
 /// moult. Times in ticks.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MoultTuning {
-    /// A skill at this level makes its feat ready.
+    /// A skill at this level makes its feat ready (the long way)...
     pub feat_level: u32,
+    /// ...or one proving moment does it at once (see [`crate::moult`]):
+    /// climbing this high in one unbroken climb...
+    pub proving_climb: f32,
+    /// ...making this many paddle strokes in one swim, touching nothing...
+    pub proving_strokes: u32,
+    /// ...or beating a creature with a parry's counter (no number).
     /// How long a crab stays soft after a moult, out in the open...
     pub soft_ticks: u32,
     /// ...and tucked in, it hardens this many times as fast.
@@ -1476,8 +1482,13 @@ impl Tuning {
             },
             moult: MoultTuning {
                 feat_level: 5,
+                // Up out of the pit (5400 of coral, then its kelp) or the
+                // canyon's bare rock (5980); not the home kelp to the light
+                // (4870), the far shaft (3730) or the crack (910).
+                proving_climb: 5000.0,
+                proving_strokes: 5, // a swim makes about one stroke more than its eggs: four of the six
                 soft_ticks: 90 * 120, // 90 s of play out in the open
-                harden_tucked: 3,     // 30 s resting tucked in
+                harden_tucked: 3,   // 30 s resting tucked in
                 soft_shell: 0.5,
                 soft_claws: 0.6,
                 // A blue crab grows about 20% wider a moult (real), less per

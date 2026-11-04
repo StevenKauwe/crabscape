@@ -18,6 +18,15 @@
 //!   blows, and more room for small things to cling.
 //! - Hardened, the feat is its own.
 //!
+//! A feat is earned, not only ground out: besides the milestone level, one
+//! **proving moment** makes a skill's feat ready at once
+//! ([`Mover::prove`]): an unbroken climb of [`MoultTuning::proving_climb`]
+//! (up out of the pit, say), a swim of [`MoultTuning::proving_strokes`]
+//! strokes touching nothing, or a creature beaten with a parry's counter.
+//! Each is a feat of the skill itself, so doing it is the reason the body
+//! changes next moult (a game rule: what triggers a real crab's moult is
+//! mostly size and hormones, not deeds; not verified as a mechanism).
+//!
 //! The moult goes through the sim like a code ([`crate::codes`]): it changes
 //! only a crab of this device, between two ticks, and a running recording
 //! notes it (`moult=climbing` in a replay). Friends see it through the
@@ -120,6 +129,23 @@ pub fn ready_note(skill: Skill, level: u32) -> String {
     )
 }
 
+/// What the crab did to prove a skill, for the note.
+pub fn proving_deed(skill: Skill) -> &'static str {
+    match skill {
+        Skill::Climbing => "One long climb without letting go",
+        Skill::Swimming => "A long swim touching nothing",
+        Skill::Fighting => "Beaten with a counter",
+    }
+}
+
+/// The note when a proving moment makes a feat ready.
+pub fn proven_note(skill: Skill) -> String {
+    format!(
+        "{}! A feat is ready: moult to grow it.",
+        proving_deed(skill)
+    )
+}
+
 /// The note when the new shell has hardened and the feat is the crab's.
 pub fn hardened_note(feat: Feat) -> String {
     format!("Your new shell has hardened: {}!", feat.name())
@@ -148,7 +174,22 @@ impl Mover {
     /// milestone, and the feat neither grown nor growing?
     pub fn feat_ready(&self, skill: Skill, t: &Tuning) -> bool {
         let feat = Feat::of(skill);
-        self.level(skill, t) >= t.moult.feat_level && !self.has(feat) && self.growing != Some(feat)
+        (self.level(skill, t) >= t.moult.feat_level || self.proven.contains(&skill))
+            && !self.has(feat)
+            && self.growing != Some(feat)
+    }
+
+    /// The crab did `skill`'s proving moment: its feat is ready from now on,
+    /// whatever the level. Returns the skill the first time only.
+    pub fn prove(&mut self, skill: Skill) -> Option<Skill> {
+        if self.proven.contains(&skill) {
+            return None;
+        }
+        self.proven.push(skill);
+        // Already ready by level or grown: nothing new to say.
+        let feat = Feat::of(skill);
+        let news = !self.has(feat) && self.growing != Some(feat);
+        news.then_some(skill)
     }
 
     /// The feats ready to grow, in the skills' order.
