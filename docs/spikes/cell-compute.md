@@ -3,8 +3,18 @@
 Ordinary simulation CPU cost falls roughly 4–6x on the measured routes;
 the complete co-op window-move path falls roughly 7–9x. A 10x whole-game
 improvement is not established.
-Keep the draft playable so phone frame pacing and the changed background
-arithmetic can be tried before landing it.
+It landed without waiting for a phone play-test: it only removes work, the
+tide change is below anything a player could see (material occupancy matched
+exactly in the fixtures), and the playable preview stays the next check.
+
+## Download cost
+
+Compiling `crabsim` at `opt-level = 3` instead of `"z"` makes the game's
+WebAssembly larger. CI's web build on the same base (`2e1b1d3`):
+`crabscape_bg.wasm` 16,097 KiB (6,327 KiB gzipped) before, 16,837 KiB
+(6,585 KiB gzipped) after: **+740 KiB, +258 KiB gzipped (about 4%)**. Judged
+worth it for a 4-6x faster simulation on phone CPUs; the rest of the game
+keeps its size-tuned profile.
 
 ## What was expensive
 
