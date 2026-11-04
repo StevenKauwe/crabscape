@@ -711,7 +711,8 @@ pub struct Sight {
 
 impl Sight {
     pub fn new(eye: Vec2, lantern: u32, t: &MemoryTuning) -> Self {
-        let r = t.sight + t.sight_per_culture * lantern as f32;
+        let r = (t.sight + t.sight_per_culture * lantern as f32)
+            * crate::level::bands::band_at(eye).lantern_reach_factor;
         Self {
             eye,
             radii: Vec2::new(r, r * t.sight_tall),

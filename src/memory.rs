@@ -426,6 +426,17 @@ fn show_sightings(
     }
 }
 
+/// Authored smell colours, not measured chemistry. Weed preserves the opening.
+fn smell_colour(smell: crabsim::level::bands::Smell) -> Color {
+    use crabsim::level::bands::Smell;
+    match smell {
+        Smell::Weed => Color::srgba(0.55, 0.78, 0.78, 0.5),
+        Smell::Clay => Color::srgba(0.72, 0.58, 0.43, 0.5),
+        Smell::Sulfur => Color::srgba(0.78, 0.78, 0.38, 0.5),
+        Smell::Metallic => Color::srgba(0.55, 0.68, 0.9, 0.5),
+    }
+}
+
 /// A direction cue for a distant scent, kept separate for each enemy.
 #[derive(Component)]
 struct ScentWisp(u32);
@@ -439,12 +450,21 @@ fn show_scent_directions(
     time: Res<Time>,
     view_tuning: Res<crate::tuning::ViewTuning>,
     crab: Query<&crabsim::Mover, With<LocalPlayer>>,
-    mut wisps: Query<(Entity, &ScentWisp, &mut Transform, &mut Visibility)>,
+    mut wisps: Query<(
+        Entity,
+        &ScentWisp,
+        &mut Transform,
+        &mut Visibility,
+        &mut Sprite,
+    )>,
 ) {
     let Some(sight) = known.sight else { return };
     let cultures = crab.single().map_or(0, |m| m.lantern_glow());
-    let cue_radius = crate::lantern::light_reach(&view_tuning, cultures) * 0.9;
-    for (entity, wisp, mut at, mut shown) in &mut wisps {
+    let band = sim.level.band_at(sight.eye);
+    let colour = smell_colour(band.smell);
+    let cue_radius = crate::lantern::band_light_reach(&view_tuning, cultures, band) * 0.9;
+    for (entity, wisp, mut at, mut shown, mut sprite) in &mut wisps {
+        sprite.color = colour;
         let Some(enemy) = sim.enemies().iter().find(|e| e.id == wisp.0) else {
             commands.entity(entity).despawn();
             continue;
@@ -471,7 +491,7 @@ fn show_scent_directions(
             ScentWisp(enemy.id),
             Sprite {
                 image: soft.dot.clone(),
-                color: Color::srgba(0.55, 0.78, 0.78, 0.5),
+                color: colour,
                 custom_size: Some(Vec2::new(23.0, 5.0)),
                 ..default()
             },
@@ -484,6 +504,21 @@ fn show_scent_directions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smell_tints_are_distinct_and_preserve_weed() {
+        use crabsim::level::bands::Smell;
+        let smells = [Smell::Weed, Smell::Clay, Smell::Sulfur, Smell::Metallic];
+        assert_eq!(
+            smell_colour(Smell::Weed),
+            Color::srgba(0.55, 0.78, 0.78, 0.5)
+        );
+        for (i, smell) in smells.iter().enumerate() {
+            for other in &smells[i + 1..] {
+                assert_ne!(smell_colour(*smell), smell_colour(*other));
+            }
+        }
+    }
 
     /// How bright a colour is (its three sRGB channels added up).
     fn light(c: Color) -> f32 {
