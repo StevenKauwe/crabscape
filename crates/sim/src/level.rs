@@ -20,6 +20,7 @@ mod circulation;
 pub(crate) mod coral_rise;
 mod exploration;
 mod hub;
+pub mod landmarks;
 
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
@@ -266,6 +267,12 @@ impl Level {
             velocity.y += tide.speed(self.tide);
         }
         velocity
+    }
+
+    /// Every authored place tagged with its fear register (`world-vision-brief.md`).
+    /// Derived from the level's own data on demand: never stored, saved or hashed.
+    pub fn landmarks(&self) -> Vec<landmarks::Landmark> {
+        landmarks::existing_level(self)
     }
 
     /// The level the game uses (for now, the only one).
