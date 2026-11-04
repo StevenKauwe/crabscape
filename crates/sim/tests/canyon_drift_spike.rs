@@ -70,7 +70,7 @@ fn flat_reaches_an_upper_downward_intercept_in_eight_seconds() {
         position: start,
         velocity: Vec2::ZERO,
     };
-    let mut catcher = DriftCatcher::placed(Vec2::new(6416.0, -3172.0));
+    let mut catcher = DriftCatcher::placed(Vec2::new(6416.0, -3166.0));
     let mut valve = crabsim::salvage::Shellwash {
         valve_phase: crabsim::salvage::ValvePhase::Carried(crabsim::PlayerId(0)),
         ..Default::default()
@@ -83,11 +83,21 @@ fn flat_reaches_an_upper_downward_intercept_in_eight_seconds() {
         true
     ));
     assert!(
-        world.game_solid(6400.0, -3183.0, 6432.0, -3176.0),
+        world.game_solid(
+            6400.0,
+            catcher.position.y - 11.0,
+            6432.0,
+            catcher.position.y - 4.0
+        ),
         "catcher requires a real shelf"
     );
     assert!(
-        !world.game_solid(6400.0, -3174.0, 6432.0, -3162.0),
+        !world.game_solid(
+            6400.0,
+            catcher.position.y - 2.0,
+            6432.0,
+            catcher.position.y + 10.0
+        ),
         "mouth must be clear"
     );
     let mut crossing = None;
@@ -113,7 +123,7 @@ fn flat_reaches_an_upper_downward_intercept_in_eight_seconds() {
 fn only_the_body_overlap_at_the_mouth_crossing_counts() {
     let level = Level::test_level();
     let mut world = World::from_level(&level);
-    let at = Vec2::new(6405.0, -3237.0);
+    let at = Vec2::new(6405.0, -3222.0);
     assert!(world.follow_player(&level, at.x, at.y));
     for (start_x, end_x, caught) in [
         (-16.4, -16.2, true),
@@ -143,7 +153,7 @@ fn dense_piece_reaches_a_supported_lower_valve() {
     let mut world = World::from_level(&level);
     let start = Vec2::new(6388.0, -3204.0);
     assert!(world.follow_player(&level, start.x, start.y));
-    let at = Vec2::new(6405.0, -3237.0);
+    let at = Vec2::new(6405.0, -3222.0);
     let mut valve = Shellwash {
         valve_phase: ValvePhase::Carried(PlayerId(0)),
         ..Default::default()
@@ -188,7 +198,7 @@ fn missed_dense_piece_settles_in_the_lower_basin_and_full_catcher_leaves_it_free
         position: start,
         velocity: Vec2::ZERO,
     };
-    let mut full = DriftCatcher::placed(Vec2::new(6405.0, -3237.0));
+    let mut full = DriftCatcher::placed(Vec2::new(6405.0, -3222.0));
     full.contents = Some(0);
     for tick in 0..1200 {
         if tick % 4 == 0 {
@@ -234,8 +244,8 @@ fn wrong_catcher_placement_misses_both_profiles_without_consuming_them() {
         position: Vec2::new(6388.0, -3204.0),
         velocity: Vec2::ZERO,
     };
-    let mut lower = DriftCatcher::placed(Vec2::new(6405.0, -3237.0));
-    let mut upper = DriftCatcher::placed(Vec2::new(6416.0, -3172.0));
+    let mut lower = DriftCatcher::placed(Vec2::new(6405.0, -3222.0));
+    let mut upper = DriftCatcher::placed(Vec2::new(6416.0, -3166.0));
     for tick in 0..960 {
         if tick % 4 == 0 {
             world.step(0.35);

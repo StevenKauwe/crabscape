@@ -206,6 +206,7 @@ impl Owner {
         Some(Stage {
             owner: self,
             level,
+            sampler: underwater::settled_seed::Sampler::new(level),
             target,
             dx,
             dy,
@@ -233,6 +234,7 @@ impl Owner {
 struct Stage<'a> {
     owner: &'a mut Owner,
     level: &'a Level,
+    sampler: underwater::settled_seed::Sampler<'a>,
     target: (i32, i32),
     dx: i32,
     dy: i32,
@@ -296,7 +298,7 @@ impl Stage<'_> {
     fn source_cell(&self, i: usize) -> SleepingCell {
         let w = &self.owner.world;
         let cell = if self.opening && i < WIDTH && w.pebble_owner[i] == 0 {
-            underwater::initial_terrain_cell(self.level, i as i32, 0)
+            self.sampler.cell(i as i32, 0)
         } else {
             w.cells[i]
         };
@@ -361,7 +363,8 @@ impl Stage<'_> {
                         self.pages.get_mut(&key).unwrap().cells[slot]
                             .take()
                             .unwrap_or_else(|| {
-                                let cell = underwater::initial_terrain_cell(self.level, gx, gy);
+                                let baked = self.sampler.grain(gx, gy);
+                                let cell = baked.cell;
                                 let flow = if cell == Cell::Water {
                                     underwater::ambient_current(
                                         GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL,
@@ -373,8 +376,8 @@ impl Stage<'_> {
                                 SleepingCell {
                                     cell,
                                     flow,
-                                    suspended: 0,
-                                    grain: underwater::initial_grain(gx, gy),
+                                    suspended: baked.suspended,
+                                    grain: baked.grain,
                                     owner: 0,
                                 }
                             })

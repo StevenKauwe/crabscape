@@ -721,12 +721,13 @@ impl World {
         }
     }
     fn bottom_mask(&self, bounds: CellRegion, level: &crate::Level) -> Vec<bool> {
+        let sampler = settled_seed::Sampler::new(level);
         (0..bounds.width)
             .map(|x| {
                 let gx = bounds.x + x as i32;
                 let gy = bounds.y - 1;
                 self.archived_cell(gx, gy)
-                    .map_or_else(|| initial_terrain_cell(level, gx, gy), |c| c.cell)
+                    .map_or_else(|| sampler.cell(gx, gy), |c| c.cell)
                     == Cell::Water
             })
             .collect()
@@ -744,6 +745,7 @@ impl World {
         level: &crate::Level,
         seed: bool,
     ) -> Result<(World, Vec<u16>), StoreError> {
+        let sampler = settled_seed::Sampler::new(level);
         let mut kernel = World::new();
         kernel.game = true;
         kernel.tick = self.tick;
@@ -798,7 +800,8 @@ impl World {
                 let gx = bounds.x + x as i32;
                 let gy = bounds.y + y as i32;
                 let value = self.archived_cell(gx, gy).unwrap_or_else(|| {
-                    let cell = initial_terrain_cell(level, gx, gy);
+                    let baked = sampler.grain(gx, gy);
+                    let cell = baked.cell;
                     SleepingCell {
                         cell,
                         flow: if cell == Cell::Water {
@@ -809,8 +812,8 @@ impl World {
                         } else {
                             (0.0, 0.0)
                         },
-                        suspended: 0,
-                        grain: initial_grain(gx, gy),
+                        suspended: baked.suspended,
+                        grain: baked.grain,
                         owner: 0,
                     }
                 });

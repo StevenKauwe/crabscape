@@ -114,10 +114,11 @@ impl CanyonRun {
             has_catcher: true,
             has_practice: true,
             slots: [Slot::default(); 2],
-            catcher: DriftCatcher::placed(Vec2::new(6405.0, -3237.0)),
+            // Start on the aged lower bed, with the mouth clear of sediment.
+            catcher: DriftCatcher::placed(Vec2::new(6405.0, -3222.0)),
             practice: DriftBody {
                 profile: DriftProfile::Dense,
-                position: Vec2::new(6403.0, -3173.0),
+                position: Vec2::new(6403.0, -3167.0),
                 velocity: Vec2::ZERO,
             },
             practice_phase: PracticePhase::Settled,
@@ -851,7 +852,7 @@ impl CanyonRun {
             SlotPhase::Free(body) | SlotPhase::Caught(body) => body,
             _ => return false,
         };
-        let outlet = Vec2::new(6420.0, -3236.0);
+        let outlet = Vec2::new(6420.0, -3220.0);
         if from.distance(body.position) > 75.0 || body.position.distance(outlet) > 14.0 {
             return false;
         }

@@ -27,6 +27,8 @@ bevy_ecs = { version = "0.20.0", default-features = false, features = ["std"], o
 bevy = ["dep:bevy_ecs"]
 # Isolated migration proof only; never enabled by the game.
 cleanup-proof = []
+# Offline world authoring only; never enabled by the game.
+terrain-bake = []
 
 # Property tests (tests/properties.rs): random inputs, shrunk to the smallest failing one. Without the default
 # features that fork processes, so the tests also run as WebAssembly in wasmtime (wasm32-wasip1). Not for the
@@ -36,3 +38,14 @@ proptest = { version = "1.12", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true
+
+[[example]]
+name = "bake_settled_world"
+required-features = ["terrain-bake"]
+
+[build-dependencies]
+sha2 = "0.10.9"
+
+[[example]]
+name = "compact_settled_world"
+required-features = ["terrain-bake"]

@@ -297,7 +297,9 @@ impl Sim {
             return;
         }
         self.level.cells = Some(crate::underwater::World::from_level_settled(&self.level));
-        if let Some(cells) = &mut self.level.cells {
+        if !crate::underwater::settled_seed::available(&self.level)
+            && let Some(cells) = &mut self.level.cells
+        {
             cells.seed_shellwash_site();
             cells.seed_shallow_shortcut();
         }
@@ -1449,7 +1451,17 @@ impl Sim {
             .cells
             .as_ref()
             .and_then(|cells| {
-                cells.game_surface_below(pos.x, half, floor + self.tuning.body_height * 2.0)
+                cells.spawn_surface(
+                    &self.level,
+                    pos.x,
+                    half,
+                    if kind == Kind::Moray {
+                        self.tuning.moray.body.1
+                    } else {
+                        0.0
+                    },
+                    floor + self.tuning.body_height * 2.0,
+                )
             })
             .unwrap_or(floor);
         // Midwater hazards retain their authored depth; benthic occupants
@@ -2675,15 +2687,26 @@ impl Sim {
                     animal_bites.push((e.id, prey.id, e.pos.x, hit));
                 }
             }
-            // The crevice stays on its own seabed while the moray swims.
+            // A clear crevice does not rise with passing grains. It can
+            // follow excavated support downward or rise out of an obstruction.
             if e.kind == Kind::Moray
                 && self.tick.is_multiple_of(4)
                 && let Some(cells) = self.level.cells.as_ref()
-                && let Some(surface) = cells.game_surface_below(
+                && cells.contains_world(e.home.x, e.home.y)
+                && let Some(surface) = cells.spawn_surface(
+                    &self.level,
                     e.home.x,
                     self.tuning.moray.body.0 * 0.5,
+                    self.tuning.moray.body.1,
                     e.home.y + 80.0,
                 )
+                && (surface < e.home.y
+                    || enemy::swimmer_blocked(
+                        &self.level,
+                        e.home,
+                        self.tuning.moray.body.0 * 0.5,
+                        self.tuning.moray.body.1,
+                    ))
             {
                 e.home.y = surface;
             }
