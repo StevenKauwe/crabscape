@@ -26,6 +26,7 @@ static WIPE_FAILED: AtomicBool = AtomicBool::new(false);
 #[derive(Resource, Default)]
 pub struct Storage {
     disabled: bool,
+    player_reset: bool,
     warned: bool,
     write_failed: bool,
     elapsed: f32,
@@ -39,6 +40,10 @@ pub struct Storage {
 }
 
 impl Storage {
+    pub fn player_was_reset(&self) -> bool {
+        self.player_reset
+    }
+
     pub fn activate_paging(&self, sim: &mut Sim, id: PlayerId) {
         if !self.has_baseline {
             return;
@@ -211,13 +216,16 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
         .map(|h| (h.epoch, h.revision));
     match read(path) {
         Ok(None) => None,
-        Ok(Some(saved)) => {
+        Ok(Some(mut saved)) => {
             storage.has_baseline = path.is_dir();
-            if !super::player_fits_world(sim, &saved.player) {
-                storage.disabled = true;
-                warn!("cellular save has incompatible player data; keeping the old file unchanged");
-                return None;
-            }
+            let reset = match super::reset_incompatible_player(sim, &mut saved) {
+                Ok(reset) => reset,
+                Err(error) => {
+                    storage.disabled = true;
+                    warn!("cellular recovery failed: {error}");
+                    return None;
+                }
+            };
             let mut candidate = sim.clone();
             if !super::install_terrain_and_validate(
                 &mut candidate,
@@ -244,6 +252,7 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
                 return None;
             }
             *sim = candidate;
+            storage.player_reset = reset;
             storage.replay = saved.replay;
             Some(saved.player)
         }
@@ -587,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn incompatible_memory_keeps_the_existing_save_and_terrain_untouched() {
+    fn incompatible_memory_resets_crab_and_keeps_world_saveable() {
         let path = path("bad-memory");
         let original = sim();
         let mut memory = crabsim::Memory::new(&original.level, &original.tuning.memory).to_save();
@@ -604,16 +613,33 @@ mod tests {
         super::super::write_atomic(&path, &bytes).unwrap();
         let mut restored = sim();
         let mut storage = Storage::default();
-        assert!(load_path(&mut restored, &mut storage, &path).is_none());
-        assert!(storage.disabled, "autosaving must not replace the original");
-        assert_eq!(restored.tick_count(), 0);
-        assert!(restored.level.cells.is_none());
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let reset = load_path(&mut restored, &mut storage, &path).unwrap();
+        assert!(storage.player_was_reset());
+        assert!(!storage.disabled, "recovered play must autosave");
+        assert!(reset.progress.is_none() && reset.memory.is_none());
+        assert_eq!(restored.tick_count(), 17);
+        assert_eq!(
+            restored.level.cells.as_ref().unwrap().checkpoint(),
+            terrain.checkpoint()
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "loading does not write"
+        );
+        let current =
+            super::super::encode(&reset, restored.level.cells.as_ref().unwrap(), 17).unwrap();
+        super::super::write_atomic(&path, &current).unwrap();
+        let mut next = sim();
+        let mut next_storage = Storage::default();
+        assert_eq!(load_path(&mut next, &mut next_storage, &path), Some(reset));
+        assert!(!next_storage.player_was_reset());
+        assert!(!next_storage.disabled);
         std::fs::remove_file(path).unwrap();
     }
 
     #[test]
-    fn incompatible_progress_keeps_the_existing_save_and_terrain_untouched() {
+    fn incompatible_progress_resets_crab_and_keeps_world_saveable() {
         let path = path("bad-progress");
         let original = sim();
         let mut progress = original.fresh_progress();
@@ -632,16 +658,33 @@ mod tests {
         super::super::write_atomic(&path, &bytes).unwrap();
         let mut restored = sim();
         let mut storage = Storage::default();
-        assert!(load_path(&mut restored, &mut storage, &path).is_none());
-        assert!(storage.disabled, "autosaving must not replace the original");
-        assert_eq!(restored.tick_count(), 0);
-        assert!(restored.level.cells.is_none());
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let reset = load_path(&mut restored, &mut storage, &path).unwrap();
+        assert!(storage.player_was_reset());
+        assert!(!storage.disabled, "recovered play must autosave");
+        assert!(reset.progress.is_none() && reset.memory.is_none());
+        assert_eq!(restored.tick_count(), 17);
+        assert_eq!(
+            restored.level.cells.as_ref().unwrap().checkpoint(),
+            terrain.checkpoint()
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "loading does not write"
+        );
+        let current =
+            super::super::encode(&reset, restored.level.cells.as_ref().unwrap(), 17).unwrap();
+        super::super::write_atomic(&path, &current).unwrap();
+        let mut next = sim();
+        let mut next_storage = Storage::default();
+        assert_eq!(load_path(&mut next, &mut next_storage, &path), Some(reset));
+        assert!(!next_storage.player_was_reset());
+        assert!(!next_storage.disabled);
         std::fs::remove_file(path).unwrap();
     }
 
     #[test]
-    fn malformed_numeric_progress_preserves_the_original_save() {
+    fn malformed_numeric_progress_resets_only_the_crab() {
         let path = path("bad-numeric-progress");
         let original = sim();
         let player = SaveData {
@@ -681,15 +724,24 @@ mod tests {
         super::super::write_atomic(&path, &bytes).unwrap();
         let mut restored = sim();
         let mut storage = Storage::default();
-        assert!(load_path(&mut restored, &mut storage, &path).is_none());
-        assert!(storage.disabled);
-        assert!(restored.level.cells.is_none());
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let reset = load_path(&mut restored, &mut storage, &path).unwrap();
+        assert!(reset.progress.is_none());
+        assert!(storage.player_was_reset());
+        assert!(!storage.disabled);
+        assert_eq!(
+            restored.level.cells.as_ref().unwrap().checkpoint(),
+            terrain.checkpoint()
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "loading does not write"
+        );
         std::fs::remove_file(path).unwrap();
     }
 
     #[test]
-    fn overflowing_v2_upgrades_preserve_the_original_save() {
+    fn overflowing_v2_upgrades_reset_only_the_crab() {
         let path = path("bad-v2-upgrades");
         let original = sim();
         let mut progress = original.fresh_progress();
@@ -709,10 +761,19 @@ mod tests {
         super::super::write_atomic(&path, &bytes).unwrap();
         let mut restored = sim();
         let mut storage = Storage::default();
-        assert!(load_path(&mut restored, &mut storage, &path).is_none());
-        assert!(storage.disabled);
-        assert!(restored.level.cells.is_none());
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let reset = load_path(&mut restored, &mut storage, &path).unwrap();
+        assert!(reset.progress.is_none());
+        assert!(storage.player_was_reset());
+        assert!(!storage.disabled);
+        assert_eq!(
+            restored.level.cells.as_ref().unwrap().checkpoint(),
+            terrain.checkpoint()
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "loading does not write"
+        );
         std::fs::remove_file(path).unwrap();
     }
 

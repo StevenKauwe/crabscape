@@ -62,6 +62,96 @@ struct SavingUnavailableNotice;
 #[derive(Component)]
 struct BrowserSavingNotice;
 
+#[derive(Component)]
+struct PlayerResetNotice;
+
+#[derive(Component, Clone, Copy)]
+enum ResetNoticeAction {
+    Restore,
+    Dismiss,
+}
+
+const PLAYER_RESET_MESSAGE: &str = "Gameplay updated: your crab was reset. Your saved terrain is kept. Restore skill levels with cheats, or keep exploring.";
+
+fn spawn_reset_notice(commands: &mut Commands) {
+    commands.spawn((
+        PlayerResetNotice,
+        crate::input::PointerUi,
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(54.0),
+            left: Val::Percent(5.0),
+            width: Val::Percent(90.0),
+            max_width: Val::Px(520.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(6.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.04, 0.16, 0.20, 0.96)),
+        GlobalZIndex(100),
+    )).with_children(|panel| {
+        panel.spawn((Text::new(PLAYER_RESET_MESSAGE), TextFont { font_size: FontSize::Px(16.0), ..default() }));
+        panel.spawn((Text::new("Example: level swimming 25. Also: climbing and fighting (1–99). Later: Settings → Enter a code."), TextFont { font_size: FontSize::Px(14.0), ..default() }));
+        panel.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|row| {
+            for (action, label) in [(ResetNoticeAction::Restore, "Restore stats"), (ResetNoticeAction::Dismiss, "Keep exploring")] {
+                row.spawn((action, Node { min_height: Val::Px(44.0), padding: UiRect::all(Val::Px(8.0)), align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgb(0.12, 0.31, 0.36))))
+                    .with_child((Text::new(label), TextFont { font_size: FontSize::Px(16.0), ..default() }));
+            }
+        });
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn reset_notice_actions(
+    mut commands: Commands,
+    actions: Query<(&ResetNoticeAction, &ComputedNode, &UiGlobalTransform)>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    touches: Res<Touches>,
+    window: Single<&Window>,
+    notices: Query<Entity, With<PlayerResetNotice>>,
+    mut code_box: ResMut<crate::codes::CodeBox>,
+    mut typed: MessageWriter<crate::codes::Typed>,
+) {
+    if code_box.open || crate::input::page_dialog_open() {
+        return;
+    }
+    let tap = touches
+        .iter_just_pressed()
+        .next()
+        .map(|touch| touch.position())
+        .or_else(|| {
+            mouse
+                .just_pressed(MouseButton::Left)
+                .then(|| window.cursor_position())
+                .flatten()
+        });
+    for (action, node, transform) in &actions {
+        if !tap.is_some_and(|p| node.contains_point(*transform, p * window.scale_factor())) {
+            continue;
+        }
+        match action {
+            ResetNoticeAction::Restore => {
+                #[cfg(target_arch = "wasm32")]
+                if let Some(text) = crate::codes::prompt() {
+                    typed.write(crate::codes::Typed(text));
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    code_box.open = true;
+                }
+            }
+            ResetNoticeAction::Dismiss => {
+                for entity in &notices {
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+    }
+    // Both resources are part of the same cross-platform affordance.
+    let _ = (&mut code_box, &mut typed);
+}
+
 /// "Player `player` wants these controls." Sent every frame by whoever
 /// controls that crab. A *message* is a value that one system writes and
 /// others read later in the same or the next frame.
@@ -126,6 +216,7 @@ impl Plugin for PlayerPlugin {
                 (GameSet::Input, GameSet::Simulate, GameSet::Present).chain(),
             )
             .add_systems(Startup, spawn_local_crab)
+            .add_systems(Update, reset_notice_actions.in_set(GameSet::Input))
             // `chain()` runs these one after another, in this order.
             .add_systems(
                 Update,
@@ -214,12 +305,21 @@ pub fn spawn_local_crab(
     {
         let status = if browser_load_error.is_some() {
             "load-error"
+        } else if crate::cell_save::browser::player_was_reset() {
+            "player-reset"
         } else if saved.is_some() {
             "loaded"
         } else {
             "fresh"
         };
         let _ = canvas.set_attribute("data-cell-save", status);
+    }
+    #[cfg(target_arch = "wasm32")]
+    let player_was_reset = crate::cell_save::browser::player_was_reset();
+    #[cfg(not(target_arch = "wasm32"))]
+    let player_was_reset = cells_storage.player_was_reset();
+    if player_was_reset {
+        spawn_reset_notice(&mut commands);
     }
     let pos = saved_pos.unwrap_or(SPAWN);
     sim.add_crab(me, pos);
@@ -568,6 +668,93 @@ fn place_crabs(
 #[cfg(test)]
 mod cellular_save_tests {
     use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn reset_notice_restores_through_existing_codes_and_dismisses_without_changing_sim() {
+        use bevy::input::touch::{TouchInput, TouchPhase, touch_screen_input_system};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Touches>()
+            .add_message::<TouchInput>()
+            .add_systems(PreUpdate, touch_screen_input_system)
+            .init_resource::<crate::codes::CodeBox>()
+            .add_message::<crate::codes::Typed>()
+            .add_systems(Startup, |mut commands: Commands| {
+                spawn_reset_notice(&mut commands)
+            })
+            .add_systems(Update, reset_notice_actions);
+        let window = app.world_mut().spawn(Window::default()).id();
+        app.update();
+        let actions: Vec<_> = app
+            .world_mut()
+            .query::<(Entity, &ResetNoticeAction)>()
+            .iter(app.world())
+            .map(|(e, a)| (e, *a))
+            .collect();
+        let restore = actions
+            .iter()
+            .find(|(_, a)| matches!(a, ResetNoticeAction::Restore))
+            .unwrap()
+            .0;
+        let dismiss = actions
+            .iter()
+            .find(|(_, a)| matches!(a, ResetNoticeAction::Dismiss))
+            .unwrap()
+            .0;
+        for (entity, _) in &actions {
+            assert_eq!(
+                app.world().get::<Node>(*entity).unwrap().min_height,
+                Val::Px(44.0)
+            );
+        }
+        for (entity, _) in &actions {
+            app.world_mut()
+                .get_mut::<ComputedNode>(*entity)
+                .unwrap()
+                .size = Vec2::new(150.0, 44.0);
+            *app.world_mut()
+                .get_mut::<UiGlobalTransform>(*entity)
+                .unwrap() = UiGlobalTransform::from(bevy::math::Affine2::from_translation(
+                Vec2::new(if *entity == restore { 100.0 } else { 300.0 }, 100.0),
+            ));
+        }
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: Vec2::new(100.0, 100.0),
+            window,
+            force: None,
+            id: 1,
+        });
+        app.update();
+        assert!(app.world().resource::<crate::codes::CodeBox>().open);
+        assert_eq!(
+            app.world_mut()
+                .query::<&PlayerResetNotice>()
+                .iter(app.world())
+                .count(),
+            1
+        );
+        app.world_mut().resource_mut::<crate::codes::CodeBox>().open = false;
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: Vec2::new(300.0, 100.0),
+            window,
+            force: None,
+            id: 2,
+        });
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .query::<&PlayerResetNotice>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+        assert!(app.world().get_entity(restore).is_err());
+        assert!(app.world().get_entity(dismiss).is_err());
+    }
 
     #[test]
     fn cellular_saved_spawn_can_be_under_the_old_fixed_floor() {

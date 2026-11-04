@@ -33,6 +33,7 @@ type LoadedSession = Result<(Option<super::Restored>, u64), String>;
 thread_local! {
     static PRELOADED: RefCell<Option<LoadedSession>> = const { RefCell::new(None) };
     static STARTUP_EPOCH: Cell<Option<u64>> = const { Cell::new(None) };
+    static PLAYER_RESET: Cell<bool> = const { Cell::new(false) };
     static RESETTING: Cell<bool> = const { Cell::new(false) };
     static AUTOSAVE: RefCell<Autosave> = RefCell::new(Autosave::default());
 }
@@ -65,6 +66,10 @@ pub fn configure_autosave(error: Option<&str>) {
         state.warning = error.map(|why| format!("Cellular save could not be loaded: {why}. Your previous save is kept; autosave is off."));
         if !state.enabled && state.warning.is_none() { state.warning = Some("Cellular save session could not be verified. Autosave is off.".into()); }
     });
+}
+
+pub fn player_was_reset() -> bool {
+    PLAYER_RESET.with(Cell::get)
 }
 
 pub fn autosave_warning() -> Option<String> {
@@ -384,7 +389,11 @@ pub fn install_preloaded(
     });
     match loaded {
         Ok(None) => (None, super::ReplayStart::Legacy, None),
-        Ok(Some(saved)) if super::player_fits_world(sim, &saved.player) => {
+        Ok(Some(mut saved)) => {
+            let reset = match super::reset_incompatible_player(sim, &mut saved) {
+                Ok(reset) => reset,
+                Err(error) => return (None, super::ReplayStart::Unavailable, Some(error)),
+            };
             let mut candidate = sim.clone();
             if !super::install_terrain_and_validate(
                 &mut candidate,
@@ -417,17 +426,13 @@ pub fn install_preloaded(
                 );
             }
             *sim = candidate;
+            PLAYER_RESET.with(|value| value.set(reset));
             let replay = match saved.replay {
                 super::ReplayStart::Legacy => super::ReplayStart::Unavailable,
                 other => other,
             };
             (Some(saved.player), replay, None)
         }
-        Ok(Some(_)) => (
-            None,
-            super::ReplayStart::Unavailable,
-            Some("incompatible player data".into()),
-        ),
         Err(error) => (None, super::ReplayStart::Unavailable, Some(error)),
     }
 }
