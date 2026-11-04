@@ -250,7 +250,7 @@ fn bank_encloses_the_find_and_separates_sediment_from_bedrock() {
     };
     assert_eq!(level.cultures.len(), 6); // Appended roof cache; cavern index stays 4.
     assert_eq!(level.cultures[4], Vec2::new(17130.0, -2784.0));
-    assert_eq!(level.foes.len(), 19); // One appended midwater alarm jelly.
+    assert_eq!(level.foes.len(), 20); // Appended midwater alarm jellies (east, canyon).
     assert_eq!(cell(17130.0, -2300.0), Cell::Rock);
     assert_eq!(cell(17280.0, -2740.0), Cell::Rock);
     assert_eq!(cell(17130.0, -2784.0), Cell::Water);
