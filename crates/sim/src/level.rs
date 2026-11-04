@@ -303,9 +303,12 @@ impl Level {
                 // side): only glass grips climb the bare face to it.
                 Rect::new(5500.0, 560.0, 5540.0, 760.0),
                 Rect::new(5500.0, 760.0, 5640.0, 3000.0),
-                // A shelf jutting from the canyon's far wall, out of the
-                // tide's reach: the fifth egg drifts over it.
-                Rect::new(7700.0, -5230.0, 7900.0, -5200.0),
+                // A cave in the canyon's far wall, out of the tide's reach:
+                // the wall's face stands out over the floor, with a hollow
+                // cut back into it (hidden: see `secrets`), and the fifth
+                // egg drifts inside. Below the cave and above it, the face.
+                Rect::new(7700.0, -9400.0, 7901.0, -5200.0),
+                Rect::new(7700.0, -5030.0, 7901.0, -1900.0),
                 // The rock over the octopus's den, at the end of the far rim.
                 Rect::new(8350.0, -1620.0, 8800.0, 3000.0),
             ],
@@ -471,7 +474,7 @@ impl Level {
                 // The canyon: one on the shelf, two on its floor.
                 Vec2::new(6100.0, -3396.0),
                 Vec2::new(6900.0, -9396.0),
-                Vec2::new(7750.0, -9396.0),
+                Vec2::new(7600.0, -9396.0),
             ],
             // Across the passage's mouth, high on the pit's right wall: only
             // a jump and four strokes from the alcove's roof reach it.
@@ -487,7 +490,11 @@ impl Level {
                 rect: Rect::new(5005.0, -700.0, 5080.0, -610.0),
                 cracked: false,
             }],
-            secrets: vec![Rect::new(4060.0, -5200.0, 4300.0, -5080.0)],
+            secrets: vec![
+                Rect::new(4060.0, -5200.0, 4300.0, -5080.0),
+                // The far wall's cave.
+                Rect::new(7700.0, -5200.0, 7901.0, -5030.0),
+            ],
             // A peacock mantis shrimp's burrow on the plateau, before the
             // trench: the first fight (it sees the crab coming up the slope).
             // The route, easy to hard, with room to breathe between: snapping
@@ -518,7 +525,7 @@ impl Level {
             // Under the rock at the end of the far rim, back to the wall.
             den: Rect::new(8350.0, -1900.0, 8800.0, -1620.0),
             // Still water by the far wall, deep in the canyon.
-            drifting: vec![Vec2::new(7600.0, -6500.0), Vec2::new(7560.0, -7400.0)],
+            drifting: vec![Vec2::new(7520.0, -6500.0), Vec2::new(7510.0, -7400.0)],
             min_x: 0.0,
             max_x: 8800.0,
         };

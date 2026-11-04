@@ -227,9 +227,11 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
     culture for the lantern. Nothing else reaches it.
   It's the workbench's "Glass grips" recipe (1 glass sponge, made once; `crates/sim/src/craft.rs`). Fitted grips are
   kept through death and saved; tests: `crates/sim/tests/glass.rs`.
-- **The far shelf**, out from the canyon's far wall in the still water beside the tide: the **fifth egg** drifts
-  over it. Only riding the flood and pushing off it at the right height reaches it (four strokes from the floor in
-  still water never do).
+- **The far wall's cave**, cut back into the canyon's far wall in the still water beside the tide (x 7700 to 7901,
+  y -5200 to -5030): the **fifth egg** drifts inside. The wall's face stands flush over the floor, and the cave is
+  drawn as rock until a bright lantern comes near, like the pit's alcove, so nothing sticks out to give it away
+  (players, #304, #305). Only riding the flood and pushing off it at the right height reaches it (four strokes from
+  the floor in still water never do).
 - **The far rim**, at the top of the far wall (the canyon's shallowest end, representing the ~200 m twilight boundary,
   not a literal measurement of this compressed map): a clam, and
   at its end, under the rock, **an octopus's den** (see below).
