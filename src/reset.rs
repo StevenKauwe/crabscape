@@ -81,6 +81,15 @@ mod tests {
         assert!(sim.level.cells.is_some());
         assert!(sim.crab(crabsim::PlayerId(0)).is_some());
         assert_eq!(sim.tick_count(), 0);
-        assert_eq!(sim.enemies().len(), sim.level.foes.len());
+        assert!(
+            sim.enemies().iter().all(|e| e.home.x >= 720.0),
+            "starting over keeps the movement playground safe"
+        );
+        for kind in [Kind::Mantis, Kind::Snapper, Kind::Moray, Kind::Octopus] {
+            assert!(
+                sim.enemies().iter().any(|e| e.kind == kind),
+                "starting over restores the later {kind:?} encounter"
+            );
+        }
     }
 }
