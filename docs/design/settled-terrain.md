@@ -54,10 +54,10 @@ patches. All sediment grain identity/suspension and all actual material changes
 identity bytes and verifies identical subsequent material, flow, suspension,
 non-water grain state and falling packets under wakes and strong current. The development ARM64 Mac
 probe used 12,773,488 cells, about 158 MiB for primary arrays, and projected roughly
-nine minutes of offline computation. The completed bake took 494.2 seconds and
+nine minutes of offline computation. The completed bake took 496.5 seconds and
 conserved 122,364 grains after authored opening features (raw floor alone had
 122,833; the shellwash/shortcut change the initial count). Compaction reduced
-804,247 patches / 2,180,229 compressed bytes to 26,552 patches / 62,753 bytes by
+804,247 patches / 2,180,227 compressed bytes to 26,552 patches / 62,753 bytes by
 removing 777,695 empty-water identity-only patches. Progress is printed every
 300 steps.
 
@@ -94,12 +94,13 @@ material, flow and tick history rather than being overlaid onto the new seed.
 ## Measured final artifact
 
 On the quiet development ARM64 Mac, the shipping release profile decoded and
-checked the 62,753-byte artifact in 2.784 ms; constructing the fresh opening after
-decode took 17.734 ms (single cold-start sample). Thirty boundary samples per case
+checked the 62,753-byte artifact in 3.716 ms; constructing the fresh opening after
+decode took 13.178 ms; populating all 19 habitats afterward took 0.332 ms
+(single cold-start sample). Thirty boundary samples per case
 covered opening-east, Silt-east and canyon-down, both fresh and archived returns.
-The worst clone-plus-remap p95 was 3.832 ms, passing the opt-in 10 ms boundary-work
-budget. Fresh full paged-tick medians were 6.064, 7.417 and 10.397 ms respectively;
-the canyon full-tick p95 was 10.445 ms, so the full physics tick is **not** claimed
+The worst clone-plus-remap p95 was 3.950 ms, passing the opt-in 10 ms boundary-work
+budget. Fresh full paged-tick medians were 6.152, 7.499 and 10.547 ms respectively;
+the canyon full-tick p95 was 10.681 ms, so the full physics tick is **not** claimed
 to satisfy 10 ms. These native measurements are not a universal phone guarantee.
 
 Under the same ordinary current, supported canyon bed positions displaced during
@@ -135,6 +136,24 @@ opening dig, bypass and roundtrip tests continue to exercise the aged level.
 Enemy spawn footing samples loaded cells first, archived edits second, and the
 same baked seed only for unvisited ground, including spawns outside the active
 window. Morays require clear body space above uneven footing; a valid refuge
-stays fixed instead of following passing grains. A genuinely obstructed loaded
-refuge can move to the nearest supported, clear height within the existing
-bounded search. Walking enemies retain their ordinary footing placement.
+does not rise with passing grains. A loaded refuge follows excavated support
+downward, or can rise to the nearest clear height when genuinely obstructed,
+within the existing bounded search. Walking enemies retain their ordinary footing placement.
+
+## Final composed validation
+
+The complete native `crabsim --tests --no-fail-fast` pass covered 51 targets:
+987 tests passed, with one remaining failure showing that a moray refuge must
+follow its supporting bank downward after excavation. The bounded lowering fix
+preserves the original assertions: after 120 ticks the animal is more than eight
+units below its starting height, and its home differs by less than 0.01 units.
+After the necessary true rebake, the failed library target passed all 430 active
+tests (34 explicitly ignored profiles/long checks), and all seven moray scenarios
+passed again. Across the complete pass and focused correction, all 988 active
+native simulation tests passed. Opening salvage, digging/return, the new jelly,
+saved terrain precedence, replay, and regional ownership are included.
+
+The final artifact was generated after rebasing onto the merged alarm jelly; its
+midwater spawn position remains authored rather than snapped to the bed. No saved
+terrain or enemy roster migration is performed. The figures above are from this
+composed artifact, not an earlier bake.

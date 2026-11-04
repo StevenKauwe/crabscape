@@ -2687,18 +2687,12 @@ impl Sim {
                     animal_bites.push((e.id, prey.id, e.pos.x, hit));
                 }
             }
-            // A clear crevice is stable while sediment drifts past. Only
-            // relocate it when the loaded body space becomes obstructed.
+            // A clear crevice does not rise with passing grains. It can
+            // follow excavated support downward or rise out of an obstruction.
             if e.kind == Kind::Moray
                 && self.tick.is_multiple_of(4)
                 && let Some(cells) = self.level.cells.as_ref()
                 && cells.contains_world(e.home.x, e.home.y)
-                && enemy::swimmer_blocked(
-                    &self.level,
-                    e.home,
-                    self.tuning.moray.body.0 * 0.5,
-                    self.tuning.moray.body.1,
-                )
                 && let Some(surface) = cells.spawn_surface(
                     &self.level,
                     e.home.x,
@@ -2706,6 +2700,13 @@ impl Sim {
                     self.tuning.moray.body.1,
                     e.home.y + 80.0,
                 )
+                && (surface < e.home.y
+                    || enemy::swimmer_blocked(
+                        &self.level,
+                        e.home,
+                        self.tuning.moray.body.0 * 0.5,
+                        self.tuning.moray.body.1,
+                    ))
             {
                 e.home.y = surface;
             }

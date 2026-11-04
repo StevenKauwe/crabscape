@@ -274,6 +274,16 @@ mod tests {
             start.elapsed().as_secs_f64() * 1000.0
         );
         std::hint::black_box(world);
+        let mut sim = crate::Sim::with_one_crab(bevy_math::Vec2::new(160.0, 80.0));
+        sim.enable_underwater_cells();
+        let start = Instant::now();
+        sim.populate();
+        eprintln!(
+            "populate {} habitats after terrain initialization: {:.3}ms",
+            sim.enemies().len(),
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+        std::hint::black_box(sim);
     }
 
     fn arrival_pair(level: &crate::Level, x: f32, y: f32) -> (World, World) {
