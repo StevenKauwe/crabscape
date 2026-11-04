@@ -65,7 +65,7 @@ impl Storage {
 
     pub fn warning(&self) -> Option<&'static str> {
         if self.disabled {
-            Some("Cellular save unavailable. Your previous save is kept; autosave is off.")
+            Some("The damaged cellular save could not be cleared; autosave is off.")
         } else if self.read_failed {
             Some(
                 "Nearby saved terrain could not be loaded. Your previous save is kept; loading will retry.",
@@ -205,8 +205,11 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
     if path.is_dir()
         && let Err(error) = Store::new(path).retire_obsolete()
     {
-        storage.disabled = true;
-        warn!("could not retire obsolete cellular save; keeping it unchanged: {error}");
+        discard(
+            storage,
+            path,
+            &format!("could not retire obsolete cellular save: {error}"),
+        );
         return None;
     }
     storage.head = Store::new(path)
@@ -221,8 +224,7 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
             let reset = match super::reset_incompatible_player(sim, &mut saved) {
                 Ok(reset) => reset,
                 Err(error) => {
-                    storage.disabled = true;
-                    warn!("cellular recovery failed: {error}");
+                    discard(storage, path, &format!("cellular recovery failed: {error}"));
                     return None;
                 }
             };
@@ -233,22 +235,23 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
                 saved.sim_tick,
                 &saved.player,
             ) {
-                storage.disabled = true;
-                warn!("cellular save could not be safely restored; keeping the old file unchanged");
+                discard(storage, path, "cellular save could not be safely restored");
                 return None;
             }
             if let Some(records) = saved.salvage
                 && !candidate.restore_salvage_records(records)
             {
-                storage.disabled = true;
-                warn!("saved salvage could not be safely restored; keeping the old save");
+                discard(storage, path, "saved salvage could not be safely restored");
                 return None;
             }
             if let Some(records) = saved.canyon
                 && !candidate.restore_canyon_records(records)
             {
-                storage.disabled = true;
-                warn!("saved Canyon ownership could not be safely restored; keeping the old save");
+                discard(
+                    storage,
+                    path,
+                    "saved Canyon ownership could not be safely restored",
+                );
                 return None;
             }
             *sim = candidate;
@@ -257,11 +260,24 @@ fn load_path(sim: &mut Sim, storage: &mut Storage, path: &Path) -> Option<SaveDa
             Some(saved.player)
         }
         Err(e) => {
-            storage.disabled = true;
-            warn!("could not read the cellular save; keeping the old file unchanged: {e}");
+            discard(
+                storage,
+                path,
+                &format!("could not read the cellular save: {e}"),
+            );
             None
         }
     }
+}
+
+/// A save that can't be loaded is never kept: delete it and start fresh with
+/// autosave on (pre-alpha: no migrations, and a locked game helps nobody). Only if
+/// the delete itself fails is saving left off, so a bad file is never half-overwritten.
+fn discard(storage: &mut Storage, path: &Path, why: &str) {
+    warn!("discarding the unreadable cellular save and starting fresh: {why}");
+    storage.head = None;
+    storage.has_baseline = false;
+    storage.disabled = wipe_path(path).is_err();
 }
 
 fn read(path: &Path) -> Result<Option<Restored>, String> {
@@ -569,30 +585,33 @@ mod tests {
                     assert_eq!(result, Some(player), "opened {name} should load");
                     assert!(!storage.disabled);
                 } else {
-                    assert!(result.is_none(), "closed {name} must block load");
-                    assert!(storage.disabled);
+                    assert!(result.is_none(), "closed {name} must not load");
+                    assert!(!storage.disabled, "a bad save never locks saving");
                     assert!(
                         restored.level.cells.is_none(),
                         "failed load must roll back terrain"
                     );
                     assert_eq!(restored.tick_count(), 0);
                 }
-                assert_eq!(std::fs::read(&path).unwrap(), bytes);
-                std::fs::remove_file(path).unwrap();
+                if opened {
+                    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+                } else {
+                    assert!(!path.exists(), "the unloadable save is discarded");
+                }
+                let _ = std::fs::remove_file(path);
             }
         }
     }
 
     #[test]
-    fn damaged_save_is_never_silently_overwritten() {
+    fn damaged_save_is_discarded_and_saving_stays_on() {
         let path = path("damaged");
         std::fs::write(&path, b"not a valid cellular save").unwrap();
         let mut state = Storage::default();
         assert!(load_path(&mut sim(), &mut state, &path).is_none());
-        assert!(state.disabled);
-        assert!(state.warning().is_some());
-        assert_eq!(std::fs::read(&path).unwrap(), b"not a valid cellular save");
-        std::fs::remove_file(path).unwrap();
+        assert!(!state.disabled, "a damaged save must never turn saving off");
+        assert!(state.warning().is_none());
+        assert!(!path.exists(), "the damaged save is deleted, not kept");
     }
 
     #[test]
@@ -916,15 +935,14 @@ mod tests {
     }
 
     #[test]
-    fn unreadable_save_disables_writes() {
+    fn unreadable_save_is_discarded_and_saving_stays_on() {
         let path = path("unreadable");
         std::fs::create_dir_all(&path).unwrap();
         std::fs::write(path.join("keep"), b"untouched").unwrap();
         let mut state = Storage::default();
         assert!(load_path(&mut sim(), &mut state, &path).is_none());
-        assert!(state.disabled);
-        assert_eq!(std::fs::read(path.join("keep")).unwrap(), b"untouched");
-        std::fs::remove_dir_all(path).unwrap();
+        assert!(!state.disabled, "a damaged save must never turn saving off");
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
