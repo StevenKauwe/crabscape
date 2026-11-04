@@ -504,19 +504,19 @@ mod tests {
         original.enable_underwater_cells();
         let terrain = original.level.cells.as_mut().unwrap();
         let level = Level::test_level();
-        assert!(terrain.follow_player(&level, 4400.0, -700.0));
+        assert!(terrain.follow_player(&level, 4520.0, -700.0));
         terrain.step(0.35);
         let y = (-1200..0)
             .step_by(10)
             .map(|y| y as f32)
             .find(|&y| {
-                crate::player::valid_saved_spot(bevy::math::Vec2::new(4400.25, y), 1.0, &original)
+                crate::player::valid_saved_spot(bevy::math::Vec2::new(4520.25, y), 1.0, &original)
             })
             .expect("fixture has a safe saved position");
         let terrain = original.level.cells.as_ref().unwrap();
         let player = SaveData {
             version: crate::save::SAVE_VERSION,
-            x: 4400.25,
+            x: 4520.25,
             y,
             memory: None,
             progress: None,
