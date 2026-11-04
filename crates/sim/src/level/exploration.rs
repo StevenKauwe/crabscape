@@ -128,6 +128,12 @@ pub(super) fn extend(level: &mut Level) {
     level
         .foes
         .push((Kind::AlarmJelly, Vec2::new(15180.0, -2830.0)));
+    // The canyon's deep still water by the far wall, one of the spots kept
+    // for it: a crab sinking home from the far wall's cave drifts past its
+    // trailing tentacle in the dark. Appended to retain IDs.
+    if let Some(&spot) = level.drifting.first() {
+        level.foes.push((Kind::AlarmJelly, spot));
+    }
 }
 
 #[cfg(test)]
