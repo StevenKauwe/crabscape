@@ -8,7 +8,7 @@
 //! crab is never changed here: each device changes only its own crab, and
 //! friends see it through the crab's updates (the [`Mover`] is sent whole).
 //!
-//! Codes last until the game is reloaded: they are not saved.
+//! Appearance/power codes last until reload. Explicit level commands change saved skill progress.
 //!
 //! | code    | what it does                                                     |
 //! |---------|------------------------------------------------------------------|
@@ -123,6 +123,11 @@ pub enum Code {
     Pizza,
     /// A joke: only a note, nothing changes.
     Monkeys,
+    /// Set one saved skill to an exact level for playtesting.
+    Level {
+        skill: crate::skills::Skill,
+        level: u32,
+    },
 }
 
 /// Every code, in a fixed order.
@@ -143,6 +148,7 @@ impl Code {
             Code::Glow => "glow",
             Code::Pizza => "pizza",
             Code::Monkeys => "monkeys",
+            Code::Level { .. } => "level",
         }
     }
 
@@ -154,13 +160,45 @@ impl Code {
             Code::Glow => "brightest lantern (again: back)",
             Code::Pizza => "a crab of many pizzas (just for fun)",
             Code::Monkeys => "monkeys, from outer space (just for fun)",
+            Code::Level { .. } => "set a saved skill level (1–99)",
         }
+    }
+
+    /// Complete replay token, including a parameterized command's value.
+    pub fn command(self) -> String {
+        match self {
+            Self::Level { skill, level } => {
+                format!("level:{}:{level}", skill.name().to_lowercase())
+            }
+            _ => self.name().to_owned(),
+        }
+    }
+
+    /// Reserve malformed level commands for local feedback, never co-op chat.
+    pub fn is_level_command(text: &str) -> bool {
+        text.trim()
+            .split(|c: char| c == ':' || c.is_whitespace())
+            .next()
+            .is_some_and(|word| word.eq_ignore_ascii_case("level"))
     }
 
     /// The code a player typed, if it is one (spaces and capitals don't
     /// matter).
     pub fn parse(typed: &str) -> Option<Self> {
         let word = typed.trim().to_lowercase();
+        let parts: Vec<_> = word
+            .split(|c: char| c == ':' || c.is_whitespace())
+            .filter(|part| !part.is_empty())
+            .collect();
+        if let ["level", skill, level] = parts.as_slice() {
+            let skill = crate::skills::Skill::ALL
+                .into_iter()
+                .find(|s| s.name().eq_ignore_ascii_case(skill))?;
+            let level = level.parse::<u32>().ok()?;
+            return (1..=crate::skills::MAX_LEVEL)
+                .contains(&level)
+                .then_some(Self::Level { skill, level });
+        }
         ALL.into_iter().find(|c| c.name() == word)
     }
 }
@@ -169,6 +207,7 @@ impl Code {
 pub fn hints() -> String {
     ALL.map(|c| format!("{}: {}", c.name(), c.hint()))
         .join("\n")
+        + "\nlevel swimming 25: set swimming/climbing/fighting to 1–99 (saved)"
 }
 
 impl Mover {
@@ -195,6 +234,16 @@ impl Sim {
     /// running recording notes it. Returns false, changing nothing, if `id`
     /// isn't a crab of this device.
     pub fn enter_code(&mut self, id: PlayerId, code: Code) -> bool {
+        // Validate even direct/replayed commands before mutating or recording anything.
+        let level_xp = match code {
+            Code::Level { skill, level } => {
+                if !(1..=crate::skills::MAX_LEVEL).contains(&level) {
+                    return false;
+                }
+                Some(crate::skills::xp_for(level, skill.step(&self.tuning)))
+            }
+            _ => None,
+        };
         let poise = self.tuning.crab.poise;
         let rested = self
             .crab(id)
@@ -229,6 +278,14 @@ impl Sim {
                     } else {
                         v.health.min(now)
                     };
+                }
+            }
+            Code::Level { skill, .. } => {
+                let xp = level_xp.expect("level command was validated before mutation");
+                match skill {
+                    crate::skills::Skill::Climbing => m.climb_xp = xp,
+                    crate::skills::Skill::Swimming => m.swim_xp = xp,
+                    crate::skills::Skill::Fighting => m.fight_xp = xp,
                 }
             }
             Code::Glow => m.glow = !m.glow,
