@@ -31,12 +31,15 @@ impl DriftBody {
         }
         let local = world.game_water_at(self.position.x, self.position.y);
         let ambient = level.water_velocity(self.position, &tuning.tide);
-        let horizontal = local.0 + ambient.x / 12.0;
         let vertical = ambient.y + local.1 * 20.0;
         let (coupling, gravity) = match self.profile {
             DriftProfile::Flat => (0.10, 0.75),
             DriftProfile::Dense => (0.025, 1.40),
         };
+        // Ambient transport uses the profile's tuned coupling on both axes.
+        // Applying full water speed sideways whisked flat salvage out of
+        // its rising lane before it could clear the upper catcher's shelf.
+        let horizontal = local.0 + ambient.x * coupling / 12.0;
         self.velocity.x += (horizontal * 12.0 - self.velocity.x) * 0.015;
         self.velocity.y = (self.velocity.y + (vertical * coupling - self.velocity.y) * 0.05
             - gravity)
