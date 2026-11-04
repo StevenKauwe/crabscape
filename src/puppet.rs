@@ -1053,6 +1053,7 @@ fn paddle_curve(t: f32) -> f32 {
 #[allow(clippy::type_complexity)]
 fn animate(
     time: Res<Time>,
+    rave: Res<crate::codes::Rave>,
     sim: Res<Sim>,
     lab: Res<FeelLab>,
     mut crabs: Query<(
@@ -1062,12 +1063,13 @@ fn animate(
         &FrameEvents,
         &Rig,
         &mut PuppetAnim,
+        Has<crate::player::LocalPlayer>,
     )>,
     mut parts: Query<(&mut Transform, Option<&RestPos>)>,
     mut lits: Query<&mut Lit>,
 ) {
     let dt = time.delta_secs().min(0.05);
-    for (mover, id, fighter, events, rig, mut a) in &mut crabs {
+    for (mover, id, fighter, events, rig, mut a, local) in &mut crabs {
         let ev = events.0;
         let vx = mover.vel.x;
         let vy = mover.vel.y;
@@ -1199,6 +1201,15 @@ fn animate(
             .map_or(0.0, |s| s.aim);
         a.aim = ease(a.aim, aim, 30.0, dt);
         let mut fight = fight_pose(fighter, &sim.tuning, a.time, a.aim, lab.juice());
+        if rave.0 && local && sim.crab(*id).is_some_and(rave_idle) {
+            // Existing joints only: the feet stay put and the crab keeps its
+            // normal collision body. Any action immediately owns its pose again.
+            let beat = (a.time * TAU * 1.5).sin();
+            fight.lean += 0.12 * beat;
+            fight.claw[0] = (0.65 + 0.28 * beat, 0.35 - 0.18 * beat);
+            fight.claw[1] = (0.65 - 0.28 * beat, 0.35 + 0.18 * beat);
+            fight.squash += 0.10 * (1.0 - (a.time * TAU * 3.0).cos());
+        }
         // Backing into its home shell (sim: `Mover::tucked`): its legs fold
         // under it and its claws come up before it as it goes into the dark
         // (`into_the_dark`).
@@ -1726,6 +1737,34 @@ fn into_the_dark(
             *v = show;
         }
     }
+}
+
+/// Idle means no requested action and no movement or combat recovery underway.
+fn rave_idle(crab: &crabsim::SimCrab) -> bool {
+    let m = &crab.mover;
+    let f = &crab.fighter;
+    !crab.remote
+        && crab.controls == crabsim::Controls::default()
+        && m.grounded
+        && m.vel.length_squared() < 1.0
+        && !m.climbing
+        && !m.diving
+        && m.tucked == 0.0
+        && m.shelter == crabsim::Shelter::Out
+        && m.windup == 0.0
+        && m.dodge_left == 0.0
+        && m.flip_left == 0.0
+        && m.dash_left == 0.0
+        && f.swing.is_none()
+        && f.queued.is_none()
+        && !f.blocking
+        && f.dead.is_none()
+        && f.grabbed.is_none()
+        && f.crush.is_none()
+        && f.turn == 0
+        && f.knocked == 0
+        && f.vitals.stagger == 0
+        && f.vitals.hitstop == 0
 }
 
 /// The fighting part of a crab's pose.
@@ -2264,6 +2303,36 @@ fn set(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn idle_dance_yields_to_actions_and_never_poses_a_remote_crab() {
+        let mut sim = crabsim::Sim::with_one_crab(bevy::math::Vec2::ZERO);
+        let crab = sim.crab_mut(crabsim::PlayerId(0)).unwrap();
+        crab.mover.grounded = true;
+        assert!(super::rave_idle(crab));
+        let idle = crab.clone();
+        let busy: &[fn(&mut crabsim::SimCrab)] = &[
+            |c| c.remote = true,
+            |c| c.controls.walk = 1.0,
+            |c| c.controls.jump_pressed = true,
+            |c| c.controls.dig_held = true,
+            |c| c.controls.block_held = true,
+            |c| c.controls.jab_pressed = true,
+            |c| c.mover.grounded = false,
+            |c| c.mover.climbing = true,
+            |c| c.mover.vel.x = 10.0,
+            |c| c.mover.shelter = crabsim::Shelter::In,
+            |c| c.fighter.blocking = true,
+            |c| c.fighter.turn = 1,
+            |c| c.fighter.vitals.hitstop = 1,
+            |c| c.fighter.vitals.stagger = 1,
+            |c| c.fighter.dead = Some(1),
+        ];
+        for (i, set_busy) in busy.iter().enumerate() {
+            let mut c = idle.clone();
+            set_busy(&mut c);
+            assert!(!super::rave_idle(&c), "busy case {i} must own its pose");
+        }
+    }
     use super::*;
 
     #[test]
