@@ -70,10 +70,25 @@ impl Plugin for DeepPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dive>()
             .init_resource::<ShoalPass>()
-            .add_systems(Startup, (spawn_depth_counter, spawn_visitor, spawn_shoal))
+            .add_systems(
+                Startup,
+                (
+                    spawn_depth_counter,
+                    spawn_visitor,
+                    spawn_shoal,
+                    spawn_watched_eyes,
+                ),
+            )
             .add_systems(
                 Update,
-                (show_depth, show_tide, pass_visitor, pass_shoal).in_set(GameSet::Present),
+                (
+                    show_depth,
+                    show_tide,
+                    pass_visitor,
+                    pass_shoal,
+                    show_watched_eyes,
+                )
+                    .in_set(GameSet::Present),
             );
     }
 }
@@ -545,5 +560,69 @@ mod tests {
         assert_eq!(start.y, end.y);
         assert_eq!(start.y, from.y + SHOAL_ABOVE);
         assert!(start.x < from.x - 1000.0 && end.x > from.x + 1000.0);
+    }
+}
+
+#[derive(Component)]
+struct WatchedEye {
+    band: usize,
+    part: u8,
+}
+
+fn spawn_watched_eyes(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    use crabsim::world::watcher::Watcher;
+    for band in 2..5 {
+        for part in 0..3 {
+            let mesh: Mesh = match part {
+                0 => Ellipse::new(Watcher::MANTLE_LENGTH / 2.0, 130.0).into(),
+                1 => Circle::new(Watcher::EYE_DIAMETER / 2.0).into(),
+                _ => Circle::new(Watcher::EYE_DIAMETER * 0.28).into(),
+            };
+            commands.spawn((
+                WatchedEye { band, part },
+                Mesh2d(meshes.add(mesh)),
+                MeshMaterial2d(materials.add(Color::NONE)),
+                Transform::default(),
+                Visibility::Hidden,
+            ));
+        }
+    }
+}
+
+fn show_watched_eyes(
+    sim: Res<Sim>,
+    mut parts: Query<(
+        &WatchedEye,
+        &mut Transform,
+        &mut Visibility,
+        &MeshMaterial2d<ColorMaterial>,
+    )>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (part, mut transform, mut visibility, material) in &mut parts {
+        let Some(w) = sim.watchers().iter().find(|w| w.band == part.band) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let facing = (w.looking_at - w.pos).normalize_or_zero();
+        let offset = match part.part {
+            0 => -facing * 580.0,
+            2 => facing * 20.0,
+            _ => Vec2::ZERO,
+        };
+        transform.translation = (w.pos + offset).extend(-13.0 + f32::from(part.part) * 0.1);
+        transform.rotation = Quat::from_rotation_z(facing.to_angle());
+        *visibility = Visibility::Inherited;
+        if let Some(mut mat) = materials.get_mut(&material.0) {
+            mat.color = match part.part {
+                0 => Color::srgba(0.09, 0.14, 0.16, 0.12 * w.opacity()),
+                1 => Color::srgba(0.55, 0.65, 0.62, 0.32 * w.opacity()),
+                _ => Color::srgba(0.01, 0.025, 0.03, 0.85 * w.opacity()),
+            };
+        }
     }
 }
