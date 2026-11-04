@@ -86,3 +86,84 @@ pub fn player_fits_world(sim: &crate::Sim, player: &SaveData) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Carry, CastOff, PickupPreferences, Sim};
+    use bevy_math::Vec2;
+
+    fn player_record() -> SaveData {
+        let sim = Sim::with_one_crab(Vec2::new(217.0, 28.0));
+        let mut progress = sim.fresh_progress();
+        progress.upgrades = 4;
+        progress.climb_xp = 152.5;
+        progress.swim_xp = 54.0;
+        progress.fight_xp = 74.0;
+        progress.lantern = 2;
+        progress.carrying = Some(Carry::Glass);
+        progress.clinging = vec![Carry::Clam, Carry::Grit];
+        progress.cast_offs = vec![CastOff {
+            pos: Vec2::new(420.0, 28.0),
+            carrying: Carry::Tooth,
+            recoverable: true,
+        }];
+        SaveData {
+            version: SAVE_VERSION,
+            x: 217.0,
+            y: 28.0,
+            memory: None,
+            progress: Some(progress),
+        }
+    }
+
+    #[test]
+    fn pre_inventory_player_record_keeps_stats_and_items() {
+        let expected = player_record();
+        let mut old = serde_json::to_value(&expected).unwrap();
+        old["progress"].as_object_mut().unwrap().remove("pickup");
+        old["progress"]["cast_offs"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("recoverable");
+        // This is the same JSON payload decoded by the spatial browser loader.
+        let bytes = serde_json::to_vec(&old).unwrap();
+        let loaded: SaveData = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded, expected, "all existing progress and drops survive");
+        assert_eq!(
+            loaded.progress.as_ref().unwrap().pickup,
+            PickupPreferences::default()
+        );
+        let roundtrip: SaveData =
+            serde_json::from_slice(&serde_json::to_vec(&loaded).unwrap()).unwrap();
+        assert_eq!(roundtrip, expected);
+    }
+
+    #[test]
+    fn current_inventory_choices_survive_and_corrupt_fields_are_not_defaulted() {
+        let mut expected = player_record();
+        let progress = expected.progress.as_mut().unwrap();
+        progress.pickup = PickupPreferences {
+            clams: false,
+            grit: false,
+        };
+        progress.cast_offs[0].recoverable = false;
+        let value = serde_json::to_value(&expected).unwrap();
+        assert_eq!(
+            serde_json::from_value::<SaveData>(value.clone()).unwrap(),
+            expected
+        );
+        let mut malformed = value.clone();
+        malformed["progress"]["pickup"]["clams"] = serde_json::json!("yes");
+        assert!(serde_json::from_value::<SaveData>(malformed).is_err());
+        let mut malformed = value.clone();
+        malformed["progress"]["cast_offs"][0]["recoverable"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<SaveData>(malformed).is_err());
+        let mut missing_core = value;
+        missing_core["progress"]
+            .as_object_mut()
+            .unwrap()
+            .remove("upgrades");
+        assert!(serde_json::from_value::<SaveData>(missing_core).is_err());
+    }
+}

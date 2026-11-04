@@ -134,7 +134,13 @@ pub struct CastOff {
     pub pos: Vec2,
     pub carrying: Carry,
     /// A deliberate drop cannot be picked up until its owner moves away.
+    #[serde(default = "legacy_cast_off_recoverable")]
     pub recoverable: bool,
+}
+
+// Before deliberate drops existed, every cast-off could be reclaimed immediately.
+fn legacy_cast_off_recoverable() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
