@@ -215,6 +215,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn probe_digest_matches_committed() {
+        use sha2::{Digest, Sha256};
+        let (_, mut world) = seed_bake::global();
+        seed_bake::advance(&mut world, 30);
+        let mut hash = Sha256::new();
+        for ((cell, grain), suspended) in world.cells.iter().zip(&world.grain).zip(&world.suspended)
+        {
+            hash.update([*cell as u8, *grain, *suspended]);
+        }
+        let actual = format!("{:x}", hash.finalize());
+        assert_eq!(
+            actual, "76a40216438979753b1f569ed67e9dbcce5e40f8a6e01420cf9a47d6f19f6d18",
+            "terrain changed: rebake and update the probe digest; see docs/design/settled-terrain.md"
+        );
+    }
+
+    #[test]
     fn offscreen_spawn_footing_matches_loaded_and_saved_terrain() {
         let level = crate::Level::test_level();
         let mut world = World::from_level_settled(&level);

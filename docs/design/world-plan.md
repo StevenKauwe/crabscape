@@ -35,12 +35,16 @@ one GitHub issue (label `world-plan`) that stands on its own.
    link (`https://stevenkauwe.github.io/crabscape/pr-<n>/`) on the gate's issue with the "what to try" list and a
    recommendation, add `needs-human` to the next phase's first package, and do not start it until the owner answers.
    Do not guess at taste. Packages marked **(gate)** do not auto-merge: open the PR without `--auto` and wait.
-8. **Rebakes.** The settled-world seed's fingerprint (`crates/sim/build.rs`) hashes the whole of
-   `crates/sim/src/world.rs`, `physics.rs`, `tuning.rs`, `level/coral_rise.rs`, `level/circulation.rs` and
-   `underwater/`, plus the level's floor and rocks. Touching any of them needs a ~9-minute bake
-   (`docs/design/settled-terrain.md`) and two such PRs conflict on the binary seed. Until W0.4 (#475) narrows this,
-   put new rules in new files, batch every edit to those files, and bake once per batch in the background. Only the
-   packages marked **rock batch** change rocks; if you need rock, add it to the next rock batch's issue.
+8. **Rebakes.** The settled-world seed's source fingerprint (`crates/sim/build.rs`) hashes
+   `crates/sim/src/underwater.rs`, all Rust files recursively in `underwater/` except `settled_seed.rs`,
+   `physics/consts.rs` and `level/coral_rise.rs`. Runtime also fingerprints the floor, rocks, maximum x,
+   material parameters and seed-format/timing constants. Changes to these inputs require the ~9-minute bake
+   (`docs/design/settled-terrain.md`). `world.rs`, `tuning.rs`, `physics.rs`, `level/circulation.rs` and
+   loader/test-only edits to `settled_seed.rs` do not force one. A field added to `Tuning` or a call added to
+   `Sim::tick` leaves the seed current. The real-level 30-step probe digest test catches terrain behaviour
+   changes outside the source list and requires a deliberate rebake. Batch terrain edits and bake once per
+   batch in the background. Only packages marked **rock batch** change rocks; add needed rock to the next
+   rock batch's issue.
 9. **Never touch** co-op plumbing (`crates/sim/src/net*`, `src/coop*`), saves infrastructure (`save.rs`,
    `save_data.rs`, `cell_save*`), deploy (`.github/`, `tools/previews.sh`), or the cellular engine
    (`crates/sim/src/underwater.rs`, `crates/sim/src/underwater/`, `src/cellular*`) unless the issue says it is a
