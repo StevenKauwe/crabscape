@@ -8,6 +8,9 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 - **Weight you can feel.** A crab is denser than water, so it sinks. Jumps are strong push-offs from the floor with a
   short wind-up that the water soon brakes; the way down is a slow, steady sink, not a drop (about 0.8 s back down
   from a 0.5 s rise). Heavy landings bleed speed.
+  In cellular terrain, a rising shell that barely clips a roof corner slides up to 16 units in its travel direction
+  (scaled with its grown body) when the sideways path and headroom are clear. Full ceilings and side walls still
+  stop it; a small trailing corner should not swallow an otherwise clear jump.
 - **Paddle legs give the air moves.** The flattened 5th legs of swimming crabs drive the double jump and swimming,
   one strong stroke at a time, sinking in between (never hovering). Strokes have a rhythm (0.30 s, quicker with the
   Swimming skill), so mashing doesn't help: a press during the rhythm is never lost, it waits and strokes the moment

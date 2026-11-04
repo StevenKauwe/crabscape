@@ -83,6 +83,10 @@ pub struct Tuning {
     /// Press jump this long before landing and it still counts
     /// ("jump buffering").
     pub jump_buffer: f32,
+    /// Maximum sideways adjustment per tick in the travel direction when a rising
+    /// shell only clips a ceiling corner. The sideways path and headroom
+    /// must both be clear; a full ceiling still stops the jump.
+    pub jump_corner_correction: f32,
     /// Upward speed of a paddle stroke (made with the flattened fifth legs).
     /// Weaker than the floor push. The first stroke after a jump is the
     /// double jump; more strokes swim higher, one push at a time, sinking in
@@ -928,6 +932,7 @@ impl Tuning {
             jump_cut: 0.27, // a tap gives a hop of about 60
             coyote_time: 0.10,
             jump_buffer: 0.13,
+            jump_corner_correction: 16.0,
             paddle_speed: 1050.0, // adds about 140 at the top of a jump
             swim_strokes: 0,
             stroke_interval: 0.30,

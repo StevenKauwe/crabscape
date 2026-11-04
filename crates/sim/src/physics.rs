@@ -1603,11 +1603,12 @@ fn move_and_collide_cells(
     let ysteps = (dy.abs() / 2.0).ceil().max(1.0) as usize;
     let impact = -m.vel.y;
     let mut touched = false;
+    let mut corner_adjustment_left = t.jump_corner_correction * m.grown(t);
     for _ in 0..ysteps {
-        let candidate = m.pos + Vec2::Y * (dy / ysteps as f32);
+        let mut candidate = m.pos + Vec2::Y * (dy / ysteps as f32);
         // On a slope the legs can already overlap sand. While rising, only
         // material newly entering above the shell can stop the jump.
-        let collision = if dy > 0.0 {
+        let mut collision = if dy > 0.0 {
             blocked_rect(
                 candidate.x - hw + EPS,
                 m.pos.y + height - EPS,
@@ -1619,6 +1620,54 @@ fn move_and_collide_cells(
         } else {
             blocked(candidate)
         };
+        if collision
+            && dy > 0.0
+            && m.rising
+            && !digging
+            && m.vel.x.abs() > EPS
+            && candidate.y + height <= crate::level::WATER_SURFACE_Y
+        {
+            // Clear a trailing roof corner by sliding first, then rising.
+            // Sweep the whole sideways path at the old height: never move
+            // through a side wall to manufacture headroom on its far side.
+            let direction = m.vel.x.signum();
+            let shift = (1..=corner_adjustment_left.floor() as u32)
+                .map(|n| direction * n as f32)
+                .take_while(|&shift| {
+                    let x = m.pos.x + shift;
+                    let left = m.pos.x.min(x) - hw + EPS;
+                    let right = m.pos.x.max(x) + hw - EPS;
+                    x >= level.min_x + hw
+                        && x <= level.max_x - hw
+                        && !cells.game_walking_blocked(
+                            left,
+                            m.pos.y + EPS,
+                            right,
+                            m.pos.y + height - EPS,
+                            t.step_up * m.grown(t) + hw * 0.8,
+                        )
+                        && !level.solids().any(|r| {
+                            right > r.min.x
+                                && left < r.max.x
+                                && m.pos.y + height - EPS > r.min.y
+                                && m.pos.y + EPS < r.max.y
+                        })
+                })
+                .find(|&shift| {
+                    !blocked_rect(
+                        candidate.x + shift - hw + EPS,
+                        m.pos.y + height - EPS,
+                        candidate.x + shift + hw - EPS,
+                        candidate.y + height - EPS,
+                    )
+                });
+            if let Some(shift) = shift {
+                corner_adjustment_left -= shift.abs();
+                m.pos.x += shift;
+                candidate.x += shift;
+                collision = false;
+            }
+        }
         if candidate.y + height > crate::level::WATER_SURFACE_Y || collision {
             touched = dy < 0.0;
             m.vel.y = 0.0;
