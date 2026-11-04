@@ -56,6 +56,7 @@ link` in that list.
 | 12 | The **oxygen minimum zone**, about 200 to 1,500 m deep depending on the place (the row said 1,000), holds very little dissolved oxygen: below 2 mg/L against a normal 4–6, sometimes none at all. OMZs are found worldwide, mostly along continents' western coasts. Oh no way: giant red mysids live there on gills with a huge surface | The real breathing limit for a crab | [WP-OMZ] |
 | 13 | Deep-sea animals accumulate **TMAO**, which counters pressure's effect on proteins: in bony fishes it rises from 40 to 261 mmol/kg between 0 and 4,850 m, and deep crabs carry more too (*Chionoecetes*: 22 shallow, 164 at bathyal depth). Oh no way: extrapolated, a fish would reach the sea's own saltiness at about 8,200 m, which may be why no fish lives deeper | Depth tolerance you build by adapting | [YANCEY-2014], [KELLY-1999] |
 | 14 | Blue crabs respond to chemical signals detected at their antennules while tracking a plume upstream; they also change height as the plume changes | Nearby scent cues, stretching upstream with the water; the drawn shapes and distances are game choices, not measurements | [PAGE] |
+| 15 | **The deep is cold, and cold slows an animal's body.** Below the surface layer the ocean's temperature "drops gradually with depth" and deep water is "usually not far from zero degrees"; most biological rates fall two- to threefold for every 10 °C colder (Q10 ~ 2 to 3). Crab-specific recovery rates after exertion: not verified | The reserve comes back more slowly the deeper the crab is (`1 + depth / 8000`, a game scale, not a measured rate): a long climb home from the deep is a real cost (`how-it-plays.md`) | [WP-THERMO], [WP-Q10] |
 
 A research log of papers and sources backs every creature and mechanic. Anatomy for the player crab is already
 sourced in `art/crab/anatomy-notes.md`; keep its "not verified" flags honest.
@@ -95,6 +96,8 @@ Each opened and checked against the row it backs.
   <https://en.wikipedia.org/wiki/Whale_fall>
 - **[WP-BP]** Wikipedia, "Brine pool" (citing NOAA Ocean Explorer 2002, Kvitek 1998, Sawyer et al. 2019, Smith et al.
   2000). <https://en.wikipedia.org/wiki/Brine_pool>
+- **[WP-THERMO]** Wikipedia, "Thermocline". <https://en.wikipedia.org/wiki/Thermocline>
+- **[WP-Q10]** Wikipedia, "Q10 (temperature coefficient)". <https://en.wikipedia.org/wiki/Q10_(temperature_coefficient)>
 - **[WP-OMZ]** Wikipedia, "Oxygen minimum zone" (citing Lalli & Parsons 1993, Childress & Seibel 1998).
   <https://en.wikipedia.org/wiki/Oxygen_minimum_zone>
 - **[YANCEY-2014]** Yancey, Gerringer, Drazen, Rowden & Jamieson, "Marine fish may be biochemically constrained from
