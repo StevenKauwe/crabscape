@@ -639,7 +639,8 @@ mod tests {
         assert_eq!(level.floor_height(300.0), 0.0); // flat start
         assert!((level.floor_height(670.0) - 55.0).abs() < 0.01); // half-way up the slope
         assert_eq!(level.floor_height(1450.0), -260.0); // bottom of the trench
-        assert_eq!(level.floor_height(level.max_x + 100.0), -2200.0); // beyond the far rim
+        assert_eq!(level.floor_height(17150.0), -2800.0); // half-way up the cavern bank
+        assert_eq!(level.floor_height(level.max_x + 100.0), -2600.0); // beyond the outer bank
     }
 
     #[test]
