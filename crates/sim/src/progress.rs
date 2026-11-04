@@ -39,6 +39,8 @@ pub struct Progress {
     #[serde(default)]
     pub rocks_cracked: Vec<bool>,
     pub cast_offs: Vec<CastOff>,
+    /// Before inventory toggles, clams and grit were always picked up.
+    #[serde(default)]
     pub pickup: PickupPreferences,
     /// Clams in the larder at home.
     #[serde(default)]
