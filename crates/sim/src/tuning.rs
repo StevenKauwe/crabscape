@@ -1576,3 +1576,33 @@ pub fn triggerfish_tuning() -> &'static EnemyTuning {
         k
     })
 }
+
+// Atolla-sized bell from MBARI; all timing, sting and encounter ranges are tuned.
+pub const JELLY_BELL_WIDTH: f32 = 94.0;
+pub const JELLY_BELL_HEIGHT: f32 = 40.0;
+pub const JELLY_TRAIL_LENGTH: f32 = 420.0;
+pub const JELLY_TRAIL_RADIUS: f32 = 6.0;
+pub const JELLY_MARGINAL_LENGTH: f32 = 64.0;
+pub const JELLY_ALARM_TICKS: u32 = 360;
+pub const JELLY_RECOVER_TICKS: u32 = 600;
+pub const JELLY_STING_TICKS: u32 = 240;
+pub const JELLY_ALARM_RANGE: f32 = 900.0;
+pub const JELLY_HUNTER_LEASH: f32 = 800.0;
+pub const JELLY_HUNTER_SPEED: f32 = 260.0;
+pub const JELLY_DRIFT_RADIUS: f32 = 24.0;
+pub const JELLY_PULSE_HEIGHT: f32 = 20.0;
+pub const JELLY_DRIFT_SPEED: f32 = 12.0;
+pub const JELLY_PULSE_TICKS: u32 = 120;
+pub const JELLY_TRAIL_SWAY: f32 = 24.0;
+pub fn alarm_jelly_tuning() -> &'static EnemyTuning {
+    static T: std::sync::OnceLock<EnemyTuning> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut k = Tuning::default().fixture;
+        k.body = (JELLY_BELL_WIDTH, JELLY_BELL_HEIGHT);
+        k.burrows = false;
+        k.sight = false;
+        k.flee_below = 0.0;
+        k.respawn_ticks = 0;
+        k
+    })
+}

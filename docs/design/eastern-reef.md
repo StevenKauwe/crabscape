@@ -148,3 +148,14 @@ or a crab's ability to pulverize a boulder. It addresses one concrete example of
 smashing feedback [#300](https://github.com/StevenKauwe/crabscape/issues/300).
 Existing saved terrain remains authoritative; the cache adds no cellular terrain
 migration and no reset. Approach and collection are validated in fresh worlds.
+
+
+An optional alarm jelly hangs in open midwater above the Silt-to-Coral lower
+return. Its long trailing tentacle stays clear of ordinary normal/max-size return
+travel, including downhill momentum. Guarding the tentacle and bumping or striking
+the bell flashes a blue alarm; one nearby eligible moray investigates the spot,
+leaving a short opening below. Existing coral gives access to the bell. This
+Atolla-inspired encounter uses a tuned hunter response, not claimed natural
+predation. The appended habitat appears in fresh populated worlds; saved enemy
+rosters remain authoritative. See [alarm jelly](creatures/alarm-jelly.md) for the
+source, controls and deliberately deferred mechanics.

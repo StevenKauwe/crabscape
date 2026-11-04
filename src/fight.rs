@@ -258,6 +258,9 @@ fn hint(kind: Kind) -> Option<&'static str> {
             "Nose down: water jet. Hold GUARD to brace.\nThen DODGE or tap GUARD for the bite.",
         ),
         Kind::Monkey => Some("Space monkeys!\nWatch those long asparagus arms."),
+        Kind::AlarmJelly => Some(
+            "GUARD the trailing tentacle. Strike or bump the bell to flash blue.\nA nearby idle hunter investigates the light; slip past below.",
+        ),
         Kind::Fixture => None,
     }
 }
@@ -340,7 +343,7 @@ fn fight_notes(
     let near_tell = sim.enemies().iter().find(|e| {
         !grabbed
             && f.dead.is_none()
-            && e.state == State::Tell
+            && (e.state == State::Tell || e.kind == Kind::AlarmJelly)
             && e.pos.distance_squared(m.pos) < 400.0 * 400.0
             && !hinted.kinds.contains(&e.kind)
     });

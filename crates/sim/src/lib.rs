@@ -49,6 +49,7 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
+pub mod alarm_jelly;
 pub mod canyon_drift;
 pub mod cell_codec;
 pub mod codes;

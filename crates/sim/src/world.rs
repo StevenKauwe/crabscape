@@ -1452,7 +1452,13 @@ impl Sim {
                 cells.game_surface_below(pos.x, half, floor + self.tuning.body_height * 2.0)
             })
             .unwrap_or(floor);
-        let at = Vec2::new(pos.x, surface);
+        // Midwater hazards retain their authored depth; benthic occupants
+        // still settle on the live bed.
+        let at = if kind == Kind::AlarmJelly {
+            pos
+        } else {
+            Vec2::new(pos.x, surface)
+        };
         self.enemies.push(Enemy::new(id, kind, at, &self.tuning));
         if let Some(rec) = &mut self.recorder {
             rec.note_spawn(self.tick, kind, pos);
@@ -2405,6 +2411,7 @@ impl Sim {
                     (e.state == enemy::State::Gone
                         && e.octo.is_none() // an octopus gets away: no body
                         && e.kind != Kind::Monkey // nor does a monkey
+                        && e.kind != Kind::AlarmJelly
                         && self.shared.there(it, &self.tuning)
                         && !e.hurtbox(&self.tuning).intersect(body).is_empty())
                     .then_some(it)
@@ -2553,11 +2560,13 @@ impl Sim {
             c.fighter.blinded = clouds.iter().any(|at| at.distance(middle) <= r);
         }
         self.claws_meet_enemies();
+        crate::alarm_jelly::attract(&mut self.enemies, &self.tuning, &self.level);
         let animals: Vec<enemy::AnimalPrey> = if self.level.cells.is_some() {
             self.enemies
                 .iter()
                 .filter(|e| {
                     e.kind != Kind::Fixture
+                        && e.kind != Kind::AlarmJelly
                         && e.state != enemy::State::Gone
                         && !e.held
                         && !e.dropping()
@@ -2940,6 +2949,7 @@ impl Sim {
                 // A counter smash with a crusher that crushes: it clamps on
                 // (only an enemy run here; elsewhere it's a plain blow).
                 if runs
+                    && e.kind != Kind::AlarmJelly
                     && swing.counter
                     && swing.claw == crate::combat::Claw::Crusher
                     && t.crush.is_some()

@@ -27,4 +27,5 @@ pub mod parts;
 pub mod shrimp;
 pub mod svg;
 
+pub mod alarm_jelly;
 pub mod triggerfish;

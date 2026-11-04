@@ -2362,11 +2362,16 @@ fn the_route_gets_harder_with_room_to_breathe() {
             "{kind:?}"
         );
     }
-    // All of them stand on the floor where they are put.
+    // Ground animals stand on the floor; the jelly keeps its midwater depth.
     let mut sim = sim_a(SPAWN);
     sim.populate();
-    for e in sim.enemies() {
-        assert_eq!(e.pos.y, level.floor_height(e.pos.x), "{:?}", e.kind);
+    for (e, (_, authored)) in sim.enemies().iter().zip(&level.foes) {
+        if e.kind == Kind::AlarmJelly {
+            assert_eq!(e.pos, *authored);
+            assert!(e.pos.y > level.floor_height(e.pos.x));
+        } else {
+            assert_eq!(e.pos.y, level.floor_height(e.pos.x), "{:?}", e.kind);
+        }
     }
 }
 

@@ -41,10 +41,12 @@ pub enum Kind {
     Monkey,
     /// Queen triggerfish: a water jet followed by a separately telegraphed bite.
     Triggerfish,
+    /// Midwater environmental hazard: contact sting and a blue burglar alarm.
+    AlarmJelly,
 }
 
 /// Every kind, for parsing and lists.
-pub const KINDS: [Kind; 7] = [
+pub const KINDS: [Kind; 8] = [
     Kind::Fixture,
     Kind::Mantis,
     Kind::Snapper,
@@ -52,6 +54,7 @@ pub const KINDS: [Kind; 7] = [
     Kind::Octopus,
     Kind::Monkey,
     Kind::Triggerfish,
+    Kind::AlarmJelly,
 ];
 
 impl Kind {
@@ -64,6 +67,7 @@ impl Kind {
             Kind::Octopus => &t.octopus.base,
             Kind::Monkey => crate::codes::monkey_tuning(),
             Kind::Triggerfish => crate::tuning::triggerfish_tuning(),
+            Kind::AlarmJelly => crate::tuning::alarm_jelly_tuning(),
         }
     }
 
@@ -76,6 +80,7 @@ impl Kind {
             Kind::Octopus => "octopus",
             Kind::Monkey => "monkey",
             Kind::Triggerfish => "triggerfish",
+            Kind::AlarmJelly => "alarm-jelly",
         }
     }
 
@@ -314,6 +319,18 @@ impl Enemy {
         {
             return "rest";
         }
+        if self.kind == Kind::AlarmJelly {
+            return if self.state == State::Attack {
+                "alarm"
+            } else if self.state == State::Recover {
+                "quieting"
+            } else {
+                "drift"
+            };
+        }
+        if crate::alarm_jelly::investigating(self) {
+            return "investigate";
+        }
         if self.kind == Kind::Triggerfish {
             return match (self.state, self.combo) {
                 (State::Tell, 0) => "hover",
@@ -474,6 +491,13 @@ impl Enemy {
     pub fn takes(&mut self, hit: &Hit, from_x: f32, t: &Tuning) -> Option<combat::Took> {
         if !self.hittable(t) {
             return None;
+        }
+        if self.kind == Kind::AlarmJelly {
+            crate::alarm_jelly::alarm(self);
+            return Some(combat::Took {
+                broke_poise: false,
+                died: false,
+            });
         }
         if let Some(o) = &mut self.octo {
             o.revealed = true; // found out
@@ -707,6 +731,12 @@ pub fn step(
             deaths: e.deaths,
             ..Enemy::new(e.id, e.kind, home, t)
         };
+    }
+    if e.kind == Kind::AlarmJelly {
+        return crate::alarm_jelly::step(e, crabs, t, level, bounded_region);
+    }
+    if crate::alarm_jelly::investigate(e, t, level, bounded_region) {
+        return blows;
     }
     if e.kind == Kind::Triggerfish {
         return crate::triggerfish::step(e, crabs, t, level, bounded_region);
@@ -1374,6 +1404,9 @@ pub fn grabs(k: &EnemyTuning, outcome: Outcome) -> Option<GrabTuning> {
 /// that runs it, the outcome may come from the crab's own device
 /// ([`crate::net::Msg::Blow`]). True when this blow is over.
 pub fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning) -> bool {
+    if e.kind == Kind::AlarmJelly {
+        return crate::alarm_jelly::feels(e, crab, outcome);
+    }
     if e.kind == Kind::Triggerfish {
         return crate::triggerfish::feels(e, crab, outcome, t);
     }
