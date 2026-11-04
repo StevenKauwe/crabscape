@@ -264,11 +264,39 @@ fn fight_notes(
     mut cracked_before: Local<bool>,
     mut hinted: Local<Vec<Kind>>,
     mut grabbed_before: Local<bool>,
+    mut region_hints: Local<[bool; 3]>,
     mut instructions: MessageWriter<hints::ShowHint>,
 ) {
     let Ok((ev, f, m, at)) = crab.single() else {
         return;
     };
+    // Geography is visible before an encounter starts. Give each new area
+    // one brief orientation hint, using the same phone-safe instruction UI.
+    let region = if m.pos.x >= 14900.0 {
+        Some((
+            2,
+            "Coral Rise\nClimb the shelves, or follow the lower route home.",
+        ))
+    } else if m.pos.x >= 12000.0 {
+        Some((
+            1,
+            "Silt Hollow\nSheltered clam beds below; coral shelves above.",
+        ))
+    } else if m.pos.x >= 8900.0 {
+        Some((
+            0,
+            "Rubble Banks\nA tooth lies beneath the rock cap. Dig around its edge.",
+        ))
+    } else {
+        None
+    };
+    if let Some((index, words)) = region
+        && !region_hints[index]
+        && f.dead.is_none()
+    {
+        region_hints[index] = true;
+        instructions.write(hints::ShowHint::Encounter(words));
+    }
     let grabbed = f.grabbed.is_some();
     if grabbed && !*grabbed_before {
         instructions.write(hints::ShowHint::Grabbed);

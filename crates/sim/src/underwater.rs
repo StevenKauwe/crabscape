@@ -243,7 +243,14 @@ fn terrain_at_height(level: &crate::Level, wx: f32, cell_y: i32, floor: f32) -> 
     if (6448.0..6452.0).contains(&wx) && (-3176.0..-3160.0).contains(&wy) {
         return Cell::Rock;
     }
-    if wy < floor - 100.0
+    // A deep sand pocket under the rubble cap permits a real excavated
+    // bypass. Its rock floor leaves room for the crab and displaced grains.
+    let sediment_depth = if (9850.0..10300.0).contains(&wx) {
+        240.0
+    } else {
+        100.0
+    };
+    if wy < floor - sediment_depth
         || level
             .rocks
             .iter()
@@ -252,7 +259,11 @@ fn terrain_at_height(level: &crate::Level, wx: f32, cell_y: i32, floor: f32) -> 
         Cell::Rock
     } else if wy < floor {
         // The far basin is a sandy shelf; the trench and canyon retain finer mud.
-        if wx <= 1650.0 || (4490.0..5900.0).contains(&wx) {
+        if wx <= 1650.0
+            || (4490.0..5900.0).contains(&wx)
+            || (8800.0..12000.0).contains(&wx)
+            || wx >= 15700.0
+        {
             Cell::Sand
         } else {
             Cell::Mud
@@ -1087,13 +1098,18 @@ impl World {
         (4..side - 4).step_by(8).any(|offset| {
             let gx = cx * side + offset;
             let wx = (gx as f32 + 2.0) * GAME_CELL;
-            if !(4490.0..5900.0).contains(&wx) {
+            if !Self::pebble_habitat(wx) {
                 return false;
             }
             let ground = ((level.floor_height(wx) - GAME_BOTTOM) / GAME_CELL).floor() as i32;
             let gy = ground - 4 - gx.div_euclid(8).rem_euclid(3) * 4;
             gy >= cy * side && gy + 4 <= (cy + 1) * side
         })
+    }
+    fn pebble_habitat(x: f32) -> bool {
+        (4490.0..5900.0).contains(&x)
+            || (9400.0..9700.0).contains(&x)
+            || (15800.0..16200.0).contains(&x)
     }
     fn seed_far_pebbles(&mut self, level: &crate::Level) {
         let side = TERRAIN_CHUNK_CELLS;
@@ -1116,7 +1132,7 @@ impl World {
                 for offset in (4..side - 4).step_by(8) {
                     let gx = cx * side + offset;
                     let wx = (gx as f32 + 2.0) * GAME_CELL;
-                    if !(4490.0..5900.0).contains(&wx) {
+                    if !Self::pebble_habitat(wx) {
                         continue;
                     }
                     let ground =
