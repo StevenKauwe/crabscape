@@ -257,7 +257,7 @@ pub fn spawn_local_crab(
         save::load()
     };
     #[cfg(target_arch = "wasm32")]
-    let (saved, mut browser_replay, mut browser_load_error) = if crate::cellular::enabled() {
+    let (saved, mut browser_replay, browser_load_error) = if crate::cellular::enabled() {
         crate::cell_save::browser::install_preloaded(&mut sim)
     } else {
         (save::load(), crate::cell_save::ReplayStart::Legacy, None)
@@ -283,19 +283,21 @@ pub fn spawn_local_crab(
             )
         })
         .filter(|&p| valid_saved_spot(p, size, &sim));
-    #[cfg(not(target_arch = "wasm32"))]
-    if crate::cellular::enabled() && saved.is_some() && saved_pos.is_none() {
-        cells_storage.disable();
-        warn!("cellular save has an invalid crab position; keeping the old file unchanged");
-    }
+    // An unsafe saved position never locks saving: the crab starts at the spawn and
+    // the world carries on, autosave on.
     #[cfg(target_arch = "wasm32")]
     if crate::cellular::enabled() && saved.is_some() && saved_pos.is_none() {
-        browser_load_error = Some("saved position is not safe".into());
         browser_replay = crate::cell_save::ReplayStart::Unavailable;
     }
     #[cfg(target_arch = "wasm32")]
     if crate::cellular::enabled() {
-        crate::cell_save::browser::configure_autosave(browser_load_error.as_deref());
+        // A save that can't be loaded is never kept: autosave stays on, and the
+        // damaged one is cleared and the page reloads fresh.
+        crate::cell_save::browser::configure_autosave(None);
+        if let Some(why) = browser_load_error.as_deref() {
+            warn!("discarding the unreadable cellular save and starting fresh: {why}");
+            crate::cell_save::browser::clear_and_reload();
+        }
     }
     #[cfg(target_arch = "wasm32")]
     if crate::cellular::enabled()
@@ -817,7 +819,7 @@ mod cellular_save_tests {
                 .get::<Text>(notice)
                 .unwrap()
                 .0
-                .contains("previous save is kept")
+                .contains("could not be cleared")
         );
     }
 }

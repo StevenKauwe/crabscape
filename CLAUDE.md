@@ -70,7 +70,7 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
   cow-farming simulator, I'd be happy"). We never care about breaking changes or keeping past versions working:
   - **Co-op:** both players must be on the same version; the older one reloads into the new one. Never keep co-op
     messages readable by an older game, and never test against one.
-  - **Saves and export codes:** this is early pre-alpha. Replace formats outright when useful; do not spend work on
+  - **Saves and export codes:** this is early pre-alpha. A save that fails to load is deleted and play starts fresh with autosave on: never keep the old save and turn saving off. Replace formats outright when useful; do not spend work on
     backward compatibility or migrations. Failed writes must still keep the last complete save intact.
   - **Anything else** (formats, files, tools, rules, the game itself): change it outright. No shims, flags or
     deprecation steps.

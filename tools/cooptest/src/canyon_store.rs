@@ -151,15 +151,23 @@ pub(super) fn run(player: &mut Player, site: &Site) -> Result<Found> {
         return Err("fixture failed to remove its published Canyon index".into());
     }
     player.open(&site.url("cells"))?;
-    player.until(20.0, "missing published Canyon index is rejected", |p| {
-        p.b.attr("data-cell-save").as_deref() == Some("load-error")
-    })?;
-    if capture(player)? != missing {
-        return Err("failed Canyon restore overwrote the damaged save".into());
+    // A save that can't be loaded is discarded and play starts fresh with autosave on
+    // (never kept with saving off), so the damaged rows are replaced by a new world.
+    player.until(
+        40.0,
+        "missing published Canyon index starts a fresh world",
+        |p| p.b.attr("data-cell-save").as_deref() == Some("fresh"),
+    )?;
+    if !player
+        .b
+        .eval("document.body.innerText")?
+        .as_str()
+        .is_some_and(|text| !text.contains("autosave is off"))
+    {
+        return Err("a damaged Canyon save left autosave off".into());
     }
     found.push(
-        "missing published index fails closed and preserves the stored player and Canyon rows"
-            .into(),
+        "missing published index is discarded and a fresh world starts with autosave on".into(),
     );
 
     player.b.go(&asset)?;
