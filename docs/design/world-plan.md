@@ -77,6 +77,17 @@ one GitHub issue (label `world-plan`) that stands on its own.
 - **The route solver is slow.** `crates/sim/tests/common/route.rs` plays real ticks. Give every survey a tight stop
   predicate (stop past the region you test); keep each test file under about 60 s on CI. Exhaustive kit matrices
   are `#[ignore]` and run by hand (`-- --ignored --nocapture`).
+- **The level is a single-valued heightmap** (`Level::floor`, one height per x; rocks are boxes on top). A deep
+  place can only go where the floor itself is deep: nothing can sit "under" the far rim or the reef without
+  turning them into rock roofs, which breaks every animal's `floor_height`. New deep ground goes at new x: the
+  lower canyon continues east of Coral Rise (x > 17,400), as the owner's map has the canyon stepping down to the
+  right.
+- **Bedrock frames may hold substrate.** The cell generator fills any empty space below the floor with sediment;
+  a frame only has to be sealed by bedrock (unreachable, undiggable through), not empty. W3.0 replaces the
+  substrate with layered strata.
+- **A rock batch updates the probe digest.** After its bake, a rock package updates the committed digest in
+  `probe_digest_matches_committed` (`crates/sim/src/underwater/settled_seed.rs`); that one constant is in scope
+  for rock batches.
 - **The canyon has no refuges in open water yet** (W0.3's ignored test lists five places). Do not add an
   open-water hunter (W1.2) before W1.3 adds them: it would break the fairness rule.
 - **CI flake:** two `cell_save::native` tests fail on most Linux runs and pass locally (#482). Rerun the failed job
@@ -129,8 +140,9 @@ existing gates hold for every ability kit. Human gate: none (no feel change).
 |---|---|---|---|---|
 | W1.1 (#457) | Depth bands as data (light, sound, grain, smell, residents per bed) and the lantern's colour and reach by band | M | W0.1 | W1.2 |
 | W1.2 (#458) | The open-water hunter: the sixgill shark becomes a sim hunter with a long tell | M | W0.3, W1.3 (refuges) | W1.4 |
-| W1.3 (#459) | **Rock batch 1:** the open-water refuges W0.3 found missing, the lower canyon (slump dam, narrows lock, vent field) and every bedrock frame phases 3 to 5 need | M | W0.3, W1.1 | W2.2 |
-| W1.4 (#460) | Keys, gate, tether and loop on the lower canyon (no rock) | M | W1.3 | W2.1 |
+| W1.3 (#459) | The open-water refuges W0.3 found missing (coral clumps and crevices: data, no rock if possible) | M | W0.3, W1.1 | W2.2 |
+| W1.3b (#487) | **Rock batch 1:** the lower canyon east of Coral Rise (slump dam, narrows lock, vent field) and every bedrock frame phases 3 to 5 need | M | W1.3 | W1.2 |
+| W1.4 (#460) | Keys, gate, tether and loop on the lower canyon (no rock) | M | W1.3b | W2.1 |
 
 **Milestone 1 gate: the first open-water crossing (W1.2 PR is a gate).** A human plays the preview and judges:
 - Cross the canyon from the doorstep to the far rim. Does the open water feel exposed? Is the shark's warning
@@ -154,7 +166,7 @@ existing gates hold for every ability kit. Human gate: none (no feel change).
 ### Phase 3: sediment pockets and burrow mouths
 | ID | Package | Size | Needs | Parallel with |
 |---|---|---|---|---|
-| W3.0 (#464) | **Gated engine package:** the cell generator fills authored strata bodies inside bedrock frames | M | W1.3 | none |
+| W3.0 (#464) | **Gated engine package:** the cell generator fills authored strata bodies inside bedrock frames | M | W1.3b | none |
 | W3.1 (#465) | Pockets and burrow mouths as level data and rules; hunters cannot enter tunnels | M | W3.0 | none |
 | W3.2 (#466) | The home burrow and its clam beds: the first burrow (teach) | M | W3.1 | W3.3 |
 | W3.3 (#467) | The mantis's burrow mouth and the bone hall, the first chamber | M | W3.1 | W3.2 |
@@ -195,7 +207,7 @@ milestone 4.
 | A dig never bypasses a gate | `dig_gates.rs` (extend) | W3.1 |
 | Every pocket has two or more exits within a bounded length | `world_shape.rs` | W0.3, W3.1 |
 | Tunnels contain no wandering hunters | `world_shape.rs` | W0.3, W3.1 |
-| Open water: a refuge within 600 units; hunter tell at least 2.5 s | `world_shape.rs`, `open_water.rs` | W0.3, W1.2 |
+| Open water: a visible refuge within 900 units; hunter tell at least 3 s | `world_shape.rs`, `open_water.rs` | W0.3, W1.2 |
 | Chamber prize visible from the door within 800 units; retreat within 6 s | `world_shape.rs` | W0.3, W3.3 |
 | Round-trip budgets | `dive_budget.rs` | W1.4, W4.2 |
 | Strain never changes movement | `strain.rs` | W2.1 |
