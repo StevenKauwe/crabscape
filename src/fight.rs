@@ -248,7 +248,9 @@ fn show_trail(
 /// the crab: what to do about it.
 fn hint(kind: Kind) -> Option<&'static str> {
     match kind {
-        Kind::Snapper => Some("Snapping shrimp send a floor shock.\nJUMP or DODGE through it."),
+        Kind::Snapper => Some(
+            "Snapping shrimp send a floor shock. JUMP or DODGE.\nAfter repeated snaps, a lowered claw gives a longer opening.",
+        ),
         Kind::Mantis => Some("A mantis holds still before it strikes.\nTap GUARD then to parry."),
         Kind::Moray => Some("A moray coils before its bite.\nDODGE, or tap GUARD to parry."),
         Kind::Octopus => Some("Octopus: DODGE the pounce and web.\nGUARD its reaching arm tips."),
