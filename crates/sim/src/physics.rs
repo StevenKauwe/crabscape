@@ -55,7 +55,7 @@ pub struct Controls {
     pub dig_held: bool,
     /// Dig upward, independently of jumping.
     pub dig_up: bool,
-    /// Is down held? (Climbs down kelp or coral; so does holding dodge.)
+    /// Is down held? Descends a climb, or turns edge-on while sinking in clear water.
     pub down: bool,
     /// Was the crusher (smash) pressed since the last step?
     pub smash_pressed: bool,
@@ -773,8 +773,26 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         let bisector = m.water_angle + std::f32::consts::FRAC_PI_4;
         6.0 * libm::sinf(bisector) * (libm::cosf(bisector) - std::f32::consts::FRAC_1_SQRT_2)
     };
-    m.water_spin =
-        (m.water_spin + (9.0 * turn + restoring - 2.0 * m.water_spin) * dt).clamp(-3.0, 3.0);
+    // Down selects the existing nose-down posture. Manual turns, paddles,
+    // climbing and excavation retain their existing input priority.
+    let down_dive = c.down
+        && !c.dig_up
+        && !c.jump_held
+        && !c.jump_pressed
+        && !m.stroke_queued
+        && m.vel.y <= 0.0
+        && (!turning || c.walk.abs() <= 0.1)
+        && m.can_turn_in_water(level, t, c);
+    let angular_accel = if down_dive {
+        let error = (-std::f32::consts::FRAC_PI_2 - m.water_angle + std::f32::consts::PI)
+            .rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        crate::tuning::DOWN_DIVE_TURN_STIFFNESS * error
+            - crate::tuning::DOWN_DIVE_TURN_DAMPING * m.water_spin
+    } else {
+        9.0 * turn + restoring - 2.0 * m.water_spin
+    };
+    m.water_spin = (m.water_spin + angular_accel * dt).clamp(-3.0, 3.0);
     m.water_angle = (m.water_angle + m.water_spin * dt + std::f32::consts::PI)
         .rem_euclid(std::f32::consts::TAU)
         - std::f32::consts::PI;

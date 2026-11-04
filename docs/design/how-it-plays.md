@@ -36,6 +36,12 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
 - **Dive and flip in the water.** Pushing a way while sinking tilts the crab into a dive: streamlined, it sinks a
   little faster and moves across a little quicker. Dodge in the water is a flip, a quick somersault (a flourish:
   it doesn't carry the crab further, so the trench and the cliff stay fair) until **broad paddles** make it a dash.
+  Hold **down** while sinking in clear water to turn fully nose-down for a faster descent: S / Down on a keyboard,
+  stick or D-pad down on a controller, or pull the phone's TURN stick down. The stick reads DIVE while aimed down.
+  This selects the existing low-drag posture, without adding thrust or shrinking the collision body. Releasing
+  keeps the settled posture; a manual turn still steers it and JUMP still paddles upward with the usual stamina
+  cost. At the bed the action stick digs, and on a stalk down descends the climb. The drag model and turn timing
+  are gameplay abstractions, not measured crab hydrodynamics.
 - **Climb kelp and coral.** In the water, press jump while touching a kelp stalk or a coral to grip it instead of
   stroking, or keep jump held while steering into its reach after a paddle. A kick off stays free even if jump
   remains held. With the walking legs (no stamina): hold jump to climb up, hold down (or dodge) to climb down, let go of

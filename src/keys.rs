@@ -17,7 +17,7 @@ pub(crate) const KEYS: [(&str, &str); 16] = [
     ("A D / Left Right", "walk"),
     ("W / Up / K", "jump or paddle; hold to climb"),
     ("Shift J + a way", "dodge; hold it: sprint"),
-    ("S / Down", "climb down kelp or coral"),
+    ("S / Down", "dive in water; descend a climb"),
     ("Right click / E L", "smash; hold to charge"),
     ("Left click / Q O", "jab with the cutter"),
     ("F I", "guard; tap before a blow: parry"),

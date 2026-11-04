@@ -17,6 +17,10 @@
 //! Fighting numbers are in *ticks* (120 = 1 s), as in the combat spec
 //! (`docs/design/creatures/README.md`), so a window can be tried tick by tick.
 
+// Direct descending posture: a damped turn, never an extra downward force.
+pub(crate) const DOWN_DIVE_TURN_STIFFNESS: f32 = 18.0;
+pub(crate) const DOWN_DIVE_TURN_DAMPING: f32 = 7.0;
+
 // Repeated-snap recovery is a game rhythm, not measured shrimp exhaustion.
 pub(crate) const SNAPPER_SNAP_LIMIT: u8 = 5;
 pub(crate) const SNAPPER_SNAP_WINDOW: u16 = 10 * 120;

@@ -288,6 +288,10 @@ fn solid_ground_quickly_rests_the_paddle_legs() {
 /// Start standing at (`x`, `y`) with `upgrades` extra strokes (rested), jump
 /// and swim straight up as hard as possible. Did the crab eat an egg?
 fn reaches_an_egg(x: f32, y: f32, upgrades: u32) -> bool {
+    reaches_an_egg_with_down(x, y, upgrades, false)
+}
+
+fn reaches_an_egg_with_down(x: f32, y: f32, upgrades: u32, down: bool) -> bool {
     let script = format!("start x={x} y={y}\n{}", swim_script(4));
     let replay = Replay::parse(&script).unwrap();
     let mut sim = sim_a(replay.start);
@@ -297,7 +301,9 @@ fn reaches_an_egg(x: f32, y: f32, upgrades: u32) -> bool {
     let mut playback = replay.playback();
     let mut ate = false;
     for _ in 0..ticks(4.0) {
-        sim.set_controls(PlayerId(0), playback.next_controls());
+        let mut controls = playback.next_controls();
+        controls.down = down;
+        sim.set_controls(PlayerId(0), controls);
         sim.tick();
         ate |= sim.crabs()[0].events.ate;
     }
@@ -324,6 +330,18 @@ fn each_egg_needs_the_strokes_the_eggs_before_it_give() {
         }
     }
     each_egg_can_be_reached_with_the_strokes_the_eggs_before_it_give();
+}
+
+#[test]
+fn holding_down_does_not_bypass_an_egg_gate_or_block_its_paddles() {
+    let eggs = crabsim::Level::test_level().eggs;
+    for (k, (egg, top)) in eggs.iter().zip([150.0, 330.0, 330.0]).enumerate() {
+        let k = k as u32;
+        assert!(reaches_an_egg_with_down(egg.x, top, k, true));
+        if k > 0 {
+            assert!(!reaches_an_egg_with_down(egg.x, top, k - 1, true));
+        }
+    }
 }
 
 /// Standing under each egg on its perch, with the strokes the eggs before
