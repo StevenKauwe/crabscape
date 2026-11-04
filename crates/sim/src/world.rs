@@ -1531,7 +1531,7 @@ impl Sim {
         {
             return None;
         }
-        let half_height = crab.mover.height(&self.tuning) * 0.5;
+        let half_height = crab.mover.material_half_height(&self.tuning);
         let half_width = crab.mover.half_width(&self.tuning);
         let center = crab.mover.pos + Vec2::Y * half_height;
         if !center.is_finite() || !half_width.is_finite() || !half_height.is_finite() {
@@ -1611,7 +1611,7 @@ impl Sim {
         {
             return None;
         }
-        let half_height = crab.mover.height(&self.tuning) * 0.5;
+        let half_height = crab.mover.material_half_height(&self.tuning);
         let half_width = crab.mover.half_width(&self.tuning);
         let center = crab.mover.pos + Vec2::Y * half_height;
         if !center.is_finite() || !half_width.is_finite() || !half_height.is_finite() {
@@ -1975,7 +1975,7 @@ impl Sim {
                 .filter(|c| !c.remote)
                 .map(|c| {
                     let m = &c.mover;
-                    let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
+                    let center = m.pos + Vec2::Y * m.material_half_height(&self.tuning);
                     let (x, y) = cells.local_cell(center.x, center.y);
                     (
                         c.id,
@@ -1997,7 +1997,7 @@ impl Sim {
                         .collect(),
                 );
                 let m = &mut crab.mover;
-                let center = m.pos + Vec2::Y * (m.height(&self.tuning) * 0.5);
+                let center = m.pos + Vec2::Y * m.material_half_height(&self.tuning);
                 if cells.contains_world(center.x, center.y) {
                     let (x, y) = cells.local_cell(center.x, center.y);
                     cells.set_game_crab(

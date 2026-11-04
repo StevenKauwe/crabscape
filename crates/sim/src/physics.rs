@@ -352,6 +352,14 @@ impl Mover {
         t.body_height * self.grown(t)
     }
 
+    /// Material reservations round their half-height to whole cells.
+    /// Use the same rounded height for their center so the cavity bottom
+    /// stays at the feet instead of intruding into supporting bedrock.
+    pub(crate) fn material_half_height(&self, t: &Tuning) -> f32 {
+        let cell = crate::underwater::GAME_CELL;
+        (self.height(t) * 0.5 / cell).ceil() * cell
+    }
+
     /// In open water the dig stick turns the shell. During excavation the
     /// feet can be off the floor while the crab is still braced in its cut.
     pub fn can_turn_in_water(&self, level: &Level, t: &Tuning, c: &Controls) -> bool {

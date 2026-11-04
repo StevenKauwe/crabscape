@@ -245,7 +245,9 @@ fn terrain_at_height(level: &crate::Level, wx: f32, cell_y: i32, floor: f32) -> 
     }
     // A deep sand pocket under the rubble cap permits a real excavated
     // bypass. Its rock floor leaves room for the crab and displaced grains.
-    let sediment_depth = if (9850.0..10400.0).contains(&wx) {
+    let sediment_depth = if let Some(depth) = crate::level::coral_rise::sediment_depth(wx, floor) {
+        depth
+    } else if (9850.0..10400.0).contains(&wx) {
         240.0
     } else {
         100.0

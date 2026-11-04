@@ -16,6 +16,7 @@ use bevy_math::{Rect, Vec2};
 use crate::enemy::Kind;
 use crate::tuning::TideTuning;
 
+pub(crate) mod coral_rise;
 mod exploration;
 
 /// Where the crab starts (its feet), if there is no save.
@@ -522,6 +523,7 @@ impl Level {
             max_x: 8800.0,
         };
         exploration::extend(&mut level);
+        coral_rise::shape(&mut level);
         level
     }
 
@@ -637,7 +639,8 @@ mod tests {
         assert_eq!(level.floor_height(300.0), 0.0); // flat start
         assert!((level.floor_height(670.0) - 55.0).abs() < 0.01); // half-way up the slope
         assert_eq!(level.floor_height(1450.0), -260.0); // bottom of the trench
-        assert_eq!(level.floor_height(level.max_x + 100.0), -2200.0); // beyond the far rim
+        assert_eq!(level.floor_height(17150.0), -2800.0); // half-way up the cavern bank
+        assert_eq!(level.floor_height(level.max_x + 100.0), -2600.0); // beyond the outer bank
     }
 
     #[test]
