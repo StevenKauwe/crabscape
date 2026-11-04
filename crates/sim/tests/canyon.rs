@@ -114,7 +114,8 @@ fn still_water() -> Tuning {
 /// The canyon's places, from the level.
 const DOORSTEP: (f32, f32, f32) = (5640.0, 5900.0, -1500.0);
 const SHELF: (f32, f32, f32) = (5901.0, 6150.0, -3400.0);
-const FLOOR: (f32, f32, f32) = (6151.0, 7900.0, -9400.0);
+// The floor runs to the foot of the far wall's face, which stands out over it.
+const FLOOR: (f32, f32, f32) = (6151.0, 7700.0, -9400.0);
 const FAR_RIM: (f32, f32, f32) = (7901.0, 8800.0, -1900.0);
 
 /// A jump and every stroke, pressed on the rhythm, starting at `at` s.
@@ -196,7 +197,7 @@ fn the_shelf_has_a_rest_crevice_at_its_back() {
 fn in_still_water_nothing_gets_a_crab_off_the_canyon_floor() {
     // With every stroke, from anywhere along the floor, swimming either way:
     // the floor is the only place it ever stands.
-    for x in [6200.0, 6600.0, 7000.0, 7400.0, 7850.0] {
+    for x in [6200.0, 6600.0, 7000.0, 7400.0, 7650.0] {
         for way in ["left", "right", "stop"] {
             let script = format!("start x={x} y=-9400\nt=0 walk={way}{}", swim(0.2, 4));
             let r = run_with(still_water(), &script, 6.0, 4);
@@ -377,7 +378,7 @@ fn a_crab_on_the_canyon_floor_can_always_get_out() {
     // no strokes: out of the canyon and back on the far basin's floor
     // within a minute and a half. Walking into the near wall's upwelling is
     // the whole trick; no waiting for the flood.
-    for x in [6200.0, 6700.0, 7100.0, 7500.0, 7850.0] {
+    for x in [6200.0, 6700.0, 7100.0, 7500.0, 7650.0] {
         for wait in [0.0, 12.0, 30.0, 38.0, 48.0] {
             match get_out(x, wait, 90.0) {
                 Ok(took) => println!("from {x} after {wait} s: out in {took:.1} s"),
@@ -399,11 +400,36 @@ fn the_fifth_egg_is_on_a_shelf_only_the_flood_reaches() {
     });
     assert!(eaten, "the flood reaches the egg at {egg}");
     // In still water, with every stroke, from the floor below: never.
-    for x in [7200.0, 7500.0, 7850.0] {
+    for x in [7200.0, 7500.0, 7650.0] {
         let script = format!("start x={x} y=-9400\nt=0 walk=right{}", swim(0.2, 4));
         let r = run_with(still_water(), &script, 6.0, 4);
         assert!(!r.sim.crabs()[0].eaten[4]);
     }
+}
+
+#[test]
+fn the_fifth_egg_sits_in_a_hidden_cave_cut_into_the_far_wall() {
+    // Players read a ledge sticking out of a wall as "something's up
+    // there" (#304, #305): the fifth egg's place is a cave in the wall's
+    // face instead, drawn as rock until a bright lantern comes near.
+    let level = crabsim::Level::test_level();
+    let egg = level.eggs[4];
+    let cave = *level
+        .secrets
+        .iter()
+        .find(|s| s.contains(egg))
+        .expect("the egg is inside a hidden place");
+    let solid = |p: Vec2| level.solids().any(|s| s.contains(p));
+    assert!(!solid(egg), "the cave is open inside");
+    let face = cave.min.x;
+    for y in [cave.min.y - 40.0, cave.max.y + 40.0, -9000.0, -2500.0] {
+        assert!(solid(Vec2::new(face + 5.0, y)), "the face is wall at {y}");
+        assert!(!solid(Vec2::new(face - 5.0, y)), "nothing juts out at {y}");
+    }
+    // Room for the biggest crab to sit inside.
+    let t = crabsim::Tuning::default();
+    assert!(cave.height() > t.body_height * t.moult.most_size + 40.0);
+    assert!(cave.width() > 2.0 * t.body_half_width * t.moult.most_size);
 }
 
 #[test]
