@@ -311,6 +311,27 @@ fn skills_grow_only_on_the_crabs_own_device() {
 }
 
 #[test]
+fn a_proving_moment_is_the_crabs_own_and_friends_see_its_feat_ready() {
+    // The guest climbs out of the pit in one go on the guest's device: the
+    // proof (and so its ready feat) is the guest's, the host learns it from
+    // the guest's updates, and the host's own crab proves nothing.
+    let bottom = Level::test_level().floor_height(3500.0);
+    let mut g = game(Vec2::new(3500.0, bottom), FakeLink::steady(LAG), |_| {});
+    play(
+        &mut g,
+        "",
+        "t=0 jump; t=0.2 release; t=0.3 jump",
+        ticks(60.0),
+        |_| {},
+    );
+    let proven = g.guest.crab(GUEST).unwrap().mover.proven.clone();
+    assert_eq!(proven, vec![crabsim::Skill::Climbing]);
+    assert_eq!(g.host.crab(GUEST).unwrap().mover.proven, proven);
+    assert!(g.host.crab(HOST).unwrap().mover.proven.is_empty());
+    assert!(g.guest.crab(HOST).unwrap().mover.proven.is_empty());
+}
+
+#[test]
 fn a_net_cut_by_one_crab_is_cut_for_everyone() {
     let at = |sim: &Sim| {
         let net = sim.level.nets[0].rect;

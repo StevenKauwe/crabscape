@@ -8,7 +8,9 @@
 
 use bevy_math::Vec2;
 use crabsim::replay::ticks;
-use crabsim::{Controls, Feel, Hit, PlayerId, Replay, SPAWN, STEP, Shelter, Sim, Tuning, play};
+use crabsim::{
+    Controls, Feel, Hit, PlayerId, Replay, SPAWN, STEP, Shelter, Sim, Skill, Tuning, play,
+};
 
 /// A world with one crab at `start`, on preset A's fighting numbers (the
 /// base numbers these rules were written against; the game plays G, which
@@ -1906,6 +1908,28 @@ fn a_parry_staggers_the_attacker_and_opens_a_counter() {
     );
     let lowest = twice.enemy.iter().map(|e| e.3).fold(40.0, f32::min);
     assert_eq!(lowest, 40.0 - 24.0 - 12.0);
+}
+
+#[test]
+fn beating_a_creature_with_a_counter_proves_the_fighter() {
+    // A proving moment (`crabsim::moult`): the fighting feat is ready at
+    // once, at Fighting level 1-2, and said with the note.
+    let h = impact_tick();
+    let base = format!("@{} parry", h - 6);
+    let weak = |t: &mut Tuning| t.fixture.vitals.health = 20.0;
+    let d = duel_with(weak, 240.0, &format!("{base}; @{} smash", h + 20), 160);
+    assert_eq!(
+        d.ticks_where(|e| e.proven == Some(Skill::Fighting)).len(),
+        1
+    );
+    let m = &d.sim.crabs()[0].mover;
+    assert!(m.level(Skill::Fighting, &d.sim.tuning) < d.sim.tuning.moult.feat_level);
+    assert!(m.feat_ready(Skill::Fighting, &d.sim.tuning));
+    // Beaten by ordinary blows (no parry first): nothing proven.
+    let weaker = |t: &mut Tuning| t.fixture.vitals.health = 10.0;
+    let d = duel_with(weaker, 240.0, &format!("@{} smash", h + 20), 160);
+    assert!(d.ticks_where(|e| e.proven.is_some()).is_empty());
+    assert!(d.sim.crabs()[0].mover.proven.is_empty());
 }
 
 #[test]

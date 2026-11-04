@@ -104,7 +104,14 @@ fn note_events(
     if ev.fed {
         notes.push(("Ate it: shell mended".into(), YOLK));
     }
-    if let Some(skill) = ev.levelled {
+    if let Some(skill) = ev.proven {
+        // "One long climb without letting go! A feat is ready: ...", in two.
+        let note = moult::proven_note(skill);
+        let (first, then) = note.split_once("! ").unwrap_or((&note, ""));
+        notes.push((format!("{first}!"), GOLD));
+        notes.push((then.into(), GOLD));
+    }
+    if let Some(skill) = ev.levelled.filter(|&s| ev.proven != Some(s)) {
         let level = mover.level(skill, &sim.tuning);
         if mover.feat_ready(skill, &sim.tuning) {
             // "Climbing level 5! A feat is ready: moult to grow it.", in two.

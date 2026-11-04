@@ -1033,6 +1033,9 @@ fn play(
             Stinger::LevelUp
         });
     }
+    if ev.proven.is_some() {
+        mark(Stinger::FeatReady);
+    }
     if ev.hardened.is_some() {
         mark(Stinger::Hardened);
     }
