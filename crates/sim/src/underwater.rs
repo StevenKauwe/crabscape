@@ -1945,21 +1945,15 @@ impl World {
         }
         grains > 0
     }
-    pub fn new() -> Self {
-        let mut world = Self {
-            width: WIDTH,
-            height: HEIGHT,
-            cells: vec![Cell::Water; WIDTH * HEIGHT],
-            flow: vec![(0.0, 0.0); WIDTH * HEIGHT],
-            suspended: vec![0; WIDTH * HEIGHT],
-            grain: (0..WIDTH * HEIGHT)
-                .map(|i| {
-                    let x = i % WIDTH;
-                    let y = i / WIDTH;
-                    ((x * 73 + y * 151 + (x ^ y) * 17) % 248) as u8
-                })
-                .collect(),
-            pebble_owner: vec![0; WIDTH * HEIGHT],
+    fn empty_region(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            cells: vec![Cell::Water; width * height],
+            flow: vec![(0.0, 0.0); width * height],
+            suspended: vec![0; width * height],
+            grain: vec![0; width * height],
+            pebble_owner: vec![0; width * height],
             pebbles: Vec::new(),
             pebble_motion: Vec::new(),
             sand_properties: SAND_PROPERTIES,
@@ -1968,14 +1962,7 @@ impl World {
             crab_half_x: CRAB_HALF_X,
             crab_half_y: CRAB_HALF_Y,
             other_crabs: Vec::new(),
-            tracers: (0..900)
-                .map(|n| {
-                    (
-                        (12 + (n * 137) % (WIDTH - 24)) as f32,
-                        (20 + (n * 73) % (HEIGHT - 40)) as f32,
-                    )
-                })
-                .collect(),
+            tracers: Vec::new(),
             silt: Vec::new(),
             kelp: [[0.0; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
             giant_kelp: [0.0; GIANT_PARTS + 1],
@@ -1991,10 +1978,23 @@ impl World {
             pending_falls: Vec::new(),
             next_fall_sequence: 0,
             bottom_open: Vec::new(),
-        };
+        }
+    }
+    pub fn new() -> Self {
+        let mut world = Self::empty_region(WIDTH, HEIGHT);
+        world.tracers = (0..900)
+            .map(|n| {
+                (
+                    (12 + (n * 137) % (WIDTH - 24)) as f32,
+                    (20 + (n * 73) % (HEIGHT - 40)) as f32,
+                )
+            })
+            .collect();
+        let floors: Vec<_> = (0..WIDTH)
+            .map(|x| (48.0 + libm::sinf(x as f32 * 0.015) * 12.0) as usize)
+            .collect();
         for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let floor = (48.0 + libm::sinf(x as f32 * 0.015) * 12.0) as usize;
+            for (x, &floor) in floors.iter().enumerate() {
                 let rock = x == 0
                     || x == WIDTH - 1
                     || y == 0
@@ -2002,6 +2002,7 @@ impl World {
                     || y < 12
                     || ((x as i32 - 328).pow(2) / 1600 + (y as i32 - 76).pow(2) / 2720 < 1);
                 let i = y * WIDTH + x;
+                world.grain[i] = ((x * 73 + y * 151 + (x ^ y) * 17) % 248) as u8;
                 world.cells[i] = if rock {
                     Cell::Rock
                 } else if y < floor {

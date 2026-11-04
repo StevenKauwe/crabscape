@@ -861,7 +861,9 @@ fn profile_frames(host: &mut Player, guest: &mut Player) -> Result<()> {
         }
         p.b.eval(r#"(()=>{
           const c=document.getElementById('crabscape'); c.setAttribute('data-cell-work-profile','1');
-          const s=window.__cellFrameProfile={gaps:[],stalls:[],states:[],measures:[],longTasks:[],stop:false};
+          const gl=c.getContext('webgl2');const info=gl?.getExtension('WEBGL_debug_renderer_info');
+          const renderer=gl?(info?gl.getParameter(info.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER)):null;
+          const s=window.__cellFrameProfile={renderer,intervals:[],gaps:[],stalls:[],states:[],measures:[],longTasks:[],stop:false};
           const observers=[];
           for(const type of ['measure','longtask']){
             if(!PerformanceObserver.supportedEntryTypes.includes(type))continue;
@@ -875,6 +877,7 @@ fn profile_frames(host: &mut Player, guest: &mut Player) -> Result<()> {
           function frame(now){if(s.stop){observers.forEach(o=>o.disconnect());return;}
             const tick=c.getAttribute('data-cell-session-tick'),stage=c.getAttribute('data-cell-region-state');
             const state=stage+':'+c.getAttribute('data-cell-region-id')+':'+c.getAttribute('data-cell-region-revision');
+            s.intervals.push(now-previous);if(s.intervals.length>2048)s.intervals.shift();
             if(state!==lastState){s.states.push({at:now,tick,state});lastState=state;}
             if(now-previous>60)s.gaps.push({at:previous,ms:now-previous,tick,stage});
             if(tick!==lastTick){if(now-changed>75)s.stalls.push({at:changed,ms:now-changed,tick,stage});changed=now;lastTick=tick;}

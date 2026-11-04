@@ -1,7 +1,8 @@
 # Cell-compute spike, November 2026
 
-The first implemented pass reduces native simulation CPU cost by roughly
-4–6x on the measured routes. A 10x whole-game improvement is not established.
+Ordinary simulation CPU cost falls roughly 4–6x on the measured routes;
+the complete co-op window-move path falls roughly 7–9x. A 10x whole-game
+improvement is not established.
 Keep the draft playable so phone frame pacing and the changed background
 arithmetic can be tried before landing it.
 
@@ -30,6 +31,14 @@ arithmetic can be tried before landing it.
 * Co-op's presentation loop immediately retried blocked ticks in the same
   browser task. It now yields after a blocked tick, as solo play already did.
   Network messages and storage reads can then arrive before the next attempt.
+* The lobby archive's strip loader constructed the entire standalone demo
+  before discarding and replacing its grids. It now allocates an empty kernel
+  at the requested dimensions. The standalone demo's unchanged terrain is
+  sampled once per column when it is explicitly requested.
+* Region grants, move application and commits used scalar archive access:
+  each grain repeated the map/cache/COW work. Rectangle access now borrows
+  each page once. Active-array cells take precedence, clipped pages preserve
+  their other cells, and fresh terrain reuses per-column authored geometry.
 
 Water still diffuses on the fine grid in the same checkerboard order; pebbles,
 mud cohesion, suspension, entrainment, wakes, and grain movement retain their
@@ -67,6 +76,25 @@ approximately **26x** faster in the native experiment. It fills every grid
 cell, whereas gameplay updates one checkerboard color and only water. The
 microbenchmark's gain must not be reported as the complete simulation gain.
 
+`cell_coop_transition_budget` additionally exercises the actual canonical
+archive, granted kernel and ordered prepare/apply/encode/finish move protocol,
+using 384x384 regions. It separately reports each phase, complete move time
+and an SHA-256 over all encoded move outputs. The opening, far gravel and
+deep fixtures produce exactly the same move bytes as the base revision; this
+is a storage/constructor change, independent of the tide reassociation.
+
+Matched sequential native runs, 20 samples per case (milliseconds):
+
+| Co-op route | Grant, base → spike | Complete prepare/apply/encode/finish, base → spike |
+|---|---:|---:|
+| Opening | 5.135 → 0.598 | 20.733 → 2.988 |
+| Far gravel | 11.850 → 1.091 | 21.670 → 2.336 |
+| Deep | 13.986 → 1.010 | 20.708 → 2.352 |
+
+The complete move includes encoding/compression and commit validation. It
+excludes grant/extraction setup, network travel, disk latency and rendering.
+Both versions hash identical encoded move outputs for all three cases.
+
 ## Equivalence and limits
 
 Before changing the wave arithmetic, `cell_compute_digest` matched four
@@ -91,6 +119,9 @@ disjoint rectangles, preservation of absolute cell identity, reuse of the
 original allocation, and a cold clipped page causing **no active-grid
 mutation/remap** before the read completes. Existing streaming, conservation,
 checkpoint, co-op and replay tests remain the integration safeguards.
+Bulk archive tests compare every read and edit against the scalar reference
+across unaligned active/sleeping seams and negative Y, with held snapshots
+sharing the original pages. The scalar mutator is now test-only.
 
 The bundled settled terrain is rebaked and compacted using the new equations;
 startup does not settle the world synchronously. There is no save migration.
@@ -114,3 +145,8 @@ cannot grow with explored world size.
 
 This spike supplies a substantially faster CPU baseline from which to judge
 further storage changes, threading or a different simulation framework.
+
+The optional headless browser profiler records all frame intervals and the
+WebGL renderer. Its default SwiftShader acceptance mode is software rendering
+and cannot establish hardware FPS. Use `CRABSCAPE_PROFILE_GPU=1` for local
+hardware profiling; both modes use their own disposable browser profiles.

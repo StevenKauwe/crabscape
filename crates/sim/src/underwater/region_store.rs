@@ -5,6 +5,7 @@ use super::{
     *,
 };
 use std::collections::BTreeMap;
+mod bulk;
 pub(crate) mod moving;
 
 #[derive(
@@ -333,28 +334,22 @@ impl TerrainStore {
                 self.terrain.pebble_motion[target] = kernel.pebble_motion[i];
             }
         }
-        for y in 0..kernel.height {
-            for x in 0..kernel.width {
-                let i = y * kernel.width + x;
-                let local = kernel.pebble_owner[i];
-                let owner = if local == 0 {
-                    0
-                } else {
-                    lease.pebble_ids[local as usize - 1]
-                };
-                self.terrain.put_archived_cell(
-                    kernel.origin.0 + x as i32,
-                    kernel.origin.1 + y as i32,
-                    SleepingCell {
-                        cell: kernel.cells[i],
-                        flow: kernel.flow[i],
-                        suspended: kernel.suspended[i],
-                        grain: kernel.grain[i],
-                        owner,
-                    },
-                );
+        self.terrain.map_archived_region(bounds, |gx, gy, _| {
+            let i = (gy - bounds.y) as usize * kernel.width + (gx - bounds.x) as usize;
+            let local = kernel.pebble_owner[i];
+            let owner = if local == 0 {
+                0
+            } else {
+                lease.pebble_ids[local as usize - 1]
+            };
+            SleepingCell {
+                cell: kernel.cells[i],
+                flow: kernel.flow[i],
+                suspended: kernel.suspended[i],
+                grain: kernel.grain[i],
+                owner,
             }
-        }
+        });
         self.terrain
             .pebble_seeded
             .extend(kernel.pebble_seeded.iter().copied());
@@ -706,6 +701,7 @@ impl World {
         let index = (gy.rem_euclid(side) * side + gx.rem_euclid(side)) as usize;
         self.sleeping.get(&key).and_then(|c| c.cells[index])
     }
+    #[cfg(test)]
     fn put_archived_cell(&mut self, gx: i32, gy: i32, value: SleepingCell) {
         if let Some(i) = self.index_at(gx - self.origin.0, gy - self.origin.1) {
             self.cells[i] = value.cell;
@@ -746,7 +742,7 @@ impl World {
         seed: bool,
     ) -> Result<(World, Vec<u16>), StoreError> {
         let sampler = settled_seed::Sampler::new(level);
-        let mut kernel = World::new();
+        let mut kernel = World::empty_region(bounds.width, bounds.height);
         kernel.game = true;
         kernel.tick = self.tick;
         kernel.opening_edge_opened = true;
@@ -762,12 +758,6 @@ impl World {
         kernel.pebble_seeded = self.pebble_seeded.clone();
         kernel.pebbles.clear();
         kernel.pebble_motion.clear();
-        let count = bounds.width * bounds.height;
-        kernel.cells = vec![Cell::Water; count];
-        kernel.flow = vec![(0.0, 0.0); count];
-        kernel.grain = vec![0; count];
-        kernel.suspended = vec![0; count];
-        kernel.pebble_owner = vec![0; count];
         let mut pebble_ids = Vec::new();
         let mut remap = BTreeMap::new();
         for (i, p) in self.pebbles.iter().enumerate() {
@@ -795,40 +785,58 @@ impl World {
             pebble_ids.push((i + 1) as u16);
             remap.insert((i + 1) as u16, kernel.pebbles.len() as u16);
         }
-        for y in 0..bounds.height {
-            for x in 0..bounds.width {
-                let gx = bounds.x + x as i32;
-                let gy = bounds.y + y as i32;
-                let value = self.archived_cell(gx, gy).unwrap_or_else(|| {
-                    let baked = sampler.grain(gx, gy);
-                    let cell = baked.cell;
-                    SleepingCell {
-                        cell,
-                        flow: if cell == Cell::Water {
-                            ambient_current(
-                                GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL,
-                                self.tick * 4,
-                            )
-                        } else {
-                            (0.0, 0.0)
-                        },
-                        suspended: baked.suspended,
-                        grain: baked.grain,
-                        owner: 0,
-                    }
-                });
-                let i = y * bounds.width + x;
-                kernel.cells[i] = value.cell;
-                kernel.flow[i] = value.flow;
-                kernel.suspended[i] = value.suspended;
-                kernel.grain[i] = value.grain;
-                kernel.pebble_owner[i] = if value.owner == 0 {
-                    0
-                } else {
-                    *remap.get(&value.owner).ok_or(StoreError::InvalidState)?
-                };
-            }
-        }
+        let mut columns: Vec<Option<TerrainColumn>> = (0..bounds.width).map(|_| None).collect();
+        let ambient: Vec<_> = (0..bounds.height)
+            .map(|y| {
+                ambient_current(
+                    GAME_BOTTOM + ((bounds.y + y as i32) as f32 + 0.5) * GAME_CELL,
+                    self.tick * 4,
+                )
+            })
+            .collect();
+        self.visit_archived_region(bounds, |gx, gy, saved| {
+            let x = (gx - bounds.x) as usize;
+            let y = (gy - bounds.y) as usize;
+            let value = saved.unwrap_or_else(|| {
+                let baked = sampler
+                    .seed
+                    .and_then(|s| s.at(gx, gy))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        let column =
+                            columns[x].get_or_insert_with(|| TerrainColumn::new(level, gx));
+                        settled_seed::Grain {
+                            y: gy,
+                            cell: column.cell(gy),
+                            grain: initial_grain(gx, gy),
+                            suspended: 0,
+                        }
+                    });
+                let cell = baked.cell;
+                SleepingCell {
+                    cell,
+                    flow: if cell == Cell::Water {
+                        ambient[y]
+                    } else {
+                        (0.0, 0.0)
+                    },
+                    suspended: baked.suspended,
+                    grain: baked.grain,
+                    owner: 0,
+                }
+            });
+            let i = y * bounds.width + x;
+            kernel.cells[i] = value.cell;
+            kernel.flow[i] = value.flow;
+            kernel.suspended[i] = value.suspended;
+            kernel.grain[i] = value.grain;
+            kernel.pebble_owner[i] = if value.owner == 0 {
+                0
+            } else {
+                *remap.get(&value.owner).ok_or(StoreError::InvalidState)?
+            };
+            Ok::<_, StoreError>(())
+        })?;
         let translate = |(x, y): (f32, f32)| {
             (
                 x + (self.origin.0 - bounds.x) as f32,
