@@ -1144,14 +1144,14 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         };
         // The drag is against the water: in the canyon's tide the water
         // itself runs up or down, and carries the crab with it.
-        let water = level.water_at(m.pos + Vec2::Y * m.height(t) / 2.0, &t.tide);
-        let through = m.vel.y - water;
+        let water = level.water_velocity(m.pos + Vec2::Y * m.height(t) / 2.0, &t.tide);
+        let through = m.vel.y - water.y;
         // Sinking through it, a bigger crab is held back less for its
         // weight: it sinks faster. (Its legs grow with it, so a jump or a
         // stroke pushes it up as high.)
         let heavy = 1.0 + t.moult.weight * (m.grown(t) - 1.0);
         let weight = if through < 0.0 { heavy } else { 1.0 };
-        let relative = Vec2::new(m.vel.x, through);
+        let relative = Vec2::new(m.vel.x - water.x, through);
         let resisted = water_resistance(relative, m.water_angle);
         let amount = (drag * through.abs() * dt / weight).min(0.5);
         m.vel -= resisted * amount;

@@ -480,9 +480,10 @@ fn drift_snow(
     for (flake, mut tr) in &mut snow {
         let water = sim
             .level
-            .water_at(tr.translation.truncate(), &sim.tuning.tide);
-        tr.translation.y += (water * SNOW_WITH_WATER - flake.fall) * dt;
-        tr.translation.x += flake.sway * (t * 0.7 + flake.phase).sin() * dt;
+            .water_velocity(tr.translation.truncate(), &sim.tuning.tide);
+        tr.translation.y += (water.y * SNOW_WITH_WATER - flake.fall) * dt;
+        tr.translation.x +=
+            (water.x * SNOW_WITH_WATER + flake.sway * (t * 0.7 + flake.phase).sin()) * dt;
         // Wrap round: `rem_euclid` is a remainder that is never negative.
         tr.translation.x = min.x + (tr.translation.x - min.x).rem_euclid(size.x);
         tr.translation.y = min.y + (tr.translation.y - min.y).rem_euclid(size.y);

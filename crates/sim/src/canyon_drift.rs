@@ -30,8 +30,9 @@ impl DriftBody {
             return;
         }
         let local = world.game_water_at(self.position.x, self.position.y);
-        let horizontal = local.0;
-        let vertical = level.water_at(self.position, &tuning.tide) + local.1 * 20.0;
+        let ambient = level.water_velocity(self.position, &tuning.tide);
+        let horizontal = local.0 + ambient.x / 12.0;
+        let vertical = ambient.y + local.1 * 20.0;
         let (coupling, gravity) = match self.profile {
             DriftProfile::Flat => (0.10, 0.75),
             DriftProfile::Dense => (0.025, 1.40),

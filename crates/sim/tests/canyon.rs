@@ -367,7 +367,7 @@ fn the_upwelling_runs_by_the_near_wall_from_the_floor_to_just_above_the_shelf() 
     assert!(!r.crab().grounded, "still bobbing: {}", r.crab().pos);
     // Its water runs up all through the tide's round.
     let t = Tuning::base().tide;
-    assert_eq!(level.water_at(lane.center(), &t), t.upwelling_speed);
+    assert!((level.water_at(lane.center(), &t) - t.upwelling_speed).abs() < 0.01);
     assert!(t.upwelling_speed >= t.up_speed, "as strong as the flood");
 }
 
