@@ -394,8 +394,8 @@ fn survey_from(start: Node, kit: Kit, stop: impl Fn(&Node) -> bool, budget: usiz
         for mv in moves(here.mover(), kit.eggs) {
             if let Some(n) = play(&here, next, mv) {
                 let k = key(n.mover());
-                if !seen.contains_key(&k) {
-                    seen.insert(k, nodes.len());
+                if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(k) {
+                    e.insert(nodes.len());
                     nodes.push(n);
                 }
             }
