@@ -278,6 +278,9 @@ impl Sim {
         let Some(crab) = self.crab_mut(id) else {
             return false;
         };
+        crab.strain = 0.0;
+        crab.scars = 0;
+        crab.adapt_deeper(t.strain.moult_depth);
         let m = &mut crab.mover;
         m.well_fed = 0;
         m.soft = t.moult.soft_ticks;

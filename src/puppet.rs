@@ -507,6 +507,7 @@ impl Plugin for PuppetPlugin {
                 restyle,
                 animate,
                 shell_look,
+                show_pressure_scars,
                 show_walking_legs,
                 halo_depth,
                 into_the_dark,
@@ -988,6 +989,22 @@ fn build_puppets(
                 ShellOf(crab),
             ))
             .id();
+        // Ink stays on the shell, below anything carried on its dome.
+        for index in 0..8 {
+            for segment in 0..3 {
+                commands.spawn((
+                    ChildOf(dorsal),
+                    PressureScar {
+                        crab,
+                        index,
+                        segment,
+                    },
+                    Sprite::from_color(Color::srgb(0.055, 0.035, 0.03), Vec2::ONE),
+                    Transform::default(),
+                    Visibility::Hidden,
+                ));
+            }
+        }
         // The claws' resting angles (merus, carpus, palm), for the reach
         // along a blow struck inside a turn.
         let reach = sides.map(|s| {
@@ -1109,6 +1126,7 @@ fn animate(
         let vy = mover.vel.y;
         a.time += dt;
         let t = a.time;
+        let pressure = sim.crab(*id).map_or(0.0, pressure_tremor);
 
         // --- React to what happened this frame --------------------------
         if ev.jumped {
@@ -1445,7 +1463,7 @@ fn animate(
                     &mut parts,
                     limb.0[2],
                     -0.5 * carpus - s * 0.2 * fold + s * tremble,
-                    Vec2::ZERO,
+                    pressure_offset(pressure, t, side * 4 + n),
                 );
             }
 
@@ -1459,7 +1477,12 @@ fn animate(
                 Vec2::ZERO,
             );
             set(&mut parts, paddle.0[1], -s * (1.9 * stroke), Vec2::ZERO);
-            set(&mut parts, paddle.0[2], -s * (0.5 * stroke), Vec2::ZERO);
+            set(
+                &mut parts,
+                paddle.0[2],
+                -s * (0.5 * stroke),
+                pressure_offset(pressure, t, side * 4 + 3),
+            );
 
             // --- Claws: raised for the jump, braced on landing -------------
             let sway = 0.03 * (t * 1.7 + side as f32 * 2.0).sin();
@@ -1531,7 +1554,12 @@ fn animate(
             } else {
                 0.0
             };
-            set(&mut parts, claw.0[3], gape, Vec2::ZERO);
+            set(
+                &mut parts,
+                claw.0[3],
+                gape,
+                pressure_offset(pressure, t, 8 + side),
+            );
             if side == 1 {
                 // --- Lantern: a pendulum that always hangs down in the world.
                 // Moving pushes it back; it swings and settles.
@@ -2822,5 +2850,195 @@ mod tests {
         assert_eq!(paddle_curve(0.12), 1.0);
         assert!(paddle_curve(0.3) > 0.0 && paddle_curve(0.3) < 1.0);
         assert_eq!(paddle_curve(1.0), 0.0);
+    }
+}
+
+/// A stable three-segment ink crack, local to a crab's carapace.
+#[derive(Component)]
+struct PressureScar {
+    crab: Entity,
+    index: u8,
+    segment: usize,
+}
+
+fn scar_points(id: crabsim::PlayerId, index: u8) -> [Vec2; 4] {
+    // A stable cosmetic hash, independent of simulation randomness.
+    let seed =
+        id.0.wrapping_mul(0x9e3779b9)
+            .wrapping_add(u32::from(index).wrapping_mul(0x85ebca6b));
+    let seed = (seed ^ (seed >> 16)).wrapping_mul(0x7feb352d);
+    let x = -23.0 + f32::from((seed & 255) as u8) / 255.0 * 46.0;
+    let y = 3.0 + f32::from(((seed >> 8) & 255) as u8) / 255.0 * 7.0;
+    let bend = if seed & 0x10000 == 0 { -1.0 } else { 1.0 };
+    [
+        Vec2::new(x, y),
+        Vec2::new(x + bend * 1.5, y - 2.2),
+        Vec2::new(x + bend * 0.6, y - 3.8),
+        Vec2::new(x + bend * 2.0, y - 5.4),
+    ]
+}
+
+fn show_pressure_scars(
+    sim: Res<Sim>,
+    crabs: Query<&crabsim::PlayerId>,
+    mut scars: Query<(&PressureScar, &mut Transform, &mut Visibility)>,
+) {
+    for (scar, mut transform, mut shown) in &mut scars {
+        let crab = crabs.get(scar.crab).ok().and_then(|id| sim.crab(*id));
+        let Some(crab) = crab.filter(|c| !c.remote && scar.index < c.scars.min(8)) else {
+            *shown = Visibility::Hidden;
+            continue;
+        };
+        *shown = Visibility::Inherited;
+        let points = scar_points(crab.id, scar.index);
+        let from = points[scar.segment];
+        let to = points[scar.segment + 1];
+        let delta = to - from;
+        *transform = Transform {
+            translation: ((from + to) * 0.5).extend(-0.005),
+            rotation: Quat::from_rotation_z(delta.y.atan2(delta.x)),
+            scale: Vec3::new(delta.length(), 0.32, 1.0),
+        };
+    }
+}
+
+/// Standing/walking only. Every offset is applied to a distal puppet part.
+fn pressure_tremor(crab: &crabsim::SimCrab) -> f32 {
+    let m = &crab.mover;
+    let f = &crab.fighter;
+    if !crab.remote
+        && m.grounded
+        && !m.climbing
+        && !m.diving
+        && m.tucked == 0.0
+        && m.shelter == crabsim::Shelter::Out
+        && m.windup == 0.0
+        && m.dodge_left == 0.0
+        && m.flip_left == 0.0
+        && m.dash_left == 0.0
+        && !crab.controls.dig_held
+        && f.swing.is_none()
+        && !f.blocking
+        && f.dead.is_none()
+        && f.grabbed.is_none()
+        && f.crush.is_none()
+        && f.knocked == 0
+        && f.vitals.stagger == 0
+        && f.vitals.hitstop == 0
+    {
+        crab.strain.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+fn pressure_offset(strain: f32, time: f32, tip: usize) -> Vec2 {
+    let phase = tip as f32 * 2.399;
+    Vec2::new(
+        (time * TAU * 13.0 + phase).sin(),
+        (time * TAU * 17.0 + phase).sin(),
+    ) * (0.22 * strain)
+}
+
+#[cfg(test)]
+mod pressure_tests {
+    use super::*;
+
+    #[test]
+    fn scar_drawing_follows_each_solo_crab_and_hides_remote_scars() {
+        let mut sim = Sim::with_one_crab(Vec2::ZERO);
+        sim.add_crab(crabsim::PlayerId(1), Vec2::ZERO);
+        sim.add_remote_crab(crabsim::PlayerId(2), Vec2::ZERO);
+        let mut app = App::new();
+        let mut marks = Vec::new();
+        for id in 0..3 {
+            sim.crab_mut(crabsim::PlayerId(id)).unwrap().scars = 1;
+            let crab = app.world_mut().spawn(crabsim::PlayerId(id)).id();
+            marks.push(
+                app.world_mut()
+                    .spawn((
+                        PressureScar {
+                            crab,
+                            index: 0,
+                            segment: 0,
+                        },
+                        Transform::default(),
+                        Visibility::Hidden,
+                    ))
+                    .id(),
+            );
+        }
+        app.insert_resource(sim)
+            .add_systems(Update, show_pressure_scars);
+        app.update();
+        for (id, entity) in marks.iter().enumerate() {
+            assert_eq!(
+                *app.world().get::<Visibility>(*entity).unwrap(),
+                if id == 2 {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                }
+            );
+        }
+        app.world_mut()
+            .resource_mut::<Sim>()
+            .crab_mut(crabsim::PlayerId(0))
+            .unwrap()
+            .scars = 0;
+        app.update();
+        assert_eq!(
+            *app.world().get::<Visibility>(marks[0]).unwrap(),
+            Visibility::Hidden
+        );
+        assert_eq!(
+            *app.world().get::<Visibility>(marks[1]).unwrap(),
+            Visibility::Inherited
+        );
+    }
+
+    #[test]
+    fn cracks_are_stable_individual_and_inside_the_dome() {
+        for index in 0..8 {
+            let points = scar_points(crabsim::PlayerId(0), index);
+            assert_eq!(points, scar_points(crabsim::PlayerId(0), index));
+            assert_ne!(points, scar_points(crabsim::PlayerId(1), index));
+            for point in points {
+                assert!(point.x.abs() <= 25.0 && (-3.0..=10.0).contains(&point.y));
+            }
+        }
+    }
+
+    #[test]
+    fn tremor_is_tiny_and_yields_to_other_actions_and_remote_crabs() {
+        let mut sim = Sim::with_one_crab(Vec2::ZERO);
+        let c = sim.crab_mut(crabsim::PlayerId(0)).unwrap();
+        c.strain = 1.0;
+        assert_eq!(pressure_tremor(c), 1.0);
+        c.mover.vel.x = 200.0;
+        assert_eq!(pressure_tremor(c), 1.0);
+        for mutate in [
+            |c: &mut crabsim::SimCrab| c.remote = true,
+            |c: &mut crabsim::SimCrab| c.mover.grounded = false,
+            |c: &mut crabsim::SimCrab| c.mover.climbing = true,
+            |c: &mut crabsim::SimCrab| c.controls.dig_held = true,
+            |c: &mut crabsim::SimCrab| c.mover.dodge_left = 0.1,
+            |c: &mut crabsim::SimCrab| c.mover.tucked = 1.0,
+            |c: &mut crabsim::SimCrab| c.fighter.blocking = true,
+            |c: &mut crabsim::SimCrab| c.fighter.dead = Some(1),
+        ] {
+            let mut busy = c.clone();
+            mutate(&mut busy);
+            assert_eq!(pressure_tremor(&busy), 0.0);
+        }
+        for tick in 0..120 {
+            for tip in 0..10 {
+                let time = tick as f32 / 120.0;
+                let offset = pressure_offset(1.0, time, tip);
+                assert!(offset.length() <= 0.32);
+                assert_eq!(pressure_offset(0.0, time, tip), Vec2::ZERO);
+                assert_eq!(pressure_offset(0.5, time, tip), offset * 0.5);
+            }
+        }
     }
 }

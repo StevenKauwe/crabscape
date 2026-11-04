@@ -225,3 +225,16 @@ width and height do not shrink. A blocked sweep retains the old safe position.
 Rock descent checks footing on the body's exposed side, and an away press steps
 off; jump with a direction still kicks off. Kelp and coral keep their existing
 shuffle and grip behavior. No new control, gear gate or saved state is introduced.
+
+### Pressure on the body
+Below its adapted depth, the crab slowly develops fine ink cracks on its carapace and a tiny,
+fast tremor in its leg and claw tips while standing or walking. The starting boundary is world
+y = −3600, just below the canyon shelf. The first scar arrives after about 30 seconds, full
+strain after 120 seconds, and strain eases away over 45 seconds above the boundary. Each upward
+crossing of one-quarter strain adds a scar, up to eight. Scars remain through recovery and death
+until a successful moult clears them and strain, and extends tolerance another 600 downward
+units. Deep food will use the same adaptation hook when W1.4 lands. Movement, combat and stamina
+are independent of strain. There is no pressure display or screen effect. TMAO inspiration comes
+from `ocean-shaped.md` row 13; shell cracking, tremor and the adaptation cadence are game choices
+whose biological mechanisms are not verified. Remote crabs have no pressure drawing yet, and
+character-save persistence is deferred pending the permitted progression/save integration.
