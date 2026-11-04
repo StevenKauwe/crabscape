@@ -27,7 +27,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ $# -eq 0 ]; then
-  set -- crab snapping-shrimp mantis-shrimp snowflake-moray common-octopus space-monkey pizza-crab queen-triggerfish
+  set -- crab snapping-shrimp mantis-shrimp snowflake-moray common-octopus space-monkey pizza-crab queen-triggerfish alarm-jelly
 fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

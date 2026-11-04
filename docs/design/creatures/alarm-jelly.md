@@ -55,3 +55,58 @@ Key poses: **drift** (bell open, tentacles curled outward); **pulse** (bell cont
 ## Sources
 - [MBARI] MBARI, "Deep-sea crown jelly". <https://www.mbari.org/animal/deep-sea-crown-jelly/>
 - [WP-AW] Wikipedia, "Atolla wyvillei" (start point). <https://en.wikipedia.org/wiki/Atolla_wyvillei>
+
+## First playable slice (2026-11-04)
+
+One optional jelly drifts above the eastern Silt-to-Coral return at (15180, -2830).
+The lower route passes below its 420-unit trailing tentacle, including a grown
+crab's downhill return. Existing coral and upper shelves provide an approach to
+the bell; no extra stroke, pickup, terrain or progression gate is added.
+
+A bell bump or ordinary claw strike starts a three-second blue pinwheel, then a
+five-second refractory period. The nearest eligible moray within 900 units and
+800 units of its own refuge investigates the alarm's original position along a
+clear, bounded route. It returns to ordinary AI after three seconds. Committed
+tells, bites, grabs, fleeing and hiding are not interrupted. This is a deliberately
+tuned reuse of an existing hunter, **not** a claim that snowflake morays are
+natural Atolla predators, and it does not implement enemies eating a pursuer.
+
+Tentacle contact applies the existing 2 damage/second venom for two seconds.
+Guard blocks it; a successfully dodged brush consumes the same two-second contact
+window, preventing a persistent tentacle from immediately hitting again after the
+dodge ends. Each crab judges its own damage. Bell hit messages and the existing
+Enemy snapshots carry the alarm; the hunter uses its existing timed Approach and
+swim goal, with no additional saved fields. No new unbounded search or population.
+
+The 94-unit red bell, coronal groove, marginal fringe and six visible trailing
+links use the existing Rust rig/oil pipeline. Collision and animation share the
+trailing polyline; blue rim points and an expanding ring make the alarm distinct.
+The bell uses the usual lantern lighting; this slice adds no blinding status.
+
+Scope deliberately deferred: the proposed 10-health kill/hurt/death behavior,
+harvesting, enemy-on-enemy alarm predation, and a general light-sensing system.
+This first environmental jelly responds to hits without health loss and cannot be
+crusher-held or eaten. The implemented timings, sting severity, bounded drift,
+420-unit tail and habitat spacing are game choices. MBARI's opened account supports
+red camouflage, midwater habitat, a long tentacle in most Atolla, and a blue alarm
+that attracts larger predators; it does not establish crab-sized sting severity or
+this particular hunter's response. Species is left at *Atolla* spp., not the
+long-tentacle-lacking *A. reynoldsi*.
+
+Existing authoritative saved enemy lists remain authoritative: this appended
+habitat appears in fresh populated worlds, and is not injected into an already
+saved roster. No reset or world migration is performed. Prior enemy IDs and enum
+variants retain their order.
+
+Headless demonstration (ordinary approach with guard, then leave below):
+
+```sh
+cargo crabsim --start 15080,-2850 --seconds 4 --every 30 \
+  --script 't=0 spawn=alarm-jelly@15180,-2830 spawn=moray@15220,-3460 walk=right block' \
+  --dump /tmp/alarm-jelly-demo.jsonl
+```
+
+The focused cellular scenarios additionally prove normal/max safe lower return,
+guarded bell approach drawing the actual local hunter upward, bounded expiry,
+nearest/range/obstruction behavior, serialized continuation and guest-hit/host
+investigation with defender-owned sting effects.

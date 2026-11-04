@@ -1,0 +1,205 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/alarm-jelly/alarm-jelly-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "alarm-jelly-atlas.png",
+ "atlas_size": [
+  1024,
+  256
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  162.6,
+  1020.0
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "bell",
+   "parent": null,
+   "pivot": [
+    163.2,
+    180.0
+   ],
+   "bbox": [
+    53.9,
+    93.3,
+    217.4,
+    220.7
+   ],
+   "rect": [
+    3,
+    3,
+    131,
+    133
+   ],
+   "z": 0,
+   "members": [
+    "fringe-0",
+    "fringe-1",
+    "fringe-2",
+    "fringe-3",
+    "fringe-4",
+    "fringe-5",
+    "fringe-6",
+    "fringe-7",
+    "fringe-8",
+    "fringe-9",
+    "bell",
+    "bell-stomach",
+    "bell-groove-0",
+    "bell-groove-1",
+    "bell-groove-2",
+    "bell-groove-3",
+    "bell-groove-4",
+    "bell-groove-5",
+    "bell-groove-6",
+    "bell-groove-7",
+    "bell-groove-8",
+    "bell-coronal"
+   ]
+  },
+  {
+   "name": "trail-0",
+   "parent": null,
+   "pivot": [
+    163.2,
+    180.0
+   ],
+   "bbox": [
+    157.2,
+    174.0,
+    12.0,
+    152.0
+   ],
+   "rect": [
+    137,
+    3,
+    8,
+    92
+   ],
+   "z": 22,
+   "members": [
+    "trail-0"
+   ]
+  },
+  {
+   "name": "trail-1",
+   "parent": null,
+   "pivot": [
+    163.2,
+    320.0
+   ],
+   "bbox": [
+    157.2,
+    314.0,
+    12.0,
+    152.0
+   ],
+   "rect": [
+    148,
+    3,
+    8,
+    92
+   ],
+   "z": 23,
+   "members": [
+    "trail-1"
+   ]
+  },
+  {
+   "name": "trail-2",
+   "parent": null,
+   "pivot": [
+    163.2,
+    460.0
+   ],
+   "bbox": [
+    157.2,
+    454.0,
+    12.0,
+    152.0
+   ],
+   "rect": [
+    159,
+    3,
+    8,
+    92
+   ],
+   "z": 24,
+   "members": [
+    "trail-2"
+   ]
+  },
+  {
+   "name": "trail-3",
+   "parent": null,
+   "pivot": [
+    163.2,
+    600.0
+   ],
+   "bbox": [
+    157.2,
+    594.0,
+    12.0,
+    152.0
+   ],
+   "rect": [
+    170,
+    3,
+    8,
+    92
+   ],
+   "z": 25,
+   "members": [
+    "trail-3"
+   ]
+  },
+  {
+   "name": "trail-4",
+   "parent": null,
+   "pivot": [
+    163.2,
+    740.0
+   ],
+   "bbox": [
+    157.2,
+    734.0,
+    12.0,
+    152.0
+   ],
+   "rect": [
+    181,
+    3,
+    8,
+    92
+   ],
+   "z": 26,
+   "members": [
+    "trail-4"
+   ]
+  },
+  {
+   "name": "trail-5",
+   "parent": null,
+   "pivot": [
+    163.2,
+    880.0
+   ],
+   "bbox": [
+    157.2,
+    874.0,
+    12.0,
+    152.0
+   ],
+   "rect": [
+    192,
+    3,
+    8,
+    92
+   ],
+   "z": 27,
+   "members": [
+    "trail-5"
+   ]
+  }
+ ]
+}

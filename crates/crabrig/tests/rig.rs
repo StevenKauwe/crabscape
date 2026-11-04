@@ -371,3 +371,27 @@ fn triggerfish_rig_and_game_atlas_match_the_rust_puppet() {
         include_bytes!("../../../assets/creatures/queen-triggerfish-atlas.png")
     );
 }
+
+#[test]
+fn alarm_jelly_rig_and_atlas_match_the_visible_bell_and_six_links() {
+    let svg = include_str!("../../../art/creatures/alarm-jelly/alarm-jelly-parts.svg");
+    assert_eq!(crabrig::alarm_jelly::parts_svg(), svg);
+    let export = crabrig::export::export(
+        svg,
+        &crabrig::export::Options {
+            zoom: 1.0,
+            source_name: "art/creatures/alarm-jelly/alarm-jelly-parts.svg".into(),
+            name: "alarm-jelly".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(export.parts, 7);
+    assert_eq!(
+        export.json,
+        include_str!("../../../assets/creatures/alarm-jelly-parts.json")
+    );
+    assert_eq!(
+        export.atlas_png,
+        include_bytes!("../../../assets/creatures/alarm-jelly-atlas.png")
+    );
+}

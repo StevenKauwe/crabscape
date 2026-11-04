@@ -38,6 +38,9 @@ fn tri(a: &str, b: &str, c: &str) -> Mat {
 
 pub fn normal() -> Palette {
     let mut p = Palette::new();
+    p.insert("jellyRed", tri("#E87570", "#A83143", "#4A162B"));
+    p.insert("jellyDark", tri("#932B4A", "#59152E", "#230B20"));
+    p.insert("jellyRim", Mat::One("#F29492".into()));
     p.insert("triggerBody", tri("#B0BC89", "#819D83", "#42656B"));
     p.insert("triggerGold", tri("#F1D776", "#DDB64A", "#AC7930"));
     p.insert("triggerFin", tri("#77ADB0", "#497B87", "#294C61"));

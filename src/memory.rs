@@ -361,6 +361,7 @@ fn ghost_colour(kind: Kind) -> Color {
         Kind::Moray => Color::srgb(0.75, 0.73, 0.66),
         Kind::Octopus => Color::srgb(0.62, 0.42, 0.36),
         Kind::Monkey => Color::srgb(0.50, 0.40, 0.30),
+        Kind::AlarmJelly => Color::srgb(0.55, 0.12, 0.22),
         Kind::Triggerfish => Color::srgb(0.55, 0.66, 0.40),
     }
 }

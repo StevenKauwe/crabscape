@@ -62,6 +62,7 @@
 //! - [`view`]: the camera and the HUD text
 //! - [`voice`]: voice chat with friends in a co-op room
 
+mod alarm_jelly;
 mod background;
 mod brittle;
 mod build;
@@ -206,6 +207,7 @@ fn run_app() {
         .add_plugins(salvage::SalvagePlugin)
         .add_plugins(canyon_drift::CanyonDriftPlugin)
         .add_plugins(triggerfish::TriggerfishPlugin)
+        .add_plugins(alarm_jelly::AlarmJellyPlugin)
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,

@@ -120,6 +120,10 @@ pub(super) fn extend(level: &mut Level) {
     ] {
         level.foes.push((kind, Vec2::new(x, level.floor_height(x))));
     }
+    // Optional midwater hazard above the lower return; append to retain IDs.
+    level
+        .foes
+        .push((Kind::AlarmJelly, Vec2::new(15180.0, -2830.0)));
 }
 
 #[cfg(test)]
