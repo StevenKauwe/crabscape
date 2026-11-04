@@ -40,6 +40,27 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     let mut landmarks = Vec::new();
     let mut add = |name: String, rect, kind| landmarks.push(Landmark { name, rect, kind });
     add("home".into(), level.home, Kind::Refuge);
+    // The existing rim is a broad, level landing outside the octopus's
+    // doorway. A crab can stop here after backing out of the den.
+    add(
+        "far-rim landing".into(),
+        Rect::new(7940.0, -1900.0, level.den.min.x, -1840.0),
+        Kind::Refuge,
+    );
+    // The four existing return ledges on the cliff's basin face are real
+    // resting places, not new terrain. Their tops provide visible shelter.
+    for (i, rock) in level
+        .rocks
+        .iter()
+        .filter(|r| r.min.x >= 2810.0 && r.max.x <= 3050.0 && r.min.y >= -420.0 && r.max.y <= 540.0)
+        .enumerate()
+    {
+        add(
+            format!("basin return ledge {i}"),
+            Rect::new(rock.min.x, rock.max.y, rock.max.x, rock.max.y + 60.0),
+            Kind::Refuge,
+        );
+    }
     for (i, crevice) in level.crevices.iter().enumerate() {
         add(format!("crevice {i}"), crevice.door, Kind::Refuge);
     }
