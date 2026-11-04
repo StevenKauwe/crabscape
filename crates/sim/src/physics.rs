@@ -835,11 +835,16 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     } else {
         m.jump_buffer = (m.jump_buffer - dt).max(0.0);
     }
-    // The reserve comes back by itself, slowly (hulk's never runs low).
+    // The reserve comes back by itself, slowly, and more slowly in the cold
+    // deep; not while climbing, the body's work (hulk's never runs low).
+    let depth = (level.home_den.y - m.pos.y).max(0.0);
+    let cold = 1.0 + depth / t.cold_depth;
     m.reserve = if m.hulk {
         1.0
+    } else if m.climbing || (c.dig_held && c.dig_up) {
+        m.reserve
     } else {
-        (m.reserve + dt / t.reserve_refill_time).min(1.0)
+        (m.reserve + dt / (t.reserve_refill_time * cold)).min(1.0)
     };
     if m.grounded {
         m.coyote = t.coyote_time;
@@ -1018,7 +1023,10 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             attach_rock_grip(m, t, level);
         }
         let down = c.down || c.dodge_held;
-        let speed = m.climb_speed(t);
+        // Climbing up is paid from the reserve; spent, the crab climbs on,
+        // slowly (gripping dactyls hold so firmly it pays half).
+        let tired = !m.hulk && m.reserve <= 0.0;
+        let speed = m.climb_speed(t) * if tired { t.tired_climb } else { 1.0 };
         let climb = match (c.jump_held, down) {
             (true, false) => speed,
             (false, true) => -speed,
@@ -1028,6 +1036,16 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.rising = false;
         let from = m.pos.y;
         climb_and_collide(m, t, level, dt);
+        let up = (m.pos.y - from).max(0.0);
+        if up > 0.0 && !m.hulk && !tired {
+            let grip = if m.has(Feat::GrippingDactyls) {
+                0.5
+            } else {
+                1.0
+            };
+            let cost = up / 1000.0 * t.climb_cost * grip;
+            m.reserve = (m.reserve - cost / m.reserve_strokes(t)).max(0.0);
+        }
         // Climbing is a skill: it grows with every bit climbed.
         let xp = (m.pos.y - from).abs() * t.climb_xp_per_unit;
         ev.levelled = ev.levelled.or(m.earn(Skill::Climbing, xp, t));
@@ -1237,7 +1255,14 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
                 )
             });
             if near_sediment {
-                m.vel.y = 110.0 * dig_speed;
+                // Working up through the ground is paid like a climb: from
+                // the reserve, and slowly once it is spent (never trapped).
+                let tired = !m.hulk && m.reserve <= 0.0;
+                m.vel.y = 110.0 * dig_speed * if tired { t.tired_climb } else { 1.0 };
+                if !m.hulk && !tired {
+                    let cost = m.vel.y * dt / 1000.0 * t.climb_cost;
+                    m.reserve = (m.reserve - cost / m.reserve_strokes(t)).max(0.0);
+                }
                 m.grounded = false;
             } else {
                 m.vel.y = m.vel.y.min(0.0);

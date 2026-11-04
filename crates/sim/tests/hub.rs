@@ -155,13 +155,18 @@ fn nothing_glides_into_the_hub_until_its_window_is_cut() {
                 !r.sim.level.nets[WINDOW].cut,
                 "no cutting it from the pit side"
             );
-            // It ends up in the pit (in the window, or below), where the
-            // coral and kelp climb out for free.
+            // Off the crest it ends up in the pit (in the window, or
+            // below), where the coral and kelp climb out; off the surface
+            // kelp the sea arch stops it short of the trench's far side (#449).
             let end = r.crab().pos;
-            assert!(
-                end.x > 3300.0 && end.x < window_net().rect.min.x,
-                "in the pit: {end}"
-            );
+            if script.starts_with("start x=950") {
+                assert!(end.x < 1820.0, "not across the trench: {end}");
+            } else {
+                assert!(
+                    end.x > 3300.0 && end.x < window_net().rect.min.x,
+                    "in the pit: {end}"
+                );
+            }
         }
     }
 }

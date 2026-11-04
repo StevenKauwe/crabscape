@@ -737,7 +737,7 @@ fn the_pit_is_deep_and_the_climb_gets_you_out() {
     // jump to climb, and come out on the rim (pressing towards it).
     let climb = run(
         &format!("start x=3500 y={bottom}; t=0 jump; t=0.2 release; t=0.3 jump walk=left"),
-        40.0,
+        90.0,
     );
     let out = climb.first("landed").unwrap();
     println!("climbed out in {out:.1} s");
@@ -748,7 +748,9 @@ fn the_pit_is_deep_and_the_climb_gets_you_out() {
         climb.crab().pos.x < left + 100.0,
         "on the lip or the floor beside it"
     );
-    assert_eq!(climb.crab().reserve, 1.0, "climbing costs no stamina");
+    // No paddle strokes, but the climb is paid from the reserve: in one go
+    // it runs dry and the last stretch is slow (`dive_budget.rs`).
+    assert!(out > 32.0 && out < 90.0, "a tiring climb: {out:.1} s");
 }
 
 #[test]

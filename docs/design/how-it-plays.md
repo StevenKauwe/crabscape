@@ -24,7 +24,8 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   high or hidden routes need planning. Touching down rests one stroke at once (so a hop straight off again has its
   double jump), the rest over 0.6 s of standing. Small rings above the crab show them, only while tired. Resting draws on a
   deeper **reserve** (6 strokes' worth, a small bar in the top-left corner) that comes back by itself in about 10
-  seconds (a stroke every 1.7 s, so a double jump every few seconds never runs it dry); when it's empty the legs
+  seconds at home's depth (a stroke every 1.7 s, so a double jump every few seconds never runs it dry), and more
+  slowly in the cold deep: `1 + depth / 8000` times as long (about twice at the pit's floor; `ocean-shaped.md`); when it's empty the legs
   stay tired, so swimming can't be endless. Sprinting drains it faster than it comes back (a full reserve sprints
   for about 15 s). Floor jumps
   are free. **Well fed** (a clam eaten at home, `world.md`), the reserve holds 3 strokes more (pale gold segments)
@@ -44,9 +45,12 @@ timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** 
   are gameplay abstractions, not measured crab hydrodynamics.
 - **Climb kelp and coral.** In the water, press jump while touching a kelp stalk or a coral to grip it instead of
   stroking, or keep jump held while steering into its reach after a paddle. A kick off stays free even if jump
-  remains held. With the walking legs (no stamina): hold jump to climb up, hold down (or dodge) to climb down, let go of
-  both to hang on. Sideways shuffles along the stalk (fidgeting is safe); pushing on past the edge steps off; jump with a direction kicks off it. The crab turns sideways onto the stalk, on the side it came from (crabs climb sideways), and swings round to the other side if something is in the way; its body box turns with it. Climbing past the top pulls the crab up over it. Slow but free: the
-  way home from the deep when the stamina is spent. **Glass grips** (from a glass sponge, `world.md`) let it grip
+  remains held. With the walking legs (no paddle strokes): hold jump to climb up, hold down (or dodge) to climb down, let go of
+  both to hang on. Sideways shuffles along the stalk (fidgeting is safe); pushing on past the edge steps off; jump with a direction kicks off it. The crab turns sideways onto the stalk, on the side it came from (crabs climb sideways), and swings round to the other side if something is in the way; its body box turns with it. Climbing past the top pulls the crab up over it. **Climbing up tires the body:** it is paid from the reserve (1 stroke per 1,000 units climbed; down and hanging
+  on are free), and the reserve doesn't come back while climbing. The pit's 8,000 units of coral and kelp cost 8 strokes,
+  more than the 6 a rested crab holds, so the way home from the deep is planned: rest on a ledge on the way (the pit's
+  shelf), go down well fed (9), or grow gripping dactyls (they pay half). Spent, the crab climbs on at about a third
+  of its speed: never stuck, only slow. Digging up through sediment is paid the same way. **Glass grips** (from a glass sponge, `world.md`) let it grip
   bare rock the same way: the pale, pitted bands on a few walls, which it otherwise slides off.
 - **Ride the tide.** In the canyon below the crack the water runs up its middle, then down, a minute a round
   (`world.md`): it carries the crab with it (sinking and swimming are against the water), so the flood lifts it
