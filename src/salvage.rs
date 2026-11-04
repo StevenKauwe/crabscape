@@ -33,6 +33,14 @@ struct BankTip;
 #[derive(Resource, Default)]
 struct Offered([Option<(SalvageAction, &'static str)>; 2]);
 
+/// Leave the portrait inventory tab above the contextual actions. The same
+/// rectangle drives presentation and pointer selection.
+fn action_rect(index: usize, landscape: bool) -> Rect {
+    let x = 10.0 + 150.0 * index as f32;
+    let y = if landscape { 145.0 } else { 190.0 };
+    Rect::new(x, y, x + 140.0, y + 48.0)
+}
+
 fn spawn(mut commands: Commands) {
     commands.insert_resource(Offered::default());
     // Individually masked chunks let sediment cover the actual shell rather
@@ -108,7 +116,7 @@ fn spawn(mut commands: Commands) {
         Node {
             position_type: PositionType::Absolute,
             left: px(12.0),
-            top: px(202.0),
+            top: px(247.0),
             ..default()
         },
         Visibility::Hidden,
@@ -121,7 +129,7 @@ fn spawn(mut commands: Commands) {
                 Node {
                     position_type: PositionType::Absolute,
                     left: px(10.0 + 150.0 * i as f32),
-                    top: px(145.0),
+                    top: px(190.0),
                     width: px(140.0),
                     height: px(48.0),
                     justify_content: JustifyContent::Center,
@@ -238,13 +246,19 @@ fn show_bodies(
 }
 
 #[allow(clippy::type_complexity)] // Disjoint filters keep the outline separate from UI choices.
+#[allow(clippy::too_many_arguments)] // Independent simulation, inventory and layout resources.
 fn show_actions(
     sim: Res<Sim>,
     crab: Single<&PlayerId, With<LocalPlayer>>,
     mut offer: ResMut<Offered>,
-    mut choices: Query<(&Choice, &mut Visibility), (Without<PlacementOutline>, Without<BankTip>)>,
+    inventory: Res<crate::shell_inventory::Open>,
+    window: Single<&Window>,
+    mut choices: Query<
+        (&Choice, &mut Visibility, &mut Node),
+        (Without<PlacementOutline>, Without<BankTip>),
+    >,
     mut tip: Single<
-        (&mut Visibility, &mut Text),
+        (&mut Visibility, &mut Text, &mut Node),
         (
             With<BankTip>,
             Without<Choice>,
@@ -259,12 +273,28 @@ fn show_actions(
     >,
 ) {
     offer.0 = [None, None];
+    let landscape = window.width() > window.height();
+    tip.2.top = px(action_rect(0, landscape).max.y + 9.0);
+    for (choice, _, mut node) in &mut choices {
+        let rect = action_rect(choice.0, landscape);
+        node.left = px(rect.min.x);
+        node.top = px(rect.min.y);
+    }
+    if inventory.0 {
+        *outline.1 = Visibility::Hidden;
+        publish_placement(None);
+        *tip.0 = Visibility::Hidden;
+        for (_, mut visible, _) in &mut choices {
+            *visible = Visibility::Hidden;
+        }
+        return;
+    }
     let (Some(site), Some(world), Some(c)) = (&sim.salvage, &sim.level.cells, sim.crab(**crab))
     else {
         *outline.1 = Visibility::Hidden;
         publish_placement(None);
         *tip.0 = Visibility::Hidden;
-        for (_, mut visible) in &mut choices {
+        for (_, mut visible, _) in &mut choices {
             *visible = Visibility::Hidden;
         }
         return;
@@ -344,7 +374,7 @@ fn show_actions(
         publish_placement(None);
         *outline.1 = Visibility::Hidden;
     }
-    for (choice, mut v) in &mut choices {
+    for (choice, mut v, _) in &mut choices {
         *v = if offer.0[choice.0].is_some() {
             Visibility::Inherited
         } else {
@@ -386,6 +416,7 @@ fn act(
     time: Res<Time>,
     mut last_grant: Local<f64>,
     offer: Res<Offered>,
+    inventory: Res<crate::shell_inventory::Open>,
     crab: Single<&PlayerId, With<LocalPlayer>>,
     mut sim: ResMut<Sim>,
 ) {
@@ -417,6 +448,9 @@ fn act(
             }
         }
     }
+    if inventory.0 {
+        return;
+    }
     let point = touches
         .iter_just_pressed()
         .next()
@@ -429,10 +463,7 @@ fn act(
         });
     let selected = point
         .and_then(|p| {
-            (0..2).find(|&i| {
-                let x = 10.0 + 150.0 * i as f32;
-                Rect::new(x, 145.0, x + 140.0, 193.0).contains(p)
-            })
+            (0..2).find(|&i| action_rect(i, window.width() > window.height()).contains(p))
         })
         .or_else(|| keys.just_pressed(KeyCode::KeyG).then_some(0))
         .or_else(|| keys.just_pressed(KeyCode::KeyV).then_some(1));
@@ -498,6 +529,113 @@ pub(crate) fn acknowledge_save(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_and_salvage_have_separate_visible_pointer_targets() {
+        use bevy::ecs::system::RunSystemOnce;
+        for (width, height, y) in [(430, 742, 214.0), (742, 430, 169.0)] {
+            let mut app = App::new();
+            let mut sim = Sim::with_one_crab(Vec2::new(286.0, 28.0));
+            sim.enable_underwater_cells();
+            sim.crab_mut(PlayerId(0)).unwrap().salvage_identity = 77;
+            app.insert_resource(sim)
+                .init_resource::<Time>()
+                .init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<Touches>()
+                .init_resource::<crate::settings::panel::Open>()
+                .init_resource::<crate::shell_inventory::Open>();
+            app.world_mut().spawn((PlayerId(0), LocalPlayer));
+            let window = app
+                .world_mut()
+                .spawn(Window {
+                    resolution: (width, height).into(),
+                    ..default()
+                })
+                .id();
+            app.world_mut().run_system_once(spawn).unwrap();
+            app.world_mut().run_system_once(show_actions).unwrap();
+            assert!(matches!(
+                app.world().resource::<Offered>().0[0],
+                Some((SalvageAction::LiftValve, _))
+            ));
+            let mut actions = app.world_mut().query::<(&Choice, &Node, &Visibility)>();
+            let (_, node, visible) = actions
+                .iter(app.world())
+                .find(|(c, _, _)| c.0 == 0)
+                .unwrap();
+            assert_eq!(node.top, px(y - 24.0));
+            assert_eq!(*visible, Visibility::Inherited);
+
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Left);
+            if width < height {
+                // The inventory tab is still at y=142. Clicking it must not
+                // pick up the valve that used to be hidden underneath it.
+                app.world_mut()
+                    .get_mut::<Window>(window)
+                    .unwrap()
+                    .set_cursor_position(Some(Vec2::new(80.0, 160.0)));
+                app.world_mut().run_system_once(act).unwrap();
+                assert_eq!(
+                    app.world()
+                        .resource::<Sim>()
+                        .salvage
+                        .as_ref()
+                        .unwrap()
+                        .valve_phase,
+                    ValvePhase::Placed
+                );
+            }
+            app.world_mut()
+                .resource_mut::<crate::shell_inventory::Open>()
+                .0 = true;
+            app.world_mut()
+                .get_mut::<Window>(window)
+                .unwrap()
+                .set_cursor_position(Some(Vec2::new(80.0, y)));
+            // Input must reject even the previous frame's still-offered action.
+            app.world_mut().run_system_once(act).unwrap();
+            assert_eq!(
+                app.world()
+                    .resource::<Sim>()
+                    .salvage
+                    .as_ref()
+                    .unwrap()
+                    .valve_phase,
+                ValvePhase::Placed
+            );
+            app.world_mut().run_system_once(show_actions).unwrap();
+            assert!(
+                app.world()
+                    .resource::<Offered>()
+                    .0
+                    .iter()
+                    .all(Option::is_none)
+            );
+            assert!(
+                actions
+                    .iter(app.world())
+                    .all(|(_, _, v)| *v == Visibility::Hidden)
+            );
+
+            app.world_mut()
+                .resource_mut::<crate::shell_inventory::Open>()
+                .0 = false;
+            app.world_mut().run_system_once(show_actions).unwrap();
+            app.world_mut().run_system_once(act).unwrap();
+            assert_eq!(
+                app.world()
+                    .resource::<Sim>()
+                    .salvage
+                    .as_ref()
+                    .unwrap()
+                    .valve_phase,
+                ValvePhase::Carried(PlayerId(0))
+            );
+        }
+    }
 
     #[test]
     fn claim_acknowledges_only_exact_durable_snapshots() {
@@ -588,9 +726,11 @@ mod tests {
         let mut sim = Sim::with_one_crab(Vec2::new(300.0, 30.0));
         sim.enable_underwater_cells();
         app.insert_resource(sim)
+            .init_resource::<crate::shell_inventory::Open>()
             .add_systems(Startup, spawn)
             .add_systems(Update, (show_bodies, show_actions));
         app.world_mut().spawn((PlayerId(0), LocalPlayer));
+        app.world_mut().spawn(Window::default());
         app.update();
     }
 }

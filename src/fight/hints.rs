@@ -40,7 +40,7 @@ fn spawn(mut commands: Commands) {
                 position_type: PositionType::Absolute,
                 left: px(0),
                 right: px(0),
-                top: px(238),
+                top: px(278),
                 justify_content: JustifyContent::Center,
                 ..default()
             },
@@ -71,6 +71,7 @@ fn spawn(mut commands: Commands) {
 
 fn show(
     time: Res<Time>,
+    inventory: Res<crate::shell_inventory::Open>,
     windows: Query<&Window>,
     mut messages: MessageReader<ShowHint>,
     mut position: Single<&mut Node, With<HintPosition>>,
@@ -83,7 +84,7 @@ fn show(
         .iter()
         .next()
         .is_some_and(|w| w.height() < 600.0 && w.width() > w.height());
-    position.top = px(if short { 145.0 } else { 238.0 });
+    position.top = px(if short { 145.0 } else { 278.0 });
     position.left = px(if short { 320.0 } else { 0.0 });
     position.right = px(if short { 12.0 } else { 0.0 });
     let (state, text, visible) = &mut *hint;
@@ -108,7 +109,7 @@ fn show(
             ShowHint::Encounter(_) => {}
         }
     }
-    **visible = if state.held || state.left > 0.0 {
+    **visible = if !inventory.0 && (state.held || state.left > 0.0) {
         Visibility::Inherited
     } else {
         Visibility::Hidden
@@ -131,6 +132,7 @@ mod tests {
     fn instructions_stay_readable_then_expire_and_grab_help_has_priority() {
         let mut app = App::new();
         app.insert_resource(Time::<()>::default())
+            .init_resource::<crate::shell_inventory::Open>()
             .add_message::<ShowHint>()
             .add_systems(Startup, spawn)
             .add_systems(Update, show);
@@ -164,7 +166,23 @@ mod tests {
             *app.world().get::<Visibility>(hint).unwrap(),
             Visibility::Inherited
         );
-        assert_eq!(app.world().get::<Node>(position).unwrap().top, px(238));
+        assert_eq!(app.world().get::<Node>(position).unwrap().top, px(278));
+        app.world_mut()
+            .resource_mut::<crate::shell_inventory::Open>()
+            .0 = true;
+        advance(&mut app, 0.0);
+        assert_eq!(
+            *app.world().get::<Visibility>(hint).unwrap(),
+            Visibility::Hidden
+        );
+        app.world_mut()
+            .resource_mut::<crate::shell_inventory::Open>()
+            .0 = false;
+        advance(&mut app, 0.0);
+        assert_eq!(
+            *app.world().get::<Visibility>(hint).unwrap(),
+            Visibility::Inherited
+        );
         advance(&mut app, 3.0);
         assert_eq!(
             *app.world().get::<Visibility>(hint).unwrap(),
