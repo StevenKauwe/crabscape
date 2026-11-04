@@ -91,7 +91,7 @@ tooth is collected, the rock mouth is cleared, and the crab moves beyond the cap
 alive and carrying the tooth. Historical opening-save fixtures retain their old
 material, flow and tick history rather than being overlaid onto the new seed.
 
-## Measured final artifact
+## Measured settled-world release artifact
 
 On the quiet development ARM64 Mac, the shipping release profile decoded and
 checked the 62,753-byte artifact in 3.716 ms; constructing the fresh opening after
@@ -153,7 +153,14 @@ passed again. Across the complete pass and focused correction, all 988 active
 native simulation tests passed. Opening salvage, digging/return, the new jelly,
 saved terrain precedence, replay, and regional ownership are included.
 
-The final artifact was generated after rebasing onto the merged alarm jelly; its
+The settled-world release artifact was generated after rebasing onto the merged alarm jelly; its
 midwater spawn position remains authored rather than snapped to the bed. No saved
-terrain or enemy roster migration is performed. The figures above are from this
-composed artifact, not an earlier bake.
+terrain or enemy roster migration is performed. The startup/boundary figures above
+refer to that 62,753-byte release artifact.
+
+The direct downward-dive change (#288) regenerated the conservative source
+fingerprint through another complete 9,000-step bake (496.1 seconds), followed by
+the same verified compaction. Its artifact is 62,756 bytes, with the same 26,552
+material/history patches and 122,364 conserved sediment grains. This was a real
+bake, not a fingerprint retag; saved-terrain precedence and continuing dynamics
+remain covered by the composed seed tests.
