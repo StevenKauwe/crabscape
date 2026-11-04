@@ -281,6 +281,34 @@ enum Member {
     Eye(usize),
 }
 
+/// Presentation only: all pictures of this leg inherit the plane's visibility.
+#[derive(Component)]
+struct WalkingLeg {
+    crab: Entity,
+    loss_order: u32,
+}
+
+/// Rear pairs first, alternating sides. Stable identity, independent of yaw,
+/// size, animation or who owns the crab. Claws and paddles are never dropped.
+fn leg_loss_order(member: Member) -> Option<u32> {
+    match member {
+        Member::Leg(side, leg @ 0..=2) => Some(((2 - leg) * 2 + side) as u32),
+        _ => None,
+    }
+}
+
+fn show_walking_legs(crabs: Query<&Fighter>, mut legs: Query<(&WalkingLeg, &mut Visibility)>) {
+    for (leg, mut shown) in &mut legs {
+        if let Ok(fighter) = crabs.get(leg.crab) {
+            shown.set_if_neq(if fighter.legs_lost > leg.loss_order {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            });
+        }
+    }
+}
+
 /// A limb's plane: an entity between the shell and the limb, placed and
 /// foreshortened for the turn.
 struct Plane {
@@ -479,6 +507,7 @@ impl Plugin for PuppetPlugin {
                 restyle,
                 animate,
                 shell_look,
+                show_walking_legs,
                 halo_depth,
                 into_the_dark,
                 show_gear,
@@ -874,6 +903,11 @@ fn build_puppets(
                     Visibility::default(),
                 ))
                 .id();
+            if let Some(loss_order) = leg_loss_order(member) {
+                commands
+                    .entity(entity)
+                    .insert(WalkingLeg { crab, loss_order });
+            }
             let limb = by_name[p.name.as_str()];
             commands
                 .entity(limb)
@@ -2305,6 +2339,79 @@ fn set(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn lost_legs_hide_all_picture_layers_at_every_turn_and_size() {
+        use bevy::camera::visibility::VisibilityPlugin;
+        use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+        let file = PartsFile::parse();
+        for yaw in [0.0, PI / 2.0, PI] {
+            for size in [1.0, crabsim::Tuning::default().moult.most_size] {
+                let mut app = App::new();
+                app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+                    .init_asset::<Mesh>()
+                    .init_asset::<SkinnedMeshInverseBindposes>()
+                    .add_plugins(VisibilityPlugin)
+                    .add_systems(Update, show_walking_legs);
+                let crab = app
+                    .world_mut()
+                    .spawn((
+                        Fighter::new(&crabsim::Tuning::default()),
+                        Visibility::Inherited,
+                        Transform::from_rotation(Quat::from_rotation_y(yaw))
+                            .with_scale(Vec3::splat(size)),
+                    ))
+                    .id();
+                let mut layers = Vec::new();
+                for p in &file.parts {
+                    let Some(member) = member_of(&p.name) else {
+                        continue;
+                    };
+                    let plane = app
+                        .world_mut()
+                        .spawn((ChildOf(crab), Visibility::Inherited))
+                        .id();
+                    if let Some(loss_order) = leg_loss_order(member) {
+                        app.world_mut()
+                            .entity_mut(plane)
+                            .insert(WalkingLeg { crab, loss_order });
+                    }
+                    for _ in 0..3 {
+                        let picture = app
+                            .world_mut()
+                            .spawn((ChildOf(plane), Visibility::Inherited))
+                            .id();
+                        layers.push((p.name.clone(), picture));
+                    }
+                }
+                for lost in [0, 1, 2, 3, 4, 0] {
+                    app.world_mut().get_mut::<Fighter>(crab).unwrap().legs_lost = lost;
+                    app.update();
+                    let missing = [
+                        "leg-R3-merus",
+                        "leg-L3-merus",
+                        "leg-R2-merus",
+                        "leg-L2-merus",
+                    ];
+                    let mut hidden = 0;
+                    for (name, picture) in &layers {
+                        let expected = missing[..lost as usize].contains(&name.as_str());
+                        let visible = app
+                            .world()
+                            .get::<InheritedVisibility>(*picture)
+                            .unwrap()
+                            .get();
+                        assert_eq!(
+                            visible, !expected,
+                            "{name} yaw={yaw} size={size} lost={lost}"
+                        );
+                        hidden += usize::from(!visible);
+                    }
+                    assert_eq!(hidden, lost as usize * 3);
+                }
+            }
+        }
+    }
+
     #[test]
     fn idle_dance_yields_to_actions_and_never_poses_a_remote_crab() {
         let mut sim = crabsim::Sim::with_one_crab(bevy::math::Vec2::ZERO);

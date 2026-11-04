@@ -91,9 +91,10 @@ walk=right; @62 parry"`):
   at half speed while any is in it. A bite on raised claws carries none (the claw takes it); while held the claws
   can't be raised, so the octopus's bites always carry it.
 - **Autotomy** (any hold): down + dodge, or dodge held for half a second (phones have no down), drops a walking leg:
-  free at once, 8% slower walking per leg (at most 4). They grow back when the crab wakes after dying (its moult in
-  the game, `world.md`) until moulting itself is built (#177), where they should regrow instead. The puppet doesn't
-  show the missing leg yet.
+  free at once, 8% slower walking per leg (at most 4). The puppet hides the corresponding walking legs,
+  rear pairs first and alternating sides; claws and paddles remain. Completing a growth moult restores the
+  walking legs, as does waking after death. Ordinary soft-shell recovery alone does not restore them.
+  This deterministic loss order and one-game-moult full recovery are design simplifications (see below).
 - **Hits:** a claw finds the eye (r 12, x2) before the mantle (ellipse 156 x 110, 400 health, 200 poise) before an arm
   that is out. It keeps to its den (blows don't shove it). Left alone 2 s with nobody within 900, it mends (arms too)
   and is a rock again, back in its den.
@@ -133,7 +134,7 @@ Poses from its state:
 - **ink:** a dark cloud (r 160, in front of the crab, which is lost from view inside it), while it jets off pale, arms
   streaming.
 - **gone:** not drawn.
-Not drawn: the crab's missing legs after autotomy, and venom on the crab.
+Not drawn: venom on the crab.
 
 ## Rig notes
 Parts: mantle, head (with eye and an eye-horn papilla), siphon, web (one deformable part between the arm bases, or 8
@@ -149,3 +150,11 @@ arms streaming behind in a jet).
 - [GC21] Gonçalves & Costa (2021), "Cephalotoxins: a hotspot for marine bioprospecting?", *Front. Mar. Sci.* 8:647344. <https://www.frontiersin.org/journals/marine-science/articles/10.3389/fmars.2021.647344/full>
 - [ADW] Animal Diversity Web, *Octopus vulgaris*. <https://animaldiversity.org/accounts/Octopus_vulgaris/>
 - Wikipedia, "Common octopus" and "Cephalopod ink" (start points). <https://en.wikipedia.org/wiki/Common_octopus>
+
+### Autotomy and regrowth source
+[Smith (1990), *Patterns of limb loss in the blue crab, Callinectes sapidus, and the effects of autotomy on growth*](https://repository.si.edu/server/api/core/bitstreams/075e7e92-7c38-4b21-9208-e1ac8e0a8872/content)
+(opened 2026-11-04) describes replacement through moulting; regenerated limbs in the experiment reached
+85–88% of the opposite intact limb's length after the first moult, and full length could require three.
+The game's complete restoration at the end of one growth moult, fixed loss order and 8% movement cost are
+explicit abstractions, not measured blue-crab regeneration timing or locomotor penalties. No gradual bud
+simulation, dropped-limb item or new saved state is introduced.

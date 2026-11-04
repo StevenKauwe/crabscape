@@ -37,7 +37,7 @@ Times are ticks at 120 Hz. Sizes in world units (1 cm = 6.25). "Real" = measured
 | Block (hold) | Claws up: physical damage ×0.2, poise damage still taken; stings and bites that hit the guard do no venom. Walk at 40% |
 | Parry | Block pressed ≤ 10 ticks before a hit lands: no damage, attacker staggered (its own number), then a 45-tick counter window where the crusher does ×2 |
 | Dodge | The existing dodge (18 ticks); invulnerable on ticks 2–13 |
-| Autotomy | While grabbed: down + dodge drops a walking leg and frees the crab at once; −8% walk speed per missing leg until regrown (regrowth rules: open task) |
+| Autotomy | While grabbed: down + dodge drops a walking leg and frees the crab at once; −8% walk speed per missing leg until a growth moult completes (one-moult full restoration is a game simplification) |
 
 **Statuses** (each one a real mechanism): *stagger* (poise broken), *stunned* (shock wave; can't act), *venom*
 (damage over time + slow; only through a bite or sting that isn't blocked), *flipped* (on its back: helpless, mash

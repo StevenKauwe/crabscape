@@ -272,8 +272,35 @@ pub(crate) fn harden(crab: &mut SimCrab, t: &Tuning, ev: &mut StepEvents) {
     if let Some(feat) = m.growing.take() {
         m.feats.push(feat);
         m.moults += 1;
+        // One growth moult restores walking legs in this game. Ordinary
+        // soft-shell recovery is not regeneration, and other injuries remain.
+        crab.fighter.legs_lost = 0;
         ev.hardened = Some(feat);
     }
     let v = &mut crab.fighter.vitals;
     v.health = (v.health / soft_max.max(1.0) * m.max_shell(t)).min(m.max_shell(t));
+}
+
+#[cfg(test)]
+mod regeneration_tests {
+    use super::*;
+    #[test]
+    fn growth_regenerates_legs_without_clearing_other_fighter_state() {
+        let mut sim = Sim::with_one_crab(bevy_math::Vec2::ZERO);
+        let tuning = sim.tuning.clone();
+        let crab = sim.crab_mut(PlayerId(0)).unwrap();
+        crab.mover.soft = 1;
+        crab.mover.growing = Some(Feat::GrippingDactyls);
+        crab.fighter.legs_lost = 2;
+        crab.fighter.venom = vec![300, 450];
+        crab.fighter.blinded = true;
+        crab.fighter.armour_break = 40;
+        crab.fighter.vitals.stagger = 30;
+        let mut expected = crab.fighter.clone();
+        expected.legs_lost = 0;
+        harden(crab, &tuning, &mut StepEvents::default());
+        // Existing soft-to-hard shell capacity scaling remains in effect.
+        expected.vitals.health = crab.fighter.vitals.health;
+        assert_eq!(crab.fighter, expected);
+    }
 }
