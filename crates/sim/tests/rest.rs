@@ -88,7 +88,7 @@ fn the_level_has_crevices_out_past_the_trench_on_solid_floor() {
     let sim = Sim::with_one_crab(Vec2::ZERO);
     let level = &sim.level;
     let crevices = &level.crevices;
-    assert!((2..=3).contains(&crevices.len()), "{crevices:?}");
+    assert_eq!(crevices.len(), 5, "three original and two eastern havens");
     let (_, trench_right) = level.trench();
     let (pit_left, pit_right, pit_bottom) = level.pit();
     assert!(

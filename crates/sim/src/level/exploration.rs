@@ -82,13 +82,13 @@ pub(super) fn extend(level: &mut Level) {
     for (kind, x) in [
         (Kind::Snapper, 9430.0),
         (Kind::Mantis, 10350.0),
-        (Kind::Snapper, 11600.0),
-        (Kind::Snapper, 11860.0),
-        (Kind::Moray, 12520.0),
-        (Kind::Mantis, 13200.0),
-        (Kind::Snapper, 14200.0),
-        (Kind::Snapper, 14450.0),
-        (Kind::Moray, 15580.0),
+        (Kind::Snapper, 11900.0),
+        (Kind::Snapper, 12140.0),
+        (Kind::Moray, 9880.0),
+        (Kind::Snapper, 13200.0),
+        (Kind::Snapper, 13820.0),
+        (Kind::Snapper, 14040.0),
+        (Kind::Moray, 15220.0),
         (Kind::Mantis, 16900.0),
     ] {
         level.foes.push((kind, Vec2::new(x, level.floor_height(x))));
@@ -155,12 +155,21 @@ mod tests {
         let tuning = Tuning::default();
         for (start, target, walk) in [(10480.0, 17200.0, 1.0), (17200.0, 10480.0, -1.0)] {
             let mut mover = Mover::new(Vec2::new(start, level.floor_height(start)));
-            let controls = Controls { walk, ..Default::default() };
+            let controls = Controls {
+                walk,
+                ..Default::default()
+            };
             for _ in 0..120 * 120 {
                 physics::step(&mut mover, &controls, &tuning, &level, STEP);
-                if (mover.pos.x - target) * walk >= 0.0 { break; }
+                if (mover.pos.x - target) * walk >= 0.0 {
+                    break;
+                }
             }
-            assert!((mover.pos.x - target) * walk >= -5.0, "stopped at {:?}, target {target}", mover.pos);
+            assert!(
+                (mover.pos.x - target) * walk >= -5.0,
+                "stopped at {:?}, target {target}",
+                mover.pos
+            );
         }
     }
 }

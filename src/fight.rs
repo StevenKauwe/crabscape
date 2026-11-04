@@ -257,14 +257,19 @@ fn hint(kind: Kind) -> Option<&'static str> {
     }
 }
 
+#[derive(Default)]
+struct EncounterMemory {
+    kinds: Vec<Kind>,
+    regions: [bool; 3],
+}
+
 fn fight_notes(
     mut commands: Commands,
     sim: Res<Sim>,
     crab: Query<(&FrameEvents, &Fighter, &Mover, &Transform), With<LocalPlayer>>,
     mut cracked_before: Local<bool>,
-    mut hinted: Local<Vec<Kind>>,
+    mut hinted: Local<EncounterMemory>,
     mut grabbed_before: Local<bool>,
-    mut region_hints: Local<[bool; 3]>,
     mut instructions: MessageWriter<hints::ShowHint>,
 ) {
     let Ok((ev, f, m, at)) = crab.single() else {
@@ -291,10 +296,10 @@ fn fight_notes(
         None
     };
     if let Some((index, words)) = region
-        && !region_hints[index]
+        && !hinted.regions[index]
         && f.dead.is_none()
     {
-        region_hints[index] = true;
+        hinted.regions[index] = true;
         instructions.write(hints::ShowHint::Encounter(words));
     }
     let grabbed = f.grabbed.is_some();
@@ -310,10 +315,10 @@ fn fight_notes(
             && f.dead.is_none()
             && e.state == State::Tell
             && e.pos.distance_squared(m.pos) < 400.0 * 400.0
-            && !hinted.contains(&e.kind)
+            && !hinted.kinds.contains(&e.kind)
     });
     if let Some(e) = near_tell {
-        hinted.push(e.kind);
+        hinted.kinds.push(e.kind);
         if let Some(text) = hint(e.kind) {
             instructions.write(hints::ShowHint::Encounter(text));
         }

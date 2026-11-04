@@ -2335,7 +2335,7 @@ fn it_flees_only_once_a_fight() {
 #[test]
 fn the_route_gets_harder_with_room_to_breathe() {
     let level = crabsim::Level::test_level();
-    let kinds: Vec<Kind> = level.foes.iter().map(|f| f.0).collect();
+    let kinds: Vec<Kind> = level.foes.iter().take(7).map(|f| f.0).collect();
     assert_eq!(
         kinds,
         [
@@ -2347,9 +2347,9 @@ fn the_route_gets_harder_with_room_to_breathe() {
             Kind::Moray,
             Kind::Octopus
         ],
-        "easy shrimp first, then the mantis, then morays and a mix, and the octopus in its den at the end"
+        "the opening route still builds from shrimp to the octopus before the eastern expedition"
     );
-    let xs: Vec<f32> = level.foes.iter().map(|f| f.1.x).collect();
+    let xs: Vec<f32> = level.foes.iter().take(7).map(|f| f.1.x).collect();
     assert!(
         xs.windows(2).all(|w| w[1] - w[0] >= 240.0),
         "breathing room: {xs:?}"

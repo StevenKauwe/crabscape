@@ -490,5 +490,5 @@ fn the_biggest_crab_still_gets_down_the_canyon_and_back_up() {
     the_flood_carries_a_crab_up_the_canyon_to_every_ledge();
     the_ebb_drops_a_crab_fast_and_strokes_cannot_beat_it();
     the_fifth_egg_is_on_a_shelf_only_the_flood_reaches();
-    the_den_is_a_dead_end_chamber_off_the_far_rim();
+    the_den_is_a_roofed_chamber_on_the_route_to_the_eastern_reef();
 }
