@@ -272,6 +272,17 @@ impl Enemy {
         }
     }
 
+    /// Home leash used by pursuit and idle foraging, before body reach.
+    /// Authoring checks can read this without duplicating the forage radius.
+    pub fn home_leash(&self, tuning: &Tuning) -> f32 {
+        let chase = self.kind.tuning(tuning).give_up_range;
+        if foraging_water(self).is_some() {
+            chase.max(MORAY_FORAGE_LEASH)
+        } else {
+            chase
+        }
+    }
+
     /// A monkey still falling in from above: out of reach and doing nothing.
     pub fn dropping(&self) -> bool {
         self.kind == Kind::Monkey

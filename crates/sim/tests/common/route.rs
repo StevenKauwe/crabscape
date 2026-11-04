@@ -180,7 +180,11 @@ pub fn world(kit: Kit, start: Vec2, foes: bool) -> Sim {
     if !foes {
         level.foes.clear();
     }
-    let mut sim = Sim::new(Tuning::default(), level);
+    // Mapping is observational and cannot affect locomotion. Avoid rebuilding
+    // personal map pages on every candidate route. Keep all physics unchanged.
+    let mut tuning = Tuning::default();
+    tuning.memory.step_ticks = u32::MAX;
+    let mut sim = Sim::new(tuning, level);
     let tuning = sim.tuning.clone();
     sim.set_feel(Feel::Current);
     sim.add_crab(ME, start);
@@ -210,7 +214,7 @@ fn at_rest(m: &crabsim::Mover) -> bool {
 }
 
 /// Play `mv` from `from`; the node it comes to rest at, if it does.
-fn play(from: &Node, at: usize, mv: Move) -> Option<Node> {
+fn play(from: &Node, at: usize, mv: Move, visit: &mut impl FnMut(Vec2)) -> Option<Node> {
     let mut node = Node {
         sim: from.sim.clone(),
         parent: Some(at),
@@ -252,6 +256,7 @@ fn play(from: &Node, at: usize, mv: Move) -> Option<Node> {
         t += DT;
         let crab = sim.crab(ME)?;
         let m = &crab.mover;
+        visit(m.pos);
         if crab.events.paddled {
             strokes += 1;
         }
@@ -397,6 +402,18 @@ fn survey_from_with_wormholes(
     budget: usize,
     wormholes: &[Wormhole],
 ) -> Survey {
+    survey_observed(start, kit, stop, budget, wormholes, &mut |_| {})
+}
+
+pub fn survey_observed(
+    start: Node,
+    kit: Kit,
+    stop: impl Fn(&Node) -> bool,
+    budget: usize,
+    wormholes: &[Wormhole],
+    visit: &mut impl FnMut(Vec2),
+) -> Survey {
+    visit(start.mover().pos);
     let mut nodes = vec![start];
     let mut seen: HashMap<(i32, i32, bool), usize> = HashMap::new();
     seen.insert(key(nodes[0].mover()), 0);
@@ -419,7 +436,7 @@ fn survey_from_with_wormholes(
                 reserve_cost: edge.reserve_cost,
             });
         for mv in moves(here.mover(), kit.eggs).into_iter().chain(edges) {
-            if let Some(n) = play(&here, next, mv) {
+            if let Some(n) = play(&here, next, mv, visit) {
                 let k = key(n.mover());
                 if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(k) {
                     e.insert(nodes.len());
@@ -429,6 +446,10 @@ fn survey_from_with_wormholes(
         }
         next += 1;
     }
+    assert!(
+        next == nodes.len(),
+        "route survey exhausted its {budget}-node budget"
+    );
     Survey {
         nodes,
         wormholes: wormholes.to_vec(),
