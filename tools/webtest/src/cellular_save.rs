@@ -492,7 +492,9 @@ impl Test<'_> {
     }
 
     fn incompatible_player_recovery(&mut self) -> Result<()> {
-        self.go("assets/crab/crab-atlas.png")?;
+        // Use the same real HTML storage context as the large-fixture setup.
+        // Keep IndexedDB setup out of the image document used for readbacks.
+        self.go("__fixture_setup")?;
         let old = decode(&fixture()?)?;
         let initial = Sim::new(crabsim::Tuning::default(), Level::test_level());
         let mut progress = initial.fresh_progress();
