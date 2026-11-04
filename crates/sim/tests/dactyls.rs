@@ -75,7 +75,11 @@ fn mover(sim: &Sim) -> &crabsim::Mover {
 /// The coral on the end wall's face.
 fn wall_coral() -> crabsim::level::Climb {
     let level = Sim::with_one_crab(Vec2::ZERO).level;
-    *level.climbs.last().unwrap()
+    *level
+        .climbs
+        .iter()
+        .find(|c| c.x == 5470.0)
+        .expect("the basin wall coral")
 }
 
 #[test]

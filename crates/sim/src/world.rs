@@ -2600,13 +2600,22 @@ impl Sim {
             let blows = if recovering {
                 Vec::new()
             } else {
+                let bounded_region = regional_rng.is_some();
                 let rng = match regional_rng.as_deref_mut() {
                     Some(streams) => streams
                         .entry(e.id)
                         .or_insert_with(|| Rng::new(SEED ^ u64::from(e.id))),
                     None => &mut self.rng,
                 };
-                enemy::step(e, &mut self.crabs, &self.tuning, &self.level, rng, &animals)
+                enemy::step(
+                    e,
+                    &mut self.crabs,
+                    &self.tuning,
+                    &self.level,
+                    rng,
+                    &animals,
+                    bounded_region,
+                )
             };
             if self.level.cells.is_some()
                 && e.kind == Kind::Moray

@@ -407,23 +407,21 @@ fn the_fifth_egg_is_on_a_shelf_only_the_flood_reaches() {
 }
 
 #[test]
-fn the_den_is_a_dead_end_chamber_off_the_far_rim() {
+fn the_den_is_a_roofed_chamber_on_the_route_to_the_eastern_reef() {
     let level = crabsim::Level::test_level();
     let den = level.den;
-    let t = Tuning::base();
-    // Its floor is the far rim's, a roof over it, the level's wall behind.
+    // Its floor and roof remain; the eastern end now opens into the reef.
     assert_eq!(den.min.y, FAR_RIM.2);
-    assert_eq!(den.max.x, level.max_x);
+    assert!(den.max.x < level.max_x);
     assert!(
         (200.0..=400.0).contains(&den.height()),
         "room for an octopus, no more"
     );
     let roof = Vec2::new(den.center().x, den.max.y + 5.0);
     assert!(level.solids().any(|s| s.contains(roof)), "roofed over");
-    // A crab walks in from the far rim and on to the back: a dead end.
+    // A crab walks through the chamber into the next region.
     let r = run("start x=8000 y=-1900\nt=0 walk=right", 5.0, 0);
-    assert!(den.contains(r.crab().pos + Vec2::Y), "{}", r.crab().pos);
-    assert!(r.crab().pos.x >= level.max_x - r.crab().half_width(&t) - 1.0);
+    assert!(r.crab().pos.x > den.max.x, "{}", r.crab().pos);
 }
 
 #[test]
@@ -492,5 +490,5 @@ fn the_biggest_crab_still_gets_down_the_canyon_and_back_up() {
     the_flood_carries_a_crab_up_the_canyon_to_every_ledge();
     the_ebb_drops_a_crab_fast_and_strokes_cannot_beat_it();
     the_fifth_egg_is_on_a_shelf_only_the_flood_reaches();
-    the_den_is_a_dead_end_chamber_off_the_far_rim();
+    the_den_is_a_roofed_chamber_on_the_route_to_the_eastern_reef();
 }

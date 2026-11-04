@@ -16,6 +16,8 @@ use bevy_math::{Rect, Vec2};
 use crate::enemy::Kind;
 use crate::tuning::TideTuning;
 
+mod exploration;
+
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
 
@@ -174,7 +176,7 @@ pub struct Level {
     /// The lights seen far below from the crack: the middle of the canyon's
     /// floor. The demo ends when a crab gets there.
     pub lights: Vec2,
-    /// An octopus's den: a dead-end chamber under the rock at the top of the
+    /// An octopus's den: a sheltered chamber under the rock at the top of the
     /// canyon's far wall, its floor a midden of shells (the inside, floor to
     /// roof). Empty for now: the common octopus moves in later.
     pub den: Rect,
@@ -201,7 +203,7 @@ impl Level {
 
     /// The level the game uses (for now, the only one).
     pub fn test_level() -> Self {
-        Self {
+        let mut level = Self {
             cells: None,
             floor: vec![
                 Vec2::new(0.0, 0.0),
@@ -518,7 +520,9 @@ impl Level {
             drifting: vec![Vec2::new(7600.0, -6500.0), Vec2::new(7560.0, -7400.0)],
             min_x: 0.0,
             max_x: 8800.0,
-        }
+        };
+        exploration::extend(&mut level);
+        level
     }
 
     /// The climb a crab standing (feet) at `pos` could grip, if any: one it
@@ -633,7 +637,7 @@ mod tests {
         assert_eq!(level.floor_height(300.0), 0.0); // flat start
         assert!((level.floor_height(670.0) - 55.0).abs() < 0.01); // half-way up the slope
         assert_eq!(level.floor_height(1450.0), -260.0); // bottom of the trench
-        assert_eq!(level.floor_height(9999.0), -1900.0); // right of the last point
+        assert_eq!(level.floor_height(level.max_x + 100.0), -2200.0); // beyond the far rim
     }
 
     #[test]

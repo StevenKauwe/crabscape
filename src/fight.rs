@@ -257,18 +257,51 @@ fn hint(kind: Kind) -> Option<&'static str> {
     }
 }
 
+#[derive(Default)]
+struct EncounterMemory {
+    kinds: Vec<Kind>,
+    regions: [bool; 3],
+}
+
 fn fight_notes(
     mut commands: Commands,
     sim: Res<Sim>,
     crab: Query<(&FrameEvents, &Fighter, &Mover, &Transform), With<LocalPlayer>>,
     mut cracked_before: Local<bool>,
-    mut hinted: Local<Vec<Kind>>,
+    mut hinted: Local<EncounterMemory>,
     mut grabbed_before: Local<bool>,
     mut instructions: MessageWriter<hints::ShowHint>,
 ) {
     let Ok((ev, f, m, at)) = crab.single() else {
         return;
     };
+    // Geography is visible before an encounter starts. Give each new area
+    // one brief orientation hint, using the same phone-safe instruction UI.
+    let region = if m.pos.x >= 14900.0 {
+        Some((
+            2,
+            "Coral Rise\nClimb the shelves, or follow the lower route home.",
+        ))
+    } else if m.pos.x >= 12000.0 {
+        Some((
+            1,
+            "Silt Hollow\nSheltered clam beds below; coral shelves above.",
+        ))
+    } else if m.pos.x >= 8900.0 {
+        Some((
+            0,
+            "Rubble Banks\nA tooth lies beneath the rock cap. Dig around its edge.",
+        ))
+    } else {
+        None
+    };
+    if let Some((index, words)) = region
+        && !hinted.regions[index]
+        && f.dead.is_none()
+    {
+        hinted.regions[index] = true;
+        instructions.write(hints::ShowHint::Encounter(words));
+    }
     let grabbed = f.grabbed.is_some();
     if grabbed && !*grabbed_before {
         instructions.write(hints::ShowHint::Grabbed);
@@ -282,10 +315,10 @@ fn fight_notes(
             && f.dead.is_none()
             && e.state == State::Tell
             && e.pos.distance_squared(m.pos) < 400.0 * 400.0
-            && !hinted.contains(&e.kind)
+            && !hinted.kinds.contains(&e.kind)
     });
     if let Some(e) = near_tell {
-        hinted.push(e.kind);
+        hinted.kinds.push(e.kind);
         if let Some(text) = hint(e.kind) {
             instructions.write(hints::ShowHint::Encounter(text));
         }

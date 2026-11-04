@@ -396,3 +396,55 @@ fn a_living_creature_is_no_meal() {
     }
     assert!(!fed);
 }
+
+#[test]
+fn a_vacant_habitat_waits_for_its_season_and_the_last_living_crab() {
+    let home = Vec2::new(1800.0, 0.0);
+    let visitor = crabsim::PlayerId(7);
+    for kind in [Kind::Snapper, Kind::Mantis, Kind::Moray] {
+        let mut sim = Sim::with_one_crab(Vec2::ZERO);
+        sim.add_remote_crab(visitor, Vec2::ZERO);
+        let id = sim.spawn_enemy(kind, home);
+        let home = sim.enemies()[0].home;
+        let tuning = sim.tuning.clone();
+        let e = &mut sim.enemies_mut()[0];
+        e.pos.x += 80.0; // away from the burrow and hittable
+        e.takes(
+            &crabsim::Hit {
+                damage: 10000.0,
+                ..Default::default()
+            },
+            home.x,
+            &tuning,
+        );
+        assert_eq!(e.state, State::Gone);
+        assert!(
+            e.state_len >= 3 * 60 * 120,
+            "a quick circuit cannot refill the pocket"
+        );
+        e.state_tick = e.state_len - 1;
+        sim.tick();
+        assert_eq!(
+            sim.enemies()[0].state,
+            State::Gone,
+            "too early, even unwatched"
+        );
+        sim.crab_mut(visitor).unwrap().mover.pos = home;
+        sim.tick();
+        assert_eq!(
+            sim.enemies()[0].state,
+            State::Gone,
+            "a friend is still watching"
+        );
+        sim.crab_mut(visitor).unwrap().fighter.dead = Some(0);
+        sim.tick();
+        let replacement = &sim.enemies()[0];
+        assert_ne!(replacement.state, State::Gone);
+        assert_eq!((replacement.id, replacement.deaths), (id, 1));
+        assert_eq!(replacement.home, home);
+        assert_eq!(
+            replacement.vitals.health,
+            kind.tuning(&tuning).vitals.health
+        );
+    }
+}

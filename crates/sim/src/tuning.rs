@@ -1111,7 +1111,7 @@ impl Tuning {
                 flee_below: 0.25,
                 flee_speed: 260.0,
                 hide_ticks: 300, // 2.5 s in the burrow
-                respawn_ticks: 2400,
+                respawn_ticks: 4 * 60 * 120,
                 notice_moving: 0.0,
                 scent_ticks: 0,
                 stalks: true, // stalks prey and darts after it (not verified)
@@ -1171,7 +1171,7 @@ impl Tuning {
                 flee_below: 0.99, // into its burrow when hit
                 flee_speed: 200.0,
                 hide_ticks: 360,
-                respawn_ticks: 2400,
+                respawn_ticks: 3 * 60 * 120,
                 notice_moving: 135.0, // half walking speed: creep past it
                 scent_ticks: 0,
                 stalks: false,
@@ -1227,7 +1227,7 @@ impl Tuning {
                 flee_below: 0.3,
                 flee_speed: 200.0,
                 hide_ticks: 360,
-                respawn_ticks: 2400,
+                respawn_ticks: 8 * 60 * 120,
                 notice_moving: 0.0,
                 scent_ticks: 120, // hunts by smell (real); light makes no difference
                 stalks: false,

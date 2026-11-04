@@ -907,13 +907,6 @@ pub(super) fn take_in(
                 if let Ok(text) = serde_json::to_string(&actors) {
                     let _ = canvas.set_attribute("data-cell-session-actors", &text);
                 }
-                if canvas.has_attribute("data-want-cell-hash") {
-                    let _ = canvas.remove_attribute("data-want-cell-hash");
-                    let _ = canvas.set_attribute(
-                        "data-cell-session-hash",
-                        &format!("{}:{:016x}", sim.tick_count(), sim.state_hash()),
-                    );
-                }
             }
         });
         // A closed peer-state channel never becomes readable again. Release
