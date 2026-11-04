@@ -194,10 +194,36 @@ fn read_falls<'de, D: serde::Deserializer<'de>>(
     d.deserialize_seq(Packets)
 }
 
+/// A ready packet can outlive its cancelled strip transfer during a regrant.
+/// Only the current transfer may change readiness; its topology must still match.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(super) fn move_ready_matches(
+    active: Option<u64>,
+    transfer: u64,
+    shared: bool,
+) -> Result<bool, &'static str> {
+    if active != Some(transfer) {
+        return Ok(false);
+    }
+    if !shared {
+        return Err("Ready for a non-shared strip transfer");
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crabsim::Controls;
+    #[test]
+    fn cancelled_strip_readiness_cannot_abort_a_topology_regrant() {
+        assert_eq!(move_ready_matches(None, 7, false), Ok(false));
+        assert_eq!(move_ready_matches(Some(8), 7, false), Ok(false));
+        assert_eq!(move_ready_matches(Some(8), 7, true), Ok(false));
+        assert_eq!(move_ready_matches(Some(8), 8, true), Ok(true));
+        assert!(move_ready_matches(Some(8), 8, false).is_err());
+    }
+
     #[test]
     fn joins_fragments_and_full_control_batches_roundtrip() {
         let join = Wire::Join("{\"upgrades\":2}".into());

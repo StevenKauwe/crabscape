@@ -24,11 +24,12 @@ pub(super) fn extend(level: &mut Level) {
     level.rocks.extend([
         // Rubble bank: walk/climb over the cap, or excavate the sand beneath.
         Rect::new(9940.0, -2224.0, 10240.0, -2080.0),
-        // A terraced upper route over the silt hollow. These are shelves,
-        // with coral between them, rather than unsupported pillar rocks.
-        Rect::new(11040.0, -2400.0, 11240.0, -2360.0),
-        Rect::new(11920.0, -2580.0, 12120.0, -2540.0),
-        Rect::new(12900.0, -2840.0, 13160.0, -2800.0),
+        // A terraced upper route over the silt hollow. These are shelves.
+        // Coral stays beside each west edge: a shelf across its stalk
+        // would block the ascent, especially after the crab grows.
+        Rect::new(11160.0, -2400.0, 11360.0, -2360.0),
+        Rect::new(12060.0, -2580.0, 12260.0, -2540.0),
+        Rect::new(13060.0, -2840.0, 13260.0, -2800.0),
         // A roofed gallery inset below the surrounding bank. The mouths
         // retain clearance above the continuous, gently sloping floor.
         Rect::new(14000.0, -3600.0, 14800.0, -3300.0),
@@ -37,17 +38,24 @@ pub(super) fn extend(level: &mut Level) {
         // The discovery sits off the lower through-route, behind the lip.
         Rect::new(14260.0, -3780.0, 14460.0, -3740.0),
         Rect::new(14960.0, -2600.0, 15220.0, -2560.0),
-        // Rest alcoves have a floor-level doorway and an actual roof.
-        Rect::new(11400.0, -2570.0, 11550.0, -2520.0),
-        Rect::new(14480.0, -3620.0, 14630.0, -3570.0),
+        // Anchor the haven roof in the cap, leaving full jump headroom
+        // at the excavated mouth. A low roof traps the crab behind the
+        // loosened-sand lip even after it has cleared the rock cap.
+        Rect::new(10200.0, -2100.0, 10240.0, -1880.0),
+        Rect::new(10220.0, -1920.0, 10390.0, -1880.0),
         // A rock buttress at the end anchors the last coral and discovery.
         Rect::new(17330.0, -2300.0, 17400.0, -1800.0),
     ]);
+    // Uneven, seabed-rooted transfers connect the shelves to the gallery
+    // roof. No extra enemies or swim upgrades are needed for this branch.
     for (x, top) in [
         (9870.0, -2030.0),
         (11100.0, -2320.0),
+        (11580.0, -2450.0),
         (12000.0, -2500.0),
+        (12520.0, -2620.0),
         (13000.0, -2760.0),
+        (13500.0, -2990.0),
         (13900.0, -3240.0),
         (14200.0, -3680.0),
         (14900.0, -3240.0),
@@ -62,7 +70,9 @@ pub(super) fn extend(level: &mut Level) {
             kind: Growth::Coral,
         });
     }
-    for (x, y) in [(11420.0, -2700.0), (14500.0, -3952.0)] {
+    // Retain haven indices: one beside the cap, one on the gallery ledge.
+    // Neither interrupts the continuous lower route east of the cap.
+    for (x, y) in [(10255.0, -2200.0), (14280.0, -3740.0)] {
         level.crevices.push(Crevice {
             door: Rect::new(x, y - 1.0, x + 90.0, y + 40.0),
             den: Vec2::new(x + 40.0, y),
@@ -81,21 +91,22 @@ pub(super) fn extend(level: &mut Level) {
     level.teeth.push(Vec2::new(10090.0, -2350.0));
     level
         .sponges
-        .extend([Vec2::new(13020.0, -2770.0), Vec2::new(14400.0, -3740.0)]);
+        .extend([Vec2::new(13130.0, -2770.0), Vec2::new(14400.0, -3740.0)]);
     level
         .cultures
         .extend([Vec2::new(14360.0, -3710.0), Vec2::new(17280.0, -1790.0)]);
     // Don't add more permanent swim strokes: this is a choice of routes
     // using existing movement, not another stat gate.
+    // Keep resident burrows more than 400 units from both rest niches.
     for (kind, x) in [
         (Kind::Snapper, 9430.0),
-        (Kind::Mantis, 10350.0),
+        (Kind::Mantis, 10720.0),
         (Kind::Snapper, 11900.0),
         (Kind::Snapper, 12140.0),
         (Kind::Moray, 9880.0),
         (Kind::Snapper, 13200.0),
         (Kind::Snapper, 13820.0),
-        (Kind::Snapper, 14040.0),
+        (Kind::Snapper, 13580.0),
         (Kind::Moray, 15220.0),
         (Kind::Mantis, 16900.0),
     ] {
@@ -139,7 +150,7 @@ mod tests {
     fn rest_stops_and_surface_resources_are_clear_of_rock() {
         let level = Level::test_level();
         for stop in level.crevices.iter().filter(|c| c.den.x > 8800.0) {
-            assert_eq!(stop.den.y, level.floor_height(stop.den.x));
+            assert!(stop.den.y >= level.floor_height(stop.den.x));
             assert_eq!(cell(&level, stop.den.x, stop.den.y + 40.0), Cell::Water);
         }
         for at in level
