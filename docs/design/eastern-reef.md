@@ -120,3 +120,31 @@ isolated vertical elevator occurs between these corals. The vertical lane,
 130-unit width, height and accelerated timing are explicit game abstractions
 using the canyon's existing current model. No terrain cells are rewritten;
 persisted terrain remains authoritative.
+
+
+## Coral Rise cracked-rubble cache
+
+The existing cavern roof holds one optional cracked rubble lump at x16920–17100.
+Climb the western coral with four egg upgrades, swim onto the roof and approach
+the pale, visibly cracked lump. Heavy Crusher's **full held charge, then release**
+breaks it and exposes an additional lantern culture. A tap or an unqualified
+crusher cannot open it. The local hint names the feat and the charge requirement.
+
+The unbroken lump is an ordinary jump in either direction, including at maximum
+body size. It does not seal the cavern below, its sand shortcut, or either coral
+return. The reward appends a culture slot and the lump appends a shared brittle
+slot; the older cavern culture remains index 4. There is no new enemy, equipment,
+resource type or mandatory progression gate.
+
+Brittle rubble stays a dynamic solid rather than becoming permanent cellular
+rock. The existing shared break message removes its collision and visible shape
+on every device; culture visibility and pickup additionally require its containing
+rubble to be broken. Each crab still takes its own culture. Saved shared break
+state and existing local progress carry the result without a new save field.
+
+This is authored geography using the existing fictional lantern-culture and
+Heavy Crusher rules, not a new claim about luminous microbes inside natural rock
+or a crab's ability to pulverize a boulder. It addresses one concrete example of
+smashing feedback [#300](https://github.com/StevenKauwe/crabscape/issues/300).
+Existing saved terrain remains authoritative; the cache adds no cellular terrain
+migration and no reset. Approach and collection are validated in fresh worlds.

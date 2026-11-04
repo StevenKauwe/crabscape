@@ -175,11 +175,15 @@ fn roof_is_reversible_from_both_banks_with_four_strokes() {
         let mut sim = setup(17460.0, moults);
         ascend(&mut sim, -2120.0);
         for frame in 0..900 {
+            let roof_x = sim.crab(P0).unwrap().mover.pos.x;
             tick(
                 &mut sim,
                 Controls {
                     walk: -1.0,
-                    jump_pressed: frame == 0,
+                    // The optional roof cache is an ordinary jump, not a feat gate.
+                    jump_pressed: frame == 0
+                        || (frame % 60 == 0 && (16840.0..17200.0).contains(&roof_x)),
+                    jump_held: true,
                     ..Default::default()
                 },
             );
@@ -244,7 +248,7 @@ fn bank_encloses_the_find_and_separates_sediment_from_bedrock() {
             ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32,
         )
     };
-    assert_eq!(level.cultures.len(), 5);
+    assert_eq!(level.cultures.len(), 6); // Appended roof cache; cavern index stays 4.
     assert_eq!(level.cultures[4], Vec2::new(17130.0, -2784.0));
     assert_eq!(level.foes.len(), 18);
     assert_eq!(cell(17130.0, -2300.0), Cell::Rock);

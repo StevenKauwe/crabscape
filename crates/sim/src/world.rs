@@ -2327,7 +2327,11 @@ impl Sim {
             let t = &self.tuning;
             let (m, ev) = (&mut crab.mover, &mut crab.events);
             for (patch, taken) in self.level.cultures.iter().zip(&mut crab.cultures_taken) {
-                if !*taken && in_reach(m, *patch, t) && take_up(m, ev, Carry::Culture, t) {
+                if !*taken
+                    && self.level.culture_unsealed(*patch)
+                    && in_reach(m, *patch, t)
+                    && take_up(m, ev, Carry::Culture, t)
+                {
                     *taken = true;
                 }
             }
