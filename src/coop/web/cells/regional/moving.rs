@@ -52,6 +52,15 @@ pub(super) fn return_pending(r: &State) -> bool {
         .is_some_and(|m| m.returning && !m.all_sent)
 }
 
+pub(super) fn destination_misses(r: &State, point: Vec2) -> bool {
+    r.moving
+        .as_ref()
+        .and_then(|m| m.input.as_ref())
+        .is_some_and(|input| {
+            !crate::coop::cells_wire::region_contains_point(input.new_bounds(), point)
+        })
+}
+
 pub(super) fn send_batch(s: &mut Session, r: &mut State, msg: RegionMsg) {
     if let Some(m) = r.moving.as_mut().filter(|m| m.returning && !m.all_sent) {
         // The receiver must install the boundary event before seeing any
@@ -75,7 +84,13 @@ fn apply_local(
         .as_mut()
         .ok_or("Missing moving kernel")?
         .rewindow_view(sim, &input)
-        .map_err(fault)?;
+        .map_err(|error| {
+            format!(
+                "Regional move at tick {tick}: {error:?}; old={:?} new={:?}",
+                input.old_bounds(),
+                input.new_bounds(),
+            )
+        })?;
     r.journal
         .as_mut()
         .ok_or("Missing moving journal")?
@@ -117,6 +132,32 @@ pub(super) fn step(
     }
     let mut m = r.moving.take().expect("checked move");
     let input = m.input.take().ok_or("Missing prepared move")?;
+    // A delayed prefetch can describe the direction before a paddle/reversal.
+    // Keep the old authoritative world and regrant at this complete batch;
+    // never apply a window which no longer contains its actors.
+    if sim.crabs().iter().any(|crab| {
+        !crate::coop::cells_wire::region_contains_point(input.new_bounds(), crab.mover.pos)
+    }) {
+        if local == HOST {
+            m.input = Some(input);
+            m.ready = false;
+            r.moving = Some(m);
+            request_stop(s, r, sim);
+        } else {
+            let p = point(sim, local)?;
+            send(
+                s,
+                RegionMsg::NeedRegion {
+                    region: m.id.0,
+                    epoch: m.epoch.0,
+                    tick: sim.tick_count(),
+                    pos: [p.x, p.y],
+                },
+            );
+            r.stage = Stage::WaitingOwner;
+        }
+        return Ok(());
+    }
     let authority = if r.shared { HOST } else { local };
     let tick = sim.tick_count();
     let output = apply_local(r, sim, input, authority)?;
@@ -166,7 +207,7 @@ pub(super) fn prefetch(
     sim: &mut Sim,
     local: PlayerId,
 ) -> Result<(), String> {
-    if local == HOST && r.stage == Stage::Running && r.partial.is_empty() {
+    if local == HOST && r.stage == Stage::Running && r.partial.is_empty() && !r.regrant_requested {
         r.move_paging = false;
         let guest = s.guest.ok_or("Missing visitor")?;
         let host_at = point(sim, HOST)?;

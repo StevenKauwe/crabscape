@@ -194,6 +194,19 @@ fn read_falls<'de, D: serde::Deserializer<'de>>(
     d.deserialize_seq(Packets)
 }
 
+/// Match the simulation's ownership test before accepting a delayed window.
+pub(super) fn region_contains_point(
+    bounds: crabsim::underwater::region::CellRegion,
+    point: bevy::math::Vec2,
+) -> bool {
+    use crabsim::underwater::{GAME_BOTTOM, GAME_CELL};
+    point.is_finite()
+        && bounds.contains(
+            (point.x / GAME_CELL).floor() as i32,
+            ((point.y - GAME_BOTTOM) / GAME_CELL).floor() as i32,
+        )
+}
+
 /// A ready packet can outlive its cancelled strip transfer during a regrant.
 /// Only the current transfer may change readiness; its topology must still match.
 #[cfg(any(target_arch = "wasm32", test))]
@@ -215,6 +228,73 @@ pub(super) fn move_ready_matches(
 mod tests {
     use super::*;
     use crabsim::Controls;
+    #[test]
+    fn delayed_window_reversal_keeps_old_world_and_replans_without_invalid_state() {
+        use bevy::math::Vec2;
+        use crabsim::{
+            Sim,
+            underwater::{
+                region::CellRegion,
+                region_store::{RegionId, TerrainStore},
+            },
+            world::regions::{
+                EntityArchive, RegionFrame,
+                journal::RegionJournal,
+                moving::{abort_move, finish_move, prepare_move},
+            },
+        };
+        let mut sim = Sim::with_one_crab(Vec2::new(2200.0, 1660.0));
+        sim.enable_underwater_cells();
+        let old = CellRegion::around_points(&[Vec2::new(2200.0, 1100.0)], 160).unwrap();
+        let stale = CellRegion::around_points(&[Vec2::new(2200.0, 900.0)], 160).unwrap();
+        let mover = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
+        mover.grounded = false;
+        mover.vel.y = 1200.0;
+        let mut store = TerrainStore::new(sim.level.cells.take().unwrap()).unwrap();
+        let mut archive = EntityArchive::new(sim).unwrap();
+        let id = RegionId(1);
+        let (epoch, world) = store.grant(id, old, &archive.sim.level).unwrap();
+        let mut live = archive.extract(id, epoch, &[PlayerId(0)], world).unwrap();
+        let mut journal = RegionJournal::new(&live, PlayerId(0)).unwrap();
+        let delayed = prepare_move(&mut store, &archive, id, epoch, stale).unwrap();
+        assert!(region_contains_point(
+            stale,
+            live.sim.crab(PlayerId(0)).unwrap().mover.pos
+        ));
+        // One complete input batch can cross the prefetched edge before the
+        // next browser safety check, while remaining inside the old lease.
+        for tick in 0..4 {
+            let frame = RegionFrame {
+                tick,
+                controls: vec![(PlayerId(0), Controls::default())],
+                actions: vec![],
+            };
+            live.tick(&frame).unwrap();
+            journal.append(PlayerId(0), epoch, &[frame]).unwrap();
+        }
+        let pos = live.sim.crab(PlayerId(0)).unwrap().mover.pos;
+        assert!(region_contains_point(old, pos));
+        assert!(!region_contains_point(stale, pos), "{pos:?}");
+        let before = live.checkpoint().unwrap();
+        assert!(
+            live.rewindow(&delayed).is_err(),
+            "strict ownership remains enforced"
+        );
+        abort_move(&mut store, id, epoch).unwrap();
+        assert_eq!(live.checkpoint().unwrap(), before);
+        let next = CellRegion::around_points(&[pos], 160).unwrap();
+        let input = prepare_move(&mut store, &archive, id, epoch, next).unwrap();
+        let output = live.rewindow(&input).unwrap();
+        journal.note_move(PlayerId(0), 4, input).unwrap();
+        finish_move(&mut store, &mut archive, output).unwrap();
+        assert_eq!(live.sim.crab(PlayerId(0)).unwrap().mover.pos, pos);
+        assert_eq!(
+            journal.materialize().unwrap().checkpoint().unwrap(),
+            live.checkpoint().unwrap()
+        );
+        assert_eq!(store.active_regions(), 1);
+    }
+
     #[test]
     fn cancelled_strip_readiness_cannot_abort_a_topology_regrant() {
         assert_eq!(move_ready_matches(None, 7, false), Ok(false));

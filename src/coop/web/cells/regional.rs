@@ -57,6 +57,7 @@ pub(super) struct State {
     arrival: Option<crabsim::world::regions::falling::Arrival>,
     arrival_offered: u64,
     shared_move_cutoff: Option<u64>,
+    regrant_requested: bool,
 }
 struct Backup {
     transfer: u64,
@@ -501,7 +502,10 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
         moving::prefetch(s, r, sim, local)?;
         // An authority knows its position before a remote browser can. Check
         // at each complete input batch, including catch-up frames and dives.
-        if local == HOST && needs_change(r, sim, s.guest.ok_or("Missing visitor")?)? {
+        if local == HOST
+            && (r.regrant_requested || needs_change(r, sim, s.guest.ok_or("Missing visitor")?)?)
+        {
+            r.regrant_requested = false;
             request_stop(s, r, sim);
             return Ok(());
         }
@@ -673,6 +677,12 @@ fn receive_inner(
                 return Err("Invalid regional boundary request".into());
             }
             r.guest_pos = Some(Vec2::new(pos[0], pos[1]));
+            // The visitor can reject a delayed destination after reversing
+            // inside its old lease. Its acknowledged batch remains valid.
+            if moving::destination_misses(r, Vec2::new(pos[0], pos[1])) {
+                moving::cancel(r)?;
+                r.regrant_requested = true;
+            }
             // Decide at the next complete authority batch. Its prefetch must
             // run before an edge request can cancel a same-authority move.
         }
