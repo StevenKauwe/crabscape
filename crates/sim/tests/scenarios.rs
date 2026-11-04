@@ -773,6 +773,47 @@ fn climbing_goes_up_and_down_and_steps_off_sideways() {
 }
 
 #[test]
+fn holding_jump_while_steering_into_kelp_grips_after_the_paddle() {
+    for (x, direction) in [(3440, "right"), (3650, "left")] {
+        let r = run_with(
+            strokes(1),
+            &format!("start x={x} y=-2000; t=0.2 jump walk={direction}"),
+            1.0,
+            |_| false,
+        );
+        assert_eq!(r.count("paddled"), 1);
+        assert_eq!(r.count("gripped"), 1, "approach from {direction}");
+        assert!(r.crab().climbing);
+        assert!(
+            r.crab().pos.y > -1800.0,
+            "the held button continues climbing"
+        );
+    }
+    let pass = run_with(
+        strokes(1),
+        "start x=3440 y=-2000; t=0.2 tap walk=right",
+        1.0,
+        |_| false,
+    );
+    assert_eq!(
+        pass.count("gripped"),
+        0,
+        "a released button passes the stalk"
+    );
+    // A fresh press can kick through the stalk as well as away from it.
+    // Holding that press must not catch the same stalk again on the way out.
+    let kick = run_with(
+        strokes(1),
+        "start x=3440 y=-2000; t=0.2 jump walk=right; t=0.6 release; t=0.7 jump",
+        1.0,
+        |_| false,
+    );
+    assert_eq!(kick.count("gripped"), 1);
+    assert_eq!(kick.count("jumped"), 1);
+    assert!(!kick.crab().climbing);
+}
+
+#[test]
 fn the_crab_clings_on_the_side_it_came_from_and_climbs_round_obstacles() {
     // Gripping the kelp (at x 3500) from its left or its right.
     let left = run("start x=3470 y=-2000; t=0.3 tap", 1.0);
