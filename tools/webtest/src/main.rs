@@ -130,9 +130,10 @@ fn main() {
         if o.url.is_none() && !o.smoke && o.feel_shots.is_none() {
             // Start with a clean browser and origin. The reset scenario deliberately
             // leaves stale workers behind and should not share this fixture's store.
-            failures += run(&o, &root, &scratch, &log, true)?;
+            failures += run(&o, &root, &scratch, &log, Run::LargeSave)?;
+            failures += run(&o, &root, &scratch, &log, Run::PlayerRecovery)?;
         }
-        Ok::<_, String>(failures + run(&o, &root, &scratch, &log, false)?)
+        Ok::<_, String>(failures + run(&o, &root, &scratch, &log, Run::Normal)?)
     })();
     let failures = match result {
         Ok(n) => n,
@@ -173,7 +174,13 @@ fn pump(seconds: f64) {
     std::thread::sleep(Duration::from_secs_f64(seconds));
 }
 
-fn run(o: &Options, root: &Path, scratch: &Path, log: &Path, large_save: bool) -> Result<u32> {
+enum Run {
+    Normal,
+    LargeSave,
+    PlayerRecovery,
+}
+
+fn run(o: &Options, root: &Path, scratch: &Path, log: &Path, scenario: Run) -> Result<u32> {
     let base = match &o.url {
         Some(u) => u.trim_end_matches('/').to_string(),
         None => {
@@ -208,7 +215,8 @@ fn run(o: &Options, root: &Path, scratch: &Path, log: &Path, large_save: bool) -
     let vw = if framed { o.width.max(500.0) } else { o.width };
     t.b.set_viewport(vw as u32, o.height as u32)?;
     match &o.feel_shots {
-        _ if large_save => t.large_cellular_autosave()?,
+        _ if matches!(scenario, Run::LargeSave) => t.large_cellular_autosave()?,
+        _ if matches!(scenario, Run::PlayerRecovery) => t.incompatible_player_recovery()?,
         _ if o.cellular_save => t.cellular_autosave()?,
         Some(prefix) => t.feel_strips(prefix)?,
         None => t.all()?,

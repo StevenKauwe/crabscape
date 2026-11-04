@@ -13,10 +13,10 @@ pub(super) fn install(
     let mut write = |rows: &[Value]| {
         let rows = serde_json::to_string(rows).map_err(|e| e.to_string())?;
         let script = format!(
-            r#"new Promise((resolve,reject)=>{{
+            r#"new Promise(resolve=>{{
           let stage='opening database';
-          const timer=setTimeout(()=>reject('fixture stalled while '+stage),20000);
-          const fail=e=>{{clearTimeout(timer);reject(String(e));}};
+          const timer=setTimeout(()=>resolve({{error:'fixture stalled while '+stage}}),20000);
+          const fail=e=>{{clearTimeout(timer);resolve({{error:String(e)}});}};
           const open=indexedDB.open({database:?},1);
           open.onupgradeneeded=()=>open.result.createObjectStore('world');
           open.onerror=()=>fail(open.error);
@@ -38,7 +38,12 @@ pub(super) fn install(
           }};
         }})"#
         );
-        eval(&script).map(drop)
+        let result = eval(&script)?;
+        if result == Value::Bool(true) {
+            Ok(())
+        } else {
+            Err(format!("fixture write failed: {result}"))
+        }
     };
     for (batch, rows) in records.chunks(16).enumerate() {
         write(rows).map_err(|e| format!("large fixture records batch {batch}: {e}"))?;
