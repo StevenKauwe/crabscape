@@ -598,6 +598,20 @@ pub(crate) fn recover_from_rock(e: &mut Enemy, level: &Level, t: &Tuning) -> boo
     }
 }
 
+/// The two eastern refuges have nearby hunting water. Period and distance
+/// are gameplay tuning, not a measured diel cycle. Existing state ticks are
+/// already serialized and handed to the regional owner with the animal.
+fn foraging_water(e: &Enemy) -> Option<Vec2> {
+    if e.kind != Kind::Moray {
+        return None;
+    }
+    match e.home.x {
+        9880.0 => Some(e.home + Vec2::new(-280.0, 180.0)),
+        15220.0 => Some(e.home + Vec2::new(-280.0, 160.0)),
+        _ => None,
+    }
+}
+
 /// Advance one enemy by one tick. Its blows reach only crabs that run on
 /// this device (a remote crab's own device judges them). Returns how each
 /// blow that reached a crab went.
@@ -783,12 +797,33 @@ pub fn step(
     }
 
     // This tick's work. A state entered here counts this tick as its first.
+    let foraging = swimming_moray && foraging_water(e).is_some();
+    let inside_region = |p: Vec2| {
+        level.cells.as_ref().is_some_and(|c| {
+            let half = k.body.0 * 0.325;
+            c.contains_world(p.x - half, p.y) && c.contains_world(p.x + half, p.y + k.body.1)
+        })
+    };
+    let mut idle_goal = e.home;
+    if foraging && e.state == State::Idle && e.hiding == 0 && !e.fled {
+        // Six seconds resting (four for the second refuge), six outbound,
+        // then eight returning/resting. Combat resets this resting clock.
+        let offset = if e.home.x == 15220.0 { 240 } else { 0 };
+        let phase = (e.state_tick % 2400 + offset) % 2400;
+        if let Some(water) = foraging_water(e)
+            && (720..1440).contains(&phase)
+            && !swimmer_blocked(level, water, k.body.0 * 0.5, k.body.1)
+            && (!bounded_region || inside_region(water))
+        {
+            idle_goal = water;
+        }
+    }
     let mut want_speed = 0.0;
     match e.state {
         State::Idle => {
             e.target = None;
             e.animal_target = None;
-            let dx = e.home.x - e.pos.x;
+            let dx = idle_goal.x - e.pos.x;
             if dx.abs() >= 1.0 {
                 e.facing = dx.signum();
                 // Half its approach; a kind that never walks out (a moray
@@ -801,10 +836,12 @@ pub fn step(
                     k.flee_speed.max(BACK_IN_SPEED)
                 };
                 if dx.abs() < want_speed * STEP {
-                    e.pos.x = e.home.x;
+                    e.pos.x = idle_goal.x;
                     want_speed = 0.0;
                 }
-            } else if e.hiding == 0 && (!swimming_moray || (e.pos.y - e.home.y).abs() < 8.0) {
+            }
+            let at_home = e.pos.distance(e.home) < 8.0;
+            if e.hiding == 0 && (foraging || (dx.abs() < 1.0 && (!swimming_moray || at_home))) {
                 // Feeling steps (only a crab moving fast enough), or a smell
                 // that has to build up first.
                 let sensed = e.sense_moving(crabs, k.notice_range, k.notice_moving, t);
@@ -841,7 +878,8 @@ pub fn step(
                         e.target = sensed;
                     }
                     e.enter_now(State::Notice, k.notice_ticks);
-                } else if e.predator_alert == 0
+                } else if (!foraging || at_home)
+                    && e.predator_alert == 0
                     && e.sense(crabs, k.notice_range, t).is_none()
                     && e.vitals.unhit > MEND_AFTER
                 {
@@ -1027,10 +1065,16 @@ pub fn step(
             let goal = match e.state {
                 State::Approach => target_pos
                     .map(|p| Vec2::new(p.x, p.y.clamp(e.home.y - 420.0, e.home.y + 420.0))),
-                State::Idle | State::Flee => Some(e.home),
+                State::Idle => Some(idle_goal),
+                State::Flee => Some(e.home),
                 _ => None,
             };
-            let blocked = |p: Vec2| swimmer_blocked(level, p, half, k.body.1);
+            let blocked = |p: Vec2| {
+                swimmer_blocked(level, p, half, k.body.1)
+                    || (e.state == State::Idle
+                        && idle_goal != e.home
+                        && (p.distance(e.home) > 400.0 || (bounded_region && !inside_region(p))))
+            };
             e.swim_retry = e.swim_retry.saturating_sub(1);
             if let Some(goal) = goal {
                 if e.swim_goal.distance(goal) > 72.0
@@ -1098,7 +1142,11 @@ pub fn step(
             } else {
                 e.swim_path.clear();
             }
-            if swimming_moray && e.state == State::Idle && e.pos.distance(e.home) < 4.0 {
+            if swimming_moray
+                && e.state == State::Idle
+                && idle_goal == e.home
+                && e.pos.distance(e.home) < if foraging { 1.0 } else { 4.0 }
+            {
                 e.pos = e.home;
                 e.vel_x = 0.0;
                 e.reach = 0.0;

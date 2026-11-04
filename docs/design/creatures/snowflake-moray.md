@@ -50,11 +50,41 @@ Concept sheet: `art/creatures/snowflake-moray/snowflake-moray.png`. Shared rules
   unblocked hit grabs; a dodge press every 4 ticks frees the crab in about 50 ticks; autotomy frees at once and drops
   walk speed 8%; a lantern-off crab is noticed as fast as a lit one; a crab outside 260 units is never noticed.
 - **In the sim:** `Kind::Moray` (`crates/sim/src/enemy.rs`, numbers in `tuning.rs`, tests in `tests/creatures.rs`):
-  waits in its crevice, smells a crab after 120 ticks within 260 (light makes no difference), a 60-tick tell, an
+  the original non-cellular fixture waits in its crevice, smells a crab after 120 ticks within 260 (light makes no difference), a 60-tick tell, an
   8-tick lunge whose bite circle travels 130 (21 cm, a third of its length; tuned) out from the head, its body box
   following the head out and back in over 24 ticks, an unblocked bite grabs (15, then 4 every 30, up to
   150 ticks; each dodge press takes 8 off), recover 50, parried 60, flees below 30% (once, 3 s). Not yet: night
-  roaming, autotomy, the timeout damage.
+  roaming tied to a diel cycle, autotomy, the timeout damage. Cellular morays already swim after sensed prey; see the eastern excursions below.
+
+## Eastern reef foraging (cellular game)
+
+The two existing refuges at x 9,880 and 15,220 alternate rest, a short excursion
+into nearby hunting water, and a return home. They still follow sensed prey
+with the existing notice, tell, bite, and retreat behavior. Scent works while
+out, so this is a moving encounter rather than an invulnerable ambient loop.
+The first opening moray and the non-cellular combat fixture are unchanged.
+
+The 20-second cycle, six-second outbound window, 280-unit westward reach,
+160–180-unit rise, and two-second stagger between refuges are tuned for
+readability. They are not measured foraging intervals or a simulated day/night
+cycle. Rest resumes at the fixed refuge; injury, hiding and fleeing override
+excursions. The higher Coral Rise coral route remains a four-stroke bypass;
+walking into the lower hunting water can trigger pursuit. Nearby prey may
+interrupt excursions before the player arrives.
+
+FishBase's *Echidna nebulosa* account was opened for this change: it describes
+rock/coral habitat, nocturnal activity, mainly crustacean prey, and individuals
+seen in the open or with only their heads exposed [FB-EN]. This supports a
+shelter-associated animal moving outside its refuge. The exact short circuit
+is an authored encounter, not a field observation. The giant-moray cooperative
+hunting study [BSH06] concerns *Gymnothorax javanicus*, not this species, and is
+not evidence for this circuit or cooperative behavior in snowflake morays.
+
+The simulation reuses serialized Idle state ticks, existing bounded swim
+routing, existing slots and the existing swimming puppet. It adds no saved
+fields, population, clock, or randomness. Outbound goals and movement keep
+the whole body inside the regional owner's active cells and within 400 units
+of home; unavailable/blocked hunting water leaves the animal at its refuge.
 
 ## Rig notes
 Parts: head (upper jaw + lower jaw, pivot at the jaw hinge behind the eye), eye, 2 tubular nostrils, gill-opening spot,
@@ -74,7 +104,7 @@ snowflake blotches. The game (`src/critters.rs`) builds the head at the simulati
 and strings seven segments from the back of the head to the crevice along a curve; in the tell the head rears and
 tips nose-down, the neck bows up behind it into the crevice, and the mouth shuts. The jaw gapes while it breathes,
 drops wide for the strike, and the throat jaws come forward at the end of the lunge and while it holds on. No tail
-(it never leaves the crevice yet). Ink style only for now (no oil-painted copy yet).
+in the original fixed-crevice pose. Cellular swimming uses the existing articulated neck and tail-clearance checks instead of pinning the body to the opening. Ink style only for now (no oil-painted copy yet).
 
 ## Sources
 - [FB-EN] FishBase, *Echidna nebulosa*. <https://www.fishbase.se/summary/Echidna-nebulosa.html>
