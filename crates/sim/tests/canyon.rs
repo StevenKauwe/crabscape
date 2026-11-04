@@ -149,8 +149,13 @@ fn the_tide_runs_up_then_slack_then_down_then_slack() {
 fn the_crack_is_a_way_down_through_the_rock_to_the_doorstep() {
     // Walking right along the far basin, the crab drops into the crack at
     // the foot of its end wall, and walks on under the wall onto the
-    // doorstep, high on the canyon's wall.
-    let r = run("start x=5150 y=-700\nt=0 walk=right; t=6 walk=stop", 7.0, 0);
+    // doorstep, high on the canyon's wall. The flood runs up the crack too
+    // (`crates/sim/tests/hub.rs`), so it drops in on the ebb (from 30 s).
+    let r = run(
+        "start x=5150 y=-700\nt=31 walk=right; t=37 walk=stop",
+        38.0,
+        0,
+    );
     assert!(r.stood_on(5371.0, 5640.0, -1500.0), "down the crack");
     assert!(
         r.stood_on(DOORSTEP.0, DOORSTEP.1, DOORSTEP.2),

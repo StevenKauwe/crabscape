@@ -250,6 +250,37 @@ of the flow's energy, with pulses along the floor over 60 cm/s [MC10]. Cold-wate
 - The tide's column is x 6450–7350, y -9400 to -700 (`Level::currents`): anything drifting in it should move with
   `Level::water_at`.
 
+## The crossroads (the far basin as a hub)
+The far basin, past the ghost net, is the hub of the deep part of the demo. Every branch out of it ends in a find
+that changes how the crab moves or makes the trip shorter, and gives it a cheaper way home: every descent is a debt
+(`vision.md`), and the branches are how you pay it off. The layout is in `crates/sim/src/level/hub.rs`; the promises
+are checked headless in `crates/sim/tests/hub.rs` (reachability and softlocks), `dig_gates.rs` and `coop.rs`.
+- **The ridge.** The pit's right wall stands on up as a ridge as tall as the end wall, so the hub is walled on both
+  sides. Before it, a crab that walked off the cliff's crest glided right over the pit and landed in the far basin,
+  skipping the ghost net (the scissor claws' gate); the ridge catches that glide, and the crab sinks into the pit.
+- **The window (the way back in).** Through the ridge, where that glide passes, a window is closed by a second
+  ghost net hauled tight from the hub side: its knots are only reachable from there (a level-design call, not a
+  biology claim). A crab with scissor claws walking off the hub's floor into the shaft cuts it. From then on, a jump
+  and a stroke off the cliff's crest carry a crab over the pit, through the window and onto the hub's floor: the
+  trip from home to the hub skips the pit for good, and for everyone in co-op (it is a shared net). A crab that
+  glides into the window before it is cut stands on its sill against the net and walks back off into the pit.
+- **Glass grips: the long glide home.** Above the top of the shaft's coral, the ridge's hub face is bare rock. With
+  glass grips a crab climbs it, free, to the crest (3,000 up, 3,700 above the hub's floor), and walks off west: the
+  glide carries it over the pit, the basin and the cliff, and it lands by the trench, a short walk from home.
+  Height is the credit against the descent's debt.
+- **The tide: up the crack.** The flood runs up the crack as well as the canyon (tidal currents are strongest
+  towards a canyon's head [KPC08]; that the crack carries it is a design call): jump in at the chimney's foot on the
+  flood and the water lifts the crab to the hub, no climbing. On the ebb it runs down (a quick way into the canyon)
+  and the coral is the way up, as before. Going down the crack on the flood means climbing down its coral.
+- **Digging: the buried lattice.** A dead glass sponge's skeleton lies buried in the hub's sand, 70 under the floor
+  near the shaft: a crab that digs there turns it up, and glass grips no longer need the canyon's floor. That a
+  sponge skeleton ends up buried in sediment: not verified (the skeleton lasting after death is [NOAA-GS]). The
+  ground has no tell drawn for it yet (`digging.md` asks for one).
+- **The octopus** guards the last branch: the far rim, its den, and the reef beyond (next section).
+- Not done (needs the cellular engine): the digging branch has no dug *tunnel* shortcut. The authored strata are
+  a 100-unit band under each floor, so a tunnel that saves a real trip needs thicker strata in the terrain
+  generator (`underwater.rs`).
+
 ## Eastern reef routes
 
 Past the canyon rim, Rubble Banks leads down through Silt Hollow and back up toward Coral Rise.

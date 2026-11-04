@@ -2445,7 +2445,9 @@ impl Sim {
                 .filter(|(_, n)| !n.cut)
             {
                 if against(&crab.mover, net.rect, &self.tuning) {
-                    if crab.mover.scissor_claw {
+                    // A one-sided net (a shortcut home) gives way only from
+                    // the side its knots are on.
+                    if crab.mover.scissor_claw && net.cuttable_from(crab.mover.pos.x) {
                         net.cut = true;
                         crab.events.cut_net = true;
                         if let Some(n) = &mut self.net {

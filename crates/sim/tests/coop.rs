@@ -350,6 +350,48 @@ fn a_net_cut_by_one_crab_is_cut_for_everyone() {
     assert!(g.host.level.nets[0].cut, "the host heard");
 }
 
+#[test]
+fn the_ridge_window_cut_from_the_hub_opens_for_everyone_while_finds_stay_each_players() {
+    // The window through the ridge is a shortcut opened from the hub side
+    // (`crates/sim/tests/hub.rs`). The host's crab, in the window on the pit
+    // side with scissor claws, can't cut it; the guest's, on the hub side,
+    // can, and then it is open on both devices.
+    let base = world(&|_| {});
+    let net = base.level.nets[1];
+    let half = base.tuning.body_half_width;
+    let pit_side = Vec2::new(net.rect.min.x - half - 1.0, net.rect.min.y);
+    let hub_side = Vec2::new(net.rect.max.x + half + 1.0, net.rect.min.y + 40.0);
+    let mut g = game(hub_side, FakeLink::steady(LAG), |_| {});
+    put(&mut g.host, HOST, pit_side);
+    g.host.crab_mut(HOST).unwrap().mover.scissor_claw = true;
+    wait(&mut g, 2);
+    assert!(!g.host.level.nets[1].cut, "not from the pit side");
+    g.guest.crab_mut(GUEST).unwrap().mover.scissor_claw = true;
+    wait(&mut g, 1);
+    assert!(g.guest.level.nets[1].cut, "the guest cut it");
+    wait(&mut g, u64::from(LAG) + 1);
+    assert!(g.host.level.nets[1].cut, "and it's open for the host");
+    assert!(!g.host.level.nets[0].cut, "only that net");
+    // A find on the other side of a shortcut is still each player's own:
+    // the guest takes a glass sponge in the host's world and has it; the
+    // host's own is still there for the host.
+    let sponge = base.level.sponges[0];
+    put(&mut g.guest, GUEST, sponge - Vec2::new(0.0, 10.0));
+    wait(&mut g, 1);
+    assert!(g.guest.crab(GUEST).unwrap().sponges_taken[0], "the guest has it");
+    wait(&mut g, 2 * u64::from(LAG));
+    assert!(!g.host.crab(HOST).unwrap().sponges_taken[0]);
+    put(&mut g.host, HOST, sponge - Vec2::new(0.0, 10.0));
+    wait(&mut g, 1);
+    assert!(
+        g.host.crab(HOST).unwrap().sponges_taken[0],
+        "the host took its own"
+    );
+    // And neither device moved or changed the other's crab: the guest's
+    // crab on the host's device is only where the guest says it is.
+    assert!(!g.host.crab(GUEST).unwrap().mover.glass_grips);
+}
+
 // --- Enemies run on the device of the crab they hunt -------------------------
 
 #[test]
