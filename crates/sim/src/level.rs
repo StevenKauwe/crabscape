@@ -22,6 +22,7 @@ pub(crate) mod coral_rise;
 mod exploration;
 mod hub;
 pub mod landmarks;
+pub mod refuges;
 
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
@@ -620,6 +621,7 @@ impl Level {
         exploration::extend(&mut level);
         coral_rise::shape(&mut level);
         hub::shape(&mut level);
+        refuges::shape(&mut level);
         level
     }
 
