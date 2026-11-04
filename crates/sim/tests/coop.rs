@@ -378,7 +378,10 @@ fn the_ridge_window_cut_from_the_hub_opens_for_everyone_while_finds_stay_each_pl
     let sponge = base.level.sponges[0];
     put(&mut g.guest, GUEST, sponge - Vec2::new(0.0, 10.0));
     wait(&mut g, 1);
-    assert!(g.guest.crab(GUEST).unwrap().sponges_taken[0], "the guest has it");
+    assert!(
+        g.guest.crab(GUEST).unwrap().sponges_taken[0],
+        "the guest has it"
+    );
     wait(&mut g, 2 * u64::from(LAG));
     assert!(!g.host.crab(HOST).unwrap().sponges_taken[0]);
     put(&mut g.host, HOST, sponge - Vec2::new(0.0, 10.0));
