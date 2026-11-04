@@ -1,5 +1,6 @@
 //! On-shell cargo and automatic pickup preferences.
 use bevy::prelude::*;
+use crabsim::salvage::{FindPhase, ValvePhase};
 use crabsim::{Carry, ShellAction, Sim};
 
 use crate::player::{GameSet, LocalPlayer, PlayerId};
@@ -27,9 +28,11 @@ enum Choice {
     Cargo,
     Drop(Carry),
     Back,
+    HeldValve,
+    HeldShell,
 }
 
-const ROWS: [Choice; 9] = [
+const ROWS: [Choice; 11] = [
     Choice::Open,
     Choice::Pickup,
     Choice::Clams,
@@ -39,6 +42,8 @@ const ROWS: [Choice; 9] = [
     Choice::Drop(Carry::Grit),
     Choice::Drop(Carry::Valve),
     Choice::Back,
+    Choice::HeldValve,
+    Choice::HeldShell,
 ];
 
 const SHORTCUTS: [(Choice, KeyCode); 6] = [
@@ -74,6 +79,7 @@ fn spawn(mut commands: Commands) {
         .with_children(|panel| {
             for choice in ROWS {
                 let heading = matches!(choice, Choice::Pickup | Choice::Cargo);
+                let passive = heading || matches!(choice, Choice::HeldValve | Choice::HeldShell);
                 let half = matches!(
                     choice,
                     Choice::Clams | Choice::Grit | Choice::Drop(_) | Choice::Back
@@ -90,14 +96,14 @@ fn spawn(mut commands: Commands) {
                                 258
                             }),
                             height: px(if heading { 26 } else { 40 }),
-                            border_radius: BorderRadius::all(px(if heading { 0 } else { 8 })),
-                            border: UiRect::all(px(if heading { 0 } else { 1 })),
+                            border_radius: BorderRadius::all(px(if passive { 0 } else { 8 })),
+                            border: UiRect::all(px(if passive { 0 } else { 1 })),
                             padding: UiRect::horizontal(px(8)),
                             align_items: AlignItems::Center,
                             ..default()
                         },
                         BorderColor::all(Color::srgb(0.41, 0.46, 0.39)),
-                        BackgroundColor(if heading {
+                        BackgroundColor(if passive {
                             Color::srgb(0.05, 0.13, 0.15)
                         } else {
                             Color::srgb(0.10, 0.22, 0.24)
@@ -221,7 +227,16 @@ fn refresh(
     });
     let touching = crate::input::has_touch_screen();
     let shortcut = if touching { "" } else { "  [B]" };
-    let carried = crab.mover.clinging.len() + usize::from(crab.mover.carrying.is_some());
+    let cargo = crab.mover.clinging.len() + usize::from(crab.mover.carrying.is_some());
+    let held_valve = sim
+        .salvage
+        .as_ref()
+        .is_some_and(|site| site.has_valve && site.valve_phase == ValvePhase::Carried(crab.id));
+    let held_shell = sim
+        .salvage
+        .as_ref()
+        .is_some_and(|site| site.has_find && site.phase == FindPhase::Carried(crab.id));
+    let carried = cargo + usize::from(held_valve) + usize::from(held_shell);
     for (choice, mut node, children) in &mut rows {
         let on = |value| if value { "On" } else { "Off" };
         let caption = match *choice {
@@ -233,6 +248,8 @@ fn refresh(
             Choice::Grit => Some(format!("Grit   {}", on(crab.pickup.grit))),
             Choice::Cargo => Some(if carried == 0 {
                 "Carrying nothing".into()
+            } else if cargo == 0 {
+                "Carried".into()
             } else {
                 "Carried - tap to drop one".into()
             }),
@@ -244,6 +261,12 @@ fn refresh(
                     .filter(|item| **item == kind)
                     .count();
                 (count > 0).then(|| format!("{} x{}", name(kind), count))
+            }
+            Choice::HeldValve => {
+                held_valve.then(|| "Valve held\nClose inventory to set down".into())
+            }
+            Choice::HeldShell => {
+                held_shell.then(|| "Shell held\nClose inventory to set down".into())
             }
             Choice::Back => crab
                 .mover
@@ -275,5 +298,79 @@ fn refresh(
         {
             label.0 = caption;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(app: &mut App, choice: Choice) -> (String, Display) {
+        let mut rows = app.world_mut().query::<(&Choice, &Node, &Children)>();
+        let (_, node, children) = rows
+            .iter(app.world())
+            .find(|(kind, ..)| **kind == choice)
+            .unwrap();
+        (
+            app.world().get::<Text>(children[0]).unwrap().0.clone(),
+            node.display,
+        )
+    }
+
+    #[test]
+    fn inventory_reports_only_local_held_salvage_without_extra_drop_actions() {
+        let mut app = App::new();
+        let mut sim = Sim::with_one_crab(Vec2::new(286.0, 28.0));
+        sim.enable_underwater_cells();
+        app.insert_resource(sim)
+            .init_resource::<Open>()
+            .init_resource::<crate::settings::panel::Open>()
+            .add_systems(Startup, spawn)
+            .add_systems(Update, refresh);
+        app.world_mut().spawn((PlayerId(0), LocalPlayer));
+        app.world_mut().spawn(Window {
+            resolution: (430, 742).into(),
+            ..default()
+        });
+        app.update();
+        assert!(row(&mut app, Choice::Open).0.contains("(0)"));
+        app.world_mut()
+            .resource_mut::<Sim>()
+            .salvage
+            .as_mut()
+            .unwrap()
+            .valve_phase = ValvePhase::Carried(PlayerId(0));
+        app.update();
+        assert!(row(&mut app, Choice::Open).0.contains("(1)"));
+        app.world_mut().resource_mut::<Open>().0 = true;
+        app.update();
+        assert_eq!(row(&mut app, Choice::Cargo).0, "Carried");
+        assert_eq!(
+            row(&mut app, Choice::HeldValve),
+            (
+                "Valve held\nClose inventory to set down".into(),
+                Display::Flex
+            )
+        );
+        assert_eq!(row(&mut app, Choice::Drop(Carry::Valve)).1, Display::None);
+        assert_eq!(row(&mut app, Choice::Back).1, Display::None);
+        {
+            let mut sim = app.world_mut().resource_mut::<Sim>();
+            let site = sim.salvage.as_mut().unwrap();
+            site.valve_phase = ValvePhase::Carried(PlayerId(1));
+            site.phase = FindPhase::Carried(PlayerId(0));
+        }
+        app.update();
+        assert_eq!(row(&mut app, Choice::HeldValve).1, Display::None);
+        assert_eq!(row(&mut app, Choice::HeldShell).1, Display::Flex);
+        app.world_mut()
+            .resource_mut::<Sim>()
+            .salvage
+            .as_mut()
+            .unwrap()
+            .phase = FindPhase::Free;
+        app.update();
+        assert_eq!(row(&mut app, Choice::HeldShell).1, Display::None);
+        assert_eq!(row(&mut app, Choice::Cargo).0, "Carrying nothing");
     }
 }

@@ -5,6 +5,7 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 
 | Date | Decision | By |
 |---|---|---|
+| 2026-11-04 | Inventory includes a locally held shellwash valve or shell in its total and shows a passive held-object row. It directs the player to close Inventory to set it down; the existing contextual controls remain the only actions, without changing cargo capacity or ownership rules. | Codex (playtest: carrying a valve said Carrying nothing) |
 | 2026-11-03 | Hulk keeps the ordinary shell-bar footprint; its fill still represents actual health against the boosted capacity. Growth, food and soft-shell changes retain their usual displayed lengths, so the temporary cheat cannot obscure the HUD. | Codex |
 | 2026-11-03 | Combine the inventory, underwater rotation and moray fixes in one pull request. Test the combined changes locally and publish them together to reduce GitHub Actions runs. | Owner |
 | 2026-11-03 | In water the dig stick turns the crab counter-clockwise to the left and clockwise to the right. Its orientation persists on release, with damped restoring torque toward the upright or nose-down posture; anisotropic water resistance turns falling momentum into a glide without adding energy. Slowly resting the paddle legs while sinking draws on the same finite reserve as resting on the ground. This is a simplified physical model, not a verified biological claim. | Owner (request), Codex |
