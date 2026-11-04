@@ -109,6 +109,8 @@ pub(super) fn extend(level: &mut Level) {
         (Kind::Snapper, 13580.0),
         (Kind::Moray, 15220.0),
         (Kind::Mantis, 16900.0),
+        // Append the new habitat so existing creature IDs keep their slots.
+        (Kind::Triggerfish, 11600.0),
     ] {
         level.foes.push((kind, Vec2::new(x, level.floor_height(x))));
     }

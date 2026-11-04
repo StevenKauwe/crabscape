@@ -121,6 +121,7 @@ mod shell_inventory;
 mod sound;
 mod stamina;
 mod style;
+mod triggerfish;
 mod tuning;
 mod view;
 mod voice;
@@ -204,6 +205,7 @@ fn run_app() {
         .add_plugins(cellular::CellularPlugin)
         .add_plugins(salvage::SalvagePlugin)
         .add_plugins(canyon_drift::CanyonDriftPlugin)
+        .add_plugins(triggerfish::TriggerfishPlugin)
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,

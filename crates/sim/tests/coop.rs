@@ -1500,3 +1500,30 @@ fn a_guest_stays_in_the_morays_jaws_and_the_host_sees_the_hold() {
         "held {held_ticks} ticks, seen={seen}"
     );
 }
+
+#[test]
+fn a_triggerfish_bite_is_judged_by_its_guest_defender_once() {
+    let mut g = game(
+        Vec2::new(11770.0, -2700.0),
+        FakeLink::new(3, 0, 0.0, 7),
+        |sim| {
+            sim.enable_underwater_cells();
+            sim.spawn_enemy(Kind::Triggerfish, Vec2::new(11600.0, -2700.0));
+        },
+    );
+    let initial = g.guest.crab(GUEST).unwrap().fighter.vitals.health;
+    let mut bitten = false;
+    let mut reflected = false;
+    play(&mut g, "", "", 650, |g| {
+        let local = g.guest.crab(GUEST).unwrap();
+        bitten |= local.fighter.vitals.health < initial;
+        reflected |= bitten
+            && g.host.crab(GUEST).unwrap().fighter.vitals.health == local.fighter.vitals.health;
+        assert_eq!(g.host.crab(HOST).unwrap().fighter.vitals.health, initial);
+        assert!(
+            local.fighter.vitals.health >= initial - 40.0,
+            "duplicate bite damage"
+        );
+    });
+    assert!(bitten && reflected);
+}

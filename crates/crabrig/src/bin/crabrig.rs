@@ -16,13 +16,14 @@ const USAGE: &str = "usage:
   crabrig export [--creature snapping-shrimp|mantis-shrimp|snowflake-moray|common-octopus|space-monkey|pizza-crab] [--scale S] [--out DIR] [parts.svg]";
 
 /// The creatures with puppets.
-const CREATURES: [&str; 6] = [
+const CREATURES: [&str; 7] = [
     "snapping-shrimp",
     "mantis-shrimp",
     "snowflake-moray",
     "common-octopus",
     "space-monkey",
     "pizza-crab",
+    "queen-triggerfish",
 ];
 
 /// Pull `--flag value` out of the arguments.
@@ -64,6 +65,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         "parts" => {
             let out = args.first().cloned().unwrap_or(default_svg);
             let svg = match creature.as_deref() {
+                Some("queen-triggerfish") => crabrig::triggerfish::parts_svg(),
                 Some("mantis-shrimp") => crabrig::mantis::parts_svg(),
                 Some("snowflake-moray") => crabrig::moray::parts_svg(),
                 Some("common-octopus") => crabrig::octopus::parts_svg(),

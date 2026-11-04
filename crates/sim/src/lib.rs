@@ -73,6 +73,7 @@ pub mod salvage;
 pub mod save_data;
 pub mod shared;
 pub mod skills;
+pub mod triggerfish;
 pub mod tuning;
 pub mod world;
 

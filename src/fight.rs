@@ -252,6 +252,9 @@ fn hint(kind: Kind) -> Option<&'static str> {
         Kind::Mantis => Some("A mantis holds still before it strikes.\nTap GUARD then to parry."),
         Kind::Moray => Some("A moray coils before its bite.\nDODGE, or tap GUARD to parry."),
         Kind::Octopus => Some("Octopus: DODGE the pounce and web.\nGUARD its reaching arm tips."),
+        Kind::Triggerfish => Some(
+            "Nose down: water jet. Hold GUARD to brace.\nThen DODGE or tap GUARD for the bite.",
+        ),
         Kind::Monkey => Some("Space monkeys!\nWatch those long asparagus arms."),
         Kind::Fixture => None,
     }
