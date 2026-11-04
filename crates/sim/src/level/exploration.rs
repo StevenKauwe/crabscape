@@ -38,8 +38,11 @@ pub(super) fn extend(level: &mut Level) {
         // The discovery sits off the lower through-route, behind the lip.
         Rect::new(14260.0, -3780.0, 14460.0, -3740.0),
         Rect::new(14960.0, -2600.0, 15220.0, -2560.0),
-        // The bank haven sits against the cap, under an anchored overhang.
-        Rect::new(10220.0, -2100.0, 10390.0, -2060.0),
+        // Anchor the haven roof in the cap, leaving full jump headroom
+        // at the excavated mouth. A low roof traps the crab behind the
+        // loosened-sand lip even after it has cleared the rock cap.
+        Rect::new(10200.0, -2100.0, 10240.0, -1880.0),
+        Rect::new(10220.0, -1920.0, 10390.0, -1880.0),
         // A rock buttress at the end anchors the last coral and discovery.
         Rect::new(17330.0, -2300.0, 17400.0, -1800.0),
     ]);
