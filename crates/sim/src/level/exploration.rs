@@ -97,15 +97,16 @@ pub(super) fn extend(level: &mut Level) {
         .extend([Vec2::new(14360.0, -3710.0), Vec2::new(17280.0, -1790.0)]);
     // Don't add more permanent swim strokes: this is a choice of routes
     // using existing movement, not another stat gate.
+    // Keep resident burrows more than 400 units from both rest niches.
     for (kind, x) in [
         (Kind::Snapper, 9430.0),
-        (Kind::Mantis, 10350.0),
+        (Kind::Mantis, 10720.0),
         (Kind::Snapper, 11900.0),
         (Kind::Snapper, 12140.0),
         (Kind::Moray, 9880.0),
         (Kind::Snapper, 13200.0),
         (Kind::Snapper, 13820.0),
-        (Kind::Snapper, 14040.0),
+        (Kind::Snapper, 13580.0),
         (Kind::Moray, 15220.0),
         (Kind::Mantis, 16900.0),
     ] {

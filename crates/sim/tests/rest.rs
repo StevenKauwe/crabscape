@@ -88,6 +88,15 @@ fn the_level_has_crevices_out_past_the_trench_on_solid_floor() {
     let sim = Sim::with_one_crab(Vec2::ZERO);
     let level = &sim.level;
     let crevices = &level.crevices;
+    let grown_half_width = sim.tuning.body_half_width * sim.tuning.moult.most_size;
+    let supported = |p: Vec2| {
+        level.floor_height(p.x) == p.y
+            || level.rocks.iter().any(|rock| {
+                rock.max.y == p.y
+                    && rock.min.x <= p.x - grown_half_width
+                    && rock.max.x >= p.x + grown_half_width
+            })
+    };
     assert_eq!(crevices.len(), 5, "three original and two eastern havens");
     let (_, trench_right) = level.trench();
     let (pit_left, pit_right, pit_bottom) = level.pit();
@@ -98,11 +107,15 @@ fn the_level_has_crevices_out_past_the_trench_on_solid_floor() {
         "one at the bottom of the pit"
     );
     for c in crevices {
-        // Out in the level, on the floor, in its own doorway.
+        // Out in the level, supported by the seabed or a broad rock shelf,
+        // in its own doorway. Raised shelves must fit a fully grown crab.
         assert!(c.den.x > trench_right, "{c:?} past the trench");
-        assert_eq!(level.floor_height(c.den.x), c.den.y, "{c:?} on the floor");
+        assert!(supported(c.den), "{c:?} needs solid support under its den");
         let doorstep = Vec2::new(c.door.max.x, c.den.y);
-        assert_eq!(level.floor_height(doorstep.x), c.den.y, "{c:?} flat");
+        assert!(
+            supported(doorstep),
+            "{c:?} needs a supported, level doorstep"
+        );
         assert!(c.door.contains(c.den) && c.door.contains(doorstep));
         // Never inside a rock, and never in an animal's burrow.
         for p in [c.den, doorstep] {
