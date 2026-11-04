@@ -16,6 +16,7 @@ use bevy_math::{Rect, Vec2};
 use crate::enemy::Kind;
 use crate::tuning::TideTuning;
 
+pub(crate) mod coral_rise;
 mod exploration;
 
 /// Where the crab starts (its feet), if there is no save.
@@ -522,6 +523,7 @@ impl Level {
             max_x: 8800.0,
         };
         exploration::extend(&mut level);
+        coral_rise::shape(&mut level);
         level
     }
 

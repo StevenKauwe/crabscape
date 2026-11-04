@@ -280,7 +280,7 @@ fn fight_notes(
     let region = if m.pos.x >= 14900.0 {
         Some((
             2,
-            "Coral Rise\nClimb the shelves, or follow the lower route home.",
+            "Coral Rise\nA culture hides in the bank. Climb above, or dig below.",
         ))
     } else if m.pos.x >= 12000.0 {
         Some((

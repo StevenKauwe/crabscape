@@ -198,7 +198,7 @@ fn discovery_is_enclosed_in_rock_with_two_open_mouths() {
     };
     assert_eq!(level.cultures.len(), 5);
     assert_eq!(level.cultures[3], Vec2::new(14360.0, -3710.0));
-    assert_eq!(level.cultures[4], Vec2::new(17280.0, -1790.0));
+    assert_eq!(level.cultures[4], Vec2::new(17130.0, -2784.0));
     for (x, y) in [
         (14360.0, -3500.0),
         (14360.0, -3760.0),
