@@ -356,16 +356,34 @@ fn the_upwelling_runs_by_the_near_wall_from_the_floor_to_just_above_the_shelf() 
         lane.min.x > FLOOR.0 && lane.max.x < 6450.0,
         "by the near wall"
     );
-    // A crab hopping into it with no strokes and letting go: carried up
-    // past the shelf, bobbing there, never up to the doorstep.
-    let r = run("start x=6200 y=-9400\nt=0.2 jump; t=0.4 release", 30.0, 0);
+    // Isolate the permanent loop: its outward turn can now transfer a crab
+    // into the separate flood, which correctly carries it higher. The loop
+    // alone must lift past the shelf without bypassing the climb above it.
+    let mut tuning = Tuning::base();
+    tuning.tide.up_speed = 0.0;
+    tuning.tide.down_speed = 0.0;
+    let r = run_with(
+        tuning,
+        "start x=6200 y=-9400\nt=0.2 jump; t=0.4 release",
+        30.0,
+        0,
+    );
     assert!(
         r.highest > SHELF.2 + 100.0,
         "up past the shelf: {}",
         r.highest
     );
     assert!(r.highest < DOORSTEP.2 - 1000.0, "no higher: {}", r.highest);
-    assert!(!r.crab().grounded, "still bobbing: {}", r.crab().pos);
+    assert!(
+        r.crab().pos.x > lane.max.x,
+        "carried into the return: {}",
+        r.crab().pos
+    );
+    assert!(
+        r.crab().pos.y < r.highest - 100.0,
+        "returned below the turn: {}",
+        r.crab().pos
+    );
     // Its water runs up all through the tide's round.
     let t = Tuning::base().tide;
     assert!((level.water_at(lane.center(), &t) - t.upwelling_speed).abs() < 0.01);
