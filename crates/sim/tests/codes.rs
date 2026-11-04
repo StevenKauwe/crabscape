@@ -510,3 +510,122 @@ fn a_friend_meets_only_live_monkeys_from_updates() {
         "ids carry on after it"
     );
 }
+
+#[test]
+fn level_commands_validate_and_roundtrip_both_spellings() {
+    use crabsim::skills::Skill;
+    for skill in Skill::ALL {
+        for level in [1, 25, 99] {
+            let code = Code::Level { skill, level };
+            assert_eq!(
+                Code::parse(&format!("  LEVEL {} {level}  ", skill.name())),
+                Some(code)
+            );
+            assert_eq!(Code::parse(&code.command()), Some(code));
+        }
+    }
+    for text in [
+        "level",
+        "level swimming",
+        "level swimming 0",
+        "level swimming 100",
+        "level swimming -1",
+        "level swimming NaN",
+        "level swimming 2.5",
+        "level swimming 25 extra",
+        "level fishing 25",
+    ] {
+        assert!(Code::is_level_command(text));
+        assert_eq!(Code::parse(text), None, "{text}");
+    }
+}
+
+#[test]
+fn setting_a_level_changes_only_that_saved_skill_and_can_lower_it() {
+    use crabsim::skills::Skill;
+    let mut sim = sim();
+    sim.enter_code(P0, Code::Feast);
+    let before = sim.progress(P0).unwrap();
+    let crab_before = sim.crab(P0).unwrap().clone();
+    for skill in Skill::ALL {
+        for level in [99, 25, 1] {
+            assert!(sim.enter_code(P0, Code::Level { skill, level }));
+            let crab = sim.crab(P0).unwrap();
+            assert_eq!(crab.mover.level(skill, &sim.tuning), level);
+            let mut expected = before.clone();
+            let xp = crabsim::skills::xp_for(level, skill.step(&sim.tuning));
+            match skill {
+                Skill::Climbing => expected.climb_xp = xp,
+                Skill::Swimming => expected.swim_xp = xp,
+                Skill::Fighting => expected.fight_xp = xp,
+            }
+            let saved = sim.progress(P0).unwrap();
+            assert_eq!(
+                saved, expected,
+                "equipment, items, and other skills stay unchanged"
+            );
+            let json = serde_json::to_string(&saved).unwrap();
+            assert_eq!(
+                serde_json::from_str::<crabsim::Progress>(&json).unwrap(),
+                saved
+            );
+            assert_eq!(crab.mover.stamina, crab_before.mover.stamina);
+            assert_eq!(crab.mover.reserve, crab_before.mover.reserve);
+            assert_eq!(crab.fighter, crab_before.fighter);
+        }
+    }
+}
+
+#[test]
+fn invalid_or_remote_level_commands_do_not_mutate_or_record() {
+    use crabsim::skills::Skill;
+    let mut sim = sim();
+    sim.add_remote_crab(PlayerId(1), SPAWN);
+    sim.start_recording();
+    let before = sim.state_hash();
+    for level in [0, 100, u32::MAX] {
+        assert!(!sim.enter_code(
+            P0,
+            Code::Level {
+                skill: Skill::Swimming,
+                level
+            }
+        ));
+    }
+    assert!(!sim.enter_code(
+        PlayerId(1),
+        Code::Level {
+            skill: Skill::Swimming,
+            level: 25
+        }
+    ));
+    assert_eq!(sim.state_hash(), before);
+    assert!(sim.recording().unwrap().codes.is_empty());
+}
+
+#[test]
+fn recorded_level_changes_replay_to_the_same_state() {
+    let mut live = sim();
+    live.start_recording();
+    for (tick, text) in [
+        (0, "level swimming 25"),
+        (3, "level fighting 99"),
+        (7, "level swimming 1"),
+    ] {
+        while live.tick_count() < tick {
+            live.tick();
+        }
+        assert!(live.enter_typed(P0, text));
+    }
+    for _ in 0..10 {
+        live.tick();
+    }
+    let recording = live.recording().unwrap();
+    let text = recording.to_text();
+    assert!(text.contains("code=level:swimming:25"));
+    let replay = Replay::parse(&text).unwrap();
+    assert_eq!(Replay::parse(&replay.to_text()).unwrap(), replay);
+    let mut again = sim();
+    play(&mut again, &replay, replay.length(), |_| {});
+    assert_eq!(live.state_hash(), again.state_hash());
+}

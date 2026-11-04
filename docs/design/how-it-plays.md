@@ -188,12 +188,13 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 
 ## Codes
 A playful cheat, the owner's idea. Typed codes change only your own crab, go through the sim like the controls (a
-replay carries them as `code=hulk`) and last until the page is reloaded (they are not saved). Friends see them.
+replay carries them as `code=hulk`). Power and appearance codes last until reload. Skill-level commands change saved progress. Friends see the resulting crab.
 - `hulk` (again to turn it off): the crab bulks up, drawn 1.5× bigger from its feet with a green shell. Its smash does
   3× the damage and 2.5× the knockback, it feels a fifth of a blow's poise damage, and it walks at 0.8× speed. Its
   claws reach 1.5× further (and higher) and its body is 1.5× bigger in a fight; its box against the level stays the
   same so it still fits through every gap.
 - `feast`: shell mended, reserve and paddle strokes full.
+- `level swimming 25`: set Swimming to exactly level 25 for playtests; also accepts `climbing` or `fighting` and levels 1–99. This changes saved skill progress (including lowering it), preserving equipment, items, other skills and the world. Replays use `code=level:swimming:25`.
 - `glow` (again to turn it off): the lantern burns as bright as four cultures (sight too); nothing earned is changed.
 - Anything else: "Nothing happens."
 

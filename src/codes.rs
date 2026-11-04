@@ -162,7 +162,10 @@ fn use_codes(
     let (id, at) = *crab;
     for Typed(text) in typed.read() {
         // Words that aren't a code are said to the friends here, if any.
-        if Code::parse(text).is_none() && (sim.crabs().len() > 1 || crate::coop::cells_active()) {
+        if Code::parse(text).is_none()
+            && !Code::is_level_command(text)
+            && (sim.crabs().len() > 1 || crate::coop::cells_active())
+        {
             chat.say(names.mine(), text, time.elapsed_secs_f64());
             continue;
         }
@@ -170,7 +173,17 @@ fn use_codes(
             crate::coop::cells_action(crate::coop::CellsAction::Code(*c)) || sim.enter_code(*id, *c)
         });
         let mover = sim.crab(*id).map(|c| &c.mover);
+        let level_feedback = match code {
+            Some(Code::Level { skill, level }) => {
+                format!("{} set to level {level} (saved).", skill.name())
+            }
+            _ => String::new(),
+        };
         let (words, colour) = match (code, mover) {
+            (Some(Code::Level { .. }), _) => (level_feedback.as_str(), GOLD),
+            (None, _) if Code::is_level_command(text) => {
+                ("Use: level swimming 25 (climbing/fighting; 1–99).", PALE)
+            }
             (Some(Code::Hulk), Some(m)) if m.hulk => ("HULK SMASH!", HULK_GREEN),
             (Some(Code::Hulk), _) => ("Back to crab size.", PALE),
             (Some(Code::Feast), _) => ("A feast! Shell mended.", GOLD),

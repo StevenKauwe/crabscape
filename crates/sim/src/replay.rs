@@ -517,7 +517,7 @@ impl Replay {
             out += &format!("@{tick} feel={}\n", feel.name());
         }
         for (tick, code) in &self.codes {
-            out += &format!("@{tick} code={}\n", code.name());
+            out += &format!("@{tick} code={}\n", code.command());
         }
         for (tick, skill) in &self.moults {
             out += &format!("@{tick} moult={}\n", skill.name().to_lowercase());
