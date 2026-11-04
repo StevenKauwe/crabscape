@@ -42,6 +42,11 @@ fn save_on_request(
     time: Res<Time<Real>>,
     mut poll: ResMut<CapturePoll>,
 ) {
+    // Regional terrain updates can change state without advancing its tick.
+    // Capture the diagnostic hash here, after simulation, so a simultaneous
+    // replay request sees exactly the same immutable snapshot.
+    #[cfg(target_arch = "wasm32")]
+    page::hash_if_requested(&sim);
     poll.elapsed += time.delta_secs();
     let requested = if poll.elapsed >= 0.25 {
         poll.elapsed = 0.0;
@@ -130,6 +135,19 @@ mod page {
 /// (`web/index.html`) shows the replay in a box to copy.
 #[cfg(target_arch = "wasm32")]
 mod page {
+    pub fn hash_if_requested(sim: &crabsim::Sim) {
+        let Some(canvas) = canvas() else {
+            return;
+        };
+        if canvas.has_attribute("data-want-cell-hash") {
+            let _ = canvas.remove_attribute("data-want-cell-hash");
+            let _ = canvas.set_attribute(
+                "data-cell-session-hash",
+                &format!("{}:{:016x}", sim.tick_count(), sim.state_hash()),
+            );
+        }
+    }
+
     pub fn capture_requested() -> bool {
         false
     }
