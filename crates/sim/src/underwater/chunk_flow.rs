@@ -2394,7 +2394,13 @@ impl ChunkFlow {
             journal.unsupported = true;
         }
         let mut next: Vec<_> = self.chunks.iter().map(|chunk| chunk.flow.clone()).collect();
+        let waves = super::background_waves::BackgroundWaves::new(
+            if self.game { self.origin } else { (0, 0) },
+            WIDTH,
+            tick,
+        );
         for y in 1..HEIGHT - 1 {
+            let row_waves = waves.row(y);
             let time = tick as f32;
             let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
             let shear = if self.game {
@@ -2410,10 +2416,7 @@ impl ChunkFlow {
                     next[chunk][slot] = (0.0, 0.0);
                     continue;
                 }
-                let t = tick as f32 * 0.018;
-                let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
-                let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
-                let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
+                let (eddy, cross) = waves.at(x, row_waves);
                 let feed = if self.game { 0.12 } else { 0.035 };
                 let mut vx = next[chunk][slot].0 + (current + shear + eddy * 0.08) * feed;
                 let mut vy = next[chunk][slot].1 + cross * 0.002;
@@ -2464,6 +2467,11 @@ impl ChunkFlow {
             journal.unsupported = true;
         }
         let mut next: Vec<_> = self.chunks.iter().map(|chunk| chunk.flow.clone()).collect();
+        let waves = super::background_waves::BackgroundWaves::new(
+            if self.game { self.origin } else { (0, 0) },
+            WIDTH,
+            tick,
+        );
         for cy in 0..ROWS {
             for cx in 0..COLS {
                 let index = cy * COLS + cx;
@@ -2475,6 +2483,7 @@ impl ChunkFlow {
                     if y == 0 || y + 1 == HEIGHT {
                         continue;
                     }
+                    let row_waves = waves.row(y);
                     let time = tick as f32;
                     let world_y = (y as i32 + if self.game { self.origin.1 } else { 0 }) as f32;
                     let shear = if self.game {
@@ -2495,10 +2504,7 @@ impl ChunkFlow {
                             next[index][slot] = (0.0, 0.0);
                             continue;
                         }
-                        let t = tick as f32 * 0.018;
-                        let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
-                        let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
-                        let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
+                        let (eddy, cross) = waves.at(x, row_waves);
                         let feed = if self.game { 0.12 } else { 0.035 };
                         let mut vx = next[index][slot].0 + (current + shear + eddy * 0.08) * feed;
                         let mut vy = next[index][slot].1 + cross * 0.002;

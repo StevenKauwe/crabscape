@@ -45,7 +45,10 @@ fn main() {
     let budget = std::env::var("CRAB_TRANSITION_BUDGET_MS")
         .ok()
         .map(|s| s.parse::<f64>().expect("numeric CPU budget"));
-    let level = Level::test_level();
+    let mut level = Level::test_level();
+    if std::env::var_os("CRAB_TRANSITION_RAW").is_some() {
+        level.max_x += 4.0;
+    }
     for (name, start, end) in [
         ("opening-east", (160.0, 0.0), (1930.0, 0.0)),
         ("silt-east", (13000.0, -3400.0), (13900.0, -3400.0)),

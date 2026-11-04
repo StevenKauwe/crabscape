@@ -409,23 +409,35 @@ impl super::World {
         }
         let side = super::TERRAIN_CHUNK_CELLS;
         let mut written = BTreeSet::new();
-        for y in (bounds.y + side - 1).div_euclid(side)
-            ..(bounds.y + bounds.height as i32).div_euclid(side)
+        let mut ready = true;
+        for y in bounds.y.div_euclid(side)..=(bounds.y + bounds.height as i32 - 1).div_euclid(side)
         {
-            for x in (bounds.x + side - 1).div_euclid(side)
-                ..(bounds.x + bounds.width as i32).div_euclid(side)
+            for x in
+                bounds.x.div_euclid(side)..=(bounds.x + bounds.width as i32 - 1).div_euclid(side)
             {
+                let left = (x * side).max(bounds.x);
+                let bottom = (y * side).max(bounds.y);
+                let right = ((x + 1) * side).min(bounds.x + bounds.width as i32);
+                let top = ((y + 1) * side).min(bounds.y + bounds.height as i32);
                 // The overlap stays in the active arrays. Only pages leaving
                 // that overlap can acquire sleeping cells during this remap.
                 if retained.is_some_and(|r| {
-                    x * side >= r.x
-                        && y * side >= r.y
-                        && (x + 1) * side <= r.x + r.width as i32
-                        && (y + 1) * side <= r.y + r.height as i32
+                    left >= r.x
+                        && bottom >= r.y
+                        && right <= r.x + r.width as i32
+                        && top <= r.y + r.height as i32
                 }) {
                     continue;
                 }
-                written.insert((x, y));
+                if right - left == side && top - bottom == side {
+                    written.insert((x, y));
+                } else {
+                    // A clipped page may contain durable cells outside the
+                    // old active rectangle. Read them before doing the full
+                    // remap, not after copying every grid into a doomed trial.
+                    self.sleeping.cache.protected.insert((x, y));
+                    ready &= self.sleeping.cache.require((x, y));
+                }
             }
         }
         let extra = written
@@ -445,7 +457,7 @@ impl super::World {
                 self.sleeping.cache.loaded(key);
             }
         }
-        true
+        ready
     }
     pub(crate) fn passive_transaction(
         &mut self,
@@ -473,6 +485,42 @@ impl super::World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn clipped_departing_pages_are_requested_before_any_active_remap() {
+        let mut level = crate::Level::test_level();
+        level.max_x += 4.0;
+        let mut world = super::super::World::from_level(&level);
+        world.follow_player(&level, 160.0, 0.0);
+        world.enable_paging();
+        let next = super::super::region::CellRegion {
+            x: 128,
+            ..world.region()
+        };
+        // All entering pages are already available, but the old partial top
+        // pages still need a read before we can archive their active fragment.
+        assert!(!world.require_region_pages(next));
+        for ticket in world.sleeping_page_requests(256) {
+            assert!(world.accept_sleeping_page(ticket, None).unwrap());
+        }
+        assert!(world.require_region_pages(next));
+        let before = postcard::to_allocvec(&world.checkpoint()).unwrap();
+        let trace = super::super::dirty_oracle::trace_world(|| {
+            assert!(!world.prepare_paged_follow(&level, 1930.0, 0.0, 0));
+        });
+        assert!(
+            trace.is_empty(),
+            "a cold read must not first remap the entire active grid"
+        );
+        assert_eq!(before, postcard::to_allocvec(&world.checkpoint()).unwrap());
+        let requests = world.sleeping_page_requests(256);
+        assert!(requests.iter().any(|t| t.coordinate == (0, 5)));
+        assert!(requests.iter().any(|t| t.coordinate == (1, 5)));
+        for ticket in requests {
+            assert!(world.accept_sleeping_page(ticket, None).unwrap());
+        }
+        assert!(world.prepare_paged_follow(&level, 1930.0, 0.0, 0));
+        assert_eq!(world.region(), next);
+    }
     #[test]
     fn probing_unexplored_pages_does_not_queue_deletions_for_autosave() {
         let mut archive = SleepingArchive::default();

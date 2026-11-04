@@ -540,17 +540,14 @@ fn simulate(
     }
     for _ in 0..steps {
         let before = sim.tick_count();
-        if crate::coop::cells_tick(&mut sim, local.0) {
-            if sim.tick_count() == before {
-                continue;
-            }
-        } else {
+        if !crate::coop::cells_tick(&mut sim, local.0) {
             sim.tick();
-            if sim.tick_count() == before {
-                // A cold page can arrive only after this browser task yields.
-                // Retrying the same blocked tick in this frame cannot progress it.
-                break;
-            }
+        }
+        if sim.tick_count() == before {
+            // Both storage and regional co-op can need asynchronous input.
+            // Yield after the first blocked tick; retrying up to 30 times in
+            // this same frame cannot deliver a page, peer batch or move ACK.
+            break;
         }
         // Collect what happened during each tick for the animation.
         for (id, _, _, _, mut events) in &mut crabs {
