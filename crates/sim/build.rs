@@ -15,20 +15,31 @@ fn underwater_sources(dir: &Path, paths: &mut Vec<PathBuf>) {
         }
     }
 }
-fn main() {
+fn source_paths() -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = [
         "src/underwater.rs",
-        "src/world.rs",
-        "src/physics.rs",
-        "src/tuning.rs",
+        "src/physics/consts.rs",
         "src/level/coral_rise.rs",
-        "src/level/circulation.rs",
     ]
     .into_iter()
     .map(PathBuf::from)
     .collect();
     underwater_sources(Path::new("src/underwater"), &mut paths);
     paths.sort();
+    paths
+}
+
+fn main() {
+    let paths = source_paths();
+    // Tests inspect the exact list without filesystem access (including Wasm).
+    println!(
+        "cargo:rustc-env=CRAB_BAKED_PHYSICS_SOURCES={}",
+        paths
+            .iter()
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .collect::<Vec<_>>()
+            .join(";")
+    );
     let mut hash = Sha256::new();
     for path in paths {
         println!("cargo:rerun-if-changed={}", path.display());

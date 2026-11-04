@@ -35,11 +35,11 @@ crosses sleeping-region boundaries. There is no new global background simulation
 ## Reproduce and invalidate
 
 ```sh
-cargo run -p crabsim --profile terrain-bake --features terrain-bake \
+timeout 1500 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
   --example bake_settled_world -- --probe 30
-cargo run -p crabsim --profile terrain-bake --features terrain-bake \
+timeout 1500 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
   --example bake_settled_world -- --write /tmp/crab-world-settled-full.postcard.deflate
-cargo run -p crabsim --profile terrain-bake --features terrain-bake \
+timeout 1500 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
   --example compact_settled_world -- /tmp/crab-world-settled-full.postcard.deflate \
   crates/sim/assets/world-settled.postcard.deflate
 ```
@@ -61,14 +61,64 @@ conserved 122,364 grains after authored opening features (raw floor alone had
 removing 777,695 empty-water identity-only patches. Progress is printed every
 300 steps.
 
-`crates/sim/build.rs` hashes relevant world, physics, tuning and underwater source
-files at build time, normalizing path separators and CRLF to LF for cross-platform
-checkouts. Runtime includes only that digest, combined with the authored
-floor/rocks, material parameters and seed-format/timing constants. Source or
-geometry changes invalidate the artifact and its focused regression test: rebuild
-it deliberately. This conservative invalidation can require a bake for edits that
-ultimately do not change sediment; it avoids silently shipping an old seed under
-new physics. Loader-only presentation/tests are not part of the physics digest.
+`crates/sim/build.rs::source_paths` hashes `src/underwater.rs`, every Rust file
+recursively under `src/underwater/` except `settled_seed.rs`,
+`src/physics/consts.rs`, and `src/level/coral_rise.rs`. Paths are relative to
+`crates/sim`. Path separators and CRLF are normalized for cross-platform checkouts.
+Edits to those files force a rebake. Runtime combines that source digest with the
+authored floor, rocks, maximum x, material parameters and seed-format/timing constants.
+Changes to those runtime inputs also force a rebake.
+
+`world.rs`, `tuning.rs`, `physics.rs` and `level/circulation.rs` are outside the
+source digest. Adding a tuning field or a call in `Sim::tick` therefore needs no
+rebake. The loader and its tests in `settled_seed.rs` are also outside it. The
+30-step behavioural tripwire guards terrain changes that escape the source list.
+Run it with the normal sim tests or, for a speed-optimized measurement, with
+`timeout 1500 cargo test -p crabsim --profile terrain-bake --lib probe_digest_matches_committed`.
+It uses the same `global` and `advance` functions as `--probe 30` on the real level,
+then SHA-256 hashes row-major triples of material discriminant, grain identity and
+suspension byte. Its expected digest lives in `settled_seed.rs` beside the seed
+loader. A mismatch says "rebake" and prints the actual digest. For an intentional
+terrain change, run all three commands above, review the changed inputs, then
+replace the test's expected digest with that measured value and rerun the sim tests.
+Never update the digest merely to silence an unexpected difference.
+
+### Bake dependency trace (#475)
+
+`bake_settled_world` dispatches to `seed_bake::{bake, probe}`. Both call `global`,
+which calls `Level::test_level`, `bounds`, `raw_world`, `seed_shellwash_site` and
+`seed_shallow_shortcut`. `raw_world` uses `World::new`, `TerrainColumn::{new, cell}`,
+`Level::floor_height`, `terrain_with_rocks`, `initial_grain` and `ambient_current`.
+`advance` calls `step_material(0.35)` and checks mass and escaped grains. Its
+material/flow helpers, grain swaps, indexing, silt emission and closed-bottom
+handling all live in the hashed cellular sources. The global bake has no crabs,
+other bodies or pebble aggregates. `pack` compares against the same authored
+columns and initial grain function and calls `settled_seed::fingerprint`.
+
+Of the previously broadly hashed files, the reachable items are
+
+- `world.rs` has none. The bake constructs `underwater::World`, without a `Sim`.
+- `tuning.rs` has none. No `Tuning::default()` or tuning sub-struct feeds this path.
+- `physics.rs` has none. `STEP` is used by creature/cell interactions outside this
+  path. `STEP` and `TICKS_PER_SECOND` are moved unchanged to `physics/consts.rs`,
+  re-exported at their original paths and conservatively hashed as the shared clock.
+- `level/coral_rise.rs` contributes `shape` through `Level::test_level` and
+  `sediment_depth` through `terrain_with_rocks`. `culture_unsealed` is unreachable.
+- `level/circulation.rs` has none. Neither `circulation` nor `smooth` is called.
+
+Level construction also calls `exploration::extend` and `hub::shape`. Their
+floor/rock/max-x output is covered by the runtime geometry fingerprint. The
+tripwire additionally covers changes to level sampling such as `floor_height`.
+
+The #475 baseline and post-move 30-step digests both measured
+`76a40216438979753b1f569ed67e9dbcce5e40f8a6e01420cf9a47d6f19f6d18`.
+The optimized test took 5.70 seconds before and 1.84 seconds after, both below the
+20-second target (builds competed for CPU during the baseline). The real-level
+probe covered 12,773,488 cells. The single 9,000-step rebake took 637.2 seconds
+while validation builds also ran, within its 1,500-second timeout. It conserved
+63,389 sand and 58,725 mud cells, totaling 122,114. Compaction retained 25,245
+patches in 59,439 bytes. Compared with the seed from main at `9a1c58e`, all
+128,921 decompressed bytes outside the 32-byte fingerprint are identical.
 
 Column lookup is allocation-free after one startup decode. Initial loading,
 solo remapping, regional co-op grants and staged streaming all use the same seed.

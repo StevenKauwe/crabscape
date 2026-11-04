@@ -70,7 +70,7 @@ fn mass(w: &World) -> [usize; 2] {
     }
     count
 }
-fn advance(world: &mut World, steps: u64) {
+pub(super) fn advance(world: &mut World, steps: u64) {
     let before = mass(world);
     let started = Instant::now();
     for n in 0..steps {
@@ -129,7 +129,7 @@ fn pack(world: &World, level: &crate::Level) -> settled_seed::Seed {
         columns,
     }
 }
-fn global() -> (crate::Level, World) {
+pub(super) fn global() -> (crate::Level, World) {
     let level = crate::Level::test_level();
     let (origin, width, height) = bounds(&level);
     let mut world = raw_world(&level, origin, width, height);
