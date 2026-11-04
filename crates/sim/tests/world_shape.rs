@@ -1,8 +1,8 @@
 //! Static world labels are complete and never affect play or persistence.
 use bevy_math::{Rect, Vec2};
+use crabsim::Level;
 use crabsim::level::Growth;
 use crabsim::level::landmarks::{Kind, Needs};
-use crabsim::Level;
 use std::collections::HashSet;
 
 #[test]
