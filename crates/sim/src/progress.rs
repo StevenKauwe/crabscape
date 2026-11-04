@@ -78,6 +78,9 @@ pub struct Progress {
     pub soft: u32,
     #[serde(default)]
     pub growing: Option<Feat>,
+    /// Skills whose proving moment it has done (see [`crate::moult`]).
+    #[serde(default)]
+    pub proven: Vec<crate::skills::Skill>,
     /// What it keeps at the workbench at home, and the clam-shell guards on
     /// its claws. Saves from before the workbench kept things have neither.
     #[serde(default)]
@@ -178,6 +181,7 @@ impl Sim {
             moults: m.moults,
             soft: m.soft,
             growing: m.growing,
+            proven: m.proven.clone(),
             stash: crab.stash,
             clam_guards: m.clam_guards,
             salvage_receipts: crab.salvage_receipts.clone(),
@@ -258,6 +262,7 @@ impl Sim {
         m.moults = p.moults;
         m.soft = p.soft;
         m.growing = p.growing;
+        m.proven.clone_from(&p.proven);
         m.stamina = m.strokes(&tuning) as f32;
         crab.fighter.vitals.health = m.max_shell(&tuning);
         crab.home_grit = p.home_grit;
