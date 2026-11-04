@@ -231,11 +231,13 @@ fn glow_cultures(
         };
         let alpha = if speck.size > 60.0 { 0.25 } else { 0.85 };
         // Only as well as the crab knows the spot (never seen: not at all).
-        let known = sim
-            .level
-            .cultures
-            .get(speck.patch)
-            .map_or(0.0, |at| known.knows(*at + Vec2::new(0.0, 12.0)));
+        let known = sim.level.cultures.get(speck.patch).map_or(0.0, |at| {
+            if sim.level.culture_unsealed(*at) {
+                known.knows(*at + Vec2::new(0.0, 12.0))
+            } else {
+                0.0
+            }
+        });
         sprite.color = WILD.with_alpha(alpha * pulse * strength * known);
     }
 }

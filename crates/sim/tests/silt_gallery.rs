@@ -196,7 +196,7 @@ fn discovery_is_enclosed_in_rock_with_two_open_mouths() {
             ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32,
         )
     };
-    assert_eq!(level.cultures.len(), 5);
+    assert_eq!(level.cultures.len(), 6); // Roof cache appends; both old finds retain their indices.
     assert_eq!(level.cultures[3], Vec2::new(14360.0, -3710.0));
     assert_eq!(level.cultures[4], Vec2::new(17130.0, -2784.0));
     for (x, y) in [

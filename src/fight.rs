@@ -265,6 +265,7 @@ struct EncounterMemory {
     kinds: Vec<Kind>,
     regions: [bool; 3],
     silt_current: bool,
+    roof_cache: bool,
 }
 
 fn fight_notes(
@@ -314,6 +315,16 @@ fn fight_notes(
         hinted.silt_current = true;
         instructions.write(hints::ShowHint::Encounter(
             "Watch the drifting specks. Jump into rising water.\nCoral on the right climbs past ebb or slack.",
+        ));
+    }
+    if !hinted.roof_cache
+        && (16760.0..17200.0).contains(&m.pos.x)
+        && m.pos.y > -2300.0
+        && f.dead.is_none()
+    {
+        hinted.roof_cache = true;
+        instructions.write(hints::ShowHint::Encounter(
+            "Cracked rubble seals a culture.\nHeavy Crusher: hold a full charge, then release. Or jump past.",
         ));
     }
     let grabbed = f.grabbed.is_some();

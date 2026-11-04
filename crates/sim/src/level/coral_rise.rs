@@ -1,6 +1,6 @@
 //! A recessed end-bank cavern: coral approach, guarded find, sand shortcut.
 //! Dimensions and juxtaposition are authored geography, not biological claims.
-use super::{Climb, Growth, Level};
+use super::{Brittle, Climb, Growth, Level};
 use crate::enemy::Kind;
 use bevy_math::{Rect, Vec2};
 
@@ -49,6 +49,13 @@ pub(super) fn shape(level: &mut Level) {
         coral.bottom = bank_floor;
         coral.top = -2120.0;
     }
+    // A side discovery on the existing roof, not a gate across the cavern.
+    // Keep resource and shared rock indices stable by appending both.
+    level.brittle.push(Brittle {
+        rect: Rect::new(16920.0, -2200.0, 17100.0, -2030.0),
+        cracked: false,
+    });
+    level.cultures.push(Vec2::new(17010.0, -2170.0));
     // Preserve discovery/resource indices and the existing inhabitant slot.
     let find = Vec2::new(17130.0, level.floor_height(17130.0) + 32.0);
     if let Some(culture) = level.cultures.iter_mut().find(|p| p.x == 17280.0) {
@@ -65,5 +72,16 @@ pub(super) fn shape(level: &mut Level) {
         .find(|(kind, at)| *kind == Kind::Mantis && at.x == 16900.0)
     {
         *at = den;
+    }
+}
+
+impl Level {
+    /// A culture sealed inside brittle rubble appears only after its shared
+    /// rock breaks. This does not turn nearby reach into a through-rock take.
+    pub fn culture_unsealed(&self, at: Vec2) -> bool {
+        !self
+            .brittle
+            .iter()
+            .any(|b| !b.cracked && b.rect.contains(at))
     }
 }
