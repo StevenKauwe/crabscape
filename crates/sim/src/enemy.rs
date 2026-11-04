@@ -608,6 +608,7 @@ pub fn step(
     level: &Level,
     rng: &mut Rng,
     animals: &[AnimalPrey],
+    bounded_region: bool,
 ) -> Vec<(PlayerId, Outcome)> {
     let mut blows = Vec::new();
     if e.vitals.hitstop > 0 {
@@ -616,6 +617,35 @@ pub fn step(
     }
     if e.held {
         return blows; // in a crab's crusher
+    }
+    if let Some(o) = &mut e.octo {
+        o.thin_ink(); // the cloud outlasts the animal that left it
+    }
+    // A vacant habitat needs no combat, movement or prey work. The octopus
+    // may have fled to another spot before leaving; its next occupant
+    // settles at the original den. A zero duration never repopulates.
+    if e.state == State::Gone {
+        let home = e.octo.as_ref().map_or(e.home, |o| o.den);
+        if e.state_len == 0
+            || e.state_tick < e.state_len
+            // A body can be carried across a regional boundary. Its owner
+            // cannot create a replacement on another region's floor.
+            || (bounded_region && !level.cells.as_ref().is_some_and(|cells| cells.contains_world(home.x, home.y)))
+            || crabs.iter().any(|c| {
+                let near = |p| c.mover.pos.distance_squared(p) <= SETTLE_CLEARANCE * SETTLE_CLEARANCE;
+                c.fighter.dead.is_none() && (near(home) || near(e.pos))
+            })
+        {
+            e.state_tick = e.state_tick.saturating_add(1);
+            return blows;
+        }
+        *e = Enemy {
+            heard: std::mem::take(&mut e.heard),
+            runner: e.runner,
+            handovers: e.handovers,
+            deaths: e.deaths,
+            ..Enemy::new(e.id, e.kind, home, t)
+        };
     }
     if e.octo.is_some() {
         return octopus::step(e, crabs, t, level);
@@ -684,19 +714,12 @@ pub fn step(
                 let pause = rng.range(k.pause_ticks.0, k.pause_ticks.1).max(1);
                 e.enter(State::Notice, pause);
             }
-            State::Gone => {
-                // A new animal, but still run where it was, and its messages
-                // still counted.
-                let fresh = Enemy::new(e.id, e.kind, e.home, t);
-                *e = Enemy {
-                    heard: std::mem::take(&mut e.heard),
-                    runner: e.runner,
-                    handovers: e.handovers,
-                    deaths: e.deaths,
-                    ..fresh
-                };
-            }
-            State::Idle | State::Approach | State::Flee | State::Grab | State::Probe => {}
+            State::Gone
+            | State::Idle
+            | State::Approach
+            | State::Flee
+            | State::Grab
+            | State::Probe => {}
         }
     }
     e.state_tick += 1;
@@ -1142,6 +1165,9 @@ pub(crate) const HEAD_BACK_TICKS: f32 = 24.0;
 
 /// The least speed a kind that never walks slips back into its hole at.
 const BACK_IN_SPEED: f32 = 60.0;
+
+/// A vacant habitat must be outside every living crab's immediate surroundings.
+const SETTLE_CLEARANCE: f32 = 900.0;
 
 /// Ticks unhit, at home with nobody near, before an enemy mends (2 s).
 pub(crate) const MEND_AFTER: u32 = 240;
