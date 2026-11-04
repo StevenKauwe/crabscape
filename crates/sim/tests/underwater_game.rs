@@ -117,6 +117,134 @@ fn current_does_not_flicker_ground_contact_while_walking() {
 }
 
 #[test]
+fn jump_near_the_shortcut_roofs_edge_clears_the_first_boulder() {
+    // Actual opening playtest: the shell's trailing corner was still 14
+    // units below the shortcut roof, although the crab was moving away.
+    let start = Vec2::new(561.8, 32.0);
+    let mut sim = Sim::with_one_crab(crabsim::SPAWN);
+    sim.enable_underwater_cells();
+    for enemy in sim.enemies_mut() {
+        enemy.vitals.health = 0.0;
+    }
+    for _ in 0..600 {
+        if sim.crab(PlayerId(0)).unwrap().mover.pos.x >= start.x - 14.0 {
+            break;
+        }
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                walk: 1.0,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+    }
+    sim.set_controls(PlayerId(0), Controls::default());
+    for _ in 0..30 {
+        sim.tick();
+    }
+    let start = sim.crab(PlayerId(0)).unwrap().mover.pos;
+    let mut highest = start.y;
+    for tick in 0..114 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                walk: 1.0,
+                jump_pressed: tick == 0,
+                jump_held: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        highest = highest.max(sim.crab(PlayerId(0)).unwrap().mover.pos.y);
+    }
+    let at = sim.crab(PlayerId(0)).unwrap().mover.pos;
+    eprintln!("opening jump from {start:?}: {at:?}, highest {highest}");
+    assert!(
+        highest > 150.0,
+        "the roof corner swallowed the jump: {highest}"
+    );
+    assert!(
+        at.x > 720.0,
+        "first press should carry over the boulder: {at:?}"
+    );
+}
+
+#[test]
+fn ceiling_corner_assistance_requires_clear_space_and_sideways_travel() {
+    let jump = |roof: Rect, side_wall: Option<Rect>, walk: f32| {
+        let mut level = crabsim::Level::test_level();
+        level.rocks = vec![roof];
+        if let Some(wall) = side_wall {
+            level.rocks.push(wall);
+        }
+        level.cells = Some(crabsim::underwater::World::from_level_settled(&level));
+        let tuning = crabsim::Tuning::base();
+        let mut mover = crabsim::Mover::new(Vec2::new(400.0, 0.0));
+        mover.grounded = true;
+        let mut peak: f32 = 0.0;
+        for tick in 0..45 {
+            crabsim::physics::step(
+                &mut mover,
+                &Controls {
+                    walk,
+                    jump_pressed: tick == 0,
+                    jump_held: true,
+                    ..Default::default()
+                },
+                &tuning,
+                &level,
+                crabsim::STEP,
+            );
+            peak = peak.max(mover.pos.y);
+        }
+        (mover.pos, peak)
+    };
+    let left_corner = Rect::new(300.0, 48.0, 380.0, 64.0);
+    let right_corner = Rect::new(420.0, 48.0, 500.0, 64.0);
+    for (roof, direction) in [(left_corner, 1.0), (right_corner, -1.0)] {
+        let (_, peak) = jump(roof, None, direction);
+        assert!(
+            peak > 150.0,
+            "a trailing corner should not consume the jump: {peak}"
+        );
+    }
+    for (name, roof, wall, direction) in [
+        (
+            "whole ceiling",
+            Rect::new(200.0, 48.0, 600.0, 64.0),
+            None,
+            1.0,
+        ),
+        (
+            "too much overlap",
+            Rect::new(300.0, 48.0, 410.0, 64.0),
+            None,
+            1.0,
+        ),
+        ("no sideways movement", left_corner, None, 0.0),
+        (
+            "side wall",
+            left_corner,
+            Some(Rect::new(440.0, 0.0, 444.0, 200.0)),
+            1.0,
+        ),
+    ] {
+        let (at, peak) = jump(roof, wall, direction);
+        assert!(
+            peak < 1.0,
+            "{name} must still stop the jump: {at:?}, peak {peak}"
+        );
+        if wall.is_some() {
+            assert!(
+                at.x <= 404.01,
+                "corner correction crossed a solid side wall: {at:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn walking_climbs_a_short_ledge_but_not_a_tall_wall() {
     for (ledge_height, should_climb) in [(36.0, true), (96.0, false)] {
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
