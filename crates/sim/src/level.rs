@@ -19,6 +19,7 @@ use crate::tuning::TideTuning;
 mod circulation;
 pub(crate) mod coral_rise;
 mod exploration;
+mod hub;
 
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
@@ -85,6 +86,45 @@ pub enum Place {
 pub struct Net {
     pub rect: Rect,
     pub cut: bool,
+    /// The side its knots can be reached from (see [`CutFrom`]).
+    #[serde(default)]
+    pub from: CutFrom,
+}
+
+/// Which side of a ghost net a crab must stand on to cut it. A net hauled
+/// tight over a rock lip from one side bulges, slack and out of reach of the
+/// claws, from the other: the shortcuts a crab opens on the way home (a
+/// level-design call, not a biology claim).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum CutFrom {
+    /// From either side.
+    #[default]
+    Either,
+    /// Only by a crab whose middle is west (left) of the net's.
+    West,
+    /// Only by a crab whose middle is east (right) of the net's.
+    East,
+}
+
+impl Net {
+    /// A net across a way through, cuttable from either side.
+    pub fn new(rect: Rect) -> Self {
+        Self {
+            rect,
+            cut: false,
+            from: CutFrom::Either,
+        }
+    }
+
+    /// Can a crab whose middle is at `x` get its claws at the knots?
+    pub fn cuttable_from(&self, x: f32) -> bool {
+        let middle = self.rect.center().x;
+        match self.from {
+            CutFrom::Either => true,
+            CutFrom::West => x < middle,
+            CutFrom::East => x > middle,
+        }
+    }
 }
 
 /// A lump of brittle rock: solid until a heavy crusher's full charge cracks
@@ -509,10 +549,7 @@ impl Level {
             ],
             // Across the passage's mouth, high on the pit's right wall: only
             // a jump and four strokes from the alcove's roof reach it.
-            nets: vec![Net {
-                rect: Rect::new(4300.0, -4380.0, 4316.0, -4230.0),
-                cut: false,
-            }],
+            nets: vec![Net::new(Rect::new(4300.0, -4380.0, 4316.0, -4230.0))],
             // On the far basin's floor past the ghost net, at the foot of the
             // pillar, a lump of brittle rock (old coral rubble crusted together) with glowing bacteria
             // sealed in a hollow inside: only a heavy crusher's full charge
@@ -562,6 +599,7 @@ impl Level {
         };
         exploration::extend(&mut level);
         coral_rise::shape(&mut level);
+        hub::shape(&mut level);
         level
     }
 

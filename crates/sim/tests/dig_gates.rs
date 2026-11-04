@@ -65,3 +65,47 @@ fn digging_never_gets_past_the_ghost_net() {
         }
     }
 }
+
+#[test]
+fn digging_never_gets_through_the_ridge_window() {
+    // The window through the ridge between the pit and the hub: its net is
+    // cut only from the hub side, and its sill and the ridge are frame rock.
+    // A crab that glided into it from the pit side digs every way at it.
+    let level = Level::test_level();
+    let net = level.nets[1].rect;
+    let sill = Vec2::new(net.min.x - 40.0, net.min.y);
+    for (down, up) in [(false, false), (true, false), (false, true)] {
+        let (sim, path) = dig(sill, digging(1.0, down, up), 20);
+        assert!(!sim.level.nets[1].cut, "digging cuts no net");
+        let through = path.iter().find(|p| p.x > net.max.x + 20.0);
+        assert!(
+            through.is_none(),
+            "(down {down}, up {up}) it dug past the window at {through:?}"
+        );
+    }
+}
+
+#[test]
+fn digging_never_opens_the_brittle_rock() {
+    // The lump of brittle rock in the hub sits on sand: a crab can dig
+    // under and around it, but only a heavy crusher's charge opens it and
+    // frees the glowing bacteria sealed inside.
+    let level = Level::test_level();
+    let rock = level.brittle[0].rect;
+    let sealed = level
+        .cultures
+        .iter()
+        .position(|c| rock.contains(*c))
+        .expect("a culture sealed in the rock");
+    // East of it stands the pillar: dig from beyond that, under it too.
+    for (from, walk) in [(rock.min.x - 60.0, 1.0), (5200.0, -1.0)] {
+        for (down, up) in [(false, false), (true, false), (false, true)] {
+            let (sim, _) = dig(Vec2::new(from, rock.min.y), digging(walk, down, up), 20);
+            assert!(!sim.level.brittle[0].cracked, "digging cracks no rock");
+            assert!(
+                !sim.crab(P0).unwrap().cultures_taken[sealed],
+                "from {from} (down {down}, up {up}) it dug the culture out"
+            );
+        }
+    }
+}

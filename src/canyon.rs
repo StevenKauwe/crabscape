@@ -352,7 +352,12 @@ pub fn glass_parts(scale: f32) -> Vec<(Mesh, Color, Vec3, f32)> {
 #[derive(Component)]
 struct LyingSponge(usize);
 
-/// The skeleton stands on the floor among the sea pens.
+/// Whether the sponge lies under the floor.
+fn sponge_buried(at: Vec2, floor: f32) -> bool {
+    at.y < floor - 20.0
+}
+
+/// The skeleton stands on the floor, or shows a small tip in the sand.
 fn spawn_sponges(
     mut commands: Commands,
     sim: Res<Sim>,
@@ -360,17 +365,23 @@ fn spawn_sponges(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     for (i, at) in sim.level.sponges.iter().enumerate() {
-        // Standing as it grew, a little askew, its fibre tuft in the mud.
-        let middle = Vec2::new(at.x, sim.level.floor_height(at.x) + 44.0);
+        let floor = sim.level.floor_height(at.x);
+        let (height, turn, scale) = if sponge_buried(*at, floor) {
+            (4.0, -0.5, 0.3)
+        } else {
+            // Standing as it grew, a little askew, its fibre tuft in the mud.
+            (44.0, -0.12, 1.0)
+        };
+        let middle = Vec2::new(at.x, floor + height);
         commands
             .spawn((
                 LyingSponge(i),
                 Transform::from_translation(middle.extend(Z + 0.5))
-                    .with_rotation(Quat::from_rotation_z(-0.12)),
+                    .with_rotation(Quat::from_rotation_z(turn)),
                 Visibility::Hidden,
             ))
             .with_children(|s| {
-                for (mesh, colour, at, turn) in glass_parts(1.0) {
+                for (mesh, colour, at, turn) in glass_parts(scale) {
                     s.spawn((
                         Mesh2d(meshes.add(mesh)),
                         MeshMaterial2d(materials.add(colour)),

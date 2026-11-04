@@ -125,7 +125,7 @@ fn climb(x: f32, y: f32, way: &str) -> String {
 #[test]
 fn a_glass_sponge_lies_on_the_canyon_floor_and_makes_glass_grips_at_home() {
     let level = crabsim::Level::test_level();
-    assert_eq!(level.sponges.len(), 3);
+    assert_eq!(level.sponges.len(), 4);
     let at = level.sponges[0];
     assert_eq!(at.y, level.floor_height(at.x) + 10.0, "lying on the floor");
     // Walking over it puts it on the crab's back.
@@ -139,7 +139,10 @@ fn a_glass_sponge_lies_on_the_canyon_floor_and_makes_glass_grips_at_home() {
         found.count("picked up") >= 1,
         "(grit nearby clings to the shell too)"
     );
-    assert_eq!(found.sim.crabs()[0].sponges_taken, [true, false, false]);
+    assert_eq!(
+        found.sim.crabs()[0].sponges_taken,
+        [true, false, false, false]
+    );
     // At home it's put away by the workbench, and the player makes glass
     // grips from it there: its glass points fitted to the leg tips.
     let mut home = run(
@@ -255,12 +258,12 @@ fn glass_grips_and_the_sponge_are_saved() {
     fresh.restore_progress(PlayerId(0), &p);
     let crab = fresh.crab(PlayerId(0)).unwrap();
     assert!(crab.mover.glass_grips);
-    assert_eq!(crab.sponges_taken, [true, false, false]);
+    assert_eq!(crab.sponges_taken, [true, false, false, false]);
     // A save from before has neither: no grips, the sponge still there.
     let json = serde_json::to_string(&p).unwrap();
     let old = json
         .replace(",\"glass_grips\":true", "")
-        .replace(",\"sponges_taken\":[true,false,false]", "");
+        .replace(",\"sponges_taken\":[true,false,false,false]", "");
     let old: Progress = serde_json::from_str(&old).expect("an old save loads");
     assert!(!old.glass_grips && old.sponges_taken.is_empty());
 }
