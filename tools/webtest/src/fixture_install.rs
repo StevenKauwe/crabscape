@@ -13,27 +13,37 @@ pub(super) fn install(
     let mut write = |rows: &[Value]| {
         let rows = serde_json::to_string(rows).map_err(|e| e.to_string())?;
         let script = format!(
-            r#"new Promise((resolve,reject)=>{{
+            r#"new Promise(resolve=>{{
+          let stage='opening database';
+          const timer=setTimeout(()=>resolve({{error:'fixture stalled while '+stage}}),20000);
+          const fail=e=>{{clearTimeout(timer);resolve({{error:String(e)}});}};
           const open=indexedDB.open({database:?},1);
           open.onupgradeneeded=()=>open.result.createObjectStore('world');
-          open.onerror=()=>reject(String(open.error));
-          open.onblocked=()=>reject('fixture database open blocked');
+          open.onerror=()=>fail(open.error);
+          open.onblocked=()=>fail('fixture database open blocked');
           open.onsuccess=()=>{{
+            stage='creating write transaction';
             const db=open.result;
             try {{
               const tx=db.transaction('world','readwrite'), store=tx.objectStore('world');
-              tx.onabort=()=>{{db.close();reject(String(tx.error));}};
-              tx.oncomplete=()=>{{db.close();resolve(true);}};
+              tx.onabort=()=>{{db.close();fail(tx.error);}};
+              tx.oncomplete=()=>{{clearTimeout(timer);db.close();resolve(true);}};
+              stage='committing records';
               for(const [key,value] of {rows}) {{
                 const raw=atob(value), bytes=new Uint8Array(raw.length);
                 for(let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
                 store.put(bytes,key);
               }}
-            }} catch(e) {{db.close();reject(String(e));}}
+            }} catch(e) {{db.close();fail(e);}}
           }};
         }})"#
         );
-        eval(&script).map(drop)
+        let result = eval(&script)?;
+        if result == Value::Bool(true) {
+            Ok(())
+        } else {
+            Err(format!("fixture write failed: {result}"))
+        }
     };
     for (batch, rows) in records.chunks(16).enumerate() {
         write(rows).map_err(|e| format!("large fixture records batch {batch}: {e}"))?;
