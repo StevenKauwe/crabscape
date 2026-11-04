@@ -1761,6 +1761,8 @@ fn rave_idle(crab: &crabsim::SimCrab) -> bool {
         && f.dead.is_none()
         && f.grabbed.is_none()
         && f.crush.is_none()
+        && f.counter == 0
+        && f.parry_lockout == 0
         && f.turn == 0
         && f.knocked == 0
         && f.vitals.stagger == 0
@@ -2322,6 +2324,8 @@ mod tests {
             |c| c.mover.vel.x = 10.0,
             |c| c.mover.shelter = crabsim::Shelter::In,
             |c| c.fighter.blocking = true,
+            |c| c.fighter.counter = 1,
+            |c| c.fighter.parry_lockout = 1,
             |c| c.fighter.turn = 1,
             |c| c.fighter.vitals.hitstop = 1,
             |c| c.fighter.vitals.stagger = 1,
