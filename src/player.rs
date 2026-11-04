@@ -71,7 +71,7 @@ enum ResetNoticeAction {
     Dismiss,
 }
 
-const PLAYER_RESET_MESSAGE: &str = "Gameplay updated: your crab was reset. Your world is preserved. Restore skill levels with cheats, or keep exploring.";
+const PLAYER_RESET_MESSAGE: &str = "Gameplay updated: your crab was reset. Your saved terrain is kept. Restore skill levels with cheats, or keep exploring.";
 
 fn spawn_reset_notice(commands: &mut Commands) {
     commands.spawn((
