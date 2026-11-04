@@ -17,7 +17,10 @@ use crate::level::Level;
 use crate::octopus::{self, Octopus};
 use crate::physics::STEP;
 use crate::rng::Rng;
-use crate::tuning::{EnemyTuning, GrabTuning, Tuning};
+use crate::tuning::{
+    EnemyTuning, GrabTuning, MORAY_FORAGE_CYCLE_TICKS, MORAY_FORAGE_LEASH,
+    MORAY_FORAGE_OUTBOUND_TICKS, MORAY_FORAGE_REST_TICKS, MORAY_FORAGE_STAGGER_TICKS, Tuning,
+};
 use crate::world::{PlayerId, SimCrab};
 
 /// What kind of animal it is.
@@ -808,10 +811,15 @@ pub fn step(
     if foraging && e.state == State::Idle && e.hiding == 0 && !e.fled {
         // Six seconds resting (four for the second refuge), six outbound,
         // then eight returning/resting. Combat resets this resting clock.
-        let offset = if e.home.x == 15220.0 { 240 } else { 0 };
-        let phase = (e.state_tick % 2400 + offset) % 2400;
+        let offset = if e.home.x == 15220.0 {
+            MORAY_FORAGE_STAGGER_TICKS
+        } else {
+            0
+        };
+        let phase = (e.state_tick % MORAY_FORAGE_CYCLE_TICKS + offset) % MORAY_FORAGE_CYCLE_TICKS;
         if let Some(water) = foraging_water(e)
-            && (720..1440).contains(&phase)
+            && (MORAY_FORAGE_REST_TICKS..MORAY_FORAGE_REST_TICKS + MORAY_FORAGE_OUTBOUND_TICKS)
+                .contains(&phase)
             && !swimmer_blocked(level, water, k.body.0 * 0.5, k.body.1)
             && (!bounded_region || inside_region(water))
         {
@@ -1073,7 +1081,8 @@ pub fn step(
                 swimmer_blocked(level, p, half, k.body.1)
                     || (e.state == State::Idle
                         && idle_goal != e.home
-                        && (p.distance(e.home) > 400.0 || (bounded_region && !inside_region(p))))
+                        && (p.distance(e.home) > MORAY_FORAGE_LEASH
+                            || (bounded_region && !inside_region(p))))
             };
             e.swim_retry = e.swim_retry.saturating_sub(1);
             if let Some(goal) = goal {
