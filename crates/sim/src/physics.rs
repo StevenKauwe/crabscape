@@ -1046,6 +1046,8 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         return ev;
     }
 
+    let water = level.water_velocity(m.pos + Vec2::Y * m.height(t) / 2.0, &t.tide);
+
     // --- Sideways speed -------------------------------------------------
     if m.dodge_left > 0.0 {
         m.dodge_left -= dt;
@@ -1072,7 +1074,10 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
             0.0
         };
         // More work is needed to move footing made of heavier grains.
-        let target = walk * top * dig_speed / (1.0 + resistance * 0.12);
+        let carried = if m.grounded { 0.0 } else { water.x };
+        // Swimming and passive braking are relative to the moving water.
+        // Otherwise an upright shell cancels the circulation's outward turn.
+        let target = carried + walk * top * dig_speed / (1.0 + resistance * 0.12);
         let reversing = walking && m.vel.x.abs() > 1.0 && target.signum() != m.vel.x.signum();
         let too_fast = m.vel.x.abs() > top && !reversing;
         let rate = match (m.grounded, walking) {
@@ -1182,14 +1187,13 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         };
         // The drag is against the water: in the canyon's tide the water
         // itself runs up or down, and carries the crab with it.
-        let water = level.water_at(m.pos + Vec2::Y * m.height(t) / 2.0, &t.tide);
-        let through = m.vel.y - water;
+        let through = m.vel.y - water.y;
         // Sinking through it, a bigger crab is held back less for its
         // weight: it sinks faster. (Its legs grow with it, so a jump or a
         // stroke pushes it up as high.)
         let heavy = 1.0 + t.moult.weight * (m.grown(t) - 1.0);
         let weight = if through < 0.0 { heavy } else { 1.0 };
-        let relative = Vec2::new(m.vel.x, through);
+        let relative = Vec2::new(m.vel.x - water.x, through);
         let resisted = water_resistance(relative, m.water_angle);
         let amount = (drag * through.abs() * dt / weight).min(0.5);
         m.vel -= resisted * amount;

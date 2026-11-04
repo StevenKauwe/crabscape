@@ -442,13 +442,20 @@ fn canyon_fixture_for_play(play: bool) -> Result<Value> {
     };
     let level = Level::test_level();
     let mut terrain = World::from_level_settled(&level);
-    if !terrain.follow_player(&level, 6385.0, -3160.0) {
+    // Storage fault injection needs a saveable idle crab, not a current-driven
+    // collision with the catcher's lip. Keep actual gameplay at its old start.
+    let (x, y) = if play {
+        (6385.0, -3160.0)
+    } else {
+        (6100.0, -3350.0)
+    };
+    if !terrain.follow_player(&level, x, y) {
         return Err("Canyon fixture could not load its active terrain".into());
     }
     let player = crabsim::SaveData {
         version: crabsim::SAVE_VERSION,
-        x: 6385.0,
-        y: -3160.0,
+        x,
+        y,
         memory: None,
         progress: None,
     };
@@ -666,6 +673,37 @@ pub fn canyon_from_object(
 #[cfg(test)]
 mod canyon_tests {
     use super::*;
+    #[test]
+    fn storage_fixture_remains_saveable_while_idle() {
+        let fixture = canyon_fixture().unwrap();
+        let saved =
+            crabsim::cell_codec::paged::decode(&frame_from_object(&fixture).unwrap()).unwrap();
+        let mut sim = crabsim::Sim::with_one_crab([saved.player.x, saved.player.y].into());
+        sim.enable_underwater_cells();
+        sim.level.cells = Some(saved.terrain);
+        let id = crabsim::PlayerId(0);
+        sim.crab_mut(id).unwrap().mover.pos = [saved.player.x, saved.player.y].into();
+        for tick in 0..1440 {
+            sim.tick();
+            if tick % 120 != 0 {
+                continue;
+            }
+            let m = &sim.crab(id).unwrap().mover;
+            let half = sim.tuning.body_half_width * m.grown(&sim.tuning);
+            let height = sim.tuning.body_height * m.grown(&sim.tuning);
+            assert!(
+                !sim.level.cells.as_ref().unwrap().game_rock_in_rect(
+                    m.pos.x - half,
+                    m.pos.y,
+                    m.pos.x + half,
+                    m.pos.y + height
+                ),
+                "storage fixture drifts into an unsaveable rock overlap: {:?}",
+                m.pos
+            );
+        }
+    }
+
     #[test]
     fn five_page_canyon_fixture_round_trips_and_rejects_orphan_history() {
         let mut fixture = canyon_fixture().unwrap();

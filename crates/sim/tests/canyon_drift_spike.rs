@@ -36,7 +36,8 @@ fn flood_and_ebb_reverse_flat_profile_without_new_randomness() {
     let mut level = Level::test_level();
     let tuning = Tuning::default();
     let mut world = World::from_level(&level);
-    let start = Vec2::new(6650.0, -5000.0);
+    // Isolate the central tide, outside the permanent circulation's return.
+    let start = Vec2::new(7000.0, -5000.0);
     assert!(world.follow_player(&level, start.x, start.y));
     let initial = DriftBody {
         profile: DriftProfile::Flat,
@@ -63,7 +64,7 @@ fn flat_reaches_an_upper_downward_intercept_in_eight_seconds() {
     let level = Level::test_level();
     let tuning = Tuning::default();
     let mut world = World::from_level(&level);
-    let start = Vec2::new(6385.0, -3200.0);
+    let start = crabsim::canyon_drift::run::UPPER_INLET;
     assert!(world.follow_player(&level, start.x, start.y));
     let mut body = DriftBody {
         profile: DriftProfile::Flat,
@@ -236,7 +237,7 @@ fn wrong_catcher_placement_misses_both_profiles_without_consuming_them() {
     assert!(world.follow_player(&level, 6385.0, -3200.0));
     let mut flat = DriftBody {
         profile: DriftProfile::Flat,
-        position: Vec2::new(6385.0, -3200.0),
+        position: crabsim::canyon_drift::run::UPPER_INLET,
         velocity: Vec2::ZERO,
     };
     let mut dense = DriftBody {

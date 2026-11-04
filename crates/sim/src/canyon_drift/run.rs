@@ -6,7 +6,9 @@ use bevy_math::Vec2;
 use serde::{Deserialize, Serialize};
 
 pub const ANCHOR: u16 = 1;
-pub const UPPER_INLET: Vec2 = Vec2::new(6385.0, -3200.0);
+// Release above the catcher shelf: the continuous current no longer
+// supplies the old artificial stop at -3150 to drop pieces onto it.
+pub const UPPER_INLET: Vec2 = Vec2::new(6385.0, -3140.0);
 pub const LOWER_INLET: Vec2 = Vec2::new(6388.0, -3204.0);
 const PHASE_ENTRY: f32 = 0.65;
 const PHASE_EXIT: f32 = 0.40;

@@ -22,6 +22,7 @@ fn main() {
         "src/physics.rs",
         "src/tuning.rs",
         "src/level/coral_rise.rs",
+        "src/level/circulation.rs",
     ]
     .into_iter()
     .map(PathBuf::from)

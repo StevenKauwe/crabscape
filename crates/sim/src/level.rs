@@ -16,6 +16,7 @@ use bevy_math::{Rect, Vec2};
 use crate::enemy::Kind;
 use crate::tuning::TideTuning;
 
+mod circulation;
 pub(crate) mod coral_rise;
 mod exploration;
 
@@ -190,16 +191,41 @@ pub struct Level {
 }
 
 impl Level {
-    /// The water's upward speed at `pos`: the upwelling's, in it; the
-    /// tide's, in its currents; and still (0) everywhere else.
+    /// Vertical component, retained for scent and legacy scalar queries.
     pub fn water_at(&self, pos: Vec2, tide: &TideTuning) -> f32 {
-        if self.upwelling.iter().any(|u| u.contains(pos)) {
-            tide.upwelling_speed
-        } else if self.currents.iter().any(|c| c.contains(pos)) {
-            tide.speed(self.tide)
-        } else {
-            0.0
+        self.water_velocity(pos, tide).y
+    }
+
+    /// Ambient canyon water: a balanced near-wall circulation plus the existing
+    /// central tidal through-flow. Each upwelling loop has balanced rise and return,
+    /// with zero normal flow at its enclosing floor and side boundaries.
+    /// This is an authored ambient field, not the cellular fluid solver.
+    pub fn water_velocity(&self, pos: Vec2, tide: &TideTuning) -> Vec2 {
+        let mut velocity = Vec2::ZERO;
+        for lane in &self.upwelling {
+            // Stay inside the open shaft, including the far-wall cave's
+            // projecting face at x=7700. No flow is clipped after the curl.
+            let right = (lane.max.x + 450.0).min(7650.0);
+            if right <= lane.max.x {
+                continue;
+            }
+            let bounds = Rect::new(lane.min.x, lane.min.y, right, lane.max.y + 500.0);
+            velocity += circulation::circulation(
+                pos,
+                bounds,
+                lane.max.x,
+                tide.upwelling_speed,
+                120.0,
+                600.0,
+            );
         }
+        // The separate central tidal through-flow retains its established
+        // traversal behavior. The near-wall circulation is additive and
+        // does not clip or mask either field at their overlap.
+        if self.currents.iter().any(|bounds| bounds.contains(pos)) {
+            velocity.y += tide.speed(self.tide);
+        }
+        velocity
     }
 
     /// The level the game uses (for now, the only one).
