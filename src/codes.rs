@@ -162,6 +162,7 @@ fn type_code(
 
 /// Each typed code goes to the sim for the local crab; a note says what
 /// happened.
+#[allow(clippy::too_many_arguments)]
 fn use_codes(
     mut commands: Commands,
     mut typed: MessageReader<Typed>,
