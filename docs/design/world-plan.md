@@ -35,8 +35,12 @@ one GitHub issue (label `world-plan`) that stands on its own.
    link (`https://stevenkauwe.github.io/crabscape/pr-<n>/`) on the gate's issue with the "what to try" list and a
    recommendation, add `needs-human` to the next phase's first package, and do not start it until the owner answers.
    Do not guess at taste. Packages marked **(gate)** do not auto-merge: open the PR without `--auto` and wait.
-8. **Rebakes.** Any change to the level's floor or rocks rebakes the settled-world seed (~9 minutes). Only the packages
-   marked **rock batch** change rocks; nothing else may. If you need rock, add it to the next rock batch's issue.
+8. **Rebakes.** The settled-world seed's fingerprint (`crates/sim/build.rs`) hashes the whole of
+   `crates/sim/src/world.rs`, `physics.rs`, `tuning.rs`, `level/coral_rise.rs`, `level/circulation.rs` and
+   `underwater/`, plus the level's floor and rocks. Touching any of them needs a ~9-minute bake
+   (`docs/design/settled-terrain.md`) and two such PRs conflict on the binary seed. Until W0.4 (#475) narrows this,
+   put new rules in new files, batch every edit to those files, and bake once per batch in the background. Only the
+   packages marked **rock batch** change rocks; if you need rock, add it to the next rock batch's issue.
 9. **Never touch** co-op plumbing (`crates/sim/src/net*`, `src/coop*`), saves infrastructure (`save.rs`,
    `save_data.rs`, `cell_save*`), deploy (`.github/`, `tools/previews.sh`), or the cellular engine
    (`crates/sim/src/underwater.rs`, `crates/sim/src/underwater/`, `src/cellular*`) unless the issue says it is a
@@ -74,9 +78,11 @@ Sizes follow the repo: S about 30 minutes, M about an hour. "Rock batch" = chang
 |---|---|---|---|---|
 | W0.1 (#454) | Landmarks: every place tagged with its fear register, as level data | M | #452 merged | W0.2 |
 | W0.2 (#455) | Route solver as a shared test library (per ability kit, with wormholes) | S | #452 merged | W0.1 |
-| W0.3 (#456) | Fear-register invariants as tests (refuge reach, no hunters in tunnels, prize in sight, exits) | M | W0.1, W0.2 | none |
+| W0.3 (#456) | Fear-register invariants as tests (refuge reach, no hunters in tunnels, prize in sight, exits) | M | W0.1, W0.2 | W0.4 |
+| W0.4 (#475) | **Gated engine package:** narrow the seed fingerprint so rule changes stop forcing a rebake | M | #452 merged | W0.3 |
 
-Acceptance: `cargo test -p crabsim --test world_shape` proves the three registers on the existing level, and the
+W0.4 comes first after #452: almost every later package edits `world.rs` or `tuning.rs`, and W2.1 (#461) is parked
+on it with its code pushed on branch `issue-461-strain`. Acceptance: `cargo test -p crabsim --test world_shape` proves the three registers on the existing level, and the
 existing gates hold for every ability kit. Human gate: none (no feel change).
 
 ### Phase 1: the canyon overworld
