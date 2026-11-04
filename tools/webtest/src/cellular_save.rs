@@ -487,6 +487,60 @@ impl Test<'_> {
             normal_replay.is_some_and(|replay| !replay.cellular && replay.start.x == 918.0),
             "boring mode restores the preserved normal save at x918 even when cells is requested",
         );
+        self.incompatible_player_recovery()?;
+        Ok(())
+    }
+
+    fn incompatible_player_recovery(&mut self) -> Result<()> {
+        self.go("assets/crab/crab-atlas.png")?;
+        let old = decode(&fixture()?)?;
+        let initial = Sim::new(crabsim::Tuning::default(), Level::test_level());
+        let mut progress = initial.fresh_progress();
+        progress.eaten.push(true); // A real current validator incompatibility.
+        progress.swim_xp = 12345.0;
+        let player = crabsim::SaveData {
+            version: crabsim::SAVE_VERSION,
+            x: 400.0,
+            y: 0.0,
+            memory: None,
+            progress: Some(progress),
+        };
+        let bytes = crabsim::cell_codec::paged::prepare(&player, &old.terrain, 17)
+            .and_then(|prepared| prepared.encode())
+            .map_err(|error| format!("recovery fixture: {error:?}"))?;
+        let object = object_from_frame(&bytes)?;
+        fixture_install::install(DATABASE, &object, |script| self.eval(script))?;
+        let started = self.open("index.html?cells")?;
+        let recovered = started && self.attr("data-cell-save")?.as_deref() == Some("player-reset");
+        self.check(
+            recovered,
+            "incompatible player data resets the crab into a playable world",
+        );
+        if !recovered {
+            return Ok(());
+        }
+        let saved = self.wait_for(&format!(
+            "await (async () => {{ const r = {READ_PLAYER}; return !!r && r.tick > 17 && r.player.progress?.swim_xp === 0 && r.player.progress?.eaten.length === {}; }})()",
+            initial.fresh_progress().eaten.len()
+        ), 60.0)?;
+        self.check(
+            saved,
+            "reset crab autosaves compatible fresh progress through the real worker",
+        );
+        if !saved {
+            return Ok(());
+        }
+        self.go("assets/crab/crab-atlas.png")?;
+        let current = decode(&self.cellular_record()?.ok_or("reset autosave missing")?)?;
+        self.check(
+            terrain_has_marker(&current.terrain),
+            "player reset preserves saved terrain marker",
+        );
+        let loaded = self.open("index.html?cells")?;
+        self.check(
+            loaded && self.attr("data-cell-save")?.as_deref() == Some("loaded"),
+            "recovered autosave reloads normally without another crab reset",
+        );
         Ok(())
     }
 

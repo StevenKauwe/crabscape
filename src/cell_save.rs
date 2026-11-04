@@ -110,6 +110,45 @@ pub fn prepare(
 
 pub(crate) use crabsim::save_data::player_fits_world;
 
+/// Reset only incompatible character progress. Terrain and world records remain
+/// authoritative; no old progress lists are migrated or partially restored.
+fn reset_incompatible_player(sim: &crabsim::Sim, saved: &mut Restored) -> Result<bool, String> {
+    if player_fits_world(sim, &saved.player) {
+        return Ok(false);
+    }
+    let mut probe = sim.clone();
+    if !probe.restore_cellular_terrain(saved.terrain.clone(), saved.sim_tick) {
+        return Err("saved terrain could not be safely restored".into());
+    }
+    let old = bevy::math::Vec2::new(saved.player.x, saved.player.y);
+    let mut candidates = vec![crabsim::SPAWN, old];
+    // A reset body can be smaller than the old one, or a formerly cut passage
+    // may now be closed. Find nearby open water without rewriting terrain.
+    for step in 1..=48 {
+        candidates.push(old + bevy::math::Vec2::Y * step as f32 * crabsim::underwater::GAME_CELL);
+    }
+    for at in candidates {
+        if !at.is_finite() || !saved.terrain.contains_world(at.x, at.y) {
+            continue;
+        }
+        let id = crabsim::PlayerId(0);
+        let mut placement = probe.clone();
+        placement.add_crab(id, at);
+        let pos = placement.crab(id).expect("fresh recovery crab").mover.pos;
+        if crate::player::valid_saved_spot(pos, 1.0, &probe) {
+            saved.player = SaveData {
+                version: SAVE_VERSION,
+                x: pos.x,
+                y: pos.y,
+                memory: None,
+                progress: None,
+            };
+            return Ok(true);
+        }
+    }
+    Err("saved terrain has no safe place for the reset crab".into())
+}
+
 /// Install the terrain and the saved passage state as one tentative operation.
 /// Both browser and desktop use this before allowing the saved position.
 fn install_terrain_and_validate(
