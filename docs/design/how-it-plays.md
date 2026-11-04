@@ -263,3 +263,15 @@ combat or collision. It disappears early if a crab brings light within its safet
 margin: at least 1.2× sight reach plus the eye radius. `Sim::watched(id)` and the one-tick `watcher_cues()` onset event
 (`Cue::Watched`) are the sound hooks for W2.2. The current checkout has no sim shark; the decorative sixgill pass
 is unchanged and cannot detect a crab.
+
+### Sound
+
+The shallows carry small dry clicks and a low surge; each deeper band has fewer of them. As that bed fades,
+leg-on-grit ticks, claw ticks and strain-driven shell creaks come forward. Seeded bone and rock groans have no
+visible source, sound lower and happen less often deeper down, and carry left or right from their position.
+Existing upwelling mouths hum softly; this is the location hook for future authored vents. Every enemy tell aimed
+at a crab hushes that crab's small world sounds until the strike resolves; short tells keep their existing timing.
+One quiet low tone rises slightly while watched or hushed, with the score muted during those moments. There are
+no air or breathing sounds; the existing snapping-shrimp cavitation snap stays. Audio settings include a saved
+**Ambience** slider under Master, separate from Effects (the crab's body), Music and Voices. Native builds remain
+silent. Cue timing belongs to fixed sim ticks, including a two-second bounded history for multi-tick render frames.

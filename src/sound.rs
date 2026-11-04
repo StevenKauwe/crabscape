@@ -14,9 +14,8 @@
 //! Every sound goes through the volume knob of its kind, and those through
 //! one master knob, each a slider in the settings: "Effects" (these sounds:
 //! blows, parries, the slider's tick), "Music" (`music.rs`) and "Voices"
-//! (friends, `voice.rs`), all under "Master". The game has no ambient sounds
-//! of its own yet, so there's no "Ambience" knob. Native runs are silent for
-//! now (the sounds are still made in tests, so they stay checked).
+//! (friends, `voice.rs`), plus "Ambience" for the world and warning tone.
+//! Native runs stay silent; synthesis is still checked in unit tests.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use bevy::prelude::*;
@@ -40,9 +39,16 @@ pub enum Sfx {
     Thud,
     /// A mantis shrimp's club: a sharp snap and the bubble collapsing.
     Snap,
+    Bed,
+    Grit,
+    Shell,
+    Bone,
+    Rock,
+    Vent,
+    Tone,
 }
 
-const ALL: [Sfx; 7] = [
+const ALL: [Sfx; 14] = [
     Sfx::Swish,
     Sfx::Crunch,
     Sfx::Click,
@@ -50,6 +56,13 @@ const ALL: [Sfx; 7] = [
     Sfx::Boom,
     Sfx::Thud,
     Sfx::Snap,
+    Sfx::Bed,
+    Sfx::Grit,
+    Sfx::Shell,
+    Sfx::Bone,
+    Sfx::Rock,
+    Sfx::Vent,
+    Sfx::Tone,
 ];
 
 /// "Play this sound": loudness 0..1 and pitch (1 = as made, 0.8 = deeper).
@@ -67,7 +80,10 @@ impl Plugin for SoundPlugin {
         app.add_plugins(crate::music::MusicPlugin)
             .add_message::<PlaySfx>()
             .add_systems(Startup, backend::start)
-            .add_systems(Update, (volume, play).chain().after(GameSet::Present));
+            .add_systems(
+                Update,
+                (volume, atmosphere, play).chain().after(GameSet::Present),
+            );
     }
 }
 
@@ -84,9 +100,9 @@ pub use backend::{context, fade_music_in, mark, music_input, recording, running,
 pub use backend::{sleep, wake};
 
 /// The settings' volumes, whenever they change.
-fn volume(settings: Res<crate::settings::Settings>) {
-    if settings.is_changed() {
-        backend::set_volumes(&settings);
+fn volume(settings: Res<crate::settings::Settings>, ambience: Res<crate::settings::Ambience>) {
+    if settings.is_changed() || ambience.is_changed() {
+        backend::set_volumes(&settings, ambience.0);
     }
 }
 
@@ -98,11 +114,98 @@ fn play(mut requests: MessageReader<PlaySfx>) {
     }
 }
 
+fn body_gain(ambience: f32) -> f32 {
+    0.08 + 0.32 * (1.0 - ambience)
+}
+
+/// Read every sim cue since the last frame, including intermediate fixed ticks.
+fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: Local<u64>) {
+    use crabsim::world::cues::{Cue, GroanKind, groan_pitch};
+    let Some(crab) = sim.crab(me.0) else {
+        return;
+    };
+    let at = crab.mover.pos;
+    let busy = crabsim::level::bands::band_at(at).ambience;
+    let hush = sim.hushed(me.0)
+        || sim
+            .cues()
+            .iter()
+            .any(|e| e.tick > *last && matches!(e.cue, Cue::Hush { crab, .. } if crab == me.0));
+    let watched = sim.watched(me.0);
+    backend::atmosphere(hush, hush || watched, busy);
+    if sim.tick_count() < *last {
+        *last = 0;
+    }
+    for event in sim.cues().iter().filter(|e| e.tick > *last) {
+        let own = |id| id == me.0;
+        let body = body_gain(busy);
+        let sound = match event.cue {
+            Cue::Step { crab } if own(crab) => Some((Sfx::Grit, body, 1.0, 0.0)),
+            Cue::Claw { crab } if own(crab) => Some((Sfx::Click, body, 1.0, 0.0)),
+            Cue::ShellTick { crab, strength } if own(crab) => {
+                Some((Sfx::Shell, body * strength, 1.0, 0.0))
+            }
+            Cue::Bed { crab } if own(crab) && !hush => Some((Sfx::Bed, 0.1 * busy, 1.0, 0.0)),
+            Cue::Tone { crab } if own(crab) => Some((
+                Sfx::Tone,
+                0.025,
+                if hush || watched { 1.12 } else { 1.0 },
+                0.0,
+            )),
+            Cue::Groan { at: source, kind } => {
+                let gain = 0.06 * (1.0 - source.distance(at) / 1800.0).max(0.0);
+                Some((
+                    if kind == GroanKind::Bone {
+                        Sfx::Bone
+                    } else {
+                        Sfx::Rock
+                    },
+                    gain,
+                    groan_pitch(source),
+                    ((source.x - at.x) / 1200.0).clamp(-1.0, 1.0),
+                ))
+            }
+            Cue::VentHum { at: source } => Some((
+                Sfx::Vent,
+                0.04 * (1.0 - source.distance(at) / 1600.0).max(0.0),
+                1.0,
+                ((source.x - at.x) / 1200.0).clamp(-1.0, 1.0),
+            )),
+            _ => None,
+        };
+        if let Some((sfx, gain, pitch, pan)) = sound {
+            backend::spatial(sfx, gain, pitch, pan);
+        }
+    }
+    *last = sim.tick_count();
+}
+
 /// The samples of `sfx` at `rate` samples per second, peaking at about 0.8.
 pub fn synth(sfx: Sfx, rate: f32) -> Vec<f32> {
     let mut noise = Noise(0x9E37_79B9);
     let len = |secs: f32| (secs * rate) as usize;
     let mut out = match sfx {
+        Sfx::Bed => mix(&[
+            crackle(&mut noise, rate, 0.48, 0.12),
+            soft_tone(rate, 46.0, 0.5, 0.16),
+        ]),
+        Sfx::Grit => crackle(&mut noise, rate, 0.07, 0.6),
+        Sfx::Shell => mix(&[
+            crackle(&mut noise, rate, 0.42, 0.5),
+            ring(rate, &[(177.0, 0.5), (231.0, 0.3)], 0.15),
+        ]),
+        Sfx::Bone => mix(&[
+            soft_tone(rate, 91.0, 1.6, 0.6),
+            soft_tone(rate, 137.0, 1.4, 0.2),
+            crackle(&mut noise, rate, 0.9, 0.05),
+        ]),
+        Sfx::Rock => mix(&[
+            soft_tone(rate, 63.0, 1.6, 0.6),
+            soft_tone(rate, 79.0, 1.3, 0.25),
+            crack(&mut noise, rate, 0.8, 140.0, 0.15),
+        ]),
+        Sfx::Vent => soft_tone(rate, 52.0, 2.4, 0.6),
+        Sfx::Tone => soft_tone(rate, 42.0, 1.4, 0.6),
         Sfx::Swish => {
             // Noise through a filter that opens and closes: a sweep of water.
             let n = len(0.2);
@@ -170,6 +273,19 @@ pub fn synth(sfx: Sfx, rate: f32) -> Vec<f32> {
         *s *= 0.8 / peak;
     }
     out
+}
+
+/// Slow mineral resonance, gently detuned, with no chirp or breath envelope.
+fn soft_tone(rate: f32, hz: f32, secs: f32, gain: f32) -> Vec<f32> {
+    let n = (secs * rate) as usize;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / rate;
+            let envelope = (std::f32::consts::PI * i as f32 / n as f32).sin().powi(2);
+            let phase = std::f32::consts::TAU * hz * t;
+            (phase.sin() + 0.15 * (phase * 1.017).sin()) * envelope * gain
+        })
+        .collect()
 }
 
 /// A sine falling from `from` to `to` Hz, dying away over `secs`.
@@ -326,11 +442,15 @@ mod backend {
     struct Audio {
         ctx: AudioContext,
         buffers: Vec<AudioBuffer>,
+        tones: Vec<(web_sys::AudioBufferSourceNode, f64)>,
         /// Every sound ends here: the settings' "Master".
         master: GainNode,
         /// Each kind of sound's knob, into the master: "Effects" (the
         /// sounds above), "Music" and friends' "Voices".
         effects: GainNode,
+        ambience: GainNode,
+        small: GainNode,
+        fear: GainNode,
         music: GainNode,
         voices: GainNode,
         /// Into the music knob: fades the music in at the start and when
@@ -388,8 +508,16 @@ mod backend {
         ) else {
             return;
         };
+        let (Ok(ambience), Ok(small), Ok(fear)) =
+            (ctx.create_gain(), ctx.create_gain(), ctx.create_gain())
+        else {
+            return;
+        };
+        let _ = small.connect_with_audio_node(&ambience);
+        let _ = fear.connect_with_audio_node(&master);
+        let _ = music.connect_with_audio_node(&fear);
         let _ = master.connect_with_audio_node(&ctx.destination());
-        for bus in [&effects, &music, &voices] {
+        for bus in [&effects, &ambience, &voices] {
             let _ = bus.connect_with_audio_node(&master);
         }
         music_in.gain().set_value(0.0);
@@ -407,8 +535,12 @@ mod backend {
             *a.borrow_mut() = Some(Audio {
                 ctx,
                 buffers,
+                tones: Vec::new(),
                 master,
                 effects,
+                ambience,
+                small,
+                fear,
                 music,
                 voices,
                 music_in,
@@ -421,18 +553,20 @@ mod backend {
 
     /// Each knob from the settings. The canvas's `data-sound` says what the
     /// knobs are at, for the browser tests.
-    pub fn set_volumes(s: &crate::settings::Settings) {
+    pub fn set_volumes(s: &crate::settings::Settings, ambience: f32) {
         with(|a| {
             a.master.gain().set_value(s.master);
             a.music.gain().set_value(s.music);
             a.effects.gain().set_value(s.effects);
+            a.ambience.gain().set_value(ambience);
             a.voices.gain().set_value(s.voices);
             let state = format!(
-                "master {:.2} music {:.2} effects {:.2} voices {:.2}",
+                "master {:.2} music {:.2} effects {:.2} voices {:.2} ambience {:.2}",
                 a.master.gain().value(),
                 a.music.gain().value(),
                 a.effects.gain().value(),
-                a.voices.gain().value()
+                a.voices.gain().value(),
+                a.ambience.gain().value()
             );
             mark("data-sound", &state);
         });
@@ -628,14 +762,46 @@ mod backend {
         }
     }
 
+    pub fn atmosphere(hush: bool, fear: bool, busy: f32) {
+        with(|a| {
+            let now = a.ctx.current_time();
+            a.tones.retain(|(_, end)| *end > now);
+            for (tone, _) in &a.tones {
+                let _ = tone.playback_rate().set_target_at_time(
+                    if fear { 1.12 } else { 1.0 },
+                    now,
+                    0.08,
+                );
+            }
+            let _ = a
+                .small
+                .gain()
+                .set_target_at_time(if hush { 0.0 } else { 1.0 }, now, 0.015);
+            // Separate from music's own fade automation: fear never competes with a score.
+            let _ =
+                a.fear
+                    .gain()
+                    .set_target_at_time(if fear { 0.0 } else { busy * 0.2 }, now, 0.05);
+        });
+    }
+
     pub fn play(sfx: Sfx, gain: f32, pitch: f32) {
+        spatial(sfx, gain, pitch, 0.0);
+    }
+
+    pub fn spatial(sfx: Sfx, gain: f32, pitch: f32, pan: f32) {
         AUDIO.with(|a| {
-            let Some(a) = a
-                .borrow()
-                .as_ref()
-                .filter(|a| !a.asleep)
-                .map(|a| (a.ctx.clone(), a.buffers.clone(), a.effects.clone()))
-            else {
+            let Some(a) = a.borrow().as_ref().filter(|a| !a.asleep).map(|a| {
+                (
+                    a.ctx.clone(),
+                    a.buffers.clone(),
+                    match sfx {
+                        Sfx::Bed => a.small.clone(),
+                        Sfx::Bone | Sfx::Rock | Sfx::Vent | Sfx::Tone => a.ambience.clone(),
+                        _ => a.effects.clone(),
+                    },
+                )
+            }) else {
                 return;
             };
             let (ctx, buffers, effects) = a;
@@ -643,12 +809,35 @@ mod backend {
             let (Ok(src), Ok(vol)) = (ctx.create_buffer_source(), ctx.create_gain()) else {
                 return;
             };
-            src.set_buffer(Some(&buffers[i]));
+            // Stereo samples avoid adding a panner dependency; positional voices are rare.
+            let buffer = if pan != 0.0 {
+                let samples = super::synth(sfx, ctx.sample_rate());
+                let Ok(buf) = ctx.create_buffer(2, samples.len() as u32, ctx.sample_rate()) else {
+                    return;
+                };
+                for channel in 0..2 {
+                    let level = if channel == 0 {
+                        ((1.0 - pan) * 0.5).sqrt()
+                    } else {
+                        ((1.0 + pan) * 0.5).sqrt()
+                    };
+                    let data: Vec<_> = samples.iter().map(|s| s * level).collect();
+                    let _ = buf.copy_to_channel(&data, channel);
+                }
+                buf
+            } else {
+                buffers[i].clone()
+            };
+            src.set_buffer(Some(&buffer));
+
             src.playback_rate().set_value(pitch);
             vol.gain().set_value(gain);
             let _ = src.connect_with_audio_node(&vol);
             let _ = vol.connect_with_audio_node(&effects);
             let _ = src.start();
+            if sfx == Sfx::Tone {
+                with(|a| a.tones.push((src, ctx.current_time() + 1.5)));
+            }
         });
     }
 }
@@ -658,7 +847,9 @@ mod backend {
     pub fn start() {}
     pub fn sleep() {}
     pub fn wake() {}
-    pub fn set_volumes(_settings: &crate::settings::Settings) {}
+    pub fn set_volumes(_settings: &crate::settings::Settings, _ambience: f32) {}
+    pub fn atmosphere(_hush: bool, _fear: bool, _busy: f32) {}
+    pub fn spatial(_sfx: super::Sfx, _gain: f32, _pitch: f32, _pan: f32) {}
     pub fn play(_sfx: super::Sfx, _gain: f32, _pitch: f32) {}
 }
 
@@ -667,9 +858,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn midnight_body_leads_the_mix_and_pitched_groans_stay_short() {
+        let bands = crabsim::level::bands::BANDS;
+        assert!(
+            bands
+                .windows(2)
+                .all(|b| body_gain(b[0].ambience) < body_gain(b[1].ambience))
+        );
+        let body = body_gain(bands[3].ambience);
+        // All samples peak at 0.8; compare their authored bus gains at equal settings.
+        assert!(body > 0.1 * bands[3].ambience);
+        assert!(body > 0.06); // The loudest world voice (groan); vent and tone are quieter.
+        let lowest = crabsim::world::cues::groan_pitch(Vec2::new(0.0, -10000.0));
+        for sfx in [Sfx::Bone, Sfx::Rock] {
+            let duration = synth(sfx, 44100.0).len() as f32 / 44100.0 / lowest;
+            assert!(duration < 3.0);
+            eprintln!("{sfx:?}: deepest playback {duration:.3}s; midnight body gain {body:.4}");
+        }
+    }
+
+    #[test]
+    fn atmosphere_samples_are_finite_and_under_three_seconds() {
+        for sfx in [
+            Sfx::Bed,
+            Sfx::Grit,
+            Sfx::Shell,
+            Sfx::Bone,
+            Sfx::Rock,
+            Sfx::Vent,
+            Sfx::Tone,
+        ] {
+            for rate in [22050.0, 44100.0, 48000.0] {
+                let samples = synth(sfx, rate);
+                assert!(!samples.is_empty());
+                assert!(samples.len() as f32 / rate < 3.0);
+                assert!(samples.iter().all(|v| v.is_finite()));
+            }
+        }
+    }
+
+    #[test]
     fn every_sound_is_short_and_never_clips() {
-        for sfx in ALL {
-            let s = synth(sfx, 44100.0);
+        for sfx in &ALL[..7] {
+            let s = synth(*sfx, 44100.0);
             let secs = s.len() as f32 / 44100.0;
             assert!(secs > 0.03 && secs < 0.7, "{sfx:?}: {secs} s");
             let peak = s.iter().fold(0.0_f32, |m, x| m.max(x.abs()));

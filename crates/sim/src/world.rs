@@ -14,6 +14,8 @@
 //! - the tests, the same way.
 
 pub mod cell_session;
+#[path = "cues.rs"]
+pub mod cues;
 pub mod regions;
 
 #[path = "watcher.rs"]
@@ -198,6 +200,7 @@ impl PickupPreferences {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Sim {
+    sound_cues: cues::Cues,
     watchers: watcher::Watchers,
     pub tuning: Tuning,
     /// The feel preset the tuning came from (see [`Sim::set_feel`]).
@@ -342,6 +345,7 @@ impl Sim {
         Self {
             tuning,
             feel: Feel::default(),
+            sound_cues: cues::Cues::default(),
             watchers: watcher::Watchers::default(),
             shared: Shared::new(&level),
             salvage: None,
@@ -2623,6 +2627,7 @@ impl Sim {
         let runs = self.runs_each();
         for (e, runs) in self.enemies.iter_mut().zip(runs) {
             let previous = e.pos;
+            let previous_tell = (e.state, e.state_tick);
             // Correct existing rock overlaps without allowing normal travel
             // through walls; move loose grains rather than deleting them.
             let local_animal = self.level.cells.is_some()
@@ -2674,6 +2679,8 @@ impl Sim {
                     bounded_region,
                 )
             };
+            self.sound_cues
+                .enemy(self.tick + 1, e, previous_tell, &self.tuning);
             if self.level.cells.is_some()
                 && e.kind == Kind::Moray
                 && e.state == enemy::State::Attack
@@ -2872,6 +2879,7 @@ impl Sim {
                 );
             }
         }
+        self.step_cues();
         self.watchers.step(self.tick, &self.crabs, &self.tuning);
         self.tick += 1;
         self.send_updates();
