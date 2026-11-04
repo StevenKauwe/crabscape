@@ -115,3 +115,26 @@ The Canyon Drift starter valve, practice piece and outlet use the aged shelf
 surfaces. Existing saved catcher state remains authoritative. Canyon regressions
 retain physical support, reach, eight-second interception and inventory/ownership
 requirements; crab approach fixtures start in clear water beside the bed.
+
+
+The fresh Shellwash find moves to (324, 33), in the sand retained beside the
+catch lip, and its valve starts at (360, 27). The former upper-slope position
+(260, 43) became unsupported after aging; lowering it there would instead pin the
+find to undiggable rock. The new seam stays Embedded through ordinary idle
+simulation and still needs a real dig to release. Valve placement candidates now
+use the bowl's actual three support points and full clearance rather than the
+walking-animal footprint; the same bounded list drives the contextual UI and the
+real dig/catch test. Catch speed, reach, ownership and clearance limits stay fixed.
+Existing saved salvage records retain their positions.
+
+Synthetic jump, ledge and short-step braking tests now explicitly construct their
+flat/step substrate instead of accidentally inheriting the matured campaign bank.
+Their original jump tolerance and step-snap bounds remain; separate canonical
+opening dig, bypass and roundtrip tests continue to exercise the aged level.
+
+Enemy spawn footing samples loaded cells first, archived edits second, and the
+same baked seed only for unvisited ground, including spawns outside the active
+window. Morays require clear body space above uneven footing; a valid refuge
+stays fixed instead of following passing grains. A genuinely obstructed loaded
+refuge can move to the nearest supported, clear height within the existing
+bounded search. Walking enemies retain their ordinary footing placement.

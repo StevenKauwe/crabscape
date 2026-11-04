@@ -107,9 +107,9 @@ fn valve_does_not_catch_a_shell_crossing_too_fast() {
     let world = sim.level.cells.as_ref().unwrap();
     let mut shell = Shellwash {
         phase: FindPhase::Free,
-        position: Vec2::new(320.0, 27.0),
+        position: Vec2::new(360.0, 37.0),
         velocity: Vec2::new(0.0, -46.0),
-        valve_position: Vec2::new(320.0, 17.0),
+        valve_position: Vec2::new(360.0, 27.0),
         ..Default::default()
     };
     for _ in 0..30 {
@@ -127,7 +127,7 @@ fn valve_does_not_catch_a_shell_crossing_too_fast() {
 fn a_real_crab_dig_can_release_the_bank_find() {
     use crabsim::{Controls, PlayerId, salvage::Shellwash};
     let id = PlayerId(0);
-    let mut sim = Sim::with_one_crab(Vec2::new(260.0, 80.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(300.0, 80.0));
     sim.enable_underwater_cells();
     let mut shell = Shellwash::default();
     let mut released = false;
@@ -222,7 +222,7 @@ fn live_dig_released_shell_ends_in_recoverable_opening() {
         salvage::{FindPhase, Shellwash},
     };
     let id = PlayerId(0);
-    let mut sim = Sim::with_one_crab(Vec2::new(260.0, 80.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(300.0, 80.0));
     sim.enable_underwater_cells();
     let mut shell = Shellwash::default();
     let mut released = false;
@@ -326,42 +326,18 @@ fn supported_valve_catches_a_real_dig_release() {
         "crab {:?}",
         sim.crab(id).unwrap().mover.pos
     );
-    for _ in 0..120 {
-        if sim.crab(id).unwrap().mover.pos.x <= 267.5 {
-            break;
-        }
-        sim.set_controls(
-            id,
-            Controls {
-                walk: -1.0,
-                ..Default::default()
-            },
-        );
-        sim.tick();
-    }
-    sim.set_controls(
-        id,
-        Controls {
-            walk: 1.0,
-            ..Default::default()
-        },
-    );
-    sim.tick();
+    // Use the exact bounded candidate list offered by the keyboard/phone UI.
+    // Every placement still goes through actual support, reach and clearance.
     let crab = sim.crab(id).unwrap();
-    let x = crab.mover.pos.x + 65.0 * crab.fighter.facing.signum();
-    let y = sim
-        .level
-        .cells
-        .as_ref()
-        .unwrap()
-        .game_surface_below(x, 16.0, crab.mover.pos.y + 60.0)
-        .unwrap()
-        + 3.0;
-    let target = Vec2::new(x, y);
+    let candidates = crabsim::salvage::Shellwash::valve_candidates(
+        sim.level.cells.as_ref().unwrap(),
+        crab.mover.pos,
+        1.0,
+    );
     assert!(
-        sim.salvage_action(id, SalvageAction::PlaceValve(target)),
-        "crab {:?}, target {target:?}",
-        sim.crab(id).unwrap().mover.pos
+        candidates
+            .into_iter()
+            .any(|target| sim.salvage_action(id, SalvageAction::PlaceValve(target)))
     );
     let mut released = false;
     let mut caught = false;
@@ -628,9 +604,9 @@ fn guest_durable_receipt_survives_owner_crash_before_offer_is_saved() {
 fn second_excavation_approach_still_catches() {
     use crabsim::{Controls, PlayerId};
     let id = PlayerId(0);
-    let mut sim = Sim::with_one_crab(Vec2::new(249.0, 44.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(308.0, 44.0));
     sim.enable_underwater_cells();
-    sim.salvage.as_mut().unwrap().valve_position = Vec2::new(314.7, 31.0);
+    sim.salvage.as_mut().unwrap().valve_position = Vec2::new(360.0, 27.0);
     for tick in 0..4500 {
         let controls = if tick < 500 {
             Controls {
@@ -685,6 +661,17 @@ fn idle_opening_does_not_release_the_embedded_find() {
     use crabsim::salvage::FindPhase;
     let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
     sim.enable_underwater_cells();
+    let site = sim.salvage.as_ref().unwrap();
+    let world = sim.level.cells.as_ref().unwrap();
+    let at = site.position;
+    assert!(
+        !world.game_rock_in_rect(at.x - 8.0, at.y - 9.0, at.x + 8.0, at.y - 5.0),
+        "find must rest in diggable sediment, not immutable rock"
+    );
+    assert!(
+        !site.can_take(world, at + Vec2::Y * 30.0),
+        "digging must still release the seam"
+    );
     for _ in 0..3600 {
         sim.tick();
     }

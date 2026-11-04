@@ -268,7 +268,9 @@ impl Default for Shellwash {
             world_id: 0,
             phase: FindPhase::Embedded,
             carrier_identity: 0,
-            position: Vec2::new(260.0, 43.0),
+            // The five-minute bank retains diggable sand beside the catch
+            // lip; the original upper slope has become exposed rock.
+            position: Vec2::new(324.0, 33.0),
             velocity: Vec2::ZERO,
             revision: 0,
             valve_revision: 0,
@@ -278,14 +280,14 @@ impl Default for Shellwash {
             fragment_revisions: [0; 2],
             valve_phase: ValvePhase::Placed,
             valve_carrier_identity: 0,
-            valve_position: Vec2::new(308.0, 24.0),
+            valve_position: Vec2::new(360.0, 27.0),
             valve_velocity: Vec2::ZERO,
             support_lost_ticks: 0,
             mouth_missed: false,
             valve_support_lost_ticks: 0,
             fragments: [false; 2],
             claims: [None; 2],
-            fragment_positions: [Vec2::new(260.0, 43.0); 2],
+            fragment_positions: [Vec2::new(324.0, 33.0); 2],
             fragment_velocities: [Vec2::ZERO; 2],
             last_safe_basin: Vec2::new(320.0, 32.0),
         }
@@ -731,6 +733,34 @@ impl Shellwash {
         }
         self.valve_revision = self.valve_revision.saturating_add(1);
         true
+    }
+
+    /// Nearby bowl placements use the bowl's support points, not an animal's
+    /// broad walking footprint. The caller still checks full clearance/reach
+    /// with `place_valve`, including other crabs and home doors.
+    pub fn valve_candidates(world: &World, feet: Vec2, facing: f32) -> Vec<Vec2> {
+        let intended_x = ((feet.x + 65.0 * facing.signum()) / GAME_CELL).round() * GAME_CELL;
+        let ceiling = ((feet.y + 60.0) / GAME_CELL).floor() * GAME_CELL;
+        std::iter::once(0)
+            .chain((1..=8).flat_map(|n| [-4 * n, 4 * n]))
+            .filter_map(|offset| {
+                let x = intended_x + offset as f32;
+                // At most 160 vertical units: beyond that the 100-unit
+                // placement reach cannot succeed. Test the bowl directly;
+                // walking-foot support intentionally rejects small contacts.
+                (0..=40)
+                    .map(|row| Vec2::new(x, ceiling - row as f32 * GAME_CELL + 3.0))
+                    .find(|at| {
+                        Self::supported(world, *at, VALVE_HALF, at.y - 3.0)
+                            && !world.game_solid(
+                                at.x - VALVE_HALF,
+                                at.y - 2.0,
+                                at.x + VALVE_HALF,
+                                at.y + 8.0,
+                            )
+                    })
+            })
+            .collect()
     }
 
     /// Place on actual substrate, in reach, with a clear footprint. The

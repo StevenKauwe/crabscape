@@ -94,8 +94,12 @@ fn cross_bank(approach: f32, turn: f32, idle: u32, pause: u32) {
 fn scuttle_can_brake_or_reverse_down_the_shallow_bank_step() {
     let id = PlayerId(0);
     for walk in [0.0, -1.0] {
-        let mut sim = Sim::with_one_crab(Vec2::new(160.0, 8.0));
-        sim.enable_underwater_cells();
+        let mut sim = Sim::with_one_crab(Vec2::new(160.0, 12.0));
+        // Isolate braking on a short step from the mature bank’s varying
+        // sand profile. The two tests above retain the real campaign route.
+        sim.level.floor = vec![Vec2::ZERO, Vec2::new(sim.level.max_x, 0.0)];
+        sim.level.rocks = vec![bevy_math::Rect::new(0.0, -4.0, 380.0, 12.0)];
+        sim.level.cells = Some(crabsim::underwater::World::from_level_settled(&sim.level));
         sim.set_controls(
             id,
             Controls {

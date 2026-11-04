@@ -1451,7 +1451,17 @@ impl Sim {
             .cells
             .as_ref()
             .and_then(|cells| {
-                cells.game_surface_below(pos.x, half, floor + self.tuning.body_height * 2.0)
+                cells.spawn_surface(
+                    &self.level,
+                    pos.x,
+                    half,
+                    if kind == Kind::Moray {
+                        self.tuning.moray.body.1
+                    } else {
+                        0.0
+                    },
+                    floor + self.tuning.body_height * 2.0,
+                )
             })
             .unwrap_or(floor);
         // Midwater hazards retain their authored depth; benthic occupants
@@ -2677,13 +2687,23 @@ impl Sim {
                     animal_bites.push((e.id, prey.id, e.pos.x, hit));
                 }
             }
-            // The crevice stays on its own seabed while the moray swims.
+            // A clear crevice is stable while sediment drifts past. Only
+            // relocate it when the loaded body space becomes obstructed.
             if e.kind == Kind::Moray
                 && self.tick.is_multiple_of(4)
                 && let Some(cells) = self.level.cells.as_ref()
-                && let Some(surface) = cells.game_surface_below(
+                && cells.contains_world(e.home.x, e.home.y)
+                && enemy::swimmer_blocked(
+                    &self.level,
+                    e.home,
+                    self.tuning.moray.body.0 * 0.5,
+                    self.tuning.moray.body.1,
+                )
+                && let Some(surface) = cells.spawn_surface(
+                    &self.level,
                     e.home.x,
                     self.tuning.moray.body.0 * 0.5,
+                    self.tuning.moray.body.1,
                     e.home.y + 80.0,
                 )
             {

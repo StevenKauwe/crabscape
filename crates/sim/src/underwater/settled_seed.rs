@@ -150,9 +150,111 @@ pub(crate) fn raw_grain(gx: i32, gy: i32) -> u8 {
     initial_grain(gx, gy)
 }
 
+impl World {
+    /// Spawn footing also exists outside the active window. Stored cells win;
+    /// only never-visited cells use the same initial history as streaming.
+    pub(crate) fn spawn_surface(
+        &self,
+        level: &crate::Level,
+        x: f32,
+        half: f32,
+        height: f32,
+        ceiling: f32,
+    ) -> Option<f32> {
+        let seed = for_level(level);
+        let x0 = ((x - half) / GAME_CELL).floor() as i32;
+        let x1 = ((x + half) / GAME_CELL).floor() as i32;
+        let columns: Vec<_> = (x0..=x1).map(|gx| TerrainColumn::new(level, gx)).collect();
+        let cell = |gx: i32, gy: i32| {
+            if let Some(i) = self.index_at(gx - self.origin.0, gy - self.origin.1) {
+                return self.cells[i];
+            }
+            let side = TERRAIN_CHUNK_CELLS;
+            let key = (gx.div_euclid(side), gy.div_euclid(side));
+            let slot = (gy.rem_euclid(side) * side + gx.rem_euclid(side)) as usize;
+            self.sleeping
+                .get(&key)
+                .and_then(|page| page.cells[slot])
+                .map_or_else(
+                    || {
+                        seed.and_then(|s| s.at(gx, gy))
+                            .map_or_else(|| columns[(gx - x0) as usize].cell(gy), |g| g.cell)
+                    },
+                    |saved| saved.cell,
+                )
+        };
+        let first = ((ceiling - GAME_BOTTOM) / GAME_CELL).floor() as i32 - 1;
+        let last = ((level.floor_height(x) - 512.0 - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+        for row in (last..=first).rev() {
+            let supported = (x0..=x1)
+                .filter(|&gx| (0..3).all(|dy| cell(gx, row - dy) != Cell::Water))
+                .count();
+            let body_left = ((x - half * 0.65) / GAME_CELL).floor() as i32;
+            let body_right = ((x + half * 0.65) / GAME_CELL).floor() as i32;
+            let body_rows = (height * 0.85 / GAME_CELL).ceil() as i32;
+            if supported >= 2 && supported * 3 >= (x1 - x0 + 1) as usize {
+                // A swimmer can hover just above uneven footing. Keep the
+                // smallest clear height, bounded by the requested ceiling;
+                // do not bury its wide body at a partial-support median.
+                for lift in 0..=(first - row).min(32) {
+                    let clear = (body_left..=body_right).all(|gx| {
+                        (1..=body_rows).all(|dy| cell(gx, row + lift + dy) == Cell::Water)
+                    });
+                    if clear {
+                        return Some(GAME_BOTTOM + (row + lift + 1) as f32 * GAME_CELL);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offscreen_spawn_footing_matches_loaded_and_saved_terrain() {
+        let level = crate::Level::test_level();
+        let mut world = World::from_level_settled(&level);
+        for x in [1760.0, 9880.0, 15220.0] {
+            let ceiling = level.floor_height(x) + 96.0;
+            let before = world.spawn_surface(&level, x, 40.0, 24.0, ceiling).unwrap();
+            world.follow_player(&level, x, level.floor_height(x));
+            assert!(!world.game_movement_blocked(
+                x - 40.0 * 0.65,
+                before + 1.0,
+                x + 40.0 * 0.65,
+                before + 24.0 * 0.85,
+                0.0,
+            ));
+            assert_eq!(
+                Some(before),
+                world.spawn_surface(&level, x, 40.0, 24.0, ceiling)
+            );
+        }
+        let x = 15220.0;
+        let ceiling = level.floor_height(x) + 96.0;
+        let top = world.spawn_surface(&level, x, 40.0, 24.0, ceiling).unwrap();
+        for gy in 0..3 {
+            for dx in -10..=10 {
+                let gx = (x / GAME_CELL).floor() as i32 + dx;
+                let row = ((top + 32.0 - GAME_BOTTOM) / GAME_CELL).floor() as i32 - gy;
+                let i = world
+                    .index_at(gx - world.origin.0, row - world.origin.1)
+                    .unwrap();
+                world.cells[i] = Cell::Rock;
+            }
+        }
+        let edited = world.spawn_surface(&level, x, 40.0, 24.0, ceiling).unwrap();
+        assert!(edited > top);
+        world.follow_player(&level, 160.0, 0.0);
+        assert_eq!(
+            Some(edited),
+            world.spawn_surface(&level, x, 40.0, 24.0, ceiling)
+        );
+    }
     #[test]
     #[ignore = "manual cold-start CPU profile; run alone in release mode"]
     fn settled_seed_startup_profile() {

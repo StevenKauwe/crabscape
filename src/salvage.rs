@@ -320,17 +320,10 @@ fn show_actions(
         offer.0[0] = Some((SalvageAction::DropShell, "Set shell down"));
     } else if site.has_valve && site.valve_phase == ValvePhase::Carried(**crab) {
         offer.0[1] = Some((SalvageAction::DropValve, "Drop valve"));
-        let intended_x = c.mover.pos.x + 65.0 * c.fighter.facing.signum();
-        // The surface is cellular and can be uneven by a cell. Search a
-        // small visible neighborhood, still respecting actual support,
-        // range and player clearance, so touch placement is not pixel-tight.
-        let offsets = std::iter::once(0).chain((1..=8).flat_map(|n| [-4 * n, 4 * n]));
-        for offset in offsets {
-            let x = intended_x + offset as f32;
-            let Some(y) = world.game_surface_below(x, 16.0, c.mover.pos.y + 60.0) else {
-                continue;
-            };
-            let at = Vec2::new(x, y + 3.0);
+        // Use the physical bowl support rule, including its edge contacts.
+        for at in
+            crabsim::salvage::Shellwash::valve_candidates(world, c.mover.pos, c.fighter.facing)
+        {
             let clear = sim.level.place_at(at).is_none()
                 && sim.crabs().iter().all(|other| {
                     (other.mover.pos.x - at.x).abs() > other.mover.half_width(&sim.tuning) + 20.0

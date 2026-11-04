@@ -248,7 +248,10 @@ fn ceiling_corner_assistance_requires_clear_space_and_sideways_travel() {
 fn walking_climbs_a_short_ledge_but_not_a_tall_wall() {
     for (ledge_height, should_climb) in [(36.0, true), (96.0, false)] {
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
-        // Isolate the synthetic ledge from the authored Shellwash bank.
+        // Explicit flat material fixture: campaign aging must not insert a
+        // separate bank into this 36-vs-96-unit movement test.
+        sim.level.floor = vec![Vec2::ZERO, Vec2::new(sim.level.max_x, 0.0)];
+        sim.level.rocks.clear();
         sim.level.cells = Some(crabsim::underwater::World::from_level_settled(&sim.level));
         sim.level
             .rocks
@@ -317,7 +320,13 @@ fn repeated_walking_over_disturbed_sand_keeps_its_ground_speed() {
 fn ordinary_jump_remains_close_to_the_original() {
     let mut original = Sim::with_one_crab(Vec2::new(200.0, 0.0));
     let mut experiment = Sim::with_one_crab(Vec2::new(200.0, 0.0));
-    experiment.enable_underwater_cells();
+    // Compare jump displacement on the same explicit flat substrate, not
+    // absolute height above a campaign bank whose sediment has aged.
+    experiment.level.floor = vec![Vec2::ZERO, Vec2::new(experiment.level.max_x, 0.0)];
+    experiment.level.rocks.clear();
+    experiment.level.cells = Some(crabsim::underwater::World::from_level_settled(
+        &experiment.level,
+    ));
     let (mut expected, mut actual) = (0.0_f32, 0.0_f32);
     for tick in 0..120 {
         let controls = Controls {
