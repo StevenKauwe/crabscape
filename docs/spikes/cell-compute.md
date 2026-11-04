@@ -114,6 +114,13 @@ a useful bounded comparison, not a proof that every chaotic grain trajectory
 is identical indefinitely. Both peers and replay runners must use the same
 new version, as usual.
 
+After all 9,000 steps of the full five-minute global bake, the compacted
+sediment payload also matches the base exactly: 128,920 bytes, SHA-256
+`62a1d6e2f33107b9562f0310fc9c459872ef7ea76d6014fd7b938585458515db`,
+excluding the source fingerprint. This covers material/grain/suspension and
+bake metadata; the seed does not store water velocity. The new main's
+independent 30-step material/grain/suspension tripwire also passes unchanged.
+
 Focused tests also check overlapping moves in every direction, resized and
 disjoint rectangles, preservation of absolute cell identity, reuse of the
 original allocation, and a cold clipped page causing **no active-grid
@@ -150,3 +157,22 @@ The optional headless browser profiler records all frame intervals and the
 WebGL renderer. Its default SwiftShader acceptance mode is software rendering
 and cannot establish hardware FPS. Use `CRABSCAPE_PROFILE_GPU=1` for local
 hardware profiling; both modes use their own disposable browser profiles.
+
+The final local hardware run used ANGLE's Metal renderer on an Apple M2 Max.
+Both clients recorded 765 frames during co-op travel: median/p95 intervals
+16.7/16.7 ms, maximum 33.4 ms, and no gap above 60 ms. The window revision
+advanced repeatedly, with browser region moves around 4–5 ms median and
+7.5 ms worst. Both browser replays reproduced natively; separation, digging,
+reunion and owner-loss/private-world restoration also passed.
+
+There is still a **150–250 ms simulation pause at shared-to-separated lobby
+topology change**. The canvas continues rendering while the stop/checkpoint/
+grant handshake completes. This is distinct from ordinary same-authority
+window moves and needs a separate pipelined authority-transition design; the
+CPU gains do not eliminate that protocol barrier. No phone-FPS claim follows
+from the local Metal result.
+
+CI also exposed parallel native save tests invalidating each other's global
+reset epoch. The damaged/unreadable/closed-passage load tests now take the
+same test lock as in-flight-write/reset tests. Save behavior and assertions
+remain unchanged; this fixes test isolation rather than retrying a flaky run.

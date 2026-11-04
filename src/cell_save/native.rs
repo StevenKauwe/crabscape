@@ -503,6 +503,7 @@ mod tests {
 
     // These cases share the production reset generation and must not reset
     // each other's in-flight writes while the test suite runs in parallel.
+    // Include load failures: discard() also resets this process-wide epoch.
     static TEST_IO: Mutex<()> = Mutex::new(());
 
     fn path(name: &str) -> PathBuf {
@@ -553,6 +554,7 @@ mod tests {
 
     #[test]
     fn saved_open_passages_load_and_closed_passages_roll_back() {
+        let _serial = TEST_IO.lock().unwrap();
         for (name, x, y, rock) in [
             ("rock", 5042.0, -690.0, true),
             ("net", 4308.0, -4360.0, false),
@@ -605,6 +607,7 @@ mod tests {
 
     #[test]
     fn damaged_save_is_discarded_and_saving_stays_on() {
+        let _serial = TEST_IO.lock().unwrap();
         let path = path("damaged");
         std::fs::write(&path, b"not a valid cellular save").unwrap();
         let mut state = Storage::default();
@@ -936,6 +939,7 @@ mod tests {
 
     #[test]
     fn unreadable_save_is_discarded_and_saving_stays_on() {
+        let _serial = TEST_IO.lock().unwrap();
         let path = path("unreadable");
         std::fs::create_dir_all(&path).unwrap();
         std::fs::write(path.join("keep"), b"untouched").unwrap();
