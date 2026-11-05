@@ -67,6 +67,7 @@ fn separate_host_keeps_playing_while_guest_receives() {
         .expect("valid trace");
     assert!(
         advanced_during_transfer(&trace),
-        "host did not advance while sending its guest's independent region: {trace}"
+        "host did not advance during transfer; states: {}; trace: {path}",
+        trace["states"]
     );
 }
