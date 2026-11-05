@@ -103,8 +103,9 @@ fn scenario(players: &mut [Chrome], url: &str, dir: &Path) -> Result<()> {
         players[n].go(&invite)?;
         ready(&mut players[n])?;
         together(&mut players[..=n], n + 1)?;
+        consistent(&mut players[..=n])?;
+        println!("joined={} matching cellular rosters and hashes", n + 1);
     }
-    consistent(players)?;
     for p in players.iter_mut() {
         let before = p.attr("data-crab").ok_or("missing local actor")?;
         p.hold_key("KeyW", 0.2)?;

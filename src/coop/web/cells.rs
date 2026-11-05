@@ -44,9 +44,7 @@ struct Session {
     guest: Option<PlayerId>,
     epoch: u64,
     solo: Option<Box<Sim>>,
-    snapshot: Vec<u8>,
-    offered: u32,
-    acks: BTreeSet<u32>,
+    transfers: crabsim::net::cell_join::transfers::Transfers,
     receiver: Receiver,
     local: Controls,
     remote: Controls,
@@ -489,7 +487,9 @@ fn receive(
         s.phase = Phase::Sending;
         s.peer = Some(peer);
         s.epoch = (js_sys::Date::now() as u64).max(1);
-        s.snapshot = snapshot;
+        s.transfers
+            .begin(peer.0.as_u128(), s.epoch, snapshot)
+            .map_err(|e| format!("World transfer: {e:?}"))?;
         s.last_seen = now;
         s.applied = sim.tick_count();
         s.outgoing.push_back(Wire::Begin {
@@ -541,9 +541,11 @@ fn receive(
             }
         }
         Wire::Ack { epoch, piece }
-            if me == HOST && s.phase == Phase::Sending && epoch == s.epoch && piece < s.offered =>
+            if me == HOST && s.phase == Phase::Sending && epoch == s.epoch =>
         {
-            s.acks.insert(piece);
+            s.transfers
+                .acknowledge(peer.0.as_u128(), epoch, piece)
+                .map_err(|e| format!("World acknowledgement: {e:?}"))?;
         }
         Wire::Ready { epoch, tick }
             if me == HOST
@@ -552,7 +554,9 @@ fn receive(
                 && tick == sim.tick_count() =>
         {
             s.phase = Phase::Host;
-            s.snapshot.clear();
+            s.transfers
+                .finish(peer.0.as_u128(), epoch)
+                .map_err(|e| format!("World completion: {e:?}"))?;
             s.applied = tick;
             regional::boot(s, sim)?;
         }
@@ -642,6 +646,40 @@ fn send_pending(s: &mut Session, link: &mut Link) -> Result<(), &'static str> {
             }
         }
     }
+    // Recipient windows and acknowledgements are independent. Flush Begin
+    // above before fragments, then share a bounded send budget across peers.
+    let connections = s.transfers.connections();
+    let mut budget = WINDOW;
+    while budget > 0 {
+        let mut progressed = false;
+        for connection in &connections {
+            let peer = link
+                .peers
+                .iter()
+                .find(|p| p.id.0.as_u128() == *connection)
+                .ok_or("Transfer recipient disconnected")?
+                .id;
+            if let Some(piece) = s
+                .transfers
+                .next_piece(*connection)
+                .map_err(|_| "World transfer failed")?
+            {
+                let bytes = packet(&Wire::Piece(piece)).ok_or("World fragment too large")?;
+                link.socket
+                    .channel_mut(RELIABLE)
+                    .try_send(bytes, peer)
+                    .map_err(|_| "Connection closed")?;
+                progressed = true;
+                budget -= 1;
+                if budget == 0 {
+                    break;
+                }
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
     Ok(())
 }
 
@@ -703,6 +741,7 @@ pub(super) fn take_in(
                                 );
                             }
                             PeerState::Disconnected => {
+                                s.transfers.cancel(peer.0.as_u128());
                                 link.peers.retain(|p| p.id != peer);
                                 crate::voice::forget(peer);
                                 if s.peer == Some(peer) {
@@ -864,25 +903,6 @@ pub(super) fn take_in(
             if let Err(reason) = regional::update(&mut s, sim, me) {
                 error = Some(reason);
                 end(&mut s, sim, me);
-            }
-            if s.phase == Phase::Sending {
-                for _ in 0..WINDOW {
-                    if s.offered.saturating_sub(s.acks.len() as u32) >= WINDOW {
-                        break;
-                    }
-                    match Fragments::piece(s.epoch, &s.snapshot, s.offered) {
-                        Ok(Some(piece)) => {
-                            s.offered += 1;
-                            s.outgoing.push_back(Wire::Piece(piece));
-                        }
-                        Ok(None) => break,
-                        Err(_) => {
-                            error = Some("World transfer failed".into());
-                            end(&mut s, sim, me);
-                            break;
-                        }
-                    }
-                }
             }
             if let Err(reason) = send_pending(&mut s, link) {
                 error = Some(reason.into());
