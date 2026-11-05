@@ -63,7 +63,7 @@ const ACTIONS: [TouchAction; 9] = [
 
 /// Whether the on-screen buttons are showing. They appear on touch screens,
 /// and on any device as soon as the screen is touched.
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct TouchControls {
     pub visible: bool,
     pub dig_touch: Option<u64>,
@@ -94,7 +94,7 @@ impl TouchOwnership {
 pub(crate) struct PointerUi;
 
 #[derive(SystemParam)]
-struct InputUi<'w, 's> {
+pub(crate) struct InputUi<'w, 's> {
     settings: Res<'w, crate::settings::panel::Open>,
     inventory: Res<'w, crate::shell_inventory::Open>,
     chat: Res<'w, crate::codes::CodeBox>,
@@ -112,7 +112,7 @@ struct InputUi<'w, 's> {
 }
 
 impl InputUi<'_, '_> {
-    fn modal(&self) -> bool {
+    pub(crate) fn modal(&self) -> bool {
         self.settings.is_open() || self.inventory.0 || self.chat.open || page_dialog_open()
     }
 
