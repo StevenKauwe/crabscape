@@ -181,6 +181,19 @@ fn contact_clear(level: &Level, from: Vec2, to: Vec2) -> bool {
         }
     })
 }
+// Every sampled circle lies inside the endpoint bounds expanded by its radius.
+// Keep boundary equality: touching the radius is a contact in circle_meets.
+fn trail_near_body(points: &[Vec2; 7], body: bevy_math::Rect) -> bool {
+    let mut min = points[0];
+    let mut max = points[0];
+    for &p in &points[1..] {
+        min = min.min(p);
+        max = max.max(p);
+    }
+    min -= Vec2::splat(JELLY_TRAIL_RADIUS);
+    max += Vec2::splat(JELLY_TRAIL_RADIUS);
+    body.max.x >= min.x && body.min.x <= max.x && body.max.y >= min.y && body.min.y <= max.y
+}
 fn segment_meets(a: Vec2, b: Vec2, body: bevy_math::Rect, level: &Level) -> bool {
     let steps = ((b - a).length() / JELLY_TRAIL_RADIUS).ceil() as usize;
     (0..=steps).any(|i| {
@@ -255,9 +268,10 @@ pub(crate) fn step(
         let fringe_contact = body.center().clamp(marginal.min, marginal.max);
         let touches = (!body.intersect(marginal).is_empty()
             && contact_clear(level, body.center(), fringe_contact))
-            || points
-                .windows(2)
-                .any(|p| segment_meets(p[0], p[1], body, level));
+            || (trail_near_body(&points, body)
+                && points
+                    .windows(2)
+                    .any(|p| segment_meets(p[0], p[1], body, level)));
         if !touches {
             continue;
         }
@@ -280,6 +294,77 @@ pub(crate) fn step(
 #[cfg(test)]
 mod search_tests {
     use super::*;
+
+    #[test]
+    fn trail_bounds_preserve_sampled_contacts_including_radius_boundaries() {
+        use bevy_math::Rect;
+        let t = Tuning::default();
+        let mut level = crate::Sim::with_one_crab(Vec2::ZERO).level;
+        level.floor = vec![Vec2::ZERO, Vec2::new(20000.0, 0.0)];
+        level.rocks.clear();
+        level.climbs.clear();
+        let mut jelly = Enemy::new(0, Kind::AlarmJelly, Vec2::new(1000.0, 500.0), &t);
+        for phase in [0, 30, 120, 479, 959] {
+            jelly.combo = phase;
+            let points = trail(&jelly);
+            for wall in [None, Some(Rect::new(1011.0, 0.0, 1012.0, 600.0))] {
+                level.rocks = wall.into_iter().collect();
+                for point in points {
+                    for offset in [
+                        -1000.0, -6.001, -6.0, -5.999, 0.0, 5.999, 6.0, 6.001, 1000.0,
+                    ] {
+                        for axis in [Vec2::X, Vec2::Y] {
+                            for size in [Vec2::ZERO, Vec2::new(32.0, 48.0), Vec2::splat(200.0)] {
+                                let min = point + axis * offset;
+                                let body = Rect::from_corners(min, min + size);
+                                let reference = points
+                                    .windows(2)
+                                    .any(|p| segment_meets(p[0], p[1], body, &level));
+                                let bounded = trail_near_body(&points, body)
+                                    && points
+                                        .windows(2)
+                                        .any(|p| segment_meets(p[0], p[1], body, &level));
+                                assert_eq!(
+                                    bounded, reference,
+                                    "phase={phase}, body={body:?}, wall={wall:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn distant_body_skips_all_trail_circle_samples() {
+        let t = Tuning::default();
+        let jelly = Enemy::new(0, Kind::AlarmJelly, Vec2::new(1000.0, 500.0), &t);
+        let points = trail(&jelly);
+        let body = bevy_math::Rect::new(3000.0, 0.0, 3032.0, 48.0);
+        // Mirror the existing sampling loop with a local counter, keeping
+        // instrumentation entirely outside production code.
+        let mut samples = 0;
+        let scan = |samples: &mut usize| {
+            points.windows(2).any(|p| {
+                let steps = ((p[1] - p[0]).length() / JELLY_TRAIL_RADIUS).ceil() as usize;
+                (0..=steps).any(|i| {
+                    *samples += 1;
+                    enemy::circle_meets(
+                        p[0].lerp(p[1], i as f32 / steps.max(1) as f32),
+                        JELLY_TRAIL_RADIUS,
+                        body,
+                    )
+                })
+            })
+        };
+        assert!(!scan(&mut samples));
+        assert!(samples >= 78, "reference samples={samples}");
+        let mut bounded_samples = 0;
+        let hit = trail_near_body(&points, body) && scan(&mut bounded_samples);
+        assert!(!hit);
+        assert_eq!(bounded_samples, 0);
+    }
 
     #[test]
     fn alarm_search_preserves_blocked_candidates_and_id_ties() {
