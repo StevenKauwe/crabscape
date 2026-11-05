@@ -25,6 +25,8 @@ fn every_gate_landmark_covers_an_existing_net_brittle_or_bare_rock() {
     let expected: Vec<_> = level
         .nets
         .iter()
+        // A zero-area net is the tether's event marker, not a gate.
+        .filter(|n| !n.rect.is_empty())
         .map(|n| (n.rect, Needs::Scissors))
         .chain(level.brittle.iter().map(|b| (b.rect, Needs::Crusher)))
         .chain(

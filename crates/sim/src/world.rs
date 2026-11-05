@@ -30,7 +30,7 @@ use crate::home::{self, Shelter};
 use crate::level::{EGG_RADIUS, Level, Place};
 use crate::memory::Memory;
 use crate::net::{self, CrabState, Msg, Net, Outgoing, To};
-use crate::physics::{self, Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
+use crate::physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 use crate::replay::Recorder;
 use crate::rng::Rng;
 use crate::shared::{self, OwnWorld, Shared, Thing};
@@ -46,6 +46,17 @@ mod strain;
 )]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 pub struct PlayerId(pub u32);
+
+/// Provenance of the vent meal through ordinary clam carrying and cast-offs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum DeepFood {
+    #[default]
+    Available,
+    Carried(usize),
+    Dropped(usize),
+    Stored,
+    Eaten,
+}
 
 /// One crab inside the simulation.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -96,6 +107,9 @@ pub struct SimCrab {
     pub sponges_taken: Vec<bool>,
     /// Clams stored in the larder at home (it stays there through death).
     pub larder: u32,
+    /// The vent meal's identity, independent of ordinary recipe ingredients.
+    #[serde(default)]
+    pub deep_food: DeepFood,
     /// Shell grit built into its home so far (it grows in stages: see
     /// [`SimCrab::home_stage`]).
     pub home_grit: u32,
@@ -257,6 +271,13 @@ impl Sim {
                     return false;
                 }
                 let carrying = crab.mover.clinging.remove(index);
+                if let DeepFood::Carried(slot) = crab.deep_food {
+                    if slot == index {
+                        crab.deep_food = DeepFood::Dropped(crab.cast_offs.len());
+                    } else if slot > index {
+                        crab.deep_food = DeepFood::Carried(slot - 1);
+                    }
+                }
                 crab.cast_offs.push(CastOff {
                     pos: crab.mover.pos,
                     carrying,
@@ -952,6 +973,7 @@ impl Sim {
             teeth_taken: vec![false; self.level.teeth.len()],
             sponges_taken: vec![false; self.level.sponges.len()],
             larder: 0,
+            deep_food: DeepFood::Available,
             home_grit: 0,
             fighter: Fighter::new(&self.tuning),
             memory: Memory::new(&self.level, &self.tuning.memory),
@@ -1272,13 +1294,19 @@ impl Sim {
                 if let Some(id) = ours
                     && let Some(c) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote)
                 {
-                    shared::give(
+                    let slot = c.mover.clinging.len();
+                    let given = shared::give(
                         &mut c.mover,
                         &mut c.fighter.vitals,
                         &mut c.pending,
                         thing,
                         t,
                     );
+                    if given
+                        && matches!(thing, Thing::Clam(i) if self.level.clams.get(i).copied() == self.level.deep_food())
+                    {
+                        c.deep_food = DeepFood::Carried(slot);
+                    }
                 }
             }
             Msg::Regrown(i) => {
@@ -2248,6 +2276,11 @@ impl Sim {
             // cast-off shell where it fell; what it is (strokes, lantern,
             // claws, skills) it keeps.
             if f.dead.is_some_and(|d| d >= self.tuning.respawn_ticks) {
+                if let DeepFood::Carried(slot) = crab.deep_food {
+                    crab.deep_food = DeepFood::Dropped(
+                        crab.cast_offs.len() + usize::from(crab.mover.carrying.is_some()) + slot,
+                    );
+                }
                 let m = &crab.mover;
                 crab.cast_offs.extend(m.load().map(|carrying| CastOff {
                     pos: m.pos,
@@ -2332,13 +2365,10 @@ impl Sim {
                     STEP,
                 ));
             } else {
-                ev.merge(physics::step(
-                    &mut crab.mover,
-                    &controls,
-                    &self.tuning,
-                    &self.level,
-                    STEP,
-                ));
+                ev.merge(
+                    self.level
+                        .step_with_tether(&mut crab.mover, &controls, &self.tuning),
+                );
             }
             if let Some(angle) = held_angle {
                 crab.mover.water_angle = angle;
@@ -2347,6 +2377,12 @@ impl Sim {
             combat::after_step(&mut crab.fighter, &crab.mover);
             crush(crab, &mut self.enemies, &self.tuning, &mut ev);
             crab.events = ev;
+            if crab.fighter.dead.is_none()
+                && let Some(i) = self.level.visit_vents(crab.mover.pos)
+                && let Some(net) = &mut self.net
+            {
+                net.send(To::Everyone, Msg::NetCut(i));
+            }
             // A press counts once.
             crab.controls = crab.controls.held_only();
             // An egg the crab touches is eaten: one more swim stroke for
@@ -2396,6 +2432,9 @@ impl Sim {
             // another in time.
             let mut reached = Vec::new();
             for (i, clam) in self.level.clams.iter().enumerate() {
+                if Some(*clam) == self.level.deep_food() && crab.deep_food != DeepFood::Available {
+                    continue;
+                }
                 if in_reach(m, *clam, t) {
                     reached.push(Thing::Clam(i));
                 }
@@ -2415,12 +2454,20 @@ impl Sim {
                 }
             }
             for thing in reached {
-                reach(crab, thing, &mut self.shared, &mut self.net, t);
+                let slot = crab.mover.clinging.len();
+                let given = reach(crab, thing, &mut self.shared, &mut self.net, t);
+                if given
+                    && matches!(thing, Thing::Clam(i) if self.level.clams.get(i).copied() == self.level.deep_food())
+                {
+                    crab.deep_food = DeepFood::Carried(slot);
+                }
             }
             let (m, ev) = (&mut crab.mover, &mut crab.events);
             // Its cast-off shell, back where it died: what it carried goes
             // back on (whatever there's room for; the rest waits there).
             if crab.fighter.dead.is_none() {
+                let mut index = 0;
+                let mut retained = 0;
                 crab.cast_offs.retain_mut(|off| {
                     let near = in_reach(m, off.pos, t);
                     if !near {
@@ -2430,6 +2477,15 @@ impl Sim {
                         && off.recoverable
                         && crab.pickup.accepts(off.carrying)
                         && take_up(m, ev, off.carrying, t);
+                    if crab.deep_food == DeepFood::Dropped(index) {
+                        crab.deep_food = if back {
+                            DeepFood::Carried(m.clinging.len() - 1)
+                        } else {
+                            DeepFood::Dropped(retained)
+                        };
+                    }
+                    index += 1;
+                    retained += usize::from(!back);
                     ev.recovered |= back;
                     !back
                 });
@@ -2534,6 +2590,13 @@ impl Sim {
                 // Stage 2: a shelf of grit inside, a bigger larder.
                 let larder = larder_holds(stage, &self.tuning);
                 // Everything it carries comes off at once.
+                if let DeepFood::Carried(slot) = crab.deep_food
+                    && m.clinging.get(slot) == Some(&Carry::Clam)
+                {
+                    m.clinging.remove(slot);
+                    crab.deep_food = DeepFood::Stored;
+                    crab.events.stored = true;
+                }
                 let load = m.carrying.take().into_iter();
                 for thing in load.chain(std::mem::take(&mut m.clinging)) {
                     match thing {
@@ -2561,12 +2624,17 @@ impl Sim {
                 let food = &self.tuning.food;
                 // (Not soft after a moult: it eats nothing then.)
                 if m.prepared_food.auto_eat
-                    && crab.larder > 0
+                    && (crab.larder > 0 || crab.deep_food == DeepFood::Stored)
                     && m.well_fed == 0
                     && !m.is_soft()
                     && crab.resting >= food.eat_after_ticks
                 {
-                    crab.larder -= 1;
+                    let deep_meal = crab.deep_food == DeepFood::Stored;
+                    if deep_meal {
+                        crab.deep_food = DeepFood::Eaten;
+                    } else {
+                        crab.larder -= 1;
+                    }
                     // Stage 3: the home grown deep and snug, a meal there
                     // lasts longer (Valheim's comfort, which makes resting
                     // last longer).
@@ -2581,6 +2649,9 @@ impl Sim {
                     // Its two empty valves go to the workbench.
                     let valves = self.tuning.craft.valves_per_clam;
                     crab.stash.add(Material::Valve, valves);
+                    if deep_meal {
+                        crab.adapt_deeper(1500.0);
+                    }
                 }
             } else {
                 crab.resting = 0;
@@ -3625,12 +3696,18 @@ fn food_timers(crab: &mut SimCrab, t: &Tuning, ev: &mut StepEvents) {
 /// it takes it at once if it's there and there's room (a host tells
 /// everyone). A guest's crab asks the host, and gets it only when the host
 /// says it's theirs; it's gone on this screen meanwhile.
-fn reach(c: &mut SimCrab, thing: Thing, shared: &mut Shared, net: &mut Option<Net>, t: &Tuning) {
+fn reach(
+    c: &mut SimCrab,
+    thing: Thing,
+    shared: &mut Shared,
+    net: &mut Option<Net>,
+    t: &Tuning,
+) -> bool {
     if thing.carry().is_some_and(|carry| !c.pickup.accepts(carry)) {
-        return;
+        return false;
     }
     if !shared.there(thing, t) {
-        return;
+        return false;
     }
     let small = |th: Thing| th.carry().is_some_and(Carry::small);
     match net {
@@ -3638,11 +3715,12 @@ fn reach(c: &mut SimCrab, thing: Thing, shared: &mut Shared, net: &mut Option<Ne
             let waiting = n.asked.iter().filter(|a| a.0 == c.id && small(a.1)).count();
             if !shared::room(&c.mover, thing, waiting, t) {
                 c.events.shell_full |= small(thing);
-                return;
+                return false;
             }
             n.asked.push((c.id, thing));
             shared.take(thing, t);
             n.send(To::Host, Msg::Take { by: c.id, thing });
+            false
         }
         _ => {
             let (m, v) = (&mut c.mover, &mut c.fighter.vitals);
@@ -3652,6 +3730,9 @@ fn reach(c: &mut SimCrab, thing: Thing, shared: &mut Shared, net: &mut Option<Ne
                     let by = Some(c.id);
                     n.send(To::Everyone, Msg::Taken { by, thing });
                 }
+                true
+            } else {
+                false
             }
         }
     }

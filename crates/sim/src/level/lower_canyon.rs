@@ -77,6 +77,14 @@ pub(super) fn plugs(name: &str, r: Rect) -> Vec<Rect> {
 }
 
 pub(super) fn shape(level: &mut Level) {
+    // A zero-area event marker inside sealed bedrock, never a collision
+    // surface. Its cut bit uses the existing world snapshot/event transport.
+    level.nets.push(super::Net {
+        rect: TETHER_SWITCH,
+        cut: false,
+        from: super::CutFrom::default(),
+    });
+    level.clams.push(DEEP_FOOD);
     level.max_x = 21000.0;
     level.floor.extend([
         Vec2::new(17700.0, -2520.0),
@@ -145,6 +153,58 @@ pub(super) fn shape(level: &mut Level) {
     // The hanging garden and the seep's upper outlet are W4.1's (a rock
     // package then): a ledge here sat across the glass-grip climb to the notch
     // and was a step up the end wall that skipped that gate.
+}
+
+const TETHER_SWITCH: Rect = Rect::new(18040.0, -10150.0, 18040.0, -10150.0);
+const TETHER: Rect = Rect::new(17781.0, -10000.0, 17960.0, -2300.0);
+const DEEP_FOOD: Vec2 = Vec2::new(18450.0, -9995.0);
+
+impl Level {
+    pub fn tether_open(&self) -> bool {
+        self.nets.iter().any(|n| n.rect == TETHER_SWITCH && n.cut)
+    }
+
+    pub(crate) fn visit_vents(&mut self, pos: Vec2) -> Option<usize> {
+        if !VENTS.contains(pos) {
+            return None;
+        }
+        let (i, net) = self
+            .nets
+            .iter_mut()
+            .enumerate()
+            .find(|(_, n)| n.rect == TETHER_SWITCH && !n.cut)?;
+        net.cut = true;
+        Some(i)
+    }
+
+    /// A clam-shaped placeholder for an unnamed deep food (species not verified).
+    pub fn deep_food(&self) -> Option<Vec2> {
+        self.clams.iter().copied().find(|p| *p == DEEP_FOOD)
+    }
+
+    /// Reuse the ordinary current's drag, collision and control rules. Only
+    /// this local crab's physics step samples the steady lane; restore the
+    /// world's tide immediately so other crabs and regions keep their tide.
+    pub(crate) fn step_with_tether(
+        &mut self,
+        mover: &mut crate::Mover,
+        controls: &crate::Controls,
+        tuning: &crate::Tuning,
+    ) -> crate::physics::StepEvents {
+        let in_lane =
+            self.tether_open() && TETHER.contains(mover.pos + Vec2::Y * mover.height(tuning) * 0.5);
+        let tide = self.tide;
+        if in_lane {
+            self.currents.push(TETHER);
+            self.tide = tuning.tide.upwelling_speed / tuning.tide.up_speed.max(1.0);
+        }
+        let events = crate::physics::step(mover, controls, tuning, self, crate::STEP);
+        if in_lane {
+            self.currents.pop();
+            self.tide = tide;
+        }
+        events
+    }
 }
 
 fn frame(level: &mut Level, name: &str, r: Rect) {
