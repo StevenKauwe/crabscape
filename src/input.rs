@@ -294,6 +294,35 @@ fn touched_buttons(
         .collect()
 }
 
+/// Press edges are separate from held buttons: a completed tap must not
+/// become a walk, meal, dig, charged attack or sustained guard.
+fn touch_press_edges(
+    size: Vec2,
+    touches: &Touches,
+    dig_touch: Option<u64>,
+    covered: impl Fn(Vec2) -> bool,
+) -> PadWants {
+    let mut edges = PadWants::default();
+    for touch in touches.iter_just_pressed().filter(|t| {
+        Some(t.id()) != dig_touch && !touches.just_canceled(t.id()) && !covered(t.position())
+    }) {
+        for (action, rect) in button_rects(size) {
+            if !rect.inflate(10.0).contains(touch.position()) {
+                continue;
+            }
+            match action {
+                TouchAction::Jump => edges.jump = true,
+                TouchAction::Dodge => edges.dodge = true,
+                TouchAction::Smash => edges.smash = true,
+                TouchAction::Jab => edges.jab = true,
+                TouchAction::Guard => edges.guard = true,
+                _ => {}
+            }
+        }
+    }
+    edges
+}
+
 /// What one controller asks for this frame (its part of the table at the top).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct PadWants {
@@ -393,6 +422,7 @@ fn read_input(
         });
         return;
     }
+    let previous_dig_touch = touch_controls.dig_touch;
     let cells_enabled = sim.level.cells.is_some();
     let dig_rect = button_rects(window.size())[0].1;
     if !cells_enabled
@@ -427,6 +457,12 @@ fn read_input(
         Vec::new()
     };
     let touch = |a: TouchAction| on_screen.contains(&a);
+    let mut edges = touch_press_edges(
+        window.size(),
+        &touches,
+        touch_controls.dig_touch.or(previous_dig_touch),
+        covered,
+    );
 
     let any_key = |list: &[KeyCode]| keys.any_pressed(list.iter().copied());
     let mut walk = 0.0;
@@ -447,6 +483,12 @@ fn read_input(
 
     for pad in &gamepads {
         let wants = pad_wants(pad.left_stick(), |b| pad.pressed(b));
+        let pressed = pad_wants(Vec2::ZERO, |b| pad.just_pressed(b));
+        edges.jump |= pressed.jump;
+        edges.dodge |= pressed.dodge;
+        edges.smash |= pressed.smash;
+        edges.jab |= pressed.jab;
+        edges.guard |= pressed.guard;
         let dig_stick = pad.right_stick();
         if stick.is_none() && dig_stick.length() > 0.2 {
             stick = Some(dig_stick);
@@ -473,17 +515,21 @@ fn read_input(
         eat_held: eat,
         walk: walk.clamp(-1.0, 1.0),
         jump_held: jump,
-        jump_pressed: key_pressed(&keys, &JUMP_KEYS, jump, held_before.jump),
-        dodge_pressed: key_pressed(&keys, &DODGE_KEYS, dodge, held_before.dodge),
+        jump_pressed: edges.jump || key_pressed(&keys, &JUMP_KEYS, jump, held_before.jump),
+        dodge_pressed: edges.dodge || key_pressed(&keys, &DODGE_KEYS, dodge, held_before.dodge),
         dodge_held: dodge,
         dig_held: digging,
         dig_up,
         down,
-        smash_pressed: clicked_smash || key_pressed(&keys, &SMASH_KEYS, smash, held_before.smash),
+        smash_pressed: edges.smash
+            || clicked_smash
+            || key_pressed(&keys, &SMASH_KEYS, smash, held_before.smash),
         smash_held: smash,
-        jab_pressed: clicked_jab || key_pressed(&keys, &JAB_KEYS, jab, held_before.jab),
+        jab_pressed: edges.jab
+            || clicked_jab
+            || key_pressed(&keys, &JAB_KEYS, jab, held_before.jab),
         block_held: guard,
-        block_pressed: key_pressed(&keys, &GUARD_KEYS, guard, held_before.guard),
+        block_pressed: edges.guard || key_pressed(&keys, &GUARD_KEYS, guard, held_before.guard),
     };
     if digging && let Some(crab) = sim.crab(**local) {
         if crab
@@ -711,6 +757,144 @@ fn layout_touch_buttons(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn touch_frame(app: &mut App, events: &[(u64, bevy::input::touch::TouchPhase, Vec2)]) {
+        for &(id, phase, position) in events {
+            app.world_mut()
+                .write_message(bevy::input::touch::TouchInput {
+                    phase,
+                    position,
+                    window: Entity::PLACEHOLDER,
+                    force: None,
+                    id,
+                });
+        }
+        app.update();
+    }
+    fn any_action(w: PadWants) -> bool {
+        w.jump || w.dodge || w.smash || w.jab || w.guard
+    }
+
+    #[test]
+    fn completed_touch_edges_keep_ownership_without_becoming_holds() {
+        use bevy::input::touch::TouchPhase::{Canceled, Ended, Started};
+        let size = Vec2::new(430.0, 873.0);
+        for (action, rect) in button_rects(size) {
+            let mut app = App::new();
+            app.add_plugins(bevy::input::InputPlugin);
+            let p = rect.center();
+            touch_frame(&mut app, &[(1, Started, p), (1, Ended, p)]);
+            let touches = app.world().resource::<Touches>();
+            let edges = touch_press_edges(size, touches, None, |_| false);
+            assert_eq!(
+                any_action(edges),
+                matches!(
+                    action,
+                    TouchAction::Jump
+                        | TouchAction::Dodge
+                        | TouchAction::Smash
+                        | TouchAction::Jab
+                        | TouchAction::Guard
+                ),
+                "{action:?}"
+            );
+            assert!(touched_buttons(size, touches, None, None, |_| false).is_empty());
+            assert!(
+                !any_action(touch_press_edges(size, touches, None, |_| true)),
+                "UI owns start"
+            );
+            assert!(
+                !any_action(touch_press_edges(size, touches, Some(1), |_| false)),
+                "dig owns finger"
+            );
+            if edges.guard {
+                let mut sim = crabsim::Sim::with_one_crab(crabsim::SPAWN);
+                sim.set_controls(
+                    crabsim::PlayerId(0),
+                    Controls {
+                        block_pressed: true,
+                        ..Default::default()
+                    },
+                );
+                sim.tick();
+                let f = &sim.crab(crabsim::PlayerId(0)).unwrap().fighter;
+                assert!(f.parrying(&sim.tuning));
+                assert!(!f.blocking);
+            }
+            touch_frame(&mut app, &[]);
+            assert!(
+                !any_action(touch_press_edges(
+                    size,
+                    app.world().resource::<Touches>(),
+                    None,
+                    |_| false
+                )),
+                "menu-consumed edge cannot replay next frame"
+            );
+            touch_frame(&mut app, &[(2, Started, p), (2, Canceled, p)]);
+            assert!(!any_action(touch_press_edges(
+                size,
+                app.world().resource::<Touches>(),
+                None,
+                |_| false
+            )));
+        }
+    }
+
+    #[test]
+    fn second_finger_represses_while_held_and_sliding_keeps_held_behavior() {
+        use bevy::input::touch::TouchPhase::{Ended, Moved, Started};
+        let size = Vec2::new(430.0, 873.0);
+        let p = button_rects(size)
+            .into_iter()
+            .find(|(a, _)| *a == TouchAction::Jump)
+            .unwrap()
+            .1
+            .center();
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin);
+        touch_frame(&mut app, &[(1, Started, p)]);
+        touch_frame(&mut app, &[]);
+        let t = app.world().resource::<Touches>();
+        assert!(!touch_press_edges(size, t, None, |_| false).jump);
+        assert!(touched_buttons(size, t, None, None, |_| false).contains(&TouchAction::Jump));
+        touch_frame(&mut app, &[(2, Started, p), (2, Ended, p)]);
+        assert!(touch_press_edges(size, app.world().resource::<Touches>(), None, |_| false).jump);
+        touch_frame(
+            &mut app,
+            &[(1, Ended, p), (3, Started, Vec2::new(215.0, 300.0))],
+        );
+        touch_frame(&mut app, &[(3, Moved, p)]);
+        let t = app.world().resource::<Touches>();
+        assert!(!touch_press_edges(size, t, None, |_| false).jump);
+        assert!(touched_buttons(size, t, None, None, |_| false).contains(&TouchAction::Jump));
+    }
+
+    #[test]
+    fn gamepad_action_aliases_retain_quick_edges_without_holds() {
+        for button in [
+            GamepadButton::South,
+            GamepadButton::East,
+            GamepadButton::RightTrigger,
+            GamepadButton::RightTrigger2,
+            GamepadButton::North,
+            GamepadButton::West,
+            GamepadButton::LeftTrigger,
+            GamepadButton::LeftTrigger2,
+        ] {
+            let mut pad = Gamepad::default();
+            pad.digital_mut().press(button);
+            pad.digital_mut().release(button);
+            assert!(any_action(pad_wants(Vec2::ZERO, |b| pad.just_pressed(b))));
+            assert!(!any_action(pad_wants(Vec2::ZERO, |b| pad.pressed(b))));
+            pad.digital_mut().press(button);
+            pad.digital_mut().clear();
+            assert!(!any_action(pad_wants(Vec2::ZERO, |b| pad.just_pressed(b))));
+            pad.digital_mut().release(button);
+            pad.digital_mut().press(button);
+            assert!(any_action(pad_wants(Vec2::ZERO, |b| pad.just_pressed(b))));
+        }
+    }
 
     /// A controller with only `held` pressed and the stick at `stick`.
     #[test]
