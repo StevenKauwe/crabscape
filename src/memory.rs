@@ -15,12 +15,18 @@
 
 use bevy::asset::{RenderAssetUsages, embedded_asset, embedded_path};
 use bevy::color::Mix;
+use bevy::ecs::system::{SystemParamItem, lifetimeless::SRes};
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
+use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
 use bevy::render::render_resource::{
-    AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat,
+    AsBindGroup, AsBindGroupError, BindGroupBuilder, BindGroupLayout, BindGroupLayoutEntry,
+    BindingType, BufferBindingType, Extent3d, ShaderStages, ShaderType, TextureDimension,
+    TextureFormat, UniformBuffer, UnpreparedBindingResource,
 };
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{Material2d, Material2dPlugin};
 
@@ -37,6 +43,8 @@ impl Plugin for MemoryPlugin {
         embedded_asset!(app, "memory.wgsl");
         app.add_plugins(Material2dPlugin::<MemoryMaterial>::default())
             .init_resource::<Known>()
+            .init_resource::<MemoryGlobals>()
+            .add_plugins(ExtractResourcePlugin::<MemoryGlobals>::default())
             .add_systems(Startup, setup_memory_texture)
             .add_systems(
                 Update,
@@ -49,6 +57,16 @@ impl Plugin for MemoryPlugin {
                     .chain()
                     .in_set(GameSet::Present),
             );
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app
+                .init_resource::<MemoryGlobalsBuffer>()
+                .add_systems(
+                    Render,
+                    upload_memory_globals
+                        .after(RenderSystems::ExtractCommands)
+                        .before(RenderSystems::PrepareAssets),
+                );
+        }
     }
 }
 
@@ -81,24 +99,98 @@ pub struct MemoryUniform {
     pub(crate) lights: [Vec4; 8],
 }
 
+/// Shared values change every frame without marking each material modified.
+#[derive(Resource, Clone, Default, Debug, PartialEq, ShaderType, ExtractResource)]
+#[extract_app(RenderApp)]
+pub(crate) struct MemoryGlobals {
+    pub(crate) grid: Vec4,
+    pub(crate) lights: [Vec4; 8],
+}
+
+#[derive(Resource, Default)]
+pub struct MemoryGlobalsBuffer(UniformBuffer<MemoryGlobals>);
+
+fn upload_memory_globals(
+    globals: Res<MemoryGlobals>,
+    mut gpu: ResMut<MemoryGlobalsBuffer>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+) {
+    gpu.0.set(globals.clone());
+    // Fixed size: after the first allocation, write_buffer writes in place.
+    gpu.0.write_buffer(&device, &queue);
+}
+
 /// A level shape's colour, shown through the local crab's memory.
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+#[derive(Asset, TypePath, Clone, Debug)]
 pub struct MemoryMaterial {
-    #[uniform(0)]
     pub(crate) uniform: MemoryUniform,
+    memory: Handle<Image>,
+}
+
+// Retain the existing static layout and texture bindings. MemoryUniform also
+// initializes CellMaterial, whose independent update path remains unchanged.
+#[derive(AsBindGroup)]
+pub struct StaticMemoryBindings {
+    #[uniform(0)]
+    uniform: MemoryUniform,
     #[texture(1)]
     #[sampler(2)]
     memory: Handle<Image>,
 }
 
-impl MemoryMaterial {
-    /// The fog's colour: the water's at the view ([`water_at`]).
-    pub fn set_water(&mut self, water: Color) {
-        self.uniform.water = LinearRgba::from(water).to_vec4();
+impl AsBindGroup for MemoryMaterial {
+    type Data = ();
+    type Param = (
+        <StaticMemoryBindings as AsBindGroup>::Param,
+        SRes<MemoryGlobalsBuffer>,
+    );
+
+    fn label() -> &'static str {
+        "memory_material"
+    }
+    fn bind_group_data(&self) -> Self::Data {}
+
+    fn build_bind_group(
+        &self,
+        layout: &BindGroupLayout,
+        device: &RenderDevice,
+        (static_param, globals): &mut SystemParamItem<'_, '_, Self::Param>,
+        force_no_bindless: bool,
+        output: &mut BindGroupBuilder,
+    ) -> Result<(), AsBindGroupError> {
+        let buffer = globals
+            .0
+            .buffer()
+            .ok_or(AsBindGroupError::RetryNextUpdate)?;
+        StaticMemoryBindings {
+            uniform: self.uniform.clone(),
+            memory: self.memory.clone(),
+        }
+        .build_bind_group(layout, device, static_param, force_no_bindless, output)?;
+        output
+            .binding_resources
+            .push((3, UnpreparedBindingResource::Buffer(buffer.clone())));
+        Ok(())
     }
 
-    pub fn set_lights(&mut self, lights: [Vec4; 8]) {
-        self.uniform.lights = lights;
+    fn bind_group_layout_entries(
+        device: &RenderDevice,
+        force_no_bindless: bool,
+    ) -> Vec<BindGroupLayoutEntry> {
+        let mut entries =
+            StaticMemoryBindings::bind_group_layout_entries(device, force_no_bindless);
+        entries.push(BindGroupLayoutEntry {
+            binding: 3,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: Some(MemoryGlobals::min_size()),
+            },
+            count: None,
+        });
+        entries
     }
 }
 
@@ -140,6 +232,7 @@ pub fn setup_memory_texture(
     mut commands: Commands,
     sim: Res<Sim>,
     mut images: ResMut<Assets<Image>>,
+    mut globals: ResMut<MemoryGlobals>,
 ) {
     let t = &sim.tuning.memory;
 
@@ -157,14 +250,15 @@ pub fn setup_memory_texture(
     // Soft edges between cells: linear filtering.
     image.sampler = ImageSampler::linear();
     let size = Vec2::splat(MEMORY_TEXTURE_SIDE as f32 * t.cell);
+    globals.grid = Vec4::new(
+        crabsim::SPAWN.x - size.x * 0.5,
+        crabsim::SPAWN.y - size.y * 0.5,
+        size.x,
+        size.y,
+    );
     commands.insert_resource(MemoryTexture {
         image: images.add(image),
-        grid: Vec4::new(
-            crabsim::SPAWN.x - size.x * 0.5,
-            crabsim::SPAWN.y - size.y * 0.5,
-            size.x,
-            size.y,
-        ),
+        grid: globals.grid,
         made_at: None,
     });
 }
@@ -257,7 +351,7 @@ fn update_known(
     mut known: ResMut<Known>,
     mut images: ResMut<Assets<Image>>,
     camera: Option<Single<(&Camera, &GlobalTransform), With<Camera2d>>>,
-    mut materials: ResMut<Assets<MemoryMaterial>>,
+    mut globals: ResMut<MemoryGlobals>,
     mut cells: ResMut<Assets<crate::cellular::CellMaterial>>,
 ) {
     let (Ok(id), Some(mut tex)) = (crab.single(), tex) else {
@@ -301,9 +395,7 @@ fn update_known(
     }
     tex.grid = grid;
     tex.made_at = Some((memory.now, revision, grid));
-    for (_, material) in materials.iter_mut() {
-        material.uniform.grid = grid;
-    }
+    globals.grid = grid;
     for (_, material) in cells.iter_mut() {
         material.set_memory_grid(grid);
     }
@@ -499,6 +591,72 @@ fn show_scent_directions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_grid_updates_without_modifying_material_assets() {
+        use bevy::asset::{AssetApp, AssetPlugin};
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<MemoryMaterial>()
+            .init_resource::<Assets<crate::cellular::CellMaterial>>()
+            .init_resource::<MemoryGlobals>()
+            .init_resource::<Known>()
+            .insert_resource(Sim::with_one_crab(crabsim::SPAWN))
+            .add_systems(Startup, setup_memory_texture)
+            .add_systems(Update, update_known);
+        app.world_mut().spawn((LocalPlayer, PlayerId(0)));
+        app.update();
+        let initial = app.world().resource::<MemoryGlobals>().grid;
+        assert_eq!(initial, app.world().resource::<MemoryTexture>().grid);
+        assert!(initial.z > 0.0 && initial.w > 0.0);
+        assert_eq!(
+            app.world().resource::<MemoryGlobals>().lights,
+            [Vec4::ZERO; 8]
+        );
+        let material = app
+            .world()
+            .resource::<MemoryTexture>()
+            .material(Color::WHITE);
+        let handles: Vec<_> = (0..64)
+            .map(|_| {
+                app.world_mut()
+                    .resource_mut::<Assets<MemoryMaterial>>()
+                    .add(material.clone())
+            })
+            .collect();
+        app.update();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<MemoryMaterial>>>()
+            .drain()
+            .for_each(drop);
+        app.world_mut()
+            .resource_mut::<Sim>()
+            .crab_mut(crabsim::PlayerId(0))
+            .unwrap()
+            .mover
+            .pos
+            .x += 300.0;
+        app.update();
+        let globals = app.world().resource::<MemoryGlobals>();
+        assert_ne!(globals.grid, initial);
+        assert_eq!(globals.grid, app.world().resource::<MemoryTexture>().grid);
+        let assets = app.world().resource::<Assets<MemoryMaterial>>();
+        assert_eq!(assets.len(), 64);
+        for h in &handles {
+            let stored = assets.get(h).unwrap();
+            assert_eq!(stored.uniform.color, material.uniform.color);
+            assert_eq!(stored.uniform.grid, material.uniform.grid);
+        }
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<Messages<AssetEvent<MemoryMaterial>>>()
+                .drain()
+                .count(),
+            0,
+            "moving the memory grid must not recreate or modify per-color materials"
+        );
+    }
 
     #[test]
     fn smell_tints_are_distinct_and_preserve_weed() {

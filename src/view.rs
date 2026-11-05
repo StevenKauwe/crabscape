@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use crate::input::TouchControls;
 use crate::level::Parallax;
-use crate::memory::{MemoryMaterial, WATER, water_at};
+use crate::memory::{WATER, water_at};
 use crate::player::{GameSet, LocalPlayer};
 use crate::tuning::ViewTuning;
 use crabsim::Mover;
@@ -333,7 +333,6 @@ fn follow_crab(
 /// colour. Materials are only touched when the colour really changes.
 fn tint_water(
     mut camera: Single<(&Transform, &mut Camera), With<Camera2d>>,
-    mut fogs: ResMut<Assets<MemoryMaterial>>,
     mut cell_fogs: ResMut<Assets<crate::cellular::CellMaterial>>,
     mut was: Local<Option<[u8; 4]>>,
 ) {
@@ -344,9 +343,6 @@ fn tint_water(
     }
     *was = Some(bytes);
     camera.1.clear_color = ClearColorConfig::Custom(water);
-    for (_, fog) in fogs.iter_mut() {
-        fog.set_water(water);
-    }
     for (_, fog) in cell_fogs.iter_mut() {
         fog.set_water(water);
     }

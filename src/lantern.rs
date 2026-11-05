@@ -24,7 +24,7 @@ use bevy::transform::TransformSystems;
 use crabsim::{Mover, Sim};
 
 use crate::effects::SoftTextures;
-use crate::memory::{MemoryMaterial, depth_factor};
+use crate::memory::{MemoryGlobals, depth_factor};
 use crate::tuning::ViewTuning;
 
 /// The light itself (the middle of the jar).
@@ -388,7 +388,7 @@ fn light_level(
     lights: Query<(&GlobalTransform, &JarCore), With<LightSource>>,
     crabs: Query<&Mover>,
     camera: Query<&GlobalTransform, With<Camera2d>>,
-    mut materials: ResMut<Assets<MemoryMaterial>>,
+    mut globals: ResMut<MemoryGlobals>,
     mut cell_materials: ResMut<Assets<crate::cellular::CellMaterial>>,
 ) {
     let centre = camera
@@ -420,9 +420,7 @@ fn light_level(
     for (slot, (p, reach)) in lamps.iter_mut().zip(positions) {
         *slot = Vec4::new(p.x, p.y, tuning.light_inner, reach);
     }
-    for (_, material) in materials.iter_mut() {
-        material.set_lights(lamps);
-    }
+    globals.lights = lamps;
     for (_, material) in cell_materials.iter_mut() {
         material.set_lights(lamps);
     }
@@ -431,6 +429,73 @@ fn light_level(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lighting_updates_shared_values_without_material_asset_events() {
+        use crate::memory::{MemoryMaterial, MemoryTexture};
+        use bevy::asset::{AssetApp, AssetPlugin};
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<MemoryMaterial>()
+            .init_resource::<Assets<crate::cellular::CellMaterial>>()
+            .init_resource::<MemoryGlobals>()
+            .insert_resource(Sim::with_one_crab(crabsim::SPAWN))
+            .insert_resource(ViewTuning::default())
+            .insert_resource(Flicker(1.0))
+            .add_systems(Startup, crate::memory::setup_memory_texture)
+            .add_systems(Update, light_level);
+        let crab = app.world_mut().spawn(Mover::new(crabsim::SPAWN)).id();
+        let lamp = app
+            .world_mut()
+            .spawn((
+                LightSource,
+                JarCore { crab },
+                GlobalTransform::from_translation(Vec3::new(100.0, 20.0, 0.0)),
+            ))
+            .id();
+        app.update();
+        let material = app
+            .world()
+            .resource::<MemoryTexture>()
+            .material(Color::WHITE);
+        let handle = app
+            .world_mut()
+            .resource_mut::<Assets<MemoryMaterial>>()
+            .add(material);
+        app.update();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<MemoryMaterial>>>()
+            .drain()
+            .for_each(drop);
+        let tuning = app.world().resource::<ViewTuning>();
+        let expected = Vec4::new(100.0, 20.0, tuning.light_inner, light_reach(tuning, 0));
+        assert_eq!(app.world().resource::<MemoryGlobals>().lights[0], expected);
+        *app.world_mut().get_mut::<GlobalTransform>(lamp).unwrap() =
+            GlobalTransform::from_translation(Vec3::new(125.0, 20.0, 0.0));
+        app.world_mut().resource_mut::<Flicker>().0 = 0.75;
+        app.update();
+        let lights = app.world().resource::<MemoryGlobals>().lights;
+        assert_eq!(
+            lights[0],
+            Vec4::new(125.0, 20.0, expected.z, expected.w * 0.75)
+        );
+        assert_eq!(&lights[1..], &[Vec4::ZERO; 7]);
+        assert!(
+            app.world()
+                .resource::<Assets<MemoryMaterial>>()
+                .get(&handle)
+                .is_some()
+        );
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<Messages<AssetEvent<MemoryMaterial>>>()
+                .drain()
+                .count(),
+            0,
+            "moving/flickering lights must not modify per-color material assets"
+        );
+    }
 
     #[test]
     fn bands_preserve_opening_light_and_scale_cultured_lanterns() {
