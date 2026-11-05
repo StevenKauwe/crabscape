@@ -66,3 +66,50 @@ The committed probe was exercised without CPU profiling on the same live build:
 1,812 intervals, maximum 16.8 ms, route x=1,784 / peak y=4,951 / final y=-192,
 ANGLE Metal on Apple M2 Max. It passed an explicit local 60 ms gap budget.
 This warmed run does not erase the earlier captured 233 ms hitch.
+
+## Canyon rotation and explored-world coverage
+
+```sh
+# A disclosed synthetic start in the canyon up-current:
+CRABSCAPE_PROFILE_GPU=1 cargo run -p cooptest --bin frame_probe -- --route canyon --cpu
+# The same route with the existing large archive / fully explored memory fixture:
+CRABSCAPE_PROFILE_GPU=1 cargo run -p cooptest --bin frame_probe -- --route canyon --large-save --max-gap-ms 60
+```
+
+The canyon route uses a new temporary browser profile, generates a synthetic save
+at (6250, -5000), leaves the game before installing it, then requires that save
+to load. It never imports or changes a player's save. The native fixture must
+match the game being measured; a failed load fails the probe. Artifacts label the
+route and synthetic fixture, its save version, encoded size and record count.
+`--large-save` requires `--route canyon` and uses the existing save regression's
+extensively explored memory and archived terrain.
+
+After `hulk`, Swimming level 99 and `feast`, the 60-second route alternates
+20 seconds of clockwise rotation/repeated paddling, 20 seconds of diving, and
+20 seconds of counter-clockwise rotation/repeated paddling. The current can carry
+the crab out of the canyon: this is a scripted stress route, not a guarantee of
+60 seconds in the up-current. Acceptance requires observed depth below -3000,
+travel above -2000 and over 300 horizontal units. Opening-only motion and a
+stationary deep scene cannot pass. The existing single-long-frame budget guard
+still applies. Solo ticks remain unavailable, so this does not establish every
+simulation or input-latency stall from FPS alone.
+
+Initial exploratory captures on live `5a60e70`, ANGLE Metal / M2 Max, with CPU
+profiling, did not reproduce the severe slowdown. The fresh fixture recorded
+3603 intervals (median/p95 16.7 ms, max 33.3 ms), and the large fixture 3618
+(median/p95 16.7 ms, max 33.4 ms); neither had long tasks. Both travelled from
+roughly y=-4250 to the surface. These synthetic cases do not prove every older
+save, deep location or slower device is smooth. Temporary evidence is under
+/tmp/crab-canyon-frames-36591 and /tmp/crab-canyon-frames-42041.
+
+The promoted CLI also passed the large-fixture route and an explicit local 60 ms
+budget: 3601 frames, max 33.4 ms, 772 spatial records, 9,340,676 encoded bytes,
+y=-4409.7..4951.7. Its trace is crab-frame-probe-45673 in the system temporary
+directory. This measurement preceded the lower-canyon #506 deployment.
+
+The summary also reports `longest_unchanged_position_ms`: the longest consecutive
+span with identical observed x/y coordinates, independently of render pacing.
+Missing positions break the span. This is diagnostic, not a failure threshold:
+grounded contact, a wall, or rounded presentation coordinates can also produce
+an unchanged position. It is not proof that simulation ticks stopped. The
+summary retains the captured build identifier for comparison.
