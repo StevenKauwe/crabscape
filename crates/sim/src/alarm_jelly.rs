@@ -139,14 +139,54 @@ pub(crate) fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome) -> bool {
     }
     false
 }
-fn segment_meets(a: Vec2, b: Vec2, body: bevy_math::Rect) -> bool {
+// Obstruction belongs to the contact, not the distant bell. The sampled
+// strand and radius remain exactly those used by the existing touch test.
+fn contact_clear(level: &Level, from: Vec2, to: Vec2) -> bool {
+    // Exact segment/rectangle clipping also catches thin authored walls.
+    if level.solids().any(|r| {
+        let delta = to - from;
+        let mut low: f32 = 0.0;
+        let mut high: f32 = 1.0;
+        for (origin, step, min, max) in [
+            (from.x, delta.x, r.min.x, r.max.x),
+            (from.y, delta.y, r.min.y, r.max.y),
+        ] {
+            if step == 0.0 {
+                if origin < min || origin > max {
+                    return false;
+                }
+            } else {
+                let a = (min - origin) / step;
+                let b = (max - origin) / step;
+                low = low.max(a.min(b));
+                high = high.min(a.max(b));
+                if low > high {
+                    return false;
+                }
+            }
+        }
+        true
+    }) {
+        return false;
+    }
+    // Strand gaps are at most six units; fringe gaps stay inside the body.
+    // Sub-cell samples check sediment and the ordinary floor locally.
+    let steps = from.distance(to).ceil().max(1.0) as usize;
+    (0..=steps).all(|i| {
+        let p = from.lerp(to, i as f32 / steps as f32);
+        if let Some(cells) = level.cells.as_ref().filter(|c| c.contains_world(p.x, p.y)) {
+            !cells.game_movement_blocked(p.x - 0.01, p.y - 0.01, p.x + 0.01, p.y + 0.01, 0.0)
+        } else {
+            p.y >= level.floor_height(p.x)
+        }
+    })
+}
+fn segment_meets(a: Vec2, b: Vec2, body: bevy_math::Rect, level: &Level) -> bool {
     let steps = ((b - a).length() / JELLY_TRAIL_RADIUS).ceil() as usize;
     (0..=steps).any(|i| {
-        enemy::circle_meets(
-            a.lerp(b, i as f32 / steps.max(1) as f32),
-            JELLY_TRAIL_RADIUS,
-            body,
-        )
+        let point = a.lerp(b, i as f32 / steps.max(1) as f32);
+        enemy::circle_meets(point, JELLY_TRAIL_RADIUS, body)
+            && contact_clear(level, point, point.clamp(body.min, body.max))
     })
 }
 pub(crate) fn step(
@@ -212,17 +252,13 @@ pub(crate) fn step(
             e.pos.x + JELLY_BELL_WIDTH * 0.5,
             e.pos.y,
         );
-        let touches = !body.intersect(marginal).is_empty()
-            || points.windows(2).any(|p| segment_meets(p[0], p[1], body));
-        if !touches
-            || !clear(
-                level,
-                body.center(),
-                body.center().clamp(marginal.min, marginal.max),
-                1.0,
-                1.0,
-            )
-        {
+        let fringe_contact = body.center().clamp(marginal.min, marginal.max);
+        let touches = (!body.intersect(marginal).is_empty()
+            && contact_clear(level, body.center(), fringe_contact))
+            || points
+                .windows(2)
+                .any(|p| segment_meets(p[0], p[1], body, level));
+        if !touches {
             continue;
         }
         let hit = Hit {
