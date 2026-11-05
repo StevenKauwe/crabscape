@@ -165,6 +165,11 @@ fn every_chamber_shows_its_prize_from_the_door() {
     let mut count = 0;
     for landmark in level.landmarks() {
         if let Kind::Chamber { door, prize } = landmark.kind {
+            // This survey uses the legacy heightmap. Strata intentionally
+            // remain solid in that mode; their chamber encounter is W3.3.
+            if level.strata().iter().any(|b| b.frame == landmark.rect) {
+                continue;
+            }
             count += 1;
             let distance = door.center().distance(prize);
             println!("{} door-to-prize {distance:.1} units", landmark.name);
@@ -325,6 +330,11 @@ fn chamber_retreats(cave: bool) {
     let level = Level::test_level();
     let landmarks = level.landmarks();
     for chamber in &landmarks {
+        // Buried cellular chambers are not traversable in legacy mode.
+        // W3.3 supplies the excavated encounter and its cellular retreat.
+        if level.strata().iter().any(|b| b.frame == chamber.rect) {
+            continue;
+        }
         if (chamber.name == "far-wall cave") != cave {
             continue;
         }
@@ -397,34 +407,6 @@ fn open_grid(level: &Level, rect: Rect) -> Vec<Vec2> {
     points
 }
 
-/// `far`: survey to the octopus roof (slow: the ignored canyon test). Otherwise
-/// stop at the basin's far edge, which keeps the always-run test quick on CI.
-fn water_samples(far: bool) -> &'static Vec<Vec2> {
-    static NEAR: std::sync::OnceLock<Vec<Vec2>> = std::sync::OnceLock::new();
-    static FAR: std::sync::OnceLock<Vec<Vec2>> = std::sync::OnceLock::new();
-    let limit = if far { 8800.0 } else { 3400.0 };
-    (if far { &FAR } else { &NEAR }).get_or_init(|| {
-        let mut cells = std::collections::BTreeMap::new();
-        let s = route::survey_observed(
-            route::start_node(FULL_KIT, route::HOME, false),
-            FULL_KIT,
-            // The water landmarks end before the octopus roof. Do not expand
-            // the separate eastern reef beyond that roof's far edge.
-            |n| n.mover().pos.x > limit,
-            route::BUDGET,
-            &[],
-            &mut |p| {
-                cells
-                    .entry(((p.x / 50.0).floor() as i32, (p.y / 50.0).floor() as i32))
-                    .or_insert(p);
-            },
-        );
-        let mut points: Vec<_> = cells.into_values().collect();
-        points.extend(s.nodes.iter().map(|n| n.mover().pos));
-        points
-    })
-}
-
 fn refuge_visible(level: &Level, feet: Vec2, rect: Rect) -> bool {
     let eye = feet + Vec2::Y * Tuning::default().body_height;
     // A rectangle can be partly occluded: also try its interior and corners,
@@ -479,16 +461,9 @@ fn open_water_refuges(needs_rock: bool) {
 
         let mut worst = (0.0_f32, Vec2::ZERO);
         let mut count = 0;
-        // The wide crossings use a 50-unit grid of open water (every point a
-        // crab could swim through; quick): a solver survey that far takes
-        // minutes. Elsewhere, the places the crab actually reaches.
-        let grid: Vec<Vec2>;
-        let samples: &Vec<Vec2> = if needs_rock {
-            grid = open_grid(&level, water.rect);
-            &grid
-        } else {
-            water_samples(false)
-        };
+        // Check the entire open-water grid, including places not reached by
+        // the route solver, using the same sampling as the canyon checks.
+        let samples = open_grid(&level, water.rect);
         for &p in samples.iter().filter(|p| water.rect.contains(**p)) {
             count += 1;
             let mut refuges: Vec<_> = landmarks
@@ -506,14 +481,10 @@ fn open_water_refuges(needs_rock: bool) {
             }
         }
         println!(
-            "{}: {count} occupied samples, worst {:.1} at {:?}",
+            "{}: {count} open-water samples, worst {:.1} at {:?}",
             water.name, worst.0, worst.1
         );
-        assert!(
-            count > 0,
-            "{} was not sampled by the full-kit solver",
-            water.name
-        );
+        assert!(count > 0, "{} has no open-water samples", water.name);
         if worst.0 > if needs_rock { 1500.0 } else { 600.0 } {
             failures.push((water.name.clone(), worst));
         }
@@ -540,7 +511,13 @@ fn every_pocket_has_two_exits() {
             })
             .map(|l| l.name.as_str())
             .collect();
-        let required = if pocket.kind == Kind::Tunnel { 2 } else { 1 };
+        let required = if pocket.kind == Kind::Tunnel
+            || level.strata().iter().any(|body| body.frame == pocket.rect)
+        {
+            2
+        } else {
+            1
+        };
         println!(
             "{}: {} exits {exits:?}, requires {required}",
             pocket.name,
