@@ -89,3 +89,71 @@ it does not establish a universal speedup or resolve the remaining save/cache wa
 
 Evidence: `/tmp/crab-page-state-capture.log`, `/tmp/crab-page-access-capture.log`,
 `/tmp/crab-native-solo-paging.log`. Reproduction command is unchanged above.
+
+## Follow-up local phase instrumentation (not part of #529)
+
+Trace `crab-frame-probe-8090`, log `/tmp/crab-save-phase-capture.log`, adds
+compression roundtrip, record preparation, publication-wait/transaction and
+individual terrain admission markers. Same synthetic fixture, 4x CPU throttle
+and CPU sampling; route timing is not controlled against earlier captures.
+
+- 698 terrain pages installed, no deferred terrain admissions.
+- 1,073 sequential compression roundtrips total 49,931 ms (mean 46.5 ms).
+- Nine completed save preparations average 6,113 ms (maximum 9,929 ms).
+- Publication waits average 128 ms, transactions 237 ms; full writes average 6,478 ms.
+- Longest unchanged tick is 799.9 ms at tick 1721 (42,221–43,021 ms).
+  It resumes before that save finishes at approximately 44,014 ms. Thus expensive
+  save preparation alone is not proven to cause this simulation pause.
+- Delaying the native model's save flush by two or six seconds still produces
+  no pause above the initial 18-frame/600-ms load. Both runs match resident
+  movement and terrain. This simplified model does not capture browser scheduling.
+
+The candidate batches up to 16 records and 4 MiB of raw data per worker message.
+Each record retains its existing compression, verification and stored format.
+Raw staging and encoded transaction bytes are bounded; cancellation, revision
+validation and atomic publication are retained.
+
+The delayed-save probe remains local in the original solo-transition-trace
+worktree. Its logs are /tmp/crab-delayed-save-60.log and
+/tmp/crab-delayed-save-180.log. The #529 publication fix landed at b4efb31.
+
+## Bounded batch candidate
+
+Canyon capture `crab-frame-probe-14770` uses the same synthetic fixture and 4x
+CPU throttle as the phase-instrumented baseline. Its 23 completed writes average
+992 ms record preparation and 1,415 ms total write time, versus baseline 6,113 ms
+and 6,478 ms. Worker roundtrips decrease from 1,073 single-record jobs to 135
+bounded batch jobs, despite more completed saves. All 701 terrain replies were
+installed. The browser save suite passes failed-publication recovery, fresh and
+retired-format reloads, retention of 390 sleeping chunks, and a 400-page owner's
+co-op join/leave/save with an exact shared simulation hash.
+
+This is a save-throughput improvement, not a proven general frame-pacing fix.
+The candidate traverses a different wall-clock-driven route and still pauses
+simulation for 1,217 ms; frame p95/max are 66.7/100 ms versus baseline 66.5/83.4 ms.
+Do not infer a gameplay FPS gain or attribute the difference to batching alone.
+
+A controlled worker-only comparison runs identical 128 x 32-KiB records in
+serial/batch/batch/serial order while the opening game renders, on the same M2 Max,
+4x throttle, with no concurrent builds. Every compressed byte matches across modes:
+
+| Mode | Time | Observed frames | Max frame | Frames >60 ms |
+|---|---:|---:|---:|---:|
+| Serial | 6,080 ms | 127 | 83.4 ms | 14 |
+| Batch | 330 ms | 7 | 50.0 ms | 0 |
+| Batch | 323 ms | 7 | 50.0 ms | 0 |
+| Serial | 5,869 ms | 127 | 83.3 ms | 7 |
+
+The batches' seven-frame samples are too short for a general responsiveness claim.
+This isolates worker message overhead with synthetic compressible records; it does
+not include save capture, main-thread record serialization or database commits.
+The real canyon capture above covers those parts, with the route limitation noted.
+
+Run against a locally built/served candidate in a disposable browser profile:
+
+```sh
+CRABSCAPE_PROFILE_GPU=1 cargo run -p cooptest --bin worker_batch_probe -- http://127.0.0.1:PORT/
+```
+
+Evidence: `/tmp/crab-batch-capture.log`, `/tmp/crab-batch-save-test.log`,
+`/tmp/crab-worker-batch-probe.log`. No hard timing gate is implied by this probe.

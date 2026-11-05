@@ -65,23 +65,11 @@ async fn get(db: &IdbDatabase, key: &JsValue) -> Result<JsValue, String> {
         .map_err(issue)?;
     request(&req).await
 }
-async fn encode(
-    raw: &[u8],
-    revision: u64,
-    worker: &mut crate::cell_worker::CellWorker,
-    current: &impl Fn() -> bool,
-) -> Result<Vec<u8>, String> {
+fn raw_record(raw: &[u8]) -> Result<Vec<u8>, String> {
     if raw.len() > PAGE_LIMIT {
         return Err("spatial record exceeds its internal bound".into());
     }
-    let packed = worker
-        .compress_if_current(raw, current)
-        .await
-        .map_err(issue)?;
-    if !current() {
-        return Err("spatial save canceled".into());
-    }
-    Ok(encode_record(raw, &packed, revision))
+    Ok(raw.to_vec())
 }
 pub(super) async fn write(
     database: &str,
@@ -92,6 +80,8 @@ pub(super) async fn write(
     access: &super::super::page_access::Gate,
     current: impl Fn() -> bool + 'static,
 ) -> Result<(Acknowledgement, u64), String> {
+    let _profile = super::super::work::begin("cell-save-write-total");
+    let preparation = super::super::work::begin("cell-save-prepare-records");
     let committed_player = serde_json::from_slice(&capture.active.player).map_err(issue)?;
     let revision = expected_revision
         .checked_add(1)
@@ -122,63 +112,73 @@ pub(super) async fn write(
         cols: cols as u16,
         rows: rows as u16,
     };
-    let mut records = Vec::new();
-    records.push(Record {
-        key: key(epoch, "player", 0, 0, 0),
-        bytes: Some(encode(&capture.active.player, revision, worker, &current).await?),
-    });
-    records.push(Record {
-        key: key(epoch, "metadata", 0, 0, 0),
-        bytes: Some(
-            encode(
-                &capture.active.snapshot.metadata().map_err(issue)?,
-                revision,
-                worker,
-                &current,
-            )
-            .await?,
-        ),
-    });
+    let mut records = RecordBatch::new(revision);
+    records
+        .push(
+            Record {
+                key: key(epoch, "player", 0, 0, 0),
+                bytes: Some(raw_record(&capture.active.player)?),
+            },
+            worker,
+            &current,
+        )
+        .await?;
+    records
+        .push(
+            Record {
+                key: key(epoch, "metadata", 0, 0, 0),
+                bytes: Some(raw_record(
+                    &capture.active.snapshot.metadata().map_err(issue)?,
+                )?),
+            },
+            worker,
+            &current,
+        )
+        .await?;
     for y in 0..rows {
         for x in 0..cols {
-            records.push(Record {
-                key: key(epoch, "active", x as i32, y as i32, 0),
-                bytes: Some(
-                    encode(
-                        &capture.active.snapshot.active(x, y).map_err(issue)?,
-                        revision,
-                        worker,
-                        &current,
-                    )
-                    .await?,
-                ),
-            });
+            records
+                .push(
+                    Record {
+                        key: key(epoch, "active", x as i32, y as i32, 0),
+                        bytes: Some(raw_record(
+                            &capture.active.snapshot.active(x, y).map_err(issue)?,
+                        )?),
+                    },
+                    worker,
+                    &current,
+                )
+                .await?;
         }
     }
     for cut in &capture.sleeping {
         let bytes = if cut.is_deleted() {
             None
         } else {
-            Some(encode(&cut.encode().map_err(issue)?, revision, worker, &current).await?)
+            Some(raw_record(&cut.encode().map_err(issue)?)?)
         };
-        records.push(Record {
-            key: key(epoch, "terrain", cut.key.0, cut.key.1, 0),
-            bytes,
-        });
+        records
+            .push(
+                Record {
+                    key: key(epoch, "terrain", cut.key.0, cut.key.1, 0),
+                    bytes,
+                },
+                worker,
+                &current,
+            )
+            .await?;
     }
     for page in &capture.memory {
-        records.push(Record {
-            key: key(epoch, "memory", page.x as i32, page.y as i32, 0),
-            bytes: Some(
-                encode(
-                    &postcard::to_allocvec(page).map_err(issue)?,
-                    revision,
-                    worker,
-                    &current,
-                )
-                .await?,
-            ),
-        });
+        records
+            .push(
+                Record {
+                    key: key(epoch, "memory", page.x as i32, page.y as i32, 0),
+                    bytes: Some(raw_record(&postcard::to_allocvec(page).map_err(issue)?)?),
+                },
+                worker,
+                &current,
+            )
+            .await?;
     }
     if let Some(salvage) = &capture.salvage {
         use crabsim::cell_codec::spatial::SalvageIndex;
@@ -199,10 +199,16 @@ pub(super) async fn write(
             let previous: SalvageIndex = postcard::from_bytes(raw).map_err(issue)?;
             for &(x, y) in previous.keys().map_err(issue)? {
                 if !index.keys().map_err(issue)?.contains(&(x, y)) {
-                    records.push(Record {
-                        key: key(epoch, "salvage", x, y, 0),
-                        bytes: None,
-                    });
+                    records
+                        .push(
+                            Record {
+                                key: key(epoch, "salvage", x, y, 0),
+                                bytes: None,
+                            },
+                            worker,
+                            &current,
+                        )
+                        .await?;
                 }
             }
         }
@@ -215,18 +221,30 @@ pub(super) async fn write(
                 None
             };
             if previous.as_deref() != Some(raw.as_slice()) {
-                records.push(Record {
-                    key: key(epoch, "salvage", x, y, 0),
-                    bytes: Some(encode(&raw, revision, worker, &current).await?),
-                });
+                records
+                    .push(
+                        Record {
+                            key: key(epoch, "salvage", x, y, 0),
+                            bytes: Some(raw_record(&raw)?),
+                        },
+                        worker,
+                        &current,
+                    )
+                    .await?;
             }
         }
         let raw = postcard::to_allocvec(&index).map_err(issue)?;
         if previous_raw.as_deref() != Some(raw.as_slice()) {
-            records.push(Record {
-                key: key(epoch, "salvage_index", 0, 0, 0),
-                bytes: Some(encode(&raw, revision, worker, &current).await?),
-            });
+            records
+                .push(
+                    Record {
+                        key: key(epoch, "salvage_index", 0, 0, 0),
+                        bytes: Some(raw_record(&raw)?),
+                    },
+                    worker,
+                    &current,
+                )
+                .await?;
         }
     }
     if let Some(canyon) = &capture.canyon {
@@ -248,10 +266,16 @@ pub(super) async fn write(
             let previous: CanyonIndex = postcard::from_bytes(raw).map_err(issue)?;
             for &(x, y) in previous.keys().map_err(issue)? {
                 if !index.keys().map_err(issue)?.contains(&(x, y)) {
-                    records.push(Record {
-                        key: key(epoch, "canyon", x, y, 0),
-                        bytes: None,
-                    });
+                    records
+                        .push(
+                            Record {
+                                key: key(epoch, "canyon", x, y, 0),
+                                bytes: None,
+                            },
+                            worker,
+                            &current,
+                        )
+                        .await?;
                 }
             }
         }
@@ -264,20 +288,34 @@ pub(super) async fn write(
                 None
             };
             if previous.as_deref() != Some(raw.as_slice()) {
-                records.push(Record {
-                    key: key(epoch, "canyon", x, y, 0),
-                    bytes: Some(encode(&raw, revision, worker, &current).await?),
-                });
+                records
+                    .push(
+                        Record {
+                            key: key(epoch, "canyon", x, y, 0),
+                            bytes: Some(raw_record(&raw)?),
+                        },
+                        worker,
+                        &current,
+                    )
+                    .await?;
             }
         }
         let raw = postcard::to_allocvec(&index).map_err(issue)?;
         if previous_raw.as_deref() != Some(raw.as_slice()) {
-            records.push(Record {
-                key: key(epoch, "canyon_index", 0, 0, 0),
-                bytes: Some(encode(&raw, revision, worker, &current).await?),
-            });
+            records
+                .push(
+                    Record {
+                        key: key(epoch, "canyon_index", 0, 0, 0),
+                        bytes: Some(raw_record(&raw)?),
+                    },
+                    worker,
+                    &current,
+                )
+                .await?;
         }
     }
+    records.flush(worker, &current).await?;
+    let records = records.complete;
     if records
         .iter()
         .map(|record| record.bytes.as_ref().map_or(0, Vec::len))
@@ -288,10 +326,14 @@ pub(super) async fn write(
     }
     // Keep compression concurrent with reads. Only final publication waits
     // until old-revision replies have been applied to the live simulation.
+    drop(preparation);
+    let publication_wait = super::super::work::begin("cell-save-publication-wait");
     let _publication = access
         .publish()
         .await
         .ok_or("save publication already pending")?;
+    drop(publication_wait);
+    let _transaction = super::super::work::begin("cell-save-publication-transaction");
     if !current() {
         return Err("spatial save canceled".into());
     }
@@ -675,4 +717,86 @@ pub(super) async fn complete_memory(
     memory.cells = pages.into_values().collect();
     memory.complete = true;
     Ok(save)
+}
+
+/// Keep raw staging bounded while amortizing worker messages across pages.
+struct RecordBatch {
+    revision: u64,
+    complete: Vec<Record>,
+    pending: Vec<Record>,
+    raw_bytes: usize,
+    encoded_bytes: usize,
+}
+impl RecordBatch {
+    fn new(revision: u64) -> Self {
+        Self {
+            revision,
+            complete: Vec::new(),
+            pending: Vec::new(),
+            raw_bytes: 0,
+            encoded_bytes: 0,
+        }
+    }
+    async fn push(
+        &mut self,
+        record: Record,
+        worker: &mut crate::cell_worker::CellWorker,
+        current: &impl Fn() -> bool,
+    ) -> Result<(), String> {
+        use crate::cell_worker::batch;
+        let bytes = record.bytes.as_ref().map_or(0, Vec::len);
+        if bytes > batch::MAX_RAW_BYTES {
+            return Err("raw compression record too large".into());
+        }
+        if self.raw_bytes + bytes > batch::MAX_RAW_BYTES || self.pending.len() == batch::MAX_RECORDS
+        {
+            self.flush(worker, current).await?;
+        }
+        if record.bytes.is_none() {
+            self.complete.push(record);
+        } else {
+            self.raw_bytes += bytes;
+            self.pending.push(record);
+        }
+        Ok(())
+    }
+    async fn flush(
+        &mut self,
+        worker: &mut crate::cell_worker::CellWorker,
+        current: &impl Fn() -> bool,
+    ) -> Result<(), String> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        let raw: Vec<_> = self
+            .pending
+            .iter()
+            .filter_map(|r| r.bytes.as_deref())
+            .collect();
+        let _profile = super::super::work::begin("cell-page-compression-roundtrip");
+        let packed = worker
+            .compress_batch_if_current(&raw, current)
+            .await
+            .map_err(issue)?;
+        if !current() {
+            return Err("spatial save canceled".into());
+        }
+        for (record, packed) in self.pending.drain(..).zip(packed) {
+            let raw = record.bytes.ok_or("missing compression record")?;
+            let bytes = encode_record(&raw, &packed, self.revision);
+            self.encoded_bytes = self
+                .encoded_bytes
+                .checked_add(bytes.len())
+                .ok_or("save size overflow")?;
+            if self.encoded_bytes > TRANSACTION_LIMIT {
+                return Err("changed records exceed the bounded transaction budget".into());
+            }
+            self.complete.push(Record {
+                key: record.key,
+                bytes: Some(bytes),
+            });
+        }
+        self.raw_bytes = 0;
+        Ok(())
+    }
 }
