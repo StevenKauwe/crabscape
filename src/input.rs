@@ -67,6 +67,26 @@ const ACTIONS: [TouchAction; 9] = [
 pub struct TouchControls {
     pub visible: bool,
     pub dig_touch: Option<u64>,
+    ui_owned: TouchOwnership,
+}
+
+/// A finger belongs to UI if it began there, even after dragging away.
+#[derive(Default)]
+struct TouchOwnership(std::collections::BTreeSet<u64>);
+impl TouchOwnership {
+    fn update(&mut self, touches: &Touches, modal: bool, covered: impl Fn(Vec2) -> bool) {
+        self.0.retain(|id| touches.get_pressed(*id).is_some());
+        for touch in touches.iter_just_pressed() {
+            // Platforms may reuse a released finger ID for a new press.
+            self.0.remove(&touch.id());
+            if modal || covered(touch.position()) {
+                self.0.insert(touch.id());
+            }
+        }
+    }
+    fn owns(&self, id: u64) -> bool {
+        self.0.contains(&id)
+    }
 }
 
 /// Visible canvas controls own clicks inside their hit areas.
@@ -180,6 +200,7 @@ impl Plugin for InputPlugin {
         app.insert_resource(TouchControls {
             visible: has_touch_screen(),
             dig_touch: None,
+            ui_owned: TouchOwnership::default(),
         })
         .add_systems(Startup, spawn_touch_buttons)
         .add_systems(Update, read_input.in_set(GameSet::Input))
@@ -273,11 +294,12 @@ fn touched_buttons(
     touches: &Touches,
     mouse_cursor: Option<Vec2>,
     dig_touch: Option<u64>,
+    ui_owned: &TouchOwnership,
     covered: impl Fn(Vec2) -> bool,
 ) -> Vec<TouchAction> {
     let mut points: Vec<Vec2> = touches
         .iter()
-        .filter(|t| Some(t.id()) != dig_touch)
+        .filter(|t| Some(t.id()) != dig_touch && !ui_owned.owns(t.id()))
         .map(|t| t.position())
         .collect();
     if let Some(cursor) = mouse_cursor {
@@ -300,11 +322,15 @@ fn touch_press_edges(
     size: Vec2,
     touches: &Touches,
     dig_touch: Option<u64>,
+    ui_owned: &TouchOwnership,
     covered: impl Fn(Vec2) -> bool,
 ) -> PadWants {
     let mut edges = PadWants::default();
     for touch in touches.iter_just_pressed().filter(|t| {
-        Some(t.id()) != dig_touch && !touches.just_canceled(t.id()) && !covered(t.position())
+        Some(t.id()) != dig_touch
+            && !ui_owned.owns(t.id())
+            && !touches.just_canceled(t.id())
+            && !covered(t.position())
     }) {
         for (action, rect) in button_rects(size) {
             if !rect.inflate(10.0).contains(touch.position()) {
@@ -402,6 +428,7 @@ fn read_input(
     }
     let covered = |p| ui.covers(p, window.scale_factor(), false);
     let modal = ui.modal();
+    touch_controls.ui_owned.update(&touches, modal, covered);
     let can_start = mouse.any_just_pressed([MouseButton::Left, MouseButton::Right])
         && !touches.any_just_pressed()
         && window
@@ -430,7 +457,11 @@ fn read_input(
     if !modal && cells_enabled && touch_controls.dig_touch.is_none() {
         touch_controls.dig_touch = touches
             .iter_just_pressed()
-            .find(|t| !covered(t.position()) && dig_rect.inflate(3.0).contains(t.position()))
+            .find(|t| {
+                !touch_controls.ui_owned.owns(t.id())
+                    && !covered(t.position())
+                    && dig_rect.inflate(3.0).contains(t.position())
+            })
             .map(|t| t.id());
     }
     let dig_vector = touch_controls
@@ -446,6 +477,7 @@ fn read_input(
             &touches,
             window.cursor_position().filter(|_| combat_mouse.on_pad),
             touch_controls.dig_touch,
+            &touch_controls.ui_owned,
             covered,
         )
     } else {
@@ -456,6 +488,7 @@ fn read_input(
         window.size(),
         &touches,
         touch_controls.dig_touch.or(previous_dig_touch),
+        &touch_controls.ui_owned,
         covered,
     );
 
@@ -711,6 +744,7 @@ fn layout_touch_buttons(
             .cursor_position()
             .filter(|_| mouse.pressed(MouseButton::Left)),
         touch_controls.dig_touch,
+        &touch_controls.ui_owned,
         |_| false,
     );
     let rect = rects[0].1;
@@ -790,6 +824,7 @@ mod tests {
                 .insert_resource(TouchControls {
                     visible: false,
                     dig_touch: None,
+                    ui_owned: TouchOwnership::default(),
                 })
                 .add_message::<MoveRequest>()
                 .add_systems(Update, read_input);
@@ -880,6 +915,73 @@ mod tests {
         }
         app.update();
     }
+    #[test]
+    fn ui_owned_fingers_cannot_drag_into_actions_but_gameplay_slides_still_work() {
+        use bevy::input::touch::TouchPhase::{Canceled, Ended, Moved, Started};
+        let size = Vec2::new(430.0, 873.0);
+        let jump = button_rects(size)
+            .into_iter()
+            .find(|(a, _)| *a == TouchAction::Jump)
+            .unwrap()
+            .1
+            .center();
+        let ui = Vec2::new(100.0, 100.0);
+        let gameplay = Vec2::new(215.0, 400.0);
+        let covered = |p: Vec2| p.y < 200.0;
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin);
+        let mut owned = TouchOwnership::default();
+        touch_frame(&mut app, &[(1, Started, ui)]);
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        touch_frame(&mut app, &[(1, Moved, jump)]);
+        let t = app.world().resource::<Touches>();
+        owned.update(t, false, covered);
+        assert!(
+            !touched_buttons(size, t, None, None, &owned, covered).contains(&TouchAction::Jump),
+            "a UI finger must not become gameplay when dragged out"
+        );
+        assert!(!touch_press_edges(size, t, None, &owned, covered).jump);
+        // UI disappearing does not release the finger's original ownership.
+        owned.update(t, false, |_| false);
+        assert!(owned.owns(1));
+        touch_frame(&mut app, &[(2, Started, gameplay)]);
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        touch_frame(&mut app, &[(2, Moved, jump)]);
+        let t = app.world().resource::<Touches>();
+        owned.update(t, false, covered);
+        assert!(
+            touched_buttons(size, t, None, None, &owned, covered).contains(&TouchAction::Jump),
+            "independent gameplay finger can still slide"
+        );
+        touch_frame(&mut app, &[(1, Ended, jump), (2, Ended, jump)]);
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        assert!(!owned.owns(1));
+        touch_frame(&mut app, &[(1, Started, jump)]);
+        let t = app.world().resource::<Touches>();
+        owned.update(t, false, covered);
+        assert!(
+            touch_press_edges(size, t, None, &owned, covered).jump,
+            "reused ID starts a fresh gameplay press"
+        );
+        touch_frame(
+            &mut app,
+            &[(1, Ended, jump), (3, Started, ui), (3, Canceled, ui)],
+        );
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        touch_frame(&mut app, &[]);
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        assert!(!owned.owns(3));
+        // A touch begun while a modal is open remains owned after dismissal.
+        touch_frame(&mut app, &[(4, Started, jump)]);
+        owned.update(app.world().resource::<Touches>(), true, covered);
+        touch_frame(&mut app, &[]);
+        let t = app.world().resource::<Touches>();
+        owned.update(t, false, covered);
+        assert!(
+            !touched_buttons(size, t, None, None, &owned, covered).contains(&TouchAction::Jump)
+        );
+    }
+
     fn any_action(w: PadWants) -> bool {
         w.jump || w.dodge || w.smash || w.jab || w.guard
     }
@@ -894,7 +996,8 @@ mod tests {
             let p = rect.center();
             touch_frame(&mut app, &[(1, Started, p), (1, Ended, p)]);
             let touches = app.world().resource::<Touches>();
-            let edges = touch_press_edges(size, touches, None, |_| false);
+            let edges =
+                touch_press_edges(size, touches, None, &TouchOwnership::default(), |_| false);
             assert_eq!(
                 any_action(edges),
                 matches!(
@@ -907,13 +1010,35 @@ mod tests {
                 ),
                 "{action:?}"
             );
-            assert!(touched_buttons(size, touches, None, None, |_| false).is_empty());
             assert!(
-                !any_action(touch_press_edges(size, touches, None, |_| true)),
+                touched_buttons(
+                    size,
+                    touches,
+                    None,
+                    None,
+                    &TouchOwnership::default(),
+                    |_| false
+                )
+                .is_empty()
+            );
+            assert!(
+                !any_action(touch_press_edges(
+                    size,
+                    touches,
+                    None,
+                    &TouchOwnership::default(),
+                    |_| true
+                )),
                 "UI owns start"
             );
             assert!(
-                !any_action(touch_press_edges(size, touches, Some(1), |_| false)),
+                !any_action(touch_press_edges(
+                    size,
+                    touches,
+                    Some(1),
+                    &TouchOwnership::default(),
+                    |_| false
+                )),
                 "dig owns finger"
             );
             if edges.guard {
@@ -936,6 +1061,7 @@ mod tests {
                     size,
                     app.world().resource::<Touches>(),
                     None,
+                    &TouchOwnership::default(),
                     |_| false
                 )),
                 "menu-consumed edge cannot replay next frame"
@@ -945,6 +1071,7 @@ mod tests {
                 size,
                 app.world().resource::<Touches>(),
                 None,
+                &TouchOwnership::default(),
                 |_| false
             )));
         }
@@ -965,18 +1092,33 @@ mod tests {
         touch_frame(&mut app, &[(1, Started, p)]);
         touch_frame(&mut app, &[]);
         let t = app.world().resource::<Touches>();
-        assert!(!touch_press_edges(size, t, None, |_| false).jump);
-        assert!(touched_buttons(size, t, None, None, |_| false).contains(&TouchAction::Jump));
+        assert!(!touch_press_edges(size, t, None, &TouchOwnership::default(), |_| false).jump);
+        assert!(
+            touched_buttons(size, t, None, None, &TouchOwnership::default(), |_| false)
+                .contains(&TouchAction::Jump)
+        );
         touch_frame(&mut app, &[(2, Started, p), (2, Ended, p)]);
-        assert!(touch_press_edges(size, app.world().resource::<Touches>(), None, |_| false).jump);
+        assert!(
+            touch_press_edges(
+                size,
+                app.world().resource::<Touches>(),
+                None,
+                &TouchOwnership::default(),
+                |_| false
+            )
+            .jump
+        );
         touch_frame(
             &mut app,
             &[(1, Ended, p), (3, Started, Vec2::new(215.0, 300.0))],
         );
         touch_frame(&mut app, &[(3, Moved, p)]);
         let t = app.world().resource::<Touches>();
-        assert!(!touch_press_edges(size, t, None, |_| false).jump);
-        assert!(touched_buttons(size, t, None, None, |_| false).contains(&TouchAction::Jump));
+        assert!(!touch_press_edges(size, t, None, &TouchOwnership::default(), |_| false).jump);
+        assert!(
+            touched_buttons(size, t, None, None, &TouchOwnership::default(), |_| false)
+                .contains(&TouchAction::Jump)
+        );
     }
 
     #[test]
