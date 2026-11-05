@@ -15,6 +15,7 @@ use std::{
 const CAPTURE: &str = r#"(()=>{
  const c=document.getElementById('crabscape');
  c.setAttribute('data-cell-work-profile','1');
+ c.setAttribute('data-cell-performance-probe','1');
  const gl=c.getContext('webgl2'), ext=gl?.getExtension('WEBGL_debug_renderer_info');
  const s=window.frameProbe={frames:[],measures:[],longTasks:[],stop:false,
  renderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):'unavailable',webgl:{}};
@@ -23,6 +24,16 @@ const CAPTURE: &str = r#"(()=>{
   const original=gl[name];s.webgl[name]=0;
   gl[name]=function(...args){s.webgl[name]++;return original.apply(this,args)};
   restore.push(()=>{gl[name]=original});
+ }
+ for(const [proto,name,label] of [[IDBFactory.prototype,'open','open'],[IDBObjectStore.prototype,'get','get']]){
+  const original=proto[name];
+  proto[name]=function(...args){
+   const at=performance.now(),request=original.apply(this,args);
+   const record=()=>s.measures.push({at,ms:performance.now()-at,name:'cell-idb-'+label,key:label==='get'?String(args[0]):null});
+   request.addEventListener('success',record,{once:true});request.addEventListener('error',record,{once:true});
+   return request;
+  };
+  restore.push(()=>{proto[name]=original});
  }
  const observers=[];
  for(const type of ['measure','longtask']){
@@ -36,7 +47,7 @@ const CAPTURE: &str = r#"(()=>{
  function frame(now){
   if(s.stop){observers.forEach(o=>o.disconnect());restore.forEach(f=>f());return;}
   if(previous!==null)s.frames.push({at:now,ms:now-previous,crab:c.getAttribute('data-crab'),
-   tick:c.getAttribute('data-cell-session-tick'),revision:c.getAttribute('data-cell-region-revision')});
+   tick:c.getAttribute('data-cell-performance')?.split(':')[0]??null,paging:c.getAttribute('data-cell-page-state'),revision:c.getAttribute('data-cell-region-revision')});
   previous=now;requestAnimationFrame(frame);
  }
  requestAnimationFrame(frame);return true;
@@ -53,6 +64,10 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     let mut final_y = f64::INFINITY;
+    let mut previous_tick = None;
+    let mut tick_observations = 0;
+    let mut unchanged_tick_ms: f64 = 0.0;
+    let mut longest_unchanged_tick_ms: f64 = 0.0;
     let mut previous_position = None;
     let mut unchanged_ms: f64 = 0.0;
     let mut longest_unchanged_ms: f64 = 0.0;
@@ -62,6 +77,19 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
             .filter(|n| n.is_finite() && *n >= 0.0)
             .ok_or("invalid frame interval")?;
         gaps.push(ms);
+        let tick = f["tick"].as_str().and_then(|v| v.parse::<u64>().ok());
+        if let Some(tick) = tick {
+            tick_observations += 1;
+            if previous_tick == Some(tick) {
+                unchanged_tick_ms += ms;
+                longest_unchanged_tick_ms = longest_unchanged_tick_ms.max(unchanged_tick_ms);
+            } else {
+                unchanged_tick_ms = 0.0;
+            }
+        } else {
+            unchanged_tick_ms = 0.0;
+        }
+        previous_tick = tick;
         let pos: Vec<f64> = f["crab"]
             .as_str()
             .unwrap_or("")
@@ -104,6 +132,7 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
     let worst = *gaps.last().ok_or("no frame intervals")?;
     let result = json!({"frames":gaps.len(),"median_ms":gaps[gaps.len()/2],
         "p95_ms":gaps[gaps.len()*95/100],"max_ms":worst,"over_60_ms":gaps.iter().filter(|g| **g>60.0).count(),
+        "tick_observations":tick_observations,"longest_unchanged_tick_ms":if tick_observations>0 {Some(longest_unchanged_tick_ms)} else {None},
         "longest_unchanged_position_ms":longest_unchanged_ms,"webgl_calls":capture["webgl"],
         "build":capture["build"],"cpu_throttle":capture["cpu_throttle"],"cpu_profile_enabled":capture["cpu_profile_enabled"],"route":capture["route"],"fixture":capture["fixture"],"min_x":min_x,"min_y":min_y,"max_x":max_x,"max_y":max_y,"final_y":final_y,"renderer":capture["renderer"]});
     println!("{result}");
@@ -211,7 +240,7 @@ fn run() -> Result<()> {
         }
         b.set_key("KeyD", false)?;
     }
-    let mut capture = b.eval("(()=>{window.frameProbe.stop=true;document.getElementById('crabscape').removeAttribute('data-cell-work-profile');return window.frameProbe})()")?;
+    let mut capture = b.eval("(()=>{window.frameProbe.stop=true;document.getElementById('crabscape').removeAttribute('data-cell-work-profile');document.getElementById('crabscape').removeAttribute('data-cell-performance-probe');return window.frameProbe})()")?;
     capture["route"] = json!(route);
     capture["fixture"] = fixture;
     capture["build"] = build;
@@ -292,6 +321,23 @@ mod tests {
         }
         let result = summarize(&v, None).unwrap();
         assert!((result["longest_unchanged_position_ms"].as_f64().unwrap() - 233.8).abs() < 0.01);
+    }
+    #[test]
+    fn tick_stalls_are_independent_of_position_and_missing_samples_break_them() {
+        let mut v = trace(16.7);
+        assert!(summarize(&v, None).unwrap()["longest_unchanged_tick_ms"].is_null());
+        for (i, frame) in v["frames"].as_array_mut().unwrap().iter_mut().enumerate() {
+            frame["tick"] = json!(i.to_string());
+        }
+        let result = summarize(&v, None).unwrap();
+        assert_eq!(result["longest_unchanged_tick_ms"], 0.0);
+        for frame in v["frames"].as_array_mut().unwrap() {
+            frame["tick"] = json!("10");
+        }
+        v["frames"][30]["tick"] = Value::Null;
+        let result = summarize(&v, None).unwrap();
+        assert!((result["longest_unchanged_tick_ms"].as_f64().unwrap() - 484.3).abs() < 0.01);
+        assert_eq!(result["tick_observations"], 59);
     }
     #[test]
     fn stationary_scene_cannot_pass() {
