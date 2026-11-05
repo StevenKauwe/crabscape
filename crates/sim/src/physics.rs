@@ -1019,6 +1019,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         clear_climb_exit(m, t, level);
     }
     if m.climbing {
+        // This press has been handled by the climb. Do not carry it into a
+        // later step-off as an unrequested paddle or immediate re-grip.
+        m.jump_buffer = 0.0;
         if rock_grip {
             attach_rock_grip(m, t, level);
         }
