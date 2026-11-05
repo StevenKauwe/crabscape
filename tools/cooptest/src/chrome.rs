@@ -62,6 +62,26 @@ const RECORD_ERRORS: &str = r#"(() => {
   }
 })();"#;
 
+// Opt-in only: retain actual stale-move stop observations across navigation.
+const RECORD_REGIONAL_STOPS: &str = r#"(() => {
+  const key = 'cooptest-regional-stops';
+  const enable = () => document.getElementById('crabscape')?.setAttribute('data-cell-work-profile','1');
+  new MutationObserver(records => {
+    enable();
+    for (const r of records) if (r.target.id === 'crabscape' &&
+      ['data-cell-move-stop','data-cell-move-stop-failed'].includes(r.attributeName)) {
+      const value = r.target.getAttribute(r.attributeName);
+      if (!value) continue;
+      const data = JSON.parse(sessionStorage.getItem(key) || '{"samples":[],"failure":null}');
+      if (r.attributeName === 'data-cell-move-stop-failed') data.failure = value;
+      else data.samples.push(value);
+      sessionStorage.setItem(key, JSON.stringify(data));
+    }
+  }).observe(document, {subtree:true,childList:true,attributes:true,
+    attributeFilter:['data-cell-move-stop','data-cell-move-stop-failed']});
+  addEventListener('DOMContentLoaded',enable);
+})();"#;
+
 /// The browser of a computer whose network can't reach the public address servers on one of its networks (a
 /// VPN, a virtual machine's network, IPv6 with no way out): every address is found at once, but the browser only
 /// says it has finished gathering them about 40 s later. That is what kept a friend who reloaded from getting back
@@ -248,6 +268,12 @@ impl Chrome {
             "Page.addScriptToEvaluateOnNewDocument",
             json!({ "source": RECORD_ERRORS }),
         )?;
+        if std::env::var_os("CRABSCAPE_REGIONAL_STOP_PROBE").is_some() {
+            me.call(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({"source": RECORD_REGIONAL_STOPS}),
+            )?;
+        }
         Ok(me)
     }
 
@@ -493,6 +519,19 @@ impl Chrome {
 
 impl Drop for Chrome {
     fn drop(&mut self) {
+        if std::env::var_os("CRABSCAPE_REGIONAL_STOP_PROBE").is_some() {
+            match self.eval("sessionStorage.getItem('cooptest-regional-stops')") {
+                Ok(value) => eprintln!(
+                    "regional-stop-probe {}: {}",
+                    self.name,
+                    value.as_str().unwrap_or("null")
+                ),
+                Err(reason) => eprintln!(
+                    "regional-stop-probe {}: capture failed: {reason}",
+                    self.name
+                ),
+            }
+        }
         let _ = self.ws.close(None);
         let _ = self.child.kill();
         let _ = self.child.wait();
