@@ -16,6 +16,12 @@ struct MemoryUniform {
     lights: array<vec4<f32>, 8>,
 };
 
+struct MemoryGlobals {
+    grid: vec4<f32>,
+    lights: array<vec4<f32>, 8>,
+};
+@group(2) @binding(3) var<uniform> globals: MemoryGlobals;
+
 @group(2) @binding(0) var<uniform> material: MemoryUniform;
 @group(2) @binding(1) var memory_texture: texture_2d<f32>;
 @group(2) @binding(2) var memory_sampler: sampler;
@@ -45,7 +51,7 @@ fn noise(p: vec2<f32>) -> f32 {
 fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
     var brightness = 0.0;
     for (var i = 0; i < 8; i += 1) {
-        let light = material.lights[i];
+        let light = globals.lights[i];
         if light.w > light.z {
             let amount = 1.0 - smoothstep(light.z, light.w, distance(p, light.xy));
             brightness = max(brightness, amount);
@@ -84,8 +90,8 @@ fn water_colour(p: vec2<f32>) -> vec3<f32> {
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let p = in.world_position.xy;
     let uv = vec2<f32>(
-        (p.x - material.grid.x) / material.grid.z,
-        1.0 - (p.y - material.grid.y) / material.grid.w
+        (p.x - globals.grid.x) / globals.grid.z,
+        1.0 - (p.y - globals.grid.y) / globals.grid.w
     );
     // Four taps half a cell apart: softer, rounder edges than the grid.
     let texel = 0.5 / vec2<f32>(textureDimensions(memory_texture));

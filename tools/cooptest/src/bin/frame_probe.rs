@@ -17,7 +17,13 @@ const CAPTURE: &str = r#"(()=>{
  c.setAttribute('data-cell-work-profile','1');
  const gl=c.getContext('webgl2'), ext=gl?.getExtension('WEBGL_debug_renderer_info');
  const s=window.frameProbe={frames:[],measures:[],longTasks:[],stop:false,
- renderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):'unavailable'};
+ renderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):'unavailable',webgl:{}};
+ const restore=[];
+ if(gl)for(const name of ['createBuffer','deleteBuffer','bufferData','bufferSubData','createTexture','deleteTexture','texImage2D','texSubImage2D']){
+  const original=gl[name];s.webgl[name]=0;
+  gl[name]=function(...args){s.webgl[name]++;return original.apply(this,args)};
+  restore.push(()=>{gl[name]=original});
+ }
  const observers=[];
  for(const type of ['measure','longtask']){
   if(!PerformanceObserver.supportedEntryTypes.includes(type))continue;
@@ -28,7 +34,7 @@ const CAPTURE: &str = r#"(()=>{
  }
  let previous=null;
  function frame(now){
-  if(s.stop){observers.forEach(o=>o.disconnect());return;}
+  if(s.stop){observers.forEach(o=>o.disconnect());restore.forEach(f=>f());return;}
   if(previous!==null)s.frames.push({at:now,ms:now-previous,crab:c.getAttribute('data-crab'),
    tick:c.getAttribute('data-cell-session-tick'),revision:c.getAttribute('data-cell-region-revision')});
   previous=now;requestAnimationFrame(frame);
@@ -98,8 +104,8 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
     let worst = *gaps.last().ok_or("no frame intervals")?;
     let result = json!({"frames":gaps.len(),"median_ms":gaps[gaps.len()/2],
         "p95_ms":gaps[gaps.len()*95/100],"max_ms":worst,"over_60_ms":gaps.iter().filter(|g| **g>60.0).count(),
-        "longest_unchanged_position_ms":longest_unchanged_ms,
-        "build":capture["build"],"route":capture["route"],"fixture":capture["fixture"],"min_x":min_x,"min_y":min_y,"max_x":max_x,"max_y":max_y,"final_y":final_y,"renderer":capture["renderer"]});
+        "longest_unchanged_position_ms":longest_unchanged_ms,"webgl_calls":capture["webgl"],
+        "build":capture["build"],"cpu_throttle":capture["cpu_throttle"],"cpu_profile_enabled":capture["cpu_profile_enabled"],"route":capture["route"],"fixture":capture["fixture"],"min_x":min_x,"min_y":min_y,"max_x":max_x,"max_y":max_y,"final_y":final_y,"renderer":capture["renderer"]});
     println!("{result}");
     if budget.is_some_and(|limit| worst > limit) {
         return Err(format!(
