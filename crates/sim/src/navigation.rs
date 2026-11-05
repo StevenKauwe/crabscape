@@ -17,10 +17,30 @@ pub(crate) fn swim_route(
     reach: f32,
     blocked: impl Fn(Vec2) -> bool,
 ) -> Option<Vec<Vec2>> {
+    route::<true>(start, goal, reach, blocked)
+}
+
+fn route<const CACHE: bool>(
+    start: Vec2,
+    goal: Vec2,
+    reach: f32,
+    blocked: impl Fn(Vec2) -> bool,
+) -> Option<Vec<Vec2>> {
     let count = (SIDE * SIDE) as usize;
     let index = |x: i32, y: i32| (y * SIDE + x) as usize;
     let point =
         |x: i32, y: i32| start + Vec2::new((x - CENTRE) as f32 * STEP, (y - CENTRE) as f32 * STEP);
+    // The level and animal clearance stay fixed during this synchronous search.
+    // Neighbour expansion and diagonal corner checks revisit the same cells;
+    // sample each grid point once, without retaining stale terrain across ticks.
+    let mut clearance = [None; (SIDE * SIDE) as usize];
+    let mut grid_blocked = |x, y| {
+        if CACHE {
+            *clearance[index(x, y)].get_or_insert_with(|| blocked(point(x, y)))
+        } else {
+            blocked(point(x, y))
+        }
+    };
     let start_i = index(CENTRE, CENTRE);
     let mut costs = vec![i32::MAX; count];
     let mut previous = vec![usize::MAX; count];
@@ -65,8 +85,8 @@ pub(crate) fn swim_route(
                 continue;
             }
             let q = point(nx, ny);
-            if blocked(q)
-                || (dx != 0 && dy != 0 && (blocked(point(x + dx, y)) || blocked(point(x, y + dy))))
+            if grid_blocked(nx, ny)
+                || (dx != 0 && dy != 0 && (grid_blocked(x + dx, y) || grid_blocked(x, y + dy)))
             {
                 continue;
             }
@@ -105,5 +125,68 @@ mod tests {
     fn sealed_wall_returns_no_route() {
         let blocked = |p: Vec2| p.x > 40.0 && p.x < 85.0;
         assert!(swim_route(Vec2::ZERO, Vec2::new(140.0, 0.0), 20.0, blocked).is_none());
+    }
+}
+
+#[cfg(test)]
+mod clearance_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn cached_clearance_preserves_routes_and_diagonal_corner_rules() {
+        for start in [Vec2::ZERO, Vec2::new(13.5, -7.25)] {
+            for goal in [
+                Vec2::new(140.0, 0.0),
+                Vec2::new(120.0, 120.0),
+                Vec2::new(-144.0, 72.0),
+            ] {
+                for shape in 0..4 {
+                    let blocked = |p: Vec2| {
+                        let p = p - start;
+                        match shape {
+                            0 => false,
+                            1 => p.x > 40.0 && p.x < 85.0 && p.y < 80.0,
+                            2 => p.x > 40.0 && p.x < 85.0,
+                            _ => {
+                                (p.x > 12.0 && p.x < 36.0 && p.y.abs() < 12.0)
+                                    || (p.y > 12.0 && p.y < 36.0 && p.x.abs() < 12.0)
+                            }
+                        }
+                    };
+                    assert_eq!(
+                        route::<true>(start, start + goal, 20.0, blocked),
+                        route::<false>(start, start + goal, 20.0, blocked),
+                        "start={start:?} goal={goal:?} shape={shape}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unreachable_search_checks_each_grid_clearance_at_most_once() {
+        let measure = |cached| {
+            let calls = Cell::new(0usize);
+            let blocked = |p: Vec2| {
+                calls.set(calls.get() + 1);
+                p.x > 40.0 && p.x < 85.0
+            };
+            let path = if cached {
+                route::<true>(Vec2::ZERO, Vec2::new(140.0, 0.0), 20.0, blocked)
+            } else {
+                route::<false>(Vec2::ZERO, Vec2::new(140.0, 0.0), 20.0, blocked)
+            };
+            assert!(path.is_none());
+            calls.get()
+        };
+        let original = measure(false);
+        let cached = measure(true);
+        eprintln!("sealed-wall clearance queries: {original} -> {cached}");
+        assert!(cached <= (SIDE * SIDE) as usize);
+        assert!(
+            cached * 4 < original,
+            "expected repeated neighbour queries to be removed"
+        );
     }
 }
