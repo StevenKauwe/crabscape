@@ -1,0 +1,217 @@
+//! Full browser frame pacing during repeated ascent and descent, not a remap microbenchmark.
+#[allow(dead_code)]
+#[path = "../chrome.rs"]
+mod chrome;
+use chrome::{Chrome, Options, Result};
+use serde_json::{Value, json};
+use std::{
+    path::Path,
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
+const CAPTURE: &str = r#"(()=>{
+ const c=document.getElementById('crabscape');
+ c.setAttribute('data-cell-work-profile','1');
+ const gl=c.getContext('webgl2'), ext=gl?.getExtension('WEBGL_debug_renderer_info');
+ const s=window.frameProbe={frames:[],measures:[],longTasks:[],stop:false,
+ renderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):'unavailable'};
+ const observers=[];
+ for(const type of ['measure','longtask']){
+  if(!PerformanceObserver.supportedEntryTypes.includes(type))continue;
+  const o=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+   if(type==='measure'&&!e.name.startsWith('cell-'))continue;
+   s[type==='measure'?'measures':'longTasks'].push({at:e.startTime,ms:e.duration,name:e.name});
+  }});o.observe({type,buffered:false});observers.push(o);
+ }
+ let previous=null;
+ function frame(now){
+  if(s.stop){observers.forEach(o=>o.disconnect());return;}
+  if(previous!==null)s.frames.push({at:now,ms:now-previous,crab:c.getAttribute('data-crab'),
+   tick:c.getAttribute('data-cell-session-tick'),revision:c.getAttribute('data-cell-region-revision')});
+  previous=now;requestAnimationFrame(frame);
+ }
+ requestAnimationFrame(frame);return true;
+})()"#;
+
+fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
+    let frames = capture["frames"].as_array().ok_or("no frame trace")?;
+    if frames.len() < 30 {
+        return Err("too few frames to measure the route".into());
+    }
+    let mut gaps = Vec::new();
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    let mut final_y = f64::INFINITY;
+    for f in frames {
+        let ms = f["ms"]
+            .as_f64()
+            .filter(|n| n.is_finite() && *n >= 0.0)
+            .ok_or("invalid frame interval")?;
+        gaps.push(ms);
+        let pos: Vec<f64> = f["crab"]
+            .as_str()
+            .unwrap_or("")
+            .split_whitespace()
+            .take(2)
+            .filter_map(|n| n.parse().ok())
+            .collect();
+        if pos.len() == 2 {
+            max_x = max_x.max(pos[0]);
+            max_y = max_y.max(pos[1]);
+            final_y = pos[1];
+        }
+    }
+    // A stationary scene must never count as a passing crossing benchmark.
+    if max_x < 1200.0 || max_y < 2000.0 || final_y > 500.0 {
+        return Err(format!(
+            "route incomplete: furthest x={max_x}, peak y={max_y}, final y={final_y}"
+        ));
+    }
+    gaps.sort_by(f64::total_cmp);
+    let worst = *gaps.last().ok_or("no frame intervals")?;
+    let result = json!({"frames":gaps.len(),"median_ms":gaps[gaps.len()/2],
+        "p95_ms":gaps[gaps.len()*95/100],"max_ms":worst,"over_60_ms":gaps.iter().filter(|g| **g>60.0).count(),
+        "max_x":max_x,"max_y":max_y,"final_y":final_y,"renderer":capture["renderer"]});
+    println!("{result}");
+    if budget.is_some_and(|limit| worst > limit) {
+        return Err(format!(
+            "maximum frame gap {worst:.2} ms exceeds calibrated budget {} ms",
+            budget.unwrap()
+        ));
+    }
+    Ok(result)
+}
+
+fn run() -> Result<()> {
+    let mut url = "https://crabscape.com/".to_owned();
+    let mut slow = 1.0;
+    let mut budget = None;
+    let mut cpu = false;
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--url" => url = args.next().ok_or("--url needs a value")?,
+            "--slow" => {
+                slow = args
+                    .next()
+                    .ok_or("--slow needs a number")?
+                    .parse::<f64>()
+                    .map_err(|e| e.to_string())?
+            }
+            "--max-gap-ms" => {
+                budget = Some(
+                    args.next()
+                        .ok_or("--max-gap-ms needs a number")?
+                        .parse::<f64>()
+                        .map_err(|e| e.to_string())?,
+                )
+            }
+            "--cpu" => cpu = true,
+            "--help" => {
+                println!(
+                    "frame_probe [--url URL] [--slow N] [--cpu] [--max-gap-ms N]\n30-second ascent/descent, isolated temporary profile. Set CRABSCAPE_PROFILE_GPU=1 for hardware rendering. No timing gate unless a calibrated budget is supplied."
+                );
+                return Ok(());
+            }
+            _ => return Err(format!("unknown option {arg}")),
+        }
+    }
+    if !slow.is_finite() || slow < 1.0 || budget.is_some_and(|n| !n.is_finite() || n <= 0.0) {
+        return Err("slow must be finite and >=1; budget must be finite and >0".into());
+    }
+    let dir = std::env::temp_dir().join(format!("crab-frame-probe-{}", std::process::id()));
+    std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
+    let mut b = Chrome::start(
+        "probe",
+        &dir.join("profile"),
+        Options {
+            fake_mic: false,
+            slow,
+        },
+    )?;
+    b.go(&url)?;
+    let start = Instant::now();
+    while b.attr("data-crab").is_none() {
+        if start.elapsed().as_secs() > 60 {
+            return Err("game did not start within 60 seconds".into());
+        }
+        sleep(Duration::from_millis(200));
+    }
+    let build = b.eval("fetch(new URL('pkg/commit.txt',location.href)).then(r=>r.ok?r.text():'unavailable').catch(()=> 'unavailable')")?;
+    b.type_line("hulk")?;
+    if cpu {
+        b.start_cpu_profile()?;
+    }
+    b.eval(CAPTURE)?;
+    b.set_key("KeyD", true)?;
+    let began = Instant::now();
+    while began.elapsed().as_secs() < 30 {
+        b.hold_key(
+            if began.elapsed().as_secs() < 15 {
+                "KeyW"
+            } else {
+                "ArrowDown"
+            },
+            0.25,
+        )?;
+        sleep(Duration::from_millis(150));
+    }
+    b.set_key("KeyD", false)?;
+    let mut capture = b.eval("(()=>{window.frameProbe.stop=true;document.getElementById('crabscape').removeAttribute('data-cell-work-profile');return window.frameProbe})()")?;
+    capture["build"] = build;
+    capture["cpu_throttle"] = json!(slow);
+    capture["cpu_profile_enabled"] = json!(cpu);
+    write(&dir.join("frames.json"), &capture)?;
+    if cpu {
+        write(&dir.join("cpu.json"), &b.stop_cpu_profile()?)?;
+    }
+    println!("Trace: {}", dir.display());
+    if let Some(error) = b.trouble() {
+        return Err(error);
+    }
+    let summary = summarize(&capture, budget)?;
+    write(&dir.join("summary.json"), &summary)
+}
+fn write(path: &Path, value: &Value) -> Result<()> {
+    std::fs::write(
+        path,
+        serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("frame probe: {error}");
+        std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn trace(gap: f64) -> Value {
+        json!({"frames":(0..60).map(|i|json!({"ms":if i==25 {gap}else{16.7},"crab":if i<30 {"1400 2500 0"}else{"1800 0 1"}})).collect::<Vec<_>>()})
+    }
+    #[test]
+    fn catches_a_single_long_frame_even_with_a_healthy_median() {
+        assert!(summarize(&trace(16.7), Some(60.0)).is_ok());
+        assert!(
+            summarize(&trace(233.0), Some(60.0))
+                .unwrap_err()
+                .contains("maximum frame gap")
+        );
+    }
+    #[test]
+    fn stationary_scene_cannot_pass() {
+        let mut v = trace(16.7);
+        for f in v["frames"].as_array_mut().unwrap() {
+            f["crab"] = json!("269 258 0");
+        }
+        assert!(
+            summarize(&v, None)
+                .unwrap_err()
+                .contains("route incomplete")
+        );
+    }
+}
