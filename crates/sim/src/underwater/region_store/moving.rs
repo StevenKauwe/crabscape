@@ -283,32 +283,20 @@ impl TerrainStore {
             None
         };
         if let Some(m) = &out.material {
-            for y in 0..out.old.height {
-                for x in 0..out.old.width {
-                    let i = y * out.old.width + x;
-                    let gx = out.old.x + x as i32;
-                    let gy = out.old.y + y as i32;
-                    let flow = self
-                        .terrain
-                        .archived_cell(gx, gy)
-                        .map_or((0.0, 0.0), |c| c.flow);
-                    self.terrain.put_archived_cell(
-                        gx,
-                        gy,
-                        SleepingCell {
-                            cell: m.cells[i],
-                            flow,
-                            grain: m.grain[i],
-                            suspended: m.suspended[i],
-                            owner: if m.owners[i] == 0 {
-                                0
-                            } else {
-                                lease.pebble_ids[usize::from(m.owners[i]) - 1]
-                            },
-                        },
-                    );
+            self.terrain.map_archived_region(out.old, |gx, gy, old| {
+                let i = (gy - out.old.y) as usize * out.old.width + (gx - out.old.x) as usize;
+                SleepingCell {
+                    cell: m.cells[i],
+                    flow: old.map_or((0.0, 0.0), |c| c.flow),
+                    grain: m.grain[i],
+                    suspended: m.suspended[i],
+                    owner: if m.owners[i] == 0 {
+                        0
+                    } else {
+                        lease.pebble_ids[usize::from(m.owners[i]) - 1]
+                    },
                 }
-            }
+            });
         }
         for (part, world) in out.parts.iter().zip(&decoded) {
             self.leases.insert(
@@ -451,26 +439,20 @@ impl World {
                 next.pebble_motion.push(*motion);
             }
             owners.extend(part.ids.iter().copied().map(OwnerSource::Incoming));
-            for y in 0..w.height {
-                for x in 0..w.width {
-                    let i = y * w.width + x;
-                    next.put_archived_cell(
-                        w.origin.0 + x as i32,
-                        w.origin.1 + y as i32,
-                        SleepingCell {
-                            cell: w.cells[i],
-                            flow: w.flow[i],
-                            suspended: w.suspended[i],
-                            grain: w.grain[i],
-                            owner: if w.pebble_owner[i] == 0 {
-                                0
-                            } else {
-                                w.pebble_owner[i] + offset as u16
-                            },
-                        },
-                    );
+            next.map_archived_region(w.region(), |gx, gy, _| {
+                let i = (gy - w.origin.1) as usize * w.width + (gx - w.origin.0) as usize;
+                SleepingCell {
+                    cell: w.cells[i],
+                    flow: w.flow[i],
+                    suspended: w.suspended[i],
+                    grain: w.grain[i],
+                    owner: if w.pebble_owner[i] == 0 {
+                        0
+                    } else {
+                        w.pebble_owner[i] + offset as u16
+                    },
                 }
-            }
+            });
             let translate = |(x, y): (f32, f32)| {
                 (
                     x + (w.origin.0 - next.origin.0) as f32,

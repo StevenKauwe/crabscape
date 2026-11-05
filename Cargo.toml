@@ -193,6 +193,11 @@ strip = true
 [profile.release.package.libm]
 opt-level = 3
 
+# The deterministic cell kernel is compute-bound, including on phone CPUs.
+# Keep the presentation/dependency download budget separate from simulation.
+[profile.release.package.crabsim]
+opt-level = 3
+
 # Offline material authoring: same deterministic rules, optimized for bake time.
 [profile.terrain-bake]
 inherits = "release"

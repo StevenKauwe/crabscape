@@ -34,6 +34,13 @@ crosses sleeping-region boundaries. There is no new global background simulation
 
 ## Reproduce and invalidate
 
+The #481 integration regenerates the current strata world with the optimized
+cell kernel: 9,000 steps in 290.7 seconds, conserving 202,889 grains. Verified
+compaction retains 27,928 patches in 65,439 bytes. The 30-step probe took 0.965
+seconds over the same 15,978,038 cells. This supersedes the artifact build timing
+below; older timings remain provenance, not a controlled before/after benchmark.
+
+
 W3.0 (#464) fills the home burrow, mantis mouth, clay tunnel and bone hall,
 including their removed mouth closures, with authored sediment. No body below
 y = -10,000 is filled; the odd tunnel and later water lanes remain deferred.

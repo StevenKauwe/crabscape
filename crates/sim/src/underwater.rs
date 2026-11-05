@@ -2,6 +2,8 @@
 //! Coordinates increase right and up. Water occupies every non-solid cell;
 //! velocity is a cheap locally diffused current, not a pressure fluid solver.
 
+mod active_remap;
+mod background_waves;
 #[cfg(any(test, feature = "terrain-bake"))]
 pub mod seed_bake;
 pub(crate) mod settled_seed;
@@ -1122,7 +1124,7 @@ impl World {
             return false;
         };
         self.shift_window(level, target);
-        self.prepare_bottom_open(level);
+        // remap_region has already prepared this exact lower edge.
         self.hydrate_pending_falls(true);
         self.seed_far_pebbles(level);
         true
@@ -1320,14 +1322,17 @@ impl World {
             }
             #[cfg(test)]
             dirty_oracle::mark_sleeping(key);
-            let page = self.sleeping.entry(key).or_default();
+            // Detach a shared page once. Indexing SleepingCells mutably for
+            // each grain would run Arc::make_mut's atomic ownership check
+            // thousands of times for the same exclusively borrowed page.
+            let saved = self.sleeping.entry(key).or_default().cells.as_mut_slice();
             for y in ys {
                 for x in xs.clone() {
                     if overlap_y.contains(&y) && overlap_x.contains(&x) {
                         continue;
                     }
                     let i = (y - old.1) as usize * old_size.0 + (x - old.0) as usize;
-                    page.cells[slot(x, y)] = Some(SleepingCell {
+                    saved[slot(x, y)] = Some(SleepingCell {
                         cell: self.cells[i],
                         flow: self.flow[i],
                         suspended: self.suspended[i],
@@ -1337,26 +1342,18 @@ impl World {
                 }
             }
         }
-        let mut cells = vec![Cell::Water; width * height];
-        let mut flow = vec![(0.0, 0.0); width * height];
-        let mut suspended = vec![0; width * height];
-        let mut grain = vec![0; width * height];
-        let mut owner = vec![0; width * height];
-        if !overlap_x.is_empty() {
-            let count = overlap_x.len();
-            for y in overlap_y.clone() {
-                let from = (y - old.1) as usize * old_size.0 + (overlap_x.start - old.0) as usize;
-                let to = (y - next_origin.1) as usize * width
-                    + (overlap_x.start - next_origin.0) as usize;
-                let src = from..from + count;
-                let dst = to..to + count;
-                cells[dst.clone()].copy_from_slice(&self.cells[src.clone()]);
-                flow[dst.clone()].copy_from_slice(&self.flow[src.clone()]);
-                suspended[dst.clone()].copy_from_slice(&self.suspended[src.clone()]);
-                grain[dst.clone()].copy_from_slice(&self.grain[src.clone()]);
-                owner[dst].copy_from_slice(&self.pebble_owner[src]);
-            }
-        }
+        let old_bounds = self.region();
+        let next_bounds = region::CellRegion {
+            x: next_origin.0,
+            y: next_origin.1,
+            width,
+            height,
+        };
+        let mut cells = active_remap::remap(&mut self.cells, old_bounds, next_bounds, Cell::Water);
+        let mut flow = active_remap::remap(&mut self.flow, old_bounds, next_bounds, (0.0, 0.0));
+        let mut suspended = active_remap::remap(&mut self.suspended, old_bounds, next_bounds, 0);
+        let mut grain = active_remap::remap(&mut self.grain, old_bounds, next_bounds, 0);
+        let mut owner = active_remap::remap(&mut self.pebble_owner, old_bounds, next_bounds, 0);
         // Floor height depends only on world x. A newly exposed vertical strip
         // can generate hundreds of cells from the same authored floor sample.
         // An entirely archived strip needs no authored samples.
@@ -1366,6 +1363,14 @@ impl World {
                 .map(|col| TerrainColumn::new(level, next_origin.0 + col as i32))
                 .collect::<Vec<_>>()
         });
+        let ambient: Vec<_> = (0..height)
+            .map(|row| {
+                ambient_current(
+                    GAME_BOTTOM + ((next_origin.1 + row as i32) as f32 + 0.5) * GAME_CELL,
+                    self.tick * 4,
+                )
+            })
+            .collect();
         let mut touched = Vec::new();
         for (key, xs, ys) in pages(next_origin, next_size) {
             if covered(&xs, &ys) {
@@ -1373,27 +1378,30 @@ impl World {
             }
             #[cfg(test)]
             dirty_oracle::mark_sleeping(key);
-            let mut page = self.sleeping.get_mut(&key);
+            let mut page = self.sleeping.get_mut(&key).map(|p| p.cells.as_mut_slice());
             if page.is_some() {
                 touched.push(key);
             }
             for y in ys {
-                let ambient =
-                    ambient_current(GAME_BOTTOM + (y as f32 + 0.5) * GAME_CELL, self.tick * 4);
+                let ambient = ambient[(y - next_origin.1) as usize];
                 for x in xs.clone() {
                     if overlap_y.contains(&y) && overlap_x.contains(&x) {
                         continue;
                     }
                     let i = (y - next_origin.1) as usize * width + (x - next_origin.0) as usize;
-                    if let Some(saved) =
-                        page.as_deref_mut().and_then(|p| p.cells[slot(x, y)].take())
-                    {
+                    if let Some(saved) = page.as_deref_mut().and_then(|p| p[slot(x, y)].take()) {
                         cells[i] = saved.cell;
                         flow[i] = saved.flow;
                         suspended[i] = saved.suspended;
                         grain[i] = saved.grain;
                         owner[i] = saved.owner;
                     } else {
+                        // In-place remapping retains scratch bytes in newly
+                        // exposed slots. New terrain owns no old flow, owner
+                        // or suspension, including newly exposed hard rock.
+                        flow[i] = (0.0, 0.0);
+                        suspended[i] = 0;
+                        owner[i] = 0;
                         if let Some(baked) = seed.and_then(|seed| seed.at(x, y)) {
                             cells[i] = baked.cell;
                             grain[i] = baked.grain;
@@ -1964,21 +1972,15 @@ impl World {
         }
         grains > 0
     }
-    pub fn new() -> Self {
-        let mut world = Self {
-            width: WIDTH,
-            height: HEIGHT,
-            cells: vec![Cell::Water; WIDTH * HEIGHT],
-            flow: vec![(0.0, 0.0); WIDTH * HEIGHT],
-            suspended: vec![0; WIDTH * HEIGHT],
-            grain: (0..WIDTH * HEIGHT)
-                .map(|i| {
-                    let x = i % WIDTH;
-                    let y = i / WIDTH;
-                    ((x * 73 + y * 151 + (x ^ y) * 17) % 248) as u8
-                })
-                .collect(),
-            pebble_owner: vec![0; WIDTH * HEIGHT],
+    fn empty_region(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            cells: vec![Cell::Water; width * height],
+            flow: vec![(0.0, 0.0); width * height],
+            suspended: vec![0; width * height],
+            grain: vec![0; width * height],
+            pebble_owner: vec![0; width * height],
             pebbles: Vec::new(),
             pebble_motion: Vec::new(),
             sand_properties: SAND_PROPERTIES,
@@ -1987,14 +1989,7 @@ impl World {
             crab_half_x: CRAB_HALF_X,
             crab_half_y: CRAB_HALF_Y,
             other_crabs: Vec::new(),
-            tracers: (0..900)
-                .map(|n| {
-                    (
-                        (12 + (n * 137) % (WIDTH - 24)) as f32,
-                        (20 + (n * 73) % (HEIGHT - 40)) as f32,
-                    )
-                })
-                .collect(),
+            tracers: Vec::new(),
             silt: Vec::new(),
             kelp: [[0.0; KELP_SEGMENTS + 1]; KELP_ROOTS.len()],
             giant_kelp: [0.0; GIANT_PARTS + 1],
@@ -2010,10 +2005,23 @@ impl World {
             pending_falls: Vec::new(),
             next_fall_sequence: 0,
             bottom_open: Vec::new(),
-        };
+        }
+    }
+    pub fn new() -> Self {
+        let mut world = Self::empty_region(WIDTH, HEIGHT);
+        world.tracers = (0..900)
+            .map(|n| {
+                (
+                    (12 + (n * 137) % (WIDTH - 24)) as f32,
+                    (20 + (n * 73) % (HEIGHT - 40)) as f32,
+                )
+            })
+            .collect();
+        let floors: Vec<_> = (0..WIDTH)
+            .map(|x| (48.0 + libm::sinf(x as f32 * 0.015) * 12.0) as usize)
+            .collect();
         for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let floor = (48.0 + libm::sinf(x as f32 * 0.015) * 12.0) as usize;
+            for (x, &floor) in floors.iter().enumerate() {
                 let rock = x == 0
                     || x == WIDTH - 1
                     || y == 0
@@ -2021,6 +2029,7 @@ impl World {
                     || y < 12
                     || ((x as i32 - 328).pow(2) / 1600 + (y as i32 - 76).pow(2) / 2720 < 1);
                 let i = y * WIDTH + x;
+                world.grain[i] = ((x * 73 + y * 151 + (x ^ y) * 17) % 248) as u8;
                 world.cells[i] = if rock {
                     Cell::Rock
                 } else if y < floor {
@@ -2914,18 +2923,21 @@ impl World {
         };
         let side = TERRAIN_CHUNK_CELLS;
         let sampler = settled_seed::Sampler::new(level);
-        let open: Vec<_> = (0..self.width)
-            .map(|x| {
-                let gx = self.origin.0 + x as i32;
-                let key = (gx.div_euclid(side), y.div_euclid(side));
-                let slot = (y.rem_euclid(side) * side + gx.rem_euclid(side)) as usize;
-                self.sleeping
-                    .get(&key)
-                    .and_then(|c| c.cells[slot])
-                    .map_or_else(|| sampler.cell(gx, y), |c| c.cell)
-                    == Cell::Water
-            })
-            .collect();
+        let mut open = Vec::with_capacity(self.width);
+        let end = self.origin.0 + self.width as i32;
+        let mut gx = self.origin.0;
+        while gx < end {
+            let cx = gx.div_euclid(side);
+            let right = ((cx + 1) * side).min(end);
+            // One cache lookup/lock per page, rather than per bottom cell.
+            let page = self.sleeping.get(&(cx, y.div_euclid(side)));
+            for x in gx..right {
+                let slot = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
+                let cell = page.and_then(|p| p.cells[slot]);
+                open.push(cell.map_or_else(|| sampler.cell(x, y), |c| c.cell) == Cell::Water);
+            }
+            gx = right;
+        }
         if self.bottom_open != open {
             #[cfg(test)]
             dirty_oracle::mark_global();
@@ -4009,6 +4021,10 @@ impl World {
     /// one disjoint active window without advancing global visuals twice.
     fn step_material(&mut self, current: f32) {
         self.diffuse_flow(current);
+        self.move_material();
+    }
+
+    fn move_material(&mut self) {
         // Pebbles are owned cell aggregates: resolve each one once in a
         // deterministic order, then let the loose individual cells move.
         let reverse = self.tick.is_multiple_of(2);
@@ -4059,14 +4075,14 @@ impl World {
             for n in 0..self.width {
                 let x = if reverse { self.width - 1 - n } else { n };
                 let i = y * self.width + x;
+                let material = self.cells[i];
+                if !matches!(material, Cell::Sand | Cell::Mud) {
+                    continue;
+                }
                 if self.pebble_owner[i] != 0 {
                     continue;
                 }
                 if moved_cells[i] {
-                    continue;
-                }
-                let material = self.cells[i];
-                if !matches!(material, Cell::Sand | Cell::Mud) {
                     continue;
                 }
                 // Sand's existing cadence stays unchanged. Mud's cadence
@@ -4274,7 +4290,13 @@ impl World {
         // Alternating world-anchored colors read only neighbors of the opposite color.
         // This relaxes the field in place without a second velocity grid.
         let parity = (self.tick as usize) ^ self.origin.0 as usize ^ self.origin.1 as usize;
+        let waves = background_waves::BackgroundWaves::new(
+            if self.game { self.origin } else { (0, 0) },
+            self.width,
+            self.tick,
+        );
         for y in 1..self.height - 1 {
+            let row_waves = waves.row(y);
             // Broad slow layers preserve the fine simulation's established
             // motion until it is coupled to the world-wide baseline.
             let time = self.tick as f32;
@@ -4293,10 +4315,7 @@ impl World {
                 }
                 // Broad, slow eddies make the current less uniform while
                 // retaining its overall direction and stable boundaries.
-                let t = self.tick as f32 * 0.018;
-                let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
-                let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
-                let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
+                let (eddy, cross) = waves.at(x, row_waves);
                 let feed = if self.game { 0.12 } else { 0.035 };
                 let mut vx = self.flow[i].0 + (current + shear + eddy * 0.08) * feed;
                 let mut vy = self.flow[i].1 + cross * 0.002;
@@ -4341,11 +4360,17 @@ impl World {
     }
 
     #[cfg(test)]
-    fn diffuse_flow_reference(&mut self, current: f32) {
+    fn diffuse_flow_reference(&mut self, current: f32, factored: bool) {
         // Diffuse velocity locally and continuously feed the ambient current.
         // Solid neighbors redirect a small part of the flow vertically.
         let mut next = self.flow.clone();
+        let waves = background_waves::BackgroundWaves::new(
+            if self.game { self.origin } else { (0, 0) },
+            self.width,
+            self.tick,
+        );
         for y in 1..self.height - 1 {
+            let row_waves = waves.row(y);
             // Broad slow layers preserve the fine simulation's established
             // motion until it is coupled to the world-wide baseline.
             let time = self.tick as f32;
@@ -4364,10 +4389,16 @@ impl World {
                 }
                 // Broad, slow eddies make the current less uniform while
                 // retaining its overall direction and stable boundaries.
-                let t = self.tick as f32 * 0.018;
-                let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
-                let eddy = libm::sinf(world_x * 0.047 + world_y * 0.023 + t);
-                let cross = libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7);
+                let (eddy, cross) = if factored {
+                    waves.at(x, row_waves)
+                } else {
+                    let t = self.tick as f32 * 0.018;
+                    let world_x = (x as i32 + if self.game { self.origin.0 } else { 0 }) as f32;
+                    (
+                        libm::sinf(world_x * 0.047 + world_y * 0.023 + t),
+                        libm::sinf(world_x * 0.027 - world_y * 0.041 - t * 0.7),
+                    )
+                };
                 let feed = if self.game { 0.12 } else { 0.035 };
                 let mut vx = self.flow[i].0 + (current + shear + eddy * 0.08) * feed;
                 let mut vy = self.flow[i].1 + cross * 0.002;
@@ -4729,7 +4760,7 @@ mod tests {
                 }
                 for current in [0.0, 0.35, -0.8, 1.2, 0.35, 0.0, -0.2, 0.35] {
                     let mut expected = world.clone();
-                    expected.diffuse_flow_reference(current);
+                    expected.diffuse_flow_reference(current, true);
                     world.diffuse_flow(current);
                     assert!(
                         world
