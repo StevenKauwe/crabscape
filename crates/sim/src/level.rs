@@ -22,6 +22,7 @@ pub(crate) mod coral_rise;
 mod exploration;
 mod hub;
 pub mod landmarks;
+mod lower_canyon;
 pub mod refuges;
 
 /// Where the crab starts (its feet), if there is no save.
@@ -622,6 +623,7 @@ impl Level {
         coral_rise::shape(&mut level);
         hub::shape(&mut level);
         refuges::shape(&mut level);
+        lower_canyon::shape(&mut level);
         level
     }
 
@@ -738,7 +740,7 @@ mod tests {
         assert!((level.floor_height(670.0) - 55.0).abs() < 0.01); // half-way up the slope
         assert_eq!(level.floor_height(1450.0), -260.0); // bottom of the trench
         assert_eq!(level.floor_height(17150.0), -2800.0); // half-way up the cavern bank
-        assert_eq!(level.floor_height(level.max_x + 100.0), -2600.0); // beyond the outer bank
+        assert_eq!(level.floor_height(level.max_x + 100.0), -10000.0); // beyond the outer bank
     }
 
     #[test]

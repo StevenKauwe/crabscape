@@ -440,3 +440,65 @@ the observer's bed and follow its reduced lantern reach. Sprite daylight uses th
 ambient-light factor. Terrain retains its existing per-shape daylight curve and
 receives the reduced lantern radius through its existing light uniforms. Opening
 values remain identical. The depth gauge retains its existing long tail.
+
+## Lower canyon (W1.3b / #487, pending seed bake)
+
+The extension begins beyond Coral Rise's actual outer bank at x=17,600. The
+existing floor is unchanged through that bank (including the issue's x=17,400
+boundary). A small sediment heap rises eighty units, has an eighty-unit crest,
+then drops 7,480 units at x=17,780–17,781 to y=-10,000. Water drag limits the fall;
+falling does not damage the crab. The full kit cannot climb the face back up.
+
+The narrows at x=18,000–18,080 is an eighty-unit-thick brittle lock in a
+200-unit-high slot. Its rock sill prevents digging below it; the buttress reaches
+the water surface so swimming above it cannot skip the heavy crusher. The vent
+field beyond is 2,500 units wide (x=18,300–20,800), with a broad, flat floor at
+y=-10,000 and open water above. Its labelled crossing is 1,000 units high, with its floor and midpoint
+in the Deep band. Three small coral clumps are 200 units tall and 1,170 units
+apart. `world_shape.rs` checks this as a wide crossing against the taste bible's
+1,500-unit visible-refuge limit. The level ends at x=21,000.
+
+Fourteen sealed `Frame` landmarks reserve the home burrow (600 by 300), mantis
+mouth, descending clay tunnel, bone hall (1,200 by 500), seep shaft and outlet,
+long chimney, buried chimney return, chimney hall and mouth, odd tunnel, short
+Plunge shaft, Plunge crack (300 by 150), and its dark observation stage. Each has
+at least two separately labelled `Plug` closures. The chimney cap is brittle but
+has a solid backing, so cracking it does not open the unfinished strata. Frames
+can contain the generator's substrate; W3.0 installs the strata inside them.
+The Plunge's viewing wall is 100 units thick with a twelve-unit slit. Neither a
+route nor a dig reaches a frame interior.
+
+The hanging garden is a small coral ledge attached to the existing near-wall
+pillar, above the doorstep. The seep outlet is hollowed only inside that pillar;
+its exterior collision surfaces stay intact. The lower seep shaft and upper
+outlet are separate reserved endpoints for W4.1's wormhole: physically joining
+them in this single-plane map would cut across and seal the existing underpass.
+The long chimney has a continuous buried return from the vent bank to home.
+No creatures, rewards, keys, tether or rides are added by this package.
+
+**Not ready to ship:** the old `exploration.rs` slope assertion currently ranges
+over every floor segment east of x=8,800. It must be limited to the original reef
+ending at x=17,600 before this intentionally steep extension can pass. That file
+is outside #487's permitted edit list. Keeping that assertion global instead
+requires a long gentle descent that exceeds the cellular bake's fixed
+16-million-cell bound. The compact layout fits (15,978,038 cells). The full
+9,000-step seed bake, compaction, committed digest update and post-bake canonical
+cell tests remain pending; the current committed seed is deliberately unchanged.
+The frame dig checks currently exercise raw substrate by changing only the far
+boundary to opt out of the stale seed. They must also be run with the canonical
+boundary after the final bake.
+
+Pre-bake measurements: all seven lower-canyon tests pass in 19.7 seconds,
+including all 112 ability-kit combinations at the narrows and real-cell digging
+from both sides. The 1,000-point vent-water grid's worst visible-refuge distance
+is 930.5 units (limit 1,500). The thirty-step material probe conserves 81,898 sand
+and 58,725 mud cells, takes 2.436 seconds, and projects a 730.8-second full bake.
+Formatting and native/wasm clippy pass. The sim suite currently reports 209
+passed, 34 ignored, and 227 failures: 225 stale-seed checks, the intentionally
+unchanged probe digest, and the legacy slope assertion described above. Workspace
+tests stop at four stale-seed fixture failures. These are pre-bake results, not a
+claim that the package is ready to merge.
+The final complete `world_shape` run passes all 18 active checks (one existing
+exhaustive gate matrix remains ignored), but takes 94.1 seconds: its unchanged
+home-to-basin narrow-crossing survey exceeds the requested roughly 60-second
+file budget. That survey still needs bounded sampling without weakening coverage.

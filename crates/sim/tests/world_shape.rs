@@ -469,6 +469,7 @@ fn open_water_refuges(needs_rock: bool) {
                 | "canyon deep water"
                 | "far basin"
                 | "pit open water"
+                | "vent field"
         );
         if blocked != needs_rock {
             continue;

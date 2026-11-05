@@ -16,12 +16,23 @@ pub struct Landmark {
 /// Fear register or a door/gate used to measure routes between registers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
+    /// Sealed bedrock outline reserved for future strata.
+    Frame,
+    /// One-way overworld descent.
+    Drop,
+    /// Separately authored future mouth closure.
+    Plug,
     Refuge,
     OpenWater,
     Tunnel,
     Mouth,
-    Chamber { door: Rect, prize: Vec2 },
-    Gate { needs: Needs },
+    Chamber {
+        door: Rect,
+        prize: Vec2,
+    },
+    Gate {
+        needs: Needs,
+    },
 }
 
 /// Labels for the existing passage checks, spanning crafted kit and feats.
@@ -92,7 +103,11 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     }
     for (i, brittle) in level.brittle.iter().enumerate() {
         add(
-            format!("brittle rock {i}"),
+            if brittle.rect == super::lower_canyon::NARROWS {
+                "narrows lock".into()
+            } else {
+                format!("brittle rock {i}")
+            },
             brittle.rect,
             Kind::Gate {
                 needs: Needs::Crusher,
@@ -157,6 +172,38 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     ] {
         let door = Rect::new(rect.min.x, rect.min.y, rect.min.x + 20.0, rect.max.y);
         add(name.into(), rect, Kind::Chamber { door, prize });
+    }
+    for (name, rect, kind) in [
+        ("slump dam", super::lower_canyon::DAM, Kind::Drop),
+        ("vent field", super::lower_canyon::VENTS, Kind::OpenWater),
+        ("hanging garden", super::lower_canyon::GARDEN, Kind::Refuge),
+    ] {
+        landmarks.push(Landmark {
+            name: name.into(),
+            rect,
+            kind,
+        });
+    }
+    for (name, rect) in super::lower_canyon::frames() {
+        landmarks.push(Landmark {
+            name: name.into(),
+            rect,
+            kind: Kind::Frame,
+        });
+        for (i, rect) in super::lower_canyon::plugs(name, rect)
+            .into_iter()
+            .enumerate()
+        {
+            landmarks.push(Landmark {
+                name: if name == "long chimney" && i == 0 {
+                    "long chimney crust plug".into()
+                } else {
+                    format!("{name} plug {i}")
+                },
+                rect,
+                kind: Kind::Plug,
+            });
+        }
     }
     landmarks
 }
