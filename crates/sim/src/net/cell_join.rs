@@ -14,6 +14,7 @@
 pub mod input;
 pub mod lockstep;
 pub mod paced;
+pub mod roster;
 
 use crate::{
     Sim,

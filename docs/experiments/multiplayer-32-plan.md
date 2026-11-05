@@ -73,3 +73,11 @@ Build the pure roster/transfer coordinator and its 3/8/32 transport simulations,
 ## Diagnostic results from this branch
 
 The release-mode audit at target 32 exited nonzero after admitting 8, as intended. The target-8 control exited successfully. Both passed checkpoint round-trip, 120 paired mixed-control ticks with per-tick state hashes, and alternating leave/rejoin. Initial checkpoint: 81,611 bytes. Paired ticks plus repeated hashing took about 11.0 seconds on this Mac; that is diagnostic wall time, not an isolated simulation/FPS benchmark. It does not establish playable eight-browser performance. Focused example clippy passed. No production networking or capacity limits changed.
+
+## First implementation foundation
+
+`net::cell_join::roster` is a pure admission coordinator, not wired into gameplay. Pending and active members share a 32-slot bound. Tickets are bound to participant, transport connection, admission generation and authority epoch. Tests cover simultaneous reservations, rejected 33rd, expiry, duplicate identities, stale reconnect/old-authority messages, input sequence rejection and 100 rounds of 31-player churn. Owner loss intentionally requires an explicit authority transition; this module does not pretend to implement region recovery or retain checkpoint payloads.
+
+`cargo run --manifest-path tools/cooptest/Cargo.toml --bin three_player -- --url <preview>` is a manual acceptance gate. It requires three actual cellular actors with identical shared-region rosters/hashes, input response, removal after leaving, and successful rejoin. It records optional browser heap samples and screenshots. On current production it fails at the third join, as required. Later assertions have not yet run against a working three-player adapter; this is not evidence of three-player recovery or load capacity. It is not inserted as a permanently failing required CI job.
+
+The next production integration remains `src/coop/web/cells.rs` and `regional.rs`: replace single peer/control/transfer fields and one remote journal with per-peer and per-region maps, preserving bounded validation and recovery. Merely calling the roster from the existing two-player path would not make it multiplayer. No live support change is included in this foundation.
