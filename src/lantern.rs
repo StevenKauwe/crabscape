@@ -375,7 +375,12 @@ fn measure_light(
 /// Colour sprites by how lit they are.
 fn tint_by_light(mut sprites: Query<(&LightBlend, &LitTint, &mut Sprite)>) {
     for (blend, tint, mut sprite) in &mut sprites {
-        sprite.color = tint.dark.mix(&tint.bright, blend.0);
+        // Bound lighting material variants to display-scale blend steps.
+        let blend = (blend.0.clamp(0.0, 1.0) * 255.0).round() / 255.0;
+        let color = tint.dark.mix(&tint.bright, blend);
+        if sprite.color != color {
+            sprite.color = color;
+        }
     }
 }
 
