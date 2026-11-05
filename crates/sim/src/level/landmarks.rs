@@ -92,7 +92,14 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             kind,
         );
     }
-    for (i, net) in level.nets.iter().enumerate() {
+    // A zero-area net is an event marker (the lower canyon's tether switch),
+    // not a gate.
+    for (i, net) in level
+        .nets
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| !n.rect.is_empty())
+    {
         add(
             format!("ghost net {i}"),
             net.rect,

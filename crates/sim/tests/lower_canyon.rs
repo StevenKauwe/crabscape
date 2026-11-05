@@ -341,3 +341,227 @@ fn vent_field_is_wide_deep_and_open() {
     assert!(coral.windows(2).all(|w| w[1].x - w[0].x > 1020.0));
     println!("vent width {}, open-water height {}", r.width(), r.height());
 }
+
+#[test]
+fn tether_starts_after_the_first_visit_and_is_shared() {
+    use crabsim::{PlayerId, net::FakeLink};
+    let mut host = route::world(FULL, Vec2::new(17860.0, -10000.0), false);
+    let mut guest = crabsim::Sim::new(host.tuning.clone(), host.level.clone());
+    host.add_remote_crab(PlayerId(1), Vec2::new(18380.0, -10000.0));
+    guest.add_remote_crab(route::ME, Vec2::new(17860.0, -10000.0));
+    guest.add_crab(PlayerId(1), Vec2::new(18380.0, -10000.0));
+    host.go_online(true);
+    guest.go_online(false);
+    assert!(!host.level.tether_open());
+    let marker = host
+        .level
+        .nets
+        .iter()
+        .find(|n| n.rect.is_empty())
+        .expect("event marker")
+        .rect
+        .center();
+    assert!(
+        host.level
+            .rocks
+            .iter()
+            .any(|r| r.contains(marker - Vec2::new(50.0, 70.0))
+                && r.contains(marker + Vec2::new(50.0, 70.0))),
+        "the switch cannot be reached with scissors through the sill"
+    );
+    host.tick();
+    assert!(
+        !host.level.tether_open(),
+        "remote bodies do not open the tether"
+    );
+    let mut link = FakeLink::steady(0);
+    for _ in 0..120 {
+        guest.tick();
+        host.tick();
+        link.carry(&mut [&mut host, &mut guest]);
+    }
+    assert!(host.level.tether_open());
+    assert!(guest.level.tether_open());
+    let mut late = route::world(FULL, route::HOME, false);
+    late.go_online(false);
+    late.receive(host.world());
+    assert!(late.level.tether_open());
+    let floor = host.level.floor.clone();
+    let rocks = host.level.rocks.clone();
+    for (sim, id) in [(&mut host, route::ME), (&mut guest, PlayerId(1))] {
+        let m = &mut sim.crab_mut(id).expect("local crab").mover;
+        m.pos = Vec2::new(17840.0, -10000.0);
+        m.vel = Vec2::ZERO;
+        for tick in 0..120 * 5 {
+            sim.set_controls(
+                id,
+                Controls {
+                    jump_pressed: tick == 0,
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+        }
+        assert!(
+            sim.crab(id).expect("local crab").mover.pos.y > -8500.0,
+            "both devices ride the opened current"
+        );
+        assert_eq!(sim.level.floor, floor);
+        assert_eq!(sim.level.rocks, rocks);
+        assert_eq!(sim.level.currents, late.level.currents);
+    }
+}
+
+#[test]
+fn deep_food_is_visible_and_only_adapts_when_eaten_at_home() {
+    let mut sim = route::world(FULL, Vec2::new(18450.0, -10000.0), false);
+    let before = sim.crab(route::ME).expect("crab").adapted_depth;
+    let key = sim.level.deep_food().expect("vent food");
+    assert!(
+        Level::test_level()
+            .landmarks()
+            .iter()
+            .any(|l| l.kind == Kind::Refuge && l.rect.contains(Vec2::new(18380.0, -9970.0)))
+    );
+    assert!(key.distance(Vec2::new(18380.0, -9970.0)) < 800.0);
+    for i in 0..=100 {
+        let p = Vec2::new(18380.0, -9970.0).lerp(key, i as f32 / 100.0);
+        assert!(!sim.level.solids().any(|r| r.contains(p)));
+    }
+    sim.tick();
+    assert_eq!(
+        sim.crab(route::ME).expect("crab").mover.clinging,
+        vec![crabsim::physics::Carry::Clam]
+    );
+    assert_eq!(sim.crab(route::ME).expect("crab").adapted_depth, before);
+    sim.crab_mut(route::ME)
+        .expect("crab")
+        .mover
+        .prepared_food
+        .auto_eat = false;
+    sim.go_home(route::ME);
+    for _ in 0..sim.tuning.food.eat_after_ticks + 2 {
+        sim.tick();
+    }
+    assert_eq!(
+        sim.crab(route::ME).expect("crab").adapted_depth,
+        before,
+        "storing is not eating"
+    );
+    sim.crab_mut(route::ME)
+        .expect("crab")
+        .mover
+        .prepared_food
+        .auto_eat = true;
+    sim.tick();
+    assert_eq!(
+        sim.crab(route::ME).expect("crab").adapted_depth,
+        before - 1500.0
+    );
+    for _ in 0..120 {
+        sim.tick();
+    }
+    assert_eq!(
+        sim.crab(route::ME).expect("crab").adapted_depth,
+        before - 1500.0
+    );
+}
+
+#[test]
+fn deep_food_survives_dropping_other_items_and_death() {
+    use crabsim::{
+        physics::Carry,
+        world::{DeepFood, ShellAction},
+    };
+    let at = Vec2::new(18450.0, -10000.0);
+    let mut sim = route::world(FULL, at, false);
+    sim.crab_mut(route::ME)
+        .expect("crab")
+        .mover
+        .clinging
+        .push(Carry::Grit);
+    sim.tick();
+    assert_eq!(
+        sim.crab(route::ME).expect("crab").deep_food,
+        DeepFood::Carried(1)
+    );
+    assert!(sim.shell_action(route::ME, ShellAction::Drop(0)));
+    assert_eq!(
+        sim.crab(route::ME).expect("crab").deep_food,
+        DeepFood::Carried(0)
+    );
+    assert!(sim.shell_action(route::ME, ShellAction::Drop(0)));
+    sim.tick();
+    assert!(sim.crab(route::ME).expect("crab").mover.clinging.is_empty());
+    sim.crab_mut(route::ME).expect("crab").mover.pos.x += 300.0;
+    sim.tick();
+    sim.crab_mut(route::ME).expect("crab").mover.pos = at;
+    sim.tick();
+    assert_eq!(
+        sim.crab(route::ME).expect("crab").deep_food,
+        DeepFood::Carried(1)
+    );
+    sim.crab_mut(route::ME).expect("crab").fighter.dead = Some(sim.tuning.respawn_ticks);
+    sim.tick();
+    assert!(matches!(
+        sim.crab(route::ME).expect("crab").deep_food,
+        DeepFood::Dropped(_)
+    ));
+    assert!(sim.crab(route::ME).expect("crab").mover.clinging.is_empty());
+    let crab = sim.crab_mut(route::ME).expect("crab");
+    crab.mover.pos = at;
+    crab.mover.shelter = crabsim::home::Shelter::Out;
+    crab.mover.tucked = 0.0;
+    sim.tick();
+    assert_eq!(
+        sim.crab(route::ME).expect("crab").deep_food,
+        DeepFood::Carried(1)
+    );
+}
+
+#[test]
+fn guest_receives_deep_food_from_the_host_and_remote_crabs_do_not_eat_it() {
+    use crabsim::{PlayerId, net::FakeLink, world::DeepFood};
+    let guest_id = PlayerId(1);
+    let at = Vec2::new(18450.0, -10000.0);
+    let mut host = route::world(FULL, route::HOME, false);
+    host.add_remote_crab(guest_id, at);
+    let mut guest = crabsim::Sim::new(host.tuning.clone(), host.level.clone());
+    guest.add_crab(guest_id, at);
+    guest.add_remote_crab(route::ME, route::HOME);
+    host.go_online(true);
+    guest.go_online(false);
+    let mut link = FakeLink::steady(3);
+    for _ in 0..60 {
+        host.tick();
+        guest.tick();
+        link.carry(&mut [&mut host, &mut guest]);
+    }
+    assert_eq!(
+        guest.crab(guest_id).expect("guest").deep_food,
+        DeepFood::Carried(0)
+    );
+    let bed = host
+        .level
+        .clams
+        .iter()
+        .position(|p| *p == host.level.deep_food().expect("food"))
+        .expect("bed");
+    assert!(host.shared.clams[bed] > 0 && guest.shared.clams[bed] > 0);
+    let before = guest.crab(guest_id).expect("guest").adapted_depth;
+    guest.go_home(guest_id);
+    for _ in 0..guest.tuning.food.eat_after_ticks + 2 {
+        host.tick();
+        guest.tick();
+        link.carry(&mut [&mut host, &mut guest]);
+    }
+    assert_eq!(
+        guest.crab(guest_id).expect("guest").adapted_depth,
+        before - 1500.0
+    );
+    assert_eq!(
+        host.crab(guest_id).expect("remote").deep_food,
+        DeepFood::Available
+    );
+    assert_eq!(host.crab(route::ME).expect("host").adapted_depth, before);
+}

@@ -477,4 +477,79 @@ those passages with the biggest crab catch an intrusion.
 The long chimney has a continuous buried return from the vent bank to home.
 No creatures, rewards, keys, tether or rides are added by this package.
 
+**Not ready to ship:** the old `exploration.rs` slope assertion currently ranges
+over every floor segment east of x=8,800. It must be limited to the original reef
+ending at x=17,600 before this intentionally steep extension can pass. That file
+is outside #487's permitted edit list. Keeping that assertion global instead
+requires a long gentle descent that exceeds the cellular bake's fixed
+16-million-cell bound. The compact layout fits (15,978,038 cells). The full
+9,000-step seed bake, compaction, committed digest update and post-bake canonical
+cell tests remain pending; the current committed seed is deliberately unchanged.
+The frame dig checks currently exercise raw substrate by changing only the far
+boundary to opt out of the stale seed. They must also be run with the canonical
+boundary after the final bake.
+
+Pre-bake measurements: all seven lower-canyon tests pass in 19.7 seconds,
+including all 112 ability-kit combinations at the narrows and real-cell digging
+from both sides. The 1,000-point vent-water grid's worst visible-refuge distance
+is 930.5 units (limit 1,500). The thirty-step material probe conserves 81,898 sand
+and 58,725 mud cells, takes 2.436 seconds, and projects a 730.8-second full bake.
+Formatting and native/wasm clippy pass. The sim suite currently reports 209
+passed, 34 ignored, and 227 failures: 225 stale-seed checks, the intentionally
+unchanged probe digest, and the legacy slope assertion described above. Workspace
+tests stop at four stale-seed fixture failures. These are pre-bake results, not a
+claim that the package is ready to merge.
+The final complete `world_shape` run passes all 18 active checks (one existing
+exhaustive gate matrix remains ignored), but takes 94.1 seconds: its unchanged
+home-to-basin narrow-crossing survey exceeds the requested roughly 60-second
+file budget. That survey still needs bounded sampling without weakening coverage.
+
+## Lower canyon tether and deep food (W1.4 / #460)
+
+Reaching the vent field (x=18,300–20,800, y=-10,000–-9,000) opens
+one shared return current. The current occupies the existing water between
+the slump face and the narrows buttress, x=17,781–17,960, from the floor to
+y=-2,300. Walk back through the broken narrows, jump into the current and
+steer left over the slump crest to Coral Rise's end. It uses the ordinary
+water-drag physics at the existing upwelling speed, with no teleport, new
+rock, floor edit or altered movement tuning. Until the first visit it is off.
+A zero-area marker inside sealed bedrock stores its flag in the existing
+net-cut list, so the event, late joins and world switching use the same
+transport as cut nets. Remote crabs are never stepped to activate it.
+
+An unnamed deep-food clam at (18,450, -9,970) is visible from the nearest
+coral refuge, about 70 units away with clear sight. It uses the ordinary
+shared clam bed, carrying slots, pickup preferences and regrowth. The taker's
+meal provenance follows drops and cast-off shells. At home it is stored
+separately from recipe ingredients, then eaten under the normal meal rules
+(including auto-eat and already being well fed). It calls `adapt_deeper(1500)`
+once per crab; collecting it, dropping it, or resting elsewhere grants no
+adaptation. A friend can obtain the regrown food. The unnamed species and
+1,500-unit meal effect are **not verified** biology; the inspiration is TMAO
+in `ocean-shaped.md` row 13. No save format is changed; like the existing
+strain/adapted-depth fields, this new meal provenance is currently session
+state, not part of the legacy `Progress` save payload.
+
+The route survey starts at the slump crest with the crusher lock already
+broken (the separate gate test proves that action), descends through the
+vent floor and returns to Coral Rise's end. Measured: **0 strokes down,
+5 strokes total, minimum reserve 0.462 (3.23 of six reserve strokes spent),
+62.36 seconds, zero rest stops**. With only the tether event disabled and
+identical terrain and tuning, no six-stroke route gets back over the slump.
+This measures the lower-canyon branch, not the previously authored journey
+from Coral Rise all the way to the home shell.
+
+Taste check: key visible from refuge **yes**; cheap descent and a real
+pre-discovery return debt **yes**; vent field is a round trip via the tether
+**yes**. No loop is added. W4.2's long chimney from the vent bank's chimney
+hall remains the deferred second way home. The earlier W1.3b pre-bake notes
+above are historical: starting commit `f7c6e81` already contains the rebake
+and the bounded slope assertion. Its library suite has seven existing
+failures (the whole-map memory-save size and six cellular/moray checks):
+an untouched checkout and this package both produce 429 passed, 7 failed,
+34 ignored. Workspace tests also stop at the same two `cooptest` large-save
+fixture failures on both versions. Fixing those save/engine failures is
+outside this package. The final focused checks pass: `lower_canyon` 11 tests
+in 22.0 seconds; `dive_budget` 6 tests in 10.7 seconds (one survey ignored).
+Formatting and native/wasm clippy with warnings denied pass.
 Measured: 112 ability-kit combinations at the narrows and digging from both sides; the vent field's worst visible-refuge distance is 930.5 units (limit 1,500); the full seed bake takes about 12 minutes and stays under the bake's 16-million-cell bound.
