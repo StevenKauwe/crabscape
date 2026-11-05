@@ -467,9 +467,25 @@ impl Memory {
         enemies: &[Enemy],
         tuning: &Tuning,
     ) {
+        self.step_with_sight(
+            Sight::new(eye, lantern, &tuning.memory),
+            level,
+            enemies,
+            tuning,
+        );
+    }
+
+    /// Update current perception without changing remembered places or paging capacity.
+    pub fn step_with_sight(
+        &mut self,
+        sight: Sight,
+        level: &Level,
+        enemies: &[Enemy],
+        tuning: &Tuning,
+    ) {
         let t = &tuning.memory;
+        let eye = sight.eye;
         self.now += 1;
-        let sight = Sight::new(eye, lantern, t);
         self.live_cells.clear();
         // In sight: inside the circle, and either solid itself (a rock's or
         // the floor's whole shape reads at once) or water with a clear line
@@ -699,6 +715,17 @@ impl Memory {
         m.dirty.clear();
         Some(m)
     }
+}
+
+/// Compressed-zone art depth, shared with presentation. Not measured irradiance.
+pub fn depth_factor(at: Vec2) -> f32 {
+    let smooth = |a: f32, b: f32, x: f32| {
+        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let vertical = (-at.y / 9000.0).clamp(0.0, 1.0);
+    let canyon = smooth(5350.0, 6150.0, at.x) * (1.0 - smooth(-1500.0, 1000.0, at.y));
+    vertical.max(0.75 * canyon)
 }
 
 /// What a crab perceives right now: an ellipse round its eyes, wider than
@@ -1215,5 +1242,14 @@ mod cold_memory_tests {
                 CHUNK_CELLS * std::mem::size_of::<MemoryCell>()
             );
         }
+    }
+}
+
+/// Wound scent is a design rule, biology not verified.
+pub fn wound_scent_factor(crab: &crate::SimCrab) -> f32 {
+    if crab.fighter.legs_lost > 0 || crab.fighter.vitals.unhit < 20 * crate::TICKS_PER_SECOND {
+        1.5
+    } else {
+        1.0
     }
 }

@@ -22,6 +22,7 @@ pub(crate) struct Open(pub(crate) bool);
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum Choice {
     Open,
+    Lantern,
     Pickup,
     Clams,
     Grit,
@@ -32,7 +33,7 @@ enum Choice {
     HeldShell,
 }
 
-const ROWS: [Choice; 11] = [
+const ROWS: [Choice; 12] = [
     Choice::Open,
     Choice::Pickup,
     Choice::Clams,
@@ -44,6 +45,8 @@ const ROWS: [Choice; 11] = [
     Choice::Back,
     Choice::HeldValve,
     Choice::HeldShell,
+    // Last, so the rows the WebKit test taps (`tools/webtest`) keep their places.
+    Choice::Lantern,
 ];
 
 const SHORTCUTS: [(Choice, KeyCode); 6] = [
@@ -56,7 +59,9 @@ const SHORTCUTS: [(Choice, KeyCode); 6] = [
 ];
 
 pub(crate) fn is_shortcut(key: KeyCode) -> bool {
-    key == KeyCode::KeyB || SHORTCUTS.iter().any(|(_, shortcut)| key == *shortcut)
+    key == KeyCode::KeyB
+        || key == KeyCode::KeyH
+        || SHORTCUTS.iter().any(|(_, shortcut)| key == *shortcut)
 }
 
 #[derive(Component)]
@@ -152,6 +157,8 @@ fn interact(
         });
     let choice = if keys.just_pressed(KeyCode::KeyB) {
         Some(Choice::Open)
+    } else if keys.just_pressed(KeyCode::KeyH) {
+        Some(Choice::Lantern)
     } else {
         rows.iter()
             .find(|(c, b, t, n)| {
@@ -168,6 +175,7 @@ fn interact(
             open.0 = !open.0;
             return;
         }
+        Some(Choice::Lantern) => ShellAction::ToggleLantern,
         Some(Choice::Clams) if open.0 => ShellAction::ToggleClams,
         Some(Choice::Grit) if open.0 => ShellAction::ToggleGrit,
         Some(Choice::Drop(kind)) if open.0 => {
@@ -243,6 +251,20 @@ fn refresh(
             Choice::Open if open.0 => Some(format!("Close inventory{shortcut}")),
             Choice::Open => Some(format!("Inventory   ({carried}){shortcut}")),
             _ if !open.0 => None,
+            Choice::Lantern => Some(format!(
+                "{}Lantern: {} — tap to {}",
+                if touching { "" } else { "[H] " },
+                if crab.mover.lantern_dim {
+                    "DIM"
+                } else {
+                    "FULL"
+                },
+                if crab.mover.lantern_dim {
+                    "brighten"
+                } else {
+                    "dim"
+                }
+            )),
             Choice::Pickup => Some("Pick up automatically".into()),
             Choice::Clams => Some(format!("Clams   {}", on(crab.pickup.clams))),
             Choice::Grit => Some(format!("Grit   {}", on(crab.pickup.grit))),
@@ -315,6 +337,89 @@ mod tests {
             app.world().get::<Text>(children[0]).unwrap().0.clone(),
             node.display,
         )
+    }
+
+    #[test]
+    fn keyboard_and_phone_row_toggle_the_same_local_lantern_action() {
+        use bevy::input::touch::{TouchInput, TouchPhase, touch_screen_input_system};
+        let mut app = App::new();
+        app.insert_resource(Sim::with_one_crab(Vec2::new(12800.0, -3250.0)))
+            .init_resource::<Open>()
+            .init_resource::<crate::settings::panel::Open>()
+            .init_resource::<crate::codes::CodeBox>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Touches>()
+            .add_message::<TouchInput>()
+            .add_systems(Startup, spawn)
+            .add_systems(PreUpdate, touch_screen_input_system)
+            .add_systems(Update, (interact, refresh).chain());
+        app.world_mut().spawn((PlayerId(0), LocalPlayer));
+        let window = app
+            .world_mut()
+            .spawn(Window {
+                resolution: (430, 742).into(),
+                ..default()
+            })
+            .id();
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyH);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<Sim>()
+                .crab(PlayerId(0))
+                .unwrap()
+                .mover
+                .lantern_dim
+        );
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        app.world_mut().resource_mut::<Open>().0 = true;
+        app.update();
+        assert!(row(&mut app, Choice::Lantern).0.contains("DIM"));
+        assert_eq!(row(&mut app, Choice::Lantern).1, Display::Flex);
+        let mut rows = app
+            .world_mut()
+            .query::<(&Choice, &mut ComputedNode, &mut UiGlobalTransform)>();
+        for (choice, mut computed, mut transform) in rows.iter_mut(app.world_mut()) {
+            if *choice == Choice::Lantern {
+                computed.size = Vec2::new(258.0, 40.0);
+                *transform = UiGlobalTransform::from(bevy::math::Affine2::from_translation(
+                    Vec2::new(150.0, 180.0),
+                ));
+            }
+        }
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: Vec2::new(150.0, 180.0),
+            window,
+            force: None,
+            id: 1,
+        });
+        app.update();
+        assert!(
+            !app.world()
+                .resource::<Sim>()
+                .crab(PlayerId(0))
+                .unwrap()
+                .mover
+                .lantern_dim
+        );
+        assert!(row(&mut app, Choice::Lantern).0.contains("FULL"));
+        app.update();
+        assert!(
+            !app.world()
+                .resource::<Sim>()
+                .crab(PlayerId(0))
+                .unwrap()
+                .mover
+                .lantern_dim,
+            "held touch must not repeat"
+        );
     }
 
     #[test]
