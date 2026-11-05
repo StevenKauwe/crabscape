@@ -155,7 +155,13 @@ mod tests {
         assert!(level.max_x > 17000.0);
         // Every slope has a continuous walking route; the cap is the one
         // optional dig/climb obstacle, not a one-way cliff out of the world.
-        for pair in level.floor.windows(2).filter(|p| p[0].x >= 8800.0) {
+        // The lower canyon's slump-dam drop east of the reef is one-way on purpose
+        // (`lower_canyon.rs`).
+        for pair in level
+            .floor
+            .windows(2)
+            .filter(|p| p[0].x >= 8800.0 && p[1].x <= 17600.0)
+        {
             assert!((pair[1].y - pair[0].y).abs() / (pair[1].x - pair[0].x) <= 0.8);
         }
         for climb in level.climbs.iter().filter(|c| c.x > 8800.0) {

@@ -64,6 +64,28 @@ fn read_runs<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Run>, D::Erro
 }
 impl RegionJournal {
     pub fn new(kernel: &RegionKernel, authority: PlayerId) -> Result<Self, RegionError> {
+        let mut journal = Self::from_encoded(kernel, authority, Vec::new())?;
+        journal.checkpoint = kernel.checkpoint()?;
+        Ok(journal)
+    }
+
+    /// Decode and validate received state once, retaining its bytes for recovery.
+    /// Authority is chosen from the validated kernel before either value is installed.
+    pub fn from_checkpoint(
+        bytes: Vec<u8>,
+        authority: impl FnOnce(&RegionKernel) -> PlayerId,
+    ) -> Result<(RegionKernel, Self), RegionError> {
+        let kernel = RegionKernel::from_checkpoint(&bytes)?;
+        let journal = Self::from_encoded(&kernel, authority(&kernel), bytes)?;
+        Ok((kernel, journal))
+    }
+
+    // Only called with a checkpoint generated here or decoded and validated above.
+    fn from_encoded(
+        kernel: &RegionKernel,
+        authority: PlayerId,
+        checkpoint: Vec<u8>,
+    ) -> Result<Self, RegionError> {
         let members = kernel.members();
         if members.is_empty() || members.len() > 8 {
             return Err(RegionError::InvalidRoster);
@@ -80,10 +102,21 @@ impl RegionJournal {
             members,
             base_tick: kernel.sim.tick_count(),
             next_tick: kernel.sim.tick_count(),
-            checkpoint: kernel.checkpoint()?,
+            checkpoint,
             runs: Vec::new(),
         })
     }
+    /// Start a journal and transfer the same freshly encoded base checkpoint.
+    /// The returned bytes are owned independently; receivers still validate them.
+    pub fn new_with_checkpoint(
+        kernel: &RegionKernel,
+        authority: PlayerId,
+    ) -> Result<(Self, Vec<u8>), RegionError> {
+        let journal = Self::new(kernel, authority)?;
+        let checkpoint = journal.checkpoint.clone();
+        Ok((journal, checkpoint))
+    }
+
     fn metadata_at(&self, state: u64) -> (u64, u64, u64) {
         let mut result = (
             self.base_revision,
@@ -643,7 +676,103 @@ mod tests {
     use super::*;
     use crate::underwater::region_store::TerrainStore;
     #[test]
-    fn local_compaction_matches_validated_checkpoint_and_keeps_future_history_exact() {
+    fn lagging_follower_compacts_applied_history_without_dropping_queued_frames() {
+        use std::collections::VecDeque;
+
+        let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+        sim.add_crab(PlayerId(7), Vec2::new(260.0, 0.0));
+        sim.enable_underwater_cells();
+        let mut terrain = TerrainStore::new(sim.level.cells.take().unwrap()).unwrap();
+        let mut archive = EntityArchive::new(sim).unwrap();
+        let (epoch, world) = terrain
+            .grant(
+                RegionId(1),
+                CellRegion {
+                    x: 0,
+                    y: 0,
+                    width: 128,
+                    height: 128,
+                },
+                &archive.sim.level,
+            )
+            .unwrap();
+        let live = archive
+            .extract(RegionId(1), epoch, &[PlayerId(0), PlayerId(7)], world)
+            .unwrap();
+        let mut journal = RegionJournal::new(&live, PlayerId(0)).unwrap();
+        let mut uncompacted = journal.clone();
+        let mut view = Sim::with_one_crab(Vec2::ZERO);
+        let mut installed = live.install_view(&mut view);
+        let frame = |tick| RegionFrame {
+            tick,
+            controls: vec![
+                (PlayerId(0), Controls::default()),
+                (
+                    PlayerId(7),
+                    Controls {
+                        walk: if (tick / 60) % 2 == 0 { 0.25 } else { -0.25 },
+                        ..Controls::default()
+                    },
+                ),
+            ],
+            actions: vec![],
+        };
+        // Model a shared follower which is always 32 inputs behind. Its queue
+        // never drains, while its applied prefix remains valid for compaction.
+        let mut queued: VecDeque<_> = (0..32).map(frame).collect();
+        let mut compactions = 0;
+        for tick in 0..MAX_TICKS + 120 {
+            let input = queued.pop_front().unwrap();
+            queued.push_back(frame(tick + 32));
+            assert_eq!(input.tick, tick);
+            installed.tick_view(&mut view, &input).unwrap();
+            journal
+                .append(PlayerId(0), epoch, std::slice::from_ref(&input))
+                .unwrap();
+            if tick < MAX_TICKS {
+                uncompacted
+                    .append(PlayerId(0), epoch, std::slice::from_ref(&input))
+                    .unwrap();
+            } else if tick == MAX_TICKS {
+                assert_eq!(
+                    uncompacted.append(PlayerId(0), epoch, std::slice::from_ref(&input)),
+                    Err(RegionError::InvalidFrame),
+                    "the old empty-queue condition never compacts this follower",
+                );
+            }
+            if journal.pending_ticks() >= 3600 {
+                let future = postcard::to_allocvec(&queued).unwrap();
+                let hash = view.state_hash();
+                journal
+                    .replace_from_local_view(PlayerId(0), &mut installed, &mut view)
+                    .unwrap();
+                assert_eq!(journal.pending_ticks(), 0);
+                assert_eq!(journal.acknowledged_tick(), view.tick_count());
+                assert_eq!(view.state_hash(), hash);
+                assert_eq!(postcard::to_allocvec(&queued).unwrap(), future);
+                compactions += 1;
+            }
+        }
+        assert_eq!(compactions, 2);
+        assert_eq!(queued.len(), 32);
+        assert_eq!(queued.front().unwrap().tick, MAX_TICKS + 120);
+        assert_eq!(journal.pending_ticks(), 120);
+        let restored = RegionJournal::from_bytes(&journal.to_bytes().unwrap()).unwrap();
+        assert_eq!(
+            restored.materialize().unwrap().sim.state_hash(),
+            view.state_hash()
+        );
+        let replay = crate::Replay::parse(&journal.to_text().unwrap()).unwrap();
+        let mut played = Sim::with_one_crab(replay.start);
+        assert!(replay.prepare_start(&mut played));
+        for _ in 0..replay.length() {
+            assert!(replay.step_cell_session(&mut played));
+        }
+        assert_eq!(played.state_hash(), view.state_hash());
+    }
+
+    #[test]
+    fn reused_initial_checkpoint_and_compaction_keep_future_history_exact() {
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
         sim.enable_underwater_cells();
         sim.populate();
@@ -664,7 +793,30 @@ mod tests {
         let mut live = archive
             .extract(RegionId(1), epoch, &[PlayerId(0)], world)
             .unwrap();
-        let mut journal = RegionJournal::new(&live, PlayerId(0)).unwrap();
+        let (mut journal, mut checkpoint) =
+            RegionJournal::new_with_checkpoint(&live, PlayerId(0)).unwrap();
+        assert_eq!(
+            RegionKernel::from_checkpoint(&checkpoint)
+                .unwrap()
+                .sim
+                .state_hash(),
+            live.sim.state_hash()
+        );
+        let (received, mut received_journal) =
+            RegionJournal::from_checkpoint(checkpoint.clone(), |_| PlayerId(0)).unwrap();
+        assert_eq!(received.sim.state_hash(), live.sim.state_hash());
+        assert_eq!(received_journal, journal);
+        assert!(
+            RegionJournal::from_checkpoint(vec![0; 32], |_| {
+                panic!("authority must not be selected from invalid state")
+            })
+            .is_err()
+        );
+        checkpoint.fill(0);
+        assert_eq!(
+            journal.materialize().unwrap().sim.state_hash(),
+            live.sim.state_hash()
+        );
         for tick in 0..12 {
             let frame = RegionFrame {
                 tick,
@@ -672,8 +824,17 @@ mod tests {
                 actions: vec![],
             };
             live.tick(&frame).unwrap();
+            received_journal
+                .append(PlayerId(0), epoch, std::slice::from_ref(&frame))
+                .unwrap();
             journal.append(PlayerId(0), epoch, &[frame]).unwrap();
         }
+        let restored_received =
+            RegionJournal::from_bytes(&received_journal.to_bytes().unwrap()).unwrap();
+        assert_eq!(
+            restored_received.materialize().unwrap().sim.state_hash(),
+            live.sim.state_hash()
+        );
         let before = journal.clone();
         assert!(journal.replace_from_local(PlayerId(7), &live).is_err());
         let old_id = live.id;

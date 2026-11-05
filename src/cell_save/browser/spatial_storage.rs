@@ -89,6 +89,7 @@ pub(super) async fn write(
     epoch: u64,
     expected_revision: u64,
     worker: &mut crate::cell_worker::CellWorker,
+    access: &super::super::page_access::Gate,
     current: impl Fn() -> bool + 'static,
 ) -> Result<(Acknowledgement, u64), String> {
     let committed_player = serde_json::from_slice(&capture.active.player).map_err(issue)?;
@@ -285,6 +286,12 @@ pub(super) async fn write(
     {
         return Err("changed records exceed the bounded transaction budget".into());
     }
+    // Keep compression concurrent with reads. Only final publication waits
+    // until old-revision replies have been applied to the live simulation.
+    let _publication = access
+        .publish()
+        .await
+        .ok_or("save publication already pending")?;
     if !current() {
         return Err("spatial save canceled".into());
     }

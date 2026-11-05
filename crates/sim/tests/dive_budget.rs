@@ -119,17 +119,28 @@ fn report(kit: Kit) -> String {
     out
 }
 
-/// The farthest east a kit's crab ever comes to rest, searching only on
-/// home's side of the cliff.
+/// Search the gate approaches, plus a direct survey from the surface kelp.
+/// The latter checks the high-glide bypass without exploring every height
+/// of the stalk again for every kit.
 fn farthest_east(kit: Kit) -> (Vec2, String) {
-    let s = survey_from(
-        start_node(kit, HOME, false),
+    let ground = survey_from(
+        start_node(kit, Vec2::new(900.0, 110.0), false),
         kit,
-        |n| n.mover().pos.x > 2716.0,
+        |n| {
+            let p = n.mover().pos;
+            p.x < 850.0 || p.x > 2716.0 || p.y > 500.0
+        },
         BUDGET,
     );
+    let mut top = start_node(
+        kit,
+        Vec2::new(900.0, crabsim::level::WATER_SURFACE_Y - 80.0),
+        false,
+    );
+    top.sim.crab_mut(ME).expect("crab").mover.climbing = true;
+    let surface = survey_from(top, kit, |n| n.time > 0.0, 100);
     // Down in the trench (its floor and stepping stone) is still home's side.
-    let x = |i: usize| {
+    let x = |s: &Survey, i: usize| {
         let p = s.nodes[i].mover().pos;
         if p.x > 1300.0 && p.x < 1820.0 && p.y < 0.0 {
             0.0
@@ -137,10 +148,13 @@ fn farthest_east(kit: Kit) -> (Vec2, String) {
             p.x
         }
     };
-    let i = (0..s.nodes.len())
-        .max_by(|&a, &b| x(a).total_cmp(&x(b)))
+    let surveys = [ground, surface];
+    let (s, i) = surveys
+        .iter()
+        .flat_map(|s| (0..s.nodes.len()).map(move |i| (s, i)))
+        .max_by(|&(a, ai), &(b, bi)| x(a, ai).total_cmp(&x(b, bi)))
         .expect("somewhere");
-    (Vec2::new(x(i), s.nodes[i].mover().pos.y), s.describe(i))
+    (Vec2::new(x(s, i), s.nodes[i].mover().pos.y), s.describe(i))
 }
 
 #[test]
@@ -217,6 +231,21 @@ fn a_prepared_climb_out_of_the_pit_is_bounded() {
 
 #[test]
 fn route_wormhole_edge_makes_a_box_reachable() {
+    // This test checks the directed edge and its kit/cost semantics. One
+    // expansion exercises every ordinary move plus the edge without
+    // surveying unrelated branches of the growing world four times.
+    let one_move = |start: Node, kit, edges: &[Wormhole]| {
+        let at = start.mover().pos;
+        let time = start.time;
+        survey_observed(
+            start,
+            kit,
+            |n| n.time > time || n.mover().pos != at,
+            100,
+            edges,
+            &mut |_| {},
+        )
+    };
     let kit = Kit::eggs(0);
     let edge = Wormhole {
         from: [200.0, 400.0, -10.0, 10.0],
@@ -224,9 +253,13 @@ fn route_wormhole_edge_makes_a_box_reachable() {
         reserve_cost: 0.25,
         needs: |k| k.scissors,
     };
-    assert!(survey(kit).reached("far rim").is_none());
     assert!(
-        survey_with_wormholes(kit, &[edge])
+        one_move(start_node(kit, HOME, false), kit, &[])
+            .reached("far rim")
+            .is_none()
+    );
+    assert!(
+        one_move(start_node(kit, HOME, false), kit, &[edge])
             .reached("far rim")
             .is_none()
     );
@@ -234,7 +267,7 @@ fn route_wormhole_edge_makes_a_box_reachable() {
         scissors: true,
         ..kit
     };
-    let s = survey_with_wormholes(kit, &[edge]);
+    let s = one_move(start_node(kit, HOME, false), kit, &[edge]);
     let i = s.reached("far rim").expect("the wormhole reaches the rim");
     assert_eq!(s.nodes[i].mover().reserve, 0.75);
     assert_eq!(s.nodes[i].min_reserve, 0.75);
@@ -246,9 +279,117 @@ fn route_wormhole_edge_makes_a_box_reachable() {
         reserve_cost: 0.125,
         needs: |k| k.scissors,
     };
-    let s = survey_with_wormholes(kit, &[edge, back]);
+    let s = one_move(start_node(kit, HOME, false), kit, &[edge, back]);
     let i = s.reached("far rim").expect("the wormhole reaches the rim");
-    let home = way_home(&s, i, kit).expect("the return wormhole reaches home");
+    let returned = one_move(s.nodes[i].clone(), kit, &[edge, back]);
+    let home = returned
+        .nodes
+        .iter()
+        .find(|n| n.mover().pos == HOME)
+        .expect("the return wormhole reaches home");
     assert_eq!(home.min_reserve, 0.625);
     assert_eq!(home.mover().reserve, 0.625);
+}
+
+const VENT_KIT: Kit = Kit {
+    eggs: 6,
+    crusher: true,
+    ..Kit::eggs(6)
+};
+
+fn vent_return(open: bool) -> Survey {
+    let mut start = start_node(VENT_KIT, Vec2::new(17720.0, -2520.0), false);
+    // The outbound crab already broke the narrows with its crusher.
+    for b in &mut start.sim.level.brittle {
+        if b.rect.min.x == 18000.0 {
+            b.cracked = true;
+        }
+    }
+    if !open {
+        // Disable only the zero-area event marker for the pre-discovery
+        // counterfactual. Terrain and every movement number stay identical.
+        for n in &mut start.sim.level.nets {
+            if n.rect.is_empty() {
+                n.rect.min.y -= 1.0;
+                n.rect.max.y -= 1.0;
+            }
+        }
+    }
+    let down = survey_from(
+        start,
+        VENT_KIT,
+        |n| {
+            let p = n.mover().pos;
+            p.x < 17700.0 || p.x >= 18300.0 || n.time > 35.0
+        },
+        250,
+    );
+    let start = down
+        .nodes
+        .iter()
+        .filter(|n| n.mover().pos.x >= 18300.0 && n.mover().pos.y <= -9800.0)
+        .min_by_key(|n| n.strokes)
+        .expect("descent reaches vent field")
+        .clone();
+    println!(
+        "descent: {:?}, {} strokes, reserve {}",
+        start.mover().pos,
+        start.strokes,
+        start.min_reserve
+    );
+    assert!(
+        matches!(
+            start.sim.crab(ME).expect("crab").deep_food,
+            crabsim::world::DeepFood::Carried(_)
+        ),
+        "the descent actually collects the key"
+    );
+    let departure = start.time;
+    let mut highest = -10000.0_f32;
+    let result = survey_observed(
+        start,
+        VENT_KIT,
+        |n| {
+            let p = n.mover().pos;
+            p.x < 17780.0 || p.x > 21000.0 || n.time > departure + 45.0
+        },
+        250,
+        &[],
+        &mut |p| {
+            if p.x < 17960.0 {
+                highest = highest.max(p.y);
+            }
+        },
+    );
+    println!("tether {open}: highest return at slump y={highest:.1}");
+    result
+}
+
+#[test]
+fn vent_field_round_trip_with_tether_fits_one_rest() {
+    let survey = vent_return(true);
+    let home = survey
+        .nodes
+        .iter()
+        .filter(|n| n.mover().pos.x < 17780.0 && n.mover().pos.y >= -2700.0)
+        .min_by_key(|n| n.strokes)
+        .expect("tether returns to Coral Rise");
+    println!(
+        "vent return: {} strokes, reserve low {}, {} seconds",
+        home.strokes, home.min_reserve, home.time
+    );
+    assert!(home.strokes <= 6);
+    assert!(home.min_reserve > 0.0);
+}
+
+#[test]
+fn vent_field_round_trip_without_tether_costs_more_than_a_rested_reserve() {
+    let survey = vent_return(false);
+    assert!(
+        !survey
+            .nodes
+            .iter()
+            .any(|n| n.mover().pos.x < 17780.0 && n.mover().pos.y >= -2700.0 && n.strokes <= 6),
+        "six strokes cannot repay the slump drop"
+    );
 }

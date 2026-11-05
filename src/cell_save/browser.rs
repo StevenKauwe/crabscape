@@ -51,8 +51,13 @@ struct Autosave {
     worker: Option<crate::cell_worker::CellWorker>,
     revision: u64,
     acknowledgement: Option<crabsim::cell_codec::spatial::Acknowledgement>,
+    access: super::page_access::Gate,
     read_busy: bool,
-    read_result: Option<(u64, Result<super::paging::Replies, String>)>,
+    read_result: Option<(
+        u64,
+        Result<super::paging::Replies, String>,
+        super::page_access::Read,
+    )>,
     read_warning: Option<String>,
     read_retry: f32,
     read_started_ms: Option<f64>,
@@ -106,7 +111,13 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
         return;
     }
     let completed = AUTOSAVE.with(|slot| slot.borrow_mut().read_result.take());
-    if let Some((read_revision, result)) = completed
+    if completed
+        .as_ref()
+        .is_some_and(|(read_revision, _, _)| *read_revision != revision)
+    {
+        let _profile = super::work::begin("cell-page-reply-stale");
+    }
+    if let Some((read_revision, result, _reply_access)) = completed
         && read_revision == revision
     {
         let result = result.and_then(|mut replies| {
@@ -122,8 +133,12 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
         AUTOSAVE.with(|slot| {
                 let mut state = slot.borrow_mut();
                 match result {
-                    Ok(()) => state.read_warning = None,
+                    Ok(()) => {
+                        let _profile = super::work::begin("cell-page-reply-applied");
+                        state.read_warning = None;
+                    }
                     Err(reason) => {
+                        let _profile = super::work::begin("cell-page-reply-failed");
                         state.read_warning = Some(format!("Nearby saved terrain could not be loaded: {reason}. Your previous save is kept; loading will retry."));
                         state.read_retry = 0.0;
                     }
@@ -139,6 +154,15 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
         .and_then(|window| window.document())
         .and_then(|document| document.get_element_by_id("crabscape"))
     {
+        if canvas.has_attribute("data-cell-work-profile") {
+            let status = AUTOSAVE.with(|slot| {
+                let state = slot.borrow();
+                format!("revision={} saving={} reading={} retry={:.2} elapsed={:.2} warning={} terrain={} memory={} flush={}",
+                    state.revision, state.busy, state.read_busy, state.read_retry, state.elapsed,
+                    state.read_warning.is_some(), requests.terrain.len(), requests.memory.len(), requests.flush)
+            });
+            let _ = canvas.set_attribute("data-cell-page-state", &status);
+        }
         let _ = canvas.set_attribute(
             "data-cell-cache",
             &format!("{}:{}", requests.resident.0, requests.resident.1),
@@ -156,7 +180,7 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
     let can_save = sim.crab(id).is_some_and(|crab| {
         crate::player::valid_saved_spot(crab.mover.pos, crab.mover.grown(&sim.tuning), sim)
     });
-    let Some((generation, epoch)) = AUTOSAVE.with(|slot| {
+    let Some((generation, epoch, read_access)) = AUTOSAVE.with(|slot| {
         let mut state = slot.borrow_mut();
         // A sealed save may spend several seconds compressing off-thread.
         // Let a crossing read its current durable revision in that interval.
@@ -168,9 +192,10 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
             return None;
         }
         let epoch = state.epoch?;
+        let read_access = state.access.read()?;
         state.read_busy = true;
         state.read_started_ms = Some(js_sys::Date::now());
-        Some((state.generation, epoch))
+        Some((state.generation, epoch, read_access))
     }) else {
         return;
     };
@@ -187,7 +212,7 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
             if state.generation == generation && state.enabled && may_update() {
                 state.read_busy = false;
                 state.read_started_ms = None;
-                state.read_result = Some((revision, result));
+                state.read_result = Some((revision, result, read_access));
             }
         });
     });
@@ -329,13 +354,17 @@ pub fn submit_save(generation: u64, prepared: crabsim::cell_codec::spatial::Capt
         }
     };
     wasm_bindgen_futures::spawn_local(async move {
-        let revision = AUTOSAVE.with(|slot| slot.borrow().revision);
+        let (revision, access) = AUTOSAVE.with(|slot| {
+            let state = slot.borrow();
+            (state.revision, state.access.clone())
+        });
         let written = spatial_storage::write(
             &crate::save::browser_key(".cells"),
             prepared,
             epoch,
             revision,
             &mut worker,
+            &access,
             move || current_save(generation),
         )
         .await;

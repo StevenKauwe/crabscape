@@ -16,12 +16,23 @@ pub struct Landmark {
 /// Fear register or a door/gate used to measure routes between registers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
+    /// Sealed bedrock outline reserved for future strata.
+    Frame,
+    /// One-way overworld descent.
+    Drop,
+    /// Separately authored future mouth closure.
+    Plug,
     Refuge,
     OpenWater,
     Tunnel,
     Mouth,
-    Chamber { door: Rect, prize: Vec2 },
-    Gate { needs: Needs },
+    Chamber {
+        door: Rect,
+        prize: Vec2,
+    },
+    Gate {
+        needs: Needs,
+    },
 }
 
 /// Labels for the existing passage checks, spanning crafted kit and feats.
@@ -81,7 +92,14 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             kind,
         );
     }
-    for (i, net) in level.nets.iter().enumerate() {
+    // A zero-area net is an event marker (the lower canyon's tether switch),
+    // not a gate.
+    for (i, net) in level
+        .nets
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| !n.rect.is_empty())
+    {
         add(
             format!("ghost net {i}"),
             net.rect,
@@ -92,7 +110,11 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     }
     for (i, brittle) in level.brittle.iter().enumerate() {
         add(
-            format!("brittle rock {i}"),
+            if brittle.rect == super::lower_canyon::NARROWS {
+                "narrows lock".into()
+            } else {
+                format!("brittle rock {i}")
+            },
             brittle.rect,
             Kind::Gate {
                 needs: Needs::Crusher,
@@ -157,6 +179,52 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     ] {
         let door = Rect::new(rect.min.x, rect.min.y, rect.min.x + 20.0, rect.max.y);
         add(name.into(), rect, Kind::Chamber { door, prize });
+    }
+    for (name, rect, kind) in [
+        ("slump dam", super::lower_canyon::DAM, Kind::Drop),
+        ("vent field", super::lower_canyon::VENTS, Kind::OpenWater),
+    ] {
+        landmarks.push(Landmark {
+            name: name.into(),
+            rect,
+            kind,
+        });
+    }
+    for (name, rect) in super::lower_canyon::frames() {
+        let opened = matches!(
+            name,
+            "home burrow" | "mantis mouth" | "clay tunnel" | "bone hall"
+        );
+        landmarks.push(Landmark {
+            name: name.into(),
+            rect,
+            kind: match name {
+                "home burrow" | "mantis mouth" | "clay tunnel" => Kind::Tunnel,
+                "bone hall" => Kind::Chamber {
+                    // Encounter authoring marker; W3.3 supplies the find and
+                    // its excavated sightline/retreat in the cellular chamber.
+                    door: Rect::new(4810.0, -2160.0, 4910.0, -2140.0),
+                    prize: Vec2::new(5000.0, -2400.0),
+                },
+                _ => Kind::Frame,
+            },
+        });
+        for (i, rect) in super::lower_canyon::plugs(name, rect)
+            .into_iter()
+            .enumerate()
+        {
+            landmarks.push(Landmark {
+                name: if name == "long chimney" && i == 0 {
+                    "long chimney crust plug".into()
+                } else if opened {
+                    format!("{name} mouth {i}")
+                } else {
+                    format!("{name} plug {i}")
+                },
+                rect,
+                kind: if opened { Kind::Mouth } else { Kind::Plug },
+            });
+        }
     }
     landmarks
 }

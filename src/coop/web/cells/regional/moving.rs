@@ -142,6 +142,7 @@ pub(super) fn step(
             m.input = Some(input);
             m.ready = false;
             r.moving = Some(m);
+            r.move_stop_probe = Some(sim.tick_count());
             request_stop(s, r, sim);
         } else {
             let p = point(sim, local)?;

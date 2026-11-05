@@ -63,10 +63,30 @@ const ACTIONS: [TouchAction; 9] = [
 
 /// Whether the on-screen buttons are showing. They appear on touch screens,
 /// and on any device as soon as the screen is touched.
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct TouchControls {
     pub visible: bool,
     pub dig_touch: Option<u64>,
+    ui_owned: TouchOwnership,
+}
+
+/// A finger belongs to UI if it began there, even after dragging away.
+#[derive(Default)]
+struct TouchOwnership(std::collections::BTreeSet<u64>);
+impl TouchOwnership {
+    fn update(&mut self, touches: &Touches, modal: bool, covered: impl Fn(Vec2) -> bool) {
+        self.0.retain(|id| touches.get_pressed(*id).is_some());
+        for touch in touches.iter_just_pressed() {
+            // Platforms may reuse a released finger ID for a new press.
+            self.0.remove(&touch.id());
+            if modal || covered(touch.position()) {
+                self.0.insert(touch.id());
+            }
+        }
+    }
+    fn owns(&self, id: u64) -> bool {
+        self.0.contains(&id)
+    }
 }
 
 /// Visible canvas controls own clicks inside their hit areas.
@@ -74,7 +94,7 @@ pub struct TouchControls {
 pub(crate) struct PointerUi;
 
 #[derive(SystemParam)]
-struct InputUi<'w, 's> {
+pub(crate) struct InputUi<'w, 's> {
     settings: Res<'w, crate::settings::panel::Open>,
     inventory: Res<'w, crate::shell_inventory::Open>,
     chat: Res<'w, crate::codes::CodeBox>,
@@ -92,7 +112,7 @@ struct InputUi<'w, 's> {
 }
 
 impl InputUi<'_, '_> {
-    fn modal(&self) -> bool {
+    pub(crate) fn modal(&self) -> bool {
         self.settings.is_open() || self.inventory.0 || self.chat.open || page_dialog_open()
     }
 
@@ -180,6 +200,7 @@ impl Plugin for InputPlugin {
         app.insert_resource(TouchControls {
             visible: has_touch_screen(),
             dig_touch: None,
+            ui_owned: TouchOwnership::default(),
         })
         .add_systems(Startup, spawn_touch_buttons)
         .add_systems(Update, read_input.in_set(GameSet::Input))
@@ -273,11 +294,12 @@ fn touched_buttons(
     touches: &Touches,
     mouse_cursor: Option<Vec2>,
     dig_touch: Option<u64>,
+    ui_owned: &TouchOwnership,
     covered: impl Fn(Vec2) -> bool,
 ) -> Vec<TouchAction> {
     let mut points: Vec<Vec2> = touches
         .iter()
-        .filter(|t| Some(t.id()) != dig_touch)
+        .filter(|t| Some(t.id()) != dig_touch && !ui_owned.owns(t.id()))
         .map(|t| t.position())
         .collect();
     if let Some(cursor) = mouse_cursor {
@@ -292,6 +314,39 @@ fn touched_buttons(
         })
         .map(|(a, _)| a)
         .collect()
+}
+
+/// Press edges are separate from held buttons: a completed tap must not
+/// become a walk, meal, dig, charged attack or sustained guard.
+fn touch_press_edges(
+    size: Vec2,
+    touches: &Touches,
+    dig_touch: Option<u64>,
+    ui_owned: &TouchOwnership,
+    covered: impl Fn(Vec2) -> bool,
+) -> PadWants {
+    let mut edges = PadWants::default();
+    for touch in touches.iter_just_pressed().filter(|t| {
+        Some(t.id()) != dig_touch
+            && !ui_owned.owns(t.id())
+            && !touches.just_canceled(t.id())
+            && !covered(t.position())
+    }) {
+        for (action, rect) in button_rects(size) {
+            if !rect.inflate(10.0).contains(touch.position()) {
+                continue;
+            }
+            match action {
+                TouchAction::Jump => edges.jump = true,
+                TouchAction::Dodge => edges.dodge = true,
+                TouchAction::Smash => edges.smash = true,
+                TouchAction::Jab => edges.jab = true,
+                TouchAction::Guard => edges.guard = true,
+                _ => {}
+            }
+        }
+    }
+    edges
 }
 
 /// What one controller asks for this frame (its part of the table at the top).
@@ -337,10 +392,19 @@ fn pad_wants(stick: Vec2, pressed: impl Fn(GamepadButton) -> bool) -> PadWants {
 }
 
 const JUMP_KEYS: [KeyCode; 3] = [KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::KeyK];
+const DODGE_KEYS: [KeyCode; 3] = [KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ];
+const SMASH_KEYS: [KeyCode; 2] = [KeyCode::KeyL, KeyCode::KeyE];
+const JAB_KEYS: [KeyCode; 2] = [KeyCode::KeyO, KeyCode::KeyQ];
+const GUARD_KEYS: [KeyCode; 2] = [KeyCode::KeyI, KeyCode::KeyF];
 
-fn jump_pressed(keys: &ButtonInput<KeyCode>, held: bool, previously_held: bool) -> bool {
+fn key_pressed(
+    keys: &ButtonInput<KeyCode>,
+    bindings: &[KeyCode],
+    held: bool,
+    previously_held: bool,
+) -> bool {
     // A release and a new press can both arrive between rendered frames.
-    keys.any_just_pressed(JUMP_KEYS) || (held && !previously_held)
+    keys.any_just_pressed(bindings.iter().copied()) || (held && !previously_held)
 }
 
 /// Read every device and send one [`MoveRequest`] for the local crab.
@@ -364,6 +428,7 @@ fn read_input(
     }
     let covered = |p| ui.covers(p, window.scale_factor(), false);
     let modal = ui.modal();
+    touch_controls.ui_owned.update(&touches, modal, covered);
     let can_start = mouse.any_just_pressed([MouseButton::Left, MouseButton::Right])
         && !touches.any_just_pressed()
         && window
@@ -378,12 +443,8 @@ fn read_input(
     let (clicked_jab, clicked_smash) = combat_mouse.update(&mouse, can_start, modal);
     if modal {
         touch_controls.dig_touch = None;
-        requests.write(MoveRequest {
-            player: **local,
-            controls: Controls::default(),
-        });
-        return;
     }
+    let previous_dig_touch = touch_controls.dig_touch;
     let cells_enabled = sim.level.cells.is_some();
     let dig_rect = button_rects(window.size())[0].1;
     if !cells_enabled
@@ -393,10 +454,14 @@ fn read_input(
     {
         touch_controls.dig_touch = None;
     }
-    if cells_enabled && touch_controls.dig_touch.is_none() {
+    if !modal && cells_enabled && touch_controls.dig_touch.is_none() {
         touch_controls.dig_touch = touches
             .iter_just_pressed()
-            .find(|t| !covered(t.position()) && dig_rect.inflate(3.0).contains(t.position()))
+            .find(|t| {
+                !touch_controls.ui_owned.owns(t.id())
+                    && !covered(t.position())
+                    && dig_rect.inflate(3.0).contains(t.position())
+            })
             .map(|t| t.id());
     }
     let dig_vector = touch_controls
@@ -412,12 +477,20 @@ fn read_input(
             &touches,
             window.cursor_position().filter(|_| combat_mouse.on_pad),
             touch_controls.dig_touch,
+            &touch_controls.ui_owned,
             covered,
         )
     } else {
         Vec::new()
     };
     let touch = |a: TouchAction| on_screen.contains(&a);
+    let mut edges = touch_press_edges(
+        window.size(),
+        &touches,
+        touch_controls.dig_touch.or(previous_dig_touch),
+        &touch_controls.ui_owned,
+        covered,
+    );
 
     let any_key = |list: &[KeyCode]| keys.any_pressed(list.iter().copied());
     let mut walk = 0.0;
@@ -428,19 +501,22 @@ fn read_input(
         walk += 1.0;
     }
     let mut jump = keys.any_pressed(JUMP_KEYS) || touch(TouchAction::Jump);
-    let mut dodge = any_key(&[KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ])
-        || touch(TouchAction::Dodge);
+    let mut dodge = any_key(&DODGE_KEYS) || touch(TouchAction::Dodge);
     let mut stick = (dig_vector.length() > 0.2).then_some(Vec2::new(dig_vector.x, -dig_vector.y));
     let mut down = any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]);
-    let mut smash =
-        any_key(&[KeyCode::KeyL, KeyCode::KeyE]) || touch(TouchAction::Smash) || combat_mouse.smash;
-    let mut jab =
-        any_key(&[KeyCode::KeyO, KeyCode::KeyQ]) || touch(TouchAction::Jab) || combat_mouse.jab;
-    let mut guard = any_key(&[KeyCode::KeyI, KeyCode::KeyF]) || touch(TouchAction::Guard);
+    let mut smash = any_key(&SMASH_KEYS) || touch(TouchAction::Smash) || combat_mouse.smash;
+    let mut jab = any_key(&JAB_KEYS) || touch(TouchAction::Jab) || combat_mouse.jab;
+    let mut guard = any_key(&GUARD_KEYS) || touch(TouchAction::Guard);
     let mut eat = any_key(&[KeyCode::KeyT]) || touch(TouchAction::Eat);
 
     for pad in &gamepads {
         let wants = pad_wants(pad.left_stick(), |b| pad.pressed(b));
+        let pressed = pad_wants(Vec2::ZERO, |b| pad.just_pressed(b));
+        edges.jump |= pressed.jump;
+        edges.dodge |= pressed.dodge;
+        edges.smash |= pressed.smash;
+        edges.jab |= pressed.jab;
+        edges.guard |= pressed.guard;
         let dig_stick = pad.right_stick();
         if stick.is_none() && dig_stick.length() > 0.2 {
             stick = Some(dig_stick);
@@ -455,6 +531,23 @@ fn read_input(
         eat |= wants.eat;
     }
 
+    if modal {
+        // Consume holds as well as edges while the menu owns input. Otherwise
+        // closing it invents a press from a button held since an earlier frame.
+        *held_before = Held {
+            jump,
+            dodge,
+            smash,
+            jab,
+            guard,
+        };
+        requests.write(MoveRequest {
+            player: **local,
+            controls: Controls::default(),
+        });
+        return;
+    }
+
     let digging = cells_enabled && (keys.pressed(KeyCode::Space) || stick.is_some());
     let aim_up = [KeyCode::KeyW, KeyCode::ArrowUp];
     let mut dig_up = digging && (keys.any_pressed(aim_up) || keys.any_just_pressed(aim_up));
@@ -467,17 +560,21 @@ fn read_input(
         eat_held: eat,
         walk: walk.clamp(-1.0, 1.0),
         jump_held: jump,
-        jump_pressed: jump_pressed(&keys, jump, held_before.jump),
-        dodge_pressed: dodge && !held_before.dodge,
+        jump_pressed: edges.jump || key_pressed(&keys, &JUMP_KEYS, jump, held_before.jump),
+        dodge_pressed: edges.dodge || key_pressed(&keys, &DODGE_KEYS, dodge, held_before.dodge),
         dodge_held: dodge,
         dig_held: digging,
         dig_up,
         down,
-        smash_pressed: clicked_smash || (smash && !held_before.smash),
+        smash_pressed: edges.smash
+            || clicked_smash
+            || key_pressed(&keys, &SMASH_KEYS, smash, held_before.smash),
         smash_held: smash,
-        jab_pressed: clicked_jab || (jab && !held_before.jab),
+        jab_pressed: edges.jab
+            || clicked_jab
+            || key_pressed(&keys, &JAB_KEYS, jab, held_before.jab),
         block_held: guard,
-        block_pressed: guard && !held_before.guard,
+        block_pressed: edges.guard || key_pressed(&keys, &GUARD_KEYS, guard, held_before.guard),
     };
     if digging && let Some(crab) = sim.crab(**local) {
         if crab
@@ -647,6 +744,7 @@ fn layout_touch_buttons(
             .cursor_position()
             .filter(|_| mouse.pressed(MouseButton::Left)),
         touch_controls.dig_touch,
+        &touch_controls.ui_owned,
         |_| false,
     );
     let rect = rects[0].1;
@@ -706,30 +804,424 @@ fn layout_touch_buttons(
 mod tests {
     use super::*;
 
+    #[test]
+    fn closing_a_modal_does_not_invent_controller_action_presses() {
+        for button in [
+            GamepadButton::South,
+            GamepadButton::East,
+            GamepadButton::North,
+            GamepadButton::West,
+            GamepadButton::LeftTrigger,
+        ] {
+            let mut app = App::new();
+            app.init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<Touches>()
+                .init_resource::<crate::settings::panel::Open>()
+                .init_resource::<crate::shell_inventory::Open>()
+                .init_resource::<crate::codes::CodeBox>()
+                .insert_resource(crabsim::Sim::with_one_crab(crabsim::SPAWN))
+                .insert_resource(TouchControls {
+                    visible: false,
+                    dig_touch: None,
+                    ui_owned: TouchOwnership::default(),
+                })
+                .add_message::<MoveRequest>()
+                .add_systems(Update, read_input);
+            app.world_mut().spawn(Window::default());
+            app.world_mut().spawn((LocalPlayer, PlayerId(0)));
+            let pad = app.world_mut().spawn(Gamepad::default()).id();
+            let frame = |app: &mut App| {
+                app.update();
+                app.world_mut()
+                    .resource_mut::<Messages<MoveRequest>>()
+                    .drain()
+                    .last()
+                    .unwrap()
+                    .controls
+            };
+            let edges = |c: Controls| {
+                c.jump_pressed
+                    || c.dodge_pressed
+                    || c.smash_pressed
+                    || c.jab_pressed
+                    || c.block_pressed
+            };
+            frame(&mut app);
+            app.world_mut()
+                .resource_mut::<crate::shell_inventory::Open>()
+                .0 = true;
+            app.world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .press(button);
+            let covered = frame(&mut app);
+            assert!(!edges(covered));
+            assert!(
+                !covered.jump_held
+                    && !covered.dodge_held
+                    && !covered.smash_held
+                    && !covered.block_held
+            );
+            app.world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .clear();
+            app.world_mut()
+                .resource_mut::<crate::shell_inventory::Open>()
+                .0 = false;
+            let resumed = frame(&mut app);
+            assert!(
+                !edges(resumed),
+                "held {button:?} must not become a new press on menu close"
+            );
+            let held = pad_wants(Vec2::ZERO, |b| b == button);
+            assert_eq!(
+                (
+                    resumed.jump_held,
+                    resumed.dodge_held,
+                    resumed.smash_held,
+                    resumed.block_held
+                ),
+                (held.jump, held.dodge, held.smash, held.guard)
+            );
+            app.world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .release(button);
+            frame(&mut app);
+            app.world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .press(button);
+            assert!(edges(frame(&mut app)), "a genuine new press must work");
+        }
+    }
+
+    fn touch_frame(app: &mut App, events: &[(u64, bevy::input::touch::TouchPhase, Vec2)]) {
+        for &(id, phase, position) in events {
+            app.world_mut()
+                .write_message(bevy::input::touch::TouchInput {
+                    phase,
+                    position,
+                    window: Entity::PLACEHOLDER,
+                    force: None,
+                    id,
+                });
+        }
+        app.update();
+    }
+    #[test]
+    fn ui_owned_fingers_cannot_drag_into_actions_but_gameplay_slides_still_work() {
+        use bevy::input::touch::TouchPhase::{Canceled, Ended, Moved, Started};
+        let size = Vec2::new(430.0, 873.0);
+        let jump = button_rects(size)
+            .into_iter()
+            .find(|(a, _)| *a == TouchAction::Jump)
+            .unwrap()
+            .1
+            .center();
+        let ui = Vec2::new(100.0, 100.0);
+        let gameplay = Vec2::new(215.0, 400.0);
+        let covered = |p: Vec2| p.y < 200.0;
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin);
+        let mut owned = TouchOwnership::default();
+        touch_frame(&mut app, &[(1, Started, ui)]);
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        touch_frame(&mut app, &[(1, Moved, jump)]);
+        let t = app.world().resource::<Touches>();
+        owned.update(t, false, covered);
+        assert!(
+            !touched_buttons(size, t, None, None, &owned, covered).contains(&TouchAction::Jump),
+            "a UI finger must not become gameplay when dragged out"
+        );
+        assert!(!touch_press_edges(size, t, None, &owned, covered).jump);
+        // UI disappearing does not release the finger's original ownership.
+        owned.update(t, false, |_| false);
+        assert!(owned.owns(1));
+        touch_frame(&mut app, &[(2, Started, gameplay)]);
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        touch_frame(&mut app, &[(2, Moved, jump)]);
+        let t = app.world().resource::<Touches>();
+        owned.update(t, false, covered);
+        assert!(
+            touched_buttons(size, t, None, None, &owned, covered).contains(&TouchAction::Jump),
+            "independent gameplay finger can still slide"
+        );
+        touch_frame(&mut app, &[(1, Ended, jump), (2, Ended, jump)]);
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        assert!(!owned.owns(1));
+        touch_frame(&mut app, &[(1, Started, jump)]);
+        let t = app.world().resource::<Touches>();
+        owned.update(t, false, covered);
+        assert!(
+            touch_press_edges(size, t, None, &owned, covered).jump,
+            "reused ID starts a fresh gameplay press"
+        );
+        touch_frame(
+            &mut app,
+            &[(1, Ended, jump), (3, Started, ui), (3, Canceled, ui)],
+        );
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        touch_frame(&mut app, &[]);
+        owned.update(app.world().resource::<Touches>(), false, covered);
+        assert!(!owned.owns(3));
+        // A touch begun while a modal is open remains owned after dismissal.
+        touch_frame(&mut app, &[(4, Started, jump)]);
+        owned.update(app.world().resource::<Touches>(), true, covered);
+        touch_frame(&mut app, &[]);
+        let t = app.world().resource::<Touches>();
+        owned.update(t, false, covered);
+        assert!(
+            !touched_buttons(size, t, None, None, &owned, covered).contains(&TouchAction::Jump)
+        );
+    }
+
+    fn any_action(w: PadWants) -> bool {
+        w.jump || w.dodge || w.smash || w.jab || w.guard
+    }
+
+    #[test]
+    fn completed_touch_edges_keep_ownership_without_becoming_holds() {
+        use bevy::input::touch::TouchPhase::{Canceled, Ended, Started};
+        let size = Vec2::new(430.0, 873.0);
+        for (action, rect) in button_rects(size) {
+            let mut app = App::new();
+            app.add_plugins(bevy::input::InputPlugin);
+            let p = rect.center();
+            touch_frame(&mut app, &[(1, Started, p), (1, Ended, p)]);
+            let touches = app.world().resource::<Touches>();
+            let edges =
+                touch_press_edges(size, touches, None, &TouchOwnership::default(), |_| false);
+            assert_eq!(
+                any_action(edges),
+                matches!(
+                    action,
+                    TouchAction::Jump
+                        | TouchAction::Dodge
+                        | TouchAction::Smash
+                        | TouchAction::Jab
+                        | TouchAction::Guard
+                ),
+                "{action:?}"
+            );
+            assert!(
+                touched_buttons(
+                    size,
+                    touches,
+                    None,
+                    None,
+                    &TouchOwnership::default(),
+                    |_| false
+                )
+                .is_empty()
+            );
+            assert!(
+                !any_action(touch_press_edges(
+                    size,
+                    touches,
+                    None,
+                    &TouchOwnership::default(),
+                    |_| true
+                )),
+                "UI owns start"
+            );
+            assert!(
+                !any_action(touch_press_edges(
+                    size,
+                    touches,
+                    Some(1),
+                    &TouchOwnership::default(),
+                    |_| false
+                )),
+                "dig owns finger"
+            );
+            if edges.guard {
+                let mut sim = crabsim::Sim::with_one_crab(crabsim::SPAWN);
+                sim.set_controls(
+                    crabsim::PlayerId(0),
+                    Controls {
+                        block_pressed: true,
+                        ..Default::default()
+                    },
+                );
+                sim.tick();
+                let f = &sim.crab(crabsim::PlayerId(0)).unwrap().fighter;
+                assert!(f.parrying(&sim.tuning));
+                assert!(!f.blocking);
+            }
+            touch_frame(&mut app, &[]);
+            assert!(
+                !any_action(touch_press_edges(
+                    size,
+                    app.world().resource::<Touches>(),
+                    None,
+                    &TouchOwnership::default(),
+                    |_| false
+                )),
+                "menu-consumed edge cannot replay next frame"
+            );
+            touch_frame(&mut app, &[(2, Started, p), (2, Canceled, p)]);
+            assert!(!any_action(touch_press_edges(
+                size,
+                app.world().resource::<Touches>(),
+                None,
+                &TouchOwnership::default(),
+                |_| false
+            )));
+        }
+    }
+
+    #[test]
+    fn second_finger_represses_while_held_and_sliding_keeps_held_behavior() {
+        use bevy::input::touch::TouchPhase::{Ended, Moved, Started};
+        let size = Vec2::new(430.0, 873.0);
+        let p = button_rects(size)
+            .into_iter()
+            .find(|(a, _)| *a == TouchAction::Jump)
+            .unwrap()
+            .1
+            .center();
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin);
+        touch_frame(&mut app, &[(1, Started, p)]);
+        touch_frame(&mut app, &[]);
+        let t = app.world().resource::<Touches>();
+        assert!(!touch_press_edges(size, t, None, &TouchOwnership::default(), |_| false).jump);
+        assert!(
+            touched_buttons(size, t, None, None, &TouchOwnership::default(), |_| false)
+                .contains(&TouchAction::Jump)
+        );
+        touch_frame(&mut app, &[(2, Started, p), (2, Ended, p)]);
+        assert!(
+            touch_press_edges(
+                size,
+                app.world().resource::<Touches>(),
+                None,
+                &TouchOwnership::default(),
+                |_| false
+            )
+            .jump
+        );
+        touch_frame(
+            &mut app,
+            &[(1, Ended, p), (3, Started, Vec2::new(215.0, 300.0))],
+        );
+        touch_frame(&mut app, &[(3, Moved, p)]);
+        let t = app.world().resource::<Touches>();
+        assert!(!touch_press_edges(size, t, None, &TouchOwnership::default(), |_| false).jump);
+        assert!(
+            touched_buttons(size, t, None, None, &TouchOwnership::default(), |_| false)
+                .contains(&TouchAction::Jump)
+        );
+    }
+
+    #[test]
+    fn gamepad_action_aliases_retain_quick_edges_without_holds() {
+        for button in [
+            GamepadButton::South,
+            GamepadButton::East,
+            GamepadButton::RightTrigger,
+            GamepadButton::RightTrigger2,
+            GamepadButton::North,
+            GamepadButton::West,
+            GamepadButton::LeftTrigger,
+            GamepadButton::LeftTrigger2,
+        ] {
+            let mut pad = Gamepad::default();
+            pad.digital_mut().press(button);
+            pad.digital_mut().release(button);
+            assert!(any_action(pad_wants(Vec2::ZERO, |b| pad.just_pressed(b))));
+            assert!(!any_action(pad_wants(Vec2::ZERO, |b| pad.pressed(b))));
+            pad.digital_mut().press(button);
+            pad.digital_mut().clear();
+            assert!(!any_action(pad_wants(Vec2::ZERO, |b| pad.just_pressed(b))));
+            pad.digital_mut().release(button);
+            pad.digital_mut().press(button);
+            assert!(any_action(pad_wants(Vec2::ZERO, |b| pad.just_pressed(b))));
+        }
+    }
+
     /// A controller with only `held` pressed and the stick at `stick`.
     #[test]
-    fn jump_edges_survive_batched_keyboard_events() {
-        for key in JUMP_KEYS {
+    fn action_edges_survive_batched_keyboard_events() {
+        for bindings in [
+            &JUMP_KEYS[..],
+            &DODGE_KEYS[..],
+            &SMASH_KEYS[..],
+            &JAB_KEYS[..],
+            &GUARD_KEYS[..],
+        ] {
+            for &key in bindings {
+                let mut keys = ButtonInput::default();
+                keys.press(key);
+                keys.release(key);
+                assert!(
+                    key_pressed(&keys, bindings, keys.pressed(key), false),
+                    "quick tap"
+                );
+
+                keys.press(key);
+                keys.clear();
+                keys.release(key);
+                keys.press(key);
+                assert!(
+                    key_pressed(&keys, bindings, keys.pressed(key), true),
+                    "repress"
+                );
+
+                keys.clear();
+                keys.press(key);
+                assert!(
+                    !key_pressed(&keys, bindings, keys.pressed(key), true),
+                    "held repeat"
+                );
+
+                keys.release(key);
+                keys.press(key);
+                keys.reset(key); // Menu owns both the edge and the held state.
+                assert!(
+                    !key_pressed(&keys, bindings, keys.pressed(key), false),
+                    "menu close"
+                );
+                assert!(
+                    key_pressed(&keys, bindings, true, false),
+                    "touch or controller"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_completed_guard_key_tap_parries_without_holding_block() {
+        for key in GUARD_KEYS {
             let mut keys = ButtonInput::default();
             keys.press(key);
             keys.release(key);
-            assert!(jump_pressed(&keys, keys.pressed(key), false), "quick tap");
-
-            keys.press(key);
-            keys.clear();
-            keys.release(key);
-            keys.press(key);
-            assert!(jump_pressed(&keys, keys.pressed(key), true), "repress");
-
-            keys.clear();
-            keys.press(key);
-            assert!(!jump_pressed(&keys, keys.pressed(key), true), "held repeat");
-
-            keys.release(key);
-            keys.press(key);
-            keys.reset(key); // Menu owns both the edge and the held state.
-            assert!(!jump_pressed(&keys, keys.pressed(key), false), "menu close");
-            assert!(jump_pressed(&keys, true, false), "touch or controller");
+            let mut sim = crabsim::Sim::with_one_crab(crabsim::SPAWN);
+            let id = crabsim::PlayerId(0);
+            sim.set_controls(
+                id,
+                Controls {
+                    block_pressed: key_pressed(&keys, &GUARD_KEYS, false, false),
+                    block_held: keys.any_pressed(GUARD_KEYS),
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+            let fighter = &sim.crab(id).unwrap().fighter;
+            assert!(fighter.parrying(&sim.tuning));
+            assert!(!fighter.blocking);
+            sim.set_controls(id, Controls::default());
+            for _ in 0..60 {
+                sim.tick();
+            }
+            assert!(!sim.crab(id).unwrap().fighter.parrying(&sim.tuning));
         }
     }
 

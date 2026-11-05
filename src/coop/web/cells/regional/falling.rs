@@ -217,7 +217,10 @@ pub(super) fn step(
                 );
             }
         }
-        if !r.shared {
+        // A receiving guest has not installed its kernel yet. Retain arrivals
+        // in the owner ledger until its Ready handshake completes; otherwise
+        // an offer can target the old kernel or be cleared by installation.
+        if !r.shared && r.stage == Stage::Running {
             let owner = r.owner.as_mut().expect("owner");
             if let Some(j) = owner.remote.as_ref()
                 && let Some(arrival) = owner

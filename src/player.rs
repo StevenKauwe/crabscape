@@ -540,17 +540,14 @@ fn simulate(
     }
     for _ in 0..steps {
         let before = sim.tick_count();
-        if crate::coop::cells_tick(&mut sim, local.0) {
-            if sim.tick_count() == before {
-                continue;
-            }
-        } else {
+        if !crate::coop::cells_tick(&mut sim, local.0) {
             sim.tick();
-            if sim.tick_count() == before {
-                // A cold page can arrive only after this browser task yields.
-                // Retrying the same blocked tick in this frame cannot progress it.
-                break;
-            }
+        }
+        if sim.tick_count() == before {
+            // Both storage and regional co-op can need asynchronous input.
+            // Yield after the first blocked tick; retrying up to 30 times in
+            // this same frame cannot deliver a page, peer batch or move ACK.
+            break;
         }
         // Collect what happened during each tick for the animation.
         for (id, _, _, _, mut events) in &mut crabs {
@@ -785,8 +782,16 @@ mod cellular_save_tests {
         sim.enable_underwater_cells();
         // The deep rock under the opening floor is made from cells, not a
         // rectangle in Level::solids. Its top intersects only the feet here.
-        let pos = Vec2::new(160.0, -105.0);
+        // (The home burrow's bedrock frame sits right under home, so look for
+        // the first spot along the opening where that rock top is.)
         let cells = sim.level.cells.as_ref().unwrap();
+        let height = sim.tuning.body_height;
+        let pos = (0..400)
+            .map(|i| Vec2::new(160.0 + 10.0 * i as f32, -105.0))
+            .find(|p| {
+                cells.game_rock_at(p.x, p.y + 1.0) && !cells.game_rock_at(p.x, p.y + height - 1.0)
+            })
+            .expect("deep rock under the opening floor");
         assert!(cells.game_rock_at(pos.x, pos.y + 1.0));
         assert!(!cells.game_rock_at(pos.x, pos.y + sim.tuning.body_height - 1.0));
         assert!(!valid_saved_spot(pos, 1.0, &sim));

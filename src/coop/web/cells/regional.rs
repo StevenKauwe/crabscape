@@ -40,6 +40,7 @@ pub(super) struct State {
     applied: u64,
     next_batch: u64,
     stop_tick: u64,
+    move_stop_probe: Option<u64>,
     guest_pos: Option<Vec2>,
     remote_bounds: Option<CellRegion>,
     home: Vec<PlayerId>,
@@ -213,6 +214,7 @@ fn store_kernel(owner: &mut Owner, kernel: RegionKernel) -> Result<(), String> {
     owner.entities.absorb(kernel).map_err(fault)
 }
 fn collect(r: &mut State, sim: &mut Sim) -> Result<(), String> {
+    let _profile = crate::cell_save::work::begin("cell-split-collect");
     moving::cancel(r)?;
     let owner = r.owner.as_mut().ok_or("Missing lobby owner")?;
     // Validate/recover the remote history before moving the visible simulation.
@@ -267,6 +269,7 @@ fn extract(
         .map_err(fault)
 }
 fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
+    let _profile = crate::cell_save::work::begin("cell-split-grant");
     let guest = s.guest.ok_or("Missing visitor")?;
     let owner = r.owner.as_mut().ok_or("Missing owner archive")?;
     let host_at = point(&owner.entities.sim, HOST)?;
@@ -284,17 +287,19 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
         return Ok(());
     }
 
-    let (local, remote) = if r.shared {
+    let (local, journal, remote) = if r.shared {
         let local = extract(owner, &[HOST, guest], area(&[host_at, guest_at])?)?;
-        let remote = local.checkpoint().map_err(fault)?;
-        (local, remote)
+        let (journal, remote) = RegionJournal::new_with_checkpoint(&local, HOST).map_err(fault)?;
+        (local, journal, remote)
     } else {
         let local = extract(owner, &[HOST], host_area)?;
         let remote = extract(owner, &[guest], guest_area)?;
         r.remote_bounds = Some(remote.bounds());
-        let bytes = remote.checkpoint().map_err(fault)?;
-        owner.remote = Some(RegionJournal::new(&remote, guest).map_err(fault)?);
-        (local, bytes)
+        let (remote_journal, bytes) =
+            RegionJournal::new_with_checkpoint(&remote, guest).map_err(fault)?;
+        owner.remote = Some(remote_journal);
+        let journal = RegionJournal::new(&local, HOST).map_err(fault)?;
+        (local, journal, bytes)
     };
     r.applied = local.sim.tick_count();
     r.shared_move_cutoff = None;
@@ -303,7 +308,7 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
     r.boundaries.clear();
     r.arrival = None;
     r.arrival_offered = 0;
-    r.journal = Some(RegionJournal::new(&local, HOST).map_err(fault)?);
+    r.journal = Some(journal);
     r.kernel = Some(local.install_view(sim));
     r.snapshot = remote;
     r.transfer += 1;
@@ -444,11 +449,33 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
     if r.stage == Stage::WaitingOwner {
         moving::step(s, r, sim, local)?;
     }
-    if !matches!(r.stage, Stage::Running | Stage::Stopping) {
+    // Once separate leases are installed, the host's region has no replica
+    // waiting for its inputs. Keep it playable while the guest receives its
+    // own checkpoint. Shared regions still wait for the ready handshake.
+    let independent_transfer = local == HOST && !r.shared && r.stage == Stage::Sending;
+    if !matches!(r.stage, Stage::Running | Stage::Stopping) && !independent_transfer {
+        return Ok(());
+    }
+    if independent_transfer
+        && (r.regrant_requested
+            || needs_change(r, sim, s.guest.ok_or("Missing visitor")?)?
+            || s.actions
+                .iter()
+                .any(|(_, action)| matches!(action, super::super::super::CellsAction::Home)))
+    {
+        // Finish this transfer before changing topology again. In particular,
+        // retain Home/actions and regrant requests rather than consuming them
+        // while request_stop cannot yet run.
         return Ok(());
     }
     falling::step(s, r, sim, local)?;
     moving::step(s, r, sim, local)?;
+    // A stale prepared window can request a stop (or wait for its owner)
+    // inside moving::step. Honour that transition in this same call: one
+    // extra input here would advance beyond the cutoff already sent.
+    if !matches!(r.stage, Stage::Running | Stage::Stopping) && !independent_transfer {
+        return Ok(());
+    }
     // Storage can pause personal memory without consuming a network frame.
     // In particular, keep replica frames queued and preserve local actions.
     if !sim.memory_pages_ready() {
@@ -620,6 +647,18 @@ pub(super) fn tick(s: &mut Session, sim: &mut Sim, local: PlayerId) -> bool {
         return true;
     };
     let result = step(s, &mut r, sim, local);
+    if let Some(before) = r.move_stop_probe.take()
+        && let Some(canvas) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("crabscape"))
+            .filter(|c| c.has_attribute("data-cell-work-profile"))
+    {
+        let sample = format!("{before}:{}:{}", sim.tick_count(), r.partial.len());
+        let _ = canvas.set_attribute("data-cell-move-stop", &sample);
+        if sim.tick_count() != before || !r.partial.is_empty() {
+            let _ = canvas.set_attribute("data-cell-move-stop-failed", &sample);
+        }
+    }
     s.regional = Some(r);
     if let Err(reason) = result {
         end(s, sim, local);
@@ -807,7 +846,15 @@ fn receive_inner(
                 return Err("Wrong regional transfer".into());
             }
             if let Some(bytes) = r.receiver.accept(&bytes).map_err(fault)? {
-                let kernel = RegionKernel::from_checkpoint(&bytes).map_err(fault)?;
+                let _profile = crate::cell_save::work::begin("cell-split-install");
+                let (kernel, journal) = RegionJournal::from_checkpoint(bytes, |kernel| {
+                    if kernel.members().contains(&HOST) {
+                        HOST
+                    } else {
+                        local
+                    }
+                })
+                .map_err(fault)?;
                 if kernel.sim.crab(local).is_none() {
                     return Err("Wrong regional visitor".into());
                 }
@@ -820,10 +867,7 @@ fn receive_inner(
                 r.arrival = None;
                 r.arrival_offered = 0;
                 r.last_backup_tick = r.next_batch;
-                r.journal = Some(
-                    RegionJournal::new(&kernel, if r.shared { HOST } else { local })
-                        .map_err(fault)?,
-                );
+                r.journal = Some(journal);
                 r.kernel = Some(kernel.install_view(sim));
                 r.stage = Stage::Running;
                 if r.shared {
@@ -960,7 +1004,12 @@ fn receive_inner(
                     .acknowledged_tick()
             };
             if tick != expected {
-                return Err("Incomplete regional stop".into());
+                return Err(format!(
+                    "Incomplete regional stop: received {tick}, expected {expected}, shared={}, partial={}, queued={}",
+                    r.shared,
+                    r.partial.len(),
+                    r.frames.len(),
+                ));
             }
             collect(r, sim)?;
             grant(s, r, sim)?;
@@ -1061,14 +1110,18 @@ fn update_inner(
                 canvas.set_attribute("data-cell-state-revision", &k.state_revision().to_string());
         }
     }
+    // A follower journals only applied frames. Queued future frames are not
+    // part of this checkpoint and need not drain before compacting its prefix;
+    // a consistently lagging replica may never empty that queue.
     if r.stage == Stage::Running
         && r.partial.is_empty()
-        && r.frames.is_empty()
         && r.journal
             .as_ref()
             .is_some_and(|j| j.pending_ticks() >= 3600)
     {
         let _profile = crate::cell_save::work::begin("cell-journal-compact");
+        let _queued_profile = (!r.frames.is_empty())
+            .then(|| crate::cell_save::work::begin("cell-journal-compact-queued"));
         let k = r.kernel.as_mut().ok_or("Missing kernel")?;
         let authority = if r.shared { HOST } else { local };
         r.journal

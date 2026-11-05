@@ -72,23 +72,23 @@ one GitHub issue (label `world-plan`) that stands on its own.
 ## Where things stand (2026-11-05, lead designer's handoff)
 Read this first if you are continuing without the lead designer. Check each item's live state with `gh pr view <n>`
 or `gh issue view <n>` before acting.
-- **Merged:** plan and bible (#473, #476, #486, #488), W0.1 landmarks (#474), W0.2 route library (#480), W0.3 fear
-  invariants (#485), W0.4 seed fingerprint (#479), W1.1 depth bands (#478), W2.1 pressure on the body (#483), and a
-  fix for main's flaky save tests (#491).
-- **Queued to auto-merge:** W2.3 anxiety (#484, finishes draft #419: close #419 once #484 merges), W1.3 canyon
-  refuges (#490). If either fails its checks, rerun the failed job once, then read the log.
-- **At a taste gate, waiting for the owner:** W2.2 sound (#493, Milestone 2; the "what to try" list is on #462). Do
-  not merge it or start anything that needs it until the owner answers on #462 or #493.
-- **In flight:** W0.5 memory save size (#492, a gated saves package). If its Codex run stopped, the worktree is
-  `.claude/worktrees/memory-save` on branch `issue-492-memory-save`.
-- **Parked, built:** W1.3b lower canyon (#487) on branch `issue-487-lower-canyon`, rebaked. Blocked only by #492:
-  a fully explored memory of the bigger world is over the 4 MiB save limit. After #492 merges: rebase, rebake if
-  the seed changed on main, update the probe digest, full checks, PR, auto-merge. The handoff comment on #487 has the
-  details.
-- **Next, in order:** W1.2 open-water hunter (#458: needs #487 and the Hush cue from #493's gate), W1.4 keys and
-  tether (#460: needs #487), then W3.0 (#464) and the rest of phase 3. Milestone 1's gate is W1.2's PR.
-- **Owner-facing notes to carry:** #419 (draft) can be closed once #484 merges; the session's first Codex attempts
-  are summarised in "Farming out to Codex" above.
+- **Merged:** plan and bible (#473, #476, #486, #488, #494, #507), W0.1 landmarks (#474), W0.2 route library
+  (#480), W0.3 fear invariants (#485), W0.4 seed fingerprint (#479), W0.5 compact memory saves (#495), W1.1 depth
+  bands (#478), W1.3 canyon refuges (#490), W1.3b lower canyon and frames (#506), W1.4 tether and deep food (#509),
+  W2.1 pressure on the body (#483), W2.3 anxiety (#484), W3.0 strata in the frames (#511), and the fix for main's
+  flaky save tests (#491). Draft #419 is finished by #484 and can be closed.
+- **At a taste gate, waiting for the owner:** W2.2 sound (#493, Milestone 2; "what to try" is on #462). Do not merge
+  it or build on it until the owner answers. **W1.2, the open-water hunter (#458), needs #493's Hush cue, so it
+  waits too.**
+- **In progress:** W3.1 pockets, mouths and the hunter rule (#465) on branch `issue-465-pockets` (worktree
+  `.claude/worktrees/pockets`). The hunter rule and the mouth tests are done; left: silt mouth columns from the home
+  burrow up to the floor (its mouths open into the opening's deep rock), one bake, and drawing the ground tell at an
+  ambushed mouth. Exact steps are in the last comment on #465. The branch sits on the pre-squash W3.0 commits:
+  cherry-pick its own three commits onto main.
+- **Next, in order, none gated on #493:** W3.2 home burrow (#466) and W3.3 mantis mouth and bone hall (#467, the
+  Milestone 3 taste gate) after W3.1; W4.1 seep chimney (#468, a rock package: see its comment) and W4.2 long
+  chimney (#469, also the vent field's loop home); then the Plunge (#470 to #472; #470 decides the odd tunnel's dig,
+  since no strata can be baked below y -10,000; #471 is the Milestone 4 gate).
 
 ## Hidden rules found while building (read before any package)
 - **The seed fingerprint.** See item 8: only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the
@@ -116,6 +116,16 @@ or `gh issue view <n>` before acting.
   (`gh run rerun <id> --failed`) and add to #482; do not change saves code inside a world package.
 - **`Level` derives `PartialEq` and serde:** never add derived or static data to it as a field (it breaks saves'
   round trip); add a method that derives it (`Level::landmarks()`, `Level::bands()`).
+- **Frames and new rock must keep clear of existing passages.** The tests that walk a passage with the biggest crab
+  (`scenarios.rs`, `canyon.rs`, `glass.rs`, `hub.rs`) catch an intrusion; known tight spots: the crack (x 5,371 to
+  5,640), the pit shaft's coral (x 4,420 to 4,490), the end wall's bare-rock face from the doorstep to the notch
+  (x 5,640 to 5,664), and the cellular opening window (x 0 to 2,560, above y -360). Run them before a bake: they do
+  not need the seed, so a collision shows up in seconds instead of after a 12-minute bake.
+- **Brittle rocks, cultures and other level lists are found by place in tests,** never as `.last()`: later packages
+  append to them.
+- **The bake is bounded at 16,000,000 cells** (the lower canyon brought it to about 16 million). Grow the world
+  sideways in new canyons rather than deeper under everything; check `--probe 30` (it prints the cell count) before
+  laying big frames.
 - **Remote crabs** show no scars yet: their appearance travels over net code that world packages must not touch.
 
 ## What already exists (build on it, do not redo)

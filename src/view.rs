@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use crate::input::TouchControls;
 use crate::level::Parallax;
-use crate::memory::{MemoryMaterial, WATER, water_at};
+use crate::memory::{WATER, water_at};
 use crate::player::{GameSet, LocalPlayer};
 use crate::tuning::ViewTuning;
 use crabsim::Mover;
@@ -130,6 +130,7 @@ const ZOOM_MAX: f32 = 30.0;
 const ZOOM_START: f32 = 1.15 * 1.15 * 1.15 * 1.15;
 
 /// Read the zoom controls and ease the zoom towards what they ask for.
+#[allow(clippy::too_many_arguments)] // Bevy system inputs, including shared UI ownership.
 fn read_zoom(
     time: Res<Time<Real>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -138,34 +139,41 @@ fn read_zoom(
     touch_controls: Res<TouchControls>,
     window: Single<&Window>,
     mut zoom: ResMut<Zoom>,
+    ui: crate::input::InputUi,
 ) {
     let dt = time.delta_secs().min(0.05);
-    let mut by = 1.0f32;
-    if keys.any_pressed([KeyCode::Minus, KeyCode::NumpadSubtract]) {
-        by *= (1.6 * dt).exp();
+    if ui.modal() {
+        // The overlay owns these events; never replay them when it closes.
+        wheel.clear();
+        zoom.pinch = None;
+    } else {
+        let mut by = 1.0f32;
+        if keys.any_pressed([KeyCode::Minus, KeyCode::NumpadSubtract]) {
+            by *= (1.6 * dt).exp();
+        }
+        if keys.any_pressed([KeyCode::Equal, KeyCode::NumpadAdd]) {
+            by /= (1.6 * dt).exp();
+        }
+        for w in wheel.read() {
+            let lines = match w.unit {
+                MouseScrollUnit::Line => w.y,
+                MouseScrollUnit::Pixel => w.y / 60.0,
+            };
+            by *= 1.15f32.powf(-lines);
+        }
+        // Two fingers off the buttons: a pinch.
+        let size = Vec2::new(window.width(), window.height());
+        let fingers: Vec<(u64, Vec2)> = touches
+            .iter()
+            .filter(|t| Some(t.id()) != touch_controls.dig_touch)
+            // A thumb that began on a button stays a control even if it slides
+            // off the hit area. It must not suddenly become a pinch finger.
+            .filter(|t| pinch_eligible(size, t.start_position(), t.position()))
+            .map(|t| (t.id(), t.position()))
+            .collect();
+        by *= pinch_factor(&mut zoom.pinch, &fingers);
+        zoom.want = (zoom.want * by).clamp(1.0, ZOOM_MAX);
     }
-    if keys.any_pressed([KeyCode::Equal, KeyCode::NumpadAdd]) {
-        by /= (1.6 * dt).exp();
-    }
-    for w in wheel.read() {
-        let lines = match w.unit {
-            MouseScrollUnit::Line => w.y,
-            MouseScrollUnit::Pixel => w.y / 60.0,
-        };
-        by *= 1.15f32.powf(-lines);
-    }
-    // Two fingers off the buttons: a pinch.
-    let size = Vec2::new(window.width(), window.height());
-    let fingers: Vec<(u64, Vec2)> = touches
-        .iter()
-        .filter(|t| Some(t.id()) != touch_controls.dig_touch)
-        // A thumb that began on a button stays a control even if it slides
-        // off the hit area. It must not suddenly become a pinch finger.
-        .filter(|t| pinch_eligible(size, t.start_position(), t.position()))
-        .map(|t| (t.id(), t.position()))
-        .collect();
-    by *= pinch_factor(&mut zoom.pinch, &fingers);
-    zoom.want = (zoom.want * by).clamp(1.0, ZOOM_MAX);
     // Ease in log space, so every step feels the same size.
     let target = zoom.want.max(zoom.peek).min(ZOOM_MAX);
     let (now, want) = (zoom.out.ln(), target.ln());
@@ -325,7 +333,6 @@ fn follow_crab(
 /// colour. Materials are only touched when the colour really changes.
 fn tint_water(
     mut camera: Single<(&Transform, &mut Camera), With<Camera2d>>,
-    mut fogs: ResMut<Assets<MemoryMaterial>>,
     mut cell_fogs: ResMut<Assets<crate::cellular::CellMaterial>>,
     mut was: Local<Option<[u8; 4]>>,
 ) {
@@ -336,9 +343,6 @@ fn tint_water(
     }
     *was = Some(bytes);
     camera.1.clear_color = ClearColorConfig::Custom(water);
-    for (_, fog) in fogs.iter_mut() {
-        fog.set_water(water);
-    }
     for (_, fog) in cell_fogs.iter_mut() {
         fog.set_water(water);
     }
@@ -570,6 +574,83 @@ mod camera_stability_tests {
         }
         assert!((30.0..32.0).contains(&reported_fps));
         assert!(shake.kick.length() < 0.01);
+    }
+
+    #[test]
+    fn modal_zoom_input_is_consumed_while_preview_still_eases() {
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Touches>()
+            .init_resource::<TouchControls>()
+            .init_resource::<crate::settings::panel::Open>()
+            .init_resource::<crate::shell_inventory::Open>()
+            .init_resource::<crate::codes::CodeBox>()
+            .init_resource::<Zoom>()
+            .add_message::<MouseWheel>()
+            .add_systems(Update, read_zoom);
+        let window = app.world_mut().spawn(Window::default()).id();
+        let advance = |app: &mut App| {
+            app.world_mut()
+                .resource_mut::<Time<Real>>()
+                .advance_by(std::time::Duration::from_secs_f32(0.05));
+            app.update();
+        };
+        let start = app.world().resource::<Zoom>().want;
+        app.world_mut()
+            .resource_mut::<crate::shell_inventory::Open>()
+            .0 = true;
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Minus);
+        app.world_mut()
+            .resource_mut::<Messages<MouseWheel>>()
+            .write(MouseWheel {
+                unit: MouseScrollUnit::Line,
+                phase: bevy::input::touch::TouchPhase::Moved,
+                x: 0.0,
+                y: -2.0,
+                window,
+            });
+        {
+            let mut zoom = app.world_mut().resource_mut::<Zoom>();
+            zoom.peek = 4.0;
+            zoom.pinch = Some((1, 2, 100.0));
+        }
+        advance(&mut app);
+        let zoom = app.world().resource::<Zoom>();
+        assert_eq!(
+            zoom.want, start,
+            "modal wheel/key input must not change requested zoom"
+        );
+        assert!(zoom.out > start, "settings preview must continue easing");
+        assert!(zoom.pinch.is_none());
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::Minus);
+        app.world_mut()
+            .resource_mut::<crate::shell_inventory::Open>()
+            .0 = false;
+        advance(&mut app);
+        assert_eq!(
+            app.world().resource::<Zoom>().want,
+            start,
+            "closing must not replay modal wheel input"
+        );
+        app.world_mut()
+            .resource_mut::<Messages<MouseWheel>>()
+            .write(MouseWheel {
+                unit: MouseScrollUnit::Line,
+                phase: bevy::input::touch::TouchPhase::Moved,
+                x: 0.0,
+                y: -1.0,
+                window,
+            });
+        advance(&mut app);
+        assert!(
+            app.world().resource::<Zoom>().want > start,
+            "ordinary zoom still works"
+        );
     }
 
     #[test]

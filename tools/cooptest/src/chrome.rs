@@ -22,9 +22,15 @@ pub const HEIGHT: f64 = 800.0;
 const RECORD_ERRORS: &str = r#"(() => {
   // Timestamp actual readiness/status changes, even when DevTools polling is delayed.
   new MutationObserver(records => {
-    for (const r of records) if (r.target.id === "crabscape")
-      console.info("co-op timing: " + r.attributeName + "=" + r.target.getAttribute(r.attributeName));
-  }).observe(document, {subtree:true, attributes:true, attributeFilter:["data-world", "data-coop"]});
+    for (const r of records) if (r.target.id === "crabscape") {
+      const value = r.target.getAttribute(r.attributeName);
+      if (r.attributeName === "data-cell-frame-error" && value) {
+        // Keep the full last frame fault across reloads, outside the short timing log.
+        try { sessionStorage.setItem("cooptest-frame-error", JSON.stringify({at:performance.now(), detail:value})); } catch (e) {}
+      }
+      console.info("co-op timing: " + r.attributeName + "=" + value);
+    }
+  }).observe(document, {subtree:true, attributes:true, attributeFilter:["data-world", "data-coop", "data-cell-frame-error"]});
   const key = "cooptest-errors";
   const add = (m) => {
     m = String(m || "unknown error");
@@ -54,6 +60,26 @@ const RECORD_ERRORS: &str = r#"(() => {
       real(...args);
     };
   }
+})();"#;
+
+// Opt-in only: retain actual stale-move stop observations across navigation.
+const RECORD_REGIONAL_STOPS: &str = r#"(() => {
+  const key = 'cooptest-regional-stops';
+  const enable = () => document.getElementById('crabscape')?.setAttribute('data-cell-work-profile','1');
+  new MutationObserver(records => {
+    enable();
+    for (const r of records) if (r.target.id === 'crabscape' &&
+      ['data-cell-move-stop','data-cell-move-stop-failed'].includes(r.attributeName)) {
+      const value = r.target.getAttribute(r.attributeName);
+      if (!value) continue;
+      const data = JSON.parse(sessionStorage.getItem(key) || '{"samples":[],"failure":null}');
+      if (r.attributeName === 'data-cell-move-stop-failed') data.failure = value;
+      else data.samples.push(value);
+      sessionStorage.setItem(key, JSON.stringify(data));
+    }
+  }).observe(document, {subtree:true,childList:true,attributes:true,
+    attributeFilter:['data-cell-move-stop','data-cell-move-stop-failed']});
+  addEventListener('DOMContentLoaded',enable);
 })();"#;
 
 /// The browser of a computer whose network can't reach the public address servers on one of its networks (a
@@ -242,6 +268,12 @@ impl Chrome {
             "Page.addScriptToEvaluateOnNewDocument",
             json!({ "source": RECORD_ERRORS }),
         )?;
+        if std::env::var_os("CRABSCAPE_REGIONAL_STOP_PROBE").is_some() {
+            me.call(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({"source": RECORD_REGIONAL_STOPS}),
+            )?;
+        }
         Ok(me)
     }
 
@@ -372,10 +404,17 @@ impl Chrome {
 
     /// The game's "co-op:" lines since this tab first opened the game (the tab keeps them over reloads).
     pub fn coop_log(&mut self) -> Vec<String> {
-        self.eval(r#"sessionStorage.getItem("cooptest-log")"#)
+        let mut lines: Vec<String> = self
+            .eval(r#"sessionStorage.getItem("cooptest-log")"#)
             .ok()
             .and_then(|v| v.as_str().and_then(|s| serde_json::from_str(s).ok()))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if let Ok(value) = self.eval(r#"sessionStorage.getItem("cooptest-frame-error")"#)
+            && let Some(detail) = value.as_str()
+        {
+            lines.push(format!("co-op full frame error: {detail}"));
+        }
+        lines
     }
 
     /// A click (a tap) at `x`, `y` (CSS pixels from the top left).
@@ -480,6 +519,19 @@ impl Chrome {
 
 impl Drop for Chrome {
     fn drop(&mut self) {
+        if std::env::var_os("CRABSCAPE_REGIONAL_STOP_PROBE").is_some() {
+            match self.eval("sessionStorage.getItem('cooptest-regional-stops')") {
+                Ok(value) => eprintln!(
+                    "regional-stop-probe {}: {}",
+                    self.name,
+                    value.as_str().unwrap_or("null")
+                ),
+                Err(reason) => eprintln!(
+                    "regional-stop-probe {}: capture failed: {reason}",
+                    self.name
+                ),
+            }
+        }
         let _ = self.ws.close(None);
         let _ = self.child.kill();
         let _ = self.child.wait();
