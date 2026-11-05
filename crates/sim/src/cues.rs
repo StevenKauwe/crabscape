@@ -1,5 +1,11 @@
 //! Deterministic sound intentions. Presentation reads a bounded tick journal;
 //! it never chooses when a sound happens or changes another player's body.
+//!
+//! Only moments are cues: a hunter's tell starting, a groan, a step, a claw,
+//! a shell creak, a vent nearby. The steady soundscape (the surge, the deep
+//! rumble) is not cued at all: presentation reads it from the crab's depth
+//! band every frame, so nothing is retriggered on a clock and nothing pulses.
+//! Warnings only ever add sound; nothing here silences the world.
 use crate::{PlayerId, Sim, enemy::State, level::bands::band_at, rng::Rng};
 use bevy_math::Vec2;
 
@@ -11,9 +17,11 @@ pub enum GroanKind {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Cue {
-    Hush {
+    /// A hunter aimed at `crab` starts its tell: the water swells until the
+    /// strike at `strike_tick`. Once per tell (hit-stop never repeats it).
+    Tell {
         crab: PlayerId,
-        until_tick: u64,
+        strike_tick: u64,
     },
     Groan {
         at: Vec2,
@@ -22,6 +30,7 @@ pub enum Cue {
     VentHum {
         at: Vec2,
     },
+    /// The strained shell creaks, at irregular moments (never a beat).
     ShellTick {
         crab: PlayerId,
         strength: f32,
@@ -30,14 +39,6 @@ pub enum Cue {
         crab: PlayerId,
     },
     Claw {
-        crab: PlayerId,
-    },
-    /// A quiet bed fragment; its frequency follows the band's ambience.
-    Bed {
-        crab: PlayerId,
-    },
-    /// Sustains the single low tone, whose pitch reads watched/hushed state.
-    Tone {
         crab: PlayerId,
     },
 }
@@ -51,20 +52,42 @@ pub struct Event {
 pub fn groan_interval(at: Vec2) -> u64 {
     (1800.0 + (1.0 - band_at(at).ambience) * 12600.0) as u64
 }
+
+/// How a groan is played back: whole octaves of the music's D, so a groan is
+/// never out of key. The basin and twilight hear it as made; midnight and the
+/// deep an octave down.
 pub fn groan_pitch(at: Vec2) -> f32 {
-    0.6 + 0.4 * band_at(at).ambience
+    if band_at(at).ambience > 0.3 { 1.0 } else { 0.5 }
+}
+
+/// Chance in a thousand, per half-second check, that a fully strained shell
+/// creaks (about one creak every 1.6 s at full strain, at random moments).
+const CREAK_PER_MILLE: f32 = 160.0;
+/// Ticks between creak checks.
+const CREAK_CHECK: u64 = 30;
+
+/// A stateless deterministic draw in 0..1000 (no saved phase or RNG state).
+fn draw(tick: u64, salt: u64) -> u32 {
+    let mut x = tick ^ salt.rotate_left(32) ^ super::SEED;
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    ((x ^ (x >> 31)) % 1000) as u32
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct Cues {
     events: Vec<Event>,
     rng: Rng,
+    /// Tells already announced (enemy id, strike tick), so a tell paused by
+    /// hit-stop is announced once. Presentation only, never hashed.
+    told: Vec<(u32, u64)>,
 }
 impl Default for Cues {
     fn default() -> Self {
         Self {
             events: Vec::new(),
             rng: Rng::new(super::SEED ^ 0x736f756e64),
+            told: Vec::new(),
         }
     }
 }
@@ -79,31 +102,20 @@ impl Cues {
         tick: u64,
         e: &crate::Enemy,
         before: (State, u32),
-        tuning: &crate::Tuning,
+        _tuning: &crate::Tuning,
     ) {
+        self.told.retain(|&(_, strike)| strike >= tick);
         let Some(crab) = e.target.filter(|_| e.animal_target.is_none()) else {
             return;
         };
-        if !matches!(e.state, State::Tell | State::Attack) {
+        if e.state != State::Tell || self.told.iter().any(|&(id, _)| id == e.id) {
             return;
         }
-        let onset = before.0 != e.state || (before.1 == 0 && e.state_tick <= 1);
-        let held = before.0 == e.state && before.1 == e.state_tick;
-        if onset || held {
-            self.emit(
-                tick,
-                Cue::Hush {
-                    crab,
-                    until_tick: tick
-                        + u64::from(e.state_len.saturating_sub(e.state_tick))
-                        + if e.state == State::Tell {
-                            u64::from(e.kind.tuning(tuning).active_ticks)
-                        } else {
-                            0
-                        }
-                        + 1,
-                },
-            );
+        let onset = before.0 != State::Tell || (before.1 == 0 && e.state_tick <= 1);
+        if onset {
+            let strike_tick = tick + u64::from(e.state_len.saturating_sub(e.state_tick)) + 1;
+            self.told.push((e.id, strike_tick));
+            self.emit(tick, Cue::Tell { crab, strike_tick });
         }
     }
 }
@@ -114,7 +126,8 @@ impl Sim {
     pub fn cues(&self) -> &[Event] {
         &self.sound_cues.events
     }
-    pub fn hushed(&self, crab: PlayerId) -> bool {
+    /// A hunter aimed at `crab` is telling or striking (for tests and tools).
+    pub fn threatened(&self, crab: PlayerId) -> bool {
         self.enemies.iter().any(|e| {
             e.target == Some(crab)
                 && e.animal_target.is_none()
@@ -130,20 +143,10 @@ impl Sim {
             .iter()
             .filter(|c| !c.remote && c.fighter.dead.is_none())
         {
-            let quiet = self.enemies.iter().any(|e| {
-                e.target == Some(c.id)
-                    && e.animal_target.is_none()
-                    && matches!(e.state, State::Tell | State::Attack)
-            });
-            let ambience = band_at(c.mover.pos).ambience;
-            if tick.is_multiple_of(120) {
-                cues.emit(tick, Cue::Tone { crab: c.id });
-            }
-            let spacing = (60.0 / ambience) as u64;
-            if !quiet && tick.is_multiple_of(spacing) {
-                cues.emit(tick, Cue::Bed { crab: c.id });
-            }
-            if c.strain > 0.0 && tick.is_multiple_of(180) {
+            if c.strain > 0.0
+                && tick.is_multiple_of(CREAK_CHECK)
+                && (draw(tick, u64::from(c.id.0)) as f32) < CREAK_PER_MILLE * c.strain
+            {
                 cues.emit(
                     tick,
                     Cue::ShellTick {

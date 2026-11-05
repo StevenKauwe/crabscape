@@ -47,7 +47,7 @@ pub const BEAT: f32 = 1.0;
 /// Beats per chord: places and tracks change on a chord.
 const CHORD_BEATS: u64 = 8;
 /// D3, the music's home note (Hz): every note is semitones from it.
-const D3: f32 = 146.832;
+pub(crate) const D3: f32 = 146.832;
 /// How long a fight keeps the heartbeat going after it ends, and how long
 /// unease lasts after that (seconds): calm comes back slowly.
 const FIGHT_LINGERS: f32 = 4.0;

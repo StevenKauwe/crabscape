@@ -43,7 +43,8 @@ Made with: **exposure** (wide water, nothing to hold, the lantern showing you to
 with long tells** (something big that strikes from far, after a warning you can read), and **a visible refuge always
 in reach** (a crevice, a kelp stand, a burrow mouth, a lee behind rock).
 - The hunter's tell starts at least 3 s before its strike, and can be read from at least 1,200 units away. The tell
-  is silence first (the world's small sounds stop), then a shape, then the strike.
+  is a sound added first (the water swelling, in the music's key; nothing goes quiet: owner's call), then a shape,
+  then the strike.
 - From every point of an open-water crossing, a refuge is in sight: within 600 units on narrow crossings, within
   1,500 on the wide ones (the canyon is 1,550 to 2,700 across, and its middle stays open). **The hunter's tell is
   always long enough to swim to the nearest refuge** (at least 3 s, longer the further the refuge), so a careful
@@ -91,8 +92,9 @@ cast-off shell (the existing rule). Fear comes from not knowing and from being e
   the canyon floor and its shell ticks as cracks spread. Bad: a red "PRESSURE 85%" bar. Bad: slower walking.
 - **Sound.** The crab's own body gets louder as the world gets quieter: shell creak, grit under the legs, claw
   ticks. Sounds with no visible source: bone and rock groaning, a vent you find by ear, slow calls from far off.
-  **Silence is a signal**: small sounds stop before something arrives. Little music; one low tone that shifts when
-  the crab is watched. **No bubbles, no air, no breathing sounds: crabs breathe water.**
+  **Warnings add sound, never take it away** (owner's call, 2026-11-05: pausing the music or the world before a
+  strike is out): the water swells before a strike. Little music, darker deeper; one low rumble on the music's D
+  that grows with depth and swells when the crab is watched. **No bubbles, no air, no breathing sounds: crabs breathe water.**
 - **Anxiety.** Not knowing (the map shows only the crab's memory; the lantern is a small circle; a smell wisp points
   at something unseen). Being watched (an eye that follows and never attacks). Waiting (long quiet stretches, then
   one sudden thing). The lantern is a liability (bright shows you, dim blinds you). Wounds carry scent (a hurt crab
