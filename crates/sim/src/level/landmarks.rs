@@ -191,10 +191,23 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         });
     }
     for (name, rect) in super::lower_canyon::frames() {
+        let opened = matches!(
+            name,
+            "home burrow" | "mantis mouth" | "clay tunnel" | "bone hall"
+        );
         landmarks.push(Landmark {
             name: name.into(),
             rect,
-            kind: Kind::Frame,
+            kind: match name {
+                "home burrow" | "mantis mouth" | "clay tunnel" => Kind::Tunnel,
+                "bone hall" => Kind::Chamber {
+                    // Encounter authoring marker; W3.3 supplies the find and
+                    // its excavated sightline/retreat in the cellular chamber.
+                    door: Rect::new(4810.0, -2160.0, 4910.0, -2140.0),
+                    prize: Vec2::new(5000.0, -2400.0),
+                },
+                _ => Kind::Frame,
+            },
         });
         for (i, rect) in super::lower_canyon::plugs(name, rect)
             .into_iter()
@@ -203,11 +216,13 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             landmarks.push(Landmark {
                 name: if name == "long chimney" && i == 0 {
                     "long chimney crust plug".into()
+                } else if opened {
+                    format!("{name} mouth {i}")
                 } else {
                     format!("{name} plug {i}")
                 },
                 rect,
-                kind: Kind::Plug,
+                kind: if opened { Kind::Mouth } else { Kind::Plug },
             });
         }
     }

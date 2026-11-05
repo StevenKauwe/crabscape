@@ -34,6 +34,23 @@ crosses sleeping-region boundaries. There is no new global background simulation
 
 ## Reproduce and invalidate
 
+W3.0 (#464) fills the home burrow, mantis mouth, clay tunnel and bone hall,
+including their removed mouth closures, with authored sediment. No body below
+y = -10,000 is filled; the odd tunnel and later water lanes remain deferred.
+The current bounds are unchanged: the 30-step probe covers **15,978,038 cells**
+(limit 16,000,000), with 87,114 sand and 115,775 mud cells. It measured 2.440 s
+for 30 steps and projected 732.0 s for 9,000 steps on the development ARM64 Mac.
+Pebble beds use the approved mud fallback because the bake stores scalar grains,
+not aggregate ownership. Permanent frame rock is never replaced.
+The final 9,000-step bake completed in **805.9 s**, conserving **202,889 grains**.
+A test-only clock relocation changed the conservative source fingerprint and
+required replacing the initial bake with another full simulation.
+Verified compaction retained 27,928 patches in **65,438 bytes**. The 30-step digest
+is `a15d93044637177b91afa30155e1df585b61c542613bbf5042a0018e60870a83`.
+Generation matched 9,929 outside-frame chunk hashes against the pre-strata kernel.
+The full 640 × 360 bone-hall window measured 2.223 ms p95 against a 16.667 ms
+60 Hz allowance in the native development profile (not a phone measurement).
+
 ```sh
 timeout 1500 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
   --example bake_settled_world -- --probe 30

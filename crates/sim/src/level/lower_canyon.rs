@@ -1,5 +1,5 @@
 //! One rock batch for the lower canyon and the future strata bodies.
-//! Frames retain procedural substrate until W3.0; none is a playable tunnel yet.
+//! Four upper frames hold strata; the deeper water lanes remain sealed.
 use super::{Brittle, Climb, Growth, Level, WATER_SURFACE_Y};
 use bevy_math::{Rect, Vec2};
 
@@ -51,8 +51,8 @@ pub(super) fn frames() -> Vec<(&'static str, Rect)> {
     ]
 }
 
-/// Explicit removable closures for W3.0. These are separate rocks so opening
-/// a mouth later does not require moving the outline or rebaking it.
+/// Separate mouth closures: opening one preserves the permanent outline,
+/// but changes authored rock and therefore requires a settled-seed rebake.
 pub(super) fn plugs(name: &str, r: Rect) -> Vec<Rect> {
     let mouths = match name {
         "home burrow" => vec![(0, 200.0), (3, -610.0)],
@@ -249,6 +249,12 @@ fn frame(level: &mut Level, name: &str, r: Rect) {
         level.rocks.extend(pieces);
     }
     for (i, mouth) in mouths.into_iter().enumerate() {
+        if matches!(
+            name,
+            "home burrow" | "mantis mouth" | "clay tunnel" | "bone hall"
+        ) {
+            continue;
+        }
         if name == "long chimney" && i == 0 {
             // Backed by a solid cap until W3.0: cracking crust is not early access.
             level.brittle.push(Brittle {

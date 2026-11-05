@@ -233,6 +233,15 @@ fn authored_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> Cell
 }
 
 fn terrain_at_height(level: &crate::Level, wx: f32, cell_y: i32, floor: f32) -> Cell {
+    let wy = GAME_BOTTOM + (cell_y as f32 + 0.5) * GAME_CELL;
+    if !level
+        .rocks
+        .iter()
+        .any(|r| r.contains(bevy_math::Vec2::new(wx, wy)))
+        && let Some(cell) = crate::level::strata::cell_at(level, wx, wy)
+    {
+        return cell;
+    }
     terrain_with_rocks(wx, cell_y, floor, |wy| {
         level
             .rocks
@@ -247,6 +256,7 @@ struct TerrainColumn {
     wx: f32,
     floor: f32,
     rock_spans: Vec<(f32, f32)>,
+    strata: Vec<crate::level::strata::StrataBody>,
 }
 
 impl TerrainColumn {
@@ -254,6 +264,14 @@ impl TerrainColumn {
         let wx = (gx as f32 + 0.5) * GAME_CELL;
         Self {
             wx,
+            strata: level
+                .strata()
+                .into_iter()
+                .filter(|b| {
+                    (wx > b.frame.min.x && wx < b.frame.max.x)
+                        || b.mouths.iter().any(|r| wx > r.min.x && wx < r.max.x)
+                })
+                .collect(),
             floor: level.floor_height(wx),
             rock_spans: level
                 .rocks
@@ -265,6 +283,15 @@ impl TerrainColumn {
     }
 
     fn cell(&self, gy: i32) -> Cell {
+        let wy = GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL;
+        if !self.rock_spans.iter().any(|&(lo, hi)| wy >= lo && wy <= hi)
+            && let Some(cell) = self
+                .strata
+                .iter()
+                .find_map(|body| body.cell_at(self.wx, wy))
+        {
+            return cell;
+        }
         terrain_with_rocks(self.wx, gy, self.floor, |wy| {
             self.rock_spans
                 .iter()
@@ -7274,5 +7301,76 @@ mod tests {
         w.push_for_crab(0.0, 0.0, 0, -1, 48);
         assert_eq!(w.cell(0, 0), Cell::Rock);
         assert!(!w.clear_for_crab(-2.0, 20.0));
+    }
+}
+
+#[cfg(test)]
+mod strata_tests {
+    use super::*;
+
+    #[test]
+    fn strata_layers_fill_each_frame_in_order() {
+        let level = crate::Level::test_level();
+        let bodies = level.strata();
+        assert_eq!(bodies.len(), 4);
+        for body in bodies {
+            let mut top = body.frame.max.y;
+            for (material, thickness) in body.layers {
+                for y in 0..(thickness / GAME_CELL) as i32 {
+                    let wy = top - (y as f32 + 0.5) * GAME_CELL;
+                    for x in 0..(body.frame.width() / GAME_CELL) as i32 {
+                        let gx = (body.frame.min.x / GAME_CELL) as i32 + x;
+                        let gy = ((wy - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+                        let column = TerrainColumn::new(&level, gx);
+                        assert_eq!(column.cell(gy), material, "at {gx}, {gy}");
+                        assert_eq!(authored_terrain_cell(&level, gx, gy), material);
+                    }
+                }
+                top -= thickness;
+            }
+            assert_eq!(top, body.frame.min.y);
+        }
+    }
+
+    #[test]
+    fn generation_outside_frames_is_unchanged() {
+        use sha2::{Digest, Sha256};
+        let level = crate::Level::test_level();
+        let bodies = level.strata();
+        let side = TERRAIN_CHUNK_CELLS;
+        let mut checked = 0;
+        for cx in 0..=((level.max_x / GAME_CELL) as i32 / side) {
+            for cy in -80..40 {
+                let rect = bevy_math::Rect::new(
+                    (cx * side) as f32 * GAME_CELL,
+                    GAME_BOTTOM + (cy * side) as f32 * GAME_CELL,
+                    ((cx + 1) * side) as f32 * GAME_CELL,
+                    GAME_BOTTOM + ((cy + 1) * side) as f32 * GAME_CELL,
+                );
+                if bodies.iter().any(|b| {
+                    !b.frame.intersect(rect).is_empty()
+                        || b.mouths.iter().any(|m| !m.intersect(rect).is_empty())
+                }) {
+                    continue;
+                }
+                let mut actual = Sha256::new();
+                let mut baseline = Sha256::new();
+                for gx in cx * side..(cx + 1) * side {
+                    let column = TerrainColumn::new(&level, gx);
+                    for gy in cy * side..(cy + 1) * side {
+                        actual.update([column.cell(gy) as u8]);
+                        baseline.update([terrain_with_rocks(column.wx, gy, column.floor, |wy| {
+                            column
+                                .rock_spans
+                                .iter()
+                                .any(|&(lo, hi)| wy >= lo && wy <= hi)
+                        }) as u8]);
+                    }
+                }
+                assert_eq!(actual.finalize(), baseline.finalize(), "chunk {cx},{cy}");
+                checked += 1;
+            }
+        }
+        eprintln!("{checked} outside-frame chunk hashes unchanged");
     }
 }

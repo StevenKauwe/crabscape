@@ -24,6 +24,7 @@ mod hub;
 pub mod landmarks;
 mod lower_canyon;
 pub mod refuges;
+pub mod strata;
 
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
