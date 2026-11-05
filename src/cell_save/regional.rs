@@ -1,5 +1,5 @@
 //! Build an owner's whole-world save from its current local region and the
-//! latest acknowledged remote checkpoint. No network journal is replayed here.
+//! latest acknowledged remote checkpoints. No network journal is replayed here.
 use super::Error;
 use crabsim::cell_codec::spatial::Capture;
 use crabsim::{
@@ -15,7 +15,7 @@ pub(crate) fn prepare_owner_save(
     local_id: RegionId,
     local_epoch: RegionEpoch,
     local_arrivals_delivered: u64,
-    remote: Option<&RegionKernel>,
+    remotes: &[&RegionKernel],
 ) -> Result<Capture, Error> {
     let local_terrain = view.level.cells.as_ref().ok_or(Error::Damaged)?;
     terrain
@@ -28,7 +28,7 @@ pub(crate) fn prepare_owner_save(
         .map_err(|_| Error::Damaged)?;
     entities.merge_resources(view).map_err(|_| Error::Damaged)?;
     let mut tick = view.tick_count().max(entities.sim.tick_count());
-    if let Some(remote) = remote {
+    for remote in remotes {
         terrain
             .commit_state(
                 remote.id,
@@ -62,7 +62,7 @@ pub(crate) fn prepare_owner_save(
     #[cfg(not(target_arch = "wasm32"))]
     let initial = false;
     let mut sources = vec![view];
-    if let Some(remote) = remote {
+    for remote in remotes {
         sources.push(&remote.sim);
     }
     let salvage = entities
@@ -144,6 +144,73 @@ mod tests {
         loaded.restore_default_window(level, wx, wy).unwrap();
         let (x, y) = loaded.local_cell(wx, wy);
         loaded.cell(x as i32, y as i32)
+    }
+
+    #[test]
+    fn owner_snapshot_combines_three_independent_regions() {
+        let level = Level::test_level();
+        let mut whole = Sim::new(Tuning::default(), level.clone());
+        whole.enable_underwater_cells();
+        for (id, x) in [(0, 160.0), (1, 2400.0), (2, 1400.0)] {
+            whole.add_crab(PlayerId(id), Vec2::new(x, 0.0));
+        }
+        let mut terrain = TerrainStore::new(whole.level.cells.take().unwrap()).unwrap();
+        let mut entities = EntityArchive::new(whole).unwrap();
+        let mut regions = Vec::new();
+        for n in 0..3 {
+            let id = RegionId(n + 1);
+            let bounds = CellRegion {
+                x: [0, 512, 256][n as usize],
+                y: 0,
+                width: 256,
+                height: 256,
+            };
+            let (epoch, world) = terrain.grant(id, bounds, &level).unwrap();
+            regions.push(
+                entities
+                    .extract(id, epoch, &[PlayerId(n as u32)], world)
+                    .unwrap(),
+            );
+        }
+        for (n, region) in regions.iter_mut().enumerate() {
+            for tick in 0..4 {
+                region
+                    .tick(&RegionFrame {
+                        tick,
+                        controls: vec![(PlayerId(n as u32), Controls::default())],
+                        actions: vec![],
+                    })
+                    .unwrap();
+            }
+        }
+        let edits: Vec<_> = regions
+            .iter_mut()
+            .map(|region| displace(region.sim.level.cells.as_mut().unwrap()))
+            .collect();
+        let hashes: Vec<_> = regions.iter().map(RegionKernel::state_hash).collect();
+        let local = &regions[0];
+        let capture = prepare_owner_save(
+            &local.sim,
+            &mut terrain,
+            &mut entities,
+            local.id,
+            local.epoch,
+            local.arrivals_delivered(),
+            &[&regions[1], &regions[2]],
+        )
+        .unwrap();
+        let decoded = super::super::decode(&portable(capture)).unwrap();
+        for edit in edits {
+            assert_eq!(saved_cell(&decoded.terrain, &level, edit), edit.2);
+        }
+        assert_eq!(
+            regions
+                .iter()
+                .map(RegionKernel::state_hash)
+                .collect::<Vec<_>>(),
+            hashes
+        );
+        assert_eq!(terrain.active_regions(), 3);
     }
 
     #[test]
@@ -232,7 +299,7 @@ mod tests {
             local.id,
             local.epoch,
             local.arrivals_delivered(),
-            Some(&backup),
+            &[&backup],
         )
         .unwrap();
         let bytes = portable(result);
@@ -245,7 +312,7 @@ mod tests {
                 local.id,
                 local.epoch,
                 local.arrivals_delivered(),
-                Some(&backup),
+                &[&backup],
             )
             .unwrap(),
         );

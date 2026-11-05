@@ -270,7 +270,7 @@ pub(crate) fn owner_save(
                 local.id,
                 local.epoch,
                 local.arrivals_delivered(),
-                None,
+                &[],
             )?;
             regional.owner_save_dirty = false;
             Ok(prepared)

@@ -1,7 +1,7 @@
 //! Bounded admission state for the multi-peer cellular adapter under development.
 //! Not wired into live gameplay. Transport supplies connection IDs; messages cannot
 //! authenticate themselves by claiming a PlayerId. No checkpoints are retained here.
-use crate::PlayerId;
+use crate::{Controls, PlayerId};
 use std::collections::BTreeMap;
 
 pub const TARGET_PLAYERS: usize = 32;
@@ -23,15 +23,18 @@ pub enum Error {
     Exhausted,
     NotReady,
     Sequence,
+    Controls,
+    Members,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Member {
     ticket: Ticket,
     deadline: u64,
     active: bool,
     sequence: Option<u64>,
+    controls: Controls,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Roster {
     owner: PlayerId,
     generation: u64,
@@ -58,6 +61,7 @@ impl Roster {
                     deadline: u64::MAX,
                     active: true,
                     sequence: None,
+                    controls: Controls::default(),
                 },
             )]),
         }
@@ -114,6 +118,7 @@ impl Roster {
                 deadline,
                 active: false,
                 sequence: None,
+                controls: Controls::default(),
             },
         );
         Ok(ticket)
@@ -147,6 +152,52 @@ impl Roster {
         member.sequence = Some(sequence);
         Ok(())
     }
+    /// One bounded input slot per authenticated participant. Preserve presses
+    /// across packets until that participant's region consumes a frame.
+    pub fn controls(
+        &mut self,
+        ticket: Ticket,
+        connection: u128,
+        sequence: u64,
+        mut controls: Controls,
+    ) -> Result<(), Error> {
+        if !controls.walk.is_finite() || !(-1.0..=1.0).contains(&controls.walk) {
+            return Err(Error::Controls);
+        }
+        self.input(ticket, connection, sequence)?;
+        let member = self.members.get_mut(&ticket.player).ok_or(Error::Stale)?;
+        controls.jump_pressed |= member.controls.jump_pressed;
+        controls.dodge_pressed |= member.controls.dodge_pressed;
+        controls.smash_pressed |= member.controls.smash_pressed;
+        controls.jab_pressed |= member.controls.jab_pressed;
+        controls.block_pressed |= member.controls.block_pressed;
+        member.controls = controls;
+        Ok(())
+    }
+    /// Consume only this region's inputs. Reject an invalid roster before
+    /// clearing any presses; other regions advance independently.
+    pub fn region_controls(
+        &mut self,
+        members: &[PlayerId],
+    ) -> Result<Vec<(PlayerId, Controls)>, Error> {
+        if members.is_empty()
+            || members.windows(2).any(|pair| pair[0] >= pair[1])
+            || members
+                .iter()
+                .any(|id| self.members.get(id).is_none_or(|m| !m.active))
+        {
+            return Err(Error::Members);
+        }
+        Ok(members
+            .iter()
+            .map(|id| {
+                let member = self.members.get_mut(id).expect("validated member");
+                let controls = member.controls;
+                member.controls = controls.held_only();
+                (*id, controls)
+            })
+            .collect())
+    }
     /// Owner loss requires an explicit authority transition, not ordinary removal.
     pub fn leave(&mut self, player: PlayerId, connection: u128) -> Result<(), Error> {
         if player == self.owner {
@@ -179,6 +230,52 @@ impl Roster {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn region_inputs_preserve_edges_and_isolate_reconnections() {
+        let mut r = Roster::new(PlayerId(0), 100, 1);
+        let a = r.reserve(PlayerId(1), 1, 0, 10).unwrap();
+        let b = r.reserve(PlayerId(2), 2, 0, 10).unwrap();
+        r.commit(a, 1, 1).unwrap();
+        r.commit(b, 2, 1).unwrap();
+        let press = Controls {
+            walk: 1.0,
+            jump_pressed: true,
+            ..Default::default()
+        };
+        r.controls(a, 1, 0, press).unwrap();
+        r.controls(b, 2, 0, press).unwrap();
+        r.controls(a, 1, 1, Controls::default()).unwrap();
+        assert_eq!(
+            r.region_controls(&[PlayerId(1), PlayerId(1)]),
+            Err(Error::Members)
+        );
+        let frame = r.region_controls(&[PlayerId(0), PlayerId(1)]).unwrap();
+        assert!(frame[1].1.jump_pressed);
+        assert_eq!(frame[1].1.walk, 0.0);
+        assert!(!r.region_controls(&[PlayerId(1)]).unwrap()[0].1.jump_pressed);
+        assert!(r.region_controls(&[PlayerId(2)]).unwrap()[0].1.jump_pressed);
+        assert_eq!(
+            r.controls(
+                a,
+                1,
+                2,
+                Controls {
+                    walk: f32::NAN,
+                    ..press
+                }
+            ),
+            Err(Error::Controls)
+        );
+        r.controls(a, 1, 2, press).unwrap();
+        r.leave(PlayerId(1), 1).unwrap();
+        let fresh = r.reserve(PlayerId(1), 11, 2, 10).unwrap();
+        r.commit(fresh, 11, 3).unwrap();
+        assert_eq!(r.controls(a, 1, 3, press), Err(Error::Stale));
+        assert_eq!(
+            r.region_controls(&[PlayerId(1)]).unwrap()[0].1,
+            Controls::default()
+        );
+    }
     #[test]
     fn simultaneous_reservations_bound_memory_and_rejoin_rejects_old_messages() {
         let mut r = Roster::new(PlayerId(0), 100, 1);

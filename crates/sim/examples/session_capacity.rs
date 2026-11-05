@@ -2,6 +2,7 @@
 //! cargo run -p crabsim --release --example session_capacity -- 32
 //! A nonzero result means the requested capacity is NOT supported by this probe.
 use bevy_math::Vec2;
+use crabsim::net::cell_join::roster::Roster;
 use crabsim::{Controls, PlayerId, Sim};
 use std::time::Instant;
 
@@ -17,6 +18,8 @@ fn main() -> Result<(), String> {
     let began = Instant::now();
     let mut sim = Sim::with_one_crab(Vec2::new(260.0, 70.0));
     sim.enable_underwater_cells();
+    let mut roster = Roster::new(PlayerId(0), 1000, 1);
+    let mut tickets = Vec::new();
     let mut accepted = Vec::new();
     for n in 1..target {
         let id = PlayerId(n);
@@ -26,6 +29,13 @@ fn main() -> Result<(), String> {
         let joined = sim.join_cell_player(id, pos, &progress);
         println!("participant={} joined={joined}", n + 1);
         if joined {
+            let ticket = roster
+                .reserve(id, u128::from(n), 0, 10)
+                .map_err(|e| format!("reserve: {e:?}"))?;
+            roster
+                .commit(ticket, u128::from(n), 1)
+                .map_err(|e| format!("commit: {e:?}"))?;
+            tickets.push((ticket, u128::from(n)));
             accepted.push((id, pos, progress));
         }
     }
@@ -44,8 +54,23 @@ fn main() -> Result<(), String> {
                 walk: if (n + tick / 30) % 2 == 0 { 1.0 } else { -1.0 },
                 ..Default::default()
             };
-            sim.set_controls(PlayerId(n), controls);
-            copy.set_controls(PlayerId(n), controls);
+            if n == 0 {
+                sim.set_controls(PlayerId(n), controls);
+                copy.set_controls(PlayerId(n), controls);
+            } else {
+                let (ticket, connection) = tickets[n as usize - 1];
+                roster
+                    .controls(ticket, connection, u64::from(tick), controls)
+                    .map_err(|e| format!("input: {e:?}"))?;
+            }
+        }
+        let members: Vec<_> = (1..count as u32).map(PlayerId).collect();
+        for (id, controls) in roster
+            .region_controls(&members)
+            .map_err(|e| format!("region inputs: {e:?}"))?
+        {
+            sim.set_controls(id, controls);
+            copy.set_controls(id, controls);
         }
         sim.tick();
         copy.tick();
