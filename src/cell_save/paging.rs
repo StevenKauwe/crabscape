@@ -32,7 +32,15 @@ pub(crate) fn apply(
     replies: &mut Replies,
 ) -> Result<(), &'static str> {
     for (ticket, bytes) in std::mem::take(&mut replies.terrain) {
-        world.accept_sleeping_page(ticket, bytes.as_deref())?;
+        let accepted = world.accept_sleeping_page(ticket, bytes.as_deref())?;
+        #[cfg(target_arch = "wasm32")]
+        let _profile = super::work::begin(if accepted {
+            "cell-terrain-page-installed"
+        } else {
+            "cell-terrain-page-deferred"
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = accepted;
     }
     for (ticket, bytes) in std::mem::take(&mut replies.memory) {
         memory.accept_page(ticket, bytes.as_deref())?;

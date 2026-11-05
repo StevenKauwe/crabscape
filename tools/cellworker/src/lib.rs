@@ -4,6 +4,8 @@
 //! transferred as ArrayBuffers, so the worker's long compression step does
 //! not run on the frame thread. This module does not save or install worlds.
 
+mod batch;
+
 /// Bound work and memory for a single checkpoint. Callers must also limit the
 /// number of pending messages; Web Workers queue messages before dispatch.
 pub const MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -98,7 +100,16 @@ mod web {
             // Copy from the transferred JS buffer into the worker's Wasm
             // memory; Wasm linear memory itself must never be transferred.
             let input = Uint8Array::new(&buffer).to_vec();
-            match super::compress(&input) {
+            let batched = Reflect::get(&data, &"batch".into())
+                .ok()
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let packed = if batched {
+                super::compress_batch(&input)
+            } else {
+                super::compress(&input)
+            };
+            match packed {
                 Ok(packed) => {
                     let output = Uint8Array::from(packed.as_slice());
                     let buffer = output.buffer();
@@ -166,5 +177,30 @@ mod tests {
         damaged.push(0);
         assert!(!matches_original(&damaged, &input));
         assert!(matches_original(&compress(&[]).unwrap(), &[]));
+    }
+}
+
+pub fn compress_batch(frame: &[u8]) -> Result<Vec<u8>, &'static str> {
+    let records = batch::raw_records(frame)?;
+    let packed = records
+        .into_iter()
+        .map(compress)
+        .collect::<Result<Vec<_>, _>>()?;
+    batch::pack(&packed.iter().map(Vec::as_slice).collect::<Vec<_>>())
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+    #[test]
+    fn batch_matches_individual_verified_compression() {
+        let records: Vec<Vec<u8>> = (0..16)
+            .map(|i| (0..(i * 999)).map(|n| (n % 251) as u8).collect())
+            .collect();
+        let frame = batch::pack(&records.iter().map(Vec::as_slice).collect::<Vec<_>>()).unwrap();
+        let packed = compress_batch(&frame).unwrap();
+        for (raw, packed) in records.iter().zip(batch::unpack(&packed).unwrap()) {
+            assert_eq!(compress(raw).unwrap(), packed);
+        }
     }
 }

@@ -4,6 +4,9 @@
 //! raw snapshot and can retry later on any failure; no save is overwritten.
 #![allow(dead_code)]
 
+#[path = "../tools/cellworker/src/batch.rs"]
+pub(crate) mod batch;
+
 use js_sys::{Array, ArrayBuffer, Function, Object, Promise, Reflect, Uint8Array};
 use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
@@ -26,6 +29,7 @@ pub enum Error {
 struct Pending {
     id: u32,
     bytes: Option<ArrayBuffer>,
+    batch: bool,
     resolve: Function,
     reject: Function,
 }
@@ -94,11 +98,12 @@ fn send_pending(state: &Rc<RefCell<State>>, worker: &Worker) {
         let Some(bytes) = pending.bytes.take() else {
             return;
         };
-        (pending.id, bytes)
+        (pending.id, bytes, pending.batch)
     };
     let message = Object::new();
     let _ = Reflect::set(&message, &"id".into(), &request.0.into());
     let _ = Reflect::set(&message, &"bytes".into(), &request.1);
+    let _ = Reflect::set(&message, &"batch".into(), &request.2.into());
     let transfer = Array::new();
     transfer.push(&request.1);
     if worker
@@ -222,7 +227,7 @@ impl CellWorker {
         input: &[u8],
         still_current: impl Fn() -> bool,
     ) -> Result<Vec<u8>, Error> {
-        self.compress_guarded(input, TIMEOUT_MS, still_current)
+        self.compress_guarded(input, TIMEOUT_MS, false, still_current)
             .await
     }
 
@@ -231,13 +236,15 @@ impl CellWorker {
         input: &[u8],
         timeout_ms: i32,
     ) -> Result<Vec<u8>, Error> {
-        self.compress_guarded(input, timeout_ms, || true).await
+        self.compress_guarded(input, timeout_ms, false, || true)
+            .await
     }
 
     async fn compress_guarded(
         &mut self,
         input: &[u8],
         timeout_ms: i32,
+        batch: bool,
         still_current: impl Fn() -> bool,
     ) -> Result<Vec<u8>, Error> {
         if !still_current() {
@@ -259,6 +266,7 @@ impl CellWorker {
             state.pending = Some(Pending {
                 id,
                 bytes: Some(bytes.clone()),
+                batch,
                 resolve,
                 reject,
             });
@@ -312,5 +320,25 @@ impl Drop for CellWorker {
         self.worker.set_onmessage(None);
         self.worker.set_onerror(None);
         self.worker.terminate();
+    }
+}
+
+impl CellWorker {
+    pub async fn compress_batch_if_current(
+        &mut self,
+        records: &[&[u8]],
+        current: impl Fn() -> bool,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        use self::batch;
+        let frame = batch::pack(records).map_err(|_| Error::TooLarge)?;
+        batch::raw_records(&frame).map_err(|_| Error::TooLarge)?;
+        let packed = self
+            .compress_guarded(&frame, TIMEOUT_MS, true, current)
+            .await?;
+        let output = batch::unpack(&packed).map_err(|_| Error::MalformedReply)?;
+        if output.len() != records.len() {
+            return Err(Error::MalformedReply);
+        }
+        Ok(output.into_iter().map(<[u8]>::to_vec).collect())
     }
 }
