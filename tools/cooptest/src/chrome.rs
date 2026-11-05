@@ -22,9 +22,15 @@ pub const HEIGHT: f64 = 800.0;
 const RECORD_ERRORS: &str = r#"(() => {
   // Timestamp actual readiness/status changes, even when DevTools polling is delayed.
   new MutationObserver(records => {
-    for (const r of records) if (r.target.id === "crabscape")
-      console.info("co-op timing: " + r.attributeName + "=" + r.target.getAttribute(r.attributeName));
-  }).observe(document, {subtree:true, attributes:true, attributeFilter:["data-world", "data-coop"]});
+    for (const r of records) if (r.target.id === "crabscape") {
+      const value = r.target.getAttribute(r.attributeName);
+      if (r.attributeName === "data-cell-frame-error" && value) {
+        // Keep the full last frame fault across reloads, outside the short timing log.
+        try { sessionStorage.setItem("cooptest-frame-error", JSON.stringify({at:performance.now(), detail:value})); } catch (e) {}
+      }
+      console.info("co-op timing: " + r.attributeName + "=" + value);
+    }
+  }).observe(document, {subtree:true, attributes:true, attributeFilter:["data-world", "data-coop", "data-cell-frame-error"]});
   const key = "cooptest-errors";
   const add = (m) => {
     m = String(m || "unknown error");
@@ -372,10 +378,17 @@ impl Chrome {
 
     /// The game's "co-op:" lines since this tab first opened the game (the tab keeps them over reloads).
     pub fn coop_log(&mut self) -> Vec<String> {
-        self.eval(r#"sessionStorage.getItem("cooptest-log")"#)
+        let mut lines: Vec<String> = self
+            .eval(r#"sessionStorage.getItem("cooptest-log")"#)
             .ok()
             .and_then(|v| v.as_str().and_then(|s| serde_json::from_str(s).ok()))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if let Ok(value) = self.eval(r#"sessionStorage.getItem("cooptest-frame-error")"#)
+            && let Some(detail) = value.as_str()
+        {
+            lines.push(format!("co-op full frame error: {detail}"));
+        }
+        lines
     }
 
     /// A click (a tap) at `x`, `y` (CSS pixels from the top left).

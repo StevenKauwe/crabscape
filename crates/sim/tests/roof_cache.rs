@@ -13,6 +13,15 @@ fn setup(size: u32, feat: bool, x: f32, y: f32) -> Sim {
     s.enable_underwater_cells();
     s
 }
+/// The Coral Rise roof cache's brittle rock (x 16,920 to 17,100; later
+/// packages add brittle rock elsewhere, so it is not simply the last one).
+fn roof(s: &Sim) -> usize {
+    s.level
+        .brittle
+        .iter()
+        .position(|b| b.rect.contains(Vec2::new(17010.0, -2100.0)))
+        .expect("the roof cache's brittle rock")
+}
 fn tick(s: &mut Sim, c: Controls) {
     s.set_controls(P, c);
     s.tick();
@@ -95,10 +104,10 @@ fn coral_approach_full_smash_collection_and_exit_work_at_both_sizes() {
                 },
             );
         }
-        assert!(!s.level.brittle.last().unwrap().cracked);
+        assert!(!s.level.brittle[roof(&s)].cracked);
         assert!(!s.level.culture_unsealed(*s.level.cultures.last().unwrap()));
         smash(&mut s, true);
-        assert!(s.level.brittle.last().unwrap().cracked);
+        assert!(s.level.brittle[roof(&s)].cracked);
         travel(
             &mut s,
             600,
@@ -136,7 +145,7 @@ fn intact_cache_rejects_taps_and_crabs_without_the_feat() {
             );
         }
         smash(&mut s, full);
-        assert!(!s.level.brittle.last().unwrap().cracked);
+        assert!(!s.level.brittle[roof(&s)].cracked);
         assert!(!*s.crab(P).unwrap().cultures_taken.last().unwrap());
         assert!(s.crab(P).unwrap().mover.pos.x < 16920.0);
     }
@@ -167,7 +176,7 @@ fn noncrusher_can_jump_over_and_return_without_taking_the_sealed_find() {
             },
             |p| p.x < 16800.0,
         );
-        assert!(!s.level.brittle.last().unwrap().cracked);
+        assert!(!s.level.brittle[roof(&s)].cracked);
         assert!(!*s.crab(P).unwrap().cultures_taken.last().unwrap());
     }
 }
@@ -176,7 +185,7 @@ fn noncrusher_can_jump_over_and_return_without_taking_the_sealed_find() {
 fn shared_break_opens_collision_but_does_not_award_anyones_culture() {
     use crabsim::net::Msg;
     let mut host = setup(0, true, 16855.0, -2200.0);
-    let rock_index = host.level.brittle.len() - 1;
+    let rock_index = roof(&host);
     let reward_index = host.level.cultures.len() - 1;
     let rect = host.level.brittle[rock_index].rect;
     let reward = host.level.cultures[reward_index];
@@ -262,7 +271,7 @@ fn full_smash_and_local_pickup_replay_exactly() {
             },
         );
     }
-    assert!(live.level.brittle.last().unwrap().cracked);
+    assert!(live.level.brittle[roof(&live)].cracked);
     assert!(*live.crab(P).unwrap().cultures_taken.last().unwrap());
     let replay = crabsim::Replay::parse(&live.recording().unwrap().to_text()).unwrap();
     let mut again = Sim::with_one_crab(replay.start);

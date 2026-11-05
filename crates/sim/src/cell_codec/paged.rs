@@ -239,6 +239,9 @@ mod tests {
         // remembered cells to make an otherwise valid save fit.
         memory.now = u32::MAX;
         memory.cells.clear();
+        // Varied timestamps retain the large-player regression now that a
+        // sequential sweep compresses to less than the old desktop size.
+        let mut clock = 492u32;
         for y in 0..memory.rows.div_ceil(crate::memory::MEMORY_CHUNK_SIDE) {
             for x in 0..memory.cols.div_ceil(crate::memory::MEMORY_CHUNK_SIDE) {
                 memory.cells.push(crate::memory::MemoryChunk {
@@ -246,7 +249,15 @@ mod tests {
                     y,
                     cells: std::sync::Arc::new(
                         (0..1024)
-                            .map(|seen| crate::memory::MemoryCell { visits: 8, seen })
+                            .map(|_| {
+                                clock ^= clock << 13;
+                                clock ^= clock >> 17;
+                                clock ^= clock << 5;
+                                crate::memory::MemoryCell {
+                                    visits: 8,
+                                    seen: clock % 1024,
+                                }
+                            })
                             .collect(),
                     ),
                 });

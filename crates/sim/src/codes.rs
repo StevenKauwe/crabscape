@@ -211,6 +211,23 @@ pub fn hints() -> String {
 }
 
 impl Mover {
+    /// Actual lamp emission, separate from acquired brightness/capacity.
+    pub fn lantern_light_factor(&self) -> f32 {
+        if self.lantern_dim {
+            crate::tuning::DIM_LANTERN_LIGHT
+        } else {
+            1.0
+        }
+    }
+
+    pub fn lantern_sight(&self, t: &crate::Tuning) -> crate::memory::Sight {
+        let eye = self.pos + bevy_math::Vec2::Y * self.height(t);
+        let mut sight = crate::memory::Sight::new(eye, self.lantern_glow(), &t.memory);
+        let depth = crate::memory::depth_factor(self.pos);
+        sight.radii *= 1.0 - (1.0 - self.lantern_light_factor()) * depth;
+        sight
+    }
+
     /// How many cultures' worth of light the lantern gives: the ones brought
     /// home, or more with the `glow` code.
     pub fn lantern_glow(&self) -> u32 {

@@ -42,12 +42,17 @@ Every place belongs to exactly one register. Know which before you build it.
 Made with: **exposure** (wide water, nothing to hold, the lantern showing you to everything), **long-reach hunters
 with long tells** (something big that strikes from far, after a warning you can read), and **a visible refuge always
 in reach** (a crevice, a kelp stand, a burrow mouth, a lee behind rock).
-- The hunter's tell starts at least 2.5 s before its strike, and can be read from at least 900 units away. The tell
+- The hunter's tell starts at least 3 s before its strike, and can be read from at least 1,200 units away. The tell
   is silence first (the world's small sounds stop), then a shape, then the strike.
-- From every point of an open-water crossing, a refuge is visible and within 600 units (about 1 m at crab scale).
+- From every point of an open-water crossing, a refuge is in sight: within 600 units on narrow crossings, within
+  1,500 on the wide ones (the canyon is 1,550 to 2,700 across, and its middle stays open). **The hunter's tell is
+  always long enough to swim to the nearest refuge** (at least 3 s, longer the further the refuge), so a careful
+  player who reads the tell always makes it. Refuges in open water are small and local (a crevice at a wall's foot,
+  a short clump of coral on a wall, a ledge in a lee), never a ladder: a line of refuges must not become a climbing
+  route that replaces the tide or a gate.
 - A hit in open water costs something real (a leg, the carried find, reserve) but is never an instant death.
 - Good: crossing the canyon from the doorstep to the far rim, the reef sounds die away, a long pale shape turns far
-  off, and the crab has four seconds to reach the kelp it can see.
+  off, and the crab has four seconds to reach the coral clump it can see on the wall.
 - Bad: a shark that appears on screen and bites in the same second. Bad: an open crossing with nothing in sight to
   run to. Bad: a hunter that kills in one hit.
 

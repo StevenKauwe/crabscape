@@ -109,3 +109,58 @@ fn digging_never_opens_the_brittle_rock() {
         }
     }
 }
+
+#[test]
+fn a_dig_cannot_cross_a_frame() {
+    use crabsim::underwater::{Cell, World};
+    let level = Level::test_level();
+    for body in level.strata() {
+        let r = body.frame;
+        // Aim into each permanent wall away from the authored mouths. Test
+        // both directions, including far more force than an ordinary stroke.
+        for (at, dx, dy) in [
+            (Vec2::new(r.min.x - 8.0, r.min.y + 40.0), 1, 0),
+            (Vec2::new(r.max.x + 8.0, r.min.y + 40.0), -1, 0),
+            (Vec2::new(r.min.x + 24.0, r.min.y - 8.0), 0, 1),
+            (Vec2::new(r.min.x + 24.0, r.max.y + 8.0), 0, -1),
+        ] {
+            let mut world = World::from_level_settled(&level);
+            world.follow_player(&level, at.x, at.y);
+            let (x, y) = world.local_cell(at.x, at.y);
+            assert_eq!(world.cell(x as i32, y as i32), Cell::Rock);
+            for _ in 0..120 {
+                assert!(!world.push_for_crab(x, y, dx, dy, 10_000));
+            }
+            assert_eq!(world.cell(x as i32, y as i32), Cell::Rock);
+        }
+    }
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn bone_hall_full_window_cell_step_budget() {
+    use crabsim::underwater::World;
+    let level = Level::test_level();
+    let hall = level
+        .strata()
+        .into_iter()
+        .find(|b| b.frame.width() > 1000.0)
+        .expect("bone hall")
+        .frame;
+    let mut world = World::from_level_settled(&level);
+    world.follow_player(&level, hall.center().x, hall.center().y);
+    assert!(world.contains_world(hall.min.x, hall.min.y));
+    assert!(world.contains_world(hall.max.x, hall.max.y));
+    let mut times = Vec::new();
+    for _ in 0..30 {
+        let start = std::time::Instant::now();
+        world.step(0.35);
+        times.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+    times.sort_by(f64::total_cmp);
+    let p95 = times[28];
+    eprintln!(
+        "bone hall full window: p95 {p95:.3} ms; 60Hz frame budget 16.667 ms (native CPU measurement)"
+    );
+    assert!(p95 < 1000.0 / 60.0);
+}

@@ -13,10 +13,29 @@ one GitHub issue (label `world-plan`) that stands on its own.
 3. **One worktree per package**, cut from the latest `origin/main`:
    `git fetch origin && git worktree add .claude/worktrees/<slug> -b issue-<n>-<slug> origin/main`. Never work in the
    main checkout. **At most 3 packages at once, never two that touch the same file** (each issue lists its files).
-4. **Farming out to Codex:** `codex exec -m gpt-6-astra -c model_reasoning_effort=low "<brief>"` run inside that
-   worktree, in the background, with a time limit (`timeout 3600`). (`-m astra-low` is rejected on this account;
-   astra at low effort is the same thing.) The brief is the issue body plus: "Read docs/design/world-vision-brief.md
-   first. Write the failing tests first. Decide; do not ask. Do not touch files not listed."
+4. **Farming out to Codex.** The exact command that works on this account (`-m astra-low` is rejected: "not
+   supported when using Codex with a ChatGPT account"; astra at low effort is the same thing):
+   ```sh
+   L=.claude/worktrees/_codex-logs; W=.claude/worktrees/<slug>
+   timeout 3600 codex exec -m gpt-6-astra -c model_reasoning_effort=low -c approval_policy=never \
+     -s workspace-write -c sandbox_workspace_write.network_access=true \
+     --add-dir ~/.cargo --add-dir ~/Library/Caches/Mozilla.sccache -C $W - < $L/brief_<n>.txt > $L/codex_<n>.log 2>&1
+   ```
+   Run it in the background. The brief is the issue body, then "package notes" (what already exists on `main`, the
+   exact files, the decisions the issue leaves open), then the common rules (read the brief first, tests first,
+   decide, only the listed files, no commit, the checks to run). Lessons from the first runs:
+   - **Keep briefs and logs in `.claude/worktrees/_codex-logs/`**, never under `/tmp`: Codex tidies "scratch
+     files" and deleted a whole temp folder of briefs and logs once. Say "do not delete anything outside this
+     worktree" in every brief.
+   - Codex cannot `git fetch`, commit or push in its sandbox. The reviewer commits, rebases and opens the PR.
+   - Codex cannot take screenshots (no GPU in the sandbox). Visual changes get their look checked at the taste
+     gates, or by the reviewer.
+   - A run takes 15 to 60 minutes. Codex sometimes stops early with only part of the package done and no summary:
+     check the worktree against the issue's test list, and start a second run with "STATE: already done ... WHAT
+     IS LEFT ..." rather than starting over.
+   - Codex resolves merge conflicts well if the brief says which behaviours to keep.
+   - Every diff so far needed a small fix: a stored field that should have been derived, an unused import, a
+     double-applied darkening, a slow test. Read every diff.
 5. **Review checklist for every diff** (whoever opens the PR does all of it):
    - The issue's **taste check**: answer every question yes, and every numeric target in range (print the numbers in
      the PR).
@@ -49,6 +68,65 @@ one GitHub issue (label `world-plan`) that stands on its own.
    `save_data.rs`, `cell_save*`), deploy (`.github/`, `tools/previews.sh`), or the cellular engine
    (`crates/sim/src/underwater.rs`, `crates/sim/src/underwater/`, `src/cellular*`) unless the issue says it is a
    **gated engine package**.
+
+## Where things stand (2026-11-05, lead designer's handoff)
+Read this first if you are continuing without the lead designer. Check each item's live state with `gh pr view <n>`
+or `gh issue view <n>` before acting.
+- **Merged:** plan and bible (#473, #476, #486, #488, #494, #507), W0.1 landmarks (#474), W0.2 route library
+  (#480), W0.3 fear invariants (#485), W0.4 seed fingerprint (#479), W0.5 compact memory saves (#495), W1.1 depth
+  bands (#478), W1.3 canyon refuges (#490), W1.3b lower canyon and frames (#506), W1.4 tether and deep food (#509),
+  W2.1 pressure on the body (#483), W2.3 anxiety (#484), W3.0 strata in the frames (#511), and the fix for main's
+  flaky save tests (#491). Draft #419 is finished by #484 and can be closed.
+- **At a taste gate, waiting for the owner:** W2.2 sound (#493, Milestone 2; "what to try" is on #462). Do not merge
+  it or build on it until the owner answers. **W1.2, the open-water hunter (#458), needs #493's Hush cue, so it
+  waits too.**
+- **In progress:** W3.1 pockets, mouths and the hunter rule (#465) on branch `issue-465-pockets` (worktree
+  `.claude/worktrees/pockets`). The hunter rule and the mouth tests are done; left: silt mouth columns from the home
+  burrow up to the floor (its mouths open into the opening's deep rock), one bake, and drawing the ground tell at an
+  ambushed mouth. Exact steps are in the last comment on #465. The branch sits on the pre-squash W3.0 commits:
+  cherry-pick its own three commits onto main.
+- **Next, in order, none gated on #493:** W3.2 home burrow (#466) and W3.3 mantis mouth and bone hall (#467, the
+  Milestone 3 taste gate) after W3.1; W4.1 seep chimney (#468, a rock package: see its comment) and W4.2 long
+  chimney (#469, also the vent field's loop home); then the Plunge (#470 to #472; #470 decides the odd tunnel's dig,
+  since no strata can be baked below y -10,000; #471 is the Milestone 4 gate).
+
+## Hidden rules found while building (read before any package)
+- **The seed fingerprint.** See item 8: only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the
+  level's floor and rocks force a rebake. A 30-step probe digest test (`probe_digest_matches_committed`) catches
+  terrain changes from anywhere else and says "rebake". Two PRs that both rebake conflict on the binary seed: the
+  second rebases and bakes again.
+- **The route solver is slow.** `crates/sim/tests/common/route.rs` plays real ticks. Give every survey a tight stop
+  predicate (stop past the region you test); keep each test file under about 60 s on CI. Exhaustive kit matrices
+  are `#[ignore]` and run by hand (`-- --ignored --nocapture`).
+- **The level is a single-valued heightmap** (`Level::floor`, one height per x; rocks are boxes on top). A deep
+  place can only go where the floor itself is deep: nothing can sit "under" the far rim or the reef without
+  turning them into rock roofs, which breaks every animal's `floor_height`. New deep ground goes at new x: the
+  lower canyon continues east of Coral Rise (x > 17,400), as the owner's map has the canyon stepping down to the
+  right.
+- **Bedrock frames may hold substrate.** The cell generator fills any empty space below the floor with sediment;
+  a frame only has to be sealed by bedrock (unreachable, undiggable through), not empty. W3.0 replaces the
+  substrate with layered strata.
+- **A rock batch updates the probe digest.** After its bake, a rock package updates the committed digest in
+  `probe_digest_matches_committed` (`crates/sim/src/underwater/settled_seed.rs`); that one constant is in scope
+  for rock batches.
+- **Canyon refuges** are seven short coral clumps (`crates/sim/src/level/refuges.rs`), spaced by the full-kit
+  rise (about 1,020 units) so they are never a ladder (`refuges_make_no_new_climb`). New refuges follow the same
+  spacing rule.
+- **CI flake:** two `cell_save::native` tests fail on most Linux runs and pass locally (#482). Rerun the failed job
+  (`gh run rerun <id> --failed`) and add to #482; do not change saves code inside a world package.
+- **`Level` derives `PartialEq` and serde:** never add derived or static data to it as a field (it breaks saves'
+  round trip); add a method that derives it (`Level::landmarks()`, `Level::bands()`).
+- **Frames and new rock must keep clear of existing passages.** The tests that walk a passage with the biggest crab
+  (`scenarios.rs`, `canyon.rs`, `glass.rs`, `hub.rs`) catch an intrusion; known tight spots: the crack (x 5,371 to
+  5,640), the pit shaft's coral (x 4,420 to 4,490), the end wall's bare-rock face from the doorstep to the notch
+  (x 5,640 to 5,664), and the cellular opening window (x 0 to 2,560, above y -360). Run them before a bake: they do
+  not need the seed, so a collision shows up in seconds instead of after a 12-minute bake.
+- **Brittle rocks, cultures and other level lists are found by place in tests,** never as `.last()`: later packages
+  append to them.
+- **The bake is bounded at 16,000,000 cells** (the lower canyon brought it to about 16 million). Grow the world
+  sideways in new canyons rather than deeper under everything; check `--probe 30` (it prints the cell count) before
+  laying big frames.
+- **Remote crabs** show no scars yet: their appearance travels over net code that world packages must not touch.
 
 ## What already exists (build on it, do not redo)
 The current level (`crates/sim/src/level.rs`, `level/`) is already the upper half of the canyon: home shell and
@@ -93,9 +171,10 @@ existing gates hold for every ability kit. Human gate: none (no feel change).
 | ID | Package | Size | Needs | Parallel with |
 |---|---|---|---|---|
 | W1.1 (#457) | Depth bands as data (light, sound, grain, smell, residents per bed) and the lantern's colour and reach by band | M | W0.1 | W1.2 |
-| W1.2 (#458) | The open-water hunter: the sixgill shark becomes a sim hunter with a long tell | M | W0.3 | W1.1 |
-| W1.3 (#459) | **Rock batch 1:** the lower canyon (slump dam, narrows lock, vent field) plus every bedrock frame phases 3 to 5 need | M | W0.3, W1.1 | none |
-| W1.4 (#460) | Keys, gate, tether and loop on the lower canyon (no rock) | M | W1.3 | W2.1 |
+| W1.2 (#458) | The open-water hunter: the sixgill shark becomes a sim hunter with a long tell | M | W0.3, W1.3 (refuges) | W1.4 |
+| W1.3 (#459) | The open-water refuges W0.3 found missing (coral clumps and crevices: data, no rock if possible) | M | W0.3, W1.1 | W2.2 |
+| W1.3b (#487) | **Rock batch 1:** the lower canyon east of Coral Rise (slump dam, narrows lock, vent field) and every bedrock frame phases 3 to 5 need | M | W1.3 | W1.2 |
+| W1.4 (#460) | Keys, gate, tether and loop on the lower canyon (no rock) | M | W1.3b | W2.1 |
 
 **Milestone 1 gate: the first open-water crossing (W1.2 PR is a gate).** A human plays the preview and judges:
 - Cross the canyon from the doorstep to the far rim. Does the open water feel exposed? Is the shark's warning
@@ -119,7 +198,7 @@ existing gates hold for every ability kit. Human gate: none (no feel change).
 ### Phase 3: sediment pockets and burrow mouths
 | ID | Package | Size | Needs | Parallel with |
 |---|---|---|---|---|
-| W3.0 (#464) | **Gated engine package:** the cell generator fills authored strata bodies inside bedrock frames | M | W1.3 | none |
+| W3.0 (#464) | **Gated engine package:** the cell generator fills authored strata bodies inside bedrock frames | M | W1.3b | none |
 | W3.1 (#465) | Pockets and burrow mouths as level data and rules; hunters cannot enter tunnels | M | W3.0 | none |
 | W3.2 (#466) | The home burrow and its clam beds: the first burrow (teach) | M | W3.1 | W3.3 |
 | W3.3 (#467) | The mantis's burrow mouth and the bone hall, the first chamber | M | W3.1 | W3.2 |
@@ -160,7 +239,7 @@ milestone 4.
 | A dig never bypasses a gate | `dig_gates.rs` (extend) | W3.1 |
 | Every pocket has two or more exits within a bounded length | `world_shape.rs` | W0.3, W3.1 |
 | Tunnels contain no wandering hunters | `world_shape.rs` | W0.3, W3.1 |
-| Open water: a refuge within 600 units; hunter tell at least 2.5 s | `world_shape.rs`, `open_water.rs` | W0.3, W1.2 |
+| Open water: a visible refuge within 600 (narrow) or 1,500 (wide crossings); hunter tell covers the swim to it | `world_shape.rs`, `open_water.rs` | W0.3, W1.2 |
 | Chamber prize visible from the door within 800 units; retreat within 6 s | `world_shape.rs` | W0.3, W3.3 |
 | Round-trip budgets | `dive_budget.rs` | W1.4, W4.2 |
 | Strain never changes movement | `strain.rs` | W2.1 |

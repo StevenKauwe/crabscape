@@ -1,11 +1,24 @@
 # Cell-compute spike, November 2026
 
-Ordinary simulation CPU cost falls roughly 4–6x on the measured routes;
+The historical measurements below use the earlier world and base `2e1b1d3`,
+not the current strata integration. Ordinary simulation CPU cost fell roughly
+4–6x on those measured routes;
 the complete co-op window-move path falls roughly 7–9x. A 10x whole-game
 improvement is not established.
-It landed without waiting for a phone play-test: it only removes work, the
-tide change is below anything a player could see (material occupancy matched
-exactly in the fixtures), and the playable preview stays the next check.
+The recorded release decision is to land without blocking on a phone play-test.
+Material occupancy matched in the tested tide fixtures; that bounded evidence
+does not establish phone FPS or identical behavior for every later trajectory.
+
+## Integration with the current strata world
+
+The merge retains main's current rock frames, strata, burrow and tether changes.
+Its five-minute seed was regenerated from the merged kernel, not retagged or
+replaced by the old-world artifact. The 15,978,038-cell probe took 0.965 seconds
+for 30 steps. The full 9,000-step bake took 290.7 seconds and conserved all
+202,889 sand/mud grains. Verified compaction retained 27,928 patches in 65,439
+compressed bytes. These are local bake measurements, not rendering or network
+measurements; the earlier performance and payload comparisons below remain
+historical evidence.
 
 ## Download cost
 

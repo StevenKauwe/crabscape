@@ -164,6 +164,9 @@ pub struct Mover {
     /// How many cultures have been brought home: each makes the lantern
     /// brighter.
     pub lantern: u32,
+    /// A shaded jar; acquired cultures and paging capacity stay unchanged.
+    #[serde(default)]
+    pub lantern_dim: bool,
     /// Climbing experience: it grows with every bit climbed, and each level
     /// climbs faster (see [`crate::skills`]).
     pub climb_xp: f32,
@@ -279,6 +282,7 @@ impl Mover {
             glass_grips: false,
             clam_guards: false,
             lantern: 0,
+            lantern_dim: false,
             climb_xp: 0.0,
             swim_xp: 0.0,
             fight_xp: 0.0,

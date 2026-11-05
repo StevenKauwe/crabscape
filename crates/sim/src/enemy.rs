@@ -272,6 +272,17 @@ impl Enemy {
         }
     }
 
+    /// Home leash used by pursuit and idle foraging, before body reach.
+    /// Authoring checks can read this without duplicating the forage radius.
+    pub fn home_leash(&self, tuning: &Tuning) -> f32 {
+        let chase = self.kind.tuning(tuning).give_up_range;
+        if foraging_water(self).is_some() {
+            chase.max(MORAY_FORAGE_LEASH)
+        } else {
+            chase
+        }
+    }
+
     /// A monkey still falling in from above: out of reach and doing nothing.
     pub fn dropping(&self) -> bool {
         self.kind == Kind::Monkey
@@ -565,7 +576,24 @@ impl Enemy {
                 } else {
                     200.0
                 };
-                *d <= range && (c.mover.pos.y - self.pos.y).abs() < vertical
+                let notice = if sight && c.mover.lantern_dim && self.target != Some(c.id) {
+                    let depth = crate::memory::depth_factor(c.mover.pos);
+                    let factor = 1.0 - (1.0 - crate::tuning::DIM_LANTERN_NOTICE) * depth;
+                    (range * factor)
+                        .max(crate::tuning::DIM_LANTERN_CLOSE)
+                        .min(range)
+                } else if sight
+                    && !c.mover.lantern_dim
+                    && crate::level::bands::band_at(c.mover.lantern_sight(t).eye).ambient_light
+                        <= 0.12
+                {
+                    range * 1.35
+                } else if self.kind == Kind::Moray {
+                    range * crate::memory::wound_scent_factor(c)
+                } else {
+                    range
+                };
+                *d <= notice && (c.mover.pos.y - self.pos.y).abs() < vertical
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(id, _, _)| id)

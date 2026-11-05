@@ -369,6 +369,27 @@ mod tests {
         assert_eq!(sim.state_hash(), restored.state_hash());
     }
     #[test]
+    fn session_replays_personal_lantern_setting() {
+        let mut sim = initial();
+        let guest = PlayerId(91);
+        let packed = sim.session_checkpoint().unwrap();
+        let mut recording = CellSessionRecording::new(&packed, PlayerId(0), guest).unwrap();
+        let mut frame = CellSessionTick::default();
+        frame.actions[0] = Some((
+            guest,
+            CellSessionAction::Shell(crate::ShellAction::ToggleLantern),
+        ));
+        assert!(recording.note(sim.tick_count(), frame));
+        assert!(sim.tick_cell_session(PlayerId(0), guest, &frame));
+        assert!(sim.crab(guest).unwrap().mover.lantern_dim);
+        assert!(!sim.crab(PlayerId(0)).unwrap().mover.lantern_dim);
+        let replay = Replay::parse(&recording.to_text().unwrap()).unwrap();
+        let mut restored = Sim::with_one_crab(crate::level::SPAWN);
+        assert!(replay.prepare_start(&mut restored));
+        assert!(replay.step_cell_session(&mut restored));
+        assert_eq!(sim.state_hash(), restored.state_hash());
+    }
+    #[test]
     fn session_replays_salvage_actions_and_identity_exactly() {
         use crate::salvage::SalvageAction;
         let mut sim = Sim::with_one_crab(bevy_math::Vec2::new(300.0, 30.0));

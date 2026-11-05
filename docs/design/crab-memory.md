@@ -37,3 +37,15 @@ the world. Rules: `crates/sim/src/memory.rs` (numbers in `Tuning::memory`); draw
 - [FJC12] Frank, Johnsen & Cronin (2012), "Light and vision in the deep-sea benthos: II. Vision in deep-sea crustaceans", *J. Exp. Biol.* 215:3344–3353 (seen in search results, not opened). <https://mdsoar.org/handle/11603/13394>
 - [PAGE] Page, Dickman, Webster & Weissburg, SICB meeting abstract: blue crabs respond to odour at their antennules
   while tracking a plume upstream. <https://sicb.org/abstracts/simultaneous-correlation-of-odor-plume-structure-and-behavior-i-three-dimensional-plume-structure-at-antennules-affects-speed-and-sensor-height-in-tracking-blue-crabs/>
+
+### Shading the jar (#267)
+The H / Inventory lantern switch scales current sight by the same ambient-depth curve as the scene lighting:
+full daylight keeps full sight; complete darkness reaches 45% of the unlocked sight radius. Known terrain is
+retained. Acquired culture count still determines memory allocation and terrain paging, so toggling cannot
+unload the floor beneath the crab. The lamp core, halo and terrain light change together. Scent sensing remains
+unchanged, with its directional wisp placed beside the smaller light.
+
+Initial sight acquisition uses a tuned 60% radius at complete darkness, interpolated by ambient depth, with a
+140-unit close-contact floor (never larger than that animal's ordinary range). Existing targets retain their
+normal tracking. This models the target's own lamp; it does not simulate shadow casting or other players'
+illumination in enemy perception. All factors are game choices, not measured animal detection distances.

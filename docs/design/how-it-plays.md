@@ -4,6 +4,15 @@ Silksong-style movement and combat, but you are a crab: **a heavy-hitting tank.*
 timing and anticipation, not fast and smooth. **Never sluggish, always heavy.** Every movement feel number lives in
 `crates/sim/src/tuning.rs` (camera and light in `src/tuning.rs`); `cargo crabsim` measures them headless.
 
+## Shade the lantern
+Press **H**, or tap the **Lantern** row in Inventory on a phone, to switch between full and dim light.
+The jar and nearby light visibly dim. In dark regions this shortens what you can currently see and delays
+initial notice by sight hunters; close contact still alerts them, and dimming never shakes an alerted hunter.
+Moray scent and snapping-shrimp vibration are unaffected. Shallow daylight still provides visibility.
+Brighten again freely: cultures, remembered places and terrain loading capacity are retained. The personal
+setting survives saving and respawning; existing saves default to full. This is a shaded-lamp game abstraction,
+not a claim that bacterial light instantly changes metabolism or that every species follows light.
+
 ## Movement (the first four are in the game)
 - **Weight you can feel.** A crab is denser than water, so it sinks. Jumps are strong push-offs from the floor with a
   short wind-up that the water soon brakes; the way down is a slow, steady sink, not a drop (about 0.8 s back down
@@ -225,3 +234,32 @@ width and height do not shrink. A blocked sweep retains the old safe position.
 Rock descent checks footing on the body's exposed side, and an away press steps
 off; jump with a direction still kicks off. Kelp and coral keep their existing
 shuffle and grip behavior. No new control, gear gate or saved state is introduced.
+
+### Pressure on the body
+Below its adapted depth, the crab slowly develops fine ink cracks on its carapace and a tiny,
+fast tremor in its leg and claw tips while standing or walking. The starting boundary is world
+y = −3600, just below the canyon shelf. The first scar arrives after about 30 seconds, full
+strain after 120 seconds, and strain eases away over 45 seconds above the boundary. Each upward
+crossing of one-quarter strain adds a scar, up to eight. Scars remain through recovery and death
+until a successful moult clears them and strain, and extends tolerance another 600 downward
+units. Deep food will use the same adaptation hook when W1.4 lands. Movement, combat and stamina
+are independent of strain. There is no pressure display or screen effect. TMAO inspiration comes
+from `ocean-shaped.md` row 13; shell cracking, tremor and the adaptation cadence are game choices
+whose biological mechanisms are not verified. Remote crabs have no pressure drawing yet, and
+character-save persistence is deferred pending the permitted progression/save integration.
+
+### Anxiety in the deep (#463)
+From twilight down (ambient light ≤ 0.12), an unshaded lantern lets sight hunters
+notice the crab from 1.35× their usual range. Shading keeps the existing dimming
+trade: less sight and later initial detection, but no reset of an alerted hunter.
+Depth-band reach and tint still apply. Missing legs or a hit within the last
+20 seconds carry scent 1.5× as far to morays; shading does not hide that scent.
+The existing missing-leg body presentation carries the wound cue, without a HUD number.
+
+A distant squid eye occasionally watches for 5–12 seconds, fading over one second
+at each end. Each band waits 180–240 seconds between appearances (first opportunity
+after 30 seconds). The eye stays still, turns toward the nearest crab, and has no
+combat or collision. It disappears early if a crab brings light within its safety
+margin: at least 1.2× sight reach plus the eye radius. `Sim::watched(id)` and the one-tick `watcher_cues()` onset event
+(`Cue::Watched`) are the sound hooks for W2.2. The current checkout has no sim shark; the decorative sixgill pass
+is unchanged and cannot detect a crab.

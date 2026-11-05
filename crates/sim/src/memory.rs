@@ -53,7 +53,7 @@ impl From<MemoryCell> for (u8, u32) {
 pub struct MemoryChunk {
     pub x: u32,
     pub y: u32,
-    #[serde(with = "cell_runs")]
+    #[serde(with = "compact_cells")]
     pub cells: Arc<Vec<MemoryCell>>,
 }
 /// Never seen.
@@ -467,9 +467,25 @@ impl Memory {
         enemies: &[Enemy],
         tuning: &Tuning,
     ) {
+        self.step_with_sight(
+            Sight::new(eye, lantern, &tuning.memory),
+            level,
+            enemies,
+            tuning,
+        );
+    }
+
+    /// Update current perception without changing remembered places or paging capacity.
+    pub fn step_with_sight(
+        &mut self,
+        sight: Sight,
+        level: &Level,
+        enemies: &[Enemy],
+        tuning: &Tuning,
+    ) {
         let t = &tuning.memory;
+        let eye = sight.eye;
         self.now += 1;
-        let sight = Sight::new(eye, lantern, t);
         self.live_cells.clear();
         // In sight: inside the circle, and either solid itself (a rock's or
         // the floor's whole shape reads at once) or water with a clear line
@@ -701,6 +717,17 @@ impl Memory {
     }
 }
 
+/// Compressed-zone art depth, shared with presentation. Not measured irradiance.
+pub fn depth_factor(at: Vec2) -> f32 {
+    let smooth = |a: f32, b: f32, x: f32| {
+        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let vertical = (-at.y / 9000.0).clamp(0.0, 1.0);
+    let canyon = smooth(5350.0, 6150.0, at.x) * (1.0 - smooth(-1500.0, 1000.0, at.y));
+    vertical.max(0.75 * canyon)
+}
+
 /// What a crab perceives right now: an ellipse round its eyes, wider than
 /// tall, reaching further with each culture in its lantern.
 #[derive(Clone, Copy, Debug)]
@@ -852,6 +879,102 @@ pub(crate) fn unbase64(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn explored(level: &Level) -> MemorySave {
+        let mut saved = Memory::new(level, &Tuning::default().memory).to_save();
+        saved.now = u32::MAX;
+        for y in 0..saved.rows.div_ceil(MEMORY_CHUNK_SIDE) {
+            for x in 0..saved.cols.div_ceil(MEMORY_CHUNK_SIDE) {
+                saved.cells.push(MemoryChunk {
+                    x,
+                    y,
+                    cells: Arc::new(
+                        (0..CHUNK_CELLS as u32)
+                            .map(|seen| MemoryCell { visits: 8, seen })
+                            .collect(),
+                    ),
+                });
+            }
+        }
+        saved
+    }
+
+    #[test]
+    fn full_memory_of_a_four_times_larger_world_saves_under_1_mib() {
+        let mut level = Level::test_level();
+        for doubled in [false, true] {
+            if doubled {
+                let lowest = level.floor.iter().map(|p| p.y).fold(0.0f32, f32::min);
+                level.max_x *= 2.0;
+                level.floor.push(Vec2::new(level.max_x, lowest * 2.0));
+            }
+            let saved = explored(&level);
+            let mut old = serde_json::to_value(&saved).unwrap();
+            for (value, chunk) in old["cells"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .zip(&saved.cells)
+            {
+                value["cells"] = serde_json::to_value(
+                    chunk.cells.iter().map(|c| (1u16, *c)).collect::<Vec<_>>(),
+                )
+                .unwrap();
+            }
+            let bytes = serde_json::to_vec(&saved).unwrap();
+            println!(
+                "doubled={doubled}: {}x{}, {} chunks, old JSON={} bytes, encoded={} bytes",
+                saved.cols,
+                saved.rows,
+                saved.cells.len(),
+                serde_json::to_vec(&old).unwrap().len(),
+                bytes.len()
+            );
+            assert!(bytes.len() < 1024 * 1024);
+        }
+    }
+
+    #[test]
+    fn memory_round_trips_exactly() {
+        let mut saved = explored(&Level::test_level());
+        let cells = Arc::make_mut(&mut saved.cells[0].cells);
+        for (i, cell) in cells.iter_mut().enumerate() {
+            *cell = MemoryCell {
+                visits: (i % 9) as u8,
+                seen: [0, u32::MAX, 128, 127, 1_000_000][i % 5],
+            };
+        }
+        let json = serde_json::to_vec(&saved).unwrap();
+        assert_eq!(serde_json::from_slice::<MemorySave>(&json).unwrap(), saved);
+        let bytes = postcard::to_allocvec(&saved).unwrap();
+        assert_eq!(postcard::from_bytes::<MemorySave>(&bytes).unwrap(), saved);
+        assert!(serde_json::to_value(&saved).unwrap()["cells"][0]["cells"].is_string());
+    }
+
+    #[test]
+    fn compact_memory_rejects_old_runs_and_malformed_pages() {
+        let decode = |cells: serde_json::Value| {
+            serde_json::from_value::<MemoryChunk>(serde_json::json!({"x":0,"y":0,"cells":cells}))
+        };
+        assert!(decode(serde_json::json!([[1024, [8, 10]]])).is_err());
+        for text in ["", "!", "A", "AAAA", &"A".repeat(9000)] {
+            assert!(decode(serde_json::json!(text)).is_err());
+        }
+        let pack = |raw: &[u8]| {
+            serde_json::json!(base64(&miniz_oxide::deflate::compress_to_vec_zlib(raw, 1)))
+        };
+        for cells in [
+            vec![(8u8, 0u32); 1023],
+            vec![(8, 0); 1025],
+            vec![(9, 0); 1024],
+        ] {
+            assert!(decode(pack(&postcard::to_allocvec(&cells).unwrap())).is_err());
+        }
+        assert!(decode(pack(&vec![0; 7000])).is_err());
+        let mut raw = postcard::to_allocvec(&vec![(8u8, 0u32); 1024]).unwrap();
+        raw.push(0);
+        assert!(decode(pack(&raw)).is_err());
+    }
 
     #[test]
     fn sight_window_cache_matches_geometry_without_world_sized_storage() {
@@ -1017,45 +1140,61 @@ mod chunk_map {
     }
 }
 
-/// Each page compresses independently, retaining absolute times even as the clock ages.
-mod cell_runs {
+/// Each page compresses independently. Wrapping timestamp deltas preserve every
+/// u32 exactly, including out-of-order sightings, without depending on `now`.
+/// Postcard small integers + deflate keep repeated visits and nearby times cheap;
+/// unpadded base64 keeps the player record JSON. Old JSON runs are not accepted.
+mod compact_cells {
     use super::*;
-    use serde::{Deserializer, Serializer, ser::SerializeSeq};
+    use serde::{Deserializer, Serializer};
+    // A vector length plus 1024 (u8, u32-varint) pairs, at their largest.
+    const MAX_RAW: usize = 2 + CHUNK_CELLS * 6;
+    const MAX_TEXT: usize = (MAX_RAW + 128).div_ceil(3) * 4;
     pub fn serialize<S: Serializer>(
         cells: &Arc<Vec<MemoryCell>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        let runs = cells
-            .iter()
-            .enumerate()
-            .filter(|(i, c)| *i == 0 || cells[*i - 1] != **c)
-            .count();
-        let mut seq = serializer.serialize_seq(Some(runs))?;
-        let mut at = 0;
-        while at < cells.len() {
-            let cell = cells[at];
-            let count = cells[at..].iter().take_while(|&&c| c == cell).count();
-            seq.serialize_element(&(count as u16, cell))?;
-            at += count;
+        if cells.len() != CHUNK_CELLS || cells.iter().any(|c| c.visits > MAX_VISITS) {
+            return Err(serde::ser::Error::custom("invalid memory page"));
         }
-        seq.end()
+        let mut previous = 0u32;
+        let deltas: Vec<_> = cells
+            .iter()
+            .map(|cell| {
+                let delta = cell.seen.wrapping_sub(previous);
+                previous = cell.seen;
+                (cell.visits, delta)
+            })
+            .collect();
+        let raw = postcard::to_allocvec(&deltas).map_err(serde::ser::Error::custom)?;
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
+        serializer.serialize_str(&base64(&packed))
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Arc<Vec<MemoryCell>>, D::Error> {
-        let runs = Vec::<(u16, MemoryCell)>::deserialize(deserializer)?;
-        let mut cells = Vec::with_capacity(CHUNK_CELLS);
-        for (count, cell) in runs {
-            if count == 0
-                || cells.len() + usize::from(count) > CHUNK_CELLS
-                || cell.visits > MAX_VISITS
-            {
-                return Err(serde::de::Error::custom("invalid memory run"));
-            }
-            cells.resize(cells.len() + usize::from(count), cell);
+        let text = String::deserialize(deserializer)?;
+        if text.len() > MAX_TEXT {
+            return Err(serde::de::Error::custom("memory page exceeds limit"));
         }
-        if cells.len() != CHUNK_CELLS {
-            return Err(serde::de::Error::custom("incomplete memory page"));
+        let packed = unbase64(&text)
+            .filter(|bytes| base64(bytes) == text)
+            .ok_or_else(|| serde::de::Error::custom("invalid memory base64"))?;
+        let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&packed, MAX_RAW)
+            .map_err(|_| serde::de::Error::custom("invalid compressed memory"))?;
+        let (deltas, rest) =
+            postcard::take_from_bytes::<Vec<(u8, u32)>>(&raw).map_err(serde::de::Error::custom)?;
+        if deltas.len() != CHUNK_CELLS || !rest.is_empty() {
+            return Err(serde::de::Error::custom("invalid memory page length"));
+        }
+        let mut cells = Vec::with_capacity(CHUNK_CELLS);
+        let mut seen = 0u32;
+        for (visits, delta) in deltas {
+            if visits > MAX_VISITS {
+                return Err(serde::de::Error::custom("invalid memory visits"));
+            }
+            seen = seen.wrapping_add(delta);
+            cells.push(MemoryCell { visits, seen });
         }
         Ok(Arc::new(cells))
     }
@@ -1215,5 +1354,14 @@ mod cold_memory_tests {
                 CHUNK_CELLS * std::mem::size_of::<MemoryCell>()
             );
         }
+    }
+}
+
+/// Wound scent is a design rule, biology not verified.
+pub fn wound_scent_factor(crab: &crate::SimCrab) -> f32 {
+    if crab.fighter.legs_lost > 0 || crab.fighter.vitals.unhit < 20 * crate::TICKS_PER_SECOND {
+        1.5
+    } else {
+        1.0
     }
 }

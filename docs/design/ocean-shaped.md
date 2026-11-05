@@ -106,3 +106,10 @@ Each opened and checked against the row it backs.
 - **[KELLY-1999]** Kelly & Yancey, "High contents of trimethylamine oxide correlating with depth in deep-sea teleost
   fishes, skates, and decapod crustaceans", *Biological Bulletin* 196(1) (1999). Abstract:
   <https://pubmed.ncbi.nlm.nih.gov/25575382/>
+
+### Distant watched eye (#463)
+The watcher represents a giant squid (*Architeuthis dux*), with a provisional
+25 cm eye (156.25 units) and 2 m mantle (1250 units). Species, dimensions and
+watching behaviour are **not verified**. This is a faint partial animal, never
+an enlarged enemy. Wound scent attraction is also **not verified**: the 1.5×
+range and 20-second window are game design, not a biological measurement.
