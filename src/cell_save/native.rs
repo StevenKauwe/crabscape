@@ -505,6 +505,13 @@ mod tests {
     // each other's in-flight writes while the test suite runs in parallel.
     static TEST_IO: Mutex<()> = Mutex::new(());
 
+    /// Every test here shares the process-wide save `GENERATION` (a load that
+    /// discards a damaged save wipes it, which bumps the generation), so they
+    /// run one at a time. A failed test must not poison the others.
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        TEST_IO.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("crab-cell-native-{}-{name}", std::process::id()))
     }
@@ -515,6 +522,7 @@ mod tests {
 
     #[test]
     fn load_restores_terrain_player_and_simulation_clock() {
+        let _serial = serial();
         let path = path("load");
         let mut original = sim();
         original.enable_underwater_cells();
@@ -553,6 +561,7 @@ mod tests {
 
     #[test]
     fn saved_open_passages_load_and_closed_passages_roll_back() {
+        let _serial = serial();
         for (name, x, y, rock) in [
             ("rock", 5042.0, -690.0, true),
             ("net", 4308.0, -4360.0, false),
@@ -605,6 +614,7 @@ mod tests {
 
     #[test]
     fn damaged_save_is_discarded_and_saving_stays_on() {
+        let _serial = serial();
         let path = path("damaged");
         std::fs::write(&path, b"not a valid cellular save").unwrap();
         let mut state = Storage::default();
@@ -616,6 +626,7 @@ mod tests {
 
     #[test]
     fn incompatible_memory_resets_crab_and_keeps_world_saveable() {
+        let _serial = serial();
         let path = path("bad-memory");
         let original = sim();
         let mut memory = crabsim::Memory::new(&original.level, &original.tuning.memory).to_save();
@@ -659,6 +670,7 @@ mod tests {
 
     #[test]
     fn incompatible_progress_resets_crab_and_keeps_world_saveable() {
+        let _serial = serial();
         let path = path("bad-progress");
         let original = sim();
         let mut progress = original.fresh_progress();
@@ -704,6 +716,7 @@ mod tests {
 
     #[test]
     fn malformed_numeric_progress_resets_only_the_crab() {
+        let _serial = serial();
         let path = path("bad-numeric-progress");
         let original = sim();
         let player = SaveData {
@@ -761,6 +774,7 @@ mod tests {
 
     #[test]
     fn overflowing_v2_upgrades_reset_only_the_crab() {
+        let _serial = serial();
         let path = path("bad-v2-upgrades");
         let original = sim();
         let mut progress = original.fresh_progress();
@@ -798,6 +812,7 @@ mod tests {
 
     #[test]
     fn numeric_progress_validation_keeps_cross_level_legacy_progress() {
+        let _serial = serial();
         let sim = sim();
         let mut progress = sim.fresh_progress();
         // Progress may come from a different world, whose eggs no longer
@@ -833,6 +848,7 @@ mod tests {
 
     #[test]
     fn older_shorter_progress_lists_are_still_compatible() {
+        let _serial = serial();
         let sim = sim();
         let mut progress = sim.fresh_progress();
         progress.eaten.clear();
@@ -849,6 +865,7 @@ mod tests {
 
     #[test]
     fn each_progress_component_that_restore_would_drop_is_rejected() {
+        let _serial = serial();
         let sim = sim();
         let base = sim.fresh_progress();
         let cases: Vec<fn(&mut crabsim::Progress)> = vec![
@@ -880,6 +897,7 @@ mod tests {
 
     #[test]
     fn absent_save_starts_fresh_without_disabling_saving() {
+        let _serial = serial();
         let path = path("absent");
         let _ = std::fs::remove_file(&path);
         let mut state = Storage::default();
@@ -891,6 +909,7 @@ mod tests {
 
     #[test]
     fn v2_load_passes_verified_replay_token_to_startup() {
+        let _serial = serial();
         let path = path("v2-token");
         let mut before = sim();
         before.enable_underwater_cells();
@@ -936,6 +955,7 @@ mod tests {
 
     #[test]
     fn unreadable_save_is_discarded_and_saving_stays_on() {
+        let _serial = serial();
         let path = path("unreadable");
         std::fs::create_dir_all(&path).unwrap();
         std::fs::write(path.join("keep"), b"untouched").unwrap();
@@ -947,7 +967,7 @@ mod tests {
 
     #[test]
     fn reset_cannot_be_undone_by_an_in_flight_save() {
-        let _serial = TEST_IO.lock().unwrap();
+        let _serial = serial();
         let path = path("reset");
         std::fs::write(&path, b"old save").unwrap();
         let mut world = sim();
@@ -967,7 +987,7 @@ mod tests {
 
     #[test]
     fn cellular_reset_leaves_the_normal_save_untouched() {
-        let _serial = TEST_IO.lock().unwrap();
+        let _serial = serial();
         let path = path("separate");
         std::fs::create_dir_all(&path).unwrap();
         let cellular = path.join("cells");
@@ -982,7 +1002,7 @@ mod tests {
 
     #[test]
     fn prolonged_swimming_saves_current_position_and_reset_invalidates_a_moving_save() {
-        let _serial = TEST_IO.lock().unwrap();
+        let _serial = serial();
         let path = path("swimming");
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(&path);
