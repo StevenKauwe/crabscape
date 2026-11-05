@@ -93,7 +93,7 @@ cast-off shell (the existing rule). Fear comes from not knowing and from being e
 - **Sound.** The crab's own body gets louder as the world gets quieter: shell creak, grit under the legs, claw
   ticks. Sounds with no visible source: bone and rock groaning, a vent you find by ear, slow calls from far off.
   **Warnings add sound, never take it away** (owner's call, 2026-11-05: pausing the music or the world before a
-  strike is out): the water swells before a strike. Little music, darker deeper; one low rumble on the music's D
+  strike is out): the water swells before a strike. Little music; one low rumble on the music's D
   that grows with depth and swells when the crab is watched. **No bubbles, no air, no breathing sounds: crabs breathe water.**
 - **Anxiety.** Not knowing (the map shows only the crab's memory; the lantern is a small circle; a smell wisp points
   at something unseen). Being watched (an eye that follows and never attacks). Waiting (long quiet stretches, then

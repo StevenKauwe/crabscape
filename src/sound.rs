@@ -63,16 +63,14 @@ const ALL: [Sfx; 11] = [
     Sfx::Rock,
 ];
 
-/// The steady loops under everything: started once, never retriggered, only
-/// turned up and down slowly, so nothing in the world's sound pulses.
+/// The steady tones under everything: started once, never retriggered, only
+/// turned up and down slowly. Pure harmonics of D, with no noise in them: a
+/// looped noise repeats every loop, and a repeating pattern is heard as a
+/// rhythm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bed {
-    /// The water moving: low, filtered noise.
-    Surge,
-    /// Small living clicks at random moments, muffled (the shallows).
-    Clicks,
-    /// The deep's core: D1 and its octaves with a low noise under them,
-    /// felt more than heard. It grows with depth and swells when watched.
+    /// The deep's core: D1 and its octaves, a pure steady drone, felt
+    /// more than heard. It grows with depth and swells when watched.
     Rumble,
     /// A vent's hum, on D, found by ear.
     Vent,
@@ -80,7 +78,7 @@ pub enum Bed {
     Swell,
 }
 
-const BEDS: [Bed; 5] = [Bed::Surge, Bed::Clicks, Bed::Rumble, Bed::Vent, Bed::Swell];
+const BEDS: [Bed; 3] = [Bed::Rumble, Bed::Vent, Bed::Swell];
 
 /// "Play this sound": loudness 0..1 and pitch (1 = as made, 0.8 = deeper).
 #[derive(Message, Clone, Copy, Debug)]
@@ -150,14 +148,10 @@ pub enum Route {
 /// hunter's tell never takes anything away (it adds the [`Bed::Swell`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mix {
-    pub surge: f32,
-    pub clicks: f32,
     pub rumble: f32,
     /// Hz: the world's and the body's sounds lose their top deeper down.
     pub world_cutoff: f32,
     pub body_cutoff: f32,
-    /// Hz: the music darkens with depth too, so the deep is one soundscape.
-    pub music_cutoff: f32,
 }
 
 /// Seconds for the mix to follow a change of depth (a time constant), and
@@ -169,22 +163,19 @@ pub fn mix_at(ambience: f32, watched: bool) -> Mix {
     let ambience = ambience.clamp(0.0, 1.0);
     let deep = 1.0 - ambience;
     Mix {
-        surge: 0.05 + 0.06 * ambience,
-        clicks: 0.12 * ambience * ambience,
-        rumble: 0.2 * deep.powf(1.5) + if watched { 0.07 } else { 0.0 },
+        rumble: 0.03 * deep.powf(1.5) + if watched { 0.01 } else { 0.0 },
         world_cutoff: 320.0 + 2200.0 * ambience,
         body_cutoff: 1500.0 + 4500.0 * ambience,
-        music_cutoff: 1400.0 * 12f32.powf(ambience),
     }
 }
 
 /// A hunter's tell swell: it rises over the whole tell (so it peaks on the
 /// strike) and lets go over this time constant after it.
-pub const SWELL_RELEASE: f32 = 0.12;
+pub const SWELL_RELEASE: f32 = 0.35;
 /// The shortest rise (a tell can be a few ticks).
 pub const SWELL_MIN_RISE: f32 = 0.2;
 /// The swell's loudness at the strike, on the effects knob.
-pub const SWELL_PEAK: f32 = 0.35;
+pub const SWELL_PEAK: f32 = 0.12;
 
 pub fn swell_rise(tell_ticks: u64) -> f32 {
     (tell_ticks as f32 / 120.0).max(SWELL_MIN_RISE)
@@ -229,7 +220,7 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
                 backend::spatial(sfx, gain, groan_pitch(source), pan(source), Route::World);
             }
             Cue::VentHum { at: source } => {
-                backend::vent(0.12 * (1.0 - source.distance(at) / 1600.0).max(0.0));
+                backend::vent(0.025 * (1.0 - source.distance(at) / 1600.0).max(0.0));
             }
             _ => {}
         }
@@ -384,28 +375,6 @@ pub fn bed_ratio(rate: f32) -> f32 {
     d(-2) / (bed_waves(rate) as f32 * rate / BED_SAMPLES as f32)
 }
 
-/// Noise low-passed at `cutoff` twice round the loop, so its end meets its
-/// start, scaled to peak at 1.
-fn loop_noise(noise: &mut Noise, rate: f32, cutoff: f32, poles: usize) -> Vec<f32> {
-    let raw: Vec<f32> = (0..BED_SAMPLES).map(|_| noise.next()).collect();
-    let mut out = raw.clone();
-    let mut filters: Vec<Lowpass> = (0..poles).map(|_| Lowpass::default()).collect();
-    for pass in 0..2 {
-        for (i, x) in raw.iter().enumerate() {
-            let mut y = *x;
-            for f in &mut filters {
-                y = f.run(y, cutoff, rate);
-            }
-            if pass == 1 {
-                out[i] = y;
-            }
-        }
-    }
-    let peak = out.iter().fold(1e-6_f32, |m, s| m.max(s.abs()));
-    out.iter_mut().for_each(|s| *s /= peak);
-    out
-}
-
 /// D1's harmonics `(number, strength)` over one loop, exactly periodic.
 fn loop_tone(rate: f32, partials: &[(usize, f32)]) -> Vec<f32> {
     let waves = bed_waves(rate) as u64;
@@ -425,54 +394,10 @@ fn loop_tone(rate: f32, partials: &[(usize, f32)]) -> Vec<f32> {
 
 /// One steady loop at `rate` (play it at [`bed_ratio`]), peaking at 0.8.
 pub fn bed(which: Bed, rate: f32) -> Vec<f32> {
-    let mut noise = Noise(0x5EED_0000 ^ which as u32);
-    let layer = |a: Vec<f32>, b: Vec<f32>, mix: f32| -> Vec<f32> {
-        a.iter().zip(&b).map(|(x, y)| x + mix * y).collect()
-    };
     let mut out = match which {
-        Bed::Surge => loop_noise(&mut noise, rate, 260.0, 2),
-        Bed::Clicks => {
-            // Soft clicks at random moments (about two dozen a second, like a
-            // distant reef), muffled.
-            let mut out = vec![0.0; BED_SAMPLES];
-            let mut i = 0;
-            while i < BED_SAMPLES {
-                let click = (0.002 * rate) as usize;
-                let loud = 0.3 + 0.7 * noise.next().abs();
-                for j in 0..click {
-                    out[(i + j) % BED_SAMPLES] +=
-                        noise.next() * loud * (1.0 - j as f32 / click as f32);
-                }
-                i += ((0.005 + 0.07 * noise.next().abs()) * rate) as usize;
-            }
-            // Filtered twice round, so the loop's end meets its start.
-            let (mut a, mut b) = (Lowpass::default(), Lowpass::default());
-            let mut looped = out.clone();
-            for pass in 0..2 {
-                for (i, x) in out.iter().enumerate() {
-                    let y = b.run(a.run(*x, 2200.0, rate), 2200.0, rate);
-                    if pass == 1 {
-                        looped[i] = y;
-                    }
-                }
-            }
-            looped
-        }
-        Bed::Rumble => layer(
-            loop_tone(rate, &[(1, 1.0), (2, 0.45), (4, 0.12)]),
-            loop_noise(&mut noise, rate, 70.0, 2),
-            0.7,
-        ),
-        Bed::Vent => layer(
-            loop_tone(rate, &[(1, 0.6), (2, 1.0), (4, 0.3), (8, 0.08)]),
-            loop_noise(&mut noise, rate, 120.0, 2),
-            0.25,
-        ),
-        Bed::Swell => layer(
-            loop_tone(rate, &[(2, 1.0), (4, 0.35), (8, 0.1)]),
-            loop_noise(&mut noise, rate, 300.0, 2),
-            0.5,
-        ),
+        Bed::Rumble => loop_tone(rate, &[(1, 1.0), (2, 0.45), (4, 0.12)]),
+        Bed::Vent => loop_tone(rate, &[(1, 0.6), (2, 1.0), (4, 0.3), (8, 0.08)]),
+        Bed::Swell => loop_tone(rate, &[(2, 1.0), (4, 0.35), (8, 0.1)]),
     };
     let peak = out.iter().fold(1e-6_f32, |m, s| m.max(s.abs()));
     out.iter_mut().for_each(|s| *s *= 0.8 / peak);
@@ -635,8 +560,8 @@ mod backend {
     struct Audio {
         ctx: AudioContext,
         buffers: Vec<AudioBuffer>,
-        /// The steady loops ([`BEDS`]): each buffer, and the gains of the
-        /// four that always run (surge, clicks, rumble, vent).
+        /// The steady tones ([`BEDS`]): each buffer, and the gains of the
+        /// two that always run (rumble, vent).
         beds: Vec<AudioBuffer>,
         bed_gains: Vec<GainNode>,
         /// The loops' playback rate (their D1 is the music's).
@@ -646,8 +571,6 @@ mod backend {
         world_lp: BiquadFilterNode,
         body: GainNode,
         body_lp: BiquadFilterNode,
-        /// The music darkens with depth (never with danger).
-        music_lp: BiquadFilterNode,
         /// When a vent was last heard nearby (audio clock).
         vent_heard: f64,
         /// Every sound ends here: the settings' "Master".
@@ -727,26 +650,26 @@ mod backend {
             Some(lp)
         };
         let shallows = super::mix_at(1.0, false);
-        let (Some(world_lp), Some(body_lp), Some(music_lp)) = (
+        let (Some(world_lp), Some(body_lp)) = (
             lowpass(shallows.world_cutoff),
             lowpass(shallows.body_cutoff),
-            lowpass(shallows.music_cutoff),
         ) else {
             return;
         };
         let _ = master.connect_with_audio_node(&ctx.destination());
-        for bus in [&effects, &ambience, &music, &voices] {
+        // The music, effects and voices go to the master exactly as before
+        // the world's sounds existed; the world only adds its own bus.
+        for bus in [&effects, &music, &voices] {
             let _ = bus.connect_with_audio_node(&master);
         }
-        // world → muffled → Ambience knob; body → muffled → Effects knob;
-        // music → darkened with depth → Music knob.
+        let _ = ambience.connect_with_audio_node(&master);
+        // world → muffled → Ambience knob; body → muffled → Effects knob.
         let _ = world.connect_with_audio_node(&world_lp);
         let _ = world_lp.connect_with_audio_node(&ambience);
         let _ = body.connect_with_audio_node(&body_lp);
         let _ = body_lp.connect_with_audio_node(&effects);
         music_in.gain().set_value(0.0);
-        let _ = music_in.connect_with_audio_node(&music_lp);
-        let _ = music_lp.connect_with_audio_node(&music);
+        let _ = music_in.connect_with_audio_node(&music);
         let beds = BEDS
             .iter()
             .filter_map(|&b| {
@@ -762,7 +685,7 @@ mod backend {
         let bed_ratio = super::bed_ratio(rate);
         // The steady loops start once, silent, and only ever glide.
         let mut bed_gains = Vec::new();
-        for b in [Bed::Surge, Bed::Clicks, Bed::Rumble, Bed::Vent] {
+        for b in [Bed::Rumble, Bed::Vent] {
             let (Ok(src), Ok(gain)) = (ctx.create_buffer_source(), ctx.create_gain()) else {
                 return;
             };
@@ -795,7 +718,6 @@ mod backend {
                 world_lp,
                 body,
                 body_lp,
-                music_lp,
                 vent_heard: f64::NEG_INFINITY,
                 master,
                 effects,
@@ -1026,17 +948,11 @@ mod backend {
         with(|a| {
             let now = a.ctx.current_time();
             let glide = f64::from(super::DEPTH_GLIDE);
-            for (gain, target, tau) in [
-                (&a.bed_gains[Bed::Surge as usize], mix.surge, glide),
-                (&a.bed_gains[Bed::Clicks as usize], mix.clicks, glide),
-                (
-                    &a.bed_gains[Bed::Rumble as usize],
-                    mix.rumble,
-                    f64::from(super::WATCH_GLIDE),
-                ),
-            ] {
-                let _ = gain.gain().set_target_at_time(target, now, tau);
-            }
+            let _ = a.bed_gains[Bed::Rumble as usize].gain().set_target_at_time(
+                mix.rumble,
+                now,
+                f64::from(super::WATCH_GLIDE),
+            );
             // VentHum comes every two seconds while a vent is near.
             if now - a.vent_heard > 2.5 {
                 let _ = a.bed_gains[Bed::Vent as usize]
@@ -1046,7 +962,6 @@ mod backend {
             for (lp, hz) in [
                 (&a.world_lp, mix.world_cutoff),
                 (&a.body_lp, mix.body_cutoff),
-                (&a.music_lp, mix.music_cutoff),
             ] {
                 let _ = lp.frequency().set_target_at_time(hz, now, glide);
             }
@@ -1314,15 +1229,9 @@ mod tests {
             );
             assert!(down.world_cutoff < up.world_cutoff);
             assert!(down.body_cutoff < up.body_cutoff);
-            assert!(down.music_cutoff < up.music_cutoff);
-            assert!(down.clicks < up.clicks && down.surge < up.surge);
             assert!(down.rumble > up.rumble, "the rumble grows with depth");
             assert!(body_gain(pair[1].ambience) > body_gain(pair[0].ambience));
         }
-        assert!(
-            mix_at(1.0, false).music_cutoff > 15000.0,
-            "the shallows' music is untouched"
-        );
     }
 
     #[test]
@@ -1331,17 +1240,19 @@ mod tests {
             let (calm, watched) = (mix_at(band.ambience, false), mix_at(band.ambience, true));
             assert!(watched.rumble > calm.rumble);
             assert_eq!(
-                (watched.surge, watched.clicks, watched.music_cutoff),
-                (calm.surge, calm.clicks, calm.music_cutoff),
+                (watched.world_cutoff, watched.body_cutoff),
+                (calm.world_cutoff, calm.body_cutoff),
                 "being watched never takes sound away"
             );
-            assert_eq!(watched.world_cutoff, calm.world_cutoff);
         }
         // The tell's swell rises over the whole tell and peaks on the strike.
         assert_eq!(swell_rise(54), 54.0 / 120.0);
         assert_eq!(swell_rise(78), 0.65);
         assert_eq!(swell_rise(3), SWELL_MIN_RISE);
-        assert!((0.08..=0.3).contains(&SWELL_RELEASE));
+        assert!(
+            (0.25..=0.6).contains(&SWELL_RELEASE),
+            "a gentle let-go, never a drop"
+        );
         assert!((0.15..=0.3).contains(&SWELL_MIN_RISE));
         const { assert!(DEPTH_GLIDE >= 1.0 && WATCH_GLIDE >= 0.5, "no sudden jumps") };
     }
@@ -1365,13 +1276,15 @@ mod tests {
             40.0,
             rate,
         );
-        let music = rms(&music.samples[(8.0 * rate) as usize..]);
+        // Both through their default knobs, as a new player hears them.
+        let music = rms(&music.samples[(8.0 * rate) as usize..])
+            * crate::settings::Settings::default().music;
         let ambience = crate::settings::Ambience::default().0;
         let midnight = crabsim::level::bands::BANDS[3].ambience;
         let rumble = rms(&bed(Bed::Rumble, rate)) * mix_at(midnight, false).rumble * ambience;
         let db = 20.0 * (rumble / music).log10();
         eprintln!("midnight rumble vs canyon music: {db:.1} dB");
-        assert!((-20.0..=-3.0).contains(&db), "{db} dB");
+        assert!((-16.0..=-4.0).contains(&db), "{db} dB");
     }
 
     #[test]
