@@ -35,29 +35,7 @@ pub fn large_fixture() -> Result<Vec<u8>> {
     drop(raw);
     // A large terrain archive alone missed the real-world save failure:
     // explored map memory outgrew the former 64 KiB player-record limit.
-    let mut memory = crabsim::Memory::new(&level, &crabsim::Tuning::default().memory).to_save();
-    memory.now = 1_000_000;
-    memory.cells.clear();
-    for y in 0..memory.rows.div_ceil(crabsim::memory::MEMORY_CHUNK_SIDE) {
-        for x in 0..memory.cols.div_ceil(crabsim::memory::MEMORY_CHUNK_SIDE) {
-            memory.cells.push(crabsim::memory::MemoryChunk {
-                x,
-                y,
-                cells: std::sync::Arc::new(
-                    (0..1024)
-                        .map(|seen| crabsim::memory::MemoryCell { visits: 8, seen })
-                        .collect(),
-                ),
-            });
-        }
-    }
-    let player = crabsim::SaveData {
-        version: crabsim::SAVE_VERSION,
-        x: 400.0,
-        y: 0.0,
-        memory: Some(memory),
-        progress: None,
-    };
+    let player = fully_explored_player(&level);
     if serde_json::to_vec(&player)
         .map_err(|e| e.to_string())?
         .len()
@@ -68,6 +46,43 @@ pub fn large_fixture() -> Result<Vec<u8>> {
     crabsim::cell_codec::paged::prepare(&player, &terrain, 17)
         .and_then(|p| p.encode())
         .map_err(|e| format!("large fixture: {e:?}"))
+}
+
+fn fully_explored_player(level: &Level) -> crabsim::SaveData {
+    let mut memory = crabsim::Memory::new(level, &crabsim::Tuning::default().memory).to_save();
+    memory.now = 1_000_000;
+    memory.cells.clear();
+    // Distinct exploration times keep this a large-record regression after
+    // compact memory encoding; a sequential sweep now compresses to a few KiB.
+    let mut clock = 492u32;
+    for y in 0..memory.rows.div_ceil(crabsim::memory::MEMORY_CHUNK_SIDE) {
+        for x in 0..memory.cols.div_ceil(crabsim::memory::MEMORY_CHUNK_SIDE) {
+            memory.cells.push(crabsim::memory::MemoryChunk {
+                x,
+                y,
+                cells: std::sync::Arc::new(
+                    (0..1024)
+                        .map(|_| {
+                            clock ^= clock << 13;
+                            clock ^= clock >> 17;
+                            clock ^= clock << 5;
+                            crabsim::memory::MemoryCell {
+                                visits: 8,
+                                seen: clock % 1024,
+                            }
+                        })
+                        .collect(),
+                ),
+            });
+        }
+    }
+    crabsim::SaveData {
+        version: crabsim::SAVE_VERSION,
+        x: 400.0,
+        y: 0.0,
+        memory: Some(memory),
+        progress: None,
+    }
 }
 
 pub fn verify_full_memory(player: &crabsim::SaveData) -> Result<()> {
@@ -377,6 +392,30 @@ fn spatial_frame(value: &Value) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     #[test]
+    fn varied_full_memory_fits_player_limit_with_doubled_bounds() {
+        let mut level = Level::test_level();
+        let lowest = level.floor.iter().map(|p| p.y).fold(0.0f32, f32::min);
+        level.max_x *= 2.0;
+        level.floor.push([level.max_x, lowest * 2.0].into());
+        let player = fully_explored_player(&level);
+        let bytes = serde_json::to_vec(&player).unwrap();
+        println!(
+            "doubled bounds varied-timestamp player: {} bytes",
+            bytes.len()
+        );
+        assert!(bytes.len() > 264_201);
+        assert!(bytes.len() < crabsim::underwater::frozen_chunks::MAX_PLAYER_BYTES);
+        let restored: crabsim::SaveData = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(restored, player);
+        let memory = crabsim::Memory::from_save(
+            restored.memory.as_ref().unwrap(),
+            &level,
+            &crabsim::Tuning::default().memory,
+        )
+        .unwrap();
+        assert!((0..memory.cols * memory.rows).all(|i| memory.visits(u64::from(i)) == 8));
+    }
+    #[test]
     fn current_spatial_fixture_roundtrips_all_terrain_and_personal_pages() {
         let frame = large_fixture().unwrap();
         let mut original = crabsim::cell_codec::paged::decode(&frame).unwrap();
@@ -410,6 +449,10 @@ mod tests {
         let repacked = frame_from_object(&object).unwrap();
         assert_eq!(frame, repacked);
         let restored = crabsim::cell_codec::paged::decode(&repacked).unwrap();
+        verify_full_memory(&restored.player).unwrap();
+        let size = serde_json::to_vec(&restored.player).unwrap().len();
+        println!("large fixture player: {size} bytes");
+        assert!(size > 264_201);
         assert_eq!(restored.sim_tick, 17);
         let snapshot =
             crabsim::underwater::frozen_chunks::FrozenChunks::capture_cow(&restored.terrain)
