@@ -64,6 +64,28 @@ fn read_runs<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Run>, D::Erro
 }
 impl RegionJournal {
     pub fn new(kernel: &RegionKernel, authority: PlayerId) -> Result<Self, RegionError> {
+        let mut journal = Self::from_encoded(kernel, authority, Vec::new())?;
+        journal.checkpoint = kernel.checkpoint()?;
+        Ok(journal)
+    }
+
+    /// Decode and validate received state once, retaining its bytes for recovery.
+    /// Authority is chosen from the validated kernel before either value is installed.
+    pub fn from_checkpoint(
+        bytes: Vec<u8>,
+        authority: impl FnOnce(&RegionKernel) -> PlayerId,
+    ) -> Result<(RegionKernel, Self), RegionError> {
+        let kernel = RegionKernel::from_checkpoint(&bytes)?;
+        let journal = Self::from_encoded(&kernel, authority(&kernel), bytes)?;
+        Ok((kernel, journal))
+    }
+
+    // Only called with a checkpoint generated here or decoded and validated above.
+    fn from_encoded(
+        kernel: &RegionKernel,
+        authority: PlayerId,
+        checkpoint: Vec<u8>,
+    ) -> Result<Self, RegionError> {
         let members = kernel.members();
         if members.is_empty() || members.len() > 8 {
             return Err(RegionError::InvalidRoster);
@@ -80,7 +102,7 @@ impl RegionJournal {
             members,
             base_tick: kernel.sim.tick_count(),
             next_tick: kernel.sim.tick_count(),
-            checkpoint: kernel.checkpoint()?,
+            checkpoint,
             runs: Vec::new(),
         })
     }
@@ -684,6 +706,16 @@ mod tests {
                 .state_hash(),
             live.sim.state_hash()
         );
+        let (received, mut received_journal) =
+            RegionJournal::from_checkpoint(checkpoint.clone(), |_| PlayerId(0)).unwrap();
+        assert_eq!(received.sim.state_hash(), live.sim.state_hash());
+        assert_eq!(received_journal, journal);
+        assert!(
+            RegionJournal::from_checkpoint(vec![0; 32], |_| {
+                panic!("authority must not be selected from invalid state")
+            })
+            .is_err()
+        );
         checkpoint.fill(0);
         assert_eq!(
             journal.materialize().unwrap().sim.state_hash(),
@@ -696,8 +728,17 @@ mod tests {
                 actions: vec![],
             };
             live.tick(&frame).unwrap();
+            received_journal
+                .append(PlayerId(0), epoch, std::slice::from_ref(&frame))
+                .unwrap();
             journal.append(PlayerId(0), epoch, &[frame]).unwrap();
         }
+        let restored_received =
+            RegionJournal::from_bytes(&received_journal.to_bytes().unwrap()).unwrap();
+        assert_eq!(
+            restored_received.materialize().unwrap().sim.state_hash(),
+            live.sim.state_hash()
+        );
         let before = journal.clone();
         assert!(journal.replace_from_local(PlayerId(7), &live).is_err());
         let old_id = live.id;
