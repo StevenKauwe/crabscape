@@ -106,3 +106,10 @@ The promoted CLI also passed the large-fixture route and an explicit local 60 ms
 budget: 3601 frames, max 33.4 ms, 772 spatial records, 9,340,676 encoded bytes,
 y=-4409.7..4951.7. Its trace is crab-frame-probe-45673 in the system temporary
 directory. This measurement preceded the lower-canyon #506 deployment.
+
+The summary also reports `longest_unchanged_position_ms`: the longest consecutive
+span with identical observed x/y coordinates, independently of render pacing.
+Missing positions break the span. This is diagnostic, not a failure threshold:
+grounded contact, a wall, or rounded presentation coordinates can also produce
+an unchanged position. It is not proof that simulation ticks stopped. The
+summary retains the captured build identifier for comparison.

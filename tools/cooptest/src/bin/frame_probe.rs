@@ -47,6 +47,9 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     let mut final_y = f64::INFINITY;
+    let mut previous_position = None;
+    let mut unchanged_ms: f64 = 0.0;
+    let mut longest_unchanged_ms: f64 = 0.0;
     for f in frames {
         let ms = f["ms"]
             .as_f64()
@@ -60,12 +63,24 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
             .take(2)
             .filter_map(|n| n.parse().ok())
             .collect();
-        if pos.len() == 2 {
+        if pos.len() == 2 && pos.iter().all(|n| n.is_finite()) {
+            let position = (pos[0], pos[1]);
+            if previous_position == Some(position) {
+                unchanged_ms += ms;
+                longest_unchanged_ms = longest_unchanged_ms.max(unchanged_ms);
+            } else {
+                unchanged_ms = 0.0;
+            }
+            previous_position = Some(position);
             min_x = min_x.min(pos[0]);
             min_y = min_y.min(pos[1]);
             max_x = max_x.max(pos[0]);
             max_y = max_y.max(pos[1]);
             final_y = pos[1];
+        } else {
+            // Missing observations cannot establish continuous immobility.
+            previous_position = None;
+            unchanged_ms = 0.0;
         }
     }
     // A stationary scene must never count as a passing crossing benchmark.
@@ -83,7 +98,8 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
     let worst = *gaps.last().ok_or("no frame intervals")?;
     let result = json!({"frames":gaps.len(),"median_ms":gaps[gaps.len()/2],
         "p95_ms":gaps[gaps.len()*95/100],"max_ms":worst,"over_60_ms":gaps.iter().filter(|g| **g>60.0).count(),
-        "route":capture["route"],"fixture":capture["fixture"],"min_x":min_x,"min_y":min_y,"max_x":max_x,"max_y":max_y,"final_y":final_y,"renderer":capture["renderer"]});
+        "longest_unchanged_position_ms":longest_unchanged_ms,
+        "build":capture["build"],"route":capture["route"],"fixture":capture["fixture"],"min_x":min_x,"min_y":min_y,"max_x":max_x,"max_y":max_y,"final_y":final_y,"renderer":capture["renderer"]});
     println!("{result}");
     if budget.is_some_and(|limit| worst > limit) {
         return Err(format!(
@@ -258,6 +274,18 @@ mod tests {
             summarize(&v, None).is_err(),
             "stationary deep water is not travel"
         );
+    }
+    #[test]
+    fn reports_immobility_separately_from_render_pacing() {
+        let result = summarize(&trace(16.7), None).unwrap();
+        assert!((result["longest_unchanged_position_ms"].as_f64().unwrap() - 484.3).abs() < 0.01);
+        assert_eq!(result["max_ms"], 16.7);
+        let mut v = trace(16.7);
+        for i in [14, 44] {
+            v["frames"][i]["crab"] = Value::Null;
+        }
+        let result = summarize(&v, None).unwrap();
+        assert!((result["longest_unchanged_position_ms"].as_f64().unwrap() - 233.8).abs() < 0.01);
     }
     #[test]
     fn stationary_scene_cannot_pass() {
