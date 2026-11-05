@@ -296,7 +296,7 @@ jobs:
         run: |
           # Azure mirror downloads exhausted the phone job budget twice.
           # Keep Ubuntu signature verification; only change the archive endpoint.
-          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources /etc/apt/apt-mirrors.txt /etc/apt/mirrors/*.list /etc/apt/mirrors/*.txt; do
             [ -f "$source" ] || continue
             sudo sed -i -E "s|https?://azure[.]archive[.]ubuntu[.]com/ubuntu|https://archive.ubuntu.com/ubuntu|g" "$source"
           done
@@ -387,7 +387,7 @@ jobs:
         run: |
           # Azure mirror downloads exhausted the phone job budget twice.
           # Keep Ubuntu signature verification; only change the archive endpoint.
-          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources /etc/apt/apt-mirrors.txt /etc/apt/mirrors/*.list /etc/apt/mirrors/*.txt; do
             [ -f "$source" ] || continue
             sudo sed -i -E "s|https?://azure[.]archive[.]ubuntu[.]com/ubuntu|https://archive.ubuntu.com/ubuntu|g" "$source"
           done
@@ -546,7 +546,7 @@ jobs:
         run: |
           # Azure mirror downloads exhausted the phone job budget twice.
           # Keep Ubuntu signature verification; only change the archive endpoint.
-          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources /etc/apt/apt-mirrors.txt /etc/apt/mirrors/*.list /etc/apt/mirrors/*.txt; do
             [ -f "$source" ] || continue
             sudo sed -i -E "s|https?://azure[.]archive[.]ubuntu[.]com/ubuntu|https://archive.ubuntu.com/ubuntu|g" "$source"
           done
