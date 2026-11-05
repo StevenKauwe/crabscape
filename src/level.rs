@@ -8,6 +8,7 @@
 //! and the flat sea floor where the crab starts is at y = 0.
 
 use bevy::asset::{RenderAssetUsages, embedded_asset, embedded_path};
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
@@ -29,6 +30,11 @@ struct WaterSurface {
     left: f32,
     right: f32,
 }
+
+/// A few rendered startup frames queue the vertex-coloured surface pipeline.
+/// Normal culling resumes afterward; no permanent offscreen draw is retained.
+#[derive(Component, Default)]
+struct SurfaceWarmup(u8);
 
 #[derive(Clone, Copy)]
 enum SurfacePart {
@@ -108,6 +114,7 @@ impl Plugin for LevelPlugin {
         .add_systems(
             Update,
             (
+                finish_surface_warmup,
                 move_water_surface,
                 move_high_kelp,
                 move_local_kelp,
@@ -171,12 +178,18 @@ fn draw_level(
         (SurfacePart::Edge, -30.0),
         (SurfacePart::Glints, -29.9),
     ] {
-        commands.spawn((
+        let mut surface = commands.spawn((
             WaterSurface { part, left, right },
             Mesh2d(meshes.add(surface_mesh(part, left, right, 0.0))),
             MeshMaterial2d(surface_material.clone()),
             Transform::from_xyz(0.0, 0.0, z),
         ));
+        if matches!(part, SurfacePart::Sky) {
+            // All three surfaces share this material and vertex layout. Queue
+            // its first-use program during startup instead of at the surface.
+            // The GPU clips the actual sky geometry outside the camera view.
+            surface.insert((SurfaceWarmup::default(), NoFrustumCulling));
+        }
     }
     // The sea floor: one mesh. Each floor segment becomes a four-cornered
     // shape from the surface down to FLOOR_DEPTH.
@@ -372,6 +385,23 @@ fn rock_mesh(size: Vec2) -> Mesh {
     .with_inserted_indices(Indices::U32(indices))
 }
 
+fn finish_surface_warmup(
+    mut commands: Commands,
+    mut surfaces: Query<(Entity, &ViewVisibility, &mut SurfaceWarmup)>,
+) {
+    for (entity, visible, mut warmup) in &mut surfaces {
+        if !visible.get() {
+            continue;
+        }
+        warmup.0 += 1;
+        if warmup.0 >= 3 {
+            commands
+                .entity(entity)
+                .remove::<(SurfaceWarmup, NoFrustumCulling)>();
+        }
+    }
+}
+
 /// Animate the shared boundary so there is never a straight seam above waves.
 fn move_water_surface(
     time: Res<Time>,
@@ -465,6 +495,30 @@ fn surface_mesh(part: SurfacePart, left: f32, right: f32, time: f32) -> Mesh {
 #[cfg(test)]
 mod surface_tests {
     use super::*;
+
+    #[test]
+    fn surface_warmup_waits_for_visibility_then_restores_normal_culling() {
+        let mut app = App::new();
+        app.add_systems(Update, finish_surface_warmup);
+        let entity = app
+            .world_mut()
+            .spawn((
+                SurfaceWarmup::default(),
+                NoFrustumCulling,
+                ViewVisibility::HIDDEN,
+            ))
+            .id();
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(app.world().get::<NoFrustumCulling>(entity).is_some());
+        *app.world_mut().get_mut::<ViewVisibility>(entity).unwrap() = ViewVisibility::VISIBLE;
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(app.world().get::<NoFrustumCulling>(entity).is_none());
+        assert!(app.world().get::<SurfaceWarmup>(entity).is_none());
+    }
 
     #[test]
     fn sky_and_water_share_a_moving_edge() {
