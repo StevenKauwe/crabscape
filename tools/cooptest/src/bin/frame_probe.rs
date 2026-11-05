@@ -47,7 +47,7 @@ const CAPTURE: &str = r#"(()=>{
  function frame(now){
   if(s.stop){observers.forEach(o=>o.disconnect());restore.forEach(f=>f());return;}
   if(previous!==null)s.frames.push({at:now,ms:now-previous,crab:c.getAttribute('data-crab'),
-   tick:c.getAttribute('data-cell-performance')?.split(':')[0]??null,revision:c.getAttribute('data-cell-region-revision')});
+   tick:c.getAttribute('data-cell-performance')?.split(':')[0]??null,paging:c.getAttribute('data-cell-page-state'),revision:c.getAttribute('data-cell-region-revision')});
   previous=now;requestAnimationFrame(frame);
  }
  requestAnimationFrame(frame);return true;

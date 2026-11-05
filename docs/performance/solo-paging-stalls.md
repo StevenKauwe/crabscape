@@ -1,6 +1,6 @@
 # Solo paging stall investigation, 2026-11-05
 
-Status: reproduced; no gameplay fix established. Do not close the transition-stutter report.
+Status: reproduced; publication/read coordination mitigates one cause. Additional pauses remain; do not close the transition-stutter report.
 
 The existing game already publishes per-render solo simulation progress when
 `data-cell-performance-probe` is set (`src/replay.rs`). The frame probe now enables
@@ -56,3 +56,36 @@ Next: reproduce repeated reads with deterministic cache/storage scheduling,
 separate legitimate revision retries from cache churn, and retain bounded memory,
 reset-epoch/revision validation, terrain equivalence and save integrity. Current
 observations do not justify weakening those checks or claiming all stutter fixed.
+
+## Publication/read coordination
+
+Profiling-only page-state and reply-outcome markers attributed ten discarded
+read batches in `crab-frame-probe-97946` to autosave revision publication while
+reads were in flight. Several 650–783 ms pauses include a discarded reply followed
+by another read of the required pages. There were no read-failure markers.
+
+The coordination gate leaves encoding/compression concurrent with paging. At final
+publication only, it blocks new reads and waits for existing replies to be applied
+(or discarded on failure/cancellation). It holds publication until the transaction
+returns. The caller then updates its revision without yielding. No epoch, revision,
+record validation, transaction atomicity or failed-write protection is relaxed.
+Read permits travel with the asynchronous result, so I/O completion alone cannot
+allow publication before the simulation has consumed the reply. RAII releases
+permits on failure/reset/cancellation. The existing read deadline remains in force.
+
+Five dependency-free gate tests cover ordering, cancellation, multiple outstanding
+replies, wakeup and duplicate publishers. The native delayed-storage model uses
+200 ms reply latency, completes 3,361 ticks, and matches an unpaged simulation's
+mover and active terrain byte-for-byte. This model is an opt-in investigation test,
+not proof that browser scheduling has the same latency.
+
+The same synthetic browser route with the gate (`crab-frame-probe-1305`) recorded
+159 applied replies and zero stale or failed replies. The baseline had 169 applied
+and ten stale replies. Routes differ with wall-clock input scheduling, so frame
+and maximum-pause comparisons are not controlled. In particular, the candidate
+still recorded a 2,116.5 ms tick pause while saving and requesting a flush, with
+repeated applied reads. This change eliminates the demonstrated publication race;
+it does not establish a universal speedup or resolve the remaining save/cache wait.
+
+Evidence: `/tmp/crab-page-state-capture.log`, `/tmp/crab-page-access-capture.log`,
+`/tmp/crab-native-solo-paging.log`. Reproduction command is unchanged above.
