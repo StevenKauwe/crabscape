@@ -644,7 +644,11 @@ pub(super) async fn read_pages(
     revision: u64,
     requests: super::super::paging::Requests,
 ) -> Result<super::super::paging::Replies, String> {
+    let _total = super::super::work::begin("cell-page-read-total");
+    let opening = super::super::work::begin("cell-page-open");
     let db = open_for_pages(database.to_owned()).await?;
+    drop(opening);
+    let batch_read = super::super::work::begin("cell-page-batch-read");
     let tx = db.0.transaction_with_str(STORE).map_err(issue)?;
     let _abort = AbortRead(tx.clone());
     let store = tx.object_store(STORE).map_err(issue)?;
@@ -661,6 +665,8 @@ pub(super) async fn read_pages(
     // IndexedDB delivers request results in issue order. Queue the entire
     // bounded batch before yielding and wait once, on its last request.
     request(pending.last().map_or(&epoch_request, |(_, _, read)| read)).await?;
+    drop(batch_read);
+    let decoding = super::super::work::begin("cell-page-decode");
     let head =
         decode_head(&head_request.result().map_err(issue)?)?.ok_or("missing spatial head")?;
     if head.epoch != epoch || decode_epoch(epoch_request.result().map_err(issue)?)? != epoch {
@@ -679,10 +685,10 @@ pub(super) async fn read_pages(
             memory.push((ticket, bytes));
         }
     }
-    if decode_epoch(get(&db.0, &JsValue::from_str(EPOCH_KEY)).await?)? != epoch {
-        return Err(STALE_EPOCH.into());
-    }
-    current_head(&db.0, head).await?;
+    drop(decoding);
+    let validation = super::super::work::begin("cell-page-final-validation");
+    current_page_revision(&db.0, head).await?;
+    drop(validation);
     Ok(super::super::paging::Replies { terrain, memory })
 }
 
@@ -799,4 +805,24 @@ impl RecordBatch {
         self.raw_bytes = 0;
         Ok(())
     }
+}
+
+/// Revalidate both reset generation and revision in one fresh read snapshot.
+/// The guard also aborts this transaction when a page-read deadline cancels us.
+async fn current_page_revision(db: &IdbDatabase, head: Head) -> Result<(), String> {
+    let tx = db.transaction_with_str(STORE).map_err(issue)?;
+    let _abort = AbortRead(tx.clone());
+    let store = tx.object_store(STORE).map_err(issue)?;
+    let epoch = store.get(&JsValue::from_str(EPOCH_KEY)).map_err(issue)?;
+    let latest = store.get(&JsValue::from_str(KEY)).map_err(issue)?;
+    request(&latest).await?;
+    let latest =
+        decode_head(&latest.result().map_err(issue)?)?.ok_or("spatial read revision expired")?;
+    if decode_epoch(epoch.result().map_err(issue)?)? != head.epoch || latest.epoch != head.epoch {
+        return Err(STALE_EPOCH.into());
+    }
+    if latest.revision != head.revision {
+        return Err("spatial read revision expired".into());
+    }
+    Ok(())
 }

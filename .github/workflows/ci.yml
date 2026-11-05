@@ -294,10 +294,16 @@ jobs:
       - name: WebKitGTK, its WebDriver and a virtual display
         # The WebDriver package is webkitgtk-webdriver since Ubuntu 26.04 (webkit2gtk-driver before).
         run: |
-          sudo apt-get update -q
+          # Azure mirror downloads exhausted the phone job budget twice.
+          # Keep Ubuntu signature verification; only change the archive endpoint.
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source" ] || continue
+            sudo sed -i -E "s|https?://azure[.]archive[.]ubuntu[.]com/ubuntu|https://archive.ubuntu.com/ubuntu|g" "$source"
+          done
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 update -q
           pkgs=(libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11)
-          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
-            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
+            || sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: crabscape-web-${{ github.sha }}
@@ -379,10 +385,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: WebKitGTK, its WebDriver and a virtual display
         run: |
-          sudo apt-get update -q
+          # Azure mirror downloads exhausted the phone job budget twice.
+          # Keep Ubuntu signature verification; only change the archive endpoint.
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source" ] || continue
+            sudo sed -i -E "s|https?://azure[.]archive[.]ubuntu[.]com/ubuntu|https://archive.ubuntu.com/ubuntu|g" "$source"
+          done
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 update -q
           pkgs=(libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11)
-          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
-            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
+            || sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: crabscape-web-${{ github.sha }}
@@ -532,10 +544,16 @@ jobs:
       - name: WebKitGTK, its WebDriver and a virtual display
         # The WebDriver package is webkitgtk-webdriver since Ubuntu 26.04 (webkit2gtk-driver before).
         run: |
-          sudo apt-get update -q
+          # Azure mirror downloads exhausted the phone job budget twice.
+          # Keep Ubuntu signature verification; only change the archive endpoint.
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source" ] || continue
+            sudo sed -i -E "s|https?://azure[.]archive[.]ubuntu[.]com/ubuntu|https://archive.ubuntu.com/ubuntu|g" "$source"
+          done
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 update -q
           pkgs=(libwebkit2gtk-4.1-0 libgl1-mesa-dri xvfb xauth dbus-x11)
-          sudo apt-get install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
-            || sudo apt-get install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 install -yq --no-install-recommends webkitgtk-webdriver "${pkgs[@]}" \
+            || sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 install -yq --no-install-recommends webkit2gtk-driver "${pkgs[@]}"
       - name: The live site starts in WebKit (a few tries while Pages catches up)
         run: |
           ulimit -c 0
