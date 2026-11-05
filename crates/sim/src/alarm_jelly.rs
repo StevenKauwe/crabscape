@@ -53,21 +53,9 @@ pub(crate) fn attract(enemies: &mut [Enemy], t: &Tuning, level: &Level) {
         .map(|e| e.swim_goal)
         .collect();
     for goal in calls {
-        let nearest = enemies
-            .iter()
-            .filter(|e| {
-                available(e)
-                    && e.pos.distance(goal) <= JELLY_ALARM_RANGE
-                    && e.home.distance(goal) <= JELLY_HUNTER_LEASH
-                    && clear(level, e.pos, goal, t.moray.body.0 * 0.5, t.moray.body.1)
-            })
-            .min_by(|a, b| {
-                a.pos
-                    .distance_squared(goal)
-                    .total_cmp(&b.pos.distance_squared(goal))
-                    .then(a.id.cmp(&b.id))
-            })
-            .map(|e| e.id);
+        let nearest = nearest_reachable(enemies, goal, |e| {
+            clear(level, e.pos, goal, t.moray.body.0 * 0.5, t.moray.body.1)
+        });
         if let Some(e) = enemies.iter_mut().find(|e| Some(e.id) == nearest) {
             e.target = None;
             e.animal_target = None;
@@ -78,6 +66,30 @@ pub(crate) fn attract(enemies: &mut [Enemy], t: &Tuning, level: &Level) {
         }
     }
 }
+// Rank using cheap distances before testing swept-body clearance. A flash
+// selects one hunter, so farther candidates cannot change a reachable winner.
+fn nearest_reachable(
+    enemies: &[Enemy],
+    goal: Vec2,
+    mut reachable: impl FnMut(&Enemy) -> bool,
+) -> Option<u32> {
+    let mut candidates: Vec<_> = enemies
+        .iter()
+        .filter(|e| {
+            available(e)
+                && e.pos.distance(goal) <= JELLY_ALARM_RANGE
+                && e.home.distance(goal) <= JELLY_HUNTER_LEASH
+        })
+        .collect();
+    candidates.sort_by(|a, b| {
+        a.pos
+            .distance_squared(goal)
+            .total_cmp(&b.pos.distance_squared(goal))
+            .then(a.id.cmp(&b.id))
+    });
+    candidates.into_iter().find(|e| reachable(e)).map(|e| e.id)
+}
+
 /// Uses existing movement collision and regional limits; expires into normal AI.
 pub fn investigating(e: &Enemy) -> bool {
     e.kind == Kind::Moray
@@ -227,4 +239,74 @@ pub(crate) fn step(
         outcomes.push((c.id, outcome));
     }
     outcomes
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    #[test]
+    fn alarm_search_preserves_blocked_candidates_and_id_ties() {
+        let t = Tuning::default();
+        let goal = Vec2::new(1000.0, 100.0);
+        let enemies: Vec<_> = [(8, 60.0), (3, -60.0), (1, 120.0), (9, 180.0), (4, 240.0)]
+            .into_iter()
+            .map(|(id, dx)| Enemy::new(id, Kind::Moray, goal + Vec2::X * dx, &t))
+            .collect();
+        // Every visibility combination, including no reachable animal, keeps
+        // the old distance/ID winner regardless of storage order.
+        for mask in 0..32 {
+            let reachable =
+                |e: &Enemy| mask & (1 << enemies.iter().position(|x| x.id == e.id).unwrap()) != 0;
+            let expected = enemies
+                .iter()
+                .filter(|e| reachable(e))
+                .min_by(|a, b| {
+                    a.pos
+                        .distance_squared(goal)
+                        .total_cmp(&b.pos.distance_squared(goal))
+                        .then(a.id.cmp(&b.id))
+                })
+                .map(|e| e.id);
+            assert_eq!(nearest_reachable(&enemies, goal, reachable), expected);
+            let mut reversed = enemies.clone();
+            reversed.reverse();
+            assert_eq!(nearest_reachable(&reversed, goal, reachable), expected);
+        }
+    }
+
+    #[test]
+    fn a_crowded_flash_only_checks_the_nearest_reachable_hunter() {
+        let t = Tuning::default();
+        let goal = Vec2::new(1000.0, 100.0);
+        let mut enemies: Vec<_> = (0..12)
+            .map(|id| {
+                Enemy::new(
+                    id,
+                    Kind::Moray,
+                    goal + Vec2::X * (30.0 + id as f32 * 20.0),
+                    &t,
+                )
+            })
+            .collect();
+        enemies.reverse();
+        let mut queries = 0;
+        assert_eq!(
+            nearest_reachable(&enemies, goal, |_| {
+                queries += 1;
+                true
+            }),
+            Some(0)
+        );
+        assert_eq!(queries, 1, "the old selection checked all 12 hunters");
+        queries = 0;
+        assert_eq!(
+            nearest_reachable(&enemies, goal, |e| {
+                queries += 1;
+                e.id >= 2
+            }),
+            Some(2)
+        );
+        assert_eq!(queries, 3, "blocked nearer hunters must still be checked");
+    }
 }
