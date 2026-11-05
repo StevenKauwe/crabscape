@@ -213,6 +213,7 @@ fn store_kernel(owner: &mut Owner, kernel: RegionKernel) -> Result<(), String> {
     owner.entities.absorb(kernel).map_err(fault)
 }
 fn collect(r: &mut State, sim: &mut Sim) -> Result<(), String> {
+    let _profile = crate::cell_save::work::begin("cell-split-collect");
     moving::cancel(r)?;
     let owner = r.owner.as_mut().ok_or("Missing lobby owner")?;
     // Validate/recover the remote history before moving the visible simulation.
@@ -267,6 +268,7 @@ fn extract(
         .map_err(fault)
 }
 fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
+    let _profile = crate::cell_save::work::begin("cell-split-grant");
     let guest = s.guest.ok_or("Missing visitor")?;
     let owner = r.owner.as_mut().ok_or("Missing owner archive")?;
     let host_at = point(&owner.entities.sim, HOST)?;
@@ -284,17 +286,19 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
         return Ok(());
     }
 
-    let (local, remote) = if r.shared {
+    let (local, journal, remote) = if r.shared {
         let local = extract(owner, &[HOST, guest], area(&[host_at, guest_at])?)?;
-        let remote = local.checkpoint().map_err(fault)?;
-        (local, remote)
+        let (journal, remote) = RegionJournal::new_with_checkpoint(&local, HOST).map_err(fault)?;
+        (local, journal, remote)
     } else {
         let local = extract(owner, &[HOST], host_area)?;
         let remote = extract(owner, &[guest], guest_area)?;
         r.remote_bounds = Some(remote.bounds());
-        let bytes = remote.checkpoint().map_err(fault)?;
-        owner.remote = Some(RegionJournal::new(&remote, guest).map_err(fault)?);
-        (local, bytes)
+        let (remote_journal, bytes) =
+            RegionJournal::new_with_checkpoint(&remote, guest).map_err(fault)?;
+        owner.remote = Some(remote_journal);
+        let journal = RegionJournal::new(&local, HOST).map_err(fault)?;
+        (local, journal, bytes)
     };
     r.applied = local.sim.tick_count();
     r.shared_move_cutoff = None;
@@ -303,7 +307,7 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
     r.boundaries.clear();
     r.arrival = None;
     r.arrival_offered = 0;
-    r.journal = Some(RegionJournal::new(&local, HOST).map_err(fault)?);
+    r.journal = Some(journal);
     r.kernel = Some(local.install_view(sim));
     r.snapshot = remote;
     r.transfer += 1;
@@ -823,6 +827,7 @@ fn receive_inner(
                 return Err("Wrong regional transfer".into());
             }
             if let Some(bytes) = r.receiver.accept(&bytes).map_err(fault)? {
+                let _profile = crate::cell_save::work::begin("cell-split-install");
                 let kernel = RegionKernel::from_checkpoint(&bytes).map_err(fault)?;
                 if kernel.sim.crab(local).is_none() {
                     return Err("Wrong regional visitor".into());

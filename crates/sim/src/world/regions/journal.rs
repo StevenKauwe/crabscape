@@ -84,6 +84,17 @@ impl RegionJournal {
             runs: Vec::new(),
         })
     }
+    /// Start a journal and transfer the same freshly encoded base checkpoint.
+    /// The returned bytes are owned independently; receivers still validate them.
+    pub fn new_with_checkpoint(
+        kernel: &RegionKernel,
+        authority: PlayerId,
+    ) -> Result<(Self, Vec<u8>), RegionError> {
+        let journal = Self::new(kernel, authority)?;
+        let checkpoint = journal.checkpoint.clone();
+        Ok((journal, checkpoint))
+    }
+
     fn metadata_at(&self, state: u64) -> (u64, u64, u64) {
         let mut result = (
             self.base_revision,
@@ -643,7 +654,7 @@ mod tests {
     use super::*;
     use crate::underwater::region_store::TerrainStore;
     #[test]
-    fn local_compaction_matches_validated_checkpoint_and_keeps_future_history_exact() {
+    fn reused_initial_checkpoint_and_compaction_keep_future_history_exact() {
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
         sim.enable_underwater_cells();
         sim.populate();
@@ -664,7 +675,20 @@ mod tests {
         let mut live = archive
             .extract(RegionId(1), epoch, &[PlayerId(0)], world)
             .unwrap();
-        let mut journal = RegionJournal::new(&live, PlayerId(0)).unwrap();
+        let (mut journal, mut checkpoint) =
+            RegionJournal::new_with_checkpoint(&live, PlayerId(0)).unwrap();
+        assert_eq!(
+            RegionKernel::from_checkpoint(&checkpoint)
+                .unwrap()
+                .sim
+                .state_hash(),
+            live.sim.state_hash()
+        );
+        checkpoint.fill(0);
+        assert_eq!(
+            journal.materialize().unwrap().sim.state_hash(),
+            live.sim.state_hash()
+        );
         for tick in 0..12 {
             let frame = RegionFrame {
                 tick,
