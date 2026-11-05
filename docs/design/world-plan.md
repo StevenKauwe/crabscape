@@ -69,6 +69,27 @@ one GitHub issue (label `world-plan`) that stands on its own.
    (`crates/sim/src/underwater.rs`, `crates/sim/src/underwater/`, `src/cellular*`) unless the issue says it is a
    **gated engine package**.
 
+## Where things stand (2026-11-05, lead designer's handoff)
+Read this first if you are continuing without the lead designer. Check each item's live state with `gh pr view <n>`
+or `gh issue view <n>` before acting.
+- **Merged:** plan and bible (#473, #476, #486, #488), W0.1 landmarks (#474), W0.2 route library (#480), W0.3 fear
+  invariants (#485), W0.4 seed fingerprint (#479), W1.1 depth bands (#478), W2.1 pressure on the body (#483), and a
+  fix for main's flaky save tests (#491).
+- **Queued to auto-merge:** W2.3 anxiety (#484, finishes draft #419: close #419 once #484 merges), W1.3 canyon
+  refuges (#490). If either fails its checks, rerun the failed job once, then read the log.
+- **At a taste gate, waiting for the owner:** W2.2 sound (#493, Milestone 2; the "what to try" list is on #462). Do
+  not merge it or start anything that needs it until the owner answers on #462 or #493.
+- **In flight:** W0.5 memory save size (#492, a gated saves package). If its Codex run stopped, the worktree is
+  `.claude/worktrees/memory-save` on branch `issue-492-memory-save`.
+- **Parked, built:** W1.3b lower canyon (#487) on branch `issue-487-lower-canyon`, rebaked. Blocked only by #492:
+  a fully explored memory of the bigger world is over the 4 MiB save limit. After #492 merges: rebase, rebake if
+  the seed changed on main, update the probe digest, full checks, PR, auto-merge. The handoff comment on #487 has the
+  details.
+- **Next, in order:** W1.2 open-water hunter (#458: needs #487 and the Hush cue from #493's gate), W1.4 keys and
+  tether (#460: needs #487), then W3.0 (#464) and the rest of phase 3. Milestone 1's gate is W1.2's PR.
+- **Owner-facing notes to carry:** #419 (draft) can be closed once #484 merges; the session's first Codex attempts
+  are summarised in "Farming out to Codex" above.
+
 ## Hidden rules found while building (read before any package)
 - **The seed fingerprint.** See item 8: only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the
   level's floor and rocks force a rebake. A 30-step probe digest test (`probe_digest_matches_committed`) catches
