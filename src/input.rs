@@ -416,11 +416,6 @@ fn read_input(
     let (clicked_jab, clicked_smash) = combat_mouse.update(&mouse, can_start, modal);
     if modal {
         touch_controls.dig_touch = None;
-        requests.write(MoveRequest {
-            player: **local,
-            controls: Controls::default(),
-        });
-        return;
     }
     let previous_dig_touch = touch_controls.dig_touch;
     let cells_enabled = sim.level.cells.is_some();
@@ -432,7 +427,7 @@ fn read_input(
     {
         touch_controls.dig_touch = None;
     }
-    if cells_enabled && touch_controls.dig_touch.is_none() {
+    if !modal && cells_enabled && touch_controls.dig_touch.is_none() {
         touch_controls.dig_touch = touches
             .iter_just_pressed()
             .find(|t| !covered(t.position()) && dig_rect.inflate(3.0).contains(t.position()))
@@ -501,6 +496,23 @@ fn read_input(
         jab |= wants.jab;
         guard |= wants.guard;
         eat |= wants.eat;
+    }
+
+    if modal {
+        // Consume holds as well as edges while the menu owns input. Otherwise
+        // closing it invents a press from a button held since an earlier frame.
+        *held_before = Held {
+            jump,
+            dodge,
+            smash,
+            jab,
+            guard,
+        };
+        requests.write(MoveRequest {
+            player: **local,
+            controls: Controls::default(),
+        });
+        return;
     }
 
     let digging = cells_enabled && (keys.pressed(KeyCode::Space) || stick.is_some());
@@ -757,6 +769,103 @@ fn layout_touch_buttons(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closing_a_modal_does_not_invent_controller_action_presses() {
+        for button in [
+            GamepadButton::South,
+            GamepadButton::East,
+            GamepadButton::North,
+            GamepadButton::West,
+            GamepadButton::LeftTrigger,
+        ] {
+            let mut app = App::new();
+            app.init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<Touches>()
+                .init_resource::<crate::settings::panel::Open>()
+                .init_resource::<crate::shell_inventory::Open>()
+                .init_resource::<crate::codes::CodeBox>()
+                .insert_resource(crabsim::Sim::with_one_crab(crabsim::SPAWN))
+                .insert_resource(TouchControls {
+                    visible: false,
+                    dig_touch: None,
+                })
+                .add_message::<MoveRequest>()
+                .add_systems(Update, read_input);
+            app.world_mut().spawn(Window::default());
+            app.world_mut().spawn((LocalPlayer, PlayerId(0)));
+            let pad = app.world_mut().spawn(Gamepad::default()).id();
+            let frame = |app: &mut App| {
+                app.update();
+                app.world_mut()
+                    .resource_mut::<Messages<MoveRequest>>()
+                    .drain()
+                    .last()
+                    .unwrap()
+                    .controls
+            };
+            let edges = |c: Controls| {
+                c.jump_pressed
+                    || c.dodge_pressed
+                    || c.smash_pressed
+                    || c.jab_pressed
+                    || c.block_pressed
+            };
+            frame(&mut app);
+            app.world_mut()
+                .resource_mut::<crate::shell_inventory::Open>()
+                .0 = true;
+            app.world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .press(button);
+            let covered = frame(&mut app);
+            assert!(!edges(covered));
+            assert!(
+                !covered.jump_held
+                    && !covered.dodge_held
+                    && !covered.smash_held
+                    && !covered.block_held
+            );
+            app.world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .clear();
+            app.world_mut()
+                .resource_mut::<crate::shell_inventory::Open>()
+                .0 = false;
+            let resumed = frame(&mut app);
+            assert!(
+                !edges(resumed),
+                "held {button:?} must not become a new press on menu close"
+            );
+            let held = pad_wants(Vec2::ZERO, |b| b == button);
+            assert_eq!(
+                (
+                    resumed.jump_held,
+                    resumed.dodge_held,
+                    resumed.smash_held,
+                    resumed.block_held
+                ),
+                (held.jump, held.dodge, held.smash, held.guard)
+            );
+            app.world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .release(button);
+            frame(&mut app);
+            app.world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .press(button);
+            assert!(edges(frame(&mut app)), "a genuine new press must work");
+        }
+    }
 
     fn touch_frame(app: &mut App, events: &[(u64, bevy::input::touch::TouchPhase, Vec2)]) {
         for &(id, phase, position) in events {
