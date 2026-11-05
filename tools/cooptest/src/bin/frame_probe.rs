@@ -1,4 +1,6 @@
 //! Full browser frame pacing during repeated ascent and descent, not a remap microbenchmark.
+#[path = "frame_probe/canyon.rs"]
+mod canyon;
 #[allow(dead_code)]
 #[path = "../chrome.rs"]
 mod chrome;
@@ -40,6 +42,8 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
         return Err("too few frames to measure the route".into());
     }
     let mut gaps = Vec::new();
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     let mut final_y = f64::INFINITY;
@@ -57,22 +61,29 @@ fn summarize(capture: &Value, budget: Option<f64>) -> Result<Value> {
             .filter_map(|n| n.parse().ok())
             .collect();
         if pos.len() == 2 {
+            min_x = min_x.min(pos[0]);
+            min_y = min_y.min(pos[1]);
             max_x = max_x.max(pos[0]);
             max_y = max_y.max(pos[1]);
             final_y = pos[1];
         }
     }
     // A stationary scene must never count as a passing crossing benchmark.
-    if max_x < 1200.0 || max_y < 2000.0 || final_y > 500.0 {
+    let complete = if capture["route"] == "canyon" {
+        min_y < -3000.0 && max_y > -2000.0 && max_x - min_x > 300.0
+    } else {
+        max_x >= 1200.0 && max_y >= 2000.0 && final_y <= 500.0
+    };
+    if !complete {
         return Err(format!(
-            "route incomplete: furthest x={max_x}, peak y={max_y}, final y={final_y}"
+            "route incomplete: x={min_x}..{max_x}, y={min_y}..{max_y}, final y={final_y}"
         ));
     }
     gaps.sort_by(f64::total_cmp);
     let worst = *gaps.last().ok_or("no frame intervals")?;
     let result = json!({"frames":gaps.len(),"median_ms":gaps[gaps.len()/2],
         "p95_ms":gaps[gaps.len()*95/100],"max_ms":worst,"over_60_ms":gaps.iter().filter(|g| **g>60.0).count(),
-        "max_x":max_x,"max_y":max_y,"final_y":final_y,"renderer":capture["renderer"]});
+        "route":capture["route"],"fixture":capture["fixture"],"min_x":min_x,"min_y":min_y,"max_x":max_x,"max_y":max_y,"final_y":final_y,"renderer":capture["renderer"]});
     println!("{result}");
     if budget.is_some_and(|limit| worst > limit) {
         return Err(format!(
@@ -88,10 +99,14 @@ fn run() -> Result<()> {
     let mut slow = 1.0;
     let mut budget = None;
     let mut cpu = false;
+    let mut route = "opening".to_owned();
+    let mut large = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--url" => url = args.next().ok_or("--url needs a value")?,
+            "--route" => route = args.next().ok_or("--route needs opening or canyon")?,
+            "--large-save" => large = true,
             "--slow" => {
                 slow = args
                     .next()
@@ -110,7 +125,7 @@ fn run() -> Result<()> {
             "--cpu" => cpu = true,
             "--help" => {
                 println!(
-                    "frame_probe [--url URL] [--slow N] [--cpu] [--max-gap-ms N]\n30-second ascent/descent, isolated temporary profile. Set CRABSCAPE_PROFILE_GPU=1 for hardware rendering. No timing gate unless a calibrated budget is supplied."
+                    "frame_probe [--url URL] [--route opening|canyon] [--large-save] [--slow N] [--cpu] [--max-gap-ms N]\nOpening: 30-second ascent/descent. Canyon: 60-second rotation/paddle/dive from a synthetic save; --large-save adds explored memory/archive. Isolated temporary profile. Set CRABSCAPE_PROFILE_GPU=1 for hardware rendering. No timing gate unless a calibrated budget is supplied."
                 );
                 return Ok(());
             }
@@ -119,6 +134,9 @@ fn run() -> Result<()> {
     }
     if !slow.is_finite() || slow < 1.0 || budget.is_some_and(|n| !n.is_finite() || n <= 0.0) {
         return Err("slow must be finite and >=1; budget must be finite and >0".into());
+    }
+    if !matches!(route.as_str(), "opening" | "canyon") || (large && route != "canyon") {
+        return Err("route must be opening or canyon; --large-save requires --route canyon".into());
     }
     let dir = std::env::temp_dir().join(format!("crab-frame-probe-{}", std::process::id()));
     std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
@@ -138,27 +156,42 @@ fn run() -> Result<()> {
         }
         sleep(Duration::from_millis(200));
     }
+    let fixture = if route == "canyon" {
+        canyon::prepare(&mut b, &url, large)?
+    } else {
+        Value::Null
+    };
     let build = b.eval("fetch(new URL('pkg/commit.txt',location.href)).then(r=>r.ok?r.text():'unavailable').catch(()=> 'unavailable')")?;
     b.type_line("hulk")?;
+    if route == "canyon" {
+        b.type_line("level swimming 99")?;
+        b.type_line("feast")?;
+    }
     if cpu {
         b.start_cpu_profile()?;
     }
     b.eval(CAPTURE)?;
-    b.set_key("KeyD", true)?;
-    let began = Instant::now();
-    while began.elapsed().as_secs() < 30 {
-        b.hold_key(
-            if began.elapsed().as_secs() < 15 {
-                "KeyW"
-            } else {
-                "ArrowDown"
-            },
-            0.25,
-        )?;
-        sleep(Duration::from_millis(150));
+    if route == "canyon" {
+        canyon::drive(&mut b)?;
+    } else {
+        b.set_key("KeyD", true)?;
+        let began = Instant::now();
+        while began.elapsed().as_secs() < 30 {
+            b.hold_key(
+                if began.elapsed().as_secs() < 15 {
+                    "KeyW"
+                } else {
+                    "ArrowDown"
+                },
+                0.25,
+            )?;
+            sleep(Duration::from_millis(150));
+        }
+        b.set_key("KeyD", false)?;
     }
-    b.set_key("KeyD", false)?;
     let mut capture = b.eval("(()=>{window.frameProbe.stop=true;document.getElementById('crabscape').removeAttribute('data-cell-work-profile');return window.frameProbe})()")?;
+    capture["route"] = json!(route);
+    capture["fixture"] = fixture;
     capture["build"] = build;
     capture["cpu_throttle"] = json!(slow);
     capture["cpu_profile_enabled"] = json!(cpu);
@@ -200,6 +233,30 @@ mod tests {
             summarize(&trace(233.0), Some(60.0))
                 .unwrap_err()
                 .contains("maximum frame gap")
+        );
+    }
+    #[test]
+    fn canyon_requires_deep_water_and_actual_travel() {
+        let mut v = trace(16.7);
+        v["route"] = json!("canyon");
+        assert!(
+            summarize(&v, None).is_err(),
+            "opening travel is not canyon coverage"
+        );
+        for (i, f) in v["frames"].as_array_mut().unwrap().iter_mut().enumerate() {
+            f["crab"] = json!(if i < 30 {
+                "6250 -4200 0"
+            } else {
+                "6900 -1800 0"
+            });
+        }
+        assert!(summarize(&v, Some(60.0)).is_ok());
+        for f in v["frames"].as_array_mut().unwrap() {
+            f["crab"] = json!("6250 -4200 0");
+        }
+        assert!(
+            summarize(&v, None).is_err(),
+            "stationary deep water is not travel"
         );
     }
     #[test]
