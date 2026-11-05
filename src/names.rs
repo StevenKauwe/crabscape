@@ -123,6 +123,20 @@ fn kept_or_first() -> Names {
 #[derive(Component)]
 struct Tag(Entity);
 
+/// A session-only meeting reference, never a remote position feed.
+#[derive(Component, Default)]
+struct LastSeen(Option<Vec3>);
+
+impl LastSeen {
+    fn update(&mut self, current: Vec3, visible: bool, sees: impl Fn(Vec3) -> bool) {
+        if visible {
+            self.0 = Some(current);
+        } else if self.0.is_some_and(sees) {
+            self.0 = None;
+        }
+    }
+}
+
 pub struct NamesPlugin;
 
 impl Plugin for NamesPlugin {
@@ -152,6 +166,7 @@ fn tag_crabs(
         if tags.iter().all(|(_, Tag(c))| *c != crab) {
             commands.spawn((
                 Tag(crab),
+                LastSeen::default(),
                 Node {
                     position_type: PositionType::Absolute,
                     ..default()
@@ -169,35 +184,57 @@ fn tag_crabs(
     }
 }
 
-/// Each tag over its crab, centred, in screen pixels: shown when there is a
-/// name to show and the crab is on screen.
+/// Names follow visible crabs. Out of sight, a session-only last-seen label
+/// stays at the observed position until that spot is seen empty. Zooming out
+/// can find that meeting reference, but never reveals hidden movement.
 #[allow(clippy::type_complexity)]
 fn place_tags(
+    known: Res<crate::memory::Known>,
     names: Res<Names>,
     me: Res<crate::coop::LocalId>,
     camera: Single<(&Camera, &Transform), With<Camera2d>>,
     crabs: Query<(&PlayerId, &Transform, Has<LocalPlayer>), With<Crab>>,
-    mut tags: Query<(&Tag, &mut Node, &mut Text, &mut Visibility, &ComputedNode)>,
+    mut tags: Query<(
+        &Tag,
+        &mut LastSeen,
+        &mut Node,
+        &mut Text,
+        &mut Visibility,
+        &ComputedNode,
+    )>,
 ) {
     let (camera, at) = *camera;
     // This frame's camera (its GlobalTransform is only brought up to date
     // later in the frame).
     let at = GlobalTransform::from(*at);
     let friends = crabs.iter().filter(|(_, _, local)| !local).count();
-    for (Tag(crab), mut node, mut text, mut shown, size) in &mut tags {
+    for (Tag(crab), mut remembered, mut node, mut text, mut shown, size) in &mut tags {
         let Ok((id, crab_at, local)) = crabs.get(*crab) else {
             continue;
         };
         let name = names.of(*id, me.0).filter(|_| !local || friends > 0);
+        let visible = local || known.perceives_animal(crab_at.translation.truncate());
+        remembered.update(crab_at.translation, visible, |p| {
+            known.perceives_animal(p.truncate())
+        });
+        let Some(position) = remembered.0 else {
+            shown.set_if_neq(Visibility::Hidden);
+            continue;
+        };
         let spot = camera
-            .world_to_viewport(&at, crab_at.translation + Vec3::Y * LIFT)
+            .world_to_viewport(&at, position + Vec3::Y * LIFT)
             .ok();
         let (Some(name), Some(spot)) = (name, spot) else {
             shown.set_if_neq(Visibility::Hidden);
             continue;
         };
-        if text.0 != name {
-            text.0 = name.to_string();
+        let label = if visible {
+            name.to_string()
+        } else {
+            format!("{name} (last seen)")
+        };
+        if text.0 != label {
+            text.0 = label;
         }
         // The words' size is known once laid out (in physical pixels).
         let width = size.size().x * size.inverse_scale_factor();
@@ -235,6 +272,20 @@ fn tell_tests(names: Res<Names>, mut said: Local<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unseen_friends_do_not_reveal_their_position() {
+        let mut remembered = LastSeen::default();
+        remembered.update(Vec3::X, false, |_| false);
+        assert_eq!(remembered.0, None);
+        remembered.update(Vec3::X, true, |_| true);
+        remembered.update(Vec3::Y, false, |_| false);
+        assert_eq!(remembered.0, Some(Vec3::X));
+        remembered.update(Vec3::Y, false, |p| p == Vec3::X);
+        assert_eq!(remembered.0, None);
+        remembered.update(Vec3::Y, true, |_| true);
+        assert_eq!(remembered.0, Some(Vec3::Y));
+    }
 
     #[test]
     fn a_new_player_is_crab_and_two_digits() {
