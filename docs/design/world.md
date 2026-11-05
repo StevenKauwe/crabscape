@@ -440,3 +440,41 @@ the observer's bed and follow its reduced lantern reach. Sprite daylight uses th
 ambient-light factor. Terrain retains its existing per-shape daylight curve and
 receives the reduced lantern radius through its existing light uniforms. Opening
 values remain identical. The depth gauge retains its existing long tail.
+
+## Lower canyon (W1.3b / #487, pending seed bake)
+
+The extension begins beyond Coral Rise's actual outer bank at x=17,600. The
+existing floor is unchanged through that bank (including the issue's x=17,400
+boundary). A small sediment heap rises eighty units, has an eighty-unit crest,
+then drops 7,480 units at x=17,780–17,781 to y=-10,000. Water drag limits the fall;
+falling does not damage the crab. The full kit cannot climb the face back up.
+
+The narrows at x=18,000–18,080 is an eighty-unit-thick brittle lock in a
+200-unit-high slot. Its rock sill prevents digging below it; the buttress reaches
+the water surface so swimming above it cannot skip the heavy crusher. The vent
+field beyond is 2,500 units wide (x=18,300–20,800), with a broad, flat floor at
+y=-10,000 and open water above. Its labelled crossing is 1,000 units high, with its floor and midpoint
+in the Deep band. Three small coral clumps are 200 units tall and 1,170 units
+apart. `world_shape.rs` checks this as a wide crossing against the taste bible's
+1,500-unit visible-refuge limit. The level ends at x=21,000.
+
+Thirteen sealed `Frame` landmarks reserve the home burrow (600 by 300, below the
+cellular opening window, under home), mantis mouth, descending clay tunnel, bone
+hall (1,080 by 500), seep shaft,
+long chimney, buried chimney return, chimney hall and mouth, odd tunnel, short
+Plunge shaft, Plunge crack (300 by 150), and its dark observation stage. Each has
+at least two separately labelled `Plug` closures. The chimney cap is brittle but
+has a solid backing, so cracking it does not open the unfinished strata. Frames
+can contain the generator's substrate; W3.0 installs the strata inside them.
+The Plunge's viewing wall is 100 units thick with a twelve-unit slit. Neither a
+route nor a dig reaches a frame interior.
+
+The seep's upper outlet and the hanging garden are left to W4.1 (a rock package
+then): a first placement sat across the glass-grip climb from the doorstep to the
+notch. Frames keep clear of every existing passage (the crack, the pit shaft's
+coral, the notch's bare-rock face and the opening window); the tests that walk
+those passages with the biggest crab catch an intrusion.
+The long chimney has a continuous buried return from the vent bank to home.
+No creatures, rewards, keys, tether or rides are added by this package.
+
+Measured: 112 ability-kit combinations at the narrows and digging from both sides; the vent field's worst visible-refuge distance is 930.5 units (limit 1,500); the full seed bake takes about 12 minutes and stays under the bake's 16-million-cell bound.
