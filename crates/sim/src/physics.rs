@@ -865,8 +865,9 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     }
     m.stroke_rest = (m.stroke_rest - dt).max(0.0);
     // A press in the water while the legs are still in their rhythm is kept
-    // until they're ready, so no press is lost.
-    if c.jump_pressed && !m.grounded && m.stroke_rest > 0.0 {
+    // until they're ready, so no press is lost. On a climb the press belongs
+    // to climbing or kicking off, not to a later stamina-spending paddle.
+    if c.jump_pressed && !m.grounded && !m.climbing && m.stroke_rest > 0.0 {
         m.stroke_queued = true;
     }
     m.dodge_cooldown = (m.dodge_cooldown - dt).max(0.0);
@@ -1935,6 +1936,90 @@ mod tests {
         block_pressed: false,
         eat_held: false,
     };
+
+    #[test]
+    fn climbing_kick_does_not_queue_an_unrequested_paddle() {
+        let t = Tuning::default();
+        let mut level = Level::test_level();
+        level.floor = vec![Vec2::ZERO, Vec2::new(20000.0, 0.0)];
+        level.rocks.clear();
+        level.currents.clear();
+        level.climbs = vec![crate::level::Climb {
+            x: 1060.0,
+            bottom: 0.0,
+            top: 1500.0,
+            kind: Growth::Kelp,
+        }];
+        let mut m = Mover::new(Vec2::new(1000.0, 500.0));
+        m.grounded = false;
+        m.upgrades = 4;
+        m.stamina = 4.0;
+        let approach = Controls {
+            walk: 1.0,
+            ..HOLD_JUMP
+        };
+        assert!(step(&mut m, &approach, &t, &level, STEP).paddled);
+        for _ in 0..35 {
+            let event = step(&mut m, &approach.held_only(), &t, &level, STEP);
+            if event.gripped {
+                break;
+            }
+        }
+        assert!(
+            m.climbing,
+            "ordinary swimming approach must grip: {:?}",
+            m.pos
+        );
+        assert!(
+            m.stroke_rest > STEP,
+            "grip must occur during the real stroke cooldown"
+        );
+        // Release then kick away: this is a new press, not a held/repeated event.
+        step(&mut m, &Controls::default(), &t, &level, STEP);
+        let kick = step(
+            &mut m,
+            &Controls {
+                walk: -1.0,
+                ..HOLD_JUMP
+            },
+            &t,
+            &level,
+            STEP,
+        );
+        assert!(kick.jumped && !kick.paddled && !m.climbing);
+        let stamina = m.stamina;
+        for _ in 0..45 {
+            let event = step(&mut m, &Controls::default(), &t, &level, STEP);
+            assert!(
+                !event.paddled,
+                "a climb kick must not spend another swim stroke"
+            );
+            assert!(m.stamina >= stamina - 1e-4);
+        }
+    }
+
+    #[test]
+    fn ordinary_airborne_press_still_queues_a_cooldown_stroke() {
+        let t = Tuning::default();
+        let mut level = Level::test_level();
+        level.floor = vec![Vec2::ZERO, Vec2::new(20000.0, 0.0)];
+        level.rocks.clear();
+        level.currents.clear();
+        level.climbs.clear();
+        let mut m = Mover::new(Vec2::new(1000.0, 500.0));
+        m.grounded = false;
+        m.upgrades = 4;
+        m.stamina = 4.0;
+        assert!(step(&mut m, &HOLD_JUMP, &t, &level, STEP).paddled);
+        step(&mut m, &Controls::default(), &t, &level, STEP);
+        assert!(!step(&mut m, &HOLD_JUMP, &t, &level, STEP).paddled);
+        assert!(m.stroke_queued);
+        let mut paddles = 0;
+        for _ in 0..45 {
+            paddles += usize::from(step(&mut m, &Controls::default(), &t, &level, STEP).paddled);
+        }
+        assert_eq!(paddles, 1);
+    }
 
     #[test]
     fn standing_still_stays_put() {
