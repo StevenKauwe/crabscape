@@ -444,7 +444,23 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
     if r.stage == Stage::WaitingOwner {
         moving::step(s, r, sim, local)?;
     }
-    if !matches!(r.stage, Stage::Running | Stage::Stopping) {
+    // Once separate leases are installed, the host's region has no replica
+    // waiting for its inputs. Keep it playable while the guest receives its
+    // own checkpoint. Shared regions still wait for the ready handshake.
+    let independent_transfer = local == HOST && !r.shared && r.stage == Stage::Sending;
+    if !matches!(r.stage, Stage::Running | Stage::Stopping) && !independent_transfer {
+        return Ok(());
+    }
+    if independent_transfer
+        && (r.regrant_requested
+            || needs_change(r, sim, s.guest.ok_or("Missing visitor")?)?
+            || s.actions
+                .iter()
+                .any(|(_, action)| matches!(action, super::super::super::CellsAction::Home)))
+    {
+        // Finish this transfer before changing topology again. In particular,
+        // retain Home/actions and regrant requests rather than consuming them
+        // while request_stop cannot yet run.
         return Ok(());
     }
     falling::step(s, r, sim, local)?;
