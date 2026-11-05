@@ -40,6 +40,7 @@ pub(super) struct State {
     applied: u64,
     next_batch: u64,
     stop_tick: u64,
+    move_stop_probe: Option<u64>,
     guest_pos: Option<Vec2>,
     remote_bounds: Option<CellRegion>,
     home: Vec<PlayerId>,
@@ -469,6 +470,12 @@ fn step(s: &mut Session, r: &mut State, sim: &mut Sim, local: PlayerId) -> Resul
     }
     falling::step(s, r, sim, local)?;
     moving::step(s, r, sim, local)?;
+    // A stale prepared window can request a stop (or wait for its owner)
+    // inside moving::step. Honour that transition in this same call: one
+    // extra input here would advance beyond the cutoff already sent.
+    if !matches!(r.stage, Stage::Running | Stage::Stopping) && !independent_transfer {
+        return Ok(());
+    }
     // Storage can pause personal memory without consuming a network frame.
     // In particular, keep replica frames queued and preserve local actions.
     if !sim.memory_pages_ready() {
@@ -640,6 +647,18 @@ pub(super) fn tick(s: &mut Session, sim: &mut Sim, local: PlayerId) -> bool {
         return true;
     };
     let result = step(s, &mut r, sim, local);
+    if let Some(before) = r.move_stop_probe.take()
+        && let Some(canvas) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("crabscape"))
+            .filter(|c| c.has_attribute("data-cell-work-profile"))
+    {
+        let sample = format!("{before}:{}:{}", sim.tick_count(), r.partial.len());
+        let _ = canvas.set_attribute("data-cell-move-stop", &sample);
+        if sim.tick_count() != before || !r.partial.is_empty() {
+            let _ = canvas.set_attribute("data-cell-move-stop-failed", &sample);
+        }
+    }
     s.regional = Some(r);
     if let Err(reason) = result {
         end(s, sim, local);
@@ -985,7 +1004,12 @@ fn receive_inner(
                     .acknowledged_tick()
             };
             if tick != expected {
-                return Err("Incomplete regional stop".into());
+                return Err(format!(
+                    "Incomplete regional stop: received {tick}, expected {expected}, shared={}, partial={}, queued={}",
+                    r.shared,
+                    r.partial.len(),
+                    r.frames.len(),
+                ));
             }
             collect(r, sim)?;
             grant(s, r, sim)?;
