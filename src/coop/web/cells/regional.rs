@@ -1096,6 +1096,8 @@ fn update_inner(
             .is_some_and(|j| j.pending_ticks() >= 3600)
     {
         let _profile = crate::cell_save::work::begin("cell-journal-compact");
+        let _queued_profile = (!r.frames.is_empty())
+            .then(|| crate::cell_save::work::begin("cell-journal-compact-queued"));
         let k = r.kernel.as_mut().ok_or("Missing kernel")?;
         let authority = if r.shared { HOST } else { local };
         r.journal
