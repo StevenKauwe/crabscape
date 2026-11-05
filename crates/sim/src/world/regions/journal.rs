@@ -676,6 +676,102 @@ mod tests {
     use super::*;
     use crate::underwater::region_store::TerrainStore;
     #[test]
+    fn lagging_follower_compacts_applied_history_without_dropping_queued_frames() {
+        use std::collections::VecDeque;
+
+        let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
+        sim.add_crab(PlayerId(7), Vec2::new(260.0, 0.0));
+        sim.enable_underwater_cells();
+        let mut terrain = TerrainStore::new(sim.level.cells.take().unwrap()).unwrap();
+        let mut archive = EntityArchive::new(sim).unwrap();
+        let (epoch, world) = terrain
+            .grant(
+                RegionId(1),
+                CellRegion {
+                    x: 0,
+                    y: 0,
+                    width: 128,
+                    height: 128,
+                },
+                &archive.sim.level,
+            )
+            .unwrap();
+        let live = archive
+            .extract(RegionId(1), epoch, &[PlayerId(0), PlayerId(7)], world)
+            .unwrap();
+        let mut journal = RegionJournal::new(&live, PlayerId(0)).unwrap();
+        let mut uncompacted = journal.clone();
+        let mut view = Sim::with_one_crab(Vec2::ZERO);
+        let mut installed = live.install_view(&mut view);
+        let frame = |tick| RegionFrame {
+            tick,
+            controls: vec![
+                (PlayerId(0), Controls::default()),
+                (
+                    PlayerId(7),
+                    Controls {
+                        walk: if (tick / 60) % 2 == 0 { 0.25 } else { -0.25 },
+                        ..Controls::default()
+                    },
+                ),
+            ],
+            actions: vec![],
+        };
+        // Model a shared follower which is always 32 inputs behind. Its queue
+        // never drains, while its applied prefix remains valid for compaction.
+        let mut queued: VecDeque<_> = (0..32).map(frame).collect();
+        let mut compactions = 0;
+        for tick in 0..MAX_TICKS + 120 {
+            let input = queued.pop_front().unwrap();
+            queued.push_back(frame(tick + 32));
+            assert_eq!(input.tick, tick);
+            installed.tick_view(&mut view, &input).unwrap();
+            journal
+                .append(PlayerId(0), epoch, std::slice::from_ref(&input))
+                .unwrap();
+            if tick < MAX_TICKS {
+                uncompacted
+                    .append(PlayerId(0), epoch, std::slice::from_ref(&input))
+                    .unwrap();
+            } else if tick == MAX_TICKS {
+                assert_eq!(
+                    uncompacted.append(PlayerId(0), epoch, std::slice::from_ref(&input)),
+                    Err(RegionError::InvalidFrame),
+                    "the old empty-queue condition never compacts this follower",
+                );
+            }
+            if journal.pending_ticks() >= 3600 {
+                let future = postcard::to_allocvec(&queued).unwrap();
+                let hash = view.state_hash();
+                journal
+                    .replace_from_local_view(PlayerId(0), &mut installed, &mut view)
+                    .unwrap();
+                assert_eq!(journal.pending_ticks(), 0);
+                assert_eq!(journal.acknowledged_tick(), view.tick_count());
+                assert_eq!(view.state_hash(), hash);
+                assert_eq!(postcard::to_allocvec(&queued).unwrap(), future);
+                compactions += 1;
+            }
+        }
+        assert_eq!(compactions, 2);
+        assert_eq!(queued.len(), 32);
+        assert_eq!(queued.front().unwrap().tick, MAX_TICKS + 120);
+        assert_eq!(journal.pending_ticks(), 120);
+        let restored = RegionJournal::from_bytes(&journal.to_bytes().unwrap()).unwrap();
+        assert_eq!(
+            restored.materialize().unwrap().sim.state_hash(),
+            view.state_hash()
+        );
+        let replay = crate::Replay::parse(&journal.to_text().unwrap()).unwrap();
+        let mut played = Sim::with_one_crab(replay.start);
+        assert!(replay.prepare_start(&mut played));
+        for _ in 0..replay.length() {
+            assert!(replay.step_cell_session(&mut played));
+        }
+        assert_eq!(played.state_hash(), view.state_hash());
+    }
+
+    #[test]
     fn reused_initial_checkpoint_and_compaction_keep_future_history_exact() {
         let mut sim = Sim::with_one_crab(Vec2::new(160.0, 0.0));
         sim.enable_underwater_cells();

@@ -1086,9 +1086,11 @@ fn update_inner(
                 canvas.set_attribute("data-cell-state-revision", &k.state_revision().to_string());
         }
     }
+    // A follower journals only applied frames. Queued future frames are not
+    // part of this checkpoint and need not drain before compacting its prefix;
+    // a consistently lagging replica may never empty that queue.
     if r.stage == Stage::Running
         && r.partial.is_empty()
-        && r.frames.is_empty()
         && r.journal
             .as_ref()
             .is_some_and(|j| j.pending_ticks() >= 3600)
