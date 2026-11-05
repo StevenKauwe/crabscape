@@ -2118,8 +2118,11 @@ mod web {
         mut names: ResMut<Names>,
         mut chat: ResMut<crate::chat::Chat>,
         me: Res<LocalId>,
-        coop: Res<Coop>,
+        mut coop: ResMut<Coop>,
     ) {
+        if crate::cellular::enabled() {
+            cells::send_out(&mut sim, &mut coop, me.0);
+        }
         let out = sim.take_outbox();
         let said = std::mem::take(&mut chat.outbox);
         let renamed = std::mem::take(&mut names.changed).then(|| Msg::Name {

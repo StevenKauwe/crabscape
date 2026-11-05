@@ -631,6 +631,38 @@ fn receive(
     Ok(())
 }
 
+fn send_pending(s: &mut Session, link: &mut Link) -> Result<(), &'static str> {
+    if let Some(peer) = s.peer {
+        while let Some(msg) = s.outgoing.pop_front() {
+            if let Some(bytes) = packet(&msg) {
+                link.socket
+                    .channel_mut(RELIABLE)
+                    .try_send(bytes, peer)
+                    .map_err(|_| "Connection closed")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Flush batches and stop acknowledgements produced by this frame's simulation.
+/// Input-phase replies still flush there; this removes an extra render-frame wait.
+pub(super) fn send_out(sim: &mut Sim, coop: &mut Coop, me: PlayerId) {
+    LINK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(link) = slot.as_mut() else { return };
+        SESSION.with(|session| {
+            let mut s = session.borrow_mut();
+            if let Err(reason) = send_pending(&mut s, link) {
+                end(&mut s, sim, me);
+                s.failure = Some(reason.into());
+                coop.status = reason.into();
+                warn!("co-op cellular: {reason}");
+            }
+        });
+    });
+}
+
 pub(super) fn take_in(
     time: &Time,
     real_dt: f32,
@@ -852,20 +884,9 @@ pub(super) fn take_in(
                     }
                 }
             }
-            if let Some(peer) = s.peer {
-                while let Some(msg) = s.outgoing.pop_front() {
-                    if let Some(bytes) = packet(&msg)
-                        && link
-                            .socket
-                            .channel_mut(RELIABLE)
-                            .try_send(bytes, peer)
-                            .is_err()
-                    {
-                        error = Some("Connection closed".into());
-                        end(&mut s, sim, me);
-                        break;
-                    }
-                }
+            if let Err(reason) = send_pending(&mut s, link) {
+                error = Some(reason.into());
+                end(&mut s, sim, me);
             }
             let n = link.peers.iter().filter(|p| p.same_version()).count();
             coop.hosting = if me == HOST {
