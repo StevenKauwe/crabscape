@@ -55,7 +55,7 @@ pub(super) fn frames() -> Vec<(&'static str, Rect)> {
 /// but changes authored rock and therefore requires a settled-seed rebake.
 pub(super) fn plugs(name: &str, r: Rect) -> Vec<Rect> {
     let mouths = match name {
-        "home burrow" => vec![(0, 200.0), (3, -610.0)],
+        "home burrow" => vec![(0, 200.0), (0, 560.0)],
         "bone hall" => vec![(0, 4860.0), (0, 5300.0)],
         "long chimney" => vec![(0, 800.0), (2, -600.0), (3, -12700.0)],
         "chimney return" => vec![(2, -12700.0), (3, -12700.0)],

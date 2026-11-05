@@ -665,3 +665,25 @@ fn refuges_make_no_new_climb() {
         "a clump became a ladder: rested at y {highest}"
     );
 }
+
+#[test]
+fn pocket_mouths_have_crab_clearance_outside_the_frame() {
+    let level = Level::test_level();
+    let t = Tuning::default();
+    for pocket in level.pockets() {
+        for mouth in &pocket.mouths {
+            let nearest = mouth.center().clamp(pocket.frame.min, pocket.frame.max);
+            let normal = (mouth.center() - nearest).normalize();
+            let centre = mouth.center() + normal * 40.0;
+            let body =
+                Rect::from_center_size(centre, Vec2::new(t.body_half_width * 2.0, t.body_height));
+            assert!(
+                level.rocks.iter().all(|r| r.intersect(body).is_empty()),
+                "{} mouth {:?} opens into authored bedrock at {:?}",
+                pocket.name,
+                mouth,
+                body
+            );
+        }
+    }
+}

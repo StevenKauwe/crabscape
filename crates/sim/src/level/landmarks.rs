@@ -1,4 +1,4 @@
-//! Static authoring labels for world-shape checks. These never drive gameplay.
+//! Derived place labels for world-shape checks and sanctuary navigation.
 //! Broad water boxes describe crossings; refuge, tunnel and chamber boxes
 //! describe their local sheltered spaces. Gates annotate traversal requirements.
 use super::{Growth, Level};
@@ -191,16 +191,14 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         });
     }
     for (name, rect) in super::lower_canyon::frames() {
-        let opened = matches!(
-            name,
-            "home burrow" | "mantis mouth" | "clay tunnel" | "bone hall"
-        );
+        let pocket = level.pocket_refs().find(|p| p.name == name);
+        let opened = pocket.is_some();
         landmarks.push(Landmark {
             name: name.into(),
             rect,
-            kind: match name {
-                "home burrow" | "mantis mouth" | "clay tunnel" => Kind::Tunnel,
-                "bone hall" => Kind::Chamber {
+            kind: match pocket.map(|p| p.kind) {
+                Some(super::strata::PocketKind::Tunnel) => Kind::Tunnel,
+                Some(super::strata::PocketKind::Chamber) => Kind::Chamber {
                     // Encounter authoring marker; W3.3 supplies the find and
                     // its excavated sightline/retreat in the cellular chamber.
                     door: Rect::new(4810.0, -2160.0, 4910.0, -2140.0),

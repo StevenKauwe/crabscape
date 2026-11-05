@@ -228,6 +228,48 @@ pub struct Enemy {
 }
 
 impl Enemy {
+    /// A persistent ground tell at a burrow mouth, readable before notice or
+    /// attack. Presentation can draw a wrong mound and trickling grains here.
+    pub fn mouth_tell(&self, level: &Level, observer: Vec2, t: &Tuning) -> Option<Vec2> {
+        if self.state == State::Gone || !self.kind.tuning(t).burrows {
+            return None;
+        }
+        level.pocket_refs().flat_map(|p| &p.mouths).find_map(|m| {
+            let at = self.home.clamp(m.min, m.max);
+            (at.distance(self.home) <= self.kind.tuning(t).body.0
+                && self.pos.distance(self.pos.clamp(m.min, m.max)) <= self.kind.tuning(t).body.0
+                && at.distance(observer) <= 300.0)
+                .then_some(at)
+        })
+    }
+
+    /// Sanctuary interiors admit only the first body length behind a mouth,
+    /// and only for a burrowing animal stationed at that mouth.
+    pub fn can_reach_tunnel_point(&self, level: &Level, point: Vec2, t: &Tuning) -> bool {
+        level
+            .tunnel_interiors()
+            .filter(|r| r.contains(point))
+            .all(|r| {
+                let k = self.kind.tuning(t);
+                k.burrows
+                    && level
+                        .pocket_refs()
+                        .filter(|p| p.frame == r)
+                        .flat_map(|p| &p.mouths)
+                        .any(|m| {
+                            let entrance = point.clamp(m.min, m.max);
+                            self.home.distance(self.home.clamp(m.min, m.max)) <= k.body.0
+                                && self.pos.distance(self.pos.clamp(m.min, m.max)) <= k.body.0
+                                && if m.min.y >= r.max.y || m.max.y <= r.min.y {
+                                    point.x >= m.min.x && point.x <= m.max.x
+                                } else {
+                                    point.y >= m.min.y && point.y <= m.max.y
+                                }
+                                && point.distance(entrance) <= k.body.0
+                        })
+            })
+    }
+
     pub fn new(id: u32, kind: Kind, pos: Vec2, t: &Tuning) -> Self {
         Self {
             id,
@@ -610,6 +652,9 @@ pub struct AnimalPrey {
 }
 
 pub(crate) fn swimmer_blocked(level: &Level, p: Vec2, half: f32, height: f32) -> bool {
+    if level.tunnel_interiors().any(|r| r.contains(p)) {
+        return true;
+    }
     let (left, right, bottom, top) = (
         p.x - half * 0.65,
         p.x + half * 0.65,
@@ -708,6 +753,49 @@ fn foraging_water(e: &Enemy) -> Option<Vec2> {
 /// this device (a remote crab's own device judges them). Returns how each
 /// blow that reached a crab went.
 pub fn step(
+    e: &mut Enemy,
+    crabs: &mut [SimCrab],
+    t: &Tuning,
+    level: &Level,
+    rng: &mut Rng,
+    animals: &[AnimalPrey],
+    bounded_region: bool,
+) -> Vec<(PlayerId, Outcome)> {
+    let before = e.pos;
+    // All species (including those with their own state machines) share the
+    // same sanctuary boundary. Omit protected crabs before sensing or combat.
+    let protected = crabs
+        .iter()
+        .any(|c| !e.can_reach_tunnel_point(level, c.mover.pos, t));
+    let blows = if protected {
+        let mut reachable: Vec<_> = crabs
+            .iter()
+            .filter(|c| e.can_reach_tunnel_point(level, c.mover.pos, t))
+            .cloned()
+            .collect();
+        let blows = step_inner(e, &mut reachable, t, level, rng, animals, bounded_region);
+        for updated in reachable {
+            if let Some(crab) = crabs.iter_mut().find(|c| c.id == updated.id) {
+                *crab = updated;
+            }
+        }
+        blows
+    } else {
+        step_inner(e, crabs, t, level, rng, animals, bounded_region)
+    };
+    if level
+        .tunnel_interiors()
+        .any(|r| crate::navigation::crosses_rect(before, e.pos, r))
+    {
+        e.pos = before;
+        e.vel_x = 0.0;
+        e.swim_path.clear();
+    }
+    blows
+}
+
+#[allow(clippy::too_many_arguments)]
+fn step_inner(
     e: &mut Enemy,
     crabs: &mut [SimCrab],
     t: &Tuning,
