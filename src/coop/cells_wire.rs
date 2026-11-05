@@ -346,3 +346,166 @@ mod tests {
         assert!(decode(&[0; 4097]).is_none());
     }
 }
+
+/// The last installed region for one authenticated transport connection.
+/// Keep this through the gap between collection and a paged replacement grant.
+/// These messages are discarded, never applied to the replacement authority.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) struct RetiredRegion {
+    pub connection: u128,
+    pub region: u64,
+    pub epoch: u64,
+    pub transfer: u64,
+    pub pieces: u32,
+    pub first_tick: u64,
+    pub final_tick: u64,
+}
+#[cfg(any(target_arch = "wasm32", test))]
+impl RetiredRegion {
+    pub fn contains_reply(&self, connection: u128, message: &RegionMsg) -> bool {
+        if connection != self.connection {
+            return false;
+        }
+        match message {
+            RegionMsg::Ack { transfer, piece } => {
+                *transfer == self.transfer && *piece < self.pieces
+            }
+            RegionMsg::Ready { transfer, tick } => {
+                *transfer == self.transfer && *tick == self.first_tick
+            }
+            RegionMsg::Applied {
+                region,
+                epoch,
+                tick,
+            } => {
+                *region == self.region
+                    && *epoch == self.epoch
+                    && (self.first_tick..=self.final_tick).contains(tick)
+            }
+            _ => false,
+        }
+    }
+}
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn region_ready_to_retire(
+    partial: usize,
+    ready: &std::collections::BTreeSet<PlayerId>,
+    replicas: &std::collections::BTreeMap<PlayerId, u64>,
+) -> bool {
+    partial == 0 && ready.len() == replicas.len() && replicas.keys().all(|id| ready.contains(id))
+}
+
+#[cfg(test)]
+mod retired_region_tests {
+    use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+    #[test]
+    fn delayed_replies_remain_classifiable_during_paging_and_after_regrant() {
+        let old = RetiredRegion {
+            connection: 42,
+            region: 7,
+            epoch: 12,
+            transfer: 3,
+            pieces: 4,
+            first_tick: 100,
+            final_tick: 132,
+        };
+        // No active region exists during paging. Classification uses retained
+        // identity, not a lookup in the now-empty active group map.
+        for message in [
+            RegionMsg::Ack {
+                transfer: 3,
+                piece: 3,
+            },
+            RegionMsg::Ready {
+                transfer: 3,
+                tick: 100,
+            },
+            RegionMsg::Applied {
+                region: 7,
+                epoch: 12,
+                tick: 132,
+            },
+        ] {
+            assert!(old.contains_reply(42, &message));
+        }
+        // A new grant must still consume its own acknowledgements normally.
+        assert!(!old.contains_reply(
+            42,
+            &RegionMsg::Ready {
+                transfer: 4,
+                tick: 132
+            }
+        ));
+        assert!(!old.contains_reply(
+            42,
+            &RegionMsg::Applied {
+                region: 8,
+                epoch: 13,
+                tick: 132
+            }
+        ));
+        for message in [
+            RegionMsg::Ack {
+                transfer: 3,
+                piece: 4,
+            },
+            RegionMsg::Ack {
+                transfer: 4,
+                piece: 0,
+            },
+            RegionMsg::Ready {
+                transfer: 3,
+                tick: 104,
+            },
+            RegionMsg::Applied {
+                region: 7,
+                epoch: 12,
+                tick: 136,
+            },
+            RegionMsg::Applied {
+                region: 7,
+                epoch: 12,
+                tick: 99,
+            },
+            RegionMsg::Applied {
+                region: 7,
+                epoch: 13,
+                tick: 132,
+            },
+            RegionMsg::Applied {
+                region: 6,
+                epoch: 12,
+                tick: 132,
+            },
+        ] {
+            assert!(!old.contains_reply(42, &message));
+        }
+        // Disconnect/reconnect with the same player identity is a new binding.
+        assert!(!old.contains_reply(
+            43,
+            &RegionMsg::Applied {
+                region: 7,
+                epoch: 12,
+                tick: 132
+            }
+        ));
+    }
+    #[test]
+    fn collection_waits_for_every_replica_ready_and_a_complete_batch() {
+        let replicas = BTreeMap::from([(PlayerId(1), 100), (PlayerId(2), 100)]);
+        let mut ready = BTreeSet::from([PlayerId(1)]);
+        assert!(!region_ready_to_retire(0, &ready, &replicas));
+        ready.insert(PlayerId(3));
+        assert!(!region_ready_to_retire(0, &ready, &replicas));
+        ready.remove(&PlayerId(3));
+        ready.insert(PlayerId(2));
+        assert!(!region_ready_to_retire(1, &ready, &replicas));
+        assert!(region_ready_to_retire(0, &ready, &replicas));
+        assert!(region_ready_to_retire(
+            0,
+            &BTreeSet::new(),
+            &BTreeMap::new()
+        ));
+    }
+}

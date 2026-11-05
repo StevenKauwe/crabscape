@@ -1,6 +1,7 @@
 //! N-player regional replication. The owner runs exclusive regions; visitors
 //! follow only their region. This does not establish 32-player CPU capacity.
 use super::*;
+use crate::coop::cells_wire::{RetiredRegion, region_ready_to_retire};
 use crabsim::net::cell_join::transfers::Transfers;
 use std::collections::BTreeMap;
 #[derive(Default)]
@@ -8,6 +9,7 @@ pub(super) struct Multi {
     groups: BTreeMap<RegionId, Group>,
     transfers: Transfers,
     serial: u64,
+    retired: BTreeMap<PlayerId, RetiredRegion>,
 }
 struct Group {
     members: Vec<PlayerId>,
@@ -16,6 +18,8 @@ struct Group {
     partial: Vec<RegionFrame>,
     applied: BTreeMap<PlayerId, u64>,
     ready: BTreeSet<PlayerId>,
+    first_tick: u64,
+    pieces: u32,
 }
 fn send_to(s: &mut Session, player: PlayerId, msg: RegionMsg) -> Result<(), String> {
     s.send_to(
@@ -69,7 +73,7 @@ pub(super) fn kernels(m: &Multi) -> Vec<&RegionKernel> {
         .filter_map(|g| g.kernel.as_ref())
         .collect()
 }
-pub(super) fn collect(r: &mut State, sim: &mut Sim) -> Result<(), String> {
+pub(super) fn collect(s: &Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
     let m = r.multi.as_mut().ok_or("Missing multi-region state")?;
     let owner = r.owner.as_mut().ok_or("Missing owner")?;
     // Paging/commit failure must leave every canonical kernel available. Do
@@ -101,6 +105,41 @@ pub(super) fn collect(r: &mut State, sim: &mut Sim) -> Result<(), String> {
             )
             .map_err(fault)?;
     }
+    let mut retired = BTreeMap::new();
+    for group in m.groups.values() {
+        let kernel = group
+            .kernel
+            .as_ref()
+            .or(r.kernel.as_ref())
+            .ok_or("Missing retiring kernel")?;
+        let final_tick = if group.kernel.is_some() {
+            kernel.sim.tick_count()
+        } else {
+            sim.tick_count()
+        };
+        for &player in group.members.iter().filter(|id| **id != HOST) {
+            let connection = s
+                .participants
+                .get(&player)
+                .ok_or("Missing retiring participant")?
+                .peer
+                .0
+                .as_u128();
+            retired.insert(
+                player,
+                RetiredRegion {
+                    connection,
+                    region: kernel.id.0,
+                    epoch: kernel.epoch.0,
+                    transfer: m.serial,
+                    pieces: group.pieces,
+                    first_tick: group.first_tick,
+                    final_tick,
+                },
+            );
+        }
+    }
+    m.retired = retired;
     if let Some(kernel) = r.kernel.take() {
         owner
             .terrain
@@ -126,9 +165,11 @@ pub(super) fn collect(r: &mut State, sim: &mut Sim) -> Result<(), String> {
     Ok(())
 }
 pub(super) fn quiescent(r: &State) -> bool {
-    r.multi
-        .as_ref()
-        .is_some_and(|m| m.groups.values().all(|g| g.partial.is_empty()))
+    r.multi.as_ref().is_some_and(|m| {
+        m.groups
+            .values()
+            .all(|g| region_ready_to_retire(g.partial.len(), &g.ready, &g.applied))
+    })
 }
 pub(super) fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
     let owner = r.owner.as_mut().ok_or("Missing owner")?;
@@ -163,6 +204,10 @@ pub(super) fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(),
             partial: Vec::new(),
             applied: BTreeMap::new(),
             ready: BTreeSet::new(),
+            first_tick: tick,
+            pieces: bytes
+                .len()
+                .div_ceil(crabsim::net::cell_transfer::PIECE_BYTES) as u32,
         };
         for &player in members.iter().filter(|id| **id != HOST) {
             let connection = s
@@ -361,7 +406,7 @@ pub(super) fn step(
         r.regrant_requested = true;
     }
     if quiescent(r) && r.regrant_requested && !r.membership_wait {
-        collect(r, sim)?;
+        collect(s, r, sim)?;
         let owner = r.owner.as_mut().ok_or("Missing owner")?;
         let mut homes = Vec::new();
         s.actions.retain(|(id, action)| {
@@ -451,7 +496,24 @@ pub(super) fn receive(
     msg: RegionMsg,
 ) -> Result<(), String> {
     if local == HOST {
+        // The transport binding is still required even when no active group
+        // exists. A reconnect must not inherit the previous connection's replies.
+        let connection = s
+            .participants
+            .get(&sender)
+            .ok_or("Missing participant")?
+            .peer
+            .0
+            .as_u128();
         let m = r.multi.as_mut().ok_or("Missing groups")?;
+        // Collection may be followed by several paging frames. Classify the
+        // last generation before looking up its now-retired group.
+        if m.retired
+            .get(&sender)
+            .is_some_and(|old| old.contains_reply(connection, &msg))
+        {
+            return Ok(());
+        }
         let group = m
             .groups
             .values_mut()
@@ -462,23 +524,20 @@ pub(super) fn receive(
             .as_ref()
             .or(r.kernel.as_ref())
             .ok_or("Missing regional kernel")?;
-        let connection = s
-            .participants
-            .get(&sender)
-            .ok_or("Missing participant")?
-            .peer
-            .0
-            .as_u128();
         let current = if group.kernel.is_some() {
             k.sim.tick_count()
         } else {
             sim.tick_count()
         };
         match msg {
-            RegionMsg::Ack { transfer, .. } | RegionMsg::Ready { transfer, .. }
-                if transfer < m.serial => {}
-            RegionMsg::Ack { transfer, .. } | RegionMsg::Ready { transfer, .. }
-                if transfer == m.serial && group.ready.contains(&sender) => {}
+            RegionMsg::Ack { transfer, piece }
+                if transfer == m.serial
+                    && group.ready.contains(&sender)
+                    && piece < group.pieces => {}
+            RegionMsg::Ready { transfer, tick }
+                if transfer == m.serial
+                    && group.ready.contains(&sender)
+                    && tick == group.first_tick => {}
             RegionMsg::Ack { transfer, piece } => m
                 .transfers
                 .acknowledge(connection, transfer, piece)
@@ -496,9 +555,6 @@ pub(super) fn receive(
                 epoch,
                 tick,
             } => {
-                if region < k.id.0 || (region == k.id.0 && epoch < k.epoch.0) {
-                    return Ok(());
-                }
                 let old = group
                     .applied
                     .get_mut(&sender)

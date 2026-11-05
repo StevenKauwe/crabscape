@@ -1201,7 +1201,7 @@ pub(super) fn restore_owner(s: &mut Session, sim: &mut Sim) -> Result<(), String
     }
     let restored = (|| -> Result<Sim, String> {
         if s.multi {
-            multi::collect(&mut r, sim)?;
+            multi::collect(s, &mut r, sim)?;
         } else {
             collect(&mut r, sim)?;
         }
