@@ -81,9 +81,10 @@ or `gh issue view <n>` before acting.
   it or build on it until the owner answers. **W1.2, the open-water hunter (#458), needs #493's Hush cue, so it
   waits too.**
 - **In progress:** W3.1 pockets, mouths and the hunter rule (#465) on branch `issue-465-pockets` (worktree
-  `.claude/worktrees/pockets`). The home burrow's two mouths now both open upward (rebaked, digest updated). Left:
-  two tests in `pockets.rs` that assumed a side mouth, and drawing the ground tell at an ambushed mouth. The branch
-  sits on the pre-squash W3.0 commits: rebase it onto main by cherry-picking its own commits.
+  `.claude/worktrees/pockets`). The hunter rule and the mouth tests are done; left: silt mouth columns from the home
+  burrow up to the floor (its mouths open into the opening's deep rock), one bake, and drawing the ground tell at an
+  ambushed mouth. Exact steps are in the last comment on #465. The branch sits on the pre-squash W3.0 commits:
+  cherry-pick its own three commits onto main.
 - **Next, in order, none gated on #493:** W3.2 home burrow (#466) and W3.3 mantis mouth and bone hall (#467, the
   Milestone 3 taste gate) after W3.1; W4.1 seep chimney (#468, a rock package: see its comment) and W4.2 long
   chimney (#469, also the vent field's loop home); then the Plunge (#470 to #472; #470 decides the odd tunnel's dig,
