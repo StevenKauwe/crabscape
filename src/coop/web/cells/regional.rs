@@ -828,7 +828,14 @@ fn receive_inner(
             }
             if let Some(bytes) = r.receiver.accept(&bytes).map_err(fault)? {
                 let _profile = crate::cell_save::work::begin("cell-split-install");
-                let kernel = RegionKernel::from_checkpoint(&bytes).map_err(fault)?;
+                let (kernel, journal) = RegionJournal::from_checkpoint(bytes, |kernel| {
+                    if kernel.members().contains(&HOST) {
+                        HOST
+                    } else {
+                        local
+                    }
+                })
+                .map_err(fault)?;
                 if kernel.sim.crab(local).is_none() {
                     return Err("Wrong regional visitor".into());
                 }
@@ -841,10 +848,7 @@ fn receive_inner(
                 r.arrival = None;
                 r.arrival_offered = 0;
                 r.last_backup_tick = r.next_batch;
-                r.journal = Some(
-                    RegionJournal::new(&kernel, if r.shared { HOST } else { local })
-                        .map_err(fault)?,
-                );
+                r.journal = Some(journal);
                 r.kernel = Some(kernel.install_view(sim));
                 r.stage = Stage::Running;
                 if r.shared {
