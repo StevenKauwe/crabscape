@@ -337,10 +337,19 @@ fn pad_wants(stick: Vec2, pressed: impl Fn(GamepadButton) -> bool) -> PadWants {
 }
 
 const JUMP_KEYS: [KeyCode; 3] = [KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::KeyK];
+const DODGE_KEYS: [KeyCode; 3] = [KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ];
+const SMASH_KEYS: [KeyCode; 2] = [KeyCode::KeyL, KeyCode::KeyE];
+const JAB_KEYS: [KeyCode; 2] = [KeyCode::KeyO, KeyCode::KeyQ];
+const GUARD_KEYS: [KeyCode; 2] = [KeyCode::KeyI, KeyCode::KeyF];
 
-fn jump_pressed(keys: &ButtonInput<KeyCode>, held: bool, previously_held: bool) -> bool {
+fn key_pressed(
+    keys: &ButtonInput<KeyCode>,
+    bindings: &[KeyCode],
+    held: bool,
+    previously_held: bool,
+) -> bool {
     // A release and a new press can both arrive between rendered frames.
-    keys.any_just_pressed(JUMP_KEYS) || (held && !previously_held)
+    keys.any_just_pressed(bindings.iter().copied()) || (held && !previously_held)
 }
 
 /// Read every device and send one [`MoveRequest`] for the local crab.
@@ -428,15 +437,12 @@ fn read_input(
         walk += 1.0;
     }
     let mut jump = keys.any_pressed(JUMP_KEYS) || touch(TouchAction::Jump);
-    let mut dodge = any_key(&[KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ])
-        || touch(TouchAction::Dodge);
+    let mut dodge = any_key(&DODGE_KEYS) || touch(TouchAction::Dodge);
     let mut stick = (dig_vector.length() > 0.2).then_some(Vec2::new(dig_vector.x, -dig_vector.y));
     let mut down = any_key(&[KeyCode::KeyS, KeyCode::ArrowDown]);
-    let mut smash =
-        any_key(&[KeyCode::KeyL, KeyCode::KeyE]) || touch(TouchAction::Smash) || combat_mouse.smash;
-    let mut jab =
-        any_key(&[KeyCode::KeyO, KeyCode::KeyQ]) || touch(TouchAction::Jab) || combat_mouse.jab;
-    let mut guard = any_key(&[KeyCode::KeyI, KeyCode::KeyF]) || touch(TouchAction::Guard);
+    let mut smash = any_key(&SMASH_KEYS) || touch(TouchAction::Smash) || combat_mouse.smash;
+    let mut jab = any_key(&JAB_KEYS) || touch(TouchAction::Jab) || combat_mouse.jab;
+    let mut guard = any_key(&GUARD_KEYS) || touch(TouchAction::Guard);
     let mut eat = any_key(&[KeyCode::KeyT]) || touch(TouchAction::Eat);
 
     for pad in &gamepads {
@@ -467,17 +473,17 @@ fn read_input(
         eat_held: eat,
         walk: walk.clamp(-1.0, 1.0),
         jump_held: jump,
-        jump_pressed: jump_pressed(&keys, jump, held_before.jump),
-        dodge_pressed: dodge && !held_before.dodge,
+        jump_pressed: key_pressed(&keys, &JUMP_KEYS, jump, held_before.jump),
+        dodge_pressed: key_pressed(&keys, &DODGE_KEYS, dodge, held_before.dodge),
         dodge_held: dodge,
         dig_held: digging,
         dig_up,
         down,
-        smash_pressed: clicked_smash || (smash && !held_before.smash),
+        smash_pressed: clicked_smash || key_pressed(&keys, &SMASH_KEYS, smash, held_before.smash),
         smash_held: smash,
-        jab_pressed: clicked_jab || (jab && !held_before.jab),
+        jab_pressed: clicked_jab || key_pressed(&keys, &JAB_KEYS, jab, held_before.jab),
         block_held: guard,
-        block_pressed: guard && !held_before.guard,
+        block_pressed: key_pressed(&keys, &GUARD_KEYS, guard, held_before.guard),
     };
     if digging && let Some(crab) = sim.crab(**local) {
         if crab
@@ -708,28 +714,79 @@ mod tests {
 
     /// A controller with only `held` pressed and the stick at `stick`.
     #[test]
-    fn jump_edges_survive_batched_keyboard_events() {
-        for key in JUMP_KEYS {
+    fn action_edges_survive_batched_keyboard_events() {
+        for bindings in [
+            &JUMP_KEYS[..],
+            &DODGE_KEYS[..],
+            &SMASH_KEYS[..],
+            &JAB_KEYS[..],
+            &GUARD_KEYS[..],
+        ] {
+            for &key in bindings {
+                let mut keys = ButtonInput::default();
+                keys.press(key);
+                keys.release(key);
+                assert!(
+                    key_pressed(&keys, bindings, keys.pressed(key), false),
+                    "quick tap"
+                );
+
+                keys.press(key);
+                keys.clear();
+                keys.release(key);
+                keys.press(key);
+                assert!(
+                    key_pressed(&keys, bindings, keys.pressed(key), true),
+                    "repress"
+                );
+
+                keys.clear();
+                keys.press(key);
+                assert!(
+                    !key_pressed(&keys, bindings, keys.pressed(key), true),
+                    "held repeat"
+                );
+
+                keys.release(key);
+                keys.press(key);
+                keys.reset(key); // Menu owns both the edge and the held state.
+                assert!(
+                    !key_pressed(&keys, bindings, keys.pressed(key), false),
+                    "menu close"
+                );
+                assert!(
+                    key_pressed(&keys, bindings, true, false),
+                    "touch or controller"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_completed_guard_key_tap_parries_without_holding_block() {
+        for key in GUARD_KEYS {
             let mut keys = ButtonInput::default();
             keys.press(key);
             keys.release(key);
-            assert!(jump_pressed(&keys, keys.pressed(key), false), "quick tap");
-
-            keys.press(key);
-            keys.clear();
-            keys.release(key);
-            keys.press(key);
-            assert!(jump_pressed(&keys, keys.pressed(key), true), "repress");
-
-            keys.clear();
-            keys.press(key);
-            assert!(!jump_pressed(&keys, keys.pressed(key), true), "held repeat");
-
-            keys.release(key);
-            keys.press(key);
-            keys.reset(key); // Menu owns both the edge and the held state.
-            assert!(!jump_pressed(&keys, keys.pressed(key), false), "menu close");
-            assert!(jump_pressed(&keys, true, false), "touch or controller");
+            let mut sim = crabsim::Sim::with_one_crab(crabsim::SPAWN);
+            let id = crabsim::PlayerId(0);
+            sim.set_controls(
+                id,
+                Controls {
+                    block_pressed: key_pressed(&keys, &GUARD_KEYS, false, false),
+                    block_held: keys.any_pressed(GUARD_KEYS),
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+            let fighter = &sim.crab(id).unwrap().fighter;
+            assert!(fighter.parrying(&sim.tuning));
+            assert!(!fighter.blocking);
+            sim.set_controls(id, Controls::default());
+            for _ in 0..60 {
+                sim.tick();
+            }
+            assert!(!sim.crab(id).unwrap().fighter.parrying(&sim.tuning));
         }
     }
 
