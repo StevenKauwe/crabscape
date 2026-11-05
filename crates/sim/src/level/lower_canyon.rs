@@ -6,21 +6,20 @@ use bevy_math::{Rect, Vec2};
 pub(super) const DAM: Rect = Rect::new(17600.0, -10000.0, 17781.0, -2520.0);
 pub(super) const NARROWS: Rect = Rect::new(18000.0, -10000.0, 18080.0, -9800.0);
 pub(super) const VENTS: Rect = Rect::new(18300.0, -10000.0, 20800.0, -9000.0);
-pub(super) const GARDEN: Rect = Rect::new(5640.0, -1100.0, 5810.0, -930.0);
 
 /// Interiors, separated by forty units of bedrock. Long connections are
 /// reserved under the heightmap, never roofs replacing an existing floor.
 pub(super) fn frames() -> Vec<(&'static str, Rect)> {
     vec![
-        ("home burrow", Rect::new(80.0, -360.0, 680.0, -60.0)),
+        // Below the cellular opening window (its bottom is y -360), so the
+        // opening's own digging and creature tests keep their ground.
+        ("home burrow", Rect::new(80.0, -760.0, 680.0, -460.0)),
         ("mantis mouth", Rect::new(4760.0, -900.0, 4960.0, -720.0)),
         ("clay tunnel", Rect::new(4760.0, -2100.0, 4960.0, -940.0)),
-        ("bone hall", Rect::new(4500.0, -2640.0, 5700.0, -2140.0)),
-        ("seep shaft", Rect::new(5240.0, -2100.0, 5360.0, -740.0)),
-        // The seep's upper landing is inside the existing near-wall pillar.
-        // W4.1's wormhole joins the two ends without blocking the doorstep.
-        ("seep outlet", Rect::new(5520.0, -1250.0, 5620.0, -1020.0)),
-        ("long chimney", Rect::new(720.0, -12800.0, 880.0, -60.0)),
+        // Clear of the pit shaft's coral climb (x 4420 to 4490).
+        ("bone hall", Rect::new(4620.0, -2640.0, 5700.0, -2140.0)),
+        ("seep shaft", Rect::new(5160.0, -2100.0, 5280.0, -740.0)),
+        ("long chimney", Rect::new(720.0, -12800.0, 880.0, -420.0)),
         (
             "chimney return",
             Rect::new(920.0, -12800.0, 18360.0, -12600.0),
@@ -56,9 +55,9 @@ pub(super) fn frames() -> Vec<(&'static str, Rect)> {
 /// a mouth later does not require moving the outline or rebaking it.
 pub(super) fn plugs(name: &str, r: Rect) -> Vec<Rect> {
     let mouths = match name {
-        "home burrow" => vec![(0, 200.0), (3, -210.0)],
+        "home burrow" => vec![(0, 200.0), (3, -610.0)],
         "bone hall" => vec![(0, 4860.0), (0, 5300.0)],
-        "long chimney" => vec![(0, 800.0), (2, -210.0), (3, -12700.0)],
+        "long chimney" => vec![(0, 800.0), (2, -600.0), (3, -12700.0)],
         "chimney return" => vec![(2, -12700.0), (3, -12700.0)],
         "chimney hall" => vec![(2, -12700.0), (0, 18920.0), (1, 18800.0)],
         "Plunge shaft" => vec![(0, 18800.0), (3, -14025.0)],
@@ -143,16 +142,9 @@ pub(super) fn shape(level: &mut Level) {
             Rect::new(x0, -14019.0, 19340.0, y1),
         ]);
     }
-    // A small ledge attached to the existing near wall, above the doorstep.
-    level
-        .rocks
-        .push(Rect::new(5640.0, -1130.0, 5810.0, -1100.0));
-    level.climbs.push(Climb {
-        x: 5700.0,
-        bottom: -1100.0,
-        top: -930.0,
-        kind: Growth::Coral,
-    });
+    // The hanging garden and the seep's upper outlet are W4.1's (a rock
+    // package then): a ledge here sat across the glass-grip climb to the notch
+    // and was a step up the end wall that skipped that gate.
 }
 
 fn frame(level: &mut Level, name: &str, r: Rect) {

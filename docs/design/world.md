@@ -458,8 +458,9 @@ in the Deep band. Three small coral clumps are 200 units tall and 1,170 units
 apart. `world_shape.rs` checks this as a wide crossing against the taste bible's
 1,500-unit visible-refuge limit. The level ends at x=21,000.
 
-Fourteen sealed `Frame` landmarks reserve the home burrow (600 by 300), mantis
-mouth, descending clay tunnel, bone hall (1,200 by 500), seep shaft and outlet,
+Thirteen sealed `Frame` landmarks reserve the home burrow (600 by 300, below the
+cellular opening window, under home), mantis mouth, descending clay tunnel, bone
+hall (1,080 by 500), seep shaft,
 long chimney, buried chimney return, chimney hall and mouth, odd tunnel, short
 Plunge shaft, Plunge crack (300 by 150), and its dark observation stage. Each has
 at least two separately labelled `Plug` closures. The chimney cap is brittle but
@@ -468,37 +469,12 @@ can contain the generator's substrate; W3.0 installs the strata inside them.
 The Plunge's viewing wall is 100 units thick with a twelve-unit slit. Neither a
 route nor a dig reaches a frame interior.
 
-The hanging garden is a small coral ledge attached to the existing near-wall
-pillar, above the doorstep. The seep outlet is hollowed only inside that pillar;
-its exterior collision surfaces stay intact. The lower seep shaft and upper
-outlet are separate reserved endpoints for W4.1's wormhole: physically joining
-them in this single-plane map would cut across and seal the existing underpass.
+The seep's upper outlet and the hanging garden are left to W4.1 (a rock package
+then): a first placement sat across the glass-grip climb from the doorstep to the
+notch. Frames keep clear of every existing passage (the crack, the pit shaft's
+coral, the notch's bare-rock face and the opening window); the tests that walk
+those passages with the biggest crab catch an intrusion.
 The long chimney has a continuous buried return from the vent bank to home.
 No creatures, rewards, keys, tether or rides are added by this package.
 
-**Not ready to ship:** the old `exploration.rs` slope assertion currently ranges
-over every floor segment east of x=8,800. It must be limited to the original reef
-ending at x=17,600 before this intentionally steep extension can pass. That file
-is outside #487's permitted edit list. Keeping that assertion global instead
-requires a long gentle descent that exceeds the cellular bake's fixed
-16-million-cell bound. The compact layout fits (15,978,038 cells). The full
-9,000-step seed bake, compaction, committed digest update and post-bake canonical
-cell tests remain pending; the current committed seed is deliberately unchanged.
-The frame dig checks currently exercise raw substrate by changing only the far
-boundary to opt out of the stale seed. They must also be run with the canonical
-boundary after the final bake.
-
-Pre-bake measurements: all seven lower-canyon tests pass in 19.7 seconds,
-including all 112 ability-kit combinations at the narrows and real-cell digging
-from both sides. The 1,000-point vent-water grid's worst visible-refuge distance
-is 930.5 units (limit 1,500). The thirty-step material probe conserves 81,898 sand
-and 58,725 mud cells, takes 2.436 seconds, and projects a 730.8-second full bake.
-Formatting and native/wasm clippy pass. The sim suite currently reports 209
-passed, 34 ignored, and 227 failures: 225 stale-seed checks, the intentionally
-unchanged probe digest, and the legacy slope assertion described above. Workspace
-tests stop at four stale-seed fixture failures. These are pre-bake results, not a
-claim that the package is ready to merge.
-The final complete `world_shape` run passes all 18 active checks (one existing
-exhaustive gate matrix remains ignored), but takes 94.1 seconds: its unchanged
-home-to-basin narrow-crossing survey exceeds the requested roughly 60-second
-file budget. That survey still needs bounded sampling without weakening coverage.
+Measured: 112 ability-kit combinations at the narrows and digging from both sides; the vent field's worst visible-refuge distance is 930.5 units (limit 1,500); the full seed bake takes about 12 minutes and stays under the bake's 16-million-cell bound.

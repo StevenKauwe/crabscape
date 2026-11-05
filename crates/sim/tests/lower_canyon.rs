@@ -18,7 +18,6 @@ const FRAMES: &[&str] = &[
     "clay tunnel",
     "bone hall",
     "seep shaft",
-    "seep outlet",
     "long chimney",
     "chimney return",
     "chimney hall",

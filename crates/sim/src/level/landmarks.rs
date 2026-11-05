@@ -176,7 +176,6 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     for (name, rect, kind) in [
         ("slump dam", super::lower_canyon::DAM, Kind::Drop),
         ("vent field", super::lower_canyon::VENTS, Kind::OpenWater),
-        ("hanging garden", super::lower_canyon::GARDEN, Kind::Refuge),
     ] {
         landmarks.push(Landmark {
             name: name.into(),
