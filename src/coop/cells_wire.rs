@@ -120,6 +120,7 @@ pub(crate) enum Wire {
     Begin {
         epoch: u64,
         guest: PlayerId,
+        multi: bool,
     },
     Piece(#[serde(deserialize_with = "crabsim::net::cell_transfer::deserialize_fragment")] Vec<u8>),
     Ack {

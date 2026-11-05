@@ -15,6 +15,7 @@ mod chrome;
 mod save_fixture;
 #[path = "../../webtest/src/serve.rs"]
 mod serve;
+mod three_player;
 
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -959,7 +960,12 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 27] = [
+const SCENARIOS: [(&str, &str, u32); 28] = [
+    (
+        "cells-three-players",
+        "three cellular players join, move, split, reunite and reconnect with matching state",
+        150,
+    ),
     (
         "cell-probe-canyon-claim",
         "two browsers claim and retire a physical Canyon generation",
@@ -1124,6 +1130,10 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
         fake_mic: voice,
         slow: site.slow,
     };
+    if name == "cells-three-players" {
+        three_player::run(&site.url("cells"), &site.dir, o, true)?;
+        return Ok(vec!["three actual cellular actors, movement, regional split/reunion, matching hashes and leave/reconnect".into()]);
+    }
     let mut found = Found::new();
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;

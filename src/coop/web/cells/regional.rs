@@ -9,6 +9,7 @@ use crabsim::underwater::{
 use crabsim::world::regions::{EntityArchive, RegionFrame, RegionKernel, journal::RegionJournal};
 mod falling;
 mod moving;
+mod multi;
 
 #[derive(Default, PartialEq)]
 enum Stage {
@@ -25,6 +26,8 @@ enum Stage {
 
 #[derive(Default)]
 pub(super) struct State {
+    multi: Option<multi::Multi>,
+    membership_wait: bool,
     pub(super) kernel: Option<RegionKernel>,
     pub(super) owner: Option<Owner>,
     shared: bool,
@@ -193,7 +196,11 @@ pub(super) fn boot(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
         owner: Some(owner),
         ..Default::default()
     };
-    let result = grant(s, &mut r, sim);
+    let result = if s.multi {
+        multi::grant(s, &mut r, sim)
+    } else {
+        grant(s, &mut r, sim)
+    };
     s.regional = Some(r);
     result
 }
@@ -344,9 +351,16 @@ fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
 }
 
 pub(super) fn wants_inputs(s: &Session) -> bool {
-    s.regional.as_ref().is_none_or(|r| r.shared)
+    s.multi || s.regional.as_ref().is_none_or(|r| r.shared)
 }
-pub(super) fn forward_action(s: &mut Session, action: super::super::super::CellsAction) -> bool {
+pub(super) fn forward_action(
+    s: &mut Session,
+    _player: PlayerId,
+    action: super::super::super::CellsAction,
+) -> bool {
+    if s.multi {
+        return false;
+    }
     if s.regional
         .as_ref()
         .is_some_and(|r| r.owner.is_some() && !r.shared)
@@ -379,6 +393,9 @@ pub(super) fn replay_journal(s: &Session) -> Option<Result<RegionJournal, String
     })())
 }
 pub(super) fn local_action(s: &mut Session, action: super::super::super::CellsAction) -> bool {
+    if s.multi {
+        return false;
+    }
     let Some(r) = s.regional.as_ref() else {
         return false;
     };
@@ -646,7 +663,11 @@ pub(super) fn tick(s: &mut Session, sim: &mut Sim, local: PlayerId) -> bool {
     let Some(mut r) = s.regional.take() else {
         return true;
     };
-    let result = step(s, &mut r, sim, local);
+    let result = if s.multi {
+        multi::step(s, &mut r, sim, local)
+    } else {
+        step(s, &mut r, sim, local)
+    };
     if let Some(before) = r.move_stop_probe.take()
         && let Some(canvas) = web_sys::window()
             .and_then(|w| w.document())
@@ -671,10 +692,15 @@ pub(super) fn receive(
     s: &mut Session,
     sim: &mut Sim,
     local: PlayerId,
+    sender: PlayerId,
     msg: RegionMsg,
 ) -> Result<(), String> {
     let mut r = s.regional.take().unwrap_or_default();
-    let result = receive_inner(s, &mut r, sim, local, msg);
+    let result = if s.multi {
+        multi::receive(s, &mut r, sim, local, sender, msg)
+    } else {
+        receive_inner(s, &mut r, sim, local, msg)
+    };
     s.regional = Some(r);
     result
 }
@@ -1012,7 +1038,11 @@ fn receive_inner(
                 ));
             }
             collect(r, sim)?;
-            grant(s, r, sim)?;
+            if r.membership_wait {
+                r.stage = Stage::Stopped;
+            } else {
+                grant(s, r, sim)?;
+            }
         }
         _ => return Err("Unexpected regional message".into()),
     }
@@ -1022,7 +1052,11 @@ pub(super) fn update(s: &mut Session, sim: &mut Sim, local: PlayerId) -> Result<
     let Some(mut r) = s.regional.take() else {
         return Ok(());
     };
-    let result = update_inner(s, &mut r, sim, local);
+    let result = if s.multi {
+        multi::update(s, &mut r, sim, local)
+    } else {
+        update_inner(s, &mut r, sim, local)
+    };
     s.regional = Some(r);
     result
 }
@@ -1166,7 +1200,11 @@ pub(super) fn restore_owner(s: &mut Session, sim: &mut Sim) -> Result<(), String
         return Ok(());
     }
     let restored = (|| -> Result<Sim, String> {
-        collect(&mut r, sim)?;
+        if s.multi {
+            multi::collect(&mut r, sim)?;
+        } else {
+            collect(&mut r, sim)?;
+        }
         if r.owner
             .as_ref()
             .is_none_or(|o| o.terrain.active_regions() != 0)
@@ -1195,4 +1233,92 @@ pub(super) fn restore_owner(s: &mut Session, sim: &mut Sim) -> Result<(), String
             Err(reason)
         }
     }
+}
+
+/// Membership changes replace a canonical world only at an explicit boundary.
+/// A departed authority is recovered from its acknowledged journal, not awaited.
+pub(super) fn prepare_membership(s: &mut Session, sim: &mut Sim) -> Result<bool, String> {
+    let Some(mut r) = s.regional.take() else {
+        return Ok(true);
+    };
+    r.membership_wait = true;
+    let departed = !s.pending_leaves.is_empty();
+    let ready = if s.multi {
+        departed || multi::quiescent(&r)
+    } else {
+        if !departed && r.stage == Stage::Running && r.partial.is_empty() {
+            request_stop(s, &mut r, sim);
+        }
+        departed || r.stage == Stage::Stopped
+    };
+    s.regional = Some(r);
+    if ready {
+        restore_owner(s, sim)?;
+    }
+    Ok(ready)
+}
+pub(super) fn prepare_owner_save(
+    r: &mut State,
+    view: &Sim,
+) -> Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error> {
+    use crate::cell_save::Error;
+    let local = r.kernel.as_ref().ok_or(Error::Damaged)?;
+    let remotes = r.multi.as_ref().map(multi::kernels).unwrap_or_default();
+    let owner = r.owner.as_mut().ok_or(Error::Damaged)?;
+    let capture = crate::cell_save::regional::prepare_owner_save(
+        view,
+        &mut owner.terrain,
+        &mut owner.entities,
+        local.id,
+        local.epoch,
+        local.arrivals_delivered(),
+        &remotes,
+    )?;
+    r.owner_save_dirty = false;
+    Ok(capture)
+}
+pub(super) fn forward_offer(s: &mut Session, action: super::super::super::CellsAction) -> bool {
+    use super::super::super::CellsAction;
+    use crabsim::{canyon_drift::CanyonAction, salvage::SalvageAction};
+    if !s.multi {
+        return false;
+    }
+    let player = s
+        .regional
+        .as_ref()
+        .and_then(|r| r.multi.as_ref())
+        .and_then(|m| {
+            multi::kernels(m).into_iter().find_map(|k| {
+                let owns = match action {
+                    CellsAction::Salvage(SalvageAction::OfferFragment(index, _)) => {
+                        k.sim.salvage.as_ref().is_some_and(|site| {
+                            site.has_fragments
+                                .get(index as usize)
+                                .copied()
+                                .unwrap_or(false)
+                        })
+                    }
+                    CellsAction::Canyon(
+                        CanyonAction::Offer(id)
+                        | CanyonAction::ConfirmFinalized(id, _)
+                        | CanyonAction::Retire(id, _)
+                        | CanyonAction::RetireOutflow(id, _),
+                    ) => k.sim.canyon.as_ref().is_some_and(|run| {
+                        run.owned_slots
+                            .get(id.slot as usize)
+                            .copied()
+                            .unwrap_or(false)
+                    }),
+                    _ => false,
+                };
+                owns.then(|| k.members().first().copied()).flatten()
+            })
+        });
+    if let Some(id) = player
+        && s.actions.len() < 32
+    {
+        s.actions.push_back((id, action));
+        return true;
+    }
+    false
 }

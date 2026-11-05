@@ -4,7 +4,7 @@ use super::*;
 use crabsim::net::cell_transfer::{Fragments, Receiver, fragment_identity};
 use crabsim::{Controls, Progress};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 // Bound outstanding checkpoint data to about 502 KiB. Eight 4 KiB packets
 // required dozens of browser-frame round trips for even a small region.
@@ -24,6 +24,19 @@ struct GuestProfile {
     pizza: bool,
 }
 
+struct Participant {
+    peer: PeerId,
+    controls: Controls,
+    heard_sequence: u64,
+    last_seen: f64,
+    ready: bool,
+}
+struct PendingJoin {
+    peer: PeerId,
+    id: PlayerId,
+    profile: GuestProfile,
+}
+
 #[derive(Default, PartialEq)]
 enum Phase {
     #[default]
@@ -35,6 +48,11 @@ enum Phase {
 }
 #[derive(Default)]
 struct Session {
+    multi: bool,
+    participants: BTreeMap<PlayerId, Participant>,
+    pending_joins: VecDeque<PendingJoin>,
+    pending_leaves: BTreeSet<PlayerId>,
+    directed: VecDeque<(PeerId, Wire)>,
     regional: Option<regional::State>,
     failure: Option<String>,
     recording: Option<crabsim::replay::CellSessionRecording>,
@@ -49,7 +67,6 @@ struct Session {
     local: Controls,
     remote: Controls,
     input_sequence: u64,
-    heard_sequence: u64,
     applied: u64,
     next_batch: u64,
     partial: Vec<Tick>,
@@ -58,6 +75,46 @@ struct Session {
     outgoing: VecDeque<Wire>,
     last_seen: f64,
     last_ping: f64,
+}
+impl Session {
+    fn member_ids(&self) -> Vec<PlayerId> {
+        std::iter::once(HOST)
+            .chain(self.participants.keys().copied())
+            .collect()
+    }
+    fn peer_player(&self, peer: PeerId) -> Option<PlayerId> {
+        self.participants
+            .iter()
+            .find(|(_, p)| p.peer == peer)
+            .map(|(id, _)| *id)
+    }
+    fn send_to(&mut self, player: PlayerId, wire: Wire) -> Result<(), String> {
+        let peer = if player == HOST {
+            self.peer
+        } else {
+            self.participants.get(&player).map(|p| p.peer)
+        }
+        .ok_or("Missing message recipient")?;
+        self.directed.push_back((peer, wire));
+        Ok(())
+    }
+    fn controls_for(&self, player: PlayerId) -> Result<Controls, String> {
+        if player == HOST {
+            Ok(self.local)
+        } else {
+            self.participants
+                .get(&player)
+                .map(|p| p.controls)
+                .ok_or_else(|| "Missing input participant".into())
+        }
+    }
+    fn consume_controls(&mut self, player: PlayerId) {
+        if player == HOST {
+            self.local = self.local.held_only();
+        } else if let Some(p) = self.participants.get_mut(&player) {
+            p.controls = p.controls.held_only();
+        }
+    }
 }
 thread_local! { static SESSION: RefCell<Session> = RefCell::new(Session::default()); }
 
@@ -74,6 +131,14 @@ fn valid(c: &Controls) -> bool {
 }
 fn packet(msg: &Wire) -> Option<Packet> {
     super::super::cells_wire::encode(msg).map(Into::into)
+}
+fn region_status(state: &str) {
+    if let Some(canvas) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("crabscape"))
+    {
+        let _ = canvas.set_attribute("data-cell-region-state", state);
+    }
 }
 pub(crate) fn active() -> bool {
     SESSION.with(|s| s.borrow().phase != Phase::Solo)
@@ -252,24 +317,13 @@ pub(crate) fn private_save(
 pub(crate) fn owner_save(
     view: &Sim,
 ) -> Option<Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error>> {
-    use crate::cell_save::Error;
     SESSION.with(|slot| {
         let mut session = slot.borrow_mut();
         let regional = session.regional.as_mut()?;
         regional.owner.as_ref()?;
         let _profile = crate::cell_save::work::begin("cell-owner-save");
         let result = (|| {
-            let local = regional.kernel.as_ref().ok_or(Error::Damaged)?;
-            let owner = regional.owner.as_mut().ok_or(Error::Damaged)?;
-            let prepared = crate::cell_save::regional::prepare_owner_save(
-                view,
-                &mut owner.terrain,
-                &mut owner.entities,
-                local.id,
-                local.epoch,
-                local.arrivals_delivered(),
-                &[],
-            )?;
+            let prepared = regional::prepare_owner_save(regional, view)?;
             regional.owner_save_dirty = false;
             Ok(prepared)
         })();
@@ -278,7 +332,16 @@ pub(crate) fn owner_save(
 }
 pub(crate) fn salvage_offer(action: super::super::CellsAction, local_owns: bool) -> bool {
     if !local_owns {
-        return SESSION.with(|slot| regional::forward_action(&mut slot.borrow_mut(), action));
+        return SESSION.with(|slot| {
+            let mut s = slot.borrow_mut();
+            if s.multi {
+                regional::forward_offer(&mut s, action)
+            } else if let Some(id) = s.guest {
+                regional::forward_action(&mut s, id, action)
+            } else {
+                false
+            }
+        });
     }
     self::action(action)
 }
@@ -339,10 +402,13 @@ fn end(s: &mut Session, sim: &mut Sim, local: PlayerId) {
             solo.return_cell_player(sim, local);
         }
         *sim = *solo;
-    } else if let Some(guest) = s.guest {
-        sim.remove_cell_player(guest);
+    } else {
+        for id in s.participants.keys() {
+            sim.remove_cell_player(*id);
+        }
     }
     *s = Session::default();
+    region_status("solo");
     if was_playing && sim.crab(local).is_some() {
         sim.set_controls(local, Controls::default());
     }
@@ -420,19 +486,137 @@ pub(crate) fn tick(sim: &mut Sim, local: PlayerId) -> bool {
     })
 }
 
+/// Called only with the canonical whole world, after regional authorities stop.
+fn apply_membership(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
+    for id in std::mem::take(&mut s.pending_leaves) {
+        if let Some(p) = s.participants.remove(&id) {
+            s.transfers.cancel(p.peer.0.as_u128());
+        }
+        sim.remove_cell_player(id);
+        s.actions.retain(|(actor, _)| *actor != id);
+    }
+    while let Some(join) = s.pending_joins.pop_front() {
+        let host = sim
+            .crab(HOST)
+            .ok_or("Missing host during admission")?
+            .mover
+            .pos;
+        let saved = crate::save::SaveData {
+            version: crabsim::SAVE_VERSION,
+            x: host.x,
+            y: host.y,
+            progress: Some(join.profile.progress.clone()),
+            memory: None,
+        };
+        if !crate::cell_save::player_fits_world(sim, &saved) {
+            return Err("Guest progress could not be restored".into());
+        }
+        if !sim.join_cell_player(
+            join.id,
+            host + Vec2::new(100.0, 60.0),
+            &join.profile.progress,
+        ) {
+            return Err("Guest could not join this world".into());
+        }
+        let crab = sim.crab_mut(join.id).ok_or("Missing admitted actor")?;
+        crab.fighter.vitals = join.profile.vitals;
+        crab.fighter.dead = join.profile.dead;
+        crab.mover.stamina = join.profile.stamina;
+        crab.mover.reserve = join.profile.reserve;
+        crab.mover.hulk = join.profile.hulk;
+        crab.mover.glow = join.profile.glow;
+        crab.mover.pizza = join.profile.pizza;
+        s.participants.insert(
+            join.id,
+            Participant {
+                peer: join.peer,
+                controls: Controls::default(),
+                heard_sequence: 0,
+                last_seen: s.last_seen,
+                ready: false,
+            },
+        );
+    }
+    s.regional = None;
+    s.guest = s.participants.keys().next().copied();
+    s.peer = s
+        .guest
+        .and_then(|id| s.participants.get(&id).map(|p| p.peer));
+    if s.participants.is_empty() {
+        s.phase = Phase::Solo;
+        region_status("solo");
+        s.multi = false;
+        s.outgoing.clear();
+        s.directed.clear();
+        return Ok(());
+    }
+    s.multi |= s.participants.len() > 1;
+    sim.stop_recording();
+    let snapshot = sim
+        .join_checkpoint()
+        .map_err(|_| "World too large to share")?;
+    s.epoch = s
+        .epoch
+        .checked_add(1)
+        .ok_or("Session epoch exhausted")?
+        .max((js_sys::Date::now() as u64).max(1));
+    s.transfers = Default::default();
+    s.outgoing.clear();
+    s.directed.clear();
+    s.partial.clear();
+    s.local = Controls::default();
+    s.remote = Controls::default();
+    for (&id, p) in &mut s.participants {
+        p.ready = false;
+        p.controls = Controls::default();
+        p.heard_sequence = 0;
+        s.transfers
+            .begin(p.peer.0.as_u128(), s.epoch, snapshot.clone())
+            .map_err(|e| format!("World transfer: {e:?}"))?;
+        s.directed.push_back((
+            p.peer,
+            Wire::Begin {
+                epoch: s.epoch,
+                guest: id,
+                multi: s.multi,
+            },
+        ));
+    }
+    s.phase = Phase::Sending;
+    region_status("sending");
+    s.applied = sim.tick_count();
+    Ok(())
+}
+
 fn receive(
     s: &mut Session,
     sim: &mut Sim,
     me: PlayerId,
     peer: PeerId,
+    claimed: Option<PlayerId>,
     wire: Wire,
     now: f64,
 ) -> Result<(), String> {
     if let Wire::Join(progress) = wire {
-        if me != HOST || (s.peer.is_some() && s.peer != Some(peer)) {
+        if me != HOST {
             return Ok(());
         }
-        let guest = s.guest.ok_or("missing guest identity")?;
+        let guest = claimed
+            .filter(|id| *id != HOST)
+            .ok_or("missing guest identity")?;
+        if s.peer_player(peer).is_some()
+            || (s.participants.contains_key(&guest) && !s.pending_leaves.contains(&guest))
+            || s.pending_joins
+                .iter()
+                .any(|p| p.id == guest || p.peer == peer)
+        {
+            return Ok(());
+        }
+        if s.participants.len().saturating_sub(s.pending_leaves.len()) + s.pending_joins.len() >= 7
+        {
+            s.directed.push_back((peer, Wire::Busy));
+            return Ok(());
+        }
         let packed = crate::character::unbase64url(&progress).ok_or("invalid guest profile")?;
         let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&packed, 64 * 1024)
             .map_err(|_| "guest profile too large")?;
@@ -449,70 +633,69 @@ fn receive(
         {
             return Err("invalid guest condition".into());
         }
-        let progress = profile.progress;
-        let previous = sim.clone();
-        let host = sim.crab(HOST).ok_or("missing host")?.mover.pos;
-        let saved = crate::save::SaveData {
-            version: crabsim::SAVE_VERSION,
-            x: host.x,
-            y: host.y,
-            progress: Some(progress.clone()),
-            memory: None,
-        };
-        if !crate::cell_save::player_fits_world(sim, &saved) {
-            *sim = previous;
-            return Err("guest progress could not be restored".into());
-        }
-        if !sim.join_cell_player(guest, host + Vec2::new(100.0, 60.0), &progress) {
-            return Err("guest could not join this world".into());
-        }
-        if let Some(crab) = sim.crab_mut(guest) {
-            crab.fighter.vitals = profile.vitals;
-            crab.fighter.dead = profile.dead;
-            crab.mover.stamina = profile.stamina;
-            crab.mover.reserve = profile.reserve;
-            crab.mover.hulk = profile.hulk;
-            crab.mover.glow = profile.glow;
-            crab.mover.pizza = profile.pizza;
-        }
-        sim.stop_recording();
-        let snapshot = match sim.join_checkpoint() {
-            Ok(v) => v,
-            Err(_) => {
-                *sim = previous;
-                return Err("world too large to share".into());
-            }
-        };
-        start_recording(s, &snapshot, guest);
-        s.phase = Phase::Sending;
-        s.peer = Some(peer);
-        s.epoch = (js_sys::Date::now() as u64).max(1);
-        s.transfers
-            .begin(peer.0.as_u128(), s.epoch, snapshot)
-            .map_err(|e| format!("World transfer: {e:?}"))?;
-        s.last_seen = now;
-        s.applied = sim.tick_count();
-        s.outgoing.push_back(Wire::Begin {
-            epoch: s.epoch,
-            guest,
+        s.pending_joins.push_back(PendingJoin {
+            peer,
+            id: guest,
+            profile,
         });
+        s.last_seen = now;
+        if s.phase == Phase::Solo {
+            apply_membership(s, sim)?;
+        }
         return Ok(());
     }
-    if s.peer != Some(peer) {
+    if (me == HOST && s.peer_player(peer).is_none()) || (me != HOST && s.peer != Some(peer)) {
+        return Ok(());
+    }
+    // Membership snapshots supersede the old topology. Reliable messages
+    // already in flight from that topology must not tear down the new one.
+    let message_epoch = match &wire {
+        Wire::Region { epoch, .. }
+        | Wire::Begin { epoch, .. }
+        | Wire::Ack { epoch, .. }
+        | Wire::Ready { epoch, .. }
+        | Wire::Input { epoch, .. }
+        | Wire::Action { epoch, .. }
+        | Wire::Batch { epoch, .. }
+        | Wire::Applied { epoch, .. } => Some(*epoch),
+        Wire::Piece(bytes) => fragment_identity(bytes).ok().map(|(epoch, _)| epoch),
+        _ => None,
+    };
+    if message_epoch.is_some_and(|epoch| epoch < s.epoch) {
         return Ok(());
     }
     s.last_seen = now;
+    if let Some(id) = s.peer_player(peer) {
+        s.participants.get_mut(&id).unwrap().last_seen = now;
+    }
     if let Wire::Region { epoch, msg } = wire {
         if epoch != s.epoch {
-            return Err("regional session changed".into());
+            return Ok(());
         }
-        return regional::receive(s, sim, me, msg);
+        let sender = if me == HOST {
+            s.peer_player(peer).ok_or("Unknown regional sender")?
+        } else {
+            HOST
+        };
+        return regional::receive(s, sim, me, sender, msg);
     }
     match wire {
-        Wire::Begin { epoch, guest }
-            if me != HOST && guest == me && s.phase == Phase::Receiving =>
-        {
+        Wire::Begin {
+            epoch,
+            guest,
+            multi,
+        } if me != HOST && guest == me && epoch > s.epoch => {
             s.epoch = epoch;
+            s.multi = multi;
+            s.phase = Phase::Receiving;
+            region_status("receiving");
+            s.regional = None;
+            s.receiver = Receiver::default();
+            s.frames.clear();
+            s.outgoing.clear();
+            s.directed.clear();
+            s.input_sequence = 0;
+            s.local = Controls::default();
         }
         Wire::Piece(bytes) if me != HOST && s.phase == Phase::Receiving => {
             let (epoch, piece) =
@@ -527,11 +710,16 @@ fn receive(
             {
                 let restored =
                     Sim::from_session_checkpoint(&bytes).map_err(|_| "invalid session state")?;
-                if restored.crab(me).is_none() || restored.crabs().len() != 2 {
+                if restored.crab(me).is_none()
+                    || restored.crab(HOST).is_none()
+                    || !(2..=8).contains(&restored.crabs().len())
+                {
                     return Err("wrong session players".into());
                 }
                 let tick = restored.tick_count();
-                start_recording(s, &bytes, me);
+                if !s.multi {
+                    start_recording(s, &bytes, me);
+                }
                 *sim = restored;
                 s.next_batch = tick;
                 s.phase = Phase::Guest;
@@ -553,31 +741,46 @@ fn receive(
                 && epoch == s.epoch
                 && tick == sim.tick_count() =>
         {
-            s.phase = Phase::Host;
             s.transfers
                 .finish(peer.0.as_u128(), epoch)
                 .map_err(|e| format!("World completion: {e:?}"))?;
             s.applied = tick;
-            regional::boot(s, sim)?;
+            let id = s.peer_player(peer).ok_or("Unknown ready participant")?;
+            s.participants.get_mut(&id).unwrap().ready = true;
+            if s.participants.values().all(|p| p.ready) {
+                s.phase = Phase::Host;
+                regional::boot(s, sim)?;
+            }
         }
         Wire::Input {
             epoch,
             sequence,
             controls,
-        } if me == HOST && s.phase == Phase::Host => {
-            if epoch != s.epoch || sequence != s.heard_sequence || !valid(&controls) {
+        } if me == HOST && matches!(s.phase, Phase::Host | Phase::Sending) => {
+            if epoch != s.epoch {
+                return Ok(());
+            }
+            let id = s.peer_player(peer).ok_or("Unknown input participant")?;
+            let participant = s.participants.get_mut(&id).unwrap();
+            if sequence != participant.heard_sequence || !valid(&controls) {
                 return Err("invalid input sequence".into());
             }
-            s.heard_sequence += 1;
-            s.remote = merge(s.remote, controls);
+            participant.heard_sequence += 1;
+            participant.controls = merge(participant.controls, controls);
+            if s.guest == Some(id) {
+                s.remote = merge(s.remote, controls);
+            }
         }
         Wire::Action {
             epoch,
             sequence,
             action,
-        } if me == HOST && s.phase == Phase::Host => {
-            if epoch != s.epoch
-                || sequence != s.heard_sequence
+        } if me == HOST && matches!(s.phase, Phase::Host | Phase::Sending) => {
+            if epoch != s.epoch {
+                return Ok(());
+            }
+            let id = s.peer_player(peer).ok_or("Unknown action participant")?;
+            if sequence != s.participants.get(&id).unwrap().heard_sequence
                 || s.actions.len() >= 16
                 || matches!(
                     action,
@@ -593,9 +796,9 @@ fn receive(
             {
                 return Err("invalid action sequence".into());
             }
-            s.heard_sequence += 1;
-            if !regional::forward_action(s, action) {
-                s.actions.push_back((s.guest.unwrap(), action));
+            s.participants.get_mut(&id).unwrap().heard_sequence += 1;
+            if !regional::forward_action(s, id, action) {
+                s.actions.push_back((id, action));
             }
         }
         Wire::Batch {
@@ -628,7 +831,7 @@ fn receive(
         }
         Wire::Ping => {}
         Wire::Busy => {
-            return Err("This session already has two players; your solo world is kept".into());
+            return Err("This session is full; you can keep playing your own world".into());
         }
         _ => return Err("unexpected session message".into()),
     }
@@ -636,6 +839,17 @@ fn receive(
 }
 
 fn send_pending(s: &mut Session, link: &mut Link) -> Result<(), &'static str> {
+    while let Some((peer, msg)) = s.directed.pop_front() {
+        // A departed recipient may still have a queued final frame.
+        if !link.peers.iter().any(|p| p.id == peer) {
+            continue;
+        }
+        let bytes = packet(&msg).ok_or("Session message too large")?;
+        link.socket
+            .channel_mut(RELIABLE)
+            .try_send(bytes, peer)
+            .map_err(|_| "Connection closed")?;
+    }
     if let Some(peer) = s.peer {
         while let Some(msg) = s.outgoing.pop_front() {
             if let Some(bytes) = packet(&msg) {
@@ -742,9 +956,14 @@ pub(super) fn take_in(
                             }
                             PeerState::Disconnected => {
                                 s.transfers.cancel(peer.0.as_u128());
+                                s.pending_joins.retain(|p| p.peer != peer);
                                 link.peers.retain(|p| p.id != peer);
                                 crate::voice::forget(peer);
-                                if s.peer == Some(peer) {
+                                if me == HOST {
+                                    if let Some(id) = s.peer_player(peer) {
+                                        s.pending_leaves.insert(id);
+                                    }
+                                } else if s.peer == Some(peer) {
                                     end(&mut s, sim, me);
                                 }
                             }
@@ -836,19 +1055,12 @@ pub(super) fn take_in(
                     continue;
                 }
                 if let Some(wire) = unpack(&bytes) {
-                    if me == HOST
-                        && s.peer.is_some_and(|p| p != peer)
-                        && matches!(&wire, Wire::Join(_))
-                    {
-                        if let Some(bytes) = packet(&Wire::Busy) {
-                            link.send(peer, bytes, RELIABLE);
-                        }
-                        continue;
-                    }
                     if me == HOST && s.phase == Phase::Solo {
                         s.guest = link.peers[index].player;
                     }
-                    if let Err(e) = receive(&mut s, sim, me, peer, wire, now) {
+                    if let Err(e) =
+                        receive(&mut s, sim, me, peer, link.peers[index].player, wire, now)
+                    {
                         error = Some(e);
                         end(&mut s, sim, me);
                     }
@@ -880,11 +1092,19 @@ pub(super) fn take_in(
                     crate::voice::meet(p.id, id);
                 }
             }
-            if s.phase != Phase::Solo && now - s.last_seen > 10.0 {
+            if me == HOST {
+                let expired: Vec<_> = s
+                    .participants
+                    .iter()
+                    .filter(|(_, p)| now - p.last_seen > 10.0)
+                    .map(|(id, _)| *id)
+                    .collect();
+                s.pending_leaves.extend(expired);
+            } else if s.phase != Phase::Solo && now - s.last_seen > 10.0 {
                 error = Some("Friend disconnected; your solo world is restored".into());
                 end(&mut s, sim, me);
             }
-            if s.phase == Phase::Guest && regional::wants_inputs(&s) {
+            if s.phase == Phase::Guest && (s.multi || regional::wants_inputs(&s)) {
                 let controls = s.local;
                 s.local = s.local.held_only();
                 let epoch = s.epoch;
@@ -898,7 +1118,34 @@ pub(super) fn take_in(
             }
             if s.phase != Phase::Solo && now - s.last_ping >= 1.0 {
                 s.last_ping = now;
-                s.outgoing.push_back(Wire::Ping);
+                if me == HOST {
+                    let peers: Vec<_> = s.participants.values().map(|p| p.peer).collect();
+                    for peer in peers {
+                        s.directed.push_back((peer, Wire::Ping));
+                    }
+                } else {
+                    s.outgoing.push_back(Wire::Ping);
+                }
+            }
+            if me == HOST && (!s.pending_joins.is_empty() || !s.pending_leaves.is_empty()) {
+                let prepared = if s.regional.is_none() {
+                    Ok(true)
+                } else {
+                    regional::prepare_membership(&mut s, sim)
+                };
+                match prepared.and_then(|ready| {
+                    if ready {
+                        apply_membership(&mut s, sim)
+                    } else {
+                        Ok(())
+                    }
+                }) {
+                    Ok(()) => {}
+                    Err(reason) => {
+                        error = Some(reason);
+                        end(&mut s, sim, me);
+                    }
+                }
             }
             if let Err(reason) = regional::update(&mut s, sim, me) {
                 error = Some(reason);

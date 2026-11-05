@@ -1,8 +1,22 @@
 # 32 total players: implementation and acceptance plan
 
-Status: design and diagnostic only, based on main abe78e7 (2026-11-05). This document does not claim 32-player support. Target means one owner plus up to 31 visitors in one world. No old-protocol compatibility is required; every participant must run the same build.
+Status: three-player implementation validated locally, not yet released (2026-11-05). This document does not claim 32-player support. Target means one owner plus up to 31 visitors in one world. No old-protocol compatibility is required; every participant must run the same build.
 
-## Evidence and current limits
+## Implemented three-player milestone
+
+The browser adapter now keeps transport-bound connections, controls, input sequences, timeout state and checkpoint acknowledgements per participant. Membership changes collect canonical regions at a boundary, increment the session epoch, send a fresh snapshot to every remaining participant, and wait for each readiness response. Old-epoch packets cannot tear down the replacement session. Disconnect/reconnect removes the old connection's controls and transfer state.
+
+For sessions that grow past two players, the owner simulates one exclusive kernel for each connected region group. Visitors replicate their group's ordered frames; acknowledgements and transfer windows are independent. Groups split and reunite through canonical collection and grants. Sediment events, cargo/resource ownership, Home actions and multi-region saves retain their existing simulation APIs. Ordinary two-player sessions retain their existing delegated-region path. This intermediate design increases the owner's simulation cost; it is not the final measured 32-player architecture.
+
+Local candidate `multi-membership-v2` passed three isolated Chrome profiles through joining, movement, same-tick state hashes, a third player exploring a separate region while the other pair continues, Home reunion, departure and reconnect. Evidence: `/tmp/crab-three-membership-v2.log`, screenshots in system temporary directory `crab-three-player-76289`. The hash probe resamples different ticks before comparing hashes; mismatched hashes at the same tick still fail. Optional JavaScript heap samples exclude Wasm memory and do not establish total browser memory usage.
+
+Permanent regression: `multi_region_membership` checks three disjoint HOST-authority journals (including groups without HOST), exact reconstruction, lease collection, leave/rejoin and whole-world checkpoint equality. The browser scenario is `cells-three-players` in the existing co-op suite, with the standalone `three_player --url URL --split` runner retained for diagnosis.
+
+Remaining limits: admission and simulator serialization still cap actors at eight; only three browsers have been validated here. Terrain leases still cap disjoint regions at eight in Claude's reserved `underwater/region_store.rs`. Signaling and voice still form full meshes. N-player region changes use complete checkpoints rather than the two-player moving-strip optimization. Do not claim 32-player, phone multiplayer, adverse-network or soak capacity from this milestone.
+
+## Baseline evidence and remaining capacity limits
+
+The following adapter observations describe production main abe78e7 before this branch's integration.
 
 - Three isolated Chrome profiles on production: first visitor joined; second visitor repeatedly received `This session already has two players; your solo world is kept`. No browser errors. Evidence retained locally in `/tmp/crab-three-player.log`.
 - `src/coop/web/cells.rs`: one `peer`, `guest`, remote control state, transfer receiver and acknowledgement stream. The receive loop sends `Wire::Busy` to another guest. Removing that rejection would mix identities and transfer state.
@@ -74,7 +88,7 @@ Build the pure roster/transfer coordinator and its 3/8/32 transport simulations,
 
 The release-mode audit at target 32 exited nonzero after admitting 8, as intended. The target-8 control exited successfully. Both passed checkpoint round-trip, 120 paired mixed-control ticks with per-tick state hashes, and alternating leave/rejoin. Initial checkpoint: 81,611 bytes. Paired ticks plus repeated hashing took about 11.0 seconds on this Mac; that is diagnostic wall time, not an isolated simulation/FPS benchmark. It does not establish playable eight-browser performance. Focused example clippy passed. No production networking or capacity limits changed.
 
-## First implementation foundation
+## Initial foundation (historical)
 
 `net::cell_join::roster` is a pure admission coordinator, not wired into gameplay. Pending and active members share a 32-slot bound. Tickets are bound to participant, transport connection, admission generation and authority epoch. Tests cover simultaneous reservations, rejected 33rd, expiry, duplicate identities, stale reconnect/old-authority messages, input sequence rejection and 100 rounds of 31-player churn. Owner loss intentionally requires an explicit authority transition; this module does not pretend to implement region recovery or retain checkpoint payloads.
 
@@ -82,7 +96,7 @@ The release-mode audit at target 32 exited nonzero after admitting 8, as intende
 
 The next production integration remains `src/coop/web/cells.rs` and `regional.rs`: replace single peer/control/transfer fields and one remote journal with per-peer and per-region maps, preserving bounded validation and recovery. Merely calling the roster from the existing two-player path would not make it multiplayer. No live support change is included in this foundation.
 
-## Integration progress and remaining boundary
+## Integration sequence and remaining boundary
 
 The roster now retains one validated input slot per participant. Multiple packets preserve button presses until that participant's region consumes them; held inputs use the latest packet. Invalid rosters consume nothing, independent regions do not clear each other's presses, and disconnect/rejoin discards the old input slot. The capacity example now routes guest controls through this coordinator before stepping real cellular actors.
 
