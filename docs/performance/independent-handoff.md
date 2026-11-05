@@ -56,3 +56,52 @@ handoff duration remained about 319 ms: that measures the entire protocol, while
 the host now resumes simulation before the protocol finishes. The guest pause,
 stop acknowledgement and collection costs remain. The unrelated WebGL program
 setup hitch is not fixed by this change.
+
+## Read the diagnostic quantities separately
+
+The opt-in regression prints reports for **both host and guest**:
+
+- `completed_handoff_state_intervals`: observed Running → non-Running → Running
+  intervals. These include protocol work during which an independent host can
+  still advance its simulation; they are not automatically freezes.
+- `recorded_unchanged_tick_stalls_over_75ms`: intervals in which the sampled
+  simulation tick did not change, reported once ticks resume.
+- `recorded_frame_gaps_over_60ms`: requestAnimationFrame intervals above the
+  existing reporting threshold. Rendering and simulation can stall independently.
+- `split_work_spans`: individual `cell-split-collect`, `cell-split-grant` and
+  `cell-split-install` observations, grouped by name with original timestamps and
+  durations. They cover measured work, not the entire asynchronous protocol.
+
+Empty stall/gap lists mean nothing exceeded those reporting thresholds; they do
+not prove zero latency. Unfinished handoffs and captures starting outside Running
+are marked explicitly. The observer samples states once per rendered frame, so
+it can miss transitions within a frame. Tick stalls still in progress when the
+capture ends are not emitted by the existing profiler. Keep the raw traces when
+investigating a stall. No new hard timing gate is imposed before runner calibration.
+
+To inspect a deployed build instead of a local web directory:
+
+```sh
+CRABSCAPE_PROFILE_GPU=1 CRAB_HANDOFF_URL=https://crabscape.com/ \
+cargo test -p cooptest --test handoff_progress -- --ignored --nocapture
+```
+
+Use a native checkout matching the deployed simulation so the replay comparisons
+remain meaningful. URL mode uses the deployed introducer and the test's disposable
+browser profiles; it does not read or overwrite a player's ordinary browser save.
+Unset `CRAB_HANDOFF_URL` to use the local web/introducer variables above. Keep heavy
+builds off the machine during performance captures and record hardware, renderer,
+build and route when comparing results.
+
+Synthetic tests deliberately separate a 600 ms protocol interval, an 80 ms tick
+stall and a 100 ms frame gap, verify the work-span grouping, and reject malformed
+timing data. The frozen-host negative control remains unchanged. These diagnostics
+are measurement and regression coverage, not a fix for the remaining stutter.
+
+The shared Chrome helper also observes `data-cell-frame-error`. Its timing line
+remains in the existing short co-op log, while `cooptest-frame-error` in the tab's
+sessionStorage retains the full latest diagnostic and timestamp across reloads.
+`coop_log()` includes that untruncated record in ordinary failure reports. This
+preserves the game's existing InvalidFrame details without changing simulation or
+acceptance criteria. Reports print any available frame traces before failing the
+existing traversal/replay assertion.
