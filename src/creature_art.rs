@@ -68,6 +68,7 @@ fn restyle(
     mut images: ResMut<Assets<Image>>,
     mut softened: Local<ScentAtlases>,
     mut pending: Local<Vec<Softening>>,
+    mut scent_levels: Local<HashMap<u32, Option<u8>>>,
     mut pieces: Query<(Entity, &Styled, &mut Sprite, &mut Lit)>,
 ) {
     // Do a small fixed amount each frame, rather than freezing a phone when
@@ -79,11 +80,13 @@ fn restyle(
     {
         let job = pending.remove(0);
         if let Some(source) = images.get(&job.source) {
-            let mut image = source.clone();
-            image.data = Some(job.output);
+            let image = with_pixels(source, job.output);
             softened.insert((job.source.id(), job.level), images.add(image));
         }
     }
+    // Every part of one puppet sees the same enemy and perception state.
+    // Reuse within this frame only: movement, sight and scent may change next frame.
+    scent_levels.clear();
     let i = style_index(*style);
     for (entity, styled, mut sprite, mut light) in &mut pieces {
         let failed = i != 0 && assets.load_state(&styled.0[i]).is_failed();
@@ -93,14 +96,16 @@ fn restyle(
         while let Ok(parent) = parents.get(ancestor) {
             ancestor = parent.parent();
             if let Ok(root) = roots.get(ancestor) {
-                scent_level = sim
-                    .enemies()
-                    .iter()
-                    .find(|e| e.id == root.0)
-                    .filter(|e| {
-                        !known.perceives_animal(e.pos) && known.scent(&sim, e.pos) == Scent::Animal
-                    })
-                    .map(|e| scent_blur_level(known.scent_strength(&sim, e.pos)));
+                scent_level = *scent_levels.entry(root.0).or_insert_with(|| {
+                    sim.enemies()
+                        .iter()
+                        .find(|e| e.id == root.0)
+                        .filter(|e| {
+                            !known.perceives_animal(e.pos)
+                                && known.scent(&sim, e.pos) == Scent::Animal
+                        })
+                        .map(|e| scent_blur_level(known.scent_strength(&sim, e.pos)))
+                });
                 break;
             }
         }
@@ -126,6 +131,20 @@ fn restyle(
         if sprite.image != *shown {
             sprite.image = shown.clone();
         }
+    }
+}
+
+/// Keep the source's sampling/layout metadata, transferring already-prepared
+/// pixels without cloning and immediately discarding the original atlas pixels.
+fn with_pixels(source: &Image, pixels: Vec<u8>) -> Image {
+    Image {
+        data: Some(pixels),
+        data_order: source.data_order,
+        texture_descriptor: source.texture_descriptor.clone(),
+        sampler: source.sampler.clone(),
+        texture_view_descriptor: source.texture_view_descriptor.clone(),
+        asset_usage: source.asset_usage,
+        copy_on_resize: source.copy_on_resize,
     }
 }
 
@@ -520,6 +539,152 @@ mod tests {
             "normal art returns when the scent ends"
         );
         assert_eq!(app.world().get::<Lit>(piece).unwrap().fill, 0.0);
+    }
+
+    #[test]
+    fn finished_atlas_preserves_sampling_and_transfers_prepared_pixels() {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::image::ImageSampler;
+        use bevy::render::render_resource::{Extent3d, TextureDimension, TextureViewDescriptor};
+        let mut source = Image::new_fill(
+            Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &[200, 100, 25, 255],
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::default(),
+        );
+        source.sampler = ImageSampler::nearest();
+        source.texture_view_descriptor = Some(TextureViewDescriptor {
+            label: Some("scent"),
+            ..default()
+        });
+        source.copy_on_resize = true;
+        let pixels = vec![12; 16];
+        let allocation = pixels.as_ptr();
+        let finished = with_pixels(&source, pixels);
+        assert_eq!(finished.data.as_ref().unwrap().as_ptr(), allocation);
+        assert_eq!(finished.data.as_ref().unwrap(), &vec![12; 16]);
+        assert_eq!(finished.texture_descriptor, source.texture_descriptor);
+        assert_eq!(
+            finished.texture_view_descriptor,
+            source.texture_view_descriptor
+        );
+        assert_eq!(finished.sampler, source.sampler);
+        assert_eq!(finished.asset_usage, source.asset_usage);
+        assert_eq!(finished.copy_on_resize, source.copy_on_resize);
+        assert_eq!(finished.data_order, source.data_order);
+        assert_eq!(&source.data.as_ref().unwrap()[..4], &[200, 100, 25, 255]);
+    }
+
+    #[test]
+    #[ignore]
+    fn benchmark_finished_large_atlas() {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::render::render_resource::{Extent3d, TextureDimension};
+        let source = Image::new_fill(
+            Extent3d {
+                width: 1024,
+                height: 1024,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &[200, 100, 25, 255],
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::default(),
+        );
+        for old in [true, false] {
+            let mut samples = Vec::new();
+            for _ in 0..100 {
+                let output = vec![12; 1024 * 1024 * 4];
+                let began = std::time::Instant::now();
+                let image = if old {
+                    let mut image = source.clone();
+                    image.data = Some(output);
+                    image
+                } else {
+                    with_pixels(&source, output)
+                };
+                std::hint::black_box(&image);
+                samples.push(began.elapsed().as_secs_f64() * 1000.0);
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "4 MiB atlas completion, clone-original={old}: median {:.6} ms, p95 {:.6} ms",
+                samples[50], samples[95]
+            );
+        }
+    }
+
+    /// Informational CPU benchmark; no machine-dependent timing gate.
+    #[test]
+    #[ignore]
+    fn benchmark_many_part_scent_updates() {
+        use bevy::asset::{AssetApp, AssetPlugin, RenderAssetUsages};
+        use bevy::render::render_resource::{Extent3d, TextureDimension};
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        let mut sim = Sim::with_one_crab(Vec2::ZERO);
+        let ids: Vec<_> = (0..32)
+            .map(|i| sim.spawn_enemy(crabsim::Kind::Fixture, Vec2::new(100.0 + i as f32, 0.0)))
+            .collect();
+        let mut known = Known::default();
+        known.sight = Some(crabsim::Sight {
+            eye: Vec2::ZERO,
+            radii: Vec2::splat(360.0),
+        });
+        app.insert_resource(sim)
+            .insert_resource(known)
+            .insert_resource(ArtStyle::Ink);
+        app.add_systems(Update, restyle);
+        let source = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(Image::new_fill(
+                Extent3d {
+                    width: 3,
+                    height: 3,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                &[200, 100, 25, 255],
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::default(),
+            ));
+        for id in ids {
+            let root = app.world_mut().spawn(ScentRoot(id)).id();
+            for _ in 0..64 {
+                app.world_mut().spawn((
+                    Sprite {
+                        image: source.clone(),
+                        ..default()
+                    },
+                    Styled([source.clone(), source.clone()]),
+                    Lit::at(Vec2::ZERO),
+                    ChildOf(root),
+                ));
+            }
+        }
+        for _ in 0..10 {
+            app.update();
+        }
+        let mut batches = Vec::new();
+        for _ in 0..20 {
+            let began = std::time::Instant::now();
+            for _ in 0..10 {
+                app.update();
+            }
+            batches.push(began.elapsed().as_secs_f64() * 1000.0 / 10.0);
+        }
+        batches.sort_by(f64::total_cmp);
+        println!(
+            "32 creatures / 2048 parts, warmed restyle App::update: median {:.3} ms, max batch mean {:.3} ms",
+            batches[10], batches[19]
+        );
     }
 
     /// A PNG's width and height, from its header.
