@@ -72,23 +72,22 @@ one GitHub issue (label `world-plan`) that stands on its own.
 ## Where things stand (2026-11-05, lead designer's handoff)
 Read this first if you are continuing without the lead designer. Check each item's live state with `gh pr view <n>`
 or `gh issue view <n>` before acting.
-- **Merged:** plan and bible (#473, #476, #486, #488, #494), W0.1 landmarks (#474), W0.2 route library (#480), W0.3
-  fear invariants (#485), W0.4 seed fingerprint (#479), W0.5 compact memory saves (#492 via #495), W1.1 depth bands
-  (#478), W1.3 canyon refuges (#490), W2.1 pressure on the body (#483), W2.3 anxiety (#484), and the fix for main's
+- **Merged:** plan and bible (#473, #476, #486, #488, #494, #507), W0.1 landmarks (#474), W0.2 route library
+  (#480), W0.3 fear invariants (#485), W0.4 seed fingerprint (#479), W0.5 compact memory saves (#495), W1.1 depth
+  bands (#478), W1.3 canyon refuges (#490), W1.3b lower canyon and frames (#506), W1.4 tether and deep food (#509),
+  W2.1 pressure on the body (#483), W2.3 anxiety (#484), W3.0 strata in the frames (#511), and the fix for main's
   flaky save tests (#491). Draft #419 is finished by #484 and can be closed.
-- **Queued to auto-merge:** W1.3b lower canyon and bedrock frames (#506, rock batch, rebaked).
 - **At a taste gate, waiting for the owner:** W2.2 sound (#493, Milestone 2; "what to try" is on #462). Do not merge
   it or build on it until the owner answers. **W1.2, the open-water hunter (#458), needs #493's Hush cue, so it
   waits too.**
-- **Built on branches, not yet PRs** (each stacked on #506; rebase on main once #506 merges, run the full checks,
-  open the PR, auto-merge):
-  - W1.4 tether and deep food (#460): branch `issue-460-tether`. The loop moved to W4.2 (decided on #460).
-  - W3.0 strata in the frames (#464, gated engine package): branch `issue-464-strata` (a Codex run may still be on
-    it; check the issue for a handoff comment). It rebakes.
-- **Next, in order, none gated on #493:** W3.1 pockets and mouths (#465) after W3.0; W3.2 home burrow (#466) and
-  W3.3 mantis mouth and bone hall (#467, a Milestone 3 taste gate) after W3.1; W4.1 seep chimney (#468, now a rock
-  package: see its comment) and W4.2 long chimney (#469); then the Plunge (#470 to #472, needs W2.1 and W4.2; #471 is
-  the Milestone 4 gate).
+- **In progress:** W3.1 pockets, mouths and the hunter rule (#465) on branch `issue-465-pockets` (worktree
+  `.claude/worktrees/pockets`). The home burrow's two mouths now both open upward (rebaked, digest updated). Left:
+  two tests in `pockets.rs` that assumed a side mouth, and drawing the ground tell at an ambushed mouth. The branch
+  sits on the pre-squash W3.0 commits: rebase it onto main by cherry-picking its own commits.
+- **Next, in order, none gated on #493:** W3.2 home burrow (#466) and W3.3 mantis mouth and bone hall (#467, the
+  Milestone 3 taste gate) after W3.1; W4.1 seep chimney (#468, a rock package: see its comment) and W4.2 long
+  chimney (#469, also the vent field's loop home); then the Plunge (#470 to #472; #470 decides the odd tunnel's dig,
+  since no strata can be baked below y -10,000; #471 is the Milestone 4 gate).
 
 ## Hidden rules found while building (read before any package)
 - **The seed fingerprint.** See item 8: only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the
