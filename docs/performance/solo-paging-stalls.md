@@ -157,3 +157,50 @@ CRABSCAPE_PROFILE_GPU=1 cargo run -p cooptest --bin worker_batch_probe -- http:/
 
 Evidence: `/tmp/crab-batch-capture.log`, `/tmp/crab-batch-save-test.log`,
 `/tmp/crab-worker-batch-probe.log`. No hard timing gate is implied by this probe.
+
+## Follow-up page-validation experiment (local; not part of #531)
+
+Read-stage trace `crab-frame-probe-26141` isolates a 900-ms pause at tick 670,
+25,788–26,688 ms, with no autosave running. It spans three sequential read batches;
+decoding is negligible. Across 135 completed reads, opening averages 48.5 ms,
+page retrieval 77.8 ms, decoding 3.1 ms and final validation 145.7 ms, for 275.8 ms
+total. Final validation performs two separate asynchronous metadata transactions.
+
+The local candidate queues reset epoch and head revision in one fresh read-only
+transaction and awaits its last request. Both checks remain mandatory, including
+the epoch inside the head; malformed and missing heads still fail. A transaction
+guard retains cancellation/abort behavior. No cache capacity or read batch size
+changes. The same synthetic route (`crab-frame-probe-34369`) records 76.3 ms mean
+final validation and 206.2 ms total reads, with 162 applied replies and no stale
+or failed replies. Its longest unchanged tick is still 766.6 ms. Routes differ;
+this is not a controlled overall FPS comparison or a complete stutter fix.
+
+`page_validation_probe` intercepts only the final-validation transaction in a
+disposable browser profile. It independently injects a changed reset epoch,
+changed head revision, changed head epoch, missing head and damaged head. All five
+cases reject the reply before application, then recover on an unmodified read.
+No stored data is changed by the fault injection.
+
+Evidence: `/tmp/crab-read-stage-capture.log`, `/tmp/crab-paired-validation-capture.log`,
+`/tmp/crab-page-validation-faults.log`. The experiment and its probe remain local
+until separately released; #531 contains only the bounded compression changes.
+
+## Shared read-budget experiment held back
+
+A local quota experiment let terrain use idle memory-read slots while retaining
+16 total pages and at most four memory pages. Its delayed-storage regression calls
+the actual production paging function, verifies spare-slot use and the total bound,
+and matches resident movement/terrain. It advances 5,217 ticks versus the original
+3,361 in the scripted model; initial load remains 18 frames/600 ms. Browser save
+integrity also passes.
+
+The browser capture `crab-frame-probe-44296` is not convincing: 1,113 frames,
+50/83.3/116.7 ms median/p95/max and 2,770 simulated ticks, versus paired-validation
+1,418 frames, 33.4/66.7/100 ms and 3,360 ticks. Its route differs and decoding work
+is higher. This does not establish causation, but it does not justify publication.
+The quota edit was restored; it is not in #531 or the current local candidate.
+Patch: `/tmp/crab-shared-read-budget-experiment.patch`; native probe:
+`/tmp/crab-shared-read-budget-probe.rs`; logs:
+`/tmp/crab-shared-read-budget-native.log`, `/tmp/crab-shared-read-budget-capture.log`,
+`/tmp/crab-shared-read-budget-save-test.log`. Reapply the patch before running its
+spare-slot assertion. The ignored investigation probe is not a shipped regression.
