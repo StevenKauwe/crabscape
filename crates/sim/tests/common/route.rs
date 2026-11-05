@@ -154,7 +154,7 @@ impl Move {
 /// A crab at rest somewhere, and how it got there.
 #[derive(Clone)]
 pub struct Node {
-    sim: Sim,
+    pub sim: Sim,
     parent: Option<usize>,
     how: Option<Move>,
     /// Seconds since the start.

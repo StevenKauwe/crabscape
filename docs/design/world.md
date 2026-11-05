@@ -405,6 +405,12 @@ The sampler optimization above intentionally preserved the original initial
 materials. The subsequent [settled initial terrain](settled-terrain.md) work uses
 an offline global material bake, with saved cells retaining precedence.
 
+**Shelter in the open water.** Seven short clumps of deep-sea coral (200 units each) grow on the canyon's walls
+(`crates/sim/src/level/refuges.rs`): from anywhere in the canyon's water one is in sight within 1,500 units. They
+are spaced by more than a crab's highest jump with every stroke, so none is a step up to the next, to the shelf, the
+far rim or the far-wall cave: the tide, the upwelling and glass grips stay the ways up. One sits just below the
+far-wall cave's mouth (x 7670, y -5350 to -5150): the dead-end cave's retreat. Their places are a design choice.
+
 ## Bands
 
 `Level::bands()` exposes immutable sim data in descending world y. `band_at` uses

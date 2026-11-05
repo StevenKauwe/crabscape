@@ -216,6 +216,50 @@ fn in_still_water_nothing_gets_a_crab_off_the_canyon_floor() {
     }
 }
 
+#[test]
+fn full_kit_single_rise_for_refuge_spacing() {
+    // At each apex the next impulse loses no remaining upward velocity.
+    // Measure away from anything grippable, with all six eggs and abilities.
+    let mut sim = Sim::with_one_crab(Vec2::new(7000.0, FLOOR.2));
+    sim.set_feel(Feel::Current);
+    sim.tuning = still_water();
+    sim.level.foes.clear();
+    let m = &mut sim.crab_mut(PlayerId(0)).expect("measurement crab").mover;
+    m.upgrades = 6;
+    m.stamina = 6.0;
+    m.scissor_claw = true;
+    m.glass_grips = true;
+    m.feats.extend([
+        crabsim::moult::Feat::HeavyCrusher,
+        crabsim::moult::Feat::GrippingDactyls,
+    ]);
+    sim.tick();
+    let mut highest = FLOOR.2;
+    let mut strokes = 0;
+    for tick in 0..ticks(10.0) {
+        let m = &sim.crab(PlayerId(0)).expect("measurement crab").mover;
+        let paddle = !m.grounded && m.vel.y <= 0.0 && strokes < 6;
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                jump_pressed: tick == 0 || paddle,
+                jump_held: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        let crab = sim.crab(PlayerId(0)).expect("measurement crab");
+        strokes += u32::from(crab.events.paddled);
+        highest = highest.max(crab.mover.pos.y);
+    }
+    assert_eq!(strokes, 6);
+    println!(
+        "full-kit apex-timed single rise: {:.1} units",
+        highest - FLOOR.2
+    );
+    assert!(highest > FLOOR.2 + 900.0);
+}
+
 /// From the canyon floor at `x`, jump into the flood at the start of the
 /// round (no strokes at all) and push `way` from `steer` s on. Where does
 /// the crab stand?

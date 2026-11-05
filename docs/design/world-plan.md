@@ -109,8 +109,9 @@ or `gh issue view <n>` before acting.
 - **A rock batch updates the probe digest.** After its bake, a rock package updates the committed digest in
   `probe_digest_matches_committed` (`crates/sim/src/underwater/settled_seed.rs`); that one constant is in scope
   for rock batches.
-- **The canyon has no refuges in open water yet** (W0.3's ignored test lists five places). Do not add an
-  open-water hunter (W1.2) before W1.3 adds them: it would break the fairness rule.
+- **Canyon refuges** are seven short coral clumps (`crates/sim/src/level/refuges.rs`), spaced by the full-kit
+  rise (about 1,020 units) so they are never a ladder (`refuges_make_no_new_climb`). New refuges follow the same
+  spacing rule.
 - **CI flake:** two `cell_save::native` tests fail on most Linux runs and pass locally (#482). Rerun the failed job
   (`gh run rerun <id> --failed`) and add to #482; do not change saves code inside a world package.
 - **`Level` derives `PartialEq` and serde:** never add derived or static data to it as a field (it breaks saves'
@@ -228,7 +229,7 @@ milestone 4.
 | A dig never bypasses a gate | `dig_gates.rs` (extend) | W3.1 |
 | Every pocket has two or more exits within a bounded length | `world_shape.rs` | W0.3, W3.1 |
 | Tunnels contain no wandering hunters | `world_shape.rs` | W0.3, W3.1 |
-| Open water: a visible refuge within 900 units; hunter tell at least 3 s | `world_shape.rs`, `open_water.rs` | W0.3, W1.2 |
+| Open water: a visible refuge within 600 (narrow) or 1,500 (wide crossings); hunter tell covers the swim to it | `world_shape.rs`, `open_water.rs` | W0.3, W1.2 |
 | Chamber prize visible from the door within 800 units; retreat within 6 s | `world_shape.rs` | W0.3, W3.3 |
 | Round-trip budgets | `dive_budget.rs` | W1.4, W4.2 |
 | Strain never changes movement | `strain.rs` | W2.1 |

@@ -291,13 +291,32 @@ fn every_chamber_has_a_retreat_within_6s() {
 }
 
 /// W1.3 https://github.com/StevenKauwe/crabscape/issues/459:
-/// the far-wall cave's west door (7700..7720, -5200..-5030) opens
-/// directly onto a fall. Add a supported escape to shelter, within six
-/// walking seconds of the prize at (7810, -5170).
+/// The short coral below the far-wall cave's west door provides shelter
+/// within six walking seconds of the prize at (7810, -5170).
 #[test]
-#[ignore = "needs rock: W1.3 #459"]
 fn far_wall_cave_has_a_retreat_within_6s() {
     chamber_retreats(true);
+}
+
+#[test]
+fn cave_retreat_is_short_wall_rooted_coral_outside_the_tide() {
+    let level = Level::test_level();
+    let coral = level
+        .climbs
+        .iter()
+        .find(|c| c.x == 7670.0 && c.bottom == -5350.0)
+        .expect("local cave retreat");
+    assert_eq!(coral.kind, Growth::Coral);
+    assert!(coral.top > coral.bottom && coral.top - coral.bottom <= 200.0);
+    let root = Vec2::new(coral.x + 30.0, coral.bottom);
+    assert!(level.rocks.iter().any(|rock| rock.contains(root)));
+    let shelter = Rect::new(coral.x - 60.0, coral.bottom, coral.x + 60.0, coral.top);
+    assert!(
+        level
+            .currents
+            .iter()
+            .all(|tide| tide.intersect(shelter).is_empty())
+    );
 }
 
 fn chamber_retreats(cave: bool) {
@@ -356,6 +375,26 @@ const FULL_KIT: Kit = Kit {
 
 // Keep an actual occupied position per 50-unit cell, never a snapped point
 // inside rock. Include all resting nodes as well as intermediate trajectories.
+/// Open water in `rect` on a 50-unit grid: above the floor, outside rock, and
+/// with room for the crab's body above the point.
+fn open_grid(level: &Level, rect: Rect) -> Vec<Vec2> {
+    let solid = |p: Vec2| p.y <= level.floor_height(p.x) || level.solids().any(|r| r.contains(p));
+    let mut points = Vec::new();
+    let mut y = rect.min.y + 25.0;
+    while y < rect.max.y {
+        let mut x = rect.min.x + 25.0;
+        while x < rect.max.x {
+            let p = Vec2::new(x, y);
+            if !solid(p) && !solid(p + Vec2::Y * 60.0) {
+                points.push(p);
+            }
+            x += 50.0;
+        }
+        y += 50.0;
+    }
+    points
+}
+
 /// `far`: survey to the octopus roof (slow: the ignored canyon test). Otherwise
 /// stop at the basin's far edge, which keeps the always-run test quick on CI.
 fn water_samples(far: bool) -> &'static Vec<Vec2> {
@@ -409,12 +448,12 @@ fn open_water_always_has_a_visible_refuge_within_600() {
     open_water_refuges(false);
 }
 
-/// Missing shelter, not permission to raise the 600-unit limit:
+/// Wide crossings (the canyon is 1,550 to 2,700 across): a refuge is always in
+/// sight within 1,500 units, and the open-water hunter's tell lasts long enough
+/// to swim to the nearest one (W1.2, #458). Elsewhere the 600 limit holds.
 /// https://github.com/StevenKauwe/crabscape/issues/459.
-/// Keep these named regions executable and strict as W1.3 adds rock/refuges.
 #[test]
-#[ignore = "needs rock: W1.3 #459"]
-fn canyon_far_basin_and_pit_have_visible_refuges_within_600() {
+fn canyon_far_basin_and_pit_have_visible_refuges_within_1500() {
     open_water_refuges(true);
 }
 
@@ -437,10 +476,17 @@ fn open_water_refuges(needs_rock: bool) {
 
         let mut worst = (0.0_f32, Vec2::ZERO);
         let mut count = 0;
-        for &p in water_samples(needs_rock)
-            .iter()
-            .filter(|p| water.rect.contains(**p))
-        {
+        // The wide crossings use a 50-unit grid of open water (every point a
+        // crab could swim through; quick): a solver survey that far takes
+        // minutes. Elsewhere, the places the crab actually reaches.
+        let grid: Vec<Vec2>;
+        let samples: &Vec<Vec2> = if needs_rock {
+            grid = open_grid(&level, water.rect);
+            &grid
+        } else {
+            water_samples(false)
+        };
+        for &p in samples.iter().filter(|p| water.rect.contains(**p)) {
             count += 1;
             let mut refuges: Vec<_> = landmarks
                 .iter()
@@ -465,7 +511,7 @@ fn open_water_refuges(needs_rock: bool) {
             "{} was not sampled by the full-kit solver",
             water.name
         );
-        if worst.0 > 600.0 {
+        if worst.0 > if needs_rock { 1500.0 } else { 600.0 } {
             failures.push((water.name.clone(), worst));
         }
     }
@@ -606,4 +652,36 @@ fn basin_ledge_refuges_can_hold_a_crab_still() {
             );
         }
     }
+}
+
+/// The canyon's coral clumps are shelter, not a ladder: in still water (no
+/// tide, no upwelling) a crab with every stroke and gear except glass grips
+/// gets no higher off the sea-pen floor than the lowest clump's top.
+#[test]
+fn refuges_make_no_new_climb() {
+    let kit = Kit {
+        glass: false,
+        ..FULL_KIT
+    };
+    let mut start = route::start_node(kit, Vec2::new(6900.0, -9400.0), false);
+    start.sim.tuning.tide.up_speed = 0.0;
+    start.sim.tuning.tide.down_speed = 0.0;
+    start.sim.tuning.tide.upwelling_speed = 0.0;
+    let s = route::survey_from(start, kit, |n| n.mover().pos.y > -8000.0, route::BUDGET);
+    let highest = s
+        .nodes
+        .iter()
+        .map(|n| n.mover().pos.y)
+        .fold(f32::MIN, f32::max);
+    let lowest_top = crabsim::level::refuges::clumps()
+        .iter()
+        .map(|c| c.top)
+        .fold(f32::MAX, f32::min);
+    println!(
+        "still water from the floor: highest rest {highest:.0}, lowest clump top {lowest_top:.0}"
+    );
+    assert!(
+        highest <= lowest_top + 10.0,
+        "a clump became a ladder: rested at y {highest}"
+    );
 }
