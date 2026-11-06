@@ -53,6 +53,9 @@ struct Autosave {
     acknowledgement: Option<crabsim::cell_codec::spatial::Acknowledgement>,
     access: super::page_access::Gate,
     read_busy: bool,
+    // A failed capture may have requested pages needed to complete it. Give
+    // one pending batch a turn before another flush-driven capture attempt.
+    read_after_capture_failure: bool,
     read_result: Option<(
         u64,
         Result<super::paging::Replies, String>,
@@ -174,7 +177,8 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
             state.elapsed = state.elapsed.max(5.0);
         });
     }
-    if requests.terrain.is_empty() && requests.memory.is_empty() {
+    let has_requests = !requests.terrain.is_empty() || !requests.memory.is_empty();
+    if !has_requests {
         return;
     }
     let can_save = sim.crab(id).is_some_and(|crab| {
@@ -185,14 +189,19 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
         // A sealed save may spend several seconds compressing off-thread.
         // Let a crossing read its current durable revision in that interval.
         // Completion above discards the batch if publication advanced it.
-        if state.read_busy
-            || (!state.busy && can_save && state.elapsed >= 5.0)
-            || (state.read_warning.is_some() && state.read_retry < 1.0)
-        {
+        if !super::read_priority::may_start(
+            has_requests,
+            state.read_busy,
+            state.busy,
+            can_save && state.elapsed >= 5.0,
+            state.read_warning.is_some() && state.read_retry < 1.0,
+            state.read_after_capture_failure,
+        ) {
             return None;
         }
         let epoch = state.epoch?;
         let read_access = state.access.read()?;
+        state.read_after_capture_failure = false;
         state.read_busy = true;
         state.read_started_ms = Some(js_sys::Date::now());
         Some((state.generation, epoch, read_access))
@@ -295,6 +304,7 @@ pub fn capture_failed(generation: u64, reason: super::Error) {
         let mut state = slot.borrow_mut();
         if state.generation == generation && state.busy {
             state.busy = false;
+            state.read_after_capture_failure = matches!(reason, super::Error::Damaged);
             let detail = match reason {
                 super::Error::TooLarge => "The world snapshot exceeds the current save limit.",
                 super::Error::Damaged => "Autosave could not capture a consistent world.",
@@ -314,6 +324,7 @@ pub fn submit_save(generation: u64, prepared: crabsim::cell_codec::spatial::Capt
     if !current_save(generation) {
         return;
     }
+    AUTOSAVE.with(|slot| slot.borrow_mut().read_after_capture_failure = false);
     let existing = AUTOSAVE.with(|slot| slot.borrow_mut().worker.take());
     let Some(epoch) = AUTOSAVE.with(|slot| slot.borrow().epoch) else {
         finish_save(generation, Err("missing save epoch".into()), None, false);

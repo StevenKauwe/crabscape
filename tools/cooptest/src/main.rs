@@ -1304,6 +1304,70 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             host.until(30.0, "large solo saved world restored", |p| {
                 p.b.attr("data-cell-save").as_deref() == Some("loaded")
             })?;
+            let at = local_position(&mut host)?;
+            if (at.0 - 3500.812).abs() > 150.0 || (at.1 + 1904.2175).abs() > 300.0 {
+                return Err(host.failed(format!(
+                    "deep fixture did not restore near report position: {at:?}"
+                )));
+            }
+            eprintln!("deep fixture restored at {at:?}");
+            // Fail one actual page read, then let the normal retry recover.
+            host.b.eval(r#"(()=>{window.__pageReadFaults=0;const original=IDBObjectStore.prototype.get;
+                IDBObjectStore.prototype.get=function(key){if(this.name==='world'&&Array.isArray(key)&&key[1]==='terrain'){
+                  IDBObjectStore.prototype.get=original;window.__pageReadFaults++;throw new DOMException('one simulated page read failure','UnknownError');}
+                  return original.call(this,key);};return true;})()"#)?;
+            let invite = host.invite()?;
+            guest.open(&host.copied_invite(&invite, "cells")?)?;
+            for p in [&mut host, &mut guest] {
+                p.until(120.0, "deep-world regional lobby starts", |p| {
+                    p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+            }
+            let previous = saved_cells(&mut host)?
+                .ok_or("missing deep baseline")?
+                .sim_tick;
+            let started = Instant::now();
+            let connected_save = loop {
+                if let Some(saved) = saved_cells(&mut host)?
+                    && saved.sim_tick > previous
+                {
+                    break saved;
+                }
+                if started.elapsed().as_secs() > 45 {
+                    return Err(host.failed("deep co-op owner save did not advance".into()));
+                }
+                host.healthy()?;
+                sleep(1.0);
+            };
+            if host.b.eval("window.__pageReadFaults")?.as_u64() != Some(1) {
+                return Err(host.failed("deep test did not exercise a failed terrain read".into()));
+            }
+            if connected_save.player.y >= at.1 as f32 - 10.0 {
+                return Err(
+                    host.failed("connected save did not contain the owner's newer position".into())
+                );
+            }
+            eprintln!("deep-world autosave advanced while connected");
+            guest.b.go("about:blank")?;
+            host.until(30.0, "deep-world guest departure", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+            })?;
+            host.reload()?;
+            host.until(30.0, "deep co-op save reloads", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            let reloaded_position = local_position(&mut host)?;
+            if reloaded_position.1 >= at.1 - 10.0 {
+                return Err(host.failed("reloaded crab did not resume the newer position".into()));
+            }
+            let loaded = saved_cells(&mut host)?.ok_or("missing reloaded deep save")?;
+            if loaded.sim_tick < connected_save.sim_tick || loaded.player.y >= at.1 as f32 - 10.0 {
+                return Err(host.failed("reload lost the progress saved during the visit".into()));
+            }
+            found.push(
+                "deep explored owner saves while a guest is connected and recovers on departure"
+                    .into(),
+            );
             let started = Instant::now();
             let large_saved = loop {
                 if let Some(saved) = saved_cells(&mut host)?
