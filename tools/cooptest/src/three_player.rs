@@ -548,9 +548,22 @@ fn capacity_sample(players: &mut [Chrome], label: &str) -> Result<()> {
     }
     sleep(Duration::from_secs(16));
     for (n, p) in players.iter_mut().enumerate() {
-        let value=p.eval(r#"(async()=>{const s=window.__capacity;const stats=a=>{a=[...a].sort((a,b)=>a-b);const q=p=>a[Math.min(a.length-1,Math.floor(a.length*p))]??null;return {count:a.length,p50:q(.5),p95:q(.95),p99:q(.99),max:q(1)};};const after=await s.bytes();return {renderer:s.renderer,done:s.done,durationMs:s.end-s.start,framesMs:stats(s.frames),tickGapsMs:stats(s.tickGaps),tailTickGapMs:s.tailTickGap,ticks:s.lastTick-s.firstTick,connections:after.connections,sentBytes:after.sent-s.before.sent,receivedBytes:after.received-s.before.received,networkDurationMs:performance.now()-s.start,stage:document.getElementById('crabscape').getAttribute('data-cell-region-state')};})()"#)?;
+        let value=p.eval(r#"(async()=>{const s=window.__capacity;const stats=a=>{a=[...a].sort((a,b)=>a-b);const q=p=>a[Math.min(a.length-1,Math.floor(a.length*p))]??null;return {count:a.length,p50:q(.5),p95:q(.95),p99:q(.99),max:q(1)};};const after=await s.bytes();return {renderer:s.renderer,viewport:[innerWidth,innerHeight,devicePixelRatio],canvas:[document.getElementById("crabscape").width,document.getElementById("crabscape").height],done:s.done,durationMs:s.end-s.start,framesMs:stats(s.frames),tickGapsMs:stats(s.tickGaps),tailTickGapMs:s.tailTickGap,ticks:s.lastTick-s.firstTick,connections:after.connections,sentBytes:after.sent-s.before.sent,receivedBytes:after.received-s.before.received,networkDurationMs:performance.now()-s.start,stage:document.getElementById('crabscape').getAttribute('data-cell-region-state')};})()"#)?;
         println!("capacity phase={label} client={n} sample={value}");
     }
+    Ok(())
+}
+fn configure_viewport(p: &mut Chrome) -> Result<()> {
+    // This gate validates protocol/state, not full-size rendering. Three or
+    // eight SwiftShader rasterizers otherwise dominate the CPU-only CI runner.
+    // Dedicated desktop/phone visual tests retain their original dimensions.
+    // Full-size profiling remains available with 1200x800.
+    let raw = std::env::var("CRABSCAPE_MULTI_VIEWPORT").unwrap_or_else(|_| "640x480".into());
+    let (w, h) = raw.split_once('x').ok_or("viewport must be WIDTHxHEIGHT")?;
+    p.protocol_viewport(
+        w.parse::<u32>().map_err(|e| e.to_string())?,
+        h.parse::<u32>().map_err(|e| e.to_string())?,
+    )?;
     Ok(())
 }
 fn scenario(
@@ -570,7 +583,12 @@ fn scenario(
         )?;
     }
     capacity_sample(&mut players[..1], "solo")?;
-    players[0].click(1016.0, 27.0)?;
+    let viewport = players[0].eval("({width:innerWidth,height:innerHeight,canvas:[document.getElementById('crabscape').width,document.getElementById('crabscape').height]})")?;
+    println!("multiplayer protocol viewport={viewport}");
+    // invite_rect: settings' left edge minus 8px gap and half of its 124px width.
+    let invite_x =
+        viewport["width"].as_f64().ok_or("missing viewport width")? - 10.0 - 104.0 - 8.0 - 62.0;
+    players[0].click(invite_x, 10.0 + 34.0 / 2.0)?;
     let mut invite = String::new();
     wait(|| {
         invite = players[0]
@@ -587,6 +605,7 @@ fn scenario(
                 &dir.join(format!("profile-{n}")),
                 options,
             )?;
+            configure_viewport(&mut p)?;
             p.actor_profile_hook()?;
             players.push(p);
         }
@@ -657,6 +676,9 @@ pub(crate) fn run(
             &dir.join(format!("profile-{n}")),
             options,
         )?);
+    }
+    for p in &mut players {
+        configure_viewport(p)?;
     }
     if std::env::var_os("CRABSCAPE_CAPACITY_PROFILE").is_some() {
         for p in &mut players {

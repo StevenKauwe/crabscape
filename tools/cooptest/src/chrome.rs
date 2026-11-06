@@ -431,6 +431,20 @@ impl Chrome {
         Ok(())
     }
 
+    /// Resize only this protocol-test browser; keep desktop layout and DPR 1.
+    pub fn protocol_viewport(&mut self, width: u32, height: u32) -> Result<()> {
+        if width < 600 || height < 360 {
+            return Err("protocol viewport must retain desktop layout".into());
+        }
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({
+                "width": width, "height": height, "deviceScaleFactor": 1, "mobile": false
+            }),
+        )?;
+        Ok(())
+    }
+
     /// Hold a key (`code` as in `KeyboardEvent.code`, e.g. "KeyD") for `secs`, as a player does.
     pub fn hold_key(&mut self, code: &str, secs: f64) -> Result<()> {
         for kind in ["rawKeyDown", "keyUp"] {
