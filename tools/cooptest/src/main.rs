@@ -15,6 +15,7 @@ mod chrome;
 mod save_fixture;
 #[path = "../../webtest/src/serve.rs"]
 mod serve;
+mod three_player;
 
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -830,21 +831,20 @@ fn saved_excavation(p: &mut Player, min_tick: u64, at: (f32, f32)) -> Result<u64
 }
 
 fn local_position(p: &mut Player) -> Result<(f64, f64)> {
-    let text =
-        p.b.attr("data-cell-session-actors")
-            .ok_or("missing regional actors")?;
-    let actors: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    let list = actors.as_array().ok_or("invalid regional actors")?;
-    let actor = if p.name() == "host" {
-        list.iter().find(|a| a[0].as_u64() == Some(0))
-    } else {
-        list.iter().find(|a| a[0].as_u64() != Some(0))
-    }
-    .ok_or("missing local regional actor")?;
-    Ok((
-        actor[1].as_f64().ok_or("bad actor x")?,
-        actor[2].as_f64().ok_or("bad actor y")?,
-    ))
+    // Actor order is not local-player order when there are multiple visitors.
+    let text = p.b.attr("data-crab").ok_or("missing local crab position")?;
+    let mut fields = text.split_whitespace();
+    let x = fields
+        .next()
+        .ok_or("missing local x")?
+        .parse::<f64>()
+        .map_err(|e| e.to_string())?;
+    let y = fields
+        .next()
+        .ok_or("missing local y")?
+        .parse::<f64>()
+        .map_err(|e| e.to_string())?;
+    Ok((x, y))
 }
 
 /// Optional real frame trace; excluded from normal acceptance runs.
@@ -959,7 +959,22 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 27] = [
+const SCENARIOS: [(&str, &str, u32); 30] = [
+    (
+        "cell-probe-multi-region-save",
+        "delegated three-player excavation survives owner save and reload",
+        240,
+    ),
+    (
+        "cell-probe-eight-players",
+        "eight cellular players join, move, split, reunite and reconnect",
+        300,
+    ),
+    (
+        "cells-three-players",
+        "three cellular players join, move, split, reunite and reconnect with matching state",
+        150,
+    ),
     (
         "cell-probe-canyon-claim",
         "two browsers claim and retire a physical Canyon generation",
@@ -1124,6 +1139,13 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
         fake_mic: voice,
         slow: site.slow,
     };
+    if name == "cells-three-players" || name == "cell-probe-eight-players" {
+        let count = if name == "cells-three-players" { 3 } else { 8 };
+        three_player::run(&site.url("cells"), &site.dir, o, true, count)?;
+        return Ok(vec![format!(
+            "{count} actual cellular actors, movement, regional split/reunion, matching hashes and leave/reconnect"
+        )]);
+    }
     let mut found = Found::new();
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
@@ -1431,7 +1453,14 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     .into(),
             );
         }
-        "cells-regions" | "cells-region-save" => {
+        "cells-regions" | "cells-region-save" | "cell-probe-multi-region-save" => {
+            let multi_save = name == "cell-probe-multi-region-save";
+            let save_probe = name == "cells-region-save" || multi_save;
+            let mut spectator = if multi_save {
+                Some(Player::new(site, "spectator", o)?)
+            } else {
+                None
+            };
             eprintln!("cells-regions: opening both browsers");
             host.open(&site.url("cells"))?;
             let code = host.invite()?;
@@ -1441,12 +1470,25 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     p.b.attr("data-cell-region-state").as_deref() == Some("running")
                 })?;
             }
-            host.b.eval(r#"(()=>{const c=document.getElementById('crabscape');let previous=c.getAttribute('data-cell-region-state'),revision=c.getAttribute('data-cell-region-revision'),started=null;window.__regionPauses=[];window.__windowMoves=0;
-              new MutationObserver(()=>{const nextRevision=c.getAttribute('data-cell-region-revision');if(nextRevision!==revision){if(Number(nextRevision)>0)window.__windowMoves++;revision=nextRevision;}
+            if let Some(other) = spectator.as_mut() {
+                other.open(&host.copied_invite(&code, "cells")?)?;
+                for p in [&mut host, &mut guest, other] {
+                    p.until(60.0, "three-player delegated session", |p| {
+                        p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                            && p.b
+                                .attr("data-cell-session-actors")
+                                .and_then(|v| serde_json::from_str::<serde_json::Value>(&v).ok())
+                                .and_then(|v| v.as_array().map(Vec::len))
+                                == Some(3)
+                    })?;
+                }
+            }
+            host.b.eval(r#"(()=>{const c=document.getElementById('crabscape');let previous=c.getAttribute('data-cell-region-state'),revision=c.getAttribute('data-cell-region-revision'),region=c.getAttribute('data-cell-region-id'),started=null;window.__regionPauses=[];window.__windowMoves=0;window.__regionGrants=0;
+              new MutationObserver(()=>{const nextRegion=c.getAttribute('data-cell-region-id');if(nextRegion!==region){window.__regionGrants++;region=nextRegion;}const nextRevision=c.getAttribute('data-cell-region-revision');if(nextRevision!==revision){if(Number(nextRevision)>0)window.__windowMoves++;revision=nextRevision;}
                 const state=c.getAttribute('data-cell-region-state');if(state===previous)return;
                 if(previous==='running'&&state!=='running')started=performance.now();
                 if(state==='running'&&started!==null){window.__regionPauses.push(performance.now()-started);started=null;}previous=state;
-              }).observe(c,{attributes:true,attributeFilter:['data-cell-region-state','data-cell-region-revision']});})()"#)?;
+              }).observe(c,{attributes:true,attributeFilter:['data-cell-region-state','data-cell-region-revision','data-cell-region-id']});})()"#)?;
             guest.b.type_line("hulk")?;
             eprintln!(
                 "cells-regions joined: host {}, guest {}",
@@ -1530,7 +1572,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             });
             landed.map_err(|why| format!("{why}; {}", region_status(&mut guest)))?;
             guest.b.set_key("ArrowDown", false)?;
-            if name == "cells-region-save" {
+            if save_probe {
                 // The owner's normal solo window reaches x2560. Put this
                 // excavation beyond it so natural mud flow cannot refill the
                 // sample while the owner waits for its disk write.
@@ -1564,6 +1606,16 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                         && p.b.attr("data-cell-region-state").as_deref() == Some("running")
                 })?;
             }
+            if multi_save {
+                guest.until(20.0, "guest actually computes delegated region", |p| {
+                    p.b.attr("data-cell-authority-ticks")
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .is_some_and(|t| t > 8)
+                })?;
+                if host.b.attr("data-cell-delegated-regions").as_deref() != Some("1") {
+                    return Err("save probe never established delegated regional authority".into());
+                }
+            }
             let start_host = local_position(&mut host)?;
             let start_guest = local_position(&mut guest)?;
             if (start_guest.0 - start_host.0).abs() < 1700.0 {
@@ -1583,20 +1635,41 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 p.b.set_key("ArrowDown", true)?;
                 pause_region(p, false)?;
             }
-            // Measure digging in simulation time. A software-rendered CI
-            // frame can consume most of a short wall-clock key hold.
-            for (p, first) in [
-                (&mut host, before_host.tick_count()),
-                (&mut guest, before_dig.tick_count()),
-            ] {
-                p.until(20.0, "ninety hundredths of simulated digging", |p| {
-                    p.b.attr("data-cell-session-tick")
-                        .and_then(|t| t.parse::<u64>().ok())
-                        .is_some_and(|tick| tick >= first + 108)
-                })?;
-                pause_region(p, true)?;
-                p.b.set_key("Space", false)?;
-                p.b.set_key("ArrowDown", false)?;
+            // Multi-region pause is coordinated by the lobby owner. Wait for
+            // both independent clocks before pausing either, avoiding a host
+            // pause that strands the delegated authority short of its target.
+            if multi_save {
+                for (p, first) in [
+                    (&mut host, before_host.tick_count()),
+                    (&mut guest, before_dig.tick_count()),
+                ] {
+                    p.until(20.0, "delegated simulated digging", |p| {
+                        p.b.attr("data-cell-session-tick")
+                            .and_then(|v| v.parse::<u64>().ok())
+                            .is_some_and(|t| t >= first + 108)
+                    })?;
+                }
+                pause_region(&mut host, true)?;
+                for p in [&mut host, &mut guest] {
+                    p.b.set_key("Space", false)?;
+                    p.b.set_key("ArrowDown", false)?;
+                }
+            } else {
+                // Measure digging in simulation time. A software-rendered CI
+                // frame can consume most of a short wall-clock key hold.
+                for (p, first) in [
+                    (&mut host, before_host.tick_count()),
+                    (&mut guest, before_dig.tick_count()),
+                ] {
+                    p.until(20.0, "ninety hundredths of simulated digging", |p| {
+                        p.b.attr("data-cell-session-tick")
+                            .and_then(|t| t.parse::<u64>().ok())
+                            .is_some_and(|tick| tick >= first + 108)
+                    })?;
+                    pause_region(p, true)?;
+                    p.b.set_key("Space", false)?;
+                    p.b.set_key("ArrowDown", false)?;
+                }
             }
             sleep(0.3);
             let _owner_replay = regional_scene(&mut host)?;
@@ -1650,15 +1723,26 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             }
             let pauses = host.b.eval("window.__regionPauses")?;
             eprintln!("cells-regions handoff pauses in milliseconds: {pauses}");
-            let moves = host.b.eval("window.__windowMoves")?.as_u64().unwrap_or(0);
+            let moves = host
+                .b
+                .eval(if multi_save {
+                    "window.__regionGrants"
+                } else {
+                    "window.__windowMoves"
+                })?
+                .as_u64()
+                .unwrap_or(0);
             if moves == 0 {
                 return Err("travel route never used a streamed region move".into());
             }
             eprintln!("cells-regions streamed window moves: {moves}");
-            if name == "cells-region-save" {
+            if save_probe {
                 // Freeze the authority through departure: physics must not refill
                 // the sampled cell between the known checkpoint and recovery.
                 guest.b.go("about:blank")?;
+                if let Some(other) = spectator.as_mut() {
+                    other.b.go("about:blank")?;
+                }
                 host.until(30.0, "owner recovers departed regional authority", |p| {
                     p.b.attr("data-cell-session").as_deref() == Some("solo")
                 })?;

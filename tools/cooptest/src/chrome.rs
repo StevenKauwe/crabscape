@@ -319,7 +319,7 @@ impl Chrome {
 
     /// Capture the probe's peer connection in this and future documents.
     pub fn actor_profile_hook(&mut self) -> Result<()> {
-        const HOOK: &str = "(() => { const Base = window.RTCPeerConnection; window.RTCPeerConnection = class extends Base { constructor(...args) { super(...args); window.__actorProfilePc = this; } }; })()";
+        const HOOK: &str = "(() => { const Base = window.RTCPeerConnection; window.RTCPeerConnection = class extends Base { constructor(...args) { super(...args); window.__actorProfilePc = this; (window.__actorProfilePcs ||= []).push(this); } }; })()";
         self.call(
             "Page.addScriptToEvaluateOnNewDocument",
             json!({ "source": HOOK }),
@@ -428,6 +428,20 @@ impl Chrome {
         }
         // A frame or two for the game to see it.
         std::thread::sleep(Duration::from_millis(250));
+        Ok(())
+    }
+
+    /// Resize only this protocol-test browser; keep desktop layout and DPR 1.
+    pub fn protocol_viewport(&mut self, width: u32, height: u32) -> Result<()> {
+        if width < 600 || height < 360 {
+            return Err("protocol viewport must retain desktop layout".into());
+        }
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({
+                "width": width, "height": height, "deviceScaleFactor": 1, "mobile": false
+            }),
+        )?;
         Ok(())
     }
 

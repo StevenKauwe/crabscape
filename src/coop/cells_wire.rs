@@ -6,6 +6,31 @@ const PREFIX: &[u8] = b"CSIM1";
 pub(crate) use crabsim::replay::CellSessionTick as Tick;
 #[derive(Serialize, Deserialize)]
 pub(crate) enum RegionMsg {
+    AuthorityDrive {
+        region: u64,
+        epoch: u64,
+        #[serde(deserialize_with = "read_eight")]
+        controls: Vec<(PlayerId, crabsim::Controls)>,
+        #[serde(deserialize_with = "read_actions")]
+        actions: Vec<(PlayerId, crabsim::replay::CellSessionAction)>,
+    },
+    AuthorityBatch {
+        region: u64,
+        epoch: u64,
+        frames: Box<[crabsim::world::regions::RegionFrame; 4]>,
+        #[serde(deserialize_with = "read_eight")]
+        positions: Vec<(PlayerId, [f32; 2])>,
+        needs_region: bool,
+    },
+    AuthorityStop {
+        region: u64,
+        epoch: u64,
+    },
+    AuthorityStopped {
+        region: u64,
+        epoch: u64,
+        tick: u64,
+    },
     Falls {
         region: u64,
         epoch: u64,
@@ -120,6 +145,7 @@ pub(crate) enum Wire {
     Begin {
         epoch: u64,
         guest: PlayerId,
+        multi: bool,
     },
     Piece(#[serde(deserialize_with = "crabsim::net::cell_transfer::deserialize_fragment")] Vec<u8>),
     Ack {
@@ -343,5 +369,337 @@ mod tests {
         trailing.push(0);
         assert!(decode(&trailing).is_none());
         assert!(decode(&[0; 4097]).is_none());
+    }
+}
+
+/// The last installed region for one authenticated transport connection.
+/// Keep this through the gap between collection and a paged replacement grant.
+/// These messages are discarded, never applied to the replacement authority.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) struct RetiredRegion {
+    pub connection: u128,
+    pub region: u64,
+    pub epoch: u64,
+    pub transfer: u64,
+    pub pieces: u32,
+    pub first_tick: u64,
+    pub final_tick: u64,
+}
+#[cfg(any(target_arch = "wasm32", test))]
+impl RetiredRegion {
+    pub fn contains_reply(&self, connection: u128, message: &RegionMsg) -> bool {
+        if connection != self.connection {
+            return false;
+        }
+        match message {
+            RegionMsg::Ack { transfer, piece } => {
+                *transfer == self.transfer && *piece < self.pieces
+            }
+            RegionMsg::Ready { transfer, tick } => {
+                *transfer == self.transfer && *tick == self.first_tick
+            }
+            RegionMsg::Applied {
+                region,
+                epoch,
+                tick,
+            } => {
+                *region == self.region
+                    && *epoch == self.epoch
+                    && (self.first_tick..=self.final_tick).contains(tick)
+            }
+            _ => false,
+        }
+    }
+}
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn region_ready_to_retire(
+    partial: usize,
+    ready: &std::collections::BTreeSet<PlayerId>,
+    replicas: &std::collections::BTreeMap<PlayerId, u64>,
+) -> bool {
+    partial == 0 && ready.len() == replicas.len() && replicas.keys().all(|id| ready.contains(id))
+}
+
+#[cfg(test)]
+mod retired_region_tests {
+    use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+    #[test]
+    fn delayed_replies_remain_classifiable_during_paging_and_after_regrant() {
+        let old = RetiredRegion {
+            connection: 42,
+            region: 7,
+            epoch: 12,
+            transfer: 3,
+            pieces: 4,
+            first_tick: 100,
+            final_tick: 132,
+        };
+        // No active region exists during paging. Classification uses retained
+        // identity, not a lookup in the now-empty active group map.
+        for message in [
+            RegionMsg::Ack {
+                transfer: 3,
+                piece: 3,
+            },
+            RegionMsg::Ready {
+                transfer: 3,
+                tick: 100,
+            },
+            RegionMsg::Applied {
+                region: 7,
+                epoch: 12,
+                tick: 132,
+            },
+        ] {
+            assert!(old.contains_reply(42, &message));
+        }
+        // A new grant must still consume its own acknowledgements normally.
+        assert!(!old.contains_reply(
+            42,
+            &RegionMsg::Ready {
+                transfer: 4,
+                tick: 132
+            }
+        ));
+        assert!(!old.contains_reply(
+            42,
+            &RegionMsg::Applied {
+                region: 8,
+                epoch: 13,
+                tick: 132
+            }
+        ));
+        for message in [
+            RegionMsg::Ack {
+                transfer: 3,
+                piece: 4,
+            },
+            RegionMsg::Ack {
+                transfer: 4,
+                piece: 0,
+            },
+            RegionMsg::Ready {
+                transfer: 3,
+                tick: 104,
+            },
+            RegionMsg::Applied {
+                region: 7,
+                epoch: 12,
+                tick: 136,
+            },
+            RegionMsg::Applied {
+                region: 7,
+                epoch: 12,
+                tick: 99,
+            },
+            RegionMsg::Applied {
+                region: 7,
+                epoch: 13,
+                tick: 132,
+            },
+            RegionMsg::Applied {
+                region: 6,
+                epoch: 12,
+                tick: 132,
+            },
+        ] {
+            assert!(!old.contains_reply(42, &message));
+        }
+        // Disconnect/reconnect with the same player identity is a new binding.
+        assert!(!old.contains_reply(
+            43,
+            &RegionMsg::Applied {
+                region: 7,
+                epoch: 12,
+                tick: 132
+            }
+        ));
+    }
+    #[test]
+    fn collection_waits_for_every_replica_ready_and_a_complete_batch() {
+        let replicas = BTreeMap::from([(PlayerId(1), 100), (PlayerId(2), 100)]);
+        let mut ready = BTreeSet::from([PlayerId(1)]);
+        assert!(!region_ready_to_retire(0, &ready, &replicas));
+        ready.insert(PlayerId(3));
+        assert!(!region_ready_to_retire(0, &ready, &replicas));
+        ready.remove(&PlayerId(3));
+        ready.insert(PlayerId(2));
+        assert!(!region_ready_to_retire(1, &ready, &replicas));
+        assert!(region_ready_to_retire(0, &ready, &replicas));
+        assert!(region_ready_to_retire(
+            0,
+            &BTreeSet::new(),
+            &BTreeMap::new()
+        ));
+    }
+}
+
+fn read_bounded<'de, D, T, const N: usize>(d: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Items<T, const N: usize>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>, const N: usize> serde::de::Visitor<'de> for Items<T, N> {
+        type Value = Vec<T>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "at most {N} items")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            use serde::de::Error;
+            if seq.size_hint().is_some_and(|n| n > N) {
+                return Err(A::Error::custom("regional list limit"));
+            }
+            let mut items = Vec::new();
+            while let Some(item) = seq.next_element()? {
+                if items.len() == N {
+                    return Err(A::Error::custom("regional list limit"));
+                }
+                items.push(item);
+            }
+            Ok(items)
+        }
+    }
+    d.deserialize_seq(Items::<T, N>(std::marker::PhantomData))
+}
+fn read_eight<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Vec<T>, D::Error> {
+    read_bounded::<D, T, 8>(d)
+}
+fn read_actions<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Vec<T>, D::Error> {
+    read_bounded::<D, T, 32>(d)
+}
+
+/// Stable region authority: the host wins when present; otherwise a member owns it.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn region_authority(members: &[PlayerId]) -> Option<PlayerId> {
+    members.iter().copied().min()
+}
+#[cfg(test)]
+mod authority_wire_tests {
+    use super::*;
+    #[test]
+    fn authority_stays_in_region_and_migrates_after_departure() {
+        assert_eq!(
+            region_authority(&[PlayerId(7), PlayerId(0), PlayerId(2)]),
+            Some(PlayerId(0))
+        );
+        assert_eq!(
+            region_authority(&[PlayerId(7), PlayerId(2)]),
+            Some(PlayerId(2))
+        );
+        assert_eq!(region_authority(&[PlayerId(7)]), Some(PlayerId(7)));
+        assert_eq!(region_authority(&[]), None);
+    }
+    #[test]
+    fn drive_roundtrip_and_bounds() {
+        for count in [8, 9] {
+            let msg = Wire::Region {
+                epoch: 3,
+                msg: RegionMsg::AuthorityDrive {
+                    region: 4,
+                    epoch: 5,
+                    controls: (0..count)
+                        .map(|id| (PlayerId(id), crabsim::Controls::default()))
+                        .collect(),
+                    actions: vec![],
+                },
+            };
+            let bytes = encode(&msg).unwrap();
+            assert_eq!(decode(&bytes).is_some(), count == 8);
+        }
+    }
+    #[test]
+    fn oversized_authority_positions_are_rejected() {
+        let msg = Wire::Region {
+            epoch: 3,
+            msg: RegionMsg::AuthorityBatch {
+                region: 4,
+                epoch: 5,
+                frames: Box::new(std::array::from_fn(|tick| {
+                    crabsim::world::regions::RegionFrame {
+                        tick: tick as u64,
+                        controls: vec![],
+                        actions: vec![],
+                    }
+                })),
+                positions: (0..9).map(|id| (PlayerId(id), [0.0, 0.0])).collect(),
+                needs_region: false,
+            },
+        };
+        assert!(decode(&encode(&msg).unwrap()).is_none());
+    }
+}
+
+/// Stopping is a protocol acknowledgement, not a simulation step: an authority
+/// must be able to stop even before its first Drive or without tick credit.
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DelegatedStep {
+    Wait,
+    FinishStop,
+    Advance,
+}
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn delegated_step(
+    enabled: bool,
+    stopping: bool,
+    stop_acknowledged: bool,
+    partial: usize,
+    backup_pending: bool,
+    ahead_limit: bool,
+) -> DelegatedStep {
+    if stopping && partial == 0 {
+        if stop_acknowledged || backup_pending {
+            DelegatedStep::Wait
+        } else {
+            DelegatedStep::FinishStop
+        }
+    } else if !enabled || ahead_limit {
+        DelegatedStep::Wait
+    } else {
+        DelegatedStep::Advance
+    }
+}
+#[cfg(test)]
+mod delegated_stop_tests {
+    use super::{DelegatedStep::*, delegated_step};
+
+    #[test]
+    fn installed_authority_stops_before_first_drive_and_only_acknowledges_once() {
+        assert_eq!(delegated_step(false, false, false, 0, false, false), Wait);
+        // Ready is sent, then Home/regrant requests Stop before any Drive arrives.
+        assert_eq!(
+            delegated_step(false, true, false, 0, false, false),
+            FinishStop
+        );
+        assert_eq!(delegated_step(false, true, true, 0, false, false), Wait);
+        // A later Drive starts a new running interval; a subsequent Stop works.
+        assert_eq!(delegated_step(true, false, false, 0, false, false), Advance);
+        assert_eq!(
+            delegated_step(true, true, false, 0, false, false),
+            FinishStop
+        );
+    }
+
+    #[test]
+    fn stop_preserves_batch_and_backup_boundaries_without_needing_tick_credit() {
+        assert_eq!(delegated_step(true, true, false, 2, false, false), Advance);
+        assert_eq!(delegated_step(true, true, false, 2, false, true), Wait);
+        assert_eq!(delegated_step(true, true, false, 0, true, true), Wait);
+        // Once the checkpoint is acknowledged, no extra simulation input is needed.
+        assert_eq!(
+            delegated_step(true, true, false, 0, false, true),
+            FinishStop
+        );
+        assert_eq!(delegated_step(false, true, true, 0, false, true), Wait);
+        assert_eq!(delegated_step(true, false, false, 0, false, true), Wait);
     }
 }

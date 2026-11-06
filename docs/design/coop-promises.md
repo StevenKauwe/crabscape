@@ -18,6 +18,8 @@ pass).
 
 ## Joining
 
+The three-player cellular regression covers joining, movement, separate exploration, reunion, leaving and reconnecting (`cells-three-players`). Sessions that grow beyond two players currently run their regional authorities on the owner's device. The actor ceiling is eight, but this test verifies three browsers; 32-player capacity and phone multiplayer performance remain unverified.
+
 | Promise | Limit | Scenario | Fast test |
 |---|---|---|---|
 | A friend who opens your link plays with you | 10 s | `join` | `your_own_link_makes_you_host_and_your_lobby_opens_whenever_you_play` |
