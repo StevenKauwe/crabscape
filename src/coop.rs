@@ -95,6 +95,8 @@ pub struct NewLink;
 
 pub struct CoopPlugin;
 mod cells_wire;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod guest_return;
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn cells_visiting() -> bool {
     web::cells::visiting()

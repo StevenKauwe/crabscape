@@ -140,7 +140,7 @@ impl Sim {
             || self.crab(id).is_some()
             || self.crabs.len() >= 8
             || !bounded_pos(pos)
-            || !valid_progress(progress)
+            || !valid_guest_progress(progress)
             || (progress.salvage_identity != 0
                 && self
                     .crabs
@@ -218,7 +218,7 @@ impl Sim {
         let Some(mut progress) = visitor.progress(id) else {
             return false;
         };
-        if !valid_progress(&progress)
+        if !valid_guest_progress(&progress)
             || !source.fighter.vitals.health.is_finite()
             || !source.mover.stamina.is_finite()
             || !source.mover.reserve.is_finite()
@@ -448,7 +448,8 @@ fn valid_salvage_receipts(receipts: &[crate::salvage::ClaimId]) -> bool {
             id.world != 0 && id.site == 1 && id.child <= 1 && !receipts[..i].contains(id)
         })
 }
-fn valid_progress(progress: &crate::Progress) -> bool {
+/// Validate a visitor's personal progress before disturbing a live session.
+pub fn valid_guest_progress(progress: &crate::Progress) -> bool {
     valid_salvage_receipts(&progress.salvage_receipts)
         && crate::canyon_drift::run::valid_receipts(&progress.drift_receipts)
         && [progress.climb_xp, progress.swim_xp, progress.fight_xp]

@@ -26,6 +26,7 @@ struct GuestProfile {
 
 struct Participant {
     peer: PeerId,
+    character_identity: u64,
     controls: Controls,
     heard_sequence: u64,
     last_seen: f64,
@@ -62,6 +63,9 @@ struct Session {
     guest: Option<PlayerId>,
     epoch: u64,
     solo: Option<Box<Sim>>,
+    // A later membership transfer can put an already-playing visitor back in
+    // Receiving; its live personal progress still belongs in its solo world.
+    has_guest_world: bool,
     transfers: crabsim::net::cell_join::transfers::Transfers,
     receiver: Receiver,
     local: Controls,
@@ -282,19 +286,12 @@ pub(crate) fn private_save(
         let _profile = crate::cell_save::work::begin("cell-private-save");
         let id = s.guest?;
         let mut saved = crate::save::snapshot_metadata(solo, id)?;
-        if s.phase == Phase::Guest {
-            let mut progress = visitor.progress(id)?;
-            let base = solo.progress(id)?;
-            progress.clams = base.clams;
-            progress.grit_taken = base.grit_taken;
-            for (v, old) in progress.nets_cut.iter_mut().zip(base.nets_cut) {
-                *v |= old;
-            }
-            for (v, old) in progress.rocks_cracked.iter_mut().zip(base.rocks_cracked) {
-                *v |= old;
-            }
-            saved.progress = Some(progress);
-        }
+        saved.progress = Some(super::super::guest_return::private_progress(
+            solo,
+            visitor,
+            id,
+            s.has_guest_world,
+        )?);
         if !crate::cell_save::player_fits_world(solo, &saved) {
             return Some(Err(crate::cell_save::Error::Damaged));
         }
@@ -397,11 +394,14 @@ fn end(s: &mut Session, sim: &mut Sim, local: PlayerId) {
         s.failure = Some(reason);
         return;
     }
-    if let Some(mut solo) = s.solo.take() {
-        if s.phase == Phase::Guest {
-            solo.return_cell_player(sim, local);
+    if let Some(solo) = s.solo.take() {
+        if let Err(solo) = super::super::guest_return::restore(solo, sim, local, s.has_guest_world)
+        {
+            s.solo = Some(solo);
+            s.failure =
+                Some("Could not safely return your guest progress; recovery will retry".into());
+            return;
         }
-        *sim = *solo;
     } else {
         for id in s.participants.keys() {
             sim.remove_cell_player(*id);
@@ -488,6 +488,7 @@ pub(crate) fn tick(sim: &mut Sim, local: PlayerId) -> bool {
 
 /// Called only with the canonical whole world, after regional authorities stop.
 fn apply_membership(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
+    let mut rejected = Vec::new();
     for id in std::mem::take(&mut s.pending_leaves) {
         if let Some(p) = s.participants.remove(&id) {
             s.transfers.cancel(p.peer.0.as_u128());
@@ -509,14 +510,16 @@ fn apply_membership(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
             memory: None,
         };
         if !crate::cell_save::player_fits_world(sim, &saved) {
-            return Err("Guest progress could not be restored".into());
+            rejected.push(join.peer);
+            continue;
         }
         if !sim.join_cell_player(
             join.id,
             host + Vec2::new(100.0, 60.0),
             &join.profile.progress,
         ) {
-            return Err("Guest could not join this world".into());
+            rejected.push(join.peer);
+            continue;
         }
         let crab = sim.crab_mut(join.id).ok_or("Missing admitted actor")?;
         crab.fighter.vitals = join.profile.vitals;
@@ -530,6 +533,7 @@ fn apply_membership(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
             join.id,
             Participant {
                 peer: join.peer,
+                character_identity: join.profile.progress.salvage_identity,
                 controls: Controls::default(),
                 heard_sequence: 0,
                 last_seen: s.last_seen,
@@ -548,6 +552,8 @@ fn apply_membership(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
         s.multi = false;
         s.outgoing.clear();
         s.directed.clear();
+        s.directed
+            .extend(rejected.into_iter().map(|peer| (peer, Wire::JoinRejected)));
         return Ok(());
     }
     s.multi |= s.participants.len() > 1;
@@ -563,6 +569,8 @@ fn apply_membership(s: &mut Session, sim: &mut Sim) -> Result<(), String> {
     s.transfers = Default::default();
     s.outgoing.clear();
     s.directed.clear();
+    s.directed
+        .extend(rejected.into_iter().map(|peer| (peer, Wire::JoinRejected)));
     s.partial.clear();
     s.local = Controls::default();
     s.remote = Controls::default();
@@ -601,9 +609,10 @@ fn receive(
         if me != HOST {
             return Ok(());
         }
-        let guest = claimed
-            .filter(|id| *id != HOST)
-            .ok_or("missing guest identity")?;
+        let Some(guest) = claimed.filter(|id| *id != HOST) else {
+            s.directed.push_back((peer, Wire::JoinRejected));
+            return Ok(());
+        };
         if s.peer_player(peer).is_some()
             || (s.participants.contains_key(&guest) && !s.pending_leaves.contains(&guest))
             || s.pending_joins
@@ -617,11 +626,28 @@ fn receive(
             s.directed.push_back((peer, Wire::Busy));
             return Ok(());
         }
-        let packed = crate::character::unbase64url(&progress).ok_or("invalid guest profile")?;
-        let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&packed, 64 * 1024)
-            .map_err(|_| "guest profile too large")?;
-        let profile: GuestProfile =
-            serde_json::from_slice(&raw).map_err(|_| "invalid guest progress")?;
+        let profile: Option<GuestProfile> = crate::character::unbase64url(&progress)
+            .and_then(|packed| {
+                miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&packed, 64 * 1024).ok()
+            })
+            .and_then(|raw| serde_json::from_slice(&raw).ok());
+        let Some(profile) = profile else {
+            s.directed.push_back((peer, Wire::JoinRejected));
+            return Ok(());
+        };
+        let saved = crate::save::SaveData {
+            version: crabsim::SAVE_VERSION,
+            x: 0.0,
+            y: 0.0,
+            progress: Some(profile.progress.clone()),
+            memory: None,
+        };
+        if !crabsim::world::cell_session::valid_guest_progress(&profile.progress)
+            || !crate::cell_save::player_fits_world(sim, &saved)
+        {
+            s.directed.push_back((peer, Wire::JoinRejected));
+            return Ok(());
+        }
         if ![
             profile.vitals.health,
             profile.vitals.poise,
@@ -631,7 +657,25 @@ fn receive(
         .iter()
         .all(|v| v.is_finite() && (0.0..=1_000_000.0).contains(v))
         {
-            return Err("invalid guest condition".into());
+            s.directed.push_back((peer, Wire::JoinRejected));
+            return Ok(());
+        }
+        let identity = profile.progress.salvage_identity;
+        let owner_identity = sim
+            .crab(HOST)
+            .or_else(|| s.regional.as_ref()?.owner.as_ref()?.entities.sim.crab(HOST))
+            .map(|crab| crab.salvage_identity);
+        if identity != 0
+            && (owner_identity == Some(identity)
+                || s.participants.iter().any(|(id, p)| {
+                    !s.pending_leaves.contains(id) && p.character_identity == identity
+                })
+                || s.pending_joins
+                    .iter()
+                    .any(|p| p.profile.progress.salvage_identity == identity))
+        {
+            s.directed.push_back((peer, Wire::CharacterInUse));
+            return Ok(());
         }
         s.pending_joins.push_back(PendingJoin {
             peer,
@@ -723,6 +767,7 @@ fn receive(
                 *sim = restored;
                 s.next_batch = tick;
                 s.phase = Phase::Guest;
+                s.has_guest_world = true;
                 s.outgoing.push_back(Wire::Ready { epoch, tick });
             } else {
                 s.outgoing.push_back(Wire::Ack { epoch, piece });
@@ -830,8 +875,20 @@ fn receive(
             s.applied = tick;
         }
         Wire::Ping => {}
+        Wire::Busy | Wire::CharacterInUse | Wire::JoinRejected if me == HOST => {}
         Wire::Busy => {
             return Err("This session is full; you can keep playing your own world".into());
+        }
+        Wire::CharacterInUse => {
+            return Err(
+                "This character is already playing here. Use a separate browser profile to join."
+                    .into(),
+            );
+        }
+        Wire::JoinRejected => {
+            return Err(
+                "Your character could not join this world; your solo game is available.".into(),
+            );
         }
         _ => return Err("unexpected session message".into()),
     }
@@ -844,11 +901,12 @@ fn send_pending(s: &mut Session, link: &mut Link) -> Result<(), &'static str> {
         if !link.peers.iter().any(|p| p.id == peer) {
             continue;
         }
+        let rejection = matches!(msg, Wire::Busy | Wire::CharacterInUse | Wire::JoinRejected);
         let bytes = packet(&msg).ok_or("Session message too large")?;
-        link.socket
-            .channel_mut(RELIABLE)
-            .try_send(bytes, peer)
-            .map_err(|_| "Connection closed")?;
+        let sent = link.socket.channel_mut(RELIABLE).try_send(bytes, peer);
+        if sent.is_err() && !rejection {
+            return Err("Connection closed");
+        }
     }
     if let Some(peer) = s.peer {
         while let Some(msg) = s.outgoing.pop_front() {
