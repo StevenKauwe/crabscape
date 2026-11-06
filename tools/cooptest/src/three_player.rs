@@ -76,28 +76,32 @@ fn position(player: &mut Chrome) -> Result<(f64, f64)> {
     Ok((x, y))
 }
 fn consistent(players: &mut [Chrome]) -> Result<()> {
+    consistent_selected(players, &(0..players.len()).collect::<Vec<_>>())
+}
+fn consistent_selected(players: &mut [Chrome], selected: &[usize]) -> Result<()> {
     players[0]
         .eval("document.getElementById('crabscape').setAttribute('data-cell-session-pause','1')")?;
     wait(|| {
-        let ticks: Vec<_> = players
-            .iter_mut()
-            .map(|p| p.attr("data-cell-session-tick"))
+        let ticks: Vec<_> = selected
+            .iter()
+            .map(|&i| players[i].attr("data-cell-session-tick"))
             .collect();
         Ok(ticks[0].is_some() && ticks.iter().all(|t| t == &ticks[0]))
     })?;
     let sampled_at = Instant::now();
     let hashes = loop {
-        for p in players.iter_mut() {
+        for &i in selected {
+            let p = &mut players[i];
             p.eval("(()=>{const c=document.getElementById('crabscape');c.removeAttribute('data-cell-session-hash');c.setAttribute('data-want-cell-hash','1');})()")?;
         }
         wait(|| {
-            Ok(players
-                .iter_mut()
-                .all(|p| p.attr("data-cell-session-hash").is_some()))
+            Ok(selected
+                .iter()
+                .all(|&i| players[i].attr("data-cell-session-hash").is_some()))
         })?;
-        let hashes: Vec<_> = players
-            .iter_mut()
-            .map(|p| p.attr("data-cell-session-hash"))
+        let hashes: Vec<_> = selected
+            .iter()
+            .map(|&i| players[i].attr("data-cell-session-hash"))
             .collect();
         // Tick attributes publish before the fixed-step catch-up. Compare
         // actual hash ticks, not a transient earlier render's tick label.
@@ -167,7 +171,7 @@ impl RouteProgress {
 impl SplitRoute for BrowserRoute<'_> {
     fn sample(&mut self) -> Result<(f64, f64)> {
         let at = Instant::now();
-        let value = self.player.eval("(()=>{const c=document.getElementById('crabscape');return {position:c.getAttribute('data-crab'),tick:c.getAttribute('data-cell-session-tick'),stage:c.getAttribute('data-cell-region-state'),controls:c.getAttribute('data-cell-controls')};})()")?;
+        let value = self.player.eval("(()=>{const c=document.getElementById('crabscape');return {position:c.getAttribute('data-crab'),tick:(c.getAttribute('data-cell-performance')?.split(':')[0]??c.getAttribute('data-cell-session-tick')),stage:c.getAttribute('data-cell-region-state'),controls:c.getAttribute('data-cell-controls')};})()")?;
         println!(
             "split sample elapsed={:.3}s latency={:.3}s state={value}",
             self.started.elapsed().as_secs_f64(),
@@ -299,9 +303,43 @@ fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
             && !host.contains(&away[0]))
     })?;
     consistent(&mut players[..last])?;
+    let away_id = roster(&mut players[last])?[0];
+    let leader = players[last]
+        .attr("data-cell-region-authority")
+        .and_then(|v| v.parse::<u64>().ok());
+    if leader != Some(away_id)
+        || players[0].attr("data-cell-region-authority").as_deref() != Some("0")
+    {
+        return Err(format!(
+            "split computation did not migrate to member authority: away={away_id} leader={leader:?}"
+        ));
+    }
+    let executed = players[last]
+        .attr("data-cell-authority-ticks")
+        .and_then(|v| v.parse::<u64>().ok())
+        .ok_or("missing authority execution counter")?;
+    let archived = players[0]
+        .attr("data-cell-archived-batches")
+        .and_then(|v| v.parse::<u64>().ok())
+        .ok_or("missing host archive counter")?;
+    wait(|| {
+        let next = players[last]
+            .attr("data-cell-authority-ticks")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        let accepted = players[0]
+            .attr("data-cell-archived-batches")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        Ok(next > executed + 8 && accepted > archived)
+    })?;
+    println!(
+        "delegated execution: member={away_id}, guest authority ticks advance and host archives ordered batches"
+    );
     let before = players[last].attr("data-cell-session-tick");
     wait(|| Ok(players[last].attr("data-cell-session-tick") != before))?;
     println!("separate player region advances; remaining group matches");
+    capacity_sample(players, "split")?;
     players[last].hold_key("KeyH", 0.1)?;
     players[last].eval(
         "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))",
@@ -309,14 +347,144 @@ fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
     players[last].hold_key("KeyY", 0.1)?;
     together(players, count)?;
     consistent(players)?;
-    println!("regional reunion matches");
+    for p in players.iter_mut() {
+        if p.attr("data-cell-region-authority").as_deref() != Some("0") {
+            return Err("reunion did not return regional authority to host".into());
+        }
+    }
+    println!("regional reunion matches; authority migrated back to host");
     Ok(())
 }
-fn scenario(players: &mut [Chrome], url: &str, dir: &Path, split: bool) -> Result<()> {
-    let count = players.len();
+fn delegated_pair(players: &mut [Chrome], invite: &str) -> Result<()> {
+    if players.len() != 3 && std::env::var_os("CRABSCAPE_DELEGATED_PAIR").is_none() {
+        return Ok(());
+    }
+    let n = players.len();
+    let pair = [n - 2, n - 1];
+    for &i in &pair {
+        if i == pair[0] {
+            players[i].type_line("hulk")?;
+        }
+        players[i].set_key("KeyD", true)?;
+        drive_to_split(&mut BrowserRoute {
+            player: &mut players[i],
+            started: Instant::now(),
+            progress: None,
+            obstructed: false,
+        })?;
+    }
+    wait(|| {
+        let a = roster(&mut players[pair[0]])?;
+        let b = roster(&mut players[pair[1]])?;
+        Ok(a.len() == 2 && a == b && !a.contains(&0) && roster(&mut players[0])?.len() == n - 2)
+    })?;
+    consistent_selected(players, &pair)?;
+    let members = roster(&mut players[pair[0]])?;
+    for &i in &pair {
+        if players[i].attr("data-cell-region-authority") != Some(members[0].to_string()) {
+            return Err("remote pair chose wrong authority".into());
+        }
+    }
+    let mut elected = None;
+    wait(|| {
+        let ticks = pair
+            .iter()
+            .map(|&i| {
+                players[i]
+                    .attr("data-cell-authority-ticks")
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(0)
+            })
+            .collect::<Vec<_>>();
+        if ticks[0] > 8 && ticks[1] == 0 {
+            elected = Some(pair[0]);
+        }
+        if ticks[1] > 8 && ticks[0] == 0 {
+            elected = Some(pair[1]);
+        }
+        Ok(elected.is_some())
+    })?;
+    let elected = elected.expect("observed");
+    let survivor = if elected == pair[0] { pair[1] } else { pair[0] };
+    println!("remote pair hashes match; client{elected} computes, client{survivor} follows");
+    players[elected].go("about:blank")?;
+    wait(|| {
+        let members = roster(&mut players[survivor])?;
+        Ok(members.len() == 1
+            && players[survivor].attr("data-cell-region-authority") == Some(members[0].to_string())
+            && players[survivor]
+                .attr("data-cell-authority-ticks")
+                .and_then(|v| v.parse::<u64>().ok())
+                .is_some_and(|t| t > 8))
+    })?;
+    let before = players[0]
+        .attr("data-cell-archived-batches")
+        .and_then(|v| v.parse::<u64>().ok())
+        .ok_or("missing recovered archive counter")?;
+    wait(|| {
+        Ok(players[0]
+            .attr("data-cell-archived-batches")
+            .and_then(|v| v.parse::<u64>().ok())
+            .is_some_and(|v| v > before))
+    })?;
+    println!("disconnected authority recovered; survivor computes and lobby archives");
+    players[elected].go(invite)?;
+    ready(&mut players[elected])?;
+    wait(|| {
+        Ok(roster(&mut players[0])?.len() == n - 1 && roster(&mut players[survivor])?.len() == 1)
+    })?;
+    players[survivor].hold_key("KeyH", 0.1)?;
+    players[survivor].eval(
+        "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))",
+    )?;
+    players[survivor].hold_key("KeyY", 0.1)?;
+    together(players, n)?;
+    consistent(players)?;
+    println!("authority reconnect and whole-group reunion hashes match");
+    Ok(())
+}
+// Opt-in same-machine capacity probe; never part of the CI correctness gate.
+fn capacity_sample(players: &mut [Chrome], label: &str) -> Result<()> {
+    if std::env::var_os("CRABSCAPE_CAPACITY_PROFILE").is_none() {
+        return Ok(());
+    }
+    println!("capacity phase={label} clients={}", players.len());
+    for p in players.iter_mut() {
+        p.eval(
+            "document.getElementById('crabscape').setAttribute('data-cell-performance-probe','1')",
+        )?;
+    }
+    // Let the preceding snapshot/hash pause settle before a stationary window.
+    sleep(Duration::from_secs(3));
+    for p in players.iter_mut() {
+        p.eval(r#"(async()=>{
+          const c=document.getElementById('crabscape');
+          const bytes=async()=>{let sent=0,received=0,connections=0;for(const pc of window.__actorProfilePcs||[]){if(pc.connectionState==='closed')continue;connections++;for(const s of (await pc.getStats()).values()){if(s.type==='data-channel'){sent+=s.bytesSent||0;received+=s.bytesReceived||0;}}}return {sent,received,connections};};
+          const gl=c.getContext('webgl2');const info=gl?.getExtension('WEBGL_debug_renderer_info');const renderer=gl?(info?gl.getParameter(info.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER)):null;
+          const s=window.__capacity={renderer,frames:[],tickGaps:[],start:performance.now(),firstTick:Number((c.getAttribute('data-cell-performance')?.split(':')[0]??c.getAttribute('data-cell-session-tick'))),before:await bytes(),bytes,done:false};
+          let previous=null,changed=performance.now(),tick=(c.getAttribute('data-cell-performance')?.split(':')[0]??c.getAttribute('data-cell-session-tick'));
+          function frame(now){if(previous!==null)s.frames.push(now-previous);previous=now;const next=(c.getAttribute('data-cell-performance')?.split(':')[0]??c.getAttribute('data-cell-session-tick'));if(next!==tick){s.tickGaps.push(now-changed);changed=now;tick=next;}if(now-s.start<15000){requestAnimationFrame(frame);}else{s.end=now;s.lastTick=Number(tick);s.tailTickGap=now-changed;s.done=true;}}requestAnimationFrame(frame);
+        })()"#)?;
+    }
+    sleep(Duration::from_secs(16));
+    for (n, p) in players.iter_mut().enumerate() {
+        let value=p.eval(r#"(async()=>{const s=window.__capacity;const stats=a=>{a=[...a].sort((a,b)=>a-b);const q=p=>a[Math.min(a.length-1,Math.floor(a.length*p))]??null;return {count:a.length,p50:q(.5),p95:q(.95),p99:q(.99),max:q(1)};};const after=await s.bytes();return {renderer:s.renderer,done:s.done,durationMs:s.end-s.start,framesMs:stats(s.frames),tickGapsMs:stats(s.tickGaps),tailTickGapMs:s.tailTickGap,ticks:s.lastTick-s.firstTick,connections:after.connections,sentBytes:after.sent-s.before.sent,receivedBytes:after.received-s.before.received,networkDurationMs:performance.now()-s.start,stage:document.getElementById('crabscape').getAttribute('data-cell-region-state')};})()"#)?;
+        println!("capacity phase={label} client={n} sample={value}");
+    }
+    Ok(())
+}
+fn scenario(
+    players: &mut Vec<Chrome>,
+    url: &str,
+    dir: &Path,
+    split: bool,
+    count: usize,
+    options: Options,
+) -> Result<()> {
     let last = count - 1;
     players[0].go(url)?;
     ready(&mut players[0])?;
+    capacity_sample(&mut players[..1], "solo")?;
     players[0].click(1016.0, 27.0)?;
     let mut invite = String::new();
     wait(|| {
@@ -328,11 +496,23 @@ fn scenario(players: &mut [Chrome], url: &str, dir: &Path, split: bool) -> Resul
         Ok(invite.contains("join="))
     })?;
     for n in 1..count {
+        if n == players.len() {
+            let mut p = Chrome::start(
+                &format!("client-{n}"),
+                &dir.join(format!("profile-{n}")),
+                options,
+            )?;
+            p.actor_profile_hook()?;
+            players.push(p);
+        }
         players[n].go(&invite)?;
         ready(&mut players[n])?;
         together(&mut players[..=n], n + 1)?;
         consistent(&mut players[..=n])?;
         println!("joined={} matching cellular rosters and hashes", n + 1);
+        if n + 1 == 3 || n + 1 == 8 {
+            capacity_sample(&mut players[..=n], "shared")?;
+        }
     }
     for p in players.iter_mut() {
         let before = position(p)?;
@@ -345,6 +525,7 @@ fn scenario(players: &mut [Chrome], url: &str, dir: &Path, split: bool) -> Resul
     consistent(players)?;
     if split {
         split_and_reunite(players)?;
+        delegated_pair(players, &invite)?;
     }
     // Leaving the page closes this participant's transport. The remaining roster
     // must remove it; rejoining must restore all unique actors, not a ghost.
@@ -380,14 +561,24 @@ pub(crate) fn run(
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let mut players = Vec::new();
-    for n in 0..count {
+    let initial = if std::env::var_os("CRABSCAPE_CAPACITY_PROFILE").is_some() {
+        1
+    } else {
+        count
+    };
+    for n in 0..initial {
         players.push(Chrome::start(
             &format!("client-{n}"),
             &dir.join(format!("profile-{n}")),
             options,
         )?);
     }
-    let result = scenario(&mut players, url, dir, split);
+    if std::env::var_os("CRABSCAPE_CAPACITY_PROFILE").is_some() {
+        for p in &mut players {
+            p.actor_profile_hook()?;
+        }
+    }
+    let result = scenario(&mut players, url, dir, split, count, options);
     if result.is_err() {
         for (n, p) in players.iter_mut().enumerate() {
             eprintln!(

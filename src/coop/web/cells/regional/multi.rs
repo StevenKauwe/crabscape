@@ -1,6 +1,7 @@
-//! N-player regional replication. The owner runs exclusive regions; visitors
-//! follow only their region. This does not establish 32-player CPU capacity.
+//! Member-owned regional computation with lobby-owned recovery journals.
+//! The host runs only its region; delegated groups elect their smallest member.
 use super::*;
+mod delegated;
 use crate::coop::cells_wire::{RetiredRegion, region_ready_to_retire};
 use crabsim::net::cell_join::transfers::Transfers;
 use std::collections::BTreeMap;
@@ -10,8 +11,22 @@ pub(super) struct Multi {
     transfers: Transfers,
     serial: u64,
     retired: BTreeMap<PlayerId, RetiredRegion>,
+    drive: BTreeMap<PlayerId, Controls>,
+    actions: VecDeque<(PlayerId, crate::coop::CellsAction)>,
+    local_authority: Option<PlayerId>,
+    executed_ticks: u64,
+    archived_batches: u64,
+    enabled: bool,
+    stopping: bool,
 }
 struct Group {
+    authority: PlayerId,
+    bounds: CellRegion,
+    positions: BTreeMap<PlayerId, Vec2>,
+    stopped: bool,
+    stop_sent: bool,
+    needs_region: bool,
+    arrival_offered: u64,
     members: Vec<PlayerId>,
     kernel: Option<RegionKernel>,
     journal: Option<RegionJournal>,
@@ -67,15 +82,30 @@ fn layout(points: &[(PlayerId, Vec2)]) -> Result<Vec<(Vec<PlayerId>, CellRegion)
     groups.sort_by_key(|g| g.0[0]);
     Ok(groups)
 }
-pub(super) fn kernels(m: &Multi) -> Vec<&RegionKernel> {
-    m.groups
-        .values()
-        .filter_map(|g| g.kernel.as_ref())
+pub(super) fn recover_for_save(r: &State) -> Result<Vec<RegionKernel>, String> {
+    r.multi
+        .as_ref()
+        .into_iter()
+        .flat_map(|m| m.groups.values())
+        .filter_map(|g| g.journal.as_ref())
+        .map(|j| j.materialize().map_err(fault))
         .collect()
 }
+pub(super) fn local_authority(r: &State) -> Option<PlayerId> {
+    r.multi.as_ref().and_then(|m| m.local_authority)
+}
+fn authority(members: &[PlayerId]) -> PlayerId {
+    crate::coop::cells_wire::region_authority(members).expect("validated nonempty regional roster")
+}
 pub(super) fn collect(s: &Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
+    let _profile = crate::cell_save::work::begin("cell-multi-collect");
     let m = r.multi.as_mut().ok_or("Missing multi-region state")?;
     let owner = r.owner.as_mut().ok_or("Missing owner")?;
+    for group in m.groups.values_mut() {
+        if let Some(journal) = &group.journal {
+            group.kernel = Some(journal.materialize().map_err(fault)?);
+        }
+    }
     // Paging/commit failure must leave every canonical kernel available. Do
     // not move any actor out of its live kernel until all terrain commits pass.
     if let Some(kernel) = r.kernel.as_ref() {
@@ -166,9 +196,10 @@ pub(super) fn collect(s: &Session, r: &mut State, sim: &mut Sim) -> Result<(), S
 }
 pub(super) fn quiescent(r: &State) -> bool {
     r.multi.as_ref().is_some_and(|m| {
-        m.groups
-            .values()
-            .all(|g| region_ready_to_retire(g.partial.len(), &g.ready, &g.applied))
+        m.groups.values().all(|g| {
+            region_ready_to_retire(g.partial.len(), &g.ready, &g.applied)
+                && (g.authority == HOST || g.stopped)
+        })
     })
 }
 pub(super) fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(), String> {
@@ -179,6 +210,7 @@ pub(super) fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(),
         .map(|id| Ok((id, point(&owner.entities.sim, id)?)))
         .collect::<Result<Vec<_>, String>>()?;
     let groups = layout(&points)?;
+    r.multi.get_or_insert_with(Multi::default).local_authority = Some(HOST);
     if !owner
         .terrain
         .prefetch_regions(&groups.iter().map(|g| g.1).collect::<Vec<_>>())
@@ -193,11 +225,26 @@ pub(super) fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(),
         .ok_or("Regional transfer counter exhausted")?;
     m.transfers = Transfers::default();
     for (members, bounds) in groups {
+        let extraction = crate::cell_save::work::begin("cell-multi-extract");
         let kernel = extract(owner, &members, bounds)?;
+        drop(extraction);
         let id = kernel.id;
         let tick = kernel.sim.tick_count();
-        let (journal, bytes) = RegionJournal::new_with_checkpoint(&kernel, HOST).map_err(fault)?;
+        let checkpoint = crate::cell_save::work::begin("cell-multi-checkpoint-encode");
+        let (journal, bytes) =
+            RegionJournal::new_with_checkpoint(&kernel, authority(&members)).map_err(fault)?;
+        drop(checkpoint);
         let mut group = Group {
+            authority: authority(&members),
+            bounds,
+            positions: members
+                .iter()
+                .map(|id| Ok((*id, point(&kernel.sim, *id)?)))
+                .collect::<Result<_, String>>()?,
+            stopped: false,
+            stop_sent: false,
+            needs_region: false,
+            arrival_offered: 0,
             members: members.clone(),
             kernel: None,
             journal: None,
@@ -227,7 +274,8 @@ pub(super) fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(),
             r.kernel = Some(kernel.install_view(sim));
             r.journal = Some(journal);
         } else {
-            group.kernel = Some(kernel);
+            // Remote physics executes only on its elected member.
+            drop(kernel);
             group.journal = Some(journal);
         }
         m.groups.insert(id, group);
@@ -361,31 +409,7 @@ pub(super) fn step(
     local: PlayerId,
 ) -> Result<(), String> {
     if local != HOST {
-        if r.stage != Stage::Running {
-            return Ok(());
-        }
-        falling::step(s, r, sim, local)?;
-        if let Some(frame) = r.frames.pop_front() {
-            let k = r.kernel.as_mut().ok_or("Missing replica kernel")?;
-            k.tick_view(sim, &frame).map_err(fault)?;
-            r.journal
-                .as_mut()
-                .ok_or("Missing replica journal")?
-                .append(HOST, k.epoch, &[frame])
-                .map_err(fault)?;
-            if sim.tick_count().is_multiple_of(4) || r.frames.is_empty() {
-                send_to(
-                    s,
-                    HOST,
-                    RegionMsg::Applied {
-                        region: k.id.0,
-                        epoch: k.epoch.0,
-                        tick: sim.tick_count(),
-                    },
-                )?;
-            }
-        }
-        return Ok(());
+        return delegated::step(s, r, sim, local);
     }
     if r.stage != Stage::Running {
         return Ok(());
@@ -432,6 +456,7 @@ pub(super) fn step(
     let mut host_journal = r.journal.take().ok_or("Missing owner journal")?;
     let result = (|| {
         let group = m.groups.get_mut(&host_id).ok_or("Missing owner group")?;
+        let before = host_kernel.sim.tick_count();
         advance(
             s,
             owner,
@@ -440,16 +465,12 @@ pub(super) fn step(
             &mut host_journal,
             stopping,
         )?;
+        m.executed_ticks += host_kernel.sim.tick_count().saturating_sub(before);
         for (id, group) in &mut m.groups {
             if *id == host_id {
                 continue;
             }
-            let mut kernel = group.kernel.take().ok_or("Missing remote kernel")?;
-            let mut journal = group.journal.take().ok_or("Missing remote journal")?;
-            let result = advance(s, owner, group, &mut kernel, &mut journal, stopping);
-            group.kernel = Some(kernel);
-            group.journal = Some(journal);
-            result?;
+            delegated::drive(s, owner, group, stopping)?;
         }
         Ok(())
     })();
@@ -461,13 +482,28 @@ fn needs_change(r: &State, sim: &Sim) -> Result<bool, String> {
     let m = r.multi.as_ref().ok_or("Missing groups")?;
     let mut points = Vec::new();
     for group in m.groups.values() {
-        let world = group.kernel.as_ref().map(|k| &k.sim).unwrap_or(sim);
-        let bounds = bounds(world)?;
-        if salvage_outside_lease(world) {
+        if group.authority != HOST {
+            if group.needs_region
+                || group
+                    .positions
+                    .values()
+                    .any(|p| near_edge(group.bounds, *p))
+                || group
+                    .journal
+                    .as_ref()
+                    .is_some_and(|j| j.pending_ticks() >= 3600)
+            {
+                return Ok(true);
+            }
+            points.extend(group.positions.iter().map(|(id, p)| (*id, *p)));
+            continue;
+        }
+        let bounds = bounds(sim)?;
+        if salvage_outside_lease(sim) {
             return Ok(true);
         }
         for &id in &group.members {
-            let position = point(world, id)?;
+            let position = point(sim, id)?;
             if near_edge(bounds, position) {
                 return Ok(true);
             }
@@ -496,80 +532,13 @@ pub(super) fn receive(
     msg: RegionMsg,
 ) -> Result<(), String> {
     if local == HOST {
-        // The transport binding is still required even when no active group
-        // exists. A reconnect must not inherit the previous connection's replies.
-        let connection = s
-            .participants
-            .get(&sender)
-            .ok_or("Missing participant")?
-            .peer
-            .0
-            .as_u128();
-        let m = r.multi.as_mut().ok_or("Missing groups")?;
-        // Collection may be followed by several paging frames. Classify the
-        // last generation before looking up its now-retired group.
-        if m.retired
-            .get(&sender)
-            .is_some_and(|old| old.contains_reply(connection, &msg))
-        {
-            return Ok(());
-        }
-        let group = m
-            .groups
-            .values_mut()
-            .find(|g| g.members.contains(&sender))
-            .ok_or("Unknown regional participant")?;
-        let k = group
-            .kernel
-            .as_ref()
-            .or(r.kernel.as_ref())
-            .ok_or("Missing regional kernel")?;
-        let current = if group.kernel.is_some() {
-            k.sim.tick_count()
-        } else {
-            sim.tick_count()
-        };
-        match msg {
-            RegionMsg::Ack { transfer, piece }
-                if transfer == m.serial
-                    && group.ready.contains(&sender)
-                    && piece < group.pieces => {}
-            RegionMsg::Ready { transfer, tick }
-                if transfer == m.serial
-                    && group.ready.contains(&sender)
-                    && tick == group.first_tick => {}
-            RegionMsg::Ack { transfer, piece } => m
-                .transfers
-                .acknowledge(connection, transfer, piece)
-                .map_err(fault)?,
-            RegionMsg::Ready { transfer, tick } => {
-                if transfer != m.serial || tick != current {
-                    return Err("Wrong regional ready state".into());
-                }
-                m.transfers.finish(connection, transfer).map_err(fault)?;
-                group.ready.insert(sender);
-                group.applied.insert(sender, tick);
-            }
-            RegionMsg::Applied {
-                region,
-                epoch,
-                tick,
-            } => {
-                let old = group
-                    .applied
-                    .get_mut(&sender)
-                    .ok_or("Missing replica acknowledgement")?;
-                if region != k.id.0 || epoch != k.epoch.0 || tick < *old || tick > current {
-                    return Err("Invalid regional acknowledgement".into());
-                }
-                *old = tick;
-            }
-            _ => return Err("Unexpected follower message".into()),
-        }
-        return Ok(());
+        return delegated::receive_host(s, r, sim, sender, msg);
     }
     if sender != HOST {
         return Err("Wrong regional authority".into());
+    }
+    if delegated::receive_guest(s, r, sim, local, &msg)? {
+        return Ok(());
     }
     match msg {
         RegionMsg::Begin { transfer } => {
@@ -588,15 +557,29 @@ pub(super) fn receive(
                 return Err("Wrong regional transfer".into());
             }
             if let Some(bytes) = r.receiver.accept(&bytes).map_err(fault)? {
+                let decoding = crate::cell_save::work::begin("cell-multi-checkpoint-decode");
                 let (kernel, journal) =
-                    RegionJournal::from_checkpoint(bytes, |_| HOST).map_err(fault)?;
+                    RegionJournal::from_checkpoint(bytes, |kernel| authority(&kernel.members()))
+                        .map_err(fault)?;
+                drop(decoding);
                 if !kernel.members().contains(&local) {
                     return Err("Wrong regional membership".into());
                 }
                 r.next_batch = kernel.sim.tick_count();
-                r.shared = true;
+                r.shared = authority(&kernel.members()) != local;
+                r.multi = Some(Multi {
+                    local_authority: Some(authority(&kernel.members())),
+                    ..Default::default()
+                });
+                r.applied = kernel.sim.tick_count();
+                r.partial.clear();
+                r.falls_offered = 0;
+                r.falls_accepted = 0;
+                r.arrival = None;
                 r.journal = Some(journal);
+                let installation = crate::cell_save::work::begin("cell-multi-checkpoint-install");
                 r.kernel = Some(kernel.install_view(sim));
+                drop(installation);
                 r.stage = Stage::Running;
                 send_to(
                     s,
@@ -671,10 +654,40 @@ pub(super) fn update(
             }
         }
     }
+    if local != HOST
+        && r.partial.is_empty()
+        && r.journal
+            .as_ref()
+            .is_some_and(|j| j.pending_ticks() >= 3600)
+    {
+        let leader = local_authority(r).ok_or("Missing local authority")?;
+        let k = r.kernel.as_mut().ok_or("Missing compacting kernel")?;
+        r.journal
+            .as_mut()
+            .expect("checked")
+            .replace_from_local_view(leader, k, sim)
+            .map_err(fault)?;
+    }
     if let Some(canvas) = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id("crabscape"))
     {
+        if let Some(m) = &r.multi {
+            let _ =
+                canvas.set_attribute("data-cell-authority-ticks", &m.executed_ticks.to_string());
+            let _ = canvas.set_attribute(
+                "data-cell-archived-batches",
+                &m.archived_batches.to_string(),
+            );
+            let _ = canvas.set_attribute(
+                "data-cell-delegated-regions",
+                &m.groups
+                    .values()
+                    .filter(|g| g.authority != HOST)
+                    .count()
+                    .to_string(),
+            );
+        }
         let running = r.stage == Stage::Running
             && r.multi
                 .as_ref()
@@ -689,8 +702,8 @@ pub(super) fn update(
                 "receiving"
             },
         );
-        let separate = if let Some(m) = &r.multi {
-            m.groups.len() > 1
+        let separate = if local == HOST {
+            r.multi.as_ref().is_some_and(|m| m.groups.len() > 1)
         } else {
             sim.crab(HOST).is_none()
         };
@@ -699,6 +712,13 @@ pub(super) fn update(
             if separate { "separate" } else { "shared" },
         );
         if let Some(k) = &r.kernel {
+            let _ = canvas.set_attribute(
+                "data-cell-region-authority",
+                &local_authority(r)
+                    .ok_or("Missing local authority")?
+                    .0
+                    .to_string(),
+            );
             let _ = canvas.set_attribute("data-cell-region-id", &k.id.0.to_string());
             let _ = canvas.set_attribute("data-cell-region-revision", &k.revision().to_string());
             let _ =

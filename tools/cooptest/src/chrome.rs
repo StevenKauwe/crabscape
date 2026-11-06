@@ -319,7 +319,7 @@ impl Chrome {
 
     /// Capture the probe's peer connection in this and future documents.
     pub fn actor_profile_hook(&mut self) -> Result<()> {
-        const HOOK: &str = "(() => { const Base = window.RTCPeerConnection; window.RTCPeerConnection = class extends Base { constructor(...args) { super(...args); window.__actorProfilePc = this; } }; })()";
+        const HOOK: &str = "(() => { const Base = window.RTCPeerConnection; window.RTCPeerConnection = class extends Base { constructor(...args) { super(...args); window.__actorProfilePc = this; (window.__actorProfilePcs ||= []).push(this); } }; })()";
         self.call(
             "Page.addScriptToEvaluateOnNewDocument",
             json!({ "source": HOOK }),

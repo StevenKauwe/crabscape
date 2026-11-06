@@ -6,6 +6,31 @@ const PREFIX: &[u8] = b"CSIM1";
 pub(crate) use crabsim::replay::CellSessionTick as Tick;
 #[derive(Serialize, Deserialize)]
 pub(crate) enum RegionMsg {
+    AuthorityDrive {
+        region: u64,
+        epoch: u64,
+        #[serde(deserialize_with = "read_eight")]
+        controls: Vec<(PlayerId, crabsim::Controls)>,
+        #[serde(deserialize_with = "read_actions")]
+        actions: Vec<(PlayerId, crabsim::replay::CellSessionAction)>,
+    },
+    AuthorityBatch {
+        region: u64,
+        epoch: u64,
+        frames: Box<[crabsim::world::regions::RegionFrame; 4]>,
+        #[serde(deserialize_with = "read_eight")]
+        positions: Vec<(PlayerId, [f32; 2])>,
+        needs_region: bool,
+    },
+    AuthorityStop {
+        region: u64,
+        epoch: u64,
+    },
+    AuthorityStopped {
+        region: u64,
+        epoch: u64,
+        tick: u64,
+    },
     Falls {
         region: u64,
         epoch: u64,
@@ -507,5 +532,108 @@ mod retired_region_tests {
             &BTreeSet::new(),
             &BTreeMap::new()
         ));
+    }
+}
+
+fn read_bounded<'de, D, T, const N: usize>(d: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Items<T, const N: usize>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>, const N: usize> serde::de::Visitor<'de> for Items<T, N> {
+        type Value = Vec<T>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "at most {N} items")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            use serde::de::Error;
+            if seq.size_hint().is_some_and(|n| n > N) {
+                return Err(A::Error::custom("regional list limit"));
+            }
+            let mut items = Vec::new();
+            while let Some(item) = seq.next_element()? {
+                if items.len() == N {
+                    return Err(A::Error::custom("regional list limit"));
+                }
+                items.push(item);
+            }
+            Ok(items)
+        }
+    }
+    d.deserialize_seq(Items::<T, N>(std::marker::PhantomData))
+}
+fn read_eight<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Vec<T>, D::Error> {
+    read_bounded::<D, T, 8>(d)
+}
+fn read_actions<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Vec<T>, D::Error> {
+    read_bounded::<D, T, 32>(d)
+}
+
+/// Stable region authority: the host wins when present; otherwise a member owns it.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn region_authority(members: &[PlayerId]) -> Option<PlayerId> {
+    members.iter().copied().min()
+}
+#[cfg(test)]
+mod authority_wire_tests {
+    use super::*;
+    #[test]
+    fn authority_stays_in_region_and_migrates_after_departure() {
+        assert_eq!(
+            region_authority(&[PlayerId(7), PlayerId(0), PlayerId(2)]),
+            Some(PlayerId(0))
+        );
+        assert_eq!(
+            region_authority(&[PlayerId(7), PlayerId(2)]),
+            Some(PlayerId(2))
+        );
+        assert_eq!(region_authority(&[PlayerId(7)]), Some(PlayerId(7)));
+        assert_eq!(region_authority(&[]), None);
+    }
+    #[test]
+    fn drive_roundtrip_and_bounds() {
+        for count in [8, 9] {
+            let msg = Wire::Region {
+                epoch: 3,
+                msg: RegionMsg::AuthorityDrive {
+                    region: 4,
+                    epoch: 5,
+                    controls: (0..count)
+                        .map(|id| (PlayerId(id), crabsim::Controls::default()))
+                        .collect(),
+                    actions: vec![],
+                },
+            };
+            let bytes = encode(&msg).unwrap();
+            assert_eq!(decode(&bytes).is_some(), count == 8);
+        }
+    }
+    #[test]
+    fn oversized_authority_positions_are_rejected() {
+        let msg = Wire::Region {
+            epoch: 3,
+            msg: RegionMsg::AuthorityBatch {
+                region: 4,
+                epoch: 5,
+                frames: Box::new(std::array::from_fn(|tick| {
+                    crabsim::world::regions::RegionFrame {
+                        tick: tick as u64,
+                        controls: vec![],
+                        actions: vec![],
+                    }
+                })),
+                positions: (0..9).map(|id| (PlayerId(id), [0.0, 0.0])).collect(),
+                needs_region: false,
+            },
+        };
+        assert!(decode(&encode(&msg).unwrap()).is_none());
     }
 }

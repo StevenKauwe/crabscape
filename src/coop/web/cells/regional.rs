@@ -381,7 +381,9 @@ pub(super) fn replay_journal(s: &Session) -> Option<Result<RegionJournal, String
             .ok_or("Regional recording is not ready")?;
         let mut journal =
             RegionJournal::from_bytes(&source.to_bytes().map_err(fault)?).map_err(fault)?;
-        let authority = if r.shared || s.phase == Phase::Host {
+        let authority = if s.multi {
+            multi::local_authority(r).ok_or("Missing regional authority")?
+        } else if r.shared || s.phase == Phase::Host {
             HOST
         } else {
             s.guest.ok_or("Missing visitor")?
@@ -1263,7 +1265,8 @@ pub(super) fn prepare_owner_save(
 ) -> Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error> {
     use crate::cell_save::Error;
     let local = r.kernel.as_ref().ok_or(Error::Damaged)?;
-    let remotes = r.multi.as_ref().map(multi::kernels).unwrap_or_default();
+    let recovered = multi::recover_for_save(r).map_err(|_| Error::Damaged)?;
+    let remotes: Vec<_> = recovered.iter().collect();
     let owner = r.owner.as_mut().ok_or(Error::Damaged)?;
     let capture = crate::cell_save::regional::prepare_owner_save(
         view,
@@ -1286,9 +1289,9 @@ pub(super) fn forward_offer(s: &mut Session, action: super::super::super::CellsA
     let player = s
         .regional
         .as_ref()
-        .and_then(|r| r.multi.as_ref())
-        .and_then(|m| {
-            multi::kernels(m).into_iter().find_map(|k| {
+        .and_then(|r| multi::recover_for_save(r).ok())
+        .and_then(|kernels| {
+            kernels.iter().find_map(|k| {
                 let owns = match action {
                     CellsAction::Salvage(SalvageAction::OfferFragment(index, _)) => {
                         k.sim.salvage.as_ref().is_some_and(|site| {

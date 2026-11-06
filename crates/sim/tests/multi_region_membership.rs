@@ -10,7 +10,7 @@ use crabsim::{
 };
 
 #[test]
-fn owner_authority_recovers_three_disjoint_regions_before_leave_and_rejoin() {
+fn guest_authorities_recover_three_disjoint_regions_before_leave_and_rejoin() {
     let owner = PlayerId(0);
     let level = Level::test_level();
     let mut whole = Sim::new(Tuning::default(), level.clone());
@@ -33,9 +33,8 @@ fn owner_authority_recovers_three_disjoint_regions_before_leave_and_rejoin() {
         let kernel = entities
             .extract(id, epoch, &[PlayerId(n as u32)], cells)
             .unwrap();
-        // The network owner can be the authority without having an actor in
-        // that region. Each visitor's region still has exactly one actor.
-        let journal = RegionJournal::new(&kernel, owner).unwrap();
+        // Each isolated visitor executes its own region; the owner archives history.
+        let journal = RegionJournal::new(&kernel, PlayerId(n as u32)).unwrap();
         regions.push((kernel, journal));
     }
     assert_eq!(terrain.active_regions(), 3);
@@ -53,8 +52,31 @@ fn owner_authority_recovers_three_disjoint_regions_before_leave_and_rejoin() {
                 )],
                 actions: vec![],
             };
-            kernel.tick(&frame).unwrap();
-            journal.append(owner, kernel.epoch, &[frame]).unwrap();
+            // Browser kernels move their simulation into the visible view.
+            // Preserve authority before installation; never infer it from the empty kernel.
+            let members = kernel.members();
+            let elected = *members.iter().min().unwrap();
+            let mut view = Sim::new(Tuning::default(), Level::test_level());
+            std::mem::swap(&mut kernel.sim, &mut view);
+            assert!(kernel.members().is_empty());
+            assert_eq!(
+                view.crabs().iter().map(|c| c.id).collect::<Vec<_>>(),
+                members
+            );
+            kernel.tick_view(&mut view, &frame).unwrap();
+            assert_eq!(elected, PlayerId(n as u32));
+            std::mem::swap(&mut kernel.sim, &mut view);
+            let authority = PlayerId(n as u32);
+            if authority != owner {
+                let before = journal.acknowledged_tick();
+                assert!(
+                    journal
+                        .append(owner, kernel.epoch, std::slice::from_ref(&frame))
+                        .is_err()
+                );
+                assert_eq!(journal.acknowledged_tick(), before);
+            }
+            journal.append(authority, kernel.epoch, &[frame]).unwrap();
         }
     }
     for (kernel, journal) in &regions {
