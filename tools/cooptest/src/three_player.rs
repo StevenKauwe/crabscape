@@ -131,22 +131,97 @@ trait SplitRoute {
 struct BrowserRoute<'a> {
     player: &'a mut Chrome,
     started: Instant,
+    progress: Option<RouteProgress>,
+    obstructed: bool,
+}
+// A stationary crab with advancing simulation can be caught on terrain or
+// kelp. A paused simulation must not trigger extra swimming impulses.
+struct RouteProgress {
+    x: f64,
+    since: u64,
+    last: u64,
+}
+impl RouteProgress {
+    fn new(x: f64, tick: u64) -> Self {
+        Self {
+            x,
+            since: tick,
+            last: tick,
+        }
+    }
+    fn obstructed(&mut self, x: f64, tick: u64) -> bool {
+        if x > self.x + 8.0 || tick < self.last {
+            *self = Self::new(x, tick);
+            return false;
+        }
+        let advanced = tick > self.last;
+        self.last = tick;
+        if advanced && tick.saturating_sub(self.since) >= 360 {
+            *self = Self::new(x, tick);
+            true
+        } else {
+            false
+        }
+    }
 }
 impl SplitRoute for BrowserRoute<'_> {
     fn sample(&mut self) -> Result<(f64, f64)> {
-        position(self.player)
+        let at = Instant::now();
+        let value = self.player.eval("(()=>{const c=document.getElementById('crabscape');return {position:c.getAttribute('data-crab'),tick:c.getAttribute('data-cell-session-tick'),stage:c.getAttribute('data-cell-region-state'),controls:c.getAttribute('data-cell-controls')};})()")?;
+        println!(
+            "split sample elapsed={:.3}s latency={:.3}s state={value}",
+            self.started.elapsed().as_secs_f64(),
+            at.elapsed().as_secs_f64()
+        );
+        let mut parts = value["position"]
+            .as_str()
+            .ok_or("missing route position")?
+            .split_whitespace();
+        let x = parts
+            .next()
+            .ok_or("missing route x")?
+            .parse::<f64>()
+            .map_err(|e| e.to_string())?;
+        let y = parts
+            .next()
+            .ok_or("missing route y")?
+            .parse::<f64>()
+            .map_err(|e| e.to_string())?;
+        if !x.is_finite() || !y.is_finite() {
+            return Err("non-finite route position".into());
+        }
+        let tick = value["tick"]
+            .as_str()
+            .and_then(|v| v.parse::<u64>().ok())
+            .ok_or("missing route tick")?;
+        self.obstructed = self
+            .progress
+            .get_or_insert_with(|| RouteProgress::new(x, tick))
+            .obstructed(x, tick);
+        if self.obstructed {
+            println!(
+                "split obstacle: advancing simulation without horizontal progress at {x:.1},{y:.1}, tick={tick}"
+            );
+        }
+        Ok((x, y))
     }
     fn elapsed(&self) -> Duration {
         self.started.elapsed()
     }
     fn steer(&mut self, height: f64) -> Result<()> {
-        if height < 200.0 {
+        let at = Instant::now();
+        if height <= 450.0 && (height < 200.0 || self.obstructed) {
             self.player.hold_key("KeyW", 0.9)?;
         } else if height > 450.0 {
             self.player.hold_key("ArrowDown", 0.9)?;
         } else {
             sleep(Duration::from_millis(500));
         }
+        println!(
+            "split steer height={height:.2} elapsed={:.3}s latency={:.3}s",
+            self.started.elapsed().as_secs_f64(),
+            at.elapsed().as_secs_f64()
+        );
         Ok(())
     }
     fn release(&mut self) -> Result<()> {
@@ -190,11 +265,15 @@ fn drive_to_split(route: &mut impl SplitRoute) -> Result<()> {
 fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
     let count = players.len();
     let last = count - 1;
+    players[last]
+        .eval("document.getElementById('crabscape').setAttribute('data-cell-control-probe','1')")?;
     players[last].type_line("hulk")?;
     players[last].set_key("KeyD", true)?;
     drive_to_split(&mut BrowserRoute {
         player: &mut players[last],
         started: Instant::now(),
+        progress: None,
+        obstructed: false,
     })?;
     // The detailed health checks remain mandatory, but no longer add six
     // blocking CDP evaluations to every steering observation on a slow runner.
@@ -372,6 +451,18 @@ mod route_tests {
             released: false,
             steered: 0,
         }
+    }
+    #[test]
+    fn obstacle_recovery_requires_simulation_progress_and_is_bounded() {
+        let mut p = RouteProgress::new(342.5, 100);
+        assert!(!p.obstructed(342.5, 100));
+        assert!(!p.obstructed(342.5, 459));
+        assert!(p.obstructed(342.5, 460));
+        assert!(!p.obstructed(342.5, 461));
+        assert!(!p.obstructed(352.0, 820));
+        assert!(!p.obstructed(352.0, 20));
+        assert!(!p.obstructed(352.0, 20));
+        assert!(p.obstructed(352.0, 380));
     }
     #[test]
     fn slow_position_response_crossing_deadline_is_confirmed_after_stopping() {
