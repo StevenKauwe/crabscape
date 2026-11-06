@@ -1166,21 +1166,23 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 })?;
             }
             guest.b.type_line("level swimming 25")?;
-            sleep(1.0);
-            let scene = regional_scene(&mut guest)?;
-            let guest_id = scene
-                .crabs()
-                .iter()
-                .find(|c| c.id.0 != 0)
-                .ok_or("missing guest in shared region")?
-                .id;
-            let earned = scene
-                .progress(guest_id)
-                .ok_or("missing guest progress")?
-                .swim_xp;
-            if earned <= 0.0 {
-                return Err("guest did not gain swimming progress".into());
-            }
+            let started = Instant::now();
+            let earned = loop {
+                let scene = regional_scene(&mut guest)?;
+                if let Some(progress) = scene
+                    .crabs()
+                    .iter()
+                    .find(|c| c.id.0 != 0)
+                    .and_then(|c| scene.progress(c.id))
+                    && progress.swim_xp > 0.0
+                {
+                    break progress.swim_xp;
+                }
+                if started.elapsed().as_secs() > 30 {
+                    return Err(guest.failed("guest did not gain swimming progress".into()));
+                }
+                sleep(0.5);
+            };
             host.b.eval(r#"(()=>{const send=RTCDataChannel.prototype.send;window.__heldPieces=0;
               RTCDataChannel.prototype.send=function(data){const b=data instanceof ArrayBuffer?new Uint8Array(data):
                 ArrayBuffer.isView(data)?new Uint8Array(data.buffer,data.byteOffset,data.byteLength):null;
