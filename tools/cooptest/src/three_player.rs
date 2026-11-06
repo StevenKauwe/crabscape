@@ -188,10 +188,12 @@ fn drive_to_split(route: &mut impl SplitRoute) -> Result<()> {
     ))
 }
 fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
-    players[2].type_line("hulk")?;
-    players[2].set_key("KeyD", true)?;
+    let count = players.len();
+    let last = count - 1;
+    players[last].type_line("hulk")?;
+    players[last].set_key("KeyD", true)?;
     drive_to_split(&mut BrowserRoute {
-        player: &mut players[2],
+        player: &mut players[last],
         started: Instant::now(),
     })?;
     // The detailed health checks remain mandatory, but no longer add six
@@ -203,32 +205,37 @@ fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
     }
     wait(|| {
         let host = roster(&mut players[0])?;
-        let friend = roster(&mut players[1])?;
-        let away = roster(&mut players[2])?;
+        let friends = players[1..last]
+            .iter_mut()
+            .map(roster)
+            .collect::<Result<Vec<_>>>()?;
+        let away = roster(&mut players[last])?;
         let running = players
             .iter_mut()
             .all(|p| p.attr("data-cell-region-state").as_deref() == Some("running"));
         Ok(running
-            && host.len() == 2
-            && friend == host
+            && host.len() == last
+            && friends.iter().all(|friend| *friend == host)
             && away.len() == 1
             && !host.contains(&away[0]))
     })?;
-    consistent(&mut players[..2])?;
-    let before = players[2].attr("data-cell-session-tick");
-    wait(|| Ok(players[2].attr("data-cell-session-tick") != before))?;
-    println!("separate third-player region advances; remaining pair matches");
-    players[2].hold_key("KeyH", 0.1)?;
-    players[2].eval(
+    consistent(&mut players[..last])?;
+    let before = players[last].attr("data-cell-session-tick");
+    wait(|| Ok(players[last].attr("data-cell-session-tick") != before))?;
+    println!("separate player region advances; remaining group matches");
+    players[last].hold_key("KeyH", 0.1)?;
+    players[last].eval(
         "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))",
     )?;
-    players[2].hold_key("KeyY", 0.1)?;
-    together(players, 3)?;
+    players[last].hold_key("KeyY", 0.1)?;
+    together(players, count)?;
     consistent(players)?;
-    println!("three-player regional reunion matches");
+    println!("regional reunion matches");
     Ok(())
 }
 fn scenario(players: &mut [Chrome], url: &str, dir: &Path, split: bool) -> Result<()> {
+    let count = players.len();
+    let last = count - 1;
     players[0].go(url)?;
     ready(&mut players[0])?;
     players[0].click(1016.0, 27.0)?;
@@ -241,7 +248,7 @@ fn scenario(players: &mut [Chrome], url: &str, dir: &Path, split: bool) -> Resul
             .to_owned();
         Ok(invite.contains("join="))
     })?;
-    for n in 1..3 {
+    for n in 1..count {
         players[n].go(&invite)?;
         ready(&mut players[n])?;
         together(&mut players[..=n], n + 1)?;
@@ -261,19 +268,19 @@ fn scenario(players: &mut [Chrome], url: &str, dir: &Path, split: bool) -> Resul
         split_and_reunite(players)?;
     }
     // Leaving the page closes this participant's transport. The remaining roster
-    // must remove it; rejoining must restore three unique actors, not a ghost.
-    players[2].go("about:blank")?;
-    together(&mut players[..2], 2)?;
-    players[2].go(&invite)?;
-    ready(&mut players[2])?;
-    together(players, 3)?;
+    // must remove it; rejoining must restore all unique actors, not a ghost.
+    players[last].go("about:blank")?;
+    together(&mut players[..last], last)?;
+    players[last].go(&invite)?;
+    ready(&mut players[last])?;
+    together(players, count)?;
     consistent(players)?;
     for (n, p) in players.iter_mut().enumerate() {
         println!("client={n} resource_sample={:?}",p.eval("({heap:performance.memory?.usedJSHeapSize??null,actors:document.getElementById('crabscape').getAttribute('data-cell-session-actors')})")?);
         p.screenshot(&dir.join(format!("client-{n}.png")))?;
     }
     println!(
-        "PASS: three cellular actors, shared-region hashes, movement, leave and reconnect{}; not a 32-player, voice or soak proof.",
+        "PASS: {count} cellular actors, shared-region hashes, movement, leave and reconnect{}; not a 32-player, voice or soak proof.",
         if split {
             ", regional split and reunion"
         } else {
@@ -282,10 +289,19 @@ fn scenario(players: &mut [Chrome], url: &str, dir: &Path, split: bool) -> Resul
     );
     Ok(())
 }
-pub(crate) fn run(url: &str, dir: &Path, options: Options, split: bool) -> Result<()> {
+pub(crate) fn run(
+    url: &str,
+    dir: &Path,
+    options: Options,
+    split: bool,
+    count: usize,
+) -> Result<()> {
+    if !(3..=8).contains(&count) {
+        return Err("player count must be between 3 and 8".into());
+    }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let mut players = Vec::new();
-    for n in 0..3 {
+    for n in 0..count {
         players.push(Chrome::start(
             &format!("client-{n}"),
             &dir.join(format!("profile-{n}")),

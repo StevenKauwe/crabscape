@@ -19,5 +19,6 @@ fn main() -> Result<()> {
             slow: 1.0,
         },
         args.len() == 3,
+        3,
     )
 }

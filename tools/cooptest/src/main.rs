@@ -960,7 +960,12 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 28] = [
+const SCENARIOS: [(&str, &str, u32); 29] = [
+    (
+        "cell-probe-eight-players",
+        "eight cellular players join, move, split, reunite and reconnect",
+        300,
+    ),
     (
         "cells-three-players",
         "three cellular players join, move, split, reunite and reconnect with matching state",
@@ -1130,9 +1135,12 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
         fake_mic: voice,
         slow: site.slow,
     };
-    if name == "cells-three-players" {
-        three_player::run(&site.url("cells"), &site.dir, o, true)?;
-        return Ok(vec!["three actual cellular actors, movement, regional split/reunion, matching hashes and leave/reconnect".into()]);
+    if name == "cells-three-players" || name == "cell-probe-eight-players" {
+        let count = if name == "cells-three-players" { 3 } else { 8 };
+        three_player::run(&site.url("cells"), &site.dir, o, true, count)?;
+        return Ok(vec![format!(
+            "{count} actual cellular actors, movement, regional split/reunion, matching hashes and leave/reconnect"
+        )]);
     }
     let mut found = Found::new();
     let mut host = Player::new(site, "host", o)?;
