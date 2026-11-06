@@ -122,29 +122,85 @@ fn consistent(players: &mut [Chrome]) -> Result<()> {
         .eval("document.getElementById('crabscape').removeAttribute('data-cell-session-pause')")?;
     Ok(())
 }
-fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
-    players[2].type_line("hulk")?;
-    players[2].set_key("KeyD", true)?;
-    let started = Instant::now();
-    while position(&mut players[2])?.0 < 1700.0 {
-        if started.elapsed().as_secs() > 90 {
-            return Err("third player did not reach separate region".into());
-        }
-        let (_, height) = position(&mut players[2])?;
+trait SplitRoute {
+    fn sample(&mut self) -> Result<(f64, f64)>;
+    fn elapsed(&self) -> Duration;
+    fn steer(&mut self, height: f64) -> Result<()>;
+    fn release(&mut self) -> Result<()>;
+}
+struct BrowserRoute<'a> {
+    player: &'a mut Chrome,
+    started: Instant,
+}
+impl SplitRoute for BrowserRoute<'_> {
+    fn sample(&mut self) -> Result<(f64, f64)> {
+        position(self.player)
+    }
+    fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+    fn steer(&mut self, height: f64) -> Result<()> {
         if height < 200.0 {
-            players[2].hold_key("KeyW", 0.9)?;
+            self.player.hold_key("KeyW", 0.9)?;
         } else if height > 450.0 {
-            players[2].hold_key("ArrowDown", 0.9)?;
+            self.player.hold_key("ArrowDown", 0.9)?;
         } else {
             sleep(Duration::from_millis(500));
         }
-        for p in players.iter_mut() {
-            if let Some(error) = p.trouble() {
-                return Err(error);
+        Ok(())
+    }
+    fn release(&mut self) -> Result<()> {
+        self.player.set_key("KeyD", false)
+    }
+}
+fn drive_to_split(route: &mut impl SplitRoute) -> Result<()> {
+    let result: Result<bool> = (|| {
+        loop {
+            // One CDP observation supplies both position and steering height.
+            // A slow response can cross the deadline after its sampled frame.
+            let (x, height) = route.sample()?;
+            if x >= 1700.0 {
+                return Ok(true);
             }
+            if route.elapsed() > Duration::from_secs(90) {
+                return Ok(false);
+            }
+            route.steer(height)?;
+        }
+    })();
+    // Stop even on a read/steering error, before failure screenshots can move
+    // the crab farther and make a timeout look like a successful traversal.
+    let released = route.release();
+    let reached = result?;
+    released?;
+    if reached {
+        return Ok(());
+    }
+    // Confirm against a fresh observation after releasing movement. This is
+    // one bounded recheck, not an extended steering/retry budget.
+    let (x, y) = route.sample()?;
+    if x >= 1700.0 {
+        return Ok(());
+    }
+    Err(format!(
+        "third player did not reach separate region: stopped at {x:.2},{y:.2} after {:.1}s",
+        route.elapsed().as_secs_f64()
+    ))
+}
+fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
+    players[2].type_line("hulk")?;
+    players[2].set_key("KeyD", true)?;
+    drive_to_split(&mut BrowserRoute {
+        player: &mut players[2],
+        started: Instant::now(),
+    })?;
+    // The detailed health checks remain mandatory, but no longer add six
+    // blocking CDP evaluations to every steering observation on a slow runner.
+    for p in players.iter_mut() {
+        if let Some(error) = p.trouble() {
+            return Err(error);
         }
     }
-    players[2].set_key("KeyD", false)?;
     wait(|| {
         let host = roster(&mut players[0])?;
         let friend = roster(&mut players[1])?;
@@ -254,4 +310,77 @@ pub(crate) fn run(url: &str, dir: &Path, options: Options, split: bool) -> Resul
     }
     eprintln!("artifacts: {}", dir.display());
     result
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::*;
+    use std::collections::VecDeque;
+    struct Route {
+        samples: VecDeque<(Duration, Result<(f64, f64)>)>,
+        elapsed: Duration,
+        released: bool,
+        steered: usize,
+    }
+    impl SplitRoute for Route {
+        fn sample(&mut self) -> Result<(f64, f64)> {
+            let (at, value) = self.samples.pop_front().expect("bounded sample count");
+            if self.elapsed > Duration::from_secs(90) {
+                assert!(
+                    self.released,
+                    "deadline confirmation must follow key release"
+                );
+            }
+            self.elapsed = at;
+            value
+        }
+        fn elapsed(&self) -> Duration {
+            self.elapsed
+        }
+        fn steer(&mut self, _: f64) -> Result<()> {
+            self.steered += 1;
+            Ok(())
+        }
+        fn release(&mut self) -> Result<()> {
+            self.released = true;
+            Ok(())
+        }
+    }
+    fn route(samples: impl IntoIterator<Item = (u64, Result<(f64, f64)>)>) -> Route {
+        Route {
+            samples: samples
+                .into_iter()
+                .map(|(seconds, value)| (Duration::from_secs(seconds), value))
+                .collect(),
+            elapsed: Duration::ZERO,
+            released: false,
+            steered: 0,
+        }
+    }
+    #[test]
+    fn slow_position_response_crossing_deadline_is_confirmed_after_stopping() {
+        let mut route = route([(91, Ok((1690.0, 240.0))), (92, Ok((1705.0, 240.0)))]);
+        drive_to_split(&mut route).unwrap();
+        assert!(route.released);
+        assert_eq!(route.steered, 0);
+        assert!(route.samples.is_empty());
+    }
+    #[test]
+    fn actual_timeout_still_fails_and_does_not_keep_steering() {
+        let mut route = route([(91, Ok((1500.0, 240.0))), (92, Ok((1501.0, 240.0)))]);
+        let error = drive_to_split(&mut route).unwrap_err();
+        assert!(error.contains("1501.00,240.00 after 92.0s"));
+        assert!(route.released);
+        assert_eq!(route.steered, 0);
+    }
+    #[test]
+    fn successful_route_samples_once_per_cycle_and_errors_also_release() {
+        let mut success = route([(1, Ok((1600.0, 240.0))), (2, Ok((1701.0, 240.0)))]);
+        drive_to_split(&mut success).unwrap();
+        assert_eq!(success.steered, 1);
+        assert!(success.released);
+        let mut failed = route([(1, Err("missing actor".into()))]);
+        assert_eq!(drive_to_split(&mut failed), Err("missing actor".into()));
+        assert!(failed.released);
+    }
 }
