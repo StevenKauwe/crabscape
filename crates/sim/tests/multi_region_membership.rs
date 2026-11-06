@@ -10,18 +10,18 @@ use crabsim::{
 };
 
 #[test]
-fn guest_authorities_recover_three_disjoint_regions_before_leave_and_rejoin() {
+fn guest_authorities_recover_eight_disjoint_regions_before_leave_and_rejoin() {
     let owner = PlayerId(0);
     let level = Level::test_level();
     let mut whole = Sim::new(Tuning::default(), level.clone());
     whole.enable_underwater_cells();
-    for (id, x) in [(0, 160.0), (1, 1400.0), (2, 2400.0)] {
-        whole.add_crab(PlayerId(id), Vec2::new(x, 0.0));
+    for id in 0..8 {
+        whole.add_crab(PlayerId(id), Vec2::new(id as f32 * 1024.0 + 160.0, 0.0));
     }
     let mut terrain = TerrainStore::new(whole.level.cells.take().unwrap()).unwrap();
     let mut entities = EntityArchive::new(whole).unwrap();
     let mut regions = Vec::new();
-    for n in 0..3 {
+    for n in 0..8 {
         let id = RegionId(n + 1);
         let bounds = CellRegion {
             x: n as i32 * 256,
@@ -37,7 +37,7 @@ fn guest_authorities_recover_three_disjoint_regions_before_leave_and_rejoin() {
         let journal = RegionJournal::new(&kernel, PlayerId(n as u32)).unwrap();
         regions.push((kernel, journal));
     }
-    assert_eq!(terrain.active_regions(), 3);
+    assert_eq!(terrain.active_regions(), 8);
     for tick in 0..24 {
         for (n, (kernel, journal)) in regions.iter_mut().enumerate() {
             let frame = RegionFrame {
@@ -102,14 +102,14 @@ fn guest_authorities_recover_three_disjoint_regions_before_leave_and_rejoin() {
     restored.level.cells = Some(terrain.into_world().unwrap());
     assert_eq!(
         restored.crabs().iter().map(|c| c.id).collect::<Vec<_>>(),
-        [owner, PlayerId(1), PlayerId(2)]
+        (0..8).map(PlayerId).collect::<Vec<_>>()
     );
     let visitor = PlayerId(2);
     let progress = restored.progress(visitor).unwrap();
     assert!(restored.remove_cell_player(visitor));
-    assert_eq!(restored.crabs().len(), 2);
+    assert_eq!(restored.crabs().len(), 7);
     assert!(restored.join_cell_player(visitor, Vec2::new(260.0, 60.0), &progress));
-    assert_eq!(restored.crabs().len(), 3);
+    assert_eq!(restored.crabs().len(), 8);
     let bytes = restored.session_checkpoint().unwrap();
     let copy = Sim::from_session_checkpoint(&bytes).unwrap();
     assert_eq!(restored.state_hash(), copy.state_hash());

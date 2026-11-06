@@ -43,7 +43,11 @@ pub(super) fn drive(
         return Ok(());
     }
     let (id, epoch, _) = identity(g)?;
-    if stopping {
+    let history_full = g
+        .journal
+        .as_ref()
+        .is_some_and(|j| j.pending_ticks() >= 6000);
+    if stopping || history_full {
         if !g.stop_sent {
             send_to(
                 s,
@@ -55,6 +59,10 @@ pub(super) fn drive(
             )?;
             g.stop_sent = true;
         }
+        return Ok(());
+    }
+    // A resume cannot overtake the in-flight Stop/Stopped handshake.
+    if g.stop_sent && !g.stopped {
         return Ok(());
     }
     g.stop_sent = false;
@@ -156,6 +164,9 @@ pub(super) fn step(
         return Ok(());
     }
     if m.stopping && r.partial.is_empty() {
+        if r.backup.is_some() {
+            return Ok(());
+        }
         let k = r.kernel.as_ref().expect("kernel");
         send_to(
             s,
@@ -174,6 +185,10 @@ pub(super) fn step(
     }
     // Existing guest-authority sediment exchange, using lobby archive leases.
     falling::step(s, r, sim, local)?;
+    // Boundary events and the following authority batch share one ordered queue.
+    while let Some(wire) = s.outgoing.pop_front() {
+        s.send_to(HOST, wire)?;
+    }
     let m = r.multi.as_mut().expect("multi");
     let members = sim.crabs().iter().map(|c| c.id).collect::<Vec<_>>();
     let controls = members
@@ -243,6 +258,26 @@ pub(super) fn receive_guest(
     msg: &RegionMsg,
 ) -> Result<bool, String> {
     match msg {
+        RegionMsg::CheckpointAck {
+            transfer,
+            piece,
+            complete,
+        } => {
+            if let Some(b) = r.backup.as_mut() {
+                if *transfer != b.transfer || *piece >= b.offered {
+                    return Err("Invalid delegated backup acknowledgement".into());
+                }
+                b.acks.insert(*piece);
+                if *complete {
+                    r.backup = None;
+                    r.multi.as_mut().ok_or("Missing groups")?.backups_completed += 1;
+                }
+            } else if *transfer > r.backup_serial {
+                return Err("Unknown delegated backup acknowledgement".into());
+            }
+            Ok(true)
+        }
+
         RegionMsg::AuthorityDrive {
             region,
             epoch,
@@ -361,6 +396,88 @@ pub(super) fn receive_host(
         identity(g)?
     };
     match msg {
+        RegionMsg::CheckpointBegin {
+            transfer,
+            region,
+            epoch: wire_epoch,
+        } => {
+            if sender != g.authority
+                || g.authority == HOST
+                || region != id.0
+                || wire_epoch != epoch.0
+                || transfer <= g.backup_transfer
+                || g.incoming_backup.is_some()
+            {
+                return Err("Invalid delegated checkpoint offer".into());
+            }
+            g.backup_transfer = transfer;
+            g.incoming_backup = Some(IncomingBackup {
+                transfer,
+                region: id,
+                epoch,
+                receiver: Receiver::default(),
+            });
+        }
+        RegionMsg::CheckpointPiece(bytes) => {
+            if sender != g.authority || g.authority == HOST {
+                return Err("Wrong delegated checkpoint sender".into());
+            }
+            let (transfer, piece) = fragment_identity(&bytes).map_err(fault)?;
+            let incoming = g
+                .incoming_backup
+                .as_mut()
+                .filter(|b| b.transfer == transfer && b.region == id && b.epoch == epoch)
+                .ok_or("Unknown delegated checkpoint transfer")?;
+            let received = incoming.receiver.accept(&bytes).map_err(fault)?;
+            let complete = received.is_some();
+            if let Some(bytes) = received {
+                let _profile = crate::cell_save::work::begin("cell-multi-backup-accept");
+                // Validate against a candidate journal before mutating canonical
+                // history. The checkpoint retains every later acknowledged run.
+                let mut candidate = g.journal.as_ref().ok_or("Missing backup journal")?.clone();
+                let state = candidate
+                    .advance_checkpoint_retain(sender, epoch, bytes)
+                    .map_err(fault)?;
+                let owner = r.owner.as_mut().ok_or("Missing backup owner")?;
+                if state.bounds() != g.bounds
+                    || owner.terrain.revision(id, epoch) != Some(state.revision())
+                {
+                    return Err("Delegated checkpoint lease mismatch".into());
+                }
+                let cells = state
+                    .sim
+                    .level
+                    .cells
+                    .as_ref()
+                    .ok_or("Missing backup terrain")?;
+                // Autosave may already have committed a newer acknowledged cut.
+                // Retain journal validation but never roll terrain/resources back.
+                if owner
+                    .terrain
+                    .committed_tick(id)
+                    .is_none_or(|tick| cells.tick_count() >= tick)
+                {
+                    owner
+                        .terrain
+                        .commit_state(id, epoch, cells, state.arrivals_delivered())
+                        .map_err(fault)?;
+                    owner.entities.merge_resources(&state.sim).map_err(fault)?;
+                    r.owner_save_dirty = true;
+                }
+                g.journal = Some(candidate);
+                g.incoming_backup = None;
+                r.multi.as_mut().ok_or("Missing groups")?.backups_accepted += 1;
+            }
+            send_to(
+                s,
+                sender,
+                RegionMsg::CheckpointAck {
+                    transfer,
+                    piece,
+                    complete,
+                },
+            )?;
+        }
         RegionMsg::Ack { transfer, piece }
             if transfer == m.serial && g.ready.contains(&sender) && piece < g.pieces => {}
         RegionMsg::Ready { transfer, tick }
@@ -550,6 +667,61 @@ pub(super) fn receive_host(
             r.owner_save_dirty = true;
         }
         _ => return Err("Unexpected delegated regional message".into()),
+    }
+    Ok(())
+}
+
+pub(super) fn update_guest(
+    s: &mut Session,
+    r: &mut State,
+    sim: &mut Sim,
+    local: PlayerId,
+) -> Result<(), String> {
+    if r.stage != Stage::Running || local_authority(r) != Some(local) {
+        return Ok(());
+    }
+    let active = r.multi.as_ref().is_some_and(|m| m.enabled && !m.stopping);
+    if active
+        && r.partial.is_empty()
+        && r.backup.is_none()
+        && sim.tick_count().saturating_sub(r.last_backup_tick) >= 600
+    {
+        let _profile = crate::cell_save::work::begin("cell-multi-backup-capture");
+        let k = r.kernel.as_mut().ok_or("Missing checkpoint authority")?;
+        let bytes = k.checkpoint_view(sim).map_err(fault)?;
+        r.backup_serial = r
+            .backup_serial
+            .checked_add(1)
+            .ok_or("Backup transfer counter exhausted")?;
+        r.last_backup_tick = sim.tick_count();
+        send_to(
+            s,
+            HOST,
+            RegionMsg::CheckpointBegin {
+                transfer: r.backup_serial,
+                region: k.id.0,
+                epoch: k.epoch.0,
+            },
+        )?;
+        r.backup = Some(Backup {
+            transfer: r.backup_serial,
+            bytes,
+            offered: 0,
+            acks: BTreeSet::new(),
+        });
+    }
+    if let Some(b) = r.backup.as_mut() {
+        for _ in 0..WINDOW {
+            if b.offered.saturating_sub(b.acks.len() as u32) >= WINDOW {
+                break;
+            }
+            let Some(piece) = Fragments::piece(b.transfer, &b.bytes, b.offered).map_err(fault)?
+            else {
+                break;
+            };
+            b.offered += 1;
+            send_to(s, HOST, RegionMsg::CheckpointPiece(piece))?;
+        }
     }
     Ok(())
 }

@@ -16,6 +16,8 @@ pub(super) struct Multi {
     local_authority: Option<PlayerId>,
     executed_ticks: u64,
     archived_batches: u64,
+    backups_accepted: u64,
+    backups_completed: u64,
     enabled: bool,
     stopping: bool,
 }
@@ -27,6 +29,8 @@ struct Group {
     stop_sent: bool,
     needs_region: bool,
     arrival_offered: u64,
+    incoming_backup: Option<IncomingBackup>,
+    backup_transfer: u64,
     members: Vec<PlayerId>,
     kernel: Option<RegionKernel>,
     journal: Option<RegionJournal>,
@@ -245,6 +249,8 @@ pub(super) fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(),
             stop_sent: false,
             needs_region: false,
             arrival_offered: 0,
+            incoming_backup: None,
+            backup_transfer: 0,
             members: members.clone(),
             kernel: None,
             journal: None,
@@ -442,7 +448,31 @@ pub(super) fn step(
             }
         });
         for id in homes {
-            owner.entities.sim.go_home(id);
+            let before = owner
+                .entities
+                .sim
+                .crab(id)
+                .map(|c| {
+                    format!(
+                        "remote={} dead={} health={:?} tucked={} pos={:?}",
+                        c.remote,
+                        c.fighter.dead.is_some(),
+                        c.fighter.vitals.health,
+                        c.mover.tucked_in(),
+                        c.mover.pos
+                    )
+                })
+                .unwrap_or_else(|| "missing actor".into());
+            let returned = owner.entities.sim.go_home(id);
+            if let Some(canvas) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id("crabscape"))
+            {
+                let _ = canvas.set_attribute(
+                    "data-cell-home-result",
+                    &format!("{} returned={} {}", id.0, returned, before),
+                );
+            }
         }
         r.regrant_requested = false;
         return grant(s, r, sim);
@@ -488,10 +518,6 @@ fn needs_change(r: &State, sim: &Sim) -> Result<bool, String> {
                     .positions
                     .values()
                     .any(|p| near_edge(group.bounds, *p))
-                || group
-                    .journal
-                    .as_ref()
-                    .is_some_and(|j| j.pending_ticks() >= 3600)
             {
                 return Ok(true);
             }
@@ -550,6 +576,7 @@ pub(super) fn receive(
             r.stage = Stage::Receiving;
             r.frames.clear();
             r.boundaries.clear();
+            r.backup = None;
         }
         RegionMsg::Piece(bytes) if r.stage == Stage::Receiving => {
             let (transfer, piece) = fragment_identity(&bytes).map_err(fault)?;
@@ -566,6 +593,7 @@ pub(super) fn receive(
                     return Err("Wrong regional membership".into());
                 }
                 r.next_batch = kernel.sim.tick_count();
+                r.last_backup_tick = kernel.sim.tick_count();
                 r.shared = authority(&kernel.members()) != local;
                 r.multi = Some(Multi {
                     local_authority: Some(authority(&kernel.members())),
@@ -654,6 +682,9 @@ pub(super) fn update(
             }
         }
     }
+    if local != HOST {
+        delegated::update_guest(s, r, sim, local)?;
+    }
     if local != HOST
         && r.partial.is_empty()
         && r.journal
@@ -678,6 +709,14 @@ pub(super) fn update(
             let _ = canvas.set_attribute(
                 "data-cell-archived-batches",
                 &m.archived_batches.to_string(),
+            );
+            let _ = canvas.set_attribute(
+                "data-cell-backups-accepted",
+                &m.backups_accepted.to_string(),
+            );
+            let _ = canvas.set_attribute(
+                "data-cell-backups-completed",
+                &m.backups_completed.to_string(),
             );
             let _ = canvas.set_attribute(
                 "data-cell-delegated-regions",

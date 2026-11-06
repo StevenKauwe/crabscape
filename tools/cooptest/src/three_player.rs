@@ -340,6 +340,7 @@ fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
     wait(|| Ok(players[last].attr("data-cell-session-tick") != before))?;
     println!("separate player region advances; remaining group matches");
     capacity_sample(players, "split")?;
+    periodic_sample(players)?;
     players[last].hold_key("KeyH", 0.1)?;
     players[last].eval(
         "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))",
@@ -441,6 +442,61 @@ fn delegated_pair(players: &mut [Chrome], invite: &str) -> Result<()> {
     together(players, n)?;
     consistent(players)?;
     println!("authority reconnect and whole-group reunion hashes match");
+    Ok(())
+}
+fn periodic_sample(players: &mut [Chrome]) -> Result<()> {
+    if std::env::var_os("CRABSCAPE_PERIODIC_PROFILE").is_none() {
+        return Ok(());
+    }
+    println!("capacity phase=periodic clients={}", players.len());
+    for p in players.iter_mut() {
+        p.eval(r#"(()=>{
+          const c=document.getElementById('crabscape');c.setAttribute('data-cell-work-profile','1');c.setAttribute('data-cell-performance-probe','1');
+          const s=window.__periodic={start:performance.now(),frames:[],gaps:[],events:[],measures:[],done:false};
+          const readTick=()=>Number(c.getAttribute('data-cell-performance')?.split(':')[0]??c.getAttribute('data-cell-session-tick'));
+          s.readBackups=()=>[Number(c.getAttribute('data-cell-backups-accepted')??0),Number(c.getAttribute('data-cell-backups-completed')??0)];s.firstBackups=s.readBackups();s.firstTick=readTick();let tick=s.firstTick,changed=s.start,previous=null,state='';
+          const observer=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.name.startsWith('cell-'))s.measures.push({name:e.name,at:e.startTime-s.start,ms:e.duration});}});observer.observe({type:'measure',buffered:false});
+          function frame(now){if(previous!==null)s.frames.push(now-previous);previous=now;const next=readTick();if(next!==tick){s.gaps.push(now-changed);changed=now;tick=next;}const nextState=[c.getAttribute('data-cell-region-state'),c.getAttribute('data-cell-region-id')].join(':');if(nextState!==state){s.events.push({at:now-s.start,state:nextState,tick});state=nextState;}if(now-s.start<95000){requestAnimationFrame(frame);}else{s.end=now;s.lastTick=tick;s.tailTickGap=now-changed;s.done=true;observer.disconnect();}}requestAnimationFrame(frame);
+        })()"#)?;
+    }
+    sleep(Duration::from_secs(96));
+    let player_count = players.len();
+    for (n, p) in players.iter_mut().enumerate() {
+        let sample=p.eval(r#"(()=>{const s=window.__periodic;const stats=a=>{a=[...a].sort((a,b)=>a-b);const q=p=>a[Math.min(a.length-1,Math.floor(a.length*p))]??null;return {count:a.length,p50:q(.5),p95:q(.95),p99:q(.99),max:q(1)};};const grouped={};for(const m of s.measures)(grouped[m.name]??=[]).push(m.ms);const measures=Object.fromEntries(Object.entries(grouped).map(([name,v])=>[name,stats(v)]));return {done:s.done,durationMs:s.end-s.start,framesMs:stats(s.frames),tickGapsMs:stats(s.gaps),firstTick:s.firstTick,lastTick:s.lastTick,tailTickGapMs:s.tailTickGap,events:s.events,firstBackups:s.firstBackups,lastBackups:s.readBackups(),measures};})()"#)?;
+        println!("periodic client={n} sample={sample}");
+        if sample["done"].as_bool() != Some(true)
+            || sample["lastTick"]
+                .as_u64()
+                .zip(sample["firstTick"].as_u64())
+                .is_none_or(|(last, first)| last <= first)
+        {
+            return Err(format!(
+                "periodic client{n} did not complete with advancing simulation"
+            ));
+        }
+        // Host must accept durable backups and the delegated authority must
+        // receive their acknowledgements; followers need neither counter.
+        let counter = if n == 0 {
+            Some(0)
+        } else if n + 1 == player_count {
+            Some(1)
+        } else {
+            None
+        };
+        if let Some(counter) = counter {
+            let first = sample["firstBackups"][counter].as_u64().unwrap_or(0);
+            let last = sample["lastBackups"][counter].as_u64().unwrap_or(0);
+            if last < first + 2 {
+                return Err(format!(
+                    "periodic client{n} did not complete repeated delegated backups: {first}->{last}"
+                ));
+            }
+        }
+
+        if let Some(error) = p.trouble() {
+            return Err(error);
+        }
+    }
     Ok(())
 }
 // Opt-in same-machine capacity probe; never part of the CI correctness gate.
@@ -582,13 +638,15 @@ pub(crate) fn run(
     if result.is_err() {
         for (n, p) in players.iter_mut().enumerate() {
             eprintln!(
-                "client={n} status={:?} actors={:?} region={:?} stage={:?} tick={:?} frame_error={:?}",
+                "client={n} status={:?} actors={:?} region={:?} stage={:?} tick={:?} frame_error={:?} pause={:?} home_result={:?}",
                 p.attr("data-coop"),
                 p.attr("data-cell-session-actors"),
                 p.attr("data-cell-region-id"),
                 p.attr("data-cell-region-state"),
                 p.attr("data-cell-session-tick"),
-                p.attr("data-cell-frame-error")
+                p.attr("data-cell-frame-error"),
+                p.attr("data-cell-session-pause"),
+                p.attr("data-cell-home-result")
             );
             let _ = p.screenshot(&dir.join(format!("failure-{n}.png")));
             let _ = std::fs::write(dir.join(format!("client-{n}.log")), p.coop_log().join("\n"));
