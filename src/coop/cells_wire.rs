@@ -637,3 +637,69 @@ mod authority_wire_tests {
         assert!(decode(&encode(&msg).unwrap()).is_none());
     }
 }
+
+/// Stopping is a protocol acknowledgement, not a simulation step: an authority
+/// must be able to stop even before its first Drive or without tick credit.
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DelegatedStep {
+    Wait,
+    FinishStop,
+    Advance,
+}
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn delegated_step(
+    enabled: bool,
+    stopping: bool,
+    stop_acknowledged: bool,
+    partial: usize,
+    backup_pending: bool,
+    ahead_limit: bool,
+) -> DelegatedStep {
+    if stopping && partial == 0 {
+        if stop_acknowledged || backup_pending {
+            DelegatedStep::Wait
+        } else {
+            DelegatedStep::FinishStop
+        }
+    } else if !enabled || ahead_limit {
+        DelegatedStep::Wait
+    } else {
+        DelegatedStep::Advance
+    }
+}
+#[cfg(test)]
+mod delegated_stop_tests {
+    use super::{DelegatedStep::*, delegated_step};
+
+    #[test]
+    fn installed_authority_stops_before_first_drive_and_only_acknowledges_once() {
+        assert_eq!(delegated_step(false, false, false, 0, false, false), Wait);
+        // Ready is sent, then Home/regrant requests Stop before any Drive arrives.
+        assert_eq!(
+            delegated_step(false, true, false, 0, false, false),
+            FinishStop
+        );
+        assert_eq!(delegated_step(false, true, true, 0, false, false), Wait);
+        // A later Drive starts a new running interval; a subsequent Stop works.
+        assert_eq!(delegated_step(true, false, false, 0, false, false), Advance);
+        assert_eq!(
+            delegated_step(true, true, false, 0, false, false),
+            FinishStop
+        );
+    }
+
+    #[test]
+    fn stop_preserves_batch_and_backup_boundaries_without_needing_tick_credit() {
+        assert_eq!(delegated_step(true, true, false, 2, false, false), Advance);
+        assert_eq!(delegated_step(true, true, false, 2, false, true), Wait);
+        assert_eq!(delegated_step(true, true, false, 0, true, true), Wait);
+        // Once the checkpoint is acknowledged, no extra simulation input is needed.
+        assert_eq!(
+            delegated_step(true, true, false, 0, false, true),
+            FinishStop
+        );
+        assert_eq!(delegated_step(false, true, true, 0, false, true), Wait);
+        assert_eq!(delegated_step(true, false, false, 0, false, true), Wait);
+    }
+}

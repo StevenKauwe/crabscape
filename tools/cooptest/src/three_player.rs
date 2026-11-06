@@ -339,6 +339,18 @@ fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
     let before = players[last].attr("data-cell-session-tick");
     wait(|| Ok(players[last].attr("data-cell-session-tick") != before))?;
     println!("separate player region advances; remaining group matches");
+    if count == 3 || std::env::var_os("CRABSCAPE_INITIAL_STOP_PROBE").is_some() {
+        let completed = players[0]
+            .attr("data-cell-initial-stops")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        if completed == 0 {
+            return Err("Stop-before-first-Drive was not acknowledged".into());
+        }
+        println!(
+            "initial authority stop acknowledged at checkpoint tick before first Drive: {completed}"
+        );
+    }
     if std::env::var_os("CRABSCAPE_STOP_RACE_PROBE").is_some() {
         for round in 0..12 {
             consistent(&mut players[..last])?;
@@ -552,6 +564,11 @@ fn scenario(
     let last = count - 1;
     players[0].go(url)?;
     ready(&mut players[0])?;
+    if count == 3 || std::env::var_os("CRABSCAPE_INITIAL_STOP_PROBE").is_some() {
+        players[0].eval(
+            "document.getElementById('crabscape').setAttribute('data-cell-probe-initial-stop','1')",
+        )?;
+    }
     capacity_sample(&mut players[..1], "solo")?;
     players[0].click(1016.0, 27.0)?;
     let mut invite = String::new();

@@ -20,6 +20,8 @@ pub(super) struct Multi {
     backups_completed: u64,
     enabled: bool,
     stopping: bool,
+    stop_acknowledged: bool,
+    initial_stops: u64,
 }
 struct Group {
     authority: PlayerId,
@@ -27,6 +29,7 @@ struct Group {
     positions: BTreeMap<PlayerId, Vec2>,
     stopped: bool,
     stop_sent: bool,
+    initial_stop_probe: u8,
     needs_region: bool,
     arrival_offered: u64,
     incoming_backup: Option<IncomingBackup>,
@@ -247,6 +250,13 @@ pub(super) fn grant(s: &mut Session, r: &mut State, sim: &mut Sim) -> Result<(),
                 .collect::<Result<_, String>>()?,
             stopped: false,
             stop_sent: false,
+            initial_stop_probe: u8::from(
+                authority(&members) != HOST
+                    && web_sys::window()
+                        .and_then(|w| w.document())
+                        .and_then(|d| d.get_element_by_id("crabscape"))
+                        .is_some_and(|c| c.has_attribute("data-cell-probe-initial-stop")),
+            ),
             needs_region: false,
             arrival_offered: 0,
             incoming_backup: None,
@@ -704,6 +714,7 @@ pub(super) fn update(
         .and_then(|d| d.get_element_by_id("crabscape"))
     {
         if let Some(m) = &r.multi {
+            let _ = canvas.set_attribute("data-cell-initial-stops", &m.initial_stops.to_string());
             let groups = m.groups.iter().map(|(id, g)| format!(
                 "{}:authority={} stop_sent={} stopped={} partial={} ready={:?} applied={:?} journal={:?}",
                 id.0, g.authority.0, g.stop_sent, g.stopped, g.partial.len(), g.ready, g.applied,

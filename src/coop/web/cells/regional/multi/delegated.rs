@@ -47,7 +47,7 @@ pub(super) fn drive(
         .journal
         .as_ref()
         .is_some_and(|j| j.pending_ticks() >= 6000);
-    if stopping || history_full {
+    if stopping || history_full || g.initial_stop_probe == 1 {
         if !g.stop_sent {
             send_to(
                 s,
@@ -58,6 +58,9 @@ pub(super) fn drive(
                 },
             )?;
             g.stop_sent = true;
+            if g.initial_stop_probe == 1 {
+                g.initial_stop_probe = 2;
+            }
         }
         return Ok(());
     }
@@ -160,25 +163,33 @@ pub(super) fn step(
         return Ok(());
     }
     let m = r.multi.as_ref().ok_or("Missing authority state")?;
-    if !m.enabled || sim.tick_count().saturating_sub(r.applied) >= MAX_AHEAD {
-        return Ok(());
-    }
-    if m.stopping && r.partial.is_empty() {
-        if r.backup.is_some() {
+    use crate::coop::cells_wire::{DelegatedStep, delegated_step};
+    match delegated_step(
+        m.enabled,
+        m.stopping,
+        m.stop_acknowledged,
+        r.partial.len(),
+        r.backup.is_some(),
+        sim.tick_count().saturating_sub(r.applied) >= MAX_AHEAD,
+    ) {
+        DelegatedStep::Wait => return Ok(()),
+        DelegatedStep::FinishStop => {
+            let k = r.kernel.as_ref().expect("kernel");
+            send_to(
+                s,
+                HOST,
+                RegionMsg::AuthorityStopped {
+                    region: k.id.0,
+                    epoch: k.epoch.0,
+                    tick: sim.tick_count(),
+                },
+            )?;
+            let m = r.multi.as_mut().expect("multi");
+            m.enabled = false;
+            m.stop_acknowledged = true;
             return Ok(());
         }
-        let k = r.kernel.as_ref().expect("kernel");
-        send_to(
-            s,
-            HOST,
-            RegionMsg::AuthorityStopped {
-                region: k.id.0,
-                epoch: k.epoch.0,
-                tick: sim.tick_count(),
-            },
-        )?;
-        r.multi.as_mut().expect("multi").enabled = false;
-        return Ok(());
+        DelegatedStep::Advance => {}
     }
     if !sim.memory_pages_ready() {
         return Ok(());
@@ -308,6 +319,7 @@ pub(super) fn receive_guest(
             m.actions.extend(actions.iter().copied());
             m.enabled = true;
             m.stopping = false;
+            m.stop_acknowledged = false;
             Ok(true)
         }
         RegionMsg::AuthorityStop { region, epoch } => {
@@ -568,6 +580,13 @@ pub(super) fn receive_host(
                 || tick != current
             {
                 return Err("Invalid regional authority stop boundary".into());
+            }
+            if g.initial_stop_probe == 2 {
+                if tick != g.first_tick {
+                    return Err("Initial stop probe advanced before first Drive".into());
+                }
+                g.initial_stop_probe = 3;
+                m.initial_stops += 1;
             }
             g.stopped = true;
         }
