@@ -114,3 +114,135 @@ fn guest_authorities_recover_three_disjoint_regions_before_leave_and_rejoin() {
     let copy = Sim::from_session_checkpoint(&bytes).unwrap();
     assert_eq!(restored.state_hash(), copy.state_hash());
 }
+
+#[test]
+fn delegated_sediment_delivery_survives_journal_recovery_and_checkpoint() {
+    use crabsim::underwater::{Cell, World};
+    let source = PlayerId(3);
+    let recipient = PlayerId(7);
+    let mut sim = Sim::new(Tuning::default(), Level::test_level());
+    sim.add_crab(source, Vec2::new(480.0, 800.0));
+    sim.add_crab(recipient, Vec2::new(480.0, 300.0));
+    sim.enable_underwater_cells();
+    let original = sim.level.cells.take().unwrap();
+    let (width, _) = original.dimensions();
+    // Build a deterministic one-grain fixture through the public world codec.
+    let mut value = serde_json::to_value(original).unwrap();
+    for cell in value["cells"].as_array_mut().unwrap() {
+        *cell = serde_json::to_value(Cell::Water).unwrap();
+    }
+    for owner in value["pebble_owner"].as_array_mut().unwrap() {
+        *owner = serde_json::json!(0);
+    }
+    value["pebbles"] = serde_json::json!([]);
+    value["pebble_motion"] = serde_json::json!([]);
+    value["cells"][256 * width + 100] = serde_json::to_value(Cell::Sand).unwrap();
+    for x in 0..256 {
+        value["cells"][150 * width + x] = serde_json::to_value(Cell::Rock).unwrap();
+    }
+    let world: World = serde_json::from_value(value).unwrap();
+    let mut store = TerrainStore::new(world).unwrap();
+    let mut archive = EntityArchive::new(sim).unwrap();
+    let upper = CellRegion {
+        x: 0,
+        y: 256,
+        width: 256,
+        height: 64,
+    };
+    let lower = CellRegion { y: 128, ..upper };
+    let (ae, aw) = store.grant(RegionId(1), upper, &archive.sim.level).unwrap();
+    let (be, bw) = store.grant(RegionId(2), lower, &archive.sim.level).unwrap();
+    let mut a = archive.extract(RegionId(1), ae, &[source], aw).unwrap();
+    let mut b = archive.extract(RegionId(2), be, &[recipient], bw).unwrap();
+    let mut aj = RegionJournal::new(&a, source).unwrap();
+    let mut bj = RegionJournal::new(&b, recipient).unwrap();
+    let frame = RegionFrame {
+        tick: 0,
+        controls: vec![(source, Controls::default())],
+        actions: vec![],
+    };
+    a.tick(&frame).unwrap();
+    aj.append(source, ae, &[frame]).unwrap();
+    let packets = a.sim.level.cells.as_ref().unwrap().pending_falls().to_vec();
+    assert_eq!(
+        packets.len(),
+        1,
+        "fixture must cross a real live-region boundary"
+    );
+    let accepted = store.accept_falls(a.id, ae, &packets).unwrap();
+    assert_eq!(store.accept_falls(a.id, ae, &packets).unwrap(), accepted);
+    a.commit_falls(accepted).unwrap();
+    assert!(aj.note_falls_committed(PlayerId(0), 1, accepted).is_err());
+    aj.note_falls_committed(source, 1, accepted).unwrap();
+    assert_eq!(
+        aj.materialize().unwrap().checkpoint().unwrap(),
+        a.checkpoint().unwrap()
+    );
+    store
+        .commit_state(a.id, ae, a.sim.level.cells.as_ref().unwrap(), 0)
+        .unwrap();
+    store.advance_passive(&archive.sim.level, packets[0].advanced_tick + 9000, 20_000);
+    let delivery = store
+        .prepare_arrival(b.id, be)
+        .unwrap()
+        .expect("grain reaches recipient lease");
+    assert_eq!(delivery.packets().len(), 1);
+    assert!(bj.note_arrival(PlayerId(0), 0, delivery.clone()).is_err());
+    b.receive_falls(&delivery).unwrap();
+    bj.note_arrival(recipient, 0, delivery.clone()).unwrap();
+    store.finish_arrival(b.id, be, delivery.delivery()).unwrap();
+    assert!(store.prepare_arrival(b.id, be).unwrap().is_none());
+    let recovered = RegionJournal::from_bytes(&bj.to_bytes().unwrap()).unwrap();
+    assert_eq!(
+        recovered.materialize().unwrap().checkpoint().unwrap(),
+        b.checkpoint().unwrap()
+    );
+    bj.compact().unwrap();
+    assert_eq!(
+        bj.materialize().unwrap().checkpoint().unwrap(),
+        b.checkpoint().unwrap()
+    );
+    for tick in 0..300 {
+        let frame = RegionFrame {
+            tick,
+            controls: vec![(recipient, Controls::default())],
+            actions: vec![],
+        };
+        b.tick(&frame).unwrap();
+        bj.append(recipient, be, &[frame]).unwrap();
+    }
+    assert_eq!(
+        bj.materialize().unwrap().checkpoint().unwrap(),
+        b.checkpoint().unwrap()
+    );
+    store
+        .commit_state(
+            b.id,
+            be,
+            b.sim.level.cells.as_ref().unwrap(),
+            b.arrivals_delivered(),
+        )
+        .unwrap();
+    for k in [a, b] {
+        store.release(k.id, k.epoch).unwrap();
+        archive.absorb(k).unwrap();
+    }
+    let mut restored = archive.into_sim();
+    restored.level.cells = Some(store.into_world().unwrap());
+    let saved = restored.session_checkpoint().unwrap();
+    let reloaded = Sim::from_session_checkpoint(&saved).unwrap();
+    assert_eq!(restored.state_hash(), reloaded.state_hash());
+    let world = reloaded.level.cells.as_ref().unwrap();
+    let encoded = serde_json::to_value(world).unwrap();
+    let grains = encoded["cells"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|v| **v == serde_json::to_value(Cell::Sand).unwrap())
+        .count();
+    assert_eq!(
+        grains + world.pending_falls().len(),
+        1,
+        "delivery/recovery must neither lose nor duplicate sediment"
+    );
+}
