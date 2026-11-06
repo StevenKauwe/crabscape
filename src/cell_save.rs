@@ -30,6 +30,8 @@ pub(crate) mod page_access;
 #[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) mod read_deadline;
 #[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) mod read_priority;
+#[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) mod regional;
 pub mod v2;
 
