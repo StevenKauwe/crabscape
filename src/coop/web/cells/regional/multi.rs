@@ -704,6 +704,16 @@ pub(super) fn update(
         .and_then(|d| d.get_element_by_id("crabscape"))
     {
         if let Some(m) = &r.multi {
+            let groups = m.groups.iter().map(|(id, g)| format!(
+                "{}:authority={} stop_sent={} stopped={} partial={} ready={:?} applied={:?} journal={:?}",
+                id.0, g.authority.0, g.stop_sent, g.stopped, g.partial.len(), g.ready, g.applied,
+                g.journal.as_ref().map(|j| j.acknowledged_tick())
+            )).collect::<Vec<_>>().join(";");
+            let _ = canvas.set_attribute("data-cell-authority-state", &format!(
+                "enabled={} stopping={} regrant={} membership={} partial={} applied={} backup={} groups=[{}]",
+                m.enabled, m.stopping, r.regrant_requested, r.membership_wait,
+                r.partial.len(), r.applied, r.backup.is_some(), groups
+            ));
             let _ =
                 canvas.set_attribute("data-cell-authority-ticks", &m.executed_ticks.to_string());
             let _ = canvas.set_attribute(

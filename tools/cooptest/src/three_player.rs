@@ -339,6 +339,18 @@ fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
     let before = players[last].attr("data-cell-session-tick");
     wait(|| Ok(players[last].attr("data-cell-session-tick") != before))?;
     println!("separate player region advances; remaining group matches");
+    if std::env::var_os("CRABSCAPE_STOP_RACE_PROBE").is_some() {
+        for round in 0..12 {
+            consistent(&mut players[..last])?;
+            let start = players[last].attr("data-cell-authority-ticks");
+            wait(|| Ok(players[last].attr("data-cell-authority-ticks") != start))?;
+            println!(
+                "stop/resume probe round={round} host={:?} guest={:?}",
+                players[0].attr("data-cell-authority-state"),
+                players[last].attr("data-cell-authority-state")
+            );
+        }
+    }
     capacity_sample(players, "split")?;
     periodic_sample(players)?;
     players[last].hold_key("KeyH", 0.1)?;
@@ -638,7 +650,7 @@ pub(crate) fn run(
     if result.is_err() {
         for (n, p) in players.iter_mut().enumerate() {
             eprintln!(
-                "client={n} status={:?} actors={:?} region={:?} stage={:?} tick={:?} frame_error={:?} pause={:?} home_result={:?}",
+                "client={n} status={:?} actors={:?} region={:?} stage={:?} tick={:?} frame_error={:?} pause={:?} home_result={:?} authority_state={:?}",
                 p.attr("data-coop"),
                 p.attr("data-cell-session-actors"),
                 p.attr("data-cell-region-id"),
@@ -646,7 +658,8 @@ pub(crate) fn run(
                 p.attr("data-cell-session-tick"),
                 p.attr("data-cell-frame-error"),
                 p.attr("data-cell-session-pause"),
-                p.attr("data-cell-home-result")
+                p.attr("data-cell-home-result"),
+                p.attr("data-cell-authority-state")
             );
             let _ = p.screenshot(&dir.join(format!("failure-{n}.png")));
             let _ = std::fs::write(dir.join(format!("client-{n}.log")), p.coop_log().join("\n"));
