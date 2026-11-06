@@ -177,6 +177,8 @@ pub(crate) enum Wire {
     },
     Ping,
     Busy,
+    CharacterInUse,
+    JoinRejected,
 }
 pub(crate) fn encode(msg: &Wire) -> Option<Vec<u8>> {
     let mut bytes = PREFIX.to_vec();

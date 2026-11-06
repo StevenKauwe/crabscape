@@ -959,7 +959,7 @@ fn sees_name(a: &mut Player, b: &mut Player) -> Result<String> {
 
 /// The scenarios: their names, what they check, and about how many seconds one round takes on a CI machine (the
 /// log's "ok ... in N s"), which balances `--shard`. A new scenario needs its seconds too, so it always lands in a part.
-const SCENARIOS: [(&str, &str, u32); 30] = [
+const SCENARIOS: [(&str, &str, u32); 31] = [
     (
         "cell-probe-multi-region-save",
         "delegated three-player excavation survives owner save and reload",
@@ -994,6 +994,11 @@ const SCENARIOS: [(&str, &str, u32); 30] = [
         "cells-region-save",
         "guest authority recovery and distant terrain surviving owner disk reload",
         100,
+    ),
+    (
+        "cells-receiving-recovery",
+        "interrupted membership transfer retains the visiting character's progress",
+        60,
     ),
     (
         "cells-regions",
@@ -1150,6 +1155,108 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
     match name {
+        "cells-receiving-recovery" => {
+            host.open(&site.url("cells"))?;
+            let invite = host.invite()?;
+            let url = host.copied_invite(&invite, "cells")?;
+            guest.open(&url)?;
+            for p in [&mut host, &mut guest] {
+                p.until(90.0, "first guest joins", |p| {
+                    p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                })?;
+            }
+            guest.b.type_line("level swimming 25")?;
+            let started = Instant::now();
+            let earned = loop {
+                let scene = regional_scene(&mut guest)?;
+                if let Some(progress) = scene
+                    .crabs()
+                    .iter()
+                    .find(|c| c.id.0 != 0)
+                    .and_then(|c| scene.progress(c.id))
+                    && progress.swim_xp > 0.0
+                {
+                    break progress.swim_xp;
+                }
+                if started.elapsed().as_secs() > 30 {
+                    return Err(guest.failed("guest did not gain swimming progress".into()));
+                }
+                sleep(0.5);
+            };
+            host.b.eval(r#"(()=>{const send=RTCDataChannel.prototype.send;window.__heldPieces=0;
+              RTCDataChannel.prototype.send=function(data){const b=data instanceof ArrayBuffer?new Uint8Array(data):
+                ArrayBuffer.isView(data)?new Uint8Array(data.buffer,data.byteOffset,data.byteLength):null;
+                if(b&&b.length>5&&b[0]===67&&b[1]===83&&b[2]===73&&b[3]===77&&b[4]===49&&b[5]===3){window.__heldPieces++;return;}
+                return send.call(this,data);};return true;})()"#)?;
+            let mut third = Player::new(site, "third", o)?;
+            third.open(&url)?;
+            guest.until(60.0, "existing guest receives new membership", |p| {
+                p.b.attr("data-cell-region-state").as_deref() == Some("receiving")
+            })?;
+            host.until(15.0, "new checkpoint fragments are held", |p| {
+                p.b.eval("window.__heldPieces>0").ok() == Some(serde_json::Value::Bool(true))
+            })?;
+            // While the new checkpoint is blocked, a periodic private save
+            // must still include the progress earned in the old guest view.
+            let previous_head = guest.b.eval(&format!(
+                "({}).then(r=>r&&r.head)",
+                save_fixture::CAPTURE_SCRIPT
+            ))?;
+            let started = Instant::now();
+            loop {
+                let head = guest.b.eval(&format!(
+                    "({}).then(r=>r&&r.head)",
+                    save_fixture::CAPTURE_SCRIPT
+                ))?;
+                if !head.is_null() && head != previous_head {
+                    break;
+                }
+                if started.elapsed().as_secs() > 30 {
+                    return Err(
+                        guest.failed("guest did not save while the transfer was held".into())
+                    );
+                }
+                sleep(0.5);
+            }
+            let receiving_save = saved_cells(&mut guest)?.ok_or("missing receiving save")?;
+            if receiving_save
+                .player
+                .progress
+                .as_ref()
+                .is_none_or(|p| p.swim_xp < earned)
+            {
+                return Err(guest.failed("save during transfer lost guest progress".into()));
+            }
+            let before_return_tick = receiving_save.sim_tick;
+            host.b.go("about:blank")?;
+            guest.until(30.0, "interrupted guest returns to solo", |p| {
+                let status = p.coop();
+                p.b.attr("data-cell-session").as_deref() == Some("solo")
+                    && (status.contains("Waiting for") || status.contains("Connecting"))
+            })?;
+            let started = Instant::now();
+            loop {
+                if saved_cells(&mut guest)?.is_some_and(|s| {
+                    s.sim_tick > before_return_tick
+                        && s.player.progress.is_some_and(|p| p.swim_xp >= earned)
+                }) {
+                    break;
+                }
+                if started.elapsed().as_secs() > 60 {
+                    return Err(guest.failed("interrupted guest progress was not saved".into()));
+                }
+                sleep(0.5);
+            }
+            guest.reload()?;
+            guest.until(30.0, "interrupted guest save reloads", |p| {
+                p.b.attr("data-cell-save").as_deref() == Some("loaded")
+            })?;
+            let saved = saved_cells(&mut guest)?.ok_or("missing returned guest save")?;
+            if saved.player.progress.is_none_or(|p| p.swim_xp < earned) {
+                return Err(guest.failed("reload lost the interrupted guest's progress".into()));
+            }
+            found.push("interrupted membership checkpoint preserves visiting progress through solo save and reload".into());
+        }
         "cells-canyon-store" => return canyon_store::run(&mut host, site),
         "cell-probe-canyon-claim" => return canyon_store::play(&mut host, &mut guest, site),
         "cells-solo-save" => {
@@ -1323,6 +1430,68 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     p.b.attr("data-cell-region-state").as_deref() == Some("running")
                 })?;
             }
+            // A second private window can load the same saved character as
+            // the first. Seed that exact record into an isolated profile so
+            // the two browser processes exercise the same admission case.
+            let started = Instant::now();
+            let guest_save = loop {
+                let raw = guest.b.eval(save_fixture::CAPTURE_SCRIPT)?;
+                if !raw.is_null() {
+                    let saved =
+                        crabsim::cell_codec::paged::decode(&save_fixture::frame_from_object(&raw)?)
+                            .map_err(|e| format!("guest private save: {e:?}"))?;
+                    if saved
+                        .player
+                        .progress
+                        .as_ref()
+                        .is_some_and(|p| p.salvage_identity != 0)
+                    {
+                        break raw;
+                    }
+                }
+                if started.elapsed().as_secs() > 60 {
+                    return Err(guest.failed("guest did not save its private character".into()));
+                }
+                sleep(0.5);
+            };
+            let mut duplicate = Player::new(site, "duplicate", o)?;
+            duplicate.b.go(asset.as_str().ok_or("missing asset URL")?)?;
+            duplicate.b.eval(&format!(r#"new Promise((resolve,reject)=>{{
+                const raw={guest_save},parts=location.pathname.split('/').filter(Boolean);let slug=null;
+                for(let i=0;i<parts.length;i++){{if(/^pr-\d+$/.test(parts[i])){{slug=parts[i];break;}}
+                  if(parts[i]==='branches'&&parts[i+1]){{slug='branches-'+parts[i+1];break;}}}}
+                if(slug)slug=slug.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase();
+                const opening=indexedDB.open(slug?'crabscape@'+slug+'@.cells':'crabscape.cells',1);
+                opening.onupgradeneeded=()=>opening.result.createObjectStore('world');
+                opening.onerror=()=>reject(String(opening.error));opening.onsuccess=()=>{{
+                  const db=opening.result,tx=db.transaction('world','readwrite'),store=tx.objectStore('world');
+                  const decode=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));store.clear();
+                  store.put(decode(raw.head),'active');store.put(decode(raw.epoch),'reset_epoch');
+                  for(const [key,bytes] of raw.records)store.put(decode(bytes),key);
+                  tx.onabort=()=>{{db.close();reject(String(tx.error));}};
+                  tx.oncomplete=()=>{{db.close();resolve(true);}};
+                }};
+              }})"#))?;
+            let guest_tick = guest
+                .b
+                .attr("data-cell-session-tick")
+                .and_then(|v| v.parse::<u64>().ok())
+                .ok_or("missing guest tick")?;
+            duplicate.open(&host.copied_invite(&invite, "cells")?)?;
+            duplicate.until(60.0, "duplicate character rejected", |p| {
+                p.coop().contains("character is already playing")
+            })?;
+            guest.until(30.0, "existing guest keeps playing", |p| {
+                p.b.attr("data-cell-session").as_deref() == Some("guest")
+                    && p.b
+                        .attr("data-cell-session-tick")
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .is_some_and(|tick| tick > guest_tick + 30)
+            })?;
+            if host.b.attr("data-cell-session").as_deref() != Some("host") {
+                return Err(host.failed("duplicate guest ended the owner's session".into()));
+            }
+            duplicate.b.go("about:blank")?;
             let previous = saved_cells(&mut host)?
                 .ok_or("missing deep baseline")?
                 .sim_tick;
