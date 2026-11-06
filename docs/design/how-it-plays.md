@@ -263,3 +263,29 @@ combat or collision. It disappears early if a crab brings light within its safet
 margin: at least 1.2× sight reach plus the eye radius. `Sim::watched(id)` and the one-tick `watcher_cues()` onset event
 (`Cue::Watched`) are the sound hooks for W2.2. The current checkout has no sim shark; the decorative sixgill pass
 is unchanged and cannot detect a crab.
+
+### Sound
+
+All sound is made in code and sits on the music's key: every pitched world sound is a D (the music's home note in
+all its modes, `music.rs`), so nothing clashes with the score and no two drones beat against each other.
+
+- **The music is untouched.** It plays exactly as on main, through the same nodes and gains; nothing in the world's
+  sound, depth or danger changes its level, filter, layers or track (owner's call: "main is fine").
+- **The deep rumble** is the core of the deep, on its own bus that only adds: a pure, steady D1 (36.7 Hz) with its
+  octaves, felt more than heard, about 6 dB under the music at midnight. It is silent in the shallows and grows each
+  band down. When the giant eye watches, it swells (over about a second). No noise texture is looped anywhere: a
+  looped noise repeats every loop and is heard as a rhythm.
+- **The crab's own body** gets louder as the world quiets: leg-on-grit scrapes, claw ticks and strain-driven shell
+  creaks at irregular moments (a seeded draw, about one every 1.6 s at full strain), all muffled, never hiss.
+- **Groans** of bone (D3) and rock (D2) have no visible source, are seeded, happen less often deeper, sound an octave
+  lower from midnight down and carry left or right. None in the shallows.
+- **Vents** hum on D near existing upwelling mouths (the hook for future authored vents).
+- **Warnings add, never take away** (owner's call): a hunter's tell aimed at the crab starts a swell of moving water
+  on D2 that rises over the whole tell and peaks on the strike just under the music's level, then lets go gently
+  (0.35 s). Music and the world play straight
+  through; nothing is paused, muted, ducked or filtered for danger. Tell timings are unchanged.
+
+There are no air or breathing sounds; the existing snapping-shrimp cavitation snap stays. Audio settings include a
+saved **Ambience** slider under Master (the world's loops and groans), separate from Effects (blows, the crab's body
+and the tell swell), Music and Voices. Native builds remain silent. Cue timing belongs to fixed sim ticks, including a
+two-second bounded history for multi-tick render frames.
