@@ -24,6 +24,7 @@ mod hub;
 pub mod landmarks;
 mod lower_canyon;
 pub mod refuges;
+pub mod royal;
 pub mod strata;
 
 /// Where the crab starts (its feet), if there is no save.
@@ -35,7 +36,7 @@ pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
 pub const UNITS_PER_METRE: f32 = 625.0;
 
 /// The water's surface, eight metres above the starting floor at creature
-/// scale. The player remains underwater until above-water play is designed.
+/// scale. The opening kelp now leads to the owner's above-water royal region.
 pub const WATER_SURFACE_Y: f32 = 8.0 * UNITS_PER_METRE;
 
 /// Size of a fish egg. A crab eats one when it touches its body (with a
@@ -62,6 +63,8 @@ pub enum Growth {
     /// Bare, pitted rock: nothing grows there, and a crab's leg tips slide
     /// off it. Only a crab with glass grips can climb it.
     Rock,
+    /// Human litter made useful: a hanging rope, gripped just like a stalk.
+    Rope,
 }
 
 /// A crevice under a rock ledge out in the level: a rest stop. A crab
@@ -431,8 +434,8 @@ impl Level {
                 // A shallow-water kelp brings the surface into reach from
                 // the plateau without altering the deep canyon routes.
                 Climb {
-                    x: 900.0,
-                    bottom: 110.0,
+                    x: royal::ROPE_X,
+                    bottom: 0.0,
                     top: WATER_SURFACE_Y - 20.0,
                     kind: Growth::Kelp,
                 },
@@ -635,12 +638,13 @@ impl Level {
         self.climbs
             .iter()
             .copied()
+            .chain(royal::climbs())
             .map(|mut c| {
                 if let Some(cells) = &self.cells
                     && c.kind == Growth::Kelp
                     && c.x == 280.0
                 {
-                    c.x = cells.giant_kelp_x(pos.y);
+                    c.x = royal::tied_kelp_x(cells.giant_kelp_x(pos.y), pos.y);
                 }
                 c
             })
@@ -721,6 +725,7 @@ impl Level {
             .chain(cliffs)
             .chain(nets)
             .chain(brittle)
+            .chain(royal::solids())
     }
 
     /// The trench that needs the double jump: (left edge x, right edge x).

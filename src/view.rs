@@ -265,7 +265,6 @@ fn follow_crab(
     mut shake: ResMut<Shake>,
     mut rest: Local<Option<Vec2>>,
     inside: Res<crate::interior::Inside>,
-    court: Option<Res<crate::king_ddd::Court>>,
     window: Single<&Window>,
 ) {
     let level = &sim.level;
@@ -276,16 +275,6 @@ fn follow_crab(
     };
     // Inside the home shell: framing the cut-away, still. Out again, the
     // camera starts from the crab, not from in there.
-    if let Some(court) = court.filter(|c| c.active) {
-        let size = window.size();
-        let unit_px = size.x * ortho.scale / ortho.area.width().max(1e-3);
-        let (at, scale) = crate::king_ddd::framing(size, unit_px, court.frame);
-        ortho.scale = scale;
-        cam.translation.x = at.x;
-        cam.translation.y = at.y;
-        *rest = None;
-        return;
-    }
     if inside.on {
         let size = window.size();
         let unit_px = size.x * ortho.scale / ortho.area.width().max(1e-3);

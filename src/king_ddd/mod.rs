@@ -1,4 +1,4 @@
-//! King Data Driven Decision: the improbable kingdom waiting above the water.
+//! The king's castle is part of the world. Only its glowing ledger opens a modal workbook.
 mod stage;
 mod theme;
 mod transport;
@@ -6,21 +6,23 @@ mod ui;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiInput, EguiPlugin, EguiPreUpdateSet, EguiPrimaryContextPass};
+use crabsim::level::royal;
 use ui::{KingUi, UiAction};
 #[derive(Resource, Default)]
 pub struct Court {
     pub active: bool,
     pub running: bool,
     pub generation: usize,
-    pub(crate) pending: bool,
+    pub region: bool,
+    pub bouts: usize,
     release_guard: bool,
+    route_hint: bool,
     pub rounds: std::collections::VecDeque<Vec<::king_ddd::Candidate>>,
     pub run_id: u64,
-    pub frame: Option<[f32; 4]>,
 }
 impl Court {
     pub(crate) fn owns_input(&self) -> bool {
-        self.active || self.pending || self.release_guard
+        self.active || self.release_guard
     }
 }
 #[derive(Resource, Default)]
@@ -45,9 +47,6 @@ impl Plugin for KingDddPlugin {
         stage::install(app);
     }
 }
-pub fn framing(size: Vec2, unit_px: f32, frame: Option<[f32; 4]>) -> (Vec2, f32) {
-    stage::framing(size, unit_px, frame)
-}
 fn raw_input(
     court: Res<Court>,
     mut ui: NonSendMut<KingUi>,
@@ -63,8 +62,7 @@ fn raw_input(
         }
     }
     if court.owns_input() {
-        // Egui already has the ordered events. Swallow gameplay shortcut edges,
-        // retaining held modifiers so spreadsheet shortcuts continue to work.
+        // Egui already has the ordered events. Retain held modifiers for grid shortcuts.
         keys.clear();
         mouse.clear();
         touches.clear();
@@ -73,11 +71,14 @@ fn raw_input(
         }
     }
 }
-#[allow(clippy::too_many_arguments)] // Bevy system inputs.
+fn can_read(mover: &crabsim::Mover) -> bool {
+    mover.grounded
+        && (mover.pos.x - royal::BOOK.x).abs() <= 135.0
+        && (mover.pos.y - royal::FLOOR_Y).abs() < 35.0
+}
 fn enter(
     mut court: ResMut<Court>,
-    mut sim: ResMut<crabsim::Sim>,
-    me: Single<&PlayerId, With<LocalPlayer>>,
+    mover: Single<&crabsim::Mover, With<LocalPlayer>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
@@ -95,11 +96,10 @@ fn enter(
             });
         #[cfg(not(target_arch = "wasm32"))]
         let direct = std::env::args().any(|a| a == "--king-ddd");
-        if direct {
-            let _ = crate::coop::cells_action(crate::coop::CellsAction::Home) || sim.go_home(**me);
-            court.pending = true;
-        }
+        // A link offers directions, never a shortcut that moves the crab or opens the ledger remotely.
+        court.route_hint = direct;
     }
+    court.region = royal::in_castle(mover.pos);
     if court.release_guard
         && keys.get_pressed().next().is_none()
         && mouse.get_pressed().next().is_none()
@@ -107,23 +107,17 @@ fn enter(
     {
         court.release_guard = false;
     }
-    if court.pending
-        && sim.crab(**me).is_some_and(|c| {
-            c.mover.tucked_in()
-                && sim.level.place_at(c.mover.pos) == Some(crabsim::level::Place::Home)
-        })
-    {
-        court.pending = false;
+    if !court.active && can_read(&mover) && keys.just_pressed(KeyCode::KeyU) {
         court.active = true;
     }
 }
-#[allow(clippy::too_many_arguments)] // Bevy system inputs.
+#[allow(clippy::too_many_arguments)]
 fn draw(
     mut contexts: EguiContexts,
     mut court: ResMut<Court>,
     mut ui: NonSendMut<KingUi>,
     mut transport: NonSendMut<transport::Transport>,
-    mut sim: ResMut<crabsim::Sim>,
+    sim: Res<crabsim::Sim>,
     me: Single<&PlayerId, With<LocalPlayer>>,
     window: Single<&Window>,
 ) -> Result {
@@ -147,31 +141,90 @@ fn draw(
             transport::Event::Status(s) => ui.status = s,
         }
     }
+    let Some(crab) = sim.crab(**me) else {
+        return Ok(());
+    };
+    court.region = royal::in_castle(crab.mover.pos);
+    if court.active && !can_read(&crab.mover) {
+        court.active = false;
+        court.release_guard = true;
+    }
     if !court.active {
-        stamp(&court, &ui);
-        if sim.crab(**me).is_some_and(|c| c.fighter.dead.is_none()) {
-            let near = sim.crab(**me).is_some_and(|c| {
-                c.mover.tucked_in() || c.mover.pos.y > crabsim::level::WATER_SURFACE_Y - 220.
-            });
-            let size = window.size();
-            egui_summons(ctx, size, near, court.pending, || {
-                if sim.crab(**me).is_some_and(|c| {
-                    c.mover.tucked_in()
-                        && sim.level.place_at(c.mover.pos) == Some(crabsim::level::Place::Home)
-                }) {
-                    court.active = true;
-                } else {
-                    let _ = crate::coop::cells_action(crate::coop::CellsAction::Home)
-                        || sim.go_home(**me);
-                    court.pending = true;
-                }
-            });
+        ui.buttons.clear();
+        ui.run_rect = None;
+        if can_read(&crab.mover) {
+            use bevy_egui::egui;
+            let y = window.height() - if window.width() < 700.0 { 190.0 } else { 100.0 };
+            egui::Area::new("royal_ledger_interaction".into())
+                .fixed_pos(egui::pos2((window.width() * 0.5 - 125.0).max(8.0), y))
+                .show(ctx, |ui_egui| {
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgba_unmultiplied(13, 31, 32, 235))
+                        .inner_margin(9.0)
+                        .corner_radius(8.0)
+                        .show(ui_egui, |panel| {
+                            let open = panel.button("Read the glowing ledger [U]");
+                            ui.buttons.insert(
+                                "open-ledger".into(),
+                                [
+                                    open.rect.min.x,
+                                    open.rect.min.y,
+                                    open.rect.width(),
+                                    open.rect.height(),
+                                ],
+                            );
+                            if open.clicked() {
+                                court.active = true;
+                            }
+                        });
+                });
         }
+        if court.region {
+            use bevy_egui::egui;
+            let top = if window.width() < 700.0 { 190.0 } else { 12.0 };
+            egui::Area::new("royal_lists_status".into())
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, top))
+                .show(ctx, |panel| {
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgba_unmultiplied(13, 24, 26, 215))
+                        .inner_margin(8.0)
+                        .corner_radius(8.0)
+                        .show(panel, |panel| {
+                            panel.set_max_width((window.width() - 48.0).clamp(250.0, 480.0));
+                            panel.label(egui::RichText::new("THE ROYAL LISTS")
+                                .color(egui::Color32::from_rgb(236, 196, 107)));
+                            if court.running {
+                                panel.spinner();
+                                panel.label(&ui.status);
+                            } else if ui.result.judged > 0 {
+                                panel.label(format!("{} judged · {} bouts shown · Read the ledger for the survivors", ui.result.judged, court.bouts));
+                            } else {
+                                panel.label("A kingdom of crabs. A suspiciously luminous spreadsheet.");
+                            }
+                        });
+                });
+        } else if court.route_hint {
+            use bevy_egui::egui;
+            let top = if window.width() < 700.0 { 190.0 } else { 130.0 };
+            egui::Area::new("royal_directions".into())
+                .fixed_pos(egui::pos2(12.0, top))
+                .show(ctx, |panel| {
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgba_unmultiplied(13, 24, 26, 220))
+                        .inner_margin(8.0)
+                        .corner_radius(8.0)
+                        .show(panel, |panel| {
+                            panel.set_max_width((window.width() - 48.0).clamp(250.0, 480.0));
+                            panel.label("King DDD is above the starting kelp.");
+                            panel.small("Jump, tap Jump again to grip, then hold to climb.");
+                            panel.small("At the surface, keep climbing the rope. Step right into the castle.");
+                        });
+                });
+        }
+        stamp(&court, &ui, &crab.mover);
         return Ok(());
     }
-    let actions = ui.show(ctx);
-    court.frame = ui.scene_rect;
-    for action in actions {
+    for action in ui.show(ctx) {
         match action {
             UiAction::Run(request) => {
                 court.running = true;
@@ -179,6 +232,9 @@ fn draw(
                 court.run_id = court.run_id.wrapping_add(1);
                 court.rounds.clear();
                 transport.run(request);
+                // The world remains the arena. Put the book down to watch its crabs fight.
+                court.active = false;
+                court.release_guard = true;
             }
             UiAction::Cancel => {
                 court.running = false;
@@ -186,96 +242,64 @@ fn draw(
             }
             UiAction::Leave => {
                 court.active = false;
-                court.running = false;
                 court.release_guard = true;
-                transport.cancel();
-                ui.busy = false;
             }
             UiAction::OpenFile => transport.open(),
             UiAction::Export { name, bytes } => transport.export(&name, &bytes),
         }
     }
-    stamp(&court, &ui);
+    stamp(&court, &ui, &crab.mover);
     Ok(())
 }
-fn stamp(court: &Court, ui: &KingUi) {
+fn stamp(court: &Court, ui: &KingUi, mover: &crabsim::Mover) {
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = (court, ui);
+    let _ = (court, ui, mover);
     #[cfg(target_arch = "wasm32")]
     if let Some(canvas) = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id("crabscape"))
     {
-        let _ = canvas.set_attribute(
-            "data-king-ddd",
-            if court.active {
-                if court.running { "running" } else { "court" }
-            } else {
-                "ocean"
-            },
-        );
-        let _ = canvas.set_attribute("data-king-ddd-generation", &court.generation.to_string());
-        let _ = canvas.set_attribute("data-king-ddd-judged", &ui.result.judged.to_string());
-        let _ = canvas.set_attribute("data-king-ddd-status", &ui.status);
-        let _ = canvas.set_attribute(
-            "data-king-ddd-sheet-count",
-            &ui.sheet
-                .session
-                .active()
-                .map(|d| d.wb.sheets.len())
-                .unwrap_or(0)
+        for (key, value) in [
+            (
+                "data-king-ddd",
+                (if court.active {
+                    "ledger"
+                } else if court.region {
+                    "castle"
+                } else {
+                    "sea"
+                })
                 .to_string(),
-        );
+            ),
+            ("data-king-ddd-generation", court.generation.to_string()),
+            ("data-king-ddd-judged", ui.result.judged.to_string()),
+            ("data-king-ddd-bouts", court.bouts.to_string()),
+            ("data-king-ddd-status", ui.status.clone()),
+            ("data-king-ddd-near-book", can_read(mover).to_string()),
+            (
+                "data-king-ddd-sheet-count",
+                ui.sheet
+                    .session
+                    .active()
+                    .map(|d| d.wb.sheets.len())
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+        ] {
+            let _ = canvas.set_attribute(key, &value);
+        }
         if let Ok(buttons) = serde_json::to_string(&ui.buttons) {
             let _ = canvas.set_attribute("data-king-ddd-buttons", &buttons);
         }
-        if let Some(rect) = ui.run_rect {
+        if let Some(r) = ui.run_rect {
             let _ = canvas.set_attribute(
                 "data-king-ddd-run-rect",
-                &format!("{} {} {} {}", rect[0], rect[1], rect[2], rect[3]),
+                &format!("{} {} {} {}", r[0], r[1], r[2], r[3]),
             );
         } else {
             let _ = canvas.remove_attribute("data-king-ddd-run-rect");
         }
     }
-}
-fn egui_summons(
-    ctx: &bevy_egui::egui::Context,
-    size: Vec2,
-    near: bool,
-    pending: bool,
-    mut enter: impl FnMut(),
-) {
-    use bevy_egui::egui;
-    // A small explicit entrance is also available away from home: accepting the summons uses the game's Home command.
-    egui::Area::new("royal_summons".into())
-        .fixed_pos(egui::pos2(12., if size.x < 600. { 125. } else { 12. }))
-        .show(ctx, |ui| {
-            egui::Frame::new()
-                .fill(egui::Color32::from_rgba_unmultiplied(14, 18, 32, 220))
-                .corner_radius(12.)
-                .inner_margin(8.)
-                .show(ui, |ui| {
-                    if ui
-                        .add_enabled(
-                            !pending,
-                            egui::Button::new(if pending {
-                                "The royal lift is arriving…"
-                            } else if near {
-                                "Enter the King's court"
-                            } else {
-                                "Royal summons"
-                            }),
-                        )
-                        .clicked()
-                    {
-                        enter();
-                    }
-                    if near {
-                        ui.small("Above water: apparently, a monarchy.");
-                    }
-                });
-        });
 }
 fn hide_hud(
     court: Res<Court>,
@@ -289,7 +313,7 @@ fn hide_hud(
             }
             node.display = Display::None;
         }
-    } else if !hidden.0.is_empty() {
+    } else {
         for (e, display) in hidden.0.drain(..) {
             if let Ok((_, mut node)) = roots.get_mut(e) {
                 node.display = display;
@@ -301,11 +325,14 @@ fn hide_hud(
 mod tests {
     use super::*;
     #[test]
-    fn court_camera_is_above_water_and_finite() {
-        for size in [Vec2::new(390., 844.), Vec2::new(1280., 800.)] {
-            let (at, scale) = framing(size, 1., None);
-            assert!(at.y > crabsim::level::WATER_SURFACE_Y);
-            assert!(scale.is_finite() && scale > 0.);
-        }
+    fn the_book_can_only_be_read_while_standing_beside_it() {
+        let mut mover = crabsim::Mover::new(Vec2::new(royal::BOOK.x, royal::FLOOR_Y));
+        mover.grounded = true;
+        assert!(can_read(&mover));
+        mover.grounded = false;
+        assert!(!can_read(&mover));
+        mover.grounded = true;
+        mover.pos = crabsim::SPAWN;
+        assert!(!can_read(&mover));
     }
 }

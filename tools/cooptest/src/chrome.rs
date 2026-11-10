@@ -464,6 +464,16 @@ impl Chrome {
         .map(drop)
     }
 
+    /// Test the game's real touch layout without asking for browser permissions.
+    #[allow(dead_code)] // Used by the royal region's responsive acceptance.
+    pub fn touch_screen(&mut self, enabled: bool) -> Result<()> {
+        self.call(
+            "Emulation.setTouchEmulationEnabled",
+            json!({"enabled":enabled,"maxTouchPoints":2}),
+        )
+        .map(drop)
+    }
+
     pub fn protocol_viewport(&mut self, width: u32, height: u32) -> Result<()> {
         if width < 600 || height < 360 {
             return Err("protocol viewport must retain desktop layout".into());

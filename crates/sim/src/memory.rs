@@ -191,6 +191,13 @@ impl std::fmt::Debug for Memory {
 
 /// The level's extent, padded: every place the crab can be or see.
 fn bounds(level: &Level) -> Rect {
+    let mut r = bounds_before_royal(level);
+    r.max.y = r.max.y.max(crate::level::royal::CEILING_Y + 400.0);
+    r
+}
+
+/// Exact preceding build extent: the new castle only appends unseen rows.
+fn bounds_before_royal(level: &Level) -> Rect {
     let mut r = bounds_before_surface(level);
     r.max.y = r.max.y.max(crate::level::WATER_SURFACE_Y + 800.0);
     r
@@ -356,6 +363,7 @@ impl Memory {
                 .iter()
                 .chain(&level.secrets)
                 .any(|r| r.contains(c))
+            || crate::level::royal::solids().any(|r| r.contains(c))
             || c.y < level.floor_height(c.x) - t.cell * 0.5
     }
 
@@ -688,7 +696,11 @@ impl Memory {
     /// Back from a portable export. Periodic storage captures dirty pages instead.
     pub fn from_save(s: &MemorySave, level: &Level, t: &MemoryTuning) -> Option<Self> {
         let mut m = Self::new(level, t);
-        if s.cols != m.cols || s.rows != m.rows || s.nets.len() != m.nets.len() {
+        let prior_rows = (bounds_before_royal(level).height() / t.cell).ceil() as u32;
+        if s.cols != m.cols
+            || (s.rows != m.rows && s.rows != prior_rows)
+            || s.nets.len() != m.nets.len()
+        {
             return None;
         }
         m.now = s.now;
@@ -696,7 +708,7 @@ impl Memory {
         m.chunks.clear();
         for page in &s.cells {
             if page.x >= m.cols.div_ceil(MEMORY_CHUNK_SIDE)
-                || page.y >= m.rows.div_ceil(MEMORY_CHUNK_SIDE)
+                || page.y >= s.rows.div_ceil(MEMORY_CHUNK_SIDE)
                 || page.cells.len() != CHUNK_CELLS
                 || page
                     .cells
@@ -1012,6 +1024,34 @@ mod tests {
         assert_eq!(restored.visits(remembered), 2);
         assert_eq!(restored.age(remembered), 20);
         assert_eq!(restored.to_save(), original.to_save());
+    }
+
+    #[test]
+    fn pre_castle_memory_keeps_its_pages_and_clock_and_appends_unseen_air() {
+        let level = Level::test_level();
+        let tuning = &Tuning::default().memory;
+        let mut original = Memory::new(&level, tuning);
+        let remembered = original.cell_at(Vec2::new(400.0, 20.0), tuning).unwrap();
+        *original.cell_mut(remembered) = MemoryCell {
+            visits: 3,
+            seen: 30,
+        };
+        original.now = 80;
+        let mut saved = original.to_save();
+        saved.rows = (bounds_before_royal(&level).height() / tuning.cell).ceil() as u32;
+        saved
+            .cells
+            .retain(|page| page.y < saved.rows.div_ceil(MEMORY_CHUNK_SIDE));
+        assert!(saved.rows < original.rows);
+        let restored = Memory::from_save(&saved, &level, tuning).unwrap();
+        assert_eq!(restored.now, 80);
+        assert_eq!(restored.visits(remembered), 3);
+        assert_eq!(restored.age(remembered), 50);
+        assert_eq!(restored.all_chunks(), saved.cells);
+        let castle = restored.cell_at(crate::level::royal::BOOK, tuning).unwrap();
+        assert_eq!(restored.visits(castle), 0);
+        saved.rows -= 1;
+        assert!(Memory::from_save(&saved, &level, tuning).is_none());
     }
 
     #[test]

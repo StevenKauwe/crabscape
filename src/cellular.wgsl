@@ -142,6 +142,8 @@ fn water_colour(p: vec2<f32>) -> vec3<f32> {
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let p = in.world_position.xy;
+    // The detailed ocean field is water, not a blue sheet over the royal region.
+    if p.y >= 5000.0 { discard; }
     let cell_uv = vec2<f32>((p.x - bounds.x) / bounds.z, 1.0 - (p.y - bounds.y) / bounds.w);
     let dims = vec2<i32>(textureDimensions(cell_texture));
     let at = clamp(vec2<i32>(floor(cell_uv * vec2<f32>(dims))), vec2<i32>(0), dims - 1);

@@ -4,25 +4,23 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 # A deployment retry keeps the original artifact. Every writer must select the
 # current job/attempt explicitly instead of finding two defaults named github-pages.
-python3 - "$root" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-root = Path(sys.argv[1])
-expected = "github-pages-${{ github.job }}-${{ github.run_attempt }}"
-for workflow, jobs in [("ci.yml", ["preview", "deploy"]), ("previews.yml", ["cleanup"])]:
-    source = (root / ".github/workflows" / workflow).read_text()
-    for job in jobs:
-        body = re.search(r"^  " + job + r":\n(.*?)(?=^  [\w-]+:|\Z)", source, re.M | re.S)
-        assert body, (workflow, job)
-        steps = re.split(r"\n      - ", body[1])
-        for action, key in [("upload-pages-artifact", "name"), ("deploy-pages", "artifact_name")]:
-            matched = [s for s in steps if "uses: actions/" + action + "@" in s]
-            assert len(matched) == 1, (workflow, job, action)
-            assert re.search(r"^          " + key + ": " + re.escape(expected) + r"$", matched[0], re.M), (workflow, job, key)
-print("Pages upload/deploy names match each job and run attempt")
-PY
+for entry in ci.yml:preview ci.yml:deploy previews.yml:cleanup; do
+  workflow=${entry%:*}
+  job=${entry#*:}
+  awk -v job="$job" -v expected='github-pages-${{ github.job }}-${{ github.run_attempt }}' '
+    /^  [a-zA-Z0-9_-]+:/ { active = ($0 == "  " job ":") }
+    active && /^      - / { action = "" }
+    active && /uses: actions\/upload-pages-artifact@/ { action = "upload"; uploads++ }
+    active && /uses: actions\/deploy-pages@/ { action = "deploy"; deploys++ }
+    active && action == "upload" && $0 == "          name: " expected { upload_names++ }
+    active && action == "deploy" && $0 == "          artifact_name: " expected { deploy_names++ }
+    END { if (uploads != 1 || deploys != 1 || upload_names != 1 || deploy_names != 1) exit 1 }
+  ' "$root/.github/workflows/$workflow" || {
+    echo "Pages upload/deploy names do not match job and attempt: $workflow/$job" >&2
+    exit 1
+  }
+done
+echo "Pages upload/deploy names match each job and run attempt"
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 git init -q --bare "$scratch/origin.git"

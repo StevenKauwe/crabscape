@@ -40,7 +40,6 @@ pub struct KingUi {
     pub run_rect: Option<[f32; 4]>,
     pub buttons: std::collections::BTreeMap<String, [f32; 4]>,
     input_order: Vec<String>,
-    pub scene_rect: Option<[f32; 4]>,
 }
 impl KingUi {
     pub fn new() -> Self {
@@ -60,7 +59,7 @@ impl KingUi {
             result: WorkResult::default(),
             busy: false,
             status: "The ocean made sense. Above it, there are spreadsheets.".into(),
-            tab: Tab::Arena,
+            tab: Tab::Workbook,
             ready: false,
             rev: None,
             file_name: String::new(),
@@ -72,7 +71,6 @@ impl KingUi {
             run_rect: None,
             buttons: Default::default(),
             input_order: vec![],
-            scene_rect: None,
         };
         if let Err(e) = this.open(
             include_bytes!("../../assets/king-ddd/launch-quest.xlsx"),
@@ -349,9 +347,9 @@ impl KingUi {
         }
     }
     pub fn show(&mut self, ctx: &egui::Context) -> Vec<UiAction> {
+        let was_editing = self.sheet.editor.is_some();
         self.run_rect = None;
         self.buttons.clear();
-        self.scene_rect = None;
         if !self.ready {
             theme::set_override(Some(super::theme::royal(false)));
             SheetApp::setup_context(ctx, true);
@@ -384,11 +382,11 @@ impl KingUi {
             .show(&mut root, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.heading(
-                        RichText::new("KING DATA DRIVEN DECISION")
+                        RichText::new("KING DDD · THE GLOWING LEDGER")
                             .color(Color32::from_rgb(242, 193, 78)),
                     );
-                    ui.label("Ministry of Statistically Defensible Violence");
-                    let leave = ui.button("Return to sea");
+                    ui.label("Royal Office of Constrained Possibility");
+                    let leave = ui.button("Close ledger");
                     self.buttons.insert("leave".into(), rect_array(leave.rect));
                     if leave.clicked() {
                         actions.push(UiAction::Leave);
@@ -396,7 +394,7 @@ impl KingUi {
                 });
                 ui.horizontal_wrapped(|ui| {
                     for (tab, label) in [
-                        (Tab::Arena, "The Lists"),
+                        (Tab::Arena, "Tournament"),
                         (Tab::Workbook, "Workbook"),
                         (Tab::Rules, "Goals & rules"),
                         (Tab::Guide, "Royal decree"),
@@ -466,43 +464,48 @@ impl KingUi {
                 });
             }
             Tab::Arena => {
-                let phone = ctx.viewport_rect().width() < 700.;
+                let phone = ctx.viewport_rect().width() < 700.0;
                 let panel = if phone {
-                    egui::Panel::top("court_controls_phone").exact_size(250.)
+                    egui::Panel::top("court_controls_phone").exact_size(250.0)
                 } else {
-                    egui::Panel::left("court_controls_desktop").default_size(260.)
+                    egui::Panel::left("court_controls_desktop").default_size(260.0)
                 };
                 panel.resizable(true).show(&mut root, |ui| {
                     egui::ScrollArea::vertical()
-                        .max_height(if phone { 230. } else { ui.available_height() })
+                        .max_height(if phone { 230.0 } else { ui.available_height() })
                         .auto_shrink([false, false])
-                        .id_salt("court_controls_scroll")
                         .show(ui, |ui| self.controls(ui, &mut actions, phone));
                 });
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::NONE)
-                    .show(&mut root, |ui| {
-                        let height = (ui.available_height() * 0.48).max(100.);
-                        let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), height));
-                        self.scene_rect = Some(rect_array(rect));
-                        egui::Frame::new()
-                            .fill(Color32::from_rgba_unmultiplied(10, 15, 25, 235))
-                            .inner_margin(12.)
-                            .show(ui, |ui| {
-                                ui.set_min_size(ui.available_size());
-                                self.leaderboard(ui, &mut actions);
-                            });
-                    });
+                egui::CentralPanel::default().show(&mut root, |ui| {
+                    egui::ScrollArea::both().show(ui, |ui| self.leaderboard(ui, &mut actions));
+                });
             }
             Tab::Guide => {
-                egui::CentralPanel::default().show(&mut root,|ui|{egui::ScrollArea::vertical().show(ui,|ui|{ui.heading("You have reached the surface.");ui.label("Below: the food web. Above: the spreadsheet. The distinction is administrative.");ui.separator();ui.label("1. Open a workbook, or use the royal example. Edit it in the real GridCraft grid.");ui.label("2. Give each column a role. Inputs are choices. Outcomes are learned independently from labelled historical rows. IDs are excluded. Merits are safe arithmetic formulas.");ui.label("3. Limit inputs with ranges, categories, presence rules and overlapping count/sum collections. Choose outcome goal bands or a desired class.");ui.label("4. Summon the Oracle. Candidates are sampled and evolved under your constraints, scored using real local TabICL predictions, ranked, and reaped. No placeholder prediction scores.");ui.label("5. Inspect the survivors and write them back into a new workbook sheet.");ui.separator();ui.label("Court visits use the same separate-scene mechanism as your shell interior. Your crab rests safely at home, and returning or reloading preserves its progress. The kingdom makes no changes to your ocean save.");ui.label("Native edition: optional external LLM assistant and saved fitted-model caches are not included. XLSX/CSV data, constraints, lookups, merits, TabICL and tournaments are local Rust.");});});
+                egui::CentralPanel::default().show(&mut root, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.heading("Above water, the crabs have organized.");
+                        ui.label("The starting kelp reaches a hanging rope. Keep climbing it, then step right into the castle. The same walking, jumping and climbing controls work here.");
+                        ui.separator();
+                        ui.label("This glowing ledger contains the real GridCraft workbook. Open XLSX/CSV, edit the historical data, and give each column its role.");
+                        ui.label("Inputs are choices. Outcomes are learned independently from labelled rows. IDs are excluded. Merits are safe arithmetic formulas.");
+                        ui.label("Goals & rules sets numeric intervals, categories, presence, lookup features, merit goals and overlapping count/sum collections.");
+                        ui.label("The Oracle samples and evolves feasible choices, fits real local TabICL models, ranks their goal probabilities and reaps the weakest. Starting it puts this book down so you can watch the Crabscape puppets in the Lists.");
+                        ui.label("Return to the glowing ledger to inspect predictions, write survivors to a new sheet and export XLSX. Closing the book does not stop the tournament; Stop tournament does.");
+                        ui.separator();
+                        ui.label("The castle is part of the world. Explore its floor and balcony, or descend the rope back to the kelp and sea. Your crab's actual position and progress are saved normally.");
+                        ui.label("The workbook and tournament are private to this device. The optional external LLM assistant and persistent model/configuration caches are not included. Export XLSX to keep workbook edits.");
+                    });
+                });
             }
+        }
+        if !was_editing && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            actions.push(UiAction::Leave);
         }
         actions
     }
     fn controls(&mut self, ui: &mut egui::Ui, actions: &mut Vec<UiAction>, phone: bool) {
         ui.heading("The Oracle's tournament");
-        ui.label("Real TabICL predictions. The lowest-ranked candidates lose their heads. The strongest breed.");
+        ui.label("Real TabICL predictions. The lowest-ranked choices are reaped. Crabscape characters show the judged bouts outside this ledger.");
         ui.separator();
         let button = ui.add_enabled(
             !self.busy,
@@ -589,7 +592,7 @@ impl KingUi {
             self.request.dataset.rows.len(),
             self.request.columns.len()
         ));
-        ui.label("Your data stays on this device. The king only downloads weights.");
+        ui.label("Your data stays on this device. Starting the Oracle closes this book so you can watch the Lists.");
     }
     fn export(&mut self) -> Result<Vec<u8>, String> {
         if self.sheet.editor.is_some() && !self.sheet.commit_edit(0, 0, false, false) {

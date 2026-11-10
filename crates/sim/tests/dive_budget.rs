@@ -134,7 +134,10 @@ fn farthest_east(kit: Kit) -> (Vec2, String) {
     );
     let mut top = start_node(
         kit,
-        Vec2::new(900.0, crabsim::level::WATER_SURFACE_Y - 80.0),
+        Vec2::new(
+            crabsim::level::royal::ROPE_X,
+            crabsim::level::WATER_SURFACE_Y - 80.0,
+        ),
         false,
     );
     top.sim.crab_mut(ME).expect("crab").mover.climbing = true;
