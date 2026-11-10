@@ -57,16 +57,8 @@ fn jump_probe_clear_of_the_kelp_keeps_no_paddles_and_normal_home_entry() {
         }
         top
     };
-    advance(
-        &mut sim,
-        90,
-        Controls {
-            walk: 1.0,
-            ..Controls::default()
-        },
-    );
     advance(&mut sim, 120, Controls::default());
-    assert!(sim.crab(id).unwrap().mover.pos.x > royal::ROPE_X + sim.tuning.climb_reach);
+    assert!((sim.crab(id).unwrap().mover.pos.x - royal::ROPE_X).abs() > sim.tuning.climb_reach);
     let jump = Controls {
         jump_pressed: true,
         jump_held: true,
@@ -78,6 +70,7 @@ fn jump_probe_clear_of_the_kelp_keeps_no_paddles_and_normal_home_entry() {
     advance(&mut sim, 54, jump);
     advance(&mut sim, 30, Controls::default());
     let before = sim.crab(id).unwrap().mover.pos.y;
+    assert!(!sim.crab(id).unwrap().mover.grounded);
     let top = advance(&mut sim, 42, jump);
     assert!(
         top < before + 5.0,
@@ -85,6 +78,15 @@ fn jump_probe_clear_of_the_kelp_keeps_no_paddles_and_normal_home_entry() {
     );
     assert!(!sim.crab(id).unwrap().mover.climbing);
     advance(&mut sim, 180, Controls::default());
+    advance(
+        &mut sim,
+        60,
+        Controls {
+            walk: 1.0,
+            ..Controls::default()
+        },
+    );
+    advance(&mut sim, 120, Controls::default());
     advance(
         &mut sim,
         240,

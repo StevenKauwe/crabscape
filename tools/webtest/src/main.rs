@@ -771,19 +771,10 @@ impl Test<'_> {
         self.tap(sx, sy, 9, true)?;
 
         // --- keyboard ---------------------------------------------------------------------------------------------
-        self.key("keydown", "KeyD", "d")?;
-        // Keep this independent jump/no-paddle probe clear of the starting kelp.
-        // At x280 the second Jump deliberately grips the new castle route instead.
-        self.hold(0.75, false)?;
-        self.key("keyup", "KeyD", "d")?;
-        let moved = self.rest()?;
-        self.check(
-            moved.0 > start.0 + 80.0,
-            format!(
-                "holding D walks the crab right (x {:.0} -> {:.0})",
-                start.0, moved.0
-            ),
-        );
+        // Probe jumping at spawn, clear of both the new kelp and the next ledge.
+        // Walking is checked afterwards so drawing speed cannot place this probe
+        // in a grip or underneath a ceiling.
+        let jump_start = self.rest()?;
         self.key("keydown", "KeyW", "w")?;
         let mut top = self.hold(0.25, true)?;
         self.numbered_shot(2)?; // mid-jump
@@ -791,8 +782,8 @@ impl Test<'_> {
         self.key("keyup", "KeyW", "w")?;
         top = top.max(self.hold(1.2, true)?);
         self.check(
-            top > moved.1 + 120.0,
-            format!("holding W jumps (height {:.0} -> {top:.0})", moved.1),
+            top > jump_start.1 + 120.0,
+            format!("holding W jumps (height {:.0} -> {top:.0})", jump_start.1),
         );
         // Jump, let go, then press again on the way down. A fresh crab has grown no paddle strokes yet (they come
         // from eating eggs, see Tuning::swim_strokes), so the second press must not lift it.
@@ -815,6 +806,18 @@ impl Test<'_> {
             ),
         );
         self.hold(1.5, false)?;
+
+        self.key("keydown", "KeyD", "d")?;
+        self.hold(0.5, false)?;
+        self.key("keyup", "KeyD", "d")?;
+        let moved = self.rest()?;
+        self.check(
+            moved.0 > start.0 + 80.0,
+            format!(
+                "holding D walks the crab right (x {:.0} -> {:.0})",
+                start.0, moved.0
+            ),
+        );
 
         // --- touch buttons ----------------------------------------------------------------------------------------
         let here = self.rest()?;

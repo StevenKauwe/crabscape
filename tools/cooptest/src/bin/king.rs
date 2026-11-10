@@ -63,14 +63,30 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     Ok(())
 }
 fn button(browser: &mut Chrome, name: &str) -> Result<()> {
-    let text = browser
-        .attr("data-king-ddd-buttons")
-        .ok_or("Court button geometry missing")?;
-    let values: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    let r = values
-        .get(name)
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| format!("Button {name} unavailable; {text}"))?;
+    // Opening/closing the book owns input immediately, but its new button
+    // geometry is published by the following Egui frame. Wait for that actual
+    // layout instead of treating a short sleep as proof it has been painted.
+    let until = Instant::now() + Duration::from_secs(10);
+    let r = loop {
+        let text = browser.attr("data-king-ddd-buttons").unwrap_or_default();
+        if !text.is_empty() {
+            let values: serde_json::Value =
+                serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if let Some(rect) = values.get(name).and_then(|v| v.as_array()) {
+                break rect.clone();
+            }
+        }
+        if let Some(e) = browser.trouble() {
+            return Err(e);
+        }
+        if Instant::now() > until {
+            return Err(format!(
+                "Button {name} unavailable; mode={:?}; {text}",
+                browser.attr("data-king-ddd")
+            ));
+        }
+        sleep(Duration::from_millis(50));
+    };
     let n = |i: usize| {
         r.get(i)
             .and_then(|v| v.as_f64())
