@@ -2,6 +2,27 @@
 # Local integration tests: real store commits/leases, no GitHub credentials or network.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
+# A deployment retry keeps the original artifact. Every writer must select the
+# current job/attempt explicitly instead of finding two defaults named github-pages.
+python3 - "$root" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+root = Path(sys.argv[1])
+expected = "github-pages-${{ github.job }}-${{ github.run_attempt }}"
+for workflow, jobs in [("ci.yml", ["preview", "deploy"]), ("previews.yml", ["cleanup"])]:
+    source = (root / ".github/workflows" / workflow).read_text()
+    for job in jobs:
+        body = re.search(r"^  " + job + r":\n(.*?)(?=^  [\w-]+:|\Z)", source, re.M | re.S)
+        assert body, (workflow, job)
+        steps = re.split(r"\n      - ", body[1])
+        for action, key in [("upload-pages-artifact", "name"), ("deploy-pages", "artifact_name")]:
+            matched = [s for s in steps if "uses: actions/" + action + "@" in s]
+            assert len(matched) == 1, (workflow, job, action)
+            assert re.search(r"^          " + key + ": " + re.escape(expected) + r"$", matched[0], re.M), (workflow, job, key)
+print("Pages upload/deploy names match each job and run attempt")
+PY
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 git init -q --bare "$scratch/origin.git"
