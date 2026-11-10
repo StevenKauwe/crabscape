@@ -328,7 +328,7 @@ fn wait_royal(browser: &mut Chrome, field: &str, expected: serde_json::Value) ->
         sleep(Duration::from_millis(100));
     }
 }
-fn climb_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
+fn climb_until(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     let up = position(browser)?[1] < target;
     browser.set_key("ArrowDown", false)?;
     browser.set_key("KeyW", false)?;
@@ -365,8 +365,44 @@ fn climb_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         }
         sleep(Duration::from_millis(60));
     }
+    Ok(())
+}
+fn release_climb(browser: &mut Chrome) -> Result<()> {
     browser.set_key("KeyW", false)?;
-    browser.set_key("ArrowDown", false)?;
+    browser.set_key("ArrowDown", false)
+}
+fn climb_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
+    climb_until(browser, target, seconds)?;
+    release_climb(browser)
+}
+fn on_floor(position: [f64; 3], floor: f64) -> bool {
+    position[2] == 1.0 && (position[1] - floor).abs() < 2.0
+}
+fn climb_onto(
+    browser: &mut Chrome,
+    floor: f64,
+    x: f64,
+    climb_seconds: u64,
+    walk_seconds: u64,
+) -> Result<()> {
+    if position(browser)?[1] >= floor {
+        return Err(format!("Expected to climb onto {floor} from below"));
+    }
+    // Leave the rope before its top, keeping Jump held during the sideways
+    // approach. Releasing it first needs two extra protocol roundtrips; a
+    // delayed frame can already have pulled the crab off the rope and let it
+    // fall down the shaft before the first sideways command reaches the game.
+    climb_until(browser, floor + 60.0, climb_seconds)?;
+    walk_to(browser, x, walk_seconds)?;
+    release_climb(browser)?;
+    stand_still(browser)?;
+    let landed = position(browser)?;
+    if !on_floor(landed, floor) {
+        failure_evidence(browser);
+        return Err(format!(
+            "Rope exit reached {landed:?}, not the platform at height {floor}"
+        ));
+    }
     Ok(())
 }
 fn activity(browser: &mut Chrome) -> Result<()> {
@@ -444,8 +480,13 @@ fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     walk_to(browser, 1440.0, 30)?;
     bell_receipt(browser, 2)?;
     walk_to(browser, 1115.0, 10)?;
-    climb_to(browser, 7200.0, 20)?;
-    walk_to(browser, 600.0, 15)?;
+    climb_onto(
+        browser,
+        f64::from(crabsim::level::royal::ROOF_Y),
+        600.0,
+        20,
+        15,
+    )?;
     bell_receipt(browser, 3)?;
     browser.screenshot(&dir.join("castle-high-ramparts.png"))?;
     walk_to(browser, 1115.0, 15)?;
@@ -750,4 +791,17 @@ fn main() -> Result<()> {
         dir.display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rampart_arrival_rejects_the_gallery_and_an_airborne_crab() {
+        let roof = f64::from(crabsim::level::royal::ROOF_Y);
+        assert!(!on_floor([636.4, 6640.1, 1.0], roof));
+        assert!(!on_floor([636.4, roof + 0.1, 0.0], roof));
+        assert!(on_floor([636.4, roof + 0.1, 1.0], roof));
+    }
 }

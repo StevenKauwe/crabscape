@@ -183,9 +183,6 @@ fn decode_test_journal(bytes: &[u8]) -> Option<MaterialJournal> {
 }
 
 #[cfg(test)]
-pub(crate) mod incremental_archive;
-
-#[cfg(test)]
 mod verified_scoop {
     use super::*;
     /// Test-only, one-region verifier. The caller must construct Peer from the

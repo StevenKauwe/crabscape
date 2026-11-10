@@ -128,18 +128,6 @@ impl<'a> Sampler<'a> {
             .and_then(|s| s.at(gx, gy))
             .map_or_else(|| authored_terrain_cell(self.level, gx, gy), |g| g.cell)
     }
-    #[cfg(test)]
-    pub(crate) fn grain(&self, gx: i32, gy: i32) -> Grain {
-        self.seed
-            .and_then(|s| s.at(gx, gy))
-            .cloned()
-            .unwrap_or_else(|| Grain {
-                y: gy,
-                cell: authored_terrain_cell(self.level, gx, gy),
-                grain: initial_grain(gx, gy),
-                suspended: 0,
-            })
-    }
 }
 
 #[cfg(feature = "terrain-bake")]
