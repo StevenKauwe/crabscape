@@ -6356,6 +6356,10 @@ function frame(now) {
     cv.dataset.dragonFriends = String([...ghosts.values()].filter(g => !g.viaDb).length);
     cv.dataset.dragonWorld = String(mission?.lastWorld || 0);
     cv.dataset.dragonX = String(P.x);
+    cv.dataset.dragonY = String(P.y);
+    cv.dataset.dragonScale = String(S);
+    cv.dataset.dragonFacing = String(P.facing);
+    cv.dataset.dragonTargets = JSON.stringify(enemies.filter(e => !e.dead && !e.calm).map(e => [e.x, e.y]));
     cv.dataset.dragonEnemies = String(enemies.length);
     cv.dataset.dragonHits = String(remoteHits);
     cv.dataset.dragonDone = String(!!mission?.done);

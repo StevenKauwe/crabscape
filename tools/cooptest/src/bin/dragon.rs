@@ -70,6 +70,69 @@ fn value(browser: &mut Chrome, field: &str) -> Result<String> {
         .unwrap_or_default()
         .to_string())
 }
+// Aim with real controls at an observed enemy. Random enemy heights must not decide whether CI passes.
+fn attack_host(guest: &mut Chrome, host: &mut Chrome) -> Result<()> {
+    let end = Instant::now() + Duration::from_secs(55);
+    guest.set_key("Space", true)?;
+    loop {
+        if value(host, "dragonHits")?.parse::<u64>().unwrap_or(0) > 0 {
+            break;
+        }
+        if let Some(error) = guest.trouble() {
+            return Err(error);
+        }
+        let data = guest.eval(
+            r#"(() => { const d = document.getElementById('sky').dataset;
+            return {x:+d.dragonX,y:+d.dragonY,s:+d.dragonScale,f:+d.dragonFacing,
+                targets:JSON.parse(d.dragonTargets || '[]')}; })()"#,
+        )?;
+        let x = data["x"].as_f64().ok_or("missing guest x")?;
+        let y = data["y"].as_f64().ok_or("missing guest y")?;
+        let scale = data["s"].as_f64().ok_or("missing guest scale")?;
+        let target = data["targets"].as_array().and_then(|targets| {
+            targets.iter().min_by(|a, b| {
+                let distance = |t: &serde_json::Value| {
+                    (t[0].as_f64().unwrap_or(x) - x).hypot(t[1].as_f64().unwrap_or(y) - y)
+                };
+                distance(a).total_cmp(&distance(b))
+            })
+        });
+        let (mut dx, dy) = if let Some(target) = target {
+            let tx = target[0].as_f64().ok_or("target x")?;
+            let ty = target[1].as_f64().ok_or("target y")?;
+            let side = if x < tx { -1.0 } else { 1.0 };
+            let mut dx = tx + side * scale * 3.0 - x;
+            if dx.abs() < 8.0 && data["f"].as_f64() != Some(-side) {
+                dx = -side * 9.0;
+            }
+            (dx, ty + scale * 0.2 - y)
+        } else {
+            (0.0, 0.0)
+        };
+        if !dx.is_finite() {
+            dx = 0.0;
+        }
+        for (key, down) in [
+            ("ArrowRight", dx > 8.0),
+            ("ArrowLeft", dx < -8.0),
+            ("ArrowDown", dy > 8.0),
+            ("ArrowUp", dy < -8.0),
+        ] {
+            guest.set_key(key, down)?;
+        }
+        if Instant::now() >= end {
+            return Err(format!(
+                "guest attacks did not reach host; guest={data}; host hits={}",
+                value(host, "dragonHits")?
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(120));
+    }
+    for key in ["Space", "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"] {
+        guest.set_key(key, false)?;
+    }
+    Ok(())
+}
 fn check_save(browser: &mut Chrome, name: &str) -> Result<()> {
     wait(
         browser,
@@ -195,13 +258,7 @@ fn run(dir: &Path) -> Result<()> {
     }
     println!("PASS shared mission, host world, guest movement, forged authority dropped");
     // Fire through the actual game controls, not through a test-only gameplay hook.
-    guest.set_key("Space", true)?;
-    wait(
-        host,
-        "+document.getElementById('sky').dataset.dragonHits > 0",
-        55,
-    )?;
-    guest.set_key("Space", false)?;
+    attack_host(guest, host)?;
     println!("PASS guest attacks reach the host's monsters");
     // A second launch must not pin the host's previous run id from stale Party presence.
     for browser in [&mut *guest, &mut *host] {
