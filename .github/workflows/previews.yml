@@ -61,3 +61,4 @@ jobs:
         if: steps.snap.outputs.deployed == 'true'
         with:
           artifact_name: github-pages-${{ github.job }}-${{ github.run_attempt }}
+          timeout: 1200000 # Keep the same bounded sync budget as preview and main.

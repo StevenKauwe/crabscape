@@ -14,9 +14,10 @@ for entry in ci.yml:preview ci.yml:deploy previews.yml:cleanup; do
     active && /uses: actions\/deploy-pages@/ { action = "deploy"; deploys++ }
     active && action == "upload" && $0 == "          name: " expected { upload_names++ }
     active && action == "deploy" && $0 == "          artifact_name: " expected { deploy_names++ }
-    END { if (uploads != 1 || deploys != 1 || upload_names != 1 || deploy_names != 1) exit 1 }
+    active && action == "deploy" && /^          timeout: 1200000([[:space:]]|$)/ { sync_budgets++ }
+    END { if (uploads != 1 || deploys != 1 || upload_names != 1 || deploy_names != 1 || sync_budgets != 1) exit 1 }
   ' "$root/.github/workflows/$workflow" || {
-    echo "Pages upload/deploy names do not match job and attempt: $workflow/$job" >&2
+    echo "Pages artifact identity or bounded sync budget is wrong: $workflow/$job" >&2
     exit 1
   }
 done
