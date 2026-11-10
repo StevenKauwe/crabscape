@@ -1177,56 +1177,6 @@ mod tests {
 
     #[test]
     fn material_tick_streams_and_synchronizes_real_sims_over_fake_link() {
-        material_tick_streams_case();
-    }
-
-    #[test]
-    fn staged_follow_runs_in_real_two_sim_material_tick() {
-        let (_, count) =
-            crate::underwater::chunk_flow::incremental_archive::staged::with_staged_follow(
-                material_tick_streams_case,
-            );
-        assert!(
-            count >= 3,
-            "host, host shadow and guest must actually stage their shifts"
-        );
-    }
-
-    #[test]
-    fn staged_follow_rejects_large_real_shift_without_mutating_sims() {
-        let (mut host, _, _, _) = setup_case(12);
-        for (sim, id, x) in [
-            (&mut host.host, PlayerId(0), 4000.0),
-            (&mut host.shadow, PlayerId(1), 4200.0),
-        ] {
-            let crab = sim.crab_mut(id).unwrap();
-            crab.mover.pos.x = x;
-            crab.prev_pos.x = x;
-        }
-        let remote = host.host.crab_mut(PlayerId(1)).unwrap();
-        remote.mover.pos.x = 4200.0;
-        remote.prev_pos.x = 4200.0;
-        let before_host = snapshot(&host.host);
-        let before_shadow = snapshot(&host.shadow);
-        let peer = peer(1, 20);
-        let input = Msg::CellUpInput {
-            epoch: 77,
-            tick: 0,
-            sequence: 0,
-            player: PlayerId(1),
-            up: false,
-        };
-        let (result, count) =
-            crate::underwater::chunk_flow::incremental_archive::staged::with_staged_follow(|| {
-                host.accept_up(peer, Some(peer), &input, false)
-            });
-        assert_eq!(result, Err(InputError::Unsupported));
-        assert_eq!(count, 0);
-        assert_eq!(snapshot(&host.host), before_host);
-        assert_eq!(snapshot(&host.shadow), before_shadow);
-    }
-
-    fn material_tick_streams_case() {
         let (mut host, mut guest, join, _) = setup_case(12);
         for (sim, id, x) in [
             (&mut host.host, PlayerId(0), 2300.0),
@@ -1265,23 +1215,6 @@ mod tests {
             assert_eq!((from, to), (1, 0));
             input = Msg::from_bytes(&msg.to_bytes());
         });
-        let h = host.host.local_shared_walking_force_any_tick().unwrap();
-        let g = host.shadow.local_shared_walking_force_any_tick().unwrap();
-        let mut trial = before.clone();
-        assert!(
-            trial.step_up_pair(&host.host.level, &host.host.tuning, &h, &g, true),
-            "terrain step"
-        );
-        let mut reference = before.clone();
-        assert!(
-            crate::underwater::chunk_flow::incremental_archive::staged::with_reference_follow(
-                || { reference.step_up_pair(&host.host.level, &host.host.tuning, &h, &g, true) }
-            )
-        );
-        assert_eq!(
-            trial, reference,
-            "staged terrain must match ordinary simulation"
-        );
         let frame = host
             .accept_up(selected, Some(selected), &input.unwrap(), false)
             .unwrap();

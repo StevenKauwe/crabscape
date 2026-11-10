@@ -19,7 +19,6 @@ pub mod frozen_chunks;
 pub mod opening_cleanup;
 pub mod region;
 pub mod region_store;
-pub mod versioned_chunks;
 pub use bounded_checkpoint::{
     decode_browser_checkpoint, encode_active_checkpoint, encode_browser_checkpoint,
 };
@@ -3771,22 +3770,6 @@ impl World {
         if material {
             chunk_flow::reject_scoop_capture();
         }
-        #[cfg(test)]
-        if chunk_flow::incremental_archive::staged::staged_follow_enabled() {
-            if chunk_flow::incremental_archive::staged::follow_for_sim_test(
-                &mut next,
-                level,
-                host.x,
-                host.y - host.half_height,
-            )
-            .is_none()
-            {
-                return false;
-            }
-        } else {
-            next.follow_player(level, host.x, host.y - host.half_height);
-        }
-        #[cfg(not(test))]
         next.follow_player(level, host.x, host.y - host.half_height);
         #[cfg(test)]
         if next.origin != self.origin || next.opening_edge_opened != self.opening_edge_opened {

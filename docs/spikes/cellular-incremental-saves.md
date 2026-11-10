@@ -78,13 +78,13 @@ they cannot authenticate against an attacker who can replace the data and its
 digest. Recovery deliberately fences even a slow writer and never reuses its
 ID; automatic detection of abandoned owners remains unsolved.
 
-The unwired `underwater::versioned_chunks` experiment demonstrates the smaller
-copy-on-write mechanism: a snapshot shares immutable payloads and copies an
-ordered index; a later mutation clones only the affected payload. Its bounded
-pages borrow data from that frozen snapshot. The model requires payloads and
-metadata without interior mutability, does not bound key heap size, and is not
-connected to real streamed terrain. A production design must capture the active
-window, player and global pebble table atomically with the chunk index, ensure
+The generic versioned-chunk experiment was retired during code hygiene. It
+modeled copy-on-write without connecting to real streamed terrain: a snapshot
+shared immutable payloads, copied an ordered index, and cloned only a mutated
+payload. Its bounded pages borrowed from the frozen snapshot, but it required
+payloads and metadata without interior mutability and did not bound key heap
+size. A production design must capture the active window, player and global
+pebble table atomically with the chunk index, ensure
 every mutation uses copy-on-write, and deal with snapshots held while many
 chunks change. Lazy disk reconstruction additionally needs per-chunk validation,
 an IO cache budget, deterministic missing-chunk behavior, cancellation and reset

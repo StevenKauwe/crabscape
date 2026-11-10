@@ -9,15 +9,16 @@ co-op have not been changed by this document.
 An archive proof must cover the exact relation among the active window,
 sleeping cells, pebble IDs and coordinates. A proof over one immutable borrow
 cannot certify a later mutable `World`, a different destination with the same
-origin, or a world after a streamed page/pebble mutation. The incremental
-validator experiment safely holds an immutable borrow during its scan, but
-its `Valid` result is not a transferable authorization.
+origin, or a world after a streamed page/pebble mutation. A validation result
+from an immutable borrow is not a transferable authorization. The test-only
+incremental validator, owned/staged streaming models, and generic versioned
+chunk experiment were retired during code hygiene; none was a live game path.
 
-`VersionedChunks` is an unwired generic copy-on-write experiment, not this
-boundary: it neither owns a `World` nor its pebble table, and generic payloads
-may have interior mutability. Comparing page versions alone cannot prove the
-absence of an orphan owner in a newly inserted page, a missing footprint cell,
-or a mismatch after an aggregate or the window origin changes.
+Generic copy-on-write payloads do not establish this boundary: they need not
+own a `World` or its pebble table and may have interior mutability. Comparing
+page versions alone cannot prove the absence of an orphan owner in a newly
+inserted page, a missing footprint cell, or a mismatch after an aggregate or
+the window origin changes.
 
 ## Candidate owner
 
