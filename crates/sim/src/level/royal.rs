@@ -5,6 +5,7 @@ use bevy_math::{Rect, Vec2};
 
 pub const ROPE_X: f32 = 280.0;
 pub const FLOOR_Y: f32 = WATER_SURFACE_Y + 720.0;
+pub const ARRIVAL_ROPE_TOP: f32 = FLOOR_Y + 155.0;
 pub const BALCONY_Y: f32 = FLOOR_Y + 220.0;
 pub const CEILING_Y: f32 = WATER_SURFACE_Y + 2000.0;
 pub const RIGHT_EDGE: f32 = 1250.0;
@@ -38,7 +39,7 @@ pub fn climbs() -> impl Iterator<Item = Climb> {
         Climb {
             x: ROPE_X,
             bottom: WATER_SURFACE_Y - 120.0,
-            top: FLOOR_Y + 45.0,
+            top: ARRIVAL_ROPE_TOP,
             kind: Growth::Rope,
         },
         Climb {

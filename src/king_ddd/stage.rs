@@ -243,6 +243,22 @@ fn build(
             y += height;
         }
     }
+    // The arrival rope actually hangs from the gatehouse rather than ending in empty sky.
+    for (size, color, z) in [
+        (Vec2::new(138.0, 20.0), ink, 3.3),
+        (Vec2::new(131.0, 13.0), Color::srgb(0.39, 0.27, 0.13), 3.4),
+    ] {
+        cut(
+            &mut commands,
+            &mut meshes,
+            &mut scenery,
+            &memory,
+            Vec2::new(338.0, royal::ARRIVAL_ROPE_TOP + 5.0),
+            size,
+            color,
+            z,
+        );
+    }
     // Individual banners and arches, no full-frame painted battlefield or UI backdrop.
     for x in [535.0, 970.0] {
         cut(
@@ -525,7 +541,7 @@ fn animate(
                 candidate
                     .map(|c| {
                         format!(
-                            "{} · {:.1}%",
+                            "{} | {:.1}%",
                             if right { "Challenger" } else { "Champion" },
                             c.hit.unwrap_or(0.0) * 100.0
                         )
