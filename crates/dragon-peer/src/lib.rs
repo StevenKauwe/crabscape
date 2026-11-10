@@ -3,6 +3,7 @@
 #![cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+mod voice;
 
 const MAX_PACKET: usize = 24 * 1024;
 #[cfg(target_arch = "wasm32")]
@@ -59,7 +60,11 @@ fn room_url(introducer: &str, build: &str, code: &str) -> Option<String> {
 mod browser {
     use super::*;
     use matchbox_socket::{PeerId, PeerState, WebRtcSocket};
-    use std::{cell::Cell, collections::HashMap, rc::Rc};
+    use std::{
+        cell::Cell,
+        collections::{HashMap, HashSet},
+        rc::Rc,
+    };
     use wasm_bindgen::prelude::*;
 
     #[wasm_bindgen]
@@ -67,6 +72,8 @@ mod browser {
         socket: WebRtcSocket,
         ended: Rc<Cell<bool>>,
         peers: HashMap<PeerId, [u64; 2]>,
+        compatible: HashSet<PeerId>,
+        voice: voice::browser::Voice,
         sequence: u64,
     }
 
@@ -79,6 +86,7 @@ mod browser {
             let (socket, run) = WebRtcSocket::builder(url)
                 .add_reliable_channel()
                 .add_unreliable_channel()
+                .add_reliable_channel()
                 .build();
             let ended = Rc::new(Cell::new(false));
             let finished = ended.clone();
@@ -90,6 +98,8 @@ mod browser {
                 socket,
                 ended,
                 peers: HashMap::new(),
+                compatible: HashSet::new(),
+                voice: voice::browser::Voice::new(),
                 sequence: 0,
             })
         }
@@ -101,6 +111,7 @@ mod browser {
                 for (peer, state) in changes {
                     match state {
                         PeerState::Connected if self.peers.len() < MAX_PEERS => {
+                            self.compatible.remove(&peer);
                             self.peers.insert(peer, [0, 0]);
                             events.push(
                                 serde_json::json!({"type":"joined", "peer":peer.to_string()}),
@@ -108,6 +119,7 @@ mod browser {
                         }
                         PeerState::Disconnected => {
                             self.peers.remove(&peer);
+                            self.compatible.remove(&peer);
                             events
                                 .push(serde_json::json!({"type":"left", "peer":peer.to_string()}));
                         }
@@ -133,15 +145,50 @@ mod browser {
                         continue;
                     }
                     seen[channel] = packet.sequence;
+                    self.compatible.insert(peer);
                     events.push(
                         serde_json::json!({"type":"message", "peer":peer.to_string(),
                         "topic":packet.topic, "data":packet.data}),
                     );
                 }
             }
+            self.voice.sync(self.socket.id(), &self.compatible);
+            for (peer, bytes) in self.socket.channel_mut(2).receive().into_iter().take(128) {
+                if self.compatible.contains(&peer) {
+                    self.voice.hear(peer, &bytes);
+                }
+            }
+            for (peer, bytes) in self.voice.outbox() {
+                if self.compatible.contains(&peer) {
+                    let _ = self
+                        .socket
+                        .channel_mut(2)
+                        .try_send(bytes.into_boxed_slice(), peer);
+                }
+            }
             serde_json::json!({"id": self.socket.id().map(|id| id.to_string()),
                 "ended":self.ended.get(), "events":events})
             .to_string()
+        }
+
+        /// Playback can be enabled without asking for microphone access.
+        pub fn listen(&self) {
+            self.voice.listen();
+        }
+
+        /// Called only by an explicit microphone button click, never by reconnection.
+        pub fn microphone(&mut self, on: bool) {
+            if !on || (self.socket.id().is_some() && !self.ended.get()) {
+                self.voice.mic(on);
+            }
+        }
+
+        pub fn voice_volume(&self, volume: f32) {
+            self.voice.volume(volume);
+        }
+
+        pub fn voice_status(&self) -> String {
+            self.voice.status()
         }
 
         pub fn send(&mut self, topic: &str, data: &str, reliable: bool) -> bool {

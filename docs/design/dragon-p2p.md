@@ -4,7 +4,7 @@ Open `/dragon/`, choose **Invite friends**, and send the copied link. Each frien
 
 The existing Matchbox introducer exchanges connection notes only. The browsers send the mission directly to one another over WebRTC. Dragon rooms cannot meet crab-game rooms or other preview builds. The adapter accepts only exact-build packets and binds authority to the data-channel sender. Host changes use an epoch and a deterministic successor; a paused host keeps authority. A lost connection retries while solo play remains available.
 
-This first version shares missions, positions, spells and combat. Invited friends are trusted to play honestly; source binding is not an anti-cheat system. Gems, crafting and progression remain personal. There is no cloud save, account synchronization, shared economy, voice chat, or new game server. Some restrictive networks cannot establish direct WebRTC connections; this version adds no TURN relay. Reloading preserves the Rider, then Party's Join button or Ready returns to an active mission. Ready also handles a faster screen launching before another screen starts its countdown.
+This first version shares missions, positions, spells and combat. Invited friends are trusted to play honestly; source binding is not an anti-cheat system. Gems, crafting and progression remain personal. There is no cloud save, account synchronization, shared economy, or new gameplay server. Some restrictive networks cannot establish direct WebRTC connections; this version adds no TURN relay. Reloading preserves the Rider, then Party's Join button or Ready returns to an active mission. Ready also handles a faster screen launching before another screen starts its countdown.
 
 ## Validation
 
@@ -17,3 +17,13 @@ This first version shares missions, positions, spells and combat. Invited friend
 Readonly acceptance attributes are enabled only with `?diagnostics`; normal play avoids those per-frame DOM writes. The functional browser fixture uses the existing simple-graphics option, stops rendering its unrelated isolation room, and allows a bounded slow-runner countdown without retries. Its attack check steers toward an observed target through real game controls, rather than hoping a random-height enemy crosses one fixed line of fire.
 
 Browser tests do not establish physical iPhone or adverse-network performance. Keep any capacity claims limited to the browser configurations actually validated.
+
+## Party voice
+
+Dragon voice is an independent Rust/WASM audio module, following Crabscape's pairwise WebRTC pattern without its transcription feature. It exchanges bounded, exact-version offer/answer/ICE notes over a separate reliable Dragon data channel. Actual Matchbox peer IDs choose one offerer and bind each call; call IDs and weak lifetime guards reject stale asynchronous results. Each friend gets a send/receive audio transceiver from the start, so microphone toggles do not renegotiate.
+
+The microphone starts **off every time**, including reload, reconnection and return from the browser's back/forward cache. Only **Turn mic on** requests browser permission. **Mute mic** stops every captured track and detaches it from each call. **Cancel mic request**, **Fly solo** and leaving the page also stop late-arriving permission results. An ended microphone is shown as off and requires a fresh opt-in. No audio is recorded, stored or transcribed.
+
+Ordinary game gestures can resume incoming voice audio without requesting capture. **Enable voice audio** is available if autoplay is suspended. **Friends' voices** changes the incoming gain from 0–100%, independently of Dragon's game/music button. Only this volume preference is saved. Party and Pause contain the full controls; a compact in-flight mic button stays accessible on phones. Anyone who joins the invite link can hear an enabled microphone, as the controls explain.
+
+The headless acceptance uses synthetic microphones in fresh profiles only. It proves zero capture requests before opt-in, two-way received audio, actual post-volume silence at zero, restored audio, mute, delayed permission cancellation, denial/retry, ended capture, Leave while capturing, late permission after Leave, and actual audio after reload/rejoin. It also checks 390-pixel controls for horizontal overflow and 44-pixel tap targets. This is not a physical iPhone/Safari or real-network audio proof. Background calls, device routing and restrictive NAT/firewalls remain browser/network dependent; no TURN relay is added.

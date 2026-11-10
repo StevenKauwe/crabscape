@@ -143,6 +143,147 @@ fn check_save(browser: &mut Chrome, name: &str) -> Result<()> {
         5,
     )
 }
+
+// Synthetic capture only: these profiles have Chrome's fake microphone flags.
+// No real microphone permission or personal browser profile is used by this test.
+const VOICE_PROBE: &str = r#"(() => {
+  const devices = navigator.mediaDevices;
+  if (!devices) return;
+  const original = devices.getUserMedia.bind(devices);
+  const probe = window.voiceProbe = {requests: 0, streams: [], mode: 'normal', release: null};
+  devices.getUserMedia = constraints => {
+    probe.requests++;
+    if (probe.mode === 'deny') return Promise.reject(new DOMException('Test denial', 'NotAllowedError'));
+    return original(constraints).then(stream => {
+      probe.streams.push(stream);
+      if (probe.mode === 'defer') return new Promise(resolve => { probe.release = () => resolve(stream); });
+      return stream;
+    });
+  };
+})();"#;
+fn voice_wait(browser: &mut Chrome, expression: &str, seconds: u64) -> Result<()> {
+    wait(
+        browser,
+        &format!(
+            "(() => {{const v=JSON.parse(document.documentElement.dataset.dragonVoice||'{{}}');return {expression};}})()"
+        ),
+        seconds,
+    )
+}
+fn click(browser: &mut Chrome, selector: &str) -> Result<()> {
+    browser.eval(&format!(
+        "document.querySelector({selector:?}).scrollIntoView({{block:'center'}})"
+    ))?;
+    let point = browser.eval(&format!("(() => {{const r=document.querySelector({selector:?}).getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];}})()"))?;
+    browser.click(
+        point[0].as_f64().ok_or("missing button x")?,
+        point[1].as_f64().ok_or("missing button y")?,
+    )
+}
+fn voice_pair(a: &mut Chrome, b: &mut Chrome, dir: &Path, url: &str) -> Result<()> {
+    const MIC: &str = "#partyScreen [data-p2p-mic]";
+    b.responsive_viewport(390, 844)?;
+    for browser in [&mut *a, &mut *b] {
+        voice_wait(
+            browser,
+            "v.mic === 'off' && v.connected === 1 && window.voiceProbe.requests === 0",
+            30,
+        )?;
+        click(browser, "#partyScreen [data-p2p-listen]")?;
+        voice_wait(browser, "v.listening === true", 10)?;
+    }
+    click(a, MIC)?;
+    voice_wait(a, "v.mic === 'on' && window.voiceProbe.requests === 1", 15)?;
+    voice_wait(b, "v.hearing === 1", 20)?;
+    b.eval("(()=>{const r=document.querySelector('#partyScreen [data-p2p-volume]');r.value=0;r.dispatchEvent(new Event('input',{bubbles:true}));})()")?;
+    voice_wait(
+        b,
+        "v.volume === 0 && v.mic === 'off' && window.voiceProbe.requests === 0",
+        5,
+    )?;
+    voice_wait(b, "v.hearing === 0", 10)?;
+    b.eval("(()=>{const r=document.querySelector('#partyScreen [data-p2p-volume]');r.value=35;r.dispatchEvent(new Event('input',{bubbles:true}));})()")?;
+    voice_wait(b, "Math.abs(v.volume - 0.35) < 0.001", 5)?;
+    voice_wait(b, "v.hearing === 1", 10)?;
+    click(b, MIC)?;
+    voice_wait(b, "v.mic === 'on'", 15)?;
+    voice_wait(a, "v.hearing === 1", 20)?;
+    a.screenshot(&dir.join("voice-two-way.png"))?;
+    b.screenshot(&dir.join("voice-phone.png"))?;
+    if b.eval("[...document.querySelectorAll('#partyScreen [data-p2p-voice] button,#partyScreen [data-p2p-voice] input')].every(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.height>=44;})")? != true {
+        return Err("phone voice controls overflow or are too small to tap".into());
+    }
+    for browser in [&mut *a, &mut *b] {
+        click(browser, MIC)?;
+        voice_wait(
+            browser,
+            "v.mic === 'off' && window.voiceProbe.streams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))",
+            10,
+        )?;
+    }
+    voice_wait(b, "v.hearing === 0", 10)?;
+    // Mute wins even if the browser resolves an earlier permission request later.
+    a.eval("window.voiceProbe.mode='defer'")?;
+    click(a, MIC)?;
+    voice_wait(
+        a,
+        "v.mic === 'asking' && typeof window.voiceProbe.release === 'function'",
+        15,
+    )?;
+    click(a, MIC)?;
+    a.eval("window.voiceProbe.release()")?;
+    voice_wait(
+        a,
+        "v.mic === 'off' && window.voiceProbe.streams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))",
+        10,
+    )?;
+    a.eval("window.voiceProbe.mode='deny'")?;
+    click(a, MIC)?;
+    voice_wait(a, "v.mic === 'off' && v.error?.includes('blocked')", 10)?;
+    a.eval("window.voiceProbe.mode='normal'")?;
+    click(a, MIC)?;
+    voice_wait(a, "v.mic === 'on'", 15)?;
+    voice_wait(b, "v.hearing === 1", 20)?;
+    a.eval("window.voiceProbe.streams.at(-1).getTracks().forEach(t=>t.stop())")?;
+    voice_wait(a, "v.mic === 'off' && v.error?.includes('stopped')", 10)?;
+    click(a, MIC)?;
+    voice_wait(a, "v.mic === 'on'", 15)?;
+    // Leaving must cancel capture, clear calls, and stop every acquired track.
+    click(a, "#soloBtn")?;
+    voice_wait(
+        a,
+        "v.mic === 'off' && v.calls === 0 && window.voiceProbe.streams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))",
+        10,
+    )?;
+    voice_wait(b, "v.calls === 0", 15)?;
+    // Leave also wins when permission resolves after the engine was freed.
+    a.go(url)?;
+    pick(a)?;
+    voice_wait(
+        a,
+        "v.mic === 'off' && v.connected === 1 && window.voiceProbe.requests === 0",
+        30,
+    )?;
+    a.eval("window.voiceProbe.mode='defer'")?;
+    click(a, MIC)?;
+    voice_wait(
+        a,
+        "v.mic === 'asking' && typeof window.voiceProbe.release === 'function'",
+        15,
+    )?;
+    click(a, "#soloBtn")?;
+    a.eval("window.voiceProbe.release()")?;
+    voice_wait(
+        a,
+        "v.mic === 'off' && v.calls === 0 && window.voiceProbe.streams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))",
+        10,
+    )?;
+    b.protocol_viewport(1200, 800)?;
+    println!(
+        "PASS fake-mic two-way voice, independent volume, mute, late cancellation, denial and Leave cleanup"
+    );
+    Ok(())
+}
 fn run(dir: &Path) -> Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let web = root.join("web");
@@ -169,9 +310,25 @@ fn run(dir: &Path) -> Result<()> {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    let mut a = Chrome::start("Dragon A", &dir.join("a"), Options::default())?;
-    let mut b = Chrome::start("Dragon B", &dir.join("b"), Options::default())?;
+    let mut a = Chrome::start(
+        "Dragon A",
+        &dir.join("a"),
+        Options {
+            fake_mic: true,
+            ..Options::default()
+        },
+    )?;
+    let mut b = Chrome::start(
+        "Dragon B",
+        &dir.join("b"),
+        Options {
+            fake_mic: true,
+            ..Options::default()
+        },
+    )?;
     let mut c = Chrome::start("Dragon separate room", &dir.join("c"), Options::default())?;
+    a.install_script(VOICE_PROBE)?;
+    b.install_script(VOICE_PROBE)?;
     fixture(&mut a, &base, "Host", 120)?;
     fixture(&mut b, &base, "Guest", 777)?;
     fixture(&mut c, &base, "Other", 444)?;
@@ -208,6 +365,32 @@ fn run(dir: &Path) -> Result<()> {
     check_save(&mut b, "Guest")?;
     println!("PASS isolated rooms, source-bound distinct riders, original device saves");
     c.go("about:blank")?; // Stop rendering the unrelated room before the functional two-player checks.
+    voice_pair(&mut a, &mut b, dir, &url)?;
+    a.go(&url)?;
+    pick(&mut a)?;
+    voice_wait(
+        &mut a,
+        "v.mic === 'off' && v.connected === 1 && window.voiceProbe.requests === 0",
+        30,
+    )?;
+    b.reload()?;
+    pick(&mut b)?;
+    voice_wait(
+        &mut b,
+        "v.mic === 'off' && v.connected === 1 && window.voiceProbe.requests === 0 && Math.abs(v.volume - 0.35) < 0.001",
+        30,
+    )?;
+    // pick() above selects through DOM for the mission test; a real tap or
+    // this explicit playback button supplies the gesture needed after reload.
+    click(&mut a, "#partyScreen [data-p2p-listen]")?;
+    voice_wait(&mut a, "v.listening === true", 10)?;
+    click(&mut b, "#partyScreen [data-p2p-mic]")?;
+    voice_wait(&mut b, "v.mic === 'on'", 15)?;
+    voice_wait(&mut a, "v.hearing === 1", 20)?;
+    click(&mut b, "#partyScreen [data-p2p-mic]")?;
+    println!(
+        "PASS reload/rejoin starts mic off, keeps volume preference, and reconnects actual audio"
+    );
     a.eval("document.querySelector('[data-pmission=m1]').click()")?;
     b.eval("document.querySelector('[data-pmission=m1]').click()")?;
     wait(
@@ -238,11 +421,16 @@ fn run(dir: &Path) -> Result<()> {
         10,
     )?;
     let x = value(guest, "dragonX")?;
-    guest.hold_key("ArrowRight", 1.0)?;
-    std::thread::sleep(Duration::from_millis(200));
-    if value(guest, "dragonX")? == x {
+    guest.set_key("ArrowRight", true)?;
+    let moved = wait(
+        guest,
+        &format!("+document.getElementById('sky').dataset.dragonX > +{x} + 8"),
+        5,
+    );
+    guest.set_key("ArrowRight", false)?;
+    if let Err(error) = moved {
         guest.screenshot(&dir.join("movement-failed.png"))?;
-        return Err(format!("guest movement did not respond x={x}, page={}", guest.eval("({data:{...document.getElementById('sky').dataset},active:document.activeElement?.outerHTML,visible:document.visibilityState})")?));
+        return Err(format!("guest movement did not respond x={x}: {error}, page={}", guest.eval("({data:{...document.getElementById('sky').dataset},active:document.activeElement?.tagName,visible:document.visibilityState})")?));
     }
     // A guest cannot pretend to be the host by claiming its rider number, or send authoritative worlds as itself.
     let hr = value(host, "dragonRider")?;

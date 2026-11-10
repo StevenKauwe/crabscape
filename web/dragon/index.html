@@ -390,6 +390,20 @@ h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2rem, 6.2vw
 @media (prefers-reduced-motion: reduce) { .fill, .go { transition: none; } }
 </style>
 
+<style>
+.voice-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border: 2px solid var(--edge); border-radius: 14px; margin: 8px 0; padding: 10px 12px; }
+.voice-controls[hidden] { display: none; }
+.voice-controls legend { color: var(--magic); font-weight: 800; padding: 0 6px; }
+.voice-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.voice-controls input { width: 130px; min-height: 44px; accent-color: var(--magic); }
+.voice-controls .note { flex-basis: 100%; margin: 0; }
+[data-p2p-mic], [data-p2p-listen] { min-height: 44px; }
+[data-p2p-mic][aria-pressed="true"] { background: var(--ember); color: var(--night); }
+@media (max-width: 620px) {
+  .tools [data-p2p-mic] { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 110px); right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+</style>
+
 <canvas id="sky" aria-label="Valmora"></canvas>
 
 <header class="hud" id="hud">
@@ -401,7 +415,7 @@ h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2rem, 6.2vw
   <div class="right">
     <span class="test-pill" id="testPill" hidden>Test flight</span>
     <div class="chip far" id="sibChip" hidden><span class="dot"></span><span id="sibName">Sibling</span><span class="unit" id="sibStatus">flying</span></div>
-    <div class="tools"><button type="button" id="pauseBtn">Pause</button><button type="button" id="soundBtn">Sound on</button></div>
+    <div class="tools"><button type="button" data-p2p-mic hidden title="Mic on shares with everyone in this party">Mic off</button><button type="button" id="pauseBtn">Pause</button><button type="button" id="soundBtn">Sound on</button></div>
   </div>
 </header>
 
@@ -429,6 +443,14 @@ h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2rem, 6.2vw
     <div class="riders" id="riderCards"></div>
     <div class="go-row"><button type="button" class="go small alt" data-p2p-invite>Invite friends</button><span class="note" data-p2p-status></span></div>
     <input id="p2pLink" aria-label="P2P invite link" readonly hidden>
+    <fieldset class="voice-controls" data-p2p-voice hidden>
+      <legend>Party voice</legend>
+      <button type="button" class="mini" data-p2p-listen>Enable voice audio</button>
+      <button type="button" class="mini" data-p2p-mic aria-pressed="false">Turn mic on</button>
+      <label>Friends' voices <input type="range" min="0" max="100" value="100" data-p2p-volume aria-label="Friends' voice volume"><output data-p2p-volume-label>100%</output></label>
+      <p class="note" data-p2p-voice-status>Mic off.</p>
+      <p class="note">Mic on shares with everyone who joins this invite link. No recording or transcription. Your game sound has its own button.</p>
+    </fieldset>
     <ul class="tips">
       <li>Pick a mission on the quest map. Each one is a journey: fly from stop to stop, win the fight at each one, and watch the route along the bottom. Touching a monster only bumps you; watch for the red ring, that means it's about to strike! Gems you grab are banked when a stop is cleared. Out of hearts means you're retired until the mission ends, and if everyone is out, the mission is failed. You can try again from the stop you reached.</li>
       <li>On an iPad: put a thumb down anywhere on the sky and slide it to steer. Hold the big Fire button to breathe fire.</li>
