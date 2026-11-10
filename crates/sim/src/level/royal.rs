@@ -64,7 +64,7 @@ pub fn solids() -> impl Iterator<Item = Rect> {
             1200.0,
             WATER_SURFACE_Y - 120.0,
             RIGHT_EDGE,
-            WATER_SURFACE_Y + 1700.0,
+            CEILING_Y + 100.0,
         ),
     ]
     .into_iter()
@@ -83,5 +83,6 @@ mod tests {
         assert_eq!(ceiling(ROPE_X, 40.0), CEILING_Y);
         assert_eq!(ceiling(1600.0, 40.0), WATER_SURFACE_Y);
         assert!(solids().any(|r| r.max.y == FLOOR_Y && r.min.x > ROPE_X + 40.0));
+        assert!(solids().any(|r| r.max.x == RIGHT_EDGE && r.max.y > CEILING_Y));
     }
 }

@@ -116,7 +116,7 @@ fn build(
     }
     for (x, top, width) in [
         (395.0, royal::FLOOR_Y + 470.0, 126.0),
-        (1225.0, crabsim::level::WATER_SURFACE_Y + 1700.0, 110.0),
+        (1225.0, royal::CEILING_Y + 100.0, 110.0),
     ] {
         let bottom = if x > 1200.0 {
             crabsim::level::WATER_SURFACE_Y - 120.0
