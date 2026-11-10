@@ -222,7 +222,7 @@ fn draw(
                         });
                 });
         }
-        stamp(&court, &ui, &crab.mover);
+        stamp(&court, &ui, &crab.mover, ctx.viewport_rect().size());
         return Ok(());
     }
     for action in ui.show(ctx) {
@@ -249,12 +249,12 @@ fn draw(
             UiAction::Export { name, bytes } => transport.export(&name, &bytes),
         }
     }
-    stamp(&court, &ui, &crab.mover);
+    stamp(&court, &ui, &crab.mover, ctx.viewport_rect().size());
     Ok(())
 }
-fn stamp(court: &Court, ui: &KingUi, mover: &crabsim::Mover) {
+fn stamp(court: &Court, ui: &KingUi, mover: &crabsim::Mover, viewport: bevy_egui::egui::Vec2) {
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = (court, ui, mover);
+    let _ = (court, ui, mover, viewport);
     #[cfg(target_arch = "wasm32")]
     if let Some(canvas) = web_sys::window()
         .and_then(|w| w.document())
@@ -277,6 +277,10 @@ fn stamp(court: &Court, ui: &KingUi, mover: &crabsim::Mover) {
             ("data-king-ddd-bouts", court.bouts.to_string()),
             ("data-king-ddd-status", ui.status.clone()),
             ("data-king-ddd-near-book", can_read(mover).to_string()),
+            (
+                "data-king-ddd-viewport",
+                format!("{} {}", viewport.x, viewport.y),
+            ),
             (
                 "data-king-ddd-sheet-count",
                 ui.sheet

@@ -10,6 +10,23 @@ use std::{
     thread::sleep,
     time::{Duration, Instant},
 };
+fn failure_evidence(browser: &mut Chrome) {
+    let directory = Path::new("target/webtest/king");
+    let _ = std::fs::create_dir_all(directory);
+    let _ = browser.screenshot(&directory.join("failure.png"));
+    if let Ok(state) = browser.eval(
+        r#"(() => {
+      const c = document.getElementById('crabscape');
+      return {window:[innerWidth,innerHeight,devicePixelRatio],
+        king:c?.getAttribute('data-king-ddd'),
+        layout:c?.getAttribute('data-king-ddd-viewport'),
+        buttons:c?.getAttribute('data-king-ddd-buttons'),
+        crab:c?.getAttribute('data-crab')};
+    })()"#,
+    ) {
+        let _ = std::fs::write(directory.join("failure-state.json"), state.to_string());
+    }
+}
 fn wait(browser: &mut Chrome, attr: &str, value: &str, seconds: u64) -> Result<()> {
     let until = Instant::now() + Duration::from_secs(seconds);
     loop {
@@ -23,14 +40,29 @@ fn wait(browser: &mut Chrome, attr: &str, value: &str, seconds: u64) -> Result<(
             return Err(format!("{e}; console={details}"));
         }
         if Instant::now() > until {
+            failure_evidence(browser);
             return Err(format!(
-                "Timed out waiting for {attr}={value}; crab={:?}, status={:?}",
+                "Timed out waiting for {attr}={value}; actual={:?}, crab={:?}, layout={:?}, buttons={:?}, status={:?}",
+                browser.attr(attr),
                 browser.attr("data-crab"),
+                browser.attr("data-king-ddd-viewport"),
+                browser.attr("data-king-ddd-buttons"),
                 browser.attr("data-king-ddd-status")
             ));
         }
         sleep(Duration::from_millis(100));
     }
+}
+fn resize(browser: &mut Chrome, width: u32, height: u32) -> Result<()> {
+    browser.responsive_viewport(width, height)?;
+    // Match the Egui frame that produced the hitboxes, not just the browser's
+    // immediately resized viewport. Slow software rendering can lag a frame.
+    wait(
+        browser,
+        "data-king-ddd-viewport",
+        &format!("{width} {height}"),
+        10,
+    )
 }
 fn position(browser: &mut Chrome) -> Result<[f64; 3]> {
     let value = browser.attr("data-crab").ok_or("No crab position")?;
@@ -50,6 +82,7 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
             break;
         }
         if Instant::now() > until {
+            failure_evidence(browser);
             return Err(format!("Walk toward {target} stopped at {p:?}"));
         }
         let right = p[0] < target;
@@ -99,6 +132,17 @@ fn button(browser: &mut Chrome, name: &str) -> Result<()> {
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let train = args.iter().any(|a| a == "--train");
+    let slow = if let Some(i) = args.iter().position(|a| a == "--slow") {
+        args.get(i + 1)
+            .ok_or("--slow needs a rate")?
+            .parse::<f64>()
+            .map_err(|e| e.to_string())?
+    } else {
+        1.0
+    };
+    if !slow.is_finite() || slow < 1.0 {
+        return Err("--slow must be finite and at least 1".into());
+    }
     let site = if let Some(i) = args.iter().position(|a| a == "--url") {
         args.get(i + 1).ok_or("--url needs a URL")?.clone()
     } else {
@@ -108,7 +152,14 @@ fn main() -> Result<()> {
         )
     };
     let dir = std::env::temp_dir().join(format!("crab-king-smoke-{}", std::process::id()));
-    let mut b = Chrome::start_without_clipboard("king-castle", &dir, Options::default())?;
+    let mut b = Chrome::start_without_clipboard(
+        "king-castle",
+        &dir,
+        Options {
+            slow,
+            ..Options::default()
+        },
+    )?;
     b.touch_screen(true)?;
     let sep = if site.contains('?') { '&' } else { '?' };
     b.go(&format!("{site}{sep}king-ddd"))?;
@@ -170,7 +221,7 @@ fn main() -> Result<()> {
     button(&mut b, "rules")?;
     button(&mut b, "guide")?;
     button(&mut b, "arena")?;
-    b.responsive_viewport(390, 844)?;
+    resize(&mut b, 390, 844)?;
     sleep(Duration::from_secs(1));
     b.screenshot(&dir.join("ledger-phone.png"))?;
     button(&mut b, "leave")?;
@@ -178,8 +229,7 @@ fn main() -> Result<()> {
     b.screenshot(&dir.join("castle-phone.png"))?;
     button(&mut b, "open-ledger")?;
     wait(&mut b, "data-king-ddd", "ledger", 10)?;
-    b.responsive_viewport(1200, 800)?;
-    sleep(Duration::from_millis(300));
+    resize(&mut b, 1200, 800)?;
     if train {
         button(&mut b, "example")?;
         button(&mut b, "short")?;
