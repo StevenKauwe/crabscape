@@ -154,7 +154,8 @@ fn draw(
         ui.run_rect = None;
         if can_read(&crab.mover) {
             use bevy_egui::egui;
-            let y = window.height() - if window.width() < 700.0 { 190.0 } else { 100.0 };
+            // Keep the interaction above the phone's existing combat/eat rows.
+            let y = (window.height() - if window.width() < 700.0 { 340.0 } else { 100.0 }).max(8.0);
             egui::Area::new("royal_ledger_interaction".into())
                 .fixed_pos(egui::pos2((window.width() * 0.5 - 125.0).max(8.0), y))
                 .show(ctx, |ui_egui| {
