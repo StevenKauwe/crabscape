@@ -318,7 +318,7 @@ fn air_has_no_paddle_strokes_and_the_ocean_boundary_remains_elsewhere() {
         &level
     ));
     assert!(!physics::is_valid_spot(
-        Vec2::new(1600.0, WATER_SURFACE_Y),
+        Vec2::new(royal::RIGHT_EDGE + 300.0, WATER_SURFACE_Y),
         1.0,
         &t,
         &level

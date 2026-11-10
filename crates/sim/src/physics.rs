@@ -176,6 +176,9 @@ pub struct Mover {
     /// Fighting experience: it grows with every blow the claws land on a
     /// creature (more for beating one), and each level hits harder.
     pub fight_xp: f32,
+    /// Completed analysis and observatory practice; never changes prediction scores.
+    #[serde(default)]
+    pub data_xp: f32,
     /// Paddle strokes left (fractions are strokes still resting). Resting
     /// on solid ground or slowly while sinking draws on the
     /// [`reserve`](Self::reserve).
@@ -286,6 +289,7 @@ impl Mover {
             climb_xp: 0.0,
             swim_xp: 0.0,
             fight_xp: 0.0,
+            data_xp: 0.0,
             stamina: 0.0,
             reserve: 1.0,
             stroke_rest: 0.0,

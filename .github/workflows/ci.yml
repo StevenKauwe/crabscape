@@ -381,17 +381,41 @@ jobs:
         run: |
           chmod +x target/art/dragon
           DRAGON_LOGS=target/webtest/dragon target/art/dragon
-      - name: King's court entry, spreadsheet input, phone layout and safe return
-        if: matrix.part == 1
-        run: |
-          chmod +x target/art/king
-          target/art/king
       - name: Keep a failure's browser logs and screenshots
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cooptest-part-${{ matrix.part }}-${{ github.sha }}
           path: target/webtest/
+          retention-days: 7
+
+  king:
+    name: King's castle, ledger and safe return
+    # Run once on its own runner, not after the three-player and Dragon voice
+    # suites. Retain the exact acceptance and include it in the required gate.
+    needs: [web, browser-tools]
+    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+      - name: Reach the castle, edit the ledger, reload and return to sea
+        run: |
+          chmod +x target/art/king
+          target/art/king --tour
+      - name: Keep a failure's state and screenshot
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: king-${{ github.sha }}
+          path: target/webtest/king/
           retention-days: 7
 
   feel-strips:
@@ -439,16 +463,16 @@ jobs:
   browser:
     name: browser test (WebKit, iPhone size)
     # The required check's name (branch protection asks for exactly this one), as a gate over the fanned-out browser
-    # jobs: it passes only when the web build, the tools, both WebKit phones and every co-op part passed, or were
+    # jobs: it passes only when the web build, the tools, both WebKit phones, King and every co-op part passed, or were
     # skipped (a change that can't affect the game). A failed or cancelled one fails it.
-    needs: [web, browser-tools, webkit, coop]
+    needs: [web, browser-tools, webkit, coop, king]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every browser job passed or was skipped
         env:
-          RESULTS: web=${{ needs.web.result }} tools=${{ needs.browser-tools.result }} webkit=${{ needs.webkit.result }} coop=${{ needs.coop.result }}
+          RESULTS: web=${{ needs.web.result }} tools=${{ needs.browser-tools.result }} webkit=${{ needs.webkit.result }} coop=${{ needs.coop.result }} king=${{ needs.king.result }}
         run: |
           echo "$RESULTS"
           case " $RESULTS " in

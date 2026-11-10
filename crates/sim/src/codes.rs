@@ -303,6 +303,7 @@ impl Sim {
                     crate::skills::Skill::Climbing => m.climb_xp = xp,
                     crate::skills::Skill::Swimming => m.swim_xp = xp,
                     crate::skills::Skill::Fighting => m.fight_xp = xp,
+                    crate::skills::Skill::DataDriven => m.data_xp = xp,
                 }
             }
             Code::Glow => m.glow = !m.glow,

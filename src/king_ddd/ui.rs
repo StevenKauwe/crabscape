@@ -34,6 +34,8 @@ pub struct KingUi {
     pub file_name: String,
     pub selected: usize,
     pub generation: usize,
+    pub data_level: u32,
+    pub data_xp: f32,
     data_sheet: usize,
     lookup_sources: std::collections::BTreeMap<String, usize>,
     inspected: usize,
@@ -65,6 +67,8 @@ impl KingUi {
             file_name: String::new(),
             selected: 0,
             generation: 0,
+            data_level: 1,
+            data_xp: 0.0,
             data_sheet: 0,
             lookup_sources: Default::default(),
             inspected: 0,
@@ -386,6 +390,10 @@ impl KingUi {
                             .color(Color32::from_rgb(242, 193, 78)),
                     );
                     ui.label("Royal Office of Constrained Possibility");
+                    ui.label(format!(
+                        "Data-Driven {} · {:.0} XP",
+                        self.data_level, self.data_xp
+                    ));
                     let leave = ui.button("Close ledger");
                     self.buttons.insert("leave".into(), rect_array(leave.rect));
                     if leave.clicked() {
@@ -412,10 +420,10 @@ impl KingUi {
                         );
                     }
                     ui.separator();
-                    if ui
-                        .add_enabled(!self.busy, egui::Button::new("Open XLSX / CSV"))
-                        .clicked()
-                    {
+                    let open = ui.add_enabled(!self.busy, egui::Button::new("Open XLSX / CSV"));
+                    self.buttons
+                        .insert("open-file".into(), rect_array(open.rect));
+                    if open.clicked() {
                         actions.push(UiAction::OpenFile);
                     }
                     if ui.button("Export XLSX").clicked() {

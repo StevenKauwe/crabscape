@@ -140,6 +140,7 @@ pub struct Chrome {
     ws: WebSocket<MaybeTlsStream<TcpStream>>,
     session: String,
     next: u64,
+    file_input: Option<u64>,
 }
 
 /// How a browser is started.
@@ -244,6 +245,7 @@ impl Chrome {
             ws,
             session: String::new(),
             next: 0,
+            file_input: None,
         };
         // Invite copies the link: let it, as a player who said yes would.
         if clipboard {
@@ -314,6 +316,9 @@ impl Chrome {
                 continue;
             };
             let v: Value = serde_json::from_str(text.as_str()).map_err(|e| e.to_string())?;
+            if v["method"] == "Page.fileChooserOpened" {
+                self.file_input = v["params"]["backendNodeId"].as_u64();
+            }
             if v["id"].as_u64() != Some(id) {
                 continue; // an event, or an old reply
             }
@@ -365,6 +370,34 @@ impl Chrome {
     /// Reload the page, as a player pressing reload.
     pub fn reload(&mut self) -> Result<()> {
         self.call("Page.reload", json!({})).map(drop)
+    }
+    /// Keep the isolated test's file chooser headless; grants no browser permission.
+    #[allow(dead_code)]
+    pub fn intercept_file_dialog(&mut self) -> Result<()> {
+        self.file_input = None;
+        self.call(
+            "Page.setInterceptFileChooserDialog",
+            json!({"enabled":true}),
+        )
+        .map(drop)
+    }
+    #[allow(dead_code)]
+    pub fn file_dialog_open(&mut self) -> Result<bool> {
+        self.eval("document.readyState")?;
+        Ok(self.file_input.is_some())
+    }
+    /// Select only the named fixture through the application's real file input.
+    #[allow(dead_code)]
+    pub fn choose_file(&mut self, path: &Path) -> Result<()> {
+        // Normal file inputs can be detached. Use the backend node supplied
+        // by the actual chooser event, not a guessed DOM id or fake upload.
+        let node = self.file_input.take().ok_or("File chooser did not open")?;
+        let path = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+        self.call(
+            "DOM.setFileInputFiles",
+            json!({"backendNodeId":node,"files":[path]}),
+        )
+        .map(drop)
     }
 
     /// The value of a JavaScript expression in the page (Null if the page is between documents).

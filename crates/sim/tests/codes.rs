@@ -558,6 +558,7 @@ fn setting_a_level_changes_only_that_saved_skill_and_can_lower_it() {
                 Skill::Climbing => expected.climb_xp = xp,
                 Skill::Swimming => expected.swim_xp = xp,
                 Skill::Fighting => expected.fight_xp = xp,
+                Skill::DataDriven => expected.data_xp = xp,
             }
             let saved = sim.progress(P0).unwrap();
             assert_eq!(

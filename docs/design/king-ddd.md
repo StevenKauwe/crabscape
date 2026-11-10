@@ -14,6 +14,46 @@ gravity and no swimming strokes. A keep wall bounds the opening region so it doe
 The immutable masonry and ropes are ordinary deterministic build geometry, not editable sediment.
 An unbroken ascent still follows the existing 5,000-unit climbing-feat rule; its threshold is unchanged.
 
+## A castle to explore
+
+The keep is now roughly 3,000 units wide, with three interior floors and high ramparts. The original landing,
+book and tournament ring stay where they were. Two interior rope shafts connect the floors; step sideways
+off a rope to land. Their floor openings can also be jumped. The solid ground floor and outer keep wall keep
+the extra space from becoming an air shortcut around underwater progression.
+
+Nine areas have their own signs and furnishings: the lists, banquet hall, ropeworks, library, observatory,
+guard gallery, wardrobe, bell tower and high ramparts. Discovering each area earns one royal token, once.
+Press U beside a character or mechanism, or use its contextual touch button. The castle journal lists the
+rooms, activities, Data-Driven rank and earned progress.
+
+- Archivist Clack in the banquet hall asks for three luminous index pages. Find them in the library, guard
+  gallery and upper wardrobe, then return the index for five tokens. Pages and completion are personal.
+- The ropeworks bell keeper starts an ordered three-bell trial: far shaft's first-floor bell, middle of the
+  next floor, then the left rampart. The clock uses simulation ticks and allows 180 seconds. The first finish
+  pays four tokens; repeat runs improve the personal best. Leaving the castle, dying or reloading cancels a
+  live trial without clearing an earlier best.
+- The observatory has three decisions about expectation, feasibility and testing a selected sample. Correct
+  answers earn 20 Data-Driven XP and two tokens each, once. Wrong answers cost nothing and explain the idea.
+- Quartermaster Snip's upper wardrobe sells four cosmetic ribbon colours for three tokens each. Owned
+  ribbons can be selected freely. The ribbon is currently a local above-water visual, not a shared costume.
+
+## Data-Driven practice
+
+Import an XLSX/CSV with at least three nonempty data rows and two named columns through the real ledger file
+dialog for 40 XP once. Finish an actual optimizer tournament for 10 XP plus 1.5 per judged candidate, capped
+at 256 candidates per completion. Repeated completed practice counts, like repeated climbing. Starting,
+cancelling, failing or delivering the same completion receipt twice earns no XP. The journal explains this.
+
+Data-Driven uses the ordinary 1–99 skill curve with step 20. It appears in the HUD after the first experience,
+is saved with the character and carries ranks from Curious Crab to Oracle of the Lists. It does not improve
+model confidence, change ranking probabilities or grant a biological moult feat. Existing spreadsheet tools
+remain available at level 1. Activity tokens buy cosmetics, not predictions.
+
+Only bounded counts and completion tickets enter simulation/replays/co-op actions. Workbook contents and
+model inputs remain in the device-local ledger and worker. Saving preserves career XP, quest pages, room
+discoveries, puzzles, tokens, ribbons and the bell best. Old ocean and first-castle memory pages/clock survive
+the appended extent. Reload cancels an unfinished external fit rather than inventing a completion reward.
+
 ## The glowing ledger and the lists
 
 A luminous workbook floats beside the landing. Stand next to it and press U or its contextual touch button
@@ -67,12 +107,18 @@ in memory for the session; workbook exports preserve data and sheets.
 - `cargo test -p crabsim --test royal_region --test surface`: continuous ordinary-control kelp/rope/landing
   traversal, cellular rope connection, return to the sea, air gravity and the remaining ocean boundary.
 - `cargo test -p crabsim --lib pre_castle_memory`: existing explored pages and clock survive new unseen rows.
+- `cargo test -p crabsim --test royal_activities`: real-control bell course in legacy and cellular modes,
+  reward idempotence, wrong answers, saved career, old character defaults and recorded research receipts.
 - `cargo test -p crabscape --bin crabscape king_ddd`: ledger proximity, sample/preset, sheet viewing, lossless
   winner writeback, merit history and font initialization.
 - `cargo run -p king-ddd --example royal_trial -- <weights-directory>`: real three-model, two-generation trial.
 - `tools/build-web.sh`: Rust game/worker builds and no-relaxed-SIMD validation when wasm-tools is installed.
-- `cargo run --profile art -p cooptest --bin king -- [--url <site>] [--train]`: isolated headless Chrome walks
+- `cargo run --profile art -p cooptest --bin king -- [--url <site>] [--train] [--tour]`: isolated headless Chrome walks
   from spawn, climbs the actual kelp and rope, lands at the ledger, types into the real workbook, checks phone
   layout, preserves a castle-position save through reload and returns to the sea. `--train` also runs the
   three-model 16-candidate tournament, watches native crab bouts and writes the survivors into a new sheet.
+  It selects the test workbook through the actual file dialog and verifies earned import/completion XP.
+  `--tour` traverses the upper storeys, finishes the ordered bell run, returns the lost index, solves the
+  observatory, buys an earned ribbon and checks that the career survives reload. CI runs this tour once on
+  its own runner and includes it in the existing protected browser gate; no other browser check is removed.
   The runner has its own profile and grants no clipboard or other browser permission.

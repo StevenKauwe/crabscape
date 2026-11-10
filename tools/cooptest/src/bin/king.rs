@@ -6,6 +6,7 @@ mod chrome;
 mod serve;
 use chrome::{Chrome, Options, Result};
 use std::{
+    collections::VecDeque,
     path::Path,
     thread::sleep,
     time::{Duration, Instant},
@@ -13,21 +14,31 @@ use std::{
 fn failure_evidence(browser: &mut Chrome) {
     let directory = Path::new("target/webtest/king");
     let _ = std::fs::create_dir_all(directory);
-    let _ = browser.screenshot(&directory.join("failure.png"));
-    if let Ok(state) = browser.eval(
-        r#"(() => {
+    const STATE: &str = r#"(() => {
       const c = document.getElementById('crabscape');
       return {window:[innerWidth,innerHeight,devicePixelRatio],
         focus:document.activeElement?.id, ready:document.readyState,
+        visible:document.visibilityState, hasFocus:document.hasFocus(),
         loading:!document.getElementById('message')?.hidden,
         oldDocument:window.kingtestOld === true,
         king:c?.getAttribute('data-king-ddd'),
         layout:c?.getAttribute('data-king-ddd-viewport'),
         buttons:c?.getAttribute('data-king-ddd-buttons'),
-        crab:c?.getAttribute('data-crab')};
-    })()"#,
-    ) {
+        crab:c?.getAttribute('data-crab'),
+        controls:c?.getAttribute('data-cell-controls'),
+        storage:c?.getAttribute('data-cell-page-state'),
+        region:c?.getAttribute('data-cell-region-state'),
+        timing:window.kingProbe,
+        now:performance.now()};
+    })()"#;
+    // Capture the timed-out state before asking Chrome for a screenshot:
+    // a software-rendered capture may itself take time or trigger a paint.
+    if let Ok(state) = browser.eval(STATE) {
         let _ = std::fs::write(directory.join("failure-state.json"), state.to_string());
+    }
+    let _ = browser.screenshot(&directory.join("failure.png"));
+    if let Ok(state) = browser.eval(STATE) {
+        let _ = std::fs::write(directory.join("failure-after-shot.json"), state.to_string());
     }
 }
 fn wait(browser: &mut Chrome, attr: &str, value: &str, seconds: u64) -> Result<()> {
@@ -107,25 +118,71 @@ fn position(browser: &mut Chrome) -> Result<[f64; 3]> {
     v.try_into()
         .map_err(|_| format!("Malformed crab position {value}"))
 }
+fn stand_still(browser: &mut Chrome) -> Result<()> {
+    let until = Instant::now() + Duration::from_secs(6);
+    let mut previous = position(browser)?;
+    let mut stable = 0;
+    loop {
+        sleep(Duration::from_millis(120));
+        let p = position(browser)?;
+        if p[2] == 1.0 && (p[0] - previous[0]).abs() < 0.3 && (p[1] - previous[1]).abs() < 0.3 {
+            stable += 1;
+        } else {
+            stable = 0;
+        }
+        if stable >= 3 {
+            return Ok(());
+        }
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err(format!(
+                "The crab did not settle at the ledger: {previous:?} -> {p:?}"
+            ));
+        }
+        previous = p;
+    }
+}
 fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
-    let until = Instant::now() + Duration::from_secs(seconds);
+    let rope = target == 1115.0 || target == 3000.0;
+    if rope && position(browser)?[1] > 6000.0 {
+        // Walk into grip reach while holding Jump, rather than walk into
+        // an open shaft, wait, and only then try to catch a falling crab.
+        browser.set_key("KeyW", true)?;
+    }
+    let started = Instant::now();
+    let until = started + Duration::from_secs(seconds);
+    let mut trace = VecDeque::new();
     loop {
         let p = position(browser)?;
-        if (p[0] - target).abs() < 16.0 {
+        if trace.len() == 12 {
+            trace.pop_front();
+        }
+        trace.push_back(format!("{:.2}s {p:?}", started.elapsed().as_secs_f32()));
+        // A gripped crab can stay at the edge of its 48-unit reach. Do not
+        // demand the rope's centre after the approach has already caught it.
+        if (p[0] - target).abs() < if rope { 48.1 } else { 16.0 } {
             break;
         }
         if Instant::now() > until {
             failure_evidence(browser);
-            return Err(format!("Walk toward {target} stopped at {p:?}"));
+            return Err(format!(
+                "Walk toward {target} stopped at {p:?}; observations={trace:?}"
+            ));
         }
         let right = p[0] < target;
+        let command = Instant::now();
         browser.set_key("ArrowRight", right)?;
         browser.set_key("ArrowLeft", !right)?;
+        if let Some(last) = trace.back_mut() {
+            last.push_str(&format!(" keys={}ms", command.elapsed().as_millis()));
+        }
         sleep(Duration::from_millis(40));
     }
     browser.set_key("ArrowRight", false)?;
     browser.set_key("ArrowLeft", false)?;
-    sleep(Duration::from_millis(250));
+    if !rope {
+        sleep(Duration::from_millis(250));
+    }
     Ok(())
 }
 fn button(browser: &mut Chrome, name: &str) -> Result<()> {
@@ -162,9 +219,155 @@ fn button(browser: &mut Chrome, name: &str) -> Result<()> {
     sleep(Duration::from_millis(250));
     Ok(())
 }
+fn royal(browser: &mut Chrome) -> Result<serde_json::Value> {
+    let value = browser
+        .attr("data-royal-progress")
+        .ok_or("No royal progress")?;
+    serde_json::from_str(&value).map_err(|e| e.to_string())
+}
+fn wait_royal(browser: &mut Chrome, field: &str, expected: serde_json::Value) -> Result<()> {
+    let until = Instant::now() + Duration::from_secs(15);
+    loop {
+        if royal(browser)?[field] == expected {
+            return Ok(());
+        }
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err(format!("Royal {field} did not reach {expected}"));
+        }
+        sleep(Duration::from_millis(100));
+    }
+}
+fn climb_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
+    let up = position(browser)?[1] < target;
+    browser.set_key("ArrowDown", false)?;
+    browser.set_key("KeyW", false)?;
+    sleep(Duration::from_millis(40));
+    browser.set_key("KeyW", true)?;
+    // From a floor: jump, then tap again to grip, as the ordinary control
+    // card instructs. Holding only the first floor jump never asks to grip.
+    let airborne = Instant::now() + Duration::from_secs(4);
+    while position(browser)?[2] != 0.0 {
+        if Instant::now() > airborne {
+            failure_evidence(browser);
+            return Err("Jump did not leave the castle floor".into());
+        }
+        sleep(Duration::from_millis(20));
+    }
+    browser.set_key("KeyW", false)?;
+    sleep(Duration::from_millis(30));
+    browser.set_key("KeyW", true)?;
+    sleep(Duration::from_millis(80));
+    if !up {
+        // Up and Down together deliberately hang still. Release Jump to descend.
+        browser.set_key("KeyW", false)?;
+        browser.set_key("ArrowDown", true)?;
+    }
+    let until = Instant::now() + Duration::from_secs(seconds);
+    loop {
+        let y = position(browser)?[1];
+        if if up { y >= target } else { y <= target } {
+            break;
+        }
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err(format!("Castle rope to {target} stopped at {y}"));
+        }
+        sleep(Duration::from_millis(60));
+    }
+    browser.set_key("KeyW", false)?;
+    browser.set_key("ArrowDown", false)?;
+    Ok(())
+}
+fn activity(browser: &mut Chrome) -> Result<()> {
+    button(browser, "activity")
+}
+fn close_activity(browser: &mut Chrome) -> Result<()> {
+    button(browser, "close-activity")
+}
+fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
+    walk_to(browser, 1570.0, 30)?;
+    activity(browser)?;
+    button(browser, "start-index")?;
+    close_activity(browser)?;
+    walk_to(browser, 2550.0, 30)?;
+    activity(browser)?;
+    button(browser, "start-bells")?;
+    walk_to(browser, 3000.0, 20)?;
+    climb_to(browser, 6740.0, 25)?;
+    walk_to(browser, 1440.0, 30)?;
+    walk_to(browser, 1115.0, 10)?;
+    climb_to(browser, 7200.0, 20)?;
+    walk_to(browser, 600.0, 15)?;
+    if royal(browser)?["best"].as_u64().is_none() {
+        return Err("The ordered three-bell course did not finish".into());
+    }
+    browser.screenshot(&dir.join("castle-high-ramparts.png"))?;
+    walk_to(browser, 1115.0, 15)?;
+    climb_to(browser, 6740.0, 20)?;
+    walk_to(browser, 720.0, 15)?;
+    walk_to(browser, 1115.0, 15)?;
+    climb_to(browser, 6280.0, 20)?;
+    walk_to(browser, 530.0, 15)?;
+    walk_to(browser, 1115.0, 15)?;
+    climb_to(browser, 5830.0, 20)?;
+    walk_to(browser, 3000.0, 40)?;
+    climb_to(browser, 6280.0, 20)?;
+    walk_to(browser, 2520.0, 15)?;
+    walk_to(browser, 1670.0, 20)?;
+    activity(browser)?;
+    for (puzzle, choice) in [0, 1, 2].into_iter().enumerate() {
+        button(browser, &format!("answer-{choice}"))?;
+        wait_royal(browser, "puzzles", ((1_u32 << (puzzle + 1)) - 1).into())?;
+    }
+    close_activity(browser)?;
+    browser.screenshot(&dir.join("castle-observatory.png"))?;
+    resize(browser, 390, 844)?;
+    activity(browser)?;
+    browser.screenshot(&dir.join("castle-observatory-phone.png"))?;
+    close_activity(browser)?;
+    button(browser, "journal")?;
+    browser.screenshot(&dir.join("castle-journal-phone.png"))?;
+    close_activity(browser)?;
+    resize(browser, 1200, 800)?;
+    walk_to(browser, 1115.0, 15)?;
+    climb_to(browser, 5830.0, 20)?;
+    walk_to(browser, 1570.0, 15)?;
+    activity(browser)?;
+    button(browser, "return-index")?;
+    wait_royal(browser, "index", true.into())?;
+    close_activity(browser)?;
+    walk_to(browser, 1115.0, 15)?;
+    climb_to(browser, 6740.0, 25)?;
+    walk_to(browser, 1590.0, 15)?;
+    activity(browser)?;
+    button(browser, "ribbon-2")?;
+    wait_royal(browser, "wearing", 2.into())?;
+    close_activity(browser)?;
+    let progress = royal(browser)?;
+    if progress["puzzles"] != 7
+        || progress["pages"] != 7
+        || progress["index"] != true
+        || progress["wearing"] != 2
+        || progress["xp"].as_f64().unwrap_or(0.0) < 60.0
+    {
+        return Err(format!(
+            "Castle activities did not persist their real rewards: {progress}"
+        ));
+    }
+    browser.screenshot(&dir.join("castle-wardrobe-reward.png"))?;
+    walk_to(browser, 1115.0, 15)?;
+    climb_to(browser, 5830.0, 25)?;
+    walk_to(browser, 455.0, 20)?;
+    println!(
+        "PASS: three floors and ramparts, ordered bell trial, lost-index quest, three decisions, Data-Driven XP and earned ribbon"
+    );
+    Ok(())
+}
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let train = args.iter().any(|a| a == "--train");
+    let tour = args.iter().any(|a| a == "--tour");
     let slow = if let Some(i) = args.iter().position(|a| a == "--slow") {
         args.get(i + 1)
             .ok_or("--slow needs a rate")?
@@ -192,6 +395,26 @@ fn main() -> Result<()> {
             slow,
             ..Options::default()
         },
+    )?;
+    b.install_script(
+        r#"(() => {
+          const p = window.kingProbe = {longTasks:[],keys:[]};
+          new PerformanceObserver(list => {
+            for (const t of list.getEntries()) {
+              p.longTasks.push([Math.round(t.startTime),Math.round(t.duration)]);
+              if (p.longTasks.length>16) p.longTasks.shift();
+            }
+          }).observe({type:'longtask',buffered:true});
+          for (const type of ['keydown','keyup']) addEventListener(type, e => {
+            p.keys.push([Math.round(performance.now()),type,e.code,e.target?.id]);
+            if (p.keys.length>16) p.keys.shift();
+          });
+          addEventListener('DOMContentLoaded', () => {
+            const c = document.getElementById('crabscape');
+            c?.setAttribute('data-cell-control-probe','');
+            c?.setAttribute('data-cell-work-profile','');
+          }, {once:true});
+        })()"#,
     )?;
     b.touch_screen(true)?;
     let sep = if site.contains('?') { '&' } else { '?' };
@@ -238,6 +461,7 @@ fn main() -> Result<()> {
     b.set_key("ArrowRight", false)?;
     walk_to(&mut b, 455.0, 10)?;
     wait(&mut b, "data-king-ddd-near-book", "true", 10)?;
+    stand_still(&mut b)?;
     b.screenshot(&dir.join("castle-arrival.png"))?;
     button(&mut b, "open-ledger")?;
     wait(&mut b, "data-king-ddd", "ledger", 10)?;
@@ -264,7 +488,17 @@ fn main() -> Result<()> {
     wait(&mut b, "data-king-ddd", "ledger", 10)?;
     resize(&mut b, 1200, 800)?;
     if train {
-        button(&mut b, "example")?;
+        b.intercept_file_dialog()?;
+        button(&mut b, "open-file")?;
+        let until = Instant::now() + Duration::from_secs(10);
+        while !b.file_dialog_open()? {
+            if Instant::now() > until {
+                return Err("Workbook file dialog did not open".into());
+            }
+            sleep(Duration::from_millis(100));
+        }
+        b.choose_file(Path::new("assets/king-ddd/launch-quest.xlsx"))?;
+        wait_royal(&mut b, "uploaded", true.into())?;
         button(&mut b, "short")?;
         let r = b
             .attr("data-king-ddd-run-rect")
@@ -280,6 +514,10 @@ fn main() -> Result<()> {
         wait(&mut b, "data-king-ddd", "castle", 10)?;
         walk_to(&mut b, 650.0, 10)?;
         wait(&mut b, "data-king-ddd-judged", "16", 600)?;
+        wait_royal(&mut b, "tournaments", 1.into())?;
+        if royal(&mut b)?["xp"].as_f64().unwrap_or(0.0) < 74.0 {
+            return Err("Uploaded workbook and real tournament did not earn Data-Driven XP".into());
+        }
         let until = Instant::now() + Duration::from_secs(30);
         while b
             .attr("data-king-ddd-bouts")
@@ -314,15 +552,27 @@ fn main() -> Result<()> {
     wait(&mut b, "data-king-ddd", "castle", 10)?;
     let settled = position(&mut b)?;
     if !train && ((settled[0] - crab[0]).abs() > 3.0 || (settled[1] - crab[1]).abs() > 3.0) {
-        return Err("Reading the ledger moved the real crab".into());
+        failure_evidence(&mut b);
+        return Err(format!(
+            "Reading the ledger moved the real crab: {crab:?} -> {settled:?}"
+        ));
     }
+    if tour {
+        castle_tour(&mut b, &dir)?;
+    }
+    let before_reload = position(&mut b)?;
+    let career_before = royal(&mut b)?;
     sleep(Duration::from_secs(3));
     reload_castle(&mut b)?;
     let restored = position(&mut b)?;
-    if (restored[0] - settled[0]).abs() > 8.0 || (restored[1] - settled[1]).abs() > 8.0 {
+    if (restored[0] - before_reload[0]).abs() > 8.0 || (restored[1] - before_reload[1]).abs() > 8.0
+    {
         return Err(format!(
-            "Castle save moved from {settled:?} to {restored:?}"
+            "Castle save moved from {before_reload:?} to {restored:?}"
         ));
+    }
+    if tour && royal(&mut b)? != career_before {
+        return Err("Castle career changed on reload".into());
     }
     walk_to(&mut b, 280.0, 12)?;
     let until = Instant::now() + Duration::from_secs(15);

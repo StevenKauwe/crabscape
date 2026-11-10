@@ -697,8 +697,14 @@ impl Memory {
     pub fn from_save(s: &MemorySave, level: &Level, t: &MemoryTuning) -> Option<Self> {
         let mut m = Self::new(level, t);
         let prior_rows = (bounds_before_royal(level).height() / t.cell).ceil() as u32;
+        let mut first_castle = bounds_before_royal(level);
+        first_castle.max.y = first_castle
+            .max
+            .y
+            .max(crate::level::WATER_SURFACE_Y + 2400.0);
+        let first_castle_rows = (first_castle.height() / t.cell).ceil() as u32;
         if s.cols != m.cols
-            || (s.rows != m.rows && s.rows != prior_rows)
+            || (s.rows != m.rows && s.rows != prior_rows && s.rows != first_castle_rows)
             || s.nets.len() != m.nets.len()
         {
             return None;
@@ -1052,6 +1058,37 @@ mod tests {
         assert_eq!(restored.visits(castle), 0);
         saved.rows -= 1;
         assert!(Memory::from_save(&saved, &level, tuning).is_none());
+    }
+    #[test]
+    fn first_castle_memory_survives_the_extra_storeys() {
+        let level = Level::test_level();
+        let tuning = &Tuning::default().memory;
+        let mut original = Memory::new(&level, tuning);
+        let remembered = original.cell_at(crate::level::royal::BOOK, tuning).unwrap();
+        *original.cell_mut(remembered) = MemoryCell {
+            visits: 2,
+            seen: 20,
+        };
+        original.now = 60;
+        let mut saved = original.to_save();
+        let mut old_bounds = bounds_before_royal(&level);
+        old_bounds.max.y = old_bounds.max.y.max(crate::level::WATER_SURFACE_Y + 2400.0);
+        saved.rows = (old_bounds.height() / tuning.cell).ceil() as u32;
+        saved
+            .cells
+            .retain(|p| p.y < saved.rows.div_ceil(MEMORY_CHUNK_SIDE));
+        let restored = Memory::from_save(&saved, &level, tuning).unwrap();
+        assert_eq!(restored.now, 60);
+        assert_eq!(restored.visits(remembered), 2);
+        assert_eq!(restored.age(remembered), 40);
+        assert_eq!(restored.all_chunks(), saved.cells);
+        let added = restored
+            .cell_at(
+                Vec2::new(1800.0, crate::level::royal::CEILING_Y - 30.0),
+                tuning,
+            )
+            .unwrap();
+        assert_eq!(restored.visits(added), 0);
     }
 
     #[test]

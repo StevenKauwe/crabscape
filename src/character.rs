@@ -259,6 +259,7 @@ pub fn summary(c: &Character, sim: &Sim) -> String {
                 Skill::Climbing => p.climb_xp,
                 Skill::Swimming => p.swim_xp,
                 Skill::Fighting => p.fight_xp,
+                Skill::DataDriven => p.data_xp,
             };
             format!("{} {}", s.name(), skills::level(xp, s.step(&sim.tuning)))
         })

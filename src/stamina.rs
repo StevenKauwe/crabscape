@@ -298,9 +298,9 @@ fn show_skill(
             // A feat ready to grow at a moult, growing, or grown (short: the
             // row sits beside the well-fed sign).
             let feat = crabsim::Feat::of(row.0);
-            let mark = if mover.growing == Some(feat) {
+            let mark = if feat.is_some() && mover.growing == feat {
                 ": growing"
-            } else if mover.has(feat) {
+            } else if feat.is_some_and(|f| mover.has(f)) {
                 ": feat"
             } else if mover.feat_ready(row.0, &sim.tuning) {
                 ": moult"

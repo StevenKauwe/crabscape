@@ -29,6 +29,7 @@ fn set_level(sim: &mut Sim, skill: Skill, level: u32) {
         Skill::Climbing => m.climb_xp = xp,
         Skill::Swimming => m.swim_xp = xp,
         Skill::Fighting => m.fight_xp = xp,
+        Skill::DataDriven => m.data_xp = xp,
     }
 }
 
@@ -57,16 +58,20 @@ fn mover(sim: &Sim) -> &crabsim::Mover {
 }
 
 #[test]
-fn each_skill_has_one_feat_and_each_feat_is_a_new_move() {
-    assert_eq!(moult::FEATS.len(), Skill::ALL.len());
-    for skill in Skill::ALL {
-        let feat = Feat::of(skill);
+fn each_physical_skill_has_one_feat_and_analysis_does_not_change_biology() {
+    assert_eq!(moult::FEATS.len(), Skill::PHYSICAL.len());
+    assert!(Feat::of(Skill::DataDriven).is_none());
+    for skill in Skill::PHYSICAL {
+        let feat = Feat::of(skill).unwrap();
         assert_eq!(feat.skill(), skill);
         assert!(!feat.name().is_empty() && !feat.does().is_empty());
     }
-    assert_eq!(Feat::of(Skill::Climbing).name(), "gripping dactyls");
-    assert_eq!(Feat::of(Skill::Swimming).name(), "broad paddles");
-    assert_eq!(Feat::of(Skill::Fighting).name(), "heavy crusher");
+    assert_eq!(
+        Feat::of(Skill::Climbing).unwrap().name(),
+        "gripping dactyls"
+    );
+    assert_eq!(Feat::of(Skill::Swimming).unwrap().name(), "broad paddles");
+    assert_eq!(Feat::of(Skill::Fighting).unwrap().name(), "heavy crusher");
 }
 
 #[test]

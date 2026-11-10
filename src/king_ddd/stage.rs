@@ -10,12 +10,27 @@ use std::collections::VecDeque;
 struct BookGlow;
 #[derive(Component)]
 struct BookPage;
+#[derive(Component)]
+struct IndexPage(usize);
+#[derive(Component)]
+struct BellMarker(usize);
+#[derive(Component)]
+struct RoyalRibbon;
 #[derive(Clone, Copy)]
 enum Role {
     King,
     Clerk,
     Champion,
     Challenger,
+    Archivist,
+    BellKeeper,
+    Observer,
+    Quartermaster,
+}
+#[derive(Default)]
+struct CutCache {
+    meshes: std::collections::BTreeMap<(u32, u32), Handle<Mesh>>,
+    materials: std::collections::BTreeMap<[u32; 4], Handle<crate::memory::MemoryMaterial>>,
 }
 #[derive(Component)]
 struct Actor {
@@ -40,10 +55,14 @@ struct Lists {
 pub fn install(app: &mut App) {
     app.init_resource::<Lists>()
         .add_systems(Startup, build.after(crate::memory::setup_memory_texture))
-        .add_systems(Update, animate.in_set(crate::player::GameSet::Present));
+        .add_systems(
+            Update,
+            (animate, activity_props).in_set(crate::player::GameSet::Present),
+        );
 }
 #[allow(clippy::too_many_arguments)]
 fn cut(
+    cache: &mut CutCache,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<crate::memory::MemoryMaterial>,
@@ -53,9 +72,19 @@ fn cut(
     color: Color,
     z: f32,
 ) {
+    let mesh = cache
+        .meshes
+        .entry((size.x.to_bits(), size.y.to_bits()))
+        .or_insert_with(|| meshes.add(crate::level::rock_mesh(size)))
+        .clone();
+    let material = cache
+        .materials
+        .entry(color.to_linear().to_vec4().to_array().map(f32::to_bits))
+        .or_insert_with(|| materials.add(memory.material(color)))
+        .clone();
     commands.spawn((
-        Mesh2d(meshes.add(crate::level::rock_mesh(size))),
-        MeshMaterial2d(materials.add(memory.material(color))),
+        Mesh2d(mesh),
+        MeshMaterial2d(material),
         Transform::from_translation(at.extend(z)),
     ));
 }
@@ -80,12 +109,14 @@ fn build(
     soft: Res<crate::effects::SoftTextures>,
     sim: Res<crabsim::Sim>,
 ) {
+    let mut cache = CutCache::default();
     let ink = Color::srgb(0.045, 0.075, 0.075);
     let stone = Color::srgb(0.22, 0.28, 0.27);
     let trim = Color::srgb(0.42, 0.48, 0.43);
     let brass = Color::srgb(0.69, 0.47, 0.16);
     // Layered masonry with variation confined to each hand-cut block, just like the sea's rocks.
     cut(
+        &mut cache,
         &mut commands,
         &mut meshes,
         &mut scenery,
@@ -103,6 +134,7 @@ fn build(
             }
             let k = ((row * 7 + column * 11) % 5) as f32 * 0.009;
             cut(
+                &mut cache,
                 &mut commands,
                 &mut meshes,
                 &mut scenery,
@@ -114,9 +146,62 @@ fn build(
             );
         }
     }
+    rooms(
+        &mut cache,
+        &mut commands,
+        &mut meshes,
+        &mut scenery,
+        &memory,
+    );
+    for (i, at) in royal::INDEX_PAGES.into_iter().enumerate() {
+        let page = commands
+            .spawn((
+                IndexPage(i),
+                Sprite::from_color(Color::srgb(0.94, 0.86, 0.56), Vec2::new(22.0, 30.0)),
+                Transform::from_translation(at.extend(8.0)),
+                Visibility::Hidden,
+            ))
+            .id();
+        commands.spawn((
+            ChildOf(page),
+            Text2d::new("LOST INDEX"),
+            TextFont {
+                font_size: FontSize::Px(12.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.79, 0.82, 0.61)),
+            Transform::from_xyz(0.0, 38.0, 1.0),
+        ));
+    }
+    for (i, at) in royal::BELLS.into_iter().enumerate() {
+        commands.spawn((
+            BellMarker(i),
+            Sprite {
+                image: soft.dot.clone(),
+                color: Color::srgb(0.82, 0.58, 0.16),
+                custom_size: Some(Vec2::splat(52.0)),
+                ..default()
+            },
+            Transform::from_translation(at.extend(7.0)),
+            Visibility::Hidden,
+        ));
+        words(
+            &mut commands,
+            &format!("BELL {}", i + 1),
+            at + Vec2::Y * 45.0,
+            Color::srgb(0.91, 0.74, 0.38),
+            18.0,
+        );
+    }
+    commands.spawn((
+        RoyalRibbon,
+        Sprite::from_color(Color::WHITE, Vec2::new(15.0, 24.0)),
+        Transform::default(),
+        Visibility::Hidden,
+    ));
     for (x, top, width) in [
         (395.0, royal::FLOOR_Y + 470.0, 126.0),
-        (1225.0, royal::CEILING_Y + 100.0, 110.0),
+        (royal::RIGHT_EDGE - 25.0, royal::CEILING_Y + 100.0, 110.0),
     ] {
         let bottom = if x > 1200.0 {
             crabsim::level::WATER_SURFACE_Y - 120.0
@@ -124,6 +209,7 @@ fn build(
             royal::FLOOR_Y - 70.0
         };
         cut(
+            &mut cache,
             &mut commands,
             &mut meshes,
             &mut scenery,
@@ -134,6 +220,7 @@ fn build(
             -9.0,
         );
         cut(
+            &mut cache,
             &mut commands,
             &mut meshes,
             &mut scenery,
@@ -145,6 +232,7 @@ fn build(
         );
         for offset in [-0.36, 0.0, 0.36] {
             cut(
+                &mut cache,
                 &mut commands,
                 &mut meshes,
                 &mut scenery,
@@ -157,6 +245,7 @@ fn build(
         }
         for y in [top - 100.0, top - 255.0] {
             cut(
+                &mut cache,
                 &mut commands,
                 &mut meshes,
                 &mut scenery,
@@ -170,6 +259,7 @@ fn build(
     }
     for r in royal::solids() {
         cut(
+            &mut cache,
             &mut commands,
             &mut meshes,
             &mut scenery,
@@ -180,6 +270,7 @@ fn build(
             1.0,
         );
         cut(
+            &mut cache,
             &mut commands,
             &mut meshes,
             &mut scenery,
@@ -190,6 +281,7 @@ fn build(
             1.1,
         );
         cut(
+            &mut cache,
             &mut commands,
             &mut meshes,
             &mut scenery,
@@ -206,6 +298,7 @@ fn build(
         while y < rope.top {
             let height = (rope.top - y).min(22.0);
             cut(
+                &mut cache,
                 &mut commands,
                 &mut meshes,
                 &mut scenery,
@@ -216,6 +309,7 @@ fn build(
                 3.0,
             );
             cut(
+                &mut cache,
                 &mut commands,
                 &mut meshes,
                 &mut scenery,
@@ -230,6 +324,7 @@ fn build(
             );
             if (y as i32 / 22) % 4 == 0 {
                 cut(
+                    &mut cache,
                     &mut commands,
                     &mut meshes,
                     &mut scenery,
@@ -249,6 +344,7 @@ fn build(
         (Vec2::new(131.0, 13.0), Color::srgb(0.39, 0.27, 0.13), 3.4),
     ] {
         cut(
+            &mut cache,
             &mut commands,
             &mut meshes,
             &mut scenery,
@@ -262,6 +358,7 @@ fn build(
     // Individual banners and arches, no full-frame painted battlefield or UI backdrop.
     for x in [535.0, 970.0] {
         cut(
+            &mut cache,
             &mut commands,
             &mut meshes,
             &mut scenery,
@@ -272,6 +369,7 @@ fn build(
             -5.0,
         );
         cut(
+            &mut cache,
             &mut commands,
             &mut meshes,
             &mut scenery,
@@ -290,6 +388,7 @@ fn build(
         );
     }
     cut(
+        &mut cache,
         &mut commands,
         &mut meshes,
         &mut scenery,
@@ -300,6 +399,7 @@ fn build(
         3.0,
     );
     cut(
+        &mut cache,
         &mut commands,
         &mut meshes,
         &mut scenery,
@@ -355,6 +455,15 @@ fn build(
         (1, Role::Clerk, Vec2::new(575.0, royal::FLOOR_Y), 0.80),
         (2, Role::Champion, royal::RING + Vec2::new(-85.0, 0.0), 1.0),
         (3, Role::Challenger, royal::RING + Vec2::new(85.0, 0.0), 1.0),
+        (4, Role::Archivist, royal::ARCHIVIST, 0.88),
+        (5, Role::BellKeeper, royal::BELL_KEEPER, 0.85),
+        (
+            6,
+            Role::Observer,
+            royal::OBSERVATORY + Vec2::new(150.0, 0.0),
+            0.8,
+        ),
+        (7, Role::Quartermaster, royal::WARDROBE, 0.9),
     ] {
         let mut mover = crabsim::Mover::new(at);
         mover.grounded = true;
@@ -402,6 +511,271 @@ fn build(
                 ));
             }
         }
+    }
+}
+#[allow(clippy::too_many_arguments)]
+fn rooms(
+    cache: &mut CutCache,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<crate::memory::MemoryMaterial>,
+    memory: &crate::memory::MemoryTexture,
+) {
+    macro_rules! block {
+        ($at:expr,$size:expr,$color:expr,$z:expr) => {
+            cut(
+                cache, commands, meshes, materials, memory, $at, $size, $color, $z,
+            )
+        };
+    }
+    let ink = Color::srgb(0.045, 0.075, 0.075);
+    let gold = Color::srgb(0.69, 0.47, 0.16);
+    let wood = Color::srgb(0.22, 0.14, 0.08);
+    for (index, r) in royal::ROOMS.iter().enumerate().skip(1) {
+        let height = if r.floor == royal::ROOF_Y {
+            100.0
+        } else {
+            430.0
+        };
+        block!(
+            Vec2::new((r.left + r.right) * 0.5, r.floor + height * 0.5),
+            Vec2::new(r.right - r.left, height),
+            ink,
+            -12.0
+        );
+        for row in 0..(height / 47.0) as usize {
+            let mut x = r.left + 26.0;
+            while x + 25.0 < r.right {
+                let k = ((row * 7 + (x / 53.0) as usize * 11) % 5) as f32;
+                block!(
+                    Vec2::new(x, r.floor + 24.0 + row as f32 * 47.0),
+                    Vec2::new(50.0, 44.0),
+                    Color::srgb(0.13 + k * 0.009, 0.19 + k * 0.009, 0.19 + k * 0.009),
+                    -11.0 + k * 0.001
+                );
+                x += 53.0;
+            }
+        }
+        words(
+            commands,
+            r.name,
+            Vec2::new(
+                (r.left + r.right) * 0.5,
+                r.floor + if index == 8 { 190.0 } else { 390.0 },
+            ),
+            Color::srgb(0.87, 0.73, 0.42),
+            23.0,
+        );
+        if index == 8 {
+            continue;
+        }
+        // Deep window reveals and inset arches, behind the walkable cutaway.
+        for x in [r.left + 120.0, r.right - 120.0] {
+            block!(
+                Vec2::new(x, r.floor + 260.0),
+                Vec2::new(88.0, 145.0),
+                Color::srgb(0.27, 0.34, 0.31),
+                -10.0
+            );
+            block!(
+                Vec2::new(x, r.floor + 260.0),
+                Vec2::new(62.0, 124.0),
+                Color::srgb(0.37, 0.60, 0.66),
+                -9.9
+            );
+            block!(
+                Vec2::new(x, r.floor + 260.0),
+                Vec2::new(6.0, 126.0),
+                ink,
+                -9.8
+            );
+        }
+        block!(
+            Vec2::new(r.left + 9.0, r.floor + 210.0),
+            Vec2::new(18.0, 420.0),
+            Color::srgb(0.29, 0.35, 0.31),
+            -8.0
+        );
+    }
+    for x in [450.0, 690.0, 930.0] {
+        block!(
+            Vec2::new(x, royal::LIBRARY_Y + 110.0),
+            Vec2::new(120.0, 220.0),
+            wood,
+            -6.0
+        );
+        for shelf in 0..3 {
+            for book in 0..7 {
+                let k = ((shelf + book) % 4) as f32;
+                block!(
+                    Vec2::new(
+                        x - 45.0 + book as f32 * 15.0,
+                        royal::LIBRARY_Y + 35.0 + shelf as f32 * 65.0
+                    ),
+                    Vec2::new(12.0, 52.0),
+                    Color::srgb(0.20 + k * 0.055, 0.24, 0.18 + k * 0.025),
+                    -5.9 + k * 0.001
+                );
+            }
+        }
+    }
+    // A banquet, telescope, shield gallery and wardrobe make the rooms legible before a menu opens.
+    block!(
+        Vec2::new(1810.0, royal::FLOOR_Y + 65.0),
+        Vec2::new(390.0, 18.0),
+        wood,
+        -4.0
+    );
+    for x in [1640.0, 1980.0] {
+        block!(
+            Vec2::new(x, royal::FLOOR_Y + 30.0),
+            Vec2::new(15.0, 60.0),
+            wood,
+            -4.0
+        );
+    }
+    for x in [1700.0, 1810.0, 1920.0] {
+        block!(
+            Vec2::new(x, royal::FLOOR_Y + 80.0),
+            Vec2::new(56.0, 10.0),
+            gold,
+            -3.9
+        );
+    }
+    block!(
+        Vec2::new(1730.0, royal::LIBRARY_Y + 145.0),
+        Vec2::new(210.0, 32.0),
+        gold,
+        -4.0
+    );
+    block!(
+        Vec2::new(1710.0, royal::LIBRARY_Y + 70.0),
+        Vec2::new(18.0, 140.0),
+        wood,
+        -4.1
+    );
+    block!(
+        Vec2::new(1840.0, royal::LIBRARY_Y + 145.0),
+        Vec2::new(16.0, 48.0),
+        Color::srgb(0.37, 0.81, 0.78),
+        -3.9
+    );
+    for x in [2450.0, 2730.0, 3180.0] {
+        block!(
+            Vec2::new(x, royal::LIBRARY_Y + 180.0),
+            Vec2::new(90.0, 120.0),
+            gold,
+            -5.0
+        );
+        block!(
+            Vec2::new(x, royal::LIBRARY_Y + 180.0),
+            Vec2::new(70.0, 100.0),
+            Color::srgb(0.22, 0.10, 0.13),
+            -4.9
+        );
+    }
+    for (i, color) in [
+        Color::srgb(0.17, 0.57, 0.38),
+        Color::srgb(0.65, 0.16, 0.18),
+        Color::srgb(0.80, 0.59, 0.17),
+        Color::srgb(0.46, 0.24, 0.65),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        block!(
+            Vec2::new(530.0 + i as f32 * 200.0, royal::GALLERY_Y + 160.0),
+            Vec2::new(66.0, 118.0),
+            color,
+            -5.0
+        );
+    }
+    words(
+        commands,
+        "Ropes to every floor. Step sideways to land.",
+        Vec2::new(2750.0, royal::FLOOR_Y + 235.0),
+        Color::srgb(0.77, 0.82, 0.67),
+        17.0,
+    );
+    for x in [1115.0, 3000.0] {
+        block!(
+            Vec2::new(x, royal::ROOF_Y + 162.0),
+            Vec2::new(210.0, 18.0),
+            wood,
+            3.4
+        );
+        for side in [-1.0, 1.0] {
+            block!(
+                Vec2::new(x + side * 100.0, royal::ROOF_Y + 77.5),
+                Vec2::new(12.0, 155.0),
+                wood,
+                3.3
+            );
+        }
+    }
+}
+
+#[allow(clippy::type_complexity)] // Disjoint sprite/transform filters are required by Bevy.
+fn activity_props(
+    sim: Res<crabsim::Sim>,
+    local: Res<crate::coop::LocalId>,
+    known: Res<crate::memory::Known>,
+    time: Res<Time>,
+    mut pages: Query<(&IndexPage, &mut Transform, &mut Visibility), Without<RoyalRibbon>>,
+    mut bells: Query<
+        (&BellMarker, &mut Sprite, &mut Visibility),
+        (Without<IndexPage>, Without<RoyalRibbon>),
+    >,
+    mut ribbons: Query<
+        (&mut Sprite, &mut Transform, &mut Visibility),
+        (With<RoyalRibbon>, Without<IndexPage>, Without<BellMarker>),
+    >,
+) {
+    let Some(crab) = sim.crab(local.0) else {
+        return;
+    };
+    for (page, mut at, mut visible) in &mut pages {
+        let pos = royal::INDEX_PAGES[page.0];
+        at.translation.y = pos.y + (time.elapsed_secs() * 1.8 + page.0 as f32).sin() * 5.0;
+        *visible = if crab.royal.index_started
+            && crab.royal.pages & (1 << page.0) == 0
+            && known.perceives(pos)
+        {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+    }
+    for (bell, mut sprite, mut visible) in &mut bells {
+        let at = royal::BELLS[bell.0];
+        *visible = if known.perceives(at) {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        sprite.color = if crab.bell_run.is_some_and(|r| usize::from(r.next) == bell.0) {
+            Color::srgb(0.44, 1.0, 0.73)
+        } else {
+            Color::srgb(0.82, 0.58, 0.16)
+        };
+    }
+    for (mut sprite, mut at, mut visible) in &mut ribbons {
+        let show = royal::in_castle(crab.mover.pos) && crab.royal.wearing.is_some();
+        *visible = if show {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if let Some(i) = crab.royal.wearing {
+            sprite.color = [
+                Color::srgb(0.17, 0.57, 0.38),
+                Color::srgb(0.65, 0.16, 0.18),
+                Color::srgb(0.80, 0.59, 0.17),
+                Color::srgb(0.46, 0.24, 0.65),
+            ][usize::from(i.min(3))];
+        }
+        at.translation =
+            (crab.mover.pos + Vec2::new(35.0, crab.mover.height(&sim.tuning) + 10.0)).extend(13.0);
     }
 }
 fn swing(claw: crabsim::combat::Claw, tick: u32, t: &crabsim::Tuning) -> crabsim::combat::Swing {
@@ -496,6 +870,22 @@ fn animate(
             Role::Clerk => {
                 mover.pos = Vec2::new(575.0, royal::FLOOR_Y);
                 "Royal clerk".into()
+            }
+            Role::Archivist => {
+                mover.pos = royal::ARCHIVIST;
+                "Archivist Clack".into()
+            }
+            Role::BellKeeper => {
+                mover.pos = royal::BELL_KEEPER;
+                "The bell keeper".into()
+            }
+            Role::Observer => {
+                mover.pos = royal::OBSERVATORY + Vec2::new(150.0, 0.0);
+                "Lens keeper".into()
+            }
+            Role::Quartermaster => {
+                mover.pos = royal::WARDROBE;
+                "Quartermaster Snip".into()
             }
             Role::Champion | Role::Challenger => {
                 let right = matches!(actor.role, Role::Challenger);
