@@ -14,7 +14,7 @@ The code isn't for you! Here's what is:
   What felt great, what felt off. Short and honest is perfect.
 - **Look at the art:** the [crab and paintings](art/), the [model sheet](art/crab/model-sheet-v0.2.png) and the
   [poster](docs/CrabScape-vision.pdf).
-- **Also on this site:** [Valmora Dream Flight](https://stevenkauwe.github.io/crabscape/dragon/), a dragon game for kids by Koa, in its solo form (your Rider is saved in the browser).
+- **Also on this site:** [Valmora Dream Flight](https://stevenkauwe.github.io/crabscape/dragon/), a dragon game for kids by Koa, with invite-link P2P mission co-op (your Rider and progress stay on your device).
 - **Want to help build it?** Accept your invite (<https://github.com/StevenKauwe/crabscape/invitations>), install
   [Claude Code](https://claude.com/claude-code), and tell it: "Set me up to work on CrabScape." Your Claude handles
   everything else.

@@ -36,8 +36,8 @@ while IFS= read -r path; do
   code=true
   case "$path" in
     # Known, and outside the art pipeline (crabrig, painter, oil-atlas, paint-oil.sh, art/, assets/).
-    src/* | crates/sim/* | crates/listen/* | web/* | tools/webtest/* | tools/cooptest/* | tools/tidy/* | tools/cellworker/* | vendor/* | \
-      tools/build-web.sh | tools/determinism.sh | tools/previews.sh | tools/main-health.sh | tools/mutants-pr.sh | \
+    src/* | crates/dragon-peer/* | crates/sim/* | crates/listen/* | web/* | tools/webtest/* | tools/cooptest/* | tools/tidy/* | tools/cellworker/* | vendor/* | \
+      tools/build-web.sh | tools/build-dragon.sh | tools/determinism.sh | tools/previews.sh | tools/main-health.sh | tools/mutants-pr.sh | \
       deny.toml | .cargo/mutants.toml | .gitignore | .github/workflows/previews.yml | \
       .github/workflows/mutants-weekly.yml | .github/workflows/coop.yml | .github/workflows/coverage.yml) ;;
     # The art pipeline, the toolchain, Cargo.toml/Cargo.lock, CI itself, this script, anything new.

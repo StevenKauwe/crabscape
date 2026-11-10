@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Dragon Flight"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html,body{margin:0}</style><script>window.VALMORA_STATIC=true</script></head><body><title>Valmora Dream Flight</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Dragon Flight"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html,body{margin:0}</style><script>window.VALMORA_STATIC=true;window.valmoraP2PReady=new Promise(resolve=>window.valmoraP2PResolve=resolve)</script></head><body><title>Valmora Dream Flight</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -393,7 +393,7 @@ h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2rem, 6.2vw
 <canvas id="sky" aria-label="Valmora"></canvas>
 
 <header class="hud" id="hud">
-  <div class="chip" id="meChip"><span class="dot"></span><span id="meName">Rider</span><span class="hearts" id="hearts" aria-label="Hearts"></span><b id="hoard">0</b><span class="unit">team gems</span></div>
+  <div class="chip" id="meChip"><span class="dot"></span><span id="meName">Rider</span><span class="hearts" id="hearts" aria-label="Hearts"></span><b id="hoard">0</b><span class="unit">gems</span></div>
   <div class="mbar" id="missionBar" hidden aria-live="polite">
     <div class="mbar-top"><span id="missionLabel">Wave 1</span><span class="realm" id="realmLabel"></span></div>
     <div class="bar"><div class="fill" id="missionFill"></div></div>
@@ -427,12 +427,14 @@ h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2rem, 6.2vw
       <p class="lede">Make your own Rider, hatch your own dragon, and fly together! Clear missions across Valmora, raise your dragons, hatch new ones, and help the whole land heal.</p>
     </div>
     <div class="riders" id="riderCards"></div>
+    <div class="go-row"><button type="button" class="go small alt" data-p2p-invite>Invite friends</button><span class="note" data-p2p-status></span></div>
+    <input id="p2pLink" aria-label="P2P invite link" readonly hidden>
     <ul class="tips">
       <li>Pick a mission on the quest map. Each one is a journey: fly from stop to stop, win the fight at each one, and watch the route along the bottom. Touching a monster only bumps you; watch for the red ring, that means it's about to strike! Gems you grab are banked when a stop is cleared. Out of hearts means you're retired until the mission ends, and if everyone is out, the mission is failed. You can try again from the stop you reached.</li>
       <li>On an iPad: put a thumb down anywhere on the sky and slide it to steer. Hold the big Fire button to breathe fire.</li>
       <li>Some missions give dragon eggs. Get 5 times tables right in a row to hatch one. One wrong answer freezes you for a minute!</li>
       <li>Spend gems at the Roost to fix what the monsters broke, and watch Valmora heal.</li>
-      <li>Every gem goes into the Team Hoard you share. Spend it at the Roost.</li>
+      <li>Your gems and progress stay on this device. Spend them at the Roost.</li>
       <li>Fly the same mission at the same time and your hits count together!</li>
     </ul>
     <p class="note" id="testNote" hidden><strong>Test flight:</strong> nothing is saved yet, so every flight starts fresh with baby dragons.</p>
@@ -463,6 +465,7 @@ h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2rem, 6.2vw
       <div class="stats" id="partyStats"></div>
     </div>
     <p class="note" id="partyNote"></p>
+    <div class="go-row"><button type="button" class="go small alt" data-p2p-invite>Copy invite link</button><span class="note" data-p2p-status></span></div>
     <div class="members" id="partyMembers"></div>
     <section class="party-pick">
       <h3 id="partyPickTitle">Pick a mission together</h3>
@@ -639,6 +642,7 @@ h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2rem, 6.2vw
 <div class="vote" id="voteBox" hidden></div>
 <div class="toast" id="toast" hidden></div>
 
+<script type="module" src="./p2p.js"></script>
 <script>
 (() => {
 const $ = id => document.getElementById(id);
@@ -1411,7 +1415,7 @@ function swapDragon() {
   if (state === 'play') texts.push({ x: P.x, y: P.y - S * 1.2, text: `${n.name}: ${KINDS[n.kind].label}!`, color: n.color, life: 1.1, max: 1.1 });
 }
 // The Herb Garden and the Forge belong to the whole team: either Rider can make things, and what both made adds up
-const teamDocs = () => [me, ...others].filter(Boolean);
+const teamDocs = () => (STATIC ? [me] : [me, ...others]).filter(Boolean);
 function teamCraft() {
   const docs = teamDocs(), sum = k => docs.reduce((t, d) => t + (d.craft?.[k] || 0), 0), up3 = k => Math.min(3, sum(k));
   return { treatsMade: sum('treatsMade'), tea: up3('tea'), tonic: up3('tonic'), saddles: docs.some(d => d.craft?.saddles), armor: up3('armor'), bellows: up3('bellows') };
@@ -2523,7 +2527,7 @@ const home = SERVER ? (() => {
     },
   };
 })() : null;
-async function useCap(name) { if (home) return home[name] || null; try { return (await window.claude?.use?.(name)) ?? null; } catch (_) { return null; } }
+async function useCap(name) { if (STATIC) return name === 'room' ? await window.valmoraP2PReady : null; if (home) return home[name] || null; try { return (await window.claude?.use?.(name)) ?? null; } catch (_) { return null; } }
 
 /* ---------- Saves: one document per Rider, plus the story chapter ---------- */
 const dbReady = useCap('db');
@@ -2829,7 +2833,7 @@ const TYPE_LIST = Object.keys(ENEMIES), HAZ_KINDS = ['rock', 'boulder', 'spark',
 // Each hazard's size and pull of gravity (in S), so a guest can rebuild the host's hazards from the shared sky
 const HAZ_SIZE = { rock: [0.2, 9], boulder: [0.34, 9], spark: [0.14, 0], fall: [0.28, 8], bubble: [0.24, -0.5], ember: [0.2, 9], dust: [0.26, 1.2] };
 const POOF = { jelly: '#bff4ff', leaper: '#bff4ff', serpent: '#bff4ff', slime: '#ffb347', slimelet: '#ffb347', bigslime: '#ffb347', imp: '#ffb347', gobbler: '#c9a8ff', moth: '#efe4ff', swallower: '#fff1a8' };
-let uidN = 0, worldT = 0, remoteBy = -1;
+let uidN = 0, worldT = 0, remoteBy = -1, remoteHits = 0;
 const nextUid = () => ++uidN;
 const usedHaz = new Set(), usedStrike = new Set();
 const liveOn = () => !!room && roomConn;
@@ -3155,7 +3159,7 @@ function hitEnemy(e, s) {
   // A guest's hit goes to the host, who owns every monster's health; the flash shows right away here
   if (mission?.guest) {
     e.flash = 0.12; if (s.slow) e.slow = s.slow;
-    room?.emit('hit', { r: ri, mid: mission.def.id, uid: e.uid, dmg: s.dmg, kind: s.kind, slow: s.slow || 0, stun: s.stun || 0, mega: s.mega ? 1 : 0, mk: s.mark ? 1 : 0, cr: s.crack ? 1 : 0 }).catch(() => {});
+    room?.emit('hit', { r: ri, mid: mission.def.id, run: mission.run, epoch: mission.authority || 0, uid: e.uid, dmg: s.dmg, kind: s.kind, slow: s.slow || 0, stun: s.stun || 0, mega: s.mega ? 1 : 0, mk: s.mark ? 1 : 0, cr: s.crack ? 1 : 0 }).catch(() => {});
     return;
   }
   let dmg = s.mega ? (e.boss ? e.maxHp * 0.4 : e.hp + 1) : s.dmg;
@@ -3195,31 +3199,32 @@ function defeatFx(def, type, x, y, r, calmed) {
 }
 function defeat(e, ownerId, calmed = false) {
   if (e.dead || e.calm) return;
-  if (mission?.guest) { if (calmed && !e.boss) room?.emit('hit', { r: ri, mid: mission.def.id, uid: e.uid, calm: 1 }).catch(() => {}); return; }
+  if (mission?.guest) { if (calmed && !e.boss) room?.emit('hit', { r: ri, mid: mission.def.id, run: mission.run, epoch: mission.authority || 0, uid: e.uid, calm: 1 }).catch(() => {}); return; }
   if (calmed) e.calm = true; else e.dead = true;
   if (!calmed && e.def.split && mission) { for (const k of [-1, 1]) spawnBaby(e, k, e.extra); if (!e.extra) mission.total += 2; }
   if (!e.extra && mission) { mission.kills++; if (mStats && ownerId !== 'remote') mStats.kills++; }
   defeatFx(e.def, e.type, e.x, e.y, e.r, calmed);
   if (e.boss) { for (const x of enemies) if (x.extra && !x.dead) x.calm = true; }
   else if (ownerId !== 'wild' && ownerId !== 'remote') { const d = me.party.find(x => x.id === ownerId) || bonded(); addXP(d, 4); }
-  if (mission && othersInMission()) room?.emit('defeat', { r: ri, mid: mission.def.id, uid: e.uid, type: e.type, calmed: !!calmed,
+  if (mission && othersInMission()) room?.emit('defeat', { r: ri, mid: mission.def.id, run: mission.run, epoch: mission.authority || 0, uid: e.uid, type: e.type, calmed: !!calmed,
     x: e.x / W, y: (e.y - topLimit) / Math.max(1, groundY - topLimit), by: ownerId === 'remote' ? remoteBy : ri }).catch(() => {});
 }
 // Host side: a guest's hit or calm, checked like any hit from this iPad
 function onRemoteHit(d) {
   const M = mission;
-  if (!M || M.guest || !d || typeof d !== 'object' || d.mid !== M.def.id) return;
+  if (!M || M.guest || !d || typeof d !== 'object' || d.mid !== M.def.id || (STATIC && (d.run !== M.run || d.epoch !== M.authority))) return;
   const e = enemies.find(x => x.uid === d.uid && !x.dead && !x.calm);
   if (!e) return;
+  remoteHits++;
   remoteBy = Number.isInteger(d.r) && RIDERS[d.r] ? d.r : -1;
   if (d.calm) { if (!e.boss) defeat(e, 'remote', true); }
   else hitEnemy(e, { dmg: clamp(+d.dmg || 0, 0, 20), kind: typeof d.kind === 'string' ? d.kind.slice(0, 10) : 'area', slow: clamp(+d.slow || 0, 0, 3), stun: clamp(+d.stun || 0, 0, 5), mega: d.mega === 1 && isDaddio(RIDERS[d.r]), mark: d.mk === 1, crack: d.cr === 1, owner: 'remote' });
   remoteBy = -1;
 }
 // Guest side: the host says a monster is beaten; show it here, and reward whoever beat it
-function onRemoteDefeat(d) {
+function onRemoteDefeat(d, peer) {
   const M = mission;
-  if (!M || !M.guest || !d || typeof d !== 'object' || d.mid !== M.def.id || !ENEMIES[d.type] || d.r !== M.hostRider) return;
+  if (!M || !M.guest || !d || typeof d !== 'object' || d.mid !== M.def.id || !ENEMIES[d.type] || (STATIC ? peer !== M.hostPeer : d.r !== M.hostRider) || (STATIC && (d.run !== M.run || d.epoch !== M.authority))) return;
   const def = ENEMIES[d.type], x = clamp(+d.x || 0, 0, 1) * W, y = topLimit + clamp(+d.y || 0, -0.2, 1.2) * (groundY - topLimit);
   enemies = enemies.filter(e => e.uid !== d.uid);
   defeatFx(def, d.type, x, y, S * def.r, !!d.calmed);
@@ -3263,8 +3268,8 @@ function retire() {
   else if (!M.guest) {
     // The host is out but others still fly: hand the sky to the lowest Rider still flying, and watch as a guest
     const next = activeOthers().map(g => g.rider).sort((x, y) => x - y)[0];
-    room?.emit('handoff', { r: ri, mid: M.def.id }).catch(() => {});
-    M.guest = true; M.hostRider = next; M.lastWorld = time;
+    room?.emit('handoff', { r: ri, mid: M.def.id, run: M.run, epoch: M.authority || 0 }).catch(() => {});
+    M.guest = true; M.hostRider = next; M.hostPeer = [...ghosts].find(([, g]) => g.rider === next)?.[0]; M.lastWorld = time;
   }
   updateHud();
 }
@@ -3324,16 +3329,21 @@ function shareWorld() {
   if (!M || M.guest || !liveOn() || !othersInMission() || time - worldT < 0.066) return;
   worldT = time;
   const nx = x => Math.round(x / W * 1000) / 1000, ny = y => Math.round((y - topLimit) / Math.max(1, groundY - topLimit) * 1000) / 1000;
-  room.emit('world', { r: ri, mid: M.def.id, run: M.run, wave: M.wave, banner: M.banner, lg: M.leg === 'fly' ? 1 : 0, sp: M.stop | 0, pr: Math.round((M.prog || 0) * 1000), total: M.total, kills: M.kills, done: M.done ? 1 : M.failT > 0 ? 2 : 0, q: M.queue.slice(0, 40), fw: M.failWhy || '',
+  room.emit('world', { r: ri, mid: M.def.id, run: M.run, epoch: M.authority || 0, next: uidN, wave: M.wave, banner: M.banner, lg: M.leg === 'fly' ? 1 : 0, sp: M.stop | 0, pr: Math.round((M.prog || 0) * 1000), total: M.total, kills: M.kills, done: M.done ? 1 : M.failT > 0 ? 2 : 0, q: M.queue.slice(0, 40), fw: M.failWhy || '',
     ob: M.ob ? [OB_KINDS.indexOf(M.ob.kind), OB_WHATS.indexOf(M.ob.what), nx(M.ob.x), ny(M.ob.y), M.ob.hp, M.ob.maxHp, M.ob.carrier, M.ob.done ? 1 : 0, nx(M.ob.to)] : null,
     en: enemies.filter(e => !e.dead).map(e => [e.uid, TYPE_LIST.indexOf(e.type), nx(e.x), ny(e.y), Math.round(clamp(e.hp / e.maxHp, 0, 1) * 100), e.dir, (e.calm ? 1 : 0) | (e.flash > 0 ? 2 : 0) | (e.slow > 0 ? 4 : 0) | (e.windup > 0 || e.pre > 0 ? 8 : 0) | (e.air ? 16 : 0) | (e.stun > 0 ? 32 : 0) | (hurtsNow(e) ? 64 : 0) | (e.cracked > 0 ? 128 : 0) | (e.marked > 0 ? 256 : 0)]),
     hz: hazards.map(h => [h.uid, HAZ_KINDS.indexOf(h.kind), nx(h.x), ny(h.y), Math.round(h.vx / W * 1000) / 1000, Math.round(h.vy / Math.max(1, groundY - topLimit) * 1000) / 1000, Math.round(Math.max(0, h.warn || 0) * 100) / 100]),
     st: strikes.map(s => [s.uid, nx(s.x), Math.round(Math.max(0, s.warn) * 100) / 100, Math.round(Math.max(0, s.bolt) * 100) / 100, s.y0 === undefined ? -1 : ny(s.y0)]),
   }).catch(() => {});
 }
-function onWorld(d) {
+function onWorld(d, peer) {
   const M = mission;
-  if (!M || !M.guest || !d || typeof d !== 'object' || d.mid !== M.def.id || d.r !== M.hostRider) return;
+  if (!M || !M.guest || !d || typeof d !== 'object' || d.mid !== M.def.id || (STATIC ? peer !== M.hostPeer : d.r !== M.hostRider)) return;
+  if (STATIC) {
+    if ((M.run && d.run !== M.run) || typeof d.run !== 'string' || d.run.length > 12 || !Number.isInteger(d.epoch) || d.epoch < M.authority) return;
+    M.authority = d.epoch; M.hostRider = d.r;
+    if (Number.isSafeInteger(d.next) && d.next >= 0 && d.next <= 1e9) uidN = Math.max(uidN, d.next);
+  }
   M.lastWorld = time;
   if (typeof d.run === 'string') M.run = d.run.slice(0, 12);
   const wave = Math.floor(clamp(+d.wave || 0, 0, M.def.waves.length - 1));
@@ -3377,6 +3387,29 @@ function onWorld(d) {
   });
   strikes = (Array.isArray(d.st) ? d.st.slice(0, 10) : []).filter(s => Array.isArray(s)).map(([uid, nx, warn, bolt, y0]) => ({ uid, x: clamp(+nx || 0, 0, 1) * W, warn: clamp(+warn || 0, 0, 2), bolt: clamp(+bolt || 0, 0, 1), hit: usedStrike.has(uid), y0: +y0 >= 0 ? topLimit + clamp(+y0, 0, 1.3) * (groundY - topLimit) : undefined }));
 }
+// One authority per mission. A higher takeover epoch wins; equal epochs use the connection id.
+// A paused host still sends presence, so pausing never silently creates a second world.
+function reconcileSkyHost(timedOut = false) {
+  const M = mission, mine = room?.peerId?.();
+  if (!STATIC || !M || !mine || !['play', 'pause'].includes(state)) return;
+  const candidates = [...ghosts].filter(([, g]) => g.ms === M.def.id && g.run === M.run && !g.out && ['play', 'pause'].includes(g.status))
+    .map(([peer, g]) => ({ peer, rider: g.rider, host: g.msHost, epoch: g.authority || 0, status: g.status }));
+  if (!P.out) candidates.push({ peer: mine, rider: ri, host: !M.guest, epoch: M.authority || 0, status: state });
+  const hosts = candidates.filter(c => c.host && c.epoch >= (M.authority || 0))
+    .sort((a, b) => b.epoch - a.epoch || a.peer.localeCompare(b.peer));
+  const winner = hosts[0];
+  if (winner && winner.peer !== mine && (winner.epoch > M.authority || !M.guest || M.hostPeer !== winner.peer)) {
+    M.guest = true; M.hostPeer = winner.peer; M.hostRider = winner.rider; M.authority = winner.epoch; M.lastWorld = time;
+  }
+  if (!timedOut || !M.guest) return;
+  const current = candidates.find(c => c.peer === M.hostPeer);
+  if (current?.status === 'pause') { M.lastWorld = time; return; }
+  // Exclude the silent authority. Every remaining device picks the same successor.
+  const next = candidates.filter(c => c.peer !== M.hostPeer).sort((a, b) => a.peer.localeCompare(b.peer))[0];
+  if (!next || next.peer === mine) becomeHost('lost');
+  else { M.hostPeer = next.peer; M.hostRider = next.rider; M.lastWorld = time; }
+  lastSent = ''; sendT = 0;
+}
 // Guests glide the host's monsters toward where the host last said they were
 function updateMirrors(dt) {
   const s = S * scaleOf(bonded()), k = Math.min(1, dt * 12);
@@ -3394,7 +3427,7 @@ function becomeHost(why) {
   const M = mission;
   if (!M || !M.guest) return;
   const host = RIDERS[M.hostRider]?.name || 'Your partner';
-  M.guest = false; M.queue = (M.lastQueue || []).slice(); M.spawnT = 1;
+  M.guest = false; M.hostPeer = null; if (STATIC) M.authority = (M.authority || 0) + 1; M.queue = (M.lastQueue || []).slice(); M.spawnT = 1;
   if (M.leg === 'fly') { M.legT = M.legMax = 4; M.legFrom = M.prog || 0; M.trickT = 2; }
   for (const e of enemies) { e.entered = true; e.cool = rand(1.5, 3); e.cool2 = rand(4, 7); e.windup = 0; delete e.mx; delete e.my; if (e.type === 'sprite') e.tx = undefined; }
   if (!M.total) M.total = M.queue.length + enemies.filter(e => !e.extra && !e.calm).length;
@@ -3410,7 +3443,7 @@ function startMission(id, fromParty = false, opts = null) {
   // A Party can fly a mission the other Rider has unlocked, even before this Rider has
   if (!def || (!fromParty && !missionUnlocked(def))) return;
   initAudio();
-  mission = { def, wave: -1, queue: [], total: 0, kills: 0, spawnT: 0, bannerT: 0, banner: '', done: false, endT: 0, failT: 0, t: 0,
+  mission = { def, authority: 0, wave: -1, queue: [], total: 0, kills: 0, spawnT: 0, bannerT: 0, banner: '', done: false, endT: 0, failT: 0, t: 0,
     ...missionPower(def), run: Math.random().toString(36).slice(2, 8), rests: 0, phase: 0 };
   mission.tough = teamToughness(def); mission.carry = 0; mission.lost = 0; mission.banked = 0;
   // Monsters match the team's strength, so the fights take about as long for everyone; a little extra time for safety
@@ -3431,7 +3464,11 @@ function startMission(id, fromParty = false, opts = null) {
   usedHaz.clear(); usedStrike.clear();
   if (opts && Number.isInteger(opts.guestOf) && RIDERS[opts.guestOf] && opts.guestOf !== ri) {
     // A guest flies in the host's sky: the host's world arrives within a moment
-    Object.assign(mission, { guest: true, hostRider: opts.guestOf, lastWorld: time, wave: 0, banner: def.name, bannerT: 2.2, leg: 'fly', stop: 0, prog: 0 });
+    const hostEntry = [...ghosts].find(([, g]) => g.rider === opts.guestOf), host = hostEntry?.[1];
+    const alreadyFlying = host?.ms === id && ['play', 'pause'].includes(host.status);
+    Object.assign(mission, { guest: true, hostRider: opts.guestOf, hostPeer: hostEntry?.[0],
+      authority: alreadyFlying ? host.authority || 0 : 0, run: alreadyFlying ? host.run : null,
+      lastWorld: time, wave: 0, banner: def.name, bannerT: 2.2, leg: 'fly', stop: 0, prog: 0 });
   } else {
     // "Try again from wave 4": a longer mission picks up where the dragon got worn out
     const from = Math.max(0, Math.min(def.waves.length - 1, opts?.fromWave | 0));
@@ -3586,7 +3623,7 @@ function updateMission(dt) {
   if (M.done) { M.endT -= dt; if (M.endT <= 0) endMission(true); return; }
   if (!M.guest && P.out && !activeOthers().length) { failMission(); return; }
   if (M.guest) {
-    if (time - M.lastWorld > 3.5) becomeHost('lost');
+    if (time - M.lastWorld > 3.5) { if (STATIC) reconcileSkyHost(true); else becomeHost('lost'); }
     gemTimer -= dt; if (gemTimer <= 0) { if (gems.length < 4) spawnGem(); gemTimer = rand(2, 3.2); }
     return;
   }
@@ -3618,7 +3655,7 @@ function updateMission(dt) {
 function endMission(ok) {
   const M = mission, def = M.def;
   // If this iPad was running the sky and its Rider has to stop, a partner still flying takes it over
-  if (!ok && !M.guest && othersInMission()) room?.emit('handoff', { r: ri, mid: def.id }).catch(() => {});
+  if (!ok && !M.guest && othersInMission()) room?.emit('handoff', { r: ri, mid: def.id, run: M.run, epoch: M.authority || 0 }).catch(() => {});
   releaseControls();
   const lines = [], first = ok && !def.champ && !me.cleared.includes(def.id);
   let egg = false, newRank = null;
@@ -3710,7 +3747,7 @@ function champResults(M, lines) {
 function leaveMission() {
   if (!mission) return;
   plog('leave', { hearts: P.hearts, carry: mission.carry });
-  if (!mission.guest && othersInMission()) room?.emit('handoff', { r: ri, mid: mission.def.id }).catch(() => {});
+  if (!mission.guest && othersInMission()) room?.emit('handoff', { r: ri, mid: mission.def.id, run: mission.run, epoch: mission.authority || 0 }).catch(() => {});
   mission = null; $('pauseBtn').textContent = 'Pause'; toMap(); }
 
 /* ---------- Special moves (one big button, the same cooldown for both Riders; Rider Skills make it stronger) ---------- */
@@ -5823,14 +5860,14 @@ function connectSky() {
     if (!room) { refreshMap(); return; }
     // The shared sky: the iPad running the monsters sends the world; the others send their hits back
     try {
-      room.on('world', m => onWorld(m.data));
+      room.on('world', m => onWorld(m.data, m.peer));
       room.on('hit', m => onRemoteHit(m.data));
-      room.on('defeat', m => onRemoteDefeat(m.data));
+      room.on('defeat', m => onRemoteDefeat(m.data, m.peer));
       room.on('handoff', m => {
-        if (!mission?.guest || !m.data || m.data.mid !== mission.def.id || m.data.r !== mission.hostRider) return;
+        if (!mission?.guest || !m.data || m.data.mid !== mission.def.id || (STATIC ? m.peer !== mission.hostPeer || m.data.run !== mission.run || m.data.epoch !== mission.authority : m.data.r !== mission.hostRider)) return;
         // The lowest Rider still flying takes the sky; everyone else follows the new host
         const cands = [...activeOthers().map(g => g.rider).filter(r => r !== m.data.r), ...(P.out ? [] : [ri])].sort((x, y) => x - y);
-        if (!cands.length || cands[0] === ri) becomeHost('handoff'); else mission.hostRider = cands[0];
+        if (!cands.length || cands[0] === ri) becomeHost('handoff'); else { mission.hostRider = cands[0]; mission.hostPeer = [...ghosts].find(([, g]) => g.rider === cands[0])?.[0]; }
       });
     } catch (_) {}
     const lost = e => {
@@ -5849,7 +5886,7 @@ function sibStatusText(g) {
   return { party: 'in the Party', story: 'reading the story', map: 'at the quest map', roost: 'at the Roost', skills: 'at the Roost', build: 'making their Rider', results: 'finishing a mission', riddle: 'doing times tables', frozen: 'frozen', hatch: 'hatching an egg', pause: 'paused' }[g.status] || (mname ? `flying ${mname}` : 'flying');
 }
 function liveLine() {
-  if (STATIC) return 'This is the solo copy of the game: your Rider is saved on this device. Flying together works on the family game.';
+  if (STATIC) return room?.status?.() || 'Fly solo or invite friends. Your Rider is saved on this device.';
   if (!room && !lobbyOn) return `Flying together: this screen isn't connected to the shared sky. Make sure it's signed in to claude.ai, then reload.`;
   if (sameRiderGhost()) return `Careful: ${R.name} is also open on another screen. Close one so the saves don't get mixed up.`;
   const here = othersHere();
@@ -5909,6 +5946,7 @@ function ingestPeer(key, pz, viaDb) {
     if (Array.isArray(pz.ms) && typeof pz.ms[0] === 'string' && missionById(pz.ms[0])) {
       const [mid, wv, k, bd, run] = pz.ms;
       g.msHost = pz.ms[5] !== 0;
+      g.authority = Math.floor(clamp(+pz.ms[6] || 0, 0, 1e9));
       if (g.run !== run) { g.run = run; g.waveKills = {}; g.bossDmg = 0; }
       g.ms = mid; g.waveKills[wv | 0] = Math.max(g.waveKills[wv | 0] || 0, Math.min(99, k | 0)); g.bossDmg = Math.max(g.bossDmg, Math.min(999, +bd || 0));
     } else g.ms = null;
@@ -5945,10 +5983,28 @@ function ingestPeer(key, pz, viaDb) {
   return true;
 }
 function syncGhosts(peers) {
+  if (STATIC && me && room?.peerId?.()) {
+    const mine = room.peerId();
+    const collision = peers.some(p => !p.sameTab && p.presence?.r === ri && p.peer < mine);
+    if (collision) {
+      const used = new Set(peers.filter(p => !p.sameTab).map(p => p.presence?.r));
+      const free = RIDERS.findIndex((_, i) => !used.has(i));
+      if (free >= 0) {
+        ri = free; R = RIDERS[ri]; applyBuild(ri, me.build); R.rank = rankOf(me);
+        lastSent = ''; sendT = 0;
+        // me.rider remains the original device-local save key. Session slots never move a save.
+      } else { toast('This party has six Riders already. Your solo save is kept.'); }
+    }
+  }
   const seen = new Set();
   roomPeers = peers.length;
   for (const pr of peers) {
     if (pr.sameTab || pr.kind !== 'viewer') continue;
+    if (STATIC) {
+      const r = pr.presence?.r;
+      if (r === ri || peers.some(other => !other.sameTab && other.peer < pr.peer && other.presence?.r === r)) continue;
+      if (state !== 'menu' && Number.isInteger(r) && RIDERS[r]) applyBuild(r, cleanBuild(pr.presence?.build));
+    }
     if (ingestPeer(pr.peer, pr.presence || {}, false)) seen.add(pr.peer);
   }
   for (const k of [...ghosts.keys()]) if (!k.startsWith('db:') && !seen.has(k)) ghosts.delete(k);
@@ -6012,7 +6068,7 @@ function onLobbyDoc(r, data) {
 function msOut() {
   if (!mission) return null;
   const boss = enemies.find(e => e.boss && !e.dead), g = mission.guest;
-  return [mission.def.id, mission.wave, g ? 0 : mission.kills, boss && !g ? Math.round(Math.max(0, boss.maxHp - boss.hp)) : 0, mission.run, g ? 0 : 1];
+  return [mission.def.id, mission.wave, g ? 0 : mission.kills, boss && !g ? Math.round(Math.max(0, boss.maxHp - boss.hp)) : 0, mission.run, g ? 0 : 1, mission.authority || 0];
 }
 // Everyone else who is in the game right now (not on the menu)
 const othersHere = () => otherRiders().filter(g => g.rider !== ri);
@@ -6022,7 +6078,7 @@ function shareSky(now) {
   const round = v => Math.round(v * 1000) / 1000;
   const boss = mission ? enemies.find(e => e.boss && !e.dead) : null;
   const msg = {
-    r: ri, s: state, f: P.facing, rd: riding() ? 1 : 0, sh: P.shield > 0 ? 1 : 0, o: P.out ? 1 : 0, h: P.hearts,
+    r: ri, s: state, build: STATIC ? me.build : undefined, f: P.facing, rd: riding() ? 1 : 0, sh: P.shield > 0 ? 1 : 0, o: P.out ? 1 : 0, h: P.hearts,
     x: round(clamp(P.x / W, 0, 1)), y: round(clamp((P.y - topLimit) / Math.max(1, groundY - topLimit), 0, 1)),
     p: me.party.map(d => [d.kind, d.color, shownStage(d)]), cs: [castCount, lastCast],
     ms: msOut(),
@@ -6103,7 +6159,8 @@ function otherRiders() { return [...ghosts.values()].filter(g => g.status !== 'm
 function ghostReady(g) {
   if (!partyPick.m) return false;
   if (g.status === 'party') return g.pt?.rdy === partyPick.m;
-  return partyCount > 0 && g.status === 'play' && g.ms === partyPick.m;
+  // A faster screen may launch before this countdown starts. Ready still joins that same mission.
+  return (STATIC || partyCount > 0) && g.status === 'play' && g.ms === partyPick.m;
 }
 function allPartyReady() { const others = otherRiders(); return !!partyPick.m && partyReady === partyPick.m && others.length > 0 && others.every(ghostReady); }
 function pickPartyMission(id) {
@@ -6126,11 +6183,11 @@ function renderPartyScreen() {
   $('partyKicker').textContent = questLine();
   $('partyRoostBtn').textContent = roostLabel();
   const stats = $('partyStats'); stats.textContent = '';
-  const st = el('span', '', 'Team Hoard '); st.appendChild(el('b', '', `${hoard()} gems`)); stats.appendChild(st);
+  const st = el('span', '', 'Your Hoard '); st.appendChild(el('b', '', `${hoard()} gems`)); stats.appendChild(st);
   const others = otherRiders(), g2 = others.find(g => g.viaDb);
   const live = room ? (roomConn ? `connected, ${plural(roomPeers, 'screen', 'screens')} in the room` : 'opened but not connected') : roomErr ? `off (${roomErr})` : 'off';
   $('partyDiag').textContent = `Connection check: live link ${live} · backup link ${!db ? 'off' : g2?.viaDb ? `on, sees ${RIDERS[g2.rider].name}` : 'on'}`;
-  $('partyNote').textContent = STATIC ? 'This is the solo copy of the game, so the Party is just you. Pick a mission and fly!' : !room && !lobbyOn ? "This screen isn't connected, so the Party can't see anyone. Make sure it's signed in to claude.ai and reload. You can still fly solo."
+  $('partyNote').textContent = STATIC && !roomConn ? 'Invite friends, then pick a mission and get Ready. Your Rider and progress stay on this device.' : !room && !lobbyOn ? "This screen isn't connected, so the Party can't see anyone. Make sure it's signed in to claude.ai and reload. You can still fly solo."
     : !others.length ? 'Waiting for others. When another Rider opens the game and taps Party, they show up here.'
     : 'Pick a mission, then everyone taps Ready. You all start together!';
   // You, everyone connected, and a "not here yet" card for any Rider who isn't
@@ -6284,11 +6341,37 @@ document.addEventListener('touchmove', e => {
 }, { passive: false });
 function toggleSound() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.45; $('soundBtn').textContent = muted ? 'Sound off' : 'Sound on'; }
 
+const p2pDiagnostics = STATIC && new URLSearchParams(location.search).has('diagnostics');
 function frame(now) {
+  if (p2pDiagnostics) {
+    cv.dataset.dragonState = state;
+    cv.dataset.dragonReady = partyReady || '';
+    cv.dataset.dragonPick = partyPick.m || '';
+    cv.dataset.dragonCountdown = String(partyCount);
+    cv.dataset.dragonParty = JSON.stringify([...ghosts.values()].map(g => [g.rider, g.status, g.pt?.m, g.pt?.rdy]));
+    cv.dataset.dragonRider = String(ri);
+    cv.dataset.dragonRole = mission ? mission.guest ? 'guest' : 'host' : 'solo';
+    cv.dataset.dragonMission = mission?.def.id || '';
+    cv.dataset.dragonRun = mission?.run || '';
+    cv.dataset.dragonFriends = String([...ghosts.values()].filter(g => !g.viaDb).length);
+    cv.dataset.dragonWorld = String(mission?.lastWorld || 0);
+    cv.dataset.dragonX = String(P.x);
+    cv.dataset.dragonY = String(P.y);
+    cv.dataset.dragonScale = String(S);
+    cv.dataset.dragonFacing = String(P.facing);
+    cv.dataset.dragonTargets = JSON.stringify(enemies.filter(e => !e.dead && !e.calm).map(e => [e.x, e.y]));
+    cv.dataset.dragonEnemies = String(enemies.length);
+    cv.dataset.dragonHits = String(remoteHits);
+    cv.dataset.dragonDone = String(!!mission?.done);
+    cv.dataset.dragonEpoch = String(mission?.authority || 0);
+    cv.dataset.dragonUid = String(uidN);
+    cv.dataset.dragonIdsUnique = String(new Set([...enemies, ...hazards, ...strikes].map(e => e.uid)).size === enemies.length + hazards.length + strikes.length);
+  }
   let dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
   // Hit-stop: a few frozen frames when a hit lands, so every blow is felt
   if (hitStop > 0) { hitStop -= dt; dt = 0; }
   time += dt;
+  if (STATIC) reconcileSkyHost();
   if (state === 'play' && me) update(dt);
   updatePartyCountdown(dt);
   animate(dt);
@@ -6415,7 +6498,7 @@ $('mapRoostBtn').addEventListener('click', () => { initAudio(); toRoost(); });
 $('toMapBtn').addEventListener('click', () => { initAudio(); toMap(); });
 $('mapPartyBtn').addEventListener('click', () => { initAudio(); toParty(); });
 $('toPartyBtn').addEventListener('click', () => { initAudio(); toParty(); });
-$('soloBtn').addEventListener('click', () => { initAudio(); toMap(); });
+$('soloBtn').addEventListener('click', () => { initAudio(); if (STATIC) room?.leave?.(); toMap(); });
 $('partyRoostBtn').addEventListener('click', () => { initAudio(); toRoost(); });
 $('partyScreen').addEventListener('click', e => {
   const m = e.target.closest('button[data-pmission]'), a = e.target.closest('button[data-party]');
