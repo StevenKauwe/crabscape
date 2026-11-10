@@ -14,7 +14,7 @@ name = "gridcraft-cli"
 path = "src/main.rs"
 
 [dependencies]
-gridcraft-engine = { workspace = true }
-gridcraft-mcp = { workspace = true }
+gridcraft-engine = { path = "../../crates/engine", version = "0.3.0" }
+gridcraft-mcp = { path = "../../crates/mcp", version = "0.3.0" }
 serde_json = { workspace = true }
 log = { workspace = true }

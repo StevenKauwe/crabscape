@@ -154,6 +154,8 @@ wasm-bindgen-futures = "0.4"
 # Drop this once matchbox itself does both.
 [patch.crates-io]
 matchbox_socket = { path = "vendor/matchbox_socket" }
+# bevy_egui 0.43.1, without its unused zstd decoder feature (RUSTSEC-2026-0344).
+bevy_egui = { path = "vendor/bevy_egui" }
 
 # Development builds: optimise dependencies (Bevy is slow unoptimised) but keep
 # our own code quick to compile.

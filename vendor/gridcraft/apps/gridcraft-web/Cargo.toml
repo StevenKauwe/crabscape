@@ -14,8 +14,8 @@ name = "gridcraft-web"
 path = "src/main.rs"
 
 [dependencies]
-gridcraft-engine = { workspace = true }
-gridcraft-ui-egui = { workspace = true }
+gridcraft-engine = { path = "../../crates/engine", version = "0.3.0" }
+gridcraft-ui-egui = { path = "../../crates/ui-egui", version = "0.3.0" }
 egui = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }

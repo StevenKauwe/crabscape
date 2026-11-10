@@ -108,6 +108,8 @@ jobs:
         run: cargo deny --manifest-path tools/introducer/Cargo.toml --config deny.toml --locked check
       - name: cargo deny (cellular worker)
         run: cargo deny --manifest-path tools/cellworker/Cargo.toml --config deny.toml --locked check
+      - name: cargo deny (King's worker)
+        run: cargo deny --manifest-path tools/kingworker/Cargo.toml --config deny.toml --locked check
       - name: tidy tool (fmt, clippy, tests)
         run: |
           cargo fmt --manifest-path tools/tidy/Cargo.toml --check

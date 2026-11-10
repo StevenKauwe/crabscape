@@ -21,6 +21,10 @@ export XLSX to keep a workbook.
   Their own licences and notices remain intact. CrabScape's code and art remain all rights reserved.
   GridCraft retains the host's `serde_json` parser settings: its standalone `float_roundtrip` feature changes
   f32 overflow decoding globally and would break recovery of a damaged crab's progress without losing terrain.
+- `vendor/bevy_egui`: version 0.43.1 with its unused `zstd_rust` image feature removed, avoiding the vulnerable
+  decoder in RUSTSEC-2026-0344. Egui's generated textures and the court's PNG/JPEG images do not use it.
+  GridCraft's XML parser is upgraded to quick-xml 0.41 for RUSTSEC-2026-0194/0195. Font notices are distributed
+  with the court assets; dependency auditing stays mandatory.
 - `assets/king-ddd`: the original launch workbook and oil-painted ShapeStage knights/battlefield. The court's
   resident knights retain their armour; each new selected candidate challenges in the opposite armour. Actual
   candidate scores decide who survives. The king's preliminary puppet is made from individual Bevy shapes.

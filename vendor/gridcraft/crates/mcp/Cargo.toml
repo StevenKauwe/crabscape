@@ -9,6 +9,6 @@ description = "GridCraft MCP server: JSON-RPC 2.0 over stdio, driving a running 
 workspace = true
 
 [dependencies]
-gridcraft-engine = { workspace = true }
+gridcraft-engine = { path = "../engine", version = "0.3.0" }
 serde_json = { workspace = true }
 log = { workspace = true }

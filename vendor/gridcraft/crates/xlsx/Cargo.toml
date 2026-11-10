@@ -9,9 +9,9 @@ description = "GridCraft file formats: XLSX (SpreadsheetML) and CSV import/expor
 workspace = true
 
 [dependencies]
-gridcraft-core = { workspace = true }
-gridcraft-formula = { workspace = true }
-gridcraft-model = { workspace = true }
+gridcraft-core = { path = "../core", version = "0.3.0" }
+gridcraft-formula = { path = "../formula", version = "0.3.0" }
+gridcraft-model = { path = "../model", version = "0.3.0" }
 thiserror = { workspace = true }
 quick-xml = { workspace = true }
 zip = { workspace = true }

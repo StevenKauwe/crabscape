@@ -9,6 +9,6 @@ description = "GridCraft formula language: lexer, parser, printer and reference 
 workspace = true
 
 [dependencies]
-gridcraft-core = { workspace = true }
+gridcraft-core = { path = "../core", version = "0.3.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
