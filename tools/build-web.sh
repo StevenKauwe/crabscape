@@ -66,6 +66,9 @@ rm -f web/cellworker/cellworker*
 wasm-bindgen --target web --no-typescript --out-dir web/cellworker \
   "$build_target"/wasm32-unknown-unknown/release/cellworker.wasm
 
+# Dragon uses a separate small module and room namespace.
+bash tools/build-dragon.sh
+
 # 3. Optionally squeeze it further.
 wasm=web/pkg/crabscape_bg.wasm
 opt=${WASM_OPT:-}

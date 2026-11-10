@@ -219,6 +219,7 @@ jobs:
           wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
           wasm-tools validate --features=-relaxed-simd web/listen/listen_bg.wasm
           wasm-tools validate --features=-relaxed-simd web/cellworker/cellworker_bg.wasm
+          wasm-tools validate --features=-relaxed-simd web/dragon/pkg/dragon_peer_bg.wasm
       - name: Size report (information only)
         run: |
           {
@@ -268,6 +269,7 @@ jobs:
           path: |
             target/art/webtest
             target/art/cooptest
+            target/art/dragon
             tools/introducer/target/release/introducer
           if-no-files-found: error
           retention-days: 3
@@ -364,6 +366,11 @@ jobs:
         run: |
           chmod +x target/art/cooptest tools/introducer/target/release/introducer
           target/art/cooptest --repeat 1 --shard ${{ matrix.part }}/${{ strategy.job-total }} --logs target/webtest
+      - name: Dragon P2P mission co-op
+        if: matrix.part == 1
+        run: |
+          chmod +x target/art/dragon
+          DRAGON_LOGS=target/webtest/dragon target/art/dragon
       - name: Keep a failure's browser logs and screenshots
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
