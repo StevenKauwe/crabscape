@@ -128,3 +128,5 @@ in memory for the session; workbook exports preserve data and sheets.
   The real-key driver steers within pickup/interaction reach, releases the held direction before other
   protocol calls, and waits for stable painted button geometry. Software-rendered frames can advance
   farther than a tiny coordinate target. Every quest, ordered bell, reward and saved result is still asserted.
+  Settling requires three distinct simulation frames, read atomically with their positions. The reload
+  reference is taken after the checkpoint commits; repeated reads of a pre-braking frame do not count.

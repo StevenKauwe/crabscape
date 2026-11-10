@@ -125,6 +125,9 @@ fn reload_castle(browser: &mut Chrome) -> Result<()> {
 }
 fn position(browser: &mut Chrome) -> Result<[f64; 3]> {
     let value = browser.attr("data-crab").ok_or("No crab position")?;
+    parse_position(&value)
+}
+fn parse_position(value: &str) -> Result<[f64; 3]> {
     let v = value
         .split_whitespace()
         .map(str::parse::<f64>)
@@ -133,17 +136,32 @@ fn position(browser: &mut Chrome) -> Result<[f64; 3]> {
     v.try_into()
         .map_err(|_| format!("Malformed crab position {value}"))
 }
+fn position_frame(browser: &mut Chrome) -> Result<([f64; 3], String)> {
+    // Read both markers in one turn; a slow protocol roundtrip must not
+    // pair an old position with the following frame's tick counter.
+    let value = browser.eval(r#"(() => { const c=document.getElementById('crabscape'); return [c?.getAttribute('data-crab'),c?.getAttribute('data-king-ddd-tick')]; })()"#)?;
+    let position = value[0].as_str().ok_or("No crab frame position")?;
+    let tick = value[1].as_str().ok_or("No crab frame tick")?;
+    Ok((parse_position(position)?, tick.to_owned()))
+}
 fn stand_still(browser: &mut Chrome) -> Result<()> {
-    let until = Instant::now() + Duration::from_secs(6);
-    let mut previous = position(browser)?;
+    let until = Instant::now() + Duration::from_secs(10);
+    let (mut previous, mut previous_tick) = position_frame(browser)?;
     let mut stable = 0;
     loop {
         sleep(Duration::from_millis(120));
-        let p = position(browser)?;
-        if p[2] == 1.0 && (p[0] - previous[0]).abs() < 0.3 && (p[1] - previous[1]).abs() < 0.3 {
-            stable += 1;
-        } else {
-            stable = 0;
+        let (p, tick) = position_frame(browser)?;
+        // Three reads of one stale DOM snapshot are not three stationary
+        // frames. In software rendering the first braking frame may arrive
+        // after all those reads, and move the crab by another body fraction.
+        if tick != previous_tick {
+            if p[2] == 1.0 && (p[0] - previous[0]).abs() < 0.3 && (p[1] - previous[1]).abs() < 0.3 {
+                stable += 1;
+            } else {
+                stable = 0;
+            }
+            previous = p;
+            previous_tick = tick;
         }
         if stable >= 3 {
             return Ok(());
@@ -154,7 +172,6 @@ fn stand_still(browser: &mut Chrome) -> Result<()> {
                 "The crab did not settle at the ledger: {previous:?} -> {p:?}"
             ));
         }
-        previous = p;
     }
 }
 fn committed_save(browser: &mut Chrome) -> Result<()> {
@@ -668,9 +685,11 @@ fn main() -> Result<()> {
         castle_tour(&mut b, &dir)?;
     }
     stand_still(&mut b)?;
+    committed_save(&mut b)?;
+    // Compare the stopped position at the completed checkpoint, not an
+    // earlier frame from before asynchronous autosave and braking settled.
     let before_reload = position(&mut b)?;
     let career_before = royal(&mut b)?;
-    committed_save(&mut b)?;
     reload_castle(&mut b)?;
     let restored = position(&mut b)?;
     if (restored[0] - before_reload[0]).abs() > 8.0 || (restored[1] - before_reload[1]).abs() > 8.0
