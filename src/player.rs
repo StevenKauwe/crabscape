@@ -794,7 +794,11 @@ mod cellular_save_tests {
             .follow_player(&Level::test_level(), pos.x, pos.y);
         assert!(valid_saved_spot(pos, 1.0, &sim));
         assert!(!valid_saved_spot(pos - Vec2::Y * 20.0, 1.0, &sim));
-        assert!(!valid_saved_spot(Vec2::new(2000.0, pos.y), 1.0, &sim));
+        assert!(!valid_saved_spot(
+            Vec2::new(crabsim::level::royal::RIGHT_EDGE + 300.0, pos.y),
+            1.0,
+            &sim
+        ));
         sim.add_crab(PlayerId(0), pos);
         assert_eq!(sim.crab(PlayerId(0)).unwrap().mover.pos, pos);
     }

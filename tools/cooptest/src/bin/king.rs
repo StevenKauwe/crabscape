@@ -22,6 +22,9 @@ fn failure_evidence(browser: &mut Chrome) {
         loading:!document.getElementById('message')?.hidden,
         oldDocument:window.kingtestOld === true,
         king:c?.getAttribute('data-king-ddd'),
+        tick:c?.getAttribute('data-king-ddd-tick'),
+        panel:c?.getAttribute('data-king-ddd-panel'),
+        progress:c?.getAttribute('data-royal-progress'),
         layout:c?.getAttribute('data-king-ddd-viewport'),
         buttons:c?.getAttribute('data-king-ddd-buttons'),
         crab:c?.getAttribute('data-crab'),
@@ -142,6 +145,29 @@ fn stand_still(browser: &mut Chrome) -> Result<()> {
         previous = p;
     }
 }
+fn committed_save(browser: &mut Chrome) -> Result<()> {
+    let revision = |state: &str| {
+        state
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix("revision=")?.parse::<u64>().ok())
+    };
+    let first = revision(&browser.attr("data-cell-page-state").unwrap_or_default())
+        .ok_or("No autosave revision at the castle")?;
+    let until = Instant::now() + Duration::from_secs(40);
+    loop {
+        let state = browser.attr("data-cell-page-state").unwrap_or_default();
+        // A capture already in flight may predate the crab's stop. Two
+        // committed revisions prove a later stationary capture completed.
+        if revision(&state).is_some_and(|r| r >= first + 2) && state.contains("saving=false") {
+            return Ok(());
+        }
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err(format!("Stationary castle save did not commit: {state}"));
+        }
+        sleep(Duration::from_millis(150));
+    }
+}
 fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     let rope = target == 1115.0 || target == 3000.0;
     if rope && position(browser)?[1] > 6000.0 {
@@ -157,7 +183,11 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         if trace.len() == 12 {
             trace.pop_front();
         }
-        trace.push_back(format!("{:.2}s {p:?}", started.elapsed().as_secs_f32()));
+        trace.push_back(format!(
+            "{:.2}s {p:?} tick={:?}",
+            started.elapsed().as_secs_f32(),
+            browser.attr("data-king-ddd-tick")
+        ));
         // A gripped crab can stay at the edge of its 48-unit reach. Do not
         // demand the rope's centre after the approach has already caught it.
         if (p[0] - target).abs() < if rope { 48.1 } else { 16.0 } {
@@ -280,10 +310,12 @@ fn climb_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     Ok(())
 }
 fn activity(browser: &mut Chrome) -> Result<()> {
-    button(browser, "activity")
+    button(browser, "activity")?;
+    wait(browser, "data-king-ddd-panel", "true", 10)
 }
 fn close_activity(browser: &mut Chrome) -> Result<()> {
-    button(browser, "close-activity")
+    button(browser, "close-activity")?;
+    wait(browser, "data-king-ddd-panel", "false", 10)
 }
 fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     walk_to(browser, 1570.0, 30)?;
@@ -560,13 +592,15 @@ fn main() -> Result<()> {
     if tour {
         castle_tour(&mut b, &dir)?;
     }
+    stand_still(&mut b)?;
     let before_reload = position(&mut b)?;
     let career_before = royal(&mut b)?;
-    sleep(Duration::from_secs(3));
+    committed_save(&mut b)?;
     reload_castle(&mut b)?;
     let restored = position(&mut b)?;
     if (restored[0] - before_reload[0]).abs() > 8.0 || (restored[1] - before_reload[1]).abs() > 8.0
     {
+        failure_evidence(&mut b);
         return Err(format!(
             "Castle save moved from {before_reload:?} to {restored:?}"
         ));

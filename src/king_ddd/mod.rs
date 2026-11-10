@@ -355,6 +355,7 @@ fn stamp(court: &Court, ui: &KingUi, mover: &crabsim::Mover, viewport: bevy_egui
         .and_then(|d| d.get_element_by_id("crabscape"))
     {
         for (key, value) in [
+            ("data-king-ddd-panel", court.panel.is_some().to_string()),
             (
                 "data-king-ddd",
                 (if court.active {

@@ -146,6 +146,10 @@ pub fn climbs() -> impl Iterator<Item = Climb> {
 pub fn solids() -> impl Iterator<Item = Rect> {
     let base = [
         Rect::new(350.0, FLOOR_Y - 75.0, 3340.0, FLOOR_Y),
+        // The sea arch carries this wing. Extend its existing surface rock
+        // to the floor: opening the sky must not open an air glide across
+        // the trench. The royal route crosses on the floor above it.
+        Rect::new(1250.0, WATER_SURFACE_Y, 1300.0, FLOOR_Y - 75.0),
         Rect::new(650.0, BALCONY_Y - 22.0, 1060.0, BALCONY_Y),
         Rect::new(990.0, FLOOR_Y, 1190.0, FLOOR_Y + 12.0),
         Rect::new(1010.0, FLOOR_Y + 12.0, 1190.0, FLOOR_Y + 24.0),
@@ -189,5 +193,16 @@ mod tests {
         assert_eq!(ceiling(RIGHT_EDGE + 300.0, 40.0), WATER_SURFACE_Y);
         assert!(solids().any(|r| r.max.y == FLOOR_Y && r.min.x > ROPE_X + 40.0));
         assert!(solids().any(|r| r.max.x == RIGHT_EDGE && r.max.y > CEILING_Y));
+    }
+
+    #[test]
+    fn the_sea_arch_support_meets_the_floor_without_an_air_shortcut() {
+        let support = solids()
+            .find(|r| r.min == Vec2::new(1250.0, WATER_SURFACE_Y))
+            .expect("the existing sea arch supports the royal east wing");
+        assert_eq!(support.max, Vec2::new(1300.0, FLOOR_Y - 75.0));
+        assert!(solids().any(|floor| floor.min.y == support.max.y
+            && floor.min.x < support.min.x
+            && floor.max.x > support.max.x));
     }
 }

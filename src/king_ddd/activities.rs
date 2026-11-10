@@ -143,7 +143,7 @@ pub fn show(
         .collapsible(false).resizable(false).open(&mut open)
         .frame(egui::Frame::new().fill(Color32::from_rgb(17,32,34)).inner_margin(16.0).corner_radius(10.0).stroke(egui::Stroke::new(1.0, Color32::from_rgb(156,124,64))))
         .show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height((ctx.viewport_rect().height()-250.0).max(100.0)).show(ui, |ui| {
                 ui.label(egui::RichText::new(format!("Data-Driven {level} · {}", royal::rank(level))).color(Color32::GOLD));
                 ui.add(egui::ProgressBar::new(crab.mover.progress(Skill::DataDriven, tuning)).text("Practice to the next level"));
                 ui.separator();
@@ -193,9 +193,10 @@ pub fn show(
                     }
                 }
                 if !court.notice.is_empty() { ui.separator(); ui.label(&court.notice); }
-                ui.separator();
-                if button(ui, buttons, "close-activity", "Back to the castle [Esc]") { court.panel = None; court.release_guard = true; }
             });
+            // A long journal can scroll, but leaving it must always be visible.
+            ui.separator();
+            if button(ui, buttons, "close-activity", "Back to the castle [Esc]") { court.panel = None; court.release_guard = true; }
         });
     if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         court.panel = None;

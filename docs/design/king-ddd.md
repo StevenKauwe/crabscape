@@ -122,3 +122,6 @@ in memory for the session; workbook exports preserve data and sheets.
   observatory, buys an earned ribbon and checks that the career survives reload. CI runs this tour once on
   its own runner and includes it in the existing protected browser gate; no other browser check is removed.
   The runner has its own profile and grants no clipboard or other browser permission.
+  Reload waits for two committed autosave revisions after the crab settles, rather than a sleep shorter
+  than the normal five-second autosave interval. The existing hub suite also checks that the enlarged
+  sky opening cannot bypass the sea arch: its visible castle support continues up to the east-wing floor.
