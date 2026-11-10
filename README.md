@@ -23,3 +23,7 @@ CrabScape is all rights reserved: you're welcome to play, look and help, but the
 elsewhere.
 
 **Claude:** start with [CLAUDE.md](CLAUDE.md).
+
+**Above the water:** accept the royal summons in the game to visit King Data Driven Decision's improbable court.
+Its editable GridCraft workbook, rules, real local TabICL predictions and evolutionary tournament run in Rust,
+inside CrabScape. The standalone original remains at https://crabscape.com/king-ddd/.

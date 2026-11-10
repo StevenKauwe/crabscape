@@ -1,0 +1,69 @@
+[package]
+name = "tabicl-anywhere"
+version = "0.1.0"
+edition = "2021"
+description = "An independent safe-Rust implementation of the TabICL v2 tabular model that fits, caches to disk and predicts by streaming the cache; runs natively and in the browser"
+license = "BSD-3-Clause"
+authors = ["Steven Kauwe"]
+repository = "https://github.com/StevenKauwe/tabicl-anywhere"
+homepage = "https://stevenkauwe.github.io/tabicl-anywhere/"
+documentation = "https://docs.rs/tabicl-anywhere"
+readme = "README.md"
+keywords = ["tabular", "machine-learning", "tabicl", "wasm", "inference"]
+categories = ["science", "wasm", "algorithms"]
+# the graphics-card build needs 1.90 (wgpu's dependencies); checked in CI (.github/workflows/ci.yml, job msrv)
+rust-version = "1.90"
+# keep the published crate small: the web page, its 113 MB of weights, generated test data and tooling stay in
+# the repository only (the small committed test data in tests/data is kept, so `cargo test` works from the crate)
+exclude = ["/docs/", "/site/", "/fixtures/", "/ref/", "/report/", "/pkg/", "/target-web/", "/.github/", "/tools/*.mjs", "/tools/*.cjs", "/tools/__pycache__/"]
+
+[workspace]
+members = [".", "wasm"]
+
+[lib]
+name = "tabicl_anywhere"
+
+[[bin]]
+name = "tabicl-anywhere"
+path = "src/bin/tabicl-anywhere.rs"
+
+[dependencies]
+# pulp's default features include "relaxed-simd", which puts WebAssembly relaxed-SIMD instructions into the
+# engine file even when they are never run, and Safari (every browser on iOS) refuses the whole file because of
+# them. So the defaults are off and relaxed SIMD is a feature of its own (below), used only for the browser
+# build that is handed to browsers which accept it.
+pulp = { version = "0.22", default-features = false, features = ["std", "x86-v3", "x86-v4"] }
+rayon = "1"
+bytemuck = { version = "1", features = ["extern_crate_alloc"] }
+libm = "0.2"
+chacha20poly1305 = "0.10"
+getrandom = "0.2"
+web-time = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = 1
+
+[dev-dependencies]
+bytemuck = { version = "1", features = ["extern_crate_alloc"] }
+proptest = { version = "1", default-features = false, features = ["std"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+# In a browser wgpu is a thin layer over the browser's own WebGPU: no driver code, no shader compiler.
+wgpu = { version = "30.0.1", optional = true, default-features = false, features = ["std", "webgpu", "wgsl", "fragile-send-sync-non-atomic-wasm"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = { version = "30.0.1", optional = true }
+
+[features]
+# Graphics-card acceleration (Vulkan, Metal, DirectX through wgpu; WebGPU in a browser). Off by default: the
+# default build has no GPU code.
+gpu = ["dep:wgpu"]
+# WebAssembly relaxed SIMD (fused multiply-add and friends). Build with it only together with
+# RUSTFLAGS="-C target-feature=+simd128,+relaxed-simd": the result runs only where the browser accepts relaxed
+# SIMD (Chrome and Edge among others; not Safari), so tools/build-wasm.sh also makes a plain-SIMD build for the rest.
+relaxed-simd = ["pulp/relaxed-simd"]

@@ -68,6 +68,7 @@ wasm-bindgen --target web --no-typescript --out-dir web/cellworker \
 
 # Dragon uses a separate small module and room namespace.
 bash tools/build-dragon.sh
+bash tools/build-king.sh
 
 # 3. Optionally squeeze it further.
 wasm=web/pkg/crabscape_bg.wasm
@@ -115,6 +116,7 @@ rm -rf web/assets
 mkdir -p web/assets/crab web/assets/creatures
 cp assets/crab/crab-atlas.png assets/crab/crab-atlas-oil.png web/assets/crab/
 cp assets/creatures/*-atlas.png assets/creatures/*-atlas-oil.png web/assets/creatures/
+cp -R assets/king-ddd web/assets/
 
 raw=$(wc -c < "$wasm")
 gz=$(gzip -9 -c "$wasm" | wc -c)

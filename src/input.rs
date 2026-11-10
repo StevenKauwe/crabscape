@@ -96,6 +96,7 @@ pub(crate) struct PointerUi;
 #[derive(SystemParam)]
 pub(crate) struct InputUi<'w, 's> {
     settings: Res<'w, crate::settings::panel::Open>,
+    court: Option<Res<'w, crate::king_ddd::Court>>,
     inventory: Res<'w, crate::shell_inventory::Open>,
     chat: Res<'w, crate::codes::CodeBox>,
     panels: Query<
@@ -113,7 +114,11 @@ pub(crate) struct InputUi<'w, 's> {
 
 impl InputUi<'_, '_> {
     pub(crate) fn modal(&self) -> bool {
-        self.settings.is_open() || self.inventory.0 || self.chat.open || page_dialog_open()
+        self.court.as_ref().is_some_and(|c| c.owns_input())
+            || self.settings.is_open()
+            || self.inventory.0
+            || self.chat.open
+            || page_dialog_open()
     }
 
     fn covers(&self, position: Vec2, scale: f32, include_touch: bool) -> bool {

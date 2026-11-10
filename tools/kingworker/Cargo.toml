@@ -1,0 +1,18 @@
+[package]
+name = "kingworker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+[workspace]
+[lib]
+crate-type = ["cdylib", "rlib"]
+[dependencies]
+king-ddd = { path = "../../crates/king-ddd" }
+serde_json = "1"
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["DedicatedWorkerGlobalScope", "WorkerGlobalScope", "MessageEvent", "Response"] }
+[lints.rust]
+unsafe_code = "forbid"

@@ -150,6 +150,16 @@ pub struct Options {
 impl Chrome {
     /// Start a browser called `name` with its profile in `dir` (made empty first).
     pub fn start(name: &str, dir: &Path, o: Options) -> Result<Self> {
+        Self::start_with_clipboard(name, dir, o, true)
+    }
+
+    /// Focused tests that never use clipboard operations grant no clipboard permissions.
+    #[allow(dead_code)] // Used by the focused court runner, not every test binary.
+    pub fn start_without_clipboard(name: &str, dir: &Path, o: Options) -> Result<Self> {
+        Self::start_with_clipboard(name, dir, o, false)
+    }
+
+    fn start_with_clipboard(name: &str, dir: &Path, o: Options, clipboard: bool) -> Result<Self> {
         let chrome =
             find_chrome().ok_or("Chrome not found: set CHROME to the browser's program")?;
         let _ = std::fs::remove_dir_all(dir);
@@ -231,10 +241,12 @@ impl Chrome {
             next: 0,
         };
         // Invite copies the link: let it, as a player who said yes would.
-        me.call(
-            "Browser.grantPermissions",
-            json!({ "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"] }),
-        )?;
+        if clipboard {
+            me.call(
+                "Browser.grantPermissions",
+                json!({ "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"] }),
+            )?;
+        }
         let targets = me.call("Target.getTargets", json!({}))?;
         let page = targets["targetInfos"]
             .as_array()

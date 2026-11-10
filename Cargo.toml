@@ -13,7 +13,7 @@ default-run = "crabscape"
 # game and the simulation. The art tools and `crates/listen` (speech to text for spoken reports, its own wasm file,
 # built by tools/build-web.sh) are the other members: `--workspace` or `-p painter` to include them.
 [workspace]
-members = ["crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "crates/dragon-peer", "tools/oil-atlas", "tools/webtest", "tools/cooptest"]
+members = ["crates/king-ddd", "crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "crates/dragon-peer", "tools/oil-atlas", "tools/webtest", "tools/cooptest"]
 default-members = [".", "crates/sim"]
 # Third-party code kept here with a fix of ours (see [patch.crates-io] below); not linted or tested as our own.
 exclude = ["vendor"]
@@ -39,6 +39,10 @@ workspace = true
 cellular-transport-probe = ["matchbox_socket/probe-ingress"]
 
 [dependencies]
+king-ddd = { path = "crates/king-ddd" }
+bevy_egui = { version = "0.43.1", default-features = false, features = ["render", "default_fonts"] }
+gridcraft-engine = { path = "vendor/gridcraft/crates/engine" }
+gridcraft-ui-egui = { path = "vendor/gridcraft/crates/ui-egui" }
 # The game rules. The `bevy` feature makes its types Bevy components/resources.
 crabsim = { path = "crates/sim", features = ["bevy"] }
 # Bevy with its default features switched off, so only the parts this game
@@ -58,6 +62,7 @@ bevy = { version = "0.20.0", default-features = false, features = [
     "bevy_color",
     "bevy_camera",
     "bevy_image",
+    "jpeg",
     "png",               # decode the crab's parts pictures (loaded from assets/crab/)
     "bevy_text",
     "bevy_ui",
@@ -96,6 +101,8 @@ proptest = { version = "1.12", default-features = false, features = ["std"] }
 # On the desktop, let Bevy use several CPU cores. (The web build stays
 # single-threaded: browser threads need extra server setup.)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+rfd = "0.17"
 bevy = { version = "0.20.0", default-features = false, features = ["multi_threaded"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
