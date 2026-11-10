@@ -772,7 +772,9 @@ impl Test<'_> {
 
         // --- keyboard ---------------------------------------------------------------------------------------------
         self.key("keydown", "KeyD", "d")?;
-        self.hold(0.5, false)?;
+        // Keep this independent jump/no-paddle probe clear of the starting kelp.
+        // At x280 the second Jump deliberately grips the new castle route instead.
+        self.hold(0.75, false)?;
         self.key("keyup", "KeyD", "d")?;
         let moved = self.rest()?;
         self.check(

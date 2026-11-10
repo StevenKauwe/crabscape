@@ -4,6 +4,61 @@ use crabsim::level::{WATER_SURFACE_Y, royal};
 use crabsim::{Controls, Level, Mover, Tuning, physics};
 
 #[test]
+fn jump_probe_clear_of_the_kelp_keeps_no_paddles_and_normal_home_entry() {
+    use crabsim::{PlayerId, Sim};
+    let id = PlayerId(0);
+    let mut sim = Sim::with_one_crab(crabsim::SPAWN);
+    let advance = |sim: &mut Sim, ticks: u32, mut c: Controls| {
+        let mut top = f32::MIN;
+        for _ in 0..ticks {
+            sim.set_controls(id, c);
+            sim.tick();
+            c.jump_pressed = false;
+            top = top.max(sim.crab(id).unwrap().mover.pos.y);
+        }
+        top
+    };
+    advance(
+        &mut sim,
+        90,
+        Controls {
+            walk: 1.0,
+            ..Controls::default()
+        },
+    );
+    advance(&mut sim, 120, Controls::default());
+    assert!(sim.crab(id).unwrap().mover.pos.x > royal::ROPE_X + sim.tuning.climb_reach);
+    let jump = Controls {
+        jump_pressed: true,
+        jump_held: true,
+        ..Controls::default()
+    };
+    advance(&mut sim, 54, jump);
+    advance(&mut sim, 144, Controls::default());
+    advance(&mut sim, 120, Controls::default());
+    advance(&mut sim, 54, jump);
+    advance(&mut sim, 30, Controls::default());
+    let before = sim.crab(id).unwrap().mover.pos.y;
+    let top = advance(&mut sim, 42, jump);
+    assert!(
+        top < before + 5.0,
+        "a jump clear of kelp cannot invent a paddle: {before} -> {top}"
+    );
+    assert!(!sim.crab(id).unwrap().mover.climbing);
+    advance(&mut sim, 180, Controls::default());
+    advance(
+        &mut sim,
+        240,
+        Controls {
+            walk: -1.0,
+            ..Controls::default()
+        },
+    );
+    assert!(sim.crab(id).unwrap().mover.tucked_in());
+    assert!((sim.crab(id).unwrap().mover.pos.x - sim.level.home_den.x).abs() < 1.5);
+}
+
+#[test]
 fn fresh_cellular_crab_reaches_the_castle_from_home_with_normal_commands() {
     use crabsim::{PlayerId, Sim};
     let id = PlayerId(0);
