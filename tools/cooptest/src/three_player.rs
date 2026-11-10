@@ -214,6 +214,11 @@ impl SplitRoute for BrowserRoute<'_> {
     }
     fn steer(&mut self, height: f64) -> Result<()> {
         let at = Instant::now();
+        // Establish a fresh held direction after chat closes. The modal owns
+        // keys pressed during its last frame until a release or fresh press.
+        // Reasserting here also recovers from a delayed focus/input reset.
+        self.player.set_key("KeyD", false)?;
+        self.player.set_key("KeyD", true)?;
         if height <= 450.0 && (height < 200.0 || self.obstructed) {
             self.player.hold_key("KeyW", 0.9)?;
         } else if height > 450.0 {
@@ -272,7 +277,7 @@ fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
     players[last]
         .eval("document.getElementById('crabscape').setAttribute('data-cell-control-probe','1')")?;
     players[last].type_line("hulk")?;
-    players[last].set_key("KeyD", true)?;
+    // The steering loop establishes and maintains horizontal intent itself.
     drive_to_split(&mut BrowserRoute {
         player: &mut players[last],
         started: Instant::now(),

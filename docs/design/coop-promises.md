@@ -137,3 +137,8 @@ Failures on `main` (the after-deploy and daily runs) open or add to the `main-br
   own storage so it never reloads for it twice.
 - An introducer restart ends every game's connection (it was the connection's other end): each joins afresh 5 s
   later and finds the other. The introducer stores nothing, so a restart forgets nothing worth keeping.
+
+The three-player regional traversal driver releases and reasserts its held Right input during every steering
+step. Closing a chat command can consume a keydown during its last frame, so the driver establishes a fresh
+press after closing it instead of relying on one early synthetic keydown. Traversal still has its original 90-second bound and must actually reach and rejoin a
+separate region with matching state.
