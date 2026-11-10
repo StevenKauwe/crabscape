@@ -178,6 +178,7 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     let started = Instant::now();
     let until = started + Duration::from_secs(seconds);
     let mut trace = VecDeque::new();
+    let mut held = None;
     loop {
         let p = position(browser)?;
         if trace.len() == 12 {
@@ -190,7 +191,11 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         ));
         // A gripped crab can stay at the edge of its 48-unit reach. Do not
         // demand the rope's centre after the approach has already caught it.
-        if (p[0] - target).abs() < if rope { 48.1 } else { 16.0 } {
+        // A software-rendered frame can advance 30 fixed ticks (~67 units
+        // of walking). Aim within the actual interaction/pickup reach,
+        // rather than oscillate over a sub-frame 16-unit target forever.
+        // The tour still asserts every collected page, bell and reward.
+        if (p[0] - target).abs() < if rope { 48.1 } else { 50.0 } {
             break;
         }
         if Instant::now() > until {
@@ -201,15 +206,24 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         }
         let right = p[0] < target;
         let command = Instant::now();
-        browser.set_key("ArrowRight", right)?;
-        browser.set_key("ArrowLeft", !right)?;
+        if held != Some(right) {
+            if let Some(previous) = held {
+                browser.set_key(if previous { "ArrowRight" } else { "ArrowLeft" }, false)?;
+            }
+            held = Some(right);
+        }
+        browser.set_key(if right { "ArrowRight" } else { "ArrowLeft" }, true)?;
         if let Some(last) = trace.back_mut() {
             last.push_str(&format!(" keys={}ms", command.elapsed().as_millis()));
         }
         sleep(Duration::from_millis(40));
     }
-    browser.set_key("ArrowRight", false)?;
-    browser.set_key("ArrowLeft", false)?;
+    // Release the key actually held first. A redundant opposite-key CDP
+    // roundtrip can take several software-rendered frames, during which
+    // the crab would keep walking past the target and off the landing.
+    if let Some(right) = held {
+        browser.set_key(if right { "ArrowRight" } else { "ArrowLeft" }, false)?;
+    }
     if !rope {
         sleep(Duration::from_millis(250));
     }
@@ -220,13 +234,30 @@ fn button(browser: &mut Chrome, name: &str) -> Result<()> {
     // geometry is published by the following Egui frame. Wait for that actual
     // layout instead of treating a short sleep as proof it has been painted.
     let until = Instant::now() + Duration::from_secs(10);
+    let mut candidate = None;
+    let mut previous_frame = None;
+    let mut stable_frames = 0;
     let r = loop {
         let text = browser.attr("data-king-ddd-buttons").unwrap_or_default();
         if !text.is_empty() {
             let values: serde_json::Value =
                 serde_json::from_str(&text).map_err(|e| e.to_string())?;
             if let Some(rect) = values.get(name).and_then(|v| v.as_array()) {
-                break rect.clone();
+                let frame = browser.attr("data-king-ddd-tick");
+                if candidate.as_ref() == Some(rect) {
+                    if frame != previous_frame {
+                        stable_frames += 1;
+                    }
+                } else {
+                    candidate = Some(rect.clone());
+                    stable_frames = 0;
+                }
+                previous_frame = frame;
+                // Egui centres a newly sized window on its following pass.
+                // A first-frame rectangle can otherwise miss the real button.
+                if stable_frames >= 2 {
+                    break rect.clone();
+                }
             }
         }
         if let Some(e) = browser.trouble() {
@@ -321,10 +352,28 @@ fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     walk_to(browser, 1570.0, 30)?;
     activity(browser)?;
     button(browser, "start-index")?;
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        let buttons: serde_json::Value =
+            serde_json::from_str(&browser.attr("data-king-ddd-buttons").unwrap_or_default())
+                .map_err(|e| e.to_string())?;
+        if buttons.get("close-activity").is_some() && buttons.get("start-index").is_none() {
+            break;
+        }
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err("The archivist did not accept the lost-index quest".into());
+        }
+        sleep(Duration::from_millis(50));
+    }
     close_activity(browser)?;
     walk_to(browser, 2550.0, 30)?;
     activity(browser)?;
     button(browser, "start-bells")?;
+    wait(browser, "data-king-ddd-panel", "false", 10)?;
+    if royal(browser)?["trial"].is_null() {
+        return Err("The bell keeper did not start the ordered trial".into());
+    }
     walk_to(browser, 3000.0, 20)?;
     climb_to(browser, 6740.0, 25)?;
     walk_to(browser, 1440.0, 30)?;
@@ -608,7 +657,9 @@ fn main() -> Result<()> {
     if tour && royal(&mut b)? != career_before {
         return Err("Castle career changed on reload".into());
     }
-    walk_to(&mut b, 280.0, 12)?;
+    // Clear the landing by more than a body width even when a slow frame
+    // stops within the ordinary interaction reach of the steering target.
+    walk_to(&mut b, 240.0, 12)?;
     let until = Instant::now() + Duration::from_secs(15);
     while position(&mut b)?[1] >= 5000.0 {
         if Instant::now() > until {

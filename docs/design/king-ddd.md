@@ -125,3 +125,6 @@ in memory for the session; workbook exports preserve data and sheets.
   Reload waits for two committed autosave revisions after the crab settles, rather than a sleep shorter
   than the normal five-second autosave interval. The existing hub suite also checks that the enlarged
   sky opening cannot bypass the sea arch: its visible castle support continues up to the east-wing floor.
+  The real-key driver steers within pickup/interaction reach, releases the held direction before other
+  protocol calls, and waits for stable painted button geometry. Software-rendered frames can advance
+  farther than a tiny coordinate target. Every quest, ordered bell, reward and saved result is still asserted.
