@@ -12,6 +12,7 @@ the arrival side to return to the sea. There is no summons, teleport, separate s
 This above-water kingdom is the owner's explicit exception to the otherwise ocean-shaped setting. Air has
 gravity and no swimming strokes. A keep wall bounds the opening region so it does not bypass ocean gates.
 The immutable masonry and ropes are ordinary deterministic build geometry, not editable sediment.
+An unbroken ascent still follows the existing 5,000-unit climbing-feat rule; its threshold is unchanged.
 
 ## The glowing ledger and the lists
 

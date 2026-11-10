@@ -64,9 +64,9 @@ fn climbing_out_of_the_pit_in_one_go_makes_the_feat_ready_long_before_the_level(
 
 #[test]
 fn a_short_climb_or_one_broken_by_letting_go_proves_nothing() {
-    // The crack out of the far basin, and the kelp by home up to the light,
-    // are too short.
-    for x in [5440.0, 900.0] {
+    // The far-basin crack and the shorter coral shaft cannot prove a 5,000-unit climb.
+    // Home's kelp now continues into the castle rope, so that route is genuinely long.
+    for x in [5440.0, 4420.0] {
         let mut sim = on_climb(x, floor(x));
         let mut top = f32::MIN;
         for _ in 0..120 * 40 {

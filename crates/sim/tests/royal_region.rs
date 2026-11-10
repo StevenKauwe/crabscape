@@ -46,6 +46,10 @@ fn fresh_cellular_crab_reaches_the_castle_from_home_with_normal_commands() {
         "fresh cellular ascent stopped at {:?}, climbing={}",
         mover.pos, mover.climbing
     );
+    assert!(
+        mover.proven.contains(&crabsim::Skill::Climbing),
+        "the continuous royal route still earns the existing long-climb feat"
+    );
 }
 
 #[test]

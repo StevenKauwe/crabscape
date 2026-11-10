@@ -5,6 +5,14 @@ struct FragmentInput {
 };
 
 fn water_colour(p: vec2<f32>) -> vec3<f32> {
+    if p.y >= 5000.0 {
+        // Match the existing surface sky so unknown castle shapes never reveal themselves.
+        let horizon = vec3<f32>(0.66, 0.82, 0.86);
+        let sky = vec3<f32>(0.39, 0.66, 0.80);
+        let a = pow((horizon + 0.055) / 1.055, vec3<f32>(2.4));
+        let b = pow((sky + 0.055) / 1.055, vec3<f32>(2.4));
+        return mix(a, b, clamp((p.y - 5000.0) / 350.0, 0.0, 1.0));
+    }
     let surface = clamp(p.y / 5000.0, 0.0, 1.0);
     let vertical = clamp(-p.y / 9000.0, 0.0, 1.0);
     let canyon = smoothstep(5350.0, 6150.0, p.x)

@@ -86,6 +86,14 @@ pub fn depth_factor(at: Vec2) -> f32 {
 /// The water's colour at the view: sunlit in the shallows, darker in the
 /// pit and canyon. Fog uses the same colour, so unknown shapes stay hidden.
 pub fn water_at(at: Vec2) -> Color {
+    if at.y >= crabsim::level::WATER_SURFACE_Y {
+        let horizon = LinearRgba::from(Color::srgb(0.66, 0.82, 0.86));
+        let sky = LinearRgba::from(Color::srgb(0.39, 0.66, 0.80));
+        return Color::LinearRgba(horizon.mix(
+            &sky,
+            ((at.y - crabsim::level::WATER_SURFACE_Y) / 350.0).clamp(0.0, 1.0),
+        ));
+    }
     let surface = (at.y / 5000.0).clamp(0.0, 1.0);
     let shallow = WATER.mix(&SHALLOW_WATER, surface);
     shallow.mix(&ABYSS_WATER, depth_factor(at))
@@ -712,11 +720,25 @@ mod tests {
             );
         }
         assert!(light(water_at(Vec2::new(0.0, 5000.0))) > light(WATER));
-        // The actual surface is the bright end of the shallow-water ramp,
-        // including over the horizontally compressed canyon.
+        // Just under the surface is the shallow-water ramp's bright end,
+        // including over the horizontally compressed canyon. Air is the same
+        // horizon-to-sky ramp as the existing surface mesh and all three shaders.
         let surface = crabsim::level::WATER_SURFACE_Y;
-        assert_eq!(water_at(Vec2::new(0.0, surface)), SHALLOW_WATER);
-        assert_eq!(water_at(Vec2::new(8200.0, surface)), SHALLOW_WATER);
+        let near = |got: Color, want: Color| {
+            let delta = got.to_linear().to_vec4() - want.to_linear().to_vec4();
+            assert!(delta.abs().max_element() < 0.0001);
+        };
+        for x in [0.0, 8200.0] {
+            near(water_at(Vec2::new(x, surface - 0.1)), SHALLOW_WATER);
+            near(
+                water_at(Vec2::new(x, surface)),
+                Color::srgb(0.66, 0.82, 0.86),
+            );
+            near(
+                water_at(Vec2::new(x, surface + 350.0)),
+                Color::srgb(0.39, 0.66, 0.80),
+            );
+        }
         assert!(
             light(water_at(Vec2::new(7000.0, -1500.0))) < light(water_at(Vec2::new(0.0, -1500.0)))
         );
