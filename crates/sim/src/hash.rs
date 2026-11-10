@@ -7,7 +7,11 @@
 
 /// Hash some bytes.
 pub fn fnv1a(bytes: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    fnv1a_extend(0xcbf2_9ce4_8422_2325, bytes)
+}
+
+/// Continue the same hash across bounded pieces without concatenating them.
+pub(crate) fn fnv1a_extend(mut h: u64, bytes: &[u8]) -> u64 {
     for &b in bytes {
         h ^= u64::from(b);
         h = h.wrapping_mul(0x0000_0100_0000_01b3);

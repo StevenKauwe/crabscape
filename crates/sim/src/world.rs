@@ -3399,48 +3399,17 @@ impl Sim {
     pub fn state_hash(&self) -> u64 {
         #[cfg(test)]
         STATE_HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
-        let crabs: Vec<SimCrab> = self
-            .crabs
-            .iter()
-            .map(|c| SimCrab {
-                controls: Controls::default(),
-                ..c.clone()
-            })
-            .collect();
-        // `{:?}` prints every field, and prints each `f32` exactly, so
-        // formatting is an easy way to "hash everything" that keeps working
-        // when fields are added.
-        let mut state = format!(
-            "{} {:?} {:?} {:?} {:?}",
-            self.tick, crabs, self.enemies, self.rng, self.shared
-        );
-        if let Some(canyon) = &self.canyon {
-            state.push_str(&format!(" {canyon:?}"));
-        }
-        if let Some(salvage) = &self.salvage {
-            state.push_str(&format!(" {salvage:?}"));
-        }
-        if let Some(streams) = &self.owned_rng {
-            state.push_str(&format!(" {streams:?}"));
-        }
-        if let Some(cells) = &self.level.cells {
-            state.push_str(&format!(" {cells:?}"));
-        }
-        state.push_str(&format!(" {:?}", self.watchers));
-        fnv1a(state.as_bytes())
+        self.state_hash_streamed()
     }
 
-    /// Experimental equivalent of `state_hash` that streams formatted state
-    /// into FNV instead of allocating a potentially enormous terrain string.
+    /// Stream the exact replay hash bytes without allocating the terrain's
+    /// potentially enormous Debug string. Both hash entrypoints use this path.
     pub fn state_hash_streamed(&self) -> u64 {
         use std::fmt::Write as _;
         struct Sink(u64);
         impl std::fmt::Write for Sink {
             fn write_str(&mut self, value: &str) -> std::fmt::Result {
-                for byte in value.bytes() {
-                    self.0 ^= u64::from(byte);
-                    self.0 = self.0.wrapping_mul(0x100000001b3);
-                }
+                self.0 = crate::hash::fnv1a_extend(self.0, value.as_bytes());
                 Ok(())
             }
         }
@@ -3452,7 +3421,9 @@ impl Sim {
                 ..c.clone()
             })
             .collect();
-        let mut sink = Sink(0xcbf29ce484222325);
+        // Debug includes every field and formats each f32 exactly, so new
+        // state fields automatically contribute to the hash.
+        let mut sink = Sink(fnv1a(b""));
         let _ = write!(
             sink,
             "{} {:?} {:?} {:?} {:?}",
@@ -3819,6 +3790,62 @@ pub fn fit_glass_grips(m: &mut Mover) {
 mod tests {
     use super::*;
     use crate::level::SPAWN;
+
+    #[test]
+    fn state_hash_preserves_the_replay_format_without_pending_controls() {
+        for cellular in [false, true] {
+            let mut sim = Sim::with_one_crab(SPAWN);
+            if cellular {
+                sim.enable_underwater_cells();
+                sim.owned_rng = Some([(1, Rng::new(7))].into());
+            }
+            sim.populate();
+            for _ in 0..3 {
+                let mut crabs = sim.crabs.clone();
+                for crab in &mut crabs {
+                    crab.controls = Controls::default();
+                }
+                // This is the original replay hash's exact byte layout.
+                let expected = fnv1a(
+                    format!(
+                        "{} {:?} {:?} {:?} {:?}{}{}{}{} {:?}",
+                        sim.tick,
+                        crabs,
+                        sim.enemies,
+                        sim.rng,
+                        sim.shared,
+                        sim.canyon
+                            .as_ref()
+                            .map_or(String::new(), |v| format!(" {v:?}")),
+                        sim.salvage
+                            .as_ref()
+                            .map_or(String::new(), |v| format!(" {v:?}")),
+                        sim.owned_rng
+                            .as_ref()
+                            .map_or(String::new(), |v| format!(" {v:?}")),
+                        sim.level
+                            .cells
+                            .as_ref()
+                            .map_or(String::new(), |v| format!(" {v:?}")),
+                        sim.watchers,
+                    )
+                    .as_bytes(),
+                );
+                sim.set_controls(
+                    PlayerId(0),
+                    Controls {
+                        walk: 1.0,
+                        jump_pressed: true,
+                        ..Controls::default()
+                    },
+                );
+                assert_eq!(sim.state_hash(), expected);
+                assert_eq!(sim.state_hash_streamed(), expected);
+                sim.tick();
+                assert_ne!(sim.state_hash(), expected);
+            }
+        }
+    }
 
     #[test]
     fn a_quick_tap_between_ticks_still_counts() {
