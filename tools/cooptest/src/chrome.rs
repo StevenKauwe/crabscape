@@ -310,20 +310,23 @@ impl Chrome {
     /// From now on (this page's new connections, and every page after it), address gathering finishes 40 s late:
     /// see [`SLOW_GATHERING`].
     pub fn slow_gathering(&mut self) -> Result<()> {
+        self.install_script(SLOW_GATHERING)?;
+        self.eval(SLOW_GATHERING).map(drop)
+    }
+
+    /// Instrument an isolated test page before its scripts run, including reloads.
+    pub fn install_script(&mut self, source: &str) -> Result<()> {
         self.call(
             "Page.addScriptToEvaluateOnNewDocument",
-            json!({ "source": SLOW_GATHERING }),
-        )?;
-        self.eval(SLOW_GATHERING).map(drop)
+            json!({"source": source}),
+        )
+        .map(drop)
     }
 
     /// Capture the probe's peer connection in this and future documents.
     pub fn actor_profile_hook(&mut self) -> Result<()> {
         const HOOK: &str = "(() => { const Base = window.RTCPeerConnection; window.RTCPeerConnection = class extends Base { constructor(...args) { super(...args); window.__actorProfilePc = this; (window.__actorProfilePcs ||= []).push(this); } }; })()";
-        self.call(
-            "Page.addScriptToEvaluateOnNewDocument",
-            json!({ "source": HOOK }),
-        )?;
+        self.install_script(HOOK)?;
         self.eval(HOOK).map(drop)
     }
 
@@ -432,6 +435,18 @@ impl Chrome {
     }
 
     /// Resize only this protocol-test browser; keep desktop layout and DPR 1.
+    #[allow(dead_code)] // Used only by the responsive court runner.
+    pub fn responsive_viewport(&mut self, width: u32, height: u32) -> Result<()> {
+        if width < 320 || height < 200 {
+            return Err("viewport is too small".into());
+        }
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width":width,"height":height,"deviceScaleFactor":1,"mobile":width<700}),
+        )
+        .map(drop)
+    }
+
     pub fn protocol_viewport(&mut self, width: u32, height: u32) -> Result<()> {
         if width < 600 || height < 360 {
             return Err("protocol viewport must retain desktop layout".into());

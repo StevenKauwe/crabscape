@@ -3,8 +3,61 @@ const peerListeners = new Set(), connectionListeners = new Set(), topics = new M
 const peers = new Map();
 let socket = null, id = null, connected = false, wanted = null, snapshot = null;
 let importing = null, reopening = false, nextConnect = 0, lastHello = 0, attempt = 0;
+let lastVoice = 0, lastVoiceState = '', voiceVolume = 1;
+try { const v = localStorage.getItem('vdf-voice-volume'); if (v !== null && Number.isFinite(+v)) voiceVolume = Math.max(0, Math.min(1, +v)); } catch (_) {}
 let line = 'Fly solo, or invite friends to a private P2P party. Your progress stays on this device.';
 const params = new URLSearchParams(location.search);
+// The voice engine is Rust/WASM; this bridge only wires native page controls.
+const voiceTemplate = document.querySelector('[data-p2p-voice]');
+for (const anchor of [document.getElementById('partyMembers'), document.querySelector('#pauseScreen .bgroup')]) {
+  if (anchor && voiceTemplate) anchor.before(voiceTemplate.cloneNode(true));
+}
+function voiceState() {
+  try { if (socket) return JSON.parse(socket.voice_status()); } catch (_) {}
+  return { mic: 'off', listening: false, connected: 0, calls: 0, hearing: 0, volume: voiceVolume, error: null };
+}
+function showVoice(force = false) {
+  const voice = voiceState(), key = JSON.stringify([!!wanted, connected, voice, voiceVolume]);
+  if (!force && key === lastVoiceState) return;
+  lastVoiceState = key;
+  for (const box of document.querySelectorAll('[data-p2p-voice]')) box.hidden = !wanted;
+  for (const button of document.querySelectorAll('[data-p2p-mic]')) {
+    button.hidden = !wanted;
+    button.disabled = !connected;
+    button.textContent = button.closest('.tools')
+      ? (voice.mic === 'asking' ? 'Cancel mic' : voice.mic === 'on' ? 'Mute mic' : 'Mic off')
+      : (voice.mic === 'asking' ? 'Cancel mic request' : voice.mic === 'on' ? 'Mute mic' : 'Turn mic on');
+    button.setAttribute('aria-pressed', String(voice.mic === 'on'));
+  }
+  for (const button of document.querySelectorAll('[data-p2p-listen]')) {
+    button.disabled = !socket || voice.listening;
+    button.textContent = voice.listening ? 'Voice audio on' : 'Enable voice audio';
+  }
+  for (const input of document.querySelectorAll('[data-p2p-volume]')) input.value = Math.round(voiceVolume * 100);
+  for (const label of document.querySelectorAll('[data-p2p-volume-label]')) label.textContent = `${Math.round(voiceVolume * 100)}%`;
+  for (const el of document.querySelectorAll('[data-p2p-voice-status]')) {
+    el.textContent = voice.error || (voice.mic === 'asking' ? 'Waiting for your browser. You can cancel this request.' : `${voice.mic === 'on' ? 'Mic on: everyone in this party can hear you.' : 'Mic off.'} ${voice.connected} voice connection${voice.connected === 1 ? '' : 's'}.${voice.listening ? '' : ' Tap Enable voice audio to listen.'}`);
+  }
+  if (params.has('diagnostics')) document.documentElement.dataset.dragonVoice = JSON.stringify(voice);
+}
+for (const button of document.querySelectorAll('[data-p2p-mic]')) button.addEventListener('click', () => {
+  socket?.microphone(voiceState().mic === 'off'); showVoice(true);
+});
+for (const button of document.querySelectorAll('[data-p2p-listen]')) button.addEventListener('click', () => { socket?.listen(); showVoice(true); });
+for (const input of document.querySelectorAll('[data-p2p-volume]')) input.addEventListener('input', () => {
+  voiceVolume = Math.max(0, Math.min(1, Number(input.value) / 100)); socket?.voice_volume(voiceVolume);
+  try { localStorage.setItem('vdf-voice-volume', String(voiceVolume)); } catch (_) {}
+  showVoice(true);
+});
+// Playback may resume on a normal game gesture; this never asks for a microphone.
+window.addEventListener('pointerdown', () => socket?.listen(), { passive: true });
+window.addEventListener('keydown', () => socket?.listen(), { passive: true });
+// Back/forward cache must not keep capturing after leaving the page. A later
+// pageshow reconnects through the normal loop, with a new engine and mic off.
+window.addEventListener('pagehide', () => {
+  attempt++; reopening = false; socket?.free(); socket = null; id = null; peers.clear();
+  connection(false); notifyPeers(); showVoice(true);
+});
 const override = params.get('introducer');
 const loopback = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const introducer = loopback && /^ws:\/\/127\.0\.0\.1:\d+$/.test(override || '')
@@ -73,6 +126,7 @@ async function open() {
     if (token !== attempt || wanted !== code) return;
     socket?.free();
     socket = new DragonPeer(introducer, build, wanted);
+    socket.voice_volume(voiceVolume);
     id = null; peers.clear(); notifyPeers();
     nextConnect = performance.now() + 15000;
     status('Connecting your private P2P party. You can keep playing solo.');
@@ -100,6 +154,7 @@ const room = {
     notifyPeers(); connection(false);
     const url = new URL(location.href); url.searchParams.delete('join'); history.replaceState(null, '', url);
     status('Flying solo. Your progress stays on this device.');
+    showVoice(true);
   },
 };
 window.valmoraP2PResolve(room);
@@ -127,10 +182,12 @@ async function invite(event) {
 }
 for (const button of document.querySelectorAll('[data-p2p-invite]')) button.addEventListener('click', invite);
 status(line);
+showVoice(true);
 const joined = params.get('join');
 if (/^[a-z0-9]{6,16}$/.test(joined || '')) { wanted = joined; open(); }
 setInterval(() => {
   const now = performance.now();
+  if (now - lastVoice >= 250) { lastVoice = now; showVoice(); }
   if (!socket) { if (wanted && now >= nextConnect) open(); return; }
   try {
     const state = JSON.parse(socket.poll());
