@@ -81,6 +81,18 @@ fn resize(browser: &mut Chrome, width: u32, height: u32) -> Result<()> {
         10,
     )
 }
+fn next_input_frame(browser: &mut Chrome) -> Result<()> {
+    let before = browser.attr("data-king-ddd-tick");
+    let until = Instant::now() + Duration::from_secs(10);
+    while browser.attr("data-king-ddd-tick") == before {
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err("No new castle input frame after the modal closed".into());
+        }
+        sleep(Duration::from_millis(50));
+    }
+    Ok(())
+}
 fn reload_castle(browser: &mut Chrome) -> Result<()> {
     // Page.reload acknowledges the request before navigation necessarily
     // starts. A castle marker from the outgoing document proves nothing
@@ -341,12 +353,14 @@ fn climb_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     Ok(())
 }
 fn activity(browser: &mut Chrome) -> Result<()> {
+    stand_still(browser)?;
     button(browser, "activity")?;
     wait(browser, "data-king-ddd-panel", "true", 10)
 }
 fn close_activity(browser: &mut Chrome) -> Result<()> {
     button(browser, "close-activity")?;
-    wait(browser, "data-king-ddd-panel", "false", 10)
+    wait(browser, "data-king-ddd-panel", "false", 10)?;
+    next_input_frame(browser)
 }
 fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     walk_to(browser, 1570.0, 30)?;
@@ -371,9 +385,18 @@ fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     activity(browser)?;
     button(browser, "start-bells")?;
     wait(browser, "data-king-ddd-panel", "false", 10)?;
-    if royal(browser)?["trial"].is_null() {
-        return Err("The bell keeper did not start the ordered trial".into());
+    let until = Instant::now() + Duration::from_secs(10);
+    // The panel closes in the command's Egui pass. The read-only progress
+    // snapshot is published at the start of that pass, so observe the
+    // following snapshot rather than mistake the old one for rejection.
+    while royal(browser)?["trial"].is_null() {
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err("The bell keeper did not start the ordered trial".into());
+        }
+        sleep(Duration::from_millis(50));
     }
+    next_input_frame(browser)?;
     walk_to(browser, 3000.0, 20)?;
     climb_to(browser, 6740.0, 25)?;
     walk_to(browser, 1440.0, 30)?;
@@ -564,6 +587,7 @@ fn main() -> Result<()> {
     b.screenshot(&dir.join("ledger-phone.png"))?;
     button(&mut b, "leave")?;
     wait(&mut b, "data-king-ddd", "castle", 10)?;
+    next_input_frame(&mut b)?;
     b.screenshot(&dir.join("castle-phone.png"))?;
     button(&mut b, "open-ledger")?;
     wait(&mut b, "data-king-ddd", "ledger", 10)?;
@@ -593,6 +617,7 @@ fn main() -> Result<()> {
         }
         b.click(r[0] + r[2] / 2.0, r[1] + r[3] / 2.0)?;
         wait(&mut b, "data-king-ddd", "castle", 10)?;
+        next_input_frame(&mut b)?;
         walk_to(&mut b, 650.0, 10)?;
         wait(&mut b, "data-king-ddd-judged", "16", 600)?;
         wait_royal(&mut b, "tournaments", 1.into())?;
@@ -631,6 +656,7 @@ fn main() -> Result<()> {
     }
     button(&mut b, "leave")?;
     wait(&mut b, "data-king-ddd", "castle", 10)?;
+    next_input_frame(&mut b)?;
     let settled = position(&mut b)?;
     if !train && ((settled[0] - crab[0]).abs() > 3.0 || (settled[1] - crab[1]).abs() > 3.0) {
         failure_evidence(&mut b);
