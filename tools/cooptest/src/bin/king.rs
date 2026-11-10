@@ -379,6 +379,30 @@ fn close_activity(browser: &mut Chrome) -> Result<()> {
     wait(browser, "data-king-ddd-panel", "false", 10)?;
     next_input_frame(browser)
 }
+fn bell_receipt(browser: &mut Chrome, expected: u64) -> Result<()> {
+    let until = Instant::now() + Duration::from_secs(15);
+    loop {
+        let progress = royal(browser)?;
+        if progress["best"].as_u64().is_some()
+            || expected < 3
+                && progress["trial"]["next"]
+                    .as_u64()
+                    .is_some_and(|n| n >= expected)
+        {
+            return Ok(());
+        }
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err(format!(
+                "Ordered bell {expected} was not recorded at {:?}: {progress}",
+                position(browser)?
+            ));
+        }
+        // The movement marker and the receipt need not be from the same
+        // Egui pass. Assert the real receipt, not its previous snapshot.
+        sleep(Duration::from_millis(100));
+    }
+}
 fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     walk_to(browser, 1570.0, 30)?;
     activity(browser)?;
@@ -416,13 +440,13 @@ fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     next_input_frame(browser)?;
     walk_to(browser, 3000.0, 20)?;
     climb_to(browser, 6740.0, 25)?;
+    bell_receipt(browser, 1)?;
     walk_to(browser, 1440.0, 30)?;
+    bell_receipt(browser, 2)?;
     walk_to(browser, 1115.0, 10)?;
     climb_to(browser, 7200.0, 20)?;
     walk_to(browser, 600.0, 15)?;
-    if royal(browser)?["best"].as_u64().is_none() {
-        return Err("The ordered three-bell course did not finish".into());
-    }
+    bell_receipt(browser, 3)?;
     browser.screenshot(&dir.join("castle-high-ramparts.png"))?;
     walk_to(browser, 1115.0, 15)?;
     climb_to(browser, 6740.0, 20)?;
