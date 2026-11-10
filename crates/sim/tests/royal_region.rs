@@ -4,6 +4,45 @@ use crabsim::level::{WATER_SURFACE_Y, royal};
 use crabsim::{Controls, Level, Mover, Tuning, physics};
 
 #[test]
+fn approaching_the_swaying_kelp_with_jump_held_works_after_water_has_settled() {
+    use crabsim::{PlayerId, Sim};
+    let id = PlayerId(0);
+    for settle in [120, 1200] {
+        let mut sim = Sim::with_one_crab(crabsim::SPAWN);
+        sim.enable_underwater_cells();
+        for _ in 0..settle {
+            sim.tick();
+        }
+        for tick in 0..120 * 50 {
+            let walk = if sim.crab(id).unwrap().mover.pos.y < 240.0 {
+                1.0
+            } else {
+                0.0
+            };
+            sim.set_controls(
+                id,
+                Controls {
+                    walk,
+                    jump_held: true,
+                    jump_pressed: tick == 0,
+                    ..Controls::default()
+                },
+            );
+            sim.tick();
+            if sim.crab(id).unwrap().mover.pos.y >= royal::FLOOR_Y + 15.0 {
+                break;
+            }
+        }
+        let mover = &sim.crab(id).unwrap().mover;
+        assert!(
+            mover.pos.y >= royal::FLOOR_Y + 15.0,
+            "normal jump-and-approach after {settle} ticks stopped at {:?}",
+            mover.pos
+        );
+    }
+}
+
+#[test]
 fn jump_probe_clear_of_the_kelp_keeps_no_paddles_and_normal_home_entry() {
     use crabsim::{PlayerId, Sim};
     let id = PlayerId(0);

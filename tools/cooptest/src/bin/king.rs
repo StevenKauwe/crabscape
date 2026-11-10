@@ -101,12 +101,20 @@ fn main() -> Result<()> {
     if position(&mut b)?[1] > 5000.0 {
         return Err("The directions link teleported the crab".into());
     }
-    walk_to(&mut b, 280.0, 15)?;
-    b.hold_key("KeyW", 0.08)?;
-    sleep(Duration::from_millis(260));
+    // Swim into the moving stalk while holding Jump, just like a player.
+    // A fixed x/tap schedule can miss it after the water has bent the kelp.
+    b.set_key("ArrowRight", true)?;
     b.set_key("KeyW", true)?;
     let until = Instant::now() + Duration::from_secs(90);
-    while position(&mut b)?[1] < 5740.0 {
+    loop {
+        let p = position(&mut b)?;
+        if p[1] >= 5740.0 {
+            break;
+        }
+        if p[1] > 240.0 {
+            // Higher than the fresh crab's ordinary hop: the grip is established.
+            b.set_key("ArrowRight", false)?;
+        }
         if Instant::now() > until {
             b.screenshot(&dir.join("climb-failure.png"))?;
             return Err(format!(
@@ -120,6 +128,7 @@ fn main() -> Result<()> {
         }
         sleep(Duration::from_millis(100));
     }
+    b.set_key("ArrowRight", false)?;
     b.set_key("KeyW", false)?;
     // A real jump from the rope onto the landing, not a test-only warp.
     b.set_key("KeyW", true)?;
