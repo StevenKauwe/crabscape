@@ -17,7 +17,10 @@ fn wait(browser: &mut Chrome, attr: &str, value: &str, seconds: u64) -> Result<(
             return Ok(());
         }
         if let Some(e) = browser.trouble() {
-            return Err(e);
+            let details = browser
+                .eval("sessionStorage.getItem('cooptest-console-errors')")
+                .unwrap_or_default();
+            return Err(format!("{e}; console={details}"));
         }
         if Instant::now() > until {
             return Err(format!(
@@ -77,12 +80,12 @@ fn main() -> Result<()> {
     button(&mut b, "rules")?;
     button(&mut b, "guide")?;
     button(&mut b, "arena")?;
-    b.protocol_viewport(390, 844)?;
+    b.responsive_viewport(390, 844)?;
     sleep(Duration::from_secs(1));
     b.screenshot(&dir.join("court-phone.png"))?;
     if train {
         button(&mut b, "example")?;
-        b.protocol_viewport(1200, 800)?;
+        b.responsive_viewport(1200, 800)?;
         sleep(Duration::from_millis(300));
         button(&mut b, "short")?;
         let r = b
@@ -97,7 +100,20 @@ fn main() -> Result<()> {
         }
         b.click(r[0] + r[2] / 2., r[1] + r[3] / 2.)?;
         wait(&mut b, "data-king-ddd-judged", "16", 600)?;
+        sleep(Duration::from_secs(3));
         b.screenshot(&dir.join("court-survivors.png"))?;
+        let before = b
+            .attr("data-king-ddd-sheet-count")
+            .and_then(|v| v.parse::<usize>().ok())
+            .ok_or("No workbook sheet count")?;
+        button(&mut b, "winners")?;
+        wait(
+            &mut b,
+            "data-king-ddd-sheet-count",
+            &(before + 1).to_string(),
+            10,
+        )?;
+        b.screenshot(&dir.join("court-winners-workbook.png"))?;
     }
     button(&mut b, "leave")?;
     wait(&mut b, "data-king-ddd", "ocean", 10)?;

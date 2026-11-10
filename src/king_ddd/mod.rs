@@ -16,6 +16,7 @@ pub struct Court {
     release_guard: bool,
     pub rounds: std::collections::VecDeque<Vec<::king_ddd::Candidate>>,
     pub run_id: u64,
+    pub frame: Option<[f32; 4]>,
 }
 impl Court {
     pub(crate) fn owns_input(&self) -> bool {
@@ -44,8 +45,8 @@ impl Plugin for KingDddPlugin {
         stage::install(app);
     }
 }
-pub fn framing(size: Vec2) -> (Vec2, f32) {
-    stage::framing(size)
+pub fn framing(size: Vec2, unit_px: f32, frame: Option<[f32; 4]>) -> (Vec2, f32) {
+    stage::framing(size, unit_px, frame)
 }
 fn raw_input(
     court: Res<Court>,
@@ -168,7 +169,9 @@ fn draw(
         }
         return Ok(());
     }
-    for action in ui.show(ctx) {
+    let actions = ui.show(ctx);
+    court.frame = ui.scene_rect;
+    for action in actions {
         match action {
             UiAction::Run(request) => {
                 court.running = true;
@@ -214,6 +217,15 @@ fn stamp(court: &Court, ui: &KingUi) {
         let _ = canvas.set_attribute("data-king-ddd-generation", &court.generation.to_string());
         let _ = canvas.set_attribute("data-king-ddd-judged", &ui.result.judged.to_string());
         let _ = canvas.set_attribute("data-king-ddd-status", &ui.status);
+        let _ = canvas.set_attribute(
+            "data-king-ddd-sheet-count",
+            &ui.sheet
+                .session
+                .active()
+                .map(|d| d.wb.sheets.len())
+                .unwrap_or(0)
+                .to_string(),
+        );
         if let Ok(buttons) = serde_json::to_string(&ui.buttons) {
             let _ = canvas.set_attribute("data-king-ddd-buttons", &buttons);
         }
@@ -250,9 +262,9 @@ fn egui_summons(
                             egui::Button::new(if pending {
                                 "The royal lift is arriving…"
                             } else if near {
-                                "↑ Enter the King's court"
+                                "Enter the King's court"
                             } else {
-                                "↑ Royal summons"
+                                "Royal summons"
                             }),
                         )
                         .clicked()
@@ -291,7 +303,7 @@ mod tests {
     #[test]
     fn court_camera_is_above_water_and_finite() {
         for size in [Vec2::new(390., 844.), Vec2::new(1280., 800.)] {
-            let (at, scale) = framing(size);
+            let (at, scale) = framing(size, 1., None);
             assert!(at.y > crabsim::level::WATER_SURFACE_Y);
             assert!(scale.is_finite() && scale > 0.);
         }

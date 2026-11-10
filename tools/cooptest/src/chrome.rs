@@ -45,6 +45,11 @@ const RECORD_ERRORS: &str = r#"(() => {
   // A box asking to copy the link would stop the page until someone answers: count it as trouble instead.
   window.prompt = () => { add("a prompt box opened (copying the link failed)"); return null; };
   addEventListener("unhandledrejection", (e) => add("unhandled rejection: " + ((e.reason && e.reason.message) || e.reason)));
+  const realError = console.error.bind(console);
+  console.error = (...args) => {
+    try { const logs=JSON.parse(sessionStorage.getItem("cooptest-console-errors")||"[]"); logs.push(args.map(String).join(" ").slice(0,4000)); sessionStorage.setItem("cooptest-console-errors",JSON.stringify(logs.slice(-30))); } catch(e) {}
+    realError(...args);
+  };
   // The game's own "co-op:" lines (who connected, met, went silent, rejoined), kept to say what happened.
   for (const level of ["log", "info", "warn"]) {
     const real = console[level].bind(console);

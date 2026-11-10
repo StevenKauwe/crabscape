@@ -342,6 +342,20 @@ fn browser_export(name: &str, bytes: &[u8]) -> Result<(), String> {
     link.set_href(&url);
     link.set_download(name);
     link.click();
-    let _ = web_sys::Url::revoke_object_url(&url);
+    let revoke_url = url.clone();
+    let cleanup = Closure::<dyn FnMut()>::once(move || {
+        let _ = web_sys::Url::revoke_object_url(&revoke_url);
+    });
+    if web_sys::window().is_some_and(|w| {
+        w.set_timeout_with_callback_and_timeout_and_arguments_0(
+            cleanup.as_ref().unchecked_ref(),
+            1000,
+        )
+        .is_ok()
+    }) {
+        cleanup.forget();
+    } else {
+        let _ = web_sys::Url::revoke_object_url(&url);
+    }
     Ok(())
 }

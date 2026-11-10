@@ -28,7 +28,10 @@ gridcraft-pdf = { path = "crates/pdf" }
 # foundation
 thiserror = "2"
 serde = { version = "1", features = ["derive", "rc"] }
-serde_json = { version = "1", features = ["float_roundtrip"] }
+# CrabScape integration: retain the host's float parser. Cargo unifies this
+# feature across the process; float_roundtrip changes f32 overflow decoding and
+# would break the host's recover-only-the-crab handling of damaged progress.
+serde_json = "1"
 log = "0.4"
 rayon = "1"
 regex = { version = "1", default-features = false, features = ["std", "unicode", "perf"] }

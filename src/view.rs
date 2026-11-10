@@ -276,8 +276,10 @@ fn follow_crab(
     };
     // Inside the home shell: framing the cut-away, still. Out again, the
     // camera starts from the crab, not from in there.
-    if court.is_some_and(|c| c.active) {
-        let (at, scale) = crate::king_ddd::framing(window.size());
+    if let Some(court) = court.filter(|c| c.active) {
+        let size = window.size();
+        let unit_px = size.x * ortho.scale / ortho.area.width().max(1e-3);
+        let (at, scale) = crate::king_ddd::framing(size, unit_px, court.frame);
         ortho.scale = scale;
         cam.translation.x = at.x;
         cam.translation.y = at.y;

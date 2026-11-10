@@ -484,3 +484,45 @@ fn advance(
         champions: ranked.iter().take(6).cloned().collect(),
     });
 }
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    #[test]
+    fn real_classifier_tiny_checkpoint_runs_a_tournament() {
+        let dataset = Dataset {
+            headers: vec!["x".into(), "y".into(), "class".into()],
+            rows: (0..12)
+                .map(|i| {
+                    vec![
+                        (i as f64 / 11.).to_string(),
+                        (i % 3).to_string(),
+                        if i % 2 == 0 { "A" } else { "B" }.into(),
+                    ]
+                })
+                .collect(),
+        };
+        let mut columns = dataset.infer_columns();
+        columns[2].role = Role::Output;
+        columns[2].desired_class = Some("A".into());
+        let request = WorkRequest {
+            dataset,
+            columns,
+            collections: vec![],
+            tournament: TournamentConfig {
+                population: 4,
+                generations: 1,
+                ..Default::default()
+            },
+        };
+        let weights =
+            include_bytes!("../../../vendor/tabicl-anywhere/tests/data/tiny-clf.ckpt").to_vec();
+        let result = run(&request, None, Some(weights), |_| {}).unwrap();
+        assert_eq!(result.judged, 4);
+        assert!(!result.archive.is_empty());
+        assert!(result.archive.iter().all(|c| {
+            c.hit
+                .is_some_and(|p| p.is_finite() && (0.0..=1.).contains(&p))
+        }));
+    }
+}

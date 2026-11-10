@@ -39,6 +39,8 @@ pub struct KingUi {
     inspected: usize,
     pub run_rect: Option<[f32; 4]>,
     pub buttons: std::collections::BTreeMap<String, [f32; 4]>,
+    input_order: Vec<String>,
+    pub scene_rect: Option<[f32; 4]>,
 }
 impl KingUi {
     pub fn new() -> Self {
@@ -69,6 +71,8 @@ impl KingUi {
             inspected: 0,
             run_rect: None,
             buttons: Default::default(),
+            input_order: vec![],
+            scene_rect: None,
         };
         if let Err(e) = this.open(
             include_bytes!("../../assets/king-ddd/launch-quest.xlsx"),
@@ -97,11 +101,19 @@ impl KingUi {
         self.lookup_sources.clear();
         self.request.columns.clear();
         self.request.collections.clear();
+        self.input_order.clear();
         self.file_name = name.into();
         self.refresh()?;
         if name == "launch-quest.xlsx" {
             self.quest_preset();
         }
+        self.input_order = self
+            .request
+            .columns
+            .iter()
+            .filter(|c| c.role == Role::Input)
+            .map(|c| c.name.clone())
+            .collect();
         self.result = WorkResult::default();
         Ok(())
     }
@@ -144,15 +156,32 @@ impl KingUi {
         self.request.columns = dataset
             .infer_columns()
             .into_iter()
-            .map(|c| {
-                previous
+            .enumerate()
+            .map(|(i, c)| {
+                let mut configured = previous
                     .iter()
                     .find(|p| p.name == c.name)
+                    .or_else(|| previous.get(i))
                     .cloned()
-                    .unwrap_or(c)
+                    .unwrap_or_else(|| c.clone());
+                if configured.name != c.name
+                    && let Some(source) = self.lookup_sources.remove(&configured.name)
+                {
+                    self.lookup_sources.insert(c.name.clone(), source);
+                }
+                if configured.name != c.name {
+                    for name in &mut self.input_order {
+                        if *name == configured.name {
+                            *name = c.name.clone();
+                        }
+                    }
+                }
+                configured.name = c.name;
+                configured
             })
             .collect();
         self.request.dataset = dataset;
+        self.sync_input_order();
         let lookups = self
             .lookup_sources
             .iter()
@@ -176,6 +205,30 @@ impl KingUi {
             .selected
             .min(self.request.columns.len().saturating_sub(1));
         Ok(())
+    }
+    fn sync_input_order(&mut self) {
+        let now = self
+            .request
+            .columns
+            .iter()
+            .filter(|c| c.role == Role::Input)
+            .map(|c| c.name.clone())
+            .collect::<Vec<_>>();
+        if self.input_order != now {
+            for group in &mut self.request.collections {
+                group.columns = group
+                    .columns
+                    .iter()
+                    .filter_map(|i| {
+                        self.input_order
+                            .get(*i)
+                            .and_then(|name| now.iter().position(|n| n == name))
+                    })
+                    .collect();
+                group.counts.retain(|n| *n <= group.columns.len());
+            }
+            self.input_order = now;
+        }
     }
     fn quest_preset(&mut self) {
         for c in &mut self.request.columns {
@@ -298,12 +351,19 @@ impl KingUi {
     pub fn show(&mut self, ctx: &egui::Context) -> Vec<UiAction> {
         self.run_rect = None;
         self.buttons.clear();
+        self.scene_rect = None;
         if !self.ready {
             theme::set_override(Some(super::theme::royal(false)));
             SheetApp::setup_context(ctx, true);
             self.ready = true;
         }
         self.sheet.logic(ctx);
+        // Egui installs a new font set at the next begin_pass. GridCraft's
+        // named families must exist before even the court header is painted.
+        if !self.sheet.fonts_ready {
+            ctx.request_repaint();
+            return vec![];
+        }
         if let Err(e) = self.refresh() {
             self.status = e;
         }
@@ -328,7 +388,7 @@ impl KingUi {
                             .color(Color32::from_rgb(242, 193, 78)),
                     );
                     ui.label("Ministry of Statistically Defensible Violence");
-                    let leave = ui.button("↓ Return to sea");
+                    let leave = ui.button("Return to sea");
                     self.buttons.insert("leave".into(), rect_array(leave.rect));
                     if leave.clicked() {
                         actions.push(UiAction::Leave);
@@ -336,7 +396,7 @@ impl KingUi {
                 });
                 ui.horizontal_wrapped(|ui| {
                     for (tab, label) in [
-                        (Tab::Arena, "⚔ The Lists"),
+                        (Tab::Arena, "The Lists"),
                         (Tab::Workbook, "Workbook"),
                         (Tab::Rules, "Goals & rules"),
                         (Tab::Guide, "Royal decree"),
@@ -406,25 +466,30 @@ impl KingUi {
                 });
             }
             Tab::Arena => {
-                let panel = if ctx.viewport_rect().width() < 700. {
-                    egui::Panel::top("court_controls").default_size(240.)
+                let phone = ctx.viewport_rect().width() < 700.;
+                let panel = if phone {
+                    egui::Panel::top("court_controls_phone").exact_size(250.)
                 } else {
-                    egui::Panel::left("court_controls").default_size(260.)
+                    egui::Panel::left("court_controls_desktop").default_size(260.)
                 };
                 panel.resizable(true).show(&mut root, |ui| {
                     egui::ScrollArea::vertical()
+                        .max_height(if phone { 230. } else { ui.available_height() })
+                        .auto_shrink([false, false])
                         .id_salt("court_controls_scroll")
-                        .show(ui, |ui| self.controls(ui, &mut actions));
+                        .show(ui, |ui| self.controls(ui, &mut actions, phone));
                 });
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(&mut root, |ui| {
                         let height = (ui.available_height() * 0.48).max(100.);
-                        ui.allocate_space(egui::vec2(ui.available_width(), height));
+                        let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), height));
+                        self.scene_rect = Some(rect_array(rect));
                         egui::Frame::new()
                             .fill(Color32::from_rgba_unmultiplied(10, 15, 25, 235))
                             .inner_margin(12.)
                             .show(ui, |ui| {
+                                ui.set_min_size(ui.available_size());
                                 self.leaderboard(ui, &mut actions);
                             });
                     });
@@ -435,7 +500,7 @@ impl KingUi {
         }
         actions
     }
-    fn controls(&mut self, ui: &mut egui::Ui, actions: &mut Vec<UiAction>) {
+    fn controls(&mut self, ui: &mut egui::Ui, actions: &mut Vec<UiAction>, phone: bool) {
         ui.heading("The Oracle's tournament");
         ui.label("Real TabICL predictions. The lowest-ranked candidates lose their heads. The strongest breed.");
         ui.separator();
@@ -450,6 +515,16 @@ impl KingUi {
             button.rect.height(),
         ]);
         if button.clicked() {
+            if self.sheet.editor.is_some() && !self.sheet.commit_edit(0, 0, false, false) {
+                self.status = "Finish the invalid cell edit before running the Oracle.".into();
+                self.tab = Tab::Workbook;
+                return;
+            }
+            self.rev = None;
+            if let Err(e) = self.refresh() {
+                self.status = e;
+                return;
+            }
             match self.request.validate() {
                 Ok(()) => {
                     self.busy = true;
@@ -482,19 +557,29 @@ impl KingUi {
             t.generations = 2;
             t.restarts = 1;
         }
-        ui.add(egui::Slider::new(&mut t.population, 4..=256).text("Population"));
-        ui.add(egui::Slider::new(&mut t.generations, 1..=60).text("Generations"));
-        ui.add(egui::Slider::new(&mut t.restarts, 1..=6).text("Restarts"));
-        ui.add(egui::Slider::new(&mut t.reap, 0.0..=0.95).text("Reap bottom"));
-        ui.add(egui::Slider::new(&mut t.elite, 0.05..=0.8).text("Breed best"));
-        ui.horizontal(|ui| {
-            ui.label("Seed");
-            ui.add(egui::DragValue::new(&mut t.seed));
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut t.aggregate, Aggregate::Mean, "Mean goal chance");
-            ui.selectable_value(&mut t.aggregate, Aggregate::Product, "All goals (product)");
-        });
+        egui::CollapsingHeader::new("Tournament settings")
+            .default_open(!phone)
+            .show(ui, |ui| {
+                ui.add_enabled_ui(!self.busy, |ui| {
+                    ui.add(egui::Slider::new(&mut t.population, 4..=256).text("Population"));
+                    ui.add(egui::Slider::new(&mut t.generations, 1..=60).text("Generations"));
+                    ui.add(egui::Slider::new(&mut t.restarts, 1..=6).text("Restarts"));
+                    ui.add(egui::Slider::new(&mut t.reap, 0.0..=0.95).text("Reap bottom"));
+                    ui.add(egui::Slider::new(&mut t.elite, 0.05..=0.8).text("Breed best"));
+                    ui.horizontal(|ui| {
+                        ui.label("Seed");
+                        ui.add(egui::DragValue::new(&mut t.seed));
+                    });
+                    ui.horizontal_wrapped(|ui| {
+                        ui.selectable_value(&mut t.aggregate, Aggregate::Mean, "Mean goal chance");
+                        ui.selectable_value(
+                            &mut t.aggregate,
+                            Aggregate::Product,
+                            "All goals (product)",
+                        );
+                    });
+                });
+            });
         if ui.button("Set goals / constraints").clicked() {
             self.tab = Tab::Rules;
         }
@@ -612,9 +697,22 @@ impl KingUi {
             })
             .unwrap_or_default();
         let mut lookup_choice = None;
+        let mut recalculate_merit = false;
+        let old_kind = self
+            .request
+            .columns
+            .get(self.selected)
+            .map(|c| c.kind.clone());
         if let Some(c) = self.request.columns.get_mut(self.selected) {
             ui.separator();
             ui.heading(&c.name);
+            if c.role != Role::Merit {
+                ui.horizontal(|ui| {
+                    ui.label("Values");
+                    ui.selectable_value(&mut c.kind, Kind::Number, "Numbers");
+                    ui.selectable_value(&mut c.kind, Kind::Category, "Categories");
+                });
+            }
             ui.horizontal_wrapped(|ui| {
                 for (role, label) in [
                     (Role::Input, "Input"),
@@ -709,6 +807,9 @@ impl KingUi {
                     if c.role == Role::Merit {
                         ui.label("Formula: [column] + - * /, abs, min, max, coalesce");
                         ui.text_edit_singleline(&mut c.formula);
+                        recalculate_merit = ui
+                            .button("Calculate historical values in this column")
+                            .clicked();
                     }
                     if c.kind == Kind::Category && c.role == Role::Output {
                         let mut desired = c.desired_class.clone().unwrap_or_default();
@@ -735,6 +836,24 @@ impl KingUi {
                 }
             }
         }
+        if let Some(old_kind) = old_kind
+            && self
+                .request
+                .columns
+                .get(self.selected)
+                .is_some_and(|c| c.kind != old_kind)
+        {
+            self.change_kind(self.selected, old_kind);
+        }
+        if recalculate_merit {
+            match self.write_merit_history(self.selected) {
+                Ok(()) => {
+                    self.status =
+                        "Historical merit values calculated. Missing inputs stay empty.".into()
+                }
+                Err(e) => self.status = e,
+            }
+        }
         if let Some(i) = lookup_choice
             && let Ok(table) = self.dataset(i)
         {
@@ -754,6 +873,7 @@ impl KingUi {
                 });
             }
         }
+        self.sync_input_order();
         ui.separator();
         ui.heading("Collections: choices that must obey one law");
         let input_names: Vec<_> = self
@@ -839,7 +959,10 @@ impl KingUi {
         if self.result.archive.is_empty() {
             ui.label("The royal example is ready. Summon the Oracle to begin.");
         } else {
-            if ui.button("Write survivors to workbook").clicked() {
+            let winners = ui.button("Write survivors to workbook");
+            self.buttons
+                .insert("winners".into(), rect_array(winners.rect));
+            if winners.clicked() {
                 if let Err(e) = self.write_winners() {
                     self.status = e;
                 } else {
@@ -866,8 +989,21 @@ impl KingUi {
                                 .map(|v| format!("{:.2}%", v * 100.))
                                 .unwrap_or_else(|| "—".into()),
                         );
-                        for v in &c.row {
-                            ui.label(if v.is_empty() { "∅" } else { v });
+                        for (v, column) in c.row.iter().zip(
+                            self.request
+                                .columns
+                                .iter()
+                                .filter(|c| c.role == Role::Input),
+                        ) {
+                            ui.label(if v.is_empty() {
+                                "(empty)".into()
+                            } else if column.kind == Kind::Number {
+                                v.parse::<f64>()
+                                    .map(format_number)
+                                    .unwrap_or_else(|_| v.clone())
+                            } else {
+                                v.clone()
+                            });
                         }
                         ui.end_row();
                     }
@@ -893,7 +1029,24 @@ impl KingUi {
         }
     }
     fn write_winners(&mut self) -> Result<(), String> {
-        let name = format!("Arena winners {}", self.result.judged);
+        let base = format!("Arena winners {}", self.result.judged);
+        let names = self
+            .sheet
+            .session
+            .active()
+            .map(|d| {
+                d.wb.sheets
+                    .iter()
+                    .map(|s| s.name.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut name = base.clone();
+        let mut suffix = 2;
+        while names.contains(&name) {
+            name = format!("{base} ({suffix})");
+            suffix += 1;
+        }
         let sheets = self
             .sheet
             .session
@@ -911,21 +1064,82 @@ impl KingUi {
                 .filter(|c| c.role == Role::Input)
                 .map(|c| c.name.clone()),
         );
+        let outputs = self
+            .request
+            .columns
+            .iter()
+            .filter(|c| c.role == Role::Output)
+            .map(|c| (c.name.clone(), c.kind.clone()))
+            .collect::<Vec<_>>();
+        let merits = self
+            .request
+            .columns
+            .iter()
+            .filter(|c| c.role == Role::Merit)
+            .map(|c| c.name.clone())
+            .collect::<Vec<_>>();
+        for (name, kind) in &outputs {
+            headers.push(format!("{name} (pred)"));
+            if *kind == Kind::Number {
+                headers.push(format!("{name} q05"));
+                headers.push(format!("{name} q95"));
+            }
+        }
+        headers.extend(merits.iter().cloned());
         let mut values = vec![
             headers
                 .into_iter()
-                .map(serde_json::Value::String)
+                .map(|text| json!(format!("'{text}")))
                 .collect::<Vec<_>>(),
         ];
         for (i, c) in self.result.archive.iter().enumerate() {
             let mut row = vec![json!(i + 1), json!(c.hit)];
-            row.extend(c.row.iter().map(|v| {
-                if v.is_empty() {
-                    serde_json::Value::Null
-                } else {
-                    v.parse::<f64>().ok().map_or_else(|| json!(v), |v| json!(v))
+            row.extend(
+                c.row
+                    .iter()
+                    .zip(
+                        self.request
+                            .columns
+                            .iter()
+                            .filter(|c| c.role == Role::Input),
+                    )
+                    .map(|(v, column)| {
+                        if v.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            if column.kind == Kind::Number {
+                                v.parse::<f64>()
+                                    .ok()
+                                    .map_or_else(|| json!(format!("'{v}")), |v| json!(v))
+                            } else {
+                                json!(format!("'{v}"))
+                            }
+                        }
+                    }),
+            );
+            for (name, kind) in &outputs {
+                match (kind, c.predictions.get(name)) {
+                    (
+                        Kind::Number,
+                        Some(king_ddd::Prediction::Numeric {
+                            median, q05, q95, ..
+                        }),
+                    ) => row.extend([json!(median), json!(q05), json!(q95)]),
+                    (Kind::Category, Some(king_ddd::Prediction::Categorical { labels, proba })) => {
+                        let label = proba
+                            .iter()
+                            .enumerate()
+                            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                            .and_then(|(i, _)| labels.get(i));
+                        row.push(json!(label.map(|v| format!("'{v}"))));
+                    }
+                    (Kind::Number, _) => row.extend([const { serde_json::Value::Null }; 3]),
+                    _ => row.push(serde_json::Value::Null),
                 }
-            }));
+            }
+            for name in &merits {
+                row.push(json!(c.merits.get(name).copied().flatten()));
+            }
             values.push(row);
         }
         self.sheet
@@ -935,6 +1149,80 @@ impl KingUi {
             )
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+    fn change_kind(&mut self, index: usize, old: Kind) {
+        let values = self
+            .request
+            .dataset
+            .rows
+            .iter()
+            .filter_map(|r| r.get(index))
+            .filter(|s| !s.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Some(c) = self.request.columns.get_mut(index) {
+            if c.kind == Kind::Category {
+                c.domain.ranges = None;
+                c.domain.classes = Some(
+                    values
+                        .into_iter()
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .into_iter()
+                        .collect(),
+                );
+            } else if let Some(numbers) = values
+                .iter()
+                .map(|v| v.parse::<f64>().ok().filter(|v| v.is_finite()))
+                .collect::<Option<Vec<_>>>()
+            {
+                c.domain.classes = None;
+                c.domain.ranges = Some(vec![[
+                    numbers.iter().copied().reduce(f64::min).unwrap_or(0.),
+                    numbers.iter().copied().reduce(f64::max).unwrap_or(1.),
+                ]]);
+            } else {
+                c.kind = old;
+                self.status="This column contains non-numeric values. Keep it categorical or edit those cells first.".into();
+                return;
+            }
+            c.goal = None;
+            c.desired_class = None;
+        }
+    }
+    fn write_merit_history(&mut self, index: usize) -> Result<(), String> {
+        let column = self.request.columns.get(index).ok_or("No merit column")?;
+        let names = self
+            .request
+            .columns
+            .iter()
+            .filter(|c| c.kind == Kind::Number && matches!(c.role, Role::Input | Role::Output))
+            .map(|c| c.name.clone())
+            .collect::<Vec<_>>();
+        let tree = king_ddd::compile_formula(&column.formula, &names)?;
+        let values = self
+            .request
+            .dataset
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let map = self
+                    .request
+                    .columns
+                    .iter()
+                    .zip(row)
+                    .map(|(c, v)| (c.name.clone(), json!(v)))
+                    .collect::<serde_json::Map<_, _>>();
+                king_ddd::constraints::eval_node(&tree, &serde_json::Value::Object(map), 0, &mut 0)
+                    .map(|v| vec![json!(v)])
+                    .map_err(|e| format!("Row {}: {e}", i + 2))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if !values.is_empty() {
+            self.sheet.run("range.setValues",json!({"sheet":self.data_sheet,"range":format!("{}2",column_name(index)),"values":values})).map_err(|e|e.to_string())?;
+        }
+        self.rev = None;
+        self.refresh()
     }
 }
 fn band_ui(ui: &mut egui::Ui, b: &mut Band) {
@@ -962,6 +1250,16 @@ fn band_ui(ui: &mut egui::Ui, b: &mut Band) {
 }
 fn rect_array(r: egui::Rect) -> [f32; 4] {
     [r.min.x, r.min.y, r.width(), r.height()]
+}
+fn format_number(value: f64) -> String {
+    if value.abs() >= 1e6 || (value != 0. && value.abs() < 0.001) {
+        format!("{value:.3e}")
+    } else {
+        format!("{value:.4}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
 }
 fn column_name(mut index: usize) -> String {
     let mut chars = vec![];
@@ -1040,5 +1338,150 @@ mod tests {
         assert_eq!(column_name(0), "A");
         assert_eq!(column_name(26), "AA");
         assert_eq!(column_name(63), "BL");
+    }
+    #[test]
+    fn royal_fonts_are_installed_before_painting() {
+        let mut ui = KingUi::new();
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            ctx.begin_pass(egui::RawInput::default());
+            let _ = ui.show(&ctx);
+            let mut output = ctx.end_pass();
+            output.textures_delta.clear();
+        }
+        assert!(ui.sheet.fonts_ready);
+    }
+    #[test]
+    fn input_roles_do_not_retarget_collection_members() {
+        let mut ui = KingUi::new();
+        let names = |ui: &KingUi| {
+            ui.request.collections[0]
+                .columns
+                .iter()
+                .map(|i| ui.input_order[*i].clone())
+                .collect::<Vec<_>>()
+        };
+        let before = names(&ui);
+        ui.request
+            .columns
+            .iter_mut()
+            .find(|c| c.name == "store_id")
+            .unwrap()
+            .role = Role::Ignore;
+        ui.sync_input_order();
+        assert_eq!(before, names(&ui));
+    }
+}
+
+#[cfg(test)]
+mod roundtrip_tests {
+    use super::*;
+    #[test]
+    fn numeric_labels_can_be_classified() {
+        let mut ui = KingUi::new();
+        let i = ui
+            .request
+            .columns
+            .iter()
+            .position(|c| c.name == "new_customers")
+            .unwrap();
+        ui.request.columns[i].kind = Kind::Category;
+        ui.change_kind(i, Kind::Number);
+        assert!(ui.request.columns[i].domain.ranges.is_none());
+        assert!(
+            !ui.request.columns[i]
+                .domain
+                .classes
+                .as_ref()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(ui.request.columns[i].goal.is_none());
+    }
+    #[test]
+    fn merit_history_is_written_by_real_grid_commands() {
+        let mut ui = KingUi::new();
+        let n = ui.request.columns.len();
+        ui.sheet
+            .run(
+                "range.setValues",
+                json!({"sheet":0,"range":format!("{}1",column_name(n)),"values":[["merit_test"]]}),
+            )
+            .unwrap();
+        ui.rev = None;
+        ui.refresh().unwrap();
+        ui.request.columns[n].role = Role::Merit;
+        ui.request.columns[n].formula = "[new_customers] * 2".into();
+        let source = ui
+            .request
+            .columns
+            .iter()
+            .position(|c| c.name == "new_customers")
+            .unwrap();
+        let expected = ui.request.dataset.rows[0][source].parse::<f64>().unwrap() * 2.;
+        ui.write_merit_history(n).unwrap();
+        assert_eq!(
+            ui.request.dataset.rows[0][n].parse::<f64>().unwrap(),
+            expected
+        );
+    }
+    #[test]
+    fn repeated_winner_exports_keep_predictions_and_text_ids() {
+        let mut ui = KingUi::new();
+        let mut row = ui
+            .request
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.role == Role::Input)
+            .map(|(i, _)| ui.request.dataset.rows[0][i].clone())
+            .collect::<Vec<_>>();
+        row[0] = "001".into();
+        let predictions = ui
+            .request
+            .columns
+            .iter()
+            .filter(|c| c.role == Role::Output)
+            .map(|c| {
+                (
+                    c.name.clone(),
+                    king_ddd::Prediction::Numeric {
+                        mean: 3.,
+                        median: 2.,
+                        q05: 1.,
+                        q95: 4.,
+                    },
+                )
+            })
+            .collect();
+        ui.result = WorkResult {
+            archive: vec![king_ddd::Candidate {
+                row,
+                predictions,
+                merits: Default::default(),
+                hit: Some(0.5),
+                reaped: None,
+                generation: 1,
+            }],
+            judged: 1,
+            ..Default::default()
+        };
+        ui.write_winners().unwrap();
+        ui.write_winners().unwrap();
+        let doc = ui.sheet.session.active().unwrap();
+        assert!(
+            doc.wb
+                .sheets
+                .iter()
+                .any(|s| s.name == "Arena winners 1 (2)")
+        );
+        let data = ui.dataset(doc.wb.sheets.len() - 1).unwrap();
+        assert_eq!(data.rows[0][2], "001");
+        let col = data
+            .headers
+            .iter()
+            .position(|h| h == "new_customers q05")
+            .unwrap();
+        assert_eq!(data.rows[0][col], "1");
     }
 }

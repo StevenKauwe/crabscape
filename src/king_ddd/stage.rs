@@ -32,6 +32,11 @@ struct Stage {
 struct Clip {
     frames: Vec<String>,
 }
+#[derive(serde::Deserialize)]
+struct Manifest {
+    steel: std::collections::BTreeMap<String, Clip>,
+    gold: std::collections::BTreeMap<String, Clip>,
+}
 pub fn install(app: &mut App) {
     app.init_resource::<Stage>().add_systems(
         Update,
@@ -54,15 +59,25 @@ fn spawn(
     stage.spawned = true;
     stage.residents = vec![None; 6];
     stage.battles = (0..6).map(|_| None).collect();
-    let manifest: std::collections::BTreeMap<String, std::collections::BTreeMap<String, Clip>> =
-        serde_json::from_str(include_str!("../../assets/king-ddd/fighters/manifest.json"))
-            .unwrap_or_default();
-    for side in ["steel", "gold"] {
+    let manifest: Manifest =
+        match serde_json::from_str(include_str!("../../assets/king-ddd/fighters/manifest.json")) {
+            Ok(m) => m,
+            Err(e) => {
+                error!("The court's knight manifest could not load: {e}");
+                return;
+            }
+        };
+    commands.spawn((
+        CourtScenery,
+        Sprite::from_color(Color::srgb(0.57, 0.60, 0.58), Vec2::splat(100000.)),
+        Transform::from_translation(ORIGIN.extend(30.)),
+        Visibility::Hidden,
+    ));
+    for source in [&manifest.steel, &manifest.gold] {
         for clip in ["idle", "slash", "block", "victory", "dieBack"] {
             stage.clips.push(
-                manifest
-                    .get(side)
-                    .and_then(|c| c.get(clip))
+                source
+                    .get(clip)
                     .map(|c| {
                         c.frames
                             .iter()
@@ -80,7 +95,7 @@ fn spawn(
             custom_size: Some(Vec2::new(1672., 941.)),
             ..default()
         },
-        Transform::from_translation((ORIGIN + Vec2::new(0., 100.)).extend(31.)),
+        Transform::from_translation((ORIGIN + Vec2::new(0., -65.)).extend(31.)),
         Visibility::Hidden,
     ));
     // The throne is painted in individual shapes, never a filter over the world.
@@ -155,6 +170,7 @@ fn spawn(
         let side = slot % 2;
         commands.spawn((
             CourtKnight { slot, challenger },
+            bevy::sprite::Anchor(Vec2::new(0., 0.5 - 462. / 560.)),
             Sprite {
                 image: stage
                     .clips
@@ -174,9 +190,17 @@ fn spawn(
     }
 }
 /// Keep the painted field in the top half; UI controls and survivor table occupy the rest.
-pub fn framing(window: Vec2) -> (Vec2, f32) {
-    let scale = (1200. / window.x.max(320.)).max(660. / window.y.max(320.));
-    (ORIGIN + Vec2::new(0., -60.), scale)
+pub fn framing(window: Vec2, unit_px: f32, frame: Option<[f32; 4]>) -> (Vec2, f32) {
+    let rect = frame
+        .filter(|r| r.iter().all(|n| n.is_finite()) && r[2] > 1. && r[3] > 1.)
+        .map(|r| Rect::new(r[0], r[1], r[0] + r[2], r[1] + r[3]))
+        .unwrap_or_else(|| Rect::from_corners(Vec2::ZERO, window));
+    let pixels_per_unit = (rect.width() / 1300.).min(rect.height() / 420.).max(0.01);
+    let off = (rect.center() - window / 2.) / pixels_per_unit;
+    (
+        ORIGIN + Vec2::new(-off.x, 55. + off.y),
+        unit_px.max(0.001) / pixels_per_unit,
+    )
 }
 
 fn animate(
@@ -305,5 +329,48 @@ fn animate(
             } else {
                 0.
             };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn real_knight_manifest_ignores_source_metadata() {
+        let manifest: Manifest =
+            serde_json::from_str(include_str!("../../assets/king-ddd/fighters/manifest.json"))
+                .unwrap();
+        for side in [&manifest.steel, &manifest.gold] {
+            for name in ["idle", "slash", "block", "victory", "dieBack"] {
+                let clip = side.get(name).unwrap();
+                assert!(!clip.frames.is_empty());
+                for frame in &clip.frames {
+                    assert!(
+                        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                            .join("assets/king-ddd/fighters")
+                            .join(frame)
+                            .is_file(),
+                        "missing {frame}"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn camera_maps_the_court_to_the_visible_stage() {
+        for (window, rect, unit_px) in [
+            (Vec2::new(1200., 800.), [260., 70., 940., 330.], 2.4),
+            (Vec2::new(390., 844.), [0., 490., 390., 170.], 0.78),
+        ] {
+            let (camera, scale) = framing(window, unit_px, Some(rect));
+            let k = unit_px / scale;
+            let center = ORIGIN + Vec2::new(0., 55.);
+            let screen =
+                window / 2. + Vec2::new((center.x - camera.x) * k, (camera.y - center.y) * k);
+            assert!(
+                (screen - Vec2::new(rect[0] + rect[2] / 2., rect[1] + rect[3] / 2.)).length()
+                    < 0.01
+            );
+        }
     }
 }
