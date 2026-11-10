@@ -640,6 +640,41 @@ fn update_line(u: Update) -> Option<&'static str> {
     }
 }
 
+/// Someone else hosts now (`now`). Whatever world this device was in, it leaves cleanly: a stand-in stepping
+/// down keeps the world it hosted as its own, a guest goes back to its own; both play it, whole, until the new
+/// host's first word (never half of a world nobody runs). Standing in, it hosts its own world from now on.
+fn change_host(sim: &mut crabsim::Sim, now: Hosting) {
+    match now {
+        Hosting::Me => info!("co-op: this device hosts"),
+        Hosting::Friend(h) => info!("co-op: player {} hosts", h.0),
+        Hosting::Nobody => info!("co-op: nobody hosts"),
+    }
+    let already = now == Hosting::Me && (sim.online() && sim.is_host());
+    if sim.online() && !already {
+        sim.go_offline();
+    }
+    if now == Hosting::Me && !already {
+        sim.go_online(true);
+    }
+}
+
+/// A host announced by a hello must be selected before the next packet is
+/// admitted. In particular, the main host can send its hello and first world
+/// in one receive pass. Do not start the stand-in election here: its timer is
+/// advanced once, at the end of the pass.
+fn adopt_announced_host(
+    sim: &mut crabsim::Sim,
+    hosting: &mut Hosting,
+    me: OnLink,
+    friends: &[OnLink],
+) {
+    let selected = who_hosts(me, friends, 0.0);
+    if selected != Hosting::Nobody && selected != *hosting {
+        change_host(sim, selected);
+        *hosting = selected;
+    }
+}
+
 /// Is this word, from the device whose crab is `sender`, from the host this device goes with (`hosting`)? Its crab's
 /// updates, or the world it sends a device that just connected (often before its crab). A guest playing alone takes
 /// the host's world on the first of these; it would drop the world if it waited for the crab. Anyone else's word on
@@ -712,9 +747,9 @@ mod web {
 
     use super::{
         HOST, Hosting, INTRODUCER, LocalId, NewLink, OnLink, Start, Update, VERSION, Watch,
-        accepts_cell_terrain, clean_code, from_host, hello, in_shared_world, make_code, on_version,
-        open_in_other_tab, param, read_hello, room, start, status, status_top, update_line,
-        who_hosts,
+        accepts_cell_terrain, adopt_announced_host, change_host, clean_code, from_host, hello,
+        in_shared_world, make_code, on_version, open_in_other_tab, param, read_hello, room, start,
+        status, status_top, update_line, who_hosts,
     };
     use crate::names::Names;
     use crate::player::{GameSet, spawn_local_crab};
@@ -1472,8 +1507,8 @@ mod web {
         let owner = me.0 == HOST;
         let dt = time.delta_secs();
         let now = time.elapsed_secs_f64();
-        let hosting = coop.hosting;
-        let host = hosts_now(&sim);
+        let mut hosting = coop.hosting;
+        let mut host = hosts_now(&sim);
         let met_here = coop.watch.met;
         // The connection works: this device's connection number, and each friend on the link as its hello said.
         let heard = LINK.with(|cell| {
@@ -1630,8 +1665,26 @@ mod web {
                             hosts: h.hosts,
                             met: h.met,
                         });
-                        // The same version: the host tells it how the world stands.
-                        if host && p.same_version() {
+                        let same_version = p.same_version();
+                        if same_version {
+                            let friends: Vec<_> = link
+                                .peers
+                                .iter()
+                                .filter(|p| p.same_version() && !gone.contains(&p.id))
+                                .filter_map(|p| p.said)
+                                .collect();
+                            let mine = OnLink {
+                                crab: me.0,
+                                conn: link.me.map_or(0, |m| m.0.as_u128()),
+                                hosts: host,
+                                met: met_here,
+                            };
+                            adopt_announced_host(&mut sim, &mut hosting, mine, &friends);
+                            coop.hosting = hosting;
+                            host = hosts_now(&sim);
+                        }
+                        // The same version: the current host tells it how the world stands.
+                        if host && same_version {
                             greet.push(peer);
                         }
                         continue;
@@ -1992,24 +2045,6 @@ mod web {
     /// Does this device host a co-op world right now (the main host, or a stand-in)?
     fn hosts_now(sim: &Sim) -> bool {
         sim.online() && sim.is_host()
-    }
-
-    /// Someone else hosts now (`now`). Whatever world this device was in, it leaves cleanly: a stand-in stepping
-    /// down keeps the world it hosted as its own, a guest goes back to its own; both play it, whole, until the new
-    /// host's first word (never half of a world nobody runs). Standing in, it hosts its own world from now on.
-    fn change_host(sim: &mut Sim, now: Hosting) {
-        match now {
-            Hosting::Me => info!("co-op: this device hosts"),
-            Hosting::Friend(h) => info!("co-op: player {} hosts", h.0),
-            Hosting::Nobody => info!("co-op: nobody hosts"),
-        }
-        let already = now == Hosting::Me && hosts_now(sim);
-        if sim.online() && !already {
-            sim.go_offline();
-        }
-        if now == Hosting::Me && !already {
-            sim.go_online(true);
-        }
     }
 
     /// Where this tab notes the version it reloaded away from to update (so it never reloads for that again).
@@ -2556,6 +2591,99 @@ mod tests {
         let (p, q) = (on(42, 8, false, true), on(42, 9, false, true));
         assert_eq!(who_hosts(p, &[q], STAND_IN_AFTER), Me);
         assert_ne!(who_hosts(q, &[p], STAND_IN_AFTER), Me);
+    }
+
+    #[test]
+    fn a_main_host_hello_admits_its_first_world_without_another_exchange() {
+        use crabsim::{Sim, net::Msg};
+        for initial in [Hosting::Me, Hosting::Nobody] {
+            let mut sim = Sim::with_one_crab(Vec2::ZERO);
+            assert!(!sim.level.nets.is_empty());
+            sim.level.nets[0].cut = true; // Open passages persist after visits.
+            assert!(!sim.shared.clams.is_empty());
+            sim.shared.clams[0] = 42; // Private resource state must be restored exactly.
+            let private_shared = sim.shared.clone();
+            if initial == Hosting::Me {
+                sim.go_online(true);
+            }
+            let mut hosting = initial;
+            let me = OnLink {
+                crab: PlayerId(42),
+                conn: 42,
+                hosts: initial == Hosting::Me,
+                met: true,
+            };
+            // The reliable channel delivers this hello and World in one drain.
+            let bytes = hello(VERSION, HOST, true, true);
+            let h = read_hello(&bytes).unwrap();
+            assert_eq!(h.version, VERSION);
+            let main = OnLink {
+                crab: h.crab.unwrap(),
+                conn: 1,
+                hosts: h.hosts,
+                met: h.met,
+            };
+            adopt_announced_host(&mut sim, &mut hosting, me, &[main]);
+            assert_eq!(hosting, Hosting::Friend(HOST));
+            assert!(
+                !sim.online(),
+                "wait for the new host's world, preserving our own"
+            );
+            let world = Sim::with_one_crab(Vec2::ZERO).world();
+            assert!(
+                from_host(&world, Some(HOST), hosting),
+                "the first World must not be dropped against the old selection"
+            );
+            sim.go_online(false);
+            sim.receive(world.clone());
+            assert!(!sim.is_host());
+            assert!(!sim.level.nets[0].cut, "the first checkpoint was installed");
+            // The rest of this reliable drain retains its order after World.
+            sim.receive(Msg::Taken {
+                by: None,
+                thing: crabsim::shared::Thing::Clam(0),
+            });
+            sim.receive(Msg::NetCut(0));
+            assert!(sim.level.nets[0].cut);
+            assert!(sim.shared.clams[0] > 0);
+            assert_ne!(sim.shared, private_shared);
+            // A stale stand-in's checkpoint may not undo the main host's delta.
+            assert!(!from_host(&world, Some(PlayerId(7)), hosting));
+            // End-of-pass election of the same host must not reset the checkpoint.
+            let me = OnLink { hosts: false, ..me };
+            adopt_announced_host(&mut sim, &mut hosting, me, &[main]);
+            assert!(sim.online() && !sim.is_host());
+            assert!(sim.level.nets[0].cut);
+            assert!(sim.shared.clams[0] > 0, "reliable deltas survive selection");
+            sim.go_offline();
+            assert!(sim.level.nets[0].cut, "open passages remain open");
+            assert_eq!(sim.shared, private_shared, "private resources are restored");
+        }
+    }
+
+    #[test]
+    fn hello_time_host_selection_does_not_shortcut_the_stand_in_timer() {
+        let mut sim = crabsim::Sim::with_one_crab(Vec2::ZERO);
+        let mut hosting = Hosting::Nobody;
+        let me = OnLink {
+            crab: PlayerId(42),
+            conn: 42,
+            hosts: false,
+            met: true,
+        };
+        let friend = OnLink {
+            crab: PlayerId(7),
+            conn: 7,
+            hosts: false,
+            met: true,
+        };
+        adopt_announced_host(&mut sim, &mut hosting, me, &[friend]);
+        assert_eq!(hosting, Hosting::Nobody);
+        assert!(!sim.online());
+        assert_eq!(
+            who_hosts(me, &[friend], STAND_IN_AFTER),
+            Hosting::Friend(PlayerId(7))
+        );
     }
 
     #[test]

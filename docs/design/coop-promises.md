@@ -45,7 +45,7 @@ host is here"). When you come, it's your world again.
 | Opening your own link makes you the host | at start | `own-link` | same |
 | A second tab on the same device plays alone instead of opening the lobby twice | at start | (one device, two tabs: fast test only) | `a_tab_knows_when_another_tab_has_the_lobby_open` |
 | A friend alone on your link while you're away plays their own world ("Waiting for your friend..."), then joins you when you start | 10 s after you start | `waiting-friend` | `a_friend_waiting_in_an_empty_lobby_stays_put_and_a_dead_connection_is_redone`, `a_waiting_friend_takes_the_hosts_world_from_its_first_word` |
-| Two friends on your link while you're away play together (one stands in as host, in its own world); when you start, both join you | together 15 s after the second arrives; with you 10 s after you start | `two-waiting` | `friends_on_a_link_agree_who_hosts_with_no_asking_and_it_sticks`, `a_waiting_friend_takes_the_hosts_world_from_its_first_word` (only the host a friend goes with is taken at its word) |
+| Two friends on your link while you're away play together (one stands in as host, in its own world); when you start, both join you | together 15 s after the second arrives; with you 10 s after you start | `two-waiting` | `friends_on_a_link_agree_who_hosts_with_no_asking_and_it_sticks`, `a_main_host_hello_admits_its_first_world_without_another_exchange` (only the host a friend goes with is taken at its word) |
 | The stand-in reloads: the friend who stayed carries on as stand-in, and the one who reloaded is back with it | 10 s after its game started again | `two-waiting` | `friends_on_a_link_agree_who_hosts_with_no_asking_and_it_sticks` |
 | The stand-in leaves: the friend who stayed carries on as stand-in, alone (no error, its own world), and a friend who comes later joins it | 10 s each | `stand-in-leaves` | same |
 | Moving to a new host (you came, or the stand-in changed) never shows a frozen half-world or an error: a friend plays its own whole world until the new host's first word | always | `two-waiting`, `stand-in-leaves` | `a_waiting_friend_takes_the_hosts_world_from_its_first_word` |
@@ -119,7 +119,10 @@ Failures on `main` (the after-deploy and daily runs) open or add to the `main-br
   nobody hosting for 2 s, one stands in: a friend who has played here before a newcomer, then the lowest crab, then
   the connection's number (no ties). A friend who has never met anyone and is alone just waits.
 - A guest goes into the host's world only when it hears the host it goes with (`take_in`), and back to its own when
-  the host goes or changes; nobody else's word on the world is taken.
+  the host goes or changes; nobody else's word on the world is taken. A same-version hello selects an
+  announced host before the next ordered payload, so the returning host's first world is admitted in that same
+  pass. World snapshots and reliable resource changes keep their arrival order; switching hosts never discards
+  the accepted checkpoint at the end of the pass.
 - A device silent for 5 s (frozen, its network stalled, or a friend playing alone while waiting) is no longer played
   with, but its connection and voice call stay up, and it is met again the moment its crab speaks. Before, it was
   dropped from the connection list: after a stall both sides waited 15 s for a fresh join, and two friends who waited
