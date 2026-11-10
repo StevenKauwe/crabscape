@@ -42,7 +42,7 @@ fn fixture(browser: &mut Chrome, base: &str, name: &str, earned: u32) -> Result<
     browser.go(&format!("{base}/__fixture_setup"))?;
     wait(browser, "document.title === 'Save fixture'", 10)?;
     browser.eval(&format!(
-        r#"localStorage.setItem('vdf-save-alexa', JSON.stringify({{
+        r#"localStorage.setItem('vdf-fancy','false');localStorage.setItem('vdf-save-alexa', JSON.stringify({{
         v:3,xpv:2,rider:'alexa',rid:'fixture-{name}',seenIntro:true,earned:{earned},spent:0,
         build:{{name:'{name}',dname:'Dragon{name}',path:'forge',dkind:'flame'}},
         party:[{{id:'bond',bonded:true,xp:600}}],cleared:[],briefed:['m1']
@@ -112,11 +112,11 @@ fn run(dir: &Path) -> Result<()> {
     fixture(&mut a, &base, "Host", 120)?;
     fixture(&mut b, &base, "Guest", 777)?;
     fixture(&mut c, &base, "Other", 444)?;
-    let url = format!("{base}/dragon/?join=dragon23&introducer=ws://127.0.0.1:{port}");
+    let url = format!("{base}/dragon/?diagnostics&join=dragon23&introducer=ws://127.0.0.1:{port}");
     a.go(&url)?;
     b.go(&url)?;
     c.go(&format!(
-        "{base}/dragon/?join=other234&introducer=ws://127.0.0.1:{port}"
+        "{base}/dragon/?diagnostics&join=other234&introducer=ws://127.0.0.1:{port}"
     ))?;
     pick(&mut a)?;
     pick(&mut b)?;
@@ -144,17 +144,18 @@ fn run(dir: &Path) -> Result<()> {
     check_save(&mut a, "Host")?;
     check_save(&mut b, "Guest")?;
     println!("PASS isolated rooms, source-bound distinct riders, original device saves");
+    c.go("about:blank")?; // Stop rendering the unrelated room before the functional two-player checks.
     a.eval("document.querySelector('[data-pmission=m1]').click()")?;
     b.eval("document.querySelector('[data-pmission=m1]').click()")?;
     wait(
         &mut a,
         "document.getElementById('sky').dataset.dragonState === 'play'",
-        15,
+        35,
     )?;
     wait(
         &mut b,
         "document.getElementById('sky').dataset.dragonState === 'play'",
-        15,
+        35,
     )?;
     let a_host = value(&mut a, "dragonRole")? == "host";
     let (host, guest, host_name, guest_name) = if a_host {
@@ -217,12 +218,12 @@ fn run(dir: &Path) -> Result<()> {
     wait(
         host,
         "document.getElementById('sky').dataset.dragonRole === 'host'",
-        15,
+        35,
     )?;
     wait(
         guest,
         "document.getElementById('sky').dataset.dragonRole === 'guest'",
-        15,
+        35,
     )?;
     let previous_run = run;
     run = value(host, "dragonRun")?;
@@ -243,18 +244,13 @@ fn run(dir: &Path) -> Result<()> {
         25,
     )?;
     guest.eval("document.querySelector('[data-pmission=m1]').click()")?;
-    wait(
-        guest,
-        "document.querySelector('[data-party=start]') !== null",
-        10,
-    )?;
-    guest.eval("document.querySelector('[data-party=start]').click()")?;
+    // Ready automatically joins a friend who launched earlier, even with no local countdown yet.
     wait(
         guest,
         &format!(
             "document.getElementById('sky').dataset.dragonRole === 'guest' && document.getElementById('sky').dataset.dragonRun === '{run}'"
         ),
-        20,
+        35,
     )?;
     check_save(guest, guest_name)?;
     println!("PASS reload, unchanged local profile, rejoin active mission");

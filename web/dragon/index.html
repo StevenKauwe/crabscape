@@ -6159,7 +6159,8 @@ function otherRiders() { return [...ghosts.values()].filter(g => g.status !== 'm
 function ghostReady(g) {
   if (!partyPick.m) return false;
   if (g.status === 'party') return g.pt?.rdy === partyPick.m;
-  return partyCount > 0 && g.status === 'play' && g.ms === partyPick.m;
+  // A faster screen may launch before this countdown starts. Ready still joins that same mission.
+  return (STATIC || partyCount > 0) && g.status === 'play' && g.ms === partyPick.m;
 }
 function allPartyReady() { const others = otherRiders(); return !!partyPick.m && partyReady === partyPick.m && others.length > 0 && others.every(ghostReady); }
 function pickPartyMission(id) {
@@ -6340,9 +6341,14 @@ document.addEventListener('touchmove', e => {
 }, { passive: false });
 function toggleSound() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.45; $('soundBtn').textContent = muted ? 'Sound off' : 'Sound on'; }
 
+const p2pDiagnostics = STATIC && new URLSearchParams(location.search).has('diagnostics');
 function frame(now) {
-  if (STATIC) {
+  if (p2pDiagnostics) {
     cv.dataset.dragonState = state;
+    cv.dataset.dragonReady = partyReady || '';
+    cv.dataset.dragonPick = partyPick.m || '';
+    cv.dataset.dragonCountdown = String(partyCount);
+    cv.dataset.dragonParty = JSON.stringify([...ghosts.values()].map(g => [g.rider, g.status, g.pt?.m, g.pt?.rdy]));
     cv.dataset.dragonRider = String(ri);
     cv.dataset.dragonRole = mission ? mission.guest ? 'guest' : 'host' : 'solo';
     cv.dataset.dragonMission = mission?.def.id || '';
