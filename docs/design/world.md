@@ -58,7 +58,12 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   - **Fighting:** 0.25 experience per point of damage the claws deal a creature, 15 for beating one (a snapping
     shrimp is worth 18, the mantis 30, a moray 37.5); level 2 at 40 (two creatures), 3 at 120, 4 at 240, 5 at 400.
     Each level adds 5% to the claws' damage, up to level 10 (+45%).
-- **Moulting and feats (`crates/sim/src/moult.rs`):** a skill at **level 5** makes its **feat** ready, a new move
+  - **Data-Driven (the owner's above-water exception):** importing a workbook with at least three nonempty data
+    rows and two named columns earns 40 XP once. A completed real tournament earns 10 + 1.5 per candidate, up to
+    256 candidates per completion. Each observatory decision pays 20 XP once. Step 20 gives level 2 at 40 XP;
+    rank, XP and completed work are saved. Cancelled/failed work pays nothing. Rank never changes model scores,
+    physical combat power or biology. See `king-ddd.md` for the castle's activities and personal rewards.
+- **Moulting and feats (`crates/sim/src/moult.rs`):** a physical skill at **level 5** makes its **feat** ready, a new move
   rather than bigger numbers: Climbing, **gripping dactyls**; Swimming, **broad paddles**; Fighting, **heavy
   crusher** (what each does: `how-it-plays.md`). But a crab's body only changes at a moult: growth and shape change
   happen when it sheds its old shell, and a fresh moult is soft ([CQ] in `art/crab/anatomy-notes.md`). The note

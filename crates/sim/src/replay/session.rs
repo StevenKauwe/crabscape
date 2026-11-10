@@ -17,6 +17,7 @@ pub enum CellSessionAction {
     Shell(crate::world::ShellAction),
     Salvage(crate::salvage::SalvageAction),
     Canyon(crate::canyon_drift::CanyonAction),
+    Royal(crate::royal::Action),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -58,6 +59,9 @@ impl CellSessionTick {
                 }
                 CellSessionAction::Canyon(action) => {
                     sim.canyon_action(*id, *action);
+                }
+                CellSessionAction::Royal(action) => {
+                    sim.royal_action(*id, *action);
                 }
             }
         }

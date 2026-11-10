@@ -26,6 +26,10 @@ pub struct Progress {
     pub swim_xp: f32,
     #[serde(default)]
     pub fight_xp: f32,
+    #[serde(default)]
+    pub data_xp: f32,
+    #[serde(default)]
+    pub royal: crate::royal::Progress,
     /// The big find on its back. Saves from before small things clung to the
     /// shell may hold a clam or shell grit here: it loads onto the shell.
     pub carrying: Option<Carry>,
@@ -156,6 +160,8 @@ impl Sim {
             climb_xp: m.climb_xp,
             swim_xp: m.swim_xp,
             fight_xp: m.fight_xp,
+            data_xp: m.data_xp,
+            royal: crab.royal.clone(),
             carrying: m.carrying,
             clinging: m.clinging.clone(),
             eaten: crab.eaten.clone(),
@@ -249,6 +255,18 @@ impl Sim {
         crab.salvage_receipts = p.salvage_receipts.clone();
         crab.drift_receipts = p.drift_receipts.clone();
         crab.salvage_identity = p.salvage_identity;
+        crab.royal = p.royal.clone();
+        crab.royal.rooms &= (1 << crate::level::royal::ROOMS.len()) - 1;
+        crab.royal.pages &= 7;
+        crab.royal.puzzles &= 7;
+        crab.royal.ribbons &= 15;
+        crab.royal.wearing = crab
+            .royal
+            .wearing
+            .filter(|i| *i < 4 && crab.royal.ribbons & (1 << i) != 0);
+        // Reload never resumes a timed trial or unfinished external model fit.
+        crab.bell_run = None;
+        crab.research_ticket = None;
         crab.pickup = p.pickup;
         let m = &mut crab.mover;
         m.upgrades = p.upgrades;
@@ -261,6 +279,11 @@ impl Sim {
         m.climb_xp = p.climb_xp;
         m.swim_xp = p.swim_xp;
         m.fight_xp = p.fight_xp;
+        m.data_xp = if p.data_xp.is_finite() {
+            p.data_xp.max(0.0)
+        } else {
+            0.0
+        };
         m.well_fed = p.well_fed;
         m.feats.clone_from(&p.feats);
         m.moults = p.moults;

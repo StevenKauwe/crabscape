@@ -176,6 +176,9 @@ pub struct Mover {
     /// Fighting experience: it grows with every blow the claws land on a
     /// creature (more for beating one), and each level hits harder.
     pub fight_xp: f32,
+    /// Completed analysis and observatory practice; never changes prediction scores.
+    #[serde(default)]
+    pub data_xp: f32,
     /// Paddle strokes left (fractions are strokes still resting). Resting
     /// on solid ground or slowly while sinking draws on the
     /// [`reserve`](Self::reserve).
@@ -286,6 +289,7 @@ impl Mover {
             climb_xp: 0.0,
             swim_xp: 0.0,
             fight_xp: 0.0,
+            data_xp: 0.0,
             stamina: 0.0,
             reserve: 1.0,
             stroke_rest: 0.0,
@@ -1067,7 +1071,12 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         return ev;
     }
 
-    let water = level.water_velocity(m.pos + Vec2::Y * m.height(t) / 2.0, &t.tide);
+    let immersed = m.pos.y < crate::level::WATER_SURFACE_Y;
+    let water = if immersed {
+        level.water_velocity(m.pos + Vec2::Y * m.height(t) / 2.0, &t.tide)
+    } else {
+        Vec2::ZERO
+    };
 
     // --- Sideways speed -------------------------------------------------
     if m.dodge_left > 0.0 {
@@ -1143,7 +1152,8 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         } else {
             launch(m, &mut ev); // a coyote jump: no floor to crouch on
         }
-    } else if (m.jump_buffer > 0.0 || m.stroke_queued)
+    } else if immersed
+        && (m.jump_buffer > 0.0 || m.stroke_queued)
         && !m.grounded
         && m.coyote <= 0.0
         && m.stroke_rest <= 0.0
@@ -1195,13 +1205,15 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
 
     // --- Sinking: gravity minus buoyancy, slowed by water drag -----------
     if !m.grounded {
-        let mut g = t.net_gravity();
+        let mut g = if immersed { t.net_gravity() } else { t.gravity };
         if m.vel.y < 0.0 {
             g *= t.fall_gravity_scale;
         }
         m.vel.y -= g * dt;
         // Diving, the crab is streamlined: the water holds it back less.
-        let drag = if m.diving {
+        let drag = if !immersed {
+            0.0
+        } else if m.diving {
             t.water_drag * t.dive_drag
         } else {
             t.water_drag
@@ -1220,7 +1232,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
         m.vel -= resisted * amount;
     }
 
-    if let Some(cells) = &level.cells {
+    if let Some(cells) = level.cells.as_ref().filter(|_| immersed) {
         let (vx, vy) = cells.game_water_at(m.pos.x, m.pos.y + m.height(t) * 0.5);
         m.vel.x += (vx * 35.0 - m.vel.x) * 0.08 * dt;
         m.vel.y += vy * 12.0 * dt;
@@ -1427,7 +1439,7 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
     }
     let before = m.pos.y;
     m.pos.y += m.vel.y * dt;
-    let ceiling = crate::level::WATER_SURFACE_Y - m.half_width(t);
+    let ceiling = crate::level::royal::ceiling(m.pos.x, m.half_width(t)) - m.half_width(t);
     if m.pos.y > ceiling {
         m.pos.y = ceiling;
         m.vel.y = m.vel.y.min(0.0);
@@ -1539,7 +1551,7 @@ fn move_and_collide(
     // Up and down.
     let old_y = m.pos.y;
     m.pos.y += m.vel.y * dt;
-    let ceiling = crate::level::WATER_SURFACE_Y - h;
+    let ceiling = crate::level::royal::ceiling(m.pos.x, hw) - h;
     if m.pos.y > ceiling {
         m.pos.y = ceiling;
         m.vel.y = m.vel.y.min(0.0);
@@ -1794,7 +1806,7 @@ fn move_and_collide_cells(
             && m.rising
             && !digging
             && m.vel.x.abs() > EPS
-            && candidate.y + height <= crate::level::WATER_SURFACE_Y
+            && candidate.y + height <= crate::level::royal::ceiling(candidate.x, hw)
         {
             // Clear a trailing roof corner by sliding first, then rising.
             // Sweep the whole sideways path at the old height: never move
@@ -1837,7 +1849,7 @@ fn move_and_collide_cells(
                 collision = false;
             }
         }
-        if candidate.y + height > crate::level::WATER_SURFACE_Y || collision {
+        if candidate.y + height > crate::level::royal::ceiling(candidate.x, hw) || collision {
             touched = dy < 0.0;
             m.vel.y = 0.0;
             if dy > 0.0 {
@@ -1874,7 +1886,7 @@ pub fn is_valid_spot(pos: Vec2, size: f32, t: &Tuning, level: &Level) -> bool {
     inside_walls
         && !in_rock
         && pos.y >= level.floor_height(pos.x) - 1.0
-        && pos.y + t.body_height * size <= crate::level::WATER_SURFACE_Y
+        && pos.y + t.body_height * size <= crate::level::royal::ceiling(pos.x, hw)
         && pos.y.is_finite()
 }
 

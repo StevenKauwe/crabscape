@@ -50,6 +50,9 @@ allow = [
     "ISC",
     "MIT",
     "MIT-0",
+    # egui's bundled fonts; their notices are shipped in assets/king-ddd/font-licenses.
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
     "Unicode-3.0",
     "Unlicense",
     "Zlib",

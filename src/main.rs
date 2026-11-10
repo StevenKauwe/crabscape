@@ -96,6 +96,7 @@ mod impact;
 mod input;
 mod interior;
 mod keys;
+mod king_ddd;
 mod lantern;
 mod level;
 #[cfg(target_arch = "wasm32")]
@@ -203,6 +204,7 @@ fn run_app() {
             view::ViewPlugin,
         ))
         .add_plugins(monkeys::MonkeysPlugin)
+        .add_plugins(king_ddd::KingDddPlugin)
         .add_plugins(cellular::CellularPlugin)
         .add_plugins(salvage::SalvagePlugin)
         .add_plugins(canyon_drift::CanyonDriftPlugin)

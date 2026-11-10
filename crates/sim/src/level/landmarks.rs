@@ -79,6 +79,7 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         let (name, kind) = match climb.kind {
             Growth::Kelp => ("kelp stand", Kind::Refuge),
             Growth::Coral => ("coral stand", Kind::Refuge),
+            Growth::Rope => ("royal rope", Kind::Refuge),
             Growth::Rock => (
                 "bare-rock band",
                 Kind::Gate {

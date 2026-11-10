@@ -23,3 +23,10 @@ CrabScape is all rights reserved: you're welcome to play, look and help, but the
 elsewhere.
 
 **Claude:** start with [CLAUDE.md](CLAUDE.md).
+
+**Above the water:** climb the starting kelp, continue up its surface rope and step into King Data Driven Decision's improbable castle.
+Its editable GridCraft workbook, rules, real local TabICL predictions and evolutionary tournament run in Rust,
+inside CrabScape. The standalone original remains at https://crabscape.com/king-ddd/.
+The expanded keep has three interior storeys and high ramparts: recover the lost index, run the three-bell
+climbing trial, solve observatory decisions and earn cosmetic ribbons. Importing a real workbook and finishing
+actual tournaments grows the saved Data-Driven skill. Its rank never alters the model's probabilities.

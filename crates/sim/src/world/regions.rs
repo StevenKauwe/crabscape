@@ -292,6 +292,9 @@ impl RegionKernel {
                 CellSessionAction::Canyon(action) => {
                     self.sim.canyon_action(*id, *action);
                 }
+                CellSessionAction::Royal(action) => {
+                    self.sim.royal_action(*id, *action);
+                }
             }
         }
         for (id, c) in &frame.controls {

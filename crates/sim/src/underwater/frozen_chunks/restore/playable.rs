@@ -52,9 +52,10 @@ fn build_saved(start: SavedStartup, world: World) -> Result<Sim, GuardedError> {
     });
     let pos = Vec2::new(
         player.x,
-        player
-            .y
-            .min(crate::level::WATER_SURFACE_Y - sim.tuning.body_height * size),
+        player.y.min(
+            crate::level::royal::ceiling(player.x, sim.tuning.body_half_width * size)
+                - sim.tuning.body_height * size,
+        ),
     );
     let hw = sim.tuning.body_half_width * size;
     let height = sim.tuning.body_height * size;
@@ -74,7 +75,7 @@ fn build_saved(start: SavedStartup, world: World) -> Result<Sim, GuardedError> {
         || pos.y + height >= bottom + active_height
         || pos.x < sim.level.min_x + hw
         || pos.x > sim.level.max_x - hw
-        || pos.y + height > crate::level::WATER_SURFACE_Y
+        || pos.y + height > crate::level::royal::ceiling(pos.x, hw)
         || cells.game_rock_in_rect(pos.x - hw, pos.y, pos.x + hw, pos.y + height)
         || sim.level.solids().any(|r| {
             pos.x + hw > r.min.x + 0.01

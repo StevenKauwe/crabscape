@@ -177,9 +177,10 @@ fn install_terrain_and_validate(
     });
     let position = bevy::math::Vec2::new(
         player.x,
-        player
-            .y
-            .min(crabsim::level::WATER_SURFACE_Y - sim.tuning.body_height * size),
+        player.y.min(
+            crabsim::level::royal::ceiling(player.x, sim.tuning.body_half_width * size)
+                - sim.tuning.body_height * size,
+        ),
     );
     if !crate::player::valid_saved_spot(position, size, sim) {
         *sim = original;

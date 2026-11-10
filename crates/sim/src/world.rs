@@ -93,6 +93,12 @@ pub struct SimCrab {
     /// Private persistent identity for rejoining pending salvage claims.
     #[serde(default)]
     pub salvage_identity: u64,
+    #[serde(default)]
+    pub royal: crate::royal::Progress,
+    #[serde(default)]
+    pub bell_run: Option<crate::royal::BellRun>,
+    #[serde(default)]
+    pub research_ticket: Option<u64>,
     // What unlocks progression is each crab's own (`crate::shared`): it
     // takes its own wherever it is.
     /// Which of the level's eggs this crab has eaten (each crab finds its own).
@@ -923,6 +929,11 @@ impl Sim {
             rec.note_code(tick, code);
         }
     }
+    pub(crate) fn note_royal(&mut self, action: crate::royal::Action) {
+        if let Some(rec) = &mut self.recorder {
+            rec.note_royal(self.tick, action);
+        }
+    }
 
     /// A crab moulted at `tick` to grow `skill`'s feat: a running recording
     /// notes it.
@@ -967,6 +978,9 @@ impl Sim {
             salvage_receipts: Vec::new(),
             drift_receipts: Vec::new(),
             salvage_identity: 0,
+            royal: crate::royal::Progress::default(),
+            bell_run: None,
+            research_ticket: None,
             eaten: vec![false; self.level.eggs.len()],
             cultures_taken: vec![false; self.level.cultures.len()],
             clues_found: vec![false; self.level.clues.len()],
@@ -2267,6 +2281,7 @@ impl Sim {
             let f = &mut crab.fighter;
             if f.vitals.hitstop > 0 {
                 f.vitals.hitstop -= 1;
+                crate::royal::step(crab);
                 crab.events = ev;
                 continue;
             }
@@ -2300,6 +2315,7 @@ impl Sim {
                     climb_xp: crab.mover.climb_xp,
                     swim_xp: crab.mover.swim_xp,
                     fight_xp: crab.mover.fight_xp,
+                    data_xp: crab.mover.data_xp,
                     hulk: crab.mover.hulk,
                     glow: crab.mover.glow,
                     // Its body: what it grew, and a soft shell still soft.
@@ -2376,6 +2392,7 @@ impl Sim {
             }
             combat::after_step(&mut crab.fighter, &crab.mover);
             crush(crab, &mut self.enemies, &self.tuning, &mut ev);
+            crate::royal::step(crab);
             crab.events = ev;
             if crab.fighter.dead.is_none()
                 && let Some(i) = self.level.visit_vents(crab.mover.pos)

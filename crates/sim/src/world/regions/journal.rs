@@ -529,6 +529,9 @@ impl RegionJournal {
                 CellSessionAction::Canyon(action) => {
                     sim.canyon_action(*id, *action);
                 }
+                CellSessionAction::Royal(action) => {
+                    sim.royal_action(*id, *action);
+                }
             }
         }
         for (id, control) in &run.controls {

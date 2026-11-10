@@ -23,17 +23,26 @@ pub enum Skill {
     Swimming,
     /// Claw blows on creatures: the claws hit harder.
     Fighting,
+    /// Real workbook analysis and decisions in the royal observatory.
+    DataDriven,
 }
 
 impl Skill {
     /// Every skill, in the order the readout lists them.
-    pub const ALL: [Skill; 3] = [Skill::Climbing, Skill::Swimming, Skill::Fighting];
+    pub const PHYSICAL: [Skill; 3] = [Skill::Climbing, Skill::Swimming, Skill::Fighting];
+    pub const ALL: [Skill; 4] = [
+        Skill::Climbing,
+        Skill::Swimming,
+        Skill::Fighting,
+        Skill::DataDriven,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Skill::Climbing => "Climbing",
             Skill::Swimming => "Swimming",
             Skill::Fighting => "Fighting",
+            Skill::DataDriven => "Data-Driven",
         }
     }
 
@@ -43,6 +52,7 @@ impl Skill {
             Skill::Climbing => t.climb_level_xp,
             Skill::Swimming => t.swim_level_xp,
             Skill::Fighting => t.fight_level_xp,
+            Skill::DataDriven => crate::royal::DATA_LEVEL_STEP,
         }
     }
 }
@@ -79,6 +89,7 @@ impl Mover {
             Skill::Climbing => self.climb_xp,
             Skill::Swimming => self.swim_xp,
             Skill::Fighting => self.fight_xp,
+            Skill::DataDriven => self.data_xp,
         }
     }
 
@@ -100,6 +111,9 @@ impl Mover {
             Skill::Climbing => self.climb_xp += xp,
             Skill::Swimming => self.swim_xp += xp,
             Skill::Fighting => self.fight_xp += xp,
+            Skill::DataDriven => {
+                self.data_xp = (self.data_xp + xp).min(xp_for(MAX_LEVEL, skill.step(t)))
+            }
         }
         (self.level(skill, t) > was).then_some(skill)
     }

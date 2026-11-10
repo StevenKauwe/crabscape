@@ -1,0 +1,18 @@
+[package]
+name = "gridcraft-model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GridCraft document model: workbooks, sheets, cells, styles, tables, charts"
+
+[lints]
+workspace = true
+
+[dependencies]
+gridcraft-core = { path = "../core", version = "0.3.0" }
+gridcraft-formula = { path = "../formula", version = "0.3.0" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

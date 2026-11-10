@@ -22,6 +22,7 @@ fn crab_with(skill: Skill, level: u32) -> Sim {
         Skill::Climbing => m.climb_xp = xp_for(level, step),
         Skill::Swimming => m.swim_xp = xp_for(level, step),
         Skill::Fighting => m.fight_xp = xp_for(level, step),
+        Skill::DataDriven => m.data_xp = xp_for(level, step),
     }
     assert_eq!(m.level(skill, &t), level);
     sim

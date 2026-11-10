@@ -1,13 +1,18 @@
 //! The sea surface bounds the crab while remaining reachable from the kelp.
 use bevy_math::Vec2;
-use crabsim::level::WATER_SURFACE_Y;
+use crabsim::level::{WATER_SURFACE_Y, royal};
 use crabsim::{Controls, PlayerId, Sim};
 
 const PLAYER: PlayerId = PlayerId(0);
+const OPEN_OCEAN_X: f32 = royal::RIGHT_EDGE + 300.0;
 
 #[test]
 fn a_player_can_climb_from_the_shallows_to_the_surface() {
-    let mut sim = Sim::with_one_crab(Vec2::new(900.0, 110.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(280.0, 0.0));
+    // Let the newly spawned body establish its floor contact before jumping.
+    for _ in 0..120 {
+        sim.tick();
+    }
     sim.set_controls(
         PLAYER,
         Controls {
@@ -45,6 +50,9 @@ fn a_player_can_climb_from_the_shallows_to_the_surface() {
     );
     for _ in 0..3600 {
         sim.tick();
+        if sim.crab(PLAYER).unwrap().mover.pos.y > WATER_SURFACE_Y - 50.0 {
+            break;
+        }
     }
     let crab = &sim.crab(PLAYER).unwrap().mover;
     assert!(
@@ -52,12 +60,12 @@ fn a_player_can_climb_from_the_shallows_to_the_surface() {
         "climbed to {}",
         crab.pos.y
     );
-    assert!(crab.pos.y + crab.half_width(&sim.tuning) <= WATER_SURFACE_Y + 0.01);
+    assert!(crab.pos.y + crab.half_width(&sim.tuning) <= crabsim::level::royal::CEILING_Y + 0.01);
 }
 
 #[test]
 fn swimming_cannot_cross_the_surface_and_can_sink_again() {
-    let mut sim = Sim::with_one_crab(Vec2::new(900.0, WATER_SURFACE_Y - 80.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(OPEN_OCEAN_X, WATER_SURFACE_Y - 80.0));
     let height = sim.crab(PLAYER).unwrap().mover.height(&sim.tuning);
     let m = &mut sim.crab_mut(PLAYER).unwrap().mover;
     m.grounded = false;
@@ -81,17 +89,17 @@ fn swimming_cannot_cross_the_surface_and_can_sink_again() {
 }
 
 #[test]
-fn a_spawn_cannot_be_above_the_surface() {
-    let sim = Sim::with_one_crab(Vec2::new(900.0, 110.0));
+fn a_spawn_outside_the_castle_cannot_be_above_the_surface() {
+    let sim = Sim::with_one_crab(Vec2::new(280.0, 0.0));
     let h = sim.tuning.body_height;
     assert!(crabsim::physics::is_valid_spot(
-        Vec2::new(900.0, WATER_SURFACE_Y - h),
+        Vec2::new(OPEN_OCEAN_X, WATER_SURFACE_Y - h),
         1.0,
         &sim.tuning,
         &sim.level
     ));
     assert!(!crabsim::physics::is_valid_spot(
-        Vec2::new(900.0, WATER_SURFACE_Y - h + 1.0),
+        Vec2::new(OPEN_OCEAN_X, WATER_SURFACE_Y - h + 1.0),
         1.0,
         &sim.tuning,
         &sim.level
@@ -99,8 +107,8 @@ fn a_spawn_cannot_be_above_the_surface() {
 }
 
 #[test]
-fn kelp_reaches_surface_but_climbing_cannot_leave_water() {
-    let mut sim = Sim::with_one_crab(Vec2::new(900.0, WATER_SURFACE_Y - 45.0));
+fn the_opening_kelp_continues_into_the_castle_rope() {
+    let mut sim = Sim::with_one_crab(Vec2::new(280.0, WATER_SURFACE_Y - 45.0));
     let half = sim.crab(PLAYER).unwrap().mover.half_width(&sim.tuning);
     let m = &mut sim.crab_mut(PLAYER).unwrap().mover;
     m.climbing = true;
@@ -116,9 +124,9 @@ fn kelp_reaches_surface_but_climbing_cannot_leave_water() {
     for _ in 0..120 {
         sim.tick();
         let m = &sim.crab(PLAYER).unwrap().mover;
-        assert!(m.pos.y + half <= WATER_SURFACE_Y + 0.01);
+        assert!(m.pos.y + half <= crabsim::level::royal::CEILING_Y + 0.01);
     }
-    assert!(sim.crab(PLAYER).unwrap().mover.pos.y > WATER_SURFACE_Y - 100.0);
+    assert!(sim.crab(PLAYER).unwrap().mover.pos.y > WATER_SURFACE_Y + 100.0);
     sim.set_controls(
         PLAYER,
         Controls {

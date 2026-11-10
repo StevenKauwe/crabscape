@@ -274,12 +274,15 @@ pub fn spawn_local_crab(
     let saved_pos = saved
         .as_ref()
         .filter(|s| s.x.is_finite() && s.y.is_finite())
-        // A save from before the surface existed may be above it. Bring
-        // that crab back into the water rather than discarding its position.
+        // Keep castle positions while bounding old or invalid saves to the
+        // traversable ceiling at their actual horizontal position.
         .map(|s| {
             Vec2::new(
                 s.x,
-                s.y.min(crabsim::level::WATER_SURFACE_Y - sim.tuning.body_height * size),
+                s.y.min(
+                    crabsim::level::royal::ceiling(s.x, sim.tuning.body_half_width * size)
+                        - sim.tuning.body_height * size,
+                ),
             )
         })
         .filter(|&p| valid_saved_spot(p, size, &sim));
@@ -494,7 +497,7 @@ pub(crate) fn valid_saved_spot(pos: Vec2, size: f32, sim: &Sim) -> bool {
     pos.is_finite()
         && pos.x >= sim.level.min_x + hw
         && pos.x <= sim.level.max_x - hw
-        && pos.y + height <= crabsim::level::WATER_SURFACE_Y
+        && pos.y + height <= crabsim::level::royal::ceiling(pos.x, hw)
         && !cells.game_rock_in_rect(pos.x - hw, pos.y, pos.x + hw, pos.y + height)
         && !sim.level.solids().any(|r| {
             pos.x + hw > r.min.x + 0.01
@@ -771,6 +774,30 @@ mod cellular_save_tests {
             pos.y,
             pos.x + half_width,
             pos.y + height,
+        ));
+        sim.add_crab(PlayerId(0), pos);
+        assert_eq!(sim.crab(PlayerId(0)).unwrap().mover.pos, pos);
+    }
+
+    #[test]
+    fn castle_saved_position_is_kept_and_masonry_is_still_rejected() {
+        let mut sim = Sim::new(Tuning::default(), Level::test_level());
+        sim.enable_underwater_cells();
+        let pos = Vec2::new(
+            crabsim::level::royal::BOOK.x,
+            crabsim::level::royal::FLOOR_Y,
+        );
+        sim.level
+            .cells
+            .as_mut()
+            .unwrap()
+            .follow_player(&Level::test_level(), pos.x, pos.y);
+        assert!(valid_saved_spot(pos, 1.0, &sim));
+        assert!(!valid_saved_spot(pos - Vec2::Y * 20.0, 1.0, &sim));
+        assert!(!valid_saved_spot(
+            Vec2::new(crabsim::level::royal::RIGHT_EDGE + 300.0, pos.y),
+            1.0,
+            &sim
         ));
         sim.add_crab(PlayerId(0), pos);
         assert_eq!(sim.crab(PlayerId(0)).unwrap().mover.pos, pos);

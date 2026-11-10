@@ -45,6 +45,11 @@ const RECORD_ERRORS: &str = r#"(() => {
   // A box asking to copy the link would stop the page until someone answers: count it as trouble instead.
   window.prompt = () => { add("a prompt box opened (copying the link failed)"); return null; };
   addEventListener("unhandledrejection", (e) => add("unhandled rejection: " + ((e.reason && e.reason.message) || e.reason)));
+  const realError = console.error.bind(console);
+  console.error = (...args) => {
+    try { const logs=JSON.parse(sessionStorage.getItem("cooptest-console-errors")||"[]"); logs.push(args.map(String).join(" ").slice(0,4000)); sessionStorage.setItem("cooptest-console-errors",JSON.stringify(logs.slice(-30))); } catch(e) {}
+    realError(...args);
+  };
   // The game's own "co-op:" lines (who connected, met, went silent, rejoined), kept to say what happened.
   for (const level of ["log", "info", "warn"]) {
     const real = console[level].bind(console);
@@ -135,6 +140,7 @@ pub struct Chrome {
     ws: WebSocket<MaybeTlsStream<TcpStream>>,
     session: String,
     next: u64,
+    file_input: Option<u64>,
 }
 
 /// How a browser is started.
@@ -150,6 +156,16 @@ pub struct Options {
 impl Chrome {
     /// Start a browser called `name` with its profile in `dir` (made empty first).
     pub fn start(name: &str, dir: &Path, o: Options) -> Result<Self> {
+        Self::start_with_clipboard(name, dir, o, true)
+    }
+
+    /// Focused tests that never use clipboard operations grant no clipboard permissions.
+    #[allow(dead_code)] // Used by the focused court runner, not every test binary.
+    pub fn start_without_clipboard(name: &str, dir: &Path, o: Options) -> Result<Self> {
+        Self::start_with_clipboard(name, dir, o, false)
+    }
+
+    fn start_with_clipboard(name: &str, dir: &Path, o: Options, clipboard: bool) -> Result<Self> {
         let chrome =
             find_chrome().ok_or("Chrome not found: set CHROME to the browser's program")?;
         let _ = std::fs::remove_dir_all(dir);
@@ -229,12 +245,15 @@ impl Chrome {
             ws,
             session: String::new(),
             next: 0,
+            file_input: None,
         };
         // Invite copies the link: let it, as a player who said yes would.
-        me.call(
-            "Browser.grantPermissions",
-            json!({ "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"] }),
-        )?;
+        if clipboard {
+            me.call(
+                "Browser.grantPermissions",
+                json!({ "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"] }),
+            )?;
+        }
         let targets = me.call("Target.getTargets", json!({}))?;
         let page = targets["targetInfos"]
             .as_array()
@@ -297,6 +316,9 @@ impl Chrome {
                 continue;
             };
             let v: Value = serde_json::from_str(text.as_str()).map_err(|e| e.to_string())?;
+            if v["method"] == "Page.fileChooserOpened" {
+                self.file_input = v["params"]["backendNodeId"].as_u64();
+            }
             if v["id"].as_u64() != Some(id) {
                 continue; // an event, or an old reply
             }
@@ -348,6 +370,34 @@ impl Chrome {
     /// Reload the page, as a player pressing reload.
     pub fn reload(&mut self) -> Result<()> {
         self.call("Page.reload", json!({})).map(drop)
+    }
+    /// Keep the isolated test's file chooser headless; grants no browser permission.
+    #[allow(dead_code)]
+    pub fn intercept_file_dialog(&mut self) -> Result<()> {
+        self.file_input = None;
+        self.call(
+            "Page.setInterceptFileChooserDialog",
+            json!({"enabled":true}),
+        )
+        .map(drop)
+    }
+    #[allow(dead_code)]
+    pub fn file_dialog_open(&mut self) -> Result<bool> {
+        self.eval("document.readyState")?;
+        Ok(self.file_input.is_some())
+    }
+    /// Select only the named fixture through the application's real file input.
+    #[allow(dead_code)]
+    pub fn choose_file(&mut self, path: &Path) -> Result<()> {
+        // Normal file inputs can be detached. Use the backend node supplied
+        // by the actual chooser event, not a guessed DOM id or fake upload.
+        let node = self.file_input.take().ok_or("File chooser did not open")?;
+        let path = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+        self.call(
+            "DOM.setFileInputFiles",
+            json!({"backendNodeId":node,"files":[path]}),
+        )
+        .map(drop)
     }
 
     /// The value of a JavaScript expression in the page (Null if the page is between documents).
@@ -443,6 +493,16 @@ impl Chrome {
         self.call(
             "Emulation.setDeviceMetricsOverride",
             json!({"width":width,"height":height,"deviceScaleFactor":1,"mobile":width<700}),
+        )
+        .map(drop)
+    }
+
+    /// Test the game's real touch layout without asking for browser permissions.
+    #[allow(dead_code)] // Used by the royal region's responsive acceptance.
+    pub fn touch_screen(&mut self, enabled: bool) -> Result<()> {
+        self.call(
+            "Emulation.setTouchEmulationEnabled",
+            json!({"enabled":enabled,"maxTouchPoints":2}),
         )
         .map(drop)
     }

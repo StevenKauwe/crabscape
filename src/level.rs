@@ -356,7 +356,7 @@ fn spire_mesh() -> Mesh {
 }
 
 /// A small hand-cut silhouette; collision remains the original rock box.
-fn rock_mesh(size: Vec2) -> Mesh {
+pub(crate) fn rock_mesh(size: Vec2) -> Mesh {
     let points = [
         (-0.5, -0.5),
         (0.5, -0.5),
@@ -614,6 +614,14 @@ fn draw_climbs(
             Growth::Kelp => kelp(c, &mut draw),
             Growth::Coral => coral(c, &mut draw),
             Growth::Rock => bare_rock(c, &mut draw),
+            Growth::Rope => {
+                draw(
+                    Rectangle::new(6.0, c.top - c.bottom).into(),
+                    KELP_FLOAT,
+                    Vec2::new(c.x, (c.top + c.bottom) * 0.5),
+                    0.0,
+                );
+            }
         }
     }
 }
@@ -627,8 +635,10 @@ fn move_high_kelp(
         return;
     };
     for (piece, mut transform) in &mut pieces {
-        let a = cells.giant_kelp_x(piece.lower_y);
-        let b = cells.giant_kelp_x(piece.upper_y);
+        let a =
+            crabsim::level::royal::tied_kelp_x(cells.giant_kelp_x(piece.lower_y), piece.lower_y);
+        let b =
+            crabsim::level::royal::tied_kelp_x(cells.giant_kelp_x(piece.upper_y), piece.upper_y);
         let blend = 1.0 - (-16.0 * time.delta_secs()).exp();
         let target_x = (a + b) * 0.5 + piece.side_offset;
         transform.translation.x += (target_x - transform.translation.x) * blend;

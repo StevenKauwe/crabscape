@@ -1,0 +1,17 @@
+[package]
+name = "gridcraft-calc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GridCraft calculation engine: dependency graph, recalculation, evaluator, dynamic arrays"
+
+[lints]
+workspace = true
+
+[dependencies]
+gridcraft-core = { path = "../core", version = "0.3.0" }
+gridcraft-formula = { path = "../formula", version = "0.3.0" }
+gridcraft-functions = { path = "../functions", version = "0.3.0" }
+gridcraft-numfmt = { path = "../numfmt", version = "0.3.0" }
+gridcraft-model = { path = "../model", version = "0.3.0" }
+log = { workspace = true }

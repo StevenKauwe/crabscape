@@ -37,6 +37,15 @@ snapshot captured before a main publication that already finished. Distinct clea
 of replacing one another or a waiting main deployment. Only short publication transactions queue; main validation
 still coalesces intermediate commits as above.
 
+Each writer uploads and selects `github-pages-${{ github.job }}-${{ github.run_attempt }}`. A retried job keeps
+the earlier attempt's artifact, so the default shared name makes deploy-pages reject two matching artifacts.
+Job/attempt names select the new snapshot without deleting previous evidence. This changes no validation gate
+or publication permissions. The local integration test checks that all three writers use matching names.
+All three explicitly use the action's supported maximum, a ten-minute synchronization window. Larger values
+are capped at 600,000 milliseconds. A valid 201 MB snapshot once timed out in `syncing_files`; a subsequent
+publication completed in 55 seconds. Check the failed deployment's outcome before a fresh attempt. This
+changes no game/browser test deadline, required check or permission.
+
 Before replacing the main root, the store checks the artifact's `pkg/commit.txt` against the tested `GITHUB_SHA`
 and requires the stored production commit to be its ancestor (or equal). An old/divergent/unverifiable rerun keeps
 the existing root. A tested intermediate commit can still advance production even when the branch tip is newer.

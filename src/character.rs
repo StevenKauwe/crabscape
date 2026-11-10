@@ -259,6 +259,7 @@ pub fn summary(c: &Character, sim: &Sim) -> String {
                 Skill::Climbing => p.climb_xp,
                 Skill::Swimming => p.swim_xp,
                 Skill::Fighting => p.fight_xp,
+                Skill::DataDriven => p.data_xp,
             };
             format!("{} {}", s.name(), skills::level(xp, s.step(&sim.tuning)))
         })
@@ -1151,7 +1152,7 @@ mod tests {
         assert_eq!(
             summary(&c, &sim),
             format!(
-                "Climbing 3, Swimming 1, Fighting 2\n2 of {eggs} eggs eaten, 2 cultures in its \
+                "Climbing 3, Swimming 1, Fighting 2, Data-Driven 1\n2 of {eggs} eggs eaten, 2 cultures in its \
                  lantern\n2 m from home\nFrom preview pr-183, build 5d3eb47, Oct 29"
             )
         );
@@ -1175,7 +1176,10 @@ mod tests {
         at_home.copy = None;
         let lines = summary(&at_home, &sim);
         let lines: Vec<_> = lines.lines().collect();
-        assert_eq!(lines[0], "Climbing 1, Swimming 1, Fighting 1");
+        assert_eq!(
+            lines[0],
+            "Climbing 1, Swimming 1, Fighting 1, Data-Driven 1"
+        );
         assert_eq!(
             lines[1],
             format!("0 of {eggs} eggs eaten, 0 cultures in its lantern")

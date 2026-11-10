@@ -100,12 +100,8 @@ impl Feat {
     }
 
     /// The feat a skill's milestone opens.
-    pub fn of(skill: Skill) -> Feat {
-        FEATS
-            .iter()
-            .find(|f| f.skill == skill)
-            .expect("every skill has a feat")
-            .feat
+    pub fn of(skill: Skill) -> Option<Feat> {
+        FEATS.iter().find(|f| f.skill == skill).map(|f| f.feat)
     }
 
     pub fn skill(self) -> Skill {
@@ -135,6 +131,7 @@ pub fn proving_deed(skill: Skill) -> &'static str {
         Skill::Climbing => "One long climb without letting go",
         Skill::Swimming => "A long swim touching nothing",
         Skill::Fighting => "Beaten with a counter",
+        Skill::DataDriven => "Completed an analysis",
     }
 }
 
@@ -154,7 +151,7 @@ pub fn hardened_note(feat: Feat) -> String {
 /// The skill named in a replay's `moult=` word (`climbing`, any case).
 pub fn parse_skill(word: &str) -> Option<Skill> {
     let word = word.trim().to_lowercase();
-    Skill::ALL
+    Skill::PHYSICAL
         .into_iter()
         .find(|s| s.name().to_lowercase() == word)
 }
@@ -173,7 +170,9 @@ impl Mover {
     /// Is this skill's feat ready to grow at a moult: the skill at its
     /// milestone, and the feat neither grown nor growing?
     pub fn feat_ready(&self, skill: Skill, t: &Tuning) -> bool {
-        let feat = Feat::of(skill);
+        let Some(feat) = Feat::of(skill) else {
+            return false;
+        };
         (self.level(skill, t) >= t.moult.feat_level || self.proven.contains(&skill))
             && !self.has(feat)
             && self.growing != Some(feat)
@@ -182,22 +181,22 @@ impl Mover {
     /// The crab did `skill`'s proving moment: its feat is ready from now on,
     /// whatever the level. Returns the skill the first time only.
     pub fn prove(&mut self, skill: Skill) -> Option<Skill> {
+        let feat = Feat::of(skill)?;
         if self.proven.contains(&skill) {
             return None;
         }
         self.proven.push(skill);
         // Already ready by level or grown: nothing new to say.
-        let feat = Feat::of(skill);
         let news = !self.has(feat) && self.growing != Some(feat);
         news.then_some(skill)
     }
 
     /// The feats ready to grow, in the skills' order.
     pub fn ready_feats(&self, t: &Tuning) -> Vec<Feat> {
-        Skill::ALL
+        Skill::PHYSICAL
             .into_iter()
             .filter(|&s| self.feat_ready(s, t))
-            .map(Feat::of)
+            .filter_map(Feat::of)
             .collect()
     }
 
@@ -284,7 +283,7 @@ impl Sim {
         let m = &mut crab.mover;
         m.well_fed = 0;
         m.soft = t.moult.soft_ticks;
-        m.growing = Some(Feat::of(skill));
+        m.growing = Feat::of(skill);
         let v = &mut crab.fighter.vitals;
         v.health = v.health.min(m.max_shell(&t));
         crab.pending.moulted = true;

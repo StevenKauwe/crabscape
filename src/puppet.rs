@@ -86,6 +86,11 @@ const ATLAS_OIL: &str = "crab/crab-atlas-oil.png";
 /// wide; at 0.13 it is about 75 world units, matching the collision box.
 pub const ART_SCALE: f32 = 0.13;
 
+/// A non-player character drawn with the same anatomical puppet. It is not
+/// a co-op player and does not enter player names, saving or input rosters.
+#[derive(Component)]
+pub struct VisualCrab;
+
 /// Depth step between pieces within a limb. The art lists pieces back to
 /// front; piece number `z` is drawn `z * Z_STEP` in front of piece 0.
 const Z_STEP: f32 = 0.003;
@@ -767,12 +772,13 @@ pub fn make_rim(rgba: &[u8], w: usize, h: usize) -> Vec<u8> {
 
 /// Give every new crab its puppet. (Runs every frame but only does work for
 /// crabs that don't have a [`Rig`] yet.)
+#[allow(clippy::type_complexity)]
 fn build_puppets(
     mut commands: Commands,
     art: Res<CrabArt>,
     style: Res<ArtStyle>,
     soft: Res<SoftTextures>,
-    crabs: Query<Entity, (With<Crab>, Without<Rig>)>,
+    crabs: Query<Entity, (Or<(With<Crab>, With<VisualCrab>)>, Without<Rig>)>,
 ) {
     // Wait for the pictures.
     let (Some(lit), Some(unlit), Some(pale)) = (
