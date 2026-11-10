@@ -98,8 +98,6 @@ fn main() -> Result<()> {
     b.go(&format!("{site}{sep}king-ddd"))?;
     wait(&mut b, "data-king-ddd", "sea", 120)?;
     sleep(Duration::from_secs(1));
-    // Fold the ordinary keyboard reference card, as an experienced player can.
-    b.hold_keys(&["ShiftLeft", "Slash"], 0.08)?;
     if position(&mut b)?[1] > 5000.0 {
         return Err("The directions link teleported the crab".into());
     }
