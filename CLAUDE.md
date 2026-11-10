@@ -42,6 +42,27 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - **Performance and download size matter.** Bevy runs with few features and a size-tuned release build; measure
   before adding features or dependencies.
 
+### Rust performance and ownership
+- **Find the real hot path first.** Before an optimization, trace its gameplay caller and frequency, then profile
+  a representative release build. Separate simulation CPU, allocations, storage/network waits and rendering.
+  Record the workload, revision, target and before/after results; native headless timings are not phone FPS.
+- **Make ownership fit the operation.** Prefer small functions borrowing the fields or slices they need over
+  helpers taking all of `&mut Sim`. Split disjoint field borrows or use safe `split_at_mut`; do not clone a world,
+  collect an iterator, or add `Rc<RefCell<_>>`/`Arc<Mutex<_>>` solely to silence a borrow error without considering
+  the ownership boundary. Snapshots, shared handles and `mem::take` can be the correct design; explain their role.
+- **Keep repeated work bounded.** Reuse scratch capacity where useful; avoid rebuilding unchanged geometry and
+  derived data each tick/frame. Check the actual `Clone` implementation before assuming `clone_from` reuses nested
+  allocations. Keep caches bounded and derived; retain deterministic iteration and stable tie-breaking.
+- **Use traits for a real contract.** Concrete types and narrow functions are fine. Introduce a small trait when
+  implementations genuinely share behavior, such as a storage boundary exercised by production and failure tests.
+  Prefer an enum for a closed set of states; choose static or dynamic dispatch deliberately and measure hot-loop
+  overhead and WebAssembly size when relevant. Do not build a trait hierarchy just to split a large file.
+- **Prove the behavior stayed right.** Preserve tick/RNG order, authority, terrain mass and atomic save/rollback
+  guarantees. Add the affected regression test and compare matching replays or state digests before claiming a
+  speedup. Keep unsafe code forbidden. Use the existing checks; do not invent an uncalibrated timing gate in CI.
+
+See [the performance workflow and measured examples](docs/engineering/rust-performance.md) before hot-path work.
+
 ## How we work
 - **Humans bring taste; Claude does all process.** Merge your own PR when checks pass. Never ask a human to review
   code, approve anything, resolve conflicts or do git chores.
