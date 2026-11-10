@@ -18,6 +18,9 @@ fn failure_evidence(browser: &mut Chrome) {
         r#"(() => {
       const c = document.getElementById('crabscape');
       return {window:[innerWidth,innerHeight,devicePixelRatio],
+        focus:document.activeElement?.id, ready:document.readyState,
+        loading:!document.getElementById('message')?.hidden,
+        oldDocument:window.kingtestOld === true,
         king:c?.getAttribute('data-king-ddd'),
         layout:c?.getAttribute('data-king-ddd-viewport'),
         buttons:c?.getAttribute('data-king-ddd-buttons'),
@@ -63,6 +66,36 @@ fn resize(browser: &mut Chrome, width: u32, height: u32) -> Result<()> {
         &format!("{width} {height}"),
         10,
     )
+}
+fn reload_castle(browser: &mut Chrome) -> Result<()> {
+    // Page.reload acknowledges the request before navigation necessarily
+    // starts. A castle marker from the outgoing document proves nothing
+    // about its saved replacement; the co-op runner uses the same guard.
+    browser.eval("window.kingtestOld = true")?;
+    browser.reload()?;
+    let until = Instant::now() + Duration::from_secs(120);
+    loop {
+        if browser.eval(
+            r#"(() => {
+              const c = document.getElementById('crabscape');
+              return window.kingtestOld !== true &&
+                document.getElementById('message')?.hidden === true &&
+                document.activeElement === c &&
+                c?.getAttribute('data-king-ddd') === 'castle';
+            })()"#,
+        )? == true
+        {
+            return Ok(());
+        }
+        if let Some(e) = browser.trouble() {
+            return Err(e);
+        }
+        if Instant::now() > until {
+            failure_evidence(browser);
+            return Err("The new castle document did not finish loading with game focus".into());
+        }
+        sleep(Duration::from_millis(100));
+    }
 }
 fn position(browser: &mut Chrome) -> Result<[f64; 3]> {
     let value = browser.attr("data-crab").ok_or("No crab position")?;
@@ -284,8 +317,7 @@ fn main() -> Result<()> {
         return Err("Reading the ledger moved the real crab".into());
     }
     sleep(Duration::from_secs(3));
-    b.reload()?;
-    wait(&mut b, "data-king-ddd", "castle", 120)?;
+    reload_castle(&mut b)?;
     let restored = position(&mut b)?;
     if (restored[0] - settled[0]).abs() > 8.0 || (restored[1] - settled[1]).abs() > 8.0 {
         return Err(format!(
