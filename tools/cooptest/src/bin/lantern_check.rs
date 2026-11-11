@@ -34,7 +34,15 @@ fn wait(b: &mut Chrome, cells: bool) -> Result<()> {
     }
 }
 
-fn fixture(b: &mut Chrome, base: &str, cells: bool, x: f32, y: f32, dim: bool) -> Result<()> {
+fn fixture(
+    b: &mut Chrome,
+    base: &str,
+    cells: bool,
+    x: f32,
+    y: f32,
+    dim: bool,
+    cultures: u32,
+) -> Result<()> {
     b.go(&format!("{base}/__fixture_setup"))?;
     let player = crabsim::SaveData {
         version: crabsim::SAVE_VERSION,
@@ -42,6 +50,7 @@ fn fixture(b: &mut Chrome, base: &str, cells: bool, x: f32, y: f32, dim: bool) -
         y,
         memory: None,
         progress: Some(crabsim::progress::Progress {
+            lantern: cultures,
             lantern_dim: dim,
             ..Default::default()
         }),
@@ -74,6 +83,75 @@ fn pixels(b: &mut Chrome, path: &Path) -> Result<Value> {
     b.eval(&format!(r#"new Promise(resolve=>{{const i=new Image;i.onload=()=>{{const c=document.createElement('canvas');c.width=i.width;c.height=i.height;const ctx=c.getContext('2d');ctx.drawImage(i,0,0);const p=ctx.getImageData(0,0,c.width,c.height).data,grid=[];for(let gy=0;gy<6;gy++)for(let gx=0;gx<8;gx++){{let n=0,sum=0;for(let y=Math.floor(gy*c.height/6);y<Math.floor((gy+1)*c.height/6);y++)for(let x=Math.floor(gx*c.width/8);x<Math.floor((gx+1)*c.width/8);x++){{const k=(y*c.width+x)*4;sum+=.2126*p[k]+.7152*p[k+1]+.0722*p[k+2];n++;}}grid.push(sum/n)}}resolve({{width:c.width,height:c.height,luma_grid_8x6:grid}})}};i.src='data:image/png;base64,{png}';}})"#))
 }
 
+/// Fixed-pickup stages plus examples of renewable progression, without repeated controls checks.
+fn stages(base: &str, out: &Path, label: &str) -> Result<()> {
+    let maximum = crabsim::Level::test_level().cultures.len() as u32;
+    println!(
+        "Progression matrix: {maximum} fixed cultures, stages 0..={maximum}, plus cellular 10 and 25; progression is uncapped"
+    );
+    let mut records = Vec::new();
+    let extras_only = std::env::var_os("LANTERN_STAGE_EXTRAS_ONLY").is_some();
+    for cells in [false, true] {
+        for cultures in (0..=maximum).chain([10, 25]) {
+            if (cultures > maximum && !cells) || (extras_only && cultures <= maximum) {
+                continue;
+            }
+            for dim in [false, true] {
+                let name = format!(
+                    "{label}-{}-level-{cultures}-{}",
+                    if cells { "cellular" } else { "legacy" },
+                    if dim { "dim" } else { "full" }
+                );
+                let profile = std::env::temp_dir()
+                    .join(format!("crab-lantern-{}-{name}", std::process::id()));
+                let mut b = Chrome::start_without_clipboard(
+                    &name,
+                    &profile,
+                    Options {
+                        fake_mic: false,
+                        slow: 1.0,
+                    },
+                )?;
+                b.protocol_viewport(1280, 720)?;
+                fixture(&mut b, base, cells, 6000.0, -3380.0, dim, cultures)?;
+                let began = Instant::now();
+                while !b
+                    .attr("data-crab")
+                    .is_some_and(|p| p.split_whitespace().nth(2) == Some("1"))
+                {
+                    if began.elapsed().as_secs() > 90 {
+                        return Err("stage fixture did not ground".into());
+                    }
+                    sleep(Duration::from_millis(100));
+                }
+                // Rendered-frame settling also allows the camera/pose to catch up on a busy Mac.
+                b.eval("new Promise(resolve => {let frames=0;function step(){if(++frames===120)resolve(true);else requestAnimationFrame(step)}requestAnimationFrame(step)})")?;
+                b.hold_key("KeyB", 0.1)?;
+                sleep(Duration::from_millis(500));
+                let path = out.join(format!("{name}.png"));
+                b.screenshot(&path)?;
+                let record = json!({"name":name,"cultures":cultures,"fixed_pickup_cultures":maximum,"dim_fixture":dim,"synthetic_spawn":[6000,-3380],"position":b.attr("data-crab"),"pixels":pixels(&mut b,&path)?});
+                println!("{record}");
+                records.push(record);
+                if let Some(e) = b.trouble() {
+                    return Err(e);
+                }
+                drop(b);
+                std::fs::remove_dir_all(profile).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    std::fs::write(
+        out.join(format!(
+            "{label}{}-metrics.json",
+            if extras_only { "-extras" } else { "" }
+        )),
+        serde_json::to_vec_pretty(&records).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() != 4 {
@@ -82,6 +160,9 @@ fn main() -> Result<()> {
     let out = Path::new(&args[2]);
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let base = serve::start(Path::new(&args[1]), 1280, 720).map_err(|e| e.to_string())?;
+    if args[3].starts_with("stages-") {
+        return stages(&base, out, &args[3]);
+    }
     let mut records = Vec::new();
     let phone = args[3].starts_with("phone");
     for cells in [false, true] {
@@ -115,7 +196,7 @@ fn main() -> Result<()> {
                 } else {
                     b.protocol_viewport(1280, 720)?;
                 }
-                fixture(&mut b, &base, cells, x, y, dim)?;
+                fixture(&mut b, &base, cells, x, y, dim, 0)?;
                 let settling = Instant::now();
                 loop {
                     if b.attr("data-crab")

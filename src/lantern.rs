@@ -86,7 +86,7 @@ struct Glow {
 
 /// How much further the light reaches for each culture brought home (a
 /// share of the starting reach).
-const BRIGHTER_PER_CULTURE: f32 = 0.35;
+const BRIGHTER_PER_CULTURE: f32 = crabsim::tuning::LANTERN_RADIUS_PER_CULTURE;
 
 /// How far the lantern's light reaches (before flicker), with this many
 /// cultures brought home.
@@ -104,7 +104,7 @@ pub fn band_light_reach(
 }
 
 /// Brighten the full lamp, while keeping the existing shaded output and
-/// its smaller radius. A lamp's appearance never changes simulation sight.
+/// its smaller relative radius. Simulation sight contains the rendered light.
 fn luminosity(tuning: &ViewTuning, mover: Option<&Mover>) -> f32 {
     if mover.is_some_and(|m| m.lantern_dim) {
         1.0
@@ -258,7 +258,8 @@ fn flicker(
     mut glows: Query<(&Glow, &mut Sprite)>,
 ) {
     let t = time.elapsed_secs();
-    let wave = 1.0 + 0.03 * (t * 7.3).sin() + 0.02 * (t * 12.9 + 1.0).sin();
+    let wave = (1.0 + 0.03 * (t * 7.3).sin() + 0.02 * (t * 12.9 + 1.0).sin())
+        .min(crabsim::tuning::LANTERN_MAX_FLICKER);
     flicker.0 = wave;
     for (glow, mut sprite) in &mut glows {
         let cultures = crabs.get(glow.crab).map_or(0, |m| m.lantern_glow()) as f32;
@@ -464,25 +465,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn full_lamp_has_three_times_the_output_without_more_reach() {
+    fn full_lamp_has_three_times_the_output_and_every_upgrade_has_twice_the_reach() {
         let tuning = ViewTuning::default();
+        let old_tuning = ViewTuning {
+            light_inner: 8.0,
+            light_outer: 115.0,
+            lantern_luminosity: 1.0,
+            ..tuning.clone()
+        };
         let mut mover = Mover::new(Vec2::new(12800.0, -3250.0));
         assert_eq!(luminosity(&tuning, Some(&mover)), 3.0);
-        assert_eq!(tuning.light_inner, 8.0);
-        assert_eq!(tuning.light_outer, 115.0);
-        for cultures in [0, 1, 4] {
+        assert_eq!(tuning.light_inner, 16.0);
+        assert_eq!(tuning.light_outer, 230.0);
+        for cultures in (0..=6).chain([10, 25, 100]) {
             mover.lantern = cultures;
             let radius = light_reach(&tuning, mover.lantern_glow());
+            assert_eq!(radius, 2.0 * light_reach(&old_tuning, mover.lantern_glow()));
             let old = LightUniform {
-                geometry: Vec4::new(0.0, 0.0, tuning.light_inner, radius),
+                geometry: Vec4::new(0.0, 0.0, old_tuning.light_inner, radius / 2.0),
                 luminosity: 1.0,
             };
             let bright = LightUniform {
+                geometry: Vec4::new(0.0, 0.0, tuning.light_inner, radius),
                 luminosity: luminosity(&tuning, Some(&mover)),
-                ..old
             };
             let point = Vec2::X * radius * 0.85;
-            let before = strongest_light(point, &[old], &tuning);
+            let before = strongest_light(point / 2.0, &[old], &old_tuning);
             let after = strongest_light(point, &[bright], &tuning);
             assert!(before > 0.0 && after < 1.0, "real, unclipped light change");
             assert!((after - 3.0 * before).abs() < 0.00001);
@@ -490,6 +498,26 @@ mod tests {
             mover.lantern_dim = true;
             assert_eq!(luminosity(&tuning, Some(&mover)), 1.0);
             assert_eq!(mover.lantern_light_factor(), 0.45);
+            for band in crabsim::Level::test_level().bands() {
+                let factor = band.lantern_reach_factor * mover.lantern_light_factor();
+                let old_dim = LightUniform {
+                    geometry: Vec4::new(0.0, 0.0, old_tuning.light_inner, old.geometry.w * factor),
+                    ..old
+                };
+                let dim = LightUniform {
+                    geometry: Vec4::new(0.0, 0.0, tuning.light_inner, radius * factor),
+                    luminosity: 1.0,
+                };
+                assert_eq!(dim.geometry.w, 2.0 * old_dim.geometry.w);
+                let point = Vec2::X * dim.geometry.w * 0.85;
+                assert!(
+                    (strongest_light(point, &[dim], &tuning)
+                        - strongest_light(point / 2.0, &[old_dim], &old_tuning))
+                    .abs()
+                        < 0.00001,
+                    "dim intensity is preserved at the doubled distance"
+                );
+            }
             mover.lantern_dim = false;
         }
     }
@@ -514,7 +542,12 @@ mod tests {
         let mut dim = full.clone();
         dim.lantern_dim = true;
         let full_light = LightUniform {
-            geometry: Vec4::new(100.0, 0.0, tuning.light_inner, tuning.light_outer),
+            geometry: Vec4::new(
+                tuning.light_outer * 0.9,
+                0.0,
+                tuning.light_inner,
+                tuning.light_outer,
+            ),
             luminosity: luminosity(&tuning, Some(&full)),
         };
         let dim_light = LightUniform {
@@ -533,7 +566,11 @@ mod tests {
             "a full lamp must not multiply the nearby shaded lamp's contribution"
         );
         assert_eq!(
-            strongest_light(Vec2::new(100.0, 0.0), &[dim_light, full_light], &tuning),
+            strongest_light(
+                Vec2::new(tuning.light_outer * 0.9, 0.0),
+                &[dim_light, full_light],
+                &tuning
+            ),
             3.0
         );
     }

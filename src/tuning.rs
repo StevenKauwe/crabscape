@@ -23,10 +23,10 @@ pub struct ViewTuning {
     // --- Lantern light --------------------------------------------------
     /// Inside this distance from the lantern, colours are at full strength.
     pub light_inner: f32,
-    /// Beyond this distance, everything is in the dark.
+    /// Starting visual reach, before cultures, depth bands, dimming and flicker.
     pub light_outer: f32,
     /// Full lantern output relative to the original light. Shading keeps the
-    /// original dim output; this changes brightness, not sight or light radius.
+    /// original dim intensity; reach is configured separately above.
     pub lantern_luminosity: f32,
 }
 
@@ -36,8 +36,8 @@ impl Default for ViewTuning {
             camera_follow: 5.0,
             camera_lead: 0.3,
 
-            light_inner: 8.0,
-            light_outer: 115.0,
+            light_inner: 16.0,
+            light_outer: crabsim::tuning::LANTERN_LIGHT_RADIUS,
             lantern_luminosity: 3.0,
         }
     }

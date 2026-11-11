@@ -12,6 +12,9 @@ Moray scent and snapping-shrimp vibration are unaffected. Shallow daylight still
 Brighten again freely: cultures, remembered places and terrain loading capacity are retained. The personal
 setting survives saving and respawning; existing saves default to full. This is a shaded-lamp game abstraction,
 not a claim that bacterial light instantly changes metabolism or that every species follows light.
+Full light is three times its original intensity, and full/dim radii are twice their former values at every
+lantern-culture upgrade. This doubles the existing progression curve, not the radius again on each level-up.
+Lantern upgrades use cultures crafted at home, not a separate XP skill; renewable cultures make them repeatable.
 
 ## Movement (the first four are in the game)
 - **Weight you can feel.** A crab is denser than water, so it sinks. Jumps are strong push-offs from the floor with a

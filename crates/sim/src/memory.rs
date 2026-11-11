@@ -604,11 +604,33 @@ impl Memory {
                 }
             }
         }
+        self.evict_clean_pages(self.page_budget());
         ready
     }
     pub fn page_requests(&self, limit: usize) -> Vec<crate::page_cache::PageTicket> {
         self.cache
-            .requests(limit, |&(x, y)| self.dirty.contains(&(x as u32, y as u32)))
+            .requests_with_capacity(limit, self.page_budget(), |&(x, y)| {
+                self.dirty.contains(&(x as u32, y as u32))
+            })
+    }
+
+    /// A large cultured sight window must be loadable in one interest set.
+    /// Dirty pages cannot be discarded to make room. Count the union rather
+    /// than accumulating a budget as the player walks; the world is finite.
+    fn page_budget(&self) -> usize {
+        let dirty_outside = self
+            .dirty
+            .iter()
+            .filter(|&&(x, y)| {
+                let key = (x as i32, y as i32);
+                self.cache.known.contains(&key) && !self.cache.protected.contains(&key)
+            })
+            .count();
+        let world_pages = self.cols.div_ceil(MEMORY_CHUNK_SIDE) as usize
+            * self.rows.div_ceil(MEMORY_CHUNK_SIDE) as usize;
+        crate::page_cache::RESIDENT_PAGE_LIMIT
+            .max(self.cache.protected.len() + dirty_outside)
+            .min(world_pages)
     }
     pub fn accept_page(
         &mut self,
@@ -626,8 +648,9 @@ impl Memory {
             self.cache.loaded(ticket.coordinate);
             return Ok(true);
         }
-        self.evict_clean_pages(crate::page_cache::RESIDENT_PAGE_LIMIT - 1);
-        if self.cache.known.len() >= crate::page_cache::RESIDENT_PAGE_LIMIT {
+        let budget = self.page_budget();
+        self.evict_clean_pages(budget.saturating_sub(1));
+        if self.cache.known.len() >= budget {
             return Ok(false);
         }
         if let Some(bytes) = bytes {
@@ -649,6 +672,9 @@ impl Memory {
         Ok(true)
     }
     fn evict_clean_pages(&mut self, limit: usize) {
+        if !self.cache.enabled || self.cache.known.len() <= limit {
+            return;
+        }
         let dirty = self
             .dirty
             .iter()
@@ -756,11 +782,34 @@ pub struct Sight {
 
 impl Sight {
     pub fn new(eye: Vec2, lantern: u32, t: &MemoryTuning) -> Self {
-        let r = (t.sight + t.sight_per_culture * lantern as f32)
-            * crate::level::bands::band_at(eye).lantern_reach_factor;
+        Self::for_lantern(eye, lantern, 1.0, 1.0, t)
+    }
+
+    /// Preserve the original perception curve where it already covers the
+    /// lamp. Otherwise leave room for peak flicker and the nominal jar offset.
+    /// Sight's depth-dependent dimming and the lamp's fixed dim factor differ.
+    pub fn for_lantern(
+        eye: Vec2,
+        lantern: u32,
+        sight_factor: f32,
+        light_factor: f32,
+        t: &MemoryTuning,
+    ) -> Self {
+        use crate::tuning::{
+            LANTERN_LIGHT_RADIUS, LANTERN_MAX_FLICKER, LANTERN_RADIUS_PER_CULTURE,
+            LANTERN_SOURCE_MARGIN,
+        };
+        let band = crate::level::bands::band_at(eye).lantern_reach_factor;
+        let r = (t.sight + t.sight_per_culture * lantern as f32) * band * sight_factor;
+        let light = LANTERN_LIGHT_RADIUS
+            * (1.0 + LANTERN_RADIUS_PER_CULTURE * lantern as f32)
+            * band
+            * light_factor
+            * LANTERN_MAX_FLICKER
+            + LANTERN_SOURCE_MARGIN;
         Self {
             eye,
-            radii: Vec2::new(r, r * t.sight_tall),
+            radii: Vec2::new(r, r * t.sight_tall).max(Vec2::splat(light)),
         }
     }
 
@@ -1280,6 +1329,118 @@ mod compact_cells {
 #[cfg(test)]
 mod cold_memory_tests {
     use super::*;
+
+    #[test]
+    fn lantern_sight_covers_nominal_jar_offset_at_every_band_and_upgrade() {
+        use crate::tuning::{
+            LANTERN_LIGHT_RADIUS, LANTERN_MAX_FLICKER, LANTERN_RADIUS_PER_CULTURE,
+            LANTERN_SOURCE_MARGIN,
+        };
+        let tuning = Tuning::default();
+        for y in [0.0, -300.0, -1000.0, -4000.0, -10_000.0] {
+            for cultures in [0, 1, 2, 3, 4, 5, 6, 10, 25] {
+                let mut mover = crate::Mover::new(Vec2::new(7000.0, y));
+                mover.lantern = cultures;
+                let eye = mover.pos + Vec2::Y * mover.height(&tuning);
+                let band = crate::level::bands::band_at(eye).lantern_reach_factor;
+                let full = Sight::new(eye, cultures, &tuning.memory);
+                for dim in [false, true] {
+                    mover.lantern_dim = dim;
+                    let sight = mover.lantern_sight(&tuning);
+                    let light = LANTERN_LIGHT_RADIUS
+                        * (1.0 + LANTERN_RADIUS_PER_CULTURE * cultures as f32)
+                        * band
+                        * mover.lantern_light_factor()
+                        * LANTERN_MAX_FLICKER;
+                    let old = (tuning.memory.sight
+                        + tuning.memory.sight_per_culture * cultures as f32)
+                        * band
+                        * (1.0 - (1.0 - mover.lantern_light_factor()) * depth_factor(mover.pos));
+                    assert!((sight.radii.x - old.max(light + LANTERN_SOURCE_MARGIN)).abs() < 0.001);
+                    assert!(
+                        sight.radii.cmple(full.radii).all(),
+                        "paging covers dim sight"
+                    );
+                    for direction in [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y] {
+                        let jar = eye + direction * LANTERN_SOURCE_MARGIN;
+                        assert!(sight.sees(jar + direction * (light - 0.01)));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cultured_cold_sight_loads_without_exhausting_memory_admission() {
+        let level = Level::test_level();
+        let t = &Tuning::default().memory;
+        for cultures in [0, 1, 2, 3, 4, 5, 6, 10, 25, 250, 10_000] {
+            let mut memory = Memory::new(&level, t);
+            memory.enable_paging();
+            let eye = Vec2::new(8000.0, -300.0);
+            let mut loaded = 0;
+            while !memory.paging_ready(eye, cultures, t) {
+                let tickets = memory.page_requests(64);
+                assert!(!tickets.is_empty(), "culture {cultures} must make progress");
+                loaded += tickets.len();
+                assert!(loaded <= 2048, "bounded finite-world load");
+                for ticket in tickets {
+                    assert!(memory.accept_page(ticket, None).unwrap());
+                }
+            }
+            let required = memory.cache.protected.len();
+            if cultures >= 250 {
+                assert!(required > crate::page_cache::RESIDENT_PAGE_LIMIT);
+            } else {
+                assert!(required <= crate::page_cache::RESIDENT_PAGE_LIMIT);
+            }
+            assert!(memory.cache.known.len() <= memory.page_budget());
+            // A smaller subsequent interest drops excess clean pages rather
+            // than retaining the largest radius ever visited.
+            assert!(memory.paging_ready(eye, 0, t));
+            assert!(memory.cache.known.len() <= crate::page_cache::RESIDENT_PAGE_LIMIT);
+        }
+    }
+
+    #[test]
+    fn cultured_memory_admission_keeps_dirty_pages_outside_sight() {
+        let level = Level::test_level();
+        let t = &Tuning::default().memory;
+        let mut memory = Memory::new(&level, t);
+        memory.enable_paging();
+        let eye = Vec2::new(8000.0, -300.0);
+        assert!(!memory.paging_ready(eye, 25, t));
+        // A dirty previously explored area cannot be evicted while the
+        // newly enlarged sight window is being fetched.
+        for y in 0..memory.rows.div_ceil(MEMORY_CHUNK_SIDE) {
+            for x in 0..memory.cols.div_ceil(MEMORY_CHUNK_SIDE) {
+                if memory.dirty.len() < 240
+                    && !memory.cache.protected.contains(&(x as i32, y as i32))
+                {
+                    memory.cache.known.insert((x as i32, y as i32));
+                    memory.dirty.insert((x, y));
+                    memory.chunks.insert(
+                        (x, y),
+                        Arc::new(vec![MemoryCell { visits: 1, seen: 0 }; CHUNK_CELLS]),
+                    );
+                }
+            }
+        }
+        let dirty = memory.dirty.clone();
+        assert_eq!(dirty.len(), 240);
+        assert!(memory.page_budget() > crate::page_cache::RESIDENT_PAGE_LIMIT);
+        while !memory.paging_ready(eye, 25, t) {
+            let tickets = memory.page_requests(64);
+            assert!(!tickets.is_empty());
+            for ticket in tickets {
+                assert!(memory.accept_page(ticket, None).unwrap());
+            }
+        }
+        assert_eq!(memory.dirty, dirty);
+        assert!(dirty.iter().all(|key| memory.chunks[key][0].visits == 1));
+        assert!(memory.cache.known.len() <= memory.page_budget());
+    }
+
     #[test]
     fn sight_prepares_neighbor_pages_without_blocking_on_them() {
         let level = Level::test_level();

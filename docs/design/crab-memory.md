@@ -44,8 +44,16 @@ full daylight keeps full sight; complete darkness reaches 45% of the unlocked si
 retained. Acquired culture count still determines memory allocation and terrain paging, so toggling cannot
 unload the floor beneath the crab. The lamp core, halo and terrain light change together. Scent sensing remains
 unchanged, with its directional wisp placed beside the smaller light.
-Full lamp rendering contributes three times the original brightness; shading retains the previous dim rendering.
-This brightness adjustment does not increase perception, memory allocation, the light radius or detection ranges.
+Full lamp rendering contributes three times the original intensity; shading retains the previous dim intensity.
+Both settings have twice their previous light radius at every culture-upgrade count. The old perception radius
+remains a floor: sight expands only where the larger light would otherwise be hidden, allowing maximum flicker
+and a nominal 64-unit eye-to-jar offset. This offset is a normal-size visual tolerance, not proof for every grown
+pose or animation. Dimming retains its original depth-based perception factor, with the dim light's own smaller
+radius used for containment. Full-light paging capacity does not shrink when dimming. Ambient watchers remain
+outside sight; their placement follows the expanded visible area. Enemy notice ranges do not change.
+Memory-page admission covers the current full-light interest and dirty pages within the finite map, instead of
+stalling when a repeatably upgraded lantern requires more than the ordinary 256-page cache. Terrain-page limits
+and save/rollback rules are unchanged.
 
 Initial sight acquisition uses a tuned 60% radius at complete darkness, interpolated by ambient depth, with a
 140-unit close-contact floor (never larger than that animal's ordinary range). Existing targets retain their
