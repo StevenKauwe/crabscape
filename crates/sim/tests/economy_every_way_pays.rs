@@ -12,6 +12,7 @@
 
 use std::collections::BTreeSet;
 
+use bevy_math::Vec2;
 use crabsim::economy::items::drops_of;
 use crabsim::economy::place::nodes;
 use crabsim::economy::recipes::EconRecipe;
@@ -262,21 +263,30 @@ fn the_building_set_needs_all_four_activities() {
 
 // ---- Low-attention gathering is safe and close ----
 
-/// How near to a foe a crab standing or passing is in danger: a turret that
-/// does not move (the snapping shrimp, the moray in its crevice) strikes
-/// only within its strike range, so keep that and a margin; a hunter that
-/// leaves its place (the mantis) is kept 600 units off, the brief's number.
+/// How near to a foe a crab standing or passing is in danger (the owner's
+/// rule: danger guards the way, never the harvest, so a node is out of reach
+/// of every foe). A turret that does not move (the snapping shrimp, the
+/// moray in its crevice, the bobbit worm) strikes only within its strike
+/// range, so keep that and a margin; the octopus is kept its notice range
+/// off; a tethered walker (hermit crab, giant isopod, lobster) wanders and
+/// hunts anywhere inside its leash, so keep the leash, its bite and a margin
+/// (measured: an isopod shoved a crab 400 from its burrow); the hagfish
+/// keeps a leash and an ink cloud; any other hunter that leaves its place
+/// (the mantis, the open-water and midwater creatures, the amphipods) is
+/// kept 600 units off, the brief's number (none has a smaller patrol radius
+/// in the tuning).
 fn danger(kind: crabsim::Kind, t: &Tuning) -> f32 {
-    let e = match kind {
-        crabsim::Kind::Mantis => &t.mantis,
-        crabsim::Kind::Snapper => &t.snapper,
-        crabsim::Kind::Moray => &t.moray,
-        _ => return 600.0,
-    };
-    if e.approach_speed == 0.0 {
-        e.strike_range + 20.0
-    } else {
-        600.0
+    use crabsim::Kind;
+    let e = kind.tuning(t);
+    match kind {
+        Kind::Octopus => e.notice_range + 20.0,
+        Kind::HermitCrab | Kind::GiantIsopod | Kind::Lobster => {
+            e.give_up_range + e.strike_range + 20.0
+        }
+        Kind::Hagfish => e.give_up_range + 140.0,
+        Kind::GoliathGrouper | Kind::LoggerheadTurtle | Kind::HumboldtSquid => 600.0,
+        _ if e.approach_speed == 0.0 => e.strike_range + 20.0,
+        _ => 600.0,
     }
 }
 
@@ -337,5 +347,100 @@ fn the_home_cluster_is_a_short_walk_from_the_door() {
     ] {
         let n = home_cluster().iter().filter(|c| c.0 == skill_kind).count();
         assert!(n >= 2, "{skill_kind:?}: {n} on foot");
+    }
+}
+
+// ---- Danger guards the way, never the harvest ----
+
+/// Every foe on the real level, from every spawn list the sim has: the
+/// level's own (`foes` holds the older route, the bestiary, the exploration
+/// habitat, the canyon's jellies and the octopus), the new creatures'
+/// spots, and the moray crevices' dens. (The sixgill is a deep-band
+/// resident named in `bands.rs`, not a spawn; the midwater creatures are in
+/// `creatures::spots` and keep the 600 default.)
+fn every_foe(level: &Level) -> Vec<(crabsim::Kind, bevy_math::Vec2)> {
+    let mut foes: Vec<_> = level.foes.clone();
+    foes.extend(crabsim::creatures::spots(level));
+    foes.extend(level.crevices.iter().map(|c| (crabsim::Kind::Moray, c.den)));
+    foes
+}
+
+#[test]
+fn no_foe_lies_near_any_node_on_the_real_level() {
+    let level = Level::test_level();
+    let t = Tuning::default();
+    let foes = every_foe(&level);
+    let placed = nodes(&level);
+    assert!(placed.len() >= 80, "{} nodes", placed.len());
+    assert!(foes.len() >= 30, "{} foes", foes.len());
+    let mut bad = Vec::new();
+    for n in &placed {
+        for &(kind, at) in &foes {
+            let keep = danger(kind, &t);
+            let d = n.pos.distance(at);
+            if d < keep {
+                bad.push(format!(
+                    "{:?} at {:.0},{:.0} is {d:.0} from a {kind:?} at {:.0},{:.0} (keep {keep})",
+                    n.kind, n.pos.x, n.pos.y, at.x, at.y
+                ));
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "{} calm-spot failures:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+}
+
+/// Nothing in the gather rules interrupts a harvest except the crab's own
+/// movement (walking, jumping, dodging, letting go, leaving the floor) and a
+/// hit it takes (`economy/sim.rs`, the `cancel` list; the bar emptying on
+/// each is shown in `economy_gather.rs`). No foe, timer or world event is on
+/// that list. So with the real foes alive and the crab standing at each
+/// placed node and holding Gather, nothing may touch it and the hold may
+/// never be cancelled by anything but the crab.
+#[test]
+fn a_harvest_at_every_node_is_calm_with_the_real_foes_alive() {
+    use crabsim::{Controls, PlayerId, Sim};
+    let mut level = Level::test_level();
+    // The vent field's plumes carry a crab; they are weather, not foes.
+    level.currents.clear();
+    let probe = Sim::new(Tuning::default(), level.clone());
+    let count = probe.placed_nodes().len();
+    assert!(count >= 80);
+    for i in 0..count {
+        let at = probe.placed_nodes()[i];
+        let mut sim = Sim::new(Tuning::default(), level.clone());
+        sim.populate();
+        assert!(sim.enemies().len() >= 7, "foes spawned");
+        let id = PlayerId(0);
+        sim.add_crab(id, Vec2::new(at.pos.x, sim.level.floor_height(at.pos.x)));
+        let full = sim.crab(id).expect("crab").fighter.vitals.health;
+        sim.set_controls(
+            id,
+            Controls {
+                gather_held: true,
+                ..Controls::default()
+            },
+        );
+        // Twelve seconds of holding at the node.
+        for _ in 0..1440 {
+            sim.tick();
+            let c = sim.crab(id).expect("crab");
+            assert!(
+                c.fighter.vitals.health >= full && !c.events.hurt && !c.events.staggered,
+                "node {i} {:?} at {:.0}: a harvest was touched (health {} of {full}, foes near: {:?})",
+                at.kind,
+                at.pos.x,
+                c.fighter.vitals.health,
+                sim.enemies()
+                    .iter()
+                    .filter(|e| e.pos.distance(at.pos) < 800.0)
+                    .map(|e| (e.kind, e.pos.x as i32, e.pos.y as i32, e.phase(&sim.tuning)))
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }

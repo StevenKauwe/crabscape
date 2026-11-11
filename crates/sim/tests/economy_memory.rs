@@ -86,7 +86,7 @@ fn walking_a_long_way_remembers_the_nodes_on_the_way() {
     let i = node(&s, NodeKind::PitGlowSite);
     assert!(mem(&s, ME).nodes.iter().all(|n| n.index as usize != i));
     let x = s.placed_nodes()[i].pos.x;
-    put(&mut s, ME, x - 150.0);
+    put(&mut s, ME, x - 100.0);
     run(&mut s, 60);
     assert!(mem(&s, ME).nodes.iter().any(|n| n.index as usize == i));
 }
