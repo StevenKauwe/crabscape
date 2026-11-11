@@ -47,7 +47,7 @@ fn shaft_interiors<'a>(name: &'a str) -> impl Iterator<Item = Rect> + 'a {
         .iter()
         .filter(move |f| f.name == name)
         .flat_map(|f| f.shafts.iter())
-        .map(|r| Rect::new(r.min.x, r.min.y + 20.0, r.max.x, r.max.y - 4.0))
+        .map(|r| Rect::new(r.min.x, r.min.y, r.max.x, r.max.y - 4.0))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +75,12 @@ fn bodies() -> &'static [StrataBody] {
                     .filter(|g| g.open)
                     .map(|g| g.rect)
                     .chain(f.shafts.iter().copied())
+                    // The clay sill under each silt shaft.
+                    .chain(
+                        f.shafts
+                            .iter()
+                            .map(|r| Rect::new(r.min.x, r.min.y - 60.0, r.max.x, r.min.y)),
+                    )
                     .collect(),
                 // Owned pebble aggregates cannot be represented by the scalar
                 // bake: clay (mud) stands in for every layer.
@@ -83,7 +89,12 @@ fn bodies() -> &'static [StrataBody] {
                     .voids
                     .iter()
                     .copied()
-                    .chain(f.gaps.iter().filter(|g| g.open).map(|g| g.rect))
+                    .chain(
+                        f.gaps
+                            .iter()
+                            .filter(|g| g.open && f.shafts.is_empty())
+                            .map(|g| g.rect),
+                    )
                     .collect(),
                 shafts: f.shafts.clone(),
             })
