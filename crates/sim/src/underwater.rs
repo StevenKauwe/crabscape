@@ -4,6 +4,8 @@
 
 mod active_remap;
 mod background_waves;
+#[cfg(test)]
+mod push_scratch_tests;
 #[cfg(any(test, feature = "terrain-bake"))]
 pub mod seed_bake;
 pub(crate) mod settled_seed;
@@ -31,6 +33,32 @@ pub const MAX_REGION_CELLS: usize = 1024 * 1024;
 pub(crate) const MAX_PENDING_FALLS: usize = 65_536;
 pub(crate) const FALL_CATCHUP_BUDGET: usize = 4096;
 pub const MAX_REGION_SILT: usize = 8 * 1205;
+
+/// Search workspace for the grains in one body push. It is not world state:
+/// saves, checkpoints and clones never retain it. Only visited loads need
+/// clearing between searches, whose local coordinate mappings may differ.
+#[derive(Default)]
+struct PushScratch {
+    previous: Vec<usize>,
+    loads: Vec<usize>,
+    touched: Vec<usize>,
+    // Carry coordinates through the hot search instead of repeatedly
+    // dividing a flat index by the runtime region width.
+    queue: std::collections::VecDeque<(i32, i32)>,
+}
+
+impl PushScratch {
+    fn reset(&mut self, len: usize) {
+        for index in self.touched.drain(..) {
+            self.loads[index] = usize::MAX;
+        }
+        self.queue.clear();
+        if self.loads.len() < len {
+            self.loads.resize(len, usize::MAX);
+            self.previous.resize(len, usize::MAX);
+        }
+    }
+}
 
 fn valid_region_size(width: usize, height: usize) -> bool {
     (64..=2048).contains(&width)
@@ -2659,6 +2687,7 @@ impl World {
             return false;
         }
         let mut displaced = false;
+        let mut scratch = PushScratch::default();
         // A movement may cover multiple cells. Keep moving grains through
         // temporarily empty destination cells until the whole body fits.
         for _ in 0..(self.crab_half_x * 2 + 2) {
@@ -2693,7 +2722,7 @@ impl World {
                                 }
                             }
                         } else {
-                            self.push_column(
+                            self.push_column_with_scratch(
                                 sx,
                                 sy,
                                 dx,
@@ -2702,6 +2731,7 @@ impl World {
                                 Some((cx, cy)),
                                 through_body,
                                 protected,
+                                &mut scratch,
                             );
                         }
                         moved_this_pass |= self.cell(sx, sy) == Cell::Water;
@@ -2760,6 +2790,32 @@ impl World {
         through_body: bool,
         protected: Option<(i32, i32, i32, i32)>,
     ) {
+        self.push_column_with_scratch(
+            x,
+            y,
+            dx,
+            dy,
+            force,
+            target,
+            through_body,
+            protected,
+            &mut PushScratch::default(),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_column_with_scratch(
+        &mut self,
+        x: i32,
+        y: i32,
+        dx: i32,
+        dy: i32,
+        force: usize,
+        target: Option<(i32, i32)>,
+        through_body: bool,
+        protected: Option<(i32, i32, i32, i32)>,
+        scratch: &mut PushScratch,
+    ) {
         let Some(start) = self.index_at(x, y) else {
             return;
         };
@@ -2784,14 +2840,19 @@ impl World {
                 Some((py - bottom) as usize * w + (px - left) as usize)
             }
         };
-        let mut previous = vec![usize::MAX; w * (top - bottom + 1) as usize];
-        let mut loads = vec![usize::MAX; previous.len()];
-        let mut queue = std::collections::VecDeque::new();
+        scratch.reset(w * (top - bottom + 1) as usize);
+        let PushScratch {
+            previous,
+            loads,
+            touched,
+            queue,
+        } = scratch;
         let Some(start_local) = local(start) else {
             return;
         };
         loads[start_local] = self.sediment_push_cost(start);
-        queue.push_back(start);
+        touched.push(start_local);
+        queue.push_back((x, y));
         // Favor a scoop: first out to the nearer side of the crab, then
         // back along its body, allowing grains to settle into its wake.
         let (mut side_x, mut side_y) = (-dy, dx);
@@ -2802,26 +2863,28 @@ impl World {
                 side_y = -side_y;
             }
         }
-        while let Some(i) = queue.pop_front() {
-            let Some(li) = local(i) else { continue };
-            let (px, py) = ((i % self.width) as i32, (i / self.width) as i32);
-            for (nx, ny) in [(side_x, side_y), (-dx, -dy), (dx, dy), (-side_x, -side_y)] {
-                let Some(n) = self.index_at(px + nx, py + ny) else {
+        while let Some((px, py)) = queue.pop_front() {
+            // Only coordinates inside the clipped search area are queued.
+            let i = py as usize * stride + px as usize;
+            let li = (py - bottom) as usize * w + (px - left) as usize;
+            for (ax, ay) in [(side_x, side_y), (-dx, -dy), (dx, dy), (-side_x, -side_y)] {
+                let (nx, ny) = (px + ax, py + ay);
+                if nx < left || nx > right || ny < bottom || ny > top {
                     continue;
-                };
+                }
+                let n = ny as usize * stride + nx as usize;
                 if self.pebble_owner[n] != 0 {
                     continue;
                 }
-                let Some(ln) = local(n) else { continue };
-                if self.other_body_contains((n % self.width) as i32, (n / self.width) as i32, 0)
+                let ln = (ny - bottom) as usize * w + (nx - left) as usize;
+                if self.other_body_contains(nx, ny, 0)
                     || (!through_body
                         && self.crab.is_some_and(|(cx, cy)| {
-                            ((n % self.width) as i32 - cx).abs() <= self.crab_half_x
-                                && ((n / self.width) as i32 - cy).abs() <= self.crab_half_y
+                            (nx - cx).abs() <= self.crab_half_x
+                                && (ny - cy).abs() <= self.crab_half_y
                         }))
                     || protected.is_some_and(|(cx, cy, hx, hy)| {
-                        ((n % self.width) as i32 - cx).abs() <= hx
-                            && ((n / self.width) as i32 - cy).abs() <= hy
+                        (nx - cx).abs() <= hx && (ny - cy).abs() <= hy
                     })
                 {
                     continue;
@@ -2834,12 +2897,14 @@ impl World {
                 // Water inside the destination can be crossed but cannot
                 // be the final resting place for a displaced grain.
                 let inside_target = target.is_some_and(|(cx, cy)| {
-                    ((n % self.width) as i32 - cx).abs() <= self.crab_half_x
-                        && ((n / self.width) as i32 - cy).abs() <= self.crab_half_y
+                    (nx - cx).abs() <= self.crab_half_x && (ny - cy).abs() <= self.crab_half_y
                 });
                 let load = loads[li].saturating_add(cost);
                 if load > force || load >= loads[ln] {
                     continue;
+                }
+                if loads[ln] == usize::MAX {
+                    touched.push(ln);
                 }
                 loads[ln] = load;
                 previous[ln] = i;
@@ -2853,7 +2918,7 @@ impl World {
                     }
                     return;
                 }
-                queue.push_back(n);
+                queue.push_back((nx, ny));
             }
         }
         if !through_body && let Some(target) = target {
