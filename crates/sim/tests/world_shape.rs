@@ -217,26 +217,54 @@ fn no_hunter_roams_inside_a_tunnel() {
             }
             let swimming = kind.swims();
             let leash = crabsim::enemy::Enemy::new(0, kind, home, &tuning).home_leash(&tuning);
-            let chase = leash + k.approach_speed * k.tell_ticks as f32 * route::DT as f32;
+            // The goliath grouper hangs at its cave and never leaves it (its
+            // approach speed is zero and its tests pin it to the spot): its
+            // reach is its own body and gulp, not a chase.
+            let chase = if kind == crabsim::enemy::Kind::GoliathGrouper {
+                0.0
+            } else {
+                leash + k.approach_speed * k.tell_ticks as f32 * route::DT as f32
+            };
+            // A sheer drop (the slump dam) is a wall to a hunter standing east
+            // of it: its leash stops at the wall.
+            let wall = landmarks
+                .iter()
+                .filter(|l| l.kind == Kind::Drop && l.rect.max.x <= home.x)
+                .map(|l| l.rect.max.x)
+                .fold(f32::NEG_INFINITY, f32::max);
             let (bottom, top) = if swimming {
-                (home.y - chase, home.y + chase)
+                // A swimmer cannot go through the seabed: its leash stops at
+                // the lowest ground within reach (pockets under the floor are
+                // entered by their doors, which the sanctuary guard and the
+                // mouth tests cover).
+                let seabed = level
+                    .floor
+                    .iter()
+                    .filter(|p| (p.x - home.x).abs() <= chase && p.x >= wall)
+                    .map(|p| p.y)
+                    .chain([
+                        level.floor_height((home.x - chase).max(wall)),
+                        level.floor_height(home.x + chase),
+                    ])
+                    .fold(f32::INFINITY, f32::min);
+                ((home.y - chase).max(seabed.min(home.y)), home.y + chase)
             } else {
                 level
                     .floor
                     .iter()
-                    .filter(|p| (p.x - home.x).abs() <= chase)
+                    .filter(|p| (p.x - home.x).abs() <= chase && p.x >= wall)
                     .map(|p| p.y)
                     .chain([
                         home.y,
-                        level.floor_height(home.x - chase),
+                        level.floor_height((home.x - chase).max(wall)),
                         level.floor_height(home.x + chase),
                     ])
                     .fold((home.y, home.y), |(low, high), y| (low.min(y), high.max(y)))
             };
-            let centres = Rect::new(home.x - chase, bottom, home.x + chase, top);
+            let centres = Rect::new((home.x - chase).max(wall), bottom, home.x + chase, top);
             let horizontal = chase + k.body.0 * 0.5 + k.strike.lunge;
             let envelope = Rect::new(
-                home.x - horizontal,
+                (home.x - horizontal).max(wall),
                 bottom,
                 home.x + horizontal,
                 top + k.body.1,

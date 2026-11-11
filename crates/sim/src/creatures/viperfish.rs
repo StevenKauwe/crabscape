@@ -10,7 +10,7 @@
 //! Its own feel numbers live here, at the top; shared ones stay in
 //! `tuning.rs`.
 
-use bevy_math::Vec2;
+use bevy_math::{Rect, Vec2};
 
 use crate::combat::{self, Hit, Outcome, Source};
 use crate::enemy::{self, AnimalPrey, Enemy, State as Mode};
@@ -141,11 +141,36 @@ pub fn spots(level: &Level) -> Vec<Vec2> {
         return Vec::new();
     };
     let r = vents.rect;
+    // Shelters (and their doors) the fish must keep 400+ units from: the
+    // vent field's pockets open onto its floor.
+    let shelters: Vec<Rect> = level
+        .landmarks()
+        .into_iter()
+        .filter(|l| {
+            matches!(
+                l.kind,
+                Spot::Refuge | Spot::Tunnel | Spot::Mouth | Spot::Chamber { .. }
+            )
+        })
+        .map(|l| l.rect)
+        .collect();
     // (share across the field, height above the floor)
     [(0.3_f32, 420.0_f32), (0.7, 700.0)]
         .into_iter()
         .map(|(share, above)| {
-            let x = r.min.x + r.width() * share;
+            let mut x = r.min.x + r.width() * share;
+            // Slide east until clear of every shelter.
+            for _ in 0..200 {
+                let y = (level.floor_height(x) + above).clamp(r.min.y + 100.0, r.max.y - 60.0);
+                let p = Vec2::new(x, y);
+                let clear = shelters
+                    .iter()
+                    .all(|s| p.distance(p.clamp(s.min, s.max)) >= 450.0);
+                if clear || x >= r.max.x - 100.0 {
+                    break;
+                }
+                x += 10.0;
+            }
             let y = (level.floor_height(x) + above).clamp(r.min.y + 100.0, r.max.y - 60.0);
             Vec2::new(x, y)
         })

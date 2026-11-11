@@ -11,7 +11,7 @@ use crabsim::{Controls, Kind, Level, PlayerId, Sim, Tuning};
 
 const P: PlayerId = PlayerId(0);
 const GUEST: PlayerId = PlayerId(1);
-const X: f32 = 19000.0;
+const X: f32 = 19900.0;
 
 fn floor() -> f32 {
     Level::test_level().floor_height(X)
