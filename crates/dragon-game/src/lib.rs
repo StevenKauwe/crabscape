@@ -3,9 +3,25 @@
 //! Flight uses explicit recorded frame durations and viewport geometry, not CrabScape's
 //! fixed tick: subdividing the original JS integrator changes acceleration and damping.
 //! No wall clock, storage, microphone, transcription or network side effects live here.
+pub mod abilities;
 pub mod combat;
+
+pub mod damage;
+
 pub mod flight;
+pub mod game;
+pub mod gems;
+
+pub mod enemies;
+
+pub mod missions;
+pub mod objectives;
+
+pub mod profile;
+pub mod progression;
+
 pub mod projectiles;
+
 pub mod random;
 
 pub mod save;

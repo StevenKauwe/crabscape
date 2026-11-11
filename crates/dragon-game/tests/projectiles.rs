@@ -367,3 +367,118 @@ fn strict_collision_and_world_boundaries_and_hammer_turn_threshold() {
     update_shots(&mut shots, &mut [], 0.1, world());
     assert!((shots[0].vx + 215.5).abs() < 1e-12);
 }
+
+struct ConsequenceWorld {
+    targets: Vec<Target>,
+    split: bool,
+    hit_order: Vec<u64>,
+}
+impl dragon_game::projectiles::CollisionWorld for ConsequenceWorld {
+    fn target_count(&self) -> usize {
+        self.targets.len()
+    }
+    fn target(&self, index: usize) -> &Target {
+        &self.targets[index]
+    }
+    fn hit(&mut self, index: usize, shot: &Shot, authority: Authority, events: &mut Vec<Event>) {
+        self.hit_order.push(self.targets[index].id);
+        hit_enemy(&mut self.targets[index], shot, authority, events);
+        if !self.targets[index].dead {
+            return;
+        }
+        if self.targets[index].boss {
+            for target in &mut self.targets {
+                if !target.dead {
+                    target.calm = true;
+                }
+            }
+        }
+        if self.split && self.targets[index].id == 1 {
+            self.targets.push(target(3));
+            self.targets.push(target(4));
+        }
+    }
+}
+#[test]
+fn piercing_boss_defeat_calms_later_targets_before_collision() {
+    let mut targets = ConsequenceWorld {
+        targets: vec![
+            Target {
+                hp: 1.0,
+                boss: true,
+                ..target(1)
+            },
+            target(2),
+        ],
+        split: false,
+        hit_order: vec![],
+    };
+    let mut shots = vec![Shot {
+        pierce: true,
+        ..shot(Kind::Boulder)
+    }];
+    let events =
+        dragon_game::projectiles::update_shots_with_world(&mut shots, &mut targets, 0.01, world());
+    assert_eq!(targets.hit_order, [1]);
+    assert!(targets.targets[0].dead);
+    assert!(targets.targets[1].calm);
+    assert_eq!(targets.targets[1].hp, 10.0);
+    assert_eq!(
+        events,
+        [Event::Defeat {
+            id: 1,
+            owner: "bond".into()
+        }]
+    );
+    assert_eq!(shots[0].hits.iter().copied().collect::<Vec<_>>(), [1]);
+}
+#[test]
+fn piercing_visits_appended_split_children_in_live_array_order() {
+    let mut targets = ConsequenceWorld {
+        targets: vec![
+            Target {
+                hp: 1.0,
+                ..target(1)
+            },
+            target(2),
+        ],
+        split: true,
+        hit_order: vec![],
+    };
+    let mut shots = vec![Shot {
+        pierce: true,
+        ..shot(Kind::Boulder)
+    }];
+    dragon_game::projectiles::update_shots_with_world(&mut shots, &mut targets, 0.01, world());
+    assert_eq!(targets.hit_order, [1, 2, 3, 4]);
+    assert_eq!(
+        targets.targets.iter().map(|t| t.hp).collect::<Vec<_>>(),
+        [0.0, 9.0, 9.0, 9.0]
+    );
+    assert_eq!(
+        shots[0].hits.iter().copied().collect::<Vec<_>>(),
+        [1, 2, 3, 4]
+    );
+}
+#[test]
+fn arrow_cap_still_stops_at_second_target_with_synchronous_splits() {
+    let mut targets = ConsequenceWorld {
+        targets: vec![Target {
+            hp: 1.0,
+            ..target(1)
+        }],
+        split: true,
+        hit_order: vec![],
+    };
+    let mut shots = vec![Shot {
+        pierce: true,
+        ..shot(Kind::Arrow)
+    }];
+    dragon_game::projectiles::update_shots_with_world(&mut shots, &mut targets, 0.01, world());
+    assert_eq!(targets.hit_order, [1, 3]);
+    assert_eq!(
+        targets.targets.iter().map(|t| t.hp).collect::<Vec<_>>(),
+        [0.0, 9.0, 10.0]
+    );
+    assert!(shots.is_empty());
+}

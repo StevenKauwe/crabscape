@@ -120,7 +120,7 @@ fn real_legacy_source_matches_synthetic_frame_schedules() {
                 states.push(json!({"p":js_player(&p), "events":{"mega":event.mega_blast,"shadow":event.shadow_burst,"recover":event.recovered,"shoot":event.shoot}}));
             }
             cases.push(json!({"screen":screen,"zoom":zoom,"scale":dragon_scale,"rules":rules,"p":initial,"frames":frames}));
-            expected.push(json!({"view":{"width":view.width,"scale":view.scale,"ground_y":view.ground_y,"top_limit":view.top_limit},"states":states}));
+            expected.push(json!({"view":{"width":view.width,"height":view.height,"scale":view.scale,"ground_y":view.ground_y,"top_limit":view.top_limit},"states":states}));
         }
     }
     let script = format!(
@@ -143,7 +143,7 @@ const R = {{dragon:'synthetic'}}, particles = []; let mission;
 const results = cases.map(c => {{
  P=c.p; VIEW=c.zoom; size=c.scale; rules=c.rules; mission={{done:rules.mission_done}};
  window={{innerWidth:c.screen[0],innerHeight:c.screen[1],devicePixelRatio:1}}; resize();
- const view={{width:W,scale:S,ground_y:groundY,top_limit:topLimit}};
+ const view={{width:W,height:H,scale:S,ground_y:groundY,top_limit:topLimit}};
  const states=c.frames.map(f=>{{ input=f.input; events={{mega:false,shadow:false,recover:false,shoot:false}};
  P.stick=input.stick ? {{x0:0,y0:0,x:input.stick[0],y:input.stick[1]}} : null;
  updatePlayer(Math.min(0.05,Math.max(0,f.dt)));

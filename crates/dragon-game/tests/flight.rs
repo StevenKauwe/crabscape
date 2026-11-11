@@ -3,6 +3,7 @@ use dragon_game::flight::{FlightRules, Input, Player, Viewport};
 fn view() -> Viewport {
     Viewport {
         width: 1000.0,
+        height: 700.0,
         scale: 40.0,
         ground_y: 700.0,
         top_limit: 50.0,
@@ -216,6 +217,7 @@ fn viewport_clamps_tiny_screens_without_reversing_bounds() {
     close(v.top_limit, 68.0);
     let tiny = Viewport {
         width: 10.0,
+        height: 700.0,
         ground_y: 20.0,
         ..view()
     };

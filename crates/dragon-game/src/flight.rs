@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Viewport {
     pub width: f64,
+    pub height: f64,
     pub scale: f64,
     pub ground_y: f64,
     pub top_limit: f64,
@@ -22,6 +23,7 @@ impl Viewport {
     ) -> Self {
         Self {
             width: width / view,
+            height: height / view,
             scale: (width.min(height) / 11.0).clamp(30.0, 64.0),
             ground_y: (height - 84.0_f64.max(height * 0.13)) / view,
             top_limit: (hud_bottom + 6.0) / view,
@@ -31,6 +33,7 @@ impl Viewport {
     fn valid(self) -> bool {
         [
             self.width,
+            self.height,
             self.scale,
             self.ground_y,
             self.top_limit,
@@ -39,6 +42,7 @@ impl Viewport {
         .iter()
         .all(|x| x.is_finite())
             && self.width > 0.0
+            && self.height > 0.0
             && self.scale > 0.0
             && self.dragon_scale > 0.0
     }

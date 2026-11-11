@@ -1,90 +1,94 @@
-# Dragon Rust port: flight slice
+# Dragon Rust port: work in progress
 
-This branch is an additive, incomplete port, not a replacement for Dragon. The existing
-`web/dragon/index.html`, browser save keys, public build and Dragon peer/voice transport
-are unchanged. Do not route players to this sandbox as the full game.
+This branch is an additive port, not a replacement for Dragon. The existing
+`web/dragon/index.html`, browser save keys and public game remain unchanged. The PR's
+web preview is still the existing JS game, not the native Rust prototypes.
 
-## Run and verify
+## Run
 
-- `cargo run --bin dragon_flight`: native Bevy flight sandbox; arrows/WASD to steer,
-  Escape to pause, R to reset. It uses placeholder art. No browser or GUI was opened
-  during implementation; rendering still needs a human-visible check.
-- `cargo run --bin dragon_flight -- --save exported-rider.json`: read an explicitly
-  supplied v3 rider export to preview bonded dragon size, solo tea and magic bonuses.
-  No personal save discovery or write occurs. An invalid/unsupported file stops import
-  rather than replacing it with a new rider.
-- `cargo test -p dragon-game`: save preservation and numerical flight regressions.
-- `cargo test -p dragon-game --test legacy_flight -- --ignored`: on macOS,
-  compare 3,360 synthetic frames against functions extracted from the real JS source
-  using JavaScriptCore. Combat effects are stubbed to events and cosmetic RNG disabled.
-- `cargo check --bin dragon_flight`: compile the Bevy presentation.
+- `cargo run --bin dragon_flight`: Bevy flight/combat practice range. WASD/arrows steer,
+  Space/Enter fires, 1–6 select breath, G changes stage, B changes breath skill, F uses
+  a weapon, P changes rider path, Escape pauses, R resets. These are test controls,
+  not the game's unlock rules.
+- `cargo run --bin dragon_flight -- --save exported-rider.json`: explicitly supplied,
+  read-only v3 export preview. No automatic save discovery or writes.
+- `cargo run --bin dragon_mission -- --mission m1`: integrated solo mission prototype.
+  m1 through m4 currently supported; Space fires, WASD/arrows move, Escape pauses,
+  R restarts. All use a deterministic test seed and a starting bonded dragon.
 
-## What is ported
+Both presentations use placeholder shapes. Headless Bevy ECS startup/input/pause tests
+run without opening windows. Actual rendering and feel still need visual verification.
+There is no microphone, transcription, live network connection or persistence in these
+entry points.
 
-`crates/dragon-game` is a presentation-independent Rust core. It takes explicit input,
-frame duration, screen geometry and flight rules. It ports the flight portion of
-`updatePlayer`, including timer ordering, energy recovery, retired/resting/dizzy paths,
-shadow speed, facing, floating-stick dead zone, viewport scaling and bounds. Combat
-callbacks are **events only**; they do not yet perform combat or consume randomness.
-Shadow particles, wing animation and other cosmetic randomness are not simulated.
+## Implemented core
 
-The Bevy app converts input into that core and presents its position. Placeholder art
-is deliberately not a claim of visual parity. The sandbox does not exercise all the
-core states through gameplay, because the mission/combat systems are not ported yet.
+- Flight, floating-stick input, viewport bounds and timer ordering.
+- All six breath patterns, four rider weapons, projectile motion/homing/hammer return,
+  collision ordering, armor/mark/crack/mega damage and host-versus-guest hit authority.
+- All 20 enemy definitions, spawn placement and movement/attack brains. World effects
+  are explicit events; independent brain parity is not full-world parity.
+- All 24 base mission definitions with the original stretch rules, journey/wave
+  coordination, banking, result timing and guest branches.
+- All eight objective definitions and protect/escort/carry geometry, damage and theft.
+- Player bumps/bonks, hazard and lightning timing, gem movement/collection geometry.
+- Integrated solo m1–m4 lifecycle, including the barn objective, Thunderhead phases,
+  rewards within the runtime, retirement and success/failure results. Full persistent
+  progression, party/rider actions and the remaining missions are not yet integrated.
+- All specials, eight spells and Daddio powers, with explicit ordered world effects.
+- Pure profile normalization and in-memory progression commands (XP, feeding, treats,
+  crafts, skill purchases, party selection, team craft/hoard aggregation).
 
-The compatibility adapter retains original JSON byte-for-byte, including unknown fields.
-It exposes a read-only projection rather than claiming to implement the entire browser
-normalizer. In particular, projection accepts canonical JSON numbers rather than
-JavaScript numeric-string/boolean coercions, and requires a boolean bonded flag.
-Old XP conversion applies only to the projection. A storage archive retains
-all original key/value strings, including auxiliary freeze, display, narration, history,
-invite, volume and future keys. The adapter does not access localStorage itself, import
-into live storage, synchronize remote rider documents, or write upgraded saves. Browser
-progression saves do not contain a full running mission or RNG state.
+`BrowserSave` keeps source JSON bytes and unknown fields untouched. Its normalization
+method produces a separate value and supports ordinary legacy/current saves, Unicode
+names and UTF-16 length rules. Unsupported pathological string coercions, inherited
+prototype keys and surrogate-splitting truncations return errors rather than silently
+rewriting data. The simpler flight projection is deliberately conservative. Storage
+archives preserve every original key/value string, including freeze, display, narration,
+history, invite, volume and future keys. None of these APIs access live storage.
 
-## Timing decision
+## Networking and privacy
 
-A fixed 120 Hz tick is not equivalent to the original game's variable-frame integrator.
-For example, one 1/30-second acceleration step differs from two 1/60-second steps.
-This slice preserves explicit frame schedules and the original 50 ms cap, using f64
-like JS numbers. Before replacing the live game, record and compare frame schedules,
-inputs, viewport/HUD geometry, initial mission state and random draws. Do not silently
-subdivide these steps into CrabScape ticks and call the result identical.
+`dragon-peer` exposes a reusable Rust session API and an opt-in native Matchbox backend
+using the existing Dragon namespace, channels, packet limits and version checks. Native
+voice is disabled. The existing browser microphone/voice API remains opt-in; no
+transcription is connected. See `crates/dragon-peer/README.md`.
 
-## Remaining work before replacement
+A genuine two-native-client loopback test passes reliable/unreliable exchange, replay
+rejection, disconnect and cancellation using ephemeral local signaling and no STUN/TURN
+URLs. This is not a browser/native interoperability or multiplayer gameplay test. The
+mission runtime still needs world/session synchronization and authority/handoff wiring.
 
-1. Port mission definitions, enemy AI, attacks, collisions, objectives, rewards, progression,
-   roost/crafting/story flows and the complete profile normalization rules.
-2. Capture/inject gameplay RNG separately from cosmetic draws and compare full missions
-   against the source. Cover phone layouts and interrupted/repeated interactions.
-3. Reuse `crates/dragon-peer` and CrabScape's Matchbox connection infrastructure for
-   actual sessions, authority/handoff and shared world state. The existing Dragon peer
-   transport is browser/WASM-only. This sandbox has **no multiplayer**; native transport
-   needs explicit implementation and two-client tests, not an unrelated new protocol.
-4. Port visual/audio presentation and verify it without changing the live JS deployment.
-5. Add a staged, explicit save transfer/write flow with backups, failure tests and a
-   proven return path to the browser. Keep current save keys and original data intact.
+## Verification
 
-## Privacy boundary
+`cargo test -p dragon-game -- --include-ignored` runs portable tests and, on macOS,
+JavaScriptCore oracles that extract actual legacy functions. Coverage includes:
 
-This slice does not connect, capture audio, enable a microphone or invoke transcription.
-The existing Dragon peer voice path remains unchanged. Future multiplayer wiring must
-keep microphone capture off by default and never attach the `listen` transcription
-pipeline to Dragon voice. Verify reconnect and disconnect behavior before rollout.
+- 3,360 flight frames and viewport geometry;
+- 1,152 breath and 64 weapon configurations;
+- 108 projectile fixtures over four frames;
+- 12,000 enemy frames with state, hazard and strike comparisons;
+- 328 damage cases, 128 gem cases and 102 ability scenarios;
+- mission definitions/lifecycle, objective geometry, profile normalization and
+  progression mutations against synthetic source-JS fixtures.
 
-## Combat increment
+The oracles explicitly stub presentation or unported external callbacks. They are
+component evidence, not a claim that an entire live mission or old RNG session matches.
+Native and WASM lint checks cover the prototypes; required CI must be checked on each
+published head. No personal save was used in these tests.
 
-The range now supports six breath kinds (1–6), growth stages (G), breath skill (B),
-Space/Enter firing, and all four rider weapons (hold F, cycle path with P). These are
-explicit test controls, not unlock/progression rules. R resets six stationary practice
-targets. Actual missions, enemy AI and rewards are still not integrated into the range.
+## Timing decision and remaining replacement gates
 
-`combat` ports breath patterns, cooldowns and rider weapons. `projectiles` ports motion,
-homing, hammer return, ordered collisions and local/guest damage authority. Defeat,
-dad-impact and guest-hit effects are emitted; presentation RNG, reward/split spawns,
-boss-add calming and network callbacks are not implemented here. In particular,
-synchronous defeat side effects must be integrated before claiming whole-world parity.
+The original variable-frame integrator is not equivalent to CrabScape's fixed 120 Hz
+tick. Preserve explicit frame schedules and the original 50 ms cap using f64. A replay
+must record inputs, frame times, viewport/HUD geometry, initial state and random draws.
+The current Rust seed is not a replay of a browser Math.random session: cosmetic draws
+are not all consumed. Do not claim fixed-tick or full-world identity from isolated tests.
 
-The real-source test oracles now also compare 1,152 breath configurations, 64 weapon
-configurations, and 108 projectile/damage fixtures over four frames. The range is a
-compile-checked prototype with placeholder shapes, not a visual parity result.
+Before replacing the JS game: integrate profile/party/skills/spells, every mission and
+objective, synchronous defeat/split callbacks, full rewards/roost/story/egg flows and
+multiplayer; reproduce presentation and controls; compare complete interrupted and
+repeated play flows on phones and desktop; verify browser/native sessions; implement an
+explicit reversible save transfer/write flow with failure tests. Keep original saves and
+the live JS game available until those gates pass. The separate home-server wrapper and
+its storage format have not been inspected or claimed compatible.

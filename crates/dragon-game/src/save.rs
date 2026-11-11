@@ -32,6 +32,16 @@ impl BrowserSave {
             value,
         })
     }
+    /// Normalize a separate in-memory profile using the original browser schema.
+    /// Caller supplies slot identity and fallback IDs; original bytes are retained.
+    pub fn normalized_profile(
+        &self,
+        rider_key: &str,
+        rider_index: usize,
+        fallback_id: impl FnMut() -> String,
+    ) -> Result<Value, crate::profile::ProfileError> {
+        crate::profile::normalize_profile(&self.value, rider_key, rider_index, fallback_id)
+    }
     pub fn original(&self) -> &str {
         &self.original
     }

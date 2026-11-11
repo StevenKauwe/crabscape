@@ -66,3 +66,17 @@ fn projection_is_conservative_not_browser_numeric_coercion() {
     let raw = r#"{"v":3,"xpv":2,"party":[{"bonded":"yes","xp":1960},{"bonded":true,"xp":360}]}"#;
     assert_eq!(BrowserSave::parse(raw).unwrap().bonded_xp(), 360.0);
 }
+
+#[test]
+fn browser_adapter_normalizes_copy_without_overwriting_source() {
+    let source = r#"{ "v":3,"xpv":2,"rider":"alexa","party":[{"bonded":true,"xp":360}],"build":{"name":"José","dname":"Naína"},"future":{"keep":true}}"#;
+    let save = BrowserSave::parse(source).unwrap();
+    let normalized = save
+        .normalized_profile("alexa", 0, || "synthetic".into())
+        .unwrap();
+    assert_eq!(normalized["build"]["name"], "José");
+    assert_eq!(normalized["party"][0]["name"], "Naína");
+    assert_eq!(normalized["party"][0]["xp"], 360.0);
+    assert_eq!(save.original(), source);
+    assert_eq!(save.raw()["future"]["keep"], true);
+}

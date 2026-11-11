@@ -1,6 +1,6 @@
 //! Legacy `updateShots` and `hitEnemy`, with explicit world authority and stable IDs.
-//! Presentation (hit-stop, squash, particles, sound and text), rewards, split spawns,
-//! boss add calming and networking remain caller callbacks, represented by events.
+//! Presentation (hit-stop, squash, particles, sound and text) and networking remain
+//! caller concerns. World callbacks can apply rewards, splits and calming synchronously.
 //! No presentation random draws are consumed: this core does not share their RNG.
 use crate::combat::{Kind, Shot};
 use serde::{Deserialize, Serialize};
@@ -128,12 +128,49 @@ pub fn hit_enemy(e: &mut Target, s: &Shot, authority: Authority, events: &mut Ve
     }
 }
 
-/// Uses the caller's original frame duration, with no hidden clamp or subdivision.
-/// Targets must have unique stable IDs. Both input orders are gameplay-significant.
-/// Events are emitted in collision order; apply world/reward callbacks separately.
+/// Ordered world access for collision-time consequences of a hit.
+///
+/// Targets must have unique stable IDs. During an update, implementations may append
+/// targets but must not remove or reorder existing targets. `hit` must apply damage
+/// (normally with [`hit_enemy`]) and all immediate world consequences before returning.
+/// Thus a boss can calm later targets, and appended split children can be hit by the
+/// same piercing projectile, matching JavaScript's live array iteration.
+pub trait CollisionWorld {
+    fn target_count(&self) -> usize;
+    fn target(&self, index: usize) -> &Target;
+    fn hit(&mut self, index: usize, shot: &Shot, authority: Authority, events: &mut Vec<Event>);
+}
+
+struct SliceWorld<'a>(&'a mut [Target]);
+impl CollisionWorld for SliceWorld<'_> {
+    fn target_count(&self) -> usize {
+        self.0.len()
+    }
+    fn target(&self, index: usize) -> &Target {
+        &self.0[index]
+    }
+    fn hit(&mut self, index: usize, shot: &Shot, authority: Authority, events: &mut Vec<Event>) {
+        hit_enemy(&mut self.0[index], shot, authority, events);
+    }
+}
+
+/// Basic fixed-target adapter. For synchronous world consequences, use
+/// [`update_shots_with_world`] instead. Events preserve collision order.
 pub fn update_shots(
     shots: &mut Vec<Shot>,
     enemies: &mut [Target],
+    dt: f64,
+    world: ShotWorld,
+) -> Vec<Event> {
+    update_shots_with_world(shots, &mut SliceWorld(enemies), dt, world)
+}
+
+/// Uses the caller's original frame duration, with no hidden clamp or subdivision.
+/// Both shot and target order are gameplay-significant. The target count is read
+/// again after every hit so collision callbacks may append targets immediately.
+pub fn update_shots_with_world(
+    shots: &mut Vec<Shot>,
+    enemies: &mut impl CollisionWorld,
     dt: f64,
     world: ShotWorld,
 ) -> Vec<Event> {
@@ -161,7 +198,8 @@ pub fn update_shots(
         if s.homing {
             let mut nearest = None;
             let mut best_distance = f64::INFINITY;
-            for e in enemies.iter() {
+            for index in 0..enemies.target_count() {
+                let e = enemies.target(index);
                 if e.calm || e.dead {
                     continue;
                 }
@@ -188,7 +226,11 @@ pub fn update_shots(
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         let mut dead = false;
-        for e in enemies.iter_mut() {
+        let mut index = 0;
+        while index < enemies.target_count() {
+            let current = index;
+            index += 1;
+            let e = enemies.target(current);
             if e.dead || e.calm || (s.x - e.x).hypot(s.y - e.y) >= e.r * 0.9 + s.r {
                 continue;
             }
@@ -196,13 +238,13 @@ pub fn update_shots(
                 if !s.hits.insert(e.id) {
                     continue;
                 }
-                hit_enemy(e, s, world.authority, &mut events);
+                enemies.hit(current, s, world.authority, &mut events);
                 if s.kind == Kind::Arrow && s.hits.len() >= 2 {
                     dead = true;
                     break;
                 }
             } else {
-                hit_enemy(e, s, world.authority, &mut events);
+                enemies.hit(current, s, world.authority, &mut events);
                 if s.dad {
                     events.push(Event::DadImpact { x: s.x, y: s.y });
                 }

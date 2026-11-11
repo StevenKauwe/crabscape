@@ -382,3 +382,35 @@ fn render_range(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn initializes_range_without_opening_a_window() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(Flight {
+                player: Player::default(),
+                rules: FlightRules::default(),
+                scale: 0.62,
+                paused: false,
+            })
+            .init_resource::<Range>()
+            .init_resource::<VisualPool>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Startup, setup)
+            .add_systems(Update, (fly, render_range).chain());
+        app.world_mut().spawn(Window {
+            resolution: (1000, 700).into(),
+            ..default()
+        });
+        app.update();
+        assert_eq!(app.world().resource::<Range>().targets.len(), 6);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Space);
+        app.update();
+        assert!(!app.world().resource::<Range>().shots.is_empty());
+    }
+}

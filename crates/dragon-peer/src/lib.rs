@@ -1,14 +1,21 @@
-//! Dragon's transport only. Gameplay and saves remain in the existing canvas game.
+//! Dragon's shared browser and optional native Matchbox transport.
 //! A separate room namespace and exact-build packets keep it away from crab sessions.
-#![cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+mod session;
+#[cfg(any(target_arch = "wasm32", test))]
 mod voice;
-
-const MAX_PACKET: usize = 24 * 1024;
+pub use session::{Delivery, Message, Session};
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+mod native;
 #[cfg(target_arch = "wasm32")]
-const MAX_PEERS: usize = 5;
-const VERSION: &str = match option_env!("CRABSCAPE_VERSION") {
+pub use browser::DragonPeer;
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+pub use native::{Event, NativePeer, PeerId, Poll};
+
+pub const MAX_PACKET: usize = 24 * 1024;
+pub const MAX_PEERS: usize = 5;
+pub const VERSION: &str = match option_env!("CRABSCAPE_VERSION") {
     Some(version) => version,
     None => "dragon-dev-1",
 };
@@ -38,7 +45,7 @@ fn decode(bytes: &[u8]) -> Option<Packet> {
         .then_some(packet)
 }
 
-fn room_url(introducer: &str, build: &str, code: &str) -> Option<String> {
+pub fn room_url(introducer: &str, build: &str, code: &str) -> Option<String> {
     let valid = |s: &str, max| {
         !s.is_empty() && s.len() <= max && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     };
@@ -60,21 +67,15 @@ fn room_url(introducer: &str, build: &str, code: &str) -> Option<String> {
 mod browser {
     use super::*;
     use matchbox_socket::{PeerId, PeerState, WebRtcSocket};
-    use std::{
-        cell::Cell,
-        collections::{HashMap, HashSet},
-        rc::Rc,
-    };
+    use std::{cell::Cell, rc::Rc};
     use wasm_bindgen::prelude::*;
 
     #[wasm_bindgen]
     pub struct DragonPeer {
         socket: WebRtcSocket,
         ended: Rc<Cell<bool>>,
-        peers: HashMap<PeerId, [u64; 2]>,
-        compatible: HashSet<PeerId>,
+        session: Session<PeerId>,
         voice: voice::browser::Voice,
-        sequence: u64,
     }
 
     #[wasm_bindgen]
@@ -97,10 +98,8 @@ mod browser {
             Ok(Self {
                 socket,
                 ended,
-                peers: HashMap::new(),
-                compatible: HashSet::new(),
+                session: Session::default(),
                 voice: voice::browser::Voice::new(),
-                sequence: 0,
             })
         }
 
@@ -110,16 +109,13 @@ mod browser {
             if let Ok(changes) = self.socket.try_update_peers() {
                 for (peer, state) in changes {
                     match state {
-                        PeerState::Connected if self.peers.len() < MAX_PEERS => {
-                            self.compatible.remove(&peer);
-                            self.peers.insert(peer, [0, 0]);
+                        PeerState::Connected if self.session.connected(peer) => {
                             events.push(
                                 serde_json::json!({"type":"joined", "peer":peer.to_string()}),
                             );
                         }
                         PeerState::Disconnected => {
-                            self.peers.remove(&peer);
-                            self.compatible.remove(&peer);
+                            self.session.disconnected(&peer);
                             events
                                 .push(serde_json::json!({"type":"left", "peer":peer.to_string()}));
                         }
@@ -135,31 +131,28 @@ mod browser {
                     .into_iter()
                     .take(128)
                 {
-                    let Some(seen) = self.peers.get_mut(&peer) else {
+                    let delivery = if channel == 0 {
+                        Delivery::Reliable
+                    } else {
+                        Delivery::Unreliable
+                    };
+                    let Some(packet) = self.session.receive(&peer, delivery, &bytes) else {
                         continue;
                     };
-                    let Some(packet) = decode(&bytes) else {
-                        continue;
-                    };
-                    if packet.sequence <= seen[channel] {
-                        continue;
-                    }
-                    seen[channel] = packet.sequence;
-                    self.compatible.insert(peer);
                     events.push(
                         serde_json::json!({"type":"message", "peer":peer.to_string(),
                         "topic":packet.topic, "data":packet.data}),
                     );
                 }
             }
-            self.voice.sync(self.socket.id(), &self.compatible);
+            self.voice.sync(self.socket.id(), &self.session.compatible);
             for (peer, bytes) in self.socket.channel_mut(2).receive().into_iter().take(128) {
-                if self.compatible.contains(&peer) {
+                if self.session.compatible.contains(&peer) {
                     self.voice.hear(peer, &bytes);
                 }
             }
             for (peer, bytes) in self.voice.outbox() {
-                if self.compatible.contains(&peer) {
+                if self.session.compatible.contains(&peer) {
                     let _ = self
                         .socket
                         .channel_mut(2)
@@ -201,21 +194,11 @@ mod browser {
             if !data.is_object() {
                 return false;
             }
-            self.sequence = self.sequence.saturating_add(1);
-            let packet = Packet {
-                version: VERSION.into(),
-                sequence: self.sequence,
-                topic: topic.into(),
-                data,
-            };
-            let Ok(bytes) = serde_json::to_vec(&packet) else {
+            let Some(bytes) = self.session.encode(topic, data) else {
                 return false;
             };
-            if bytes.len() > MAX_PACKET {
-                return false;
-            }
             let channel = usize::from(!reliable);
-            for peer in self.peers.keys() {
+            for peer in self.session.peers() {
                 if self
                     .socket
                     .channel_mut(channel)
