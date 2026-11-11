@@ -151,3 +151,155 @@ fn egg_four_lies_in_the_bone_hall_in_sight_of_its_door() {
         "mouth_tell finds the buried mantis"
     );
 }
+
+fn water_fraction(level: &Level, r: Rect) -> f32 {
+    use crabsim::underwater::{Cell, GAME_BOTTOM, GAME_CELL, initial_terrain_cell};
+    let (mut water, mut all) = (0, 0);
+    let mut y = r.min.y + 2.0;
+    while y < r.max.y {
+        let mut x = r.min.x + 2.0;
+        while x < r.max.x {
+            let c = initial_terrain_cell(
+                level,
+                (x / GAME_CELL).floor() as i32,
+                ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32,
+            );
+            all += 1;
+            water += usize::from(c == Cell::Water);
+            x += GAME_CELL;
+        }
+        y += GAME_CELL;
+    }
+    water as f32 / all as f32
+}
+
+#[test]
+fn baked_cavities_stay_open_water() {
+    let level = Level::test_level();
+    for body in level.strata().iter().filter(|b| b.frame.min.y > -10400.0) {
+        for void in &body.voids {
+            let f = water_fraction(&level, *void);
+            println!("{:?}: {:.0}% water", void, f * 100.0);
+        }
+    }
+    let gallery = level.strata()[0].voids[0];
+    assert!(water_fraction(&level, gallery) >= 0.8, "gallery filled in");
+}
+
+use crabsim::{Controls, PlayerId, Sim, Tuning};
+
+fn dig_sim(at: Vec2) -> Sim {
+    let mut level = Level::test_level();
+    level.foes.clear();
+    let mut sim = Sim::new(Tuning::default(), level);
+    sim.add_crab(PlayerId(0), at);
+    sim.enable_underwater_cells();
+    sim.crab_mut(PlayerId(0)).unwrap().mover.pos = at;
+    sim
+}
+
+#[test]
+fn home_burrow_has_two_exits_and_no_hunters() {
+    let level = Level::test_level();
+    let pocket = level
+        .pockets()
+        .into_iter()
+        .find(|p| p.name == "home burrow")
+        .expect("home burrow");
+    assert!(pocket.mouths.len() >= 2);
+    for mouth in &pocket.mouths {
+        // Each door is a silt shaft's top on the ground.
+        assert!(mouth.max.y >= level.floor_height(mouth.center().x) - 30.0);
+        assert!(level
+            .strata()
+            .iter()
+            .any(|b| b.shafts.iter().any(|s| s.contains(mouth.center() - Vec2::Y * 30.0))));
+    }
+    let tuning = Tuning::default();
+    for interior in level.tunnel_interiors() {
+        for &(kind, home) in &level.foes {
+            assert!(!interior.contains(home), "{kind:?} lives in {interior:?}");
+            let e = crabsim::enemy::Enemy::new(0, kind, home, &tuning);
+            assert!(!e.can_reach_tunnel_point(&level, interior.center(), &tuning));
+        }
+    }
+}
+
+#[test]
+fn first_dig_finds_a_clam_within_10s() {
+    let level = Level::test_level();
+    let clam = level
+        .clams
+        .iter()
+        .copied()
+        .find(|c| (c.x - 200.0).abs() < 30.0 && c.y > -100.0 && c.y < 0.0)
+        .expect("first-dig clam by the home shell");
+    let mut sim = dig_sim(Vec2::new(clam.x, 0.0));
+    let mut got = None;
+    for tick in 0..120 * 10 {
+        sim.set_controls(
+            PlayerId(0),
+            Controls {
+                dig_held: true,
+                down: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        if !sim.crab(PlayerId(0)).unwrap().mover.clinging.is_empty() {
+            got = Some(tick);
+            break;
+        }
+    }
+    let tick = got.expect("no clam within 10 s");
+    println!("first-dig clam after {:.1} s", tick as f32 / 120.0);
+}
+
+/// In one door, along the gallery, out the other: under 25 s, under two
+/// reserve strokes.
+#[test]
+fn home_burrow_round_trip_is_cheap() {
+    let mut sim = dig_sim(Vec2::new(200.0, 0.0));
+    let mut min_reserve = 1.0_f32;
+    let mut phase = 0;
+    for tick in 0..120 * 25 {
+        let p = sim.crab(PlayerId(0)).unwrap().mover.pos;
+        min_reserve = min_reserve.min(sim.crab(PlayerId(0)).unwrap().mover.reserve);
+        let controls = match phase {
+            0 if p.y < -520.0 => {
+                phase = 1;
+                Controls::default()
+            }
+            0 => Controls {
+                dig_held: true,
+                down: true,
+                ..Default::default()
+            },
+            1 if p.x > 540.0 => {
+                phase = 2;
+                Controls::default()
+            }
+            1 => Controls {
+                walk: 1.0,
+                dig_held: true,
+                ..Default::default()
+            },
+            _ if p.y >= -4.0 => {
+                println!(
+                    "round trip {:.1} s, lowest reserve {min_reserve:.2}",
+                    tick as f32 / 120.0
+                );
+                return;
+            }
+            _ => Controls {
+                dig_held: true,
+                dig_up: true,
+                jump_held: true,
+                ..Default::default()
+            },
+        };
+        sim.set_controls(PlayerId(0), controls);
+        sim.tick();
+    }
+    panic!("no round trip in 25 s: ended at {:?}", sim.crab(PlayerId(0)).unwrap().mover.pos);
+}

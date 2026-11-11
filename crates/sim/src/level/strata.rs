@@ -75,12 +75,6 @@ fn bodies() -> &'static [StrataBody] {
                     .filter(|g| g.open)
                     .map(|g| g.rect)
                     .chain(f.shafts.iter().copied())
-                    // The clay sill under each silt shaft.
-                    .chain(
-                        f.shafts
-                            .iter()
-                            .map(|r| Rect::new(r.min.x, r.min.y - 60.0, r.max.x, r.min.y)),
-                    )
                     .collect(),
                 // Owned pebble aggregates cannot be represented by the scalar
                 // bake: clay (mud) stands in for every layer.

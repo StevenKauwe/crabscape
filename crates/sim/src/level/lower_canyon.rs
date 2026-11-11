@@ -119,13 +119,14 @@ fn build_specs() -> Vec<Frame> {
             Rect::new(510.0, -24.0, 610.0, -4.0),
         ],
         shafts: vec![
-            // Each rests on a 60-unit clay sill (see `strata::bodies`), so
-            // the sand column cannot pour into the gallery.
-            Rect::new(150.0, -400.0, 250.0, 0.0),
-            Rect::new(510.0, -400.0, 610.0, 0.0),
+            // Each rests on the clay inside the frame (nothing hangs over
+            // open water: unsupported sediment falls), and the crab digs
+            // sideways through a clay wall into the gallery between them.
+            Rect::new(150.0, -440.0, 250.0, 0.0),
+            Rect::new(510.0, -440.0, 610.0, 0.0),
         ],
         // The gallery hangs from the frame's own bedrock roof.
-        voids: vec![Rect::new(110.0, -532.0, 650.0, -460.0)],
+        voids: vec![Rect::new(270.0, -532.0, 490.0, -460.0)],
         chamber: None,
     });
 
