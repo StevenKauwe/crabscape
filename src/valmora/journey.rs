@@ -137,6 +137,7 @@ impl Journey {
         ui: &mut egui::Ui,
         adventure: Option<&Adventure>,
         avatar: &CrabAvatar,
+        peers: &super::presentation::Peers,
         free: bool,
         interact: bool,
     ) -> Option<Place> {
@@ -306,6 +307,22 @@ impl Journey {
             }
         }
         art::paint(&painter, &self.canvas);
+        for remote in peers
+            .live(peers.now)
+            .filter(|p| p.received.note.scene == super::presentation::Scene::Landing)
+        {
+            let x = remote.received.note.x - camera;
+            if let Some(crab) = avatar.remote(remote.player) {
+                crab.paint(&painter, egui::pos2(x, ground + 3.), 86.);
+                painter.text(
+                    egui::pos2(x, ground + 20.),
+                    egui::Align2::CENTER_TOP,
+                    &remote.name,
+                    egui::FontId::proportional(13.),
+                    egui::Color32::from_rgb(205, 226, 255),
+                );
+            }
+        }
         avatar.paint(&painter, egui::pos2(self.x - camera, ground + 3.), 86.);
         painter.text(
             egui::pos2(self.x - camera, ground + 20.),

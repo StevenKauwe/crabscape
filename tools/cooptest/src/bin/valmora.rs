@@ -29,6 +29,7 @@ const NETWORK: &str = "JSON.parse(document.getElementById('crabscape')?.getAttri
 const STAGE: &str = "document.getElementById('crabscape')?.getAttribute('data-valmora')";
 const VIEW: &str =
     "JSON.parse(document.getElementById('crabscape')?.getAttribute('data-valmora-view')||'null')";
+const DISPLAY: &str = "JSON.parse(document.getElementById('crabscape')?.getAttribute('data-valmora-display')||'null')";
 const ROOM: &str = "synthetic";
 const PRIVACY: &str = r#"
 window.__mediaRequests=0; window.__externalSockets=[]; window.__localSockets=[];
@@ -241,7 +242,7 @@ fn verify_privacy(b: &mut Chrome) -> Result<()> {
 }
 fn capture(b: &mut Chrome, profiles: &Path, name: &str) -> Result<()> {
     let evidence = b.eval(&format!(
-        "({{stage:{STAGE},view:{VIEW},network:{NETWORK},crab:document.getElementById('crabscape')?.getAttribute('data-crab'),roof:sessionStorage.getItem('synthetic-roof-position'),coop:document.getElementById('crabscape')?.getAttribute('data-coop'),mediaRequests:window.__mediaRequests,externalSockets:window.__externalSockets,localSockets:window.__localSockets,iceServers:window.__rtcPeers?.map(p=>p.getConfiguration().iceServers),sourceUnchanged:localStorage.getItem(sessionStorage.getItem('synthetic-original-key'))===sessionStorage.getItem('synthetic-original-bytes')}})"
+        "({{stage:{STAGE},view:{VIEW},network:{NETWORK},display:{DISPLAY},crab:document.getElementById('crabscape')?.getAttribute('data-crab'),roof:sessionStorage.getItem('synthetic-roof-position'),coop:document.getElementById('crabscape')?.getAttribute('data-coop'),mediaRequests:window.__mediaRequests,externalSockets:window.__externalSockets,localSockets:window.__localSockets,iceServers:window.__rtcPeers?.map(p=>p.getConfiguration().iceServers),sourceUnchanged:localStorage.getItem(sessionStorage.getItem('synthetic-original-key'))===sessionStorage.getItem('synthetic-original-bytes')}})"
     ))?;
     std::fs::write(
         profiles.join(format!("{name}.json")),
@@ -249,6 +250,114 @@ fn capture(b: &mut Chrome, profiles: &Path, name: &str) -> Result<()> {
     )
     .map_err(|e| e.to_string())?;
     b.screenshot(&profiles.join(format!("{name}.png")))
+}
+fn verify_remote(b: &mut Chrome, other: &mut Chrome, scene: &str) -> Result<()> {
+    wait(
+        b,
+        &format!(
+            "({DISPLAY})?.peers?.length===1&&({DISPLAY}).peers[0].bound&&({DISPLAY}).peers[0].avatar_ready&&({DISPLAY}).peers[0].scene==={scene:?}"
+        ),
+        20,
+    )?;
+    let shown = b.eval(DISPLAY)?;
+    let other_display = other.eval(DISPLAY)?;
+    let other_network = other.eval(NETWORK)?;
+    let remote = &shown["peers"][0];
+    if remote["crab_connection"] != other_display["local_crab_connection"]
+        || remote["dragon"] != other_network["id"]
+        || remote["name"] != format!("{} Crab", other.name)
+    {
+        return Err(format!(
+            "{} remote identity mismatch: {shown} / {other_display} / {other_network}",
+            b.name
+        ));
+    }
+    Ok(())
+}
+/// Optional short cadence observation, not a physical-phone performance claim.
+/// Two real isolated browser processes share this Mac; no CPU throttling.
+fn phone_cadence(b: &mut Chrome, other: &mut Chrome, scene: &str, profiles: &Path) -> Result<()> {
+    if std::env::var_os("CRABSCAPE_VALMORA_CADENCE").is_none() {
+        return Ok(());
+    }
+    let mut load = String::new();
+    for tool in ["cargo", "rustc", "wasm-bindgen"] {
+        let status = Command::new("pgrep")
+            .args(["-x", tool])
+            .stdout(Stdio::null())
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            println!("SKIP {scene} cadence: active {tool} job; no jobs stopped or delayed");
+            return Ok(());
+        }
+        if status.code() != Some(1) {
+            return Err("cannot verify absence of build jobs for cadence sample".into());
+        }
+    }
+    for (tool, args) in [("uptime", vec![]), ("top", vec!["-l", "1", "-n", "0"])] {
+        let output = Command::new(tool)
+            .args(args)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(format!("cannot inspect OS load with {tool}"));
+        }
+        load.push_str(&String::from_utf8_lossy(&output.stdout));
+    }
+    std::fs::write(profiles.join(format!("cadence-{scene}-load.txt")), load)
+        .map_err(|e| e.to_string())?;
+    b.responsive_viewport(390, 844)?;
+    b.touch_screen(true)?;
+    wait(b, "innerWidth===390&&innerHeight===844", 10)?;
+    std::thread::sleep(Duration::from_secs(2));
+    verify_remote(b, other, scene)?;
+    capture(b, profiles, &format!("phone-{scene}-before"))?;
+    let result = b.eval(&format!(
+        r#"new Promise(done=>{{
+            const deltas=[];let start=null,last=null,valid=0,frames=0;
+            const tick=t=>{{
+                if(start===null) start=t;
+                if(last!==null&&deltas.length<4096) deltas.push(t-last);
+                last=t;frames++;
+                const p=({DISPLAY})?.peers?.[0];
+                if(p?.bound&&p?.avatar_ready&&p?.scene==={scene:?}) valid++;
+                if(t-start<10000) return requestAnimationFrame(tick);
+                const sorted=[...deltas].sort((a,b)=>a-b),q=n=>sorted[Math.floor((sorted.length-1)*n)];
+                done({{duration_ms:t-start,frames,valid_remote_frames:valid,samples:deltas.length,
+                    mean_ms:deltas.reduce((a,b)=>a+b,0)/deltas.length,
+                    median_ms:q(.5),p95_ms:q(.95),p99_ms:q(.99),worst_ms:sorted.at(-1),
+                    over_25_ms:deltas.filter(x=>x>25).length,over_50_ms:deltas.filter(x=>x>50).length,
+                    width:innerWidth,height:innerHeight,dpr:devicePixelRatio,visibility:document.visibilityState,
+                    deltas_ms:deltas}});
+            }};requestAnimationFrame(tick);
+        }})"#
+    ))?;
+    std::fs::write(
+        profiles.join(format!("cadence-{scene}.json")),
+        serde_json::to_vec_pretty(&result).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    capture(b, profiles, &format!("phone-{scene}-after"))?;
+    verify_remote(b, other, scene)?;
+    verify_privacy(b)?;
+    verify_source_crab(b)?;
+    if result["valid_remote_frames"] != result["frames"] {
+        return Err(format!(
+            "remote crab disappeared during {scene} cadence sample"
+        ));
+    }
+    println!(
+        "CADENCE {scene} 390x844, two browsers on one Mac: {} samples, median {}ms, p95 {}ms, worst {}ms, >25ms {}",
+        result["samples"],
+        result["median_ms"],
+        result["p95_ms"],
+        result["worst_ms"],
+        result["over_25_ms"]
+    );
+    b.touch_screen(false)?;
+    b.protocol_viewport(1200, 800)?;
+    wait(b, "innerWidth===1200&&innerHeight===800", 10)
 }
 fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
     let mut server = Signaling(
@@ -302,11 +411,57 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
             verify_privacy(browser)?;
             verify_source_crab(browser)?;
         }
+        verify_remote(&mut a, &mut b, "landing")?;
+        verify_remote(&mut b, &mut a, "landing")?;
+        println!(
+            "PASS reciprocal current connections project both actual remote crab rigs/names on landing"
+        );
+        if std::env::var_os("CRABSCAPE_VALMORA_CADENCE").is_some() {
+            // Separate the actual remote crab from Alice with ordinary input,
+            // keeping both inside Alice's later narrow viewport.
+            b.hold_key("KeyD", 0.45)?;
+            phone_cadence(&mut a, &mut b, "landing", profiles)?;
+        }
+        // Use real walking/interaction to return, never a state hook. The peer
+        // stays connected at the castle but its projected travel crab clears.
+        for _ in 0..10 {
+            if b.eval(&format!("({VIEW})?.nearby==='Castle ferry'"))? == true {
+                break;
+            }
+            b.hold_key("KeyA", 0.25)?;
+        }
+        wait(&mut b, &format!("({VIEW})?.nearby==='Castle ferry'"), 5)?;
+        button(&mut b, "interact-other")?;
+        stage(&mut b, "castle")?;
+        wait(
+            &mut a,
+            &format!(
+                "({DISPLAY})?.peers?.length===1&&({DISPLAY}).peers[0].scene==='castle'&&!({DISPLAY}).peers[0].avatar_ready"
+            ),
+            15,
+        )?;
+        verify_source_crab(&mut b)?;
+        capture(&mut a, profiles, "returned-partner-a")?;
+        b.hold_key("KeyV", 0.2)?;
+        stage(&mut b, "party")?;
+        verify_remote(&mut a, &mut b, "landing")?;
+        verify_remote(&mut b, &mut a, "landing")?;
+        println!(
+            "PASS ferry return clears remote projection; reboarding restores the same live crab"
+        );
         // Only Alice opens the workshop. Bobby must see the global purchase
         // prompt while standing on the landing, without an old Party/Roost menu.
         visit(&mut a, "workshop", "Roost")?;
         stage(&mut a, "roost")?;
         panel(&mut b, None)?;
+        let expected_x = a.eval(VIEW)?["x"].as_f64().ok_or("landing x")?;
+        wait(
+            &mut b,
+            &format!("Math.abs(({DISPLAY})?.peers?.[0]?.x-{expected_x})<1"),
+            15,
+        )?;
+        verify_source_crab(&mut a)?;
+        verify_source_crab(&mut b)?;
         button(&mut a, "craft-armor")?;
         for browser in [&mut a, &mut b] {
             wait(browser, &format!("({NETWORK})?.vote==='voting'"), 20)?;
@@ -372,6 +527,11 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
                 25,
             )?;
         }
+        verify_remote(&mut a, &mut b, "flight")?;
+        verify_remote(&mut b, &mut a, "flight")?;
+        println!(
+            "PASS flight partner avatar/name resolves to the same current Crabscape connections"
+        );
         let aa = a.eval(NETWORK)?;
         let bb = b.eval(NETWORK)?;
         if aa["id"] == bb["id"]
@@ -384,6 +544,7 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
             return Err(format!("shared launch mismatch: {aa} / {bb}"));
         }
         println!("PASS distinct riders, Ready countdown, matching mission/run and single host");
+        phone_cadence(&mut a, &mut b, "flight", profiles)?;
         capture(&mut a, profiles, "shared-flight-a")?;
         capture(&mut b, profiles, "shared-flight-b")?;
         let (host, guest) = if aa["guest"] == false {
@@ -408,6 +569,7 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
             &format!("({NETWORK})?.guest===false && ({NETWORK})?.epoch>{epoch}"),
             30,
         )?;
+        wait(guest, &format!("({DISPLAY})?.peers?.length===0"), 15)?;
         let takeover = guest.eval(NETWORK)?;
         if takeover["run"] != after["run"] || takeover["mission"] != "m1" {
             return Err(format!("takeover reset mission: {takeover}"));

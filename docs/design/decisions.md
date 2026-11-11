@@ -243,3 +243,5 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
   its integrator to CrabScape's fixed ticks. Keep the live JS and all original save bytes
   untouched until full mission/save/multiplayer comparisons pass. The separate Bevy
   flight sandbox is incomplete and has no microphone or multiplayer connection.
+
+- **One travelling crab (2026-11-11):** Valmora projects existing local and admitted remote Crabscape puppets without duplicating simulation state. Cross-socket display binding requires reciprocal unique live connection claims; stale/conflicting claims fall back to companion-only visuals. Dragon progression and mission authority remain separate compatible records, and original saves remain untouched.

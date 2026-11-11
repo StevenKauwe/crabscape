@@ -1005,6 +1005,7 @@ pub(super) fn take_in(
                                     version: None,
                                     age: 0.0,
                                     said: None,
+                                    travel: None,
                                 });
                                 link.send(
                                     peer,
@@ -1110,6 +1111,16 @@ pub(super) fn take_in(
                     continue;
                 }
                 if !link.peers[index].same_version() {
+                    continue;
+                }
+                // Display metadata never enters the ordered world/lease protocol.
+                if crate::valmora::presentation::receive(
+                    &mut link.peers[index].travel,
+                    &bytes,
+                    coop.code.as_deref().unwrap_or(""),
+                    VERSION,
+                    now,
+                ) {
                     continue;
                 }
                 if let Some(wire) = unpack(&bytes) {

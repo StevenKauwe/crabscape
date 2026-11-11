@@ -8,6 +8,8 @@ pub struct Connection(pub Option<Lobby>);
 pub struct Lobby {
     transport: Transport,
     pub id: Option<String>,
+    pub(crate) crab_connection: Option<String>,
+    last_poll: f64,
     pub notice: String,
     rider: usize,
     present: bool,
@@ -35,6 +37,7 @@ struct PartnerFollower {
 }
 struct Peer {
     rider: Option<usize>,
+    crab_connection: Option<String>,
     presence: Option<Value>,
     seen: f64,
     daddio: bool,
@@ -151,6 +154,8 @@ impl Lobby {
         Ok(Self {
             transport: Transport::connect(code)?,
             id: None,
+            crab_connection: None,
+            last_poll: 0.,
             notice: "Connecting…".into(),
             rider,
             present: true,
@@ -174,6 +179,7 @@ impl Lobby {
             .count()
     }
     pub fn poll(&mut self, adventure: &mut Adventure, now: f64) {
+        self.last_poll = now;
         if self.blocked {
             adventure.clear_live_team();
             return;
@@ -196,6 +202,7 @@ impl Lobby {
                         if self.peers.len() < 5 {
                             self.peers.entry(peer.into()).or_insert(Peer {
                                 rider: None,
+                                crab_connection: None,
                                 presence: None,
                                 seen: now,
                                 daddio: false,
@@ -249,6 +256,10 @@ impl Lobby {
                                     continue;
                                 }
                                 binding.rider = Some(rider);
+                                binding.crab_connection = data["crab"]
+                                    .as_str()
+                                    .filter(|s| super::presentation::connection(s))
+                                    .map(str::to_owned);
                                 binding.seen = now;
                                 binding.accept_progress(&data["team"], rider, now);
                                 binding.daddio = data["build"]["name"]
@@ -287,7 +298,7 @@ impl Lobby {
         if self.id.is_some() && now - self.hello_at >= 1. {
             self.transport.send(
                 "hello",
-                json!({"r":self.rider,"build":adventure.profile()["build"],"team":dragon_game::live_team::project(adventure.profile())}),
+                json!({"r":self.rider,"crab":self.crab_connection,"build":adventure.profile()["build"],"team":dragon_game::live_team::project(adventure.profile())}),
             );
             if !self.present {
                 self.transport.send(
@@ -463,6 +474,8 @@ mod tests {
         Lobby {
             transport: Transport::connect_test(url),
             id: None,
+            crab_connection: None,
+            last_poll: 0.,
             notice: String::new(),
             rider,
             present: true,
@@ -480,6 +493,60 @@ mod tests {
         }
     }
     #[test]
+    fn display_binding_ignores_expired_or_unadmitted_conflicts_but_rejects_live_ones() {
+        use super::super::presentation::{Note, Peers, Received, Remote, Scene};
+        let c = "00000000-0000-0000-0000-000000000001";
+        let d = "00000000-0000-0000-0000-000000000002";
+        let other = "00000000-0000-0000-0000-000000000003";
+        let peers = Peers {
+            now: 2.,
+            local: Some(other.into()),
+            room: Some("test".into()),
+            remote: vec![Remote {
+                connection: c.into(),
+                player: crabsim::PlayerId(7),
+                name: "Actual crab".into(),
+                received: Received {
+                    note: Note {
+                        room: "test".into(),
+                        build: "test".into(),
+                        sequence: 1,
+                        dragon: Some(d.into()),
+                        scene: Scene::Flight,
+                        x: 290.,
+                    },
+                    at: 1.,
+                },
+            }],
+        };
+        let mut l = lobby("ws://127.0.0.1:1", 0);
+        l.last_poll = 10.;
+        let bound = |rider, seen| Peer {
+            rider,
+            crab_connection: Some(c.into()),
+            presence: None,
+            seen,
+            daddio: false,
+            progress: None,
+            progress_at: 0.,
+            presence_at: 0.,
+        };
+        l.peers.insert(d.into(), bound(Some(1), 10.));
+        assert_eq!(
+            l.display_peer(d, &peers).unwrap().player,
+            crabsim::PlayerId(7)
+        );
+        l.peers.insert(other.into(), bound(Some(2), 10.));
+        assert!(l.display_peer(d, &peers).is_none());
+        l.peers.get_mut(other).unwrap().seen = 0.;
+        assert!(l.display_peer(d, &peers).is_some());
+        l.peers.insert(other.into(), bound(None, 10.));
+        assert!(l.display_peer(d, &peers).is_some());
+        l.peers.get_mut(d).unwrap().seen = 0.;
+        assert!(l.display_peer(d, &peers).is_none());
+    }
+
+    #[test]
     fn retry_attach_ignores_old_live_host_and_stale_party_hint() {
         let mut lobby = lobby("ws://127.0.0.1:1", 0);
         lobby.id = Some("local-peer".into());
@@ -488,6 +555,7 @@ mod tests {
             "old-host".into(),
             Peer {
                 rider: Some(1),
+                crab_connection: None,
                 presence: Some(json!({"r":1,"s":"play","o":0,"ms":["m1",2,0,0,"oldrun",1,7]})),
                 seen: 10.,
                 daddio: false,
@@ -550,6 +618,7 @@ mod tests {
             "synthetic-peer".into(),
             Peer {
                 rider: Some(1),
+                crab_connection: None,
                 presence: Some(json!({"s":"roost","r":1})),
                 seen: 10.,
                 daddio: false,
@@ -885,6 +954,33 @@ impl Lobby {
         }
     }
 
+    pub(crate) fn display_peer<'a>(
+        &'a self,
+        peer: &str,
+        peers: &'a super::presentation::Peers,
+    ) -> Option<&'a super::presentation::Remote> {
+        let binding = self.peers.get(peer)?;
+        if self.blocked
+            || binding.rider.is_none()
+            || !(0. ..=super::presentation::TTL).contains(&(self.last_poll - binding.seen))
+        {
+            return None;
+        }
+        peers.resolve(
+            peer,
+            binding.crab_connection.as_deref()?,
+            self.peers
+                .iter()
+                .filter(|(_, p)| {
+                    p.rider.is_some()
+                        && (0. ..=super::presentation::TTL).contains(&(self.last_poll - p.seen))
+                })
+                .filter_map(|(id, p)| Some((id.as_str(), p.crab_connection.as_deref()?))),
+            peers.now,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn paint_partners(
         &self,
         painter: &bevy_egui::egui::Painter,
@@ -892,6 +988,8 @@ impl Lobby {
         time: f64,
         view: dragon_game::flight::Viewport,
         zoom: f64,
+        peers: Option<&super::presentation::Peers>,
+        avatars: &super::crab_avatar::CrabAvatar,
     ) {
         use dragon_game::drawing::{Canvas, DragonArt, RiderArt, draw_dragon};
         let mut canvas = Canvas::default();
@@ -908,6 +1006,8 @@ impl Lobby {
             let Ok(build) = dragon_game::profile::clean_build(&presence["build"]) else {
                 continue;
             };
+            let remote = peers.and_then(|peers| self.display_peer(peer, peers));
+            let crab = remote.and_then(|p| avatars.remote(p.player));
             let lead = &presence["p"][0];
             let stage = lead[2].as_u64().unwrap_or(0).min(3) as usize;
             let color = lead[1]
@@ -974,7 +1074,7 @@ impl Lobby {
                     self.visuals.get(peer).map_or(time, |v| v.time)
                 },
                 &DragonArt {
-                    rider: ghost.riding.then(|| RiderArt {
+                    rider: (peers.is_none() && ghost.riding).then(|| RiderArt {
                         hair: text("hair"),
                         skin: text("skin"),
                         cloak: text("cloak"),
@@ -1005,7 +1105,22 @@ impl Lobby {
             }
             super::art::paint(painter, &canvas);
             canvas.reset();
-            let name = text("name");
+            if let Some(crab) = crab {
+                crab.paint_faded(
+                    painter,
+                    bevy_egui::egui::pos2(
+                        (position[0] * zoom) as f32,
+                        ((position[1] - size * 0.35) * zoom) as f32,
+                    ),
+                    (size * 0.95 * zoom) as f32,
+                    if ghost.status == "play" { 0.95 } else { 0.35 },
+                );
+            }
+            let name = if peers.is_some() {
+                remote.map_or_else(|| text("dname"), |p| p.name.clone())
+            } else {
+                text("name")
+            };
             let label = if ghost.out {
                 format!("{name} retired")
             } else if ghost.status == "pause" {

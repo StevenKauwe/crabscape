@@ -8,8 +8,9 @@ pub(crate) mod crab_avatar;
 mod integrated;
 mod journey;
 mod keyboard;
-mod network;
+pub(crate) mod network;
 mod persistence;
+pub(crate) mod presentation;
 mod storage;
 mod touch;
 mod ui;
@@ -27,6 +28,7 @@ pub struct Valmora {
     pub active: bool,
     pub integrated: bool,
     journey: journey::Journey,
+    pub(crate) presentation: presentation::Peers,
     pub return_requested: bool,
     adventure: Option<Adventure>,
     ui: AdventureUi,
@@ -56,6 +58,20 @@ pub struct Valmora {
     room_code: String,
 }
 impl Valmora {
+    #[allow(dead_code)] // The standalone harness has no castle entrance.
+    pub(crate) fn presentation_state(&self) -> (presentation::Scene, f32) {
+        use presentation::Scene;
+        let scene = if self.travelling {
+            Scene::Travel
+        } else if !self.active {
+            Scene::Castle
+        } else if self.adventure.as_ref().is_some_and(|a| a.game().is_some()) {
+            Scene::Flight
+        } else {
+            Scene::Landing
+        };
+        (scene, self.journey.x)
+    }
     pub fn owns_input(&self) -> bool {
         self.active || self.travelling || self.release_guard
     }
@@ -497,6 +513,7 @@ fn update(
     }
     if let Some(lobby) = &mut network.0 {
         lobby.set_present(s.active);
+        lobby.crab_connection.clone_from(&s.presentation.local);
     }
     if let (Some(lobby), Some(adventure), Some(now)) = (&mut network.0, &mut s.adventure, clock()) {
         lobby.poll(adventure, now.now_ms as f64 / 1000.);
@@ -747,7 +764,12 @@ fn update(
 }
 /// Read-only synthetic-test observability, with no rider identity or save payload.
 #[cfg(target_arch = "wasm32")]
-fn publish_stage(state: Res<Valmora>, mut previous: Local<String>) {
+fn publish_stage(
+    state: Res<Valmora>,
+    mut previous: Local<String>,
+    #[cfg(feature = "valmora-loopback-test")] avatar: Res<crab_avatar::CrabAvatar>,
+    #[cfg(feature = "valmora-loopback-test")] network: NonSend<network::Connection>,
+) {
     let stage = if !state.active {
         "castle".to_owned()
     } else if state.menu {
@@ -766,6 +788,15 @@ fn publish_stage(state: Res<Valmora>, mut previous: Local<String>) {
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id("crabscape"))
     {
+        let display: Vec<_> = state.presentation.live(state.presentation.now).map(|p| {
+            let bound = p.received.note.dragon.as_deref().and_then(|d|network.0.as_ref()?.display_peer(d,&state.presentation)).is_some();
+            serde_json::json!({"crab_connection":p.connection,"player":p.player.0,"name":p.name,"dragon":p.received.note.dragon,"scene":p.received.note.scene,"x":p.received.note.x,"avatar_ready":avatar.remote(p.player).is_some(),"bound":bound})
+        }).collect();
+        let _ = canvas.set_attribute(
+            "data-valmora-display",
+            &serde_json::json!({"local_crab_connection":state.presentation.local,"peers":display})
+                .to_string(),
+        );
         let j = &state.journey;
         let value = serde_json::json!({"crab_name":j.crab_name,"party_code":j.party_code,"panel":j.panel.map(|p|format!("{p:?}")),"x":j.x,"nearby":j.nearby().map(|p|p.name()),"context_rect":j.context_rect.map(|r|[r.min.x,r.min.y,r.max.x,r.max.y])});
         let _ = canvas.set_attribute("data-valmora-view", &value.to_string());
@@ -1028,7 +1059,7 @@ fn draw(
                     game.squash,
                     s.ui.preferences.view,
                     s.ui.preferences.fancy,
-                    !(s.integrated && avatar.is_ready()),
+                    !s.integrated,
                 );
                 if s.integrated { integrated::paint_crab(p, &avatar, game, viewport(window, s.ui.preferences.view), s.animation_time, s.flap_time, s.ui.preferences.view); }
             }
@@ -1039,6 +1070,8 @@ fn draw(
                     s.animation_time,
                     viewport(window, s.ui.preferences.view),
                     s.ui.preferences.view,
+                    s.integrated.then_some(&s.presentation),
+                    &avatar,
                 );
             }
             // Register sky input before smaller foreground controls, so buttons

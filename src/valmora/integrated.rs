@@ -136,7 +136,7 @@ pub fn draw(
                     game.squash,
                     s.ui.preferences.view,
                     s.ui.preferences.fancy,
-                    !avatar.is_ready(),
+                    false,
                 );
                 paint_crab(
                     ui.painter(),
@@ -152,6 +152,7 @@ pub fn draw(
                     ui,
                     s.adventure.as_ref(),
                     avatar,
+                    &s.presentation,
                     landing && s.journey.panel.is_none() && s.builder.is_none(),
                     s.keys.just_pressed(KeyCode::KeyE),
                 );

@@ -785,7 +785,11 @@ fn build_puppets(
     style: Res<ArtStyle>,
     soft: Res<SoftTextures>,
     crabs: Query<
-        (Entity, Has<crate::player::LocalPlayer>),
+        (
+            Entity,
+            Has<crate::player::LocalPlayer>,
+            Option<&crabsim::PlayerId>,
+        ),
         (Or<(With<Crab>, With<VisualCrab>)>, Without<Rig>),
     >,
 ) {
@@ -799,15 +803,15 @@ fn build_puppets(
     };
     let file = &art.file;
     let part = |name: &str| file.parts.iter().find(|p| p.name == name);
-    for (crab, local) in &crabs {
+    for (crab, local, player) in &crabs {
         let root = commands
             .spawn((ChildOf(crab), Transform::default(), Visibility::default()))
             .id();
         // Valmora projects these exact visuals, not another player or rig.
-        if local {
+        if let Some(&player) = player {
             commands
                 .entity(root)
-                .insert(crate::valmora::crab_avatar::CrabAvatarSource);
+                .insert(crate::valmora::crab_avatar::CrabAvatarSource { player, local });
         }
 
         // Pass 1: one entity per piece, its layers on it.
@@ -3178,7 +3182,7 @@ mod pressure_tests {
 
 #[cfg(test)]
 #[test]
-fn valmora_projects_the_existing_local_rig_and_equipment_only() {
+fn valmora_projects_existing_local_and_admitted_remote_rigs_with_equipment() {
     use crate::valmora::crab_avatar::{CrabAvatar, CrabAvatarPlugin, CrabAvatarSource};
     use bevy_egui::{EguiUserTextures, egui};
 
@@ -3229,12 +3233,44 @@ fn valmora_projects_the_existing_local_rig_and_equipment_only() {
         .spawn((
             Crab,
             crate::player::LocalPlayer,
+            crabsim::PlayerId(0),
             local_mover,
             Transform::from_xyz(2300., 500., 9.),
         ))
         .id();
-    app.world_mut()
-        .spawn((Crab, Mover::new(Vec2::ZERO), Transform::default()));
+    let mut remote_mover = Mover::new(Vec2::ZERO);
+    remote_mover.scissor_claw = true;
+    let remote = app
+        .world_mut()
+        .spawn((
+            Crab,
+            crabsim::PlayerId(7),
+            remote_mover,
+            Transform::default(),
+        ))
+        .id();
+    {
+        use crate::valmora::presentation::{Note, Received, Remote, Scene};
+        let mut state = app.world_mut().resource_mut::<crate::valmora::Valmora>();
+        state.presentation.room = Some("test".into());
+        state.presentation.now = 1.;
+        state.presentation.remote.push(Remote {
+            connection: "00000000-0000-0000-0000-000000000007".into(),
+            player: crabsim::PlayerId(7),
+            name: "Friend".into(),
+            received: Received {
+                note: Note {
+                    room: "test".into(),
+                    build: "test".into(),
+                    sequence: 1,
+                    dragon: None,
+                    scene: Scene::Landing,
+                    x: 400.,
+                },
+                at: 1.,
+            },
+        });
+    }
     app.world_mut()
         .spawn((VisualCrab, Mover::new(Vec2::ZERO), Transform::default()));
     app.update();
@@ -3244,7 +3280,14 @@ fn valmora_projects_the_existing_local_rig_and_equipment_only() {
         .iter(world)
         .map(ChildOf::parent)
         .collect();
-    assert_eq!(sources, vec![local]);
+    assert_eq!(sources.len(), 2);
+    assert!(sources.contains(&local) && sources.contains(&remote));
+    assert!(
+        world
+            .resource::<CrabAvatar>()
+            .remote(crabsim::PlayerId(7))
+            .is_some()
+    );
     let gear: Vec<_> = world
         .query::<(&GearPiece, &Visibility)>()
         .iter(world)

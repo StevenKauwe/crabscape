@@ -72,8 +72,40 @@ fn advance(
     chat: Res<crate::codes::CodeBox>,
     names: Res<crate::names::Names>,
     party: Option<Res<crate::coop::CurrentParty>>,
+    local: Res<crate::coop::LocalId>,
+    network: NonSend<crate::valmora::network::Connection>,
 ) {
     state.use_crab_context(names.mine(), party.as_deref().and_then(|p| p.room_code()));
+    let room = party.as_deref().and_then(|p| p.room_code());
+    let (scene, x) = state.presentation_state();
+    let now = time.elapsed_secs_f64();
+    let (connection, peers) = room.map_or_else(
+        || (None, Vec::new()),
+        |room| {
+            crate::coop::travel_presentation(
+                room,
+                network.0.as_ref().and_then(|l| l.id.as_deref()),
+                scene,
+                x,
+                now,
+            )
+        },
+    );
+    state.presentation.now = now;
+    state.presentation.local = connection;
+    state.presentation.room = room.map(str::to_owned);
+    state.presentation.remote.clear();
+    state
+        .presentation
+        .remote
+        .extend(peers.into_iter().filter(|(_, id, _)| *id != local.0).map(
+            |(connection, player, received)| crate::valmora::presentation::Remote {
+                connection,
+                player,
+                name: names.of(player, local.0).unwrap_or("Companion").to_owned(),
+                received,
+            },
+        ));
     if state.release_guard && !state.inputs_down {
         state.release_guard = false;
     }
@@ -195,7 +227,7 @@ fn draw(
                 if ui.button("Fly to Valmora · V").clicked() {
                     entry.board_requested = true;
                 }
-                ui.small("Native port preview");
+                ui.small("A sky route from the castle");
             });
     } else if flying {
         egui::Area::new("valmora_travel_caption".into())

@@ -1,4 +1,4 @@
-//! Read-only projection of the local CrabScape puppet into the travel scene.
+//! Read-only projection of existing CrabScape puppets into the travel scene.
 //!
 //! There is no second crab, inventory, animation rig or simulation here. The
 //! existing puppet supplies its current transforms, visibility, atlases and
@@ -19,9 +19,12 @@ use bevy::{
 };
 use bevy_egui::{EguiPostUpdateSet, EguiTextureHandle, EguiUserTextures, egui};
 
-/// Attached only to the existing local crab's puppet root by `puppet.rs`.
+/// Attached to existing player puppet roots by `puppet.rs`, never a second rig.
 #[derive(Component)]
-pub(crate) struct CrabAvatarSource;
+pub(crate) struct CrabAvatarSource {
+    pub player: crabsim::PlayerId,
+    pub local: bool,
+}
 
 // Independent caps protect against accidentally attaching a world subtree or
 // an oversized cosmetic. Normal crab puppets use far less than these budgets.
@@ -86,20 +89,37 @@ struct SourceLayers {
     seen: bool,
 }
 
-/// Derived visual data only. Screen placement belongs to the travel scene.
+/// Derived visual data only. Static topology/textures are shared across poses.
 #[derive(Resource, Default)]
 pub(crate) struct CrabAvatar {
+    pose: AvatarPose,
+    remotes: HashMap<crabsim::PlayerId, AvatarPose>,
+    meshes: HashMap<AssetId<Mesh>, Arc<Geometry>>,
+    source_layers: HashMap<Entity, SourceLayers>,
+}
+#[derive(Default)]
+pub(crate) struct AvatarPose {
     parts: Vec<Part>,
     order: Vec<usize>,
     stack: Vec<(Entity, Affine3A, bool)>,
-    meshes: HashMap<AssetId<Mesh>, Arc<Geometry>>,
-    source_layers: HashMap<Entity, SourceLayers>,
     bounds: Option<Rect>,
     vertices: usize,
     indices: usize,
 }
-
 impl CrabAvatar {
+    pub(crate) fn is_ready(&self) -> bool {
+        self.pose.is_ready()
+    }
+    pub(crate) fn paint(&self, painter: &egui::Painter, feet: egui::Pos2, width: f32) {
+        if self.is_ready() {
+            self.pose.paint(painter, feet, width);
+        }
+    }
+    pub(crate) fn remote(&self, player: crabsim::PlayerId) -> Option<&AvatarPose> {
+        self.remotes.get(&player).filter(|pose| pose.is_ready())
+    }
+}
+impl AvatarPose {
     pub(crate) fn is_ready(&self) -> bool {
         self.bounds.is_some_and(|bounds| bounds.width() > 0.) && !self.parts.is_empty()
     }
@@ -108,6 +128,20 @@ impl CrabAvatar {
     /// visual width in screen points. Growth, pose and cosmetics retain their
     /// proportions. The painter's clip rectangle is respected.
     pub(crate) fn paint(&self, painter: &egui::Painter, feet: egui::Pos2, width_pixels: f32) {
+        self.paint_faded(painter, feet, width_pixels, 1.);
+    }
+    pub(crate) fn paint_faded(
+        &self,
+        painter: &egui::Painter,
+        feet: egui::Pos2,
+        width_pixels: f32,
+        opacity: f32,
+    ) {
+        let opacity = if opacity.is_finite() {
+            opacity.clamp(0., 1.)
+        } else {
+            return;
+        };
         let Some(bounds) = self.bounds else { return };
         if !feet.is_finite()
             || !width_pixels.is_finite()
@@ -155,7 +189,7 @@ impl CrabAvatar {
                             vertex.color.red * part.tint.red,
                             vertex.color.green * part.tint.green,
                             vertex.color.blue * part.tint.blue,
-                            vertex.color.alpha * part.tint.alpha,
+                            vertex.color.alpha * part.tint.alpha * opacity,
                         )),
                     }
                 }));
@@ -211,7 +245,8 @@ impl CrabAvatar {
         self.vertices += vertices;
         self.indices += indices;
     }
-
+}
+impl CrabAvatar {
     fn geometry(&mut self, id: AssetId<Mesh>, meshes: &Assets<Mesh>) -> Option<Arc<Geometry>> {
         if let Some(geometry) = self.meshes.get(&id) {
             return Some(Arc::clone(geometry));
@@ -238,7 +273,9 @@ impl CrabAvatar {
         layers: Option<&RenderLayers>,
         commands: &mut Commands,
     ) {
-        if self.source_layers.len() >= MAX_NODES && !self.source_layers.contains_key(&entity) {
+        if self.source_layers.len() >= MAX_NODES * (super::presentation::MAX_PEERS + 1)
+            && !self.source_layers.contains_key(&entity)
+        {
             return;
         }
         self.source_layers
@@ -298,7 +335,7 @@ struct VisualNode {
 fn capture(
     mut commands: Commands,
     state: Res<super::Valmora>,
-    roots: Query<Entity, With<CrabAvatarSource>>,
+    roots: Query<(Entity, &CrabAvatarSource)>,
     nodes: Query<VisualNode>,
     images: Res<Assets<Image>>,
     atlases: Res<Assets<TextureAtlasLayout>>,
@@ -313,34 +350,98 @@ fn capture(
             avatar.meshes.remove(id);
         }
     }
-    avatar.clear_pose();
+    avatar.pose.clear_pose();
+    for pose in avatar.remotes.values_mut() {
+        pose.clear_pose();
+    }
     for layers in avatar.source_layers.values_mut() {
         layers.seen = false;
     }
-    if !state.active && !state.travelling {
-        // A new trip may wear different equipment. Do not accumulate previous
-        // trips' cosmetic assets, and do no hierarchy work while at home.
-        avatar.meshes.clear();
-        avatar.restore_unseen(&mut commands);
-        return;
+    if state.active || state.travelling {
+        let local: Vec<_> = roots.iter().filter(|(_, s)| s.local).take(2).collect();
+        if local.len() == 1 {
+            let mut pose = std::mem::take(&mut avatar.pose);
+            capture_one(
+                &mut commands,
+                local[0].0,
+                true,
+                &nodes,
+                &images,
+                &atlases,
+                &meshes,
+                &materials,
+                &mut textures,
+                &mut avatar,
+                &mut pose,
+            );
+            avatar.pose = pose;
+        }
+        let selected: Vec<_> = state
+            .presentation
+            .live(state.presentation.now)
+            .filter(|p| p.received.note.scene != super::presentation::Scene::Castle)
+            .map(|p| p.player)
+            .take(super::presentation::MAX_PEERS)
+            .collect();
+        avatar.remotes.retain(|id, _| selected.contains(id));
+        for id in selected {
+            let matching: Vec<_> = roots
+                .iter()
+                .filter(|(_, s)| !s.local && s.player == id)
+                .take(2)
+                .collect();
+            if matching.len() != 1 {
+                avatar.remotes.remove(&id);
+                continue;
+            }
+            let mut pose = avatar.remotes.remove(&id).unwrap_or_default();
+            capture_one(
+                &mut commands,
+                matching[0].0,
+                false,
+                &nodes,
+                &images,
+                &atlases,
+                &meshes,
+                &materials,
+                &mut textures,
+                &mut avatar,
+                &mut pose,
+            );
+            avatar.remotes.insert(id, pose);
+        }
+    } else {
+        avatar.remotes.clear();
     }
-    let Ok(root) = roots.single() else {
-        avatar.meshes.clear();
-        avatar.restore_unseen(&mut commands);
-        return;
-    };
-    avatar.stack.push((root, Affine3A::IDENTITY, true));
+    avatar.restore_unseen(&mut commands);
+    avatar.meshes.retain(|_, mesh| Arc::strong_count(mesh) > 1);
+}
+#[allow(clippy::too_many_arguments)]
+fn capture_one(
+    commands: &mut Commands,
+    root: Entity,
+    suppress: bool,
+    nodes: &Query<VisualNode>,
+    images: &Assets<Image>,
+    atlases: &Assets<TextureAtlasLayout>,
+    meshes: &Assets<Mesh>,
+    materials: &Assets<ColorMaterial>,
+    textures: &mut EguiUserTextures,
+    avatar: &mut CrabAvatar,
+    pose: &mut AvatarPose,
+) {
+    pose.stack.push((root, Affine3A::IDENTITY, true));
     let mut visited = 0;
     while visited < MAX_NODES {
-        let Some((entity, parent, inherited)) = avatar.stack.pop() else {
+        let Some((entity, parent, inherited)) = pose.stack.pop() else {
             break;
         };
         visited += 1;
         let Ok(node) = nodes.get(entity) else {
             continue;
         };
-        if node.sprite.is_some() || node.mesh.is_some() {
-            avatar.suppress_source(entity, node.layers, &mut commands);
+        if suppress && (node.sprite.is_some() || node.mesh.is_some()) {
+            avatar.suppress_source(entity, node.layers, commands);
         }
         let visible = match node.visibility {
             Some(Visibility::Hidden) => false,
@@ -354,8 +455,8 @@ fn capture(
         // Hidden parents still need traversal: Bevy permits an explicitly
         // Visible child. Only inherited visibility follows the parent.
         if let Some(children) = node.children {
-            let remaining = MAX_NODES.saturating_sub(visited + avatar.stack.len());
-            avatar.stack.extend(
+            let remaining = MAX_NODES.saturating_sub(visited + pose.stack.len());
+            pose.stack.extend(
                 children
                     .iter()
                     .take(remaining)
@@ -374,16 +475,16 @@ fn capture(
                 sprite,
                 node.anchor.copied().unwrap_or_default(),
                 transform,
-                &images,
-                &atlases,
-                &mut textures,
+                images,
+                atlases,
+                textures,
             ) {
-                avatar.push(part);
+                pose.push(part);
             }
         } else if let (Some(mesh), Some(material)) = (node.mesh, node.material)
             && let Some(material) = materials.get(&material.0)
             && material.color.alpha() > 0.
-            && let Some(shape) = avatar.geometry(mesh.0.id(), &meshes)
+            && let Some(shape) = avatar.geometry(mesh.0.id(), meshes)
         {
             let texture = match material.texture.as_ref() {
                 Some(image) if images.contains(image.id()) => {
@@ -392,7 +493,7 @@ fn capture(
                 Some(_) => continue,
                 None => egui::TextureId::default(),
             };
-            avatar.push(Part {
+            pose.push(Part {
                 shape: Shape::Mesh(shape),
                 transform,
                 texture,
@@ -401,11 +502,7 @@ fn capture(
             });
         }
     }
-    avatar.restore_unseen(&mut commands);
-    // Keep only topology used by this pose. Dormant or replaced equipment
-    // cannot fill the cache across a long visit; unchanged pieces keep their Arc.
-    avatar.meshes.retain(|_, mesh| Arc::strong_count(mesh) > 1);
-    let CrabAvatar { parts, order, .. } = &mut *avatar;
+    let AvatarPose { parts, order, .. } = pose;
     order.sort_by(|&a, &b| {
         parts[a]
             .transform
@@ -589,7 +686,10 @@ mod tests {
     fn root(app: &mut App) -> Entity {
         app.world_mut()
             .spawn((
-                CrabAvatarSource,
+                CrabAvatarSource {
+                    player: crabsim::PlayerId(0),
+                    local: true,
+                },
                 Transform::default(),
                 Visibility::Inherited,
             ))
@@ -614,6 +714,95 @@ mod tests {
         });
         output.textures_delta.clear();
         output.shapes
+    }
+
+    #[test]
+    fn remote_projection_uses_admitted_player_not_name_and_never_changes_layers() {
+        use super::super::presentation::{Note, Received, Remote, Scene};
+        let mut app = app();
+        root(&mut app);
+        let mut sim = crabsim::Sim::with_one_crab(Vec2::new(2300., 7100.));
+        sim.add_crab(crabsim::PlayerId(7), Vec2::new(2350., 7100.));
+        let before = sim.state_hash();
+        app.insert_resource(sim);
+        let remote = app
+            .world_mut()
+            .spawn((
+                CrabAvatarSource {
+                    player: crabsim::PlayerId(7),
+                    local: false,
+                },
+                Transform::default(),
+                Visibility::Inherited,
+            ))
+            .id();
+        let picture = app
+            .world_mut()
+            .spawn((
+                ChildOf(remote),
+                Sprite::from_color(Color::WHITE, Vec2::new(30., 40.)),
+                Transform::from_xyz(0., 20., 0.),
+                RenderLayers::layer(4),
+            ))
+            .id();
+        let unrelated = app
+            .world_mut()
+            .spawn((
+                CrabAvatarSource {
+                    player: crabsim::PlayerId(8),
+                    local: false,
+                },
+                Transform::default(),
+                Visibility::Inherited,
+            ))
+            .id();
+        app.world_mut().spawn((
+            ChildOf(unrelated),
+            Sprite::from_color(Color::BLACK, Vec2::splat(200.)),
+        ));
+        {
+            let mut state = app.world_mut().resource_mut::<super::super::Valmora>();
+            state.presentation.room = Some("test".into());
+            state.presentation.now = 1.;
+            state.presentation.remote.push(Remote {
+                connection: "00000000-0000-0000-0000-000000000001".into(),
+                player: crabsim::PlayerId(7),
+                name: "Same name".into(),
+                received: Received {
+                    note: Note {
+                        room: "test".into(),
+                        build: "test".into(),
+                        sequence: 1,
+                        dragon: None,
+                        scene: Scene::Landing,
+                        x: 400.,
+                    },
+                    at: 1.,
+                },
+            });
+        }
+        app.update();
+        let avatar = app.world().resource::<CrabAvatar>();
+        let pose = avatar.remote(crabsim::PlayerId(7)).unwrap();
+        assert_eq!(pose.parts.len(), 1);
+        assert_eq!(pose.bounds.unwrap().width(), 30.);
+        assert!(avatar.remote(crabsim::PlayerId(8)).is_none());
+        assert_eq!(
+            app.world().get::<RenderLayers>(picture),
+            Some(&RenderLayers::layer(4))
+        );
+        assert_eq!(app.world().resource::<crabsim::Sim>().state_hash(), before);
+        app.world_mut()
+            .resource_mut::<super::super::Valmora>()
+            .presentation
+            .now = 5.;
+        app.update();
+        assert!(app.world().resource::<CrabAvatar>().remotes.is_empty());
+        assert_eq!(
+            app.world().get::<RenderLayers>(picture),
+            Some(&RenderLayers::layer(4))
+        );
+        assert_eq!(app.world().resource::<crabsim::Sim>().state_hash(), before);
     }
 
     #[test]
@@ -650,8 +839,8 @@ mod tests {
         app.update();
         let avatar = app.world().resource::<CrabAvatar>();
         assert!(avatar.is_ready());
-        assert_eq!(avatar.parts.len(), 1);
-        assert_eq!(avatar.bounds.unwrap(), Rect::new(-10., 0., 10., 40.));
+        assert_eq!(avatar.pose.parts.len(), 1);
+        assert_eq!(avatar.pose.bounds.unwrap(), Rect::new(-10., 0., 10., 40.));
         let output = painted(avatar, egui::pos2(200., 200.), 80.);
         let mesh = output
             .iter()
@@ -763,7 +952,7 @@ mod tests {
             .entity_mut(gear)
             .insert(Visibility::Inherited);
         app.update();
-        assert_eq!(app.world().resource::<CrabAvatar>().parts.len(), 1);
+        assert_eq!(app.world().resource::<CrabAvatar>().pose.parts.len(), 1);
         // An explicitly Visible descendant behaves like Bevy, even when its
         // parent is hidden. Ordinary atlas layers inherit and stay hidden.
         app.world_mut().spawn((
@@ -772,10 +961,10 @@ mod tests {
             Visibility::Visible,
         ));
         app.update();
-        assert_eq!(app.world().resource::<CrabAvatar>().parts.len(), 2);
+        assert_eq!(app.world().resource::<CrabAvatar>().pose.parts.len(), 2);
         app.world_mut().entity_mut(gear).insert(Visibility::Hidden);
         app.update();
-        assert_eq!(app.world().resource::<CrabAvatar>().parts.len(), 1);
+        assert_eq!(app.world().resource::<CrabAvatar>().pose.parts.len(), 1);
     }
 
     #[test]
@@ -890,7 +1079,7 @@ mod tests {
         }
         assert!(app.world().get::<RenderLayers>(other).is_none());
         assert_eq!(
-            app.world().resource::<CrabAvatar>().parts.len(),
+            app.world().resource::<CrabAvatar>().pose.parts.len(),
             3,
             "source render suppression must not suppress the projection"
         );
@@ -964,11 +1153,11 @@ mod tests {
         for _ in 0..3 {
             app.update();
             let avatar = app.world().resource::<CrabAvatar>();
-            assert_eq!(avatar.parts.len(), MAX_PARTS);
-            assert!(avatar.stack.len() <= MAX_NODES);
+            assert_eq!(avatar.pose.parts.len(), MAX_PARTS);
+            assert!(avatar.pose.stack.len() <= MAX_NODES);
             assert!(avatar.source_layers.len() <= MAX_NODES);
-            assert!(avatar.vertices <= MAX_VERTICES);
-            assert!(avatar.indices <= MAX_INDICES);
+            assert!(avatar.pose.vertices <= MAX_VERTICES);
+            assert!(avatar.pose.indices <= MAX_INDICES);
             let output = painted(avatar, egui::pos2(200., 200.), 80.);
             let vertices: usize = output
                 .iter()
@@ -996,6 +1185,6 @@ mod tests {
         app.update();
         let avatar = app.world().resource::<CrabAvatar>();
         assert!(!avatar.is_ready());
-        assert!(avatar.parts.is_empty() && avatar.meshes.is_empty());
+        assert!(avatar.pose.parts.is_empty() && avatar.meshes.is_empty());
     }
 }

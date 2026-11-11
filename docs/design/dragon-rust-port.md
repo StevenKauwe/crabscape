@@ -2,7 +2,7 @@
 
 This branch is an additive port, not a replacement for Dragon. The existing
 `web/dragon/index.html`, browser save keys and public game remain unchanged. The PR's
-standalone Dragon preview remains the existing JS game. The CrabScape preview now has an explicitly labeled native-port castle trip.
+standalone Dragon preview remains the existing JS game. The CrabScape preview now has a castle sky route into Valmora.
 
 ## Crabscape travel integration
 
@@ -16,9 +16,13 @@ The actual local puppet's sprites, atlases, geometry and descendant equipment ar
 projected onto the ferry, landing and dragon. Its original render layers are restored
 on return. No crab position, health, inventory or castle progress is copied or
 mutated by that projection. Standalone Culture/Tooth cargo outside the puppet tree
-is not yet projected. Source story illustrations and remote flight riders still
-depict the original cast; remote flight labels still use legacy rider names. Other
-crabs are not yet projected onto the landing.
+is not yet projected. Source story illustrations still depict the original cast.
+Other admitted party members now appear as their actual crab puppets on the landing
+and in shared flight, using their current Crabscape names. A bounded, expiring
+display note joins the two live transport connections only after reciprocal unique
+claims agree in the same room/build. Names and rider slots never establish identity.
+Missing or conflicting flight bindings show the companion alone; this bridge never
+changes gameplay authority, inventory, progression or save identity.
 
 An explicitly chosen native checkpoint is remembered by slot **and stable rider
 identity**. Missing/replaced checkpoints require explicit selection; imported
@@ -34,7 +38,7 @@ co-op and Dragon mission authority have not become one simulation. Party readine
 purchase votes and reconnect recovery use the existing Dragon protocol. Microphone
 capture and transcription remain off during the trip and are not restarted on return.
 
-Local integration verification (synthetic data): 379 root tests pass, including
+Local integration verification (synthetic data): 390 root tests pass, including
 puppet projection/restoration and frozen cross-slot recovery. A real headless Chrome
 phone-layout journey copied an original fixture slot explicitly, flew a mission,
 returned to the unchanged castle coordinates, re-entered, and reloaded into the
@@ -45,7 +49,9 @@ headless check, not physical-phone or all-mission performance certification.
 The two-client loopback browser test also passes through the real Crabscape invite
 and ferry: inherited names/room, a shared armor purchase with the other player still
 on the landing, readiness/countdown, one shared mission/run, guest input and host-loss
-takeover. It checks original source bytes and castle positions, blocks microphone
+takeover. The remote-avatar extension adds reciprocal identity/current-name checks
+on landing and flight, partner ferry return and reboarding, and remote projection
+cleanup. It checks original source bytes and castle positions, blocks microphone
 and public sockets, and uses empty ICE-server lists. The separate source rider
 identities still own their original progression; visual/transport integration does
 not merge their inventories with Crabscape's inventory.
