@@ -130,11 +130,37 @@ fn every_pocket_has_two_exits_with_the_starting_reserve() {
     for pocket in Level::test_level().pockets() {
         for (exit, mouth) in pocket.mouths.iter().enumerate() {
             let mut level = Level::test_level();
+            // The home burrow's doors are the tops of silt shafts far above
+            // its frame; `plate_d::home_burrow_round_trip_is_cheap` digs in at
+            // one and out at the other in the real burrow, which a crab
+            // started sealed inside the clay cannot (grains need water in
+            // claw reach).
+            if mouth
+                .center()
+                .distance(mouth.center().clamp(pocket.frame.min, pocket.frame.max))
+                > 40.0
+            {
+                continue;
+            }
+            // A door behind a brittle crust opens only to a full crusher
+            // charge (the warm seam's, the long chimney's top): the other
+            // door of the pocket, or of its neighbour, is its exit. A seep
+            // chimney's free ride carries the crab out of its far door, so
+            // the way back to the near one is not an exit to reach.
+            if level
+                .brittle
+                .iter()
+                .any(|b| !b.rect.intersect(*mouth).is_empty())
+                || (exit == 0 && matches!(pocket.name, "seep shaft" | "cathedral seep"))
+            {
+                continue;
+            }
             level.foes.clear();
             let mut sim = Sim::new(Tuning::default(), level);
             let edge = mouth.center().clamp(pocket.frame.min, pocket.frame.max);
             let outward = (mouth.center() - edge).normalize();
             let start = edge - outward * 40.0;
+
             sim.add_crab(PlayerId(0), start);
             sim.enable_underwater_cells();
             sim.crab_mut(PlayerId(0)).unwrap().mover.pos = start;
@@ -181,10 +207,13 @@ fn every_pocket_has_two_exits_with_the_starting_reserve() {
                     PlayerId(0),
                     Controls {
                         walk: if dx.abs() > 8.0 { dx.signum() } else { 0.0 },
-                        dig_held: true,
+                        // Dig where there is sediment; in open water (the
+                        // pockets' rooms and passages) swim, climbing out
+                        // from under the ground as a crab always can.
+                        dig_held: supported,
                         dig_up: supported && dx.abs() <= 8.0 && goal.y > p.y + 8.0,
-                        jump_held: goal.y > p.y + 8.0,
-                        jump_pressed: goal.y > p.y + 8.0 && tick % 60 == 0,
+                        jump_held: !supported && goal.y > p.y + 8.0,
+                        jump_pressed: !supported && goal.y > p.y + 8.0 && tick % 60 == 0,
                         down: dx.abs() <= 8.0 && goal.y < p.y - 8.0,
                         ..Default::default()
                     },

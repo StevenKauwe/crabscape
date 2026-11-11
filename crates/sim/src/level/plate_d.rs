@@ -118,15 +118,25 @@ pub(super) fn place_finds(level: &mut Level) {
     level.cultures.push(SEEP_GARDEN_PRIZE);
     // Warm seam: a bed of warm-water clams (the prize behind the crust).
     level.clams.push(WARM_SEAM_PRIZE);
-    // The mantis guarding Coral Rise's find stands further in (x 17250), so
-    // no walking hunter's leash reaches the pebble warren's door.
-    let rise = level.floor_height(17250.0);
+    // The mantis guarding Coral Rise's find stands at x 16700: far enough
+    // from the dam's cliff (1,014 units) that no walking leash reaches down
+    // to the cathedral seep, and its floor leash stays above the warren's roof.
+    let rise = level.floor_height(16700.0);
     if let Some((_, at)) = level
         .foes
         .iter_mut()
         .find(|(kind, at)| *kind == crate::enemy::Kind::Mantis && at.x == 16800.0)
     {
-        *at = Vec2::new(17250.0, rise);
+        *at = Vec2::new(16700.0, rise);
+    }
+    // The midwater jelly over the lower return hangs further west (x 13300):
+    // its leash is 2,000 wide and may not reach the pebble warren's door.
+    if let Some((_, at)) = level
+        .foes
+        .iter_mut()
+        .find(|(kind, at)| *kind == crate::enemy::Kind::AlarmJelly && at.x == 15180.0)
+    {
+        at.x = 13300.0;
     }
     // Clay cathedral: the eastern gallery's second glass sponge (the last of
     // the redundant lattices) is the cathedral's prize.
