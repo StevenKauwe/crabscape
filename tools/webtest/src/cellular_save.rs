@@ -1,4 +1,7 @@
 //! Full game regression, using the same WebKit session and phone frame as the other checks.
+#[path = "cellular_reset_trace.rs"]
+mod reset_trace;
+
 use crabsim::{
     Level, Replay, Sim,
     underwater::{GAME_CELL, HEIGHT, WIDTH, World},
@@ -351,6 +354,7 @@ impl Test<'_> {
             "cellular autosave and reload leave the normal game's save untouched",
         );
 
+        self.eval(reset_trace::INSTALL)?;
         let (x, y) = settings_button(self.o.width);
         self.tap(x, y, 12, true)?;
         let opened = self.wait_for(
@@ -381,7 +385,7 @@ impl Test<'_> {
             "confirmed Start over commits deletion and reloads the full game fresh",
         );
         if !reset {
-            let details = self.eval(&format!("(() => {{ const c = {CANVAS}; return {{ samePage: !!window.__cellularResetBefore, settings: c?.getAttribute('data-settings'), save: c?.getAttribute('data-cell-save'), message: document.getElementById('message')?.textContent }}; }})()"))?;
+            let details = self.eval(&format!("(() => {{ const c = {CANVAS}; return {{ samePage: !!window.__cellularResetBefore, settings: c?.getAttribute('data-settings'), save: c?.getAttribute('data-cell-save'), message: document.getElementById('message')?.textContent, storageTrace: window.__cellularResetTrace }}; }})()"))?;
             println!("     reset failure state: {details}");
             return Ok(());
         }
