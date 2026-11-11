@@ -36,7 +36,7 @@ struct One(u32, u16);
 struct Cloud(u32);
 
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_ink_only(
+    commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/amphipod-swarm-parts.json"),
         "creatures/amphipod-swarm-atlas.png",
         0.5,

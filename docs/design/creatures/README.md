@@ -96,7 +96,8 @@ Each creature's lane owns only: `crates/sim/src/creatures/<module>.rs` (rules, i
 Pipeline for a lane: spec → tests first (tells, timings, parry windows, poise break, can be beaten, can be escaped,
 never in a tunnel, no instant kill, determinism, a two-sim co-op hash) → `step`/`feels`/`phase` → rig in
 `crabrig/src/bestiary/<module>.rs`, then `cargo run -p crabrig --profile art -- parts --creature <name>` and
-`-- export --creature <name>` (ink only; `crates/crabrig/tests/bestiary.rs` checks drift) → pose in
+`-- export --creature <name>` (`crates/crabrig/tests/bestiary.rs` checks drift), `tools/paint-oil.sh <name>` and a
+look in the game (`docs/design/painted-creatures.md`) → pose in
 `src/creatures/<module>.rs` → `spots` by landmark → checks → PR `Closes #n`, auto-merge.
 
 ### Where things stand (2026-11-11, creature lead)
@@ -137,4 +138,5 @@ Read this to continue without the lead. Check live state with `gh pr view` / `gh
    swell, additive, distance-attenuated).
 3. Economy hand-off: `DROPS` names are fixed (the economy lead maps them to Items); the hagfish's
    `prize(level)` and grouper's `prize(level, home)` give the prize positions for resource nodes.
-4. Oil-painted atlases and real concept sheets only when someone asks (placeholders by decision).
+4. ~~Oil-painted atlases~~: done, all ten are painted like the crab (`docs/design/painted-creatures.md`). Real
+   concept sheets only when someone asks.

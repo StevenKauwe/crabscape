@@ -44,7 +44,7 @@ struct Ink {
 }
 
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_ink_only(
+    commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/humboldt-squid-parts.json"),
         "creatures/humboldt-squid-atlas.png",
         0.5,

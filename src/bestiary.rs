@@ -1,6 +1,6 @@
 //! The ten bestiary creatures' game side: shared puppet helpers, and each creature's plugin
-//! (`src/creatures/<name>.rs`). Until a creature's lane draws it properly, it is an ink-only placeholder that
-//! leans back in its tell, lunges in its attack and wobbles when staggered.
+//! (`src/creatures/<name>.rs`). Each puppet is drawn in ink or oil paint like every other (`creature_art.rs`), and
+//! leans back in its tell, lunges in its attack and wobbles when staggered unless its own pose says more.
 use crate::creatures::*;
 use crate::memory::{Known, Remembered};
 use bevy::prelude::*;

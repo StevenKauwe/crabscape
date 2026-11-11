@@ -35,7 +35,7 @@ struct Piece {
 }
 
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_ink_only(
+    commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/viperfish-parts.json"),
         "creatures/viperfish-atlas.png",
         0.5,

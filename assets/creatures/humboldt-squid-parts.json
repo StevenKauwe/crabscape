@@ -7,8 +7,8 @@
  ],
  "px_per_unit": 0.6,
  "ground": [
-  746.85,
-  315.0
+  752.7,
+  369.4
  ],
  "anchors": {},
  "parts": [
@@ -16,20 +16,20 @@
    "name": "fin",
    "parent": "body",
    "pivot": [
-    344.0,
-    207.3
+    356.0,
+    234.0
    ],
    "bbox": [
-    78.9,
-    94.0,
-    294.5,
-    226.7
+    54.9,
+    92.6,
+    339.3,
+    282.8
    ],
    "rect": [
-    568,
     3,
-    177,
-    137
+    3,
+    204,
+    170
    ],
    "z": 0,
    "members": [
@@ -40,46 +40,103 @@
    "name": "body",
    "parent": null,
    "pivot": [
-    684.0,
-    207.3
+    696.0,
+    234.0
    ],
    "bbox": [
-    55.2,
-    93.6,
+    67.2,
+    120.3,
     937.1,
     226.6
    ],
    "rect": [
     3,
-    143,
+    176,
     563,
     136
    ],
    "z": 1,
    "members": [
-    "body"
+    "body",
+    "body--ridge",
+    "body--spot-0",
+    "body--spot-1",
+    "body--spot-2",
+    "body--spot-3",
+    "body--spot-4",
+    "body--spot-5",
+    "body--spot-6",
+    "body--spot-7",
+    "body--spot-8",
+    "body--spot-9",
+    "body--spot-10",
+    "body--spot-11",
+    "body--spot-12",
+    "body--spot-13",
+    "body--spot-14",
+    "body--spot-15",
+    "body--spot-16",
+    "body--spot-17",
+    "body--spot-18",
+    "body--spot-19",
+    "body--spot-20",
+    "body--spot-21",
+    "body--spot-22",
+    "body--spot-23",
+    "body--spot-24",
+    "body--spot-25",
+    "body--spot-26",
+    "body--spot-27",
+    "body--spot-28",
+    "body--spot-29",
+    "body--spot-30",
+    "body--spot-31",
+    "body--spot-32",
+    "body--spot-33",
+    "body--spot-34",
+    "body--spot-35",
+    "body--spot-36",
+    "body--spot-37",
+    "body--spot-38",
+    "body--spot-39",
+    "body--spot-40",
+    "body--spot-41",
+    "body--spot-42",
+    "body--spot-43",
+    "body--spot-44",
+    "body--spot-45",
+    "body--spot-46",
+    "body--spot-47",
+    "body--spot-48",
+    "body--spot-49",
+    "body--spot-50",
+    "body--spot-51",
+    "body--spot-52",
+    "body--spot-53",
+    "body--spot-54",
+    "body--spot-55"
    ]
   },
   {
    "name": "body-flash",
    "parent": "body",
    "pivot": [
-    684.0,
-    207.3
+    696.0,
+    234.0
    ],
    "bbox": [
-    56.3,
-    94.2,
+    68.3,
+    120.9,
     936.4,
     226.8
    ],
    "rect": [
-    3,
+    210,
     3,
     562,
     137
    ],
-   "z": 2,
+   "z": 59,
    "members": [
     "body-flash"
    ]
@@ -88,46 +145,51 @@
    "name": "arms-lower",
    "parent": "head",
    "pivot": [
-    1154.0,
-    217.3
+    1166.0,
+    244.0
    ],
    "bbox": [
-    1135.1,
-    195.9,
+    1147.1,
+    222.6,
     189.1,
-    81.8
+    81.7
    ],
    "rect": [
     3,
-    282,
+    315,
     114,
     50
    ],
-   "z": 3,
+   "z": 60,
    "members": [
-    "arms-lower"
+    "arms-lower",
+    "arms-lower--split",
+    "arms-lower--sucker-0",
+    "arms-lower--sucker-1",
+    "arms-lower--sucker-2",
+    "arms-lower--sucker-3"
    ]
   },
   {
    "name": "tentacle-a",
    "parent": "head",
    "pivot": [
-    1184.0,
-    189.3
+    1196.0,
+    216.0
    ],
    "bbox": [
-    1164.5,
-    173.7,
+    1176.5,
+    200.4,
     239.0,
-    30.2
+    30.1
    ],
    "rect": [
     302,
-    282,
+    315,
     144,
     19
    ],
-   "z": 4,
+   "z": 66,
    "members": [
     "tentacle-a"
    ]
@@ -136,22 +198,22 @@
    "name": "tentacle-b",
    "parent": "head",
    "pivot": [
-    1184.0,
-    225.3
+    1196.0,
+    252.0
    ],
    "bbox": [
-    1165.8,
-    211.0,
+    1177.8,
+    237.7,
     237.0,
     29.9
    ],
    "rect": [
     449,
-    282,
+    315,
     143,
     18
    ],
-   "z": 5,
+   "z": 67,
    "members": [
     "tentacle-b"
    ]
@@ -160,70 +222,76 @@
    "name": "club-a",
    "parent": "head",
    "pivot": [
-    1384.0,
-    189.3
+    1396.0,
+    216.0
    ],
    "bbox": [
-    1330.2,
-    160.7,
+    1342.2,
+    187.4,
     108.3,
-    56.7
+    56.6
    ],
    "rect": [
     234,
-    282,
+    315,
     65,
-    35
+    34
    ],
-   "z": 6,
+   "z": 68,
    "members": [
-    "club-a"
+    "club-a",
+    "club-a--sucker-0",
+    "club-a--sucker-1",
+    "club-a--sucker-2"
    ]
   },
   {
    "name": "club-b",
    "parent": "head",
    "pivot": [
-    1384.0,
-    225.3
+    1396.0,
+    252.0
    ],
    "bbox": [
-    1330.8,
-    196.5,
+    1342.8,
+    223.2,
     106.4,
     57.6
    ],
    "rect": [
     167,
-    282,
+    315,
     64,
     35
    ],
-   "z": 7,
+   "z": 72,
    "members": [
-    "club-b"
+    "club-b",
+    "club-b--sucker-0",
+    "club-b--sucker-1",
+    "club-b--sucker-2"
    ]
   },
   {
    "name": "head",
    "parent": "body",
    "pivot": [
-    944.0,
-    207.3
+    956.0,
+    234.0
    ],
    "bbox": [
-    934.6,
-    121.3,
+    946.6,
+    148.0,
     287.1,
-    173.2
+    173.1
    ],
    "rect": [
     569,
-    143,
+    176,
     173,
     104
    ],
-   "z": 8,
+   "z": 76,
    "members": [
     "head",
     "head-line"
@@ -233,22 +301,22 @@
    "name": "head-flash",
    "parent": "head",
    "pivot": [
-    944.0,
-    207.3
+    956.0,
+    234.0
    ],
    "bbox": [
-    969.7,
-    132.1,
+    981.7,
+    158.8,
     252.0,
     148.0
    ],
    "rect": [
     745,
-    143,
+    176,
     152,
     89
    ],
-   "z": 9,
+   "z": 77,
    "members": [
     "head-flash"
    ]
@@ -257,48 +325,56 @@
    "name": "arms-upper",
    "parent": "head",
    "pivot": [
-    1154.0,
-    197.3
+    1166.0,
+    224.0
    ],
    "bbox": [
-    1135.2,
-    126.5,
+    1147.2,
+    153.2,
     189.6,
     94.6
    ],
    "rect": [
     900,
-    143,
+    176,
     114,
     57
    ],
-   "z": 10,
+   "z": 78,
    "members": [
-    "arms-upper"
+    "arms-upper",
+    "arms-upper--split",
+    "arms-upper--sucker-0",
+    "arms-upper--sucker-1",
+    "arms-upper--sucker-2",
+    "arms-upper--sucker-3"
    ]
   },
   {
    "name": "eye",
    "parent": "head",
    "pivot": [
-    1084.0,
-    173.3
+    1096.0,
+    200.0
    ],
    "bbox": [
-    1047.4,
-    137.8,
+    1059.4,
+    164.5,
     72.7,
     71.3
    ],
    "rect": [
     120,
-    282,
+    315,
     44,
     43
    ],
-   "z": 11,
+   "z": 84,
    "members": [
-    "eye"
+    "eye",
+    "eye--pupil",
+    "eye--glint",
+    "eye--glint2"
    ]
   }
  ]

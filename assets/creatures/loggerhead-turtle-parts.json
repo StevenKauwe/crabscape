@@ -7,8 +7,8 @@
  ],
  "px_per_unit": 0.6,
  "ground": [
-  668.9,
-  437.0
+  678.55,
+  440.1
  ],
  "anchors": {},
  "parts": [
@@ -17,19 +17,19 @@
    "parent": "body",
    "pivot": [
     906.0,
-    308.7
+    311.7
    ],
    "bbox": [
     889.8,
     287.6,
-    336.0,
-    137.7
+    344.0,
+    140.3
    ],
    "rect": [
     3,
-    178,
-    202,
-    83
+    173,
+    207,
+    85
    ],
    "z": 0,
    "members": [
@@ -41,19 +41,19 @@
    "parent": "body",
    "pivot": [
     266.0,
-    328.7
+    331.7
    ],
    "bbox": [
     106.5,
-    316.7,
+    319.2,
     166.0,
-    102.0
+    98.5
    ],
    "rect": [
-    320,
-    178,
+    325,
+    173,
     100,
-    62
+    60
    ],
    "z": 1,
    "members": [
@@ -65,19 +65,19 @@
    "parent": "body",
    "pivot": [
     152.0,
-    292.7
+    295.7
    ],
    "bbox": [
     52.9,
-    270.6,
-    107.6,
-    48.6
+    273.7,
+    113.2,
+    51.6
    ],
    "rect": [
-    423,
-    178,
-    65,
-    30
+    428,
+    173,
+    68,
+    31
    ],
    "z": 2,
    "members": [
@@ -89,28 +89,49 @@
    "parent": null,
    "pivot": [
     696.0,
-    236.7
+    239.7
    ],
    "bbox": [
-    131.2,
-    93.8,
-    967.0,
-    286.4
+    126.3,
+    93.1,
+    969.3,
+    277.5
    ],
    "rect": [
     3,
     3,
-    581,
-    172
+    582,
+    167
    ],
    "z": 3,
    "members": [
+    "body--plastron",
     "body",
-    "body-scute-0",
-    "body-scute-1",
-    "body-scute-2",
-    "body-scute-3",
-    "body-scute-4"
+    "body--vertebral-0",
+    "body--vertebral-1",
+    "body--vertebral-2",
+    "body--vertebral-3",
+    "body--vertebral-4",
+    "body--costal-0",
+    "body--costal-1",
+    "body--costal-2",
+    "body--costal-3",
+    "body--marginal-0",
+    "body--marginal-1",
+    "body--marginal-2",
+    "body--marginal-3",
+    "body--marginal-4",
+    "body--marginal-5",
+    "body--marginal-6",
+    "body--marginal-7",
+    "body--marginal-8",
+    "body--marginal-9",
+    "body--marginal-10",
+    "body--marginal-11",
+    "body--costal-heart-0",
+    "body--costal-heart-1",
+    "body--costal-heart-2",
+    "body--costal-heart-3"
    ]
   },
   {
@@ -118,47 +139,56 @@
    "parent": "body",
    "pivot": [
     1080.0,
-    244.7
+    247.7
    ],
    "bbox": [
-    1041.2,
-    163.2,
-    234.2,
-    152.4
+    1035.7,
+    152.8,
+    268.5,
+    166.8
    ],
    "rect": [
-    812,
+    588,
     3,
-    141,
-    92
+    162,
+    101
    ],
-   "z": 4,
+   "z": 30,
    "members": [
-    "head"
+    "head",
+    "head--throat",
+    "head--scale-0",
+    "head--scale-1",
+    "head--scale-2",
+    "head--scale-3",
+    "head--beak",
+    "head--jaw"
    ]
   },
   {
    "name": "eye",
    "parent": "head",
    "pivot": [
-    1196.0,
-    216.7
+    1200.0,
+    223.7
    ],
    "bbox": [
-    1175.5,
-    197.3,
-    40.6,
-    39.2
+    1176.5,
+    202.1,
+    46.6,
+    43.4
    ],
    "rect": [
-    491,
-    178,
-    25,
-    24
+    499,
+    173,
+    28,
+    27
    ],
-   "z": 5,
+   "z": 38,
    "members": [
-    "eye"
+    "eye",
+    "eye--glint",
+    "eye--glint2"
    ]
   },
   {
@@ -166,23 +196,27 @@
    "parent": "body",
    "pivot": [
     928.0,
-    312.7
+    315.7
    ],
    "bbox": [
     915.2,
     287.3,
-    369.7,
-    155.7
+    377.7,
+    158.8
    ],
    "rect": [
-    587,
+    753,
     3,
-    222,
-    94
+    227,
+    96
    ],
-   "z": 6,
+   "z": 41,
    "members": [
-    "flipper-front-near"
+    "flipper-front-near",
+    "flipper-front-near--scale-0",
+    "flipper-front-near--scale-1",
+    "flipper-front-near--scale-2",
+    "flipper-front-near--claw"
    ]
   },
   {
@@ -190,23 +224,24 @@
    "parent": "body",
    "pivot": [
     286.0,
-    336.7
+    339.7
    ],
    "bbox": [
     113.1,
-    325.3,
+    327.8,
     180.5,
-    105.3
+    101.8
    ],
    "rect": [
-    208,
-    178,
+    213,
+    173,
     109,
-    64
+    62
    ],
-   "z": 7,
+   "z": 46,
    "members": [
-    "flipper-hind-near"
+    "flipper-hind-near",
+    "flipper-hind-near--scale"
    ]
   }
  ]

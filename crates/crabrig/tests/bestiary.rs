@@ -1,5 +1,5 @@
-//! The ten bestiary placeholder rigs match their committed parts files and
-//! game files. This replaces the CI art job for them (they have no oil atlas).
+//! The ten bestiary rigs match their committed parts files and ink game files, in `cargo test` (the CI art job
+//! also re-exports them and repaints their oil atlases).
 
 use crabrig::bestiary;
 
@@ -12,7 +12,7 @@ fn read(path: String) -> String {
 }
 
 #[test]
-fn placeholder_rigs_and_ink_exports_match_the_committed_files() {
+fn rigs_and_ink_exports_match_the_committed_files() {
     for name in bestiary::NAMES {
         let committed = read(format!("art/creatures/{name}/{name}-parts.svg"));
         let svg = bestiary::parts_svg(name).expect("a bestiary name has a rig");
