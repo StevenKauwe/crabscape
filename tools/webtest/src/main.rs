@@ -982,13 +982,13 @@ impl Test<'_> {
         self.eval(r#"(document.getElementById("replay-button").click(), true)"#)?;
         self.replay_matches("the ?replay page's Replay button", standing)?;
 
-        // --- a fight: start by the mantis shrimp's burrow on the plateau ------------------------------------------
+        // --- a fight: start beside the mantis by the mantis mouth on the basin floor (east of it, clear of both doors) --
         self.go("assets/crab/crab-atlas.png")?;
-        self.eval(&format!(r#"(localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: 870, y: 110}})), true)"#))?;
+        self.eval(&format!(r#"(localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: 3990, y: -700}})), true)"#))?;
         self.open("index.html")?;
         let by_burrow = self.crab()?;
         self.check(
-            by_burrow.is_some_and(|(x, _, _)| (x - 870.0).abs() < 2.0),
+            by_burrow.is_some_and(|(x, _, _)| (x - 3990.0).abs() < 2.0),
             format!("the crab starts by the mantis's burrow ({by_burrow:?})"),
         );
         // It sees the crab, comes out and darts in; by now it is rearing for its strike.
@@ -1255,7 +1255,7 @@ impl Test<'_> {
             };
             self.eval(&format!(
                 r#"(localStorage.clear(),
-                    localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: 870, y: 110}})),
+                    localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: 3990, y: -700}})),
                     localStorage.setItem("crabscape-feel", "{feel}"),
                     localStorage.setItem("crabscape-juice", "on"), true)"#
             ))?;
