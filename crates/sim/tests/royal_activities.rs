@@ -398,6 +398,9 @@ fn ribbon_commands_require_living_local_crab_at_wardrobe() {
     sim.crab_mut(ID).unwrap().mover.pos = crabsim::SPAWN;
     assert!(!sim.royal_action(ID, Action::UnequipRibbon));
     sim.crab_mut(ID).unwrap().mover.pos = map::WARDROBE;
+    sim.crab_mut(ID).unwrap().fighter.dead = Some(1);
+    assert!(!sim.royal_action(ID, Action::UnequipRibbon));
+    sim.crab_mut(ID).unwrap().fighter.dead = None;
     sim.crab_mut(ID).unwrap().remote = true;
     assert!(!sim.royal_action(ID, Action::UnequipRibbon));
     assert!(!sim.royal_action(ID, Action::Ribbon(1)));
