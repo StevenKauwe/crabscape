@@ -3,13 +3,13 @@ use crabsim::{Carry, Controls, PlayerId, Sim};
 
 #[test]
 fn excavate_the_terrace_collect_its_tooth_and_walk_out_beyond_the_cap() {
-    // The five-minute bed reaches -2164 here and carries a few moving grains.
+    // The five-minute bed reaches -4164 here and carries a few moving grains.
     // Arrive through clear water, then settle normally before the same dig.
-    let mut sim = Sim::with_one_crab(Vec2::new(9900.0, -2040.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(9900.0, -4040.0));
     sim.enable_underwater_cells();
     let id = PlayerId(0);
     let mut cells = sim.level.cells.take().unwrap();
-    cells.follow_player(&sim.level, 9900.0, -2040.0);
+    cells.follow_player(&sim.level, 9900.0, -4040.0);
     let crab = &sim.crab(id).unwrap().mover;
     assert!(
         !cells.game_solid(
@@ -39,7 +39,7 @@ fn excavate_the_terrace_collect_its_tooth_and_walk_out_beyond_the_cap() {
             let crab = &sim.crab(id).unwrap().mover;
             if (9940.0..=10240.0).contains(&crab.pos.x) {
                 assert!(
-                    crab.pos.y + crab.height(&sim.tuning) <= -2224.0,
+                    crab.pos.y + crab.height(&sim.tuning) <= -4224.0,
                     "crossed the rock roof at {:?}",
                     crab.pos
                 );
@@ -57,7 +57,7 @@ fn excavate_the_terrace_collect_its_tooth_and_walk_out_beyond_the_cap() {
         dig_held: true,
         ..Default::default()
     };
-    move_until(Controls { down: true, ..dig }, 600, |p| p.y <= -2350.0);
+    move_until(Controls { down: true, ..dig }, 600, |p| p.y <= -4350.0);
     move_until(Controls { walk: 1.0, ..dig }, 1200, |p| p.x >= 10280.0);
     move_until(
         Controls {
@@ -65,7 +65,7 @@ fn excavate_the_terrace_collect_its_tooth_and_walk_out_beyond_the_cap() {
             ..dig
         },
         600,
-        |p| p.y >= -2204.0,
+        |p| p.y >= -4204.0,
     );
     // Paddle clear of the loosened sand at the mouth before walking east.
     move_until(
@@ -76,7 +76,7 @@ fn excavate_the_terrace_collect_its_tooth_and_walk_out_beyond_the_cap() {
             ..Default::default()
         },
         240,
-        |p| p.x >= 10335.0 && p.y >= -2224.0,
+        |p| p.x >= 10335.0 && p.y >= -4224.0,
     );
     move_until(
         Controls {
