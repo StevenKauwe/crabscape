@@ -244,6 +244,11 @@ fn state(e: &Enemy) -> State {
     }
 }
 
+/// Is `crab` the one it has swallowed?
+pub(crate) fn engulfs(e: &Enemy, crab: PlayerId) -> bool {
+    state(e).engulfed == Some(crab)
+}
+
 fn store(e: &mut Enemy, s: State) {
     e.creature = Extra::Grouper(s);
 }

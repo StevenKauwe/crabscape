@@ -660,3 +660,21 @@ mod coop {
         assert_eq!(a.state, b.state, "{a:?} vs {b:?}");
     }
 }
+
+#[test]
+fn a_crab_held_by_a_staggered_worm_is_freed_at_once() {
+    let mut sim = world(100.0);
+    provoke(&mut sim);
+    assert!(until(&mut sim, State::Grab, 80, Controls::default()));
+    assert!(sim.crab(P).unwrap().fighter.grabbed.is_some());
+    let e = &mut sim.enemies_mut()[0];
+    e.state = State::Stagger;
+    e.state_tick = 0;
+    e.state_len = 60;
+    // (The bite's hit-stop still freezes the crab for a few ticks.)
+    idle(&mut sim, 12);
+    assert!(
+        sim.crab(P).unwrap().fighter.grabbed.is_none(),
+        "the hold ends with the worm's stagger, not the hold timer"
+    );
+}

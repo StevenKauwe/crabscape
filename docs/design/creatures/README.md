@@ -113,11 +113,14 @@ Read this to continue without the lead. Check live state with `gh pr view` / `gh
   vent field.
 
 **Hidden rules found while building**
-- No creature hook into `Enemy::takes`: the lobster (guard), hermit (shell ×0.1, soft ×1.5) and isopod (armour by pose)
-  correct the health `takes` booked on their next step. Works in co-op, but a blow's kill check uses raw damage. Next
-  shared change: a `creatures::takes` hook (damage zones by pose and side).
-- The shared grab (`fighter.grabbed`) blocks every crab action; the squid snares first (reeled in, still fighting) and
-  only grips at 170 units. Only the moray frees a grab generically; a parried hold on a remote crab lasts until its timer.
+- Done: `creatures::takes` is a hook inside `Enemy::takes` (before the zone maths). The lobster (guard ×0.2 and guard
+  poise, counter-parry beat), hermit (shell ×0.1 with no poise, soft parts ×1.5) and isopod (armour by pose) scale the
+  blow there, so the kill check and the crab's fighting XP (read from the health actually lost) use real damage. What
+  must touch crabs (the lobster's shove, the hermit's counter-sting) is noted in their state and done in their next
+  step, on the crab's own device.
+- Done: a grab (`fighter.grabbed`) is freed in the held crab's own step when its holder is gone, Gone/Stagger/Flee/
+  Recover, or says it let go (`creatures::holds`). The shared grab still blocks every crab action; the squid snares
+  first (reeled in, still fighting) and only grips at 170 units.
 - Placement constraints are tight on today's map: the grouper, hermit, isopod, hagfish and amphipods sit closer than
   400 units to a refuge (decided: allowed for guardians and crowds that never chase; `world_shape` and `rest` pass).
 - Smell-drawn kinds (amphipods) have no tell without a scent: `cues.rs`'s generic-tell test skips them.
@@ -130,7 +133,8 @@ Read this to continue without the lead. Check live state with `gh pr view` / `gh
 1. After the world build's geometry batch merges: run `cargo test -p crabsim --test bestiary` and each creature's
    test; re-place any spot whose landmark moved (the squid must never use pit landmarks; the lobster may move to a new
    den on the far rim if the stepped rim is wide enough).
-2. Shared `creatures::takes` hook; generic grab release; a boom sound for the grouper (additive, in the music's key).
+2. ~~Shared `creatures::takes` hook; generic grab release; a boom sound for the grouper~~ (done: `Cue::Boom`, a D1/D2
+   swell, additive, distance-attenuated).
 3. Economy hand-off: `DROPS` names are fixed (the economy lead maps them to Items); the hagfish's
    `prize(level)` and grouper's `prize(level, home)` give the prize positions for resource nodes.
 4. Oil-painted atlases and real concept sheets only when someone asks (placeholders by decision).

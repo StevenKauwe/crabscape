@@ -551,3 +551,47 @@ fn feels_is_the_one_place_it_reacts_to_an_outcome() {
     let mut en = Enemy::new(1, Kind::HumboldtSquid, SQUID, &t);
     assert!(!crabsim::enemy::feels(&mut en, P, Outcome::Evaded, &t));
 }
+
+#[test]
+fn co_op_a_guest_crab_is_freed_on_the_guest_when_the_host_squid_lets_go() {
+    use crabsim::combat::Grabbed;
+    let build = |me: PlayerId, other: PlayerId, host: bool| {
+        let mut sim = Sim::new(Tuning::default(), Level::test_level());
+        sim.spawn_enemy(Kind::HumboldtSquid, SQUID);
+        sim.add_crab(me, Vec2::new(-3000.0, 0.0));
+        sim.add_remote_crab(other, Vec2::new(-2800.0, 0.0));
+        sim.go_online(host);
+        sim
+    };
+    let mut host = build(HOST, GUEST, true);
+    let mut guest = build(GUEST, HOST, false);
+    let mut link = FakeLink::new(3, 0, 0.0, 7);
+    let held = |sim: &Sim| sim.crab(GUEST).expect("crab").fighter.grabbed;
+    // The guest's crab is held by the squid the host runs.
+    let id = host.enemies()[0].id;
+    let grab = Grabbed {
+        by: id,
+        left: 600,
+        struggle: 24,
+        held: 0,
+    };
+    guest.crab_mut(GUEST).expect("crab").fighter.grabbed = Some(grab);
+    // The tentacle is cut on the host: the squid staggers.
+    let eel = &mut host.enemies_mut()[0];
+    eel.state = State::Stagger;
+    eel.state_tick = 0;
+    eel.state_len = squid::SEVER_STAGGER;
+    eel.vitals.stagger = squid::SEVER_STAGGER;
+    let mut freed_in = None;
+    for n in 0..60 {
+        host.tick();
+        guest.tick();
+        link.carry(&mut [&mut host, &mut guest]);
+        if held(&guest).is_none() {
+            freed_in = Some(n);
+            break;
+        }
+    }
+    let n = freed_in.expect("still held on the guest");
+    assert!(n < 20, "freed after {n} ticks, not after the hold timer");
+}

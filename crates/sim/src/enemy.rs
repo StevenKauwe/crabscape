@@ -617,6 +617,19 @@ impl Enemy {
             o.revealed = true; // found out
         }
         let k = self.kind.tuning(t);
+        let mut scale = crate::creatures::Scale {
+            damage: 1.0,
+            poise: 1.0,
+            knock: 1.0,
+        };
+        match crate::creatures::takes(self, hit, from_x, t) {
+            Some(crate::creatures::Takes::Handled(took)) => {
+                self.vitals.hitstop = self.vitals.hitstop.max(hit.hitstop);
+                return Some(took);
+            }
+            Some(crate::creatures::Takes::Scale(s)) => scale = s,
+            None => {}
+        }
         let in_front = (from_x - self.pos.x) * self.facing > 0.0;
         let zone = if in_front && self.state == State::Recover && k.head > 0.0 {
             k.head_recover
@@ -625,8 +638,12 @@ impl Enemy {
         } else {
             1.0
         };
-        let took = self.vitals.take(hit.damage * zone, hit.poise, &k.vitals);
-        self.vel_x = hit.knockback.x;
+        let took = self.vitals.take(
+            hit.damage * zone * scale.damage,
+            hit.poise * scale.poise,
+            &k.vitals,
+        );
+        self.vel_x = hit.knockback.x * scale.knock;
         self.vitals.hitstop = self.vitals.hitstop.max(hit.hitstop);
         if took.died && self.octo.is_some() {
             octopus::away(self, t);
@@ -701,6 +718,20 @@ impl Enemy {
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(id, _, _)| id)
     }
+}
+
+/// Does `e` still hold `crab` (a crab it grabbed)? Not once it is gone,
+/// staggered, fleeing or recovering, nor when its own account says it let
+/// go ([`crate::creatures::holds`]). Checked in the held crab's own step, so
+/// a hold ends on the crab's device even when the holder runs on another.
+pub fn holds(e: &Enemy, crab: PlayerId) -> bool {
+    if matches!(
+        e.state,
+        State::Gone | State::Stagger | State::Flee | State::Recover
+    ) {
+        return false;
+    }
+    crate::creatures::holds(e, crab).unwrap_or(true)
 }
 
 /// Stable start-of-tick view of another animal for single-player predation.
