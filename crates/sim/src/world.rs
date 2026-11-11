@@ -1129,6 +1129,7 @@ impl Sim {
                     return;
                 };
                 if crab.remote && Net::newer(&mut net.crab_at, state.id, at) {
+                    crab.royal.wearing = state.ribbon.filter(|i| *i < 4);
                     crab.mover = state.mover;
                     crab.fighter = state.fighter;
                     crab.pending.merge(state.events);
@@ -3037,6 +3038,7 @@ impl Sim {
                 .map(|u| std::mem::take(&mut u.1))
                 .unwrap_or_default();
             let crab = CrabState {
+                ribbon: c.royal.wearing,
                 id: c.id,
                 mover: c.mover.clone(),
                 fighter: c.fighter.clone(),

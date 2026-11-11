@@ -38,6 +38,7 @@ pub enum Action {
     StartBells,
     Answer { puzzle: u8, choice: u8 },
     Ribbon(u8),
+    UnequipRibbon,
     Upload { rows: u16, columns: u8 },
     BeginResearch(u64),
     CompleteResearch { ticket: u64, judged: u32 },
@@ -152,6 +153,9 @@ pub(crate) fn apply(crab: &mut SimCrab, action: Action, tuning: &Tuning) -> bool
                 crab.royal.ribbons |= bit;
             }
             crab.royal.wearing = Some(color);
+        }
+        Action::UnequipRibbon if beside(map::WARDROBE) => {
+            crab.royal.wearing = None;
         }
         Action::Upload { rows, columns } if beside(Vec2::new(map::BOOK.x, map::FLOOR_Y)) => {
             if !(3..=5000).contains(&rows) || !(2..=64).contains(&columns) || crab.royal.uploaded {

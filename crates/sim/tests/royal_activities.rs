@@ -361,3 +361,114 @@ fn the_throne_stairs_can_be_crossed_in_both_directions_after_expansion() {
         walk(&mut sim, map::ARCHIVIST.x);
     }
 }
+
+#[test]
+fn ribbons_equip_switch_unequip_and_save_without_losing_ownership() {
+    let mut sim = at(map::WARDROBE);
+    sim.crab_mut(ID).unwrap().royal.tokens = 12;
+    for i in 0..4 {
+        assert!(sim.royal_action(ID, Action::Ribbon(i)));
+        assert_eq!(sim.crab(ID).unwrap().royal.wearing, Some(i));
+    }
+    assert_eq!(sim.crab(ID).unwrap().royal.tokens, 0);
+    assert!(!sim.royal_action(ID, Action::Ribbon(4)));
+    assert!(sim.royal_action(ID, Action::UnequipRibbon));
+    assert!(sim.royal_action(ID, Action::UnequipRibbon));
+    let saved = serde_json::to_string(&sim.progress(ID).unwrap()).unwrap();
+    let mut restored = at(map::WARDROBE);
+    restored.restore_progress(ID, &serde_json::from_str(&saved).unwrap());
+    assert_eq!(restored.crab(ID).unwrap().royal.wearing, None);
+    assert_eq!(restored.crab(ID).unwrap().royal.ribbons, 15);
+    // Return to the wardrobe after loading; restore also restores position.
+    restored.crab_mut(ID).unwrap().mover.pos = map::WARDROBE;
+    restored.crab_mut(ID).unwrap().mover.grounded = true;
+    assert!(restored.royal_action(ID, Action::Ribbon(0)));
+    assert_eq!(restored.crab(ID).unwrap().royal.tokens, 0);
+    let saved = restored.progress(ID).unwrap();
+    sim.restore_progress(ID, &saved);
+    assert_eq!(sim.crab(ID).unwrap().royal.wearing, Some(0));
+}
+
+#[test]
+fn ribbon_commands_require_living_local_crab_at_wardrobe() {
+    let mut sim = at(map::WARDROBE);
+    assert!(!sim.royal_action(ID, Action::Ribbon(0)));
+    sim.crab_mut(ID).unwrap().royal.tokens = 3;
+    assert!(sim.royal_action(ID, Action::Ribbon(0)));
+    sim.crab_mut(ID).unwrap().mover.pos = crabsim::SPAWN;
+    assert!(!sim.royal_action(ID, Action::UnequipRibbon));
+    sim.crab_mut(ID).unwrap().mover.pos = map::WARDROBE;
+    sim.crab_mut(ID).unwrap().remote = true;
+    assert!(!sim.royal_action(ID, Action::UnequipRibbon));
+    assert!(!sim.royal_action(ID, Action::Ribbon(1)));
+    assert_eq!(sim.crab(ID).unwrap().royal.wearing, Some(0));
+    assert_eq!(sim.crab(ID).unwrap().royal.ribbons, 1);
+}
+
+#[test]
+fn network_ribbons_update_only_remote_appearance_and_reject_stale_or_invalid_colors() {
+    use crabsim::net::{CrabState, Msg};
+    let mut sim = at(map::WARDROBE);
+    sim.go_online(true);
+    sim.crab_mut(ID).unwrap().royal.tokens = 9;
+    let local = sim.crab(ID).unwrap();
+    let mut state = CrabState {
+        id: ID,
+        mover: local.mover.clone(),
+        fighter: local.fighter.clone(),
+        events: Default::default(),
+        ribbon: Some(3),
+    };
+    sim.receive(Msg::Crab {
+        at: 1,
+        crab: state.clone(),
+    });
+    assert_eq!(sim.crab(ID).unwrap().royal.wearing, None);
+    state.id = PlayerId(1);
+    sim.receive(Msg::Crab {
+        at: 2,
+        crab: state.clone(),
+    });
+    let remote = sim.crab(state.id).unwrap();
+    assert_eq!(remote.royal.wearing, Some(3));
+    assert_eq!((remote.royal.tokens, remote.royal.ribbons), (0, 0));
+    state.ribbon = None;
+    sim.receive(Msg::Crab {
+        at: 1,
+        crab: state.clone(),
+    });
+    assert_eq!(sim.crab(state.id).unwrap().royal.wearing, Some(3));
+    sim.receive(Msg::Crab {
+        at: 3,
+        crab: state.clone(),
+    });
+    assert_eq!(sim.crab(state.id).unwrap().royal.wearing, None);
+    state.ribbon = Some(255);
+    sim.receive(Msg::Crab {
+        at: 4,
+        crab: state.clone(),
+    });
+    assert_eq!(sim.crab(state.id).unwrap().royal.wearing, None);
+    assert_eq!(sim.crab(ID).unwrap().royal.tokens, 9);
+}
+
+#[test]
+fn ribbon_equip_and_unequip_replay_deterministically() {
+    let mut live = at(map::WARDROBE);
+    live.crab_mut(ID).unwrap().royal.tokens = 6;
+    live.start_recording();
+    for action in [
+        Action::Ribbon(0),
+        Action::Ribbon(3),
+        Action::UnequipRibbon,
+        Action::Ribbon(0),
+    ] {
+        assert!(live.royal_action(ID, action));
+        live.tick();
+    }
+    let replay = Replay::parse(&live.recording().unwrap().to_text()).unwrap();
+    let mut again = at(map::WARDROBE);
+    again.crab_mut(ID).unwrap().royal.tokens = 6;
+    play(&mut again, &replay, replay.length(), |_| {});
+    assert_eq!(live.state_hash(), again.state_hash());
+}

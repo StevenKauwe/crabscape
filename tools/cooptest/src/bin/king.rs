@@ -529,6 +529,15 @@ fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     activity(browser)?;
     button(browser, "ribbon-2")?;
     wait_royal(browser, "wearing", 2.into())?;
+    let purchased = royal(browser)?;
+    button(browser, "ribbon-2")?;
+    wait_royal(browser, "wearing", serde_json::Value::Null)?;
+    let removed = royal(browser)?;
+    if removed["tokens"] != purchased["tokens"] || removed["ribbons"] != purchased["ribbons"] {
+        return Err("Unequipping changed ribbon ownership or tokens".into());
+    }
+    button(browser, "ribbon-2")?;
+    wait_royal(browser, "wearing", 2.into())?;
     close_activity(browser)?;
     let progress = royal(browser)?;
     if progress["puzzles"] != 7
