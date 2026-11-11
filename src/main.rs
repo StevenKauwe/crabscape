@@ -76,6 +76,7 @@ mod cell_worker_path;
 mod cellular;
 mod character;
 mod chat;
+mod chimney;
 mod cling;
 mod codes;
 mod coop;
@@ -237,6 +238,7 @@ fn run_app() {
                 codes::CodesPlugin,
                 moult::MoultPlugin,
                 brittle::BrittlePlugin,
+                chimney::ChimneyPlugin,
                 creature_art::CreatureArtPlugin,
                 go_home::GoHomePlugin,
                 keys::KeysPlugin,

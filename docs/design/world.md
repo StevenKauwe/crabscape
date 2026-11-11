@@ -482,6 +482,24 @@ those passages with the biggest crab catch an intrusion.
 The long chimney has a continuous buried return from the vent bank to home.
 No creatures, rewards, keys, tether or rides are added by this package.
 
+### Seep chimneys and the long chimney home (W4.1, W4.2)
+
+Rides are **lanes** (`crates/sim/src/ride.rs`): chains of rectangles with a flow, found from the frames' names by
+`crates/sim/src/chimney.rs`, so they follow the frames wherever the world's shape puts them. While a crab's body
+centre is inside an open lane, its own physics step runs with its velocity drawn into the flow: it is carried
+continuously (never teleported), steers a little across the flow (walk keys; up and down for a sideways flow), cannot
+swim against it, spends no stroke or reserve and takes no damage. The flow eases over the last stretch and bends
+towards the nearest refuge, so the crab is set down at the exit. In the game, drifting silt specks in the lane's own
+rects show the flow (`src/chimney.rs`); no bubbles, no air, no filter.
+- **Seep chimney** ("seep shaft"): free from the start, one way up, about 6 s. Its exit must lead only to places the
+  crab's kit can already reach on foot (the proofs lane checks it on the real map).
+- **The long chimney home** (chimney hall, then the chimney return westwards, then the long chimney up): about 35 s
+  from the hall to the shelf. Closed until the crust plug at the chimney's top is cracked by a fully charged heavy
+  crusher smash from below (the plug is a brittle rock, shared like any); it cannot be cracked from above. A crab that
+  rides it home from the hall has reached **act three** (`Sim::act_three`, saved on its own progress); the Plunge
+  reuses the lanes and the ride for its fall.
+- While the named frames are sealed bedrock no crab meets a lane; the geometry batch opens their interiors.
+
 **Not ready to ship:** the old `exploration.rs` slope assertion currently ranges
 over every floor segment east of x=8,800. It must be limited to the original reef
 ending at x=17,600 before this intentionally steep extension can pass. That file
