@@ -8,6 +8,8 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 
 ## Anchors (read the ones your task touches)
 - Style and art direction: `docs/design/art-direction.md` (crab anatomy: `art/crab/anatomy-notes.md`)
+- Drawing and painting a creature (the look, the exact steps, do/don't, checking it in the game):
+  `docs/design/painted-creatures.md`
 - Tone, pillars, loop: `docs/design/vision.md`
 - Ocean-shaped rules (biology, no air, real mechanisms only): `docs/design/ocean-shaped.md`
 - Digging, strata and levels built around it: `docs/design/digging.md`
@@ -165,6 +167,8 @@ the project's: CI and anyone without sccache must still build), so worktrees sha
 | Crab rig → SVG | `cargo run -p crabrig --profile art -- parts` (writes `art/crab/crab-parts.svg`) |
 | Rig → game atlas | `cargo run -p crabrig --profile art -- export` (writes `assets/crab/`) |
 | Oil-paint the atlases (crab and creatures) | `tools/paint-oil.sh [crab \| <creature>...]` |
+| See a puppet whole (ink and oil side by side) | `cargo run -p oil-atlas --profile art -- preview out.png 400 assets/creatures/<c>-parts.json assets/creatures/<c>-atlas.png assets/creatures/<c>-atlas-oil.png` |
+| Photograph an animal in the game at true scale | `cargo run -- --visit <kind> --photo /tmp/<name>` (`[--style ink] [--beside 90]`; desktop, no save touched) |
 | Oil painter | `cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png` |
 | Disk housekeeping | `cargo tidy` (`cargo tidy report` only looks) |
 | Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`. Live: one Fly.io machine, redeployed by `introducer.yml` on `main` (setup and rules in its `src/main.rs`). It also files player reports (`POST /report`, `src/report.rs`) when the `GITHUB_REPORT_TOKEN` secret is set; locally, `GITHUB_REPORT_TOKEN=$(gh auth token)` files a real issue (close it after) |
