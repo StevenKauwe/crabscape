@@ -571,3 +571,41 @@ fn a_friend_beside_comes_too() {
     }
     assert_eq!(phase(&s, B), Phase::Walking);
 }
+
+/// The same trip on the real, built map (its terrain, creatures and cells as
+/// shipped, not an open-water stand-in): the frames are open water there, and
+/// the ride, the crack and the vent still keep their promises.
+#[test]
+fn the_whole_plunge_works_on_the_real_map() {
+    let p = places();
+    for dx in [-60.0, 0.0, 70.0] {
+        let mut s = Sim::new(Tuning::default(), Level::test_level());
+        s.add_crab(A, at_hole(dx));
+        // The real ground, with its cells: the frame is sealed inside the
+        // rock, so set the crab down in it.
+        s.enable_underwater_cells();
+        let mut cells = s.level.cells.take().expect("cells");
+        cells.follow_player(&s.level, p.hole().x, p.hole().y);
+        s.level.cells = Some(cells);
+        s.crab_mut(A).expect("crab").mover.pos = at_hole(dx);
+        s.crab_mut(A).expect("crab").mover.act_three = true;
+        let full = s.crab(A).expect("crab").fighter.vitals.health;
+        let n = fall(&mut s, Controls::default());
+        println!("real map: fall {:.1} s from dx {dx}", n as f32 * STEP);
+        assert!(p.crack.contains(pos(&s, A) + Vec2::Y), "{}", pos(&s, A));
+        watch(&mut s);
+        walk_to(&mut s, p.vent().x, |s| {
+            s.plunge(A).is_some_and(|p| p.rise().is_some())
+        });
+        let n = until(&mut s, A, walk(-1.0), 60 * HZ, |s| {
+            phase(s, A) == Phase::Walking
+        });
+        let secs = n as f32 * STEP;
+        println!("real map: vent ride {secs:.1} s");
+        assert!((15.0..=25.0).contains(&secs));
+        assert!(pos(&s, A).distance(p.home_landing()) < 1.0, "{}", pos(&s, A));
+        let c = s.crab(A).expect("crab");
+        assert_eq!(c.fighter.vitals.health, full, "never hurt on the way");
+        assert!(c.fighter.dead.is_none());
+    }
+}
