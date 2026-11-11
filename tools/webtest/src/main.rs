@@ -1004,7 +1004,8 @@ impl Test<'_> {
             came_out,
             format!("the mantis comes out of its burrow and winds up its strike ({fight:?})"),
         );
-        // Guard (a tap: parry), then smash.
+        // Face the mantis (it is to the crab's left), guard (a tap: parry), then smash.
+        self.press("KeyA", "a")?;
         self.press("KeyF", "f")?;
         self.press("KeyE", "e")?;
         pump(2.0);
