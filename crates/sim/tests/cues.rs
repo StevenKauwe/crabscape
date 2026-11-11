@@ -177,9 +177,9 @@ fn cues_are_deterministic() {
 #[test]
 fn every_kind_can_use_the_generic_tell_hook() {
     for kind in crabsim::enemy::KINDS {
-        if kind == Kind::AlarmJelly {
+        if matches!(kind, Kind::AlarmJelly | Kind::AmphipodSwarm) {
             continue;
-        } // Contact hazard, no tell state.
+        } // Contact hazard / smell-drawn swarm: no tell without a scent.
         let mut sim = encounter(kind);
         let e = &mut sim.enemies_mut()[0];
         e.state = State::Tell;

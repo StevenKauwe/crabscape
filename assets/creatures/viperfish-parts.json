@@ -7,81 +7,195 @@
  ],
  "px_per_unit": 0.6,
  "ground": [
-  227.95,
-  161.8
+  248.15,
+  217.4
  ],
  "anchors": {},
  "parts": [
   {
-   "name": "body",
-   "parent": null,
+   "name": "tail",
+   "parent": "body",
    "pivot": [
-    220.0,
-    132.2
+    120.6,
+    187.4
    ],
    "bbox": [
-    55.1,
-    92.3,
-    331.9,
-    75.5
+    53.2,
+    151.5,
+    73.4,
+    71.9
    ],
    "rect": [
+    100,
     3,
-    3,
-    200,
-    46
+    45,
+    44
    ],
    "z": 0,
    "members": [
-    "body"
+    "tail"
+   ]
+  },
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    244.6,
+    187.4
+   ],
+   "bbox": [
+    94.9,
+    153.6,
+    250.3,
+    63.5
+   ],
+   "rect": [
+    222,
+    3,
+    151,
+    39
+   ],
+   "z": 1,
+   "members": [
+    "body",
+    "body-photo-0",
+    "body-photo-1",
+    "body-photo-2",
+    "body-photo-3",
+    "body-photo-4",
+    "body-photo-5",
+    "body-photo-6",
+    "body-photo-7",
+    "body-photo-8",
+    "body-photo-9",
+    "body-photo-10"
    ]
   },
   {
    "name": "head",
    "parent": "body",
    "pivot": [
-    347.0,
-    132.2
+    320.6,
+    185.4
    ],
    "bbox": [
-    329.7,
-    104.6,
-    71.1,
-    54.8
+    301.9,
+    151.7,
+    118.3,
+    64.2
    ],
    "rect": [
-    206,
+    148,
     3,
-    43,
-    33
+    71,
+    39
    ],
-   "z": 1,
+   "z": 2,
    "members": [
-    "head"
+    "head",
+    "head-fang-0",
+    "head-fang-1",
+    "head-fang-2"
+   ]
+  },
+  {
+   "name": "jaw",
+   "parent": "head",
+   "pivot": [
+    336.6,
+    197.4
+   ],
+   "bbox": [
+    331.1,
+    167.8,
+    94.7,
+    48.9
+   ],
+   "rect": [
+    376,
+    3,
+    57,
+    30
+   ],
+   "z": 3,
+   "members": [
+    "jaw",
+    "jaw-fang-0",
+    "jaw-fang-1",
+    "jaw-fang-2",
+    "jaw-fang-3"
    ]
   },
   {
    "name": "eye",
    "parent": "head",
    "pivot": [
-    375.5,
-    127.7
+    368.6,
+    173.4
    ],
    "bbox": [
-    364.9,
-    117.8,
-    20.9,
-    20.0
+    354.2,
+    159.9,
+    28.5,
+    27.5
    ],
    "rect": [
-    252,
+    457,
     3,
-    13,
-    12
+    18,
+    17
    ],
-   "z": 2,
+   "z": 4,
    "members": [
     "eye"
+   ]
+  },
+  {
+   "name": "lure",
+   "parent": "head",
+   "pivot": [
+    284.6,
+    161.4
+   ],
+   "bbox": [
+    278.6,
+    93.9,
+    156.0,
+    73.5
+   ],
+   "rect": [
+    3,
+    3,
+    94,
+    45
+   ],
+   "z": 5,
+   "members": [
+    "lure"
+   ]
+  },
+  {
+   "name": "lure-tip",
+   "parent": "lure",
+   "pivot": [
+    428.6,
+    143.4
+   ],
+   "bbox": [
+    414.0,
+    128.5,
+    29.1,
+    29.9
+   ],
+   "rect": [
+    436,
+    3,
+    18,
+    18
+   ],
+   "z": 6,
+   "members": [
+    "lure-tip"
    ]
   }
  ]

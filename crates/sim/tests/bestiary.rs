@@ -112,8 +112,12 @@ fn midwater_kinds_keep_their_authored_depth() {
 
 /// Deleted by the lanes as each creature gets placed.
 #[test]
-fn placeholder_no_bestiary_spawns_yet() {
+fn every_bestiary_creature_is_placed_in_the_world() {
     let level = crabsim::level::Level::test_level();
-    let new = bestiary();
-    assert!(level.foes.iter().all(|(k, _)| !new.contains(k)));
+    for kind in bestiary() {
+        assert!(
+            level.foes.iter().any(|(k, _)| *k == kind),
+            "{kind:?} has no encounter in the world"
+        );
+    }
 }
