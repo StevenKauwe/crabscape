@@ -124,10 +124,17 @@ pub enum Gear {
     NodulePlating,
     ScaleMail,
     BlackCoralTips,
+    BeakTips,
+    FangTips,
+    CrusherGuards,
+    JawTips,
+    IsopodPlating,
+    ClubTips,
+    MorayTips,
 }
 
 impl Gear {
-    pub const ALL: [Gear; 9] = [
+    pub const ALL: [Gear; 16] = [
         Gear::KelpSack,
         Gear::WovenPack,
         Gear::CoralPack,
@@ -137,12 +144,25 @@ impl Gear {
         Gear::NodulePlating,
         Gear::ScaleMail,
         Gear::BlackCoralTips,
+        Gear::BeakTips,
+        Gear::FangTips,
+        Gear::CrusherGuards,
+        Gear::JawTips,
+        Gear::IsopodPlating,
+        Gear::ClubTips,
+        Gear::MorayTips,
     ];
 
     pub fn slot(self) -> Slot {
         match self {
             Gear::KelpSack | Gear::WovenPack | Gear::CoralPack => Slot::Bag,
-            Gear::BlackCoralTips => Slot::Claws,
+            Gear::BlackCoralTips
+            | Gear::BeakTips
+            | Gear::FangTips
+            | Gear::CrusherGuards
+            | Gear::JawTips
+            | Gear::ClubTips
+            | Gear::MorayTips => Slot::Claws,
             _ => Slot::Body,
         }
     }
@@ -158,6 +178,13 @@ impl Gear {
             Gear::NodulePlating => "Nodule plating",
             Gear::ScaleMail => "Scale mail",
             Gear::BlackCoralTips => "Black-coral claw tips",
+            Gear::BeakTips => "Beak claw tips",
+            Gear::FangTips => "Fang claw tips",
+            Gear::CrusherGuards => "Crusher-fragment guards",
+            Gear::JawTips => "Jaw claw tips",
+            Gear::IsopodPlating => "Isopod plating",
+            Gear::ClubTips => "Club claw tips",
+            Gear::MorayTips => "Moray-tooth claw tips",
         }
     }
 
@@ -173,6 +200,13 @@ impl Gear {
             Gear::NodulePlating => "nodule-plating",
             Gear::ScaleMail => "scale-mail",
             Gear::BlackCoralTips => "coral-tips",
+            Gear::BeakTips => "beak-tips",
+            Gear::FangTips => "fang-tips",
+            Gear::CrusherGuards => "crusher-guards",
+            Gear::JawTips => "jaw-tips",
+            Gear::IsopodPlating => "isopod-plating",
+            Gear::ClubTips => "club-tips",
+            Gear::MorayTips => "moray-tips",
         }
     }
 
@@ -194,6 +228,7 @@ impl Gear {
             Gear::BonePlating => 22,
             Gear::NodulePlating => 28,
             Gear::ScaleMail => 35,
+            Gear::IsopodPlating => 25,
             _ => 0,
         }
     }
@@ -202,6 +237,12 @@ impl Gear {
     pub fn claw_percent(self) -> u32 {
         match self {
             Gear::BlackCoralTips => 15,
+            Gear::BeakTips => 10,
+            Gear::FangTips => 18,
+            Gear::CrusherGuards => 8,
+            Gear::JawTips => 12,
+            Gear::ClubTips => 9,
+            Gear::MorayTips => 14,
             _ => 0,
         }
     }
@@ -214,6 +255,7 @@ impl Gear {
             Gear::BonePlating => 90,
             Gear::NodulePlating => 120,
             Gear::ScaleMail => 160,
+            Gear::IsopodPlating => 140,
             _ => 0,
         }
     }
@@ -226,6 +268,7 @@ impl Gear {
             Gear::BonePlating => 3,
             Gear::NodulePlating => 4,
             Gear::ScaleMail => 5,
+            Gear::IsopodPlating => 4,
             _ => 0,
         }
     }
@@ -294,3 +337,58 @@ impl Station {
 
 /// Culture beds: Building level and materials for beds 1 to 4.
 pub const BED_LEVELS: [u32; 4] = [5, 20, 40, 60];
+
+/// What a repair mends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MendTarget {
+    /// The fitted tool of this kind.
+    Tool(ToolKind),
+    /// The body plating.
+    Plating,
+}
+
+impl super::Economy {
+    /// What a repair of this kind would mend now: the first fitted tool of
+    /// the tier that has worn, or the plating of the tier if it has worn.
+    pub fn repair_target(&self, repair: super::recipes::Repairs) -> Option<MendTarget> {
+        use super::recipes::Repairs;
+        match repair {
+            Repairs::Tool(tier) => ToolKind::ALL
+                .into_iter()
+                .find(|&k| {
+                    let t = self.tool(k);
+                    t.tier == tier && tier > 0 && t.uses_left < TOOL_USES[usize::from(tier)]
+                })
+                .map(MendTarget::Tool),
+            Repairs::Plating(tier) => match self.gear.body {
+                Some((g, uses)) if g.plating_tier() == tier && uses < g.plating_uses() => {
+                    Some(MendTarget::Plating)
+                }
+                _ => None,
+            },
+            Repairs::AnyTool => ToolKind::ALL
+                .into_iter()
+                .find(|&k| {
+                    let t = self.tool(k);
+                    t.tier > 0 && t.uses_left < TOOL_USES[usize::from(t.tier)]
+                })
+                .map(MendTarget::Tool),
+            Repairs::AnyPlating => match self.gear.body {
+                Some((g, uses)) if uses < g.plating_uses() => Some(MendTarget::Plating),
+                _ => None,
+            },
+        }
+    }
+
+    /// Restore all the uses of what `target` names.
+    pub fn mend(&mut self, target: MendTarget) {
+        match target {
+            MendTarget::Tool(kind) => self.tools[kind.index()].repair(),
+            MendTarget::Plating => {
+                if let Some((g, uses)) = &mut self.gear.body {
+                    *uses = g.plating_uses();
+                }
+            }
+        }
+    }
+}

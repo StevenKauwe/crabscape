@@ -27,7 +27,7 @@ pub(crate) fn step(crab: &mut SimCrab, tuning: &StrainTuning) {
         // level, at most 40% less.
         let level =
             crate::economy::xp::level_for(crab.econ.skills.get(crate::skills::Skill::Survival));
-        let eased = 1.0 - (level as f32 * 0.01).min(0.4);
+        let eased = (1.0 - (level as f32 * 0.01).min(0.4)) * crab.econ.pressure_factor();
         crab.strain = (before + STEP / tuning.full_seconds * eased).min(1.0);
         for threshold in [0.25, 0.5, 0.75, 1.0] {
             if before < threshold && crab.strain >= threshold {

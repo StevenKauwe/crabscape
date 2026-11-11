@@ -283,6 +283,14 @@ impl RegionKernel {
                 CellSessionAction::Craft(r) => {
                     let _ = self.sim.make(*id, *r);
                 }
+                CellSessionAction::Econ(i) => {
+                    if let Some(r) = crate::economy::ECON_RECIPES.get(usize::from(*i)) {
+                        let _ = self.sim.make_econ(*id, r);
+                    }
+                }
+                CellSessionAction::Bed(a) => {
+                    crate::craft::Craft::Bed(*a).perform(&mut self.sim, *id)
+                }
                 CellSessionAction::Shell(action) => {
                     self.sim.shell_action(*id, *action);
                 }

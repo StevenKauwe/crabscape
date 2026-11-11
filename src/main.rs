@@ -47,6 +47,9 @@
 //! - [`eggs`]: the fish eggs that give the crab more swim strokes
 //! - [`impact`]: how a blow lands: shake, kick, zoom, sound, debris
 //! - [`home`]: the shell-home, the glowing culture and the lump carried home
+//! - [`nodes`]: the gathering nodes on the map, bare when spent
+//! - [`skills_panel`]: the skills panel (K) and each skill's guide
+//! - [`skill_juice`]: level-up ring, experience drops, gear on the crab
 //! - [`cling`]: the clams and shell grit clinging to a crab's shell
 //! - [`moult`]: the Moult button at home (until the home menu has a Moult row)
 //! - [`names`]: the names over crabs, for playing together
@@ -94,6 +97,7 @@ mod feel;
 mod fight;
 mod foes;
 mod food;
+mod gather_ui;
 mod go_home;
 mod home;
 mod impact;
@@ -110,6 +114,7 @@ mod monkeys;
 mod moult;
 mod music;
 mod names;
+mod nodes;
 mod notes;
 mod octopus;
 mod player;
@@ -125,6 +130,8 @@ mod scribe;
 mod secrets;
 mod settings;
 mod shell_inventory;
+mod skill_juice;
+mod skills_panel;
 mod sound;
 mod stamina;
 mod style;
@@ -228,6 +235,10 @@ fn run_app() {
                 build::BuildPlugin,
                 cling::ClingPlugin,
                 shell_inventory::ShellInventoryPlugin,
+                nodes::NodesPlugin,
+                gather_ui::GatherUiPlugin,
+                skills_panel::SkillsPanelPlugin,
+                skill_juice::SkillJuicePlugin,
             ),
             feel::FeelPlugin,
             foes::FoesPlugin,

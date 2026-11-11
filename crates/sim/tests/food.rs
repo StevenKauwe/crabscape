@@ -107,7 +107,7 @@ fn a_clam_picked_up_goes_home_into_the_larder() {
 }
 
 #[test]
-fn a_full_larder_leaves_the_clam_on_its_shell() {
+fn a_full_larder_sends_the_clam_to_the_stash() {
     let mut sim = at_first_clam();
     idle(&mut sim, 1);
     let full = sim.tuning.food.larder;
@@ -118,7 +118,9 @@ fn a_full_larder_leaves_the_clam_on_its_shell() {
     let crab = sim.crab(P0).unwrap();
     assert!(seen.contains(&"larder full"), "{seen:?}");
     assert_eq!(crab.larder, full);
-    assert_eq!(crab.mover.clinging, vec![Carry::Clam]);
+    // Not stuck on the shell for good: it is banked as a clam item.
+    assert!(crab.mover.clinging.is_empty());
+    assert_eq!(crab.stash.count(crabsim::Item::Clam), 1);
 }
 
 #[test]

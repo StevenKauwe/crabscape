@@ -10,6 +10,8 @@
 //!   simulation's memory a few times a second ([`MemoryTexture`]).
 //! - **Animals** out of sight are shown by scent nearby; further away the
 //!   crab's last sighting shows as a faint shape, fading with time.
+//! - **Gathering nodes** the crab has seen show as a small icon per skill, tinted by
+//!   tier and dimmed if the node was spent when last seen; unseen ones never show.
 //! - **Small things** (eggs, nets) ask [`Known`] how well the crab knows their
 //!   spot.
 
@@ -51,6 +53,7 @@ impl Plugin for MemoryPlugin {
                 (
                     update_known,
                     show_sightings,
+                    show_node_memories,
                     show_scent_directions,
                     hide_unknown,
                 )
@@ -536,6 +539,151 @@ fn show_sightings(
             Transform::from_translation(s.pos.extend(8.8)),
             Visibility::Hidden,
         ));
+    }
+}
+
+/// A remembered gathering node's icon (the node's index).
+#[derive(Component)]
+struct NodeMemory(u32);
+
+/// One piece of a node icon: how bright it is against the tier tint.
+#[derive(Component)]
+struct IconPart(f32);
+
+/// The tint of a node's tier (1 shallows to 5 vents). Art choice.
+fn tier_tint(tier: u8) -> Color {
+    match tier {
+        1 => Color::srgb(0.86, 0.80, 0.62),
+        2 => Color::srgb(0.45, 0.80, 0.72),
+        3 => Color::srgb(0.50, 0.68, 0.95),
+        4 => Color::srgb(0.74, 0.58, 0.92),
+        _ => Color::srgb(0.98, 0.52, 0.34),
+    }
+}
+
+/// The pieces of a node's icon: `(offset, size, turn in radians, brightness,
+/// soft)`. A shell for Prying, a frond for Harvesting, a pick-like scoop for
+/// Excavating, a snail for Foraging, a glow dot for Culturing, a pot for the
+/// vent pot.
+fn icon_parts(kind: crabsim::economy::NodeKind) -> Vec<(Vec2, Vec2, f32, f32, bool)> {
+    use crabsim::economy::NodeKind;
+    use crabsim::skills::Skill;
+    if kind == NodeKind::VentPot {
+        return vec![
+            (Vec2::new(0.0, 0.0), Vec2::new(16.0, 13.0), 0.0, 1.0, false),
+            (Vec2::new(0.0, 7.0), Vec2::new(20.0, 4.0), 0.0, 0.7, false),
+        ];
+    }
+    match kind.def().skill {
+        Skill::Prying => vec![
+            (Vec2::ZERO, Vec2::new(20.0, 14.0), 0.0, 1.0, true),
+            (Vec2::new(0.0, 1.0), Vec2::new(2.0, 12.0), 0.0, 0.45, false),
+            (Vec2::new(-5.0, 0.0), Vec2::new(2.0, 10.0), 0.3, 0.45, false),
+            (Vec2::new(5.0, 0.0), Vec2::new(2.0, 10.0), -0.3, 0.45, false),
+        ],
+        Skill::Harvesting => vec![
+            (Vec2::new(0.0, 0.0), Vec2::new(3.0, 24.0), 0.0, 1.0, false),
+            (Vec2::new(-5.0, 4.0), Vec2::new(10.0, 4.0), 0.6, 0.85, true),
+            (Vec2::new(5.0, 8.0), Vec2::new(10.0, 4.0), -0.6, 0.85, true),
+        ],
+        Skill::Excavating => vec![
+            (Vec2::ZERO, Vec2::new(3.0, 24.0), 0.6, 0.8, false),
+            (
+                Vec2::new(6.0, 8.0),
+                Vec2::new(16.0, 4.0),
+                0.6 - 1.4,
+                1.0,
+                false,
+            ),
+        ],
+        Skill::Foraging => vec![
+            (Vec2::new(-2.0, 4.0), Vec2::new(14.0, 14.0), 0.0, 1.0, true),
+            (Vec2::new(-2.0, 4.0), Vec2::new(6.0, 6.0), 0.0, 0.5, true),
+            (Vec2::new(2.0, -4.0), Vec2::new(20.0, 5.0), 0.0, 0.8, false),
+        ],
+        _ => vec![
+            (Vec2::ZERO, Vec2::new(26.0, 26.0), 0.0, 0.5, true),
+            (Vec2::ZERO, Vec2::new(11.0, 11.0), 0.0, 1.0, true),
+        ],
+    }
+}
+
+/// On the memory map, each node the crab has seen shows as a small icon,
+/// tinted by tier and dimmed if it was spent when last seen. Where the crab
+/// sees the node now, the live node shows instead; unseen nodes have no icon.
+fn show_node_memories(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    known: Res<Known>,
+    soft: Res<SoftTextures>,
+    crab: Query<&PlayerId, With<LocalPlayer>>,
+    mut icons: Query<(Entity, &NodeMemory, &mut Visibility, Option<&Children>)>,
+    mut parts: Query<(&IconPart, &mut Sprite)>,
+) {
+    let Some(me) = crab.single().ok().and_then(|id| sim.crab(*id)) else {
+        return;
+    };
+    let nodes = &me.memory.nodes;
+    let placed = sim.placed_nodes();
+    for (entity, icon, mut shown, children) in &mut icons {
+        let Some(n) = nodes.iter().find(|n| n.index == icon.0) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        let Some(node) = placed.get(n.index as usize) else {
+            continue;
+        };
+        shown.set_if_neq(if known.perceives(node.pos + Vec2::new(0.0, 8.0)) {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
+        let tint = tier_tint(n.kind.def().tier).to_srgba();
+        let dim = if n.ready { 1.0 } else { 0.35 };
+        for &child in children.map(|c| &**c).unwrap_or(&[]) {
+            if let Ok((part, mut sprite)) = parts.get_mut(child) {
+                let b = part.0 * dim;
+                sprite.color = Color::srgba(
+                    tint.red * b,
+                    tint.green * b,
+                    tint.blue * b,
+                    0.9 * dim.max(0.5),
+                );
+            }
+        }
+    }
+    for n in nodes {
+        if icons.iter().any(|(_, i, ..)| i.0 == n.index) {
+            continue;
+        }
+        let Some(node) = placed.get(n.index as usize) else {
+            continue;
+        };
+        commands
+            .spawn((
+                NodeMemory(n.index),
+                Transform::from_translation((node.pos + Vec2::new(0.0, 14.0)).extend(8.9)),
+                Visibility::Hidden,
+            ))
+            .with_children(|root| {
+                for (at, size, turn, bright, soft_edge) in icon_parts(n.kind) {
+                    root.spawn((
+                        IconPart(bright),
+                        Sprite {
+                            image: if soft_edge {
+                                soft.dot.clone()
+                            } else {
+                                soft.chip.clone()
+                            },
+                            color: Color::NONE,
+                            custom_size: Some(size),
+                            ..default()
+                        },
+                        Transform::from_translation(at.extend(0.0))
+                            .with_rotation(Quat::from_rotation_z(turn)),
+                    ));
+                }
+            });
     }
 }
 

@@ -68,7 +68,7 @@
 use bevy_math::Vec2;
 
 use crate::codes::Code;
-use crate::craft::Recipe;
+use crate::craft::Craft;
 use crate::enemy::Kind;
 use crate::feel::Feel;
 use crate::level::SPAWN;
@@ -140,7 +140,7 @@ pub struct Replay {
     /// Moults player 0 made, in tick order: which skill's feat it grew.
     pub moults: Vec<(u64, Skill)>,
     /// What player 0 made at its workbench, in tick order.
-    pub crafts: Vec<(u64, Recipe)>,
+    pub crafts: Vec<(u64, Craft)>,
     /// When player 0 went straight home (the Home button), in tick order.
     pub homes: Vec<u64>,
     /// What player 0's crab had already grown, taken and stored when the
@@ -390,7 +390,7 @@ impl Replay {
                 replay.moults.push((tick, skill));
             }
             for w in words.iter().filter_map(|w| w.strip_prefix("craft=")) {
-                let recipe = Recipe::parse(w).ok_or_else(|| err(format!("no recipe `{w}`")))?;
+                let recipe = Craft::parse(w).ok_or_else(|| err(format!("no recipe `{w}`")))?;
                 replay.crafts.push((tick, recipe));
             }
             for w in words.iter().filter_map(|w| w.strip_prefix("salvage=")) {
@@ -532,7 +532,7 @@ impl Replay {
             out += &format!("@{tick} moult={}\n", skill.name().to_lowercase());
         }
         for (tick, recipe) in &self.crafts {
-            out += &format!("@{tick} craft={}\n", recipe.def().word);
+            out += &format!("@{tick} craft={}\n", recipe.word());
         }
         for (tick, action) in &self.shell_actions {
             let json = serde_json::to_string(action).expect("shell action serialises");
@@ -790,7 +790,7 @@ impl Replay {
         }
         for (_, recipe) in self.crafts.iter().filter(|(t, _)| *t == tick) {
             // It could be made when recorded, so it can now.
-            let _ = sim.make(crate::PlayerId(0), *recipe);
+            recipe.perform(sim, crate::PlayerId(0));
         }
         for (_, action) in self.shell_actions.iter().filter(|(t, _)| *t == tick) {
             let _ = sim.shell_action(crate::PlayerId(0), *action);
@@ -1013,8 +1013,8 @@ impl Recorder {
     }
 
     /// Something was made at the workbench at `tick`.
-    pub fn note_craft(&mut self, tick: u64, recipe: Recipe) {
-        self.replay.crafts.push((tick - self.first_tick, recipe));
+    pub fn note_craft(&mut self, tick: u64, craft: Craft) {
+        self.replay.crafts.push((tick - self.first_tick, craft));
     }
 
     pub fn note_shell_action(&mut self, tick: u64, action: crate::world::ShellAction) {

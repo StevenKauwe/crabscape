@@ -15,6 +15,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+pub mod beds;
 pub mod food;
 pub mod gather;
 pub mod gear;
@@ -29,7 +30,7 @@ pub use gear::{Gear, Slot, Station, Tool, ToolKind, Worn};
 pub use items::Item;
 pub use nodes::{NODES, NodeDef, NodeKind};
 pub use place::{NodeSpot, PlacedNode};
-pub use recipes::{ECON_RECIPES, EconRecipe, Output};
+pub use recipes::{ECON_RECIPES, EconRecipe, Effect, Output};
 
 use crate::skills::Skill;
 
@@ -102,6 +103,9 @@ pub struct Bed {
     pub strain: Item,
     /// The tick at which it is ready to harvest.
     pub ready_at_tick: u64,
+    /// Has it been fed spoiled batches (once only: it halves the time left)?
+    #[serde(default)]
+    pub fed: bool,
 }
 
 /// What the crab's economy gives its body, copied onto its `Mover` each tick
@@ -114,6 +118,8 @@ pub struct Mirror {
     pub damage_factor: f32,
     /// What claw blows are multiplied by (1 = unchanged, more = tips, food).
     pub claw_factor: f32,
+    /// What the reserve's refill speed is multiplied by (1 = unchanged).
+    pub reserve_factor: f32,
 }
 
 impl Default for Mirror {
@@ -122,9 +128,17 @@ impl Default for Mirror {
             bag_slots: 0,
             damage_factor: 1.0,
             claw_factor: 1.0,
+            reserve_factor: 1.0,
         }
     }
 }
+
+/// Levels and gear lower the skill a fight needs but never remove it (the
+/// owner's Elden Ring scaling): plating and food together never cut the
+/// damage a crab takes by more than this many percent...
+pub const MAX_DAMAGE_CUT_PERCENT: u32 = 40;
+/// ...and claw tips and food together never hit harder than this multiple.
+pub const MAX_CLAW_FACTOR: f32 = 1.35;
 
 /// A crab's economy: everything personal about skills, tools, gear and the
 /// home's stations and beds. Saved in `Progress::econ`.
@@ -191,18 +205,62 @@ impl Economy {
 
     /// What blows are multiplied by: plating takes a share off, until it
     /// cracks.
+    ///
+    /// Levels and gear lower the skill a fight needs but never remove it:
+    /// the cut from plating and food together stops at
+    /// [`MAX_DAMAGE_CUT_PERCENT`] (the factor never falls below 0.6).
     pub fn damage_taken_factor(&self) -> f32 {
-        match self.gear.body {
-            Some((plating, uses)) if uses > 0 => 1.0 - plating.damage_cut_percent() as f32 / 100.0,
-            _ => 1.0,
-        }
+        let plating = match self.gear.body {
+            Some((plating, uses)) if uses > 0 => plating.damage_cut_percent(),
+            _ => 0,
+        };
+        // No food cuts damage today; the cap is for the sum of both.
+        let food = 0;
+        1.0 - (plating + food).min(MAX_DAMAGE_CUT_PERCENT) as f32 / 100.0
     }
 
-    /// What claw blows are multiplied by: claw tips and food.
+    /// What claw blows are multiplied by: claw tips and food, one on the
+    /// other, at most [`MAX_CLAW_FACTOR`] (the Fighting level's own bonus has
+    /// its own cap and is separate).
     pub fn claw_bonus(&self) -> f32 {
         let tips = self.gear.claws.map_or(0, Gear::claw_percent);
         let food = self.buff.map_or(0, |(b, _)| b.claw_percent());
-        1.0 + (tips + food) as f32 / 100.0
+        ((1.0 + tips as f32 / 100.0) * (1.0 + food as f32 / 100.0)).min(MAX_CLAW_FACTOR)
+    }
+
+    /// What pressure strain is multiplied by (fermented lanternfish, the
+    /// feast). The pressure rules read this.
+    pub fn pressure_factor(&self) -> f32 {
+        let cut = self.buff.map_or(0, |(b, _)| b.pressure_percent());
+        1.0 - cut as f32 / 100.0
+    }
+
+    /// What the reserve's refill speed is multiplied by (snail wrap, the
+    /// feast). The swimming rules read this.
+    pub fn reserve_refill_factor(&self) -> f32 {
+        let more = self.buff.map_or(0, |(b, _)| b.reserve_percent());
+        1.0 + more as f32 / 100.0
+    }
+
+    /// A blow landed: the body plating wears by one (it gives nothing once
+    /// it has no blows left, until it is mended). Returns true if this blow
+    /// cracked it.
+    pub fn wear_plating(&mut self) -> bool {
+        match &mut self.gear.body {
+            Some((_, uses)) if *uses > 0 => {
+                *uses -= 1;
+                *uses == 0
+            }
+            _ => false,
+        }
+    }
+
+    /// Is this station built? (Any culture bed counts for the culture bed.)
+    pub fn has_station(&self, station: Station) -> bool {
+        match station {
+            Station::CultureBed => self.culture_beds > 0,
+            _ => self.stations.contains(&station),
+        }
     }
 
     /// What the body rules read each tick.
@@ -211,6 +269,41 @@ impl Economy {
             bag_slots: self.shell_slots_bonus(),
             damage_factor: self.damage_taken_factor(),
             claw_factor: self.claw_bonus(),
+            reserve_factor: self.reserve_refill_factor(),
+        }
+    }
+}
+
+/// The Fighting experience for beating a creature of `kind`: the older
+/// creatures give the flat win bonus; the bestiary's ten give half their
+/// health (at least 15), so a squid is worth more than a hermit crab.
+pub fn win_xp(kind: crate::enemy::Kind, t: &crate::Tuning) -> f32 {
+    match crate::creatures::tuning(kind) {
+        Some(tuning) => (tuning.vitals.health * 0.5).max(15.0),
+        None => t.fight_xp_per_win,
+    }
+}
+
+/// A beaten creature's body was eaten by this local crab: its drops land on
+/// the shell, room permitting (otherwise they are left behind and the shell
+/// says it is full). `in_tick`: in this tick's events, else the pending ones.
+pub(crate) fn give_drops(
+    crab: &mut crate::SimCrab,
+    kind: crate::enemy::Kind,
+    t: &crate::Tuning,
+    in_tick: bool,
+) {
+    for item in items::drops_of(kind) {
+        let carry = crate::physics::Carry::Item(item);
+        let ev = if in_tick {
+            &mut crab.events
+        } else {
+            &mut crab.pending
+        };
+        if crab.mover.take_up(carry, t) {
+            ev.picked_up = ev.picked_up.or(Some(carry));
+        } else {
+            ev.shell_full = true;
         }
     }
 }

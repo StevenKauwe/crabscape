@@ -32,7 +32,7 @@ That decision, every trip, deeper each time, is the game.
 | Common resources stay useful (repair, cord, food, building) | A tier that is dead once you pass it | "Things get used up" |
 | Every trip ends with a decision (full shell, go deeper or home?) | Unlimited carrying | Inventory pressure is the loop |
 
-Good example: `Prying 30 → glass scallops on the canyon shelf (x 5,900 to 6,150, y about -3,400)`: 50 XP each, needs a
+Good example: `Prying 30 → glass scallops on the canyon shelf (x 5,900 to 6,150, y about -3,400)`: 200 XP each, needs a
 quill pry tip, 4 per shell; the shelf crevice is a refuge, open water around it is frightening. Bad example: a "rune
 ore" glowing rock in the shallows worth 500 XP (made up, no risk, no distance).
 
@@ -79,10 +79,10 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 | Tier | Band (y) | Places on today's map | Level req | Tool tier | XP per gather | Gather s (base) | Charges | Respawn s | Nodes per kind |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Shallows (> -260) | home side x 0–1,300; far ledge x 1,820–2,716 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
-| 2 | Basin and mudbanks (-260 to -700) | basin x 2,800–3,300; far basin hub x 4,490–5,370 | 15 | 1 shell | 25 | 3.0 | 5 | 60 | 3 |
-| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,371–5,900; canyon shelf x 5,900–6,150; far rim x 7,900–8,800; pit walls | 30 | 2 quill | 50 | 3.5 | 4 | 90 | 3 |
-| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor x 6,150–7,900 (y ≈ -9,400); far-wall cave; east of the rim | 45 | 3 glass | 100 | 4.0 | 4 | 150 | 3 |
-| 5 | Deep (< -9,500) | lower canyon vent field (`level::lower_canyon::VENTS`, x > 17,400) | 60 | 4 bone | 175 | 4.5 | 4 | 240 | 3 |
+| 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–5,000 (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
+| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,371–5,900 (none on the shelf); far rim x 7,900–8,200; pit walls | 30 | 2 quill | 200 | 3.5 | 4 | 90 | 3 |
+| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,090–7,650 (y ≈ -9,400); far-wall cave; east of the rim | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
+| 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,570) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
 
 Placement rule: a tier-k node lies in band k or deeper, and its **route time from home** (route solver, the kit the world
 expects at that stage) is longer than every tier-(k−1) node's median. The pit floor is deep but close: put only tier 2–3
@@ -111,7 +111,7 @@ Five gathering skills × five tiers = 25 node kinds, plus culture sites (Culturi
 | Culturing (none) | Shore glow → Shore strain | Pit glow site → Culture | Twilight glow → Twilight strain | Sulfur mat → Sulfur mat | Vent mat → Vent mat |
 | Station | | | | | **Vent pot** (cook at the vent: see Cooking) |
 
-Culturing wild sites give 8 / 20 / 40 / 80 / 140 XP (less than gathering; beds pay the rest). Big items ride on the back
+Culturing wild sites give 8 / 88 / 160 / 208 / 600 XP (80% of gathering; beds pay the rest). Big items ride on the back
 one at a time (like today's culture and tooth); everything else clings to the shell.
 
 Biology (each row "not verified" until a source is opened and added to this page's Sources): mussels on shallow rock;
@@ -190,12 +190,13 @@ Making is a command through the sim exactly like today's `Sim::make` (only its o
 | Station | Building lvl | Needs | Unlocks |
 |---|---|---|---|
 | Workbench | — | exists | T1–T2 shellcraft, cord, shucking |
-| Culture bed 1 / 2 / 3 / 4 | 5 / 20 / 40 / 60 | Grit 3 + Valve 2 / Clay 3 + Grit 3 / WhaleBone 1 + Clay 3 / Nodule 2 + Clay 4 | Culturing beds |
-| Loom | 12 | Quill 4 + KelpCord 4 | Braids, packs |
+| Culture bed 1 / 2 / 3 / 4 | 5 / 20 / 40 / 60 | Grit 3 + Valve 2 / Clay 3 + Grit 3 + Valve 2 / WhaleBone 1 + Clay 3 + mantis club 1 / Nodule 2 + Clay 4 + jelly mesoglea 2 | Culturing beds |
+| Loom | 12 | Quill 4 + KelpCord 4 + Grit 3 | Braids, packs |
 | Brine pot (clay curing pot) | 10 | Clay 3 + Valve 2 | Curing recipes |
-| Grindstone | 18 | Grit 6 + Clay 2 | T3+ tools, plating |
+| Grindstone | 18 | Grit 6 + Clay 2 + snapper claw 2 | T3+ tools, plating |
 | Fermenting crock | 30 | Clay 6 + Glass 1 | Fermenting |
 | Home stages (exists) | 1 / 3 / 5 grit built | Grit | unchanged; each grit built gives 20 Building XP |
+| Whelk room / hall / keep | 30 / 45 / 62 | whelk shell 1 + Clay 4 / whelk shell 2 + Clay 6 + octopus ink 1 + braided cord 2 / whelk shell 3 + Nodule 2 + black coral 2 | home stage 1 / 2 / 3, in order |
 
 Building XP per station = 40 × its level requirement / 5 (minimum 40).
 
@@ -248,6 +249,147 @@ closed).
 
 **Survival** XP: per second in a band ≥ 2 (twilight): `band − 1` XP; ×2 while pressure strain is above 0.5.
 
+## Creature drops (data: `economy/items.rs` `from_drop`, `economy/recipes.rs`; P9)
+Eating a beaten creature's body (the same host-refereed take as before) also puts that creature's drops on the shell. No
+room: they are left behind and the shell says it is full (`shell_full`). An amphipod swarm has a body like the rest, so
+"scooping the dispersed swarm" is the same take. Item tier is the zone the creature lives in. Fighting XP for a beaten
+bestiary creature is `max(15, 0.5 x vitals.health)` (squid 70, lobster 60, isopod 45, hagfish 30, hermit 25, bobbit 20,
+viperfish 17.5); the older creatures keep the flat win bonus. A renamed `DROPS` string fails a test.
+
+| Creature | Zone | Drop | Used for |
+|---|---|---|---|
+| Humboldt squid | twilight (3) | squid beak | Beak claw tips: 2 + braided cord, Shellcraft 35, grindstone, claws +10% |
+| Viperfish | midnight (4) | viperfish fang | Fang claw tips: 2 + bone splint, Shellcraft 50, grindstone, claws +18% |
+| Viperfish | midnight (4) | photophore | Photophore lantern: 1 + twilight strain, Culturing 40, +1 lantern step |
+| Hermit crab | basin (2) | whelk shell | Whelk room: 1 + 4 clay, Building 30, home grows one stage |
+| Hermit crab | basin (2) | anemone | Anemone guards: 1 + 2 valves, Shellcraft 20, clam-shell guards |
+| Giant isopod | midnight (4) | isopod plate | Isopod plating: 3 + braided cord, Shellcraft 57, grindstone, -25%, 140 blows |
+| Bobbit worm | basin (2) | bobbit jaw | Jaw claw tips: 2 + braided cord, Shellcraft 40, grindstone, claws +12% |
+| American lobster | twilight (3) | crusher fragment | Crusher-fragment guards: 2 + kelp cord, Shellcraft 25, claws +8% |
+| Hagfish | midnight (4) | slime thread | Slime cord: 2 + kelp cord, Weaving 45, loom, makes 3 braided cord |
+| Amphipod swarm | midnight (4) | amphipods | Amphipod broth: 3 + kelp, Cooking 40, brine pot, pressure strain -20%, +1 reserve stroke |
+| Turtle, grouper | | none | |
+
+The original creatures drop too (the same take; Fighting XP stays the flat win bonus). Which creature lives where is the
+level's; the item tier is the nearest zone. Real parts, but that crabs could use them is "not verified".
+
+| Creature | Zone | Drop | Used for |
+|---|---|---|---|
+| Snapping shrimp | shallows (1) | snapper claw | Re-tip a worn tool: 1 claw + Grit x tier (5 recipes, one per tool tier, Shellcraft 1); grindstone (2) |
+| Snapping shrimp | shallows (1) | shrimp tail meat | Snapper broth: 2 + kelp, Cooking 10 (mends 25%); shrimp-paste feast: 3 + 2 worms, Cooking 55, crock, mends 35% and gathers 15% faster |
+| Peacock mantis shrimp | shallows (1) | mantis club | Club claw tips: 2 + kelp cord, Shellcraft 16, claws +9%; culture bed 3 |
+| Snowflake moray | trench (2) | moray tooth | Mend a worn tool (1 + 2 grit, Shellcraft 1); moray-tooth claw tips: 3 + bone splint, Shellcraft 42, claws +14% |
+| Queen triggerfish | basin (2) | triggerfish plate | Mend worn plating (1 + 2 grit, Shellcraft 1) |
+| Alarm jelly | midwater (2) | jelly mesoglea | Jelly salad: 1 + kelp, Cooking 6; culture bed 4 |
+| Common octopus | far rim (3) | octopus ink | Inked kelp: 1 + 2 kelp, Cooking 14 (+2 reserve strokes); whelk hall |
+
+Every drop, old and new, also has a part of a high-level recipe or a repeatable sink (mending, eating, planting) **and**
+a recipe below level 20 (`economy_every_way_pays.rs`). The older ten got the early uses: mending a worn tool or plating
+with one part and 2 grit (beak, fang, bobbit jaw, moray tooth / crusher fragment, isopod plate, triggerfish plate, whelk
+shell, anemone glue), slime twine (Weaving 10: 1 thread + 2 kelp cord makes a braided cord without a loom), a photophore
+seed (Culturing 12: 1 photophore + 1 shore strain makes 2 glowing cultures, the way a squid's light organ keeps glowing
+bacteria), and a plain amphipod broth (Cooking 12). A new Output, `Repair(AnyTool)` and `Repair(AnyPlating)`, mends the
+first worn tool or the worn plating of any tier.
+
+One claw gear at a time (the claw slot); tips replace each other. Zones are design readings, not verified.
+
+## Every way to play pays (owner's three rules; data tests in `economy_every_way_pays.rs`, pacing in `economy_pacing.rs`)
+**1. Two hours of low-attention gathering near home pays.**
+- *Safe.* The tier 1 nodes on the home side moved into two pockets, 12 units apart, one of each skill in each: x 175 to
+  247 (before the first snapping-shrimp burrow at 340, which notices within 120 and strikes within 72) and x 435 to
+  483 (between the burrows at 340 and 590 and short of the mantis at 1,120, which hunts what it sees within 300 and
+  roams 800). A crab standing at 211 or 459 reaches the whole pocket (reach 70) and works all five skills without moving.
+  Test: no foe of the level or the bestiary lies nearer a home node than its danger distance (a turret: strike range
+  + 20; a roaming hunter: 600); and a bot working the real, populated level for 30 minutes is never hit. The two nodes
+  that stood at 1,010 and 1,090 (inside the mantis's reach) moved into the pockets.
+- *Close.* The farthest home node is 333 units from the door: 1.2 s on foot (test: at most 40 s). The shell's four slots
+  are the only reason to stop; the kelp sack (Weaving 8, 8 kelp) stays where it is: it comes within the first quarter
+  hour and the trip home is two seconds, so an earlier sack buys little.
+- *Steady XP and stack, below an attentive dive* (bot on real ticks, 2 sim hours, watching only the full shell):
+
+| Crab | Nodes worked | XP / h | Levels gained | Items banked / h |
+|---|---|---|---|---|
+| Level 1 | mussels only | 9,400 | 32 (Prying 1 to 33) | 950 |
+| Level 1 | all five skills | 15,230 | 104 (summed) | 1,574 |
+| Level 60 | mussels only | 10,030 (167 / min) | 0 | 1,010 |
+| Level 60 | all five skills | 22,970 | 0 | 2,370 |
+
+  Tested: a level 1 crab on one kind reaches level 20 or more in 2 h (measured 33); a level 60 crab on one kind earns
+  at least 25% of the tier 3 round trip at level 60 (540 / min; measured 31%) and still less than it (tier 1 stays
+  below tier 3 per minute). The pace is node-bound (3 mussel clumps on foot, 5 charges each, 45 s regrowth).
+- *Useful.* Every tier 1 item is an input to a repeatable sink or a recipe at level 40 or more (mussel and snail to
+  food, kelp to cord, grit to every repair, shore strain to planting); data test.
+
+**2. Farming creatures you have outgrown pays.** Every drop has a use below level 20 and a high-level use or a repeatable
+sink at every level (table under "Creature drops"; data test over every drop of every kind). Snapping shrimp: claws to
+re-tip a tool of any tier, tail meat to broth and a high-level feast.
+
+**3. Building takes part in other activities.** Sources: Gathering (Prying, Harvesting, Foraging, Culturing items, valves),
+Fighting (creature drops), Diving (items of tier 4 or more: deep nodes and deep creatures) and Digging (Excavating items).
+An item may have several (a nodule is Digging and Diving; a processed item has those of its first recipe's inputs). Every
+Building recipe above level 10 draws on at least two; no single skill or Fighting supplies them all; the set needs all four.
+
+| Recipe | Level | Activities |
+|---|---|---|
+| Culture bed 1 | 5 | Gathering, Digging |
+| Brine pot | 10 | Gathering, Digging |
+| Loom | 12 | Gathering, Digging |
+| Grindstone | 18 | Fighting, Digging |
+| Culture bed 2 | 20 | Gathering, Digging |
+| Fermenting crock | 30 | Gathering, Digging |
+| Whelk room | 30 | Fighting, Digging |
+| Culture bed 3 | 40 | Fighting, Diving, Digging |
+| Whelk hall | 45 | Gathering, Fighting, Digging |
+| Culture bed 4 | 60 | Fighting, Diving, Digging |
+| Whelk keep | 62 | Gathering, Fighting, Diving, Digging |
+
+## Danger guards the way, never the harvest (owner, 2026-11-11; P11)
+
+Danger is on the way to a resource, never on the resource: once a crab reaches a node, harvesting is calm. A deep
+gatherer can mostly avoid danger by careful routes, not fights.
+
+What is enforced, and by which test (`economy_every_way_pays.rs`):
+- **No foe reaches a node.** `no_foe_lies_near_any_node_on_the_real_level`: for every placed node on the real level,
+  no foe from any spawn list (`level.foes`, which holds the older route, the bestiary, the exploration habitat, the
+  canyon jellies and the octopus; `creatures::spots`; the moray crevices) lies within its danger radius, in two
+  dimensions. The radius: a turret (snapper, moray, bobbit worm) its strike range + 20; the octopus its notice
+  range + 20; a tethered walker (hermit crab, giant isopod, lobster) its leash + bite + 20 (measured: an isopod
+  shoved a crab 400 from its burrow, so notice range alone is not enough); the hagfish its leash + ink cloud; any
+  other hunter (mantis, midwater creatures, amphipods) 600. The sixgill is a band resident, not a spawn.
+- **Nothing in the gather rules interrupts a harvest except the crab's own movement or a hit.** The cancel list in
+  `economy/sim.rs` is walking, jumping, dodging, letting go, leaving the floor, a hit, a stagger; no foe, timer or
+  event is on it. `a_harvest_at_every_node_is_calm_with_the_real_foes_alive` holds Gather for twelve seconds at all 82
+  nodes with the real foes alive and fails on any hit or stagger. The bar emptying on each cancel is in
+  `economy_gather.rs`.
+- **Nodes moved to calm places** (`economy/place.rs`; foes never moved): the first basin (a moray in its crevice and a
+  hermit crab leave no calm span) holds no node, so tier 2 lives only in the far basin hub (x 4,500 to 4,976, 34 apart);
+  tier 1 on the far ledge is x 2,170 to 2,440 (clear of the snapper at 2,060 and the moray at 2,650); tier 3 is the
+  doorstep (5,385 to 5,849; none on the shelf, which a moray and the squid's roam hold) and the rim short of the
+  octopus (7,905 to 8,180); tier 4 is the canyon floor's far end (7,090 to 7,650; the lobster holds the near end);
+  tier 5 is the vent field's east end (19,730 to 20,570, and both vent pots there; the amphipods, a hagfish and an
+  isopod hold the west end). Every band, rock, doorway and spacing rule still holds (`economy_core.rs`).
+  Cost: tier 2 is now a longer walk from home, and the early basin is a place to pass, not to work.
+
+## Levels and gear: Elden Ring scaling (owner, 2026-11-11; P11)
+
+Levels and gear lower the skill a fight needs but never remove it. More shell, harder hits and slightly wider windows
+are fine; a fight never becomes click-and-see, and an under-levelled crab can still win on skill.
+
+What is enforced (`economy_skill_scaling.rs`, caps in `economy/mod.rs`):
+- **Damage taken:** plating and food together cut it by at most 40% (`MAX_DAMAGE_CUT_PERCENT`, factor never below 0.6).
+  Today's best plating (scale mail) cuts 35%; no food cuts damage yet, the cap covers the sum when one does.
+  `plating_and_food_never_cut_damage_below_sixty_percent`.
+- **Damage given:** claw tips and food together hit at most 1.35 times as hard (`MAX_CLAW_FACTOR`; fang tips with the
+  grenadier ferment would be 1.357 and are held at 1.35). The Fighting level's own +45% cap is separate.
+  `claw_tips_and_food_never_hit_harder_than_one_point_three_five`.
+- **Tells and windows are not the economy's:** no tell, telegraph, parry or dodge window is read from gear, food or
+  levels. `tells_and_windows_do_not_depend_on_economy_gear_or_levels` shows the tuning is unchanged for a bare and a
+  maxed crab and that the snapper (54-tick tell) and the mantis (78) tell the same ticks to both.
+- **A level 1 crab with no gear can win on skill:** `a_level_one_crab_with_no_gear_still_beats_the_snapper_and_the_mantis_on_skill`
+  plays a scripted crab (dodge the snapper's shock, parry the mantis's club, smash in the recovery or stagger) and
+  ends both without losing health. Older scripted wins: the hermit crab and the lobster
+  (`a_scripted_crab_beats_or_drives_it_off`), the isopod and the bobbit worm.
+
 ## Inventory pressure, sinks and pacing
 - Shell slots `4 × size²` + bag (+2/+4/+6). Big items one at a time on the back. A full shell stops gathering ("No room
   on your shell"); the crab can drop items (existing Drop), which lie as its own recoverable cast-offs.
@@ -271,10 +413,10 @@ home; deeper tiers combine measured gather times with route-solver travel times)
 Reported (printed, not asserted): estimated hours to 30, 45, 60, 99.
 
 ## Interface (all in `src/`, phone first, follow `src/input.rs`)
-- **Gather:** keyboard `E` (hold), controller face button, touch: a contextual **Gather** button appears beside the
+- **Gather:** keyboard `C` (hold; E and F are smash and guard), controller left-stick click, touch: a contextual **Gather** button appears beside the
   action stick when a ready node is in reach (hold). `Controls::gather_held`. A ring fills around the node while held.
 - **Node look:** each kind a small clear placeholder sprite (kelp fronds, mussel clump, grit heap...), tinted by band;
-  a spent node draws bare (stubs, empty mud). Prompt text near the crab: "Hold E: pry mussels", or the reason it can't
+  a spent node draws bare (stubs, empty mud). Prompt text near the crab: "Hold C: pry mussels", or the reason it can't
   ("Prying 15", "Needs a shell pry tip", "No room on your shell").
 - **Skills panel:** key `K`, touch: a "Skills" button on the pause/home sheet. A 3-column grid of 13 skills (icon,
   level, a thin progress bar); tap a skill for its RuneScape-style guide: every unlock by level, done ones ticked,
@@ -326,10 +468,51 @@ and P3 never edits `world.rs`; P2 never edits `craft.rs`.
 - The route solver plays real ticks and is slow: tight stop predicates; heavy surveys `#[ignore]`d, run by hand.
 - Level lists (clams, cultures...) are found by place in tests, never `.last()`.
 - `crates/sim` forbids `unwrap()` outside tests.
+- UI systems' text queries must be disjoint (Bevy B0001 panics at startup and the unit tests don't catch it): run the
+  native game for 20 s before pushing UI changes.
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
-(Updated as packages land.) 2026-11-10: spec written (P0, #564). Umbrella #563; packages P1 #565, P2 #566, P3 #567, P4 #568, P5 #569, P6 #570, P7 #571, P8 #572.
+2026-11-11 (lead designer). Read this first if you are continuing without the lead.
+- **Merged:** P0 spec (#573), P1 core + P2 gathering (#596).
+- **In the big PR (branch `issue-567-economy-loop`):** P3 crafting chains, P4 presentation (skills panel `K`, level-up juice, XP drops,
+  node sprites, gear looks, gather key `C` / left-stick click / touch GATHER button, fill ring, prompts and why-not text,
+  crafting tabs Make/Cook/Shell/Weave/Build/Culture/Repair with a pager), P5 pacing sims, P6 node memory, P7 docs. It
+  closes #567 to #571.
+- **Measured pacing** (`crates/sim/tests/economy_pacing.rs`, a bot on real ticks, sim seconds): Prying L2 26 s, L5 144 s,
+  L10 454 s, L15 945 s (all five gathering skills within the targets; Culturing slowest at L15 1,786 s; measured again
+  after the nodes moved into the pockets). XP per minute
+  on round trips by tier at unlock / at level 60: T1 203 / 489, T2 351 / 506, T3 500 / 540, T4 570 / 603, T5 624 / 629
+  (strictly rising). Items per minute fall with distance: 20.3, 3.2, 2.5, 2.2, 0.8. T1 power-gathering 157 to 180 XP/min (3 mussel clumps on foot).
+  Estimated hours to 30 / 45 / 60 / 99: 0.7 / 2.3 / 8.3 / 340. Trips (route solver, full kit, seconds round trip): T2 95,
+  T3 164, T4 187; **T5 is extrapolated (541 s)** because the solver cannot reach the vent field today (the slump dam is
+  one-way and the narrows need the heavy crusher).
+- **Tuning that moved from the first draft:** XP per gather by tier is now 10 / 110 / 200 / 260 / 750 (was 10 / 25 / 50 /
+  100 / 175; the old numbers made the basin worse than the shallows). Tier-1 nodes on the home side sit in two safe
+  pockets at x 175 to 247 and 435 to 483 that a crab reaches on foot (past x about 600 the plateau needs a jump).
+- **"Every way to play pays"** (owner's rules, PR #613 vision): drops for the original creatures, a use below level 20 and
+  a high-level or repeatable use for every drop, Building from several activities (whelk room, hall, keep), home nodes in
+  safe pockets, a 2 h low-attention measurement. See that section for the numbers. The pacing line above was
+  re-measured after the move.
+- **P9, P10, P11 in #601:** P9 creature drops (ten items, ten recipes, health-based Fighting XP); P10 every way to play
+  pays (above); P11 the two newest owner rules: "Danger guards the way, never the harvest" (nodes moved clear of every
+  foe, tested at all 82 nodes; tier 2 is the far basin hub only) and "Levels and gear: Elden Ring scaling" (damage cut
+  capped at 40%, claw bonus at 1.35, windows untouched, a level 1 crab wins on skill).
+- **Next, in order:**
+  1. P8 (#572): re-place nodes on the world build's new map once its geometry lands (home burrow clam beds → T2 Prying,
+     bone hall → T4 whale bones, seep chimneys/garden → T4 seep mussels, the vent and chimney hall → T5). Then re-measure
+     T5 with `cargo test -p crabsim --test economy_pacing -- --ignored --nocapture measure_routes` (~18 min) and lower
+     T5 XP if the trip shortens.
+  2. P9 (#602, **done in #601**): creature drops; see "Creature drops". The creatures lane owns `creatures/*`; the
+     economy owns `economy/*` and `craft.rs`. Known gap: the hermit crab ends itself in its own `die`, so its kill
+     pays no win XP (creatures lane).
+  3. Excavating XP from real digging (cellular digging has no clean per-unit amount; needs an engine-package hook).
+  4. Look at the gather ring, prompt, touch button and crafting tabs in a browser at phone size (never seen running).
+- **Hidden rules found:** node indexes come from `placed_nodes` (spots outside a small level are dropped), so never index
+  `place::SPOTS` directly; nodes sit about 60 units apart with a 70-unit reach, so a spent node hands the gather to its
+  neighbour; legacy clam beds fill the larder, and a full larder now banks clams as items; `StepEvents` must stay `Copy`
+  (one `level_up` per tick, the last level crossed); the wall-clock test `headless_runs_far_faster_than_real_time` fails
+  under heavy machine load (run it alone); a node's charges reach guests in `Msg::World`.
 
 ## Sources (this page)
 None opened yet beyond those cited in `universe.md` and `world.md`; every biology claim above not in those is

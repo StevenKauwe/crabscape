@@ -585,6 +585,7 @@ mod camera_stability_tests {
             .init_resource::<TouchControls>()
             .init_resource::<crate::settings::panel::Open>()
             .init_resource::<crate::shell_inventory::Open>()
+            .init_resource::<crate::skills_panel::Open>()
             .init_resource::<crate::codes::CodeBox>()
             .init_resource::<Zoom>()
             .add_message::<MouseWheel>()
