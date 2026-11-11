@@ -423,11 +423,17 @@ impl Test<'_> {
             )? {
                 return Err("simulation tick telemetry did not start".into());
             }
-            let pressed = self.key("keydown", "KeyD", "d");
-            let held = pressed.and_then(|()| {
-                let start = self
-                    .attr("data-cell-performance")?
-                    .and_then(|value| performance_tick(&value))
+            // Capture the tick and dispatch keydown in one browser task, so
+            // no simulation frame can slip between the baseline and input.
+            let pressed = self.b.js(&format!(
+                "const c = {CANVAS}; const tick = c.getAttribute('data-cell-performance'); \
+                 c.focus(); c.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true, \
+                 cancelable: true, composed: true, code: 'KeyD', key: 'd' }})); return tick;"
+            ));
+            let held = pressed.and_then(|value| {
+                let start = value
+                    .as_str()
+                    .and_then(performance_tick)
                     .ok_or("invalid simulation tick telemetry")?;
                 self.hold(0.5, false)?;
                 let deadline = Instant::now() + Duration::from_secs(4);
