@@ -13,8 +13,8 @@ default-run = "crabscape"
 # game and the simulation. The art tools and `crates/listen` (speech to text for spoken reports, its own wasm file,
 # built by tools/build-web.sh) are the other members: `--workspace` or `-p painter` to include them.
 [workspace]
-members = ["crates/king-ddd", "crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "crates/dragon-peer", "tools/oil-atlas", "tools/webtest", "tools/cooptest"]
-default-members = [".", "crates/sim"]
+members = ["crates/dragon-game", "crates/king-ddd", "crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "crates/dragon-peer", "tools/oil-atlas", "tools/webtest", "tools/cooptest"]
+default-members = ["crates/dragon-game", ".", "crates/sim"]
 # Third-party code kept here with a fix of ours (see [patch.crates-io] below); not linted or tested as our own.
 exclude = ["vendor"]
 
@@ -39,6 +39,8 @@ workspace = true
 cellular-transport-probe = ["matchbox_socket/probe-ingress"]
 
 [dependencies]
+dragon-game = { path = "crates/dragon-game" }
+
 king-ddd = { path = "crates/king-ddd" }
 bevy_egui = { version = "0.43.1", default-features = false, features = ["render", "default_fonts"] }
 gridcraft-engine = { path = "vendor/gridcraft/crates/engine" }

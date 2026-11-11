@@ -233,3 +233,9 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 | 2026-11-10 | The seep chimney flows at 280 units/s (about 5.7 s up its shaft); the long chimney home at 1,000 units/s (hall to shelf about 35 s, under 40). Reason — brief targets (seep at most 8 s, whole way home under 40 s). | Claude Sonnet |
 | 2026-11-10 | **Act three** is `Mover::act_three`, set when a crab, carried without a break from the first stretch of the long chimney home (hall), reaches its last stretch; saved on `Progress::act_three`. `Sim::act_three(player)` reads it. Dropping into the chimney's top stretch from above does not set it. Reason — "ridden home once", per crab, for the Plunge to check. | Claude Sonnet |
 | 2026-11-10 | The long chimney is open when its crust plug (the brittle rock named "long chimney crust plug") is cracked, shared like any brittle rock; a crab whose feet are at or above the plug's top cannot crack it (it breaks from below only). Reason — #469: earned with the heavy crusher from below, never opened from above. | Claude Sonnet |
+
+- **Dragon Rust flight parity slice (2026-11-11):** retain explicit browser frame durations
+  and viewport geometry in the new `dragon-game` core rather than silently converting
+  its integrator to CrabScape's fixed ticks. Keep the live JS and all original save bytes
+  untouched until full mission/save/multiplayer comparisons pass. The separate Bevy
+  flight sandbox is incomplete and has no microphone or multiplayer connection.
