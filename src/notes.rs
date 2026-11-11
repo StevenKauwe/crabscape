@@ -59,6 +59,9 @@ struct Pop;
 struct Note {
     age: f32,
     colour: Color,
+    /// Seconds it lasts, and how fast it rises (units/second).
+    life: f32,
+    rise: f32,
 }
 
 /// Float a note up from `above` (a world position), for anything that isn't
@@ -67,11 +70,42 @@ pub fn say(commands: &mut Commands, text: &str, above: Vec2, colour: Color) {
     say_at(commands, text, above.extend(21.0), colour);
 }
 
+/// [`say`], but holding for `life` seconds and rising `rise` units a second
+/// (a level-up line stays 4 s; an experience drop is smaller and quicker).
+pub fn say_for(
+    commands: &mut Commands,
+    text: &str,
+    at: Vec3,
+    colour: Color,
+    (life, rise, size): (f32, f32, f32),
+) {
+    commands.spawn((
+        Note {
+            age: 0.0,
+            colour,
+            life,
+            rise,
+        },
+        Text2d::new(text),
+        TextFont {
+            font_size: FontSize::Px(size),
+            ..default()
+        },
+        TextColor(colour),
+        Transform::from_translation(at),
+    ));
+}
+
 /// [`say`], at a depth: in front of whatever is drawn at `at.z` (the home's
 /// cut-away is drawn in front of the level).
 fn say_at(commands: &mut Commands, text: &str, at: Vec3, colour: Color) {
     commands.spawn((
-        Note { age: 0.0, colour },
+        Note {
+            age: 0.0,
+            colour,
+            life: LIFE,
+            rise: RISE,
+        },
         Text2d::new(text),
         TextFont {
             font_size: FontSize::Px(13.0),
@@ -254,7 +288,12 @@ fn comic_words(mut commands: Commands, crabs: Query<(&FrameEvents, &Fighter, &Tr
         let above = at.translation + Vec3::new(fighter.facing * 70.0, 60.0, 0.0);
         let z = (at.translation.z + 12.0).max(22.0);
         commands.spawn((
-            Note { age: 0.0, colour },
+            Note {
+                age: 0.0,
+                colour,
+                life: LIFE,
+                rise: RISE,
+            },
             Pop,
             Text2d::new(word),
             TextFont {
@@ -292,7 +331,7 @@ fn float_notes(
     let dt = time.delta_secs();
     for (entity, mut note, mut at, mut text, pops) in &mut notes {
         note.age += dt;
-        if note.age >= LIFE {
+        if note.age >= note.life {
             commands.entity(entity).despawn();
             continue;
         }
@@ -301,7 +340,13 @@ fn float_notes(
             let k = (note.age / POP).min(1.0);
             at.scale = Vec3::splat(0.2 + 1.0 * (1.0 - (1.0 - k) * (1.0 - k)) + 0.15 * (1.0 - k));
         }
-        at.translation.y += RISE * dt;
-        text.0 = note.colour.with_alpha(1.0 - note.age / LIFE);
+        at.translation.y += note.rise * dt;
+        // A short note fades all along; a long one holds, then fades out.
+        let fade = if note.life > 2.0 {
+            (note.life - note.age).clamp(0.0, 1.0)
+        } else {
+            1.0 - note.age / note.life
+        };
+        text.0 = note.colour.with_alpha(fade);
     }
 }

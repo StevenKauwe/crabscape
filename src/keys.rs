@@ -15,13 +15,14 @@ use crate::player::GameSet;
 /// `report.rs`, `style.rs` and `replay.rs` read).
 pub(crate) const KEYS: [(&str, &str); 17] = [
     ("A D / Left Right", "walk"),
-    ("W / Up / K", "jump or paddle; hold to climb"),
+    ("W / Up", "jump or paddle; hold to climb"),
     ("Shift J + a way", "dodge; hold it: sprint"),
     ("S / Down", "dive in water; descend a climb"),
     ("Right click / E L", "smash; hold to charge"),
     ("Left click / Q O", "jab with the cutter"),
     ("F I", "guard; tap before a blow: parry"),
     ("B", "inventory; number keys choose"),
+    ("K", "skills: levels and what they unlock"),
     ("T", "hold still to eat a portion"),
     ("H", "dim or brighten the lantern"),
     ("Home, then Y", "go home (it asks first)"),

@@ -9,7 +9,7 @@
 //! | Action | Keyboard                | Controller           | Touch      |
 //! |--------|-------------------------|----------------------|------------|
 //! | Walk   | A / D, or the arrows    | left stick, d-pad    | `<` `>`    |
-//! | Jump   | W, Up, K               | A (south button)     | JUMP       |
+//! | Jump   | W, Up                  | A (south button)     | JUMP       |
 //! | Dodge  | Shift, J                | B, right trigger     | DODGE      |
 //! | Dig / turn | Space + direction     | right stick          | DIG / TURN stick |
 //! | Dive down | S / Down | stick / D-pad down | DIG / TURN stick down |
@@ -98,6 +98,7 @@ pub(crate) struct InputUi<'w, 's> {
     settings: Res<'w, crate::settings::panel::Open>,
     court: Option<Res<'w, crate::king_ddd::Court>>,
     inventory: Res<'w, crate::shell_inventory::Open>,
+    skills: Res<'w, crate::skills_panel::Open>,
     chat: Res<'w, crate::codes::CodeBox>,
     panels: Query<
         'w,
@@ -117,6 +118,7 @@ impl InputUi<'_, '_> {
         self.court.as_ref().is_some_and(|c| c.owns_input())
             || self.settings.is_open()
             || self.inventory.0
+            || self.skills.is_open()
             || self.chat.open
             || page_dialog_open()
     }
@@ -396,7 +398,8 @@ fn pad_wants(stick: Vec2, pressed: impl Fn(GamepadButton) -> bool) -> PadWants {
     }
 }
 
-const JUMP_KEYS: [KeyCode; 3] = [KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::KeyK];
+// K opens the skills panel (`skills_panel.rs`), so it no longer jumps.
+const JUMP_KEYS: [KeyCode; 2] = [KeyCode::KeyW, KeyCode::ArrowUp];
 const DODGE_KEYS: [KeyCode; 3] = [KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ];
 const SMASH_KEYS: [KeyCode; 2] = [KeyCode::KeyL, KeyCode::KeyE];
 const JAB_KEYS: [KeyCode; 2] = [KeyCode::KeyO, KeyCode::KeyQ];
