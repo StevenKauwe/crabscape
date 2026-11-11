@@ -56,11 +56,9 @@ impl Thing {
             Thing::Clam(_) => Some(Carry::Clam),
             Thing::Grit(_) | Thing::Midden(_) => Some(Carry::Grit),
             Thing::Body { .. } => None,
-            // Placed nodes keep the order of `economy::place::SPOTS`.
-            Thing::Node(i) => crate::economy::place::SPOTS
-                .get(i)
-                .and_then(|s| s.kind.def().yields)
-                .map(Carry::Item),
+            // A node's yield depends on the level it lies in (the placed
+            // nodes): `economy::gather` gives it.
+            Thing::Node(_) => None,
         }
     }
 }
@@ -69,6 +67,8 @@ impl Thing {
 /// regrows it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeState {
+    /// What kind of node it is (`placed_nodes[i].kind`).
+    pub kind: crate::economy::NodeKind,
     /// Gathers left before it is spent.
     pub charges: u8,
     /// Ticks until a spent node regrows all its charges (0: not growing).
@@ -106,6 +106,7 @@ impl Shared {
             nodes: crate::economy::place::nodes(level)
                 .iter()
                 .map(|n| NodeState {
+                    kind: n.kind,
                     charges: n.kind.def().charges,
                     regrow: 0,
                 })
@@ -155,6 +156,10 @@ impl Shared {
             Thing::Node(i) => {
                 if let Some(n) = self.nodes.get_mut(i) {
                     n.charges = n.charges.saturating_sub(1);
+                    if n.charges == 0 {
+                        let secs = n.kind.def().respawn_secs;
+                        n.regrow = (secs * crate::physics::TICKS_PER_SECOND as f32).round() as u32;
+                    }
                 }
             }
         }
@@ -166,6 +171,40 @@ impl Shared {
     pub(crate) fn forget_bodies(&mut self, deaths_of: impl Fn(u32) -> Option<u32>) {
         self.bodies_eaten
             .retain(|&(id, d)| deaths_of(id).is_some_and(|now| now <= d));
+    }
+
+    /// A spent node (or a clam bed) grew back, on the host's word.
+    pub(crate) fn regrown(&mut self, thing: Thing) {
+        match thing {
+            Thing::Clam(i) => {
+                if let Some(c) = self.clams.get_mut(i) {
+                    *c = 0;
+                }
+            }
+            Thing::Node(i) => {
+                if let Some(n) = self.nodes.get_mut(i) {
+                    n.charges = n.kind.def().charges;
+                    n.regrow = 0;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The nodes' clock, one tick (host and solo only): each spent node
+    /// that grew all its charges back.
+    pub(crate) fn grow_nodes(&mut self) -> Vec<usize> {
+        let mut grown = Vec::new();
+        for (i, n) in self.nodes.iter_mut().enumerate() {
+            if n.regrow > 0 {
+                n.regrow -= 1;
+                if n.regrow == 0 {
+                    n.charges = n.kind.def().charges;
+                    grown.push(i);
+                }
+            }
+        }
+        grown
     }
 
     /// The clam beds' clock, one tick: each bed that grew a clam back.

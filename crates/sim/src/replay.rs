@@ -43,6 +43,8 @@
 //! | `unblock`       | let go of block                                          |
 //! | `eat`           | hold the field eating action                              |
 //! | `stop-eating`   | release the field eating action                           |
+//! | `gather`        | hold gather (at a node, or cook at the vent pot)           |
+//! | `stop-gathering`| release gather                                            |
 //! | `smash`         | (above) a tap: with a charging crusher, the shortest wind-up |
 //! | `charge`        | press smash and keep holding it (a charging crusher winds up) |
 //! | `loose`         | let go of smash (a charged smash strikes)                |
@@ -575,6 +577,13 @@ impl Replay {
             if c.eat_held != before.eat_held {
                 line += if c.eat_held { " eat" } else { " stop-eating" };
             }
+            if c.gather_held != before.gather_held {
+                line += if c.gather_held {
+                    " gather"
+                } else {
+                    " stop-gathering"
+                };
+            }
             if c.down != before.down {
                 line += if c.down { " down=on" } else { " down=off" };
             }
@@ -968,6 +977,7 @@ impl Recorder {
             || c.jump_held != self.last.jump_held
             || c.dodge_held != self.last.dodge_held
             || c.eat_held != self.last.eat_held
+            || c.gather_held != self.last.gather_held
             || c.down != self.last.down
             || c.dig_held != self.last.dig_held
             || c.dig_up != self.last.dig_up
@@ -1058,6 +1068,8 @@ fn apply_word(c: &mut Controls, word: &str) -> Result<(), String> {
     match word {
         "eat" => c.eat_held = true,
         "stop-eating" => c.eat_held = false,
+        "gather" => c.gather_held = true,
+        "stop-gathering" => c.gather_held = false,
         "jump" => {
             c.jump_pressed = true;
             c.jump_held = true;

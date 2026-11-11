@@ -17,6 +17,7 @@ const DOWN: Controls = Controls {
     smash_held: false,
     jab_pressed: false,
     eat_held: false,
+    gather_held: false,
     block_held: false,
     block_pressed: false,
 };

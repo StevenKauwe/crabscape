@@ -61,6 +61,8 @@ pub struct Controls {
     pub jab_pressed: bool,
     /// Hold to eat one prepared portion while stationary.
     pub eat_held: bool,
+    /// Hold to gather from the nearest ready node (or cook at the vent pot).
+    pub gather_held: bool,
     /// Is block (claws up) held?
     pub block_held: bool,
     /// Was block freshly pressed since the last step? (A press just before
@@ -548,6 +550,14 @@ pub struct StepEvents {
     pub levelled: Option<Skill>,
     /// ...or any skill, by [`crate::Sim::earn`] (the last level crossed).
     pub level_up: Option<crate::economy::LevelUp>,
+    /// Why a gather did not start (once per press): see
+    /// [`crate::economy::gather::GatherBlocked`].
+    pub gather_blocked: Option<crate::economy::gather::GatherBlocked>,
+    /// Finished a gather (or a cooking at the vent pot): what it gave (the
+    /// last item) and the experience, for the HUD's XP drop.
+    pub gathered: Option<(crate::economy::Item, u32)>,
+    /// The fitted tool of this kind wore its last use: cracked.
+    pub tool_cracked: Option<crate::economy::ToolKind>,
     /// A skill's proving moment, just done: its feat is ready.
     pub proven: Option<Skill>,
     /// Started a flip (dodge in the water).
@@ -661,6 +671,11 @@ impl StepEvents {
         if other.level_up.is_some() {
             self.level_up = other.level_up;
         }
+        self.gather_blocked = self.gather_blocked.or(other.gather_blocked);
+        if other.gathered.is_some() {
+            self.gathered = other.gathered;
+        }
+        self.tool_cracked = self.tool_cracked.or(other.tool_cracked);
         self.proven = self.proven.or(other.proven);
         self.flipped |= other.flipped;
         self.found_clue = self.found_clue.or(other.found_clue);
@@ -1978,6 +1993,7 @@ mod tests {
         block_held: false,
         block_pressed: false,
         eat_held: false,
+        gather_held: false,
     };
 
     #[test]

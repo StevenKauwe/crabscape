@@ -41,6 +41,19 @@ pub enum Cue {
     Claw {
         crab: PlayerId,
     },
+    /// One work stroke of a gather (about every 0.6 s of a hold) in `skill`.
+    Gather {
+        crab: PlayerId,
+        skill: crate::skills::Skill,
+    },
+    /// A gather (or a cooking at the vent pot) finished.
+    Gathered {
+        crab: PlayerId,
+    },
+    /// A fitted tool wore its last use: it cracked.
+    ToolCracked {
+        crab: PlayerId,
+    },
     /// A skill went up to `level`: a rising chime.
     LevelUp {
         crab: PlayerId,

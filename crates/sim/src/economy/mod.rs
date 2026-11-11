@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 pub mod food;
+pub mod gather;
 pub mod gear;
 pub mod items;
 pub mod nodes;
