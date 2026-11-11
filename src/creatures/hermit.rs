@@ -1,6 +1,6 @@
 //! Hermit crab puppet: shell, anemones, claws and eyestalks posed from the sim (`e.state`, `e.state_tick`,
 //! `hermit::phase`). Withdrawn it hides the soft body and plugs the aperture with the big claw; the anemones flare
-//! when they sting. Light-free, ink only.
+//! when they sting. Light-free.
 use crate::bestiary::{self, Puppet};
 use crate::creature_art::CreatureArt;
 use crate::memory::{Known, Remembered};
@@ -35,7 +35,7 @@ struct Piece {
 }
 
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_ink_only(
+    commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/hermit-crab-parts.json"),
         "creatures/hermit-crab-atlas.png",
         0.5,

@@ -1,4 +1,4 @@
-//! Goliath grouper puppet (ink only): the pose reads the sim's state. The boom is a quiver of the whole body and
+//! Goliath grouper puppet: the pose reads the sim's state. The boom is a quiver of the whole body and
 //! a flutter of the pectorals; the tell tilts the head to its locked aim, drops the lower jaw slowly and flares
 //! the gill cover over the dark gill; the gulp snaps the jaw wide; the recovery closes it slowly.
 use crate::bestiary::{Puppet, state_lean};
@@ -36,7 +36,7 @@ struct Piece {
 }
 
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_ink_only(
+    commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/goliath-grouper-parts.json"),
         "creatures/goliath-grouper-atlas.png",
         0.5,

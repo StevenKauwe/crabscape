@@ -116,6 +116,8 @@ mod names;
 mod nodes;
 mod notes;
 mod octopus;
+#[cfg(not(target_arch = "wasm32"))]
+mod photo;
 mod player;
 mod power;
 mod puppet;
@@ -164,106 +166,109 @@ fn main() {
 }
 
 fn run_app() {
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                .set(AssetPlugin {
-                    // The pictures sit next to the page in `assets/`. Don't
-                    // ask the server for `.meta` files we never write.
-                    meta_check: AssetMetaCheck::Never,
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "CrabScape".into(),
-                        // In the browser, draw into the page's <canvas id="crabscape">
-                        // and keep it the size of its parent element.
-                        canvas: Some("#crabscape".into()),
-                        fit_canvas_to_parent: true,
-                        // Stop the browser scrolling or zooming the page when the
-                        // player taps or drags on the game.
-                        prevent_default_event_handling: true,
-                        ..default()
-                    }),
-                    ..default()
-                })
-                // Keep the last log lines for players' bug reports.
-                .set(bevy::log::LogPlugin {
-                    custom_layer: report::keep_log,
+    let mut app = App::new();
+    app.add_plugins(
+        DefaultPlugins
+            .set(AssetPlugin {
+                // The pictures sit next to the page in `assets/`. Don't
+                // ask the server for `.meta` files we never write.
+                meta_check: AssetMetaCheck::Never,
+                ..default()
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "CrabScape".into(),
+                    // In the browser, draw into the page's <canvas id="crabscape">
+                    // and keep it the size of its parent element.
+                    canvas: Some("#crabscape".into()),
+                    fit_canvas_to_parent: true,
+                    // Stop the browser scrolling or zooming the page when the
+                    // player taps or drags on the game.
+                    prevent_default_event_handling: true,
                     ..default()
                 }),
-        )
-        .init_resource::<tuning::ViewTuning>()
-        // The game's core, then the world's things and the HUD. (Bevy takes
-        // at most 15 plugins in one group.)
-        .add_plugins((
-            background::BackgroundPlugin,
-            coop::CoopPlugin,
-            replay::ReplayPlugin,
-            memory::MemoryPlugin,
-            level::LevelPlugin,
-            player::PlayerPlugin,
-            power::PowerPlugin,
-            settings::SettingsPlugin,
-            input::InputPlugin,
-            puppet::PuppetPlugin,
-            lantern::LanternPlugin,
-            effects::EffectsPlugin,
-            save::SavePlugin,
-            style::StylePlugin,
-            view::ViewPlugin,
-        ))
-        .add_plugins(monkeys::MonkeysPlugin)
-        .add_plugins(king_ddd::KingDddPlugin)
-        .add_plugins(cellular::CellularPlugin)
-        .add_plugins(salvage::SalvagePlugin)
-        .add_plugins(canyon_drift::CanyonDriftPlugin)
-        .add_plugins(triggerfish::TriggerfishPlugin)
-        .add_plugins(bestiary::BestiaryPlugin)
-        .add_plugins(alarm_jelly::AlarmJellyPlugin)
-        .add_plugins((
-            critters::CrittersPlugin,
-            deep::DeepPlugin,
-            (
-                eggs::EggsPlugin,
-                food::FoodPlugin,
-                interior::InteriorPlugin,
-                crevices::CrevicesPlugin,
-                build::BuildPlugin,
-                cling::ClingPlugin,
-                shell_inventory::ShellInventoryPlugin,
-                nodes::NodesPlugin,
-                gather_ui::GatherUiPlugin,
-                skills_panel::SkillsPanelPlugin,
-                skill_juice::SkillJuicePlugin,
-            ),
-            feel::FeelPlugin,
-            foes::FoesPlugin,
-            octopus::OctopusPlugin,
-            fight::FightPlugin,
-            home::HomePlugin,
-            impact::ImpactPlugin,
-            notes::NotesPlugin,
-            report::ReportPlugin,
-            (
-                secrets::SecretsPlugin,
-                canyon::CanyonPlugin,
-                ending::EndingPlugin,
-                codes::CodesPlugin,
-                moult::MoultPlugin,
-                brittle::BrittlePlugin,
-                chimney::ChimneyPlugin,
-                creature_art::CreatureArtPlugin,
-                go_home::GoHomePlugin,
-                keys::KeysPlugin,
-                names::NamesPlugin,
-                chat::ChatPlugin,
-                character::CharacterPlugin,
-                scribe::ScribePlugin,
-            ),
-            sound::SoundPlugin,
-            stamina::StaminaPlugin,
-            voice::VoicePlugin,
-        ))
-        .run();
+                ..default()
+            })
+            // Keep the last log lines for players' bug reports.
+            .set(bevy::log::LogPlugin {
+                custom_layer: report::keep_log,
+                ..default()
+            }),
+    )
+    .init_resource::<tuning::ViewTuning>()
+    // The game's core, then the world's things and the HUD. (Bevy takes
+    // at most 15 plugins in one group.)
+    .add_plugins((
+        background::BackgroundPlugin,
+        coop::CoopPlugin,
+        replay::ReplayPlugin,
+        memory::MemoryPlugin,
+        level::LevelPlugin,
+        player::PlayerPlugin,
+        power::PowerPlugin,
+        settings::SettingsPlugin,
+        input::InputPlugin,
+        puppet::PuppetPlugin,
+        lantern::LanternPlugin,
+        effects::EffectsPlugin,
+        save::SavePlugin,
+        style::StylePlugin,
+        view::ViewPlugin,
+    ))
+    .add_plugins(monkeys::MonkeysPlugin)
+    .add_plugins(king_ddd::KingDddPlugin)
+    .add_plugins(cellular::CellularPlugin)
+    .add_plugins(salvage::SalvagePlugin)
+    .add_plugins(canyon_drift::CanyonDriftPlugin)
+    .add_plugins(triggerfish::TriggerfishPlugin)
+    .add_plugins(bestiary::BestiaryPlugin)
+    .add_plugins(alarm_jelly::AlarmJellyPlugin)
+    .add_plugins((
+        critters::CrittersPlugin,
+        deep::DeepPlugin,
+        (
+            eggs::EggsPlugin,
+            food::FoodPlugin,
+            interior::InteriorPlugin,
+            crevices::CrevicesPlugin,
+            build::BuildPlugin,
+            cling::ClingPlugin,
+            shell_inventory::ShellInventoryPlugin,
+            nodes::NodesPlugin,
+            gather_ui::GatherUiPlugin,
+            skills_panel::SkillsPanelPlugin,
+            skill_juice::SkillJuicePlugin,
+        ),
+        feel::FeelPlugin,
+        foes::FoesPlugin,
+        octopus::OctopusPlugin,
+        fight::FightPlugin,
+        home::HomePlugin,
+        impact::ImpactPlugin,
+        notes::NotesPlugin,
+        report::ReportPlugin,
+        (
+            secrets::SecretsPlugin,
+            canyon::CanyonPlugin,
+            ending::EndingPlugin,
+            codes::CodesPlugin,
+            moult::MoultPlugin,
+            brittle::BrittlePlugin,
+            chimney::ChimneyPlugin,
+            creature_art::CreatureArtPlugin,
+            go_home::GoHomePlugin,
+            keys::KeysPlugin,
+            names::NamesPlugin,
+            chat::ChatPlugin,
+            character::CharacterPlugin,
+            scribe::ScribePlugin,
+        ),
+        sound::SoundPlugin,
+        stamina::StaminaPlugin,
+        voice::VoicePlugin,
+    ));
+    // After the style and the player: a photo run overrides the style and places the crab.
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_plugins(photo::PhotoPlugin);
+    app.run();
 }

@@ -32,7 +32,7 @@ struct Joint {
 }
 
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_ink_only(
+    commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/american-lobster-parts.json"),
         "creatures/american-lobster-atlas.png",
         0.5,

@@ -6,8 +6,13 @@
 //! spread them (the guard), snap them shut (the counter beat), cock the cutter open (snip) or the crusher wide
 //! (crush). The abdomen is two segments and a tail fan, curling under for the tail flip; antennae sweep back.
 //!
+//! Olive-green above with orange-red joints, spines, legs and feelers, cream below: American lobsters are
+//! generally described as greenish-brown with red-orange on the joints and spines (not verified against an opened
+//! source; the tones are a game choice, picked to read against the dark rock and apart from our red crab).
+//!
 //! Spec: `docs/design/creatures/american-lobster.md`.
 
+use crate::bestiary::{detail, glints, owner};
 use crate::geom::{P, ell, through};
 use crate::item::{Item, Kind};
 use crate::palette::{self, Mat};
@@ -58,7 +63,7 @@ pub fn build() -> Vec<Item> {
                 11.0,
                 8.0,
             )),
-            "lobClaw",
+            "lobClawFar",
         )
         .pv([62.0, -44.0]),
     );
@@ -67,13 +72,14 @@ pub fn build() -> Vec<Item> {
             "cutter-palm",
             smooth(&[
                 [96.0, -60.0],
-                [118.0, -61.0],
-                [142.0, -55.0],
-                [132.0, -51.0],
-                [112.0, -48.0],
+                [120.0, -64.0],
+                [150.0, -59.0],
+                [172.0, -52.0],
+                [150.0, -51.0],
+                [120.0, -48.0],
                 [96.0, -48.0],
             ]),
-            "lobClaw",
+            "lobClawFar",
         )
         .pv([98.0, -54.0]),
     );
@@ -82,12 +88,12 @@ pub fn build() -> Vec<Item> {
             "cutter-finger",
             smooth(&[
                 [114.0, -53.0],
-                [134.0, -53.0],
-                [151.0, -46.0],
-                [134.0, -48.0],
+                [140.0, -52.0],
+                [174.0, -46.0],
+                [140.0, -47.0],
                 [116.0, -48.0],
             ]),
-            "lobTip",
+            "lobRedFar",
         )
         .pv([114.0, -52.0]),
     );
@@ -104,10 +110,10 @@ pub fn build() -> Vec<Item> {
                         [-50.0, -92.0 - dy * 0.6],
                         [-112.0, -70.0 - dy * 0.3],
                     ],
-                    3.0,
-                    0.8,
+                    4.6,
+                    1.6,
                 ),
-                "lobClaw",
+                "lobRed",
             )
             .pv([80.0, -46.0]),
         );
@@ -132,7 +138,7 @@ pub fn build() -> Vec<Item> {
                     7.0,
                     2.5,
                 ),
-                "lobClaw",
+                "lobRed",
             )
             .pv([x0, -18.0]),
         );
@@ -168,18 +174,37 @@ pub fn build() -> Vec<Item> {
         )
         .pv([-58.0, -32.0]),
     );
+    for (part, x0, x1) in [("abdomen-a", -12.0, -60.0), ("abdomen-b", -58.0, -94.0)] {
+        let mid = (x0 + x1) / 2.0;
+        v.insert(
+            v.iter().position(|i| i.id == part).expect("a segment") + 1,
+            detail(
+                part,
+                "pleuron",
+                smooth(&[
+                    [x0 - 4.0, -24.0],
+                    [mid, -20.0],
+                    [x1 + 4.0, -24.0],
+                    [mid, -17.0],
+                ]),
+                "lobRed",
+                0.0,
+            ),
+        );
+    }
     v.push(
         shape(
             "tailfan",
             smooth(&[
                 [-92.0, -31.0],
-                [-112.0, -42.0],
-                [-128.0, -36.0],
-                [-126.0, -22.0],
-                [-112.0, -12.0],
+                [-114.0, -46.0],
+                [-134.0, -42.0],
+                [-141.0, -27.0],
+                [-132.0, -12.0],
+                [-112.0, -8.0],
                 [-92.0, -19.0],
             ]),
-            "lobClaw",
+            "lobShell",
         )
         .pv([-92.0, -26.0]),
     );
@@ -188,7 +213,7 @@ pub fn build() -> Vec<Item> {
             Kind::Line,
             "tailfan-rib-a",
             Some("tailfan-rib-a"),
-            vec![[-96.0, -26.0], [-124.0, -38.0]],
+            vec![[-96.0, -26.0], [-130.0, -40.0]],
             "ink",
         )
         .sw(0.6),
@@ -198,7 +223,7 @@ pub fn build() -> Vec<Item> {
             Kind::Line,
             "tailfan-rib-b",
             Some("tailfan-rib-b"),
-            vec![[-96.0, -25.0], [-124.0, -18.0]],
+            vec![[-96.0, -25.0], [-128.0, -12.0]],
             "ink",
         )
         .sw(0.6),
@@ -247,7 +272,25 @@ pub fn build() -> Vec<Item> {
         )
         .no_ink(),
     );
+    for (n, x) in [8.0, 26.0, 44.0, 62.0].into_iter().enumerate() {
+        let y = -53.0 + (x - 30.0f64).abs() * 0.03;
+        v.push(detail(
+            "carapace",
+            &format!("spine-{n}"),
+            vec![[x - 4.0, y + 2.0], [x + 3.0, y - 5.0], [x + 4.0, y + 2.0]],
+            "lobRed",
+            0.4,
+        ));
+    }
+    v.push(detail(
+        "carapace",
+        "rostrum",
+        vec![[78.0, -44.0], [104.0, -42.0], [80.0, -38.0]],
+        "lobRed",
+        0.5,
+    ));
     v.push(shape("eye", ell(80.0, -45.0, 5.0, 5.0, 14, 0.0), "cornea").pv([78.0, -42.0]));
+    v.extend(glints("eye", [80.0, -45.0], 5.0));
     // Near-side crusher claw (in front of the body): heavy arm, big molar palm, a thick finger.
     v.push(
         shape(
@@ -266,11 +309,13 @@ pub fn build() -> Vec<Item> {
             "crusher-palm",
             smooth(&[
                 [98.0, -48.0],
-                [122.0, -52.0],
-                [148.0, -42.0],
-                [152.0, -32.0],
-                [140.0, -22.0],
-                [114.0, -18.0],
+                [124.0, -57.0],
+                [152.0, -54.0],
+                [172.0, -43.0],
+                [184.0, -34.0],
+                [162.0, -31.0],
+                [138.0, -28.0],
+                [118.0, -18.0],
                 [98.0, -22.0],
             ]),
             "lobClaw",
@@ -282,12 +327,14 @@ pub fn build() -> Vec<Item> {
             "crusher-finger",
             smooth(&[
                 [120.0, -29.0],
-                [146.0, -33.0],
-                [160.0, -26.0],
-                [146.0, -22.0],
-                [124.0, -21.0],
+                [148.0, -31.0],
+                [172.0, -29.0],
+                [186.0, -24.0],
+                [168.0, -19.0],
+                [142.0, -18.0],
+                [122.0, -21.0],
             ]),
-            "lobTip",
+            "lobRed",
         )
         .pv([122.0, -26.0]),
     );
@@ -296,15 +343,48 @@ pub fn build() -> Vec<Item> {
             Kind::Line,
             "crusher-palm-teeth",
             Some("crusher-palm-teeth"),
-            vec![[128.0, -34.0], [140.0, -32.0], [150.0, -34.0]],
+            vec![[136.0, -31.0], [152.0, -30.5], [168.0, -31.5]],
             "ink",
         )
         .sw(0.9),
     );
+    // The crusher's blunt molar teeth, and the red knobs on both claws and along the back.
+    for n in 0..4 {
+        let x = 138.0 + 10.0 * n as f64;
+        v.push(detail(
+            "crusher-palm",
+            &format!("molar-{n}"),
+            ell(x, -31.0, 3.6, 2.6, 10, 0.0),
+            "lobBelly",
+            0.4,
+        ));
+    }
+    for (n, (x, y)) in [
+        (112.0, -48.0),
+        (126.0, -51.0),
+        (140.0, -50.0),
+        (154.0, -47.0),
+        (118.0, -40.0),
+        (134.0, -42.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        v.push(detail(
+            "crusher-palm",
+            &format!("knob-{n}"),
+            ell(x, y, 2.4, 2.0, 8, 0.0),
+            "lobRed",
+            0.0,
+        ));
+    }
     v
 }
 
 pub fn parent_of(id: &str) -> String {
+    if let Some(part) = owner(id) {
+        return part;
+    }
     match id {
         "carapace" => "root".into(),
         "abdomen-a" | "cutter-arm" | "crusher-arm" | "leg-a" | "leg-b" | "leg-c" | "leg-d"
@@ -323,10 +403,16 @@ pub fn parent_of(id: &str) -> String {
 
 pub fn parts_svg() -> String {
     let mut pal = palette::normal();
-    pal.insert("lobShell", tri("#9C7B52", "#6C5236", "#37271A"));
-    pal.insert("lobClaw", tri("#A8744C", "#744A30", "#3C2418"));
-    pal.insert("lobTip", tri("#D9B98A", "#B08A5C", "#6B4F30"));
-    pal.insert("lobBelly", tri("#E8CFA4", "#CDAA78", "#8E6F48"));
+    let far = |m: [&str; 3]| Mat::Tri(m.map(|c| palette::mix_hex(c, "#2C4950", 0.25)));
+    let shell = ["#B4BA6A", "#727E3A", "#2E3618"];
+    let red = ["#F79A5E", "#D0582E", "#6E2414"];
+    pal.insert("lobShell", tri(shell[0], shell[1], shell[2]));
+    pal.insert("lobShellDark", tri("#7C8640", "#5A6430", "#2E3618"));
+    pal.insert("lobClaw", tri("#BEC072", "#7A843E", "#323A1A"));
+    pal.insert("lobClawFar", far(["#BEC072", "#7A843E", "#323A1A"]));
+    pal.insert("lobRed", tri(red[0], red[1], red[2]));
+    pal.insert("lobRedFar", far(red));
+    pal.insert("lobBelly", tri("#FBE6C0", "#E8C496", "#A47A50"));
     crate::parts::write_with(
         build(),
         "<!-- American lobster: Rust-authored cut-out puppet (bestiary lane). -->",

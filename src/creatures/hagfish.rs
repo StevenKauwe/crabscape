@@ -49,7 +49,7 @@ struct CarcassBone;
 
 fn load(mut commands: Commands, assets: Res<AssetServer>, mut images: ResMut<Assets<Image>>) {
     commands.insert_resource(Art {
-        puppet: CreatureArt::load_ink_only(
+        puppet: CreatureArt::load_scaled(
             include_str!("../../assets/creatures/hagfish-parts.json"),
             "creatures/hagfish-atlas.png",
             0.5,

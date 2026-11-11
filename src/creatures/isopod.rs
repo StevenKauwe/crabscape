@@ -34,7 +34,7 @@ struct Piece {
 }
 
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_ink_only(
+    commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/giant-isopod-parts.json"),
         "creatures/giant-isopod-atlas.png",
         0.5,

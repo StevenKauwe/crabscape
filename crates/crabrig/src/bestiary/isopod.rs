@@ -246,15 +246,17 @@ pub fn parent_of(id: &str) -> String {
 
 pub fn parts_svg() -> String {
     let mut pal = palette::normal();
-    pal.insert("isopodShell", tri("#D2C9B5", "#9B9280", "#585241"));
-    pal.insert("isopodShellPale", tri("#DDD5C2", "#ABA28F", "#686250"));
-    pal.insert("isopodBelly", tri("#F6EBD8", "#E0D0B4", "#A99274"));
-    pal.insert("isopodLeg", tri("#BCB093", "#8F836A", "#5B5340"));
-    pal.insert("isopodLegFar", tri("#9A8F77", "#766C57", "#4A4334"));
+    // Pale lilac-grey, as giant isopods are generally described (not verified; tones a game choice): warm enough to
+    // read in the dark.
+    pal.insert("isopodShell", tri("#EEDCE0", "#B496A2", "#5A4250"));
+    pal.insert("isopodShellPale", tri("#F6E8EA", "#C8AEB8", "#6C5462"));
+    pal.insert("isopodBelly", tri("#FFF0E2", "#EED2C2", "#B08C80"));
+    pal.insert("isopodLeg", tri("#EAD2CC", "#B89A98", "#6A5052"));
+    pal.insert("isopodLegFar", tri("#C2AAAA", "#94797E", "#504046"));
     pal.insert("isopodEye", tri("#4A4A5C", "#24242E", "#0E0E14"));
     crate::parts::write_with(
         build(),
-        "<!-- Giant isopod: Rust-authored cut-out puppet (placeholder ink art, true size). -->",
+        "<!-- Giant isopod: Rust-authored cut-out puppet (true size). -->",
         "Giant isopod · rig parts",
         parent_of,
         &pal,
