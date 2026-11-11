@@ -52,6 +52,9 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, kit: Kit) -> Run {
     m.glass_grips = kit.glass;
     m.carrying = kit.carrying;
     m.moults = MOULTS.get();
+    // A steady Climbing level 5, so the climb's speed does not change with
+    // the experience it earns on the way (the RuneScape table).
+    m.climb_xp = 388.0;
     let mut run = Run {
         highest: replay.start.y,
         sim: sim.clone(),
@@ -179,7 +182,7 @@ fn bare_rock_is_gripped_only_with_glass_grips() {
     assert!(bare.stood.iter().all(|p| p.y == -9400.0));
     // Release after clearing the wall to land on its shelf. Keeping jump
     // held now intentionally catches the next coral while steering left.
-    let glass = run_with(still_water(), &format!("{up}; t=18 release"), 30.0, GLASS);
+    let glass = run_with(still_water(), &format!("{up}; t=14.4 release"), 30.0, GLASS);
     assert_eq!(glass.count("gripped"), 1);
     assert!(
         glass.stood_on(SHELF.0, SHELF.1, SHELF.2),

@@ -49,6 +49,21 @@ pub fn progress(xp: u32) -> f32 {
     ((xp - from) as f32 / (to - from) as f32).clamp(0.0, 1.0)
 }
 
+/// [`progress`] for fractional experience (the older skills earn in
+/// fractions).
+pub fn progress_f(xp: f32) -> f32 {
+    let xp = xp.max(0.0);
+    let level = level_for(xp as u32);
+    if level >= MAX_LEVEL {
+        return 1.0;
+    }
+    let (from, to) = (
+        TABLE[level as usize] as f32,
+        TABLE[level as usize + 1] as f32,
+    );
+    ((xp - from) / (to - from)).clamp(0.0, 1.0)
+}
+
 /// Experience still needed for the next level (0 at 99).
 pub fn xp_to_next(xp: u32) -> u32 {
     let level = level_for(xp);

@@ -1190,7 +1190,7 @@ mod tests {
         // Nothing ready: no offer to grow anything.
         assert_eq!(moult_offer(&sim, id, 0), None);
         let t = sim.tuning.clone();
-        let feat_xp = |s: Skill| crabsim::skills::xp_for(t.moult.feat_level, s.step(&t));
+        let feat_xp = |s: Skill| s.xp_at(t.moult.feat_level, &t);
         let m = &mut sim.crab_mut(id).unwrap().mover;
         m.climb_xp = feat_xp(Skill::Climbing);
         m.swim_xp = feat_xp(Skill::Swimming);

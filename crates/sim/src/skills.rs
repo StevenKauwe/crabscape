@@ -90,11 +90,10 @@ impl Skill {
 
     /// The experience at which `level` begins.
     pub fn xp_at(self, level: u32, t: &Tuning) -> f32 {
-        match self {
-            Skill::Climbing | Skill::Swimming | Skill::Fighting | Skill::DataDriven => {
-                xp_for(level, self.step(t))
-            }
-            _ => crate::economy::xp::xp_for_level(level) as f32,
+        if self.uses_table() {
+            crate::economy::xp::xp_for_level(level) as f32
+        } else {
+            xp_for(level, self.step(t))
         }
     }
 
@@ -126,16 +125,19 @@ impl Skill {
         }
     }
 
-    /// The experience one level's step is made of (see [`level`]).
-    pub fn step(self, t: &Tuning) -> f32 {
+    /// The experience one level's step is made of (see [`level`]). Only
+    /// Data-Driven keeps this quadratic curve; every other skill uses the
+    /// RuneScape table (`crate::economy::xp`).
+    pub fn step(self, _t: &Tuning) -> f32 {
         match self {
-            Skill::Climbing => t.climb_level_xp,
-            Skill::Swimming => t.swim_level_xp,
-            Skill::Fighting => t.fight_level_xp,
             Skill::DataDriven => crate::royal::DATA_LEVEL_STEP,
-            // The economy skills use the RuneScape table, not a step.
             _ => 1.0,
         }
+    }
+
+    /// Does it level by the RuneScape table (every skill but Data-Driven)?
+    pub fn uses_table(self) -> bool {
+        self != Skill::DataDriven
     }
 }
 
@@ -179,12 +181,20 @@ impl Mover {
 
     /// A skill's level, from its experience.
     pub fn level(&self, skill: Skill, t: &Tuning) -> u32 {
-        level(self.xp(skill), skill.step(t))
+        if skill.uses_table() {
+            crate::economy::xp::level_for(self.xp(skill) as u32)
+        } else {
+            level(self.xp(skill), skill.step(t))
+        }
     }
 
     /// How far through its current level a skill is, 0 to 1.
     pub fn progress(&self, skill: Skill, t: &Tuning) -> f32 {
-        progress(self.xp(skill), skill.step(t))
+        if skill.uses_table() {
+            crate::economy::xp::progress_f(self.xp(skill))
+        } else {
+            progress(self.xp(skill), skill.step(t))
+        }
     }
 
     /// Earn `xp` experience in a skill. Returns the skill if it went up a

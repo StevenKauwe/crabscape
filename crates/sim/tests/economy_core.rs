@@ -234,3 +234,84 @@ fn the_shared_node_state_matches_the_placed_nodes() {
         assert_eq!(state.regrow, 0);
     }
 }
+
+#[test]
+fn economy_items_are_carried_home_into_the_stash_and_a_clam_to_the_larder() {
+    use crabsim::{Carry, Controls, Shelter};
+    let mut sim = sim();
+    {
+        let m = &mut sim.crab_mut(P0).unwrap().mover;
+        // Small ones cling; a big one rides on the back.
+        assert!(m.take_up(Carry::Item(Item::Mussel), &crabsim::Tuning::default()));
+        assert!(m.take_up(Carry::Item(Item::Mussel), &crabsim::Tuning::default()));
+        assert!(m.take_up(Carry::Item(Item::Clam), &crabsim::Tuning::default()));
+        assert!(m.take_up(Carry::Item(Item::WhaleBone), &crabsim::Tuning::default()));
+        assert_eq!(m.clinging.len(), 3);
+        assert_eq!(m.carrying, Some(Carry::Item(Item::WhaleBone)));
+        // A second big one has no room.
+        assert!(!m.take_up(Carry::Item(Item::Grenadier), &crabsim::Tuning::default()));
+    }
+    for _ in 0..1200 {
+        sim.set_controls(
+            P0,
+            Controls {
+                walk: -1.0,
+                ..Controls::default()
+            },
+        );
+        sim.tick();
+        if sim.crab(P0).unwrap().mover.tucked_in() {
+            break;
+        }
+    }
+    let crab = sim.crab(P0).unwrap();
+    assert_eq!(crab.mover.shelter, Shelter::In);
+    assert_eq!(crab.stash.count(Item::Mussel), 2);
+    assert_eq!(crab.stash.count(Item::WhaleBone), 1);
+    assert_eq!(crab.stash.count(Item::Clam), 0, "a clam goes to the larder");
+    assert_eq!(crab.larder, 1);
+    assert!(crab.mover.clinging.is_empty() && crab.mover.carrying.is_none());
+}
+
+#[test]
+fn the_bag_adds_shell_slots_and_plating_cuts_blows() {
+    use crabsim::economy::Gear;
+    let mut sim = sim();
+    let t = sim.tuning.clone();
+    let before = sim.crab(P0).unwrap().mover.carries(&t);
+    let crab = sim.crab_mut(P0).unwrap();
+    crab.econ.gear.bag = Some(Gear::WovenPack);
+    crab.econ.gear.body = Some((Gear::BonePlating, 90));
+    crab.econ.gear.claws = Some(Gear::BlackCoralTips);
+    sim.tick();
+    let crab = sim.crab(P0).unwrap();
+    assert_eq!(crab.mover.carries(&t), before + 4);
+    assert!((sim.damage_taken_factor(P0) - 0.78).abs() < 1e-6);
+    assert!((sim.claw_bonus(P0) - 1.15).abs() < 1e-6);
+    assert!(crab.mover.claw_strength(&t) > 1.1);
+    // Cracked plating gives nothing.
+    sim.crab_mut(P0).unwrap().econ.gear.body = Some((Gear::BonePlating, 0));
+    assert_eq!(sim.damage_taken_factor(P0), 1.0);
+    assert_eq!(sim.gather_speed_bonus(P0), 0);
+}
+
+#[test]
+fn the_older_skills_sound_the_same_cue() {
+    let mut sim = sim();
+    let t = sim.tuning.clone();
+    let m = &mut sim.crab_mut(P0).unwrap().mover;
+    (m.upgrades, m.stamina) = (4, 4.0);
+    m.swim_xp = Skill::Swimming.xp_at(2, &t) - 1.0;
+    let replay = crabsim::Replay::parse("t=0 jump; t=0.5 jump").unwrap();
+    let mut heard = Vec::new();
+    crabsim::play(&mut sim, &replay, 120, |s| {
+        for e in s.cues() {
+            if let Cue::LevelUp { skill, level, .. } = e.cue
+                && !heard.contains(&(skill, level))
+            {
+                heard.push((skill, level));
+            }
+        }
+    });
+    assert_eq!(heard, vec![(Skill::Swimming, 2)]);
+}

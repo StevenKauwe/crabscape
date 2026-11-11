@@ -8,7 +8,6 @@
 
 use bevy_math::Vec2;
 use crabsim::moult::{self, Feat};
-use crabsim::skills::xp_for;
 use crabsim::{Controls, Hit, PlayerId, Progress, Replay, Shelter, Sim, Skill, play};
 
 const P0: PlayerId = PlayerId(0);
@@ -22,9 +21,8 @@ fn idle(sim: &mut Sim, n: u32) {
 
 /// Put crab 0 at `level` in `skill`.
 fn set_level(sim: &mut Sim, skill: Skill, level: u32) {
-    let step = skill.step(&sim.tuning);
+    let xp = skill.xp_at(level, &sim.tuning);
     let m = &mut sim.crab_mut(P0).unwrap().mover;
-    let xp = xp_for(level, step);
     match skill {
         Skill::Climbing => m.climb_xp = xp,
         Skill::Swimming => m.swim_xp = xp,
@@ -90,8 +88,7 @@ fn a_feat_is_ready_at_the_milestone_level_and_the_note_says_so() {
     );
     // Reaching it by earning experience says so with the level up.
     set_level(&mut sim, Skill::Swimming, milestone);
-    let step = Skill::Swimming.step(&t);
-    sim.crab_mut(P0).unwrap().mover.swim_xp = xp_for(milestone, step) - 0.5;
+    sim.crab_mut(P0).unwrap().mover.swim_xp = Skill::Swimming.xp_at(milestone, &t) - 0.5;
     let up = sim
         .crab_mut(P0)
         .unwrap()
