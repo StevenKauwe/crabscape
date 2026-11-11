@@ -1323,6 +1323,16 @@ fn row_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, row: Row) -> RowVi
 
 /// The menu's state: shown inside (out of the way while the settings panel
 /// is open over it), the tabs, each visible row and its button.
+/// Text that is none of the menu rows' (the larder line and the page count).
+type NotHeader = (Without<LarderText>, Without<PageCount>);
+/// Text that is none of the menu rows' own words.
+type OtherThanSlots = (
+    Without<SlotName>,
+    Without<SlotTag>,
+    Without<SlotLine>,
+    Without<SlotButtonText>,
+);
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn show_menu(
     inside: Res<Inside>,
@@ -1331,12 +1341,36 @@ fn show_menu(
     mut state: ResMut<MenuTab>,
     me: Query<&PlayerId, With<LocalPlayer>>,
     mut menu: Query<&mut Visibility, (With<Menu>, Without<SlotButton>, Without<Pager>)>,
-    mut larder: Query<&mut Text, (With<LarderText>, Without<PageCount>)>,
-    mut count: Query<&mut Text, (With<PageCount>, Without<LarderText>)>,
+    mut larder: Query<&mut Text, (With<LarderText>, Without<PageCount>, OtherThanSlots)>,
+    mut count: Query<&mut Text, (With<PageCount>, Without<LarderText>, OtherThanSlots)>,
     mut tabs: Query<(&TabButton, &mut BackgroundColor, &mut BorderColor), Without<SlotButton>>,
-    mut names: Query<(&SlotName, &mut Text, &mut TextColor), Without<SlotTag>>,
-    mut tags: Query<(&SlotTag, &mut Text), (Without<SlotName>, Without<SlotLine>)>,
-    mut lines: Query<(&SlotLine, &mut Text, &mut TextColor), (Without<SlotName>, Without<SlotTag>)>,
+    mut names: Query<
+        (&SlotName, &mut Text, &mut TextColor),
+        (
+            Without<SlotTag>,
+            Without<SlotLine>,
+            Without<SlotButtonText>,
+            NotHeader,
+        ),
+    >,
+    mut tags: Query<
+        (&SlotTag, &mut Text),
+        (
+            Without<SlotName>,
+            Without<SlotLine>,
+            Without<SlotButtonText>,
+            NotHeader,
+        ),
+    >,
+    mut lines: Query<
+        (&SlotLine, &mut Text, &mut TextColor),
+        (
+            Without<SlotName>,
+            Without<SlotTag>,
+            Without<SlotButtonText>,
+            NotHeader,
+        ),
+    >,
     mut buttons: Query<
         (
             &SlotButton,
@@ -1348,7 +1382,12 @@ fn show_menu(
     >,
     mut button_words: Query<
         (&SlotButtonText, &mut Text, &mut TextColor),
-        (Without<SlotName>, Without<SlotLine>),
+        (
+            Without<SlotName>,
+            Without<SlotLine>,
+            Without<SlotTag>,
+            NotHeader,
+        ),
     >,
 ) {
     for mut v in &mut menu {
