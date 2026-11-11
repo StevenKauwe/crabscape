@@ -22,5 +22,7 @@ feature doesn't make these 20 minutes better, it waits. Hook and rules: `vision.
   boss), combat and surviving it *is* the point of the trip. Gathering trips are about the route; hunting trips are
   about the fight.
 - **The low-attention version is the same loop without the dive:** mine near home, then build.
-- **Death costs a walk, not the evening.** You leave your moult and cargo where you died; recovering it is always
-  shorter than the trip out, and death should be rare enough to matter.
+- **Death costs a walk, not the evening** (owner, 2026-11-11). Elden Ring respawns: you wake at the nearest rest
+  point (a region's entrance, the last crevice, home), and a big fight has one at its door, so a boss retry is
+  instant with no trek. Valheim corpses: a mistake in the open leaves your cast-off shell and cargo where you died,
+  and several can wait at once. Recovering one is always shorter than the trip out.
