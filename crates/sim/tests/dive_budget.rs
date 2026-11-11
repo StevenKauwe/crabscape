@@ -1,5 +1,5 @@
 //! Every descent is a debt repaid on the way back up (`docs/design/vision.md`,
-//! `docs/design/digging.md`). A route solver plays the legacy level headless
+//! `docs/design/digging.md`). A route solver plays the Plate D map headless
 //! from home with a fixed set of abilities and finds every place it can stand
 //! or hang on, by a small set of moves (walks, jumps with any number of
 //! strokes held any way, climbs and kick-offs, waits for the tide). It proves

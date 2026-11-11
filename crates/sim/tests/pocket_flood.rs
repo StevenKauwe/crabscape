@@ -5,9 +5,9 @@
 //! free ride out) are within a bounded way, counting the water that swims and
 //! the sediment that digs.
 use bevy_math::{Rect, Vec2};
+use crabsim::Level;
 use crabsim::level::strata::Pocket;
 use crabsim::underwater::{Cell, GAME_BOTTOM, GAME_CELL, initial_terrain_cell};
-use crabsim::Level;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
@@ -34,7 +34,13 @@ fn node_at(p: Vec2) -> Node {
 fn cost(level: &Level, n: Node) -> Option<u32> {
     let c = centre(n);
     let mut worst = 1;
-    for d in [Vec2::ZERO, Vec2::X * 6.0, -Vec2::X * 6.0, Vec2::Y * 6.0, -Vec2::Y * 6.0] {
+    for d in [
+        Vec2::ZERO,
+        Vec2::X * 6.0,
+        -Vec2::X * 6.0,
+        Vec2::Y * 6.0,
+        -Vec2::Y * 6.0,
+    ] {
         let p = c + d;
         match initial_terrain_cell(
             level,
@@ -102,9 +108,20 @@ fn complexes(level: &Level, pockets: &[Pocket]) -> Vec<Complex> {
         });
         c.pockets.push(i);
         c.inside.push(pockets[i].frame);
-        for body in level.strata().iter().filter(|b| b.frame == pockets[i].frame) {
+        for body in level
+            .strata()
+            .iter()
+            .filter(|b| b.frame == pockets[i].frame)
+        {
             // Gaps, shafts (the sediment up to the floor) and voids.
-            c.inside.extend(body.mouths.iter().map(|m| Rect::new(m.min.x, m.min.y, m.max.x, m.max.y.min(-4.0).max(m.min.y + 1.0))));
+            c.inside.extend(body.mouths.iter().map(|m| {
+                Rect::new(
+                    m.min.x,
+                    m.min.y,
+                    m.max.x,
+                    m.max.y.min(-4.0).max(m.min.y + 1.0),
+                )
+            }));
         }
         // The doors themselves (the bridges over the bedrock between frames).
         c.inside.extend(pockets[i].mouths.iter().copied());
@@ -129,11 +146,7 @@ struct Field {
 /// or an apron of one of its exits; a reachable node anywhere else is a leak.
 fn explore(level: &Level, c: &Complex, from: &[Node]) -> Field {
     let inside = |p: Vec2| c.inside.iter().any(|r| r.contains(p));
-    let apron = |p: Vec2| {
-        c.exits.iter().any(|(m, _)| {
-            apron_of(*m).contains(p)
-        })
-    };
+    let apron = |p: Vec2| c.exits.iter().any(|(m, _)| apron_of(*m).contains(p));
     let mut cells = HashMap::new();
     let mut leaks = Vec::new();
     let mut stack: Vec<Node> = from.to_vec();
@@ -177,7 +190,9 @@ fn dijkstra(field: &Field, seeds: &[Node]) -> HashMap<Node, u32> {
         }
         for dd in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
             let m = (n.0 + dd.0, n.1 + dd.1);
-            let Some(&w) = field.cells.get(&m) else { continue };
+            let Some(&w) = field.cells.get(&m) else {
+                continue;
+            };
             let nd = d + w;
             if dist.get(&m).is_none_or(|&b| nd < b) {
                 dist.insert(m, nd);
@@ -197,8 +212,13 @@ const DUCT_WAY_OUT: f32 = 40_000.0;
 /// An exit that opens only into another sealed frame (the odd tunnel, the
 /// Plunge's dead end) or behind a brittle crust is not an open door.
 fn open_door(level: &Level, frames: &[Rect], door: Rect) -> bool {
-    let gated = level.brittle.iter().any(|b| !b.rect.intersect(door).is_empty());
-    let dead_end = frames.iter().any(|f| !f.intersect(apron_of(door)).is_empty());
+    let gated = level
+        .brittle
+        .iter()
+        .any(|b| !b.rect.intersect(door).is_empty());
+    let dead_end = frames
+        .iter()
+        .any(|f| !f.intersect(apron_of(door)).is_empty());
     !gated && !dead_end
 }
 
@@ -243,7 +263,10 @@ fn prove(level: &Level, pockets: &[Pocket], c: &Complex, ducts: bool) -> Report 
     let dists: Vec<HashMap<Node, u32>> = doors
         .iter()
         .map(|m| {
-            let door = Rect { min: m.min - Vec2::splat(8.0), max: m.max + Vec2::splat(8.0) };
+            let door = Rect {
+                min: m.min - Vec2::splat(8.0),
+                max: m.max + Vec2::splat(8.0),
+            };
             let seeds: Vec<Node> = field
                 .cells
                 .keys()
@@ -298,14 +321,13 @@ fn every_pocket_is_sealed_but_for_its_doors_and_has_two_ways_out() {
     let mut dead_ends = Vec::new();
     for c in complexes(&level, &pockets) {
         let names: Vec<_> = c.pockets.iter().map(|&i| pockets[i].name).collect();
-        let ducts = names.iter().any(|n| matches!(*n, "long chimney" | "chimney return"));
+        let ducts = names
+            .iter()
+            .any(|n| matches!(*n, "long chimney" | "chimney return"));
         let r = prove(&level, &pockets, &c, ducts);
         println!(
             "{names:?}: {} open doors, {} leaks, {} samples, worst second way out {} units",
-            r.open_doors,
-            r.leaks,
-            r.samples,
-            r.worst_second
+            r.open_doors, r.leaks, r.samples, r.worst_second
         );
         assert_eq!(r.leaks, 0, "{names:?} leaks through its bedrock");
         assert!(r.samples > 0, "{names:?} has no water to stand in");
@@ -329,10 +351,15 @@ fn the_flood_notices_a_hole() {
         .into_iter()
         .find(|c| c.pockets.iter().any(|&i| pockets[i].name == "bone hall"))
         .expect("the bone hall complex");
-    let hall = pockets.iter().find(|p| p.name == "bone hall").expect("hall").frame;
+    let hall = pockets
+        .iter()
+        .find(|p| p.name == "bone hall")
+        .expect("hall")
+        .frame;
     let seeds: Vec<Node> = vec![node_at(hall.center())];
     assert_eq!(explore(&level, &c, &seeds).leaks.len(), 0);
     c.inside.retain(|r| *r != hall);
-    c.inside.retain(|r| r.min.y > hall.max.y || r.max.y < hall.min.y);
+    c.inside
+        .retain(|r| r.min.y > hall.max.y || r.max.y < hall.min.y);
     assert!(!explore(&level, &c, &seeds).leaks.is_empty());
 }

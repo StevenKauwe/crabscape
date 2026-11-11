@@ -1,4 +1,4 @@
-//! Shared fixed-kit route search for the legacy level.
+//! Shared fixed-kit route search for the Plate D map.
 
 use bevy_math::Vec2;
 use crabsim::moult::Feat;
