@@ -124,14 +124,24 @@ mod tests {
         let art = std::array::from_fn::<_, 4, _>(pixels);
         for (i, bytes) in art.iter().enumerate() {
             assert_eq!(bytes.len(), 96 * 96 * 4);
-            assert!(bytes.chunks_exact(4).filter(|p| p[3] == 255).count() > 1500);
+            assert!(
+                bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter(|p| p[3] == 255)
+                    .count()
+                    > 1500
+            );
             assert_eq!(&bytes[..4], &[0, 0, 0, 0]);
             for other in &art[..i] {
                 assert_ne!(bytes, other);
                 assert!(
                     bytes
-                        .chunks_exact(4)
-                        .zip(other.chunks_exact(4))
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .zip(other.as_chunks::<4>().0.iter())
                         .any(|(a, b)| a[3] != b[3])
                 );
             }
