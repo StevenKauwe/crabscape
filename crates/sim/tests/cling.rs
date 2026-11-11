@@ -111,16 +111,16 @@ fn small_things_never_block_a_big_find_and_a_big_find_never_blocks_them() {
     let mut sim = by_home();
     let clam = sim.level.clams[0];
     let culture = sim.level.cultures[0];
-    let pit_grit = sim.level.grit[4];
+    let far_grit = sim.level.grit[1];
     step_onto(&mut sim, clam);
     step_onto(&mut sim, culture);
     assert!(
         sim.crab(P0).unwrap().cultures_taken[0],
         "a clam on the shell doesn't stop it taking the culture"
     );
-    step_onto(&mut sim, pit_grit);
+    step_onto(&mut sim, far_grit);
     assert!(
-        sim.shared.grit_taken[4],
+        sim.shared.grit_taken[1],
         "the culture on its back doesn't stop it taking grit"
     );
 
