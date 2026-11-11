@@ -55,6 +55,7 @@ strange.
 - **Co-op is optional,** 2–8 players, peer-to-peer in the browser (WebRTC via matchbox; the host's browser is the
   server, a tiny introducer, no database, cheating allowed among friends). Crisp for everyone: your own crab never
   feels the lag, and a parry is judged on your own screen. Each player keeps their crab in their own browser.
+- **The home base is the host's** (owner, 2026-11-11): everyone in a session sees the host's base and builds it together, Valheim style. It lives in the host's world save; guests bring their crabs and take theirs home.
 - A hosted shared world may come much later; refactor then rather than design for it now.
 
 ## The loop
