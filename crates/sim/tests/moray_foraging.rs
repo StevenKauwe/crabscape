@@ -88,7 +88,9 @@ fn hiding_and_the_opening_refuge_do_not_start_excursions() {
         for _ in 0..2000 {
             sim.tick();
         }
-        assert!(sim.enemies()[0].pos.distance(home) < 4.0);
+        // An excursion leaves by more than 20 (a departure, above); settling a
+        // few units into its crevice is not one.
+        assert!(sim.enemies()[0].pos.distance(home) < 20.0);
     }
 }
 

@@ -5,7 +5,8 @@ Code: `crates/sim/src/creatures/lobster.rs` (numbers are named consts at its top
 
 ## Biology that matters
 - **Size:** adults commonly 20-61 cm, longest recorded body 64 cm excluding claws [WP]; ADW gives about 25 cm as the
-  commonly caught size [ADW]. Game adult: **30 cm body = 190 units**, claws extra.
+  commonly caught size [ADW]. Game adult: **30 cm body = 190 units**, tail fan to the front of the carapace, claws and feelers extra (size
+  audit: the body was drawn 39 cm).
 - **Where:** cold rocky bottoms (also sand and mud); usually 4-50 m, found as deep as 480 m [WP]; ADW: up to 365 m
   [ADW]. It spends most of the day in a burrow or among rocks and comes out for food; when a predator approaches it
   retreats into the burrow [ADW]. Fits the canyon's cold floor.

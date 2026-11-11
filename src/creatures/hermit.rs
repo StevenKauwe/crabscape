@@ -34,11 +34,14 @@ struct Piece {
     base: Vec3,
 }
 
+/// Drawn 10 cm long, shell and the crab out of it, a typical adult red hermit (`src/sizes.rs` checks it).
+pub(crate) const ART_SCALE: f32 = 0.338;
+
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/hermit-crab-parts.json"),
         "creatures/hermit-crab-atlas.png",
-        0.5,
+        ART_SCALE,
         &assets,
     )));
 }

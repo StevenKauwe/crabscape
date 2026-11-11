@@ -927,10 +927,11 @@ impl Sim {
     }
 
     fn scale_experimental_moray(tuning: &mut Tuning) {
-        tuning.moray.body.0 *= 1.75;
-        tuning.moray.body.1 *= 1.75;
-        tuning.moray.strike.height *= 1.75;
-        tuning.moray.strike.radius *= 1.75;
+        let s = crate::tuning::SEA_MORAY_SCALE;
+        tuning.moray.body.0 *= s;
+        tuning.moray.body.1 *= s;
+        tuning.moray.strike.height *= s;
+        tuning.moray.strike.radius *= s;
         // The experimental eel swims out to its prey instead of stretching
         // an implausibly long head and neck from a fixed point.
         tuning.moray.approach_speed = 155.0;
