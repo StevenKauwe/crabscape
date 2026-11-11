@@ -459,7 +459,7 @@ fn update(
             || keys.pressed(KeyCode::ArrowDown)
             || s.controls.direction[3],
         fire: keys.pressed(KeyCode::Space) || s.controls.fire,
-        stick: None,
+        stick: s.controls.stick,
     };
     match adventure.tick(time.delta_secs_f64(), s.input, viewport(window), clock) {
         Ok(events) => s.ui.events(events),
@@ -694,6 +694,24 @@ fn draw(
             if let (Some(lobby), Some(session)) = (&network.0, &adventure.shared) {
                 lobby.paint_partners(ui.painter(), session, s.animation_time, viewport(window));
             }
+            // Register sky input before smaller foreground controls, so buttons
+            // retain pointer ownership. Source floating-stick radius and dead zone
+            // are preserved; flight applies the latter after normalization.
+            let sky = ui.interact(
+                ctx.content_rect(),
+                ui.id().with("sky-stick"),
+                egui::Sense::drag(),
+            );
+            let stick = if adventure.state() == "play" && sky.is_pointer_button_down_on() {
+                ctx.input(|i| i.pointer.press_origin().zip(i.pointer.interact_pos()))
+            } else {
+                None
+            };
+            let radius = (viewport(window).scale * 1.1).clamp(48., 72.) as f32;
+            let normalized_stick = stick.map(|(origin, point)| {
+                let delta = (point - origin) / radius;
+                [delta.x as f64, delta.y as f64]
+            });
             if s.persistent {
                 if s.persistence.needs_reload() {
                     ui.colored_label(
@@ -801,6 +819,30 @@ fn draw(
             }
             s.ui.networked = network.0.is_some();
             s.controls = s.ui.draw(ui, adventure, clock);
+            s.controls.stick = normalized_stick;
+            if let Some((origin, point)) = stick {
+                let p = ui.painter();
+                p.circle(
+                    origin,
+                    radius,
+                    egui::Color32::from_white_alpha(20),
+                    egui::Stroke::new(
+                        3.,
+                        egui::Color32::from_rgba_unmultiplied(255, 243, 214, 140),
+                    ),
+                );
+                let delta = point - origin;
+                let knob = origin + delta * (radius / delta.length().max(radius));
+                p.circle(
+                    knob,
+                    radius * 0.45,
+                    egui::Color32::from_rgba_unmultiplied(255, 215, 110, 153),
+                    egui::Stroke::new(
+                        3.,
+                        egui::Color32::from_rgba_unmultiplied(255, 243, 214, 230),
+                    ),
+                );
+            }
             if let (Some(lobby), Some(mission)) = (&mut network.0, s.controls.mission_pick.take()) {
                 lobby.party.pick(&mission, clock.now_ms as f64);
             }

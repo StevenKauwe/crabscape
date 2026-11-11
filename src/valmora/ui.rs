@@ -27,6 +27,7 @@ pub struct Controls {
     pub edit_rider: bool,
     pub mission_pick: Option<String>,
     pub fire: bool,
+    pub stick: Option<[f64; 2]>,
     pub direction: [bool; 4],
 }
 impl AdventureUi {
@@ -356,7 +357,7 @@ impl AdventureUi {
                     }
                 }
                 ui.horizontal(|ui| {
-                    for (index, label) in ["←", "→", "↑", "↓"].into_iter().enumerate() {
+                    for (index, label) in ["Left", "Right", "Up", "Down"].into_iter().enumerate() {
                         controls.direction[index] = ui.button(label).is_pointer_button_down_on();
                     }
                     controls.fire = ui.button("Fire").is_pointer_button_down_on();
