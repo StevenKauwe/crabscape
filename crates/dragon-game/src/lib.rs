@@ -6,6 +6,7 @@
 pub mod abilities;
 pub mod authority;
 pub mod combat;
+pub mod content;
 
 pub mod damage;
 
@@ -16,6 +17,7 @@ pub mod gems;
 pub mod enemies;
 
 pub mod missions;
+pub mod network_actions;
 pub mod network_world;
 pub mod objectives;
 
@@ -27,6 +29,7 @@ pub mod projectiles;
 pub mod random;
 
 pub mod roost;
+pub mod roost_gate;
 pub mod save;
 pub mod save_transfer;
 

@@ -13,7 +13,7 @@ web preview is still the existing JS game, not the native Rust prototypes.
 - `cargo run --bin dragon_flight -- --save exported-rider.json`: explicitly supplied,
   read-only v3 export preview. No automatic save discovery or writes.
 - `cargo run --bin dragon_mission -- --mission m1`: integrated solo mission prototype.
-  m1 through m4 currently supported; Space fires, WASD/arrows move, Escape pauses,
+  All 24 base missions are supported by the runtime; Space fires, WASD/arrows move, Escape pauses,
   Backspace restarts. F triggers specials, B/J Daddio powers, R/E/T/Y known-word
   slots, 1–5 select a dragon, Q/Tab swaps. All use a deterministic test seed.
 - Add `--save exported-rider.json --rider alexa` (or another explicit source slot)
@@ -36,13 +36,17 @@ entry points.
   coordination, banking, result timing and guest branches.
 - All eight objective definitions and protect/escort/carry geometry, damage and theft.
 - Player bumps/bonks, hazard and lightning timing, gem movement/collection geometry.
-- Integrated solo m1–m4 lifecycle, including the barn objective, Thunderhead phases,
+- Integrated solo m1–m24 lifecycle, including all objective types and enemy effects,
   retirement and success/failure results. Normalized profile parties, wings, crafts,
   skills, charms, specials and spells are integrated. Completion mutates only the
-  in-memory profile; the other missions are not yet integrated.
+  in-memory profile. Champion missions, wild allies and live co-op are not integrated.
 - All specials, eight spells and Daddio powers, with explicit ordered world effects.
 - Roost hatch/release/milestones and source completion rewards, with injected time,
   day and RNG. The prototype uses synthetic day/time, not real daily persistence.
+- Source times-table hatch gate and freeze/reload/countdown state with injected time,
+  including the five-answer requirement and delayed wrong-answer deadline. UI/storage
+  callbacks are intents, not live writes.
+- Original story, briefing, quest and project text plus journal/shared unlock rules.
 - Pure profile normalization and in-memory progression commands (XP, feeding, treats,
   crafts, skill purchases, party selection, team craft/hoard aggregation).
 
@@ -72,8 +76,8 @@ A genuine two-native-client loopback test passes reliable/unreliable exchange, r
 rejection, disconnect and cancellation using ephemeral local signaling and no STUN/TURN
 URLs. This is not a browser/native interoperability or multiplayer gameplay test. The
 mission runtime still needs world/session synchronization and authority/handoff wiring.
-Pure static-room authority election and world snapshot encoding/guest projection are
-ported separately. They keep transport identity distinct from rider claims, preserve
+Pure static-room authority election, world snapshot encoding/guest projection,
+trusted-sender action admission and host takeover/handoff are ported separately. They keep transport identity distinct from rider claims, preserve
 valid source wire layouts and quantization, and return presentation/banking effects.
 Malformed entity IDs and indices are rejected more strictly than the JS receiver.
 These core tests do not yet establish an integrated two-player Dragon mission.
@@ -90,6 +94,9 @@ JavaScriptCore oracles that extract actual legacy functions. Coverage includes:
 - 328 damage cases, 128 gem cases and 102 ability scenarios;
 - 512 authority-election combinations, 24 hatch and 480 completion-reward cases;
 - 48 profile/party shooting-and-wing configurations;
+- all 24 base-mission lifecycle/objective regressions and source realm/effect checks;
+- original story/content catalog and 3,072 mission-unlock cases;
+- times/freeze interaction traces and 421 local-day/reload boundaries;
 - mission definitions/lifecycle, objective geometry, profile normalization and
   progression mutations against synthetic source-JS fixtures.
 
@@ -106,7 +113,7 @@ must record inputs, frame times, viewport/HUD geometry, initial state and random
 The current Rust seed is not a replay of a browser Math.random session: cosmetic draws
 are not all consumed. Do not claim fixed-tick or full-world identity from isolated tests.
 
-Before replacing the JS game: complete every mission and objective integration,
+Before replacing the JS game: complete Champion missions, wild allies and live co-op,
 full rewards/roost/story/egg UI and
 multiplayer; reproduce presentation and controls; compare complete interrupted and
 repeated play flows on phones and desktop; verify browser/native sessions; implement an
@@ -129,3 +136,14 @@ retain the CrabScape world and player state across the transition, and test entr
 cancellation, return, reload, and multiplayer presence. Do not activate the route
 as a completed Valmora replacement while the core/presentation/save gates above
 remain unfinished. The standalone JS game stays available.
+
+### Rendering reference
+
+The original procedural drawing functions remain the visual source of truth. Record
+Canvas commands, transforms, gradient stops and animation inputs from the original
+functions before translating them to native paths/meshes. Preserve quirks unless a
+separate change is agreed: `shade` parses a hex string, but some drawing callers pass
+its `rgb(...)` result back into `shade`; parsing that string follows the original JS
+NaN/bitwise behavior. A conventional color helper would silently change those colors.
+Body, wing, rider and enemy geometry should be compared independently before complete
+scene images. Placeholder prototype rectangles are not evidence of visual parity.

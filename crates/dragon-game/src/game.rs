@@ -1,4 +1,4 @@
-//! Solo Hollowbrook (m1–m4) integration harness, not the full browser game.
+//! Solo base-mission integration harness, not the full browser game.
 //! Uses original update ordering and one explicit gameplay draw stream. Presentation
 //! particle/audio draws, wild allies, networking and persistent result rewards are
 //! not ported. Normalized profile, party combat, growth and abilities run in memory. Consequently a seed is a Rust replay seed, not a
@@ -63,6 +63,8 @@ pub struct Game {
     pub definition: &'static MissionDef,
     pub objective: Option<Objective>,
     pub objective_events: Vec<objectives::Event>,
+    /// Ring/splash presentation requests; cleared at each step, never simulation commands.
+    pub presentation_events: Vec<enemies::Event>,
     pub fail_reason: Option<String>,
     objective_failed: bool,
     objective_cd: BTreeMap<u64, f64>,
@@ -101,14 +103,13 @@ impl Game {
     pub fn first_flight(view: Viewport, seed: u32) -> Self {
         Self::with_definition(&definitions()[0], view, seed)
     }
-    /// Only the first four missions currently have integrated world callbacks.
+    /// All 24 authored base missions; champion variants are not exposed yet.
     pub fn start(id: &str, view: Viewport, seed: u32) -> Result<Self, &'static str> {
         if !valid_view(view) {
             return Err("invalid viewport");
         }
         let def = definitions()
             .iter()
-            .take(4)
             .find(|d| d.id == id)
             .ok_or("mission is not integrated yet")?;
         Ok(Self::with_definition(def, view, seed))
@@ -131,6 +132,7 @@ impl Game {
             definition: def,
             objective: None,
             objective_events: vec![],
+            presentation_events: vec![],
             fail_reason: None,
             objective_failed: false,
             objective_cd: BTreeMap::new(),
@@ -178,13 +180,58 @@ impl Game {
             width: self.view.width,
             ground_y: self.view.ground_y,
             top: self.view.top_limit,
-            sky_bottom: self.view.ground_y - self.view.scale * 0.5,
+            sky_bottom: self.sky_bottom(),
             scale: self.view.scale,
             player: [self.player.x, self.player.y],
             aim: [self.player.x, self.player.y],
             quiet: self.player.sila > 0.,
             safe: damage::is_safe(&self.player),
             dragon_scale: self.view.dragon_scale,
+        }
+    }
+    fn sky_bottom(&self) -> f64 {
+        self.view.ground_y
+            - self.view.scale
+                * if matches!(self.definition.realm, 1 | 2 | 4) {
+                    2.6
+                } else {
+                    0.5
+                }
+    }
+    pub fn scaling(&self) -> enemies::MissionScaling {
+        let realm = self.definition.realm;
+        let in_realm = (self.definition.id[1..]
+            .parse::<usize>()
+            .expect("authored id")
+            - 1)
+            % 4;
+        let r0 = realm.min(2) as f64;
+        let r1 = realm.saturating_sub(2) as f64;
+        enemies::MissionScaling {
+            difficulty: 1. + r0 * 0.35 + r1 * 0.25 + in_realm as f64 * 0.08,
+            toughness: [1.15, 1.5, 2.3, 4., 5., 6.][realm] * (1. + 0.06 * in_realm as f64),
+            sky_toughness: 1.,
+            speed: 1. + r0 * 0.12 + r1 * 0.05,
+        }
+    }
+    fn spawn_baby(
+        &mut self,
+        at: [f64; 2],
+        velocity: [f64; 2],
+        dir: f64,
+        extra: bool,
+        draw: &mut impl FnMut() -> f64,
+    ) {
+        self.spawn(enemies::Kind::Slimelet, extra, Some(at), draw);
+        let b = self.enemies.last_mut().expect("just spawned baby");
+        b.air = true;
+        b.velocity = velocity;
+        b.dir = dir;
+        b.entered = true;
+    }
+    fn drop_carried_piece(&mut self, draw: &mut impl FnMut() -> f64) {
+        if let Some(ob) = self.objective.as_mut().filter(|ob| ob.carrier == 0) {
+            ob.drop_piece(self.view, draw, &mut self.objective_events);
         }
     }
     fn next_id(&mut self) -> u64 {
@@ -205,23 +252,7 @@ impl Game {
             extra,
             at,
             &self.enemy_world(),
-            enemies::MissionScaling {
-                difficulty: 1.
-                    + (self.definition.id[1..]
-                        .parse::<f64>()
-                        .expect("authored numeric id")
-                        - 1.)
-                        * 0.08,
-                toughness: 1.15
-                    * (1.
-                        + 0.06
-                            * (self.definition.id[1..]
-                                .parse::<f64>()
-                                .expect("authored numeric id")
-                                - 1.)),
-                sky_toughness: 1.,
-                speed: 1.,
-            },
+            self.scaling(),
             draw,
         );
         self.enemies.push(e);
@@ -258,6 +289,8 @@ impl Game {
         let p = [e.target.x, e.target.y];
         let radius = e.target.r;
         let boss = e.target.boss;
+        let split = !calmed && e.kind == enemies::Kind::Slime;
+        let extra = e.extra;
         let count = if boss {
             8
         } else if calmed {
@@ -265,7 +298,25 @@ impl Game {
         } else {
             e.kind.definition().gems.min(6)
         };
-        if !e.extra {
+        if split {
+            for dir in [-1., 1.] {
+                let x = self
+                    .view
+                    .scale
+                    .max((self.view.width - self.view.scale).min(p[0] + dir * radius * 0.7));
+                self.spawn_baby(
+                    [x, 0.],
+                    [dir * self.view.scale * 3., -self.view.scale * 6.],
+                    dir,
+                    extra,
+                    draw,
+                );
+            }
+            if !extra {
+                self.mission.total += 2;
+            }
+        }
+        if !extra {
             self.mission.kills += 1;
             if owner != "remote" {
                 self.kills += 1;
@@ -330,6 +381,7 @@ impl Game {
             return Ok(());
         }
         self.objective_events.clear();
+        self.presentation_events.clear();
         let mut view = view;
         view.dragon_scale = self.body_scale(view.dragon_scale);
         self.view = view;
@@ -426,8 +478,27 @@ impl Game {
                 world.quiet = false;
             }
             let mut effects = vec![];
+            let gem_context: Vec<_> = self
+                .gems
+                .iter()
+                .enumerate()
+                .map(|(id, g)| enemies::Gem {
+                    id: id as u64,
+                    position: [g.x, g.y],
+                    radius: g.r,
+                })
+                .collect();
+            let context = enemies::Context {
+                gems: &gem_context,
+                sibling_boss_damage: 0.,
+                active_extras: self
+                    .enemies
+                    .iter()
+                    .filter(|e| e.extra && !e.target.dead && !e.target.calm)
+                    .count(),
+            };
             self.enemies[index]
-                .step(dt, &world, &mut draw, &mut effects)
+                .step_with_context(dt, &world, context, &mut draw, &mut effects)
                 .map_err(|_| "unsupported enemy")?;
             for e in effects {
                 match e {
@@ -456,6 +527,7 @@ impl Game {
                                 damage::bonk(&mut self.player, p, view.scale, armor);
                                 self.bonks += 1;
                                 self.hit_stop = self.hit_stop.max(0.06);
+                                self.drop_carried_piece(&mut draw);
                                 self.retire(&mut draw);
                             } else {
                                 damage::bump(&mut self.player, p, view.scale);
@@ -484,12 +556,82 @@ impl Game {
                     enemies::Event::Spawn { kind, extra, at } => {
                         self.spawn(kind, extra, Some(at), &mut draw)
                     }
-                    _ => return Err("effect outside Hollowbrook"),
+                    enemies::Event::SpawnSea { kind, extra } => {
+                        self.spawn(kind, extra, None, &mut draw)
+                    }
+                    enemies::Event::SpawnBaby {
+                        at,
+                        velocity,
+                        dir,
+                        extra,
+                    } => self.spawn_baby(at, velocity, dir, extra, &mut draw),
+                    enemies::Event::Hazard(h) => {
+                        let uid = self.next_id();
+                        self.hazards.push(Hazard {
+                            uid,
+                            kind: serde_json::to_value(h.kind)
+                                .expect("hazard kind")
+                                .as_str()
+                                .expect("kind string")
+                                .into(),
+                            x: h.position[0],
+                            y: h.position[1],
+                            vx: h.velocity[0],
+                            vy: h.velocity[1],
+                            gravity: h.gravity,
+                            r: h.radius,
+                            life: h.life,
+                            warn: h.warn,
+                            spin: 0.,
+                        });
+                    }
+                    enemies::Event::Gobble { gem_id } => {
+                        self.gems.remove(gem_id as usize);
+                    }
+                    enemies::Event::Sting { id } => {
+                        if !damage::is_safe(&self.player) {
+                            let t = &self
+                                .enemies
+                                .iter()
+                                .find(|e| e.target.id == id)
+                                .expect("sting target")
+                                .target;
+                            let pos = [t.x, t.y];
+                            let armor = self.craft("armor");
+                            damage::bonk(&mut self.player, pos, view.scale, armor);
+                            self.bonks += 1;
+                            self.hit_stop = self.hit_stop.max(0.06);
+                            self.drop_carried_piece(&mut draw);
+                            self.retire(&mut draw);
+                        }
+                    }
+                    event @ (enemies::Event::Ring { .. } | enemies::Event::Splash { .. }) => {
+                        self.presentation_events.push(event)
+                    }
                 }
             }
             index += 1;
         }
         self.enemies.retain(|e| !e.target.dead);
+        for e in &self.enemies {
+            if self.player.down > 0.
+                || e.kind != enemies::Kind::Swallower
+                || e.target.calm
+                || e.windup <= 0.
+            {
+                continue;
+            }
+            let delta = enemies::inhale_displacement(
+                e,
+                [self.player.x, self.player.y],
+                self.player.down > 0.,
+                view.scale,
+                dt,
+            );
+            self.player.x += delta[0];
+            self.player.y += delta[1];
+            view.clamp(&mut self.player);
+        }
         self.target_t
             .retain(|id, _| self.enemies.iter().any(|e| e.target.id == *id));
         let active = !self.mission.done && self.mission.fail_t == 0.;
@@ -513,6 +655,7 @@ impl Game {
             if matches!(event, damage::DamageEvent::Bonk { .. }) {
                 self.bonks += 1;
                 self.hit_stop = self.hit_stop.max(0.06);
+                self.drop_carried_piece(&mut draw);
             }
         }
         self.retire(&mut draw);
@@ -647,7 +790,7 @@ impl MissionWorld for Adapter<'_> {
             width: g.view.width,
             scale: g.view.scale,
             top_limit: g.view.top_limit,
-            sky_bottom: g.view.ground_y - g.view.scale * 0.5,
+            sky_bottom: g.sky_bottom(),
             scroll_v: g.scroll_v,
             ..WorldSnapshot::default()
         }
@@ -935,6 +1078,8 @@ impl Game {
         g.player.hearts = g.max_hearts();
         g.player.energy = abilities::max_energy(g.skill("magic"));
         let p = g.profile.as_mut().expect("profile just assigned");
+        p["lastRealm"] =
+            json!(["hollow", "wood", "frost", "sea", "ember", "stars"][g.definition.realm]);
         let mut consume = |key: &str| {
             let n = number(&p["charms"][key]);
             if n > 0. {

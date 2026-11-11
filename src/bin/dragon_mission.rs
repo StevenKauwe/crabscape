@@ -59,7 +59,9 @@ fn parse_options(args: &[String]) -> Result<Options, &'static str> {
         match pair[0].as_str() {
             "--mission"
                 if result.mission.is_none()
-                    && ["m1", "m2", "m3", "m4"].contains(&pair[1].as_str()) =>
+                    && dragon_game::missions::missions()
+                        .iter()
+                        .any(|m| m.id == pair[1]) =>
             {
                 result.mission = Some(pair[1].clone())
             }
@@ -85,7 +87,7 @@ fn parse_options(args: &[String]) -> Result<Options, &'static str> {
 }
 fn main() -> Result<(), String> {
     let options = parse_options(&std::env::args().skip(1).collect::<Vec<_>>())
-        .map_err(|e| format!("{e}. Usage: dragon_mission [--mission m1|m2|m3|m4] [--save exported-rider.json --rider alexa|tavian|rider3|rider4|rider5|rider6]"))?;
+        .map_err(|e| format!("{e}. Usage: dragon_mission [--mission m1..m24] [--save exported-rider.json --rider alexa|tavian|rider3|rider4|rider5|rider6]"))?;
     let mission_id = options.mission.unwrap_or_else(|| "m1".into());
     let original_profile = if let (Some(path), Some(slot)) = (options.save, options.rider) {
         let bytes = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -120,7 +122,7 @@ fn main() -> Result<(), String> {
         .init_resource::<Pool>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Dragon Rust: First Flight prototype".into(),
+                title: "Valmora: native gameplay preview".into(),
                 resolution: (1000, 700).into(),
                 ..default()
             }),
@@ -438,7 +440,7 @@ mod tests {
         assert!(parse_options(&[]).is_ok());
         assert!(parse_options(&args(&["--save", "example.json"])).is_err());
         assert!(parse_options(&args(&["--save", "example.json", "--rider", "alexa"])).is_ok());
-        assert!(parse_options(&args(&["--mission", "m5"])).is_err());
+        assert!(parse_options(&args(&["--mission", "m25"])).is_err());
         assert!(parse_options(&args(&["--mission", "m1", "--mission", "m2"])).is_err());
     }
     #[test]

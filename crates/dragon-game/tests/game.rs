@@ -217,7 +217,7 @@ fn all_four_hollowbrook_missions_reach_results() {
         assert_eq!(objective_seen, id == "m3");
         assert_eq!(boss_seen, id == "m4");
     }
-    assert!(Game::start("m5", view(), 1).is_err());
+    assert!(Game::start("m25", view(), 1).is_err());
 }
 #[test]
 fn protecting_the_barn_can_fail_the_mission() {
@@ -642,4 +642,378 @@ const results=cases.map(c=>{{me=c.profile;R={{path:me.build.path,breath:[]}};P={
     );
     let actual: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     compare_json(&json!(expected), &actual);
+}
+
+#[test]
+fn every_base_mission_finishes_with_its_authored_objective() {
+    let sea = Game::from_profile("m13", profile_fixture(), view(), 1).unwrap();
+    assert_eq!(sea.profile.as_ref().unwrap()["lastRealm"], "sea");
+    for n in 1..=24 {
+        let id = format!("m{n}");
+        let mut g = Game::start(&id, view(), n * 17).unwrap();
+        g.player.safe = 10000.;
+        let mut seen_objective = false;
+        for _ in 0..10000 {
+            if let Some(o) = &g.objective {
+                seen_objective = true;
+                if o.kind == dragon_game::objectives::Kind::Carry && !o.done {
+                    g.player.x = if o.carrier < 0 { o.x } else { o.to };
+                    g.player.y = o.y;
+                }
+            }
+            perfect_shots(&mut g);
+            g.step(0.05, Input::default(), view()).unwrap();
+            if g.result.is_some() {
+                break;
+            }
+        }
+        assert_eq!(
+            g.result,
+            Some(true),
+            "{id} at stop{} with queue{:?}, kills{}/{}",
+            g.mission.stop,
+            g.mission.queue,
+            g.mission.kills,
+            g.mission.total
+        );
+        assert_eq!(g.mission.stop, 3, "{id}");
+        assert_eq!(
+            seen_objective,
+            matches!(n, 3 | 6 | 11 | 14 | 15 | 17 | 18 | 21)
+        );
+    }
+    assert!(Game::start("m1c", view(), 1).is_err());
+}
+fn fixture_enemy(g: &mut Game, kind: dragon_game::enemies::Kind, at: [f64; 2]) -> usize {
+    use dragon_game::enemies::{Enemy, World};
+    let v = view();
+    let world = World {
+        width: v.width,
+        ground_y: v.ground_y,
+        top: v.top_limit,
+        sky_bottom: v.ground_y
+            - v.scale
+                * if matches!(g.definition.realm, 1 | 2 | 4) {
+                    2.6
+                } else {
+                    0.5
+                },
+        scale: v.scale,
+        player: [g.player.x, g.player.y],
+        aim: [g.player.x, g.player.y],
+        quiet: false,
+        safe: true,
+        dragon_scale: g.dragon_scale(),
+    };
+    let scaling = g.scaling();
+    let i = g.enemies.len();
+    let mut e = Enemy::spawn(
+        kind,
+        500 + i as u64,
+        false,
+        Some(at),
+        &world,
+        scaling,
+        &mut || g.rng.next_unit(),
+    );
+    e.target.x = at[0];
+    e.target.y = at[1];
+    e.entered = true;
+    e.cool = 100.;
+    e.cool2 = 100.;
+    e.strike_cd = Some(100.);
+    g.enemies.push(e);
+    i
+}
+#[test]
+fn piercing_slime_death_appends_children_before_next_collision() {
+    use dragon_game::enemies::Kind;
+    let mut g = Game::start("m17", view(), 5).unwrap();
+    g.player.safe = 100.;
+    g.mission.leg = dragon_game::missions::Leg::Fight;
+    g.mission.wave = 0;
+    g.mission.total = 1;
+    fixture_enemy(
+        &mut g,
+        Kind::Slime,
+        [500., view().ground_y - view().scale * 0.62 * 0.95],
+    );
+    g.shots.push(Shot {
+        x: 500.,
+        y: view().ground_y - 20.,
+        r: 100.,
+        dmg: 1000.,
+        life: 1.,
+        pierce: true,
+        owner: "bond".into(),
+        ..Shot::default()
+    });
+    g.step(0., Input::default(), view()).unwrap();
+    assert_eq!(g.kills, 3);
+    assert_eq!(g.xp, 12.);
+    assert!(g.enemies.iter().all(|e| e.target.calm || e.target.dead));
+    assert_eq!(g.mission.leg, dragon_game::missions::Leg::Fly);
+}
+#[test]
+fn sea_boss_extra_cap_is_refreshed_and_hazards_are_live() {
+    use dragon_game::enemies::{HazardKind, Kind};
+    let _ = HazardKind::Fall;
+    let mut g = Game::start("m16", view(), 6).unwrap();
+    g.player.safe = 100.;
+    let i = fixture_enemy(&mut g, Kind::Serpent, [500., 400.]);
+    g.enemies[i].windup = 0.01;
+    g.step(0.02, Input::default(), view()).unwrap();
+    assert_eq!(g.hazards.iter().filter(|h| h.kind == "fall").count(), 5);
+    assert_eq!(
+        g.enemies
+            .iter()
+            .filter(|e| e.kind == Kind::Leaper && e.extra)
+            .count(),
+        2
+    );
+    let i = g
+        .enemies
+        .iter()
+        .position(|e| e.kind == Kind::Serpent)
+        .unwrap();
+    g.enemies[i].windup = 0.01;
+    g.step(0.02, Input::default(), view()).unwrap();
+    assert_eq!(
+        g.enemies
+            .iter()
+            .filter(|e| e.kind == Kind::Leaper && e.extra)
+            .count(),
+        4
+    );
+    let i = g
+        .enemies
+        .iter()
+        .position(|e| e.kind == Kind::Serpent)
+        .unwrap();
+    g.enemies[i].windup = 0.01;
+    g.step(0.02, Input::default(), view()).unwrap();
+    assert_eq!(
+        g.enemies
+            .iter()
+            .filter(|e| e.kind == Kind::Leaper && e.extra)
+            .count(),
+        4
+    );
+}
+#[test]
+fn gobblers_consume_a_fresh_gem_snapshot_each_enemy_and_stings_cost_one_heart() {
+    use dragon_game::enemies::Kind;
+    let mut g = Game::start("m21", view(), 7).unwrap();
+    g.player.safe = 100.;
+    fixture_enemy(&mut g, Kind::Gobbler, [500., 300.]);
+    fixture_enemy(&mut g, Kind::Gobbler, [500., 300.]);
+    for value in [1., 3.] {
+        g.gems.push(Gem {
+            x: 500.,
+            y: 300.,
+            r: 10.,
+            life: 3.,
+            value,
+            ..Gem::default()
+        });
+    }
+    g.step(0., Input::default(), view()).unwrap();
+    assert!(g.gems.is_empty());
+    assert_eq!(g.mission.carry, 0.);
+    assert_eq!(g.xp, 0.);
+    let mut g = Game::start("m13", view(), 9).unwrap();
+    g.player.x = 300.;
+    g.player.y = 300.;
+    g.player.safe = 0.;
+    let i = fixture_enemy(&mut g, Kind::Jelly, [300. + view().scale * 1.2, 300.]);
+    g.enemies[i].risen = true;
+    g.enemies[i].sting = 0.4;
+    g.step(0., Input::default(), view()).unwrap();
+    assert_eq!(g.player.hearts, 4);
+    assert_eq!(g.bonks, 1);
+}
+#[test]
+fn carrying_piece_drops_before_retirement_and_a_boss_inhale_ignores_shield() {
+    use dragon_game::{
+        enemies::Kind,
+        objectives::{Objective, specification},
+    };
+    let mut g = Game::start("m17", view(), 9).unwrap();
+    let mut ob = Objective::new(&specification("m17", 3).unwrap(), view());
+    ob.carrier = 0;
+    g.objective = Some(ob);
+    g.player.hearts = 1;
+    g.player.safe = 0.;
+    g.hazards.push(Hazard {
+        x: g.player.x,
+        y: g.player.y,
+        r: 20.,
+        life: 2.,
+        uid: 500,
+        ..Hazard::default()
+    });
+    g.step(0., Input::default(), view()).unwrap();
+    let ob = g.objective.as_ref().unwrap();
+    assert_eq!(ob.carrier, -1);
+    assert_eq!(ob.steal_cd, 1.);
+    assert!(g.player.out);
+    let mut g = Game::start("m24", view(), 10).unwrap();
+    g.player.x = 150.;
+    g.player.y = 300.;
+    g.player.shield = 10.;
+    let i = fixture_enemy(&mut g, Kind::Swallower, [500., 150.]);
+    g.enemies[i].windup = 2.;
+    let p = [g.player.x, g.player.y];
+    g.step(0.05, Input::default(), view()).unwrap();
+    assert!(g.player.x > p[0]);
+    assert!(g.player.y < p[1]);
+    assert_eq!(g.player.hearts, 5);
+}
+
+#[test]
+#[ignore = "requires macOS JavaScriptCore CLI; run explicitly on a Mac"]
+fn actual_source_realm_scaling_split_children_falling_rocks_and_inhale_match() {
+    use dragon_game::enemies::Kind;
+    use serde_json::json;
+    let scaling: Vec<_> = (1..=24)
+        .map(|n| {
+            let g = Game::start(&format!("m{n}"), view(), 1).unwrap();
+            let s = g.scaling();
+            json!([s.difficulty, s.speed, s.toughness])
+        })
+        .collect();
+    let mut split = Game::start("m17", view(), 22).unwrap();
+    split.player.safe = 100.;
+    split.mission.leg = dragon_game::missions::Leg::Fight;
+    split.mission.wave = 0;
+    split.mission.total = 1;
+    fixture_enemy(
+        &mut split,
+        Kind::Slime,
+        [500., view().ground_y - view().scale * 0.62 * 0.95],
+    );
+    let parent = split.enemies[0].clone();
+    let seed = split.rng.state;
+    let sc = split.scaling();
+    split.shots.push(Shot {
+        x: parent.target.x,
+        y: parent.target.y,
+        r: 2.,
+        dmg: 1000.,
+        life: 1.,
+        owner: "bond".into(),
+        ..Shot::default()
+    });
+    split.step(0., Input::default(), view()).unwrap();
+    let parent_json = json!({"type":"slime","x":parent.target.x,"y":parent.target.y,"r":parent.target.r,"extra":false,"dead":false,"calm":false,"boss":false});
+    let children:Vec<_>=split.enemies.iter().map(|e|json!({"type":e.kind,"x":e.target.x,"y":e.target.y,"r":e.target.r,"hp":e.target.hp,"maxHp":e.target.max_hp,"t":e.t,"wob":e.wob,"spd":e.speed,"cool":e.cool,"cool2":e.cool2,"extra":e.extra,"entered":e.entered,"dir":e.dir,"air":e.air,"vx":e.velocity[0],"vy":e.velocity[1],"dead":e.target.dead,"calm":e.target.calm})).collect();
+    let mut rocks = Game::start("m12", view(), 23).unwrap();
+    rocks.player.safe = 100.;
+    let i = fixture_enemy(
+        &mut rocks,
+        Kind::Cavetroll,
+        [500., view().ground_y - view().scale * 1.75 * 0.95],
+    );
+    rocks.enemies[i].cool2 = 0.;
+    let rock_seed = rocks.rng.state;
+    let rock_parent = json!({"type":"cavetroll","x":rocks.enemies[i].target.x,"y":rocks.enemies[i].target.y,"r":rocks.enemies[i].target.r,"boss":true});
+    let rock_player = json!({"x":rocks.player.x,"y":rocks.player.y,"vx":0,"out":false});
+    rocks.step(0., Input::default(), view()).unwrap();
+    let hazards:Vec<_>=rocks.hazards.iter().map(|h|json!({"uid":h.uid,"kind":h.kind,"x":h.x,"y":h.y,"vx":h.vx,"vy":h.vy,"g":h.gravity,"r":h.r,"warn":h.warn,"life":h.life,"spin":h.spin})).collect();
+    let mut inhale = Game::start("m24", view(), 24).unwrap();
+    inhale.player.x = 150.;
+    inhale.player.y = 300.;
+    inhale.player.shield = 10.;
+    let i = fixture_enemy(&mut inhale, Kind::Swallower, [500., 150.]);
+    inhale.enemies[i].windup = 2.;
+    let inhale_player = json!({"x":inhale.player.x,"y":inhale.player.y,"down":0});
+    inhale.step(0.05, Input::default(), view()).unwrap();
+    let e = &inhale.enemies[0];
+    let inhale_enemy = json!({"type":"swallower","x":e.target.x,"y":e.target.y,"r":e.target.r,"dir":e.dir,"windup":e.windup,"calm":false});
+    let source = include_str!("../../../web/dragon/index.html");
+    let team_tough = source
+        .lines()
+        .find(|l| l.starts_with("function teamToughness("))
+        .unwrap();
+    let tough = source
+        .lines()
+        .find(|l| l.starts_with("const REALM_TOUGH ="))
+        .unwrap();
+    let funcs = [
+        "mulberry",
+        "makeEnemy",
+        "spawnEnemy",
+        "spawnBaby",
+        "defeat",
+        "bossSpecial",
+        "retarget",
+        "aimFor",
+        "inhalePull",
+        "clampPlayer",
+    ]
+    .map(|n| source_block(&format!("function {n}("), "\nfunction "))
+    .join("\n");
+    let script = format!(
+        r#"
+{mission_defs}
+{enemy_defs}
+{realms}
+{tough}
+{power}
+{team_tough}
+const W={w},H={h},S={s},groundY={gy},topLimit={top},BOSS_HP=1.35,reduceMotion=true;
+let mission=null,realmIdx=4,enemies=[],hazards=[],strikes=[],gems=[],particles=[],texts=[],shake=0,uidN=0,P={{}},mStats={{kills:0}},xp=0;const ghosts=new Map(),me={{party:[{{id:'bond'}}]}},room=null;
+const nextUid=()=>++uidN,rand=(a,b)=>a+Math.random()*(b-a),pick=a=>a[Math.floor(Math.random()*a.length)],clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),skyToughness=()=>1,skyBottom=()=>groundY-S*([1,2,4].includes(realmIdx)?2.6:.5),scaleOf=()=>.62,bonded=()=>me.party[0],defeatFx=()=>{{}},addXP=(d,n)=>xp+=n,othersInMission=()=>false,sfx={{smash:()=>{{}}}};
+{funcs}
+const scaling=MISSIONS.map(def=>{{const p=missionPower(def);return [p.diff,p.spd,teamToughness(def)];}});
+mission={{def:MISSIONS[16],diff:{diff},tough:{toughness},spd:{speed},total:1,kills:0,guest:false}};Math.random=mulberry({seed});let parent={parent};parent.def=ENEMIES.slime;enemies=[parent];defeat(parent,'bond');const fields=['type','x','y','r','hp','maxHp','t','wob','spd','cool','cool2','extra','entered','dir','air','vx','vy','dead','calm'];const split={{children:enemies.filter(e=>!e.dead).map(e=>Object.fromEntries(fields.map(k=>[k,e[k]]))),total:mission.total,kills:mission.kills,xp}};
+uidN=0;hazards=[];mission={{def:MISSIONS[11]}};P={rock_player};let rock={rock_parent};enemies=[rock];Math.random=mulberry({rock_seed});retarget(rock);bossSpecial(rock);const rocks=hazards;
+P={inhale_player};enemies=[{inhale_enemy}];Math.random=()=>.5;inhalePull(.05);print(JSON.stringify({{scaling,split,rocks,inhale:[P.x,P.y]}}));
+"#,
+        mission_defs = source_block("const MISSIONS = [", "\n];"),
+        enemy_defs = source_block("const ENEMIES = {", "\n};"),
+        realms = source_block("const REALMS = [", "\n];"),
+        power = source_block("function missionPower(", "\nconst CHAMPS"),
+        w = view().width,
+        h = view().height,
+        s = view().scale,
+        gy = view().ground_y,
+        top = view().top_limit,
+        diff = sc.difficulty,
+        toughness = sc.toughness,
+        speed = sc.speed,
+        parent = parent_json,
+        rock_player = rock_player,
+        rock_parent = rock_parent,
+        inhale_player = inhale_player,
+        inhale_enemy = inhale_enemy
+    );
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child =
+        Command::new("/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc")
+            .args(["-e", "eval(JSON.parse(readline()))"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{}\n", serde_json::to_string(&script).unwrap()).as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let actual: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    compare_json(
+        &json!({"scaling":scaling,"split":{"children":children,"total":split.mission.total,"kills":split.mission.kills,"xp":split.xp},"rocks":hazards,"inhale":[inhale.player.x,inhale.player.y]}),
+        &actual,
+    );
 }
