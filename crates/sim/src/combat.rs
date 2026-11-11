@@ -869,7 +869,7 @@ pub fn crab_defends(
     t: &Tuning,
     ev: &mut StepEvents,
 ) -> Outcome {
-    if f.dead.is_some() || m.tucked_in() {
+    if f.dead.is_some() || m.tucked_in() || m.plunge_safe {
         return Outcome::Ignored;
     }
     if f.evading(t) {
@@ -930,7 +930,7 @@ pub fn crab_takes(
     t: &Tuning,
     ev: &mut StepEvents,
 ) -> Option<Took> {
-    if f.dead.is_some() || m.tucked_in() {
+    if f.dead.is_some() || m.tucked_in() || m.plunge_safe {
         return None;
     }
     let took = f.vitals.take(hit.damage, poise_felt(m, hit, t), &t.crab);

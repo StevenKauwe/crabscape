@@ -108,6 +108,9 @@ pub enum Carry {
     /// A dead glass sponge's skeleton: its glass points fitted to the leg
     /// tips at home, making glass grips.
     Glass,
+    /// A wild blue-green light from the Plunge's crack: cultured at home into
+    /// a lantern of that colour (see [`crate::plunge`]).
+    WildLight,
 }
 
 impl Carry {
@@ -115,7 +118,10 @@ impl Carry {
     /// several at once, like a decorator crab's trimmings; big finds (a
     /// culture, a tooth) ride on its back, one at a time.
     pub fn small(self) -> bool {
-        matches!(self, Carry::Clam | Carry::Grit | Carry::Valve)
+        matches!(
+            self,
+            Carry::Clam | Carry::Grit | Carry::Valve | Carry::WildLight
+        )
     }
 }
 
@@ -271,6 +277,10 @@ pub struct Mover {
     /// [`crate::chimney`]). Kept with its progress.
     #[serde(default)]
     pub act_three: bool,
+    /// Set each tick while the Plunge carries or shelters this crab: nothing
+    /// reaches it (see [`crate::plunge`]). Never saved.
+    #[serde(skip)]
+    pub plunge_safe: bool,
 }
 
 impl Mover {
@@ -332,6 +342,7 @@ impl Mover {
             swim_run: 0,
             ride: None,
             act_three: false,
+            plunge_safe: false,
         }
     }
 

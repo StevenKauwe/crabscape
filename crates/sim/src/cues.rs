@@ -35,6 +35,18 @@ pub enum Cue {
         crab: PlayerId,
         strength: f32,
     },
+    /// Silt trickles into the gap a crab is digging (the Plunge).
+    PlungeSilt {
+        crab: PlayerId,
+    },
+    /// A low roar behind the wall.
+    PlungeRoar {
+        crab: PlayerId,
+    },
+    /// The one low tone under the angler scene.
+    PlungeTone {
+        crab: PlayerId,
+    },
     Step {
         crab: PlayerId,
     },

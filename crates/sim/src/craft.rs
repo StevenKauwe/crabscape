@@ -32,6 +32,8 @@ pub enum Material {
     Glass,
     /// One empty half-shell of a clam it ate (a clam has two).
     Valve,
+    /// A wild blue-green light from the Plunge's crack.
+    WildLight,
 }
 
 impl Material {
@@ -44,6 +46,7 @@ impl Material {
             Carry::Grit => Some(Material::Grit),
             Carry::Valve => Some(Material::Valve),
             Carry::Glass => Some(Material::Glass),
+            Carry::WildLight => Some(Material::WildLight),
             Carry::Clam => None,
         }
     }
@@ -56,6 +59,7 @@ impl Material {
             Material::Grit => ("shell grit", "shell grit"),
             Material::Glass => ("glass sponge", "glass sponges"),
             Material::Valve => ("clam valve", "clam valves"),
+            Material::WildLight => ("wild blue-green light", "wild blue-green lights"),
         }
     }
 }
@@ -74,6 +78,8 @@ pub struct Stash {
     pub valves: u32,
     #[serde(default)]
     pub glass: u32,
+    #[serde(default)]
+    pub wild_lights: u32,
 }
 
 impl Stash {
@@ -85,6 +91,7 @@ impl Stash {
             Material::Grit => self.grit,
             Material::Valve => self.valves,
             Material::Glass => self.glass,
+            Material::WildLight => self.wild_lights,
         }
     }
 
@@ -95,6 +102,7 @@ impl Stash {
             Material::Grit => &mut self.grit,
             Material::Valve => &mut self.valves,
             Material::Glass => &mut self.glass,
+            Material::WildLight => &mut self.wild_lights,
         }
     }
 
@@ -134,6 +142,8 @@ pub enum Recipe {
     ReservePortions,
     /// Change the home auto-eat preference.
     ToggleAutoEat,
+    /// A wild blue-green light grown into the lantern: its colour only.
+    BlueLantern,
 }
 
 /// One row of the recipe list.
@@ -151,7 +161,7 @@ pub struct RecipeDef {
 }
 
 /// Every recipe, in the menu's order.
-pub const RECIPES: [RecipeDef; 8] = [
+pub const RECIPES: [RecipeDef; 9] = [
     RecipeDef {
         recipe: Recipe::ScissorClaws,
         word: "scissors",
@@ -208,6 +218,13 @@ pub const RECIPES: [RecipeDef; 8] = [
         needs: &[],
         does: "Toggle automatic meals at home.",
     },
+    RecipeDef {
+        recipe: Recipe::BlueLantern,
+        word: "blue-lantern",
+        name: "Blue-green lantern",
+        needs: &[(Material::WildLight, 1)],
+        does: "Tint the lantern blue-green.",
+    },
 ];
 
 impl Recipe {
@@ -255,6 +272,7 @@ impl Sim {
             Recipe::ScissorClaws => m.scissor_claw,
             Recipe::GlassGrips => m.glass_grips,
             Recipe::ClamGuards => m.clam_guards,
+            Recipe::BlueLantern => crab.plunge.blue_lantern,
             Recipe::Lantern
             | Recipe::BuildHome
             | Recipe::ShellPortions
@@ -327,6 +345,7 @@ impl Sim {
                 }
             }
             Recipe::ToggleAutoEat => m.prepared_food.auto_eat = !m.prepared_food.auto_eat,
+            Recipe::BlueLantern => crab.plunge.blue_lantern = true,
         }
         if recorded {
             self.note_craft(tick, recipe);
