@@ -30,6 +30,10 @@ impl Builder {
             cancel_requested: false,
         }
     }
+    #[cfg(target_arch = "wasm32")]
+    pub fn step(&self) -> usize {
+        self.step
+    }
     fn ready(&self) -> bool {
         let (name, choice, choices): (&str, &str, &[&str]) = if self.step == 0 {
             ("name", "path", &PATH)

@@ -235,6 +235,8 @@ impl Plugin for ValmoraPlugin {
             )
             .add_systems(Update, update)
             .add_systems(EguiPrimaryContextPass, draw);
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Update, publish_stage.after(update));
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -494,6 +496,33 @@ fn update(
     }
     s.controls.special = false;
     s.controls.swap = false;
+}
+/// Read-only synthetic-test observability, with no rider identity or save payload.
+#[cfg(target_arch = "wasm32")]
+fn publish_stage(state: Res<Valmora>, mut previous: Local<String>) {
+    let stage = if !state.active {
+        "castle".to_owned()
+    } else if state.menu {
+        "menu".to_owned()
+    } else if let Some(builder) = &state.builder {
+        format!("builder-{}", builder.step())
+    } else {
+        state
+            .adventure
+            .as_ref()
+            .map_or("loading", |a| a.state())
+            .to_owned()
+    };
+    if stage == *previous {
+        return;
+    }
+    if let Some(canvas) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("crabscape"))
+    {
+        let _ = canvas.set_attribute("data-valmora", &stage);
+        *previous = stage;
+    }
 }
 /// Explicit original night palette, scoped to this UI so CrabScape's theme is untouched.
 fn source_panel(ui: &mut egui::Ui, ctx: &egui::Context) {

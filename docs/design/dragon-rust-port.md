@@ -236,5 +236,18 @@ host disconnect. It uses no public signaling, STUN, GUI, audio or real saves. Th
 fixture waits for first server admission before joining: upstream full_mesh separates
 its room snapshot and insertion locks, and simultaneous first arrivals were observed
 with IDs but no peer connection. This does not establish the production server's
-implementation or prove browser/native interoperability. Party Ready/countdown,
-mobile controls, rendered journey QA and full audio/narration remain open gates.
+implementation or prove browser/native interoperability.
+
+Party now follows the source newest-pick, Ready, three-second countdown and final
+half-second commitment rules, including lowest-ready-slot host election. The actual
+two-client test drives Party through shared launch and takeover. A direct source-JS
+oracle compares 500 countdown frames, including interrupted readiness. The UI also
+supports explicit start/join without waiting for every connected rider.
+
+An isolated headless root build has rendered the physical rooftop dragon, entered
+Valmora, selected a slot and traversed both builder steps without requesting a
+microphone. Full create/save/return/reload journey validation is still in progress.
+The dark source palette now covers the root world/HUD while in Valmora menus.
+Imported unbuilt profiles keep their rider identity when completing the builder.
+Browser/native interoperability, mobile controls/performance, remaining presentation,
+and full audio/narration remain open gates.
