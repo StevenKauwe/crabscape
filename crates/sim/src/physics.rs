@@ -284,6 +284,10 @@ pub struct Mover {
     /// [`crate::chimney`]). Kept with its progress.
     #[serde(default)]
     pub act_three: bool,
+    /// Set each tick while the Plunge carries or shelters this crab: nothing
+    /// reaches it (see [`crate::plunge`]). Never saved.
+    #[serde(skip)]
+    pub plunge_safe: bool,
 }
 
 impl Mover {
@@ -346,6 +350,7 @@ impl Mover {
             swim_run: 0,
             ride: None,
             act_three: false,
+            plunge_safe: false,
         }
     }
 

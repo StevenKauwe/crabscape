@@ -127,7 +127,7 @@ impl Dive {
 }
 
 #[derive(Component)]
-struct DepthText;
+pub(crate) struct DepthText;
 
 /// The line under the depth counter in the canyon: which way the water runs.
 #[derive(Component)]

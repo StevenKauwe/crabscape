@@ -84,6 +84,9 @@ items! {
     BoneSplint, "bone-splint", "bone splint", "bone splints", 0, false;
     NodulePlate, "nodule-plate", "nodule plate", "nodule plates", 0, false;
     ScalePlate, "scale-plate", "scale plate", "scale plates", 0, false;
+    // From the Plunge's crack: a wild blue-green light, cultured at home
+    // into a lantern of that colour (appended: item order is saved order).
+    WildLight, "wild-light", "wild blue-green light", "wild blue-green lights", 0, false;
 }
 
 impl Item {

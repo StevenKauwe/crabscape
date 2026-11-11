@@ -43,7 +43,7 @@ use crate::skills::Skill;
 use crate::tuning::Tuning;
 
 #[path = "strain.rs"]
-mod strain;
+pub(crate) mod strain;
 
 /// Identifies a player. Only one exists for now, but co-op will add more.
 #[derive(
@@ -100,6 +100,9 @@ pub struct SimCrab {
     pub salvage_identity: u64,
     #[serde(default)]
     pub royal: crate::royal::Progress,
+    /// Its Plunge: dig counter, ride phase, once-only flags.
+    #[serde(default)]
+    pub plunge: crate::plunge::Plunge,
     #[serde(default)]
     pub bell_run: Option<crate::royal::BellRun>,
     #[serde(default)]
@@ -996,6 +999,7 @@ impl Sim {
             drift_receipts: Vec::new(),
             salvage_identity: 0,
             royal: crate::royal::Progress::default(),
+            plunge: crate::plunge::Plunge::default(),
             bell_run: None,
             research_ticket: None,
             eaten: vec![false; self.level.eggs.len()],
@@ -2460,6 +2464,10 @@ impl Sim {
                     &self.tuning,
                     STEP,
                 ));
+            } else if crab.plunge.carried()
+                && let Some(places) = crate::plunge::places()
+            {
+                crate::plunge::carry(crab, places);
             } else {
                 ev.merge(crate::chimney::step(
                     &mut self.level,
@@ -2755,6 +2763,22 @@ impl Sim {
             } else {
                 crab.resting = 0;
             }
+        }
+        // The Plunge: its dig, lip, scene and cues; it also marks which
+        // crabs nothing may reach, before any hunter moves.
+        let moments = crate::plunge::step_all(
+            &mut self.crabs,
+            &self.level,
+            &self.tuning,
+            crate::plunge::places(),
+        );
+        for (crab, moment) in moments {
+            let cue = match moment {
+                crate::plunge::Moment::Silt => cues::Cue::PlungeSilt { crab },
+                crate::plunge::Moment::Roar => cues::Cue::PlungeRoar { crab },
+                crate::plunge::Moment::Tone => cues::Cue::PlungeTone { crab },
+            };
+            self.sound_cues.emit(self.tick + 1, cue);
         }
         // A crab in an octopus's ink cloud is blinded.
         let clouds: Vec<Vec2> = self

@@ -75,6 +75,9 @@ pub struct Progress {
     /// Has ridden the long chimney home once (act three).
     #[serde(default)]
     pub act_three: bool,
+    /// Its Plunge: ride phase, dig counter and once-only flags.
+    #[serde(default)]
+    pub plunge: crate::plunge::Plunge,
     #[serde(default)]
     pub sponges_taken: Vec<bool>,
     /// What it grew at its moults, and a moult not yet hardened (see
@@ -192,6 +195,7 @@ impl Sim {
             home_grit: crab.home_grit,
             glass_grips: m.glass_grips,
             act_three: m.act_three,
+            plunge: crab.plunge.clone(),
             sponges_taken: crab.sponges_taken.clone(),
             feats: m.feats.clone(),
             moults: m.moults,
@@ -264,6 +268,7 @@ impl Sim {
         crab.drift_receipts = p.drift_receipts.clone();
         crab.salvage_identity = p.salvage_identity;
         crab.royal = p.royal.clone();
+        crab.plunge = p.plunge.clone();
         crab.royal.rooms &= (1 << crate::level::royal::ROOMS.len()) - 1;
         crab.royal.pages &= 7;
         crab.royal.puzzles &= 7;

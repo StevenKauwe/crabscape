@@ -825,13 +825,14 @@ pub fn step(
     let before = e.pos;
     // All species (including those with their own state machines) share the
     // same sanctuary boundary. Omit protected crabs before sensing or combat.
+    // A crab the Plunge carries or shelters is out of every hunter's reach.
     let protected = crabs
         .iter()
-        .any(|c| !e.can_reach_tunnel_point(level, c.mover.pos, t));
+        .any(|c| c.mover.plunge_safe || !e.can_reach_tunnel_point(level, c.mover.pos, t));
     let blows = if protected {
         let mut reachable: Vec<_> = crabs
             .iter()
-            .filter(|c| e.can_reach_tunnel_point(level, c.mover.pos, t))
+            .filter(|c| !c.mover.plunge_safe && e.can_reach_tunnel_point(level, c.mover.pos, t))
             .cloned()
             .collect();
         let blows = step_inner(e, &mut reachable, t, level, rng, animals, bounded_region);

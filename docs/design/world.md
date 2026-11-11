@@ -500,6 +500,15 @@ rects show the flow (`src/chimney.rs`); no bubbles, no air, no filter.
   reuses the lanes and the ride for its fall.
 - While the named frames are sealed bedrock no crab meets a lane; the geometry batch opens their interiors.
 
+### The Plunge (W5.1 to W5.3)
+
+A secret after act three; the beats are in `world-vision-brief.md`, "The Plunge". Rules: `crates/sim/src/plunge.rs`;
+drawing: `src/plunge.rs`. Found by the "odd tunnel", "Plunge shaft", "Plunge crack" and "angler stage" frames' names. You
+cannot die in it: while carried, in the crack or on the vent nothing reaches the crab. 30 s of holding dig in the odd
+tunnel breaks the way; a weak lip pull (the crab can walk out) then the grab; a 30 s fall (strain to full, cracks stay);
+the crack, a refuge; after 3 s still, the angler scene once; a small blue-green light (a lantern colour) once; a light
+far below blinks twice once; then a 20 s vent ride home to the odd tunnel.
+
 **Not ready to ship:** the old `exploration.rs` slope assertion currently ranges
 over every floor segment east of x=8,800. It must be limited to the original reef
 ending at x=17,600 before this intentionally steep extension can pass. That file
