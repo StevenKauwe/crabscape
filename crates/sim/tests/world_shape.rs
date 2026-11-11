@@ -665,3 +665,36 @@ fn refuges_make_no_new_climb() {
         "a clump became a ladder: rested at y {highest}"
     );
 }
+
+#[test]
+#[ignore = "the Plate D geometry batch opens every pocket to traversable ground; un-ignore it there"]
+fn pocket_mouths_have_crab_clearance_outside_the_frame() {
+    let level = Level::test_level();
+    let t = Tuning::default();
+    for pocket in level.pockets() {
+        for mouth in &pocket.mouths {
+            let nearest = mouth.center().clamp(pocket.frame.min, pocket.frame.max);
+            let normal = (mouth.center() - nearest).normalize();
+            let centre = mouth.center() + normal * 40.0;
+            let body =
+                Rect::from_center_size(centre, Vec2::new(t.body_half_width * 2.0, t.body_height));
+            assert!(
+                level.rocks.iter().all(|r| r.intersect(body).is_empty()),
+                "{} mouth {:?} opens into authored bedrock at {:?}",
+                pocket.name,
+                mouth,
+                body
+            );
+            // Authored rectangles alone miss procedural bedrock beneath the
+            // heightmap. A mouth must also open into traversable baked cells.
+            let (x, y) = crabsim::underwater::World::game_cell(centre.x, centre.y);
+            assert_ne!(
+                crabsim::underwater::initial_terrain_cell(&level, x as i32, y as i32),
+                crabsim::underwater::Cell::Rock,
+                "{} mouth {:?} opens into cellular bedrock at {centre:?}",
+                pocket.name,
+                mouth,
+            );
+        }
+    }
+}

@@ -1,5 +1,5 @@
 //! Bounded, deterministic local routing for animals that swim in two dimensions.
-use bevy_math::Vec2;
+use bevy_math::{Rect, Vec2};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
@@ -7,6 +7,30 @@ const SIDE: i32 = 41;
 const CENTRE: i32 = SIDE / 2;
 const STEP: f32 = 24.0;
 const LIMIT: usize = 1500;
+
+/// Exact segment/rectangle test: even a fast knockback or a diagonal corner
+/// crossing must respect a sanctuary. Independent of cell sampling distance.
+pub(crate) fn crosses_rect(start: Vec2, end: Vec2, rect: Rect) -> bool {
+    let delta = end - start;
+    let mut enter = 0.0_f32;
+    let mut leave = 1.0_f32;
+    for (p, d, low, high) in [
+        (start.x, delta.x, rect.min.x, rect.max.x),
+        (start.y, delta.y, rect.min.y, rect.max.y),
+    ] {
+        if d.abs() < f32::EPSILON {
+            if p <= low || p >= high {
+                return false;
+            }
+        } else {
+            let a = (low - p) / d;
+            let b = (high - p) / d;
+            enter = enter.max(a.min(b));
+            leave = leave.min(a.max(b));
+        }
+    }
+    enter < leave
+}
 
 /// Find a path from the animal's current position to clear water near `goal`.
 /// The caller supplies its own body-clearance test. Searches are bounded so
@@ -111,6 +135,18 @@ pub(crate) fn clear_line(start: Vec2, end: Vec2, blocked: &impl Fn(Vec2) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sanctuary_sweep_catches_fast_and_corner_crossings() {
+        let r = Rect::new(0.0, 0.0, 100.0, 100.0);
+        assert!(crosses_rect(
+            Vec2::new(-1000.0, 50.0),
+            Vec2::new(1000.0, 50.0),
+            r
+        ));
+        assert!(crosses_rect(Vec2::new(-1.0, 1.0), Vec2::new(1.0, -0.5), r));
+        assert!(!crosses_rect(Vec2::new(-1.0, 1.0), Vec2::new(1.0, -1.0), r));
+    }
 
     #[test]
     fn routes_around_a_wall_without_crossing_it() {
