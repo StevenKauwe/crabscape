@@ -133,6 +133,13 @@ impl Default for Mirror {
     }
 }
 
+/// Levels and gear lower the skill a fight needs but never remove it (the
+/// owner's Elden Ring scaling): plating and food together never cut the
+/// damage a crab takes by more than this many percent...
+pub const MAX_DAMAGE_CUT_PERCENT: u32 = 40;
+/// ...and claw tips and food together never hit harder than this multiple.
+pub const MAX_CLAW_FACTOR: f32 = 1.35;
+
 /// A crab's economy: everything personal about skills, tools, gear and the
 /// home's stations and beds. Saved in `Progress::econ`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -198,19 +205,27 @@ impl Economy {
 
     /// What blows are multiplied by: plating takes a share off, until it
     /// cracks.
+    ///
+    /// Levels and gear lower the skill a fight needs but never remove it:
+    /// the cut from plating and food together stops at
+    /// [`MAX_DAMAGE_CUT_PERCENT`] (the factor never falls below 0.6).
     pub fn damage_taken_factor(&self) -> f32 {
-        match self.gear.body {
-            Some((plating, uses)) if uses > 0 => 1.0 - plating.damage_cut_percent() as f32 / 100.0,
-            _ => 1.0,
-        }
+        let plating = match self.gear.body {
+            Some((plating, uses)) if uses > 0 => plating.damage_cut_percent(),
+            _ => 0,
+        };
+        // No food cuts damage today; the cap is for the sum of both.
+        let food = 0;
+        1.0 - (plating + food).min(MAX_DAMAGE_CUT_PERCENT) as f32 / 100.0
     }
 
     /// What claw blows are multiplied by: claw tips and food, one on the
-    /// other.
+    /// other, at most [`MAX_CLAW_FACTOR`] (the Fighting level's own bonus has
+    /// its own cap and is separate).
     pub fn claw_bonus(&self) -> f32 {
         let tips = self.gear.claws.map_or(0, Gear::claw_percent);
         let food = self.buff.map_or(0, |(b, _)| b.claw_percent());
-        (1.0 + tips as f32 / 100.0) * (1.0 + food as f32 / 100.0)
+        ((1.0 + tips as f32 / 100.0) * (1.0 + food as f32 / 100.0)).min(MAX_CLAW_FACTOR)
     }
 
     /// What pressure strain is multiplied by (fermented lanternfish, the

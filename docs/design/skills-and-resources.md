@@ -79,10 +79,10 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 | Tier | Band (y) | Places on today's map | Level req | Tool tier | XP per gather | Gather s (base) | Charges | Respawn s | Nodes per kind |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Shallows (> -260) | home side x 0–1,300; far ledge x 1,820–2,716 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
-| 2 | Basin and mudbanks (-260 to -700) | basin x 2,800–3,300; far basin hub x 4,490–5,370 | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
-| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,371–5,900; canyon shelf x 5,900–6,150; far rim x 7,900–8,800; pit walls | 30 | 2 quill | 200 | 3.5 | 4 | 90 | 3 |
-| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor x 6,150–7,900 (y ≈ -9,400); far-wall cave; east of the rim | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
-| 5 | Deep (< -9,500) | lower canyon vent field (`level::lower_canyon::VENTS`, x > 17,400) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
+| 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–5,000 (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
+| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,371–5,900 (none on the shelf); far rim x 7,900–8,200; pit walls | 30 | 2 quill | 200 | 3.5 | 4 | 90 | 3 |
+| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,090–7,650 (y ≈ -9,400); far-wall cave; east of the rim | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
+| 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,570) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
 
 Placement rule: a tier-k node lies in band k or deeper, and its **route time from home** (route solver, the kit the world
 expects at that stage) is longer than every tier-(k−1) node's median. The pit floor is deep but close: put only tier 2–3
@@ -343,6 +343,53 @@ Building recipe above level 10 draws on at least two; no single skill or Fightin
 | Culture bed 4 | 60 | Fighting, Diving, Digging |
 | Whelk keep | 62 | Gathering, Fighting, Diving, Digging |
 
+## Danger guards the way, never the harvest (owner, 2026-11-11; P11)
+
+Danger is on the way to a resource, never on the resource: once a crab reaches a node, harvesting is calm. A deep
+gatherer can mostly avoid danger by careful routes, not fights.
+
+What is enforced, and by which test (`economy_every_way_pays.rs`):
+- **No foe reaches a node.** `no_foe_lies_near_any_node_on_the_real_level`: for every placed node on the real level,
+  no foe from any spawn list (`level.foes`, which holds the older route, the bestiary, the exploration habitat, the
+  canyon jellies and the octopus; `creatures::spots`; the moray crevices) lies within its danger radius, in two
+  dimensions. The radius: a turret (snapper, moray, bobbit worm) its strike range + 20; the octopus its notice
+  range + 20; a tethered walker (hermit crab, giant isopod, lobster) its leash + bite + 20 (measured: an isopod
+  shoved a crab 400 from its burrow, so notice range alone is not enough); the hagfish its leash + ink cloud; any
+  other hunter (mantis, midwater creatures, amphipods) 600. The sixgill is a band resident, not a spawn.
+- **Nothing in the gather rules interrupts a harvest except the crab's own movement or a hit.** The cancel list in
+  `economy/sim.rs` is walking, jumping, dodging, letting go, leaving the floor, a hit, a stagger; no foe, timer or
+  event is on it. `a_harvest_at_every_node_is_calm_with_the_real_foes_alive` holds Gather for twelve seconds at all 82
+  nodes with the real foes alive and fails on any hit or stagger. The bar emptying on each cancel is in
+  `economy_gather.rs`.
+- **Nodes moved to calm places** (`economy/place.rs`; foes never moved): the first basin (a moray in its crevice and a
+  hermit crab leave no calm span) holds no node, so tier 2 lives only in the far basin hub (x 4,500 to 4,976, 34 apart);
+  tier 1 on the far ledge is x 2,170 to 2,440 (clear of the snapper at 2,060 and the moray at 2,650); tier 3 is the
+  doorstep (5,385 to 5,849; none on the shelf, which a moray and the squid's roam hold) and the rim short of the
+  octopus (7,905 to 8,180); tier 4 is the canyon floor's far end (7,090 to 7,650; the lobster holds the near end);
+  tier 5 is the vent field's east end (19,730 to 20,570, and both vent pots there; the amphipods, a hagfish and an
+  isopod hold the west end). Every band, rock, doorway and spacing rule still holds (`economy_core.rs`).
+  Cost: tier 2 is now a longer walk from home, and the early basin is a place to pass, not to work.
+
+## Levels and gear: Elden Ring scaling (owner, 2026-11-11; P11)
+
+Levels and gear lower the skill a fight needs but never remove it. More shell, harder hits and slightly wider windows
+are fine; a fight never becomes click-and-see, and an under-levelled crab can still win on skill.
+
+What is enforced (`economy_skill_scaling.rs`, caps in `economy/mod.rs`):
+- **Damage taken:** plating and food together cut it by at most 40% (`MAX_DAMAGE_CUT_PERCENT`, factor never below 0.6).
+  Today's best plating (scale mail) cuts 35%; no food cuts damage yet, the cap covers the sum when one does.
+  `plating_and_food_never_cut_damage_below_sixty_percent`.
+- **Damage given:** claw tips and food together hit at most 1.35 times as hard (`MAX_CLAW_FACTOR`; fang tips with the
+  grenadier ferment would be 1.357 and are held at 1.35). The Fighting level's own +45% cap is separate.
+  `claw_tips_and_food_never_hit_harder_than_one_point_three_five`.
+- **Tells and windows are not the economy's:** no tell, telegraph, parry or dodge window is read from gear, food or
+  levels. `tells_and_windows_do_not_depend_on_economy_gear_or_levels` shows the tuning is unchanged for a bare and a
+  maxed crab and that the snapper (54-tick tell) and the mantis (78) tell the same ticks to both.
+- **A level 1 crab with no gear can win on skill:** `a_level_one_crab_with_no_gear_still_beats_the_snapper_and_the_mantis_on_skill`
+  plays a scripted crab (dodge the snapper's shock, parry the mantis's club, smash in the recovery or stagger) and
+  ends both without losing health. Older scripted wins: the hermit crab and the lobster
+  (`a_scripted_crab_beats_or_drives_it_off`), the isopod and the bobbit worm.
+
 ## Inventory pressure, sinks and pacing
 - Shell slots `4 × size²` + bag (+2/+4/+6). Big items one at a time on the back. A full shell stops gathering ("No room
   on your shell"); the crab can drop items (existing Drop), which lie as its own recoverable cast-offs.
@@ -447,6 +494,10 @@ and P3 never edits `world.rs`; P2 never edits `craft.rs`.
   a high-level or repeatable use for every drop, Building from several activities (whelk room, hall, keep), home nodes in
   safe pockets, a 2 h low-attention measurement. See that section for the numbers. The pacing line above was
   re-measured after the move.
+- **P9, P10, P11 in #601:** P9 creature drops (ten items, ten recipes, health-based Fighting XP); P10 every way to play
+  pays (above); P11 the two newest owner rules: "Danger guards the way, never the harvest" (nodes moved clear of every
+  foe, tested at all 82 nodes; tier 2 is the far basin hub only) and "Levels and gear: Elden Ring scaling" (damage cut
+  capped at 40%, claw bonus at 1.35, windows untouched, a level 1 crab wins on skill).
 - **Next, in order:**
   1. P8 (#572): re-place nodes on the world build's new map once its geometry lands (home burrow clam beds → T2 Prying,
      bone hall → T4 whale bones, seep chimneys/garden → T4 seep mussels, the vent and chimney hall → T5). Then re-measure

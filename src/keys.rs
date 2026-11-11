@@ -13,7 +13,7 @@ use crate::player::GameSet;
 /// The keys and what they do, in the order a new player needs them (the
 /// same keys as `input.rs`, `go_home.rs`, `view.rs`, `codes.rs`,
 /// `report.rs`, `style.rs` and `replay.rs` read).
-pub(crate) const KEYS: [(&str, &str); 18] = [
+pub(crate) const KEYS: [(&str, &str); 19] = [
     ("A D / Left Right", "walk"),
     ("W / Up", "jump or paddle; hold to climb"),
     ("Shift J + a way", "dodge; hold it: sprint"),
