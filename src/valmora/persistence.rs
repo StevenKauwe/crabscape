@@ -12,6 +12,7 @@ pub enum Operation {
     Create,
     ImportArchive,
     ImportProfile,
+    ImportBrowserLegacy,
     Save,
     LoadPreferences,
     SavePreferences,
@@ -144,6 +145,15 @@ impl Persistence {
             Work::ImportProfile { slot, text },
         )
     }
+    /// Invoke only after an explicit click for this slot; never auto-discover.
+    #[allow(dead_code)] // The application exposes this explicit action only on WASM.
+    pub fn import_browser_legacy(&mut self, slot: RiderSlot) -> Result<(), String> {
+        self.submit(
+            Some(slot),
+            Operation::ImportBrowserLegacy,
+            Work::ImportBrowserLegacy { slot },
+        )
+    }
     /// Called at a checkpoint, not unconditionally each frame. The previous
     /// exact token is cloned only after the one-operation admission check.
     pub fn save_state(&mut self, profile: Value, frozen: Value) -> Result<(), String> {
@@ -267,6 +277,9 @@ impl Persistence {
 }
 
 enum Work {
+    ImportBrowserLegacy {
+        slot: RiderSlot,
+    },
     LoadPreferences,
     SavePreferences {
         previous: PreferencesLoaded,
@@ -300,6 +313,7 @@ enum Work {
 impl Work {
     fn run(self, store: &Store) -> Result<Reply, String> {
         let loaded = match self {
+            Self::ImportBrowserLegacy { slot } => store.import_browser_legacy(slot)?,
             Self::LoadPreferences => {
                 return Ok(Reply {
                     loaded: None,
@@ -346,6 +360,7 @@ impl Work {
 impl Work {
     async fn run(self, store: &Store) -> Result<Reply, String> {
         let loaded = match self {
+            Self::ImportBrowserLegacy { slot } => store.import_browser_legacy(slot).await?,
             Self::LoadPreferences => {
                 return Ok(Reply {
                     loaded: None,

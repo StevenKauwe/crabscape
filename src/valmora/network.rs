@@ -48,6 +48,12 @@ impl Transport {
         let build = &dragon_peer::VERSION[..dragon_peer::VERSION.len().min(12)];
         #[cfg(target_arch = "wasm32")]
         {
+            #[cfg(feature = "valmora-loopback-test")]
+            if let Some(introducer) = loopback_introducer()? {
+                return dragon_peer::DragonPeer::without_voice_host_only(&introducer, build, code)
+                    .map(Self)
+                    .map_err(|_| "Could not open local data-only room".into());
+            }
             dragon_peer::DragonPeer::without_voice(introducer, build, code)
                 .map(Self)
                 .map_err(|_| "Could not open data-only room".into())
@@ -256,6 +262,8 @@ impl Lobby {
                 format!("Data-only room: {} other rider(s)", self.connected_count())
             };
         }
+        #[cfg(all(target_arch = "wasm32", feature = "valmora-loopback-test"))]
+        self.publish_probe(adventure);
     }
     /// Called after local launch, before its first simulation frame.
     pub fn attach_flight(&mut self, adventure: &mut Adventure, now_ms: u64) -> Result<(), String> {
@@ -602,6 +610,44 @@ impl Lobby {
         }
     }
 
+    /// Source drawGhosts emits trails at the raw smoothed ghost position, not its bob.
+    /// Call once after visual advancement, independently of paint frequency.
+    pub fn emit_dad_trails(
+        &self,
+        cache: &mut super::art::ArtCache,
+        session: &dragon_game::coop::Session,
+        view: dragon_game::flight::Viewport,
+        enabled: bool,
+    ) {
+        for (peer, ghost) in &session.ghosts {
+            if ghost.mission.as_deref() != Some(&session.game.definition.id) {
+                continue;
+            }
+            let Some(position) = ghost.position else {
+                continue;
+            };
+            let Some(presence) = self
+                .peers
+                .get(peer)
+                .filter(|p| p.daddio)
+                .and_then(|p| p.presence.as_ref())
+            else {
+                continue;
+            };
+            if dragon_game::profile::clean_build(&presence["build"]).is_err() {
+                continue;
+            }
+            let stage = presence["p"][0][2].as_u64().unwrap_or(0).min(3) as usize;
+            cache.emit_dad_trail(
+                position,
+                view.scale * [0.62, 0.8, 1., 1.18][stage],
+                ghost.facing as f64,
+                view.scale,
+                enabled,
+            );
+        }
+    }
+
     pub fn paint_partners(
         &self,
         painter: &bevy_egui::egui::Painter,
@@ -916,5 +962,64 @@ print(JSON.stringify(result));
             }
         }
         assert_eq!(visual.followers.len(), 4);
+    }
+}
+
+/// A test build alone is insufficient: the page AND signaling must be loopback.
+/// Malformed explicit overrides fail closed rather than contacting production.
+#[cfg(all(target_arch = "wasm32", feature = "valmora-loopback-test"))]
+fn loopback_introducer() -> Result<Option<String>, String> {
+    let location = web_sys::window().ok_or("No browser window")?.location();
+    let search = location.search().map_err(|_| "No page location")?;
+    let Some(value) = search
+        .trim_start_matches('?')
+        .split('&')
+        .find_map(|part| part.strip_prefix("valmora_introducer="))
+    else {
+        return Ok(None);
+    };
+    if location.hostname().map_err(|_| "No page host")? != "127.0.0.1" {
+        return Err("Local test requires a loopback page".into());
+    }
+    let value = js_sys::decode_uri_component(value)
+        .map_err(|_| "Invalid local introducer")?
+        .as_string()
+        .ok_or("Invalid local introducer")?;
+    if !value.starts_with("ws://127.0.0.1:")
+        || dragon_peer::room_url(&value, "test", "test").is_none()
+    {
+        return Err("Local signaling must use a loopback port".into());
+    }
+    Ok(Some(value))
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "valmora-loopback-test"))]
+impl Lobby {
+    fn publish_probe(&self, adventure: &Adventure) {
+        if !matches!(loopback_introducer(), Ok(Some(_))) {
+            return;
+        }
+        let Some(canvas) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("crabscape"))
+        else {
+            return;
+        };
+        let session = adventure.shared.as_ref();
+        let game = adventure.game();
+        let data = json!({
+            "id":self.id, "rider":self.rider, "peers":self.connected_count(),
+            "blocked":self.blocked, "state":adventure.state(),
+            "mission":game.map(|g|&g.definition.id),
+            "run":session.map(|s|s.run()),
+            "guest":session.map(|s|s.authority().guest),
+            "epoch":session.map(|s|s.authority().epoch),
+            "host":session.and_then(|s|s.authority().host_peer.as_ref()),
+            "ghosts":session.map(|s|s.ghosts.len()),
+            "x":game.map(|g|g.player.x), "y":game.map(|g|g.player.y),
+            "wave":game.map(|g|g.mission.wave),
+            "enemies":game.map(|g|g.enemies.len()),
+        });
+        let _ = canvas.set_attribute("data-valmora-network", &data.to_string());
     }
 }

@@ -80,14 +80,14 @@ impl AdventureUi {
     }
     pub fn draw(&mut self, ui: &mut egui::Ui, adventure: &mut Adventure, clock: Clock) -> Controls {
         let mut controls = Controls::default();
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.heading("Valmora");
             if ui.button("Return to CrabScape").clicked() {
                 controls.return_home = true;
             }
         });
         if adventure.state() != "play" {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui
                     .button(if self.sound_muted {
                         "Sound: off"
@@ -216,7 +216,7 @@ impl AdventureUi {
                 }
             }
             "party" | "map" => {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     if self.networked && ui.button("Party").clicked() {
                         self.result(adventure.to_party());
                     }
@@ -229,12 +229,13 @@ impl AdventureUi {
                 });
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for mission in missions::missions() {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             let open = adventure.mission_unlocked(&mission.id);
-                            if ui
-                                .add_enabled(open, egui::Button::new(&mission.name))
-                                .clicked()
-                            {
+                            let button = ui.add_enabled(open, egui::Button::new(&mission.name));
+                            if mission.id == "m1" {
+                                super::probe_button("mission-m1", &button);
+                            }
+                            if button.clicked() {
                                 if self.networked && adventure.state() == "party" {
                                     controls.mission_pick = Some(mission.id.clone());
                                 } else {
@@ -256,7 +257,7 @@ impl AdventureUi {
                 });
             }
             "roost" | "skills" => {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     controls.edit_rider = ui.button("Change my look").clicked();
                     if self.networked && ui.button("Party").clicked() {
                         self.result(adventure.to_party());
@@ -290,7 +291,7 @@ impl AdventureUi {
                     })
                     .collect();
                 for (id, name, level) in dragons {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if let Some(dragon) =
                             adventure.profile()["party"].as_array().and_then(|party| {
                                 party
@@ -314,7 +315,7 @@ impl AdventureUi {
                 }
                 ui.separator();
                 ui.label("Learn a skill");
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     for skill in ["breath", "rider", "magic"] {
                         if ui.button(skill).clicked() {
                             self.result(adventure.roost_command(
@@ -468,7 +469,7 @@ impl AdventureUi {
                         }
                     });
                 }
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     for (index, label) in ["Left", "Right", "Up", "Down"].into_iter().enumerate() {
                         controls.direction[index] = ui.button(label).is_pointer_button_down_on();
                     }

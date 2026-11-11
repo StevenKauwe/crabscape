@@ -12,6 +12,9 @@ use std::{
 };
 
 impl Store {
+    pub fn import_browser_legacy(&self, _slot: RiderSlot) -> Result<Loaded, String> {
+        Err("Same-browser Dragon import is available in the browser only; use an explicit exported archive here".into())
+    }
     pub fn load_preferences(&self) -> Result<PreferencesLoaded, String> {
         if !self.directory.exists() {
             return Ok(PreferencesLoaded::absent());
@@ -326,6 +329,18 @@ mod tests {
         next["rid"] = "different".into();
         assert!(store.save(&second, next).is_err());
         assert_eq!(store.load(RiderSlot::Alexa).unwrap().unwrap().revision(), 2);
+    }
+    #[test]
+    fn browser_import_is_explicitly_unsupported_natively_without_creating_storage() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        assert!(
+            store
+                .import_browser_legacy(RiderSlot::Alexa)
+                .unwrap_err()
+                .contains("browser only")
+        );
+        assert!(!tmp.0.exists());
     }
     #[test]
     fn device_preferences_are_independent_bounded_and_reject_stale_or_malformed_records() {

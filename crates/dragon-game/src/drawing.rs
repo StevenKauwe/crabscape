@@ -3,6 +3,9 @@
 //! This is not a rasterizer. The engine adapter tessellates these paths for the GPU.
 
 mod atmosphere;
+mod weather;
+pub use weather::{Weather, WeatherFrame};
+
 pub use atmosphere::{draw_foreground, draw_moon_rays, draw_shot_lights};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::{PI, TAU};

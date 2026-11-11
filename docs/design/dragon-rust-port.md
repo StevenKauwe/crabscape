@@ -30,13 +30,16 @@ standalone Dragon preview remains the existing JS game. The CrabScape preview no
 The flight/mission harnesses use placeholder shapes. The adventure uses original
 procedural dragon/rider and enemy geometry, attack warnings, strikes, hazards and
 objective glyphs, shots/gems/allies and the six source backdrops/scenery, tessellated
-into egui meshes. Narration/audio, lobby, optional ambient/foreground particles and
-complete screen layouts remain unfinished. Canvas antialiasing,
+into egui meshes. Source audio, browser narration, data-only lobby, builder/roost
+previews and foregrounds are integrated. Optional ambient/trail particles, other
+scene previews and complete screen layouts remain unfinished. Canvas antialiasing,
 stroke joins and anisotropic strokes are approximations; command equality is not
 pixel equality. One viewport/realm/song backdrop is cached and dynamic outer buffers
 are reused, but nested paths/paints and dynamic meshes still allocate per frame. No
 phone performance improvement is claimed or measured. Headless Bevy ECS startup/input/pause tests
-run without opening windows. Actual rendering and feel still need visual verification.
+run without opening windows. Isolated Chromium journeys verify actual rendering,
+checkpoint reload and synthetic two-thumb controls; physical-phone feel and WebKit
+remain separate verification gates.
 The adventure now offers an explicit data-only room connection. Boarding the castle dragon turns off
 CrabScape microphone capture and transcription, drops pending transcription results,
 and rejects late microphone permission callbacks. Returning does not turn the mic on.
@@ -280,7 +283,8 @@ Master mute remains ephemeral. Runtime view scaling covers gameplay and renderin
 Fancy mode adds original moon rays, six realm foregrounds and bounded projectile
 lights. The source command oracle includes 22 new atmosphere/light cases. Partner
 followers retain bounded presentation positions and source smoothing. Ambient
-particles, trails and builder/roost previews remain unfinished. Vignette/full-frame
+particles and trails remained unfinished at this checkpoint; builder/roost previews
+are covered by the subsequent checkpoint below. Vignette/full-frame
 flash overlays are omitted under the repository's overlay restriction.
 
 The host-only browser/native WebRTC fixture exchanges reliable messages in both
@@ -314,3 +318,30 @@ self-checks that failing assertions are rejected. Synthetic speech-service callb
 verify UTF-16 ranges, completion/error and stale-callback isolation after timeout.
 Chrome returned zero available voices: actual speech rendering/listening remains
 unverified. Native narration controls explicitly show unsupported availability.
+
+## Browser import, weather and full co-op fixture
+
+The selected empty native slot now offers an explicit same-browser original-save
+import. It reads only that rider key and eight known source globals, never enumerates
+storage or writes/deletes a legacy key. Exact raw strings are retained, including
+voice-volume/lobby bytes that are never applied to voice or transport. Source changes,
+occupied destinations, denied reads, malformed input, lossy UTF-16 conversion and
+quota failures fail closed. Synthetic Chromium verifies all these cases and rollback;
+no personal saves were inspected. Exported JSON import remains available on native.
+
+Six-realm weather and Daddio trails use a private visual RNG, with one update per
+visual frame rather than per egui paint pass. The recorded-JS oracle covers 1,440
+frames, source RNG consumption and the source's nonfinite twinkle-position behavior.
+Chromium confirms nonfinite Canvas translations leave the transform unchanged.
+Weather/firefly caps match the source; trails have an explicit 512-particle safety cap
+instead of the source's unbounded array. Browser reduced-motion suppresses trails.
+Full-frame flash/vignette effects remain deliberately omitted.
+
+The `valmora-loopback-test` feature and `cooptest` `valmora` runner exercise two real
+browsers through the actual rooftop trip, builder, story, room and Ready controls.
+The fixture uses a localhost-only introducer with host-only ICE, distinct synthetic
+profiles and read-only geometry/state telemetry. It verifies distinct riders, one
+host, matching mission/run, guest movement, and takeover after the host leaves without
+resetting the mission/run. Microphone and nonlocal signaling guards remain zero.
+No gameplay state is injected to bypass the journey. This is Chromium validation,
+not physical iPhone/WebKit gameplay verification or cross-version protocol support.

@@ -20,6 +20,12 @@ fn main() {
             server.serve().await.unwrap();
         });
         let url = format!("ws://{addr}");
+        if std::env::args().any(|arg| arg == "--signaling-only") {
+            println!("{url}");
+            std::io::stdout().flush().unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+            return;
+        }
         let (mut peer, pump) = NativePeer::connect_host_only(&url, "interop", "synthetic").unwrap();
         tokio::spawn(async move {
             let _ = pump.await;

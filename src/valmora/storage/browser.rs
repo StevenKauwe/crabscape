@@ -9,6 +9,24 @@ use web_sys::{Event, IdbDatabase, IdbRequest, IdbTransaction, IdbTransactionMode
 const OBJECTS: &str = "riders";
 
 impl Store {
+    /// Explicit user-clicked import only. Never call for menu discovery/startup.
+    pub async fn import_browser_legacy(&self, slot: RiderSlot) -> Result<Loaded, String> {
+        let storage = web_sys::window()
+            .ok_or("Browser window unavailable")?
+            .local_storage()
+            .map_err(|_| "Browser denied access to original Dragon storage")?
+            .ok_or("Original Dragon browser storage is unavailable")?;
+        let snapshot = legacy_browser::read(&storage, slot)?;
+        let next = imported(slot, &snapshot)?;
+        self.record_transaction(slot.key(),true,move |bytes| {
+            let current=bytes.map(|bytes|decode(slot,bytes)).transpose()?;
+            check_current(current.as_ref(),None)?;
+            if legacy_browser::read(&storage,slot)?!=snapshot {
+                return Err("Original Dragon data changed during import; no native copy was written. Try again after the original game stops saving".into());
+            }
+            Ok((next.clone(),Some(next.bytes.clone())))
+        }).await
+    }
     pub async fn load_preferences(&self) -> Result<PreferencesLoaded, String> {
         self.record_transaction("preferences", false, |bytes| {
             let loaded = bytes

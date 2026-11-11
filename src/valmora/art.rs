@@ -439,6 +439,8 @@ fn breath(kind: &str) -> Option<[String; 3]> {
 #[derive(Default)]
 pub struct ArtCache {
     canvas: Canvas,
+    weather: dragon_game::drawing::Weather,
+    visual_rng: u32,
     background_key: Option<([f64; 6], usize, bool)>,
     sky: Vec<Shape>,
     far: [Vec<Shape>; 2],
@@ -468,6 +470,38 @@ fn mirrored(source: &[Shape], width: f32) -> Vec<Shape> {
         .collect()
 }
 impl ArtCache {
+    pub fn clear_weather(&mut self) {
+        self.weather = Default::default();
+    }
+    /// Update once per visual frame, never from an egui paint pass.
+    pub fn update_weather(&mut self, dt: f64, frame: dragon_game::drawing::WeatherFrame) {
+        let mut rng = dragon_game::random::Mulberry32 {
+            state: self.visual_rng,
+        };
+        self.weather.update(dt, frame, &mut || rng.next_unit());
+        self.visual_rng = rng.state;
+        if !frame.in_sky {
+            self.weather.trails.clear();
+        }
+    }
+    /// Emit once per active visual frame after update_weather, for each Daddio.
+    pub fn emit_dad_trail(
+        &mut self,
+        position: [f64; 2],
+        size: f64,
+        facing: f64,
+        scale: f64,
+        enabled: bool,
+    ) {
+        let mut rng = dragon_game::random::Mulberry32 {
+            state: self.visual_rng,
+        };
+        self.weather
+            .dad_trail(position, size, facing, scale, enabled, &mut || {
+                rng.next_unit()
+            });
+        self.visual_rng = rng.state;
+    }
     #[allow(clippy::too_many_arguments)]
     fn background(
         &mut self,
@@ -540,7 +574,6 @@ impl ArtCache {
     }
 }
 /// Original team/enemy layers with separate source global and flap clocks.
-/// Random dadTrail particles remain unimplemented.
 /// The source geometry itself is retained; this adapter does not claim pixel-identical rasterization.
 #[allow(clippy::too_many_arguments)]
 pub fn paint_game(
@@ -868,6 +901,7 @@ pub fn paint_game(
         dragon_game::drawing::draw_shot(&mut c, shot, cols.as_ref(), &scene);
     }
     if fancy {
+        cache.weather.draw_ambient(&mut c, view.scale, time);
         dragon_game::drawing::draw_foreground(
             &mut c,
             view,
@@ -876,6 +910,7 @@ pub fn paint_game(
             time,
         );
     }
+    cache.weather.draw_trails(&mut c);
     paint(painter, &c);
     cache.canvas = c;
     if let Some(ob) = &game.objective {

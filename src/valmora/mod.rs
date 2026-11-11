@@ -43,6 +43,7 @@ pub struct Valmora {
     persistent: bool,
     checkpoint_elapsed: f64,
     preferences_started: bool,
+    reduced_motion: Option<bool>,
     menu_frozen: Option<Value>,
     import_text: String,
     room_code: String,
@@ -107,6 +108,7 @@ impl Valmora {
         self.active = false;
         self.controls = Controls::default();
         self.touches = touch::TouchControls::default();
+        self.art_cache.clear_weather();
         self.input = Input::default();
     }
 }
@@ -169,8 +171,10 @@ impl Valmora {
             return;
         };
         self.rider = selected_slot.index();
-        if completion.operation == Operation::ImportArchive
-            && let Some(loaded) = self.persistence.loaded()
+        if matches!(
+            completion.operation,
+            Operation::ImportArchive | Operation::ImportBrowserLegacy
+        ) && let Some(loaded) = self.persistence.loaded()
         {
             match loaded.imported_preferences(&self.ui.preferences) {
                 Ok(Some(preferences)) => self.ui.preferences = preferences,
@@ -280,6 +284,9 @@ pub struct ValmoraPlugin;
 pub(crate) struct CaptureInput;
 impl Plugin for ValmoraPlugin {
     fn build(&self, app: &mut App) {
+        // WASM playback schedules WebAudio directly, without Bevy's CPAL output.
+        #[cfg(target_arch = "wasm32")]
+        app.init_asset::<bevy::audio::AudioSource>();
         app.init_non_send::<network::Connection>()
             .init_resource::<Valmora>()
             .add_systems(
@@ -423,6 +430,7 @@ fn update(
     let Ok(window) = windows.single() else {
         return;
     };
+    let reduced_motion = *s.reduced_motion.get_or_insert_with(prefers_reduced_motion);
     let keys = &s.keys;
     let Some(clock) = clock() else {
         s.ui.notice =
@@ -433,6 +441,7 @@ fn update(
     let Some(adventure) = &mut s.adventure else {
         return;
     };
+    let weather_scroll = adventure.game().map_or(0., |game| game.scroll_v);
     let frame_dt = time.delta_secs_f64().clamp(0., 0.05);
     let stopped = adventure.game().is_some_and(|g| g.hit_stop > 0.);
     let animation_dt = if stopped { 0. } else { frame_dt };
@@ -563,6 +572,40 @@ fn update(
     s.animation_time += animation_dt;
     let dizzy = adventure.game().is_some_and(|g| g.player.dizzy > 0.);
     s.flap_time += animation_dt * if dizzy { 0.4 } else { 1. };
+    let view = viewport(window, s.ui.preferences.view);
+    let in_sky = matches!(adventure.state(), "play" | "pause");
+    s.art_cache.update_weather(
+        animation_dt,
+        dragon_game::drawing::WeatherFrame {
+            view,
+            realm: adventure.game().map_or(0, |game| game.definition.realm),
+            time: s.animation_time,
+            scroll_v: weather_scroll,
+            fancy: s.ui.preferences.fancy,
+            in_sky,
+        },
+    );
+    let trails = adventure.state() == "play" && !reduced_motion;
+    if let Some(game) = adventure.game()
+        && game.player.down <= 0.
+        && game
+            .profile
+            .as_ref()
+            .and_then(|p| p["build"]["name"].as_str())
+            .is_some_and(|name| name.trim().eq_ignore_ascii_case("daddio"))
+    {
+        let bob = (s.animation_time * 2.2 + s.flap_time).sin() * view.scale * 0.05;
+        s.art_cache.emit_dad_trail(
+            [game.player.x, game.player.y + bob],
+            view.scale * game.dragon_scale(),
+            game.player.facing as f64,
+            view.scale,
+            trails,
+        );
+    }
+    if let (Some(lobby), Some(session)) = (&network.0, &adventure.shared) {
+        lobby.emit_dad_trails(&mut s.art_cache, session, view, trails);
+    }
     if let Some(game) = adventure.game_mut() {
         if game.squash > 0. {
             game.squash -= animation_dt * 2.2;
@@ -604,8 +647,52 @@ fn publish_stage(state: Res<Valmora>, mut previous: Local<String>) {
     }
 }
 /// Explicit original night palette, scoped to this UI so CrabScape's theme is untouched.
+/// Read-only fixture geometry; omitted from ordinary production builds.
+fn probe_button(key: &str, response: &egui::Response) {
+    #[cfg(all(target_arch = "wasm32", feature = "valmora-loopback-test"))]
+    if let Some(canvas) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("crabscape"))
+    {
+        let center = response.rect.center();
+        let value = serde_json::json!([center.x, center.y]).to_string();
+        let name = format!("data-valmora-button-{key}");
+        if canvas.get_attribute(&name).as_deref() != Some(value.as_str()) {
+            let _ = canvas.set_attribute(&name, &value);
+        }
+    }
+    #[cfg(not(all(target_arch = "wasm32", feature = "valmora-loopback-test")))]
+    let _ = (key, response);
+}
+fn prefers_reduced_motion() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{JsCast, JsValue};
+        let Some(window) = web_sys::window() else {
+            return false;
+        };
+        js_sys::Reflect::get(window.as_ref(), &JsValue::from_str("matchMedia"))
+            .ok()
+            .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+            .and_then(|f| {
+                f.call1(
+                    window.as_ref(),
+                    &JsValue::from_str("(prefers-reduced-motion: reduce)"),
+                )
+                .ok()
+            })
+            .and_then(|query| js_sys::Reflect::get(&query, &JsValue::from_str("matches")).ok())
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
 fn source_panel(ui: &mut egui::Ui, ctx: &egui::Context) {
     ui.set_min_size(ctx.content_rect().size());
+    ui.set_max_width(ctx.content_rect().width());
     ui.painter()
         .rect_filled(ctx.content_rect(), 0., egui::Color32::from_rgb(10, 21, 48));
     let visuals = &mut ui.style_mut().visuals;
@@ -711,6 +798,12 @@ fn draw(
                     ui.label(&s.ui.notice);
                     if s.persistent && s.adventure.is_none() {
                         ui.collapsing("Import an existing rider instead", |ui| {
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                ui.label("Copy this slot from the original Dragon game in this browser. The original is never changed.");
+                                if ui.add_enabled(!s.persistence.busy(), egui::Button::new("Import this browser's original Dragon save")).clicked()
+                                    && let Err(error) = s.persistence.import_browser_legacy(slot(s.rider)) { s.ui.notice = error; }
+                            }
                             ui.label("Paste an exported rider JSON or storage archive. This creates a separate native copy and retains the original bytes.");
                             ui.add(egui::TextEdit::multiline(&mut s.import_text).char_limit(512 * 1024));
                             ui.add_enabled_ui(!s.persistence.busy() && s.import_text.len() <= 512 * 1024, |ui| {
@@ -831,7 +924,7 @@ fn draw(
                         s.ui.notice = error;
                     }
                 }
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.small(if s.persistence.busy() {
                         "Saving checkpoint…"
                     } else {
@@ -867,7 +960,7 @@ fn draw(
                     }
                 });
             }
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if let Some(lobby) = &network.0 {
                     ui.label(&lobby.notice);
                     if ui.button("Leave room and return to roost").clicked() {
@@ -899,17 +992,18 @@ fn draw(
                     if let Some(brief) = dragon_game::content::briefing(&mission) {
                         ui.label(brief);
                     }
-                    if ui
-                        .button(if lobby.party.ready == lobby.party.mission {
-                            "Not ready"
-                        } else {
-                            "Ready"
-                        })
-                        .clicked()
-                    {
+                    let ready = ui.button(if lobby.party.ready == lobby.party.mission {
+                        "Not ready"
+                    } else {
+                        "Ready"
+                    });
+                    probe_button("ready", &ready);
+                    if ready.clicked() {
                         lobby.party.toggle_ready();
                     }
-                    if ui.button("Start now / join this mission").clicked() {
+                    let start = ui.button("Start now / join this mission");
+                    probe_button("start", &start);
+                    if start.clicked() {
                         match lobby.launch_party(adventure, &mission) {
                             Ok(events) => s.ui.events(events),
                             Err(error) => s.ui.notice = error,

@@ -157,9 +157,14 @@ fn main() {
 }
 
 fn run_app() {
+    let plugins = DefaultPlugins.build();
+    // Browser sounds use the existing direct WebAudio backends. Do not open a
+    // second CPAL device at startup merely to enable native adventure audio.
+    #[cfg(target_arch = "wasm32")]
+    let plugins = plugins.disable::<bevy::audio::AudioPlugin>();
     App::new()
         .add_plugins(
-            DefaultPlugins
+            plugins
                 .set(AssetPlugin {
                     // The pictures sit next to the page in `assets/`. Don't
                     // ask the server for `.meta` files we never write.

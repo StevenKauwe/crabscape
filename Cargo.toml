@@ -37,6 +37,8 @@ workspace = true
 [features]
 # Developer-only, shadow-world WebRTC transport probe. Never enables gameplay.
 cellular-transport-probe = ["matchbox_socket/probe-ingress"]
+# Explicit isolated browser integration; never enabled by production builds.
+valmora-loopback-test = ["dragon-peer/loopback-test"]
 
 [dependencies]
 dragon-game = { path = "crates/dragon-game" }

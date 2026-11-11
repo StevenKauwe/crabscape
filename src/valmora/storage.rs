@@ -13,6 +13,9 @@ use serde_json::Value;
 #[path = "storage/preferences.rs"]
 mod preferences;
 pub use preferences::{Preferences, PreferencesLoaded};
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "storage/legacy_browser.rs"]
+mod legacy_browser;
 
 #[cfg(target_arch = "wasm32")]
 #[path = "storage/browser.rs"]
