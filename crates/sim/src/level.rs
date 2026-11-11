@@ -17,6 +17,7 @@ use crate::enemy::Kind;
 use crate::tuning::TideTuning;
 
 pub mod bands;
+mod bestiary;
 mod circulation;
 pub(crate) mod coral_rise;
 mod exploration;
@@ -628,6 +629,9 @@ impl Level {
         hub::shape(&mut level);
         refuges::shape(&mut level);
         lower_canyon::shape(&mut level);
+        // Last, so every place a creature anchors to (landmarks, refuges, the
+        // lower canyon) exists.
+        bestiary::place(&mut level);
         level
     }
 

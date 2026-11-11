@@ -1,0 +1,88 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/loggerhead-turtle/loggerhead-turtle-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "loggerhead-turtle-atlas.png",
+ "atlas_size": [
+  1024,
+  256
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  660.3,
+  429.7
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    620.0,
+    271.8
+   ],
+   "bbox": [
+    55.2,
+    92.3,
+    1098.7,
+    343.4
+   ],
+   "rect": [
+    3,
+    3,
+    660,
+    207
+   ],
+   "z": 0,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    1004.0,
+    271.8
+   ],
+   "bbox": [
+    935.6,
+    152.2,
+    329.8,
+    238.1
+   ],
+   "rect": [
+    666,
+    3,
+    198,
+    143
+   ],
+   "z": 1,
+   "members": [
+    "head"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    1156.0,
+    247.8
+   ],
+   "bbox": [
+    1127.0,
+    219.8,
+    57.5,
+    56.1
+   ],
+   "rect": [
+    867,
+    3,
+    35,
+    34
+   ],
+   "z": 2,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,88 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/hagfish/hagfish-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "hagfish-atlas.png",
+ "atlas_size": [
+  1024,
+  64
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  370.4,
+  182.1
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    360.0,
+    142.9
+   ],
+   "bbox": [
+    55.1,
+    92.3,
+    620.2,
+    95.8
+   ],
+   "rect": [
+    3,
+    3,
+    373,
+    58
+   ],
+   "z": 0,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    616.0,
+    142.9
+   ],
+   "bbox": [
+    594.8,
+    108.2,
+    90.9,
+    69.0
+   ],
+   "rect": [
+    379,
+    3,
+    55,
+    42
+   ],
+   "z": 1,
+   "members": [
+    "head"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    654.0,
+    136.9
+   ],
+   "bbox": [
+    642.0,
+    125.6,
+    23.7,
+    22.8
+   ],
+   "rect": [
+    437,
+    3,
+    15,
+    14
+   ],
+   "z": 2,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,88 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/viperfish/viperfish-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "viperfish-atlas.png",
+ "atlas_size": [
+  1024,
+  64
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  227.95,
+  161.8
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    220.0,
+    132.2
+   ],
+   "bbox": [
+    55.1,
+    92.3,
+    331.9,
+    75.5
+   ],
+   "rect": [
+    3,
+    3,
+    200,
+    46
+   ],
+   "z": 0,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    347.0,
+    132.2
+   ],
+   "bbox": [
+    329.7,
+    104.6,
+    71.1,
+    54.8
+   ],
+   "rect": [
+    206,
+    3,
+    43,
+    33
+   ],
+   "z": 1,
+   "members": [
+    "head"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    375.5,
+    127.7
+   ],
+   "bbox": [
+    364.9,
+    117.8,
+    20.9,
+    20.0
+   ],
+   "rect": [
+    252,
+    3,
+    13,
+    12
+   ],
+   "z": 2,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,88 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/hermit-crab/hermit-crab-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "hermit-crab-atlas.png",
+ "atlas_size": [
+  1024,
+  128
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  138.95,
+  212.9
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    130.0,
+    159.0
+   ],
+   "bbox": [
+    54.7,
+    92.9,
+    139.8,
+    126.0
+   ],
+   "rect": [
+    3,
+    3,
+    84,
+    76
+   ],
+   "z": 0,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    161.5,
+    159.0
+   ],
+   "bbox": [
+    142.2,
+    127.8,
+    81.0,
+    62.0
+   ],
+   "rect": [
+    90,
+    3,
+    49,
+    38
+   ],
+   "z": 1,
+   "members": [
+    "head"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    194.8,
+    153.8
+   ],
+   "bbox": [
+    183.5,
+    143.2,
+    22.2,
+    21.3
+   ],
+   "rect": [
+    142,
+    3,
+    14,
+    13
+   ],
+   "z": 2,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}

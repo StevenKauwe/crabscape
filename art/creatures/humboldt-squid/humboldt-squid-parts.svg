@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1425" height="389" viewBox="0 0 1425 389">
+<defs>
+<linearGradient id="gp-body_0" gradientUnits="userSpaceOnUse" x1="621.7" y1="-40.4" x2="748.9" y2="468.5"><stop offset="0" stop-color="#E0605A"/><stop offset=".48" stop-color="#A52E3A"/><stop offset="1" stop-color="#4F1424"/></linearGradient>
+<linearGradient id="gp-head_1" gradientUnits="userSpaceOnUse" x1="1230.4" y1="119.7" x2="1279.6" y2="316.4"><stop offset="0" stop-color="#e88883"/><stop offset=".48" stop-color="#E0605A"/><stop offset="1" stop-color="#A52E3A"/></linearGradient>
+<linearGradient id="gp-eye_2" gradientUnits="userSpaceOnUse" x1="1289" y1="183.5" x2="1298" y2="219.7"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+</defs>
+<!-- Humboldt squid: placeholder rig (bestiary scaffold). -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Humboldt squid · rig parts</text>
+<g id="body" data-parent="root" data-pivot="685.0,218.1">
+<g>
+<path id="p-body_0" d="M61.1 229.3L93.9 200.7L166.1 164.6L263.5 129.8L372.3 106.3L501.2 98.3L653.3 100.4L805.6 108.3L935 119L1039.4 133.7L1129.7 153.3L1202.5 174.8L1254.8 196.4L1291.9 222.3L1312.5 254.2L1303.3 284.8L1255.1 306.5L1148 319L993.4 325L827.1 326.1L685 325.9L574.6 325.9L477.4 324.2L390.2 318.4L309.8 307.5L225.4 292.3L142 274L80.1 252.6Z" fill="url(#gp-body_0)"/>
+<path d="M61.1 229.3L93.9 200.7L166.1 164.6L263.5 129.8L372.3 106.3L501.2 98.3L653.3 100.4L805.6 108.3L935 119L1039.4 133.7L1129.7 153.3L1202.5 174.8L1254.8 196.4L1291.9 222.3L1312.5 254.2L1303.3 284.8L1255.1 306.5L1148 319L993.4 325L827.1 326.1L685 325.9L574.6 325.9L477.4 324.2L390.2 318.4L309.8 307.5L225.4 292.3L142 274L80.1 252.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M1303.3 284.8L1255.1 306.5L1148 319L993.4 325L827.1 326.1L685 325.9L574.6 325.9L477.4 324.2L390.2 318.4L309.8 307.5L225.4 292.3L142 274L80.1 252.6" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head" data-parent="body" data-pivot="1189.0,218.1">
+<g>
+<path id="p-head_1" d="M1364.5 218.1L1358.3 241.3L1342.6 261.9L1319.6 280.2L1289 291.3L1255 295.6L1220.5 293.5L1189.8 281.4L1165.6 263.7L1149.9 242.1L1146.5 218.1L1151.9 195L1166.6 173.4L1191 157.1L1221 144.6L1255 139.6L1289.2 144L1320.5 154.2L1344.8 172L1358.9 194.6Z" fill="url(#gp-head_1)"/>
+<path d="M1364.5 218.1L1358.3 241.3L1342.6 261.9L1319.6 280.2L1289 291.3L1255 295.6L1220.5 293.5L1189.8 281.4L1165.6 263.7L1149.9 242.1L1146.5 218.1L1151.9 195L1166.6 173.4L1191 157.1L1221 144.6L1255 139.6L1289.2 144L1320.5 154.2L1344.8 172L1358.9 194.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M1358.3 241.3L1342.6 261.9L1319.6 280.2L1289 291.3L1255 295.6L1220.5 293.5L1189.8 281.4L1165.6 263.7" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye" data-parent="head" data-pivot="1293.5,201.6">
+<g>
+<path id="p-eye_2" d="M1309 201.6L1306.8 209.3L1300.8 214.3L1293.5 216.8L1285.7 215.1L1279.8 209.5L1277.6 201.6L1280.6 194.1L1286 188.5L1293.5 186.6L1301.3 188L1307.4 193.6Z" fill="url(#gp-eye_2)"/>
+<path d="M1309 201.6L1306.8 209.3L1300.8 214.3L1293.5 216.8L1285.7 215.1L1279.8 209.5L1277.6 201.6L1280.6 194.1L1286 188.5L1293.5 186.6L1301.3 188L1307.4 193.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M1306.8 209.3L1300.8 214.3L1293.5 216.8L1285.7 215.1" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="685.0" cy="218.1" r="3" fill="#00A0FF"><title>body</title></circle>
+<circle cx="1189.0" cy="218.1" r="3" fill="#00A0FF"><title>head</title></circle>
+<circle cx="1293.5" cy="201.6" r="3" fill="#00A0FF"><title>eye</title></circle>
+</g>
+</svg>

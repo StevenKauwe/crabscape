@@ -59,6 +59,7 @@ pub mod chimney;
 pub mod codes;
 pub mod combat;
 pub mod craft;
+pub mod creatures;
 pub mod enemy;
 pub mod feel;
 pub mod hash;

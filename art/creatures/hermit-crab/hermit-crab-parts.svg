@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="278" height="275" viewBox="0 0 278 275">
+<defs>
+<linearGradient id="gp-body_0" gradientUnits="userSpaceOnUse" x1="106.5" y1="88.4" x2="140.8" y2="225.7"><stop offset="0" stop-color="#E3A36A"/><stop offset=".48" stop-color="#B8703F"/><stop offset="1" stop-color="#6B3A1E"/></linearGradient>
+<linearGradient id="gp-head_1" gradientUnits="userSpaceOnUse" x1="174.7" y1="127.7" x2="190.3" y2="190.3"><stop offset="0" stop-color="#eaba8f"/><stop offset=".48" stop-color="#E3A36A"/><stop offset="1" stop-color="#B8703F"/></linearGradient>
+<linearGradient id="gp-eye_2" gradientUnits="userSpaceOnUse" x1="193.3" y1="148" x2="196.2" y2="159.6"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+</defs>
+<!-- Hermit crab: placeholder rig (bestiary scaffold). -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Hermit crab · rig parts</text>
+<g id="body" data-parent="root" data-pivot="130.0,159.0">
+<g>
+<path id="p-body_0" d="M60.7 164.6L64.9 149.9L72.7 132L82.7 114.9L94.4 103L109.6 98.9L127.2 100.1L144.4 104.1L158 109.5L167.1 116.8L173.1 126.3L177.8 136.9L182.3 148.1L186.4 161.5L188.5 177.2L187.4 192.1L182.7 203.2L172.9 209.5L158.8 212.4L143.6 212.9L130 212.7L118.5 212.8L107.3 212.2L96.8 209.4L87.5 203.8L78.3 196.1L69.1 187L62.3 176.3Z" fill="url(#gp-body_0)"/>
+<path d="M60.7 164.6L64.9 149.9L72.7 132L82.7 114.9L94.4 103L109.6 98.9L127.2 100.1L144.4 104.1L158 109.5L167.1 116.8L173.1 126.3L177.8 136.9L182.3 148.1L186.4 161.5L188.5 177.2L187.4 192.1L182.7 203.2L172.9 209.5L158.8 212.4L143.6 212.9L130 212.7L118.5 212.8L107.3 212.2L96.8 209.4L87.5 203.8L78.3 196.1L69.1 187L62.3 176.3Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M187.4 192.1L182.7 203.2L172.9 209.5L158.8 212.4L143.6 212.9L130 212.7L118.5 212.8L107.3 212.2L96.8 209.4L87.5 203.8L78.3 196.1L69.1 187" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head" data-parent="body" data-pivot="161.5,159.0">
+<g>
+<path id="p-head_1" d="M217.2 159L215.2 166.3L210.1 172.7L203 178.8L193.3 182.3L182.5 183.8L171.5 183.3L161.7 179.3L154 173.6L149 166.7L148.2 159L149.9 151.8L154.5 144.9L162.2 139.8L171.7 135.6L182.5 133.8L193.4 135.3L203.5 138.5L211.2 144.3L215.5 151.6Z" fill="url(#gp-head_1)"/>
+<path d="M217.2 159L215.2 166.3L210.1 172.7L203 178.8L193.3 182.3L182.5 183.8L171.5 183.3L161.7 179.3L154 173.6L149 166.7L148.2 159L149.9 151.8L154.5 144.9L162.2 139.8L171.7 135.6L182.5 133.8L193.4 135.3L203.5 138.5L211.2 144.3L215.5 151.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M215.2 166.3L210.1 172.7L203 178.8L193.3 182.3L182.5 183.8L171.5 183.3L161.7 179.3L154 173.6" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye" data-parent="head" data-pivot="194.8,153.8">
+<g>
+<path id="p-eye_2" d="M199.7 153.8L199 156.2L196.9 157.6L194.8 158.5L192.2 158.2L190.2 156.4L189.5 153.8L190.8 151.5L192.4 149.8L194.8 149.2L197.3 149.4L199.4 151.1Z" fill="url(#gp-eye_2)"/>
+<path d="M199.7 153.8L199 156.2L196.9 157.6L194.8 158.5L192.2 158.2L190.2 156.4L189.5 153.8L190.8 151.5L192.4 149.8L194.8 149.2L197.3 149.4L199.4 151.1Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M199 156.2L196.9 157.6L194.8 158.5L192.2 158.2" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="130.0" cy="159.0" r="3" fill="#00A0FF"><title>body</title></circle>
+<circle cx="161.5" cy="159.0" r="3" fill="#00A0FF"><title>head</title></circle>
+<circle cx="194.8" cy="153.8" r="3" fill="#00A0FF"><title>eye</title></circle>
+</g>
+</svg>

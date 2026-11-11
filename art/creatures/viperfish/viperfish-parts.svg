@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="455" height="223" viewBox="0 0 455 223">
+<defs>
+<linearGradient id="gp-body_0" gradientUnits="userSpaceOnUse" x1="202.9" y1="64.3" x2="236.3" y2="197.9"><stop offset="0" stop-color="#6FA3B8"/><stop offset=".48" stop-color="#3E6E86"/><stop offset="1" stop-color="#1D3A4E"/></linearGradient>
+<linearGradient id="gp-head_1" gradientUnits="userSpaceOnUse" x1="358.3" y1="105.4" x2="371.7" y2="159"><stop offset="0" stop-color="#93baca"/><stop offset=".48" stop-color="#6FA3B8"/><stop offset="1" stop-color="#3E6E86"/></linearGradient>
+<linearGradient id="gp-eye_2" gradientUnits="userSpaceOnUse" x1="374.3" y1="122.8" x2="376.7" y2="132.6"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+</defs>
+<!-- Viperfish: placeholder rig (bestiary scaffold). -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Viperfish · rig parts</text>
+<g id="body" data-parent="root" data-pivot="220.0,132.2">
+<g>
+<path id="p-body_0" d="M61.1 135.5L69.6 128.7L87.6 118.7L112 107.9L139.8 100.4L172.9 98.3L212 99.5L251 102L284 105.1L310.4 109.7L333 115.9L351.2 121.8L364.8 126.5L375.2 132.7L381 141.8L377.9 151L365.1 156.6L337.8 159.9L298.5 161.1L256.2 160.5L220 160L191.8 160.9L166.9 161.8L144.4 161L123.8 157.6L102.3 152.8L80.9 147.7L65.2 141.6Z" fill="url(#gp-body_0)"/>
+<path d="M61.1 135.5L69.6 128.7L87.6 118.7L112 107.9L139.8 100.4L172.9 98.3L212 99.5L251 102L284 105.1L310.4 109.7L333 115.9L351.2 121.8L364.8 126.5L375.2 132.7L381 141.8L377.9 151L365.1 156.6L337.8 159.9L298.5 161.1L256.2 160.5L220 160L191.8 160.9L166.9 161.8L144.4 161L123.8 157.6L102.3 152.8L80.9 147.7L65.2 141.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M377.9 151L365.1 156.6L337.8 159.9L298.5 161.1L256.2 160.5L220 160L191.8 160.9L166.9 161.8L144.4 161L123.8 157.6L102.3 152.8L80.9 147.7L65.2 141.6" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head" data-parent="body" data-pivot="347.0,132.2">
+<g>
+<path id="p-head_1" d="M394.8 132.2L393 138.4L388.6 143.9L382.6 149.1L374.3 152.2L365 153.4L355.5 153.1L347.1 149.6L340.6 144.7L336.3 138.8L335.7 132.2L337.1 126L341 120.1L347.6 115.8L355.7 112.1L365 110.6L374.4 111.9L383 114.5L389.6 119.5L393.2 125.9Z" fill="url(#gp-head_1)"/>
+<path d="M394.8 132.2L393 138.4L388.6 143.9L382.6 149.1L374.3 152.2L365 153.4L355.5 153.1L347.1 149.6L340.6 144.7L336.3 138.8L335.7 132.2L337.1 126L341 120.1L347.6 115.8L355.7 112.1L365 110.6L374.4 111.9L383 114.5L389.6 119.5L393.2 125.9Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M393 138.4L388.6 143.9L382.6 149.1L374.3 152.2L365 153.4L355.5 153.1L347.1 149.6L340.6 144.7" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye" data-parent="head" data-pivot="375.5,127.7">
+<g>
+<path id="p-eye_2" d="M379.8 127.7L379.1 129.8L377.3 130.9L375.5 131.8L373.3 131.5L371.6 130L370.9 127.7L372.2 125.8L373.5 124.3L375.5 123.8L377.7 123.9L379.6 125.4Z" fill="url(#gp-eye_2)"/>
+<path d="M379.8 127.7L379.1 129.8L377.3 130.9L375.5 131.8L373.3 131.5L371.6 130L370.9 127.7L372.2 125.8L373.5 124.3L375.5 123.8L377.7 123.9L379.6 125.4Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M379.1 129.8L377.3 130.9L375.5 131.8L373.3 131.5" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="220.0" cy="132.2" r="3" fill="#00A0FF"><title>body</title></circle>
+<circle cx="347.0" cy="132.2" r="3" fill="#00A0FF"><title>head</title></circle>
+<circle cx="375.5" cy="127.7" r="3" fill="#00A0FF"><title>eye</title></circle>
+</g>
+</svg>

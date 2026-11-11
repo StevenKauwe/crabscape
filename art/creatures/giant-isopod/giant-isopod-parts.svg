@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="525" height="264" viewBox="0 0 525 264">
+<defs>
+<linearGradient id="gp-body_0" gradientUnits="userSpaceOnUse" x1="222.3" y1="59.4" x2="268.5" y2="244.3"><stop offset="0" stop-color="#C9C1B0"/><stop offset=".48" stop-color="#968E7E"/><stop offset="1" stop-color="#524C41"/></linearGradient>
+<linearGradient id="gp-head_1" gradientUnits="userSpaceOnUse" x1="403.8" y1="109" x2="426.2" y2="198.4"><stop offset="0" stop-color="#d7d1c4"/><stop offset=".48" stop-color="#C9C1B0"/><stop offset="1" stop-color="#968E7E"/></linearGradient>
+<linearGradient id="gp-eye_2" gradientUnits="userSpaceOnUse" x1="430.4" y1="137.9" x2="434.6" y2="154.4"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+</defs>
+<!-- Giant isopod: placeholder rig (bestiary scaffold). -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Giant isopod · rig parts</text>
+<g id="body" data-parent="root" data-pivot="250.0,153.7">
+<g>
+<path id="p-body_0" d="M61.2 158.9L71.4 146.5L92.9 130L121.8 113.4L154.7 101.9L194.3 98.3L240.9 99.7L287.3 103.6L326 108.6L355.9 115.7L380.5 125.2L399.9 134.9L414.7 143.9L426.4 155.3L432.8 170L429.6 184.2L415.1 194.1L384.2 199.7L339.6 202L291.5 201.9L250 201.5L217.1 202.1L187.4 202.4L160.3 200.3L135.7 195.1L110.2 187.7L84.8 179.2L66.1 169.3Z" fill="url(#gp-body_0)"/>
+<path d="M61.2 158.9L71.4 146.5L92.9 130L121.8 113.4L154.7 101.9L194.3 98.3L240.9 99.7L287.3 103.6L326 108.6L355.9 115.7L380.5 125.2L399.9 134.9L414.7 143.9L426.4 155.3L432.8 170L429.6 184.2L415.1 194.1L384.2 199.7L339.6 202L291.5 201.9L250 201.5L217.1 202.1L187.4 202.4L160.3 200.3L135.7 195.1L110.2 187.7L84.8 179.2L66.1 169.3Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M429.6 184.2L415.1 194.1L384.2 199.7L339.6 202L291.5 201.9L250 201.5L217.1 202.1L187.4 202.4L160.3 200.3L135.7 195.1L110.2 187.7L84.8 179.2L66.1 169.3" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head" data-parent="body" data-pivot="385.0,153.7">
+<g>
+<path id="p-head_1" d="M464.7 153.7L461.8 164.1L454.6 173.4L444.3 181.9L430.5 187L415 189L399.3 188.2L385.3 182.6L374.3 174.5L367.2 164.6L365.9 153.7L368.3 143.3L374.9 133.5L386 126.1L399.5 120.3L415 117.8L430.6 119.9L444.9 124.4L455.9 132.6L462.1 143Z" fill="url(#gp-head_1)"/>
+<path d="M464.7 153.7L461.8 164.1L454.6 173.4L444.3 181.9L430.5 187L415 189L399.3 188.2L385.3 182.6L374.3 174.5L367.2 164.6L365.9 153.7L368.3 143.3L374.9 133.5L386 126.1L399.5 120.3L415 117.8L430.6 119.9L444.9 124.4L455.9 132.6L462.1 143Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M461.8 164.1L454.6 173.4L444.3 181.9L430.5 187L415 189L399.3 188.2L385.3 182.6L374.3 174.5" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye" data-parent="head" data-pivot="432.5,146.2">
+<g>
+<path id="p-eye_2" d="M439.6 146.2L438.6 149.7L435.7 151.7L432.5 153L428.9 152.4L426.2 149.8L425.1 146.2L426.8 142.9L429.1 140.3L432.5 139.5L436.1 140L439 142.4Z" fill="url(#gp-eye_2)"/>
+<path d="M439.6 146.2L438.6 149.7L435.7 151.7L432.5 153L428.9 152.4L426.2 149.8L425.1 146.2L426.8 142.9L429.1 140.3L432.5 139.5L436.1 140L439 142.4Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M438.6 149.7L435.7 151.7L432.5 153L428.9 152.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="250.0" cy="153.7" r="3" fill="#00A0FF"><title>body</title></circle>
+<circle cx="385.0" cy="153.7" r="3" fill="#00A0FF"><title>head</title></circle>
+<circle cx="432.5" cy="146.2" r="3" fill="#00A0FF"><title>eye</title></circle>
+</g>
+</svg>
