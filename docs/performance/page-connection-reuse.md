@@ -76,8 +76,9 @@ A later quiet A/B/B/A sequence compares CI-built baseline `ea7239d9` (includes
 #557; its additional #562 change is CI-only) with candidate `e2c82315` (the CI
 merge of PR head `e0f6a89` into `e0d4090`). Both artifacts use the same local Rust
 HTTP server, separate disposable browser profiles, the same synthetic canyon
-save, hardware rendering and 4x CDP CPU throttling. This is a desktop proxy,
-not physical-phone testing.
+save and 4x CDP CPU throttling. Every invocation set `CRABSCAPE_PROFILE_GPU=1`
+to request hardware rendering; the renderer string was not independently logged.
+This is a desktop proxy, not physical-phone testing.
 
 The probe selects eight **complete** production read spans after attachment;
 it excludes the initial read already in progress. All four runs have identical
