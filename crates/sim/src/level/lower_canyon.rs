@@ -113,20 +113,22 @@ fn build_specs() -> Vec<Frame> {
         name: "home burrow",
         rect: r,
         kind: Some(Tunnel),
-        gaps: vec![top(r, 172.0, 96.0, true), top(r, 560.0, 100.0, true)],
+        gaps: vec![top(r, 172.0, 96.0, true), top(r, 588.0, 96.0, true)],
         doors: vec![
             Rect::new(124.0, -24.0, 220.0, -4.0),
-            Rect::new(510.0, -24.0, 610.0, -4.0),
+            Rect::new(540.0, -24.0, 636.0, -4.0),
         ],
-        shafts: vec![
-            // Each rests on the clay inside the frame (nothing hangs over
-            // open water: unsupported sediment falls), and the crab digs
-            // sideways through a clay wall into the gallery between them.
-            Rect::new(124.0, -440.0, 220.0, 0.0),
-            Rect::new(510.0, -440.0, 610.0, 0.0),
-        ],
+        // Door one is a silt shaft (the first dig, resting on the frame's
+        // clay: nothing hangs over open water, unsupported sediment falls);
+        // door two is a cased water shaft: a crab cannot dig up through a
+        // long sealed column (grains need water within claw reach), so the
+        // way out is a swim. It stands east of the shallow shortcut's sand.
+        shafts: vec![Rect::new(124.0, -440.0, 220.0, 0.0)],
         // The gallery hangs from the frame's own bedrock roof.
-        voids: vec![Rect::new(240.0, -532.0, 490.0, -460.0)],
+        voids: vec![
+            Rect::new(240.0, -532.0, 636.0, -460.0),
+            Rect::new(540.0, -460.0, 636.0, 40.0),
+        ],
         chamber: None,
     });
 
@@ -346,6 +348,12 @@ pub(super) fn shape(level: &mut Level) {
     for spec in specs() {
         frame(level, spec);
     }
+    // A rock casing around the home burrow's water shaft, so the floor's
+    // sand cannot slump down it into the gallery.
+    level.rocks.extend([
+        Rect::new(524.0, -100.0, 540.0, 34.0),
+        Rect::new(636.0, -100.0, 652.0, 50.0),
+    ]);
     // The warm seam sits behind a crust that only a full crusher charge
     // cracks; the long chimney's crust plug caps its top (see `frame`).
     level.brittle.push(Brittle {

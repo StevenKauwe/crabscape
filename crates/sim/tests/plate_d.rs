@@ -182,7 +182,9 @@ fn baked_cavities_stay_open_water() {
             println!("{:?}: {:.0}% water", void, f * 100.0);
         }
     }
-    let gallery = level.strata()[0].voids[0];
+    // The walking corridor between the doors (the water shaft's foot is
+    // where the floor's sand lands).
+    let gallery = Rect::new(240.0, -532.0, 540.0, -460.0);
     assert!(water_fraction(&level, gallery) >= 0.8, "gallery filled in");
 }
 
@@ -217,6 +219,14 @@ fn dig_sim(at: Vec2) -> Sim {
     sim
 }
 
+/// What the game does every frame: the cell window follows the crab.
+fn follow(sim: &mut Sim) {
+    let p = sim.crab(PlayerId(0)).unwrap().mover.pos;
+    let mut cells = sim.level.cells.take().expect("cells");
+    cells.follow_player(&sim.level, p.x, p.y);
+    sim.level.cells = Some(cells);
+}
+
 #[test]
 fn home_burrow_has_two_exits_and_no_hunters() {
     let level = Level::test_level();
@@ -232,6 +242,7 @@ fn home_burrow_has_two_exits_and_no_hunters() {
         assert!(level.strata().iter().any(|b| {
             b.shafts
                 .iter()
+                .chain(&b.voids)
                 .any(|s| s.contains(mouth.center() - Vec2::Y * 30.0))
         }));
     }
@@ -282,7 +293,7 @@ fn home_burrow_round_trip_is_cheap() {
     let mut sim = dig_sim(Vec2::new(172.0, 40.0));
     let mut min_reserve = 1.0_f32;
     let mut phase = 0;
-    for tick in 0..120 * 25 {
+    for tick in 0..120 * 40 {
         let p = sim.crab(PlayerId(0)).unwrap().mover.pos;
         if tick % 240 == 0 {
             eprintln!(
@@ -303,7 +314,7 @@ fn home_burrow_round_trip_is_cheap() {
                 down: true,
                 ..Default::default()
             },
-            1 if p.x > 540.0 => {
+            1 if p.x > 586.0 => {
                 phase = 2;
                 Controls::default()
             }
@@ -320,13 +331,13 @@ fn home_burrow_round_trip_is_cheap() {
                 return;
             }
             _ => Controls {
-                dig_held: true,
-                dig_up: true,
                 jump_held: true,
+                jump_pressed: tick % 40 == 0,
                 ..Default::default()
             },
         };
         sim.set_controls(PlayerId(0), controls);
+        follow(&mut sim);
         sim.tick();
     }
     panic!(
@@ -339,8 +350,9 @@ fn home_burrow_round_trip_is_cheap() {
 #[ignore]
 fn dump_col() {
     use crabsim::underwater::{Cell, GAME_BOTTOM, GAME_CELL, initial_terrain_cell};
-    let level = Level::test_level();
-    for x in [160.0, 200.0, 240.0, 560.0] {
+    let mut level = Level::test_level();
+    level.max_x += 1.0;
+    for x in [480.0, 520.0, 560.0, 600.0, 630.0] {
         let mut row = String::new();
         let mut y = 40.0;
         while y > -480.0 {

@@ -46,8 +46,12 @@ fn shaft_interiors<'a>(name: &'a str) -> impl Iterator<Item = Rect> + 'a {
     lower_canyon::specs()
         .iter()
         .filter(move |f| f.name == name)
-        .flat_map(|f| f.shafts.iter())
-        .map(|r| Rect::new(r.min.x, r.min.y, r.max.x, r.max.y - 4.0))
+        .flat_map(|f| {
+            f.shafts
+                .iter()
+                .chain(f.voids.iter().filter(move |v| v.min.y >= f.rect.max.y))
+        })
+        .map(|r| Rect::new(r.min.x, r.min.y, r.max.x, r.max.y.min(-4.0)))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +79,7 @@ fn bodies() -> &'static [StrataBody] {
                     .filter(|g| g.open)
                     .map(|g| g.rect)
                     .chain(f.shafts.iter().copied())
+                    .chain(f.voids.iter().copied())
                     .collect(),
                 // Owned pebble aggregates cannot be represented by the scalar
                 // bake: clay (mud) stands in for every layer.
