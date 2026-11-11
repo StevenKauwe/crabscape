@@ -754,3 +754,6 @@ mod delegated_stop_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod delegated_lease_boundary;

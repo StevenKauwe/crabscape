@@ -85,6 +85,14 @@ fn fault(e: impl std::fmt::Debug) -> String {
     format!("Regional world: {e:?}")
 }
 fn frame_fault(sim: &Sim, frame: &RegionFrame, error: impl std::fmt::Debug) -> String {
+    frame_fault_context(sim, frame, error, "")
+}
+fn frame_fault_context(
+    sim: &Sim,
+    frame: &RegionFrame,
+    error: impl std::fmt::Debug,
+    context: &str,
+) -> String {
     if let Some(canvas) = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id("crabscape"))
@@ -92,10 +100,23 @@ fn frame_fault(sim: &Sim, frame: &RegionFrame, error: impl std::fmt::Debug) -> S
         let members: Vec<_> = sim.crabs().iter().map(|c| c.id.0).collect();
         let controls: Vec<_> = frame.controls.iter().map(|(id, _)| id.0).collect();
         let actions: Vec<_> = frame.actions.iter().map(|(id, _)| id.0).collect();
+        let actors: Vec<_> = sim
+            .crabs()
+            .iter()
+            .map(|c| {
+                (
+                    c.id.0,
+                    c.mover.pos,
+                    c.mover.vel,
+                    c.fighter.vitals.health,
+                    c.fighter.dead.is_some(),
+                )
+            })
+            .collect();
         let _ = canvas.set_attribute(
             "data-cell-frame-error",
             &format!(
-                "world={} frame={} members={members:?} controls={controls:?} actions={actions:?} error={error:?}",
+                "world={} frame={} members={members:?} controls={controls:?} actions={actions:?} actors=(id,pos,vel,health,dead){actors:?} {context} error={error:?}",
                 sim.tick_count(),
                 frame.tick
             ),

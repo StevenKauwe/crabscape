@@ -141,7 +141,19 @@ pub(super) fn step(
         follower_boundaries(r, sim, leader)?;
         if let Some(frame) = r.frames.pop_front() {
             let k = r.kernel.as_mut().ok_or("Missing follower kernel")?;
-            k.tick_view(sim, &frame).map_err(fault)?;
+            k.tick_view(sim, &frame).map_err(|error| {
+                frame_fault_context(
+                    sim,
+                    &frame,
+                    error,
+                    &format!(
+                        "role=follower region={:?} epoch={:?} bounds={:?} leader={leader:?}",
+                        k.id,
+                        k.epoch,
+                        k.bounds()
+                    ),
+                )
+            })?;
 
             r.journal
                 .as_mut()
@@ -219,7 +231,17 @@ pub(super) fn step(
         actions: m.actions.drain(..).collect(),
     };
     let k = r.kernel.as_mut().expect("kernel");
-    k.tick_view(sim, &frame).map_err(fault)?;
+    k.tick_view(sim, &frame).map_err(|error| {
+        frame_fault_context(
+            sim,
+            &frame,
+            error,
+            &format!(
+                "role=delegated region={:?} epoch={:?} bounds={:?} requested={} stopping={} applied={} partial={}",
+                k.id, k.epoch, k.bounds(), m.region_requested, m.stopping, r.applied, r.partial.len()
+            ),
+        )
+    })?;
     m.executed_ticks += 1;
     for c in m.drive.values_mut() {
         *c = c.held_only();
