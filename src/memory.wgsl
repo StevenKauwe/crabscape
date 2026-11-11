@@ -7,18 +7,23 @@
 // with linear filtering so its edges are soft, and broken up a little with
 // noise so the edges look remembered rather than cut.
 
+struct Light {
+    // Position, inner radius, outer radius. Zero radius is unused.
+    geometry: vec4<f32>,
+    luminosity: f32,
+};
+
 struct MemoryUniform {
     color: vec4<f32>,
     water: vec4<f32>,
     // The grid in world units: left, bottom, width, height.
     grid: vec4<f32>,
-    // Each light: position, inner radius, outer radius. Zero radius is unused.
-    lights: array<vec4<f32>, 8>,
+    lights: array<Light, 8>,
 };
 
 struct MemoryGlobals {
     grid: vec4<f32>,
-    lights: array<vec4<f32>, 8>,
+    lights: array<Light, 8>,
 };
 @group(2) @binding(3) var<uniform> globals: MemoryGlobals;
 
@@ -51,10 +56,10 @@ fn noise(p: vec2<f32>) -> f32 {
 fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
     var brightness = 0.0;
     for (var i = 0; i < 8; i += 1) {
-        let light = globals.lights[i];
+        let light = globals.lights[i].geometry;
         if light.w > light.z {
             let amount = 1.0 - smoothstep(light.z, light.w, distance(p, light.xy));
-            brightness = max(brightness, amount);
+            brightness = max(brightness, amount * globals.lights[i].luminosity);
         }
     }
     // Match lantern.rs `daylight`: the canyon represents the twilight
@@ -67,7 +72,9 @@ fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
     // The terrain palette was painted for a dark seabed; its unlit colours
     // alone are too dim to read when the yellow wash is removed. Lift the
     // shape's own colour in the lantern, without tinting or softening it.
-    let exposure = max(daylight, mix(daylight, 3.0, brightness));
+    // Scale the lamp contribution before the final colour limit, not a
+    // blend already clamped to one. Daylight and unlit water stay unchanged.
+    let exposure = daylight + max(3.0 - daylight, 0.0) * brightness;
     let strongest_channel = max(max(c.r, c.g), max(c.b, 0.0001));
     // Preserve the shape's colour even for pale shells: never clip one
     // channel before the others when lifting its brightness.

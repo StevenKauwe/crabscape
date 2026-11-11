@@ -24,7 +24,7 @@ use bevy::transform::TransformSystems;
 use crabsim::{Mover, Sim};
 
 use crate::effects::SoftTextures;
-use crate::memory::{MemoryGlobals, depth_factor};
+use crate::memory::{LightUniform, MemoryGlobals, depth_factor};
 use crate::tuning::ViewTuning;
 
 /// The light itself (the middle of the jar).
@@ -101,6 +101,16 @@ pub fn band_light_reach(
     band: &crabsim::level::bands::Band,
 ) -> f32 {
     light_reach(tuning, cultures) * band.lantern_reach_factor
+}
+
+/// Brighten the full lamp, while keeping the existing shaded output and
+/// its smaller radius. A lamp's appearance never changes simulation sight.
+fn luminosity(tuning: &ViewTuning, mover: Option<&Mover>) -> f32 {
+    if mover.is_some_and(|m| m.lantern_dim) {
+        1.0
+    } else {
+        tuning.lantern_luminosity
+    }
 }
 
 /// The current light radius after flicker, shared by the systems below.
@@ -241,6 +251,7 @@ pub fn spawn_lantern(
 /// culture the crab has brought home makes it reach further.
 fn flicker(
     sim: Res<Sim>,
+    tuning: Res<ViewTuning>,
     time: Res<Time>,
     mut flicker: ResMut<Flicker>,
     crabs: Query<&Mover>,
@@ -256,8 +267,13 @@ fn flicker(
             .map_or(1.0, |m| m.lantern_light_factor());
         let reach = (1.0 + BRIGHTER_PER_CULTURE * cultures) * factor;
         let band = mover_band(&sim, crabs.get(glow.crab).ok());
-        sprite.color = band_colour(WARM, band.lantern_tint)
-            .with_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures) * factor);
+        sprite.color = band_colour(WARM, band.lantern_tint).with_alpha(
+            glow.alpha
+                * wave
+                * (1.0 + 0.1 * cultures)
+                * factor
+                * luminosity(&tuning, crabs.get(glow.crab).ok()),
+        );
         sprite.custom_size = Some(Vec2::splat(glow.size * reach * band.lantern_reach_factor));
     }
 }
@@ -330,10 +346,16 @@ fn daylight(at: Vec2) -> f32 {
 
 /// The strongest light wins: a brighter friend's lantern can reach farther
 /// than the closest one.
-fn strongest_light(at: Vec2, lights: &[(Vec2, f32)], tuning: &ViewTuning) -> f32 {
+fn strongest_light(at: Vec2, lights: &[LightUniform], tuning: &ViewTuning) -> f32 {
     lights
         .iter()
-        .map(|(position, reach)| light_at(position.distance(at), tuning, *reach))
+        .map(|light| {
+            light_at(
+                light.geometry.truncate().truncate().distance(at),
+                tuning,
+                light.geometry.w / tuning.light_outer,
+            ) * light.luminosity
+        })
         .fold(0.0, f32::max)
 }
 
@@ -346,29 +368,30 @@ fn measure_light(
     crabs: Query<&Mover>,
     mut lit: Query<(&Lit, &GlobalTransform, &mut LightBlend)>,
 ) {
-    let lights: Vec<(Vec2, f32)> = lights
+    let lights: Vec<LightUniform> = lights
         .iter()
         .map(|(g, core)| {
             let cultures = crabs.get(core.crab).map_or(0, |m| m.lantern_glow());
             let factor = crabs
                 .get(core.crab)
                 .map_or(1.0, |m| m.lantern_light_factor());
-            (
-                g.translation().truncate(),
-                band_light_reach(
-                    &tuning,
-                    cultures,
-                    mover_band(&sim, crabs.get(core.crab).ok()),
-                ) / tuning.light_outer
-                    * flicker.0
-                    * factor,
-            )
+            let position = g.translation();
+            let reach = band_light_reach(
+                &tuning,
+                cultures,
+                mover_band(&sim, crabs.get(core.crab).ok()),
+            ) * flicker.0
+                * factor;
+            LightUniform {
+                geometry: Vec4::new(position.x, position.y, tuning.light_inner, reach),
+                luminosity: luminosity(&tuning, crabs.get(core.crab).ok()),
+            }
         })
         .collect();
     for (thing, global, mut blend) in &mut lit {
         let at = global.transform_point(thing.centre.extend(0.0)).truncate();
         let lantern = strongest_light(at, &lights, &tuning);
-        blend.0 = lantern.max(daylight(at)).max(thing.fill) * (1.0 - thing.shade);
+        blend.0 = lantern.min(1.0).max(daylight(at)).max(thing.fill) * (1.0 - thing.shade);
     }
 }
 
@@ -399,31 +422,36 @@ fn light_level(
     let centre = camera
         .single()
         .map_or(Vec2::ZERO, |c| c.translation().truncate());
-    let mut positions: Vec<(Vec2, f32)> = lights
+    let mut positions: Vec<LightUniform> = lights
         .iter()
         .map(|(l, core)| {
             let cultures = crabs.get(core.crab).map_or(0, |m| m.lantern_glow());
             let factor = crabs
                 .get(core.crab)
                 .map_or(1.0, |m| m.lantern_light_factor());
-            (
-                l.translation().truncate(),
-                band_light_reach(
-                    &tuning,
-                    cultures,
-                    mover_band(&sim, crabs.get(core.crab).ok()),
-                ) * flicker.0
-                    * factor,
-            )
+            let position = l.translation();
+            let reach = band_light_reach(
+                &tuning,
+                cultures,
+                mover_band(&sim, crabs.get(core.crab).ok()),
+            ) * flicker.0
+                * factor;
+            LightUniform {
+                geometry: Vec4::new(position.x, position.y, tuning.light_inner, reach),
+                luminosity: luminosity(&tuning, crabs.get(core.crab).ok()),
+            }
         })
         .collect();
     positions.sort_by(|a, b| {
-        a.0.distance_squared(centre)
-            .total_cmp(&b.0.distance_squared(centre))
+        a.geometry
+            .truncate()
+            .truncate()
+            .distance_squared(centre)
+            .total_cmp(&b.geometry.truncate().truncate().distance_squared(centre))
     });
-    let mut lamps = [Vec4::ZERO; 8];
-    for (slot, (p, reach)) in lamps.iter_mut().zip(positions) {
-        *slot = Vec4::new(p.x, p.y, tuning.light_inner, reach);
+    let mut lamps = [LightUniform::default(); 8];
+    for (slot, light) in lamps.iter_mut().zip(positions) {
+        *slot = light;
     }
     globals.lights = lamps;
     for (_, material) in cell_materials.iter_mut() {
@@ -434,6 +462,81 @@ fn light_level(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_lamp_has_three_times_the_output_without_more_reach() {
+        let tuning = ViewTuning::default();
+        let mut mover = Mover::new(Vec2::new(12800.0, -3250.0));
+        assert_eq!(luminosity(&tuning, Some(&mover)), 3.0);
+        assert_eq!(tuning.light_inner, 8.0);
+        assert_eq!(tuning.light_outer, 115.0);
+        for cultures in [0, 1, 4] {
+            mover.lantern = cultures;
+            let radius = light_reach(&tuning, mover.lantern_glow());
+            let old = LightUniform {
+                geometry: Vec4::new(0.0, 0.0, tuning.light_inner, radius),
+                luminosity: 1.0,
+            };
+            let bright = LightUniform {
+                luminosity: luminosity(&tuning, Some(&mover)),
+                ..old
+            };
+            let point = Vec2::X * radius * 0.85;
+            let before = strongest_light(point, &[old], &tuning);
+            let after = strongest_light(point, &[bright], &tuning);
+            assert!(before > 0.0 && after < 1.0, "real, unclipped light change");
+            assert!((after - 3.0 * before).abs() < 0.00001);
+            assert_eq!(strongest_light(Vec2::X * radius, &[bright], &tuning), 0.0);
+            mover.lantern_dim = true;
+            assert_eq!(luminosity(&tuning, Some(&mover)), 1.0);
+            assert_eq!(mover.lantern_light_factor(), 0.45);
+            mover.lantern_dim = false;
+        }
+    }
+
+    #[test]
+    fn both_terrain_shaders_use_unclipped_individual_lamp_output() {
+        use bevy::render::render_resource::ShaderType;
+        assert_eq!(LightUniform::min_size().get(), 32);
+        assert_eq!(MemoryGlobals::min_size().get(), 16 + 8 * 32);
+        for shader in [include_str!("memory.wgsl"), include_str!("cellular.wgsl")] {
+            assert!(shader.contains("lights: array<Light, 8>"));
+            assert!(shader.contains("amount * "));
+            assert!(shader.contains("lights[i].luminosity"));
+            assert!(shader.contains("daylight + max(3.0 - daylight, 0.0) * brightness"));
+        }
+    }
+
+    #[test]
+    fn a_dim_friend_keeps_its_own_output_beside_a_full_lamp() {
+        let tuning = ViewTuning::default();
+        let full = Mover::new(Vec2::ZERO);
+        let mut dim = full.clone();
+        dim.lantern_dim = true;
+        let full_light = LightUniform {
+            geometry: Vec4::new(100.0, 0.0, tuning.light_inner, tuning.light_outer),
+            luminosity: luminosity(&tuning, Some(&full)),
+        };
+        let dim_light = LightUniform {
+            geometry: Vec4::new(
+                0.0,
+                0.0,
+                tuning.light_inner,
+                tuning.light_outer * dim.lantern_light_factor(),
+            ),
+            luminosity: luminosity(&tuning, Some(&dim)),
+        };
+        assert_eq!(strongest_light(Vec2::ZERO, &[dim_light], &tuning), 1.0);
+        assert_eq!(
+            strongest_light(Vec2::ZERO, &[dim_light, full_light], &tuning),
+            1.0,
+            "a full lamp must not multiply the nearby shaded lamp's contribution"
+        );
+        assert_eq!(
+            strongest_light(Vec2::new(100.0, 0.0), &[dim_light, full_light], &tuning),
+            3.0
+        );
+    }
 
     #[test]
     fn lighting_updates_shared_values_without_material_asset_events() {
@@ -474,7 +577,10 @@ mod tests {
             .drain()
             .for_each(drop);
         let tuning = app.world().resource::<ViewTuning>();
-        let expected = Vec4::new(100.0, 20.0, tuning.light_inner, light_reach(tuning, 0));
+        let expected = LightUniform {
+            geometry: Vec4::new(100.0, 20.0, tuning.light_inner, light_reach(tuning, 0)),
+            luminosity: 3.0,
+        };
         assert_eq!(app.world().resource::<MemoryGlobals>().lights[0], expected);
         *app.world_mut().get_mut::<GlobalTransform>(lamp).unwrap() =
             GlobalTransform::from_translation(Vec3::new(125.0, 20.0, 0.0));
@@ -483,9 +589,20 @@ mod tests {
         let lights = app.world().resource::<MemoryGlobals>().lights;
         assert_eq!(
             lights[0],
-            Vec4::new(125.0, 20.0, expected.z, expected.w * 0.75)
+            LightUniform {
+                geometry: Vec4::new(125.0, 20.0, expected.geometry.z, expected.geometry.w * 0.75),
+                luminosity: 3.0,
+            }
         );
-        assert_eq!(&lights[1..], &[Vec4::ZERO; 7]);
+        assert_eq!(&lights[1..], &[LightUniform::default(); 7]);
+        app.world_mut().get_mut::<Mover>(crab).unwrap().lantern_dim = true;
+        app.update();
+        let shaded = app.world().resource::<MemoryGlobals>().lights[0];
+        assert_eq!(shaded.luminosity, 1.0);
+        assert_eq!(shaded.geometry.w, expected.geometry.w * 0.75 * 0.45);
+        app.world_mut().get_mut::<Mover>(crab).unwrap().lantern_dim = false;
+        app.update();
+        assert_eq!(app.world().resource::<MemoryGlobals>().lights[0], lights[0]);
         assert!(
             app.world()
                 .resource::<Assets<MemoryMaterial>>()
@@ -546,8 +663,14 @@ mod tests {
     #[test]
     fn farther_lantern_can_be_the_stronger_light() {
         let t = ViewTuning::default();
-        let weak = (Vec2::new(100.0, 0.0), 1.0);
-        let strong = (Vec2::new(130.0, 0.0), 2.0);
+        let weak = LightUniform {
+            geometry: Vec4::new(100.0, 0.0, t.light_inner, t.light_outer),
+            luminosity: 1.0,
+        };
+        let strong = LightUniform {
+            geometry: Vec4::new(130.0, 0.0, t.light_inner, t.light_outer * 2.0),
+            luminosity: 3.0,
+        };
         assert!(
             strongest_light(Vec2::ZERO, &[strong], &t) > strongest_light(Vec2::ZERO, &[weak], &t)
         );

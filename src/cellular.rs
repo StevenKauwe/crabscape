@@ -1,5 +1,5 @@
 //! Opt-in, single-player material simulation for the opening of the campaign.
-use crate::memory::{MemoryTexture, MemoryUniform};
+use crate::memory::{LightUniform, MemoryTexture, MemoryUniform};
 use bevy::asset::{RenderAssetUsages, embedded_asset, embedded_path};
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
@@ -90,7 +90,7 @@ impl CellMaterial {
     pub fn set_water(&mut self, water: Color) {
         self.uniform.water = LinearRgba::from(water).to_vec4();
     }
-    pub fn set_lights(&mut self, lights: [Vec4; 8]) {
+    pub fn set_lights(&mut self, lights: [LightUniform; 8]) {
         self.uniform.lights = lights;
     }
 }

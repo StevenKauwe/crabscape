@@ -44,6 +44,8 @@ full daylight keeps full sight; complete darkness reaches 45% of the unlocked si
 retained. Acquired culture count still determines memory allocation and terrain paging, so toggling cannot
 unload the floor beneath the crab. The lamp core, halo and terrain light change together. Scent sensing remains
 unchanged, with its directional wisp placed beside the smaller light.
+Full lamp rendering contributes three times the original brightness; shading retains the previous dim rendering.
+This brightness adjustment does not increase perception, memory allocation, the light radius or detection ranges.
 
 Initial sight acquisition uses a tuned 60% radius at complete darkness, interpolated by ambient depth, with a
 140-unit close-contact floor (never larger than that animal's ordinary range). Existing targets retain their

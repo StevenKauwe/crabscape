@@ -25,6 +25,9 @@ pub struct ViewTuning {
     pub light_inner: f32,
     /// Beyond this distance, everything is in the dark.
     pub light_outer: f32,
+    /// Full lantern output relative to the original light. Shading keeps the
+    /// original dim output; this changes brightness, not sight or light radius.
+    pub lantern_luminosity: f32,
 }
 
 impl Default for ViewTuning {
@@ -35,6 +38,7 @@ impl Default for ViewTuning {
 
             light_inner: 8.0,
             light_outer: 115.0,
+            lantern_luminosity: 3.0,
         }
     }
 }

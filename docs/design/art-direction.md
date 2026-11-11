@@ -20,6 +20,9 @@ realistic rendering.
 - **Cut-out puppets.** Characters are drawn in parts (rig: `art/crab/crab-parts.svg`) and animated by moving parts.
 - **Paint ahead, play live.** Paint parts and backgrounds offline (lit and unlit versions); the game blends them by
   distance to the lantern at runtime, because real 2D lights are too heavy for phones.
+- **Lantern output.** Full light contributes three times the original brightness within the same radius. The H /
+  Inventory dim setting keeps its previous lower output and smaller radius. Terrain keeps its own colour; daylight,
+  sight and enemy detection are unchanged. This is art tuning, not a physical irradiance measurement.
 
 ## The player crab
 A composite swimming crab (portunid paddles on the 5th legs), crusher claw on its right (screen left), cutter on its
