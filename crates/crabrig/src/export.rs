@@ -56,7 +56,7 @@ pub fn export(svg_text: &str, o: &Options) -> Result<Export, String> {
     // Atlas pixels per SVG unit. The crab is about 550 units wide in the art; at 0.6 it is ~330 px wide in the
     // atlas, which is about as big as it ever appears on a phone screen. Bigger = sharper but a larger download.
     let scale = 0.6 * o.zoom;
-    let atlas_width = (1024.0 * o.zoom) as i64;
+    let mut atlas_width = (1024.0 * o.zoom) as i64;
     let doc = roxmltree::Document::parse(svg_text).map_err(|e| e.to_string())?;
     let svg = doc.root_element();
     let defs = svg.children().find(|n| n.has_tag_name("defs"));
@@ -190,6 +190,16 @@ pub fn export(svg_text: &str, o: &Options) -> Result<Export, String> {
             .unwrap();
     }
 
+    // A part wider than the atlas (a goliath grouper's body) widens it to the next power of two, rather than being
+    // cut off at the edge.
+    let widest = parts
+        .iter()
+        .map(|p| (p.bbox[2] * scale + 0.999) as i64 + 2 * GAP)
+        .max()
+        .unwrap_or(0);
+    if widest > atlas_width {
+        atlas_width = 1i64 << (64 - ((widest - 1) as u64).leading_zeros());
+    }
     // Pack the parts into rows ("shelf packing"): tallest first, left to right, a new row when one is full.
     let mut placed: Vec<usize> = (0..parts.len()).collect();
     placed.sort_by(|&a, &b| parts[b].bbox[3].total_cmp(&parts[a].bbox[3]));
