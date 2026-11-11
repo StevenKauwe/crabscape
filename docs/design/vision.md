@@ -4,12 +4,22 @@ A cozy-but-brutal adventure, solo or co-op: you are a small crab exploring a vas
 craft and build your way deeper, and come home alive.
 
 ## The hook
-**Feels like Valheim. Plays like Silksong. Grows like RuneScape. Underwater, and you're a crab.**
+**Feels like RuneScape. Fights like Silksong. Comes home like Valheim. Underwater, and you're a crab.**
 
-- **Feels like Valheim:** a wild world you set out into, alone or with friends, and a home you build yourself.
-  Each region is a clear step up in danger and reward.
-- **Plays like Silksong:** skilful movement and combat in a beautiful, hostile world that doesn't hold your hand.
-- **Grows like RuneScape:** skills that grow by use, gathering and crafting; rarer things come from deeper places.
+In the owner's words (2026-11-11): it should *feel* like RuneScape, with the motivations, the tasks and the reasons
+to move about and explore; play like Silksong in combat; and have a strong home base between adventures that the
+others in the world share, and that we build together, like Valheim.
+
+- **Feels like RuneScape (the reason to play):** there is always a next thing you want. Skills that grow by use,
+  tasks and quests with a clear "go here, get that", gathering feeding crafting, rarer things from deeper places,
+  and places you can see but can't reach yet. Every region answers "why would I go there?" before "what does it
+  look like?"
+- **Fights like Silksong (the moment to moment):** skilful, readable, punishing combat and movement. A fight is won
+  by reading tells and timing, not by out-levelling it: skill levels open new tools, moves and places; they never
+  turn a hard fight into a number check. (We're a heavy crab, not a needle: see `how-it-plays.md`.)
+- **Comes home like Valheim (the place between adventures):** a strong home base that everyone in your world shares
+  and builds together. You leave it to adventure, come back to it to rest, cook, craft and show off, and it grows
+  with the world.
 - **The twist:** every trip is a dive. Deeper means colder, darker, less oxygen, more pressure and stranger life,
   and you always have to plan the way back up.
 
