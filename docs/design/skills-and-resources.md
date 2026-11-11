@@ -190,12 +190,13 @@ Making is a command through the sim exactly like today's `Sim::make` (only its o
 | Station | Building lvl | Needs | Unlocks |
 |---|---|---|---|
 | Workbench | — | exists | T1–T2 shellcraft, cord, shucking |
-| Culture bed 1 / 2 / 3 / 4 | 5 / 20 / 40 / 60 | Grit 3 + Valve 2 / Clay 3 + Grit 3 / WhaleBone 1 + Clay 3 / Nodule 2 + Clay 4 | Culturing beds |
-| Loom | 12 | Quill 4 + KelpCord 4 | Braids, packs |
+| Culture bed 1 / 2 / 3 / 4 | 5 / 20 / 40 / 60 | Grit 3 + Valve 2 / Clay 3 + Grit 3 + Valve 2 / WhaleBone 1 + Clay 3 + mantis club 1 / Nodule 2 + Clay 4 + jelly mesoglea 2 | Culturing beds |
+| Loom | 12 | Quill 4 + KelpCord 4 + Grit 3 | Braids, packs |
 | Brine pot (clay curing pot) | 10 | Clay 3 + Valve 2 | Curing recipes |
-| Grindstone | 18 | Grit 6 + Clay 2 | T3+ tools, plating |
+| Grindstone | 18 | Grit 6 + Clay 2 + snapper claw 2 | T3+ tools, plating |
 | Fermenting crock | 30 | Clay 6 + Glass 1 | Fermenting |
 | Home stages (exists) | 1 / 3 / 5 grit built | Grit | unchanged; each grit built gives 20 Building XP |
+| Whelk room / hall / keep | 30 / 45 / 62 | whelk shell 1 + Clay 4 / whelk shell 2 + Clay 6 + octopus ink 1 + braided cord 2 / whelk shell 3 + Nodule 2 + black coral 2 | home stage 1 / 2 / 3, in order |
 
 Building XP per station = 40 × its level requirement / 5 (minimum 40).
 
@@ -269,7 +270,78 @@ viperfish 17.5); the older creatures keep the flat win bonus. A renamed `DROPS` 
 | Amphipod swarm | midnight (4) | amphipods | Amphipod broth: 3 + kelp, Cooking 40, brine pot, pressure strain -20%, +1 reserve stroke |
 | Turtle, grouper | | none | |
 
+The original creatures drop too (the same take; Fighting XP stays the flat win bonus). Which creature lives where is the
+level's; the item tier is the nearest zone. Real parts, but that crabs could use them is "not verified".
+
+| Creature | Zone | Drop | Used for |
+|---|---|---|---|
+| Snapping shrimp | shallows (1) | snapper claw | Re-tip a worn tool: 1 claw + Grit x tier (5 recipes, one per tool tier, Shellcraft 1); grindstone (2) |
+| Snapping shrimp | shallows (1) | shrimp tail meat | Snapper broth: 2 + kelp, Cooking 10 (mends 25%); shrimp-paste feast: 3 + 2 worms, Cooking 55, crock, mends 35% and gathers 15% faster |
+| Peacock mantis shrimp | shallows (1) | mantis club | Club claw tips: 2 + kelp cord, Shellcraft 16, claws +9%; culture bed 3 |
+| Snowflake moray | trench (2) | moray tooth | Mend a worn tool (1 + 2 grit, Shellcraft 1); moray-tooth claw tips: 3 + bone splint, Shellcraft 42, claws +14% |
+| Queen triggerfish | basin (2) | triggerfish plate | Mend worn plating (1 + 2 grit, Shellcraft 1) |
+| Alarm jelly | midwater (2) | jelly mesoglea | Jelly salad: 1 + kelp, Cooking 6; culture bed 4 |
+| Common octopus | far rim (3) | octopus ink | Inked kelp: 1 + 2 kelp, Cooking 14 (+2 reserve strokes); whelk hall |
+
+Every drop, old and new, also has a part of a high-level recipe or a repeatable sink (mending, eating, planting) **and**
+a recipe below level 20 (`economy_every_way_pays.rs`). The older ten got the early uses: mending a worn tool or plating
+with one part and 2 grit (beak, fang, bobbit jaw, moray tooth / crusher fragment, isopod plate, triggerfish plate, whelk
+shell, anemone glue), slime twine (Weaving 10: 1 thread + 2 kelp cord makes a braided cord without a loom), a photophore
+seed (Culturing 12: 1 photophore + 1 shore strain makes 2 glowing cultures, the way a squid's light organ keeps glowing
+bacteria), and a plain amphipod broth (Cooking 12). A new Output, `Repair(AnyTool)` and `Repair(AnyPlating)`, mends the
+first worn tool or the worn plating of any tier.
+
 One claw gear at a time (the claw slot); tips replace each other. Zones are design readings, not verified.
+
+## Every way to play pays (owner's three rules; data tests in `economy_every_way_pays.rs`, pacing in `economy_pacing.rs`)
+**1. Two hours of low-attention gathering near home pays.**
+- *Safe.* The tier 1 nodes on the home side moved into two pockets, 12 units apart, one of each skill in each: x 175 to
+  247 (before the first snapping-shrimp burrow at 340, which notices within 120 and strikes within 72) and x 435 to
+  483 (between the burrows at 340 and 590 and short of the mantis at 1,120, which hunts what it sees within 300 and
+  roams 800). A crab standing at 211 or 459 reaches the whole pocket (reach 70) and works all five skills without moving.
+  Test: no foe of the level or the bestiary lies nearer a home node than its danger distance (a turret: strike range
+  + 20; a roaming hunter: 600); and a bot working the real, populated level for 30 minutes is never hit. The two nodes
+  that stood at 1,010 and 1,090 (inside the mantis's reach) moved into the pockets.
+- *Close.* The farthest home node is 333 units from the door: 1.2 s on foot (test: at most 40 s). The shell's four slots
+  are the only reason to stop; the kelp sack (Weaving 8, 8 kelp) stays where it is: it comes within the first quarter
+  hour and the trip home is two seconds, so an earlier sack buys little.
+- *Steady XP and stack, below an attentive dive* (bot on real ticks, 2 sim hours, watching only the full shell):
+
+| Crab | Nodes worked | XP / h | Levels gained | Items banked / h |
+|---|---|---|---|---|
+| Level 1 | mussels only | 9,400 | 32 (Prying 1 to 33) | 950 |
+| Level 1 | all five skills | 15,230 | 104 (summed) | 1,574 |
+| Level 60 | mussels only | 10,030 (167 / min) | 0 | 1,010 |
+| Level 60 | all five skills | 22,970 | 0 | 2,370 |
+
+  Tested: a level 1 crab on one kind reaches level 20 or more in 2 h (measured 33); a level 60 crab on one kind earns
+  at least 25% of the tier 3 round trip at level 60 (540 / min; measured 31%) and still less than it (tier 1 stays
+  below tier 3 per minute). The pace is node-bound (3 mussel clumps on foot, 5 charges each, 45 s regrowth).
+- *Useful.* Every tier 1 item is an input to a repeatable sink or a recipe at level 40 or more (mussel and snail to
+  food, kelp to cord, grit to every repair, shore strain to planting); data test.
+
+**2. Farming creatures you have outgrown pays.** Every drop has a use below level 20 and a high-level use or a repeatable
+sink at every level (table under "Creature drops"; data test over every drop of every kind). Snapping shrimp: claws to
+re-tip a tool of any tier, tail meat to broth and a high-level feast.
+
+**3. Building takes part in other activities.** Sources: Gathering (Prying, Harvesting, Foraging, Culturing items, valves),
+Fighting (creature drops), Diving (items of tier 4 or more: deep nodes and deep creatures) and Digging (Excavating items).
+An item may have several (a nodule is Digging and Diving; a processed item has those of its first recipe's inputs). Every
+Building recipe above level 10 draws on at least two; no single skill or Fighting supplies them all; the set needs all four.
+
+| Recipe | Level | Activities |
+|---|---|---|
+| Culture bed 1 | 5 | Gathering, Digging |
+| Brine pot | 10 | Gathering, Digging |
+| Loom | 12 | Gathering, Digging |
+| Grindstone | 18 | Fighting, Digging |
+| Culture bed 2 | 20 | Gathering, Digging |
+| Fermenting crock | 30 | Gathering, Digging |
+| Whelk room | 30 | Fighting, Digging |
+| Culture bed 3 | 40 | Fighting, Diving, Digging |
+| Whelk hall | 45 | Gathering, Fighting, Digging |
+| Culture bed 4 | 60 | Fighting, Diving, Digging |
+| Whelk keep | 62 | Gathering, Fighting, Diving, Digging |
 
 ## Inventory pressure, sinks and pacing
 - Shell slots `4 × size²` + bag (+2/+4/+6). Big items one at a time on the back. A full shell stops gathering ("No room
@@ -360,16 +432,21 @@ and P3 never edits `world.rs`; P2 never edits `craft.rs`.
   node sprites, gear looks, gather key `C` / left-stick click / touch GATHER button, fill ring, prompts and why-not text,
   crafting tabs Make/Cook/Shell/Weave/Build/Culture/Repair with a pager), P5 pacing sims, P6 node memory, P7 docs. It
   closes #567 to #571.
-- **Measured pacing** (`crates/sim/tests/economy_pacing.rs`, a bot on real ticks, sim seconds): Prying L2 27 s, L5 209 s,
-  L10 679 s, L15 1,401 s (all five gathering skills within the targets; Culturing slowest at L15 1,793 s). XP per minute
-  on round trips by tier at unlock / at level 60: T1 188 / 446, T2 351 / 506, T3 500 / 540, T4 570 / 603, T5 624 / 629
-  (strictly rising). Items per minute fall with distance: 18.8, 3.2, 2.5, 2.2, 0.8. T1 power-gathering 104 to 120 XP/min.
+- **Measured pacing** (`crates/sim/tests/economy_pacing.rs`, a bot on real ticks, sim seconds): Prying L2 26 s, L5 144 s,
+  L10 454 s, L15 945 s (all five gathering skills within the targets; Culturing slowest at L15 1,786 s; measured again
+  after the nodes moved into the pockets). XP per minute
+  on round trips by tier at unlock / at level 60: T1 203 / 489, T2 351 / 506, T3 500 / 540, T4 570 / 603, T5 624 / 629
+  (strictly rising). Items per minute fall with distance: 20.3, 3.2, 2.5, 2.2, 0.8. T1 power-gathering 157 to 180 XP/min (3 mussel clumps on foot).
   Estimated hours to 30 / 45 / 60 / 99: 0.7 / 2.3 / 8.3 / 340. Trips (route solver, full kit, seconds round trip): T2 95,
   T3 164, T4 187; **T5 is extrapolated (541 s)** because the solver cannot reach the vent field today (the slump dam is
   one-way and the narrows need the heavy crusher).
 - **Tuning that moved from the first draft:** XP per gather by tier is now 10 / 110 / 200 / 260 / 750 (was 10 / 25 / 50 /
-  100 / 175; the old numbers made the basin worse than the shallows). Tier-1 nodes on the home side sit in a cluster at
-  x 175 to 535 that a crab reaches on foot (past x about 600 the plateau needs a jump).
+  100 / 175; the old numbers made the basin worse than the shallows). Tier-1 nodes on the home side sit in two safe
+  pockets at x 175 to 247 and 435 to 483 that a crab reaches on foot (past x about 600 the plateau needs a jump).
+- **"Every way to play pays"** (owner's rules, PR #613 vision): drops for the original creatures, a use below level 20 and
+  a high-level or repeatable use for every drop, Building from several activities (whelk room, hall, keep), home nodes in
+  safe pockets, a 2 h low-attention measurement. See that section for the numbers. The pacing line above was
+  re-measured after the move.
 - **Next, in order:**
   1. P8 (#572): re-place nodes on the world build's new map once its geometry lands (home burrow clam beds → T2 Prying,
      bone hall → T4 whale bones, seep chimneys/garden → T4 seep mussels, the vent and chimney hall → T5). Then re-measure

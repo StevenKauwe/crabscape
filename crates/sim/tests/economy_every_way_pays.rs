@@ -67,8 +67,14 @@ fn the_snapper_claw_re_tips_a_tool_of_every_tier_and_the_meat_is_food() {
         assert!(ECON_RECIPES.iter().any(|r| r.word == word), "{word}");
     }
     let meat = uses(Item::ShrimpMeat);
-    assert!(meat.iter().any(|r| r.word == "snapper-broth" && r.level == 10));
-    assert!(meat.iter().any(|r| r.word == "shrimp-paste-feast" && r.level >= 40));
+    assert!(
+        meat.iter()
+            .any(|r| r.word == "snapper-broth" && r.level == 10)
+    );
+    assert!(
+        meat.iter()
+            .any(|r| r.word == "shrimp-paste-feast" && r.level >= 40)
+    );
 }
 
 #[test]
@@ -218,21 +224,15 @@ fn no_single_loop_supplies_every_building_recipe() {
         Source::Diving,
     ] {
         // Every item of every recipe from this one source alone?
-        let all = recipes.iter().all(|r| {
-            r.needs
-                .iter()
-                .all(|&(i, _)| sources(i, 0).contains(&lone))
-        });
+        let all = recipes
+            .iter()
+            .all(|r| r.needs.iter().all(|&(i, _)| sources(i, 0).contains(&lone)));
         assert!(!all, "{lone:?} alone supplies every building recipe");
         // And the recipes above level 10 each need something it cannot give.
         let missing = recipes
             .iter()
             .filter(|r| r.level > 10)
-            .filter(|r| {
-                r.needs
-                    .iter()
-                    .any(|&(i, _)| !sources(i, 0).contains(&lone))
-            })
+            .filter(|r| r.needs.iter().any(|&(i, _)| !sources(i, 0).contains(&lone)))
             .count();
         assert!(missing > 0, "{lone:?}");
     }

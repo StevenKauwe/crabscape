@@ -6,7 +6,7 @@ mod common;
 
 use bevy_math::Vec2;
 use crabsim::economy::place::{SPOTS, band_index, nodes};
-use crabsim::economy::{NodeKind, xp};
+use crabsim::economy::{Item, NodeKind, Tool, ToolKind, xp};
 use crabsim::{Controls, Level, PlayerId, Sim, Skill, Tuning};
 
 const P0: PlayerId = PlayerId(0);
@@ -29,8 +29,20 @@ fn level_of_skill(sim: &Sim, skill: Skill) -> u32 {
 
 impl Bot {
     fn new(skill: Skill, kind: NodeKind) -> Bot {
+        Bot::on(skill, &[kind])
+    }
+
+    /// A bot working every foot node of these kinds.
+    fn on(skill: Skill, wanted: &[NodeKind]) -> Bot {
+        Bot::with_foes(skill, wanted, false)
+    }
+
+    /// The same, with the level's own foes in place if `foes`.
+    fn with_foes(skill: Skill, wanted: &[NodeKind], foes: bool) -> Bot {
         let mut level = Level::test_level();
-        level.foes.clear();
+        if !foes {
+            level.foes.clear();
+        }
         level.currents.clear();
         // The old world's clams and grit lie on the way home; not this test.
         level.clams.clear();
@@ -51,7 +63,7 @@ impl Bot {
             .placed_nodes()
             .iter()
             .enumerate()
-            .filter(|(_, n)| n.kind == kind && n.pos.x < FOOT_X)
+            .filter(|(_, n)| wanted.contains(&n.kind) && n.pos.x < FOOT_X)
             .map(|(i, _)| i)
             .collect();
         Bot { sim, skill, kinds }
@@ -480,4 +492,113 @@ fn every_node_lies_in_a_band_no_shallower_than_its_tier_and_trips_lengthen_with_
     assert!(trips.windows(2).all(|w| w[0] < w[1]), "{trips:?}");
     let medians: Vec<f64> = TRIPS.iter().take(4).map(|t| t.2).collect();
     assert!(medians.windows(2).all(|w| w[0] < w[1]), "{medians:?}");
+}
+
+// ---- Two hours of low-attention gathering near home ----
+
+/// What a session at the home cluster earned.
+struct Session {
+    xp: u32,
+    levels: u32,
+    items: u32,
+}
+
+/// A bot working `wanted` for `secs` sim seconds from skill level `start`
+/// (every gathering skill at that level, tools of tier `tool`), watching
+/// only the full shell. The XP is summed over the five gathering skills.
+fn session(start: u32, tool: u8, wanted: &[NodeKind], secs: f64) -> Session {
+    let mut bot = Bot::on(Skill::Prying, wanted);
+    let from = xp::TABLE[start as usize];
+    let crab = bot.sim.crab_mut(P0).expect("crab");
+    for (skill, _) in SKILLS {
+        crab.econ.skills.set(skill, from);
+    }
+    if tool > 0 {
+        for kind in ToolKind::ALL {
+            crab.econ.tools[kind.index()] = Tool::new(kind, tool);
+        }
+    }
+    bot.run(&[99], secs);
+    let crab = bot.sim.crab(P0).expect("crab");
+    let book = &crab.econ.skills;
+    let total: u32 = SKILLS.iter().map(|&(s, _)| book.get(s) - from).sum();
+    let levels: u32 = SKILLS
+        .iter()
+        .map(|&(s, _)| xp::level_for(book.get(s)) - start)
+        .sum();
+    let items: u32 = Item::ALL.iter().map(|&i| crab.stash.count(i)).sum();
+    Session {
+        xp: total,
+        levels,
+        items,
+    }
+}
+
+const SESSION_SECS: f64 = 2.0 * 3600.0;
+
+#[test]
+fn two_hours_beside_the_door_is_never_pointless() {
+    let mussels = [NodeKind::MusselClump];
+    let every: Vec<NodeKind> = SKILLS.iter().map(|&(_, k)| k).collect();
+    let hours = SESSION_SECS / 3600.0;
+    println!("2 h at the home cluster (watching only the full shell):");
+    println!("crab        nodes        xp/h    levels  items/h");
+    let new = session(1, 0, &mussels, SESSION_SECS);
+    let new_all = session(1, 0, &every, SESSION_SECS);
+    let old = session(60, NODULE_TOOL, &mussels, SESSION_SECS);
+    let old_all = session(60, NODULE_TOOL, &every, SESSION_SECS);
+    for (name, nodes, s) in [
+        ("level 1", "mussels", &new),
+        ("level 1", "all five", &new_all),
+        ("level 60", "mussels", &old),
+        ("level 60", "all five", &old_all),
+    ] {
+        println!(
+            "{name:<10}  {nodes:<9} {:>7.0}  {:>6}  {:>7.0}",
+            f64::from(s.xp) / hours,
+            s.levels,
+            f64::from(s.items) / hours
+        );
+    }
+    // A new crab on one node kind still climbs far: level 20 (4,470 xp).
+    let reached = xp::level_for(xp::TABLE[1] + new.xp);
+    assert!(reached >= 20, "level {reached} after 2 h on mussels");
+    // The old crab keeps a quarter of what a dive to tier 3 pays a minute.
+    let t3 = round_trip(3, 60, NODULE_TOOL, SHELL + WOVEN_PACK).1;
+    let per_min = f64::from(old.xp) / (SESSION_SECS / 60.0);
+    println!("level 60: {per_min:.0} xp/min on mussels vs {t3:.0} at tier 3");
+    assert!(per_min >= 0.25 * t3, "{per_min:.0} vs {t3:.0}");
+    // But never as much as the attentive dive: tier 1 stays below tier 3.
+    assert!(
+        f64::from(old_all.xp) / (SESSION_SECS / 60.0) / 5.0 < t3,
+        "per skill"
+    );
+    assert!(per_min < t3, "{per_min:.0} vs {t3:.0}");
+    // Something is banked either way.
+    assert!(new.items > 100 && old.items > 100);
+}
+
+#[test]
+fn the_real_foes_never_touch_a_crab_working_the_home_cluster() {
+    let every: Vec<NodeKind> = SKILLS.iter().map(|&(_, k)| k).collect();
+    let mut bot = Bot::with_foes(Skill::Prying, &every, true);
+    assert!(!bot.sim.level.foes.is_empty());
+    bot.sim.populate();
+    assert!(bot.sim.enemies().len() >= 7, "foes spawned");
+    let full = bot.sim.crab(P0).expect("crab").fighter.vitals.health;
+    // Half an hour, a minute at a time, the shell watched between.
+    for minute in 1..=30 {
+        bot.run(&[99], f64::from(minute) * 60.0);
+        let crab = bot.sim.crab(P0).expect("crab");
+        assert!(
+            crab.fighter.vitals.health >= full,
+            "hit in minute {minute}: {} of {full}",
+            crab.fighter.vitals.health
+        );
+    }
+    let book = &bot.sim.crab(P0).expect("crab").econ.skills;
+    assert!(
+        SKILLS.iter().all(|&(s, _)| book.get(s) > 0),
+        "all five worked"
+    );
 }

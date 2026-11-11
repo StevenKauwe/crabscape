@@ -359,7 +359,10 @@ fn the_original_creatures_leave_their_drops_on_the_shell() {
         }
         let s = shell(&sim);
         for item in drops {
-            assert!(s.contains(&Carry::Item(item)), "{kind:?} gave no {item:?}: {s:?}");
+            assert!(
+                s.contains(&Carry::Item(item)),
+                "{kind:?} gave no {item:?}: {s:?}"
+            );
         }
     }
 }
@@ -385,7 +388,10 @@ fn a_snapper_claw_re_tips_a_worn_tool_of_its_tier_for_grit_by_tier() {
         sim.crab_mut(P0).unwrap().econ.tools[ToolKind::Pry.index()] =
             crabsim::economy::Tool::new(ToolKind::Pry, tier);
         // Whole: nothing to mend.
-        assert_eq!(sim.make_econ(P0, word.as_str()), Err(CantMakeEcon::NothingToMend));
+        assert_eq!(
+            sim.make_econ(P0, word.as_str()),
+            Err(CantMakeEcon::NothingToMend)
+        );
         sim.crab_mut(P0).unwrap().econ.tools[ToolKind::Pry.index()].uses_left = 0;
         assert_eq!(sim.make_econ(P0, word.as_str()), Ok(()));
         assert!(!econ(&sim).tool(ToolKind::Pry).cracked());
@@ -414,7 +420,11 @@ fn the_new_foods_make_portions() {
         "inked-kelp",
     ] {
         let sim = make(word);
-        assert_eq!(sim.crab(P0).unwrap().mover.prepared_food.held(), 2, "{word}");
+        assert_eq!(
+            sim.crab(P0).unwrap().mover.prepared_food.held(),
+            2,
+            "{word}"
+        );
     }
     // The feast is made at the crock (spoilage can fail a batch: more skill).
     let r = ECON_RECIPES
