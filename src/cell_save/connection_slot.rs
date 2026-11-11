@@ -70,6 +70,16 @@ mod tests {
         assert_eq!(drops.get(), 3);
     }
     #[test]
+    fn replacement_keeps_only_one_idle_resource() {
+        let drops = Rc::new(Cell::new(0));
+        let mut slot = Slot::default();
+        slot.retain(0, "a".into(), 1, Resource(drops.clone()));
+        slot.retain(0, "a".into(), 1, Resource(drops.clone()));
+        assert_eq!(drops.get(), 1);
+        drop(slot.take("a", 1));
+        assert_eq!(drops.get(), 2);
+    }
+    #[test]
     fn failure_or_cancellation_drops_unretained_lease() {
         let drops = Rc::new(Cell::new(0));
         let mut slot = Slot::default();

@@ -16,7 +16,7 @@ fn main() -> Result<()> {
         .ok_or("supply isolated candidate URL")?;
     let dir =
         std::env::temp_dir().join(format!("crab-page-validation-probe-{}", std::process::id()));
-    let mut browser = Chrome::start(
+    let mut browser = Chrome::start_without_clipboard(
         "validation",
         &dir,
         Options {
@@ -74,6 +74,44 @@ fn main() -> Result<()> {
             if(injected===null||!failed||!recovered||appliedBeforeFailure)throw Error(JSON.stringify({mode,injected,failed,recovered,appliedBeforeFailure,events}));
             return {mode,rejected:true,recovered:true,appliedBeforeFailure,events};
           } finally {IDBObjectStore.prototype.get=original;observer.disconnect();c.removeAttribute('data-cell-work-profile');c.removeAttribute('data-cell-performance-probe')}
+        })()"#.replace("MODE", &mode_json);
+        println!("{}", browser.eval(&script)?);
+    }
+    for mode in ["closed-handle", "versionchange", "timeout"] {
+        canyon::prepare(&mut browser, &url, true)?;
+        let mode_json = serde_json::to_string(mode).map_err(|e| e.to_string())?;
+        let script = r#"(async()=>{
+          const mode=MODE,c=document.getElementById('crabscape');
+          c.setAttribute('data-cell-work-profile','1');c.setAttribute('data-cell-performance-probe','1');
+          const original=IDBObjectStore.prototype.get,originalClose=IDBDatabase.prototype.close;
+          let lastDb=null,faultDb=null,blockedTx=null,injected=null,failed=false,replacementSeen=false,recovered=false,closed=0,upgradeAborted=false;
+          const events=[];
+          IDBDatabase.prototype.close=function(){if(this===faultDb)closed++;return originalClose.call(this)};
+          IDBObjectStore.prototype.get=function(key){
+            const request=original.call(this,key);
+            if(Array.isArray(key)&&['terrain','memory'].includes(key[1])){
+              const db=this.transaction.db;lastDb=db;
+              if(faultDb&&db!==faultDb)replacementSeen=true;
+              if(mode==='timeout'&&injected===null){faultDb=db;blockedTx=this.transaction;injected=performance.now()}
+              if(this.transaction===blockedTx)request.addEventListener('success',e=>e.stopImmediatePropagation(),{once:true});
+            }
+            return request;
+          };
+          const observer=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+            if(e.name==='cell-page-reply-applied'&&injected===null&&lastDb&&mode!=='timeout'){
+              faultDb=lastDb;injected=performance.now();
+              if(mode==='closed-handle')faultDb.close();else {const upgrade=indexedDB.open(faultDb.name,faultDb.version+1);upgrade.onupgradeneeded=()=>upgrade.transaction.abort();upgrade.onerror=e=>{e.preventDefault();upgradeAborted=true};}
+            }
+            if(injected===null||e.startTime<injected)continue;
+            if(e.name==='cell-page-reply-failed')failed=true;
+            if(e.name==='cell-page-reply-applied'&&replacementSeen&&(failed||mode==='versionchange'))recovered=true;
+            if(e.name==='cell-page-reply-failed'||e.name==='cell-page-reply-applied')events.push(e.name);
+          }});observer.observe({type:'measure',buffered:false});
+          try{
+            const start=performance.now();while(!recovered&&performance.now()-start<25000)await new Promise(r=>setTimeout(r,50));
+            if(injected===null||!recovered||!replacementSeen||closed===0||(mode==='versionchange'&&!upgradeAborted)||(mode!=='versionchange'&&!failed))throw Error(JSON.stringify({mode,injected,failed,replacementSeen,recovered,closed,upgradeAborted,events}));
+            return {mode,failed,replacementSeen,recovered,closed,upgradeAborted,events};
+          }finally{IDBObjectStore.prototype.get=original;IDBDatabase.prototype.close=originalClose;observer.disconnect();c.removeAttribute('data-cell-work-profile');c.removeAttribute('data-cell-performance-probe')}
         })()"#.replace("MODE", &mode_json);
         println!("{}", browser.eval(&script)?);
     }

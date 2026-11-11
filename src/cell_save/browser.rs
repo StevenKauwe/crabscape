@@ -891,6 +891,8 @@ pub fn clear_and_reload() {
 }
 
 pub(crate) async fn clear_from(database: &str) -> Result<(), String> {
+    // Lower-level callers must revoke idle and in-flight leases too.
+    page_connection::clear();
     mutate_epoch(database, None, || true).await.map(|_| ())
 }
 
