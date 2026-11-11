@@ -278,10 +278,10 @@ fn button_rects(size: Vec2) -> [(TouchAction, Rect); 10] {
                 bottom - button - gap,
             ),
         ),
-        // Beside the action stick, over the right walk button.
+        // Up and right of the action stick, beside Eat: clear of the fighting row.
         (
             TouchAction::Gather,
-            square(margin + button + gap, bottom - button - gap),
+            square(margin + button + gap, bottom - 2.0 * (button + gap)),
         ),
     ]
 }
