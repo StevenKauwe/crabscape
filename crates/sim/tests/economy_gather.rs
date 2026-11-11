@@ -5,8 +5,9 @@
 use bevy_math::Vec2;
 use crabsim::economy::gather::{self, GatherBlocked};
 use crabsim::economy::place::{band_index, nodes};
-use crabsim::economy::{Item, NODES, NodeKind, Tool, ToolKind, roll, xp};
+use crabsim::economy::{Food, Item, NODES, NodeKind, Tool, ToolKind, roll, xp};
 use crabsim::net::FakeLink;
+use crabsim::prepared_food::PortionKind;
 use crabsim::world::cues::Cue;
 use crabsim::{Carry, Controls, Feel, Level, PlayerId, Replay, Sim, Skill, Tuning};
 
@@ -494,17 +495,34 @@ fn the_vent_pot_cooks_only_with_the_ingredients_and_the_level() {
     hold(&mut sim, P0, u64::from(need) + 5);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.mover.clinging, vec![Carry::Item(Item::Grit)]);
-    let slots = crab.mover.prepared_food.slots;
-    assert!(slots.iter().all(Option::is_some), "{slots:?}");
+    let kinds: Vec<_> = crab
+        .mover
+        .prepared_food
+        .slots
+        .iter()
+        .flatten()
+        .map(|p| p.kind)
+        .collect();
+    let poached = PortionKind::Food(Food::VentPoachedSeepMussels);
+    assert_eq!(kinds, vec![poached, poached]);
     assert!(crab.mover.prepared_food.valid());
     assert_eq!(xp_of(&sim, Skill::Cooking), before + 110);
     assert_eq!(sim.shared.nodes[i].charges, def.charges);
-    // With the portions still uneaten, a second batch has no room.
-    sim.crab_mut(P0).unwrap().mover.clinging =
-        vec![Carry::Item(Item::SeepMussel), Carry::Item(Item::SeepMussel)];
-    sim.set_controls(P0, Controls::default());
-    sim.tick();
-    assert_eq!(hold(&mut sim, P0, 20).1, Some(GatherBlocked::NoRoom));
+    // Two of the four slots are free: a second batch fits, a third has no room.
+    for batch in 0..2 {
+        sim.crab_mut(P0).unwrap().mover.clinging =
+            vec![Carry::Item(Item::SeepMussel), Carry::Item(Item::SeepMussel)];
+        sim.set_controls(P0, Controls::default());
+        sim.tick();
+        let (_, blocked) = hold(&mut sim, P0, u64::from(need) + 5);
+        let crab = sim.crab(P0).unwrap();
+        if batch == 0 {
+            assert_eq!(crab.mover.prepared_food.held(), 4, "the second batch");
+        } else {
+            assert_eq!(blocked, Some(GatherBlocked::NoRoom));
+            assert_eq!(crab.mover.clinging.len(), 2, "kept on the shell");
+        }
+    }
 }
 
 #[test]
@@ -521,15 +539,18 @@ fn the_vent_clam_feast_needs_cooking_65() {
     hold(&mut sim, P0, u64::from(need) + 5);
     assert!(sim.crab(P0).unwrap().mover.clinging.is_empty());
     assert_eq!(xp_of(&sim, Skill::Cooking), before + 180);
-    assert!(
-        sim.crab(P0)
-            .unwrap()
-            .mover
-            .prepared_food
-            .slots
-            .iter()
-            .all(Option::is_some)
-    );
+    let feast = PortionKind::Food(Food::VentClamFeast);
+    let kinds: Vec<_> = sim
+        .crab(P0)
+        .unwrap()
+        .mover
+        .prepared_food
+        .slots
+        .iter()
+        .flatten()
+        .map(|p| p.kind)
+        .collect();
+    assert_eq!(kinds, vec![feast, feast]);
 }
 
 // ----- Survival -----

@@ -12,8 +12,8 @@
 
 use bevy::prelude::*;
 use crabsim::Sim;
-use crabsim::economy::gear::TOOL_MATERIALS;
 use crabsim::economy::gather::{self, GatherBlocked};
+use crabsim::economy::gear::TOOL_MATERIALS;
 
 use crate::coop::LocalId;
 use crate::input::TouchControls;
@@ -153,8 +153,7 @@ fn show(
     >,
 ) {
     let working = sim.gather_state(me.0);
-    let node_at = working
-        .and_then(|g| sim.placed_nodes().get(g.node).map(|n| (n.pos, g.progress)));
+    let node_at = working.and_then(|g| sim.placed_nodes().get(g.node).map(|n| (n.pos, g.progress)));
     for (dot, mut at, mut sprite, mut shown) in &mut dots {
         let Some((centre, progress)) = node_at else {
             shown.set_if_neq(Visibility::Hidden);
@@ -196,7 +195,10 @@ mod tests {
 
     #[test]
     fn the_reasons_read_as_the_spec_says() {
-        assert_eq!(why_not(GatherBlocked::Level(Skill::Prying, 15)), "Prying 15");
+        assert_eq!(
+            why_not(GatherBlocked::Level(Skill::Prying, 15)),
+            "Prying 15"
+        );
         assert_eq!(
             why_not(GatherBlocked::Tool(ToolKind::Pry, 1)),
             "Needs a shell pry tip"

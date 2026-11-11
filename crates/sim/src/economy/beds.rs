@@ -15,7 +15,7 @@ use crate::skills::Skill;
 use crate::world::{PlayerId, Sim};
 
 /// A bed action a replay can name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BedAction {
     /// Harvest the first ripe bed.
     Harvest,

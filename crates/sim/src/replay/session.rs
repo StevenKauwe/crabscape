@@ -14,6 +14,10 @@ pub enum CellSessionAction {
     Code(crate::codes::Code),
     Moult(crate::skills::Skill),
     Craft(crate::craft::Recipe),
+    /// A row of the economy recipe list (its index).
+    Econ(u16),
+    /// Harvest or feed a culture bed.
+    Bed(crate::economy::beds::BedAction),
     Shell(crate::world::ShellAction),
     Salvage(crate::salvage::SalvageAction),
     Canyon(crate::canyon_drift::CanyonAction),
@@ -51,6 +55,12 @@ impl CellSessionTick {
                 CellSessionAction::Craft(recipe) => {
                     let _ = sim.make(*id, *recipe);
                 }
+                CellSessionAction::Econ(i) => {
+                    if let Some(r) = crate::economy::ECON_RECIPES.get(usize::from(*i)) {
+                        let _ = sim.make_econ(*id, r);
+                    }
+                }
+                CellSessionAction::Bed(a) => crate::craft::Craft::Bed(*a).perform(sim, *id),
                 CellSessionAction::Shell(action) => {
                     sim.shell_action(*id, *action);
                 }

@@ -213,10 +213,7 @@ pub fn cook(crab: &mut SimCrab, food: Food) -> bool {
         return false;
     };
     let pf = &crab.mover.prepared_food;
-    if !has(&crab.mover, needs)
-        || pf.free_slots() < 2
-        || pf.next_batch.checked_add(1).is_none()
-    {
+    if !has(&crab.mover, needs) || pf.free_slots() < 2 || pf.next_batch.checked_add(1).is_none() {
         return false;
     }
     for &(item, n) in needs {
