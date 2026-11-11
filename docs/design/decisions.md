@@ -252,3 +252,5 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 | 2026-11-11 | **The bobbit worm turns after the crab it felt through its whole tell.** Feel pass: a crab walking straight on over the burrow slipped past the lunge (the side locked when it was first felt), so the minefield taught nothing; now a walker is bitten and a hop or a well-timed dodge at the flick clears it. | Claude |
 
 | 2026-11-11 | Full lantern rendering contributes 3x its previous light, with the same radius. Keep the old shaded output and H / Inventory toggle so dimming remains useful; preserve daylight, perception, paging and enemy detection. | dot (requested lantern luminosity) |
+
+| 2026-11-11 | Reserve H for lantern dimming. Home then Y, the Home button and controller Select retain home access; the key card names both actions. This removes the pre-existing double binding that made dimming also ask to go home. | dot (lantern control regression) |

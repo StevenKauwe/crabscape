@@ -370,7 +370,7 @@ fn split_and_reunite(players: &mut [Chrome]) -> Result<()> {
     }
     capacity_sample(players, "split")?;
     periodic_sample(players)?;
-    players[last].hold_key("KeyH", 0.1)?;
+    players[last].hold_key("Home", 0.1)?;
     players[last].eval(
         "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))",
     )?;
@@ -463,7 +463,7 @@ fn delegated_pair(players: &mut [Chrome], invite: &str) -> Result<()> {
     wait(|| {
         Ok(roster(&mut players[0])?.len() == n - 1 && roster(&mut players[survivor])?.len() == 1)
     })?;
-    players[survivor].hold_key("KeyH", 0.1)?;
+    players[survivor].hold_key("Home", 0.1)?;
     players[survivor].eval(
         "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))",
     )?;

@@ -18,7 +18,7 @@
 //! - holding D walks the crab right, W makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
 //! - next to the mantis shrimp's burrow, it comes out and winds up, and blows land (`data-fight`);
-//! - mid-fight, a tap on "Home" puts the crab straight into its home shell, and out again, so does the H key;
+//! - mid-fight, a tap on "Home" puts the crab straight into its home shell; after walking out, Home then Y does too;
 //! - while the page is hidden (a pretend `visibilitychange`) the game stands still, its audio context is suspended
 //!   and the silent `<audio>` paused; shown again it walks on, sound resumes, and the replay below spans the gap;
 //! - F9, and the `?replay` page's Replay button, hand out a replay that the headless simulation (linked in) plays
@@ -1039,12 +1039,12 @@ impl Test<'_> {
             home,
             format!("a tap on Home, mid-fight, puts the crab in its home shell ({crab:?})"),
         );
-        // Walked out again, the H key asks first ("Go home? Y / N"), and Y goes.
+        // Walked out again, the Home key asks first ("Go home? Y / N"), and Y goes.
         self.key("keydown", "KeyD", "d")?;
         self.hold(1.2, false)?;
         self.key("keyup", "KeyD", "d")?;
         let out = self.rest()?;
-        self.press("KeyH", "h")?;
+        self.press("Home", "Home")?;
         self.hold(0.4, false)?;
         let asked_only = self.eval(&at_home)?.as_bool() != Some(true);
         self.press("KeyY", "y")?;
@@ -1052,7 +1052,7 @@ impl Test<'_> {
         self.check(
             out.0 > home_x + 40.0 && asked_only && home,
             format!(
-                "out again (x {:.0}), H only asks (stayed out: {asked_only}), then Y puts it home",
+                "out again (x {:.0}), Home only asks (stayed out: {asked_only}), then Y puts it home",
                 out.0
             ),
         );

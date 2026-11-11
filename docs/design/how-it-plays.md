@@ -189,13 +189,14 @@ fight for 2 s. A streak runs along each blow; the mantis shows its strike line w
 | Swim (double jump, then more strokes; one per egg eaten) | jump again in water | A again | JUMP again |
 | Dig at the bed or turn in open water | Hold Space and aim with movement keys. Space + W digs up at the bed. In open water, left turns counter-clockwise, right turns clockwise, and W paddles. | Aim with right stick, A paddles in open water | DIG / TURN stick, JUMP paddles in open water |
 | Inventory | B opens or closes, use the labelled number keys or click a choice | | Tap Inventory, then a choice |
+| Dim or brighten the lantern | H, or click the Lantern row in Inventory | | Inventory, then Lantern |
 | Dodge (on floor, + a direction; hold to sprint; in the water: a flip) | Shift, J | B, right trigger | DODGE |
 | Smash (crusher, hold to charge) | Right mouse, E, L | Y | SMASH |
 | Jab (cutter) | Left mouse, Q, O | X | JAB |
 | Guard (hold: block; tap just before a blow: parry) | F, I | LB, LT | GUARD |
 | Climb (grip kelp or coral in the water) | jump to grip, hold to go up; S / down to go down; sideways to step off; jump + direction to kick off | A, hold; stick down | JUMP, hold; DODGE to go down |
 | Go into the home shell or a rest-stop crevice to rest (what you carried home is put by the workbench) | walk into its doorway; walk away, jump or dodge to come out | stick, d-pad | `<` |
-| Go straight home, tucked into the home shell (any time, for now, even mid-fight) | H or Home, then Y ("Go home? Y / N"; anything else says no), or click "Home" (under Settings) | Select | tap "Home" |
+| Go straight home, tucked into the home shell (any time, for now, even mid-fight) | Home, then Y ("Go home? Y / N"; anything else says no), or click "Home" (under Settings) | Select | tap "Home" |
 | Moult (tucked in at home, well fed, a feat ready) | click "Moult" in the workbench menu ("Next" for another feat) | | tap "Moult" |
 | Make something at the workbench (tucked in at home, the view goes inside and the menu shows; `world.md`) | click "Make" | | tap "Make" |
 | Zoom out into the crab's memory (`crab-memory.md`) | - / =, mouse wheel | | pinch |
