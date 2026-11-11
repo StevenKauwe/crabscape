@@ -1,0 +1,305 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/humboldt-squid/humboldt-squid-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "humboldt-squid-atlas.png",
+ "atlas_size": [
+  1024,
+  512
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  746.85,
+  315.0
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "fin",
+   "parent": "body",
+   "pivot": [
+    344.0,
+    207.3
+   ],
+   "bbox": [
+    78.9,
+    94.0,
+    294.5,
+    226.7
+   ],
+   "rect": [
+    568,
+    3,
+    177,
+    137
+   ],
+   "z": 0,
+   "members": [
+    "fin"
+   ]
+  },
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    684.0,
+    207.3
+   ],
+   "bbox": [
+    55.2,
+    93.6,
+    937.1,
+    226.6
+   ],
+   "rect": [
+    3,
+    143,
+    563,
+    136
+   ],
+   "z": 1,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "body-flash",
+   "parent": "body",
+   "pivot": [
+    684.0,
+    207.3
+   ],
+   "bbox": [
+    56.3,
+    94.2,
+    936.4,
+    226.8
+   ],
+   "rect": [
+    3,
+    3,
+    562,
+    137
+   ],
+   "z": 2,
+   "members": [
+    "body-flash"
+   ]
+  },
+  {
+   "name": "arms-lower",
+   "parent": "head",
+   "pivot": [
+    1154.0,
+    217.3
+   ],
+   "bbox": [
+    1135.1,
+    195.9,
+    189.1,
+    81.8
+   ],
+   "rect": [
+    3,
+    282,
+    114,
+    50
+   ],
+   "z": 3,
+   "members": [
+    "arms-lower"
+   ]
+  },
+  {
+   "name": "tentacle-a",
+   "parent": "head",
+   "pivot": [
+    1184.0,
+    189.3
+   ],
+   "bbox": [
+    1164.5,
+    173.7,
+    239.0,
+    30.2
+   ],
+   "rect": [
+    302,
+    282,
+    144,
+    19
+   ],
+   "z": 4,
+   "members": [
+    "tentacle-a"
+   ]
+  },
+  {
+   "name": "tentacle-b",
+   "parent": "head",
+   "pivot": [
+    1184.0,
+    225.3
+   ],
+   "bbox": [
+    1165.8,
+    211.0,
+    237.0,
+    29.9
+   ],
+   "rect": [
+    449,
+    282,
+    143,
+    18
+   ],
+   "z": 5,
+   "members": [
+    "tentacle-b"
+   ]
+  },
+  {
+   "name": "club-a",
+   "parent": "head",
+   "pivot": [
+    1384.0,
+    189.3
+   ],
+   "bbox": [
+    1330.2,
+    160.7,
+    108.3,
+    56.7
+   ],
+   "rect": [
+    234,
+    282,
+    65,
+    35
+   ],
+   "z": 6,
+   "members": [
+    "club-a"
+   ]
+  },
+  {
+   "name": "club-b",
+   "parent": "head",
+   "pivot": [
+    1384.0,
+    225.3
+   ],
+   "bbox": [
+    1330.8,
+    196.5,
+    106.4,
+    57.6
+   ],
+   "rect": [
+    167,
+    282,
+    64,
+    35
+   ],
+   "z": 7,
+   "members": [
+    "club-b"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    944.0,
+    207.3
+   ],
+   "bbox": [
+    934.6,
+    121.3,
+    287.1,
+    173.2
+   ],
+   "rect": [
+    569,
+    143,
+    173,
+    104
+   ],
+   "z": 8,
+   "members": [
+    "head",
+    "head-line"
+   ]
+  },
+  {
+   "name": "head-flash",
+   "parent": "head",
+   "pivot": [
+    944.0,
+    207.3
+   ],
+   "bbox": [
+    969.7,
+    132.1,
+    252.0,
+    148.0
+   ],
+   "rect": [
+    745,
+    143,
+    152,
+    89
+   ],
+   "z": 9,
+   "members": [
+    "head-flash"
+   ]
+  },
+  {
+   "name": "arms-upper",
+   "parent": "head",
+   "pivot": [
+    1154.0,
+    197.3
+   ],
+   "bbox": [
+    1135.2,
+    126.5,
+    189.6,
+    94.6
+   ],
+   "rect": [
+    900,
+    143,
+    114,
+    57
+   ],
+   "z": 10,
+   "members": [
+    "arms-upper"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    1084.0,
+    173.3
+   ],
+   "bbox": [
+    1047.4,
+    137.8,
+    72.7,
+    71.3
+   ],
+   "rect": [
+    120,
+    282,
+    44,
+    43
+   ],
+   "z": 11,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}

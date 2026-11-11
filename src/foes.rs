@@ -132,7 +132,17 @@ fn spawn_foes(
             | Kind::Octopus
             | Kind::Monkey
             | Kind::Triggerfish
-            | Kind::AlarmJelly => {}
+            | Kind::AlarmJelly
+            | Kind::LoggerheadTurtle
+            | Kind::HumboldtSquid
+            | Kind::Viperfish
+            | Kind::GoliathGrouper
+            | Kind::Lobster
+            | Kind::HermitCrab
+            | Kind::BobbitWorm
+            | Kind::GiantIsopod
+            | Kind::Hagfish
+            | Kind::AmphipodSwarm => {}
         }
     }
 }

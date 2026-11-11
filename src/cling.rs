@@ -75,6 +75,15 @@ pub fn spawn_small(
             )],
             CLAM_SCALE,
         ),
+        // A placeholder for the economy's items: grit, tinted by tier.
+        Carry::Item(item) => {
+            let [r, g, b] = item.tint();
+            let parts = crate::build::grit_parts()
+                .into_iter()
+                .map(|(mesh, _, at, turn)| (mesh, Color::srgb(r, g, b), at, turn))
+                .collect();
+            (parts, GRIT_SCALE)
+        }
         _ => (crate::build::grit_parts(), GRIT_SCALE),
     };
     parent
@@ -95,6 +104,17 @@ pub fn spawn_small(
         });
 }
 
+/// One item of each tier (0 for by-products and processed things): the
+/// placeholder look is chosen by tier.
+const TIER_ITEMS: [crabsim::Item; 6] = [
+    crabsim::Item::Pearl,
+    crabsim::Item::Mussel,
+    crabsim::Item::Clam,
+    crabsim::Item::Scallop,
+    crabsim::Item::SeepMussel,
+    crabsim::Item::VentClam,
+];
+
 /// How many small things the biggest shell carries (a crab grown as big as
 /// moulting makes it).
 fn most_carried(t: &crabsim::Tuning) -> usize {
@@ -110,6 +130,8 @@ struct Clinging {
     crab: Entity,
     slot: usize,
     kind: Carry,
+    /// An economy item's placeholder shows for every item of this tier.
+    tier: Option<u8>,
 }
 
 #[derive(Component)]
@@ -136,6 +158,20 @@ fn attach(
                         crab: of.0,
                         slot,
                         kind,
+                        tier: None,
+                    };
+                    let (meshes, materials) = (&mut *meshes, &mut *materials);
+                    let extra = (thing, Visibility::Hidden);
+                    spawn_small(parent, meshes, materials, kind, slot, DEPTH, extra);
+                }
+                // The economy's items: one placeholder per tier.
+                for item in TIER_ITEMS {
+                    let kind = Carry::Item(item);
+                    let thing = Clinging {
+                        crab: of.0,
+                        slot,
+                        kind,
+                        tier: Some(item.tier()),
                     };
                     let (meshes, materials) = (&mut *meshes, &mut *materials);
                     let extra = (thing, Visibility::Hidden);
@@ -179,7 +215,12 @@ fn show(
 ) {
     for (thing, mut shown) in &mut things {
         let on = crabs.get(thing.crab).is_ok_and(|m| {
-            m.tucked < OUT_OF_SIGHT && m.clinging.get(thing.slot) == Some(&thing.kind)
+            m.tucked < OUT_OF_SIGHT
+                && match (thing.tier, m.clinging.get(thing.slot)) {
+                    (Some(tier), Some(Carry::Item(item))) => item.tier() == tier,
+                    (None, Some(held)) => *held == thing.kind,
+                    _ => false,
+                }
         });
         shown.set_if_neq(if on {
             Visibility::Inherited

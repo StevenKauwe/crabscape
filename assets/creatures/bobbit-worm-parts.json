@@ -1,0 +1,349 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/bobbit-worm/bobbit-worm-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "bobbit-worm-atlas.png",
+ "atlas_size": [
+  1024,
+  64
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  189.15,
+  190.0
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "seg-d",
+   "parent": null,
+   "pivot": [
+    86.0,
+    160.0
+   ],
+   "bbox": [
+    53.9,
+    138.9,
+    64.2,
+    42.2
+   ],
+   "rect": [
+    126,
+    3,
+    39,
+    26
+   ],
+   "z": 0,
+   "members": [
+    "seg-d",
+    "seg-d-sheen",
+    "seg-d-band-0",
+    "seg-d-band-1"
+   ]
+  },
+  {
+   "name": "seg-c",
+   "parent": null,
+   "pivot": [
+    130.0,
+    160.0
+   ],
+   "bbox": [
+    98.5,
+    138.6,
+    64.0,
+    42.4
+   ],
+   "rect": [
+    84,
+    3,
+    39,
+    26
+   ],
+   "z": 4,
+   "members": [
+    "seg-c",
+    "seg-c-sheen",
+    "seg-c-band-0",
+    "seg-c-band-1"
+   ]
+  },
+  {
+   "name": "seg-b",
+   "parent": null,
+   "pivot": [
+    174.0,
+    160.0
+   ],
+   "bbox": [
+    141.6,
+    138.5,
+    64.8,
+    43.0
+   ],
+   "rect": [
+    42,
+    3,
+    39,
+    26
+   ],
+   "z": 8,
+   "members": [
+    "seg-b",
+    "seg-b-sheen",
+    "seg-b-band-0",
+    "seg-b-band-1"
+   ]
+  },
+  {
+   "name": "seg-a",
+   "parent": null,
+   "pivot": [
+    218.0,
+    160.0
+   ],
+   "bbox": [
+    186.3,
+    139.8,
+    63.5,
+    41.6
+   ],
+   "rect": [
+    203,
+    3,
+    39,
+    25
+   ],
+   "z": 12,
+   "members": [
+    "seg-a",
+    "seg-a-sheen",
+    "seg-a-band-0",
+    "seg-a-band-1"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": null,
+   "pivot": [
+    258.0,
+    160.0
+   ],
+   "bbox": [
+    234.2,
+    138.8,
+    51.8,
+    41.9
+   ],
+   "rect": [
+    168,
+    3,
+    32,
+    26
+   ],
+   "z": 16,
+   "members": [
+    "head",
+    "head-eye-0",
+    "head-eye-1",
+    "head-palp"
+   ]
+  },
+  {
+   "name": "jaw-bottom",
+   "parent": "head",
+   "pivot": [
+    272.0,
+    165.0
+   ],
+   "bbox": [
+    263.8,
+    156.3,
+    40.3,
+    21.5
+   ],
+   "rect": [
+    360,
+    3,
+    25,
+    13
+   ],
+   "z": 20,
+   "members": [
+    "jaw-bottom",
+    "jaw-bottom-tooth-0",
+    "jaw-bottom-tooth-1",
+    "jaw-bottom-tooth-2"
+   ]
+  },
+  {
+   "name": "jaw-top",
+   "parent": "head",
+   "pivot": [
+    272.0,
+    155.0
+   ],
+   "bbox": [
+    263.7,
+    142.2,
+    40.0,
+    21.0
+   ],
+   "rect": [
+    388,
+    3,
+    24,
+    13
+   ],
+   "z": 24,
+   "members": [
+    "jaw-top",
+    "jaw-top-tooth-0",
+    "jaw-top-tooth-1",
+    "jaw-top-tooth-2"
+   ]
+  },
+  {
+   "name": "ant-0",
+   "parent": null,
+   "pivot": [
+    248.0,
+    149.0
+   ],
+   "bbox": [
+    232.6,
+    117.0,
+    21.4,
+    38.0
+   ],
+   "rect": [
+    245,
+    3,
+    13,
+    23
+   ],
+   "z": 28,
+   "members": [
+    "ant-0"
+   ]
+  },
+  {
+   "name": "ant-1",
+   "parent": null,
+   "pivot": [
+    253.0,
+    147.0
+   ],
+   "bbox": [
+    240.9,
+    107.0,
+    18.1,
+    46.0
+   ],
+   "rect": [
+    14,
+    3,
+    11,
+    28
+   ],
+   "z": 29,
+   "members": [
+    "ant-1"
+   ]
+  },
+  {
+   "name": "ant-2",
+   "parent": null,
+   "pivot": [
+    258.0,
+    146.0
+   ],
+   "bbox": [
+    252.0,
+    94.0,
+    12.0,
+    58.0
+   ],
+   "rect": [
+    3,
+    3,
+    8,
+    35
+   ],
+   "z": 30,
+   "members": [
+    "ant-2"
+   ]
+  },
+  {
+   "name": "ant-3",
+   "parent": null,
+   "pivot": [
+    263.0,
+    147.0
+   ],
+   "bbox": [
+    257.0,
+    107.0,
+    18.1,
+    46.0
+   ],
+   "rect": [
+    28,
+    3,
+    11,
+    28
+   ],
+   "z": 31,
+   "members": [
+    "ant-3"
+   ]
+  },
+  {
+   "name": "ant-4",
+   "parent": null,
+   "pivot": [
+    268.0,
+    149.0
+   ],
+   "bbox": [
+    262.0,
+    117.0,
+    21.4,
+    38.0
+   ],
+   "rect": [
+    261,
+    3,
+    13,
+    23
+   ],
+   "z": 32,
+   "members": [
+    "ant-4"
+   ]
+  },
+  {
+   "name": "mound",
+   "parent": null,
+   "pivot": [
+    258.0,
+    188.0
+   ],
+   "bbox": [
+    192.0,
+    167.0,
+    132.4,
+    29.0
+   ],
+   "rect": [
+    277,
+    3,
+    80,
+    18
+   ],
+   "z": 33,
+   "members": [
+    "mound"
+   ]
+  }
+ ]
+}

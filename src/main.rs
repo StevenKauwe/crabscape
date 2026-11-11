@@ -64,6 +64,7 @@
 
 mod alarm_jelly;
 mod background;
+mod bestiary;
 mod brittle;
 mod build;
 mod burrows;
@@ -82,6 +83,7 @@ mod cling;
 mod codes;
 mod coop;
 mod creature_art;
+mod creatures;
 mod crevices;
 mod critters;
 mod deep;
@@ -211,6 +213,7 @@ fn run_app() {
         .add_plugins(salvage::SalvagePlugin)
         .add_plugins(canyon_drift::CanyonDriftPlugin)
         .add_plugins(triggerfish::TriggerfishPlugin)
+        .add_plugins(bestiary::BestiaryPlugin)
         .add_plugins(alarm_jelly::AlarmJellyPlugin)
         .add_plugins((
             critters::CrittersPlugin,

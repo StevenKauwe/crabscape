@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::economy::Item;
+
 /// The effect of a portion prepared from a clam.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PortionKind {
@@ -56,11 +58,16 @@ impl PreparedFood {
 
     /// Spend a clam and produce its two valves and two distinct portions.
     /// Failure leaves every input untouched, including an exhausted ID space.
-    pub fn prepare(&mut self, kind: PortionKind, larder: &mut u32, valves: &mut u32) -> bool {
+    pub fn prepare(
+        &mut self,
+        kind: PortionKind,
+        larder: &mut u32,
+        stash: &mut crate::craft::Stash,
+    ) -> bool {
         let Some(next) = self.next_batch.checked_add(1) else {
             return false;
         };
-        let Some(new_valves) = valves.checked_add(2) else {
+        let Some(new_valves) = stash.count(Item::Valve).checked_add(2) else {
             return false;
         };
         if *larder == 0 || self.slots.iter().any(Option::is_some) {
@@ -80,7 +87,7 @@ impl PreparedFood {
         ];
         self.next_batch = next;
         *larder -= 1;
-        *valves = new_valves;
+        stash.set(Item::Valve, new_valves);
         true
     }
 }
@@ -146,20 +153,20 @@ mod tests {
     #[test]
     fn preparation_is_atomic_and_never_spends_a_clam_twice() {
         let mut food = PreparedFood::default();
-        let (mut clams, mut valves) = (2, 0);
-        assert!(food.prepare(PortionKind::Shell, &mut clams, &mut valves));
-        assert_eq!((clams, valves), (1, 2));
+        let (mut clams, mut stash) = (2, crate::craft::Stash::default());
+        assert!(food.prepare(PortionKind::Shell, &mut clams, &mut stash));
+        assert_eq!((clams, stash.count(Item::Valve)), (1, 2));
         assert_ne!(food.slots[0], food.slots[1]);
-        assert!(!food.prepare(PortionKind::Reserve, &mut clams, &mut valves));
-        assert_eq!((clams, valves), (1, 2));
+        assert!(!food.prepare(PortionKind::Reserve, &mut clams, &mut stash));
+        assert_eq!((clams, stash.count(Item::Valve)), (1, 2));
         let saved = serde_json::to_string(&food).unwrap();
         assert_eq!(serde_json::from_str::<PreparedFood>(&saved).unwrap(), food);
     }
     #[test]
     fn interrupted_or_ineligible_eating_never_consumes() {
         let mut food = PreparedFood::default();
-        let (mut clams, mut valves) = (1, 0);
-        assert!(food.prepare(PortionKind::Reserve, &mut clams, &mut valves));
+        let (mut clams, mut stash) = (1, crate::craft::Stash::default());
+        assert!(food.prepare(PortionKind::Reserve, &mut clams, &mut stash));
         let mut eating = Eating::default();
         for _ in 0..239 {
             assert_eq!(eating.tick(&mut food, true, true, false, true), None);

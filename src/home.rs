@@ -472,5 +472,7 @@ fn big_on_cast_off(
         }
         // Small things cling to it instead (above).
         Carry::Grit | Carry::Clam | Carry::Valve => {}
+        // Economy items cling or ride as the plain lump (P4 draws icons).
+        Carry::Item(_) => {}
     }
 }

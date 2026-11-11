@@ -132,6 +132,8 @@ pub fn proving_deed(skill: Skill) -> &'static str {
         Skill::Swimming => "A long swim touching nothing",
         Skill::Fighting => "Beaten with a counter",
         Skill::DataDriven => "Completed an analysis",
+        // The economy skills have no feat, so no proving moment.
+        _ => "Practised",
     }
 }
 
@@ -227,7 +229,7 @@ impl Mover {
         let g = self.grown(t);
         // A hair over, so a size that just fits one more isn't lost to
         // rounding.
-        (t.cling as f32 * g * g + 1e-3) as usize
+        (t.cling as f32 * g * g + 1e-3) as usize + usize::from(self.econ.bag_slots)
     }
 
     /// What its shell holds when whole, before being soft or well fed: the

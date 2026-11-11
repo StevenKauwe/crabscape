@@ -727,7 +727,7 @@ mod tests {
         assert!(crab.mover.prepared_food.prepare(
             crate::prepared_food::PortionKind::Shell,
             &mut crab.larder,
-            &mut crab.stash.valves
+            &mut crab.stash
         ));
         original.set_controls(
             PlayerId(0),
@@ -769,7 +769,7 @@ mod tests {
         let mut host = session();
         assert!(host.remove_cell_player(PlayerId(71)));
         let mut progress = host.fresh_progress();
-        let mut valves = 0;
+        let mut valves = crate::craft::Stash::default();
         let mut clams = 1;
         assert!(progress.prepared_food.prepare(
             crate::prepared_food::PortionKind::Shell,

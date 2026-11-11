@@ -103,7 +103,7 @@ fn small_things_cling_to_the_shell_several_at_once() {
         "{seen:?}"
     );
     assert_eq!(crab.larder, 2);
-    assert_eq!(crab.stash.grit, 1);
+    assert_eq!(crab.stash.count(crabsim::Item::Grit), 1);
 }
 
 #[test]
@@ -128,9 +128,9 @@ fn small_things_never_block_a_big_find_and_a_big_find_never_blocks_them() {
     let seen = go_home(&mut sim);
     let crab = sim.crab(P0).unwrap();
     assert!(seen.contains(&"put away"), "{seen:?}");
-    assert_eq!(crab.stash.cultures, 1);
+    assert_eq!(crab.stash.count(crabsim::Item::Culture), 1);
     assert_eq!(crab.larder, 1);
-    assert_eq!(crab.stash.grit, 1);
+    assert_eq!(crab.stash.count(crabsim::Item::Grit), 1);
 }
 
 #[test]
@@ -156,9 +156,9 @@ fn dying_leaves_everything_carried_in_the_cast_off_shell() {
 
     go_home(&mut sim);
     let crab = sim.crab(P0).unwrap();
-    assert_eq!(crab.stash.cultures, 1);
+    assert_eq!(crab.stash.count(crabsim::Item::Culture), 1);
     assert_eq!(crab.larder, 1);
-    assert_eq!(crab.stash.grit, 1);
+    assert_eq!(crab.stash.count(crabsim::Item::Grit), 1);
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn an_old_save_with_a_clam_on_its_back_still_carries_it() {
     go_home(&mut sim);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.larder, 1);
-    assert_eq!(crab.stash.grit, 2);
+    assert_eq!(crab.stash.count(crabsim::Item::Grit), 2);
 }
 
 #[test]
@@ -261,7 +261,11 @@ fn what_clings_is_saved_and_a_replay_carries_it() {
     walk_home(&mut live);
     idle(&mut live, 30);
     let crab = live.crab(P0).unwrap();
-    let kept = (crab.stash.cultures, crab.larder, crab.stash.grit);
+    let kept = (
+        crab.stash.count(crabsim::Item::Culture),
+        crab.larder,
+        crab.stash.count(crabsim::Item::Grit),
+    );
     assert_eq!(kept, (1, 1, 1));
     assert!(crab.mover.load().next().is_none(), "all of it unloaded");
 

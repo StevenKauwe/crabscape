@@ -13,104 +13,71 @@
 //! running recording notes it (`craft=lantern` in a replay), so a replay
 //! plays back exactly.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
+use crate::economy::Item;
+
 use crate::level::Place;
-use crate::physics::Carry;
 use crate::world::{PlayerId, Sim};
 
-/// Something kept at the workbench to make things from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Material {
-    /// A lump of glowing bacteria from the pit.
-    Culture,
-    /// A shed tooth.
-    Tooth,
-    /// A piece of shell grit.
-    Grit,
-    /// A dead glass sponge's skeleton, from the canyon's floor.
-    Glass,
-    /// One empty half-shell of a clam it ate (a clam has two).
-    Valve,
-}
+/// Something kept at the workbench to make things from: any of the
+/// economy's items.
+pub type Material = Item;
 
-impl Material {
-    /// What a thing carried home is kept as at the workbench (a clam goes
-    /// into the larder instead).
-    pub fn kept(thing: Carry) -> Option<Self> {
-        match thing {
-            Carry::Culture => Some(Material::Culture),
-            Carry::Tooth => Some(Material::Tooth),
-            Carry::Grit => Some(Material::Grit),
-            Carry::Valve => Some(Material::Valve),
-            Carry::Glass => Some(Material::Glass),
-            Carry::Clam => None,
-        }
-    }
-
-    /// What the menu calls one, and several.
-    pub fn names(self) -> (&'static str, &'static str) {
-        match self {
-            Material::Culture => ("glowing culture", "glowing cultures"),
-            Material::Tooth => ("shed tooth", "shed teeth"),
-            Material::Grit => ("shell grit", "shell grit"),
-            Material::Glass => ("glass sponge", "glass sponges"),
-            Material::Valve => ("clam valve", "clam valves"),
-        }
-    }
-}
-
-/// What a crab keeps at its workbench at home (it stays there through
-/// death, like the larder).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Stash {
-    #[serde(default)]
-    pub cultures: u32,
-    #[serde(default)]
-    pub teeth: u32,
-    #[serde(default)]
-    pub grit: u32,
-    #[serde(default)]
-    pub valves: u32,
-    #[serde(default)]
-    pub glass: u32,
-}
+/// What a crab keeps at its workbench at home: the bank. Unlimited, and it
+/// stays there through death, like the larder.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stash(pub BTreeMap<Item, u32>);
 
 impl Stash {
-    /// How many of `m` it has.
-    pub fn count(&self, m: Material) -> u32 {
-        match m {
-            Material::Culture => self.cultures,
-            Material::Tooth => self.teeth,
-            Material::Grit => self.grit,
-            Material::Valve => self.valves,
-            Material::Glass => self.glass,
+    /// A bank holding exactly these.
+    pub fn of(items: &[(Item, u32)]) -> Self {
+        let mut stash = Stash::default();
+        for &(item, n) in items {
+            stash.add(item, n);
         }
+        stash
     }
 
-    fn count_mut(&mut self, m: Material) -> &mut u32 {
-        match m {
-            Material::Culture => &mut self.cultures,
-            Material::Tooth => &mut self.teeth,
-            Material::Grit => &mut self.grit,
-            Material::Valve => &mut self.valves,
-            Material::Glass => &mut self.glass,
-        }
+    /// How many of `item` it has.
+    pub fn count(&self, item: Item) -> u32 {
+        self.0.get(&item).copied().unwrap_or(0)
     }
 
-    /// Put `n` of `m` away.
-    pub fn add(&mut self, m: Material, n: u32) {
-        *self.count_mut(m) += n;
+    /// Put `n` of `item` away (never past `u32::MAX`).
+    pub fn add(&mut self, item: Item, n: u32) {
+        if n > 0 {
+            let c = self.0.entry(item).or_insert(0);
+            *c = c.saturating_add(n);
+        }
     }
 
     /// Does it hold everything `needs` asks for?
-    pub fn has(&self, needs: &[(Material, u32)]) -> bool {
-        needs.iter().all(|&(m, n)| self.count(m) >= n)
+    pub fn has(&self, needs: &[(Item, u32)]) -> bool {
+        needs.iter().all(|&(item, n)| self.count(item) >= n)
     }
 
-    fn take(&mut self, needs: &[(Material, u32)]) {
-        for &(m, n) in needs {
-            *self.count_mut(m) -= n;
+    /// Take `needs` out (the caller checked [`Stash::has`]; it never goes
+    /// below nothing).
+    pub fn take(&mut self, needs: &[(Item, u32)]) {
+        for &(item, n) in needs {
+            if let Some(c) = self.0.get_mut(&item) {
+                *c = c.saturating_sub(n);
+                if *c == 0 {
+                    self.0.remove(&item);
+                }
+            }
+        }
+    }
+
+    /// Set how many of `item` it holds.
+    pub fn set(&mut self, item: Item, n: u32) {
+        if n == 0 {
+            self.0.remove(&item);
+        } else {
+            self.0.insert(item, n);
         }
     }
 }
@@ -269,7 +236,7 @@ impl Sim {
                 || m.prepared_food.slots.iter().any(Option::is_some)
                 || m.clinging.len() + 2 > m.carries(&self.tuning)
                 || m.prepared_food.next_batch == u64::MAX
-                || crab.stash.valves.checked_add(2).is_none())
+                || crab.stash.count(Material::Valve).checked_add(2).is_none())
         {
             return Err(CantMake::Missing);
         }
@@ -321,7 +288,7 @@ impl Sim {
                 };
                 if !m
                     .prepared_food
-                    .prepare(kind, &mut crab.larder, &mut crab.stash.valves)
+                    .prepare(kind, &mut crab.larder, &mut crab.stash)
                 {
                     return Err(CantMake::Missing);
                 }

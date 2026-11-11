@@ -37,6 +37,7 @@ fn controls() -> impl Strategy<Value = Controls> {
         block_held: b[8],
         block_pressed: b[9],
         eat_held: b[10],
+        gather_held: b[9],
     })
 }
 

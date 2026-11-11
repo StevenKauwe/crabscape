@@ -563,6 +563,8 @@ fn read_input(
     }
     let mut controls = Controls {
         eat_held: eat,
+        // The Gather button and key come with the presentation package.
+        gather_held: false,
         walk: walk.clamp(-1.0, 1.0),
         jump_held: jump,
         jump_pressed: edges.jump || key_pressed(&keys, &JUMP_KEYS, jump, held_before.jump),

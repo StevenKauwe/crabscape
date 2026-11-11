@@ -28,4 +28,5 @@ pub mod shrimp;
 pub mod svg;
 
 pub mod alarm_jelly;
+pub mod bestiary;
 pub mod triggerfish;

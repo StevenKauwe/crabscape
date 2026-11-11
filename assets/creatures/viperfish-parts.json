@@ -1,0 +1,202 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/viperfish/viperfish-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "viperfish-atlas.png",
+ "atlas_size": [
+  1024,
+  64
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  248.15,
+  217.4
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "tail",
+   "parent": "body",
+   "pivot": [
+    120.6,
+    187.4
+   ],
+   "bbox": [
+    53.2,
+    151.5,
+    73.4,
+    71.9
+   ],
+   "rect": [
+    100,
+    3,
+    45,
+    44
+   ],
+   "z": 0,
+   "members": [
+    "tail"
+   ]
+  },
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    244.6,
+    187.4
+   ],
+   "bbox": [
+    94.9,
+    153.6,
+    250.3,
+    63.5
+   ],
+   "rect": [
+    222,
+    3,
+    151,
+    39
+   ],
+   "z": 1,
+   "members": [
+    "body",
+    "body-photo-0",
+    "body-photo-1",
+    "body-photo-2",
+    "body-photo-3",
+    "body-photo-4",
+    "body-photo-5",
+    "body-photo-6",
+    "body-photo-7",
+    "body-photo-8",
+    "body-photo-9",
+    "body-photo-10"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    320.6,
+    185.4
+   ],
+   "bbox": [
+    301.9,
+    151.7,
+    118.3,
+    64.2
+   ],
+   "rect": [
+    148,
+    3,
+    71,
+    39
+   ],
+   "z": 2,
+   "members": [
+    "head",
+    "head-fang-0",
+    "head-fang-1",
+    "head-fang-2"
+   ]
+  },
+  {
+   "name": "jaw",
+   "parent": "head",
+   "pivot": [
+    336.6,
+    197.4
+   ],
+   "bbox": [
+    331.1,
+    167.8,
+    94.7,
+    48.9
+   ],
+   "rect": [
+    376,
+    3,
+    57,
+    30
+   ],
+   "z": 3,
+   "members": [
+    "jaw",
+    "jaw-fang-0",
+    "jaw-fang-1",
+    "jaw-fang-2",
+    "jaw-fang-3"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    368.6,
+    173.4
+   ],
+   "bbox": [
+    354.2,
+    159.9,
+    28.5,
+    27.5
+   ],
+   "rect": [
+    457,
+    3,
+    18,
+    17
+   ],
+   "z": 4,
+   "members": [
+    "eye"
+   ]
+  },
+  {
+   "name": "lure",
+   "parent": "head",
+   "pivot": [
+    284.6,
+    161.4
+   ],
+   "bbox": [
+    278.6,
+    93.9,
+    156.0,
+    73.5
+   ],
+   "rect": [
+    3,
+    3,
+    94,
+    45
+   ],
+   "z": 5,
+   "members": [
+    "lure"
+   ]
+  },
+  {
+   "name": "lure-tip",
+   "parent": "lure",
+   "pivot": [
+    428.6,
+    143.4
+   ],
+   "bbox": [
+    414.0,
+    128.5,
+    29.1,
+    29.9
+   ],
+   "rect": [
+    436,
+    3,
+    18,
+    18
+   ],
+   "z": 6,
+   "members": [
+    "lure-tip"
+   ]
+  }
+ ]
+}

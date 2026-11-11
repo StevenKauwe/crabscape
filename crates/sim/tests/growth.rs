@@ -8,7 +8,6 @@
 
 use bevy_math::Vec2;
 use crabsim::replay::ticks;
-use crabsim::skills::xp_for;
 use crabsim::{Carry, Feel, Kind, PlayerId, Progress, Replay, SPAWN, Shelter, Sim, Skill, play};
 
 const P0: PlayerId = PlayerId(0);
@@ -63,10 +62,7 @@ fn each_moult_makes_the_crab_bigger_by_less_each_time_up_to_a_cap() {
 fn ready_at_home() -> Sim {
     let mut sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
     let (den, fed) = (sim.level.home_den, sim.tuning.food.well_fed_ticks);
-    let xp = xp_for(
-        sim.tuning.moult.feat_level,
-        Skill::Climbing.step(&sim.tuning),
-    );
+    let xp = Skill::Climbing.xp_at(sim.tuning.moult.feat_level, &sim.tuning);
     let m = &mut sim.crab_mut(P0).unwrap().mover;
     m.pos = den;
     m.shelter = Shelter::In;

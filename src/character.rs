@@ -254,15 +254,20 @@ pub fn writes(c: &Character, device_settings: Option<&str>) -> Vec<(&'static str
 pub fn summary(c: &Character, sim: &Sim) -> String {
     let p = c.save.progress.clone().unwrap_or_default();
     let skills = Skill::ALL
-        .map(|s| {
-            let xp = match s {
-                Skill::Climbing => p.climb_xp,
-                Skill::Swimming => p.swim_xp,
-                Skill::Fighting => p.fight_xp,
-                Skill::DataDriven => p.data_xp,
+        .into_iter()
+        .filter_map(|s| {
+            let level = match s {
+                Skill::Climbing => crabsim::economy::xp::level_for(p.climb_xp as u32),
+                Skill::Swimming => crabsim::economy::xp::level_for(p.swim_xp as u32),
+                Skill::Fighting => crabsim::economy::xp::level_for(p.fight_xp as u32),
+                Skill::DataDriven => skills::level(p.data_xp, s.step(&sim.tuning)),
+                economy => crabsim::economy::xp::level_for(p.econ.skills.get(economy)),
             };
-            format!("{} {}", s.name(), skills::level(xp, s.step(&sim.tuning)))
+            // The economy skills only show once they are above level 1.
+            let shown = level > 1 || s.economy_index().is_none();
+            shown.then(|| format!("{} {level}", s.name()))
         })
+        .collect::<Vec<_>>()
         .join(", ");
     let eaten = p.eaten.iter().filter(|e| **e).count();
     let cultures = match p.lantern {
@@ -835,8 +840,8 @@ mod tests {
     fn travelled() -> Character {
         let mut sim = Sim::with_one_crab(Vec2::new(1400.0, 0.0));
         let mut progress = sim.fresh_progress();
-        progress.climb_xp = 100.0;
-        progress.fight_xp = 45.0;
+        progress.climb_xp = 194.0; // level 3 on the RuneScape table
+        progress.fight_xp = 87.0; // level 2
         progress.lantern = 2;
         progress.eaten[0] = true;
         progress.eaten[2] = true;

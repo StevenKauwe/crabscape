@@ -94,6 +94,9 @@ pub struct Progress {
     /// its claws. Saves from before the workbench kept things have neither.
     #[serde(default)]
     pub stash: crate::craft::Stash,
+    /// Its skills, tools, gear, stations and beds (see [`crate::economy`]).
+    #[serde(default)]
+    pub econ: crate::economy::Economy,
     #[serde(default)]
     pub clam_guards: bool,
     #[serde(default)]
@@ -195,7 +198,8 @@ impl Sim {
             soft: m.soft,
             growing: m.growing,
             proven: m.proven.clone(),
-            stash: crab.stash,
+            stash: crab.stash.clone(),
+            econ: crab.econ.clone(),
             clam_guards: m.clam_guards,
             salvage_receipts: crab.salvage_receipts.clone(),
             drift_receipts: crab.drift_receipts.clone(),
@@ -298,7 +302,8 @@ impl Sim {
         m.stamina = m.strokes(&tuning) as f32;
         crab.fighter.vitals.health = m.max_shell(&tuning);
         crab.home_grit = p.home_grit;
-        crab.stash = p.stash;
+        crab.stash = p.stash.clone();
+        crab.econ = p.econ.clone();
         crab.larder = p.larder.min(crate::world::larder_holds(
             tuning.build.stage(p.home_grit),
             &tuning,
@@ -316,6 +321,7 @@ impl Sim {
             keep_start(&mut crab.teeth_taken, &p.teeth_taken);
             crab.cast_offs.clone_from(&p.cast_offs);
         }
+        crab.sync_econ();
     }
 }
 

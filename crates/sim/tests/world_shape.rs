@@ -215,12 +215,7 @@ fn no_hunter_roams_inside_a_tunnel() {
             if ambusher_at_a_mouth {
                 continue;
             }
-            let swimming = matches!(
-                kind,
-                crabsim::enemy::Kind::Moray
-                    | crabsim::enemy::Kind::Triggerfish
-                    | crabsim::enemy::Kind::AlarmJelly
-            );
+            let swimming = kind.swims();
             let leash = crabsim::enemy::Enemy::new(0, kind, home, &tuning).home_leash(&tuning);
             let chase = leash + k.approach_speed * k.tell_ticks as f32 * route::DT as f32;
             let (bottom, top) = if swimming {
