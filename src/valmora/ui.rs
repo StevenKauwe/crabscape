@@ -1,5 +1,6 @@
 //! Offline adventure UI. State transitions and rewards remain in dragon-game.
 //! Save writes, microphone access, and room discovery are deliberately absent.
+mod flight;
 use bevy_egui::egui;
 use dragon_game::{
     adventure::{Adventure, Clock, Event},
@@ -23,6 +24,8 @@ pub struct AdventureUi {
 }
 #[derive(Default)]
 pub struct Controls {
+    pub hud_rect: Option<egui::Rect>,
+    pub pause: bool,
     pub return_home: bool,
     pub special: bool,
     pub swap: bool,
@@ -79,6 +82,12 @@ impl AdventureUi {
         }
     }
     pub fn draw(&mut self, ui: &mut egui::Ui, adventure: &mut Adventure, clock: Clock) -> Controls {
+        if adventure.state() == "play"
+            && adventure.gate.frozen.is_none()
+            && self.milestone.is_none()
+        {
+            return self.draw_flight(ui, adventure);
+        }
         let mut controls = Controls::default();
         ui.horizontal_wrapped(|ui| {
             ui.heading("Valmora");
@@ -518,9 +527,7 @@ impl AdventureUi {
                 ui.label("Preparing your adventure…");
             }
         }
-        if let Some(id) = adventure.story_id()
-            && self.story.is_none()
-        {
+        if let Some(id) = adventure.story_id() {
             self.story = content::story_page(id).cloned();
         }
         controls

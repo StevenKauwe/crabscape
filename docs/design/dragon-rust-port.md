@@ -31,8 +31,8 @@ The flight/mission harnesses use placeholder shapes. The adventure uses original
 procedural dragon/rider and enemy geometry, attack warnings, strikes, hazards and
 objective glyphs, shots/gems/allies and the six source backdrops/scenery, tessellated
 into egui meshes. Source audio, browser narration, data-only lobby, builder/roost
-previews and foregrounds are integrated. Optional ambient/trail particles, other
-scene previews and complete screen layouts remain unfinished. Canvas antialiasing,
+previews, weather/trails and foregrounds are integrated. Other scene previews,
+celebration effects and complete screen layouts remain unfinished. Canvas antialiasing,
 stroke joins and anisotropic strokes are approximations; command equality is not
 pixel equality. One viewport/realm/song backdrop is cached and dynamic outer buffers
 are reused, but nested paths/paints and dynamic meshes still allocate per frame. No
@@ -298,7 +298,7 @@ phone two-thumb controls have completed QA. The port remains a draft, unmerged.
 Builder and roost previews now use the source standing rider, egg, hatchling/adult
 and miniature dragon drawing. Direct live-JavaScript oracles pass 90 builder
 combinations and 120 follower update frames, including facing changes and varied dt.
-Ambient particles/trails and other scene previews remain open, not pixel-identical.
+Other scene previews remain open; rasterization is not pixel-identical.
 
 Touch controls now track distinct device/finger IDs independently from egui's mouse
 pointer: steering and held fire can coexist, a new sky touch replaces a stale stick,
@@ -345,3 +345,13 @@ host, matching mission/run, guest movement, and takeover after the host leaves w
 resetting the mission/run. Microphone and nonlocal signaling guards remain zero.
 No gameplay state is injected to bypass the journey. This is Chromium validation,
 not physical iPhone/WebKit gameplay verification or cross-version protocol support.
+
+
+The phone flight HUD now follows the source layout roles: compact top status/Pause,
+team bottom-left and fire/abilities bottom-right, leaving the sky available for the
+floating stick. A 390×844 Chromium journey imports a synthetic legacy rider, preserves
+its exact source bytes and auxiliary flags, enters First Flight, steers/fires with two
+simultaneous touches, then pauses with the second thumb while the first remains down.
+Releasing does not resume or leave stale captures. Layout tests cover 320×568,
+390×844 and 844×390; cached closed-story state cannot hide the flight HUD. Invalid
+imports expose an explicit draft-discard/slot-reload recovery action.

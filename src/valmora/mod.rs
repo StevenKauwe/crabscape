@@ -161,6 +161,10 @@ impl Valmora {
             return;
         }
         self.menu_frozen = None;
+        if completion.operation == Operation::Select && !self.persistence.preferences_needs_reload()
+        {
+            self.ui.notice.clear();
+        }
         if completion.operation == Operation::Save && self.adventure.is_some() {
             self.ui.notice = "Checkpoint saved. Original saves are unchanged.".into();
             return;
@@ -796,6 +800,11 @@ fn draw(
                     source_panel(ui,ctx);
                     ui.small("Native port preview. Original saves are never overwritten.");
                     ui.label(&s.ui.notice);
+                    if s.persistence.needs_reload()
+                        && ui.add_enabled(!s.persistence.busy(), egui::Button::new("Discard this draft and reload selected slot")).clicked()
+                        && let Err(error) = s.persistence.select(slot(s.rider), clock.now_ms as f64) {
+                        s.ui.notice = error;
+                    }
                     if s.persistent && s.adventure.is_none() {
                         ui.collapsing("Import an existing rider instead", |ui| {
                             #[cfg(target_arch = "wasm32")]
@@ -910,7 +919,13 @@ fn draw(
             {
                 s.ui.notice = error;
             }
-            if s.persistent {
+            if s.persistent && adventure.state() == "play" && s.persistence.needs_reload() {
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    "Checkpoint failed. Pause to recover your progress.",
+                );
+            }
+            if s.persistent && adventure.state() != "play" {
                 if s.persistence.needs_reload() {
                     ui.colored_label(
                         egui::Color32::YELLOW,
@@ -960,30 +975,32 @@ fn draw(
                     }
                 });
             }
-            ui.horizontal_wrapped(|ui| {
-                if let Some(lobby) = &network.0 {
-                    ui.label(&lobby.notice);
-                    if ui.button("Leave room and return to roost").clicked() {
-                        network.0 = None;
-                        match adventure.to_roost() {
-                            Ok(events) => s.ui.events(events),
-                            Err(error) => s.ui.notice = format!("{error:?}"),
+            if adventure.state() != "play" {
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(lobby) = &network.0 {
+                        ui.label(&lobby.notice);
+                        if ui.button("Leave room and return to roost").clicked() {
+                            network.0 = None;
+                            match adventure.to_roost() {
+                                Ok(events) => s.ui.events(events),
+                                Err(error) => s.ui.notice = format!("{error:?}"),
+                            }
+                        }
+                    } else if adventure.game().is_none() {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut s.room_code)
+                                .hint_text("Room code")
+                                .char_limit(16),
+                        );
+                        if ui.button("Join data-only room").clicked() {
+                            match network::Lobby::connect(s.room_code.trim(), s.rider) {
+                                Ok(lobby) => network.0 = Some(lobby),
+                                Err(error) => s.ui.notice = error,
+                            }
                         }
                     }
-                } else if adventure.game().is_none() {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut s.room_code)
-                            .hint_text("Room code")
-                            .char_limit(16),
-                    );
-                    if ui.button("Join data-only room").clicked() {
-                        match network::Lobby::connect(s.room_code.trim(), s.rider) {
-                            Ok(lobby) => network.0 = Some(lobby),
-                            Err(error) => s.ui.notice = error,
-                        }
-                    }
-                }
-            });
+                });
+            }
             if let Some(lobby) = &mut network.0
                 && adventure.state() == "party"
             {
@@ -1025,14 +1042,31 @@ fn draw(
                     .show(ui, |ui| s.ui.draw(ui, adventure, clock))
                     .inner
             };
-            let touch_panel = egui::Rect::from_min_max(
-                ctx.content_rect().min,
-                egui::pos2(ctx.content_rect().right(), ui.cursor().top()),
-            );
+            let touch_panel = s.controls.hud_rect.unwrap_or_else(|| {
+                egui::Rect::from_min_max(
+                    ctx.content_rect().min,
+                    egui::pos2(ctx.content_rect().right(), ui.cursor().top()),
+                )
+            });
+            let flight_controls = adventure.state() == "play" && s.controls.hud_rect.is_some();
+            let mouse_stick = mouse_stick.filter(|(origin, _)| {
+                flight_controls
+                    && !touch_panel.contains(*origin)
+                    && !s
+                        .controls
+                        .fire_rect
+                        .is_some_and(|rect| rect.contains(*origin))
+                    && !s
+                        .controls
+                        .touch_actions
+                        .iter()
+                        .any(|(rect, _)| rect.contains(*origin))
+                    && !s.controls.direction.iter().any(|down| *down)
+            });
             let touch_owned = ctx.input(|i| {
                 s.touches.update(
                     &i.events,
-                    adventure.state() == "play",
+                    flight_controls,
                     i.focused,
                     touch_panel,
                     s.controls.fire_rect,
@@ -1052,6 +1086,7 @@ fn draw(
                 s.controls.select = None;
                 for action in &s.touches.actions {
                     match *action {
+                        touch::Action::Pause => s.ui.events(adventure.pause()),
                         touch::Action::Special => s.controls.special = true,
                         touch::Action::Swap => s.controls.swap = true,
                         touch::Action::Spell(spell) => s.controls.spell = Some(spell),
@@ -1059,6 +1094,7 @@ fn draw(
                     }
                 }
             }
+            let stick = stick.filter(|_| adventure.state() == "play");
             s.controls.stick = stick.map(|(origin, point)| {
                 let delta = (point - origin) / radius;
                 [delta.x as f64, delta.y as f64]

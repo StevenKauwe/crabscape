@@ -2,6 +2,7 @@
 use bevy_egui::egui::{Event, Pos2, Rect, TouchDeviceId, TouchId, TouchPhase};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
+    Pause,
     Special,
     Swap,
     Spell(dragon_game::abilities::Spell),
