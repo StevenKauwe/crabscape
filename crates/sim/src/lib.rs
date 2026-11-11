@@ -96,7 +96,7 @@ pub use enemy::{Enemy, Kind};
 pub use feel::Feel;
 pub use home::Shelter;
 pub use level::{CutFrom, Level, SPAWN};
-pub use memory::{Memory, MemorySave, Sight, Sighting};
+pub use memory::{Memory, MemorySave, NodeSighting, Sight, Sighting};
 pub use moult::Feat;
 pub use physics::{Carry, Controls, Mover, STEP, StepEvents, TICKS_PER_SECOND};
 pub use progress::Progress;

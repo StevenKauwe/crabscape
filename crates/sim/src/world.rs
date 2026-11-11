@@ -3022,11 +3022,15 @@ impl Sim {
             .is_multiple_of(self.tuning.memory.step_ticks as u64)
         {
             for c in self.crabs.iter_mut().filter(|c| !c.remote) {
-                c.memory.step_with_sight(
-                    c.mover.lantern_sight(&self.tuning),
+                let sight = c.mover.lantern_sight(&self.tuning);
+                c.memory
+                    .step_with_sight(sight, &self.level, &self.enemies, &self.tuning);
+                c.memory.note_nodes(
+                    sight,
+                    &self.placed_nodes,
+                    &self.shared.nodes,
                     &self.level,
-                    &self.enemies,
-                    &self.tuning,
+                    &self.tuning.memory,
                 );
             }
         }
