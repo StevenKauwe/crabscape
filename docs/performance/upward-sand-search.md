@@ -118,3 +118,8 @@ establish smooth phone frame pacing or close the separate border-paging issue.
 Logs: `dig-final-a1.txt`, `dig-final-b1.txt`, `dig-final-b2.txt`, `dig-final-a2.txt`
 in the system temporary directory. The final underwater release suite passes
 243 tests, with 21 opt-in tests ignored; the three new search regressions pass.
+
+Final additional checks: coral-rise 5/5 and cellular resumed-replay 4/4 passed
+(252 total release tests, 21 opt-in ignored). Native `crabsim --all-targets`
+Clippy with `-D warnings` passed. Local wasmtime is unavailable, so cross-target
+replay equivalence remains a required CI check, not a local pass.

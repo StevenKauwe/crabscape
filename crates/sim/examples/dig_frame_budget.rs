@@ -32,7 +32,10 @@ fn stage(sim: &mut Sim, name: &str, controls: Controls, target: impl Fn(Vec2) ->
     );
 }
 fn main() {
-    assert!(!cfg!(debug_assertions), "run --release");
+    if cfg!(debug_assertions) {
+        eprintln!("run --release");
+        std::process::exit(2);
+    }
     for run in 0..3 {
         let x = 17520.0;
         let level = Level::test_level();
