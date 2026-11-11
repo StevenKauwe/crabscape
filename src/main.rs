@@ -66,6 +66,7 @@ mod alarm_jelly;
 mod background;
 mod brittle;
 mod build;
+mod burrows;
 mod canyon;
 mod canyon_drift;
 mod cell_save;
@@ -219,6 +220,7 @@ fn run_app() {
                 food::FoodPlugin,
                 interior::InteriorPlugin,
                 crevices::CrevicesPlugin,
+                burrows::BurrowsPlugin,
                 build::BuildPlugin,
                 cling::ClingPlugin,
                 shell_inventory::ShellInventoryPlugin,

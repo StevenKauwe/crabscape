@@ -333,7 +333,7 @@ fn pass_visitor(
     }
     dive.pass = Some(t);
     *shown = Visibility::Inherited;
-    let (_, _, floor) = sim.level.pit();
+    let floor = sim.level.lights.y;
     at.translation = visitor_at(t, dive.from, floor).extend(VISITOR_Z);
 }
 
