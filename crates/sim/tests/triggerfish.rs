@@ -4,9 +4,9 @@ use crabsim::enemy::State;
 use crabsim::{Controls, Kind, PlayerId, Sim};
 const P: PlayerId = PlayerId(0);
 fn encounter() -> Sim {
-    let mut sim = Sim::with_one_crab(Vec2::new(11770.0, -2700.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(11770.0, -4700.0));
     sim.enable_underwater_cells();
-    sim.spawn_enemy(Kind::Triggerfish, Vec2::new(11600.0, -2700.0));
+    sim.spawn_enemy(Kind::Triggerfish, Vec2::new(11600.0, -4700.0));
     sim
 }
 fn tick(sim: &mut Sim, controls: Controls) {
@@ -93,7 +93,7 @@ fn full_diamond_does_not_fit_a_slender_animals_gap() {
     let mut sim = encounter();
     sim.level
         .rocks
-        .push(Rect::new(11400.0, -2500.0, 11950.0, -2450.0));
+        .push(Rect::new(11400.0, -4500.0, 11950.0, -4450.0));
     let initial = sim.enemies()[0].pos;
     for _ in 0..500 {
         tick(&mut sim, Controls::default());
@@ -122,9 +122,9 @@ fn the_optional_habitat_has_an_unhurt_four_stroke_upper_crossing() {
         } else {
             (12100.0, 11100.0)
         };
-        let mut sim = Sim::with_one_crab(Vec2::new(start, -2320.0));
+        let mut sim = Sim::with_one_crab(Vec2::new(start, -4320.0));
         sim.enable_underwater_cells();
-        sim.spawn_enemy(Kind::Triggerfish, Vec2::new(11600.0, -2700.0));
+        sim.spawn_enemy(Kind::Triggerfish, Vec2::new(11600.0, -4700.0));
         let c = sim.crab_mut(P).unwrap();
         c.mover.upgrades = 4;
         c.mover.stamina = 4.0;
@@ -155,10 +155,10 @@ fn the_optional_habitat_has_an_unhurt_four_stroke_upper_crossing() {
 }
 #[test]
 fn triggerfish_inputs_replay_to_the_same_final_hash() {
-    let mut sim = Sim::with_one_crab(Vec2::new(11770.0, -2700.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(11770.0, -4700.0));
     sim.enable_underwater_cells();
     sim.start_recording();
-    sim.spawn_enemy(Kind::Triggerfish, Vec2::new(11600.0, -2700.0));
+    sim.spawn_enemy(Kind::Triggerfish, Vec2::new(11600.0, -4700.0));
     for _ in 0..650 {
         tick(
             &mut sim,
@@ -210,10 +210,10 @@ fn rock_stops_both_the_jet_hit_and_its_visible_reach() {
     let mut sim = encounter();
     sim.level
         .rocks
-        .push(Rect::new(11650.0, -2640.0, 11900.0, -2630.0));
+        .push(Rect::new(11650.0, -4640.0, 11900.0, -4630.0));
     let aim = sim.crab(P).unwrap().mover.pos + Vec2::Y * 24.0;
     let e = &mut sim.enemies_mut()[0];
-    e.pos = Vec2::new(11600.0, -2600.0);
+    e.pos = Vec2::new(11600.0, -4600.0);
     e.facing = 1.0;
     e.target = Some(P);
     e.state = State::Attack;

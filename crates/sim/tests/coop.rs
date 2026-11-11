@@ -1574,7 +1574,6 @@ fn a_guest_stays_in_the_morays_jaws_and_the_host_sees_the_hold() {
 }
 
 #[test]
-#[ignore = "NEEDS THE LEAD: the east dropped 2,000 and a triggerfish spawned anywhere on the dropped floor (x 10,400 to 12,400, cells on) never moves, so it never bites; same cause breaks tests/triggerfish.rs. Its cellular terrain and the level floor disagree there (crab rests at -4,716 on a -4,700 floor)"]
 fn a_triggerfish_bite_is_judged_by_its_guest_defender_once() {
     let mut g = game(
         Vec2::new(11770.0, -4700.0),
