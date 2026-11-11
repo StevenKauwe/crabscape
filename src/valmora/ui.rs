@@ -11,6 +11,7 @@ use serde_json::Value;
 
 #[derive(Default)]
 pub struct AdventureUi {
+    pub native_shell: bool,
     pub notice: String,
     pub checkpoint_requested: bool,
     pub clear_controls_requested: bool,
@@ -51,6 +52,9 @@ pub struct Controls {
     pub direction: [bool; 4],
 }
 impl AdventureUi {
+    pub fn has_milestone(&self) -> bool {
+        self.milestone.is_some()
+    }
     pub fn show_vote(
         &mut self,
         vote: &dragon_game::team_vote::View,
@@ -132,13 +136,15 @@ impl AdventureUi {
             return self.draw_flight(ui, adventure);
         }
         let mut controls = Controls::default();
-        ui.horizontal_wrapped(|ui| {
-            ui.heading("Valmora");
-            if ui.button("Return to CrabScape").clicked() {
-                controls.return_home = true;
-            }
-        });
-        if adventure.state() != "play" {
+        if !self.native_shell {
+            ui.horizontal_wrapped(|ui| {
+                ui.heading("Valmora");
+                if ui.button("Return to CrabScape").clicked() {
+                    controls.return_home = true;
+                }
+            });
+        }
+        if !self.native_shell && adventure.state() != "play" {
             ui.horizontal_wrapped(|ui| {
                 if ui
                     .button(if self.sound_muted {
@@ -182,9 +188,11 @@ impl AdventureUi {
                 }
             });
         }
-        ui.small(
+        if !self.native_shell {
+            ui.small(
             "Native port preview. Original saves are untouched; checkpoint status appears above.",
         );
+        }
         if !self.notice.is_empty() {
             ui.label(&self.notice);
         }
@@ -346,22 +354,30 @@ impl AdventureUi {
                 });
             }
             "roost" | "skills" => {
-                self.healing_scene(ui, adventure);
-                let wild = adventure.team_wild();
-                scene(ui, super::art::AdventureScene::Valley { wild: &wild }, 200.);
+                if !self.native_shell {
+                    self.healing_scene(ui, adventure);
+                    let wild = adventure.team_wild();
+                    scene(ui, super::art::AdventureScene::Valley { wild: &wild }, 200.);
+                }
                 ui.horizontal_wrapped(|ui| {
-                    controls.edit_rider = ui.button("Change my look").clicked();
-                    if self.networked {
+                    controls.edit_rider = ui
+                        .button(if self.native_shell {
+                            "Tend your companion"
+                        } else {
+                            "Change my look"
+                        })
+                        .clicked();
+                    if self.networked && !self.native_shell {
                         let party = ui.button("Party");
                         super::probe_button("party", &party);
                         if party.clicked() {
                             self.result(adventure.to_party());
                         }
                     }
-                    if ui.button("Mission map").clicked() {
+                    if !self.native_shell && ui.button("Mission map").clicked() {
                         self.result(adventure.to_map());
                     }
-                    if ui.button("Wake an egg").clicked() {
+                    if !self.native_shell && ui.button("Wake an egg").clicked() {
                         self.result(adventure.wake_egg(clock));
                     }
                 });
@@ -710,49 +726,55 @@ impl AdventureUi {
                         }
                     });
                 }
-                ui.horizontal_wrapped(|ui| {
-                    for (index, label) in ["Left", "Right", "Up", "Down"].into_iter().enumerate() {
-                        controls.direction[index] = ui.button(label).is_pointer_button_down_on();
-                    }
-                    let fire = ui.button("Fire");
-                    controls.fire = fire.is_pointer_button_down_on();
-                    controls.fire_rect = Some(fire.rect);
-                    let special = ui.button("Special");
-                    controls.special = special.clicked();
-                    controls
-                        .touch_actions
-                        .push((special.rect, super::touch::Action::Special));
-                    let swap = ui.button("Swap");
-                    controls.swap = swap.clicked();
-                    controls
-                        .touch_actions
-                        .push((swap.rect, super::touch::Action::Swap));
-                });
-                if let Some(game) = adventure.game() {
+                if !self.native_shell {
                     ui.horizontal_wrapped(|ui| {
-                        for spell in game.active_words() {
-                            let button = ui.button(spell.key());
-                            controls
-                                .touch_actions
-                                .push((button.rect, super::touch::Action::Spell(spell)));
-                            if button.clicked() {
-                                controls.spell = Some(spell);
-                            }
-                        }
-                        if let Some(party) =
-                            game.profile.as_ref().and_then(|p| p["party"].as_array())
+                        for (index, label) in
+                            ["Left", "Right", "Up", "Down"].into_iter().enumerate()
                         {
-                            for (index, dragon) in party.iter().enumerate() {
-                                let button = ui.button(dragon["name"].as_str().unwrap_or("Dragon"));
+                            controls.direction[index] =
+                                ui.button(label).is_pointer_button_down_on();
+                        }
+                        let fire = ui.button("Fire");
+                        controls.fire = fire.is_pointer_button_down_on();
+                        controls.fire_rect = Some(fire.rect);
+                        let special = ui.button("Special");
+                        controls.special = special.clicked();
+                        controls
+                            .touch_actions
+                            .push((special.rect, super::touch::Action::Special));
+                        let swap = ui.button("Swap");
+                        controls.swap = swap.clicked();
+                        controls
+                            .touch_actions
+                            .push((swap.rect, super::touch::Action::Swap));
+                    });
+                    if let Some(game) = adventure.game() {
+                        ui.horizontal_wrapped(|ui| {
+                            for spell in game.active_words() {
+                                let button = ui.button(spell.key());
                                 controls
                                     .touch_actions
-                                    .push((button.rect, super::touch::Action::Select(index)));
+                                    .push((button.rect, super::touch::Action::Spell(spell)));
                                 if button.clicked() {
-                                    controls.select = Some(index);
+                                    controls.spell = Some(spell);
                                 }
                             }
-                        }
-                    });
+                            if let Some(party) =
+                                game.profile.as_ref().and_then(|p| p["party"].as_array())
+                            {
+                                for (index, dragon) in party.iter().enumerate() {
+                                    let button =
+                                        ui.button(dragon["name"].as_str().unwrap_or("Dragon"));
+                                    controls
+                                        .touch_actions
+                                        .push((button.rect, super::touch::Action::Select(index)));
+                                    if button.clicked() {
+                                        controls.select = Some(index);
+                                    }
+                                }
+                            }
+                        });
+                    }
                 }
             }
             _ => {

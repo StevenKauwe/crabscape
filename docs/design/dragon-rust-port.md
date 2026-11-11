@@ -4,6 +4,52 @@ This branch is an additive port, not a replacement for Dragon. The existing
 `web/dragon/index.html`, browser save keys and public game remain unchanged. The PR's
 standalone Dragon preview remains the existing JS game. The CrabScape preview now has an explicitly labeled native-port castle trip.
 
+## Crabscape travel integration
+
+The castle route now opens a walkable landing instead of a second game's title and
+rider menus. Walk with A/D or arrows, tap a destination, and interact with E or the
+nearby action button. The ferry, companion, egg nest, workshop and travel journal
+are physical stops. Existing Dragon story, mission, egg and progression rules still
+run in the same adventure model; this is not a second authoritative Crabscape crab.
+
+The actual local puppet's sprites, atlases, geometry and descendant equipment are
+projected onto the ferry, landing and dragon. Its original render layers are restored
+on return. No crab position, health, inventory or castle progress is copied or
+mutated by that projection. Standalone Culture/Tooth cargo outside the puppet tree
+is not yet projected. Source story illustrations and remote flight riders still
+depict the original cast; remote flight labels still use legacy rider names. Other
+crabs are not yet projected onto the landing.
+
+An explicitly chosen native checkpoint is remembered by slot **and stable rider
+identity**. Missing/replaced checkpoints require explicit selection; imported
+preferences cannot inject a companion link. Legacy imports retain original bytes
+and keep the existing conflict/recovery protections. A frozen cross-slot admission
+blocks the old adventure and its checkpoint writer while keeping the previous
+identity/original archive available for an explicit recovery export.
+
+The route reuses an already-connected Crabscape party code, without a second room
+entry screen or auto-creating a room for solo players. It remains a separate,
+build-scoped Dragon data channel over the existing transport: cellular Crabscape
+co-op and Dragon mission authority have not become one simulation. Party readiness,
+purchase votes and reconnect recovery use the existing Dragon protocol. Microphone
+capture and transcription remain off during the trip and are not restarted on return.
+
+Local integration verification (synthetic data): 379 root tests pass, including
+puppet projection/restoration and frozen cross-slot recovery. A real headless Chrome
+phone-layout journey copied an original fixture slot explicitly, flew a mission,
+returned to the unchanged castle coordinates, re-entered, and reloaded into the
+remembered companion without setup. Microphone requests remained zero. On M2 Max
+Metal, the landing produced 592 sampled frames with median/p95 16.7 ms and worst
+16.8 ms after a no-active-compiler check (84.5% system idle). This is a local
+headless check, not physical-phone or all-mission performance certification.
+The two-client loopback browser test also passes through the real Crabscape invite
+and ferry: inherited names/room, a shared armor purchase with the other player still
+on the landing, readiness/countdown, one shared mission/run, guest input and host-loss
+takeover. It checks original source bytes and castle positions, blocks microphone
+and public sockets, and uses empty ICE-server lists. The separate source rider
+identities still own their original progression; visual/transport integration does
+not merge their inventories with Crabscape's inventory.
+
 ## Run
 
 - `cargo run --bin dragon_flight`: Bevy flight/combat practice range. WASD/arrows steer,

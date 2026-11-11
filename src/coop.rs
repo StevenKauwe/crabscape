@@ -88,6 +88,21 @@ pub(crate) fn status_top(window: Vec2) -> f32 {
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct LocalId(pub PlayerId);
 
+/// Read-only access to the party this CrabScape session has already joined.
+/// Consumers borrow this resource and `Names::mine()`; neither creates a room,
+/// reads a saved invite, or changes the active connection.
+#[cfg(target_arch = "wasm32")]
+pub(crate) use web::Coop as CurrentParty;
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Resource)]
+pub(crate) struct CurrentParty;
+#[cfg(not(target_arch = "wasm32"))]
+impl CurrentParty {
+    pub(crate) fn room_code(&self) -> Option<&str> {
+        None
+    }
+}
+
 /// Settings' "New link": throw this device's lobby code away and make a new
 /// one, so the old link no longer reaches it.
 #[derive(Message, Clone, Copy, Debug)]
@@ -777,7 +792,7 @@ mod web {
 
     /// Where this tab stands in co-op, for the button and its status line.
     #[derive(Resource, Default)]
-    struct Coop {
+    pub(crate) struct Coop {
         /// The room's code, while hosting or joining.
         code: Option<String>,
         /// What the line under the button says.
@@ -798,6 +813,14 @@ mod web {
         unhosted: f32,
         /// What this device's last hello said: (it hosts, it has met friends here).
         said: (bool, bool),
+    }
+
+    impl Coop {
+        /// The live joined/hosted room, not the device's potentially different
+        /// saved lobby. Never opens a connection or manufactures an invite.
+        pub(crate) fn room_code(&self) -> Option<&str> {
+            self.code.as_deref().filter(|_| in_room())
+        }
     }
 
     /// The version the site serves now, fetched fresh when a friend on another version turns up.

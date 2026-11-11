@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
     Select,
+    ResumeLinked,
     Create,
     ImportArchive,
     ImportProfile,
@@ -16,6 +17,18 @@ pub enum Operation {
     Save,
     LoadPreferences,
     SavePreferences,
+    RememberRider,
+}
+impl Operation {
+    pub fn is_preferences(self) -> bool {
+        matches!(
+            self,
+            Self::LoadPreferences | Self::SavePreferences | Self::RememberRider
+        )
+    }
+    fn is_selection(self) -> bool {
+        matches!(self, Self::Select | Self::ResumeLinked)
+    }
 }
 #[derive(Debug)]
 pub enum Outcome {
@@ -52,6 +65,9 @@ struct Pending {
 pub struct Persistence {
     store: Store,
     loaded: Option<Loaded>,
+    /// Export-only identity and original archive for the adventure retained by
+    /// the host when a different selection is blocked by the global freeze.
+    recovery_loaded: Option<Loaded>,
     pending: Option<Pending>,
     needs_reload: bool,
     preferences: Option<PreferencesLoaded>,
@@ -67,6 +83,7 @@ impl Persistence {
         Self {
             store,
             loaded: None,
+            recovery_loaded: None,
             pending: None,
             needs_reload: false,
             preferences: None,
@@ -87,6 +104,57 @@ impl Persistence {
     }
     pub fn load_preferences(&mut self) -> Result<(), String> {
         self.submit(None, Operation::LoadPreferences, Work::LoadPreferences)
+    }
+    /// Resume only the linked native checkpoint. `false` means no link exists.
+    /// A missing checkpoint completes as `Selected { empty: true, .. }`; the
+    /// host must offer intentional setup, never create or choose a replacement.
+    pub fn resume_linked(&mut self, now_ms: f64) -> Result<bool, String> {
+        self.available()?;
+        if self.preferences_needs_reload {
+            return Err("Reload device preferences before resuming their rider".into());
+        }
+        let preferences = self
+            .preferences
+            .as_ref()
+            .ok_or("Load device preferences before resuming their rider")?;
+        let Some(slot) = preferences.remembered_rider() else {
+            return Ok(false);
+        };
+        self.submit(
+            Some(slot),
+            Operation::ResumeLinked,
+            Work::ResumeLinked {
+                preferences: preferences.clone(),
+                slot,
+                now_ms,
+            },
+        )?;
+        Ok(true)
+    }
+    /// Call after explicitly opening/creating/importing the loaded rider. This
+    /// separate preference write cannot obscure a successful rider checkpoint.
+    /// Empty selections and failures must never replace a previous association.
+    pub fn remember_loaded_rider(&mut self) -> Result<(), String> {
+        self.available()?;
+        if self.needs_reload {
+            return Err("Reload the rider before remembering its identity".into());
+        }
+        let loaded = self
+            .loaded
+            .clone()
+            .ok_or("No successfully loaded rider to remember")?;
+        let previous = self
+            .preferences
+            .clone()
+            .ok_or("Load device preferences before remembering a rider")?;
+        self.submit(
+            Some(loaded.slot()),
+            Operation::RememberRider,
+            Work::RememberRider {
+                previous,
+                loaded: Box::new(loaded),
+            },
+        )
     }
     pub fn save_preferences(&mut self, preferences: Preferences) -> Result<(), String> {
         self.available()?;
@@ -119,6 +187,18 @@ impl Persistence {
         self.loaded
             .as_ref()
             .ok_or("No rider identity is loaded for this export")?
+            .export_current_profile_json(profile, updated_at)
+    }
+    /// Export the previous in-memory adventure after frozen admission changed
+    /// `loaded()`. This never lends its token to saving or bypasses identity checks.
+    pub fn export_previous_profile_json(
+        &self,
+        profile: &Value,
+        updated_at: f64,
+    ) -> Result<String, String> {
+        self.recovery_loaded
+            .as_ref()
+            .ok_or("No previous companion identity is available for recovery")?
             .export_current_profile_json(profile, updated_at)
     }
     pub fn select(&mut self, slot: RiderSlot, now_ms: f64) -> Result<(), String> {
@@ -185,10 +265,7 @@ impl Persistence {
             .pending
             .take()
             .expect("pending operation was checked above");
-        let preferences_operation = matches!(
-            pending.operation,
-            Operation::LoadPreferences | Operation::SavePreferences
-        );
+        let preferences_operation = pending.operation.is_preferences();
         if result.is_err() {
             if preferences_operation {
                 self.preferences_needs_reload = true;
@@ -203,9 +280,20 @@ impl Persistence {
                 return Outcome::PreferencesStored;
             }
             let empty = reply.loaded.is_none();
+            if pending.operation.is_selection() && reply.frozen.is_some() {
+                // Repeated blocked selections must keep the first admitted
+                // adventure's identity, not the latest blocked destination.
+                if self.recovery_loaded.is_none() {
+                    self.recovery_loaded = self.loaded.take();
+                }
+            } else if pending.operation != Operation::Save {
+                // Selection, creation and import all admit a new adventure.
+                // A failed operation never reaches here and keeps recovery.
+                self.recovery_loaded = None;
+            }
             self.loaded = reply.loaded;
             self.needs_reload = false;
-            if pending.operation == Operation::Select {
+            if pending.operation.is_selection() {
                 Outcome::Selected {
                     frozen: reply.frozen,
                     empty,
@@ -234,14 +322,14 @@ impl Persistence {
         work: Work,
     ) -> Result<(), String> {
         self.available()?;
-        let preferences_operation = matches!(
-            operation,
-            Operation::LoadPreferences | Operation::SavePreferences
-        );
-        if self.preferences_needs_reload && operation == Operation::SavePreferences {
+        let preferences_operation = operation.is_preferences();
+        if self.preferences_needs_reload
+            && preferences_operation
+            && operation != Operation::LoadPreferences
+        {
             return Err("Reload device preferences before another preference write".into());
         }
-        if self.needs_reload && operation != Operation::Select && !preferences_operation {
+        if self.needs_reload && !operation.is_selection() && !preferences_operation {
             return Err(
                 "Reload a Valmora slot before another write; the last operation failed".into(),
             );
@@ -281,11 +369,20 @@ enum Work {
         slot: RiderSlot,
     },
     LoadPreferences,
+    RememberRider {
+        previous: PreferencesLoaded,
+        loaded: Box<Loaded>,
+    },
     SavePreferences {
         previous: PreferencesLoaded,
         preferences: Preferences,
     },
     Select {
+        slot: RiderSlot,
+        now_ms: f64,
+    },
+    ResumeLinked {
+        preferences: PreferencesLoaded,
         slot: RiderSlot,
         now_ms: f64,
     },
@@ -313,6 +410,29 @@ enum Work {
 impl Work {
     fn run(self, store: &Store) -> Result<Reply, String> {
         let loaded = match self {
+            Self::RememberRider { previous, loaded } => {
+                return Ok(Reply {
+                    loaded: None,
+                    frozen: None,
+                    preferences: Some(store.remember_rider(&previous, &loaded)?),
+                });
+            }
+            Self::ResumeLinked {
+                preferences,
+                slot,
+                now_ms,
+            } => {
+                let frozen = store.load_frozen(now_ms)?;
+                let loaded = store.load(slot)?;
+                if let Some(loaded) = &loaded {
+                    preferences.check_remembered(loaded)?;
+                }
+                return Ok(Reply {
+                    loaded,
+                    frozen,
+                    preferences: None,
+                });
+            }
             Self::ImportBrowserLegacy { slot } => store.import_browser_legacy(slot)?,
             Self::LoadPreferences => {
                 return Ok(Reply {
@@ -360,6 +480,29 @@ impl Work {
 impl Work {
     async fn run(self, store: &Store) -> Result<Reply, String> {
         let loaded = match self {
+            Self::RememberRider { previous, loaded } => {
+                return Ok(Reply {
+                    loaded: None,
+                    frozen: None,
+                    preferences: Some(store.remember_rider(&previous, &loaded).await?),
+                });
+            }
+            Self::ResumeLinked {
+                preferences,
+                slot,
+                now_ms,
+            } => {
+                let frozen = store.load_frozen(now_ms).await?;
+                let loaded = store.load(slot).await?;
+                if let Some(loaded) = &loaded {
+                    preferences.check_remembered(loaded)?;
+                }
+                return Ok(Reply {
+                    loaded,
+                    frozen,
+                    preferences: None,
+                });
+            }
             Self::ImportBrowserLegacy { slot } => store.import_browser_legacy(slot).await?,
             Self::LoadPreferences => {
                 return Ok(Reply {
@@ -541,6 +684,91 @@ mod tests {
         assert!(driver.loaded().is_none());
     }
     #[test]
+    fn frozen_selection_keeps_verified_previous_export_and_clears_it_after_admission() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let mut driver = Persistence::new(store.clone());
+        let original = r#" {"v":3,"rid":"previous-fixture","party":[{"bonded":true,"xp":0}],"future":{"keep":42}} "#;
+        driver
+            .import_profile(RiderSlot::Alexa, original.into())
+            .unwrap();
+        finish(&mut driver).result.unwrap();
+        let previous = driver.loaded().unwrap().clone();
+        let mut unsaved = previous.profile().clone();
+        unsaved["earned"] = serde_json::json!(17);
+        let mut other_profile = profile();
+        other_profile["rider"] = "tavian".into();
+        other_profile["rid"] = "other-fixture".into();
+        let other = store
+            .create(RiderSlot::Tavian, other_profile.clone())
+            .unwrap();
+        let frozen = serde_json::json!({"until":60000,"answer":"2 times 3 is 6","who":1});
+        store
+            .save_state(&other, other_profile.clone(), frozen.clone())
+            .unwrap();
+
+        driver.select(RiderSlot::Tavian, 1000.).unwrap();
+        assert!(matches!(
+            finish(&mut driver).result,
+            Ok(Outcome::Selected {
+                frozen: Some(_),
+                empty: false
+            })
+        ));
+        assert_eq!(driver.loaded().unwrap().profile(), &other_profile);
+        assert!(driver.export_current_profile_json(&unsaved, 123.).is_err());
+        let recovered: Value =
+            serde_json::from_str(&driver.export_previous_profile_json(&unsaved, 123.).unwrap())
+                .unwrap();
+        assert_eq!(recovered["rid"], "previous-fixture");
+        assert_eq!(recovered["earned"].as_f64(), Some(17.));
+        assert_eq!(recovered["future"]["keep"], 42);
+        assert!(
+            driver
+                .export_previous_profile_json(&other_profile, 123.)
+                .is_err()
+        );
+
+        // A second blocked destination must not replace the previous admitted
+        // rider's export context, even when that destination has no checkpoint.
+        driver.select(RiderSlot::Rider3, 1000.).unwrap();
+        assert!(matches!(
+            finish(&mut driver).result,
+            Ok(Outcome::Selected {
+                frozen: Some(_),
+                empty: true
+            })
+        ));
+        assert!(driver.loaded().is_none());
+        assert!(driver.export_previous_profile_json(&unsaved, 124.).is_ok());
+        driver.select(RiderSlot::Tavian, f64::NAN).unwrap();
+        assert!(finish(&mut driver).result.is_err());
+        assert!(driver.export_previous_profile_json(&unsaved, 125.).is_ok());
+
+        driver.select(RiderSlot::Tavian, 60_001.).unwrap();
+        assert!(matches!(
+            finish(&mut driver).result,
+            Ok(Outcome::Selected {
+                frozen: None,
+                empty: false
+            })
+        ));
+        assert!(
+            driver
+                .export_previous_profile_json(&unsaved, 60_001.)
+                .is_err()
+        );
+        let unchanged = store.load(RiderSlot::Alexa).unwrap().unwrap();
+        assert_eq!(unchanged.profile(), previous.profile());
+        assert_eq!(unchanged.original_archive(), previous.original_archive());
+        assert_eq!(
+            store.load(RiderSlot::Tavian).unwrap().unwrap().profile(),
+            &other_profile
+        );
+        assert_eq!(store.load_frozen(1000.).unwrap(), Some(frozen));
+    }
+
+    #[test]
     fn failed_write_keeps_token_latches_until_successful_reload_and_allows_recovery_export() {
         let tmp = Temp::new();
         let store = tmp.store();
@@ -597,5 +825,202 @@ mod tests {
         let result = finish(&mut driver).result.unwrap();
         assert!(matches!(result,Outcome::Selected{empty:true,frozen:Some(value)} if value==frozen));
         assert!(driver.loaded().is_none());
+    }
+    fn linked_driver(store: Store) -> Persistence {
+        let mut driver = Persistence::new(store);
+        driver.load_preferences().unwrap();
+        finish(&mut driver).result.unwrap();
+        let mut profile = profile();
+        profile["rid"] = "explicit-companion".into();
+        driver.create(RiderSlot::Alexa, profile).unwrap();
+        finish(&mut driver).result.unwrap();
+        driver.remember_loaded_rider().unwrap();
+        let done = finish(&mut driver);
+        assert_eq!(done.operation, Operation::RememberRider);
+        assert!(matches!(done.result, Ok(Outcome::PreferencesStored)));
+        driver
+    }
+    #[test]
+    fn remembering_explicit_rider_resumes_latest_checkpoint_after_reload() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let mut driver = Persistence::new(store.clone());
+        assert!(driver.resume_linked(0.).is_err());
+        driver.load_preferences().unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(!driver.resume_linked(0.).unwrap());
+        assert!(!driver.busy());
+        assert!(!tmp.0.exists());
+
+        let mut driver = linked_driver(store.clone());
+        let mut profile = driver.loaded().unwrap().profile().clone();
+        profile["earned"] = 31.into();
+        driver.save_state(profile, Value::Null).unwrap();
+        finish(&mut driver).result.unwrap();
+        let mut settings = driver.preferences().unwrap().preferences().clone();
+        settings.music_on = false;
+        driver.save_preferences(settings).unwrap();
+        finish(&mut driver).result.unwrap();
+        drop(driver);
+
+        let mut reopened = Persistence::new(store);
+        reopened.load_preferences().unwrap();
+        finish(&mut reopened).result.unwrap();
+        assert!(reopened.resume_linked(1000.).unwrap());
+        let done = finish(&mut reopened);
+        assert_eq!(done.operation, Operation::ResumeLinked);
+        assert_eq!(done.slot, Some(RiderSlot::Alexa));
+        assert!(matches!(
+            done.result,
+            Ok(Outcome::Selected {
+                empty: false,
+                frozen: None
+            })
+        ));
+        assert_eq!(reopened.loaded().unwrap().profile()["earned"], 31);
+        assert_eq!(reopened.loaded().unwrap().revision(), 2);
+        assert!(!reopened.preferences().unwrap().preferences().music_on);
+    }
+    #[test]
+    fn empty_selection_failed_create_and_failed_import_never_replace_remembered_rider() {
+        let tmp = Temp::new();
+        let mut driver = linked_driver(tmp.store());
+        driver.select(RiderSlot::Tavian, 0.).unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(driver.remember_loaded_rider().is_err());
+        assert_eq!(
+            driver.preferences().unwrap().remembered_rider(),
+            Some(RiderSlot::Alexa)
+        );
+        driver.create(RiderSlot::Alexa, profile()).unwrap();
+        assert!(finish(&mut driver).result.is_err());
+        assert!(driver.remember_loaded_rider().is_err());
+        assert!(driver.resume_linked(0.).unwrap());
+        finish(&mut driver).result.unwrap();
+        driver
+            .import_profile(RiderSlot::Tavian, "bad profile".into())
+            .unwrap();
+        assert!(finish(&mut driver).result.is_err());
+        assert!(driver.remember_loaded_rider().is_err());
+        assert_eq!(
+            driver.preferences().unwrap().remembered_rider(),
+            Some(RiderSlot::Alexa)
+        );
+        assert!(tmp.store().load(RiderSlot::Tavian).unwrap().is_none());
+    }
+    #[test]
+    fn explicit_successful_import_can_replace_link_without_touching_prior_rider() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let mut driver = linked_driver(store.clone());
+        let original = driver.loaded().unwrap().profile().clone();
+        driver.select(RiderSlot::Tavian, 0.).unwrap();
+        finish(&mut driver).result.unwrap();
+        let text = " {\"v\":3,\"rid\":\"imported-companion\",\"party\":[{\"bonded\":true,\"xp\":0}],\"future\":42} ";
+        driver
+            .import_profile(RiderSlot::Tavian, text.into())
+            .unwrap();
+        finish(&mut driver).result.unwrap();
+        assert_eq!(
+            driver.preferences().unwrap().remembered_rider(),
+            Some(RiderSlot::Alexa)
+        );
+        driver.remember_loaded_rider().unwrap();
+        finish(&mut driver).result.unwrap();
+        assert_eq!(
+            driver.preferences().unwrap().remembered_rider(),
+            Some(RiderSlot::Tavian)
+        );
+        assert!(driver.resume_linked(0.).unwrap());
+        finish(&mut driver).result.unwrap();
+        let imported = driver.loaded().unwrap();
+        assert_eq!(imported.slot(), RiderSlot::Tavian);
+        let archive =
+            dragon_game::save::StorageArchive::parse(imported.original_archive().unwrap()).unwrap();
+        assert_eq!(archive.entries()["vdf-save-tavian"], text);
+        assert_eq!(
+            store.load(RiderSlot::Alexa).unwrap().unwrap().profile(),
+            &original
+        );
+    }
+    #[test]
+    fn missing_or_replaced_remembered_checkpoint_is_never_recreated_or_silently_selected() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let mut driver = linked_driver(store.clone());
+        // Only this test's synthetic checkpoint is removed to model a reset.
+        std::fs::remove_file(tmp.0.join("alexa.1")).unwrap();
+        assert!(driver.resume_linked(0.).unwrap());
+        assert!(matches!(
+            finish(&mut driver).result,
+            Ok(Outcome::Selected {
+                empty: true,
+                frozen: None
+            })
+        ));
+        assert!(driver.loaded().is_none());
+        assert!(store.load(RiderSlot::Alexa).unwrap().is_none());
+        assert_eq!(
+            driver.preferences().unwrap().remembered_rider(),
+            Some(RiderSlot::Alexa)
+        );
+        let mut replacement = profile();
+        replacement["rid"] = "someone-else".into();
+        store.create(RiderSlot::Alexa, replacement.clone()).unwrap();
+        assert!(driver.resume_linked(0.).unwrap());
+        assert!(
+            finish(&mut driver)
+                .result
+                .unwrap_err()
+                .contains("remembered rider changed")
+        );
+        assert!(driver.loaded().is_none());
+        assert!(driver.needs_reload());
+        assert_eq!(
+            store.load(RiderSlot::Alexa).unwrap().unwrap().profile(),
+            &replacement
+        );
+    }
+    #[test]
+    fn remembered_resume_still_honors_other_riders_global_freeze() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let mut driver = linked_driver(store.clone());
+        let mut other_profile = profile();
+        other_profile["rider"] = "tavian".into();
+        let other = store.create(RiderSlot::Tavian, other_profile).unwrap();
+        let frozen = serde_json::json!({"until":60000,"answer":"2 times 3 is 6","who":1});
+        store
+            .save_state(&other, other.profile().clone(), frozen.clone())
+            .unwrap();
+        assert!(driver.resume_linked(1000.).unwrap());
+        assert!(
+            matches!(finish(&mut driver).result, Ok(Outcome::Selected {empty: false, frozen: Some(value)}) if value == frozen)
+        );
+    }
+    #[test]
+    fn remember_conflict_keeps_successful_checkpoint_and_requires_preference_reload() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let mut driver = linked_driver(store.clone());
+        let old_preferences = driver.preferences().unwrap().clone();
+        store
+            .save_preferences(&old_preferences, Preferences::default())
+            .unwrap();
+        driver.remember_loaded_rider().unwrap();
+        assert!(finish(&mut driver).result.is_err());
+        assert!(driver.preferences_needs_reload());
+        assert!(!driver.needs_reload());
+        assert_eq!(driver.loaded().unwrap().revision(), 1);
+        assert_eq!(
+            driver.preferences().unwrap().revision(),
+            old_preferences.revision()
+        );
+        assert!(driver.remember_loaded_rider().is_err());
+        assert!(driver.resume_linked(0.).is_err());
+        driver.load_preferences().unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(driver.resume_linked(0.).unwrap());
+        finish(&mut driver).result.unwrap();
     }
 }

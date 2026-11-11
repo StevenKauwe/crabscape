@@ -177,7 +177,7 @@ impl AdventureUi {
                     }
                 }
             }
-            if layout.desktop {
+            if layout.desktop && !self.native_shell {
                 let y = if count > 0 {
                     layout.team(0, count).top() - TAP - GAP
                 } else {

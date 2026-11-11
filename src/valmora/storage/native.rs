@@ -36,6 +36,23 @@ impl Store {
         checkpoint: impl FnMut(&str) -> Result<(), String>,
     ) -> Result<PreferencesLoaded, String> {
         let next = previous.changed(preferences)?;
+        self.commit_preferences(previous, next, checkpoint)
+    }
+    /// Remember a successfully loaded identity, never select or create a slot.
+    /// A subsequent resume verifies the identity again before exposing it.
+    pub fn remember_rider(
+        &self,
+        previous: &PreferencesLoaded,
+        loaded: &Loaded,
+    ) -> Result<PreferencesLoaded, String> {
+        self.commit_preferences(previous, previous.remembering(loaded)?, |_| Ok(()))
+    }
+    fn commit_preferences(
+        &self,
+        previous: &PreferencesLoaded,
+        next: PreferencesLoaded,
+        checkpoint: impl FnMut(&str) -> Result<(), String>,
+    ) -> Result<PreferencesLoaded, String> {
         let _lock = lock(&self.directory)?;
         read_preferences(&self.directory)?.check_current(previous)?;
         publish_checkpoint(
@@ -409,6 +426,78 @@ mod tests {
             store
                 .save_preferences(&loaded, loaded.preferences().clone())
                 .unwrap();
+        }
+    }
+    #[test]
+    fn remembering_import_keeps_original_bytes_settings_and_checkpoint_unchanged() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let original = " {\"v\":3,\"rid\":\"chosen-rider\",\"party\":[{\"bonded\":true,\"xp\":0}],\"future\":{\"keep\":42}} ";
+        let archive = serde_json::to_string(&std::collections::BTreeMap::from([
+            ("vdf-save-alexa", original),
+            ("vdf-music", "false"),
+            ("future-key", "  opaque data  "),
+        ]))
+        .unwrap();
+        let imported = store.import_archive(RiderSlot::Alexa, &archive).unwrap();
+        let before = fs::read(tmp.0.join("alexa.1")).unwrap();
+        let preferences = store.load_preferences().unwrap();
+        let linked = store.remember_rider(&preferences, &imported).unwrap();
+        assert_eq!(linked.remembered_rider(), Some(RiderSlot::Alexa));
+        assert_eq!(linked.preferences(), &Preferences::default());
+        let overlay = imported
+            .imported_preferences(linked.preferences())
+            .unwrap()
+            .unwrap();
+        let changed = store.save_preferences(&linked, overlay).unwrap();
+        assert!(!changed.preferences().music_on);
+        assert_eq!(changed.remembered_rider(), Some(RiderSlot::Alexa));
+        assert_eq!(fs::read(tmp.0.join("alexa.1")).unwrap(), before);
+        assert_eq!(imported.original_archive(), Some(archive.as_str()));
+        let reloaded = store.load(RiderSlot::Alexa).unwrap().unwrap();
+        assert_eq!(reloaded.original_archive(), Some(archive.as_str()));
+        let source = StorageArchive::parse(reloaded.original_archive().unwrap()).unwrap();
+        assert_eq!(source.entries()["vdf-save-alexa"], original);
+        assert_eq!(source.entries()["future-key"], "  opaque data  ");
+    }
+    #[test]
+    fn remember_failure_boundaries_preserve_rider_and_require_exact_preference_token() {
+        for stage in ["before_write", "after_write", "after_sync", "after_publish"] {
+            let tmp = Temp::new();
+            let store = tmp.store();
+            let mut profile = profile();
+            profile["rid"] = "linked-identity".into();
+            let rider = store.create(RiderSlot::Alexa, profile).unwrap();
+            let first = store
+                .save_preferences(&store.load_preferences().unwrap(), Preferences::default())
+                .unwrap();
+            let next = first.remembering(&rider).unwrap();
+            assert!(
+                store
+                    .commit_preferences(&first, next, |at| if at == stage {
+                        Err("injected".into())
+                    } else {
+                        Ok(())
+                    })
+                    .is_err()
+            );
+            let current = store.load_preferences().unwrap();
+            assert_eq!(
+                current.remembered_rider(),
+                if stage == "after_publish" {
+                    Some(RiderSlot::Alexa)
+                } else {
+                    None
+                }
+            );
+            assert_eq!(
+                store.load(RiderSlot::Alexa).unwrap().unwrap().revision(),
+                rider.revision()
+            );
+            if stage == "after_publish" {
+                assert!(store.remember_rider(&first, &rider).is_err());
+            }
+            store.remember_rider(&current, &rider).unwrap();
         }
     }
     #[test]

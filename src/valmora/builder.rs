@@ -129,6 +129,88 @@ impl Builder {
             }
         });
     }
+    fn breath_colors(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            for (index, name) in [
+                "Blue",
+                "Gold",
+                "Red",
+                "Green",
+                "Purple",
+                "Pink",
+                "Champion Gold",
+            ]
+            .iter()
+            .enumerate()
+            {
+                if ui
+                    .add_enabled(
+                        self.allowed("breath", &json!(index)),
+                        egui::Button::new(*name).selected(self.draft["breath"] == index),
+                    )
+                    .clicked()
+                {
+                    self.draft["breath"] = json!(index);
+                }
+            }
+        });
+    }
+    pub fn draw_companion(
+        &mut self,
+        ui: &mut egui::Ui,
+        crab_name: &str,
+        id: &str,
+        now_ms: u64,
+    ) -> Option<Value> {
+        self.step = 1;
+        if self.original["build"].is_null() {
+            self.draft["name"] = json!(
+                profile::clean_name(&json!(crab_name))
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "Crab".into())
+            );
+        }
+        ui.label(
+            "Your crab stays you. Choose the dragon and flight abilities that travel with you.",
+        );
+        super::art::companion_preview(ui, &self.draft, &self.original);
+        ui.label("Companion name");
+        let mut name = self.draft["dname"].as_str().unwrap_or("").to_owned();
+        if ui.text_edit_singleline(&mut name).changed() {
+            self.draft["dname"] = json!(profile::clean_name(&json!(name)).unwrap_or_default());
+        }
+        self.choices(ui, "Flight discipline", "path", &PATH);
+        self.choices(ui, "Dragon breath", "dkind", &KIND);
+        self.choices(ui, "Dragon color", "dcolor", &DRAGON);
+        self.choices(ui, "Horns", "horn", &HORN);
+        self.breath_colors(ui);
+        let ready = self.ready()
+            && self.draft["path"]
+                .as_str()
+                .is_some_and(|p| PATH.contains(&p));
+        if ui
+            .add_enabled(
+                ready,
+                egui::Button::new(if self.original["build"].is_object() {
+                    "Save companion"
+                } else {
+                    "Bond with this dragon"
+                }),
+            )
+            .clicked()
+        {
+            match self.finish(id, now_ms) {
+                Ok(p) => return Some(p),
+                Err(e) => self.error = e,
+            }
+        }
+        if ui.button("Close").clicked() {
+            self.cancel_requested = true;
+        }
+        ui.label(&self.error);
+        None
+    }
     pub fn draw(&mut self, ui: &mut egui::Ui, id: &str, now_ms: u64) -> Option<Value> {
         ui.heading(if self.step == 0 {
             "Who are you?"
@@ -181,30 +263,7 @@ impl Builder {
             self.choices(ui, "Breath power", "dkind", &KIND);
             self.choices(ui, "Dragon color", "dcolor", &DRAGON);
             self.choices(ui, "Horns", "horn", &HORN);
-            ui.horizontal_wrapped(|ui| {
-                for (index, name) in [
-                    "Blue",
-                    "Gold",
-                    "Red",
-                    "Green",
-                    "Purple",
-                    "Pink",
-                    "Champion Gold",
-                ]
-                .iter()
-                .enumerate()
-                {
-                    if ui
-                        .add_enabled(
-                            self.allowed("breath", &json!(index)),
-                            egui::Button::new(*name).selected(self.draft["breath"] == index),
-                        )
-                        .clicked()
-                    {
-                        self.draft["breath"] = json!(index);
-                    }
-                }
-            });
+            self.breath_colors(ui);
             if ui.button("Back").clicked() {
                 self.step = 0;
             }

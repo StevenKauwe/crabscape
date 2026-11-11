@@ -4,6 +4,9 @@ pub(crate) mod art;
 mod audio;
 mod audio_runtime;
 mod builder;
+pub(crate) mod crab_avatar;
+mod integrated;
+mod journey;
 mod keyboard;
 mod network;
 mod persistence;
@@ -22,6 +25,8 @@ use ui::{AdventureUi, Controls};
 #[derive(Resource, Default)]
 pub struct Valmora {
     pub active: bool,
+    pub integrated: bool,
+    journey: journey::Journey,
     pub return_requested: bool,
     adventure: Option<Adventure>,
     ui: AdventureUi,
@@ -53,6 +58,16 @@ pub struct Valmora {
 impl Valmora {
     pub fn owns_input(&self) -> bool {
         self.active || self.travelling || self.release_guard
+    }
+    #[allow(dead_code)] // The standalone Dragon harness does not enter from Crabscape.
+    pub fn use_crab_context(&mut self, name: &str, room: Option<&str>) {
+        self.integrated = true;
+        if self.journey.crab_name != name {
+            self.journey.crab_name = name.to_owned();
+        }
+        if self.journey.party_code.as_deref() != room {
+            self.journey.party_code = room.map(str::to_owned);
+        }
     }
     pub fn enter(&mut self) {
         self.active = true;
@@ -127,10 +142,7 @@ impl Valmora {
         let outcome = match completion.result {
             Ok(value) => value,
             Err(error) => {
-                self.ui.notice = if matches!(
-                    completion.operation,
-                    Operation::LoadPreferences | Operation::SavePreferences
-                ) {
+                self.ui.notice = if completion.operation.is_preferences() {
                     format!(
                         "Device preferences failed: {error}. Current choices remain in memory; reload preferences before saving them again."
                     )
@@ -151,10 +163,7 @@ impl Valmora {
             self.menu = true;
             return;
         }
-        if matches!(
-            completion.operation,
-            Operation::LoadPreferences | Operation::SavePreferences
-        ) {
+        if completion.operation.is_preferences() {
             if completion.operation == Operation::LoadPreferences
                 && let Some(loaded) = self.persistence.preferences()
             {
@@ -191,7 +200,13 @@ impl Valmora {
             }
         }
         let result = if let Outcome::Selected { empty: true, .. } = outcome {
-            self.open_new(self.rider, 42)
+            if completion.operation == Operation::ResumeLinked {
+                self.menu = true;
+                self.journey.panel = Some(journey::Panel::Companion);
+                Err("Your linked checkpoint is missing. Choose a companion explicitly; nothing has been replaced.".into())
+            } else {
+                self.open_new(self.rider, 42)
+            }
         } else if let Some(loaded) = self.persistence.loaded() {
             let profile = loaded.profile().clone();
             let frozen = loaded.frozen().clone();
@@ -232,6 +247,20 @@ impl Valmora {
         self.active = was_active;
         if let Err(error) = result {
             self.ui.notice = error;
+        } else if self.integrated && self.adventure.is_some() {
+            self.journey.panel = None;
+            self.journey.connected_code = None;
+            if matches!(
+                completion.operation,
+                Operation::Select
+                    | Operation::Create
+                    | Operation::ImportProfile
+                    | Operation::ImportArchive
+                    | Operation::ImportBrowserLegacy
+            ) && let Err(error) = self.persistence.remember_loaded_rider()
+            {
+                self.ui.notice = error;
+            }
         }
     }
     fn checkpoint_preferences(&mut self) {
@@ -248,7 +277,11 @@ impl Valmora {
         }
     }
     fn checkpoint(&mut self, dt: f64) {
-        if !self.persistent || self.persistence.busy() || self.persistence.needs_reload() {
+        if !self.persistent
+            || self.persistence.busy()
+            || self.persistence.needs_reload()
+            || self.menu_frozen.is_some()
+        {
             return;
         }
         self.checkpoint_elapsed += dt;
@@ -295,6 +328,7 @@ impl Plugin for ValmoraPlugin {
         app.init_asset::<bevy::audio::AudioSource>();
         app.init_non_send::<network::Connection>()
             .init_resource::<Valmora>()
+            .add_plugins(crab_avatar::CrabAvatarPlugin)
             .add_systems(
                 PreUpdate,
                 capture_input
@@ -420,6 +454,46 @@ fn update(
         s.poll_storage(viewport(window, s.ui.preferences.view), now);
         s.checkpoint(time.delta_secs_f64());
         s.checkpoint_preferences();
+    }
+    if s.menu_frozen.is_some() {
+        // Admission changed the selected storage token. Keep the old in-memory
+        // profile exportable, but never simulate or save it into that slot.
+        network.0 = None;
+        s.journey.connected_code = None;
+        s.controls = Controls::default();
+        if s.return_requested {
+            s.suspend();
+        }
+        return;
+    }
+    if s.integrated && s.active {
+        if !s.journey.resume_checked
+            && s.persistence.preferences().is_some()
+            && !s.persistence.busy()
+        {
+            s.journey.resume_checked = true;
+            match s
+                .persistence
+                .resume_linked(clock().map_or(0., |c| c.now_ms as f64))
+            {
+                Ok(true) => s.persistent = true,
+                Ok(false) => {}
+                Err(error) => s.ui.notice = error,
+            }
+        }
+        integrated::sync_party(s, &mut network);
+        let landing = s
+            .adventure
+            .as_ref()
+            .is_none_or(|a| journey::at_landing(a.state()));
+        s.journey.advance(
+            time.delta_secs(),
+            &s.keys,
+            landing
+                && s.builder.is_none()
+                && !s.ui.has_milestone()
+                && s.adventure.as_ref().is_none_or(|a| a.gate.frozen.is_none()),
+        );
     }
     if let Some(lobby) = &mut network.0 {
         lobby.set_present(s.active);
@@ -687,6 +761,15 @@ fn publish_stage(state: Res<Valmora>, mut previous: Local<String>) {
             .map_or("loading", |a| a.state())
             .to_owned()
     };
+    #[cfg(feature = "valmora-loopback-test")]
+    if let Some(canvas) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("crabscape"))
+    {
+        let j = &state.journey;
+        let value = serde_json::json!({"crab_name":j.crab_name,"party_code":j.party_code,"panel":j.panel.map(|p|format!("{p:?}")),"x":j.x,"nearby":j.nearby().map(|p|p.name()),"context_rect":j.context_rect.map(|r|[r.min.x,r.min.y,r.max.x,r.max.y])});
+        let _ = canvas.set_attribute("data-valmora-view", &value.to_string());
+    }
     if stage == *previous {
         return;
     }
@@ -700,6 +783,10 @@ fn publish_stage(state: Res<Valmora>, mut previous: Local<String>) {
 }
 /// Explicit original night palette, scoped to this UI so CrabScape's theme is untouched.
 /// Read-only fixture geometry; omitted from ordinary production builds.
+fn probe_click(key: &str, response: egui::Response) -> bool {
+    probe_button(key, &response);
+    response.clicked()
+}
 fn probe_button(key: &str, response: &egui::Response) {
     #[cfg(all(target_arch = "wasm32", feature = "valmora-loopback-test"))]
     if let Some(canvas) = web_sys::window()
@@ -761,6 +848,7 @@ fn draw(
     windows: Query<&Window>,
     mut state: ResMut<Valmora>,
     mut network: NonSendMut<network::Connection>,
+    avatar: Res<crab_avatar::CrabAvatar>,
 ) {
     if !state.active {
         return;
@@ -779,6 +867,11 @@ fn draw(
         });
         return;
     };
+    s.ui.native_shell = s.integrated;
+    if s.integrated && s.adventure.as_ref().is_none_or(|a| a.state() != "play") {
+        integrated::draw(ctx, window, s, &mut network, &avatar, clock);
+        return;
+    }
     if s.menu {
         let mut selected = None;
         egui::Area::new("valmora_rider_menu".into())
@@ -922,10 +1015,10 @@ fn draw(
         .order(egui::Order::Foreground)
         .fixed_pos(egui::Pos2::ZERO)
         .show(ctx, |ui| {
-            source_panel(ui, ctx);
+            if s.integrated { ui.set_min_size(ctx.content_rect().size()); ui.set_max_width(ctx.content_rect().width()); } else { source_panel(ui, ctx); }
             if let Some(game) = adventure.game() {
                 let p = ui.painter();
-                art::paint_game(
+                art::paint_game_with_rider(
                     p,
                     &mut s.art_cache,
                     game,
@@ -935,7 +1028,9 @@ fn draw(
                     game.squash,
                     s.ui.preferences.view,
                     s.ui.preferences.fancy,
+                    !(s.integrated && avatar.is_ready()),
                 );
+                if s.integrated { integrated::paint_crab(p, &avatar, game, viewport(window, s.ui.preferences.view), s.animation_time, s.flap_time, s.ui.preferences.view); }
             }
             if let (Some(lobby), Some(session)) = (&network.0, &adventure.shared) {
                 lobby.paint_partners(
@@ -1508,6 +1603,151 @@ mod checkpoint_tests {
         assert_eq!(state.new_rider_id, "existing-unbuilt");
         std::fs::remove_dir_all(path).unwrap();
     }
+    #[test]
+    fn frozen_selection_preserves_existing_adventure_and_blocks_cross_identity_checkpoint() {
+        let path = std::env::temp_dir().join(format!(
+            "valmora-existing-freeze-ui-{}-{}",
+            std::process::id(),
+            time::OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        let store = storage::Store::in_directory(&path);
+        let now = clock().unwrap();
+        let old_profile = dragon_game::profile::normalize_profile(
+            &json!({"rid":"existing-companion","seenIntro":true,"build":{"name":"Local Crab","dname":"Ember","path":"forge"}}),
+            "rider3",
+            2,
+            || "old-extra".into(),
+        )
+        .unwrap();
+        store.create(slot(2), old_profile.clone()).unwrap();
+        let mut state = Valmora {
+            persistence: persistence::Persistence::new(store.clone()),
+            persistent: true,
+            preferences_started: true,
+            ..Default::default()
+        };
+        state.enter();
+        state
+            .persistence
+            .select(slot(2), now.now_ms as f64)
+            .unwrap();
+        wait(&mut state, now);
+        state.use_crab_context("Local Crab", None);
+        let adventure = state.adventure.as_mut().unwrap();
+        let mut events = adventure.to_roost().unwrap();
+        let mut look = adventure.profile()["build"].clone();
+        look["dname"] = json!("Unsaved Ember");
+        events.extend(adventure.change_look(&look, now.now_ms).unwrap());
+        let before = adventure.profile().clone();
+        let before_state = adventure.state().to_owned();
+        state.ui.events(events);
+        assert_ne!(before, old_profile);
+
+        let other_profile = dragon_game::profile::normalize_profile(
+            &json!({"rid":"frozen-companion","seenIntro":true,"build":{"name":"Other Crab","dname":"Frost","path":"storm"}}),
+            "alexa",
+            0,
+            || "other-extra".into(),
+        )
+        .unwrap();
+        let other = store.create(slot(0), other_profile.clone()).unwrap();
+        let frozen = json!({"until":now.now_ms + 60_000,"answer":"two times three is six","who":0});
+        store
+            .save_state(&other, other_profile.clone(), frozen.clone())
+            .unwrap();
+        state
+            .persistence
+            .select(slot(0), now.now_ms as f64)
+            .unwrap();
+        wait(&mut state, now);
+
+        assert_eq!(state.menu_frozen.as_ref(), Some(&frozen));
+        assert_eq!(
+            state.rider, 2,
+            "the previous in-memory identity stays intact"
+        );
+        assert_eq!(state.adventure.as_ref().unwrap().profile(), &before);
+        assert_eq!(state.persistence.loaded().unwrap().slot(), slot(0));
+        assert_eq!(
+            state.persistence.loaded().unwrap().profile(),
+            &other_profile
+        );
+        assert!(
+            state
+                .persistence
+                .export_current_profile_json(&before, now.now_ms as f64)
+                .is_err()
+        );
+        let recovered: Value = serde_json::from_str(
+            &state
+                .persistence
+                .export_previous_profile_json(&before, now.now_ms as f64)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(recovered["rid"], before["rid"]);
+        assert_eq!(recovered["build"]["dname"], "Unsaved Ember");
+        assert_eq!(
+            state.persistence.loaded().unwrap().profile(),
+            &other_profile
+        );
+        assert!(
+            state
+                .persistence
+                .export_previous_profile_json(&other_profile, now.now_ms as f64)
+                .is_err()
+        );
+        state.checkpoint(10.);
+        assert!(
+            !state.persistence.busy(),
+            "no save may use the other rider's token"
+        );
+        assert!(!state.persistence.needs_reload());
+        assert!(
+            state.ui.checkpoint_requested,
+            "the unsaved progress must remain recoverable"
+        );
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_non_send::<network::Connection>()
+            .insert_resource(state)
+            .add_systems(Update, update);
+        app.world_mut().spawn(Window::default());
+        for _ in 0..3 {
+            app.update();
+            let state = app.world().resource::<Valmora>();
+            assert_eq!(state.adventure.as_ref().unwrap().profile(), &before);
+            assert_eq!(state.adventure.as_ref().unwrap().state(), before_state);
+            assert!(state.menu_frozen.is_some());
+            assert!(!state.persistence.busy());
+            assert!(!state.persistence.needs_reload());
+            assert!(app.world().non_send::<network::Connection>().0.is_none());
+        }
+        {
+            let mut state = app.world_mut().resource_mut::<Valmora>();
+            state.suspend();
+            state.enter();
+            state.checkpoint(10.);
+            assert!(
+                state.menu_frozen.is_some(),
+                "return and reentry must not bypass admission"
+            );
+            assert_eq!(state.adventure.as_ref().unwrap().profile(), &before);
+            assert!(!state.persistence.busy());
+        }
+        assert_eq!(
+            store.load(slot(2)).unwrap().unwrap().profile(),
+            &old_profile
+        );
+        assert_eq!(
+            store.load(slot(0)).unwrap().unwrap().profile(),
+            &other_profile
+        );
+        assert_eq!(store.load_frozen(now.now_ms as f64).unwrap(), Some(frozen));
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
     #[test]
     fn another_riders_active_freeze_blocks_empty_slot_builder() {
         let path = std::env::temp_dir().join(format!(

@@ -9,7 +9,7 @@ mod scenes;
 
 pub(super) use scenes::{AdventureScene, paint_adventure_scene};
 
-pub(super) use previews::{builder_preview, roost_preview};
+pub(super) use previews::{builder_preview, companion_preview, roost_preview};
 
 use bevy_egui::egui::{
     self, Color32, Pos2, Shape, Stroke,
@@ -974,6 +974,7 @@ impl ArtCache {
 /// Original team/enemy layers with separate source global and flap clocks.
 /// The source geometry itself is retained; this adapter does not claim pixel-identical rasterization.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub fn paint_game(
     painter: &egui::Painter,
     cache: &mut ArtCache,
@@ -984,6 +985,32 @@ pub fn paint_game(
     squash: f64,
     zoom: f64,
     fancy: bool,
+) {
+    paint_game_with_rider(
+        painter,
+        cache,
+        game,
+        view,
+        animation_time,
+        flap_time,
+        squash,
+        zoom,
+        fancy,
+        true,
+    );
+}
+#[allow(clippy::too_many_arguments)]
+pub fn paint_game_with_rider(
+    painter: &egui::Painter,
+    cache: &mut ArtCache,
+    game: &dragon_game::game::Game,
+    view: dragon_game::flight::Viewport,
+    animation_time: f64,
+    flap_time: f64,
+    squash: f64,
+    zoom: f64,
+    fancy: bool,
+    source_rider: bool,
 ) {
     use dragon_game::drawing::{
         DragonArt, EnemyArt, RiderArt, SceneArt, draw_cracks, draw_dragon, draw_enemy_fx,
@@ -1202,7 +1229,8 @@ pub fn paint_game(
     };
     c.scale(1. + psq, 1. - psq);
     c.translate(-p.x, -(p.y + bob));
-    let rider = (dragon_game::level_of(bond["xp"].as_f64().unwrap_or(game.xp)) >= 8
+    let rider = (source_rider
+        && dragon_game::level_of(bond["xp"].as_f64().unwrap_or(game.xp)) >= 8
         && profile["craft"]["saddles"] == true)
         .then(|| RiderArt {
             hair: string(build, "hair", "#5a3418").into(),

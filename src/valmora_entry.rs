@@ -70,7 +70,10 @@ fn advance(
     settings: Res<crate::settings::panel::Open>,
     inventory: Res<crate::shell_inventory::Open>,
     chat: Res<crate::codes::CodeBox>,
+    names: Res<crate::names::Names>,
+    party: Option<Res<crate::coop::CurrentParty>>,
 ) {
+    state.use_crab_context(names.mine(), party.as_deref().and_then(|p| p.room_code()));
     if state.release_guard && !state.inputs_down {
         state.release_guard = false;
     }
@@ -130,6 +133,7 @@ fn draw(
     mover: Single<&crabsim::Mover, With<LocalPlayer>>,
     camera: Single<(&Camera, &Transform), With<Camera2d>>,
     time: Res<Time>,
+    avatar: Res<crate::valmora::crab_avatar::CrabAvatar>,
 ) {
     if entry.phase == Phase::Away {
         return;
@@ -181,6 +185,9 @@ fn draw(
         &DragonArt::default(),
     );
     crate::valmora::art::paint(&painter, &entry.canvas);
+    if flying {
+        avatar.paint(&painter, at + egui::vec2(0., -size * 0.32), size * 0.8);
+    }
     if !flying && can_board(&mover) && !state.owns_input() {
         egui::Area::new("valmora_board".into())
             .fixed_pos(egui::pos2(spot.x - size, spot.y + size * 0.65))

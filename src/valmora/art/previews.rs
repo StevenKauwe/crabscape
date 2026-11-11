@@ -254,6 +254,18 @@ fn builder_scene(
     step: usize,
     time: f64,
 ) {
+    builder_scene_with_rider(c, size, draft, rank, step, time, true);
+}
+#[allow(clippy::too_many_arguments)]
+fn builder_scene_with_rider(
+    c: &mut Canvas,
+    size: [f64; 2],
+    draft: &serde_json::Value,
+    rank: usize,
+    step: usize,
+    time: f64,
+    source_rider: bool,
+) {
     let [w, h] = size;
     let get = |key: &str, default: &str| draft[key].as_str().unwrap_or(default).to_owned();
     let rd = RiderArt {
@@ -314,7 +326,9 @@ fn builder_scene(
         ),
         ..Default::default()
     };
-    standing(c, [w * 0.16, h * 0.9], h * 0.4, &rd, rank, "point", time);
+    if source_rider {
+        standing(c, [w * 0.16, h * 0.9], h * 0.4, &rd, rank, "point", time);
+    }
     draw_dragon(
         c,
         w * 0.38,
@@ -344,6 +358,22 @@ pub fn builder_preview(
     profile: &serde_json::Value,
     step: usize,
 ) {
+    preview(ui, draft, profile, step, true);
+}
+pub fn companion_preview(
+    ui: &mut bevy_egui::egui::Ui,
+    draft: &serde_json::Value,
+    profile: &serde_json::Value,
+) {
+    preview(ui, draft, profile, 1, false);
+}
+fn preview(
+    ui: &mut bevy_egui::egui::Ui,
+    draft: &serde_json::Value,
+    profile: &serde_json::Value,
+    step: usize,
+    source_rider: bool,
+) {
     use bevy_egui::egui;
     let w = ui.available_width().clamp(1., 500.);
     let h = (w * 0.6).min(240.);
@@ -362,7 +392,11 @@ pub fn builder_preview(
         .unwrap_or(0);
     let mut c = Canvas::default();
     c.translate(rect.min.x as f64, rect.min.y as f64);
-    builder_scene(&mut c, [w as f64, h as f64], draft, rank, step, time);
+    if source_rider {
+        builder_scene(&mut c, [w as f64, h as f64], draft, rank, step, time);
+    } else {
+        builder_scene_with_rider(&mut c, [w as f64, h as f64], draft, rank, step, time, false);
+    }
     let painter = ui.painter().with_clip_rect(rect);
     super::paint(&painter, &c);
     if step == 1 {

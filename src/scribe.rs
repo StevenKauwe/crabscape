@@ -723,6 +723,9 @@ pub(crate) mod web {
     /// Discard unfinished audio instead of stop()'s normal flush-to-transcription.
     /// Existing history is retained, and late pre-entry worker results are ignored.
     pub(crate) fn valmora_privacy(active: bool) {
+        if active && let Some(note) = element("voice-note") {
+            note.set_hidden(true);
+        }
         let (captures, who) = with(|s| {
             s.private_mode = active;
             s.sent.clear();
@@ -929,6 +932,9 @@ pub(crate) mod web {
 
     /// Show `words` in the voice note, for a few seconds.
     fn note(words: &str) {
+        if with(|s| s.private_mode) {
+            return;
+        }
         if let Some(n) = element("voice-note") {
             n.set_text_content(Some(words));
             n.set_hidden(false);

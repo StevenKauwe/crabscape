@@ -43,6 +43,22 @@ impl Store {
         preferences: Preferences,
     ) -> Result<PreferencesLoaded, String> {
         let next = previous.changed(preferences)?;
+        self.commit_preferences(previous, next).await
+    }
+    /// This writes only the native preference record, never legacy storage.
+    pub async fn remember_rider(
+        &self,
+        previous: &PreferencesLoaded,
+        loaded: &Loaded,
+    ) -> Result<PreferencesLoaded, String> {
+        self.commit_preferences(previous, previous.remembering(loaded)?)
+            .await
+    }
+    async fn commit_preferences(
+        &self,
+        previous: &PreferencesLoaded,
+        next: PreferencesLoaded,
+    ) -> Result<PreferencesLoaded, String> {
         let previous = previous.clone();
         self.record_transaction("preferences", true, move |bytes| {
             let current = bytes

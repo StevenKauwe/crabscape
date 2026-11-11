@@ -129,6 +129,7 @@ fn draw(
     mut sim: ResMut<crabsim::Sim>,
     me: Single<&PlayerId, With<LocalPlayer>>,
     window: Single<&Window>,
+    travel: Option<Res<crate::valmora::Valmora>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     for event in transport.poll() {
@@ -186,6 +187,11 @@ fn draw(
             }
             transport::Event::Status(s) => ui.status = s,
         }
+    }
+    if travel.is_some_and(|state| state.owns_input()) {
+        ui.buttons.clear();
+        ui.run_rect = None;
+        return Ok(());
     }
     let Some(crab) = sim.crab(**me) else {
         return Ok(());

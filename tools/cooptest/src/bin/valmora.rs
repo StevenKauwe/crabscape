@@ -1,8 +1,11 @@
-//! Two real isolated headless browsers driving the native Rust game's canvas UI.
+//! Two real isolated headless browsers driving Crabscape's integrated travel UI.
 //! Build crabscape with valmora-loopback-test, bindgen into a fresh copy of web/.
 //! Run: cargo run -p cooptest --bin valmora -- WEB_DIR BROWSER_NATIVE_PROBE
 //! The probe is built with dragon-peer/loopback-test. No public signaling, STUN,
 //! microphone, transcription, personal browser profile or legacy Dragon saves.
+//! Fixture source slots are imported only through the game's actual buttons.
+//! Crabscape's normal saved-lobby/invite route supplies the real current LINK;
+//! no manual Valmora room or writable game-state hook is used.
 #[allow(dead_code)]
 #[path = "../chrome.rs"]
 mod chrome;
@@ -24,11 +27,24 @@ impl Drop for Signaling {
 }
 const NETWORK: &str = "JSON.parse(document.getElementById('crabscape')?.getAttribute('data-valmora-network')||'null')";
 const STAGE: &str = "document.getElementById('crabscape')?.getAttribute('data-valmora')";
+const VIEW: &str =
+    "JSON.parse(document.getElementById('crabscape')?.getAttribute('data-valmora-view')||'null')";
+const ROOM: &str = "synthetic";
 const PRIVACY: &str = r#"
-window.__mediaRequests=0; window.__externalSockets=[];
+window.__mediaRequests=0; window.__externalSockets=[]; window.__localSockets=[];
+window.__rtcPeers=[]; window.__strippedIceServers=0;
 if(navigator.mediaDevices) navigator.mediaDevices.getUserMedia=()=>{window.__mediaRequests++;return Promise.reject(new Error('Test forbids microphone'));};
 const NativeWebSocket=window.WebSocket;
-window.WebSocket=class extends NativeWebSocket {constructor(url,...args){if(!String(url).startsWith('ws://127.0.0.1:')){window.__externalSockets.push(String(url));throw Error('Test forbids external signaling');}super(url,...args);}};
+window.WebSocket=class extends NativeWebSocket {constructor(url,...args){const u=new URL(String(url));if(u.protocol!=='ws:'||u.hostname!=='127.0.0.1'||!u.port){window.__externalSockets.push(String(url));throw Error('Test forbids external signaling');}super(url,...args);window.__localSockets.push(String(url));}};
+// Crabscape's regular transport (and idle voice negotiation) normally supplies
+// public STUN. Change only the browser transport environment, before construction.
+// All signaling, data channels, gameplay and UI still run their real code paths.
+const hostOnly=config=>{window.__strippedIceServers+=(config?.iceServers||[]).length;return {...config,iceServers:[]};};
+const NativePeer=window.RTCPeerConnection;
+window.RTCPeerConnection=class extends NativePeer {
+  constructor(config,...args){super(hostOnly(config),...args);window.__rtcPeers.push(this);}
+  setConfiguration(config){return super.setConfiguration(hostOnly(config));}
+};
 "#;
 fn wait(b: &mut Chrome, expression: &str, seconds: u64) -> Result<()> {
     let until = Instant::now() + Duration::from_secs(seconds);
@@ -42,9 +58,11 @@ fn wait(b: &mut Chrome, expression: &str, seconds: u64) -> Result<()> {
         if Instant::now() > until {
             let stage = b.eval(STAGE)?;
             let network = b.eval(NETWORK)?;
+            let view = b.eval(VIEW)?;
+            let coop = b.attr("data-coop");
             return Err(format!(
-                "{} timeout {expression}; stage={} network={}",
-                b.name, stage, network
+                "{} timeout {expression}; stage={stage} network={network} view={view} coop={coop:?}",
+                b.name
             ));
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -53,55 +71,91 @@ fn wait(b: &mut Chrome, expression: &str, seconds: u64) -> Result<()> {
 fn stage(b: &mut Chrome, want: &str) -> Result<()> {
     wait(b, &format!("{STAGE} === {want:?}"), 40)
 }
-fn click_stage(b: &mut Chrome, x: f64, y: f64, want: &str) -> Result<()> {
-    let before = b.eval(STAGE)?;
-    for _ in 0..3 {
-        b.canvas_click(x, y)?;
-        std::thread::sleep(Duration::from_secs(2));
-        let current = b.eval(STAGE)?;
-        if current.as_str() == Some(want) {
-            return Ok(());
-        }
-        // Never repeat a coordinate against an unexpected/new screen.
-        if current != before {
-            break;
-        }
-    }
-    stage(b, want)
-}
 fn button(b: &mut Chrome, name: &str) -> Result<()> {
+    let attribute = format!("data-valmora-button-{name}");
     let expression = format!(
-        "JSON.parse(document.getElementById('crabscape')?.getAttribute('data-valmora-button-{name}')||'null')"
+        "JSON.parse(document.getElementById('crabscape')?.getAttribute({attribute:?})||'null')"
     );
-    wait(b, &format!("Array.isArray({expression})"), 15)?;
+    // A prior panel can leave a diagnostic attribute behind. Removing that DOM
+    // marker requires the currently drawn real widget to publish fresh geometry;
+    // it does not change an egui response or any authoritative game state.
     for _ in 0..24 {
+        b.eval(&format!(
+            "document.getElementById('crabscape')?.removeAttribute({attribute:?})"
+        ))?;
+        wait(b, &format!("Array.isArray({expression})"), 15)?;
         let point = b.eval(&expression)?;
         let x = point[0].as_f64().ok_or("button x")?;
         let y = point[1].as_f64().ok_or("button y")?;
-        if (80. ..798.).contains(&y) {
+        let view = b.eval(VIEW)?;
+        let context = view["context_rect"].as_array();
+        let top = context.and_then(|r| r[1].as_f64()).map_or(2., |y| y + 32.);
+        let bottom = context.and_then(|r| r[3].as_f64()).map_or(798., |y| y - 8.);
+        // Votes are in a separate global window, not the contextual scroll area.
+        let (top, bottom) = if name.starts_with("vote-") {
+            (2., 798.)
+        } else {
+            (top, bottom)
+        };
+        if (2. ..1198.).contains(&x) && (top..bottom).contains(&y) {
             return b.canvas_click(x, y);
         }
-        // Scroll the actual egui adventure area, never alter a game variable.
-        b.canvas_scroll(300., 650., if y >= 798. { 500. } else { -500. })?;
+        let scroll_x = context
+            .and_then(|r| Some((r[0].as_f64()? + r[2].as_f64()?) * 0.5))
+            .ok_or_else(|| format!("button {name} is outside the viewport, no scroll panel"))?;
+        // Scroll the actual visible context window, never alter a game variable.
+        b.canvas_scroll(
+            scroll_x,
+            bottom - 20.,
+            if y >= bottom { 420. } else { -420. },
+        )?;
     }
     Err(format!("button {name} stayed outside viewport"))
 }
 fn button_stage(b: &mut Chrome, name: &str, want: &str) -> Result<()> {
-    let before = b.eval(STAGE)?;
-    for _ in 0..3 {
-        button(b, name)?;
-        std::thread::sleep(Duration::from_secs(2));
-        let current = b.eval(STAGE)?;
-        if current.as_str() == Some(want) {
-            return Ok(());
-        }
-        if current != before {
-            break;
-        }
-    }
+    // One gesture, then an assertion. Repeating a purchase/readiness gesture
+    // could mask a missed interaction or accidentally undo a successful one.
+    button(b, name)?;
     stage(b, want)
 }
-fn prepare(b: &mut Chrome, base: &str, introducer: &str, rider: usize) -> Result<()> {
+fn panel(b: &mut Chrome, want: Option<&str>) -> Result<()> {
+    let want = serde_json::to_string(&want).map_err(|e| e.to_string())?;
+    wait(
+        b,
+        &format!("({VIEW}) != null && ({VIEW}).panel === {want}"),
+        20,
+    )
+}
+fn close_panel(b: &mut Chrome) -> Result<()> {
+    let view = b.eval(VIEW)?;
+    let rect = view["context_rect"]
+        .as_array()
+        .ok_or("no contextual window to close")?;
+    // egui's noncollapsible title bar places the real X inside the top-right
+    // frame margin. Derive its position from this frame, never an old screen.
+    let x = rect[2].as_f64().ok_or("context right")? - 16.;
+    let y = rect[1].as_f64().ok_or("context top")? + 17.;
+    b.canvas_click(x, y)?;
+    panel(b, None)
+}
+fn visit(b: &mut Chrome, place: &str, want: &str) -> Result<()> {
+    let label = match place {
+        "dragon" => "Your dragon",
+        "workshop" => "Roost workshop",
+        _ => return Err(format!("unknown fixture destination {place}")),
+    };
+    panel(b, None)?;
+    if b.eval(&format!("({VIEW})?.nearby === {label:?}"))? != true {
+        button(b, &format!("landing-{place}"))?;
+        wait(b, &format!("({VIEW})?.nearby === {label:?}"), 15)?;
+    }
+    button(b, &format!("interact-{place}"))?;
+    panel(b, Some(want))
+}
+fn fixture(rider: usize) -> serde_json::Value {
+    serde_json::json!({"v":3,"xpv":2,"rider":if rider==0 {"alexa"}else{"tavian"},"rid":format!("synthetic{rider}"),"seenIntro":true,"earned":1000,"spent":0,"briefed":["m1"],"cleared":["m1"],"build":{"name":if rider==0 {"Source Alice"}else{"Source Bobby"},"dname":if rider==0 {"Ember"}else{"Spark"},"path":"forge","dkind":"flame"},"party":[{"id":"bond","bonded":true,"xp":0}]})
+}
+fn prepare_castle(b: &mut Chrome, base: &str, introducer: &str, rider: usize) -> Result<()> {
     b.protocol_viewport(1200, 800)?;
     b.install_script(PRIVACY)?;
     b.go(&format!("{base}/__fixture_setup"))?;
@@ -109,63 +163,92 @@ fn prepare(b: &mut Chrome, base: &str, introducer: &str, rider: usize) -> Result
     if b.eval("(()=>{const c=document.createElement('canvas').getContext('2d');c.translate(12,34);const before=c.getTransform().toString();c.translate(NaN,NaN);return c.getTransform().toString()===before;})()")? != true {
         return Err("Canvas must ignore nonfinite translation".into());
     }
-    if b.eval(
-        "(localStorage.setItem('crabscape.save',JSON.stringify({version:5,x:2300,y:7100})),true)",
-    )? != true
-    {
-        return Err("synthetic roof fixture failed".into());
-    }
     let key = if rider == 0 {
         "vdf-save-alexa"
     } else {
         "vdf-save-tavian"
     };
-    let profile = serde_json::json!({"v":3,"xpv":2,"rider":if rider==0 {"alexa"}else{"tavian"},"rid":format!("synthetic{rider}"),"seenIntro":true,"earned":1000,"spent":0,"briefed":["m1"],"cleared":["m1"],"build":{"name":if rider==0 {"Alice"}else{"Bobby"},"dname":if rider==0 {"Ember"}else{"Spark"},"path":"forge","dkind":"flame"},"party":[{"id":"bond","bonded":true,"xp":0}]});
-    let original = profile.to_string();
+    let original = fixture(rider).to_string();
+    let name = format!("{} Crab", b.name);
     let setup = format!(
-        "(()=>{{sessionStorage.setItem('synthetic-original-key',{key:?});sessionStorage.setItem('synthetic-original-bytes',{original:?});localStorage.setItem({key:?},{original:?});localStorage.setItem('vdf-music','false');localStorage.setItem('vdf-narrate','false');return localStorage.getItem({key:?})==={original:?};}})()"
+        "(()=>{{sessionStorage.setItem('synthetic-original-key',{key:?});sessionStorage.setItem('synthetic-original-bytes',{original:?});localStorage.setItem({key:?},{original:?});localStorage.setItem('crabscape.save',JSON.stringify({{version:5,x:2300,y:7100}}));localStorage.setItem('crabscape-name',{name:?});if({rider}===0)localStorage.setItem('crabscape-lobby',{ROOM:?});localStorage.setItem('vdf-music','false');localStorage.setItem('vdf-narrate','false');return localStorage.getItem({key:?})==={original:?};}})()"
     );
     if b.eval(&setup)? != true {
         return Err("synthetic import fixture failed".into());
     }
     b.go(&format!(
-        "{base}/index.html?boring&zoom=1&valmora_introducer={introducer}"
+        "{base}/index.html?boring&zoom=1&join={ROOM}&introducer={introducer}&valmora_introducer={introducer}"
     ))?;
     wait(
         b,
-        "document.querySelector('canvas')?.getAttribute('data-crab')?.startsWith('2300')===true",
+        "(()=>{const c=document.getElementById('crabscape')?.getAttribute('data-crab')?.split(' ');return c?.length===3&&Math.abs(Number(c[0])-2300)<=100&&Math.abs(Number(c[1])-7100)<35&&c[2]==='1';})()",
         120,
     )?;
-    std::thread::sleep(Duration::from_secs(2));
+    wait(
+        b,
+        &format!("document.getElementById('crabscape')?.getAttribute('data-name')==={name:?}"),
+        10,
+    )?;
+    stage(b, "castle")
+}
+fn enter_and_import(b: &mut Chrome, rider: usize) -> Result<()> {
+    let crab = b.attr("data-crab").ok_or("missing source crab position")?;
+    b.eval(&format!(
+        "sessionStorage.setItem('synthetic-roof-position',{crab:?})"
+    ))?;
     b.hold_key("KeyV", 0.2)?;
     stage(b, "menu")?;
-    click_stage(b, 25., 78. + 39. * rider as f64, "builder-0")?;
-    b.canvas_click(100., 49.)?;
-    button(b, "import-browser")?;
-    stage(b, "party")?;
-    if b.eval(&format!("localStorage.getItem({key:?})==={original:?}"))? != true {
-        return Err("original synthetic export was changed".into());
-    }
-    b.canvas_click(100., 57.)?;
-    b.insert_text("synthetic")?;
-    b.canvas_click(355., 57.)?;
+    visit(b, "dragon", "Companion")?;
+    // Integrated setup skips the source human-rider page and begins with dragon.
+    button_stage(b, &format!("companion-{rider}"), "builder-1")?;
+    button(b, "import-expand")?;
+    button_stage(b, "import-browser", "party")?;
+    panel(b, None)?;
     wait(b, &format!("({NETWORK})?.id != null"), 25)?;
+    let name = format!("{} Crab", b.name);
+    wait(
+        b,
+        &format!("({VIEW})?.party_code==={ROOM:?}&&({VIEW})?.crab_name==={name:?}"),
+        10,
+    )?;
+    verify_privacy(b)?;
+    verify_source_crab(b)?;
     println!(
-        "PASS {} rooftop, explicit synthetic import and live room",
+        "PASS {} ferry, explicit source-slot import and inherited Crabscape identity/party",
         b.name
     );
+    Ok(())
+}
+fn verify_source_crab(b: &mut Chrome) -> Result<()> {
+    if b.eval("document.getElementById('crabscape')?.getAttribute('data-crab')===sessionStorage.getItem('synthetic-roof-position')")? != true {
+        return Err(format!("{} travel moved the authoritative castle crab", b.name));
+    }
     Ok(())
 }
 fn verify_privacy(b: &mut Chrome) -> Result<()> {
     if b.eval("localStorage.getItem(sessionStorage.getItem('synthetic-original-key'))===sessionStorage.getItem('synthetic-original-bytes')")? != true {return Err(format!("{} changed original synthetic save bytes",b.name));}
 
-    if b.eval("window.__mediaRequests===0&&window.__externalSockets.length===0")? != true {
+    if b.eval("window.__mediaRequests===0&&window.__externalSockets.length===0&&window.__rtcPeers.every(p=>p.getConfiguration().iceServers.length===0)")? != true {
         return Err(format!(
             "{} made forbidden microphone/external socket request",
             b.name
         ));
     }
+    if b.eval("window.__localSockets.some(u=>new URL(u).pathname.startsWith('/crabscape-live-'))&&window.__localSockets.some(u=>new URL(u).pathname.startsWith('/crabscape-dragon-'))")? != true {
+        return Err(format!("{} did not use both real local party transports", b.name));
+    }
     Ok(())
+}
+fn capture(b: &mut Chrome, profiles: &Path, name: &str) -> Result<()> {
+    let evidence = b.eval(&format!(
+        "({{stage:{STAGE},view:{VIEW},network:{NETWORK},crab:document.getElementById('crabscape')?.getAttribute('data-crab'),roof:sessionStorage.getItem('synthetic-roof-position'),coop:document.getElementById('crabscape')?.getAttribute('data-coop'),mediaRequests:window.__mediaRequests,externalSockets:window.__externalSockets,localSockets:window.__localSockets,iceServers:window.__rtcPeers?.map(p=>p.getConfiguration().iceServers),sourceUnchanged:localStorage.getItem(sessionStorage.getItem('synthetic-original-key'))===sessionStorage.getItem('synthetic-original-bytes')}})"
+    ))?;
+    std::fs::write(
+        profiles.join(format!("{name}.json")),
+        serde_json::to_vec_pretty(&evidence).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    b.screenshot(&profiles.join(format!("{name}.png")))
 }
 fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
     let mut server = Signaling(
@@ -192,15 +275,38 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
     let mut a = Chrome::start_without_clipboard("Alice", &profiles.join("a"), options())?;
     let mut b = Chrome::start_without_clipboard("Bobby", &profiles.join("b"), options())?;
     let result = (|| {
-        prepare(&mut a, &base, url, 0)?;
-        prepare(&mut b, &base, url, 1)?;
+        prepare_castle(&mut a, &base, url, 0)?;
+        prepare_castle(&mut b, &base, url, 1)?;
+        wait(
+            &mut a,
+            "document.getElementById('crabscape')?.getAttribute('data-world')==='host'",
+            30,
+        )?;
+        wait(
+            &mut b,
+            "document.getElementById('crabscape')?.getAttribute('data-world')==='guest'",
+            30,
+        )?;
+        for browser in [&mut a, &mut b] {
+            wait(
+                browser,
+                "document.getElementById('crabscape')?.getAttribute('data-coop')?.startsWith('Playing with 1 friend')===true",
+                30,
+            )?;
+        }
+        println!("PASS real Crabscape invite/LINK, local host and guest together before boarding");
+        enter_and_import(&mut a, 0)?;
+        enter_and_import(&mut b, 1)?;
         for browser in [&mut a, &mut b] {
             wait(browser, &format!("({NETWORK})?.peers===1"), 30)?;
             verify_privacy(browser)?;
+            verify_source_crab(browser)?;
         }
-        for browser in [&mut a, &mut b] {
-            button_stage(browser, "roost", "roost")?;
-        }
+        // Only Alice opens the workshop. Bobby must see the global purchase
+        // prompt while standing on the landing, without an old Party/Roost menu.
+        visit(&mut a, "workshop", "Roost")?;
+        stage(&mut a, "roost")?;
+        panel(&mut b, None)?;
         button(&mut a, "craft-armor")?;
         for browser in [&mut a, &mut b] {
             wait(browser, &format!("({NETWORK})?.vote==='voting'"), 20)?;
@@ -224,13 +330,39 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
                 "purchase accounting mismatch {purchase_a} / {purchase_b}"
             ));
         }
-        println!("PASS real shared armor proposal/Yes/grant with exactly one spender");
-        a.screenshot(&profiles.join("purchase-a.png"))?;
-        b.screenshot(&profiles.join("purchase-b.png"))?;
+        panel(&mut b, None)?;
+        println!(
+            "PASS workshop purchase reaches landing partner; real Yes/grant, exactly one spender"
+        );
+        capture(&mut a, profiles, "purchase-a")?;
+        capture(&mut b, profiles, "purchase-b")?;
+        close_panel(&mut a)?;
         for browser in [&mut a, &mut b] {
-            button_stage(browser, "party", "party")?;
+            visit(browser, "dragon", "Flight")?;
+            stage(browser, "party")?;
+            verify_source_crab(browser)?;
         }
-        button(&mut a, "mission-m1")?;
+        button(&mut a, "suggest-route")?;
+        for browser in [&mut a, &mut b] {
+            wait(browser, &format!("({NETWORK})?.party_mission==='m1'"), 15)?;
+        }
+        // Suggesting a route readies Alice, but Bobby has not agreed. Observe
+        // beyond the three-second launch interval before exercising Ready.
+        std::thread::sleep(Duration::from_secs(4));
+        let waiting_a = a.eval(NETWORK)?;
+        let waiting_b = b.eval(NETWORK)?;
+        if waiting_a["state"] != "party"
+            || waiting_b["state"] != "party"
+            || waiting_a["party_ready"] != "m1"
+            || !waiting_b["party_ready"].is_null()
+            || waiting_a["party_countdown"].as_f64() != Some(0.)
+            || waiting_b["party_countdown"].as_f64() != Some(0.)
+        {
+            return Err(format!(
+                "party launched/countdown without partner readiness: {waiting_a} / {waiting_b}"
+            ));
+        }
+        println!("PASS flight board waits for the unready Crabscape partner");
         button(&mut b, "ready")?;
         for browser in [&mut a, &mut b] {
             stage(browser, "play")?;
@@ -252,8 +384,8 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
             return Err(format!("shared launch mismatch: {aa} / {bb}"));
         }
         println!("PASS distinct riders, Ready countdown, matching mission/run and single host");
-        a.screenshot(&profiles.join("shared-flight-a.png"))?;
-        b.screenshot(&profiles.join("shared-flight-b.png"))?;
+        capture(&mut a, profiles, "shared-flight-a")?;
+        capture(&mut b, profiles, "shared-flight-b")?;
         let (host, guest) = if aa["guest"] == false {
             (&mut a, &mut b)
         } else {
@@ -267,6 +399,8 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
         }
         verify_privacy(host)?;
         verify_privacy(guest)?;
+        verify_source_crab(host)?;
+        verify_source_crab(guest)?;
         let epoch = after["epoch"].as_u64().ok_or("guest epoch")?;
         host.go("about:blank")?;
         wait(
@@ -280,12 +414,12 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
         }
         verify_privacy(guest)?;
         println!("PASS live guest input and host-loss takeover without resetting shared run");
-        guest.screenshot(&profiles.join("host-loss-takeover.png"))?;
+        capture(guest, profiles, "host-loss-takeover")?;
         Ok(())
     })();
     if result.is_err() {
         for (browser, name) in [(&mut a, "a"), (&mut b, "b")] {
-            let _ = browser.screenshot(&profiles.join(format!("failure-{name}.png")));
+            let _ = capture(browser, profiles, &format!("failure-{name}"));
         }
     }
     result
@@ -303,7 +437,10 @@ fn main() {
         &PathBuf::from(&args[1]),
         &profiles,
     ) {
-        Ok(()) => println!("PASS full native Valmora two-browser journey"),
+        Ok(()) => println!(
+            "PASS integrated Crabscape/Valmora two-browser journey; artifacts {}",
+            profiles.display()
+        ),
         Err(error) => {
             eprintln!(
                 "FAIL {error}; synthetic failure artifacts {}",

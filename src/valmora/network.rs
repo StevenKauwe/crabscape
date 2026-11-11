@@ -1247,6 +1247,7 @@ impl Lobby {
         let data = json!({
             "id":self.id, "rider":self.rider, "peers":self.connected_count(),
             "blocked":self.blocked, "state":adventure.state(),
+            "party_mission":self.party.mission,"party_ready":self.party.ready,"party_countdown":self.party.countdown,
             "mission":game.map(|g|&g.definition.id),
             "run":session.map(|s|s.run()),
             "guest":session.map(|s|s.authority().guest),

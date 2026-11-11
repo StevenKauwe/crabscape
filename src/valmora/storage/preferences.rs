@@ -264,6 +264,26 @@ mod tests {
         assert_eq!(projected.heard.len(), 300);
         assert_eq!(projected.heard[0], "story|5");
     }
+    #[test]
+    fn old_preference_records_have_no_link_and_malformed_links_fail_closed() {
+        let mut old = serde_json::json!({
+            "format":1,"kind":"device-preferences","revision":1,
+            "preferences":Preferences::default()
+        });
+        let token = PreferencesLoaded::decode(old.to_string()).unwrap();
+        assert_eq!(token.remembered_rider(), None);
+        // Parsing an old record retains its exact CAS bytes, not a reencoding.
+        assert_eq!(token.bytes.as_deref(), Some(old.to_string().as_str()));
+        for link in [
+            serde_json::json!({"slot":"unknown","identity":"r1"}),
+            serde_json::json!({"slot":"alexa","identity":""}),
+            serde_json::json!({"slot":"alexa","identity":"x".repeat(41)}),
+            serde_json::json!({"slot":"alexa","identity":"r1","future":true}),
+        ] {
+            old["remembered_rider"] = link;
+            assert!(PreferencesLoaded::decode(old.to_string()).is_err());
+        }
+    }
 }
 
 pub(super) const MAX_PREFERENCES_BYTES: usize = 512 * 1024;
@@ -274,6 +294,41 @@ struct PreferenceRecord {
     kind: String,
     revision: u64,
     preferences: Preferences,
+    /// A local association only. Legacy archives never supply this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    remembered_rider: Option<RememberedRider>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RememberedRider {
+    slot: String,
+    identity: String,
+}
+impl RememberedRider {
+    fn slot(&self) -> Result<dragon_game::save_transfer::RiderSlot, String> {
+        super::SLOTS
+            .into_iter()
+            .find(|slot| slot.key() == self.slot)
+            .ok_or_else(|| "Unknown remembered Valmora rider slot".into())
+    }
+    fn validate(&self) -> Result<(), String> {
+        self.slot()?;
+        if self.identity.is_empty() || self.identity.encode_utf16().count() > 40 {
+            return Err("Invalid remembered Valmora rider identity".into());
+        }
+        Ok(())
+    }
+    fn from_loaded(loaded: &super::Loaded) -> Result<Self, String> {
+        let result = Self {
+            slot: loaded.slot().key().into(),
+            identity: loaded.profile()["rid"]
+                .as_str()
+                .ok_or("The selected rider has no stable identity")?
+                .into(),
+        };
+        result.validate()?;
+        Ok(result)
+    }
 }
 /// Exact independent device-preference token. Revision zero represents absence,
 /// not a stored record; first save is compare-and-create, never an overwrite.
@@ -283,6 +338,18 @@ pub struct PreferencesLoaded {
     pub(super) bytes: Option<String>,
 }
 impl PreferencesLoaded {
+    /// Only an explicitly opened/created/imported native rider can be linked.
+    /// Missing links (including records made before this field) choose nobody.
+    pub fn remembered_rider(&self) -> Option<dragon_game::save_transfer::RiderSlot> {
+        self.record.remembered_rider.as_ref()?.slot().ok()
+    }
+    pub(crate) fn check_remembered(&self, loaded: &super::Loaded) -> Result<(), String> {
+        if self.record.remembered_rider.as_ref() == Some(&RememberedRider::from_loaded(loaded)?) {
+            Ok(())
+        } else {
+            Err("The remembered rider changed; choose a companion explicitly".into())
+        }
+    }
     pub fn preferences(&self) -> &Preferences {
         &self.record.preferences
     }
@@ -296,6 +363,7 @@ impl PreferencesLoaded {
                 kind: "device-preferences".into(),
                 revision: 0,
                 preferences: Preferences::default(),
+                remembered_rider: None,
             },
             bytes: None,
         }
@@ -308,6 +376,9 @@ impl PreferencesLoaded {
             return Err("Unsupported Valmora device-preference record".into());
         }
         record.preferences.validate()?;
+        if let Some(link) = &record.remembered_rider {
+            link.validate()?;
+        }
         Ok(Self {
             record,
             bytes: Some(bytes),
@@ -323,8 +394,14 @@ impl PreferencesLoaded {
                 .checked_add(1)
                 .ok_or("Device preference revision limit reached")?,
             preferences,
+            remembered_rider: self.record.remembered_rider.clone(),
         };
         Self::decode(serde_json::to_string(&record).map_err(|e| e.to_string())?)
+    }
+    pub(super) fn remembering(&self, loaded: &super::Loaded) -> Result<Self, String> {
+        let mut next = self.changed(self.preferences().clone())?;
+        next.record.remembered_rider = Some(RememberedRider::from_loaded(loaded)?);
+        Self::decode(serde_json::to_string(&next.record).map_err(|e| e.to_string())?)
     }
     pub(super) fn check_current(&self, previous: &Self) -> Result<(), String> {
         if self.bytes == previous.bytes {
