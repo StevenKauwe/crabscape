@@ -172,7 +172,7 @@ fn build_specs() -> Vec<Frame> {
     // Its roof lies below the lowest floor a walking hunter's leash reaches;
     // the door is a short water shaft up through the step's sand, with a rock
     // casing each side so the sand cannot slump in.
-    let warren = Rect::new(15840.0, -5500.0, 16040.0, -5110.0);
+    let warren = Rect::new(15840.0, -5500.0, 16040.0, -5120.0);
     let mut den = full(
         "pebble warren",
         warren,
