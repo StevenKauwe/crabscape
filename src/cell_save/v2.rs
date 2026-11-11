@@ -263,6 +263,10 @@ mod tests {
             (15000.0, -11000.0),
             (8000.0, -9000.0),
             (12000.0, -11000.0),
+            // Plate D filled the pit; more ground keeps the fixture over 8 MiB.
+            (6000.0, -3000.0),
+            (10000.0, -5000.0),
+            (14000.0, -7000.0),
         ] {
             assert!(terrain.follow_player(&level, x, y));
             for _ in 0..4 {
