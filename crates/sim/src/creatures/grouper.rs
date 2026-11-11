@@ -183,11 +183,23 @@ pub fn tuning() -> &'static EnemyTuning {
 /// clear of the other residents (the moray at x 15220, the mantis at 16800),
 /// so it sits at a coral head: the refuge a crab can hold is beside it. Empty
 /// when the stand it is anchored to is missing.
+/// The right edge of the reef coral stand it keeps beside (today "coral stand 20").
+const REEF_STAND_X: f32 = 16_340.0;
+
 pub fn spots(level: &Level) -> Vec<Vec2> {
+    // The eastern reef's coral stand nearest x 16,340 (by place, not by
+    // index: other packages renumber the stands; the world's steps move
+    // ground up and down, never sideways).
     let Some(stand) = level
         .landmarks()
         .into_iter()
-        .find(|l| l.name == "coral stand 20" && l.kind == Place::Refuge)
+        .filter(|l| l.name.starts_with("coral stand") && l.kind == Place::Refuge)
+        .filter(|l| (l.rect.max.x - REEF_STAND_X).abs() < 300.0)
+        .min_by(|a, b| {
+            (a.rect.max.x - REEF_STAND_X)
+                .abs()
+                .total_cmp(&(b.rect.max.x - REEF_STAND_X).abs())
+        })
     else {
         return Vec::new();
     };
