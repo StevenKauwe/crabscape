@@ -166,6 +166,26 @@ fn main() -> Result<()> {
                         if dim_saved != json!(true) {
                             return Err(format!("repeated H did not save DIM: {dim_saved}"));
                         }
+                    } else {
+                        // Cellular autosave compresses and publishes asynchronously.
+                        // Reload only after reading a complete committed DIM save.
+                        let began = Instant::now();
+                        loop {
+                            let saved = b.eval(save_fixture::CAPTURE_SCRIPT)?;
+                            if !saved.is_null() {
+                                let bytes = save_fixture::frame_from_object(&saved)?;
+                                let restored = crabsim::cell_codec::paged::decode(&bytes)
+                                    .map_err(|e| format!("invalid cellular autosave: {e:?}"))?;
+                                if restored.player.progress.is_some_and(|p| p.lantern_dim) {
+                                    println!("PASS: {name}: durable cellular DIM save");
+                                    break;
+                                }
+                            }
+                            if began.elapsed().as_secs() > 60 {
+                                return Err("cellular DIM did not reach a durable save".into());
+                            }
+                            sleep(Duration::from_millis(250));
+                        }
                     }
                     b.eval("window.lanternOldDocument=true")?;
                     b.reload()?;
@@ -187,6 +207,54 @@ fn main() -> Result<()> {
                     b.hold_key("KeyH", 0.1)?;
                     sleep(Duration::from_secs(1));
                     b.screenshot(&out.join(format!("{name}-h-full.png")))?;
+                    if args[3] == "after-controls" {
+                        b.hold_key("KeyB", 0.1)?;
+                        b.hold_key("KeyH", 0.1)?;
+                        b.hold_key("KeyY", 0.1)?;
+                        sleep(Duration::from_secs(1));
+                        let position = b.attr("data-crab").ok_or("missing shelf position")?;
+                        let x = position
+                            .split_whitespace()
+                            .next()
+                            .ok_or("missing x")?
+                            .parse::<f32>()
+                            .map_err(|e| e.to_string())?;
+                        let y = position
+                            .split_whitespace()
+                            .nth(1)
+                            .ok_or("missing y")?
+                            .parse::<f32>()
+                            .map_err(|e| e.to_string())?;
+                        let shelf = if cells { -3428.0 } else { -3400.0 };
+                        if (x - 6000.0).abs() > 5.0 || (y - shelf).abs() > 5.0 {
+                            return Err(format!("H then Y unexpectedly moved home: {position}"));
+                        }
+                        b.screenshot(&out.join(format!("{name}-h-y-stays.png")))?;
+                        b.hold_key("Home", 0.1)?;
+                        b.eval("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))")?;
+                        sleep(Duration::from_millis(300));
+                        b.screenshot(&out.join(format!("{name}-home-question.png")))?;
+                        b.hold_key("KeyY", 0.1)?;
+                        let began = Instant::now();
+                        loop {
+                            let position = b.attr("data-crab").unwrap_or_default();
+                            if position
+                                .split_whitespace()
+                                .next()
+                                .and_then(|x| x.parse::<f32>().ok())
+                                .is_some_and(|x| x < 1000.0)
+                            {
+                                break;
+                            }
+                            if began.elapsed().as_secs() > 30 {
+                                return Err(format!("Home then Y did not return home: {position}"));
+                            }
+                            sleep(Duration::from_millis(100));
+                        }
+                        sleep(Duration::from_secs(1));
+                        b.screenshot(&out.join(format!("{name}-home-y-returned.png")))?;
+                        println!("PASS: {name}: H/Y stays at shelf; Home/Y returns home");
+                    }
                 }
                 if let Some(e) = b.trouble() {
                     return Err(e);
