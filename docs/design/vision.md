@@ -14,9 +14,11 @@ others in the world share, and that we build together, like Valheim.
   tasks and quests with a clear "go here, get that", gathering feeding crafting, rarer things from deeper places,
   and places you can see but can't reach yet. Every region answers "why would I go there?" before "what does it
   look like?"
-- **Fights like Silksong (the moment to moment):** skilful, readable, punishing combat and movement. A fight is won
-  by reading tells and timing, not by out-levelling it: skill levels open new tools, moves and places; they never
-  turn a hard fight into a number check. (We're a heavy crab, not a needle: see `how-it-plays.md`.)
+- **Fights like Silksong (the moment to moment):** skilful, readable, punishing combat and movement, with levels
+  and gear that work like Elden Ring's: they *lower the skill a fight needs*, never remove it. An over-levelled,
+  well-geared crab has more room for mistakes (more shell to lose, harder hits, wider timing windows); an
+  under-levelled one can still win on skill. It's never "click and see if you win". (We're a heavy crab, not a
+  needle: see `how-it-plays.md`.)
 - **Comes home like Valheim (the place between adventures):** a strong home base that everyone in your world shares
   and builds together. You leave it to adventure, come back to it to rest, cook, craft and show off, and it grows
   with the world.
