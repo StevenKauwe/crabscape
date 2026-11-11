@@ -99,6 +99,7 @@ mod food;
 mod go_home;
 mod home;
 mod impact;
+mod gather_ui;
 mod input;
 mod interior;
 mod keys;
@@ -232,6 +233,7 @@ fn run_app() {
                 cling::ClingPlugin,
                 shell_inventory::ShellInventoryPlugin,
                 nodes::NodesPlugin,
+                gather_ui::GatherUiPlugin,
                 skills_panel::SkillsPanelPlugin,
                 skill_juice::SkillJuicePlugin,
             ),

@@ -2694,9 +2694,12 @@ impl Sim {
                             crab.larder += 1;
                             crab.events.stored = true;
                         }
-                        // No room: it stays on the shell.
+                        // The larder is full: the clam goes to the stash as
+                        // an item (crafting uses it there), so it never jams
+                        // the shell.
                         Carry::Clam | Carry::Item(Item::Clam) => {
-                            m.clinging.push(thing);
+                            crab.stash.add(Item::Clam, 1);
+                            crab.events.put_away = true;
                             crab.events.larder_full |= crab.events.tucked_in;
                         }
                         thing => {
@@ -2984,6 +2987,10 @@ impl Sim {
         for (crab, before) in self.crabs.iter_mut().zip(health_before) {
             if crab.remote {
                 continue;
+            }
+            // A blow that landed wears the body plating by one.
+            if crab.events.hurt && crab.econ.wear_plating() {
+                crab.sync_econ();
             }
             let c = crab.controls;
             let stationary = crab.mover.pos.distance_squared(crab.prev_pos) < 0.000001

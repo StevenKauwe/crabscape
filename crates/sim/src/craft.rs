@@ -596,6 +596,7 @@ impl Sim {
         }
         crab.econ.crafts_done += 1;
         self.earn(id, r.skill, xp);
+        self.sound(crate::world::cues::Cue::Crafted { crab: id });
         self.record_craft(id, Craft::Econ(r));
         Ok(())
     }

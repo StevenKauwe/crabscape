@@ -890,7 +890,7 @@ pub fn step(m: &mut Mover, c: &Controls, t: &Tuning, level: &Level, dt: f32) -> 
     } else if m.climbing || (c.dig_held && c.dig_up) {
         m.reserve
     } else {
-        (m.reserve + dt / (t.reserve_refill_time * cold)).min(1.0)
+        (m.reserve + dt * m.econ.reserve_factor / (t.reserve_refill_time * cold)).min(1.0)
     };
     if m.grounded {
         m.coyote = t.coyote_time;

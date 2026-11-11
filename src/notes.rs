@@ -191,6 +191,12 @@ fn note_events(
         *last_full = now;
         notes.push(("No room on your shell".into(), PALE));
     }
+    if let Some(why) = ev.gather_blocked {
+        notes.push((crate::gather_ui::why_not(why), PALE));
+    }
+    if let Some(kind) = ev.tool_cracked {
+        notes.push((format!("Your {} cracked!", kind.name()), GOLD));
+    }
     if ev.fitted_scissors {
         notes.push(("Scissor claws!".into(), GOLD));
     }
@@ -244,7 +250,7 @@ fn note_events(
         notes.push(("Clam-shell guards!".into(), GOLD));
     }
     if ev.larder_full {
-        notes.push(("The larder is full".into(), PALE));
+        notes.push(("The larder is full: clams go to the stash".into(), PALE));
     }
     if ev.rested {
         notes.push(("Rested".into(), PALE));

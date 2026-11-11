@@ -118,6 +118,8 @@ pub struct Mirror {
     pub damage_factor: f32,
     /// What claw blows are multiplied by (1 = unchanged, more = tips, food).
     pub claw_factor: f32,
+    /// What the reserve's refill speed is multiplied by (1 = unchanged).
+    pub reserve_factor: f32,
 }
 
 impl Default for Mirror {
@@ -126,6 +128,7 @@ impl Default for Mirror {
             bag_slots: 0,
             damage_factor: 1.0,
             claw_factor: 1.0,
+            reserve_factor: 1.0,
         }
     }
 }
@@ -251,6 +254,7 @@ impl Economy {
             bag_slots: self.shell_slots_bonus(),
             damage_factor: self.damage_taken_factor(),
             claw_factor: self.claw_bonus(),
+            reserve_factor: self.reserve_refill_factor(),
         }
     }
 }

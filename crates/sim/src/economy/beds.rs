@@ -95,6 +95,7 @@ impl Sim {
         crab.stash.add(bed.strain, StrainDef::harvest_count(level));
         crab.econ.crafts_done += 1;
         self.earn(id, Skill::Culturing, xp as f32);
+        self.sound(crate::world::cues::Cue::Crafted { crab: id });
         self.record_craft(id, crate::craft::Craft::Bed(BedAction::Harvest));
         Ok(())
     }

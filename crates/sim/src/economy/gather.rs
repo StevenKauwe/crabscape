@@ -17,7 +17,7 @@ use super::nodes::{NodeDef, NodeKind};
 use super::roll;
 use crate::SimCrab;
 use crate::physics::{Carry, Mover};
-use crate::prepared_food::{Portion, PortionKind};
+use crate::prepared_food::PortionKind;
 use crate::skills::Skill;
 use crate::tuning::Tuning;
 
@@ -112,15 +112,9 @@ const CAULDRON: [Dish; 2] = [
     },
 ];
 
-/// The portion a cooked food makes. (The portion kinds are the two the
-/// field rations have; the food's own effects come with the cooking
-/// runtime: the poached mussels mend the shell, the feast refills the
-/// reserve.)
+/// The portion a cooked food makes: the food's own kind and effects.
 fn portion_kind(food: Food) -> PortionKind {
-    match food {
-        Food::VentClamFeast => PortionKind::Reserve,
-        _ => PortionKind::Shell,
-    }
+    PortionKind::Food(food)
 }
 
 fn on_shell(m: &Mover, item: Item) -> usize {
@@ -155,7 +149,7 @@ pub fn check(crab: &SimCrab, kind: NodeKind, t: &Tuning) -> Result<Plan, GatherB
             let lowest = present.iter().map(|d| d.level).min().unwrap_or(def.level);
             return Err(GatherBlocked::Level(def.skill, lowest));
         };
-        if crab.mover.prepared_food.slots.iter().any(Option::is_some) {
+        if crab.mover.prepared_food.free_slots() < 2 {
             return Err(GatherBlocked::NoRoom);
         }
         return Ok(Plan {
@@ -220,7 +214,7 @@ pub fn cook(crab: &mut SimCrab, food: Food) -> bool {
     };
     let pf = &crab.mover.prepared_food;
     if !has(&crab.mover, needs)
-        || pf.slots.iter().any(Option::is_some)
+        || pf.free_slots() < 2
         || pf.next_batch.checked_add(1).is_none()
     {
         return false;
@@ -238,8 +232,5 @@ pub fn cook(crab: &mut SimCrab, food: Food) -> bool {
         }
     }
     let pf = &mut crab.mover.prepared_food;
-    let (batch, kind) = (pf.next_batch, portion_kind(food));
-    pf.slots = [0, 1].map(|index| Some(Portion { batch, index, kind }));
-    pf.next_batch = batch + 1;
-    true
+    pf.add_batch(portion_kind(food), 2)
 }

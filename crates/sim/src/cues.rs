@@ -59,6 +59,10 @@ pub enum Cue {
     ToolCracked {
         crab: PlayerId,
     },
+    /// Crab `crab` made something at home (or harvested a bed).
+    Crafted {
+        crab: PlayerId,
+    },
     /// A skill went up to `level`: a rising chime.
     LevelUp {
         crab: PlayerId,
@@ -156,6 +160,11 @@ impl Sim {
     /// their last presented tick to read each event once; no draining sim state.
     pub fn cues(&self) -> &[Event] {
         &self.sound_cues.events
+    }
+    /// Sound a cue for the coming tick (for rules outside the tick, as crafting).
+    pub(crate) fn sound(&mut self, cue: Cue) {
+        let tick = self.tick + 1;
+        self.sound_cues.emit(tick, cue);
     }
     /// A hunter aimed at `crab` is telling or striking (for tests and tools).
     pub fn threatened(&self, crab: PlayerId) -> bool {

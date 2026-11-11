@@ -54,9 +54,13 @@ pub enum Sfx {
     Chime,
     /// A tenth level or level 99: a longer, staggered open chord on D.
     Chord,
+    /// One work stroke of a gather: a soft scrape and tap (placeholder).
+    Scrape,
+    /// A tool cracking: a sharp split and a dull knock (placeholder).
+    Crack,
 }
 
-const ALL: [Sfx; 14] = [
+const ALL: [Sfx; 16] = [
     Sfx::Swish,
     Sfx::Crunch,
     Sfx::Click,
@@ -71,6 +75,8 @@ const ALL: [Sfx; 14] = [
     Sfx::Throb,
     Sfx::Chime,
     Sfx::Chord,
+    Sfx::Scrape,
+    Sfx::Crack,
 ];
 
 /// The steady tones under everything: started once, never retriggered, only
@@ -237,9 +243,21 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
             Cue::VentHum { at: source } => {
                 backend::vent(0.025 * (1.0 - source.distance(at) / 1600.0).max(0.0));
             }
-            // The crab's own level gained. (The gather, gathered, crafted
-            // and tool-cracked cues get their sounds in this same match:
-            // `Cue::Gathered { crab, .. } if own(crab) => backend::play(..)`.)
+            // The crab's own work: a scrape per stroke, a click when it
+            // gives, a ring for a made thing, a crack for a broken tool.
+            Cue::Gather { crab, .. } if own(crab) => {
+                backend::spatial(Sfx::Scrape, 0.6 * body, 1.0, 0.0, Route::Body);
+            }
+            Cue::Gathered { crab } if own(crab) => {
+                backend::spatial(Sfx::Click, 0.7 * body, 1.2, 0.0, Route::Body);
+            }
+            Cue::ToolCracked { crab } if own(crab) => {
+                backend::spatial(Sfx::Crack, 0.8 * body, 1.0, 0.0, Route::Body);
+            }
+            Cue::Crafted { crab } if own(crab) => {
+                backend::play(Sfx::Ring, 0.35, 1.0);
+            }
+            // The crab's own level gained.
             Cue::LevelUp { crab, level, .. } if own(crab) => {
                 let sfx = if level_chord(level) {
                     Sfx::Chord
@@ -318,6 +336,15 @@ pub fn synth(sfx: Sfx, rate: f32) -> Vec<f32> {
                 after(bell(d(2) * 1.5), 0.33, rate),
             ])
         }
+        Sfx::Scrape => mix(&[
+            muffled(crackle(&mut noise, rate, 0.14, 0.7), 1400.0, rate),
+            thump(rate, 150.0, 80.0, 0.05, 0.6),
+        ]),
+        Sfx::Crack => mix(&[
+            crack(&mut noise, rate, 0.02, 3000.0, 1.0),
+            thump(rate, 120.0, 55.0, 0.12, 0.7),
+            crackle(&mut noise, rate, 0.1, 0.4),
+        ]),
         Sfx::Swish => {
             // Noise through a filter that opens and closes: a sweep of water.
             let n = len(0.2);
