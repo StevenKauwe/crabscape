@@ -1155,6 +1155,7 @@ fn why_not_econ(why: CantMakeEcon) -> Option<String> {
         CantMakeEcon::Station(st) => format!("needs a {}", st.name().to_lowercase()),
         CantMakeEcon::NotAtVentPot => "cook it at the vent pot".into(),
         CantMakeEcon::NeedsEarlierBed => "build the earlier bed first".into(),
+        CantMakeEcon::NeedsEarlierRoom => "build the earlier room first".into(),
         CantMakeEcon::NoRoom => "no room for portions".into(),
         CantMakeEcon::NoFreeBed => "every bed is growing".into(),
         CantMakeEcon::NothingToMend => "nothing to mend".into(),

@@ -45,20 +45,25 @@ const fn s(kind: NodeKind, x: f32) -> NodeSpot {
 /// all at least 40 units apart.
 pub const SPOTS: &[NodeSpot] = &[
     // Tier 1.
-    // The home side on foot (x 175 to 535; past 600 the floor climbs to a
-    // plateau): two of each kind, 40 apart.
+    // The home side on foot, in two safe pockets (the snapping shrimp at
+    // 340 and 590 notice a crab within 120 and strike within 72; the mantis
+    // at 1,120 hunts a crab it sees within 300 and roams 800): a pocket
+    // before the first burrow (175 to 247) and one between the burrows and
+    // short of the mantis (435 to 483). One kind of each skill in each, 12
+    // units apart (a crab standing at 211 or 459 reaches the whole pocket
+    // and works all five skills without moving), then two more in the first.
     s(K::MusselClump, 175.0),
-    s(K::KelpStand, 215.0),
-    s(K::GritHeap, 255.0),
-    s(K::SnailRocks, 295.0),
-    s(K::ShoreGlow, 335.0),
-    s(K::MusselClump, 375.0),
-    s(K::KelpStand, 415.0),
-    s(K::GritHeap, 455.0),
-    s(K::SnailRocks, 495.0),
-    s(K::ShoreGlow, 535.0),
-    s(K::MusselClump, 1010.0),
-    s(K::KelpStand, 1090.0),
+    s(K::KelpStand, 187.0),
+    s(K::GritHeap, 199.0),
+    s(K::SnailRocks, 211.0),
+    s(K::ShoreGlow, 223.0),
+    s(K::MusselClump, 435.0),
+    s(K::KelpStand, 447.0),
+    s(K::GritHeap, 459.0),
+    s(K::SnailRocks, 471.0),
+    s(K::ShoreGlow, 483.0),
+    s(K::MusselClump, 235.0),
+    s(K::KelpStand, 247.0),
     s(K::GritHeap, 1850.0),
     s(K::SnailRocks, 2050.0),
     s(K::ShoreGlow, 2120.0),

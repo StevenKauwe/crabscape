@@ -278,10 +278,7 @@ pub(crate) fn give_drops(
     t: &crate::Tuning,
     in_tick: bool,
 ) {
-    for item in crate::creatures::drops(kind)
-        .iter()
-        .filter_map(|name| items::from_drop(name))
-    {
+    for item in items::drops_of(kind) {
         let carry = crate::physics::Carry::Item(item);
         let ev = if in_tick {
             &mut crab.events

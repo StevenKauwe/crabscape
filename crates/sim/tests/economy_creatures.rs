@@ -296,15 +296,27 @@ fn a_photophore_makes_the_lantern_brighter() {
 }
 
 #[test]
-fn a_whelk_room_grows_the_home_one_stage() {
-    let mut sim = at_home_with(&[(Item::WhelkShell, 3), (Item::Clay, 12)]);
-    skilled(&mut sim, Skill::Building, 30);
+fn the_whelk_rooms_grow_the_home_one_stage_at_a_time() {
+    let mut sim = at_home_with(&[
+        (Item::WhelkShell, 6),
+        (Item::Clay, 12),
+        (Item::OctopusInk, 1),
+        (Item::BraidedCord, 2),
+        (Item::Nodule, 2),
+        (Item::BlackCoral, 2),
+    ]);
+    skilled(&mut sim, Skill::Building, 62);
     let t = sim.tuning.clone();
-    for stage in 1..=3 {
-        assert_eq!(sim.make_econ(P0, "whelk-room"), Ok(()));
+    // In order only.
+    assert_eq!(
+        sim.make_econ(P0, "whelk-hall"),
+        Err(CantMakeEcon::NeedsEarlierRoom)
+    );
+    for (stage, word) in [(1, "whelk-room"), (2, "whelk-hall"), (3, "whelk-keep")] {
+        assert_eq!(sim.make_econ(P0, word), Ok(()));
         assert_eq!(sim.crab(P0).unwrap().home_stage(&t), stage);
+        assert_eq!(sim.make_econ(P0, word), Err(CantMakeEcon::Made));
     }
-    assert_eq!(sim.make_econ(P0, "whelk-room"), Err(CantMakeEcon::Made));
 }
 
 #[test]
@@ -327,4 +339,109 @@ fn amphipod_broth_cuts_pressure_and_gives_a_stroke() {
     };
     assert!(matches!(e.buff, Some((Buff::Pressure20, _))));
     assert!((e.pressure_factor() - 0.8).abs() < 1e-6);
+}
+
+#[test]
+fn the_original_creatures_leave_their_drops_on_the_shell() {
+    let table = [
+        (Kind::Snapper, vec![Item::SnapperClaw, Item::ShrimpMeat]),
+        (Kind::Mantis, vec![Item::MantisClub]),
+        (Kind::Moray, vec![Item::MorayTooth]),
+        (Kind::Triggerfish, vec![Item::TriggerPlate]),
+        (Kind::AlarmJelly, vec![Item::JellyMesoglea]),
+        (Kind::Octopus, vec![Item::OctopusInk]),
+    ];
+    for (kind, drops) in table {
+        assert_eq!(crabsim::economy::items::drops_of(kind), drops, "{kind:?}");
+        let mut sim = beaten(kind);
+        for _ in 0..20 {
+            sim.tick();
+        }
+        let s = shell(&sim);
+        for item in drops {
+            assert!(s.contains(&Carry::Item(item)), "{kind:?} gave no {item:?}: {s:?}");
+        }
+    }
+}
+
+#[test]
+fn a_monkey_and_the_test_fixture_leave_nothing() {
+    assert!(crabsim::economy::items::drops_of(Kind::Monkey).is_empty());
+    assert!(crabsim::economy::items::drops_of(Kind::Fixture).is_empty());
+}
+
+#[test]
+fn a_snapper_claw_re_tips_a_worn_tool_of_its_tier_for_grit_by_tier() {
+    use crabsim::economy::ToolKind;
+    for tier in 1u8..=5 {
+        let word = format!("retip-{tier}");
+        let r = ECON_RECIPES.iter().find(|r| r.word == word).expect("row");
+        assert_eq!(r.level, 1, "usable from the start");
+        assert_eq!(
+            r.needs,
+            &[(Item::SnapperClaw, 1), (Item::Grit, u32::from(tier))]
+        );
+        let mut sim = at_home_with(r.needs);
+        sim.crab_mut(P0).unwrap().econ.tools[ToolKind::Pry.index()] =
+            crabsim::economy::Tool::new(ToolKind::Pry, tier);
+        // Whole: nothing to mend.
+        assert_eq!(sim.make_econ(P0, word.as_str()), Err(CantMakeEcon::NothingToMend));
+        sim.crab_mut(P0).unwrap().econ.tools[ToolKind::Pry.index()].uses_left = 0;
+        assert_eq!(sim.make_econ(P0, word.as_str()), Ok(()));
+        assert!(!econ(&sim).tool(ToolKind::Pry).cracked());
+    }
+}
+
+#[test]
+fn a_creature_part_mends_whatever_has_worn() {
+    let mut sim = at_home_with(&[(Item::SquidBeak, 1), (Item::Grit, 2)]);
+    sim.crab_mut(P0).unwrap().econ.tools[0] =
+        crabsim::economy::Tool::new(crabsim::economy::ToolKind::Pry, 3);
+    sim.crab_mut(P0).unwrap().econ.tools[0].uses_left = 3;
+    assert_eq!(sim.make_econ(P0, "mend-beak"), Ok(()));
+    assert_eq!(
+        econ(&sim).tool(crabsim::economy::ToolKind::Pry).uses_left,
+        crabsim::economy::gear::TOOL_USES[3]
+    );
+}
+
+#[test]
+fn the_new_foods_make_portions() {
+    for word in [
+        "snapper-broth",
+        "amphipod-mash",
+        "jelly-salad",
+        "inked-kelp",
+    ] {
+        let sim = make(word);
+        assert_eq!(sim.crab(P0).unwrap().mover.prepared_food.held(), 2, "{word}");
+    }
+    // The feast is made at the crock (spoilage can fail a batch: more skill).
+    let r = ECON_RECIPES
+        .iter()
+        .find(|r| r.word == "shrimp-paste-feast")
+        .expect("row");
+    let mut sim = at_home_with(r.needs);
+    skilled(&mut sim, Skill::Cooking, 99);
+    build(&mut sim, Station::Crock);
+    assert_eq!(sim.make_econ(P0, "shrimp-paste-feast"), Ok(()));
+    assert_eq!(sim.crab(P0).unwrap().mover.prepared_food.held(), 2);
+    assert!(Food::ShrimpPasteFeast.buff().is_some());
+}
+
+#[test]
+fn club_and_moray_tips_fit_the_claw_slot() {
+    let sim = make("club-tips");
+    assert_eq!(econ(&sim).gear.claws, Some(Gear::ClubTips));
+    let sim = make("moray-tips");
+    assert_eq!(econ(&sim).gear.claws, Some(Gear::MorayTips));
+    assert!(Gear::ClubTips.claw_percent() < Gear::MorayTips.claw_percent());
+}
+
+#[test]
+fn slime_twine_and_a_photophore_seed_work_early() {
+    let sim = make("slime-twine");
+    assert_eq!(sim.crab(P0).unwrap().stash.count(Item::BraidedCord), 1);
+    let sim = make("glow-seed");
+    assert_eq!(sim.crab(P0).unwrap().stash.count(Item::Culture), 2);
 }

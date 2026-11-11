@@ -2600,9 +2600,9 @@ impl Sim {
                         deaths: e.deaths,
                     };
                     (e.state == enemy::State::Gone
-                        && e.octo.is_none() // an octopus gets away: no body
-                        && e.kind != Kind::Monkey // nor does a monkey
-                        && e.kind != Kind::AlarmJelly
+                        // An octopus and a jelly leave their ink and mesoglea; a
+                        // monkey leaves nothing.
+                        && e.kind != Kind::Monkey
                         && self.shared.there(it, &self.tuning)
                         && !e.hurtbox(&self.tuning).intersect(body).is_empty())
                     .then_some((it, e.kind))

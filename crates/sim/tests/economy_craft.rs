@@ -14,7 +14,7 @@ use crabsim::economy::{
     Buff, ECON_RECIPES, Economy, Food, Gear, Item, NODES, Output, Station, ToolKind, xp,
 };
 use crabsim::prepared_food::PortionKind;
-use crabsim::{Controls, Kind, PlayerId, Sim, Skill, Stash};
+use crabsim::{Controls, PlayerId, Sim, Skill, Stash};
 
 const P0: PlayerId = PlayerId(0);
 
@@ -143,10 +143,12 @@ fn stations_are_built_and_beds_in_order() {
 fn four_beds_at_most_at_the_building_levels() {
     let mut sim = at_home_with(&[
         (Item::Grit, 20),
-        (Item::Valve, 2),
+        (Item::Valve, 4),
         (Item::Clay, 20),
         (Item::WhaleBone, 1),
+        (Item::MantisClub, 1),
         (Item::Nodule, 2),
+        (Item::JellyMesoglea, 2),
     ]);
     for (n, word) in ["bed-1", "bed-2", "bed-3", "bed-4"].into_iter().enumerate() {
         let need = BED_LEVELS[n];
@@ -625,21 +627,8 @@ fn no_soft_lock_fixed_point() {
             items.insert(Item::Scale);
         }
         // Creature drops: reached by beating the creatures (Fighting).
-        for kind in [
-            Kind::HumboldtSquid,
-            Kind::Viperfish,
-            Kind::Lobster,
-            Kind::HermitCrab,
-            Kind::BobbitWorm,
-            Kind::GiantIsopod,
-            Kind::Hagfish,
-            Kind::AmphipodSwarm,
-        ] {
-            items.extend(
-                crabsim::creatures::drops(kind)
-                    .iter()
-                    .filter_map(|name| crabsim::economy::items::from_drop(name)),
-            );
+        for kind in crabsim::enemy::KINDS {
+            items.extend(crabsim::economy::items::drops_of(kind));
         }
         for r in ECON_RECIPES {
             let bench_ok = match r.at {

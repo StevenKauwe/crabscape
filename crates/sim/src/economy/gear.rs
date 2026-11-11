@@ -129,10 +129,12 @@ pub enum Gear {
     CrusherGuards,
     JawTips,
     IsopodPlating,
+    ClubTips,
+    MorayTips,
 }
 
 impl Gear {
-    pub const ALL: [Gear; 14] = [
+    pub const ALL: [Gear; 16] = [
         Gear::KelpSack,
         Gear::WovenPack,
         Gear::CoralPack,
@@ -147,6 +149,8 @@ impl Gear {
         Gear::CrusherGuards,
         Gear::JawTips,
         Gear::IsopodPlating,
+        Gear::ClubTips,
+        Gear::MorayTips,
     ];
 
     pub fn slot(self) -> Slot {
@@ -156,7 +160,9 @@ impl Gear {
             | Gear::BeakTips
             | Gear::FangTips
             | Gear::CrusherGuards
-            | Gear::JawTips => Slot::Claws,
+            | Gear::JawTips
+            | Gear::ClubTips
+            | Gear::MorayTips => Slot::Claws,
             _ => Slot::Body,
         }
     }
@@ -177,6 +183,8 @@ impl Gear {
             Gear::CrusherGuards => "Crusher-fragment guards",
             Gear::JawTips => "Jaw claw tips",
             Gear::IsopodPlating => "Isopod plating",
+            Gear::ClubTips => "Club claw tips",
+            Gear::MorayTips => "Moray-tooth claw tips",
         }
     }
 
@@ -197,6 +205,8 @@ impl Gear {
             Gear::CrusherGuards => "crusher-guards",
             Gear::JawTips => "jaw-tips",
             Gear::IsopodPlating => "isopod-plating",
+            Gear::ClubTips => "club-tips",
+            Gear::MorayTips => "moray-tips",
         }
     }
 
@@ -231,6 +241,8 @@ impl Gear {
             Gear::FangTips => 18,
             Gear::CrusherGuards => 8,
             Gear::JawTips => 12,
+            Gear::ClubTips => 9,
+            Gear::MorayTips => 14,
             _ => 0,
         }
     }
@@ -352,6 +364,17 @@ impl super::Economy {
                 Some((g, uses)) if g.plating_tier() == tier && uses < g.plating_uses() => {
                     Some(MendTarget::Plating)
                 }
+                _ => None,
+            },
+            Repairs::AnyTool => ToolKind::ALL
+                .into_iter()
+                .find(|&k| {
+                    let t = self.tool(k);
+                    t.tier > 0 && t.uses_left < TOOL_USES[usize::from(t.tier)]
+                })
+                .map(MendTarget::Tool),
+            Repairs::AnyPlating => match self.gear.body {
+                Some((g, uses)) if uses < g.plating_uses() => Some(MendTarget::Plating),
                 _ => None,
             },
         }

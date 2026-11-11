@@ -87,6 +87,14 @@ items! {
     LobsterFragment, "lobster-fragment", "crusher fragment", "crusher fragments", 3, false;
     SlimeThread, "slime-thread", "slime thread", "slime threads", 4, false;
     Amphipods, "amphipods", "amphipod", "amphipods", 4, false;
+    // Drops of the original creatures (the tier is the zone they live in).
+    SnapperClaw, "snapper-claw", "snapper claw", "snapper claws", 1, false;
+    ShrimpMeat, "shrimp-meat", "shrimp tail meat", "shrimp tail meat", 1, false;
+    MantisClub, "mantis-club", "mantis club", "mantis clubs", 1, false;
+    MorayTooth, "moray-tooth", "moray tooth", "moray teeth", 2, false;
+    TriggerPlate, "trigger-plate", "triggerfish plate", "triggerfish plates", 2, false;
+    JellyMesoglea, "jelly-mesoglea", "jelly mesoglea", "jelly mesoglea", 2, false;
+    OctopusInk, "octopus-ink", "octopus ink", "octopus ink", 3, false;
     // Processed.
     KelpCord, "kelp-cord", "kelp cord", "kelp cord", 0, false;
     BraidedCord, "braided-cord", "braided cord", "braided cord", 0, false;
@@ -96,6 +104,30 @@ items! {
     BoneSplint, "bone-splint", "bone splint", "bone splints", 0, false;
     NodulePlate, "nodule-plate", "nodule plate", "nodule plates", 0, false;
     ScalePlate, "scale-plate", "scale plate", "scale plates", 0, false;
+}
+
+/// What a beaten creature of `kind` leaves, as items: the bestiary's drops
+/// by name, and the original creatures' (the snapping shrimp's claw and
+/// tail meat, the mantis's club, the moray's teeth, the triggerfish's
+/// plates, the jelly's mesoglea, the octopus's ink; not verified as
+/// harvestable products).
+pub fn drops_of(kind: crate::enemy::Kind) -> Vec<Item> {
+    use crate::enemy::Kind;
+    let own: &[Item] = match kind {
+        Kind::Snapper => &[Item::SnapperClaw, Item::ShrimpMeat],
+        Kind::Mantis => &[Item::MantisClub],
+        Kind::Moray => &[Item::MorayTooth],
+        Kind::Triggerfish => &[Item::TriggerPlate],
+        Kind::AlarmJelly => &[Item::JellyMesoglea],
+        Kind::Octopus => &[Item::OctopusInk],
+        _ => &[],
+    };
+    let mut out: Vec<Item> = crate::creatures::drops(kind)
+        .iter()
+        .filter_map(|name| from_drop(name))
+        .collect();
+    out.extend_from_slice(own);
+    out
 }
 
 /// The item a creature's drop name (`creatures::drops`) stands for.

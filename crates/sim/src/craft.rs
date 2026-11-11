@@ -405,6 +405,8 @@ pub enum CantMakeEcon {
     Made,
     /// A culture bed is built in order.
     NeedsEarlierBed,
+    /// A home room is built in order.
+    NeedsEarlierRoom,
     /// No room for the portions (slots, or on the shell).
     NoRoom,
     /// Every culture bed is growing something.
@@ -503,11 +505,14 @@ impl Sim {
             Output::Effect(Effect::ClamGuards) if crab.mover.clam_guards => {
                 return Err(CantMakeEcon::Made);
             }
-            Output::Effect(Effect::GrowHome)
-                if self.tuning.build.stage(crab.home_grit)
-                    >= self.tuning.build.stages.len() as u32 =>
-            {
-                return Err(CantMakeEcon::Made);
+            Output::Effect(Effect::GrowHome(to)) => {
+                let stage = self.tuning.build.stage(crab.home_grit);
+                if stage >= u32::from(to) {
+                    return Err(CantMakeEcon::Made);
+                }
+                if stage + 1 < u32::from(to) {
+                    return Err(CantMakeEcon::NeedsEarlierRoom);
+                }
             }
             Output::Effect(_) => {}
             Output::Portions(_, n) => {
@@ -587,7 +592,7 @@ impl Sim {
                 crab.pending.delivered = true;
             }
             Output::Effect(Effect::ClamGuards) => crab.mover.clam_guards = true,
-            Output::Effect(Effect::GrowHome) => {
+            Output::Effect(Effect::GrowHome(_)) => {
                 // Build in just enough to reach the next stage.
                 let have = crab.home_grit;
                 if let Some(&next) = stages.iter().find(|&&n| n > have) {
