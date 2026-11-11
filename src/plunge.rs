@@ -192,15 +192,10 @@ fn snow_mode(sim: &Sim, id: PlayerId, at: Vec2) -> Option<Mode> {
     let crab = sim.crab(id)?;
     let p = places()?;
     if crab.plunge.fall().is_some() || crab.plunge.rise().is_some() {
-        let up = if crab.plunge.rise().is_some() {
-            1.0
-        } else {
-            1.0
-        };
         let u = crab.plunge.fall().or(crab.plunge.rise()).unwrap_or(0.0);
         return Some(Mode::Stream(
             rect_around(at, STREAM),
-            up * STREAM_SPEED * smooth(u / 0.06).min(smooth((1.0 - u) / 0.06)).max(0.15),
+            STREAM_SPEED * smooth(u / 0.06).min(smooth((1.0 - u) / 0.06)).max(0.15),
         ));
     }
     if crab.plunge.dig >= plunge::SILT_AT && !crab.plunge.carried() {
@@ -395,9 +390,11 @@ fn spawn_carcass(mut commands: Commands, soft: Res<SoftTextures>) {
         });
 }
 
+type NotCarcass = (With<LocalPlayer>, Without<Carcass>);
+
 fn show_carcass(
     sim: Res<Sim>,
-    local: Single<(&PlayerId, &Transform), (With<LocalPlayer>, Without<Carcass>)>,
+    local: Single<(&PlayerId, &Transform), NotCarcass>,
     mut carcass: Single<(&mut Transform, &mut Visibility), With<Carcass>>,
 ) {
     let (id, crab_at) = *local;
