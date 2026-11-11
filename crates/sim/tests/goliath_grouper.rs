@@ -535,7 +535,12 @@ fn it_breaks_off_for_a_crab_holding_coral() {
     let stand = level
         .landmarks()
         .into_iter()
-        .find(|l| l.name == "coral stand 20")
+        .filter(|l| l.name.starts_with("coral stand"))
+        .min_by(|a, b| {
+            (a.rect.max.x - 16_340.0)
+                .abs()
+                .total_cmp(&(b.rect.max.x - 16_340.0).abs())
+        })
         .unwrap();
     let at = Vec2::new(stand.rect.center().x, stand.rect.min.y + 400.0);
     let mut sim = Sim::with_one_crab(at);
