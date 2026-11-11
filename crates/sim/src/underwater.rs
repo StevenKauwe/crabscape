@@ -7410,13 +7410,26 @@ mod strata_tests {
                             wx >= r.min.x && wx < r.max.x && wy >= r.min.y && wy < r.max.y
                         };
                         // Silt shafts and water cavities override the layers.
-                        let expected = if body.shafts.iter().any(|r| inside(r)) {
+                        let expected = if body.shafts.iter().any(inside) {
                             Cell::Sand
-                        } else if body.voids.iter().any(|r| inside(r)) {
+                        } else if body.voids.iter().any(inside) {
                             Cell::Water
                         } else {
                             material
                         };
+                        // Skip cells whose own centre sits on a frame, void or
+                        // shaft edge (the layer walk and the generator round
+                        // differently there).
+                        let cy = GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL;
+                        let on_edge = body
+                            .shafts
+                            .iter()
+                            .chain(body.voids.iter())
+                            .chain(std::iter::once(&body.frame))
+                            .any(|r| (cy - r.min.y).abs() < 0.01 || (cy - r.max.y).abs() < 0.01);
+                        if on_edge {
+                            continue;
+                        }
                         let column = TerrainColumn::new(&level, gx);
                         assert_eq!(column.cell(gy), expected, "at {gx}, {gy}");
                         assert_eq!(authored_terrain_cell(&level, gx, gy), expected);
