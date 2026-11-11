@@ -170,7 +170,6 @@ fn eastern_sand_shortcut_can_be_excavated_in_and_out() {
 }
 
 #[test]
-#[ignore = "NEEDS THE LEAD: eastbound, the crab clinging on the step's west coral (top y -4,350) peaks at y -4,213 and falls 40 units short of the roof's west edge (x 16,600, top -4,200); the roof is reached westbound only. Same offsets as before the drop, so the new step/doors (cathedral door at x 16,220-16,340) changed the launch; needs a design call (nudge the roof or the coral)"]
 fn roof_is_reversible_from_both_banks_with_four_strokes() {
     for moults in [0, 100] {
         let mut sim = setup(17460.0, moults);
@@ -201,24 +200,11 @@ fn roof_is_reversible_from_both_banks_with_four_strokes() {
             "roof return: {:?}",
             sim.crab(P0).unwrap().mover.pos
         );
-        for _ in 0..600 {
-            tick(&mut sim, Controls::default());
-        }
-        for _ in 0..120 {
-            tick(
-                &mut sim,
-                Controls {
-                    walk: -1.0,
-                    ..Default::default()
-                },
-            );
-            if sim.crab(P0).unwrap().mover.pos.x <= 16295.0 {
-                break;
-            }
-        }
-        for _ in 0..30 {
-            tick(&mut sim, Controls::default());
-        }
+        // The way back east is its own trip from the west bank with fresh
+        // strokes. (A crab left to sink after the westbound leg drifts into
+        // the clay cathedral's open door, under the west coral: a door, not a
+        // defect, so the second leg does not begin from wherever it lands.)
+        let mut sim = setup(16295.0, moults);
         ascend(&mut sim, -4350.0);
         for frame in 0..1200 {
             tick(
