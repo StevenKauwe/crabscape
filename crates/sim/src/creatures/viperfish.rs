@@ -132,6 +132,9 @@ pub fn tuning() -> &'static EnemyTuning {
 
 /// Where it lives: midwater over the "vent field" of the lower canyon, two
 /// of them at different depths. Empty if the landmark does not exist.
+/// It hangs at least this far from any refuge, mouth, tunnel or chamber.
+const SHELTER_CLEARANCE: f32 = 450.0;
+
 pub fn spots(level: &Level) -> Vec<Vec2> {
     let Some(vents) = level
         .landmarks()
@@ -141,13 +144,37 @@ pub fn spots(level: &Level) -> Vec<Vec2> {
         return Vec::new();
     };
     let r = vents.rect;
-    // (share across the field, height above the floor)
-    [(0.3_f32, 420.0_f32), (0.7, 700.0)]
+    let shelters: Vec<bevy_math::Rect> = level
+        .landmarks()
         .into_iter()
-        .map(|(share, above)| {
-            let x = r.min.x + r.width() * share;
-            let y = (level.floor_height(x) + above).clamp(r.min.y + 100.0, r.max.y - 60.0);
-            Vec2::new(x, y)
+        .filter(|l| {
+            matches!(
+                l.kind,
+                Spot::Refuge | Spot::Tunnel | Spot::Mouth | Spot::Chamber { .. }
+            )
+        })
+        .map(|l| l.rect)
+        .collect();
+    let at = |x: f32, above: f32| {
+        let y = (level.floor_height(x) + above).clamp(r.min.y + 100.0, r.max.y - 60.0);
+        Vec2::new(x, y)
+    };
+    let clear = |p: Vec2| {
+        shelters
+            .iter()
+            .all(|s| p.distance(p.clamp(s.min, s.max)) >= SHELTER_CLEARANCE)
+    };
+    // (share across the field, height above the floor), nudged along the
+    // field until it hangs clear of every shelter (chimney mouths, refuges).
+    [(0.3_f32, 700.0_f32), (0.7, 900.0)]
+        .into_iter()
+        .filter_map(|(share, above)| {
+            let x0 = r.min.x + r.width() * share;
+            (0..40)
+                .map(|i| x0 + if i % 2 == 0 { 1.0 } else { -1.0 } * (i / 2 * 50) as f32)
+                .filter(|&x| x > r.min.x && x < r.max.x)
+                .map(|x| at(x, above))
+                .find(|&p| clear(p))
         })
         .collect()
 }

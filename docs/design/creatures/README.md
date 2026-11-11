@@ -130,7 +130,7 @@ Read this to continue without the lead. Check live state with `gh pr view` / `gh
   and fill the basin pit.
 
 **Next steps, in order**
-1. After the world build's geometry batch merges: run `cargo test -p crabsim --test bestiary` and each creature's
+1. (Pre-checked 2026-11-11 against the unmerged `issue-466-geometry` branch: the squid now stays above "canyon deep water" and the viperfish hang 700 and 900 over the vent field, nudged clear of every mouth and refuge by 450, so both maps pass; the world's own mantis at x 16,800 overlaps the pebble warren there, which is the world build's to fix.) After the world build's geometry batch merges: run `cargo test -p crabsim --test bestiary` and each creature's
    test; re-place any spot whose landmark moved (the squid must never use pit landmarks; the lobster may move to a new
    den on the far rim if the stepped rim is wide enough).
 2. ~~Shared `creatures::takes` hook; generic grab release; a boom sound for the grouper~~ (done: `Cue::Boom`, a D1/D2
