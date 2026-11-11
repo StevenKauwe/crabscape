@@ -66,12 +66,6 @@ pub(crate) struct Open {
     guide: Option<Skill>,
 }
 
-impl Open {
-    pub(crate) fn is_open(&self) -> bool {
-        self.open || self.shut
-    }
-}
-
 #[derive(Component)]
 struct Card;
 #[derive(Component)]
@@ -373,13 +367,22 @@ fn interact(
     window: Single<&Window>,
     settings: Res<crate::settings::panel::Open>,
     chat: Res<crate::codes::CodeBox>,
+    court: Option<Res<crate::king_ddd::Court>>,
+    inventory: Res<crate::shell_inventory::Open>,
     lab: Res<FeelLab>,
     card: Single<(&ComputedNode, &UiGlobalTransform), With<Card>>,
     cells: Query<(&Cell, &ComputedNode, &UiGlobalTransform, &Node)>,
     back: Single<(&ComputedNode, &UiGlobalTransform), With<Back>>,
 ) {
     open.shut = false;
-    if settings.is_open() || chat.open || crate::input::page_dialog_open() {
+    // Another panel or a text box has the keys and taps (the king's ledger types
+    // letters, K among them).
+    if settings.is_open()
+        || chat.open
+        || inventory.0
+        || court.as_ref().is_some_and(|c| c.owns_input())
+        || crate::input::page_dialog_open()
+    {
         open.open = false;
         return;
     }

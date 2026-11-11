@@ -100,7 +100,6 @@ pub(crate) struct InputUi<'w, 's> {
     settings: Res<'w, crate::settings::panel::Open>,
     court: Option<Res<'w, crate::king_ddd::Court>>,
     inventory: Res<'w, crate::shell_inventory::Open>,
-    skills: Res<'w, crate::skills_panel::Open>,
     chat: Res<'w, crate::codes::CodeBox>,
     panels: Query<
         'w,
@@ -120,7 +119,6 @@ impl InputUi<'_, '_> {
         self.court.as_ref().is_some_and(|c| c.owns_input())
             || self.settings.is_open()
             || self.inventory.0
-            || self.skills.is_open()
             || self.chat.open
             || page_dialog_open()
     }
