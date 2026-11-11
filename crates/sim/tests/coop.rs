@@ -373,7 +373,10 @@ fn the_hub_net_cut_from_either_side_opens_for_everyone_while_finds_stay_each_pla
     let mut other = game(east, FakeLink::steady(LAG), |_| {});
     other.guest.crab_mut(GUEST).unwrap().mover.scissor_claw = true;
     wait(&mut other, 1);
-    assert!(other.guest.level.nets[0].cut, "the guest cut it from the east");
+    assert!(
+        other.guest.level.nets[0].cut,
+        "the guest cut it from the east"
+    );
     wait(&mut other, u64::from(LAG) + 1);
     assert!(other.host.level.nets[0].cut, "and it's open for the host");
     // A find on the other side of a shortcut is still each player's own:
