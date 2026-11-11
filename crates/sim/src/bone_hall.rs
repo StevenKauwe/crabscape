@@ -78,16 +78,9 @@ pub fn find(level: &Level) -> Option<Hall> {
 /// The level's landmarks, if it is an authored level (a synthetic test level
 /// has none, and the landmark builder insists on the authored one's parts).
 fn landmarks_of(level: &Level) -> Option<Vec<Landmark>> {
-    let authored = !level.currents.is_empty()
-        && level
-            .foes
-            .iter()
-            .any(|(k, _)| *k == crate::enemy::Kind::Octopus)
-        && level
-            .eggs
-            .get(4)
-            .is_some_and(|egg| level.secrets.iter().any(|r| r.contains(*egg)));
-    authored.then(|| level.landmarks())
+    // Authored levels carry the pocket frames; a synthetic level has none,
+    // and the landmark builder expects the authored level's parts.
+    (!level.strata().is_empty()).then(|| level.landmarks())
 }
 
 fn find_in(marks: &[Landmark]) -> Option<Hall> {
