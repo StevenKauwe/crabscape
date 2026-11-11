@@ -13,8 +13,8 @@ default-run = "crabscape"
 # game and the simulation. The art tools and `crates/listen` (speech to text for spoken reports, its own wasm file,
 # built by tools/build-web.sh) are the other members: `--workspace` or `-p painter` to include them.
 [workspace]
-members = ["crates/king-ddd", "crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "crates/dragon-peer", "tools/oil-atlas", "tools/webtest", "tools/cooptest"]
-default-members = [".", "crates/sim"]
+members = ["crates/dragon-game", "crates/king-ddd", "crates/sim", "crates/painter", "crates/crabrig", "crates/listen", "crates/dragon-peer", "tools/oil-atlas", "tools/webtest", "tools/cooptest"]
+default-members = ["crates/dragon-game", ".", "crates/sim"]
 # Third-party code kept here with a fix of ours (see [patch.crates-io] below); not linted or tested as our own.
 exclude = ["vendor"]
 
@@ -37,8 +37,12 @@ workspace = true
 [features]
 # Developer-only, shadow-world WebRTC transport probe. Never enables gameplay.
 cellular-transport-probe = ["matchbox_socket/probe-ingress"]
+# Explicit isolated browser integration; never enabled by production builds.
+valmora-loopback-test = ["dragon-peer/loopback-test"]
 
 [dependencies]
+dragon-game = { path = "crates/dragon-game" }
+
 king-ddd = { path = "crates/king-ddd" }
 bevy_egui = { version = "0.43.1", default-features = false, features = ["render", "default_fonts"] }
 gridcraft-engine = { path = "vendor/gridcraft/crates/engine" }
@@ -50,6 +54,8 @@ crabsim = { path = "crates/sim", features = ["bevy"] }
 bevy = { version = "0.20.0", default-features = false, features = [
     "std",
     "async_executor",    # runs Bevy's background tasks
+    "bevy_audio",
+    "wav",
     "bevy_asset",        # meshes and materials are "assets"
     "bevy_log",          # info!/warn! messages (the browser console on the web)
     "bevy_winit",        # windows and the event loop (a <canvas> on the web)
@@ -97,15 +103,21 @@ miniz_oxide = { version = "0.8", default-features = false, features = ["with-all
 # default features that fork processes, and not for the browser target, where nothing runs tests.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest = { version = "1.12", default-features = false, features = ["std"] }
+matchbox_signaling = "0.14"
+dragon-peer = { path = "crates/dragon-peer", features = ["loopback-test"] }
 
 # On the desktop, let Bevy use several CPU cores. (The web build stays
 # single-threaded: browser threads need extra server setup.)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dragon-peer = { path = "crates/dragon-peer", features = ["native"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net"] }
+time = { version = "0.3.55", features = ["local-offset"] }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 rfd = "0.17"
 bevy = { version = "0.20.0", default-features = false, features = ["multi_threaded"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+dragon-peer = { path = "crates/dragon-peer" }
 # Browser APIs: localStorage for saving, the touch-screen check, a small
 # status attribute on the <canvas> that the WebKit test reads, and Web Audio
 # for the sounds (made in Rust, see src/sound.rs). wasm-bindgen (already

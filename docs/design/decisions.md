@@ -238,3 +238,11 @@ date) instead of adding a contradicting one. "Owner" = StevenKauwe.
 | 2026-11-11 | #497 Home keeps its immediate command and strict player/terrain save pairing. One non-cumulative terrain-transition budget covers both bounded windows, below-edge rows and the existing 16-page fall footprint (426 slots for the standard window), then restores normal 256-slot admission without discarding dirty pages. Out-of-window terrain prepares before personal-memory waits, preserving its prepared operation across retries so a coherent save can release both caches without advancing falls twice. | dot (Home softlock fix) |
 
 | 2026-11-11 | #591 delegated authorities hold the complete four-tick batch that requests a new lease until the ordered Stop/regrant handshake. Applied acknowledgements can replenish the ahead credit while Stop is delayed, so credit alone cannot protect the lease. Keep failure-time lease and actor details in browser artifacts; this fixes a demonstrated protocol gap without claiming the captured second-pair timeout's precise cause. | dot (CI/co-op reliability) |
+
+- **Dragon Rust flight parity slice (2026-11-11):** retain explicit browser frame durations
+  and viewport geometry in the new `dragon-game` core rather than silently converting
+  its integrator to CrabScape's fixed ticks. Keep the live JS and all original save bytes
+  untouched until full mission/save/multiplayer comparisons pass. The separate Bevy
+  flight sandbox is incomplete and has no microphone or multiplayer connection.
+
+- **One travelling crab (2026-11-11):** Valmora projects existing local and admitted remote Crabscape puppets without duplicating simulation state. Cross-socket display binding requires reciprocal unique live connection claims; stale/conflicting claims fall back to companion-only visuals. Dragon progression and mission authority remain separate compatible records, and original saves remain untouched.

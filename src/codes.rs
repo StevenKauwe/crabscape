@@ -65,7 +65,12 @@ impl Plugin for CodesPlugin {
             .add_systems(Startup, spawn_box)
             // Straight after Bevy reads the keyboard, before anything else
             // looks at the keys: while the box is open, they only type.
-            .add_systems(PreUpdate, type_code.after(InputSystems))
+            .add_systems(
+                PreUpdate,
+                type_code
+                    .after(InputSystems)
+                    .after(crate::valmora::CaptureInput),
+            )
             .add_systems(Update, use_codes.in_set(GameSet::Input))
             .add_systems(Update, show_box.in_set(GameSet::Present));
     }
@@ -82,13 +87,17 @@ fn type_code(
     settings: Res<crate::settings::panel::Open>,
     inventory: Res<crate::shell_inventory::Open>,
     court: Option<Res<crate::king_ddd::Court>>,
+    valmora: Option<Res<crate::valmora::Valmora>>,
     mut owned_keys: Local<Vec<KeyCode>>,
 ) {
     // A line sent in the frame its letters were typed in must not leave them pressed for the game's keys (R opens the
     // report form): the keys are cleared for every frame the box was open in.
     let page = crate::input::page_dialog_open();
-    let menu =
-        court.as_ref().is_some_and(|c| c.owns_input()) || page || settings.is_open() || inventory.0;
+    let menu = court.as_ref().is_some_and(|c| c.owns_input())
+        || valmora.as_ref().is_some_and(|v| v.owns_input())
+        || page
+        || settings.is_open()
+        || inventory.0;
     let was_open = code_box.open;
     for key in keys_in.read() {
         // A physical release ends the menu's ownership. A fresh non-repeating

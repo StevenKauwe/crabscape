@@ -484,6 +484,57 @@ impl Chrome {
         Ok(())
     }
 
+    /// Let canvas UI hover and pressed state each reach a rendered frame.
+    #[allow(dead_code)] // Used by the native Valmora canvas acceptance runner.
+    pub fn canvas_click(&mut self, x: f64, y: f64) -> Result<()> {
+        for kind in ["mouseMoved", "mousePressed", "mouseReleased"] {
+            self.call(
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type":kind,"x":x,"y":y,"button":"left",
+                    "buttons":if kind == "mousePressed" {1} else {0},"clickCount":1
+                }),
+            )?;
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        Ok(())
+    }
+
+    /// Type into the focused canvas text field without submitting it.
+    #[allow(dead_code)] // Used by the native Valmora canvas acceptance runner.
+    pub fn canvas_scroll(&mut self, x: f64, y: f64, delta: f64) -> Result<()> {
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({"type":"mouseMoved","x":x,"y":y}),
+        )?;
+        std::thread::sleep(Duration::from_millis(150));
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({"type":"mouseWheel","x":x,"y":y,"deltaX":0,"deltaY":delta}),
+        )?;
+        std::thread::sleep(Duration::from_millis(600));
+        Ok(())
+    }
+
+    /// Type into the focused canvas text field without submitting it.
+    #[allow(dead_code)] // Used by the native Valmora canvas acceptance runner.
+    pub fn insert_text(&mut self, text: &str) -> Result<()> {
+        for character in text.chars() {
+            let key = character.to_string();
+            let code = format!("Key{}", character.to_ascii_uppercase());
+            self.call(
+                "Input.dispatchKeyEvent",
+                json!({"type":"keyDown","key":key,"code":code,"text":key}),
+            )?;
+            self.call(
+                "Input.dispatchKeyEvent",
+                json!({"type":"keyUp","key":key,"code":code}),
+            )?;
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        Ok(())
+    }
+
     /// Resize only this protocol-test browser; keep desktop layout and DPR 1.
     #[allow(dead_code)] // Used only by the responsive court runner.
     pub fn responsive_viewport(&mut self, width: u32, height: u32) -> Result<()> {

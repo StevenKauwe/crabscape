@@ -88,6 +88,44 @@ pub(crate) fn status_top(window: Vec2) -> f32 {
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct LocalId(pub PlayerId);
 
+/// Read-only access to the party this CrabScape session has already joined.
+/// Consumers borrow this resource and `Names::mine()`; neither creates a room,
+/// reads a saved invite, or changes the active connection.
+#[cfg(target_arch = "wasm32")]
+pub(crate) use web::Coop as CurrentParty;
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Resource)]
+pub(crate) struct CurrentParty;
+#[cfg(not(target_arch = "wasm32"))]
+impl CurrentParty {
+    pub(crate) fn room_code(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// A bounded display snapshot from current admitted connections only. No Sim,
+/// lease or character data is read or changed by this presentation channel.
+pub(crate) fn travel_presentation(
+    room: &str,
+    dragon: Option<&str>,
+    scene: crate::valmora::presentation::Scene,
+    x: f32,
+    now: f64,
+) -> (
+    Option<String>,
+    Vec<(String, PlayerId, crate::valmora::presentation::Received)>,
+) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::travel_presentation(room, dragon, scene, x, now)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (room, dragon, scene, x, now);
+        (None, Vec::new())
+    }
+}
+
 /// Settings' "New link": throw this device's lobby code away and make a new
 /// one, so the old link no longer reaches it.
 #[derive(Message, Clone, Copy, Debug)]
@@ -777,7 +815,7 @@ mod web {
 
     /// Where this tab stands in co-op, for the button and its status line.
     #[derive(Resource, Default)]
-    struct Coop {
+    pub(crate) struct Coop {
         /// The room's code, while hosting or joining.
         code: Option<String>,
         /// What the line under the button says.
@@ -800,6 +838,14 @@ mod web {
         said: (bool, bool),
     }
 
+    impl Coop {
+        /// The live joined/hosted room, not the device's potentially different
+        /// saved lobby. Never opens a connection or manufactures an invite.
+        pub(crate) fn room_code(&self) -> Option<&str> {
+            self.code.as_deref().filter(|_| in_room())
+        }
+    }
+
     /// The version the site serves now, fetched fresh when a friend on another version turns up.
     enum SiteVersion {
         Asking,
@@ -820,6 +866,7 @@ mod web {
         age: f32,
         /// What its last hello said, for choosing who hosts.
         said: Option<OnLink>,
+        travel: Option<crate::valmora::presentation::Received>,
     }
 
     impl Peer {
@@ -836,6 +883,8 @@ mod web {
         peers: Vec<Peer>,
         /// Messages for a player whose device we can't tell yet.
         waiting: Vec<(PlayerId, Packet, usize)>,
+        travel_sent: f64,
+        travel_note: Option<crate::valmora::presentation::Note>,
         #[cfg(feature = "cellular-transport-probe")]
         probe: Option<ActiveProbe>,
         #[cfg(feature = "cellular-transport-probe")]
@@ -1035,6 +1084,86 @@ mod web {
     /// In a co-op room (hosting or joined)?
     pub(crate) fn in_room() -> bool {
         LINK.with(|l| l.borrow().is_some())
+    }
+
+    pub(super) fn travel_presentation(
+        room: &str,
+        dragon: Option<&str>,
+        scene: crate::valmora::presentation::Scene,
+        x: f32,
+        now: f64,
+    ) -> (
+        Option<String>,
+        Vec<(String, PlayerId, crate::valmora::presentation::Received)>,
+    ) {
+        use crate::valmora::presentation::{MAX_PEERS, Note, TTL};
+        LINK.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            let Some(link) = slot.as_mut() else {
+                return (None, Vec::new());
+            };
+            let Some(me) = link.me else {
+                return (None, Vec::new());
+            };
+            let previous = link.travel_note.as_ref();
+            let note = Note {
+                room: room.into(),
+                build: VERSION.into(),
+                sequence: previous.map_or(1, |n| n.sequence.saturating_add(1)),
+                dragon: dragon.map(str::to_owned),
+                scene,
+                x,
+            };
+            let changed = previous.is_none_or(|n| {
+                n.room != note.room
+                    || n.dragon != note.dragon
+                    || n.scene != note.scene
+                    || (n.x - note.x).abs() >= 1.
+            });
+            if note.valid(room, VERSION)
+                && now.is_finite()
+                && now - link.travel_sent >= if changed { 0.1 } else { 1. }
+                && let Some(bytes) = note.encode()
+            {
+                let peers: Vec<_> = link
+                    .peers
+                    .iter()
+                    .filter(|p| p.same_version())
+                    .take(MAX_PEERS)
+                    .map(|p| p.id)
+                    .collect();
+                for peer in peers {
+                    link.send(peer, bytes.clone().into(), RELIABLE);
+                }
+                link.travel_sent = now;
+                link.travel_note = Some(note);
+            }
+            let peers = link
+                .peers
+                .iter()
+                .filter_map(|p| {
+                    let player = p.player?;
+                    let received = p.travel.as_ref()?;
+                    let age = now - received.at;
+                    if !p.same_version()
+                        || p.said?.crab != player
+                        || !received.note.valid(room, VERSION)
+                        || !(0. ..=TTL).contains(&age)
+                        || link
+                            .peers
+                            .iter()
+                            .filter(|q| q.player == Some(player))
+                            .count()
+                            != 1
+                    {
+                        return None;
+                    }
+                    Some((p.id.to_string(), player, received.clone()))
+                })
+                .take(MAX_PEERS)
+                .collect();
+            (Some(me.to_string()), peers)
+        })
     }
 
     /// Each connected device and its player, once known (for voice volumes).
@@ -1330,6 +1459,8 @@ mod web {
                 me: None,
                 peers: Vec::new(),
                 waiting: Vec::new(),
+                travel_sent: f64::NEG_INFINITY,
+                travel_note: None,
                 #[cfg(feature = "cellular-transport-probe")]
                 probe: None,
                 #[cfg(feature = "cellular-transport-probe")]
@@ -1607,6 +1738,7 @@ mod web {
                             version: None,
                             age: 0.0,
                             said: None,
+                            travel: None,
                         });
                         // First of all, on the reliable channel: which version this game is, and who it is here.
                         link.send(peer, hello(VERSION, me.0, host, met_here).into(), RELIABLE);
@@ -1691,6 +1823,17 @@ mod web {
                     }
                     // Another version's messages are never read as game data.
                     if !p.same_version() {
+                        continue;
+                    }
+                    if channel == RELIABLE
+                        && crate::valmora::presentation::receive(
+                            &mut p.travel,
+                            &bytes,
+                            &code,
+                            VERSION,
+                            now,
+                        )
+                    {
                         continue;
                     }
                     let Some(msg) = Msg::from_bytes(&bytes) else {

@@ -115,9 +115,21 @@ pub use backend::{context, fade_music_in, mark, music_input, recording, running,
 pub use backend::{sleep, wake};
 
 /// The settings' volumes, whenever they change.
-fn volume(settings: Res<crate::settings::Settings>, ambience: Res<crate::settings::Ambience>) {
-    if settings.is_changed() || ambience.is_changed() {
-        backend::set_volumes(&settings, ambience.0);
+fn volume(
+    settings: Res<crate::settings::Settings>,
+    ambience: Res<crate::settings::Ambience>,
+    valmora: Option<Res<crate::valmora::Valmora>>,
+    mut suppressed: Local<bool>,
+) {
+    let away = valmora.as_ref().is_some_and(|v| v.active);
+    if settings.is_changed() || ambience.is_changed() || away != *suppressed {
+        // The adventure owns playback while away without changing saved settings.
+        let mut effective = *settings;
+        if away {
+            effective.master = 0.;
+        }
+        backend::set_volumes(&effective, ambience.0);
+        *suppressed = away;
     }
 }
 

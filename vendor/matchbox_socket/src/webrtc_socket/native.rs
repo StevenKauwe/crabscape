@@ -13,7 +13,7 @@ use async_compat::CompatExt;
 use async_trait::async_trait;
 use async_tungstenite::{
     WebSocketStream,
-    async_std::{ConnectStream, connect_async},
+    tokio::{ConnectStream, connect_async},
     tungstenite::Message,
 };
 use bytes::Bytes;
@@ -56,7 +56,11 @@ impl SignallerBuilder for NativeSignallerBuilder {
         room_url: String,
     ) -> Result<Box<dyn Signaller>, SignalingError> {
         let websocket_stream = 'signaling: loop {
-            match connect_async(&room_url).await.map_err(SignalingError::from) {
+            match connect_async(&room_url)
+                .compat()
+                .await
+                .map_err(SignalingError::from)
+            {
                 Ok((wss, _)) => break wss,
                 Err(e) => {
                     if let Some(attempts) = attempts.as_mut() {
@@ -88,12 +92,13 @@ impl Signaller for NativeSignaller {
         let request = serde_json::to_string(&request).expect("serializing request");
         self.websocket_stream
             .send(Message::Text(request.into()))
+            .compat()
             .await
             .map_err(SignalingError::from)
     }
 
     async fn next_message(&mut self) -> Result<PeerEvent, SignalingError> {
-        let message = match self.websocket_stream.next().await {
+        let message = match self.websocket_stream.next().compat().await {
             Some(Ok(Message::Text(message))) => Ok(message),
             Some(Ok(_)) => Err(SignalingError::UnknownFormat),
             Some(Err(err)) => Err(SignalingError::from(err)),

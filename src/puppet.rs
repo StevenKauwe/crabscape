@@ -784,7 +784,14 @@ fn build_puppets(
     art: Res<CrabArt>,
     style: Res<ArtStyle>,
     soft: Res<SoftTextures>,
-    crabs: Query<Entity, (Or<(With<Crab>, With<VisualCrab>)>, Without<Rig>)>,
+    crabs: Query<
+        (
+            Entity,
+            Has<crate::player::LocalPlayer>,
+            Option<&crabsim::PlayerId>,
+        ),
+        (Or<(With<Crab>, With<VisualCrab>)>, Without<Rig>),
+    >,
 ) {
     // Wait for the pictures.
     let (Some(lit), Some(unlit), Some(pale)) = (
@@ -796,10 +803,16 @@ fn build_puppets(
     };
     let file = &art.file;
     let part = |name: &str| file.parts.iter().find(|p| p.name == name);
-    for crab in &crabs {
+    for (crab, local, player) in &crabs {
         let root = commands
             .spawn((ChildOf(crab), Transform::default(), Visibility::default()))
             .id();
+        // Valmora projects these exact visuals, not another player or rig.
+        if let Some(&player) = player {
+            commands
+                .entity(root)
+                .insert(crate::valmora::crab_avatar::CrabAvatarSource { player, local });
+        }
 
         // Pass 1: one entity per piece, its layers on it.
         let mut by_name: HashMap<&str, Entity> = HashMap::new();
@@ -3165,4 +3178,161 @@ mod pressure_tests {
             }
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn valmora_projects_existing_local_and_admitted_remote_rigs_with_equipment() {
+    use crate::valmora::crab_avatar::{CrabAvatar, CrabAvatarPlugin, CrabAvatarSource};
+    use bevy_egui::{EguiUserTextures, egui};
+
+    let mut app = App::new();
+    let mut images = Assets::<Image>::default();
+    // Only image metadata is needed by this headless test; the production
+    // marker points to the very same sprites and atlases used by CrabScape.
+    let mut image = Image::default();
+    image.texture_descriptor.size = Extent3d {
+        width: 4096,
+        height: 4096,
+        depth_or_array_layers: 1,
+    };
+    let image = images.add(image);
+    let layers = std::array::from_fn(|_| std::array::from_fn(|_| image.clone()));
+    let mut state = crate::valmora::Valmora::default();
+    state.enter();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(images)
+        .insert_resource(CrabArt {
+            file: PartsFile::parse(),
+            sources: [image.clone(), image],
+            layers: Some(layers),
+            pizza_rects: pizza_rects(),
+            pizza_sources: None,
+            pizza_layers: None,
+        })
+        .insert_resource(SoftTextures {
+            dot: default(),
+            ring: default(),
+            chip: default(),
+            streak: default(),
+        })
+        .init_resource::<ArtStyle>()
+        .init_resource::<Assets<Mesh>>()
+        .init_resource::<Assets<ColorMaterial>>()
+        .init_resource::<Assets<TextureAtlasLayout>>()
+        .init_resource::<EguiUserTextures>()
+        .add_message::<AssetEvent<Mesh>>()
+        .insert_resource(state)
+        .add_systems(Update, (build_puppets, show_gear).chain())
+        .add_plugins(CrabAvatarPlugin);
+    let mut local_mover = Mover::new(Vec2::new(2300., 500.));
+    local_mover.scissor_claw = true;
+    local_mover.clam_guards = true;
+    let local = app
+        .world_mut()
+        .spawn((
+            Crab,
+            crate::player::LocalPlayer,
+            crabsim::PlayerId(0),
+            local_mover,
+            Transform::from_xyz(2300., 500., 9.),
+        ))
+        .id();
+    let mut remote_mover = Mover::new(Vec2::ZERO);
+    remote_mover.scissor_claw = true;
+    let remote = app
+        .world_mut()
+        .spawn((
+            Crab,
+            crabsim::PlayerId(7),
+            remote_mover,
+            Transform::default(),
+        ))
+        .id();
+    {
+        use crate::valmora::presentation::{Note, Received, Remote, Scene};
+        let mut state = app.world_mut().resource_mut::<crate::valmora::Valmora>();
+        state.presentation.room = Some("test".into());
+        state.presentation.now = 1.;
+        state.presentation.remote.push(Remote {
+            connection: "00000000-0000-0000-0000-000000000007".into(),
+            player: crabsim::PlayerId(7),
+            name: "Friend".into(),
+            received: Received {
+                note: Note {
+                    room: "test".into(),
+                    build: "test".into(),
+                    sequence: 1,
+                    dragon: None,
+                    scene: Scene::Landing,
+                    x: 400.,
+                },
+                at: 1.,
+            },
+        });
+    }
+    app.world_mut()
+        .spawn((VisualCrab, Mover::new(Vec2::ZERO), Transform::default()));
+    app.update();
+    let world = app.world_mut();
+    let sources: Vec<_> = world
+        .query_filtered::<&ChildOf, With<CrabAvatarSource>>()
+        .iter(world)
+        .map(ChildOf::parent)
+        .collect();
+    assert_eq!(sources.len(), 2);
+    assert!(sources.contains(&local) && sources.contains(&remote));
+    assert!(
+        world
+            .resource::<CrabAvatar>()
+            .remote(crabsim::PlayerId(7))
+            .is_some()
+    );
+    let gear: Vec<_> = world
+        .query::<(&GearPiece, &Visibility)>()
+        .iter(world)
+        .filter(|(gear, _)| gear.crab == local)
+        .collect();
+    assert!(
+        gear.iter().any(
+            |(gear, visible)| gear.gear == Gear::Scissors && **visible == Visibility::Inherited
+        )
+    );
+    assert!(
+        gear.iter()
+            .any(|(gear, visible)| gear.gear == Gear::ClamGuards
+                && **visible == Visibility::Inherited)
+    );
+    assert!(world.resource::<CrabAvatar>().is_ready());
+    let context = egui::Context::default();
+    let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+        world
+            .resource::<CrabAvatar>()
+            .paint(ui.painter(), egui::pos2(150., 180.), 90.);
+    });
+    output.textures_delta.clear();
+    let vertices: usize = output
+        .shapes
+        .iter()
+        .map(|shape| match &shape.shape {
+            egui::Shape::Mesh(mesh) => mesh.vertices.len(),
+            _ => 0,
+        })
+        .sum();
+    assert!(
+        (200..1000).contains(&vertices),
+        "real rig emitted {vertices} vertices"
+    );
+    assert_eq!(
+        world.get::<Mover>(local).unwrap().pos,
+        Vec2::new(2300., 500.)
+    );
+    assert_eq!(
+        world
+            .query_filtered::<Entity, With<Crab>>()
+            .iter(world)
+            .count(),
+        2,
+        "no duplicate gameplay crab is spawned"
+    );
 }

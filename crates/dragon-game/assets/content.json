@@ -1,0 +1,705 @@
+{
+  "story": {
+    "intro": {
+      "title": "The Dream Begins",
+      "alone": true,
+      "text": [
+        "Every night, you dreamed the same dream. A hill above Hollowbrook. A sky full of stars. And a dragon egg, glowing in the grass beside you.",
+        "Tonight, the egg CRACKED! A word sang in your head: Naína. Light! Out tumbled your very own dragon, tiny and wobbly, looking right at you."
+      ],
+      "next": "A grumpy storm is blowing out the village lanterns. Fly, Rider! Pop those clouds!"
+    },
+    "m1": {
+      "title": "Sloppy, but Brave",
+      "text": [
+        "You popped the storm clouds one by one, and the lanterns of Hollowbrook flickered back on. Hooray!",
+        "\"Sloppy,\" said a creaky little voice. \"But brave.\" On a rock sat Wick, a dragon no bigger than a goat, with a flame like a candle. \"I've waited a long time for a Rider. You'll have to do.\""
+      ],
+      "next": "The bell tower has stopped ringing, and the sky around it is full of wings. Go and see!"
+    },
+    "m2": {
+      "title": "Protect First",
+      "text": [
+        "A Storm Bat slammed into your dragon! \"Protect first!\" Wick shouted. \"Say it: Thuri!\" A shield of light caught your dragon, and together you chased the bats away. DONG! The bell rang out!",
+        "In the straw at the top of the tower, you found a warm dragon egg!"
+      ],
+      "next": "From up here you can see sparks over the hay barns. Thunder Sprites! Hurry!"
+    },
+    "m3": {
+      "title": "Light as a Feather",
+      "text": [
+        "The sprites sparked the hay, and a burning beam fell across the barn door. The calves were trapped inside!",
+        "\"Think light as a feather,\" said Wick. \"Kaelo!\" You said the word, the beam floated away, and the calves trotted out safe."
+      ],
+      "next": "Wick is staring at the sky. \"Those sprites weren't playing,\" she says. \"They were running away.\" Running from WHAT?"
+    },
+    "m4": {
+      "title": "The Heart of the Storm",
+      "text": [
+        "The giant Thunderhead roared! Lightning cracked the sky! You held on tight and shouted, \"NOW!\" Your dragon dove straight in, and the storm burst into rain and rainbows.",
+        "At the end of a rainbow sat another egg, glowing in the wet grass."
+      ],
+      "next": "The storm is gone, but a cold grey wind still blows, and frightened deer are running out of the Whisperwood. Find out why!"
+    },
+    "m5": {
+      "title": "Not Every Problem Wants Fire",
+      "text": [
+        "Urgal scouts were stomping through the Whisperwood, scaring every creature. You breathed fire, and they only roared LOUDER!",
+        "\"Not every problem wants fire,\" said Wick. She taught you a soft word: Vara. Calm. The scouts stopped, blinked, and wandered off."
+      ],
+      "next": "From deep in the woods comes a long, hungry howl. Thornwolves!"
+    },
+    "m6": {
+      "title": "Quiet as Snow",
+      "text": [
+        "Thornwolves chased a family of deer, and there were too many to fight. \"So don't fight,\" Wick whispered. \"Be quiet as snow. Sila.\" You went so still that the wolves ran right past you!",
+        "You led the deer to the stream, and a little fawn bowed to say thank you. In the ferns, you found another egg."
+      ],
+      "next": "The fawn turns toward a far-off sound. Boom. Boom. BOOM. Drums! Follow them!"
+    },
+    "m7": {
+      "title": "What the Bark Was Hiding",
+      "text": [
+        "You broke up the Urgal camp and scattered their rock piles. In the middle lay a piece of blank bark.",
+        "\"Look at what's there, not at what you expect,\" said Wick. \"Mira!\" A map glowed onto the bark, with a big X on it."
+      ],
+      "next": "The X marks where the Urgal Chieftain is waiting. Roll up your sleeves. It's time to face him!"
+    },
+    "m8": {
+      "title": "The Chieftain Bows",
+      "text": [
+        "The Urgal Chieftain was huge and loud, but you were brave AND clever! At last he stomped back. \"Dragon Riders,\" he grumbled. \"I thought you were only stories.\"",
+        "He told you why he came: a freezing wind drove his Urgals down from the mountains. Under his throne, you found an egg wrapped in moss."
+      ],
+      "next": "That cold grey wind is blowing from the Frostfang Mountains. Climb!"
+    },
+    "m9": {
+      "title": "Your First Climb Alone",
+      "alone": true,
+      "text": [
+        "\"This is as far as these old wings go,\" said Wick. \"Remember: ice is only sleeping water. Senn will wake it.\" For the first time, you flew on WITHOUT her.",
+        "Through the snow, you found an old stone gate carved with dragon wings, frozen shut. You said Senn, warm rain melted the ice, and the gate swung open!"
+      ],
+      "next": "On the bridge behind the gate stands a Rock Troll. Boulder Blast cracks his armor. Get past him!"
+    },
+    "m10": {
+      "title": "Where the Riders Lived",
+      "alone": true,
+      "text": [
+        "Boulder by boulder, you cracked the Rock Troll's armor until he lumbered away. Beyond the bridge stood a great hall, silent and empty.",
+        "The walls showed Riders and dragons flying together. \"This was their home,\" you whispered. \"Where did they go?\" The last carving showed dragons flying up into the stars. In a nest of old feathers, you found an egg."
+      ],
+      "next": "Your voice echoes up the mountain, and the snow above you begins to move. Avalanche! Get out!"
+    },
+    "m11": {
+      "title": "The First Word You Found Alone",
+      "alone": true,
+      "text": [
+        "Wolves, bats, sprites and trolls, all at once! Snow came sliding down, you dove into a cave, and a wall of ice sealed you in.",
+        "No Wick to ask. But on the wall was a carving of a dragon breathing a word: Faro. You said it, LOUD, and fire melted the ice. You learned it all by yourself!"
+      ],
+      "next": "From the dark behind the ice comes a giant, rumbling... SNORE. Go wake it up!"
+    },
+    "m12": {
+      "title": "The Wind Goes Quiet",
+      "text": [
+        "The Cave Troll was the biggest creature in Valmora, and he did NOT like being woken up. But you never gave up!",
+        "So THAT was the cold grey wind: his enormous snoring! When he rolled over and went back to sleep, the wind went quiet. Beside his bed lay one last shining egg, and wild dragons rose into the sky, flying home."
+      ],
+      "next": "Valmora is safe, True Rider! But Wick is staring at the stars, and she won't say why..."
+    },
+    "part2": {
+      "title": "The Stars Go Out",
+      "realm": 3,
+      "text": [
+        "For many happy nights, the skies of Valmora were calm. Then one night you looked up and gasped. A star had gone out. Then another. And ANOTHER!",
+        "You ran to Wick. For the first time ever, she looked scared. \"Go to the Glimmering Sea,\" she said. \"Something there is gobbling up the starlight. Please hurry.\""
+      ],
+      "next": "Fly to the Glimmering Sea and bring the starlight back!"
+    },
+    "m13": {
+      "title": "Lights on the Water",
+      "text": [
+        "Glow Jellies floated up from the sea like a hundred little night-lights, each one full of fallen starlight. Every time you bopped one, the light zoomed back into the sky! One star blinked on. Then two!",
+        "\"Thank you,\" Wick said quietly. You had never heard her say that before."
+      ],
+      "next": "Across the bay, the old lighthouse has gone dark, and boats are lost in the night. Light it up!"
+    },
+    "m14": {
+      "title": "One Small Flame",
+      "text": [
+        "Splashfins leaped and snapped, but your dragon was quicker! You climbed to the great lamp. Too much fire would crack the glass.",
+        "\"Small,\" said Wick. \"Smaller. There.\" One tiny, careful flame, and the light swept across the water! The Keeper thanked you, and you found an egg in a tide pool."
+      ],
+      "next": "A storm has trapped the fishing boats out in the bay. Clear them a way home!"
+    },
+    "m15": {
+      "title": "A Grumble Under the Bay",
+      "text": [
+        "Thunder, jellies, Splashfins! You cleared a path through it all, and the boats came safely home.",
+        "Then you heard it. A deep, wobbly GRUMMMBLE from under the water. The boats bobbed. The fish hid. \"That,\" you said, \"is the grumpiest sound I have ever heard.\""
+      ],
+      "next": "Something HUGE is under the bay. Dive in and find out what's wrong!"
+    },
+    "m16": {
+      "title": "Old Grumblegill's Tummy Ache",
+      "text": [
+        "Old Grumblegill, the biggest sea serpent in the world, was grumpy because he had swallowed a falling star. What a tummy ache! With one last splash he gave an enormous HIC! Out popped the star, humming as it flew home.",
+        "Your dragon hummed back. Grumblegill smiled, and beside his rock you found a shiny egg."
+      ],
+      "next": "Grumblegill points his fin at a smoky glow far away. More fallen stars! To the Ember Isles!"
+    },
+    "m17": {
+      "title": "Bubbling Lava",
+      "text": [
+        "The Ember Isles were hot, bubbly and orange! Magma Slimes boinged out of the lava, and every one you splatted split in two!",
+        "At last you found what they were bouncing around: a piece of a star. Your dragon carried it high and let it go. ZOOM!"
+      ],
+      "next": "A giggling Ember Imp is running off with another piece! After it!"
+    },
+    "m18": {
+      "title": "Keep-Away",
+      "text": [
+        "The imps tossed hot pebbles and passed the star piece back and forth. Then you saw it: they weren't fighting. They were playing keep-away!",
+        "When you caught the last one, it handed the star over with a shy little grin. Under a warm stone, you found an egg, toasty as fresh bread."
+      ],
+      "next": "The imps point up the glowing river. The BIGGEST star of all fell into the volcano. Climb!"
+    },
+    "m19": {
+      "title": "Up the Volcano",
+      "text": [
+        "You followed the lava river all the way up. Slimes, imps, wolves and a troll tried to stop you. Nothing could!",
+        "At the top, you looked into the crater. A slime as big as a HOUSE wobbled down there, with a star stuck inside it like a cherry in jelly."
+      ],
+      "next": "That star isn't getting out by itself. Splat the Great Magma Slime!"
+    },
+    "m20": {
+      "title": "What the Stars Are",
+      "text": [
+        "The Great Magma Slime bounced and boomed, but you never gave up. One giant SPLAT, and the star floated free!",
+        "\"It's time you knew,\" Wick said softly. \"When an old dragon and Rider finish their work, they fly up and become a star. Every star you saved is one of my friends.\" In the warm crater, you found another egg."
+      ],
+      "next": "The star drifts toward the Starfall Heights. \"Something up there is eating them,\" says Wick. Fly up!"
+    },
+    "m21": {
+      "title": "Islands in the Sky",
+      "text": [
+        "Above the clouds, islands floated like boats, with waterfalls pouring off their edges into the sky! This is where the old dragons begin their last flight.",
+        "Star Gobblers zipped around, gobbling every sparkle, even your gems! Your dragon chased them off with a ROAR."
+      ],
+      "next": "Far above, a dark patch is eating a hole in the night sky. The only way there is across Moth Meadow."
+    },
+    "m22": {
+      "title": "The Sleepy Meadow",
+      "text": [
+        "Dream Moths sprinkled sleepy dust everywhere. You yawned, but your dragon kept its eyes wide open!",
+        "Then the dust swirled into a picture: a hill, a sky full of stars, a glowing egg. It was YOUR dream! Somebody sent it to you. When the moths flew to bed, the moonflowers opened and showed you a sleeping egg."
+      ],
+      "next": "Nothing stands between you and the dark patch now. Go find out what it is!"
+    },
+    "m23": {
+      "title": "The Dark Patch",
+      "text": [
+        "The dark patch was bigger than a mountain, and growing! Everything that ate starlight came at you at once, but you never turned back.",
+        "Then the dark patch BLINKED. It had eyes! And a mouth! And a giant, rumbling tummy. \"It isn't a hole in the sky,\" you whispered. \"It's a monster.\""
+      ],
+      "next": "The Star Swallower! When it breathes in, fly away FAST. This is the biggest fight of your life!"
+    },
+    "m24": {
+      "title": "The Biggest Burp in Valmora",
+      "text": [
+        "The Star Swallower had gobbled stars like candy until it was round and wobbly and very, very full. When you beat it, it gave the biggest burp in the history of Valmora. BUUURRRP! Out flew every star, back into the sky!",
+        "\"I'm proud of you,\" said Wick. \"I'll only say that once.\" Where the monster had been lay one last egg."
+      ],
+      "next": "A new star appears, shaped like a dragon. And it calls you by name. Star Guard, your story has only just begun!"
+    }
+  },
+  "quests": [
+    [
+      "m4",
+      "Save Hollowbrook from the storm!"
+    ],
+    [
+      "m8",
+      "Find out what's scaring the Whisperwood!"
+    ],
+    [
+      "m12",
+      "Follow the cold wind up the Frostfangs!"
+    ],
+    [
+      "m16",
+      "Bring the starlight back from the Glimmering Sea!"
+    ],
+    [
+      "m20",
+      "Free the star stuck in the volcano!"
+    ],
+    [
+      "m24",
+      "Stop whatever is eating the stars!"
+    ]
+  ],
+  "briefs": {
+    "m1": "A grumpy storm is rolling over Hollowbrook, and the village lanterns are going out. Your dragon has never flown before. This is a good time to start!",
+    "m2": "\"Storm Bats have covered the bell tower,\" says Wick. \"That bell warns the whole village when danger is coming. If it can't ring, nobody gets warned.\"",
+    "m3": "From the top of the bell tower, you can see sparks over the hay barns. Thunder Sprites are after the hay the animals need to eat all winter. Hurry!",
+    "m4": "\"That's what the sprites were running from,\" says Wick. The biggest storm anyone has ever seen is rolling in, and it will flood the village. You have to break it apart.",
+    "m5": "Deer and birds are running out of the Whisperwood, and nobody knows why. \"Go and find out what's scaring them,\" says Wick. \"And try to listen this time.\"",
+    "m6": "You can hear howling from deep in the woods. Thornwolves are chasing a family of deer, and the deer are getting tired. They need your help right now.",
+    "m7": "The fawn has led you toward the sound of drums. \"Drums mean a camp,\" says Wick. \"A camp means more Urgals. Stop it before it grows.\"",
+    "m8": "The hidden map shows where the Urgal Chieftain is waiting. He is the one sending the Urgals through the forest. It's time to face him.",
+    "m9": "The Chieftain says a freezing wind drove his Urgals off the Frostfang Mountains. You need to find where that wind begins. Wick is too old to climb that high, so this time you go alone.",
+    "m10": "The stone gate is open, but a Rock Troll is blocking the only bridge. Boulder Blast cracks his armor. Whatever lies beyond, you'll have to get past him first.",
+    "m11": "The mountain is shaking, and the snow is starting to slide! Everything that lives up here is running. Stay together and get out safely.",
+    "m12": "The cold grey wind is blowing out of this cave. All this time, the storms, the Urgals and the frozen passes came from one place. Time to wake up whatever is in there.",
+    "m13": "Fallen stars are splashing into the Glimmering Sea, and something is swallowing their light. \"Bring it back,\" says Wick. \"Please.\" You have never heard her say please before.",
+    "m14": "The lighthouse has gone dark, and the boats can't find their way home. Splashfins are snapping at every sparkle around it. Watch the water, and be ready to dodge when it bubbles.",
+    "m15": "A storm has trapped the fishing boats out in the bay. The Keeper can't reach them, but you can fly there. Clear them a safe way home.",
+    "m16": "The deep grumble is shaking every boat in the bay, and the Keeper says it is getting worse. Something huge is down there. Time to find out what is wrong.",
+    "m17": "Old Grumblegill pointed you to the Ember Isles, where more stars have fallen. The islands are bubbling with Magma Slimes. Remember: splat one, and it splits in two!",
+    "m18": "A giggling Ember Imp ran off with a piece of a star, and now a whole gang of them are tossing it around. Get it back, and keep moving. Those pebbles are hot!",
+    "m19": "The imps say the biggest star of all fell into the volcano. The glowing river is the only way up, and everything on the island is in your way.",
+    "m20": "The star is stuck inside a slime as big as a house, and it can't get home until it is free. Keep moving, and watch out for the big bounce!",
+    "m21": "The freed star is floating up to the Starfall Heights, and Wick says something up there is eating them. Fly fast, and grab the gems before the Star Gobblers do.",
+    "m22": "The only way to the dark patch is across Moth Meadow. Dream Moths sprinkle sleepy dust, so don't fly underneath them. Stay awake!",
+    "m23": "The dark patch is growing. Every star it swallows is an old friend of Wick's. It's time to find out what it really is.",
+    "m24": "The Star Swallower has been gobbling the stars like candy. When it breathes in, fly away as hard as you can. This is the biggest fight of your life."
+  },
+  "no_wick_briefs": [
+    "m1",
+    "m10",
+    "m11",
+    "m12"
+  ],
+  "charms": [
+    {
+      "id": "heart",
+      "name": "Lucky Heart",
+      "cost": 25,
+      "blurb": "One extra heart for your next mission."
+    },
+    {
+      "id": "pouch",
+      "name": "Gem Pouch",
+      "cost": 30,
+      "blurb": "Next mission, running out of hearts loses none of the gems you carry."
+    },
+    {
+      "id": "start",
+      "name": "Head Start",
+      "cost": 20,
+      "blurb": "A shield and a gem magnet for the first ten seconds of your next mission."
+    }
+  ],
+  "ranks": [
+    {
+      "name": "Egg Finder"
+    },
+    {
+      "name": "Apprentice",
+      "at": "m4",
+      "scene": "Wick drops a small cloak at your feet. It smells like old smoke. \"You're an Apprentice now,\" she says. \"Don't let it go to your head.\""
+    },
+    {
+      "name": "Scout",
+      "at": "m8",
+      "scene": "Wick hands you a worn satchel with a map inside. \"You listened back there,\" she says. \"That's new. You're a Scout now.\""
+    },
+    {
+      "name": "True Rider",
+      "at": "m12",
+      "scene": "Wick pins a small round badge on your cloak. \"A True Rider,\" she says. \"I have nothing rude to say. Enjoy it.\" You stand a little taller."
+    },
+    {
+      "name": "Sea Guard",
+      "at": "m16",
+      "scene": "The Keeper sews sea-blue trim onto your cloak. \"You helped him,\" says Wick. \"You didn't only beat him. That's what a Sea Guard does.\""
+    },
+    {
+      "name": "Fire Guard",
+      "at": "m20",
+      "scene": "The imps give you a pair of fire-proof gloves, still warm. \"Now you know what the stars are,\" says Wick. \"Keep them safe, Fire Guard.\""
+    },
+    {
+      "name": "Star Guard",
+      "at": "m24",
+      "scene": "Wick sets a star-shaped badge over your heart. \"You're a Star Guard now,\" she says. \"Every star up there knows your name.\""
+    }
+  ],
+  "grow_scenes": [
+    {
+      "id": "glider",
+      "title": "Trust the Wind",
+      "text": [
+        "\"Stop flapping so hard,\" Wick tells your dragon. \"Trust the wind.\" Your dragon spreads its wings and glides across the whole valley. It looks very pleased with itself."
+      ]
+    },
+    {
+      "id": "grown",
+      "title": "Too Big for the Barn",
+      "text": [
+        "This morning your dragon tried to walk through the barn door and got stuck. It looks as surprised as you are. Your hatchling is all grown up."
+      ]
+    },
+    {
+      "id": "ride",
+      "title": "Your First Ride",
+      "text": [
+        "You climb into the new saddle and slide right off. Three times. \"Again,\" says Wick. On the fourth try you hold on, your dragon leaps, and at last you fly together."
+      ]
+    },
+    {
+      "id": "mighty",
+      "title": "A Mighty Roar",
+      "text": [
+        "Your dragon's roar rolls across the valley and shakes the leaves off the trees. Wick pretends she isn't impressed. But her little flame burns just a bit brighter."
+      ]
+    }
+  ],
+  "skill_stories": {
+    "Hot Breath": "Your fire kept fizzling out in the rain. Wick had your dragon breathe on one cold stone every morning until it glowed.",
+    "Big Fireballs": "Your shots kept missing. Wick showed your dragon how to breathe from its belly, and the fireballs came out as big as pumpkins.",
+    "Quick Breath": "Monsters got too close between breaths. Your dragon practiced lighting the lanterns along the wall, faster every night.",
+    "Team Fire": "Your dragons kept getting in each other's way. You taught them to breathe in turns, like singing a round.",
+    "Triple Breath": "Monsters came from every side. Your dragon watched a river split around a rock and learned to split its fire the same way.",
+    "Deep Magic": "You kept running out of magic in the middle of a fight. Wick taught you to take slow breaths between spells.",
+    "Strong Words": "You had been shouting your spells. Wick made you whisper them until they worked, and now they take less out of you.",
+    "Bright Light": "Wick sent you into the darkest cave she knew. You said Naína again and again until the walls sparkled.",
+    "Big Magic": "You wanted to hold more magic. Wick had you keep one word in your mind from sunrise to sunset.",
+    "Old Tongue Master": "You stopped just saying the words and finally understood them. Wick said nothing at all, her biggest compliment.",
+    "Brave Heart": "You got knocked down and got back up anyway. Wick says there is no other way to learn this one.",
+    "Long Shadow": "A monster found you the moment you came out of hiding. You practiced staying hidden in the evening shade, a little longer each night.",
+    "Shadow Burst": "Hiding wasn't enough when your friends needed help. You learned to gather all that stillness and let it out at once.",
+    "Swift Shadow": "Wick tossed pinecones at you all afternoon, until slipping away was as easy as blinking.",
+    "Shadow Gems": "One of your bursts shook a gem out of a rock. Now you know how to do it on purpose.",
+    "Mighty Smash": "Your hammer bounced off a Rock Troll. The village smith showed you how to swing from your feet, not your arms.",
+    "Big Shockwave": "Only the closest monsters felt your smash. You practiced on a frozen pond until the cracks ran all the way across.",
+    "Quick Forge": "Getting ready to swing took too long. You hammered nails all day, until your arms knew the rhythm.",
+    "Gem Quake": "One big smash shook gems out of the ground. Now you know just where to hit.",
+    "Loud Thunder": "Your lightning made monsters jump, but not run. You counted the seconds between flash and boom until you could call thunder on the beat.",
+    "Chain Lightning": "You watched lightning jump from tree to tree, then taught yours to jump from monster to monster.",
+    "Quick Storm": "Wick made you clap the moment you saw a flash, again and again, until the storm answered faster.",
+    "Lucky Lightning": "Your lightning hit a rock, and gems popped out. Lucky! Then you learned where to aim.",
+    "Long Light": "Your shield faded just before a rock hit. You practiced keeping a candle lit through one whole windy night.",
+    "Big Glow": "A friend was just outside your light. You learned to open your arms wide and let it spread.",
+    "Quick Light": "At the lighthouse, you lit the great lamp again and again, until it took only one breath.",
+    "Golden Glow": "Your light found gems hiding in the cracks. Now it shakes them loose."
+  },
+  "projects": [
+    {
+      "id": "lanterns",
+      "at": "m1",
+      "cost": 60,
+      "name": "Relight the lanterns",
+      "helps": "the village at night",
+      "spot": [
+        0.16,
+        0.8
+      ],
+      "thanks": "\"We can walk home in the dark again,\" say the people of Hollowbrook. \"Thank you!\""
+    },
+    {
+      "id": "bell",
+      "at": "m2",
+      "cost": 80,
+      "name": "Mend the bell tower",
+      "helps": "everyone who needs a warning",
+      "spot": [
+        0.25,
+        0.64
+      ],
+      "thanks": "The bell rings out across the valley. \"Now we'll always hear trouble coming,\" says the bell ringer."
+    },
+    {
+      "id": "barns",
+      "at": "m3",
+      "cost": 100,
+      "name": "Rebuild the hay barns",
+      "helps": "the farm animals in winter",
+      "spot": [
+        0.06,
+        0.84
+      ],
+      "thanks": "The calves munch fresh hay and moo at you. A little girl waves from her window."
+    },
+    {
+      "id": "oaks",
+      "at": "m5",
+      "cost": 100,
+      "name": "Replant the old oaks",
+      "helps": "the birds, who come back",
+      "spot": [
+        0.2,
+        0.54
+      ],
+      "thanks": "Birds settle into the young trees and start to sing. The Whisperwood sounds happy again."
+    },
+    {
+      "id": "stream",
+      "at": "m6",
+      "cost": 120,
+      "name": "Clean the stream",
+      "helps": "the deer and the fawn",
+      "spot": [
+        0.52,
+        0.76
+      ],
+      "thanks": "The water runs clear and blue. The little fawn takes a long drink and looks up at you."
+    },
+    {
+      "id": "meadow",
+      "at": "m7",
+      "cost": 140,
+      "name": "Build a deer meadow",
+      "helps": "the forest animals",
+      "spot": [
+        0.36,
+        0.7
+      ],
+      "thanks": "Flowers cover the meadow, and the deer come out to graze. The fawn does a happy little jump."
+    },
+    {
+      "id": "bridge",
+      "at": "m10",
+      "cost": 140,
+      "name": "Rebuild the stone bridge",
+      "helps": "travelers and Riders",
+      "spot": [
+        0.44,
+        0.42
+      ],
+      "thanks": "For the first time in years, people can cross the pass. \"Thank you, Rider!\" they call."
+    },
+    {
+      "id": "hall",
+      "at": "m11",
+      "cost": 160,
+      "name": "Open the Riders' hall",
+      "helps": "new Riders",
+      "spot": [
+        0.51,
+        0.46
+      ],
+      "thanks": "Warm light fills the old hall. It feels as if the carvings on the walls are smiling."
+    },
+    {
+      "id": "beacon",
+      "at": "m12",
+      "cost": 180,
+      "name": "Light the mountain beacon",
+      "helps": "the whole valley",
+      "spot": [
+        0.38,
+        0.2
+      ],
+      "thanks": "The beacon burns on the highest peak. Everyone in the valley can see it. \"Not bad,\" says Wick."
+    },
+    {
+      "id": "lighthouse",
+      "at": "m14",
+      "cost": 180,
+      "name": "Repair the lighthouse",
+      "helps": "boats at night",
+      "spot": [
+        0.94,
+        0.58
+      ],
+      "thanks": "The great beam sweeps across the sea again. \"No boat will get lost now,\" says the Keeper."
+    },
+    {
+      "id": "harbor",
+      "at": "m15",
+      "cost": 200,
+      "name": "Build a safe harbor",
+      "helps": "the Keeper and the fishing boats",
+      "spot": [
+        0.74,
+        0.86
+      ],
+      "thanks": "The fishing boats tie up safe and snug. The Keeper shakes your hand with both hands."
+    },
+    {
+      "id": "pools",
+      "at": "m16",
+      "cost": 220,
+      "name": "Clean the tide pools",
+      "helps": "the small sea creatures",
+      "spot": [
+        0.66,
+        0.93
+      ],
+      "thanks": "Bright little crabs and starfish fill the tide pools. Old Grumblegill burps a happy bubble in the distance."
+    },
+    {
+      "id": "garden",
+      "at": "m17",
+      "cost": 220,
+      "name": "Plant a fire garden",
+      "helps": "the island animals",
+      "spot": [
+        0.7,
+        0.68
+      ],
+      "thanks": "Glowing flowers grow right out of the black rock. Even the Magma Slimes stop to look."
+    },
+    {
+      "id": "spring",
+      "at": "m18",
+      "cost": 240,
+      "name": "Dig the imps a hot spring",
+      "helps": "the Ember Imps",
+      "spot": [
+        0.88,
+        0.7
+      ],
+      "thanks": "The Ember Imps cannonball into the warm water, giggling. One of them waves at you with a pebble."
+    },
+    {
+      "id": "path",
+      "at": "m19",
+      "cost": 260,
+      "name": "Build a lantern path",
+      "helps": "travelers on the islands",
+      "spot": [
+        0.78,
+        0.5
+      ],
+      "thanks": "A line of little lights climbs the volcano. It looks like a necklace of stars."
+    },
+    {
+      "id": "bridges",
+      "at": "m21",
+      "cost": 260,
+      "name": "Build the sky bridges",
+      "helps": "the old dragons",
+      "spot": [
+        0.74,
+        0.16
+      ],
+      "thanks": "Bridges of cloud and rope join the floating islands. Old dragons cross them slowly, nodding to you."
+    },
+    {
+      "id": "flowers",
+      "at": "m22",
+      "cost": 300,
+      "name": "Plant the moonflowers",
+      "helps": "the Dream Moths",
+      "spot": [
+        0.9,
+        0.2
+      ],
+      "thanks": "The sky meadow lights up with moonflowers. The Dream Moths flutter in happy circles, and everyone sleeps a little better."
+    },
+    {
+      "id": "star",
+      "at": "m24",
+      "cost": 400,
+      "name": "Light the star beacon",
+      "helps": "everyone looking up",
+      "spot": [
+        0.82,
+        0.07
+      ],
+      "thanks": "A bright new star shines over all of Valmora. Wick looks at it for a long time. \"There,\" she says. \"Now it's a better world.\""
+    }
+  ],
+  "story_order": [
+    "intro",
+    "m1",
+    "m2",
+    "m3",
+    "m4",
+    "m5",
+    "m6",
+    "m7",
+    "m8",
+    "m9",
+    "m10",
+    "m11",
+    "m12",
+    "part2",
+    "m13",
+    "m14",
+    "m15",
+    "m16",
+    "m17",
+    "m18",
+    "m19",
+    "m20",
+    "m21",
+    "m22",
+    "m23",
+    "m24"
+  ],
+  "realms": [
+    {
+      "id": "hollow",
+      "name": "Hollowbrook Skies",
+      "color": "#8fd0ff",
+      "blurb": "Storms are rolling over the village.",
+      "ground": false
+    },
+    {
+      "id": "wood",
+      "name": "The Whisperwood",
+      "color": "#56c08a",
+      "blurb": "Urgals and Thornwolves are stomping through the forest. Fly low!",
+      "ground": true
+    },
+    {
+      "id": "frost",
+      "name": "The Frostfang Mountains",
+      "color": "#c9e6ff",
+      "blurb": "Rock Trolls guard the icy peaks.",
+      "ground": true
+    },
+    {
+      "id": "sea",
+      "name": "The Glimmering Sea",
+      "color": "#5fe0d0",
+      "blurb": "Something under the waves is gobbling up fallen starlight.",
+      "ground": false
+    },
+    {
+      "id": "ember",
+      "name": "The Ember Isles",
+      "color": "#ff8a4a",
+      "blurb": "Hot, bubbly volcano islands. Slimes split in two when you splat them!",
+      "ground": true
+    },
+    {
+      "id": "stars",
+      "name": "The Starfall Heights",
+      "color": "#c9a8ff",
+      "blurb": "Sky islands above the clouds, where the missing stars went.",
+      "ground": false
+    }
+  ],
+  "mission_goals": {
+    "m1": "Pop the grumpy storm clouds over Hollowbrook.",
+    "m2": "Storm Bats are swarming the bell tower!",
+    "m3": "Catch the zippy Thunder Sprites before they spark the hay barns.",
+    "m4": "A giant Thunderhead is rolling in. Break it apart!",
+    "m5": "Urgal scouts are at the edge of the forest. Fly low and drive them out!",
+    "m6": "Fast Thornwolves are chasing the deer. Frost Breath slows them down!",
+    "m7": "Break up the Urgal camp in the old oaks.",
+    "m8": "The Urgal Chieftain wants the forest. Show him it belongs to the dragons!",
+    "m9": "Thunder clouds and sprites swirl around the Frostfang peaks.",
+    "m10": "A Rock Troll blocks the mountain pass. Boulder Blast cracks his armor!",
+    "m11": "Everything at once! Keep your team together.",
+    "m12": "The biggest troll in Valmora lives in the Frostfang caves. Wake up, Riders!",
+    "m13": "Glow Jellies are floating up out of the sea. Bop them!",
+    "m14": "Splashfins leap out of the waves. Watch the water and stay ready!",
+    "m15": "Jellies, Splashfins and thunder clouds, all over the bay at once!",
+    "m16": "A giant sea serpent is grumbling under the bay. Find out what is wrong!",
+    "m17": "Magma Slimes are hopping out of the lava. Splat one and it splits in two!",
+    "m18": "Ember Imps are tossing hot pebbles. Keep moving!",
+    "m19": "Follow the glowing river up the volcano. Everything is bubbling!",
+    "m20": "The biggest, bounciest slime in the world is at the top of the volcano!",
+    "m21": "Star Gobblers eat gems! Grab the gems before they do.",
+    "m22": "Dream Moths sprinkle sleepy dust. Don't fly under them!",
+    "m23": "A huge dark patch is swallowing the sky. Everything is here!",
+    "m24": "The monster that gobbled the stars! When it breathes in, fly away fast!"
+  }
+}
