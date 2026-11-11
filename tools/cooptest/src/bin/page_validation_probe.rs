@@ -32,6 +32,35 @@ fn main() -> Result<()> {
         }
         sleep(Duration::from_millis(100));
     }
+    if std::env::args().any(|arg| arg == "--reuse-only") {
+        canyon::prepare(&mut browser, &url, true)?;
+        let result = browser.eval(r#"(async()=>{
+          const c=document.getElementById('crabscape');
+          c.setAttribute('data-cell-work-profile','1');c.setAttribute('data-cell-performance-probe','1');
+          const original=IDBObjectStore.prototype.get,transactions=new WeakSet(),databases=new Map();
+          let batches=0,completed=0,aborted=0,applied=0,failed=0;
+          IDBObjectStore.prototype.get=function(key){
+            const request=original.call(this,key),tx=this.transaction;
+            if(tx.mode==='readonly'&&Array.isArray(key)&&['terrain','memory'].includes(key[1])&&!transactions.has(tx)){
+              transactions.add(tx);batches++;databases.set(tx.db,(databases.get(tx.db)||0)+1);
+              tx.addEventListener('complete',()=>completed++,{once:true});
+              tx.addEventListener('abort',()=>aborted++,{once:true});
+            }return request;
+          };
+          const observer=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+            if(e.name==='cell-page-reply-applied')applied++;
+            if(e.name==='cell-page-reply-failed')failed++;
+          }});observer.observe({type:'measure',buffered:false});
+          try{
+            const start=performance.now();while((completed<8||applied<8)&&performance.now()-start<30000)await new Promise(r=>setTimeout(r,50));
+            const result={batches,completed,aborted,applied,failed,distinctPageConnections:databases.size,batchesPerConnection:[...databases.values()]};
+            if(completed<8||applied<8||aborted||failed||databases.size!==1)throw Error(JSON.stringify(result));
+            return result;
+          }finally{IDBObjectStore.prototype.get=original;observer.disconnect();c.removeAttribute('data-cell-work-profile');c.removeAttribute('data-cell-performance-probe')}
+        })()"#)?;
+        println!("{result}");
+        return browser.trouble().map_or(Ok(()), Err);
+    }
     for mode in ["epoch", "revision", "head-epoch", "missing", "damaged"] {
         canyon::prepare(&mut browser, &url, true)?;
         let mode_json = serde_json::to_string(mode).map_err(|e| e.to_string())?;

@@ -49,6 +49,12 @@ The probes exercise browser callbacks and production paging, not a replacement
 JavaScript paging algorithm. Initial and post-rebase runs both pass. Log:
 `/tmp/boundary-production-faults-final.log` (local diagnostic, not committed).
 
+The production probe's `--reuse-only` mode separately observes actual readonly
+terrain/memory batch transactions and their `IdbDatabase` object identities. On
+this artifact, eight completed and applied batches use exactly one connection,
+with zero aborted transactions or failed replies. This confirms reuse without
+relying on wall-clock timing or counting unrelated startup/autosave connections.
+
 The separate `connection_probe` measures a fixed synthetic IndexedDB workload;
 it explicitly does not implement production epoch/revision validation. It can
 isolate repeated-open cost but cannot establish phone FPS or terrain correctness.
