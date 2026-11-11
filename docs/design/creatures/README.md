@@ -101,7 +101,7 @@ never in a tunnel, no instant kill, determinism, a two-sim co-op hash) → `step
 
 ### Where things stand (2026-11-11, creature lead)
 Read this to continue without the lead. Check live state with `gh pr view` / `gh issue view`.
-- **#574 scaffolding:** the shared hooks, folded into PR #599 with the ten (PR #588 closed). The world lead's sixgill (#458, PR #600) was merged into the same branch, so #599 carries it too (close #458 by hand when #599 merges).
+- **#574 scaffolding:** the shared hooks, folded into PR #599 with the ten (PR #588 closed). The world lead's sixgill (#458, PR #600) was auto-merged into this branch by mistake and taken back out: with it the King's castle browser check stalls (fails twice; passes without). It goes back to the world build, which should check its per-tick cost with cells on (four sharks, `swimmer_blocked` in up to 16 steering tries a tick) before relanding.
 - **The ten (#575 to #584): all built and placed, in one PR, #599** (branch `issue-575-bestiary-ten`, auto-merge queued; blocked only by the Ubuntu-mirror CI outage on GitHub runners, fix in #597: rerun failed jobs with `gh run rerun <id> --failed`), each with its spec,
   rules in `crates/sim/src/creatures/<module>.rs`, tests in `crates/sim/tests/<name>.rs`, an ink rig and a posed
   puppet. `every_bestiary_creature_is_placed_in_the_world` proves each has an encounter.
