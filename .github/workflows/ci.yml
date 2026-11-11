@@ -69,7 +69,7 @@ jobs:
       - name: Rust (the version, targets and components in rust-toolchain.toml)
         run: rustup toolchain install && rustc --version
       - name: System libraries Bevy needs on Linux
-        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev pkg-config
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev libasound2-dev pkg-config
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: check

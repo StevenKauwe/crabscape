@@ -465,7 +465,13 @@ fn create_rtc_peer_connection(ice_server_config: &RtcIceServerConfig) -> RtcPeer
         username: ice_server_config.username.clone().unwrap_or_default(),
         credential: ice_server_config.credential.clone().unwrap_or_default(),
     };
-    let ice_server_config_list = [ice_server_config];
+    // An empty URL list requests host-only ICE. Browsers reject an RTCIceServer
+    // with urls: [], so represent that request as no servers instead.
+    let ice_server_config_list: Vec<_> = if ice_server_config.urls.is_empty() {
+        Vec::new()
+    } else {
+        vec![ice_server_config]
+    };
     peer_config.set_ice_servers(&serde_wasm_bindgen::to_value(&ice_server_config_list).unwrap());
     let connection = RtcPeerConnection::new_with_configuration(&peer_config).unwrap();
 

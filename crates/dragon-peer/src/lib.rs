@@ -115,6 +115,42 @@ mod browser {
             peer.data_only = true;
             Ok(peer)
         }
+        /// Local integration harness only: all ICE candidates remain host-only.
+        #[cfg(feature = "loopback-test")]
+        pub fn without_voice_host_only(
+            introducer: &str,
+            build: &str,
+            code: &str,
+        ) -> Result<DragonPeer, JsValue> {
+            if !introducer.starts_with("ws://127.0.0.1:") {
+                return Err(JsValue::from_str("Loopback introducer required"));
+            }
+            let url = room_url(introducer, build, code)
+                .ok_or_else(|| JsValue::from_str("Invalid Dragon room"))?;
+            let (socket, run) = WebRtcSocket::builder(url)
+                .ice_server(matchbox_socket::RtcIceServerConfig {
+                    urls: Vec::new(),
+                    username: None,
+                    credential: None,
+                })
+                .add_reliable_channel()
+                .add_unreliable_channel()
+                .add_reliable_channel()
+                .build();
+            let ended = Rc::new(Cell::new(false));
+            let finished = ended.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = run.await;
+                finished.set(true);
+            });
+            Ok(Self {
+                socket,
+                ended,
+                session: Session::default(),
+                voice: voice::browser::Voice::new(),
+                data_only: true,
+            })
+        }
         /// The source id always comes from Matchbox, never from a payload supplied by a player.
         pub fn poll(&mut self) -> String {
             let mut events = Vec::new();
