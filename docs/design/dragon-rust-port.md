@@ -288,3 +288,29 @@ directions with zero microphone requests. Native dependencies now use maintained
 Tokio/rustls signaling and DTLS, and both cargo-deny graphs pass without suppressions.
 This is transport validation, not a claim that the full two-player UI journey or
 phone two-thumb controls have completed QA. The port remains a draft, unmerged.
+
+## Preview and two-thumb validation
+
+Builder and roost previews now use the source standing rider, egg, hatchling/adult
+and miniature dragon drawing. Direct live-JavaScript oracles pass 90 builder
+combinations and 120 follower update frames, including facing changes and varied dt.
+Ambient particles/trails and other scene previews remain open, not pixel-identical.
+
+Touch controls now track distinct device/finger IDs independently from egui's mouse
+pointer: steering and held fire can coexist, a new sky touch replaces a stale stick,
+and special/swap/spell/dragon buttons act on touch-down while the other thumb steers.
+Cancellation, focus loss and castle return clear captures. Four regression tests
+cover these rules. An isolated Chromium root journey exercised both builder previews,
+checkpoint reload, story, party and First Flight; two concurrent CDP touch points
+steered the dragon and fired, and releasing removed the stick. Pause, view and fancy
+controls were inspected in the actual runtime. No microphone requests or runtime
+errors occurred after the repaired input borrow boundary. This is desktop Chromium
+synthetic-touch validation, not physical iPhone or WebKit verification. Non-flight
+adventure screens scroll so long mission/roost lists remain reachable.
+
+The dedicated `dragon_audio_probe` and `cooptest` `dragon_audio` runner verify real
+WebAudio node scheduling, gain buses, caps, cancellation and cleanup. The runner
+self-checks that failing assertions are rejected. Synthetic speech-service callbacks
+verify UTF-16 ranges, completion/error and stale-callback isolation after timeout.
+Chrome returned zero available voices: actual speech rendering/listening remains
+unverified. Native narration controls explicitly show unsupported availability.

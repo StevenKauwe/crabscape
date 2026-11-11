@@ -31,6 +31,8 @@ pub struct Controls {
     pub edit_rider: bool,
     pub mission_pick: Option<String>,
     pub fire: bool,
+    pub fire_rect: Option<egui::Rect>,
+    pub touch_actions: Vec<(egui::Rect, super::touch::Action)>,
     pub stick: Option<[f64; 2]>,
     pub direction: [bool; 4],
 }
@@ -107,11 +109,16 @@ impl AdventureUi {
                     self.preferences.music_on = !self.preferences.music_on;
                 }
                 if ui
-                    .button(if !self.preferences.narrate_on {
-                        "Narrator: off"
-                    } else {
-                        "Narrator: on"
-                    })
+                    .add_enabled(
+                        cfg!(target_arch = "wasm32"),
+                        egui::Button::new(if !cfg!(target_arch = "wasm32") {
+                            "Narration unavailable on this platform"
+                        } else if !self.preferences.narrate_on {
+                            "Narrator: off"
+                        } else {
+                            "Narrator: on"
+                        }),
+                    )
                     .clicked()
                 {
                     self.preferences.narrate_on = !self.preferences.narrate_on;
@@ -284,6 +291,15 @@ impl AdventureUi {
                     .collect();
                 for (id, name, level) in dragons {
                     ui.horizontal(|ui| {
+                        if let Some(dragon) =
+                            adventure.profile()["party"].as_array().and_then(|party| {
+                                party
+                                    .iter()
+                                    .find(|dragon| dragon["id"].as_str() == Some(id.as_str()))
+                            })
+                        {
+                            super::art::roost_preview(ui, dragon, adventure.profile());
+                        }
                         ui.label(format!("{name} · Level {level}"));
                         for (label, command) in [
                             ("Lead", progression::Command::SelectMain(id.clone())),
@@ -456,14 +472,28 @@ impl AdventureUi {
                     for (index, label) in ["Left", "Right", "Up", "Down"].into_iter().enumerate() {
                         controls.direction[index] = ui.button(label).is_pointer_button_down_on();
                     }
-                    controls.fire = ui.button("Fire").is_pointer_button_down_on();
-                    controls.special = ui.button("Special").clicked();
-                    controls.swap = ui.button("Swap").clicked();
+                    let fire = ui.button("Fire");
+                    controls.fire = fire.is_pointer_button_down_on();
+                    controls.fire_rect = Some(fire.rect);
+                    let special = ui.button("Special");
+                    controls.special = special.clicked();
+                    controls
+                        .touch_actions
+                        .push((special.rect, super::touch::Action::Special));
+                    let swap = ui.button("Swap");
+                    controls.swap = swap.clicked();
+                    controls
+                        .touch_actions
+                        .push((swap.rect, super::touch::Action::Swap));
                 });
                 if let Some(game) = adventure.game() {
                     ui.horizontal_wrapped(|ui| {
                         for spell in game.active_words() {
-                            if ui.button(spell.key()).clicked() {
+                            let button = ui.button(spell.key());
+                            controls
+                                .touch_actions
+                                .push((button.rect, super::touch::Action::Spell(spell)));
+                            if button.clicked() {
                                 controls.spell = Some(spell);
                             }
                         }
@@ -471,10 +501,11 @@ impl AdventureUi {
                             game.profile.as_ref().and_then(|p| p["party"].as_array())
                         {
                             for (index, dragon) in party.iter().enumerate() {
-                                if ui
-                                    .button(dragon["name"].as_str().unwrap_or("Dragon"))
-                                    .clicked()
-                                {
+                                let button = ui.button(dragon["name"].as_str().unwrap_or("Dragon"));
+                                controls
+                                    .touch_actions
+                                    .push((button.rect, super::touch::Action::Select(index)));
+                                if button.clicked() {
                                     controls.select = Some(index);
                                 }
                             }

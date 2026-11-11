@@ -166,6 +166,12 @@ mod browser {
                 p.word = None;
                 p.active_range = None;
             }
+            // Source finish() invalidates its sequence. Detach completed callbacks
+            // too, so a late boundary/start cannot restore stale highlights.
+            if !self.progress.borrow().speaking {
+                self.utterances.clear();
+                self.deadline = 0.;
+            }
             self.progress.borrow().clone()
         }
         /// Caller supplies only a verified story clip URL, never a filesystem save path.
@@ -271,6 +277,9 @@ mod browser {
                     let last = index + 1 == pieces.len();
                     let cb = Closure::wrap(Box::new(move |event: JsValue| {
                         let mut p = state.borrow_mut();
+                        if !p.speaking {
+                            return;
+                        }
                         match key {
                             "onstart" => p.active_range = Some((w0, w1)),
                             "onboundary" => {
@@ -297,6 +306,9 @@ mod browser {
                                 if error != "interrupted" && error != "canceled" && last {
                                     p.speaking = false;
                                     p.failed = true;
+                                    p.done_to = w1;
+                                    p.word = None;
+                                    p.active_range = None;
                                 }
                             }
                         }

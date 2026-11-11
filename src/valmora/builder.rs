@@ -136,6 +136,8 @@ impl Builder {
             "Your very own dragon"
         });
         ui.label(format!("Step {} of 2", self.step + 1));
+        super::art::builder_preview(ui, &self.draft, &self.original, self.step);
+
         if self.original["build"].is_object() && ui.button("Cancel").clicked() {
             self.cancel_requested = true;
             return None;

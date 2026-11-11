@@ -7,6 +7,7 @@ mod builder;
 mod network;
 mod persistence;
 mod storage;
+mod touch;
 mod ui;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPreUpdateSet, EguiPrimaryContextPass, egui};
@@ -24,6 +25,7 @@ pub struct Valmora {
     adventure: Option<Adventure>,
     ui: AdventureUi,
     controls: Controls,
+    touches: touch::TouchControls,
     input: Input,
     animation_time: f64,
     flap_time: f64,
@@ -104,6 +106,7 @@ impl Valmora {
         }
         self.active = false;
         self.controls = Controls::default();
+        self.touches = touch::TouchControls::default();
         self.input = Input::default();
     }
 }
@@ -799,17 +802,13 @@ fn draw(
                 ui.id().with("sky-stick"),
                 egui::Sense::drag(),
             );
-            let stick = if adventure.state() == "play" && sky.is_pointer_button_down_on() {
+            let mouse_stick = if adventure.state() == "play" && sky.is_pointer_button_down_on() {
                 ctx.input(|i| i.pointer.press_origin().zip(i.pointer.interact_pos()))
             } else {
                 None
             };
             let radius =
                 (viewport(window, s.ui.preferences.view).scale * 1.1).clamp(48., 72.) as f32;
-            let normalized_stick = stick.map(|(origin, point)| {
-                let delta = (point - origin) / radius;
-                [delta.x as f64, delta.y as f64]
-            });
             if s.persistence.preferences_needs_reload()
                 && ui
                     .button("Discard unsaved device preferences and reload")
@@ -924,8 +923,52 @@ fn draw(
                 }
             }
             s.ui.networked = network.0.is_some();
-            s.controls = s.ui.draw(ui, adventure, clock);
-            s.controls.stick = normalized_stick;
+            s.controls = if adventure.state() == "play" {
+                s.ui.draw(ui, adventure, clock)
+            } else {
+                egui::ScrollArea::vertical()
+                    .max_height((ctx.content_rect().bottom() - ui.cursor().top()).max(1.))
+                    .show(ui, |ui| s.ui.draw(ui, adventure, clock))
+                    .inner
+            };
+            let touch_panel = egui::Rect::from_min_max(
+                ctx.content_rect().min,
+                egui::pos2(ctx.content_rect().right(), ui.cursor().top()),
+            );
+            let touch_owned = ctx.input(|i| {
+                s.touches.update(
+                    &i.events,
+                    adventure.state() == "play",
+                    i.focused,
+                    touch_panel,
+                    s.controls.fire_rect,
+                    &s.controls.touch_actions,
+                )
+            });
+            let stick = if touch_owned {
+                s.touches.stick()
+            } else {
+                mouse_stick
+            };
+            if touch_owned {
+                s.controls.fire = s.touches.fire();
+                s.controls.special = false;
+                s.controls.swap = false;
+                s.controls.spell = None;
+                s.controls.select = None;
+                for action in &s.touches.actions {
+                    match *action {
+                        touch::Action::Special => s.controls.special = true,
+                        touch::Action::Swap => s.controls.swap = true,
+                        touch::Action::Spell(spell) => s.controls.spell = Some(spell),
+                        touch::Action::Select(index) => s.controls.select = Some(index),
+                    }
+                }
+            }
+            s.controls.stick = stick.map(|(origin, point)| {
+                let delta = (point - origin) / radius;
+                [delta.x as f64, delta.y as f64]
+            });
             if let Some((origin, point)) = stick {
                 let p = ui.painter();
                 p.circle(

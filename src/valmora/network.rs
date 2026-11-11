@@ -851,3 +851,70 @@ mod partner_visual_tests {
         assert_eq!(visual.time, 0.1);
     }
 }
+
+#[cfg(test)]
+mod partner_source_oracle {
+    use super::PartnerVisual;
+    use serde_json::Value;
+    #[test]
+    #[ignore = "requires macOS JavaScriptCore CLI; synthetic follower positions only"]
+    fn follower_motion_matches_original_update_ghosts() {
+        let source = include_str!("../../web/dragon/index.html");
+        let tail = &source[source.find("function updateGhosts(dt)").unwrap()..];
+        let function = &tail[..tail.find("\nfunction drawGhosts()").unwrap()];
+        let script = format!(
+            r#"
+const W=1000,S=48,topLimit=80,groundY=600;
+const g={{viaDb:false,x:300,y:200,tx:0.3,ty:(200-80)/520,t:0,facing:1,follow:Array.from({{length:4}},()=>({{x:null,y:null,t:0}}))}};
+const ghosts=new Map([['peer',g]]);
+{function}
+const result=[];
+for(let i=0;i<120;i++){{const dt=[0,1/120,1/60,0.1,0.4][i%5];g.tx=(300+i*2)/W;g.ty=(200+Math.sin(i*0.1)*50-topLimit)/(groundY-topLimit);g.facing=i<60?1:-1;updateGhosts(dt);result.push({{position:[g.x,g.y],facing:g.facing,dt,time:g.t,followers:g.follow.map(f=>[f.x,f.y,f.t])}});}}
+print(JSON.stringify(result));
+"#
+        );
+        use std::process::Command;
+        let out = Command::new(
+            "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc",
+        )
+        .args(["-e", &script])
+        .output()
+        .unwrap();
+        assert!(
+            out.status.success(),
+            "{} {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let frames: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
+        let mut visual = PartnerVisual::default();
+        for frame in frames {
+            let n = |v: &Value| v.as_f64().unwrap();
+            visual.update(
+                n(&frame["dt"]),
+                48.,
+                [n(&frame["position"][0]), n(&frame["position"][1])],
+                n(&frame["facing"]),
+                4,
+            );
+            assert!((visual.time - n(&frame["time"])).abs() < 1e-9);
+            for (f, want) in visual
+                .followers
+                .iter()
+                .zip(frame["followers"].as_array().unwrap())
+            {
+                let p = f.position.unwrap();
+                for (actual, expected) in [p[0], p[1], f.time]
+                    .into_iter()
+                    .zip(want.as_array().unwrap())
+                {
+                    assert!(
+                        (actual - n(expected)).abs() < 1e-9,
+                        "follower state diverged: {actual} != {expected}"
+                    );
+                }
+            }
+        }
+        assert_eq!(visual.followers.len(), 4);
+    }
+}

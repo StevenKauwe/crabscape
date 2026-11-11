@@ -1,4 +1,7 @@
 //! GPU-only adapter for the original Canvas geometry. No raster assets or gameplay state.
+mod previews;
+pub(super) use previews::{builder_preview, roost_preview};
+
 use bevy_egui::egui::{
     self, Color32, Pos2, Shape, Stroke,
     epaint::{Mesh, Vertex, WHITE_UV},

@@ -1,12 +1,16 @@
 //! Dragon's original tiny synthesizer. Playback only: no microphone or save access.
 //! Recipes follow web/dragon/index.html; PCM oscillators approximate WebAudio's
 //! band-limited implementation, so this is parameter parity, not bit-identical audio.
+#[path = "audio/music.rs"]
 mod music;
 #[cfg(any(test, not(target_arch = "wasm32")))]
+#[path = "audio/pcm.rs"]
 mod pcm;
 #[cfg(target_arch = "wasm32")]
+#[path = "audio/web.rs"]
 mod web;
 #[cfg(not(target_arch = "wasm32"))]
+#[path = "audio/worker.rs"]
 mod worker;
 pub use music::{Music, MusicScene};
 #[cfg(any(test, not(target_arch = "wasm32")))]
@@ -568,6 +572,7 @@ pub fn named_effect(name: &str) -> Option<Effect> {
     })
 }
 
+#[path = "audio/narration.rs"]
 pub mod narration;
 #[cfg(target_arch = "wasm32")]
 thread_local! {static NARRATOR: std::cell::RefCell<narration::Narrator> = std::cell::RefCell::new(narration::Narrator::default());}
@@ -618,6 +623,7 @@ pub fn play_clip(_url: &str, _words: usize) -> bool {
     false
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "audio/oracle.rs"]
 mod oracle;
 /// Exhaustive mapping of transient core-game cues; no simulation state is read.
 pub fn game_effect(event: dragon_game::game::sound::Event) -> Effect {
