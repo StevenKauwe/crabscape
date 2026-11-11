@@ -3056,6 +3056,11 @@ impl Sim {
             }
         }
         self.step_cues();
+        if let Some(at) =
+            crate::bone_hall::step(self.tick + 1, &self.level, &self.tuning, &mut self.crabs)
+        {
+            self.sound_cues.emit(self.tick + 1, cues::Cue::Seep { at });
+        }
         self.watchers.step(self.tick, &self.crabs, &self.tuning);
         self.tick += 1;
         self.send_updates(&mut runs);

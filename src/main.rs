@@ -68,6 +68,7 @@
 mod alarm_jelly;
 mod background;
 mod bestiary;
+mod bone_hall;
 mod brittle;
 mod build;
 mod canyon;
@@ -221,6 +222,7 @@ fn run_app() {
         .add_plugins(triggerfish::TriggerfishPlugin)
         .add_plugins(bestiary::BestiaryPlugin)
         .add_plugins(alarm_jelly::AlarmJellyPlugin)
+        .add_plugins(bone_hall::BoneHallPlugin)
         .add_plugins((
             critters::CrittersPlugin,
             deep::DeepPlugin,

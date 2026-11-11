@@ -107,6 +107,15 @@ Each opened and checked against the row it backs.
   fishes, skates, and decapod crustaceans", *Biological Bulletin* 196(1) (1999). Abstract:
   <https://pubmed.ncbi.nlm.nih.gov/25575382/>
 
+### The bone hall (#467)
+- The hall is a whale fall inside the clay (row 9, [WP-WF]). Its one threat is a clock: the enriched mud and bones
+  release sulfide in pulses (the sulfophilic stage). Real: sulfide around whale bones. **Design call, not
+  biology:** the nine-second pulse, its two-second length and the reserve it costs.
+- Drawn sizes, all **not verified**: a large whale's vertebra about 25 cm across, a rib's visible length about 0.9 m
+  (the rest buried in clay), a rib 3.5 cm thick.
+- The scavengers on the bones are small crustaceans (amphipods, the enrichment stage), drawn about 1.5 cm long, **not
+  verified**. They are harmless and only flee the lantern.
+
 ### Distant watched eye (#463)
 The watcher represents a giant squid (*Architeuthis dux*), with a provisional
 25 cm eye (156.25 units) and 2 m mantle (1250 units). Species, dimensions and

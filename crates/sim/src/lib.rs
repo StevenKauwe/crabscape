@@ -55,6 +55,7 @@ pub mod alarm_jelly;
 #[cfg(feature = "terrain-bake")]
 pub mod seed_compact;
 
+pub mod bone_hall;
 pub mod canyon_drift;
 pub mod cell_codec;
 pub mod chimney;

@@ -266,6 +266,9 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
                 };
                 backend::play(sfx, 0.5, 1.0);
             }
+            Cue::Seep { at: source } => {
+                backend::vent(0.03 * (1.0 - source.distance(at) / 1600.0).max(0.0));
+            }
             _ => {}
         }
     }
