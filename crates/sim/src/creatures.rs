@@ -39,7 +39,6 @@ pub enum Extra {
     Isopod(isopod::State),
     Hagfish(hagfish::State),
     Amphipods(amphipods::State),
-    Sixgill(crate::sixgill::State),
 }
 
 /// The starting [`Extra`] for a kind.
@@ -55,7 +54,6 @@ pub fn extra(kind: Kind) -> Extra {
         Kind::GiantIsopod => Extra::Isopod(isopod::State::default()),
         Kind::Hagfish => Extra::Hagfish(hagfish::State::default()),
         Kind::AmphipodSwarm => Extra::Amphipods(amphipods::State::default()),
-        Kind::Sixgill => Extra::Sixgill(crate::sixgill::State::default()),
         _ => Extra::None,
     }
 }
