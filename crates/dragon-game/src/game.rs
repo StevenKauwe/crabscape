@@ -134,6 +134,8 @@ pub struct Game {
     pub bonks: usize,
     pub kills: usize,
     pub hit_stop: f64,
+    /// Source P.sq presentation impulse; the outer frame's animate pass decays it.
+    pub squash: f64,
     pub scroll: f64,
     pub scroll_v: f64,
     pub rng: Mulberry32,
@@ -208,6 +210,7 @@ impl Game {
             bonks: 0,
             kills: 0,
             hit_stop: 0.,
+            squash: 0.,
             scroll: 0.,
             scroll_v: 0.,
             rng: Mulberry32 { state: seed },
@@ -610,11 +613,13 @@ impl Game {
                             let armor = self.craft("armor");
                             damage::bonk(&mut self.player, p, view.scale, armor);
                             self.bonks += 1;
+                            self.squash = 0.3;
                             self.hit_stop = self.hit_stop.max(0.06);
                             self.drop_carried_piece(draw);
                             self.retire(draw);
                         } else {
                             damage::bump(&mut self.player, p, view.scale);
+                            self.squash = 0.25;
                         }
                     }
                 }
@@ -682,6 +687,7 @@ impl Game {
                         let armor = self.craft("armor");
                         damage::bonk(&mut self.player, pos, view.scale, armor);
                         self.bonks += 1;
+                        self.squash = 0.3;
                         self.hit_stop = self.hit_stop.max(0.06);
                         self.drop_carried_piece(draw);
                         self.retire(draw);
@@ -898,6 +904,7 @@ impl Game {
         for event in damage_events {
             if matches!(event, damage::DamageEvent::Bonk { .. }) {
                 self.bonks += 1;
+                self.squash = 0.3;
                 self.hit_stop = self.hit_stop.max(0.06);
                 self.drop_carried_piece(&mut draw);
             }
@@ -1727,12 +1734,14 @@ impl Game {
         events: &mut Vec<projectiles::Event>,
         draw: &mut impl FnMut() -> f64,
     ) {
-        let e = &mut self.enemies[index].target;
+        let enemy = &mut self.enemies[index];
+        let e = &mut enemy.target;
         if e.dead || e.calm {
             return;
         }
         if shot.dmg >= 0.6 || shot.mega {
             self.hit_stop = self.hit_stop.max(0.025);
+            enemy.squash = enemy.squash.max(0.3);
         }
         let start = events.len();
         let authority = projectiles::Authority {

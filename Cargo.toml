@@ -103,6 +103,7 @@ proptest = { version = "1.12", default-features = false, features = ["std"] }
 # On the desktop, let Bevy use several CPU cores. (The web build stays
 # single-threaded: browser threads need extra server setup.)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+time = { version = "0.3.55", features = ["local-offset"] }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 rfd = "0.17"
 bevy = { version = "0.20.0", default-features = false, features = ["multi_threaded"] }

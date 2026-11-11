@@ -19,8 +19,19 @@ web preview is still the existing JS game, not the native Rust prototypes.
 - Add `--save exported-rider.json --rider alexa` (or another explicit source slot)
   to preview a normalized profile without modifying its original file. Restart
   restores the original in-memory preview, including consumed charms.
+- `cargo run --bin dragon_adventure -- exported-rider.json rider3`: native adventure
+  presentation for an explicitly supplied built profile. Story, unlocked mission map,
+  roost feeding/crafting/skills, egg questions/hatching, results, pause and touch controls
+  use the ported adventure state machine. It never writes the input file. A visible
+  notice says progress remains in memory. The castle route is not activated yet.
 
-Both presentations use placeholder shapes. Headless Bevy ECS startup/input/pause tests
+The flight/mission harnesses use placeholder shapes. The adventure uses original
+procedural dragon/rider and enemy geometry, attack warnings, strikes, hazards and
+objective glyphs, tessellated into egui meshes. Shots/gems, scenery, narration/audio,
+builder/lobby and complete screen layouts remain unfinished. Canvas antialiasing,
+stroke joins and anisotropic strokes are approximations; command equality is not
+pixel equality. The presentation currently allocates paths/meshes per frame and has
+not been profiled on phones. Headless Bevy ECS startup/input/pause tests
 run without opening windows. Actual rendering and feel still need visual verification.
 There is no microphone, transcription, live network connection or persistence in these
 entry points.
@@ -43,7 +54,8 @@ entry points.
   live co-op is not yet integrated.
 - All specials, eight spells and Daddio powers, with explicit ordered world effects.
 - Roost hatch/release/milestones and source completion rewards, with injected time,
-  day and RNG. The prototype uses synthetic day/time, not real daily persistence.
+  day and RNG. The mission harness uses synthetic day/time. Adventure obtains the
+  system's local-day offset (including DST); daily persistence is still unfinished.
 - Source times-table hatch gate and freeze/reload/countdown state with injected time,
   including the five-answer requirement and delayed wrong-answer deadline. UI/storage
   callbacks are intents, not live writes.
@@ -112,6 +124,8 @@ JavaScriptCore oracles that extract actual legacy functions. Coverage includes:
 - all 24 base-mission lifecycle/objective regressions and source realm/effect checks;
 - original story/content catalog and 3,072 mission-unlock cases;
 - times/freeze interaction traces and 421 local-day/reload boundaries;
+- 198 original Canvas command streams covering dragons/riders, every enemy kind,
+  squash and attack warnings, hazards/strikes and objective geometry;
 - mission definitions/lifecycle, objective geometry, profile normalization and
   progression mutations against synthetic source-JS fixtures.
 

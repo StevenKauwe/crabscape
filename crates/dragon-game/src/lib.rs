@@ -10,6 +10,7 @@ pub mod authority;
 pub mod combat;
 pub mod content;
 pub mod coop;
+pub mod drawing;
 
 pub mod damage;
 
