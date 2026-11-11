@@ -1,19 +1,23 @@
 //! Solo Hollowbrook (m1–m4) integration harness, not the full browser game.
 //! Uses original update ordering and one explicit gameplay draw stream. Presentation
-//! particle/audio draws, party/allies, skills, growth changes, network and persistent
-//! result rewards are not ported. Consequently a seed is a Rust replay seed, not a
+//! particle/audio draws, wild allies, networking and persistent result rewards are
+//! not ported. Normalized profile, party combat, growth and abilities run in memory. Consequently a seed is a Rust replay seed, not a
 //! promise to reproduce a browser Math.random session. No personal saves are read.
 use crate::{
-    combat::{Breath, Kind as BreathKind, Mouth, Shot},
+    abilities,
+    combat::{Breath, Kind as BreathKind, Mouth, Path, Shot},
     damage::{self, Hazard, Strike, Used},
     enemies::{self, Enemy},
     flight::{FlightRules, Input, Player, Viewport},
     gems::{self, Gem},
     missions::{self, Effect, Leg, Mission, MissionDef, MissionWorld, WorldSnapshot},
     objectives::{self, Objective},
+    progression,
     projectiles::{self, Target},
     random::Mulberry32,
+    roost,
 };
+use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::OnceLock};
 fn definitions() -> &'static [MissionDef] {
     static DEFS: OnceLock<Vec<MissionDef>> = OnceLock::new();
@@ -78,7 +82,20 @@ pub struct Game {
     uid: u64,
     used: Used,
     target_t: BTreeMap<u64, f64>,
-    targets: Vec<Target>,
+    pub profile: Option<Value>,
+    pub progression_events: Vec<progression::Event>,
+    pub wings: BTreeMap<String, Wing>,
+    pub time: f64,
+    pub cast_count: u64,
+    pub last_cast: Option<String>,
+    pub rain: f64,
+    /// Caller-injected local day and timestamp; default zero is a synthetic clock.
+    pub completion_day: i64,
+    pub completion_now_ms: u64,
+    pub completion_events: Vec<roost::CompletionEvent>,
+    had_objective: bool,
+    pub heart_charm: bool,
+    pub pouch_charm: bool,
 }
 impl Game {
     pub fn first_flight(view: Viewport, seed: u32) -> Self {
@@ -133,7 +150,19 @@ impl Game {
             uid: 0,
             used: Used::default(),
             target_t: BTreeMap::new(),
-            targets: vec![],
+            profile: None,
+            progression_events: vec![],
+            wings: BTreeMap::new(),
+            time: 0.,
+            cast_count: 0,
+            last_cast: None,
+            rain: 0.,
+            completion_day: 0,
+            completion_now_ms: 0,
+            completion_events: vec![],
+            had_objective: false,
+            heart_charm: false,
+            pouch_charm: false,
         };
         // Validation is returned by step; do not panic for a malformed initial viewport.
         if valid_view(view) {
@@ -203,7 +232,11 @@ impl Game {
         }
         self.player.out = true;
         self.player.dizzy = 0.;
-        let lost = (self.mission.carry / 2.).ceil();
+        let lost = if self.pouch_charm {
+            0.
+        } else {
+            (self.mission.carry / 2.).ceil()
+        };
         self.lost += lost;
         self.mission.carry -= lost;
         for _ in 0..lost.min(8.) as usize {
@@ -218,7 +251,7 @@ impl Game {
         m.fail(&mut Adapter(self));
         self.mission = m;
     }
-    fn defeated(&mut self, id: u64, draw: &mut impl FnMut() -> f64) {
+    fn defeated(&mut self, id: u64, owner: &str, calmed: bool, draw: &mut impl FnMut() -> f64) {
         let Some(e) = self.enemies.iter().find(|e| e.target.id == id) else {
             return;
         };
@@ -227,15 +260,20 @@ impl Game {
         let boss = e.target.boss;
         let count = if boss {
             8
+        } else if calmed {
+            e.kind.definition().gems.div_ceil(2).min(6)
         } else {
             e.kind.definition().gems.min(6)
         };
         if !e.extra {
             self.mission.kills += 1;
-            self.kills += 1;
+            if owner != "remote" {
+                self.kills += 1;
+            }
         }
-        self.xp = (self.xp + if boss { 80. } else { 4. }).min(14440.);
-        self.hit_stop = self.hit_stop.max(if boss { 0.12 } else { 0.05 });
+        if !calmed {
+            self.hit_stop = self.hit_stop.max(if boss { 0.12 } else { 0.05 });
+        }
         for _ in 0..count {
             let x = self.view.scale.max(
                 (self.view.width - self.view.scale).min(p[0] + random(draw, -0.5, 0.5) * radius),
@@ -267,11 +305,14 @@ impl Game {
                     lost_one: false,
                 });
             }
+            self.add_xp(None, 80.);
             for e in &mut self.enemies {
                 if e.extra && !e.target.dead {
                     e.target.calm = true;
                 }
             }
+        } else if owner != "wild" && owner != "remote" {
+            self.add_xp(Some(owner), 4.);
         }
     }
     /// Clamp frame duration like frame(now). Zero duration still runs collisions and
@@ -289,12 +330,15 @@ impl Game {
             return Ok(());
         }
         self.objective_events.clear();
+        let mut view = view;
+        view.dragon_scale = self.body_scale(view.dragon_scale);
         self.view = view;
         let mut dt = elapsed.clamp(0., 0.05);
         if self.hit_stop > 0. {
             self.hit_stop -= dt;
             dt = 0.;
         }
+        self.time += dt;
         let mut rng = self.rng;
         let mut draw = || rng.next_unit();
         let origin = [self.player.x, self.player.y];
@@ -304,70 +348,48 @@ impl Game {
             view,
             FlightRules {
                 mission_done: self.mission.done,
-                ..FlightRules::default()
+                tea: self.craft("tea"),
+                magic: self.skill("magic") >= 1,
+                max_energy: abilities::max_energy(self.skill("magic")),
             },
         )?;
-        if events.shoot && self.player.main_cool <= 0. {
-            let breath = Breath {
-                kind: BreathKind::Bond,
-                stage: 0,
-                owner: "bond".into(),
-                follower: false,
-                skill: 0,
-                bellows: 0.,
-                dad: false,
-            };
-            let s = view.scale * view.dragon_scale;
-            self.shots.extend(breath.emit(
-                Mouth {
-                    x: origin[0] + f64::from(self.player.facing) * s * 0.95,
-                    y: origin[1] - s * 0.2,
-                    facing: f64::from(self.player.facing),
-                },
-                view.scale,
-                [self.player.vx, self.player.vy],
-                &mut draw,
-            ));
-            self.player.main_cool = breath.cooldown();
-            self.player.fire_flash = 0.12;
+        if events.mega_blast {
+            self.apply_ability_events(abilities::mega_blast(&self.target_snapshot()), &mut draw);
         }
-        // One shot at a time, backwards, so a boss defeat calms adds before the
-        // next projectile can hit them. Reuse one-shot storage across the frame.
-        let mut pending = std::mem::take(&mut self.shots);
-        let mut one = Vec::with_capacity(1);
-        while let Some(shot) = pending.pop() {
-            one.push(shot);
-            self.targets.clear();
-            self.targets
-                .extend(self.enemies.iter().map(|e| e.target.clone()));
-            let events = projectiles::update_shots(
-                &mut one,
-                &mut self.targets,
-                dt,
-                projectiles::ShotWorld {
-                    width: view.width,
-                    height: view.height,
-                    scale: view.scale,
-                    player: [self.player.x, self.player.y],
-                    authority: projectiles::Authority::default(),
-                },
-            );
-            for (e, t) in self.enemies.iter_mut().zip(&self.targets) {
-                if t.hp < e.target.hp {
-                    self.hit_stop = self.hit_stop.max(0.025);
-                }
-                e.target.clone_from(t);
-            }
-            for event in events {
-                if let projectiles::Event::Defeat { id, .. } = event {
-                    self.defeated(id, &mut draw);
-                }
-            }
-            if let Some(shot) = one.pop() {
-                self.shots.push(shot);
-            }
+        if events.shadow_burst {
+            let mut p = self.player.clone();
+            p.x = origin[0];
+            p.y = origin[1];
+            let effects =
+                abilities::shadow_burst(&p, &self.ability_rules(), &self.target_snapshot());
+            self.apply_ability_events(effects, &mut draw);
         }
-        self.shots.reverse();
+        if events.shoot {
+            self.shoot_all(origin, &mut draw);
+        }
+        self.view.dragon_scale = self.body_scale(view.dragon_scale);
+        self.view.clamp(&mut self.player);
+        self.update_wings(dt, &mut draw);
+        let world = projectiles::ShotWorld {
+            width: view.width,
+            height: view.height,
+            scale: view.scale,
+            player: [self.player.x, self.player.y],
+            authority: projectiles::Authority::default(),
+        };
+        let mut shots = std::mem::take(&mut self.shots);
+        projectiles::update_shots_with_world(
+            &mut shots,
+            &mut CollisionAdapter {
+                game: self,
+                draw: &mut draw,
+            },
+            dt,
+            world,
+        );
+        self.shots = shots;
+        self.view.dragon_scale = self.body_scale(view.dragon_scale);
+        view = self.view;
         let mut index = 0;
         while index < self.enemies.len() {
             if !self.enemies[index].target.dead {
@@ -430,7 +452,8 @@ impl Game {
                                 .target;
                             let p = [t.x, t.y];
                             if hurts {
-                                damage::bonk(&mut self.player, p, view.scale, 0.);
+                                let armor = self.craft("armor");
+                                damage::bonk(&mut self.player, p, view.scale, armor);
                                 self.bonks += 1;
                                 self.hit_stop = self.hit_stop.max(0.06);
                                 self.retire(&mut draw);
@@ -470,13 +493,14 @@ impl Game {
         self.target_t
             .retain(|id, _| self.enemies.iter().any(|e| e.target.id == *id));
         let active = !self.mission.done && self.mission.fail_t == 0.;
+        let armor = self.craft("armor");
         let damage_events = damage::update_hazards(
             &mut self.hazards,
             &mut self.strikes,
             &mut self.player,
             dt,
             view,
-            0.,
+            armor,
             &mut self.used,
             |p| {
                 if active && p.hearts == 0 {
@@ -497,25 +521,68 @@ impl Game {
         let xp = &mut self.xp;
         let failing = self.mission.fail_t != 0.;
         let sweeping = self.mission.done && !failing;
+        let profile = &mut self.profile;
+        let progression_events = &mut self.progression_events;
+        let followers: Vec<_> = self.wings.values().map(|w| [w.x, w.y]).collect();
         gems::update_gems(
             &mut self.gems,
             dt,
             &self.player,
             view,
             sweeping,
-            &[],
+            &followers,
             |gem| {
                 if failing {
                     *earned += gem.value;
+                    if let Some(p) = profile.as_mut() {
+                        p["earned"] = json!(*earned);
+                    }
                 } else {
                     *carry += gem.value;
                 }
-                *xp = (*xp + gem.value).min(14440.);
+                let multiplier = profile
+                    .as_ref()
+                    .map(|p| progression::team_summary(p, &[], true).xp_multiplier)
+                    .unwrap_or(1.);
+                award_xp(
+                    profile,
+                    xp,
+                    progression_events,
+                    None,
+                    gem.value * multiplier,
+                );
             },
         );
         let mut m = std::mem::take(&mut self.mission);
         m.step(dt, self.definition, &mut Adapter(self), &mut draw);
         self.mission = m;
+        if let Some(ok) = self.result
+            && let Some(p) = self.profile.as_mut()
+        {
+            let outcome = roost::complete_mission(
+                p,
+                &[],
+                true,
+                &roost::Completion {
+                    mission_id: self.definition.id.clone(),
+                    champion: false,
+                    ok,
+                    carry: self.mission.carry,
+                    banked: self.mission.banked,
+                    bonks: self.bonks as u32,
+                    elapsed: self.mission.t,
+                    par: 0.,
+                    had_objective: self.had_objective,
+                    day: self.completion_day,
+                    now_ms: self.completion_now_ms,
+                },
+            )
+            .map_err(|_| "invalid profile completion")?;
+            self.mission.carry = outcome.carry;
+            self.mission.banked = outcome.banked;
+            self.earned = number(&p["earned"]);
+            self.completion_events = outcome.events;
+        }
         let want =
             if self.mission.leg == Leg::Fly && !self.mission.done && self.mission.fail_t == 0. {
                 view.scale * 4.2
@@ -524,6 +591,7 @@ impl Game {
             };
         self.scroll_v += (want - self.scroll_v) * (dt * 1.5).min(1.);
         self.scroll += self.scroll_v * dt;
+        self.rain = (self.rain - dt).max(0.);
         self.rng = rng;
         Ok(())
     }
@@ -587,7 +655,12 @@ impl MissionWorld for Adapter<'_> {
     fn apply(&mut self, effect: Effect) {
         let g = &mut self.0;
         match effect {
-            Effect::Bank(n) => g.earned += n,
+            Effect::Bank(n) => {
+                g.earned += n;
+                if let Some(p) = g.profile.as_mut() {
+                    p["earned"] = json!(g.earned);
+                }
+            }
             Effect::ClearObjective => {
                 g.objective = None;
                 g.objective_failed = false;
@@ -653,6 +726,7 @@ impl Game {
         let Some(ob) = self.objective.as_mut() else {
             return;
         };
+        self.had_objective = true;
         let riders = if self.player.out {
             vec![]
         } else {
@@ -740,6 +814,553 @@ impl Game {
                 self.fail_reason = Some(reason.clone());
             }
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Wing {
+    pub x: f64,
+    pub y: f64,
+    pub t: f64,
+}
+#[derive(Clone)]
+struct DragonInfo {
+    id: String,
+    kind: BreathKind,
+    xp: f64,
+    bonded: bool,
+}
+fn number(v: &Value) -> f64 {
+    v.as_f64().unwrap_or(0.)
+}
+fn stage(xp: f64) -> usize {
+    match crate::level_of(xp) {
+        12.. => 3,
+        8.. => 2,
+        4.. => 1,
+        _ => 0,
+    }
+}
+fn main_index(p: &Value) -> usize {
+    p["party"]
+        .as_array()
+        .and_then(|a| a.iter().position(|d| d["id"] == p["main"]))
+        .unwrap_or(0)
+}
+fn wing_index(p: &Value) -> Option<usize> {
+    let a = p["party"].as_array()?;
+    let m = main_index(p);
+    if a.get(m)?["bonded"] != true {
+        Some(0)
+    } else {
+        (0..a.len()).find(|i| *i != m)
+    }
+}
+fn award_xp(
+    profile: &mut Option<Value>,
+    xp: &mut f64,
+    events: &mut Vec<progression::Event>,
+    owner: Option<&str>,
+    amount: f64,
+) {
+    if let Some(p) = profile.as_mut() {
+        let ids: Vec<String> = if let Some(owner) = owner {
+            let party = p["party"].as_array().expect("validated profile party");
+            vec![
+                party.iter().find(|d| d["id"] == owner).unwrap_or(&party[0])["id"]
+                    .as_str()
+                    .expect("validated id")
+                    .into(),
+            ]
+        } else {
+            p["party"]
+                .as_array()
+                .expect("validated party")
+                .iter()
+                .map(|d| d["id"].as_str().expect("validated id").into())
+                .collect()
+        };
+        for dragon in ids {
+            events.extend(
+                progression::apply(
+                    p,
+                    &[],
+                    true,
+                    progression::Command::AddXp { dragon, amount },
+                    0.,
+                )
+                .expect("validated in-memory XP command"),
+            );
+        }
+        *xp = number(&p["party"][0]["xp"]);
+    } else {
+        *xp = (*xp + amount).min(14440.);
+    }
+}
+impl Game {
+    /// Takes an already-normalized, synthetic or explicitly supplied profile by value.
+    /// Mutations remain in memory. No persistence, account, or browser access occurs.
+    pub fn from_profile(
+        id: &str,
+        profile: Value,
+        view: Viewport,
+        seed: u32,
+    ) -> Result<Self, &'static str> {
+        let party = profile["party"]
+            .as_array()
+            .ok_or("profile must be normalized")?;
+        if party.is_empty()
+            || party[0]["bonded"] != true
+            || !profile["craft"].is_object()
+            || !profile["skills"].is_object()
+        {
+            return Err("profile must be normalized");
+        }
+        for d in party {
+            if d["id"].as_str().is_none()
+                || d["xp"].as_f64().is_none()
+                || !matches!(
+                    d["kind"].as_str(),
+                    Some("bond" | "flame" | "spark" | "boulder" | "frost" | "star")
+                )
+            {
+                return Err("invalid normalized dragon");
+            }
+        }
+        let mut g = Self::start(id, view, seed)?;
+        g.earned = number(&profile["earned"]);
+        g.xp = number(&profile["party"][0]["xp"]);
+        g.profile = Some(profile);
+        // Source startMission computes starting hearts before consuming this run's charms.
+        g.player.hearts = g.max_hearts();
+        g.player.energy = abilities::max_energy(g.skill("magic"));
+        let p = g.profile.as_mut().expect("profile just assigned");
+        let mut consume = |key: &str| {
+            let n = number(&p["charms"][key]);
+            if n > 0. {
+                p["charms"][key] = json!(n - 1.);
+                true
+            } else {
+                false
+            }
+        };
+        g.heart_charm = consume("heart");
+        g.pouch_charm = consume("pouch");
+        if consume("start") {
+            g.player.shield = 10.;
+            g.player.magnet = 10.;
+        }
+        g.view.dragon_scale = g.body_scale(view.dragon_scale);
+        g.view.clamp(&mut g.player);
+        Ok(g)
+    }
+    /// Apply a requested in-memory progression command; timestamp is supplied by the caller.
+    pub fn apply_progression(
+        &mut self,
+        command: progression::Command,
+        now_ms: f64,
+    ) -> Result<Vec<progression::Event>, progression::Error> {
+        let p = self
+            .profile
+            .as_mut()
+            .ok_or(progression::Error::InvalidProfile)?;
+        let events = progression::apply(p, &[], true, command, now_ms)?;
+        self.xp = number(&p["party"][0]["xp"]);
+        self.earned = number(&p["earned"]);
+        self.view.dragon_scale = self.body_scale(self.view.dragon_scale);
+        self.progression_events.extend(events.clone());
+        Ok(events)
+    }
+    fn craft(&self, key: &str) -> f64 {
+        self.profile
+            .as_ref()
+            .map(|p| number(&p["craft"][key]).min(3.))
+            .unwrap_or(0.)
+    }
+    fn skill(&self, key: &str) -> u8 {
+        self.profile
+            .as_ref()
+            .map(|p| number(&p["skills"][key]) as u8)
+            .unwrap_or(0)
+    }
+    fn daddio(&self) -> bool {
+        self.profile
+            .as_ref()
+            .and_then(|p| p["build"]["name"].as_str())
+            .is_some_and(|n| n.trim().eq_ignore_ascii_case("daddio"))
+    }
+    fn body_scale(&self, fallback: f64) -> f64 {
+        if self.profile.is_some() {
+            crate::dragon_scale(self.xp, self.daddio())
+        } else {
+            fallback
+        }
+    }
+    pub fn max_hearts(&self) -> u8 {
+        5 + self.craft("armor") as u8
+            + u8::from(self.skill("rider") >= 4)
+            + u8::from(self.heart_charm)
+    }
+    pub fn dragon_scale(&self) -> f64 {
+        self.body_scale(self.view.dragon_scale)
+    }
+    fn add_xp(&mut self, owner: Option<&str>, amount: f64) {
+        award_xp(
+            &mut self.profile,
+            &mut self.xp,
+            &mut self.progression_events,
+            owner,
+            amount,
+        );
+        self.view.dragon_scale = self.body_scale(self.view.dragon_scale);
+    }
+    fn dragon(&self, index: usize) -> DragonInfo {
+        if let Some(p) = &self.profile {
+            let d = &p["party"][index];
+            DragonInfo {
+                id: d["id"].as_str().expect("validated id").into(),
+                kind: serde_json::from_value(d["kind"].clone()).expect("validated kind"),
+                xp: number(&d["xp"]),
+                bonded: d["bonded"] == true,
+            }
+        } else {
+            DragonInfo {
+                id: "bond".into(),
+                kind: BreathKind::Bond,
+                xp: 0.,
+                bonded: true,
+            }
+        }
+    }
+    fn breath(
+        &mut self,
+        d: DragonInfo,
+        follower: bool,
+        origin: [f64; 2],
+        draw: &mut impl FnMut() -> f64,
+    ) -> f64 {
+        let b = Breath {
+            kind: d.kind,
+            stage: stage(d.xp),
+            owner: d.id.clone(),
+            follower,
+            skill: self.skill("breath"),
+            bellows: self.craft("bellows"),
+            dad: !follower && self.daddio(),
+        };
+        let scale = if d.bonded {
+            self.body_scale(self.view.dragon_scale)
+        } else {
+            crate::dragon_scale(d.xp, false)
+        };
+        let s = self.view.scale * scale;
+        let pos = if d.bonded {
+            origin
+        } else {
+            self.wings.get(&d.id).map(|w| [w.x, w.y]).unwrap_or(origin)
+        };
+        self.shots.extend(b.emit(
+            Mouth {
+                x: pos[0] + f64::from(self.player.facing) * s * 0.95,
+                y: pos[1] - s * 0.2,
+                facing: f64::from(self.player.facing),
+            },
+            self.view.scale,
+            [self.player.vx, self.player.vy],
+            draw,
+        ));
+        b.cooldown()
+    }
+    fn shoot_all(&mut self, origin: [f64; 2], draw: &mut impl FnMut() -> f64) {
+        let tea = 1. - 0.08 * self.craft("tea");
+        let bs = self.skill("breath");
+        let main = self.profile.as_ref().map(main_index).unwrap_or(0);
+        if self.player.main_cool <= 0. {
+            let d = self.dragon(main);
+            self.player.main_cool =
+                self.breath(d, false, origin, draw) * tea * if bs >= 3 { 0.85 } else { 1. };
+            self.player.fire_flash = 0.12;
+        }
+        if let Some(i) = self.profile.as_ref().and_then(wing_index) {
+            let d = self.dragon(i);
+            let cool = self
+                .player
+                .follow_cool
+                .entry(d.id.clone())
+                .or_insert_with(|| random(draw, 0., 0.6));
+            if *cool <= 0. {
+                let id = d.id.clone();
+                let cd =
+                    self.breath(d, true, origin, draw) * (if bs >= 4 { 1.85 } else { 2.6 }) * tea;
+                self.player.follow_cool.insert(id, cd);
+            }
+        }
+        let riding = self
+            .profile
+            .as_ref()
+            .is_some_and(|p| progression::riding(p, &progression::team_summary(p, &[], true)));
+        if riding && self.player.weapon_cool <= 0. {
+            let path = self.path();
+            self.shots.push(path.weapon(
+                origin,
+                f64::from(self.player.facing),
+                self.view.scale,
+                self.body_scale(self.view.dragon_scale),
+                self.craft("bellows"),
+            ));
+            self.player.weapon_cool = path.cooldown();
+        }
+    }
+    fn update_wings(&mut self, dt: f64, draw: &mut impl FnMut() -> f64) {
+        let Some(p) = &self.profile else {
+            return;
+        };
+        let main = main_index(p);
+        let ids: Vec<(usize, String)> = p["party"]
+            .as_array()
+            .expect("validated party")
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d["bonded"] != true)
+            .map(|(i, d)| (i, d["id"].as_str().expect("id").into()))
+            .collect();
+        let s = self.view.scale;
+        let facing = f64::from(self.player.facing);
+        let mut trail = 0.;
+        for (i, id) in ids {
+            let w = self.wings.entry(id).or_insert_with(|| Wing {
+                x: self.player.x - facing * s,
+                y: self.player.y,
+                t: draw() * 6.,
+            });
+            let (tx, ty) = if i == main {
+                (
+                    self.player.x + facing * s * 1.3,
+                    self.player.y - s * 0.15 + (self.time * 2.).sin() * s * 0.08,
+                )
+            } else {
+                let at = (
+                    self.player.x - facing * s * (1.25 + trail * 0.85),
+                    self.player.y + s * 0.3 + (self.time * 2.2 + trail).sin() * s * 0.18,
+                );
+                trail += 1.;
+                at
+            };
+            w.x += (tx - w.x) * (dt * 5.).min(1.);
+            w.y += (ty - w.y) * (dt * 5.).min(1.);
+            w.t += dt;
+        }
+    }
+    fn path(&self) -> Path {
+        match self
+            .profile
+            .as_ref()
+            .and_then(|p| p["build"]["path"].as_str())
+        {
+            Some("forge") => Path::Forge,
+            Some("storm") => Path::Storm,
+            Some("guardian") => Path::Guardian,
+            _ => Path::Shadow,
+        }
+    }
+    fn target_snapshot(&self) -> Vec<Target> {
+        self.enemies.iter().map(|e| e.target.clone()).collect()
+    }
+    fn ability_rules(&self) -> abilities::Rules {
+        let words = if let Some(p) = &self.profile {
+            let cleared: Vec<String> = p["cleared"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let loadout: Vec<abilities::Spell> = p["loadout"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let rank = ["m4", "m8", "m12", "m16", "m20", "m24"]
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| cleared.iter().any(|c| c == **m))
+                .map(|(i, _)| i + 1)
+                .max()
+                .unwrap_or(0);
+            abilities::active_words(Some((&cleared, &loadout, rank)))
+        } else {
+            vec![abilities::Spell::Naina]
+        };
+        abilities::Rules {
+            playing: self.result.is_none(),
+            has_player: true,
+            daddio: self.daddio(),
+            path: self.path(),
+            rider_skill: self.skill("rider"),
+            magic_skill: self.skill("magic"),
+            bellows: self.craft("bellows"),
+            scale: self.view.scale,
+            max_hearts: self.max_hearts(),
+            active_words: words,
+        }
+    }
+    pub fn active_words(&self) -> Vec<abilities::Spell> {
+        self.ability_rules().active_words
+    }
+    pub fn select_main(&mut self, index: usize) -> Result<(), progression::Error> {
+        let id = self
+            .profile
+            .as_ref()
+            .and_then(|p| p["party"].get(index))
+            .and_then(|d| d["id"].as_str())
+            .ok_or(progression::Error::UnknownDragon)?
+            .to_owned();
+        self.apply_progression(progression::Command::SelectMain(id), self.time * 1000.)?;
+        Ok(())
+    }
+    pub fn swap_main(&mut self) -> Result<(), progression::Error> {
+        self.apply_progression(progression::Command::Swap, self.time * 1000.)?;
+        Ok(())
+    }
+    pub fn special(&mut self) {
+        let r = self.ability_rules();
+        let targets = self.target_snapshot();
+        let effects = abilities::do_special(&mut self.player, &r, &targets);
+        let mut rng = self.rng;
+        self.apply_ability_events(effects, &mut || rng.next_unit());
+        self.rng = rng;
+    }
+    pub fn cast(&mut self, spell: abilities::Spell) {
+        let r = self.ability_rules();
+        let targets = self.target_snapshot();
+        let effects = abilities::cast_spell(&mut self.player, &r, &targets, spell);
+        let mut rng = self.rng;
+        self.apply_ability_events(effects, &mut || rng.next_unit());
+        self.rng = rng;
+    }
+    pub fn dad_power(&mut self, power: abilities::DadPower) {
+        let r = self.ability_rules();
+        let targets = self.target_snapshot();
+        let mut rng = self.rng;
+        let effects =
+            abilities::dad_power(&mut self.player, &r, &targets, power, || rng.next_unit());
+        self.apply_ability_events(effects, &mut || rng.next_unit());
+        self.rng = rng;
+    }
+    fn apply_ability_events(
+        &mut self,
+        effects: Vec<abilities::Event>,
+        draw: &mut impl FnMut() -> f64,
+    ) {
+        for effect in effects {
+            match effect {
+                abilities::Event::Hit { id, shot } => {
+                    if let Some(i) = self.enemies.iter().position(|e| e.target.id == id) {
+                        self.hit(
+                            i,
+                            &shot,
+                            projectiles::Authority::default(),
+                            &mut vec![],
+                            draw,
+                        );
+                    }
+                }
+                abilities::Event::Calm { id } => {
+                    if let Some(e) = self
+                        .enemies
+                        .iter_mut()
+                        .find(|e| e.target.id == id && !e.target.dead && !e.target.calm)
+                    {
+                        e.target.calm = true;
+                        self.defeated(id, "bond", true, draw);
+                    }
+                }
+                abilities::Event::GemRing { count, rich } => {
+                    for i in 0..count {
+                        let a = f64::from(i) / f64::from(count) * std::f64::consts::TAU;
+                        let s = self.view.scale;
+                        let x = s.max((self.view.width - s).min(self.player.x + a.cos() * s * 2.));
+                        let y = (self.view.top_limit + s * 0.5).max(
+                            (self.view.ground_y - s * 0.5).min(self.player.y + a.sin() * s * 1.3),
+                        );
+                        let gem = if rich {
+                            Gem {
+                                x,
+                                y,
+                                t: draw() * 6.,
+                                life: 10.,
+                                golden: true,
+                                value: 3.,
+                                r: s * 0.3,
+                                ..Gem::default()
+                            }
+                        } else {
+                            make_gem(x, y, 0., 0., self.view, draw)
+                        };
+                        self.gems.push(gem);
+                    }
+                }
+                abilities::Event::Cast { key } => {
+                    self.cast_count += 1;
+                    self.last_cast = Some(key);
+                }
+                abilities::Event::Rain { duration } => self.rain = duration,
+                abilities::Event::TooTired => {}
+            }
+        }
+    }
+    fn hit(
+        &mut self,
+        index: usize,
+        shot: &Shot,
+        authority: projectiles::Authority,
+        events: &mut Vec<projectiles::Event>,
+        draw: &mut impl FnMut() -> f64,
+    ) {
+        let e = &mut self.enemies[index].target;
+        if e.dead || e.calm {
+            return;
+        }
+        if shot.dmg >= 0.6 || shot.mega {
+            self.hit_stop = self.hit_stop.max(0.025);
+        }
+        let start = events.len();
+        projectiles::hit_enemy(e, shot, authority, events);
+        let defeated = events[start..].iter().find_map(|e| {
+            if let projectiles::Event::Defeat { id, owner } = e {
+                Some((*id, owner.clone()))
+            } else {
+                None
+            }
+        });
+        if let Some((id, owner)) = defeated {
+            self.defeated(id, &owner, false, draw);
+        }
+    }
+}
+struct CollisionAdapter<'a, F> {
+    game: &'a mut Game,
+    draw: &'a mut F,
+}
+impl<F: FnMut() -> f64> projectiles::CollisionWorld for CollisionAdapter<'_, F> {
+    fn target_count(&self) -> usize {
+        self.game.enemies.len()
+    }
+    fn target(&self, index: usize) -> &Target {
+        &self.game.enemies[index].target
+    }
+    fn hit(
+        &mut self,
+        index: usize,
+        shot: &Shot,
+        authority: projectiles::Authority,
+        events: &mut Vec<projectiles::Event>,
+    ) {
+        self.game.hit(index, shot, authority, events, self.draw);
     }
 }
 

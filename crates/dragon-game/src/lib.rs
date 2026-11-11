@@ -1,9 +1,10 @@
-//! First, deliberately bounded slice of the Dragon Rust port.
+//! Source-compatible Dragon gameplay cores and an incrementally integrated runtime.
 //!
 //! Flight uses explicit recorded frame durations and viewport geometry, not CrabScape's
 //! fixed tick: subdividing the original JS integrator changes acceleration and damping.
 //! No wall clock, storage, microphone, transcription or network side effects live here.
 pub mod abilities;
+pub mod authority;
 pub mod combat;
 
 pub mod damage;
@@ -15,6 +16,7 @@ pub mod gems;
 pub mod enemies;
 
 pub mod missions;
+pub mod network_world;
 pub mod objectives;
 
 pub mod profile;
@@ -24,7 +26,9 @@ pub mod projectiles;
 
 pub mod random;
 
+pub mod roost;
 pub mod save;
+pub mod save_transfer;
 
 /// Current Dragon XP curve, matching `levelOf` in `web/dragon/index.html`.
 pub fn level_of(xp: f64) -> u8 {
