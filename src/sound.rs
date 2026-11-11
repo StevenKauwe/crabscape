@@ -256,7 +256,7 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
 
 /// Every tenth level and the last get the longer chord.
 pub fn level_chord(level: u32) -> bool {
-    level % 10 == 0 || level >= crabsim::skills::MAX_LEVEL
+    level.is_multiple_of(10) || level >= crabsim::skills::MAX_LEVEL
 }
 
 /// `samples` starting `secs` into a longer sound.

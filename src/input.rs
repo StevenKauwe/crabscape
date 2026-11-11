@@ -829,6 +829,7 @@ mod tests {
                 .init_resource::<Touches>()
                 .init_resource::<crate::settings::panel::Open>()
                 .init_resource::<crate::shell_inventory::Open>()
+                .init_resource::<crate::skills_panel::Open>()
                 .init_resource::<crate::codes::CodeBox>()
                 .insert_resource(crabsim::Sim::with_one_crab(crabsim::SPAWN))
                 .insert_resource(TouchControls {
