@@ -164,3 +164,78 @@ fn bone_hall_full_window_cell_step_budget() {
     );
     assert!(p95 < 1000.0 / 60.0);
 }
+
+mod common;
+
+#[test]
+fn no_dig_sequence_reaches_a_locked_place_early() {
+    use common::route::{self, Kit};
+    use crabsim::underwater::{Cell, World};
+    // The route solver has no dig move. Search the lock's immediate approach,
+    // then apply adversarial material strokes to its sill and ceiling. These
+    // immutable cuts separate both sides regardless of the excavation history.
+    for kit in [
+        Kit::eggs(0),
+        Kit::eggs(1),
+        Kit::eggs(2),
+        Kit::eggs(3),
+        Kit {
+            scissors: true,
+            ..Kit::eggs(3)
+        },
+        Kit {
+            glass: true,
+            ..Kit::eggs(3)
+        },
+        Kit {
+            crusher: true,
+            ..Kit::eggs(3)
+        },
+        Kit {
+            dactyls: true,
+            ..Kit::eggs(3)
+        },
+        Kit {
+            glass: true,
+            ..Kit::eggs(0)
+        },
+        Kit {
+            scissors: true,
+            glass: true,
+            dactyls: true,
+            ..Kit::eggs(6)
+        },
+    ] {
+        let start = route::start_node(kit, Vec2::new(17930.0, -9990.0), false);
+        let survey = route::survey_from(
+            start,
+            kit,
+            |n| {
+                let p = n.mover().pos;
+                p.x < 17800.0 || p.x > 18080.0 || p.y > -9700.0
+            },
+            8,
+        );
+        assert!(
+            survey.nodes.iter().all(|n| n.mover().pos.x < 18080.0),
+            "{} crosses the locked narrows",
+            kit.name()
+        );
+        let level = Level::test_level();
+        let mut cells = World::from_level_settled(&level);
+        for at in [Vec2::new(18040.0, -10008.0), Vec2::new(18040.0, -9792.0)] {
+            cells.follow_player(&level, at.x, at.y);
+            let (x, y) = cells.local_cell(at.x, at.y);
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                for _ in 0..8 {
+                    assert!(
+                        !cells.push_for_crab(x, y, dx, dy, 10000),
+                        "{} digs through the gate frame",
+                        kit.name()
+                    );
+                }
+            }
+            assert_eq!(cells.cell(x as i32, y as i32), Cell::Rock);
+        }
+    }
+}

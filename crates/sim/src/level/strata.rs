@@ -3,6 +3,46 @@ use super::{Level, lower_canyon};
 use crate::underwater::Cell;
 use bevy_math::{Rect, Vec2};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PocketKind {
+    Tunnel,
+    Chamber,
+}
+
+/// A sediment refuge and its doors, derived from the authored frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pocket {
+    pub name: &'static str,
+    pub frame: Rect,
+    pub mouths: Vec<Rect>,
+    pub kind: PocketKind,
+}
+
+fn pockets() -> &'static [Pocket] {
+    static POCKETS: std::sync::OnceLock<Vec<Pocket>> = std::sync::OnceLock::new();
+    POCKETS.get_or_init(|| {
+        lower_canyon::frames()
+            .into_iter()
+            .filter(|(name, _)| {
+                matches!(
+                    *name,
+                    "home burrow" | "mantis mouth" | "clay tunnel" | "bone hall"
+                )
+            })
+            .map(|(name, frame)| Pocket {
+                name,
+                frame,
+                mouths: lower_canyon::plugs(name, frame),
+                kind: if name == "bone hall" {
+                    PocketKind::Chamber
+                } else {
+                    PocketKind::Tunnel
+                },
+            })
+            .collect()
+    })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct StrataBody {
     pub frame: Rect,
@@ -43,6 +83,31 @@ fn bodies() -> &'static [StrataBody] {
 }
 
 impl Level {
+    pub fn pockets(&self) -> Vec<Pocket> {
+        self.pocket_refs().cloned().collect()
+    }
+
+    pub(crate) fn pocket_refs(&self) -> impl Iterator<Item = &Pocket> {
+        pockets().iter().filter(|p| {
+            self.rocks
+                .iter()
+                .any(|r| r.contains(p.frame.min - Vec2::splat(2.0)))
+        })
+    }
+
+    /// Allocation-free geometry shared with the Tunnel landmarks.
+    pub fn tunnel_interiors(&self) -> impl Iterator<Item = Rect> + '_ {
+        self.pocket_refs()
+            .filter(|p| p.kind == PocketKind::Tunnel)
+            .map(|p| p.frame)
+            .chain(std::iter::once(Rect::new(
+                5371.0,
+                -1500.0,
+                5500.0,
+                self.crack.y,
+            )))
+    }
+
     /// Derived authoring data, never part of saved Level state. Custom levels
     /// without the corresponding bedrock outline have no strata body there.
     pub fn strata(&self) -> Vec<StrataBody> {
