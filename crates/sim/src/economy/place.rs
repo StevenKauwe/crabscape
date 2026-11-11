@@ -45,16 +45,18 @@ const fn s(kind: NodeKind, x: f32) -> NodeSpot {
 /// all at least 40 units apart.
 pub const SPOTS: &[NodeSpot] = &[
     // Tier 1.
-    s(K::MusselClump, 190.0),
-    s(K::KelpStand, 250.0),
-    s(K::GritHeap, 310.0),
-    s(K::SnailRocks, 370.0),
-    s(K::ShoreGlow, 430.0),
-    s(K::MusselClump, 500.0),
-    s(K::KelpStand, 560.0),
-    s(K::GritHeap, 780.0),
-    s(K::SnailRocks, 850.0),
-    s(K::ShoreGlow, 930.0),
+    // The home side on foot (x 175 to 535; past 600 the floor climbs to a
+    // plateau): two of each kind, 40 apart.
+    s(K::MusselClump, 175.0),
+    s(K::KelpStand, 215.0),
+    s(K::GritHeap, 255.0),
+    s(K::SnailRocks, 295.0),
+    s(K::ShoreGlow, 335.0),
+    s(K::MusselClump, 375.0),
+    s(K::KelpStand, 415.0),
+    s(K::GritHeap, 455.0),
+    s(K::SnailRocks, 495.0),
+    s(K::ShoreGlow, 535.0),
     s(K::MusselClump, 1010.0),
     s(K::KelpStand, 1090.0),
     s(K::GritHeap, 1850.0),
