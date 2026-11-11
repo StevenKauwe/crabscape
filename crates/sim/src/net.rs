@@ -341,6 +341,8 @@ impl Msg {
 /// draw it and for enemies to hunt it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CrabState {
+    /// Visible equipment only; ownership and tokens remain personal.
+    pub ribbon: Option<u8>,
     pub id: PlayerId,
     pub mover: Mover,
     pub fighter: Fighter,

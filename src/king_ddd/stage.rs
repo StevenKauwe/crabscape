@@ -14,8 +14,6 @@ struct BookPage;
 struct IndexPage(usize);
 #[derive(Component)]
 struct BellMarker(usize);
-#[derive(Component)]
-struct RoyalRibbon;
 #[derive(Clone, Copy)]
 enum Role {
     King,
@@ -193,12 +191,6 @@ fn build(
             18.0,
         );
     }
-    commands.spawn((
-        RoyalRibbon,
-        Sprite::from_color(Color::WHITE, Vec2::new(15.0, 24.0)),
-        Transform::default(),
-        Visibility::Hidden,
-    ));
     for (x, top, width) in [
         (395.0, royal::FLOOR_Y + 470.0, 126.0),
         (royal::RIGHT_EDGE - 25.0, royal::CEILING_Y + 100.0, 110.0),
@@ -721,15 +713,8 @@ fn activity_props(
     local: Res<crate::coop::LocalId>,
     known: Res<crate::memory::Known>,
     time: Res<Time>,
-    mut pages: Query<(&IndexPage, &mut Transform, &mut Visibility), Without<RoyalRibbon>>,
-    mut bells: Query<
-        (&BellMarker, &mut Sprite, &mut Visibility),
-        (Without<IndexPage>, Without<RoyalRibbon>),
-    >,
-    mut ribbons: Query<
-        (&mut Sprite, &mut Transform, &mut Visibility),
-        (With<RoyalRibbon>, Without<IndexPage>, Without<BellMarker>),
-    >,
+    mut pages: Query<(&IndexPage, &mut Transform, &mut Visibility)>,
+    mut bells: Query<(&BellMarker, &mut Sprite, &mut Visibility), Without<IndexPage>>,
 ) {
     let Some(crab) = sim.crab(local.0) else {
         return;
@@ -758,24 +743,6 @@ fn activity_props(
         } else {
             Color::srgb(0.82, 0.58, 0.16)
         };
-    }
-    for (mut sprite, mut at, mut visible) in &mut ribbons {
-        let show = royal::in_castle(crab.mover.pos) && crab.royal.wearing.is_some();
-        *visible = if show {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-        if let Some(i) = crab.royal.wearing {
-            sprite.color = [
-                Color::srgb(0.17, 0.57, 0.38),
-                Color::srgb(0.65, 0.16, 0.18),
-                Color::srgb(0.80, 0.59, 0.17),
-                Color::srgb(0.46, 0.24, 0.65),
-            ][usize::from(i.min(3))];
-        }
-        at.translation =
-            (crab.mover.pos + Vec2::new(35.0, crab.mover.height(&sim.tuning) + 10.0)).extend(13.0);
     }
 }
 fn swing(claw: crabsim::combat::Claw, tick: u32, t: &crabsim::Tuning) -> crabsim::combat::Swing {

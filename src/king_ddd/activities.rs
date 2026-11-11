@@ -35,7 +35,11 @@ fn button(
     key: &str,
     label: &str,
 ) -> bool {
-    let r = ui.button(label);
+    let r = if key.starts_with("ribbon-") {
+        ui.add_sized([ui.available_width(), 44.0], egui::Button::new(label))
+    } else {
+        ui.button(label)
+    };
     buttons.insert(
         key.into(),
         [r.rect.min.x, r.rect.min.y, r.rect.width(), r.rect.height()],
@@ -176,10 +180,19 @@ pub fn show(
                     }
                     Panel::Wardrobe => {
                         ui.label("Quartermaster: ‘Clothing is difficult with ten limbs. We settled on ribbons.’");
-                        ui.label(format!("You have {} royal tokens. Discover rooms and finish activities to earn them. Each ribbon costs 3 tokens once; owned ribbons can be worn freely.", p.tokens));
+                        ui.label(format!("You have {} royal tokens. Discover rooms and finish activities to earn them. Each ribbon costs 3 tokens once; owned ribbons can be worn freely, in the castle or out at sea.", p.tokens));
                         for (i, name) in ["Kelp-green scholar", "Crimson auditor", "Golden oracle", "Violet improbability"].into_iter().enumerate() {
                             let owned = p.ribbons & (1 << i) != 0;
-                            if button(ui, buttons, &format!("ribbon-{i}"), &format!("{} {name}", if owned {"Wear"} else {"Buy · 3 tokens ·"})) { actions.push(Action::Ribbon(i as u8)); }
+                            let equipped = p.wearing == Some(i as u8);
+                            ui.label(name);
+                            if equipped {
+                                if button(ui, buttons, &format!("ribbon-{i}"), "Equipped · Unequip") { actions.push(Action::UnequipRibbon); }
+                            } else if owned || p.tokens >= 3 {
+                                if button(ui, buttons, &format!("ribbon-{i}"), if owned {"Equip ribbon"} else {"Buy & equip · 3 tokens"}) { actions.push(Action::Ribbon(i as u8)); }
+                            } else {
+                                ui.add_enabled(false, egui::Button::new("Buy & equip · 3 tokens"));
+                            }
+                            ui.separator();
                         }
                     }
                     Panel::Journal => {
@@ -203,4 +216,53 @@ pub fn show(
         court.release_guard = true;
     }
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn equipped_wardrobe_controls_fit_phone_and_landscape() {
+        for size in [egui::vec2(390.0, 844.0), egui::vec2(844.0, 390.0)] {
+            let ctx = egui::Context::default();
+            let mut court = Court {
+                region: true,
+                panel: Some(Panel::Wardrobe),
+                ..Default::default()
+            };
+            let mut sim = crabsim::Sim::with_one_crab(map::WARDROBE);
+            let id = crabsim::PlayerId(0);
+            let c = sim.crab_mut(id).unwrap();
+            c.royal.ribbons = 15;
+            c.royal.wearing = Some(0);
+            let mut buttons = BTreeMap::new();
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        buttons.clear();
+                        show(
+                            ui.ctx(),
+                            &mut court,
+                            sim.crab(id).unwrap(),
+                            &sim.tuning,
+                            &mut buttons,
+                        );
+                    },
+                );
+                output.textures_delta.clear();
+            }
+            let r = buttons["ribbon-0"];
+            assert!(r[2] > 100.0 && r[3] >= 44.0, "{size:?}: {r:?}");
+            assert!(r[0] >= 0.0 && r[0] + r[2] <= size.x);
+            let close = buttons["close-activity"];
+            assert!(
+                close[1] >= 0.0 && close[1] + close[3] <= size.y,
+                "{size:?}: {close:?}"
+            );
+        }
+    }
 }

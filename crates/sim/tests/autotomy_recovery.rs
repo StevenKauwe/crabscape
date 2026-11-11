@@ -97,6 +97,7 @@ fn remote_recovery_is_left_to_its_owner_and_fighter_state_carries_leg_identity()
     assert_eq!(s.crab(remote).unwrap().fighter.legs_lost, 3);
     let c = s.crab(remote).unwrap();
     let state = crabsim::net::CrabState {
+        ribbon: None,
         id: remote,
         mover: c.mover.clone(),
         fighter: c.fighter.clone(),

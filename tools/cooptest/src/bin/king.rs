@@ -525,8 +525,21 @@ fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     close_activity(browser)?;
     walk_to(browser, 1115.0, 15)?;
     climb_to(browser, 6740.0, 25)?;
-    walk_to(browser, 1590.0, 15)?;
+    // Stand beside the quartermaster, not directly over its puppet, so the reward is visible.
+    walk_to(browser, 1690.0, 15)?;
     activity(browser)?;
+    button(browser, "ribbon-2")?;
+    wait_royal(browser, "wearing", 2.into())?;
+    let purchased = royal(browser)?;
+    resize(browser, 390, 844)?;
+    browser.screenshot(&dir.join("castle-wardrobe-phone.png"))?;
+    resize(browser, 1200, 800)?;
+    button(browser, "ribbon-2")?;
+    wait_royal(browser, "wearing", serde_json::Value::Null)?;
+    let removed = royal(browser)?;
+    if removed["tokens"] != purchased["tokens"] || removed["ribbons"] != purchased["ribbons"] {
+        return Err("Unequipping changed ribbon ownership or tokens".into());
+    }
     button(browser, "ribbon-2")?;
     wait_royal(browser, "wearing", 2.into())?;
     close_activity(browser)?;
