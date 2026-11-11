@@ -682,7 +682,7 @@ fn every_base_mission_finishes_with_its_authored_objective() {
             matches!(n, 3 | 6 | 11 | 14 | 15 | 17 | 18 | 21)
         );
     }
-    assert!(Game::start("m1c", view(), 1).is_err());
+    assert!(Game::start("m25c", view(), 1).is_err());
 }
 fn fixture_enemy(g: &mut Game, kind: dragon_game::enemies::Kind, at: [f64; 2]) -> usize {
     use dragon_game::enemies::{Enemy, World};
@@ -1016,4 +1016,158 @@ P={inhale_player};enemies=[{inhale_enemy}];Math.random=()=>.5;inhalePull(.05);pr
         &json!({"scaling":scaling,"split":{"children":children,"total":split.mission.total,"kills":split.mission.kills,"xp":split.xp},"rocks":hazards,"inhale":[inhale.player.x,inhale.player.y]}),
         &actual,
     );
+}
+
+#[test]
+fn every_champion_finishes_and_rewards_the_base_crown() {
+    for n in 1..=24 {
+        let mut g = Game::from_profile(&format!("m{n}c"), profile_fixture(), view(), n).unwrap();
+        assert!(g.champion && g.par > 0.);
+        g.player.safe = 10000.;
+        for _ in 0..14000 {
+            if let Some(o) = &g.objective
+                && o.kind == dragon_game::objectives::Kind::Carry
+                && !o.done
+            {
+                g.player.x = if o.carrier < 0 { o.x } else { o.to };
+                g.player.y = o.y;
+            }
+            perfect_shots(&mut g);
+            g.step(0.05, Input::default(), view()).unwrap();
+            if g.result.is_some() {
+                break;
+            }
+        }
+        assert_eq!(g.result, Some(true), "m{n}c");
+        assert_eq!(g.mission.stop, if n % 4 == 0 { 3 } else { 4 });
+        assert!(
+            g.profile.as_ref().unwrap()["crowns"][format!("m{n}")]
+                .as_u64()
+                .unwrap_or(0)
+                > 0
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires macOS JavaScriptCore CLI"]
+fn actual_source_champions_and_wild_ally_spawn_match() {
+    use serde_json::json;
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let champions: Vec<_> = (1..=24).map(|n| {
+        let g = Game::start(&format!("m{n}c"), view(), 1).unwrap();
+        json!({"id":g.definition.id,"waves":g.definition.waves,"par":g.par,"diff":g.scaling().difficulty,"speed":g.scaling().speed,"tough":g.scaling().toughness})
+    }).collect();
+    let mut p = profile_fixture();
+    p["party"].as_array_mut().unwrap().truncate(1);
+    p["hatched"] = json!(20);
+    p["wild"] = json!([{"name":"Fern","color":"#123456"}]);
+    let mut g = Game::from_profile("m1", p, view(), 123).unwrap();
+    g.ally_t = 0.;
+    g.step(0., Input::default(), view()).unwrap();
+    let script = format!(
+        r#"
+{defs}
+{enemy}
+const LEG_FIRST=8,LEG_TIME=15;
+{stretch}
+{champ}
+{power}
+const REALM_TOUGH=[1.15,1.5,2.3,4,5,6];
+{tough}
+const out=MISSIONS.map(m=>{{const c=makeChamp(m),p=missionPower(c),t=teamToughness(c);return {{id:c.id,waves:c.waves,par:Math.ceil((c.travel+(c.par-c.travel)*(c.boss?1.5:1.15)*(0.5+0.5*t/3))/5)*5,diff:p.diff,speed:p.spd,tough:t}};}});
+let seed=123; Math.random=()=>{{seed=(seed+0x6D2B79F5)>>>0;let t=seed;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296;}};
+const S={s},W={w},topLimit={top},allies=[],allWild=()=>[{{name:'Fern',color:'#123456'}}],pick=a=>a[Math.floor(Math.random()*a.length)],rand=(a,b)=>a+Math.random()*(b-a),skyBottom=()=>{bottom},toast=()=>{{}};
+{spawn}
+spawnAlly(); let allyT=14; const enemies=[],msReached=()=>true; {update_allies} updateAllies(0.05); print(JSON.stringify([out,allies]));
+"#,
+        defs = source_block("const MISSIONS = [", "\n];"),
+        enemy = source_block("const ENEMIES = {", "\n};"),
+        stretch = source_block("function stretchMission(", "\nfunction makeChamp"),
+        champ = source_block("function makeChamp(", "\n// How much tougher"),
+        power = source_block("function missionPower(", "\nconst CHAMPS"),
+        tough = source_block("function teamToughness(", "\n// Every other"),
+        spawn = source_block("function spawnAlly(", "\nfunction updateAllies"),
+        update_allies = source_block("function updateAllies(", "\n/* ---------- Shared sky"),
+        s = view().scale,
+        w = view().width,
+        top = view().top_limit,
+        bottom = view().ground_y - view().scale * 0.5
+    );
+    let mut child =
+        Command::new("/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc")
+            .args(["-e", "eval(JSON.parse(readline()))"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{}\n", serde_json::to_string(&script).unwrap()).as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    g.step(0.05, Input::default(), view()).unwrap();
+    compare_json(
+        &json!([champions, g.allies]),
+        &serde_json::from_slice(&out.stdout).unwrap(),
+    );
+}
+
+#[test]
+fn wild_allies_require_milestones_and_fire_after_projectiles() {
+    use dragon_game::enemies::Kind;
+    use serde_json::json;
+    for (hatched, boss, expected) in [
+        (7, false, 0),
+        (7, true, 0),
+        (8, false, 0),
+        (8, true, 2),
+        (19, false, 0),
+        (20, false, 1),
+        (20, true, 2),
+    ] {
+        let mut p = profile_fixture();
+        p["hatched"] = json!(hatched);
+        p["craft"]["bellows"] = json!(2);
+        let mut g = Game::from_profile("m1", p, view(), 17).unwrap();
+        g.ally_t = 0.;
+        fixture_enemy(
+            &mut g,
+            if boss { Kind::Thunderhead } else { Kind::Cloud },
+            [800., 200.],
+        );
+        g.player.safe = 100.;
+        g.step(0., Input::default(), view()).unwrap();
+        assert_eq!(g.allies.len(), expected, "{hatched} {boss}");
+        if expected > 0 {
+            assert_eq!(g.ally_t, if boss { 9. } else { 14. });
+            for a in &mut g.allies {
+                a.cd = 0.;
+                a.x = 500.;
+            }
+            g.step(0., Input::default(), view()).unwrap();
+            let wild: Vec<_> = g.shots.iter().filter(|s| s.owner == "wild").collect();
+            assert_eq!(wild.len(), expected);
+            assert!(wild.iter().all(|s| s.life == 1.1
+                && s.dmg == 1.4
+                && s.kind == dragon_game::combat::Kind::Flame));
+            for a in &mut g.allies {
+                a.x = -view().scale * 3.;
+            }
+            g.step(0., Input::default(), view()).unwrap();
+            assert!(g.allies.is_empty());
+        }
+    }
 }

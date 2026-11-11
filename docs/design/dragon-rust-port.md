@@ -13,7 +13,7 @@ web preview is still the existing JS game, not the native Rust prototypes.
 - `cargo run --bin dragon_flight -- --save exported-rider.json`: explicitly supplied,
   read-only v3 export preview. No automatic save discovery or writes.
 - `cargo run --bin dragon_mission -- --mission m1`: integrated solo mission prototype.
-  All 24 base missions are supported by the runtime; Space fires, WASD/arrows move, Escape pauses,
+  All 24 base missions and their m1c–m24c Champion variants are supported; Space fires, WASD/arrows move, Escape pauses,
   Backspace restarts. F triggers specials, B/J Daddio powers, R/E/T/Y known-word
   slots, 1–5 select a dragon, Q/Tab swaps. All use a deterministic test seed.
 - Add `--save exported-rider.json --rider alexa` (or another explicit source slot)
@@ -39,7 +39,8 @@ entry points.
 - Integrated solo m1–m24 lifecycle, including all objective types and enemy effects,
   retirement and success/failure results. Normalized profile parties, wings, crafts,
   skills, charms, specials and spells are integrated. Completion mutates only the
-  in-memory profile. Champion missions, wild allies and live co-op are not integrated.
+  in-memory profile. Champion variants and milestone wild allies are integrated;
+  live co-op is not yet integrated.
 - All specials, eight spells and Daddio powers, with explicit ordered world effects.
 - Roost hatch/release/milestones and source completion rewards, with injected time,
   day and RNG. The prototype uses synthetic day/time, not real daily persistence.
@@ -47,6 +48,10 @@ entry points.
   including the five-answer requirement and delayed wrong-answer deadline. UI/storage
   callbacks are intents, not live writes.
 - Original story, briefing, quest and project text plus journal/shared unlock rules.
+- Built-profile offline adventure flow: story/briefing to mission, pause/resume, result
+  progression to story/rank/results, growth scenes and times-gate to hatch/roost. The
+  host must enforce narration/read-lock completion; builder/lobby/result prose and
+  retry-from-stop UI remain separate. The initial supplied profile stays untouched.
 - Pure profile normalization and in-memory progression commands (XP, feeding, treats,
   crafts, skill purchases, party selection, team craft/hoard aggregation).
 
@@ -62,8 +67,12 @@ A pure replacement plan can produce an edited archive and exact rollback bytes f
 an explicit rider slot. It rejects stale originals and changed identities, retains
 unrelated entries/root extensions and safe stable-ID dragon extensions, and replaces
 canonical nested gameplay fields rather than resurrecting deleted values. This is
-not yet a filesystem or browser write adapter: no atomic-write/reload guarantee is
-claimed. Recovery checks the exact expected replacement before restoring backups.
+not a browser write adapter. A separate Unix adapter can publish an explicitly
+selected archive into a NEW file with a verified backup, without overwriting the
+source. It uses exclusive creation, exact-source rechecks and same-directory atomic
+hard-link publication. Existing-file replacement and live-browser reload are not
+implemented. Directory ACL privacy must be established by the host; mode bits alone
+are not a universal privacy guarantee. Unsupported platforms/filesystems fail closed. Recovery checks the exact expected replacement before restoring backups.
 
 ## Networking and privacy
 
@@ -113,13 +122,15 @@ must record inputs, frame times, viewport/HUD geometry, initial state and random
 The current Rust seed is not a replay of a browser Math.random session: cosmetic draws
 are not all consumed. Do not claim fixed-tick or full-world identity from isolated tests.
 
-Before replacing the JS game: complete Champion missions, wild allies and live co-op,
+Before replacing the JS game: complete live co-op integration,
 full rewards/roost/story/egg UI and
 multiplayer; reproduce presentation and controls; compare complete interrupted and
 repeated play flows on phones and desktop; verify browser/native sessions; implement an
 explicit reversible save transfer/write flow with failure tests. Keep original saves and
-the live JS game available until those gates pass. The separate home-server wrapper and
-its storage format have not been inspected or claimed compatible.
+the live JS game available until those gates pass. The embedded home-server client wrapper uses WebSocket `/live` with get/set/sub
+messages and `riders/<slot>` documents containing the same profile payload. The
+server implementation, on-disk layout/export format and conflict handling remain
+unverified; no home server or personal save has been accessed.
 
 ## Agreed world entry
 

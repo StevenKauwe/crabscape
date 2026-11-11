@@ -1,6 +1,6 @@
-//! Solo base-mission integration harness, not the full browser game.
+//! Solo mission integration harness, not the full browser game.
 //! Uses original update ordering and one explicit gameplay draw stream. Presentation
-//! particle/audio draws, wild allies, networking and persistent result rewards are
+//! particle/audio draws, networking and persistent storage are
 //! not ported. Normalized profile, party combat, growth and abilities run in memory. Consequently a seed is a Rust replay seed, not a
 //! promise to reproduce a browser Math.random session. No personal saves are read.
 use crate::{
@@ -21,7 +21,47 @@ use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::OnceLock};
 fn definitions() -> &'static [MissionDef] {
     static DEFS: OnceLock<Vec<MissionDef>> = OnceLock::new();
-    DEFS.get_or_init(missions::missions)
+    DEFS.get_or_init(|| {
+        let mut defs = missions::missions();
+        let champions: Vec<_> = defs
+            .iter()
+            .map(|base| {
+                let mut c = base.clone();
+                c.id.push('c');
+                for wave in &mut c.waves {
+                    for (kind, n) in wave {
+                        if kind != "boss" {
+                            *n = (*n as f64 * 1.5).ceil() as usize;
+                        }
+                    }
+                }
+                if base.boss.is_some() {
+                    c.waves
+                        .last_mut()
+                        .unwrap()
+                        .push((base.waves[0].last().unwrap().0.clone(), 3));
+                } else {
+                    let mut mix: Vec<(String, usize)> = vec![];
+                    for wave in &base.waves {
+                        for (kind, n) in wave {
+                            if let Some((_, count)) = mix.iter_mut().find(|(k, _)| k == kind) {
+                                *count = (*count).max(*n);
+                            } else {
+                                mix.push((kind.clone(), *n));
+                            }
+                        }
+                    }
+                    for (_, n) in &mut mix {
+                        *n = (*n as f64 * 1.5).ceil() as usize;
+                    }
+                    c.waves.push(mix);
+                }
+                c
+            })
+            .collect();
+        defs.extend(champions);
+        defs
+    })
 }
 fn random(draw: &mut impl FnMut() -> f64, a: f64, b: f64) -> f64 {
     a + draw() * (b - a)
@@ -52,7 +92,22 @@ fn make_gem(
         lost_one: false,
     }
 }
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct Ally {
+    pub x: f64,
+    pub y: f64,
+    pub vx: f64,
+    pub color: String,
+    pub name: String,
+    pub t: f64,
+    pub cd: f64,
+}
 pub struct Game {
+    pub champion: bool,
+    /// Effective source timer used for the swift crown, not a failure deadline.
+    pub par: f64,
+    pub allies: Vec<Ally>,
+    pub ally_t: f64,
     pub player: Player,
     pub shots: Vec<Shot>,
     pub enemies: Vec<Enemy>,
@@ -103,7 +158,7 @@ impl Game {
     pub fn first_flight(view: Viewport, seed: u32) -> Self {
         Self::with_definition(&definitions()[0], view, seed)
     }
-    /// All 24 authored base missions; champion variants are not exposed yet.
+    /// All 24 authored missions and their champion variants (explicit harness launch).
     pub fn start(id: &str, view: Viewport, seed: u32) -> Result<Self, &'static str> {
         if !valid_view(view) {
             return Err("invalid viewport");
@@ -122,6 +177,10 @@ impl Game {
             ..Player::default()
         };
         let mut g = Self {
+            champion: def.id.ends_with('c'),
+            par: 0.,
+            allies: vec![],
+            ally_t: 4.,
             player,
             shots: vec![],
             enemies: vec![],
@@ -166,6 +225,35 @@ impl Game {
             heart_charm: false,
             pouch_charm: false,
         };
+        if g.champion {
+            let scaling = g.scaling();
+            let mut par = 10.;
+            for wave in &def.waves {
+                for (kind, n) in wave {
+                    let kind = if kind == "boss" {
+                        def.boss.as_ref().unwrap()
+                    } else {
+                        kind
+                    };
+                    let k: enemies::Kind =
+                        serde_json::from_value(json!(kind)).expect("authored enemy");
+                    let d = k.definition();
+                    par += *n as f64
+                        * (2.4
+                            + 0.15 * d.hp * scaling.difficulty
+                                / if d.armor == 0. { 1. } else { d.armor });
+                }
+            }
+            let travel = 8. + 15. * (def.waves.len() - 1) as f64;
+            let authored = ((par + travel) / 5.).ceil() * 5.;
+            g.par = ((travel
+                + (authored - travel)
+                    * if def.boss.is_some() { 1.5 } else { 1.15 }
+                    * (0.5 + 0.5 * scaling.toughness / 3.))
+                / 5.)
+                .ceil()
+                * 5.;
+        }
         // Validation is returned by step; do not panic for a malformed initial viewport.
         if valid_view(view) {
             view.clamp(&mut g.player);
@@ -174,6 +262,78 @@ impl Game {
         m.start_leg(def, 0, true, &mut Adapter(&mut g));
         g.mission = m;
         g
+    }
+    fn update_allies(&mut self, dt: f64, draw: &mut impl FnMut() -> f64) {
+        let hatched = self
+            .profile
+            .as_ref()
+            .map(|p| progression::team_summary(p, &[], true).hatched)
+            .unwrap_or(0.);
+        let wing_on = hatched >= 8. && self.enemies.iter().any(|e| e.target.boss && !e.target.calm);
+        self.ally_t -= dt;
+        if self.ally_t <= 0. && (wing_on || hatched >= 20.) {
+            for _ in 0..if wing_on { 2 } else { 1 } {
+                let pool = self.profile.as_ref().and_then(|p| p["wild"].as_array());
+                let wild = pool
+                    .filter(|a| !a.is_empty())
+                    .map(|a| &a[(draw() * a.len() as f64).floor() as usize]);
+                let color = wild
+                    .and_then(|w| w["color"].as_str())
+                    .unwrap_or("#ff6a3d")
+                    .to_owned();
+                let name = wild
+                    .and_then(|w| w["name"].as_str())
+                    .unwrap_or("A wild dragon")
+                    .to_owned();
+                let left = draw() < 0.5;
+                self.allies.push(Ally {
+                    x: if left {
+                        -self.view.scale * 1.5
+                    } else {
+                        self.view.width + self.view.scale * 1.5
+                    },
+                    y: random(
+                        draw,
+                        self.view.top_limit + self.view.scale,
+                        (self.view.top_limit + self.view.scale * 1.5).max(self.sky_bottom()),
+                    ),
+                    vx: if left { 1. } else { -1. } * self.view.scale * 4.5,
+                    color,
+                    name,
+                    t: 0.,
+                    cd: 0.6,
+                });
+                let _toast = draw() < 0.5;
+            }
+            self.ally_t = if wing_on { 9. } else { 14. };
+        }
+        let power = 1. + 0.2 * self.craft("bellows");
+        for i in (0..self.allies.len()).rev() {
+            let a = &mut self.allies[i];
+            a.t += dt;
+            a.x += a.vx * dt;
+            a.y += (a.t * 2.).sin() * self.view.scale * 0.4 * dt;
+            a.cd -= dt;
+            if a.cd <= 0. && !self.enemies.is_empty() {
+                let f = a.vx.signum();
+                self.shots.push(Shot {
+                    x: a.x + f * self.view.scale * 0.5,
+                    y: a.y - self.view.scale * 0.1,
+                    vx: f * self.view.scale * 11.,
+                    life: 1.1,
+                    max: 1.1,
+                    r: self.view.scale * 0.18,
+                    dmg: power,
+                    kind: BreathKind::Flame,
+                    owner: "wild".into(),
+                    ..Shot::default()
+                });
+                a.cd = 0.45;
+            }
+            if a.x < -self.view.scale * 2. || a.x > self.view.width + self.view.scale * 2. {
+                self.allies.remove(i);
+            }
+        }
     }
     fn enemy_world(&self) -> enemies::World {
         enemies::World {
@@ -200,7 +360,7 @@ impl Game {
     }
     pub fn scaling(&self) -> enemies::MissionScaling {
         let realm = self.definition.realm;
-        let in_realm = (self.definition.id[1..]
+        let in_realm = (self.definition.id.trim_end_matches('c')[1..]
             .parse::<usize>()
             .expect("authored id")
             - 1)
@@ -208,10 +368,11 @@ impl Game {
         let r0 = realm.min(2) as f64;
         let r1 = realm.saturating_sub(2) as f64;
         enemies::MissionScaling {
-            difficulty: 1. + r0 * 0.35 + r1 * 0.25 + in_realm as f64 * 0.08,
+            difficulty: (1. + r0 * 0.35 + r1 * 0.25 + in_realm as f64 * 0.08)
+                * if self.champion { 1.3 } else { 1. },
             toughness: [1.15, 1.5, 2.3, 4., 5., 6.][realm] * (1. + 0.06 * in_realm as f64),
             sky_toughness: 1.,
-            speed: 1. + r0 * 0.12 + r1 * 0.05,
+            speed: (1. + r0 * 0.12 + r1 * 0.05) * if self.champion { 1.1 } else { 1. },
         }
     }
     fn spawn_baby(
@@ -659,6 +820,7 @@ impl Game {
             }
         }
         self.retire(&mut draw);
+        self.update_allies(dt, &mut draw);
         let carry = &mut self.mission.carry;
         let earned = &mut self.earned;
         let xp = &mut self.xp;
@@ -707,14 +869,14 @@ impl Game {
                 &[],
                 true,
                 &roost::Completion {
-                    mission_id: self.definition.id.clone(),
-                    champion: false,
+                    mission_id: self.definition.id.trim_end_matches('c').into(),
+                    champion: self.champion,
                     ok,
                     carry: self.mission.carry,
                     banked: self.mission.banked,
                     bonks: self.bonks as u32,
                     elapsed: self.mission.t,
-                    par: 0.,
+                    par: self.par,
                     had_objective: self.had_objective,
                     day: self.completion_day,
                     now_ms: self.completion_now_ms,
@@ -809,8 +971,9 @@ impl MissionWorld for Adapter<'_> {
                 g.objective_failed = false;
             }
             Effect::MakeObjective(stop) => {
-                g.objective = objectives::specification(&g.definition.id, stop)
-                    .map(|s| Objective::new(&s, g.view));
+                g.objective =
+                    objectives::specification(g.definition.id.trim_end_matches('c'), stop)
+                        .map(|s| Objective::new(&s, g.view));
             }
             Effect::SpeedBoss(k) => {
                 if let Some(e) = g

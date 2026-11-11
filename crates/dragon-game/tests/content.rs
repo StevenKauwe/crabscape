@@ -43,7 +43,7 @@ fn exact_original_content_and_unlock_rules() {
         r#"{missions}{realms}{chunk}
 let me,others=[{{cleared:['m2','m8']}}]; const bossOf=realm=>MISSIONS.find(m=>m.realm===realm&&m.boss); {unlock}
 const profiles={profiles};const outcomes=profiles.map(p=>{{me=p;return {{quest:questLine(p),journal:STORY_ORDER.filter(id=>id==='intro'||(id==='part2'?p.cleared.includes('m12'):p.cleared.includes(id))),unlocks:MISSIONS.flatMap(m=>[missionUnlocked(m),missionUnlocked({{...m,champ:true}})])}};}});
-print(JSON.stringify({{catalog:{{story:STORY,quests:QUESTS,briefs:BRIEFS,no_wick_briefs:NO_WICK_BRIEFS,charms:CHARMS,ranks:RANKS,grow_scenes:GROW_SCENES,skill_stories:SKILL_STORIES,projects:PROJECTS,story_order:STORY_ORDER,realms:REALMS}},outcomes}}));"#,
+print(JSON.stringify({{catalog:{{mission_goals:Object.fromEntries(MISSIONS.map(m=>[m.id,m.goal])),story:STORY,quests:QUESTS,briefs:BRIEFS,no_wick_briefs:NO_WICK_BRIEFS,charms:CHARMS,ranks:RANKS,grow_scenes:GROW_SCENES,skill_stories:SKILL_STORIES,projects:PROJECTS,story_order:STORY_ORDER,realms:REALMS}},outcomes}}));"#,
         profiles = serde_json::to_string(&profiles).unwrap()
     );
     use std::io::Write;

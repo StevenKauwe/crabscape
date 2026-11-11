@@ -675,5 +675,31 @@
       "blurb": "Sky islands above the clouds, where the missing stars went.",
       "ground": false
     }
-  ]
+  ],
+  "mission_goals": {
+    "m1": "Pop the grumpy storm clouds over Hollowbrook.",
+    "m2": "Storm Bats are swarming the bell tower!",
+    "m3": "Catch the zippy Thunder Sprites before they spark the hay barns.",
+    "m4": "A giant Thunderhead is rolling in. Break it apart!",
+    "m5": "Urgal scouts are at the edge of the forest. Fly low and drive them out!",
+    "m6": "Fast Thornwolves are chasing the deer. Frost Breath slows them down!",
+    "m7": "Break up the Urgal camp in the old oaks.",
+    "m8": "The Urgal Chieftain wants the forest. Show him it belongs to the dragons!",
+    "m9": "Thunder clouds and sprites swirl around the Frostfang peaks.",
+    "m10": "A Rock Troll blocks the mountain pass. Boulder Blast cracks his armor!",
+    "m11": "Everything at once! Keep your team together.",
+    "m12": "The biggest troll in Valmora lives in the Frostfang caves. Wake up, Riders!",
+    "m13": "Glow Jellies are floating up out of the sea. Bop them!",
+    "m14": "Splashfins leap out of the waves. Watch the water and stay ready!",
+    "m15": "Jellies, Splashfins and thunder clouds, all over the bay at once!",
+    "m16": "A giant sea serpent is grumbling under the bay. Find out what is wrong!",
+    "m17": "Magma Slimes are hopping out of the lava. Splat one and it splits in two!",
+    "m18": "Ember Imps are tossing hot pebbles. Keep moving!",
+    "m19": "Follow the glowing river up the volcano. Everything is bubbling!",
+    "m20": "The biggest, bounciest slime in the world is at the top of the volcano!",
+    "m21": "Star Gobblers eat gems! Grab the gems before they do.",
+    "m22": "Dream Moths sprinkle sleepy dust. Don't fly under them!",
+    "m23": "A huge dark patch is swallowing the sky. Everything is here!",
+    "m24": "The monster that gobbled the stars! When it breathes in, fly away fast!"
+  }
 }

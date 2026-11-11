@@ -13,6 +13,11 @@ pub fn catalog() -> &'static Value {
 pub fn story_page(id: &str) -> Option<&'static Value> {
     catalog()["story"].get(id)
 }
+pub fn mission_goal(id: &str) -> Option<&'static str> {
+    catalog()["mission_goals"]
+        .get(id.strip_suffix('c').unwrap_or(id))?
+        .as_str()
+}
 pub fn briefing(id: &str) -> Option<&'static str> {
     catalog()["briefs"].get(id)?.as_str()
 }

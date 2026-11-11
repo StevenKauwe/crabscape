@@ -2,8 +2,10 @@
 //!
 //! Flight uses explicit recorded frame durations and viewport geometry, not CrabScape's
 //! fixed tick: subdividing the original JS integrator changes acceleration and damping.
-//! No wall clock, storage, microphone, transcription or network side effects live here.
+//! Gameplay has no implicit wall clock, storage, microphone or network side effects.
+//! Explicit additive export IO is isolated in `save_file`.
 pub mod abilities;
+pub mod adventure;
 pub mod authority;
 pub mod combat;
 pub mod content;
@@ -31,6 +33,7 @@ pub mod random;
 pub mod roost;
 pub mod roost_gate;
 pub mod save;
+pub mod save_file;
 pub mod save_transfer;
 
 /// Current Dragon XP curve, matching `levelOf` in `web/dragon/index.html`.

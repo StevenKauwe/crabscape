@@ -39,10 +39,11 @@ enum Visual {
     Strike(usize),
     Gem(usize),
     Wing(usize),
+    Ally(usize),
 }
 #[derive(Resource, Default)]
 struct Pool {
-    counts: [usize; 6],
+    counts: [usize; 7],
 }
 #[derive(Default)]
 struct Options {
@@ -61,7 +62,7 @@ fn parse_options(args: &[String]) -> Result<Options, &'static str> {
                 if result.mission.is_none()
                     && dragon_game::missions::missions()
                         .iter()
-                        .any(|m| m.id == pair[1]) =>
+                        .any(|m| m.id == pair[1].strip_suffix('c').unwrap_or(&pair[1])) =>
             {
                 result.mission = Some(pair[1].clone())
             }
@@ -87,7 +88,7 @@ fn parse_options(args: &[String]) -> Result<Options, &'static str> {
 }
 fn main() -> Result<(), String> {
     let options = parse_options(&std::env::args().skip(1).collect::<Vec<_>>())
-        .map_err(|e| format!("{e}. Usage: dragon_mission [--mission m1..m24] [--save exported-rider.json --rider alexa|tavian|rider3|rider4|rider5|rider6]"))?;
+        .map_err(|e| format!("{e}. Usage: dragon_mission [--mission m1..m24 or m1c..m24c] [--save exported-rider.json --rider alexa|tavian|rider3|rider4|rider5|rider6]"))?;
     let mission_id = options.mission.unwrap_or_else(|| "m1".into());
     let original_profile = if let (Some(path), Some(slot)) = (options.save, options.rider) {
         let bytes = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -296,6 +297,7 @@ fn present(
         game.strikes.len(),
         game.gems.len(),
         game.wings.len(),
+        game.allies.len(),
     ];
     for (category, count) in lengths.into_iter().enumerate() {
         for index in pool.counts[category]..count {
@@ -305,7 +307,8 @@ fn present(
                 2 => Visual::Hazard(index),
                 3 => Visual::Strike(index),
                 4 => Visual::Gem(index),
-                _ => Visual::Wing(index),
+                5 => Visual::Wing(index),
+                _ => Visual::Ally(index),
             };
             commands.spawn((
                 visual,
@@ -317,6 +320,10 @@ fn present(
     }
     for (visual, mut sprite, mut transform, mut visibility) in &mut visuals {
         let shape = match visual {
+            Visual::Ally(index) => game
+                .allies
+                .get(*index)
+                .map(|a| (a.x, a.y, Vec2::new(32.0, 17.0), Color::srgb(0.5, 0.8, 0.6))),
             Visual::Wing(index) => game
                 .wings
                 .values()
