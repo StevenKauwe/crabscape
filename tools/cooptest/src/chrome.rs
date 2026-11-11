@@ -502,6 +502,22 @@ impl Chrome {
 
     /// Type into the focused canvas text field without submitting it.
     #[allow(dead_code)] // Used by the native Valmora canvas acceptance runner.
+    pub fn canvas_scroll(&mut self, x: f64, y: f64, delta: f64) -> Result<()> {
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({"type":"mouseMoved","x":x,"y":y}),
+        )?;
+        std::thread::sleep(Duration::from_millis(150));
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({"type":"mouseWheel","x":x,"y":y,"deltaX":0,"deltaY":delta}),
+        )?;
+        std::thread::sleep(Duration::from_millis(600));
+        Ok(())
+    }
+
+    /// Type into the focused canvas text field without submitting it.
+    #[allow(dead_code)] // Used by the native Valmora canvas acceptance runner.
     pub fn insert_text(&mut self, text: &str) -> Result<()> {
         for character in text.chars() {
             let key = character.to_string();

@@ -15,6 +15,8 @@ pub enum PathCommand {
     Move(f64, f64),
     Line(f64, f64),
     Quad(f64, f64, f64, f64),
+    Cubic(f64, f64, f64, f64, f64, f64),
+    RoundRect(f64, f64, f64, f64, f64),
     Ellipse(f64, f64, f64, f64, f64, f64, f64),
     Close,
 }
@@ -83,12 +85,17 @@ pub struct Clip {
     pub path: Vec<PathCommand>,
     pub transform: Affine,
 }
+fn zero(value: &f64) -> bool {
+    *value == 0.
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Stroke {
     pub width: f64,
     pub cap: String,
     pub join: String,
     pub dash: Vec<f64>,
+    #[serde(default, skip_serializing_if = "zero")]
+    pub dash_offset: f64,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Draw {
@@ -111,6 +118,7 @@ struct State {
     cap: String,
     join: String,
     dash: Vec<f64>,
+    dash_offset: f64,
     additive: bool,
     clips: Vec<Clip>,
 }
@@ -125,6 +133,7 @@ impl Default for State {
             cap: "butt".into(),
             join: "miter".into(),
             dash: vec![],
+            dash_offset: 0.,
             additive: false,
             clips: vec![],
         }
@@ -179,6 +188,9 @@ impl Canvas {
     pub fn width(&mut self, w: f64) {
         self.state.width = w;
     }
+    pub fn dash_offset(&mut self, value: f64) {
+        self.state.dash_offset = value;
+    }
     pub fn dash(&mut self, values: &[f64]) {
         self.state.dash = values.to_vec();
     }
@@ -199,6 +211,12 @@ impl Canvas {
     }
     pub fn line_to(&mut self, x: f64, y: f64) {
         self.path.push(PathCommand::Line(x, y));
+    }
+    pub fn cubic(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, x: f64, y: f64) {
+        self.path.push(PathCommand::Cubic(x1, y1, x2, y2, x, y));
+    }
+    pub fn round_rect(&mut self, x: f64, y: f64, w: f64, h: f64, radius: f64) {
+        self.path.push(PathCommand::RoundRect(x, y, w, h, radius));
     }
     pub fn quad(&mut self, a: f64, b: f64, c: f64, d: f64) {
         self.path.push(PathCommand::Quad(a, b, c, d));
@@ -237,6 +255,7 @@ impl Canvas {
                 cap: s.cap.clone(),
                 join: s.join.clone(),
                 dash: s.dash.clone(),
+                dash_offset: s.dash_offset,
             }),
             clips: s.clips.clone(),
         });
@@ -246,6 +265,16 @@ impl Canvas {
     }
     pub fn stroke(&mut self) {
         self.emit(true);
+    }
+    pub fn stroke_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        let old = std::mem::take(&mut self.path);
+        self.move_to(x, y);
+        self.line_to(x + w, y);
+        self.line_to(x + w, y + h);
+        self.line_to(x, y + h);
+        self.close();
+        self.stroke();
+        self.path = old;
     }
     pub fn fill_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
         let old = std::mem::take(&mut self.path);

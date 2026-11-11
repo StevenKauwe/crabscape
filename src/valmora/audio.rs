@@ -524,6 +524,9 @@ pub fn adventure_effect(event: &dragon_game::adventure::Event) -> Option<Effect>
                 },
         } if stage_after > stage_before => Some(Effect::Grow),
         A::Progression {
+            value: P::Built { .. },
+        } => Some(Effect::Win),
+        A::Progression {
             value: P::Learned { .. },
         } => Some(Effect::Grow),
         A::Progression {

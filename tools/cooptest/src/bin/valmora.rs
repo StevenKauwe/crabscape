@@ -74,11 +74,32 @@ fn button(b: &mut Chrome, name: &str) -> Result<()> {
         "JSON.parse(document.getElementById('crabscape')?.getAttribute('data-valmora-button-{name}')||'null')"
     );
     wait(b, &format!("Array.isArray({expression})"), 15)?;
-    let point = b.eval(&expression)?;
-    b.canvas_click(
-        point[0].as_f64().ok_or("button x")?,
-        point[1].as_f64().ok_or("button y")?,
-    )
+    for _ in 0..24 {
+        let point = b.eval(&expression)?;
+        let x = point[0].as_f64().ok_or("button x")?;
+        let y = point[1].as_f64().ok_or("button y")?;
+        if (80. ..798.).contains(&y) {
+            return b.canvas_click(x, y);
+        }
+        // Scroll the actual egui adventure area, never alter a game variable.
+        b.canvas_scroll(300., 650., if y >= 798. { 500. } else { -500. })?;
+    }
+    Err(format!("button {name} stayed outside viewport"))
+}
+fn button_stage(b: &mut Chrome, name: &str, want: &str) -> Result<()> {
+    let before = b.eval(STAGE)?;
+    for _ in 0..3 {
+        button(b, name)?;
+        std::thread::sleep(Duration::from_secs(2));
+        let current = b.eval(STAGE)?;
+        if current.as_str() == Some(want) {
+            return Ok(());
+        }
+        if current != before {
+            break;
+        }
+    }
+    stage(b, want)
 }
 fn prepare(b: &mut Chrome, base: &str, introducer: &str, rider: usize) -> Result<()> {
     b.protocol_viewport(1200, 800)?;
@@ -94,6 +115,19 @@ fn prepare(b: &mut Chrome, base: &str, introducer: &str, rider: usize) -> Result
     {
         return Err("synthetic roof fixture failed".into());
     }
+    let key = if rider == 0 {
+        "vdf-save-alexa"
+    } else {
+        "vdf-save-tavian"
+    };
+    let profile = serde_json::json!({"v":3,"xpv":2,"rider":if rider==0 {"alexa"}else{"tavian"},"rid":format!("synthetic{rider}"),"seenIntro":true,"earned":1000,"spent":0,"briefed":["m1"],"cleared":["m1"],"build":{"name":if rider==0 {"Alice"}else{"Bobby"},"dname":if rider==0 {"Ember"}else{"Spark"},"path":"forge","dkind":"flame"},"party":[{"id":"bond","bonded":true,"xp":0}]});
+    let original = profile.to_string();
+    let setup = format!(
+        "(()=>{{sessionStorage.setItem('synthetic-original-key',{key:?});sessionStorage.setItem('synthetic-original-bytes',{original:?});localStorage.setItem({key:?},{original:?});localStorage.setItem('vdf-music','false');localStorage.setItem('vdf-narrate','false');return localStorage.getItem({key:?})==={original:?};}})()"
+    );
+    if b.eval(&setup)? != true {
+        return Err("synthetic import fixture failed".into());
+    }
     b.go(&format!(
         "{base}/index.html?boring&zoom=1&valmora_introducer={introducer}"
     ))?;
@@ -106,23 +140,25 @@ fn prepare(b: &mut Chrome, base: &str, introducer: &str, rider: usize) -> Result
     b.hold_key("KeyV", 0.2)?;
     stage(b, "menu")?;
     click_stage(b, 25., 78. + 39. * rider as f64, "builder-0")?;
-    b.canvas_click(90., 365.)?;
-    b.insert_text(if rider == 0 { "Alice" } else { "Bobby" })?;
-    b.canvas_click(30., 642.)?;
-    click_stage(b, 65., 720., "builder-1")?;
-    b.canvas_click(90., 365.)?;
-    b.insert_text(if rider == 0 { "Ember" } else { "Spark" })?;
-    b.canvas_click(90., 413.)?;
-    click_stage(b, 65., 645., "story")?;
-    click_stage(b, 38., 277., "party")?;
+    b.canvas_click(100., 49.)?;
+    button(b, "import-browser")?;
+    stage(b, "party")?;
+    if b.eval(&format!("localStorage.getItem({key:?})==={original:?}"))? != true {
+        return Err("original synthetic export was changed".into());
+    }
     b.canvas_click(100., 57.)?;
     b.insert_text("synthetic")?;
     b.canvas_click(355., 57.)?;
     wait(b, &format!("({NETWORK})?.id != null"), 25)?;
-    println!("PASS {} rooftop, new rider, story and live room", b.name);
+    println!(
+        "PASS {} rooftop, explicit synthetic import and live room",
+        b.name
+    );
     Ok(())
 }
 fn verify_privacy(b: &mut Chrome) -> Result<()> {
+    if b.eval("localStorage.getItem(sessionStorage.getItem('synthetic-original-key'))===sessionStorage.getItem('synthetic-original-bytes')")? != true {return Err(format!("{} changed original synthetic save bytes",b.name));}
+
     if b.eval("window.__mediaRequests===0&&window.__externalSockets.length===0")? != true {
         return Err(format!(
             "{} made forbidden microphone/external socket request",
@@ -161,6 +197,38 @@ fn run(web: &Path, probe: &Path, profiles: &Path) -> Result<()> {
         for browser in [&mut a, &mut b] {
             wait(browser, &format!("({NETWORK})?.peers===1"), 30)?;
             verify_privacy(browser)?;
+        }
+        for browser in [&mut a, &mut b] {
+            button_stage(browser, "roost", "roost")?;
+        }
+        button(&mut a, "craft-armor")?;
+        for browser in [&mut a, &mut b] {
+            wait(browser, &format!("({NETWORK})?.vote==='voting'"), 20)?;
+        }
+        button(&mut b, "vote-yes")?;
+        for browser in [&mut a, &mut b] {
+            wait(
+                browser,
+                &format!("({NETWORK})?.vote==='passed' && ({NETWORK})?.teamarmor===1"),
+                25,
+            )?;
+        }
+        let purchase_a = a.eval(NETWORK)?;
+        let purchase_b = b.eval(NETWORK)?;
+        if purchase_a["localspent"].as_f64() != Some(30.)
+            || purchase_a["localarmor"].as_f64() != Some(1.)
+            || purchase_b["localspent"].as_f64() != Some(0.)
+            || purchase_b["localarmor"].as_f64() != Some(0.)
+        {
+            return Err(format!(
+                "purchase accounting mismatch {purchase_a} / {purchase_b}"
+            ));
+        }
+        println!("PASS real shared armor proposal/Yes/grant with exactly one spender");
+        a.screenshot(&profiles.join("purchase-a.png"))?;
+        b.screenshot(&profiles.join("purchase-b.png"))?;
+        for browser in [&mut a, &mut b] {
+            button_stage(browser, "party", "party")?;
         }
         button(&mut a, "mission-m1")?;
         button(&mut b, "ready")?;

@@ -1,6 +1,7 @@
 //! Offline adventure UI. State transitions and rewards remain in dragon-game.
 //! Save writes, microphone access, and room discovery are deliberately absent.
 mod flight;
+mod roost;
 use bevy_egui::egui;
 use dragon_game::{
     adventure::{Adventure, Clock, Event},
@@ -13,6 +14,11 @@ pub struct AdventureUi {
     pub notice: String,
     pub checkpoint_requested: bool,
     pub networked: bool,
+    pub live_crew: Vec<Value>,
+    healing_cache: super::art::HealingCache,
+    healing_flash: Option<super::art::HealFlash>,
+    healing_note: String,
+    pending_healing_flash: Option<[f64; 2]>,
     pub sound_muted: bool,
     pub preferences: super::storage::Preferences,
     pub sound_events: Vec<super::audio::Effect>,
@@ -21,6 +27,7 @@ pub struct AdventureUi {
     hatch_name: String,
     release: Option<String>,
     milestone: Option<String>,
+    vote_display: Option<(String, u64, Option<u64>)>,
 }
 #[derive(Default)]
 pub struct Controls {
@@ -33,6 +40,7 @@ pub struct Controls {
     pub select: Option<usize>,
     pub edit_rider: bool,
     pub mission_pick: Option<String>,
+    pub purchase: Option<dragon_game::team_vote::Purchase>,
     pub fire: bool,
     pub fire_rect: Option<egui::Rect>,
     pub touch_actions: Vec<(egui::Rect, super::touch::Action)>,
@@ -40,6 +48,31 @@ pub struct Controls {
     pub direction: [bool; 4],
 }
 impl AdventureUi {
+    pub fn show_vote(
+        &mut self,
+        vote: &dragon_game::team_vote::View,
+        state: &str,
+        now: u64,
+    ) -> bool {
+        use dragon_game::team_vote::Phase;
+        if self
+            .vote_display
+            .as_ref()
+            .is_none_or(|(proposer, round, _)| proposer != &vote.proposer || *round != vote.round)
+        {
+            self.vote_display = Some((vote.proposer.clone(), vote.round, None));
+        }
+        if matches!(state, "play" | "menu" | "loading") {
+            return false;
+        }
+        let (_, _, completed) = self.vote_display.as_mut().unwrap();
+        if matches!(vote.phase, Phase::Voting | Phase::Granted) {
+            *completed = None;
+            true
+        } else {
+            now.saturating_sub(*completed.get_or_insert(now)) <= 7000
+        }
+    }
     pub fn events(&mut self, events: Vec<Event>) {
         for event in events {
             if let Some(effect) = super::audio::adventure_effect(&event)
@@ -53,6 +86,12 @@ impl AdventureUi {
                 | Event::Gate {
                     value: dragon_game::roost_gate::Event::SaveFrozen { .. },
                 } => self.checkpoint_requested = true,
+                Event::Progression {
+                    value: progression::Event::Built { thanks, spot, .. },
+                } => {
+                    self.healing_note = thanks;
+                    self.pending_healing_flash = Some(spot);
+                }
                 Event::StopNarration => self.narration = Some(None),
                 Event::Story { id, page, .. } => {
                     let heard = format!("{id}|{}", page["title"].as_str().unwrap_or(""));
@@ -145,7 +184,24 @@ impl AdventureUi {
         if !self.notice.is_empty() {
             ui.label(&self.notice);
         }
-        if adventure.gate.frozen.is_some() {
+        if let Some(frozen) = &adventure.gate.frozen {
+            let color = if frozen["who"].as_u64() == Some(adventure.gate.rider_index as u64) {
+                adventure.profile()["build"]["dcolor"]
+                    .as_str()
+                    .unwrap_or("#7f88aa")
+            } else {
+                "#7f88aa"
+            };
+            scene(
+                ui,
+                super::art::AdventureScene::Frozen {
+                    color,
+                    melted: frozen["until"]
+                        .as_f64()
+                        .is_some_and(|until| clock.now_ms as f64 >= until),
+                },
+                124.,
+            );
             ui.heading(&adventure.gate.freeze_title);
             ui.label(&adventure.gate.freeze_note);
             ui.label(&adventure.gate.freeze_clock);
@@ -186,6 +242,7 @@ impl AdventureUi {
                 ),
                 _ => ("Valley milestone", id.as_str()),
             };
+            scene(ui, super::art::AdventureScene::Milestone, 130.);
             ui.heading(name);
             ui.label(text);
             if ui.button("Continue").clicked() {
@@ -197,6 +254,19 @@ impl AdventureUi {
             "story" => {
                 if let Some(page) = &self.story {
                     ui.heading(page["title"].as_str().unwrap_or(""));
+                    let crew: Vec<_> = std::iter::once(adventure.profile())
+                        .chain(self.live_crew.iter())
+                        .take(4)
+                        .collect();
+                    scene(
+                        ui,
+                        super::art::AdventureScene::Story {
+                            id: adventure.story_id().unwrap_or(""),
+                            page,
+                            crew: &crew,
+                        },
+                        190.,
+                    );
                     let progress = super::audio::narration_progress();
                     let mut word = page["title"]
                         .as_str()
@@ -226,13 +296,19 @@ impl AdventureUi {
             }
             "party" | "map" => {
                 ui.horizontal_wrapped(|ui| {
-                    if self.networked && ui.button("Party").clicked() {
-                        self.result(adventure.to_party());
+                    if self.networked {
+                        let party = ui.button("Party");
+                        super::probe_button("party", &party);
+                        if party.clicked() {
+                            self.result(adventure.to_party());
+                        }
                     }
                     if ui.button("Mission map").clicked() {
                         self.result(adventure.to_map());
                     }
-                    if ui.button("Dragon roost").clicked() {
+                    let roost = ui.button("Dragon roost");
+                    super::probe_button("roost", &roost);
+                    if roost.clicked() {
                         self.result(adventure.to_roost());
                     }
                 });
@@ -266,10 +342,17 @@ impl AdventureUi {
                 });
             }
             "roost" | "skills" => {
+                self.healing_scene(ui, adventure);
+                let wild = adventure.team_wild();
+                scene(ui, super::art::AdventureScene::Valley { wild: &wild }, 200.);
                 ui.horizontal_wrapped(|ui| {
                     controls.edit_rider = ui.button("Change my look").clicked();
-                    if self.networked && ui.button("Party").clicked() {
-                        self.result(adventure.to_party());
+                    if self.networked {
+                        let party = ui.button("Party");
+                        super::probe_button("party", &party);
+                        if party.clicked() {
+                            self.result(adventure.to_party());
+                        }
                     }
                     if ui.button("Mission map").clicked() {
                         self.result(adventure.to_map());
@@ -280,26 +363,30 @@ impl AdventureUi {
                 });
                 let profile = adventure.profile();
                 ui.label(format!(
-                    "Gems: {:.0}   Eggs: {}   Stars: {:.0}",
-                    profile["earned"].as_f64().unwrap_or(0.)
-                        - profile["spent"].as_f64().unwrap_or(0.),
-                    profile["eggs"],
+                    "Gems: {:.0}   Eggs: {:.0}   Stars: {:.0}",
+                    adventure.team_summary().hoard,
+                    profile["eggs"].as_f64().unwrap_or(0.),
                     progression::stars_left(profile)
                 ));
+                self.personal_roost(ui, adventure, clock);
+                let profile = adventure.profile();
                 // Only copy display fields; never clone the running world to satisfy UI borrowing.
                 let dragons: Vec<_> = profile["party"]
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .map(|d| {
+                    .enumerate()
+                    .map(|(index, d)| {
                         (
+                            index,
+                            d["bonded"] == true,
                             d["id"].as_str().unwrap_or("").to_owned(),
                             d["name"].as_str().unwrap_or("").to_owned(),
                             dragon_game::level_of(d["xp"].as_f64().unwrap_or(0.)),
                         )
                     })
                     .collect();
-                for (id, name, level) in dragons {
+                for (index, bonded, id, name, level) in dragons {
                     ui.horizontal_wrapped(|ui| {
                         if let Some(dragon) =
                             adventure.profile()["party"].as_array().and_then(|party| {
@@ -311,6 +398,19 @@ impl AdventureUi {
                             super::art::roost_preview(ui, dragon, adventure.profile());
                         }
                         ui.label(format!("{name} · Level {level}"));
+                        if !bonded && ui.button("Send to the Valley").clicked() {
+                            self.release = Some(id.clone());
+                        }
+                        if !bonded && self.release.as_deref() == Some(id.as_str()) {
+                            ui.label("Let this dragon live free in the Valley?");
+                            if ui.button("Release dragon").clicked() {
+                                self.result(adventure.release_dragon(index, clock));
+                                self.release = None;
+                            }
+                            if ui.button("Keep dragon").clicked() {
+                                self.release = None;
+                            }
+                        }
                         for (label, command) in [
                             ("Lead", progression::Command::SelectMain(id.clone())),
                             ("Feed", progression::Command::Feed(id.clone())),
@@ -334,19 +434,81 @@ impl AdventureUi {
                         }
                     }
                 });
+                ui.heading("Help Valmora heal");
+                for project in content::catalog()["projects"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    let id = project["id"].as_str().unwrap_or("");
+                    let purchase = dragon_game::team_vote::Purchase::Build(id.into());
+                    let quote = adventure.quote_purchase(&purchase);
+                    if !matches!(
+                        quote,
+                        Ok(_)
+                            | Err(dragon_game::adventure::Error::Progression(
+                                progression::Error::NotEnoughGems
+                            ))
+                    ) {
+                        continue;
+                    }
+                    ui.label(project["name"].as_str().unwrap_or(""));
+                    ui.small(format!(
+                        "Helps {}.",
+                        project["helps"].as_str().unwrap_or("")
+                    ));
+                    let cost = project["cost"].as_f64().unwrap_or(0.) as u32;
+                    let verb = if self.networked {
+                        "Ask the team"
+                    } else {
+                        "Build"
+                    };
+                    if ui
+                        .add_enabled(
+                            quote.is_ok(),
+                            egui::Button::new(format!("{verb} · {cost} gems")),
+                        )
+                        .clicked()
+                    {
+                        if self.networked {
+                            controls.purchase = Some(purchase);
+                        } else {
+                            self.result(adventure.apply_purchase(&purchase, cost, clock));
+                        }
+                    }
+                }
                 ui.label("Craft");
                 ui.horizontal_wrapped(|ui| {
                     for item in ["treatsMade", "tea", "tonic", "saddles", "armor", "bellows"] {
-                        if ui.button(item).clicked() {
-                            self.result(
-                                adventure
-                                    .roost_command(progression::Command::Craft(item.into()), clock),
-                            );
+                        let purchase = dragon_game::team_vote::Purchase::Craft(item.into());
+                        let quote = adventure.quote_purchase(&purchase);
+                        let label = if let Ok(cost) = quote {
+                            format!("{} · {cost} gems", purchase_name(&purchase))
+                        } else {
+                            purchase_name(&purchase).to_owned()
+                        };
+                        let craft = ui.add_enabled(quote.is_ok(), egui::Button::new(label));
+                        if item == "armor" {
+                            super::probe_button("craft-armor", &craft);
+                        }
+                        if craft.clicked() {
+                            if self.networked {
+                                controls.purchase = Some(purchase);
+                            } else if let Ok(cost) = quote {
+                                self.result(adventure.apply_purchase(&purchase, cost, clock));
+                            }
                         }
                     }
                 });
             }
             "riddle" => {
+                scene(
+                    ui,
+                    super::art::AdventureScene::RiddleEgg {
+                        golden: adventure.profile()["goldenPending"] == true,
+                    },
+                    92.,
+                );
                 if let Some(question) = &adventure.gate.question {
                     ui.heading(format!("{} × {}", question.a, question.b));
                 }
@@ -385,6 +547,9 @@ impl AdventureUi {
             }
             "hatch" => {
                 ui.heading("Your new dragon");
+                if let Some(baby) = &adventure.roost.pending_baby {
+                    scene(ui, super::art::AdventureScene::Hatch { baby }, 130.);
+                }
                 if self.hatch_name.is_empty() {
                     self.hatch_name.clone_from(&adventure.roost.suggested_name);
                 }
@@ -527,11 +692,46 @@ impl AdventureUi {
                 ui.label("Preparing your adventure…");
             }
         }
-        if let Some(id) = adventure.story_id() {
-            self.story = content::story_page(id).cloned();
+        if let Some(page) = adventure.story_id().and_then(content::story_page) {
+            self.story = Some(page.clone());
         }
         controls
     }
+}
+
+pub fn purchase_name(purchase: &dragon_game::team_vote::Purchase) -> &str {
+    use dragon_game::team_vote::Purchase;
+    match purchase {
+        Purchase::Craft(id) => match id.as_str() {
+            "treatsMade" => "Sunleaf Treats",
+            "tea" => "Swiftwing Tea",
+            "tonic" => "Starbloom Tonic",
+            "saddles" => "Riding Saddles",
+            "armor" => "Scale Armor",
+            "bellows" => "Fire Bellows",
+            _ => id,
+        },
+        Purchase::Build(id) => content::catalog()["projects"]
+            .as_array()
+            .and_then(|a| a.iter().find(|p| p["id"] == id.as_str()))
+            .and_then(|p| p["name"].as_str())
+            .unwrap_or(id),
+    }
+}
+
+fn scene(ui: &mut egui::Ui, scene: super::art::AdventureScene<'_>, height: f32) {
+    let width = ui.available_width().min(match scene {
+        super::art::AdventureScene::RiddleEgg { .. } => 76.,
+        super::art::AdventureScene::Frozen { .. } => 180.,
+        super::art::AdventureScene::Hatch { .. } | super::art::AdventureScene::Milestone => 200.,
+        _ => ui.available_width(),
+    });
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let time = ui.input(|i| i.time);
+    if let Err(error) = super::art::paint_adventure_scene(ui.painter(), rect, scene, time) {
+        ui.label(error);
+    }
+    ui.ctx().request_repaint();
 }
 
 fn narration_text(page: &Value) -> String {
@@ -603,6 +803,69 @@ mod tests {
                 }
             }
             _ => {}
+        }
+    }
+    #[test]
+    fn vote_result_uses_source_visibility_and_seven_second_timeout() {
+        use dragon_game::team_vote::{Phase, Purchase, View};
+        let mut ui = AdventureUi::default();
+        let mut vote = View {
+            round: 1,
+            revision: 0,
+            proposer: "peer".into(),
+            purchase: Purchase::Craft("armor".into()),
+            cost: 30,
+            votes: Default::default(),
+            phase: Phase::Passed,
+        };
+        assert!(!ui.show_vote(&vote, "play", 1000));
+        assert!(ui.show_vote(&vote, "roost", 9000));
+        assert!(ui.show_vote(&vote, "roost", 16000));
+        assert!(!ui.show_vote(&vote, "roost", 16001));
+        vote.round = 2;
+        vote.phase = Phase::Voting;
+        assert!(ui.show_vote(&vote, "roost", 20000));
+        assert!(!ui.show_vote(&vote, "play", 20000));
+        vote.phase = Phase::Passed;
+        assert!(ui.show_vote(&vote, "party", 30000));
+    }
+    #[test]
+    fn dynamic_growth_page_survives_repeated_frames() {
+        let mut profile = profile::normalize_profile(
+            &json!({"build":{"name":"Nova","dname":"Ember","path":"forge"}}),
+            "rider3",
+            2,
+            || "fixture".into(),
+        )
+        .unwrap();
+        profile["party"][0]["xp"] = json!(360);
+        let (mut adventure, _) = Adventure::new(
+            profile,
+            vec![],
+            Viewport::from_screen(1000., 700., 1., 130., 0.62),
+            42,
+            2,
+        )
+        .unwrap();
+        adventure.close_story(true).unwrap();
+        let mut presentation = AdventureUi::default();
+        presentation.events(adventure.to_roost().unwrap());
+        assert_eq!(adventure.story_id(), Some("grow"));
+        let page = presentation.story.clone().unwrap();
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                presentation.draw(
+                    ui,
+                    &mut adventure,
+                    Clock {
+                        now_ms: 100,
+                        day: 0,
+                    },
+                );
+            });
+            output.textures_delta.clear();
+            assert_eq!(presentation.story.as_ref(), Some(&page));
         }
     }
     #[test]

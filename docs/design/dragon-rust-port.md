@@ -355,3 +355,49 @@ simultaneous touches, then pauses with the second thumb while the first remains 
 Releasing does not resume or leave stale captures. Layout tests cover 320×568,
 390×844 and 844×390; cached closed-story state cannot hide the flight HUD. Invalid
 imports expose an explicit draft-discard/slot-reload recovery action.
+
+## Live team progression, Roost actions and scene fidelity
+
+Joined native rooms now use the source's non-STATIC team math; solo remains STATIC.
+This is an explicit native-room rule, not a claim that the original standalone P2P
+page shared its economy. Bounded, validated live projections supply current hoard,
+crafts, project unlocks, combat bonuses and reward multipliers. Transport-bound rider
+identities, six-second freshness and away/disconnect filtering determine membership.
+No original archive, save/dragon IDs, settings or local save file is transmitted or
+merged. Castle return advertises away and removes flight poses instead of pretending
+the rider remains paused in the sky. Combat reads scalar team bonuses without
+allocating a JSON summary per projectile or hit.
+
+Build and Craft use reliable serialized room proposals. The majority/tie rules match
+364 direct original-JavaScript combinations; a real two-native-client WebRTC test
+verifies proposal, Yes, one spender, updated accounting, shared flight and takeover.
+Native safety differs from the home server's non-atomic claim/write flow: an ungranted
+vote is cancelled on membership changes; ambiguous grants, coordinator changes and
+castle departure block further purchases until reconnect. There is no departed-
+proposer fallback that spends another rider's save, and no retry of an ambiguous
+purchase. Sessions cap rounds at 128 to retain bounded replay protection. Personal
+feed/charms remain personal source actions; this is not a persistent shared ledger.
+
+The Roost exposes source project construction, daily challenge, charm purchases,
+spellbook loadout, voluntary Valley release and journal replay. Source action tests
+cover limits, costs, locked content, bonded-dragon protection and retained selected
+words. An additional live JavaScript oracle compares 88 charm/loadout state
+transitions. Dynamic growth/lesson pages no longer disappear when a static story
+catalog lookup has no corresponding page. Per-screen scroll identity prevents a
+long Roost scroll from hiding a newly opened story.
+
+Original story/growth, hatch, Valley, riddle egg, frozen dragon and milestone art
+passes 53 live-source geometry cases. Healing uses its complete original static
+project/workshop painting and animated layer, checked against 44 source cases.
+Its bounded cache includes size, DPI, project set and workshop inputs; repaint-only
+random colors use a private presentation RNG. Cubic curves, rounded rectangles and
+animated dash offsets have bounded tessellation tests. The source's full-canvas haze
+and vignette are deliberately omitted under repository art rules. Rasterization,
+font outlines and physical-device display still are not pixel-identical guarantees.
+
+A synthetic 390×844 Chromium journey imports the selected legacy rider through the
+actual UI, views Healing/Valley, buys a charm (1000→975 gems), changes spell loadout,
+replays a journal page and builds the bell tower (975→895), updating the painting.
+The original browser save remains unchanged, with zero mic requests/runtime errors.
+This does not verify physical iPhone behavior, native speech, actual recorded voice
+clips or the unavailable home-server save wrapper/conflict format.

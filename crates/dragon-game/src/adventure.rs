@@ -2,6 +2,7 @@
 //! Lobby synchronization, builder, narration playback/heard-page history and storage
 //! are host responsibilities. Other profiles provide the source's shared unlocks;
 //! they do not turn the current solo Game into a multiplayer simulation.
+pub mod roost_actions;
 use crate::{
     content,
     flight::{Input, Viewport},
@@ -109,6 +110,7 @@ pub struct Adventure {
     initial: Value,
     profile: Value,
     pub others: Vec<Value>,
+    live_team: bool,
     pub game: Option<Game>,
     pub shared: Option<crate::coop::Session>,
     network_outbound: Vec<crate::coop::Outbound>,
@@ -151,6 +153,7 @@ impl Adventure {
             initial: profile.clone(),
             profile,
             others,
+            live_team: false,
             game: None,
             shared: None,
             network_outbound: Vec::new(),
@@ -174,6 +177,33 @@ impl Adventure {
             ));
         }
         Ok((a, events))
+    }
+    /// Only the live room adapter supplies this validated, nonpersistent projection.
+    pub fn set_live_team(&mut self, others: Vec<Value>) {
+        self.live_team = true;
+        self.others = others;
+        let others = self.others.clone();
+        if let Some(game) = self.game_mut() {
+            game.set_live_team(others);
+        }
+    }
+    pub fn clear_live_team(&mut self) {
+        self.set_live_team(vec![]);
+        self.live_team = false;
+    }
+    pub fn team_summary(&self) -> progression::TeamSummary {
+        progression::team_summary(self.profile(), &self.others, !self.live_team)
+    }
+    /// Scene data includes only the local profile and current validated live crew.
+    pub fn team_wild(&self) -> Vec<&Value> {
+        std::iter::once(self.profile())
+            .chain(
+                self.others
+                    .iter()
+                    .take(if self.live_team { self.others.len() } else { 0 }),
+            )
+            .flat_map(|p| p["wild"].as_array().into_iter().flatten())
+            .collect()
     }
     /// Active flights own their profile directly; no whole-profile clone per frame.
     pub fn profile(&self) -> &Value {
@@ -372,7 +402,7 @@ impl Adventure {
     fn grow_scene(&mut self) -> Option<Vec<Event>> {
         let xp = self.profile["party"][0]["xp"].as_f64().unwrap_or(0.0);
         let level = crate::level_of(xp);
-        let team = progression::team_summary(&self.profile, &[], true);
+        let team = progression::team_summary(&self.profile, &self.others, !self.live_team);
         let riding = progression::riding(&self.profile, &team);
         let id = [
             ("glider", level >= 4),
@@ -414,8 +444,8 @@ impl Adventure {
         ];
         let milestones = self.roost.check_milestones(
             &mut self.profile,
-            &[],
-            true,
+            &self.others,
+            !self.live_team,
             true,
             !self.milestone_visible,
         )?;
@@ -490,8 +520,18 @@ impl Adventure {
             return Err(Error::LockedMission);
         }
         self.retire_game();
-        let mut g = Game::from_profile(id, self.profile.clone(), self.view, self.rng.state)
-            .map_err(Error::Runtime)?;
+        let mut g = Game::from_profile_team(
+            id,
+            self.profile.clone(),
+            self.view,
+            self.rng.state,
+            if self.live_team {
+                self.others.clone()
+            } else {
+                vec![]
+            },
+        )
+        .map_err(Error::Runtime)?;
         let p = g.profile.as_mut().expect("profile game");
         if content::briefing(id).is_some() && !has(p, "briefed", id) {
             p["briefed"]
@@ -676,8 +716,8 @@ impl Adventure {
                     self.retire_game();
                     let hatch = self.roost.begin_hatch(
                         &self.profile,
-                        &[],
-                        true,
+                        &self.others,
+                        !self.live_team,
                         clock.now_ms,
                         self.reduce_motion,
                         || self.rng.next_unit(),
@@ -755,8 +795,14 @@ impl Adventure {
             progression::Command::Feed(_) | progression::Command::Treat(_)
         );
         let learn = matches!(command, progression::Command::LearnSkill(_));
-        let values = progression::apply(&mut self.profile, &[], true, command, clock.now_ms as f64)
-            .map_err(Error::Progression)?;
+        let values = progression::apply(
+            &mut self.profile,
+            &self.others,
+            !self.live_team,
+            command,
+            clock.now_ms as f64,
+        )
+        .map_err(Error::Progression)?;
         let mut e = Vec::new();
         let mut lesson = None;
         for value in values {
@@ -786,3 +832,5 @@ impl Adventure {
         Ok(e)
     }
 }
+
+mod purchases;

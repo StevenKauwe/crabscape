@@ -152,6 +152,7 @@ pub struct Game {
     pub(crate) used: Used,
     target_t: BTreeMap<u64, f64>,
     pub profile: Option<Value>,
+    team_profiles: Vec<Value>,
     pub progression_events: Vec<progression::Event>,
     pub wings: BTreeMap<String, Wing>,
     pub time: f64,
@@ -235,6 +236,7 @@ impl Game {
             used: Used::default(),
             target_t: BTreeMap::new(),
             profile: None,
+            team_profiles: vec![],
             progression_events: vec![],
             wings: BTreeMap::new(),
             time: 0.,
@@ -290,7 +292,7 @@ impl Game {
         let hatched = self
             .profile
             .as_ref()
-            .map(|p| progression::team_summary(p, &[], true).hatched)
+            .map(|p| team_hatched(p, &self.team_profiles))
             .unwrap_or(0.);
         let wing_on = hatched >= 8. && self.enemies.iter().any(|e| e.target.boss && !e.target.calm);
         self.ally_t -= dt;
@@ -987,6 +989,7 @@ impl Game {
         let xp = &mut self.xp;
         let failing = self.mission.fail_t != 0.;
         let sweeping = self.mission.done && !failing;
+        let team_profiles = &self.team_profiles;
         let profile = &mut self.profile;
         let progression_events = &mut self.progression_events;
         let sound_events = &mut self.sound_events;
@@ -1011,10 +1014,18 @@ impl Game {
                 }
                 let multiplier = profile
                     .as_ref()
-                    .map(|p| progression::team_summary(p, &[], true).xp_multiplier)
+                    .map(|p| {
+                        (1. + 0.25 * team_craft(p, team_profiles, "tonic"))
+                            * if team_hatched(p, team_profiles) >= 16. {
+                                1.25
+                            } else {
+                                1.
+                            }
+                    })
                     .unwrap_or(1.);
                 award_xp(
                     profile,
+                    team_profiles,
                     xp,
                     progression_events,
                     sound_events,
@@ -1040,8 +1051,8 @@ impl Game {
         {
             let outcome = roost::complete_mission(
                 p,
-                &[],
-                true,
+                &self.team_profiles,
+                false,
                 &roost::Completion {
                     mission_id: self.definition.id.trim_end_matches('c').into(),
                     champion: self.champion,
@@ -1331,6 +1342,26 @@ struct DragonInfo {
 fn number(v: &Value) -> f64 {
     v.as_f64().unwrap_or(0.)
 }
+// Combat reads only scalars; do not allocate a JSON team summary per shot/hit.
+fn team_craft(me: &Value, others: &[Value], key: &str) -> f64 {
+    std::iter::once(me)
+        .chain(others)
+        .map(|p| number(&p["craft"][key]))
+        .sum::<f64>()
+        .min(3.)
+}
+fn team_hatched(me: &Value, others: &[Value]) -> f64 {
+    std::iter::once(me)
+        .chain(others)
+        .map(|p| number(&p["hatched"]))
+        .sum()
+}
+fn team_riding(me: &Value, others: &[Value]) -> bool {
+    crate::level_of(number(&me["party"][0]["xp"])) >= 8
+        && std::iter::once(me)
+            .chain(others)
+            .any(|p| p["craft"]["saddles"] == true)
+}
 fn stage(xp: f64) -> usize {
     match crate::level_of(xp) {
         12.. => 3,
@@ -1356,6 +1387,7 @@ fn wing_index(p: &Value) -> Option<usize> {
 }
 fn award_xp(
     profile: &mut Option<Value>,
+    others: &[Value],
     xp: &mut f64,
     events: &mut Vec<progression::Event>,
     sounds: &mut Vec<sound::Event>,
@@ -1382,8 +1414,8 @@ fn award_xp(
         for dragon in ids {
             let growth = progression::apply(
                 p,
-                &[],
-                true,
+                others,
+                false,
                 progression::Command::AddXp { dragon, amount },
                 0.,
             )
@@ -1410,6 +1442,18 @@ impl Game {
         view: Viewport,
         seed: u32,
     ) -> Result<Self, &'static str> {
+        Self::from_profile_team(id, profile, view, seed, vec![])
+    }
+    pub fn set_live_team(&mut self, profiles: Vec<Value>) {
+        self.team_profiles = profiles;
+    }
+    pub fn from_profile_team(
+        id: &str,
+        profile: Value,
+        view: Viewport,
+        seed: u32,
+        team_profiles: Vec<Value>,
+    ) -> Result<Self, &'static str> {
         let party = profile["party"]
             .as_array()
             .ok_or("profile must be normalized")?;
@@ -1435,6 +1479,7 @@ impl Game {
         g.earned = number(&profile["earned"]);
         g.xp = number(&profile["party"][0]["xp"]);
         g.profile = Some(profile);
+        g.team_profiles = team_profiles;
         // Source startMission computes starting hearts before consuming this run's charms.
         g.player.hearts = g.max_hearts();
         g.player.energy = abilities::max_energy(g.skill("magic"));
@@ -1470,7 +1515,7 @@ impl Game {
             .profile
             .as_mut()
             .ok_or(progression::Error::InvalidProfile)?;
-        let events = progression::apply(p, &[], true, command, now_ms)?;
+        let events = progression::apply(p, &self.team_profiles, false, command, now_ms)?;
         self.xp = number(&p["party"][0]["xp"]);
         self.earned = number(&p["earned"]);
         self.view.dragon_scale = self.body_scale(self.view.dragon_scale);
@@ -1480,7 +1525,7 @@ impl Game {
     fn craft(&self, key: &str) -> f64 {
         self.profile
             .as_ref()
-            .map(|p| number(&p["craft"][key]).min(3.))
+            .map(|p| team_craft(p, &self.team_profiles, key))
             .unwrap_or(0.)
     }
     fn skill(&self, key: &str) -> u8 {
@@ -1513,6 +1558,7 @@ impl Game {
     fn add_xp(&mut self, owner: Option<&str>, amount: f64) {
         award_xp(
             &mut self.profile,
+            &self.team_profiles,
             &mut self.xp,
             &mut self.progression_events,
             &mut self.sound_events,
@@ -1608,7 +1654,7 @@ impl Game {
         let riding = self
             .profile
             .as_ref()
-            .is_some_and(|p| progression::riding(p, &progression::team_summary(p, &[], true)));
+            .is_some_and(|p| team_riding(p, &self.team_profiles));
         if riding && self.player.weapon_cool <= 0. {
             let path = self.path();
             self.shots.push(path.weapon(
@@ -1959,7 +2005,7 @@ impl Game {
     pub(crate) fn network_riding(&self) -> bool {
         self.profile
             .as_ref()
-            .is_some_and(|p| progression::riding(p, &progression::team_summary(p, &[], true)))
+            .is_some_and(|p| team_riding(p, &self.team_profiles))
     }
     pub(crate) fn make_mirror(
         &self,

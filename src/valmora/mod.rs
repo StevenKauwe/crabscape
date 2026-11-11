@@ -398,8 +398,12 @@ fn update(
         s.checkpoint(time.delta_secs_f64());
         s.checkpoint_preferences();
     }
+    if let Some(lobby) = &mut network.0 {
+        lobby.set_present(s.active);
+    }
     if let (Some(lobby), Some(adventure), Some(now)) = (&mut network.0, &mut s.adventure, clock()) {
         lobby.poll(adventure, now.now_ms as f64 / 1000.);
+        s.ui.events(lobby.drain_vote_events());
         match lobby.tick_party(adventure, time.delta_secs_f64(), now.now_ms) {
             Ok(events) => s.ui.events(events),
             Err(error) => s.ui.notice = error,
@@ -445,6 +449,7 @@ fn update(
     let Some(adventure) = &mut s.adventure else {
         return;
     };
+    adventure.reduce_motion = reduced_motion;
     let weather_scroll = adventure.game().map_or(0., |game| game.scroll_v);
     let frame_dt = time.delta_secs_f64().clamp(0., 0.05);
     let stopped = adventure.game().is_some_and(|g| g.hit_stop > 0.);
@@ -810,7 +815,9 @@ fn draw(
                             #[cfg(target_arch = "wasm32")]
                             {
                                 ui.label("Copy this slot from the original Dragon game in this browser. The original is never changed.");
-                                if ui.add_enabled(!s.persistence.busy(), egui::Button::new("Import this browser's original Dragon save")).clicked()
+                                let import = ui.add_enabled(!s.persistence.busy(), egui::Button::new("Import this browser's original Dragon save"));
+                                probe_button("import-browser", &import);
+                                if import.clicked()
                                     && let Err(error) = s.persistence.import_browser_legacy(slot(s.rider)) { s.ui.notice = error; }
                             }
                             ui.label("Paste an exported rider JSON or storage archive. This creates a separate native copy and retains the original bytes.");
@@ -981,6 +988,7 @@ fn draw(
                         ui.label(&lobby.notice);
                         if ui.button("Leave room and return to roost").clicked() {
                             network.0 = None;
+                            adventure.clear_live_team();
                             match adventure.to_roost() {
                                 Ok(events) => s.ui.events(events),
                                 Err(error) => s.ui.notice = format!("{error:?}"),
@@ -1033,11 +1041,45 @@ fn draw(
                     ui.label("Pick a mission below, then everyone taps Ready.");
                 }
             }
+            if let Some(lobby) = &mut network.0 {
+                if adventure.state() != "play" && lobby.vote_blocked() {
+                    ui.label("The room purchase could not be confirmed. Leave and rejoin before proposing another.");
+                }
+                if let Some(vote) = lobby.vote_view().cloned()
+                    && s.ui.show_vote(&vote, adventure.state(), clock.now_ms) {
+                    use dragon_game::team_vote::Phase;
+                    let item = ui::purchase_name(&vote.purchase);
+                    ui.label(format!("Team proposal: {item} · {} gems", vote.cost));
+                    ui.small(format!("{} yes · {} no", vote.votes.values().filter(|v| **v).count(), vote.votes.values().filter(|v| !**v).count()));
+                    if vote.phase == Phase::Voting && lobby.id.as_ref().is_none_or(|id| !vote.votes.contains_key(id)) {
+                        ui.horizontal(|ui| {
+                            let yes = ui.button("Yes");
+                            probe_button("vote-yes", &yes);
+                            if yes.clicked() && let Err(error) = lobby.cast_vote(true) { s.ui.notice = error; }
+                            if ui.button("No").clicked() && let Err(error) = lobby.cast_vote(false) { s.ui.notice = error; }
+                        });
+                    } else {
+                        ui.small(match vote.phase { Phase::Granted => "Applying purchase…", Phase::Passed => "Purchased", Phase::Failed => "Not passed", Phase::Expired => "Vote expired", Phase::Cancelled => "Vote cancelled", Phase::Blocked => "Purchase confirmation unavailable", Phase::Voting => if lobby.id.as_ref().and_then(|id| vote.votes.get(id)).copied().unwrap_or(false) { "You voted yes." } else { "You voted no." } });
+                    }
+                }
+            }
             s.ui.networked = network.0.is_some();
+            s.ui.live_crew.clear();
+            if adventure.state() == "story"
+                && let Some(lobby) = &network.0
+            {
+                s.ui.live_crew.extend(
+                    lobby
+                        .live_crew(clock.now_ms as f64 / 1000.)
+                        .take(3)
+                        .map(|rider| rider.profile.clone()),
+                );
+            }
             s.controls = if adventure.state() == "play" {
                 s.ui.draw(ui, adventure, clock)
             } else {
                 egui::ScrollArea::vertical()
+                    .id_salt(("valmora-screen", adventure.state(), adventure.story_id()))
                     .max_height((ctx.content_rect().bottom() - ui.cursor().top()).max(1.))
                     .show(ui, |ui| s.ui.draw(ui, adventure, clock))
                     .inner
@@ -1124,6 +1166,10 @@ fn draw(
             }
             if let (Some(lobby), Some(mission)) = (&mut network.0, s.controls.mission_pick.take()) {
                 lobby.party.pick(&mission, clock.now_ms as f64);
+            }
+            if let (Some(lobby), Some(purchase)) = (&mut network.0, s.controls.purchase.take())
+                && let Err(error) = lobby.propose_purchase(purchase, adventure, clock.now_ms) {
+                s.ui.notice = error;
             }
             s.return_requested |= s.controls.return_home;
             if s.controls.edit_rider {

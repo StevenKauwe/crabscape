@@ -10,6 +10,9 @@ pub struct Lobby {
     pub id: Option<String>,
     pub notice: String,
     rider: usize,
+    present: bool,
+    votes: dragon_game::team_vote::Vote,
+    vote_events: Vec<dragon_game::adventure::Event>,
     peers: BTreeMap<String, Peer>,
     hello_at: f64,
     blocked: bool,
@@ -17,6 +20,7 @@ pub struct Lobby {
     last_state: String,
     party_sent: f64,
     launch_hint: Option<(String, usize)>,
+    last_presence: Option<Value>,
     visuals: BTreeMap<String, PartnerVisual>,
 }
 #[derive(Default)]
@@ -34,6 +38,17 @@ struct Peer {
     presence: Option<Value>,
     seen: f64,
     daddio: bool,
+    progress: Option<Value>,
+    progress_at: f64,
+    presence_at: f64,
+}
+impl Peer {
+    fn accept_progress(&mut self, value: &Value, rider: usize, now: f64) {
+        if let Some(progress) = dragon_game::live_team::admit(value, rider) {
+            self.progress = Some(progress);
+            self.progress_at = now;
+        }
+    }
 }
 #[cfg(target_arch = "wasm32")]
 struct Transport(dragon_peer::DragonPeer);
@@ -138,6 +153,9 @@ impl Lobby {
             id: None,
             notice: "Connecting…".into(),
             rider,
+            present: true,
+            votes: Default::default(),
+            vote_events: vec![],
             peers: BTreeMap::new(),
             hello_at: f64::NEG_INFINITY,
             blocked: false,
@@ -145,6 +163,7 @@ impl Lobby {
             last_state: String::new(),
             party_sent: f64::NEG_INFINITY,
             launch_hint: None,
+            last_presence: None,
             visuals: BTreeMap::new(),
         })
     }
@@ -156,11 +175,13 @@ impl Lobby {
     }
     pub fn poll(&mut self, adventure: &mut Adventure, now: f64) {
         if self.blocked {
+            adventure.clear_live_team();
             return;
         }
         let packet = self.transport.poll();
         self.id = packet["id"].as_str().map(str::to_owned);
         if packet["ended"] == true {
+            adventure.clear_live_team();
             self.blocked = true;
             self.notice = "Connection ended. Leave the room to continue offline.".into();
             return;
@@ -178,6 +199,9 @@ impl Lobby {
                                 presence: None,
                                 seen: now,
                                 daddio: false,
+                                progress: None,
+                                progress_at: f64::NEG_INFINITY,
+                                presence_at: f64::NEG_INFINITY,
                             });
                         }
                         self.hello_at = f64::NEG_INFINITY;
@@ -191,6 +215,19 @@ impl Lobby {
                     Some("message") => {
                         let data = &event["data"];
                         let topic = event["topic"].as_str().unwrap_or("");
+                        if topic == "hello" && data.get("vote").is_some() {
+                            if self.peers.get(peer).is_some_and(|p| {
+                                p.rider.map(|r| r as u64) == data["r"].as_u64() && p.rider.is_some()
+                            }) && let Ok(message) =
+                                serde_json::from_value::<dragon_game::team_vote::Message>(
+                                    data["vote"].clone(),
+                                )
+                            {
+                                self.sync_team(adventure, now);
+                                self.receive_vote(peer, message, adventure, now);
+                            }
+                            continue;
+                        }
                         if topic == "hello" {
                             let Some(rider) =
                                 data["r"].as_u64().filter(|r| *r < 6).map(|r| r as usize)
@@ -213,6 +250,7 @@ impl Lobby {
                                 }
                                 binding.rider = Some(rider);
                                 binding.seen = now;
+                                binding.accept_progress(&data["team"], rider, now);
                                 binding.daddio = data["build"]["name"]
                                     .as_str()
                                     .is_some_and(|name| name.trim().eq_ignore_ascii_case("daddio"));
@@ -234,6 +272,7 @@ impl Lobby {
                                     self.party.receive_pick(mission, at, state);
                                 }
                                 binding.presence = Some(data.clone());
+                                binding.presence_at = now;
                                 binding.seen = now;
                             }
                             if let Some(session) = &mut adventure.shared {
@@ -248,9 +287,18 @@ impl Lobby {
         if self.id.is_some() && now - self.hello_at >= 1. {
             self.transport.send(
                 "hello",
-                json!({"r":self.rider,"build":adventure.profile()["build"]}),
+                json!({"r":self.rider,"build":adventure.profile()["build"],"team":dragon_game::live_team::project(adventure.profile())}),
             );
-            if adventure.game().is_none() && adventure.state() != "party" {
+            if !self.present {
+                self.transport.send(
+                    "presence",
+                    json!({"r":self.rider,"s":"away","x":0.,"y":0.,"ms":null,"cs":[0,""]}),
+                );
+            } else if adventure.game().is_some() {
+                if let Some(presence) = &self.last_presence {
+                    self.transport.send("presence", presence.clone());
+                }
+            } else if adventure.state() != "party" {
                 self.transport.send("presence", json!({"r":self.rider,"s":adventure.state(),"x":0.,"y":0.,"ms":null,"cs":[0,""]}));
             }
             self.hello_at = now;
@@ -262,6 +310,8 @@ impl Lobby {
                 format!("Data-only room: {} other rider(s)", self.connected_count())
             };
         }
+        self.sync_team(adventure, now);
+        self.drive_votes(adventure, now);
         #[cfg(all(target_arch = "wasm32", feature = "valmora-loopback-test"))]
         self.publish_probe(adventure);
     }
@@ -351,7 +401,10 @@ impl Lobby {
         }
         for mut packet in adventure.drain_network_outbound() {
             if packet.topic == "presence" {
-                if adventure.gate.frozen.is_some() {
+                if !self.present {
+                    packet.data["s"] = json!("away");
+                    packet.data["ms"] = Value::Null;
+                } else if adventure.gate.frozen.is_some() {
                     packet.data["s"] = json!("frozen");
                 }
                 let profile = adventure.profile();
@@ -375,6 +428,9 @@ impl Lobby {
                         .collect(),
                 );
             }
+            if packet.topic == "presence" {
+                self.last_presence = Some(packet.data.clone());
+            }
             if !self.transport.send(packet.topic, packet.data) {
                 self.notice = "A room update could not be sent".into();
             }
@@ -391,7 +447,7 @@ mod tests {
     };
     fn adventure(rider: usize) -> Adventure {
         let key = if rider == 0 { "alexa" } else { "tavian" };
-        let profile=dragon_game::profile::normalize_profile(&json!({"rid":format!("fixture-{rider}"),"seenIntro":true,"briefed":["m1"],"build":{"name":"Fixture","dname":"Ember","path":"forge"}}),key,rider,||"extra".into()).unwrap();
+        let profile=dragon_game::profile::normalize_profile(&json!({"rid":format!("fixture-{rider}"),"seenIntro":true,"earned":1000,"briefed":["m1"],"build":{"name":"Fixture","dname":"Ember","path":"forge"}}),key,rider,||"extra".into()).unwrap();
         Adventure::new(profile, vec![], view(), 42, rider)
             .unwrap()
             .0
@@ -405,6 +461,9 @@ mod tests {
             id: None,
             notice: String::new(),
             rider,
+            present: true,
+            votes: Default::default(),
+            vote_events: vec![],
             peers: BTreeMap::new(),
             hello_at: f64::NEG_INFINITY,
             blocked: false,
@@ -412,8 +471,65 @@ mod tests {
             last_state: String::new(),
             party_sent: f64::NEG_INFINITY,
             launch_hint: None,
+            last_presence: None,
             visuals: BTreeMap::new(),
         }
+    }
+    #[test]
+    fn live_team_rejects_stale_absent_unbound_and_invalid_projection() {
+        let mut lobby = lobby("ws://127.0.0.1:1", 0);
+        let mut local = adventure(0);
+        let remote = adventure(1);
+        let progress =
+            dragon_game::live_team::admit(&dragon_game::live_team::project(remote.profile()), 1)
+                .unwrap();
+        lobby.peers.insert(
+            "synthetic-peer".into(),
+            Peer {
+                rider: Some(1),
+                presence: Some(json!({"s":"roost","r":1})),
+                seen: 10.,
+                daddio: false,
+                progress: Some(progress.clone()),
+                progress_at: 10.,
+                presence_at: 10.,
+            },
+        );
+        lobby.sync_team(&mut local, 10.);
+        assert_eq!(local.others, vec![progress]);
+        assert_eq!(lobby.live_crew(10.).count(), 1);
+        let accepted = lobby.peers["synthetic-peer"].progress.clone();
+        lobby
+            .peers
+            .get_mut("synthetic-peer")
+            .unwrap()
+            .accept_progress(&Value::Null, 1, 15.);
+        assert_eq!(lobby.peers["synthetic-peer"].progress, accepted);
+        assert_eq!(lobby.peers["synthetic-peer"].progress_at, 10.);
+        assert_eq!(lobby.live_crew(15.).count(), 1);
+        assert_eq!(lobby.live_crew(16.01).count(), 0);
+        for state in ["away", "menu", "loading", "unrecognized"] {
+            lobby.peers.get_mut("synthetic-peer").unwrap().presence =
+                Some(json!({"s":state,"r":1}));
+            lobby.sync_team(&mut local, 10.);
+            assert!(local.others.is_empty());
+        }
+        lobby.peers.get_mut("synthetic-peer").unwrap().presence = Some(json!({"s":"pause","r":1}));
+        lobby.sync_team(&mut local, 10.);
+        assert_eq!(local.others.len(), 1);
+        lobby.sync_team(&mut local, 16.01);
+        assert!(local.others.is_empty());
+        lobby.sync_team(&mut local, 10.);
+        lobby.peers.get_mut("synthetic-peer").unwrap().rider = None;
+        lobby.sync_team(&mut local, 10.);
+        assert!(local.others.is_empty());
+        lobby.peers.get_mut("synthetic-peer").unwrap().rider = Some(1);
+        lobby.peers.get_mut("synthetic-peer").unwrap().progress = None;
+        lobby.sync_team(&mut local, 10.);
+        assert!(local.others.is_empty());
+        lobby.peers.clear();
+        lobby.sync_team(&mut local, 10.);
+        assert!(local.others.is_empty());
     }
     #[test]
     #[ignore = "explicit local-only signaling/WebRTC test, no GUI, STUN, microphone or saves"]
@@ -476,6 +592,61 @@ mod tests {
             now += 20;
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        ga.to_roost().unwrap();
+        gb.to_roost().unwrap();
+        // A reliable, validated projection and presence must precede a purchase.
+        loop {
+            now += 20;
+            a.poll(&mut ga, now as f64 / 1000.);
+            b.poll(&mut gb, now as f64 / 1000.);
+            if ga.others.len() == 1 && gb.others.len() == 1 {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "live team projection timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        a.propose_purchase(
+            dragon_game::team_vote::Purchase::Craft("armor".into()),
+            &ga,
+            now,
+        )
+        .unwrap();
+        let mut voted = false;
+        loop {
+            now += 20;
+            a.poll(&mut ga, now as f64 / 1000.);
+            b.poll(&mut gb, now as f64 / 1000.);
+            if !voted
+                && b.vote_view()
+                    .is_some_and(|v| v.phase == dragon_game::team_vote::Phase::Voting)
+            {
+                b.cast_vote(true).unwrap();
+                voted = true;
+            }
+            if a.vote_view()
+                .is_some_and(|v| v.phase == dragon_game::team_vote::Phase::Passed)
+                && b.vote_view()
+                    .is_some_and(|v| v.phase == dragon_game::team_vote::Phase::Passed)
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "live team vote timed out: {:?} / {:?}",
+                a.vote_view(),
+                b.vote_view()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(ga.profile()["spent"], 30.);
+        assert_eq!(gb.profile()["spent"], 0.);
+        assert_eq!(ga.profile()["craft"]["armor"], 1.);
+        assert_eq!(gb.profile()["craft"]["armor"], 0.);
+        assert_eq!(gb.team_summary().craft["armor"], 1.);
+        assert!(!a.drain_vote_events().is_empty());
         ga.to_party().unwrap();
         gb.to_party().unwrap();
         a.tick_party(&mut ga, 0., now).unwrap();
@@ -551,6 +722,9 @@ mod tests {
         );
         assert!(!ga.shared.as_ref().unwrap().authority().guest);
         assert!(gb.shared.as_ref().unwrap().authority().guest);
+        assert_eq!(ga.others.len(), 1);
+        assert_eq!(gb.others.len(), 1);
+        assert_eq!(a.live_crew(now as f64 / 1000.).count(), 1);
         assert_eq!(ga.profile()["rid"], "fixture-0");
         assert_eq!(gb.profile()["rid"], "fixture-1");
         assert!(!gb.shared.as_ref().unwrap().ghosts.is_empty());
@@ -826,7 +1000,7 @@ impl Lobby {
             }
             self.last_state = adventure.state().into();
         }
-        if self.blocked || adventure.state() != "party" {
+        if self.blocked || !self.present || adventure.state() != "party" {
             return Ok(vec![]);
         }
         let peers: Vec<_> = self
@@ -835,7 +1009,7 @@ impl Lobby {
             .filter_map(|p| {
                 let presence = p.presence.as_ref()?;
                 let state = presence["s"].as_str()?;
-                if matches!(state, "menu" | "loading") {
+                if matches!(state, "menu" | "loading" | "away") {
                     return None;
                 }
                 Some(dragon_game::party::Peer {
@@ -1019,7 +1193,206 @@ impl Lobby {
             "x":game.map(|g|g.player.x), "y":game.map(|g|g.player.y),
             "wave":game.map(|g|g.mission.wave),
             "enemies":game.map(|g|g.enemies.len()),
+            "vote":self.vote_view().map(|v|v.phase),
+            "localspent":adventure.profile()["spent"],
+            "localarmor":adventure.profile()["craft"]["armor"],
+            "teamarmor":adventure.team_summary().craft["armor"],
         });
         let _ = canvas.set_attribute("data-valmora-network", &data.to_string());
+    }
+}
+
+/// Online means a current bound transport peer, fresh validated projection and presence.
+/// It never means a profile happened to be stored on this device.
+pub struct LiveRider<'a> {
+    pub profile: &'a Value,
+}
+impl Lobby {
+    pub fn set_present(&mut self, present: bool) {
+        if self.present != present {
+            self.present = present;
+            if !present {
+                self.votes.suspend();
+            }
+            self.hello_at = f64::NEG_INFINITY;
+        }
+    }
+    pub fn live_crew(&self, now: f64) -> impl Iterator<Item = LiveRider<'_>> {
+        self.peers.values().filter_map(move |p| {
+            if self.blocked
+                || !now.is_finite()
+                || now < p.progress_at
+                || now - p.progress_at > 6.
+                || now - p.seen > 6.
+                || now - p.presence_at > 6.
+            {
+                return None;
+            }
+            let status = p.presence.as_ref()?["s"].as_str()?;
+            if !matches!(
+                status,
+                "party"
+                    | "story"
+                    | "map"
+                    | "roost"
+                    | "skills"
+                    | "results"
+                    | "riddle"
+                    | "frozen"
+                    | "hatch"
+                    | "play"
+                    | "pause"
+            ) {
+                return None;
+            }
+            p.rider?;
+            Some(LiveRider {
+                profile: p.progress.as_ref()?,
+            })
+        })
+    }
+    fn sync_team(&self, adventure: &mut Adventure, now: f64) {
+        if self.blocked {
+            adventure.clear_live_team();
+            return;
+        }
+        if !self
+            .live_crew(now)
+            .map(|p| p.profile)
+            .eq(adventure.others.iter())
+        {
+            adventure.set_live_team(self.live_crew(now).map(|p| p.profile.clone()).collect());
+        }
+    }
+}
+
+impl Lobby {
+    pub fn vote_view(&self) -> Option<&dragon_game::team_vote::View> {
+        self.votes.view.as_ref()
+    }
+    pub fn vote_blocked(&self) -> bool {
+        self.votes.blocked()
+    }
+    pub fn propose_purchase(
+        &mut self,
+        purchase: dragon_game::team_vote::Purchase,
+        adventure: &Adventure,
+        now_ms: u64,
+    ) -> Result<(), String> {
+        if self.blocked || !self.present || !matches!(adventure.state(), "roost" | "skills") {
+            return Err("Return to the Roost before asking the team".into());
+        }
+        self.sync_vote_members(now_ms as f64 / 1000.);
+        let cost = adventure
+            .quote_purchase(&purchase)
+            .map_err(|e| format!("{e:?}"))?;
+        self.votes.propose(purchase, cost).map_err(str::to_owned)
+    }
+    pub fn cast_vote(&mut self, yes: bool) -> Result<(), String> {
+        self.votes.cast(yes).map_err(str::to_owned)
+    }
+    pub fn drain_vote_events(&mut self) -> Vec<dragon_game::adventure::Event> {
+        std::mem::take(&mut self.vote_events)
+    }
+    fn sync_vote_members(&mut self, now: f64) {
+        let Some(mine) = self.id.as_ref() else {
+            return;
+        };
+        let mut members = std::collections::BTreeSet::from([mine.clone()]);
+        for (peer, p) in &self.peers {
+            if p.rider.is_some()
+                && p.progress.is_some()
+                && now - p.progress_at <= 6.
+                && now - p.presence_at <= 6.
+                && p.presence
+                    .as_ref()
+                    .and_then(|v| v["s"].as_str())
+                    .is_some_and(|s| {
+                        matches!(
+                            s,
+                            "party"
+                                | "story"
+                                | "map"
+                                | "roost"
+                                | "skills"
+                                | "results"
+                                | "riddle"
+                                | "frozen"
+                                | "hatch"
+                                | "play"
+                                | "pause"
+                        )
+                    })
+            {
+                members.insert(peer.clone());
+            }
+        }
+        self.votes.sync(mine, members, now);
+    }
+    fn receive_vote(
+        &mut self,
+        peer: &str,
+        message: dragon_game::team_vote::Message,
+        adventure: &Adventure,
+        now: f64,
+    ) {
+        self.sync_vote_members(now);
+        let Some(mine) = self.id.as_deref() else {
+            return;
+        };
+        self.votes
+            .receive(mine, peer, message, now, |purchase, cost| {
+                adventure.quote_purchase(purchase) == Ok(cost)
+            });
+    }
+    fn drive_votes(&mut self, adventure: &mut Adventure, now: f64) {
+        self.sync_vote_members(now);
+        if !self.present {
+            return;
+        }
+        let Some(mine) = self.id.clone() else {
+            return;
+        };
+        // Pump bounded local coordinator messages too; they never travel back over a socket.
+        for _ in 0..8 {
+            let outgoing = self.votes.drain();
+            if outgoing.is_empty() {
+                break;
+            }
+            for message in outgoing {
+                let data = json!({"r":self.rider,"vote":message});
+                if !self.transport.send("hello", data) {
+                    self.notice =
+                        "A team vote update could not be sent; do not repeat a pending purchase"
+                            .into();
+                }
+                self.votes
+                    .receive(&mine, &mine, message, now, |purchase, cost| {
+                        adventure.quote_purchase(purchase) == Ok(cost)
+                    });
+            }
+        }
+        if let Some((round, purchase, cost)) = self.votes.take_grant(&mine) {
+            let now_ms = (now * 1000.).max(0.) as u64;
+            // Local-day only matters for commands such as hatching, never Build/Craft.
+            let result = adventure.apply_purchase(
+                &purchase,
+                cost,
+                dragon_game::adventure::Clock { now_ms, day: 0 },
+            );
+            match result {
+                Ok(events) => {
+                    self.vote_events.extend(events);
+                    self.votes.receipt(round, true);
+                }
+                Err(error) => {
+                    self.notice = format!("Team purchase not applied: {error:?}");
+                    self.votes.receipt(round, false);
+                }
+            }
+            // Send changed accounting before the receipt, on the same reliable channel.
+            self.transport.send("hello",json!({"r":self.rider,"build":adventure.profile()["build"],"team":dragon_game::live_team::project(adventure.profile())}));
+            self.hello_at = now;
+        }
     }
 }

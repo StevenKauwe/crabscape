@@ -425,22 +425,22 @@ let W=1000,H=700,DPR=1,VIEW=1,me=true,song=false,bg={},land={},far={},cv={width:
 let scroll=0,scrollV=123;const FLY_SPEED=4.2,hash01=(i,k)=>{const v=Math.sin(i*127.1+k*311.7)*43758.5453;return v-Math.floor(v);};
 const dist=(a,b,c,d)=>Math.hypot(a-c,b-d),clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),isDaddio=r=>r.daddio,safeColor=(c,f)=>/^#[0-9a-f]{6}$/i.test(c)?c:f;
 class Recorder {
- constructor(){this.commands=[];this.path=[];this.stack=[];this.s={transform:[1,0,0,1,0,0],fillStyle:{Solid:'#000000'},strokeStyle:{Solid:'#000000'},globalAlpha:1,lineWidth:1,lineCap:'butt',lineJoin:'miter',dash:[],globalCompositeOperation:'source-over',clips:[]};}
+ constructor(){this.commands=[];this.path=[];this.stack=[];this.s={transform:[1,0,0,1,0,0],fillStyle:{Solid:'#000000'},strokeStyle:{Solid:'#000000'},globalAlpha:1,lineWidth:1,lineCap:'butt',lineJoin:'miter',lineDashOffset:0,dash:[],globalCompositeOperation:'source-over',clips:[]};}
  save(){this.stack.push(JSON.parse(JSON.stringify(this.s)));} restore(){this.s=this.stack.pop();}
  transform(g,h,i,j,k,l){let[a,b,c,d,e,f]=this.s.transform;this.s.transform=[a*g+c*h,b*g+d*h,a*i+c*j,b*i+d*j,a*k+c*l+e,b*k+d*l+f];}
  setTransform(...v){this.s.transform=v;}
  translate(x,y){this.transform(1,0,0,1,x,y);}scale(x,y){this.transform(x,0,0,y,0,0);}rotate(a){this.transform(Math.cos(a),Math.sin(a),-Math.sin(a),Math.cos(a),0,0);}
- beginPath(){this.path=[];}moveTo(...v){this.path.push({Move:v});}lineTo(...v){this.path.push({Line:v});}quadraticCurveTo(...v){this.path.push({Quad:v});}ellipse(...v){this.path.push({Ellipse:v});}arc(x,y,r,a,b){this.ellipse(x,y,r,r,0,a,b);}closePath(){this.path.push('Close');}
+ bezierCurveTo(...v){this.path.push({Cubic:v});}roundRect(...v){this.path.push({RoundRect:v});}beginPath(){this.path=[];}moveTo(...v){this.path.push({Move:v});}lineTo(...v){this.path.push({Line:v});}quadraticCurveTo(...v){this.path.push({Quad:v});}ellipse(...v){this.path.push({Ellipse:v});}arc(x,y,r,a,b){this.ellipse(x,y,r,r,0,a,b);}closePath(){this.path.push('Close');}
  setLineDash(v){this.s.dash=v.slice();}
  fillText(){}strokeText(){}
  strokeRect(x,y,w,h){let old=this.path;this.beginPath();this.moveTo(x,y);this.lineTo(x+w,y);this.lineTo(x+w,y+h);this.lineTo(x,y+h);this.closePath();this.stroke();this.path=old;}
  clip(){this.s.clips.push({path:this.path.slice(),transform:this.s.transform.slice()});}
- emit(stroke){this.commands.push(JSON.parse(JSON.stringify({path:this.path,transform:this.s.transform,paint:this.s[stroke?'strokeStyle':'fillStyle'],alpha:this.s.globalAlpha,additive:this.s.globalCompositeOperation==='lighter',stroke:stroke?{width:this.s.lineWidth,cap:this.s.lineCap,join:this.s.lineJoin,dash:this.s.dash}:null,clips:this.s.clips})));}
+ emit(stroke){this.commands.push(JSON.parse(JSON.stringify({path:this.path,transform:this.s.transform,paint:this.s[stroke?'strokeStyle':'fillStyle'],alpha:this.s.globalAlpha,additive:this.s.globalCompositeOperation==='lighter',stroke:stroke?{width:this.s.lineWidth,cap:this.s.lineCap,join:this.s.lineJoin,dash:this.s.dash,...(this.s.lineDashOffset?{dash_offset:this.s.lineDashOffset}:{})}:null,clips:this.s.clips})));}
  fill(){this.emit(false);}stroke(){this.emit(true);}fillRect(x,y,w,h){let old=this.path;this.beginPath();this.moveTo(x,y);this.lineTo(x+w,y);this.lineTo(x+w,y+h);this.lineTo(x,y+h);this.closePath();this.fill();this.path=old;}
  gradient(kind,coords){let v={coords,transform:this.s.transform.slice(),stops:[]};let p={[kind]:v};p.addColorStop=(x,c)=>v.stops.push([x,c]);return p;}
  createLinearGradient(...v){return this.gradient('Linear',v);}createRadialGradient(...v){return this.gradient('Radial',v);}
 }
-for(let k of ['fillStyle','strokeStyle','globalAlpha','lineWidth','lineCap','lineJoin','globalCompositeOperation'])Object.defineProperty(Recorder.prototype,k,{get(){return this.s[k]},set(v){this.s[k]=typeof v==='string'&&(k==='fillStyle'||k==='strokeStyle')?{Solid:v}:v}});
+for(let k of ['fillStyle','strokeStyle','globalAlpha','lineWidth','lineCap','lineJoin','lineDashOffset','globalCompositeOperation'])Object.defineProperty(Recorder.prototype,k,{get(){return this.s[k]},set(v){this.s[k]=typeof v==='string'&&(k==='fillStyle'||k==='strokeStyle')?{Solid:v}:v}});
 "#,
     );
     for name in [

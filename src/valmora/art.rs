@@ -1,5 +1,14 @@
 //! GPU-only adapter for the original Canvas geometry. No raster assets or gameplay state.
+mod healing;
+pub(super) use healing::{
+    HealFlash, HealingCache, HealingCraft, HealingInput, paint_healing_scene,
+};
+
 mod previews;
+mod scenes;
+
+pub(super) use scenes::{AdventureScene, paint_adventure_scene};
+
 pub(super) use previews::{builder_preview, roost_preview};
 
 use bevy_egui::egui::{
@@ -51,6 +60,62 @@ fn paths(commands: &[PathCommand], t: Affine) -> Vec<(Vec<Pos2>, bool)> {
                     ));
                 }
                 current = [x, y];
+            }
+            PathCommand::Cubic(x1, y1, x2, y2, x, y) => {
+                if p.is_empty() {
+                    current = [x1, y1];
+                    p.push(point(t, x1, y1));
+                }
+                let from = current;
+                let a = point(t, from[0], from[1]);
+                let b = point(t, x1, y1);
+                let d = point(t, x2, y2);
+                let e = point(t, x, y);
+                let n = ((a.distance(b) + b.distance(d) + d.distance(e)) / 3.)
+                    .ceil()
+                    .clamp(8., 192.) as usize;
+                for i in 1..=n {
+                    let q = i as f64 / n as f64;
+                    let z = 1. - q;
+                    p.push(point(
+                        t,
+                        z * z * z * from[0]
+                            + 3. * z * z * q * x1
+                            + 3. * z * q * q * x2
+                            + q * q * q * x,
+                        z * z * z * from[1]
+                            + 3. * z * z * q * y1
+                            + 3. * z * q * q * y2
+                            + q * q * q * y,
+                    ));
+                }
+                current = [x, y];
+            }
+            PathCommand::RoundRect(x, y, w, h, radius) => {
+                if !p.is_empty() {
+                    out.push((std::mem::take(&mut p), false));
+                }
+                // Source scenes use positive dimensions and a single uniform radius.
+                let r = radius.max(0.).min(w.abs() / 2.).min(h.abs() / 2.);
+                let (left, right) = (x.min(x + w), x.max(x + w));
+                let (top, bottom) = (y.min(y + h), y.max(y + h));
+                let scale = t.0[0].hypot(t.0[1]).max(t.0[2].hypot(t.0[3]));
+                let n = (std::f64::consts::FRAC_PI_2 * r * scale / 2.)
+                    .ceil()
+                    .clamp(4., 64.) as usize;
+                for (cx, cy, start) in [
+                    (right - r, top + r, -std::f64::consts::FRAC_PI_2),
+                    (right - r, bottom - r, 0.),
+                    (left + r, bottom - r, std::f64::consts::FRAC_PI_2),
+                    (left + r, top + r, std::f64::consts::PI),
+                ] {
+                    for i in 0..=n {
+                        let a = start + std::f64::consts::FRAC_PI_2 * i as f64 / n as f64;
+                        p.push(point(t, cx + r * a.cos(), cy + r * a.sin()));
+                    }
+                }
+                current = [left + r, top];
+                out.push((std::mem::take(&mut p), true));
             }
             PathCommand::Ellipse(x, y, rx, ry, rot, start, end) => {
                 let span = if end - start >= TAU {
@@ -318,7 +383,8 @@ fn shapes(canvas: &Canvas) -> Vec<Shape> {
                 if let Paint::Solid(_) = d.paint {
                     let col = color(d, p[0]);
                     if !stroke.dash.is_empty() {
-                        for dash in dashed_path(&p, &stroke.dash, scale) {
+                        for dash in dashed_path_offset(&p, &stroke.dash, scale, stroke.dash_offset)
+                        {
                             out.push(Shape::line(dash, Stroke::new(width, col)));
                         }
                         continue;
@@ -356,14 +422,24 @@ fn shapes(canvas: &Canvas) -> Vec<Shape> {
     out
 }
 
+#[cfg(test)]
 fn dashed_path(points: &[Pos2], pattern: &[f64], scale: f32) -> Vec<Vec<Pos2>> {
+    dashed_path_offset(points, pattern, scale, 0.)
+}
+fn dashed_path_offset(points: &[Pos2], pattern: &[f64], scale: f32, offset: f64) -> Vec<Vec<Pos2>> {
     let lengths: Vec<f32> = pattern
         .iter()
         .map(|n| (*n as f32 * scale).max(0.001))
         .collect();
     let mut out = Vec::new();
     let mut index = 0;
-    let mut left = lengths[0];
+    let total: f32 = lengths.iter().sum();
+    let mut phase = (offset as f32 * scale).rem_euclid(total);
+    while phase >= lengths[index % lengths.len()] {
+        phase -= lengths[index % lengths.len()];
+        index += 1;
+    }
+    let mut left = lengths[index % lengths.len()] - phase;
     let mut line = Vec::new();
     for pair in points.windows(2) {
         let mut a = pair[0];
@@ -1061,6 +1137,69 @@ mod tests {
         let d = &c.commands[0];
         assert_eq!(color(d, Pos2::new(20., 30.)), Color32::WHITE);
         assert_eq!(color(d, Pos2::new(0., 30.)), Color32::BLACK);
+    }
+    #[test]
+    fn animated_dash_offset_moves_phase_without_changing_pattern() {
+        let line = [Pos2::new(0., 0.), Pos2::new(10., 0.)];
+        assert_eq!(
+            dashed_path_offset(&line, &[4., 2.], 1., 2.),
+            vec![
+                vec![Pos2::new(0., 0.), Pos2::new(2., 0.)],
+                vec![Pos2::new(4., 0.), Pos2::new(8., 0.)]
+            ]
+        );
+        assert_eq!(
+            dashed_path_offset(&line, &[4., 2.], 1., -2.),
+            vec![
+                vec![Pos2::new(2., 0.), Pos2::new(6., 0.)],
+                vec![Pos2::new(8., 0.), Pos2::new(10., 0.)]
+            ]
+        );
+    }
+    #[test]
+    fn cubic_and_round_rect_tessellation_is_bounded_and_preserves_endpoints() {
+        let t = Affine([2., 0., 0., 3., 10., 20.]);
+        let curve = paths(
+            &[
+                PathCommand::Move(0., 0.),
+                PathCommand::Cubic(0., 10., 10., 10., 10., 0.),
+            ],
+            t,
+        );
+        assert_eq!(curve.len(), 1);
+        assert_eq!(curve[0].0.first(), Some(&Pos2::new(10., 20.)));
+        assert_eq!(curve[0].0.last(), Some(&Pos2::new(30., 20.)));
+        assert!(curve[0].0.len() <= 193);
+        for radius in [0., 12., 100.] {
+            let rounded = paths(
+                &[PathCommand::RoundRect(0., 0., 100., 60., radius)],
+                Affine::default(),
+            );
+            assert_eq!(rounded.len(), 1);
+            assert!(rounded[0].1);
+            assert!(rounded[0].0.len() <= 260);
+            assert!(
+                rounded[0]
+                    .0
+                    .iter()
+                    .all(|p| p.x >= -0.001 && p.x <= 100.001 && p.y >= -0.001 && p.y <= 60.001)
+            );
+            let points = &rounded[0].0;
+            let area: f32 = points
+                .iter()
+                .zip(points.iter().cycle().skip(1))
+                .take(points.len())
+                .map(|(a, b)| a.x * b.y - a.y * b.x)
+                .sum::<f32>()
+                .abs()
+                * 0.5;
+            let r = radius.min(30.) as f32;
+            let expected = 6000. - (4. - std::f32::consts::PI) * r * r;
+            assert!(
+                (area - expected).abs() < 16.,
+                "radius {radius}: {area} != {expected}"
+            );
+        }
     }
     #[test]
     fn source_dragon_tessellates_without_nonfinite_vertices() {

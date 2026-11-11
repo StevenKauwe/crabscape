@@ -81,6 +81,7 @@ pub enum Command {
     Treat(String),
     Spend { cost: f64, text: String },
     Craft(String),
+    Build(String),
     LearnSkill(String),
     SelectMain(String),
     Swap,
@@ -103,6 +104,11 @@ pub enum Event {
     Crafted {
         item: String,
     },
+    Built {
+        project: String,
+        thanks: String,
+        spot: [f64; 2],
+    },
     Learned {
         branch: String,
         name: String,
@@ -123,6 +129,7 @@ pub enum Error {
     NoTreats,
     NoStars,
     NeedsWords,
+    LockedProject,
 }
 fn stage(level: u8) -> u8 {
     if level >= 12 {
@@ -328,6 +335,49 @@ pub fn apply(
                 json!(n(&me["craft"][&id]) + 1.0)
             };
             events.push(Event::Crafted { item: id });
+        }
+        Command::Build(id) => {
+            let project = crate::content::catalog()["projects"]
+                .as_array()
+                .and_then(|a| a.iter().find(|p| p["id"] == id))
+                .ok_or(Error::UnknownItem)?;
+            let docs: Vec<_> = std::iter::once(&*me)
+                .chain(
+                    others
+                        .iter()
+                        .take(if static_mode { 0 } else { others.len() }),
+                )
+                .collect();
+            if docs.iter().any(|p| {
+                p["built"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|v| v == &id))
+            }) {
+                return Err(Error::Complete);
+            }
+            if !docs.iter().any(|p| {
+                p["cleared"]
+                    .as_array()
+                    .is_some_and(|a| a.contains(&project["at"]))
+            }) {
+                return Err(Error::LockedProject);
+            }
+            let name = project["name"].as_str().ok_or(Error::InvalidProfile)?;
+            let mut chars = name.chars();
+            let text = chars
+                .next()
+                .map(|c| c.to_lowercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default();
+            spend(me, &team, n(&project["cost"]), &text, now_ms, &mut events)?;
+            me["built"]
+                .as_array_mut()
+                .ok_or(Error::InvalidProfile)?
+                .push(json!(id));
+            events.push(Event::Built {
+                project: id,
+                thanks: project["thanks"].as_str().unwrap_or("").into(),
+                spot: [n(&project["spot"][0]), n(&project["spot"][1])],
+            });
         }
         Command::LearnSkill(branch) => {
             if !["breath", "rider", "magic"].contains(&branch.as_str()) {
