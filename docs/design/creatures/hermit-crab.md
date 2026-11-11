@@ -12,7 +12,10 @@ Rig: `art/creatures/hermit-crab/hermit-crab-parts.svg` (ink only). Shared rules:
   prevented or reversed that [W-CP]. The Ross / Brooks papers named in the brief were not opened: not verified as
   sources, only the Wikipedia summary of the result.
 - **Size:** the anemone reaches about 100 mm tall [W-CP]. Hermit size is not given by SeaLifeBase for *D. calidus*
-  (blank). Game shell: 11 cm = 70 units (brief; not verified).
+  (blank); the red hermit grows to about 10 cm long, 12 at most (Wikipedia; Oldenburg University's Giglio
+  guide; whether that is body or shell length is not stated). Game adult: **10 cm long**, its shell and the crab out
+  of it (the shell 6.4 cm), hurtbox 47 x 37 over the shell and head (size audit: it was drawn 19 cm long, bigger
+  than our crab's shell; `README.md` "Sizes at crab scale").
 - **Withdrawing:** a hermit can retract fully into its shell and block the entrance with its claws [W-HC].
 - **Shell fights:** crabs fight (rarely, when sizes differ a lot) for better shells; the initiator "raps" its shell
   against the other's in rhythmic strikes before pulling it out [W-HC]. The page credits Dowds & Elwood (1983); the

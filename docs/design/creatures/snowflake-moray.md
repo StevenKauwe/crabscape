@@ -4,8 +4,11 @@ Concept sheet: `art/creatures/snowflake-moray/snowflake-moray.png`. Shared rules
 
 ## Biology that matters
 - **Size:** up to 100 cm, commonly 50 cm [FB-EN]; 75 cm in the Andaman Sea survey [KAH]. Body depth at the gill
-  opening is 1/14–1/23 of its length [FB-EN-M]. Game adult: 60 cm (375 units), five crab shells long but only 3.8 cm
-  deep (24 units): a long, thin giant. Head 7 cm long (44 units; not verified).
+  opening is 1/14–1/23 of its length [FB-EN-M]. Game adult: 60 cm (375 units) in the plain test level, but only 3.8 cm
+  deep (24 units): a long, thin giant. Head 7 cm long (44 units; not verified). In the game's sea (the cell world) it
+  is 5/3 that: **a 100 cm adult**, the largest FishBase gives (head 73 x 40 units, 11.7 x 6.4 cm). Swimming out of
+  its crevice it is drawn whole, head and fifteen segments narrowing to the tail (size audit: it was strung only 37
+  cm long, its head alone out of the crevice); only the head is its hurtbox.
 - **Where:** among rocks and corals on intertidal reef flats, shallow lagoons and seaward reefs, 0–48 m, usually
   above 10 m [FB-EN]. Shallows and reef crevices.
 - **Diet:** mainly crustaceans [FB-EN]; snowflake morays usually eat hard-shelled prey such as crabs and have been

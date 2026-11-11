@@ -33,11 +33,14 @@ struct Piece {
     name: String,
 }
 
+/// World units per unit of its art file, the rig drawn at true size (`src/sizes.rs` checks it).
+pub(crate) const ART_SCALE: f32 = 0.5;
+
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/giant-isopod-parts.json"),
         "creatures/giant-isopod-atlas.png",
-        0.5,
+        ART_SCALE,
         &assets,
     )));
 }

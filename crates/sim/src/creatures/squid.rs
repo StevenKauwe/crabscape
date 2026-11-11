@@ -31,8 +31,9 @@ pub const NAME: &str = "humboldt-squid";
 pub const MIDWATER: bool = true;
 /// What its body leaves: its beak (and the body itself, as food).
 pub const DROPS: &[&str] = &["squid beak"];
-/// Body hurtbox (mantle and head), width and height in units (1 cm = 6.25).
-pub const BODY: (f32, f32) = (625.0, 110.0);
+/// Body hurtbox (mantle and head), width and height in units (1 cm = 6.25):
+/// the mantle and head of an 80 cm squid (its common total length, real).
+pub const BODY: (f32, f32) = (492.0, 87.0);
 
 // --- Senses and movement (tuned) ---
 /// Sees a crab this far off sideways from its middle (and within 200 up or
@@ -59,7 +60,7 @@ pub const LEVEL_GAP: f32 = 200.0;
 /// A pause at the ring before it may tell: random in this range (ticks).
 pub const WAIT: (u32, u32) = (90, 240);
 /// Height of the arm crown above the bottom of the body box.
-pub const CROWN_Y: f32 = 55.0;
+pub const CROWN_Y: f32 = BODY.1 * 0.5;
 
 // --- The tell ---
 /// The whole tell: 3.2 s.
@@ -460,7 +461,7 @@ fn run(
     {
         e.fled = true;
         release(crabs, e.id);
-        st.ink = e.pos + Vec2::Y * 55.0;
+        st.ink = e.pos + Vec2::Y * CROWN_Y;
         st.ink_left = INK_TICKS;
         e.target = None;
         e.enter(Mode::Flee, FLEE_JET_TICKS);

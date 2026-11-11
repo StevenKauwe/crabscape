@@ -130,6 +130,8 @@ mod scribe;
 mod secrets;
 mod settings;
 mod shell_inventory;
+#[cfg(test)]
+mod sizes;
 mod skill_juice;
 mod skills_panel;
 mod sound;

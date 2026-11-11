@@ -1621,6 +1621,11 @@ pub fn triggerfish_tuning() -> &'static EnemyTuning {
     })
 }
 
+/// The moray of the cell world (the game's sea) is this much bigger than the
+/// tuning's 60 cm one, so it reads clearly against the crab: a 100 cm adult,
+/// the largest FishBase gives (`docs/design/creatures/README.md`, "Sizes").
+pub const SEA_MORAY_SCALE: f32 = 100.0 / 60.0;
+
 // Atolla-sized bell from MBARI; all timing, sting and encounter ranges are tuned.
 pub const JELLY_BELL_WIDTH: f32 = 94.0;
 pub const JELLY_BELL_HEIGHT: f32 = 40.0;

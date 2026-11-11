@@ -43,11 +43,14 @@ struct Ink {
     n: u32,
 }
 
+/// Drawn 80 cm from fin to arm tips, the common length of a Humboldt squid (total length, tentacles out of it; `src/sizes.rs` checks it).
+pub(crate) const ART_SCALE: f32 = 0.393_7;
+
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/humboldt-squid-parts.json"),
         "creatures/humboldt-squid-atlas.png",
-        0.5,
+        ART_SCALE,
         &assets,
     )));
 }

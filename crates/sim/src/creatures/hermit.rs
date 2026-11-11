@@ -31,8 +31,9 @@ pub const MIDWATER: bool = false;
 /// What its body leaves: the shell is the prize (shell-home material), and
 /// the anemone that rode on it. The body is food besides.
 pub const DROPS: &[&str] = &["whelk shell", "anemone"];
-/// Body hurtbox, width and height in units (1 cm = 6.25): the shell, 11 cm.
-pub const BODY: (f32, f32) = (70.0, 55.0);
+/// Body hurtbox, width and height in units (1 cm = 6.25): the shell, 7.5 cm
+/// across, for a 10 cm hermit (shell and the crab out of it, as drawn).
+pub const BODY: (f32, f32) = (47.0, 37.0);
 
 // --- Feel numbers (ticks at 120 Hz, units, units per second) ---------------
 pub const HEALTH: f32 = 50.0;
