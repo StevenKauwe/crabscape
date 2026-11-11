@@ -13,7 +13,7 @@ pub fn large_fixture() -> Result<Vec<u8>> {
         (8000.0, -5000.0),
         (3000.0, -7000.0),
         (8000.0, -9000.0),
-        (7000.812, -5996.2175),
+        (7000.812, -3004.2175),
     ] {
         if !terrain.follow_player(&level, x, y) {
             return Err("fixture did not stream".into());
@@ -79,7 +79,7 @@ fn fully_explored_player(level: &Level) -> crabsim::SaveData {
     crabsim::SaveData {
         version: crabsim::SAVE_VERSION,
         x: 7000.812,
-        y: -5996.2175,
+        y: -3004.2175,
         memory: Some(memory),
         progress: None,
     }

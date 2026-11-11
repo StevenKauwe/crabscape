@@ -1412,7 +1412,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 p.b.attr("data-cell-save").as_deref() == Some("loaded")
             })?;
             let at = local_position(&mut host)?;
-            if (at.0 - 7000.812).abs() > 150.0 || (at.1 + 5996.2175).abs() > 300.0 {
+            if (at.0 - 7000.812).abs() > 150.0 || (at.1 + 3004.2175).abs() > 300.0 {
                 return Err(host.failed(format!(
                     "deep fixture did not restore near report position: {at:?}"
                 )));
