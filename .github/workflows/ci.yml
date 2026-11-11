@@ -406,8 +406,8 @@ jobs:
         run: |
           chmod +x target/art/king
           target/art/king --tour
-      - name: Keep a failure's state and screenshot
-        if: failure()
+      - name: Keep castle timing evidence and any failure screenshot
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: king-${{ github.sha }}

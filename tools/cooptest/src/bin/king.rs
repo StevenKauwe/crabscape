@@ -11,9 +11,7 @@ use std::{
     thread::sleep,
     time::{Duration, Instant},
 };
-fn failure_evidence(browser: &mut Chrome) {
-    let directory = Path::new("target/webtest/king");
-    let _ = std::fs::create_dir_all(directory);
+fn diagnostic_state(browser: &mut Chrome) -> Result<serde_json::Value> {
     const STATE: &str = r#"(() => {
       const c = document.getElementById('crabscape');
       return {window:[innerWidth,innerHeight,devicePixelRatio],
@@ -32,15 +30,21 @@ fn failure_evidence(browser: &mut Chrome) {
         storage:c?.getAttribute('data-cell-page-state'),
         region:c?.getAttribute('data-cell-region-state'),
         timing:window.kingProbe,
+        measures:performance.getEntriesByType('measure').map(m => [m.name,m.startTime,m.duration]),
         now:performance.now()};
     })()"#;
+    browser.eval(STATE)
+}
+fn failure_evidence(browser: &mut Chrome) {
+    let directory = Path::new("target/webtest/king");
+    let _ = std::fs::create_dir_all(directory);
     // Capture the timed-out state before asking Chrome for a screenshot:
     // a software-rendered capture may itself take time or trigger a paint.
-    if let Ok(state) = browser.eval(STATE) {
+    if let Ok(state) = diagnostic_state(browser) {
         let _ = std::fs::write(directory.join("failure-state.json"), state.to_string());
     }
     let _ = browser.screenshot(&directory.join("failure.png"));
-    if let Ok(state) = browser.eval(STATE) {
+    if let Ok(state) = diagnostic_state(browser) {
         let _ = std::fs::write(directory.join("failure-after-shot.json"), state.to_string());
     }
 }
@@ -104,10 +108,12 @@ fn reload_castle(browser: &mut Chrome) -> Result<()> {
         if browser.eval(
             r#"(() => {
               const c = document.getElementById('crabscape');
-              return window.kingtestOld !== true &&
+              const ready = window.kingtestOld !== true &&
                 document.getElementById('message')?.hidden === true &&
                 document.activeElement === c &&
                 c?.getAttribute('data-king-ddd') === 'castle';
+              if (ready && window.kingProbe) window.kingProbe.reloadReady = performance.now();
+              return ready;
             })()"#,
         )? == true
         {
@@ -209,14 +215,18 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     let mut trace = VecDeque::new();
     let mut held = None;
     loop {
-        let p = position(browser)?;
+        // One protocol turn correlates the displayed position with the
+        // current tick, input and paging markers. These markers can still
+        // have different publication cadences; retain them rather than
+        // claiming an old DOM sample proves the simulation was ready.
+        let observation = browser.eval("window.kingProbe.capture()")?;
+        let p = parse_position(observation["crab"].as_str().ok_or("No crab position")?)?;
         if trace.len() == 12 {
             trace.pop_front();
         }
         trace.push_back(format!(
-            "{:.2}s {p:?} tick={:?}",
+            "{:.2}s {observation}",
             started.elapsed().as_secs_f32(),
-            browser.attr("data-king-ddd-tick")
         ));
         // A gripped crab can stay at the edge of its 48-unit reach. Do not
         // demand the rope's centre after the approach has already caught it.
@@ -247,11 +257,22 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         }
         sleep(Duration::from_millis(40));
     }
+    let reached = started.elapsed();
     // Release the key actually held first. A redundant opposite-key CDP
     // roundtrip can take several software-rendered frames, during which
     // the crab would keep walking past the target and off the landing.
     if let Some(right) = held {
         browser.set_key(if right { "ArrowRight" } else { "ArrowLeft" }, false)?;
+    }
+    if target == 240.0 {
+        // Keep a passing comparison too: one green run must not be mistaken
+        // for proof that the missing timing evidence fixed the earlier stall.
+        println!("Return walk completed in {:.2}s", reached.as_secs_f32());
+        let directory = Path::new("target/webtest/king");
+        let _ = std::fs::create_dir_all(directory);
+        if let Ok(state) = diagnostic_state(browser) {
+            let _ = std::fs::write(directory.join("return-state.json"), state.to_string());
+        }
     }
     if !rope {
         sleep(Duration::from_millis(250));
@@ -563,6 +584,62 @@ fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     );
     Ok(())
 }
+fn install_probe(browser: &mut Chrome) -> Result<()> {
+    browser.install_script(
+        r#"(() => {
+          const p = window.kingProbe = {longTasks:[],keys:[],measures:[],frames:[],samples:[],lastFrame:null,frameCount:0};
+          const bounded = (list, value, limit=128) => {
+            list.push(value);
+            if (list.length>limit) list.shift();
+          };
+          p.capture = () => {
+            const c = document.getElementById('crabscape');
+            return {now:performance.now(),lastFrame:p.lastFrame,frameCount:p.frameCount,
+              tick:c?.getAttribute('data-king-ddd-tick'),
+              crab:c?.getAttribute('data-crab'),controls:c?.getAttribute('data-cell-controls'),
+              storage:c?.getAttribute('data-cell-page-state'),region:c?.getAttribute('data-cell-region-state'),
+              loading:!document.getElementById('message')?.hidden,ready:document.readyState,
+              focus:document.activeElement?.id,visible:document.visibilityState,
+              hasFocus:document.hasFocus(),king:c?.getAttribute('data-king-ddd')};
+          };
+          let sampled = -Infinity;
+          new MutationObserver(() => {
+            const now = performance.now();
+            if (now-sampled<200) return;
+            sampled=now;
+            bounded(p.samples,p.capture());
+          }).observe(document,{subtree:true,attributes:true,attributeFilter:[
+            'data-king-ddd-tick','data-crab','data-cell-controls','data-cell-page-state','data-cell-region-state']});
+          let previousFrame;
+          const frame = now => {
+            if (previousFrame !== undefined && now-previousFrame>100)
+              bounded(p.frames,[previousFrame,now-previousFrame]);
+            previousFrame=now;
+            p.lastFrame=now;
+            p.frameCount++;
+            requestAnimationFrame(frame);
+          };
+          requestAnimationFrame(frame);
+          new PerformanceObserver(list => {
+            for (const t of list.getEntries()) {
+              bounded(p.longTasks,[Math.round(t.startTime),Math.round(t.duration)]);
+            }
+          }).observe({type:'longtask',buffered:true});
+          new PerformanceObserver(list => {
+            for (const m of list.getEntries())
+              bounded(p.measures,[m.name,m.startTime,m.duration],256);
+          }).observe({type:'measure',buffered:true});
+          for (const type of ['keydown','keyup']) addEventListener(type, e => {
+            bounded(p.keys,[Math.round(performance.now()),type,e.code,e.target?.id],32);
+          });
+          addEventListener('DOMContentLoaded', () => {
+            const c = document.getElementById('crabscape');
+            c?.setAttribute('data-cell-control-probe','');
+            c?.setAttribute('data-cell-work-profile','');
+          }, {once:true});
+        })()"#,
+    )
+}
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let train = args.iter().any(|a| a == "--train");
@@ -595,26 +672,7 @@ fn main() -> Result<()> {
             ..Options::default()
         },
     )?;
-    b.install_script(
-        r#"(() => {
-          const p = window.kingProbe = {longTasks:[],keys:[]};
-          new PerformanceObserver(list => {
-            for (const t of list.getEntries()) {
-              p.longTasks.push([Math.round(t.startTime),Math.round(t.duration)]);
-              if (p.longTasks.length>16) p.longTasks.shift();
-            }
-          }).observe({type:'longtask',buffered:true});
-          for (const type of ['keydown','keyup']) addEventListener(type, e => {
-            p.keys.push([Math.round(performance.now()),type,e.code,e.target?.id]);
-            if (p.keys.length>16) p.keys.shift();
-          });
-          addEventListener('DOMContentLoaded', () => {
-            const c = document.getElementById('crabscape');
-            c?.setAttribute('data-cell-control-probe','');
-            c?.setAttribute('data-cell-work-profile','');
-          }, {once:true});
-        })()"#,
-    )?;
+    install_probe(&mut b)?;
     b.touch_screen(true)?;
     let sep = if site.contains('?') { '&' } else { '?' };
     b.go(&format!("{site}{sep}king-ddd"))?;
@@ -809,6 +867,46 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires installed Chrome; no game build or network"]
+    fn timing_probe_keeps_bounded_serializable_history() -> Result<()> {
+        let directory =
+            std::env::temp_dir().join(format!("crab-king-probe-{}", std::process::id()));
+        let mut browser =
+            Chrome::start_without_clipboard("king-probe-test", &directory, Options::default())?;
+        install_probe(&mut browser)?;
+        browser.go("data:text/html,<canvas id='crabscape' tabindex='0'></canvas><p id='message' hidden></p>")?;
+        browser.eval(
+            r#"new Promise(done => {
+              const c = document.getElementById('crabscape');
+              c.focus();
+              c.setAttribute('data-crab','455.0 5720.0 1');
+              c.setAttribute('data-king-ddd-tick','123');
+              c.setAttribute('data-cell-controls','walk=-1');
+              c.setAttribute('data-cell-page-state','reading=true');
+              for (let i=0;i<300;i++) {
+                performance.measure('probe', {start:i,duration:1});
+                c.dispatchEvent(new KeyboardEvent('keydown',{code:'ArrowLeft',bubbles:true}));
+              }
+              setTimeout(() => done(true),100);
+            })"#,
+        )?;
+        let state = diagnostic_state(&mut browser)?;
+        assert_eq!(state["crab"], "455.0 5720.0 1");
+        assert_eq!(state["tick"], "123");
+        assert_eq!(state["timing"]["keys"].as_array().map(Vec::len), Some(32));
+        assert_eq!(
+            state["timing"]["measures"].as_array().map(Vec::len),
+            Some(256)
+        );
+        assert_eq!(state["timing"]["measures"][255][1], 299);
+        let sample = &state["timing"]["samples"][0];
+        assert_eq!(sample["controls"], "walk=-1");
+        assert_eq!(sample["storage"], "reading=true");
+        assert_eq!(sample["tick"], "123");
+        Ok(())
+    }
 
     #[test]
     fn rampart_arrival_rejects_the_gallery_and_an_airborne_crab() {
