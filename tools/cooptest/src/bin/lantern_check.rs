@@ -83,6 +83,12 @@ fn pixels(b: &mut Chrome, path: &Path) -> Result<Value> {
     b.eval(&format!(r#"new Promise(resolve=>{{const i=new Image;i.onload=()=>{{const c=document.createElement('canvas');c.width=i.width;c.height=i.height;const ctx=c.getContext('2d');ctx.drawImage(i,0,0);const p=ctx.getImageData(0,0,c.width,c.height).data,grid=[];for(let gy=0;gy<6;gy++)for(let gx=0;gx<8;gx++){{let n=0,sum=0;for(let y=Math.floor(gy*c.height/6);y<Math.floor((gy+1)*c.height/6);y++)for(let x=Math.floor(gx*c.width/8);x<Math.floor((gx+1)*c.width/8);x++){{const k=(y*c.width+x)*4;sum+=.2126*p[k]+.7152*p[k+1]+.0722*p[k+2];n++;}}grid.push(sum/n)}}resolve({{width:c.width,height:c.height,luma_grid_8x6:grid}})}};i.src='data:image/png;base64,{png}';}})"#))
 }
 
+fn rendered_key(b: &mut Chrome, key: &str) -> Result<()> {
+    b.set_key(key, true)?;
+    b.eval("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))")?;
+    b.set_key(key, false)
+}
+
 /// Fixed-pickup stages plus examples of renewable progression, without repeated controls checks.
 fn stages(base: &str, out: &Path, label: &str) -> Result<()> {
     let maximum = crabsim::Level::test_level().cultures.len() as u32;
@@ -91,53 +97,66 @@ fn stages(base: &str, out: &Path, label: &str) -> Result<()> {
     );
     let mut records = Vec::new();
     let extras_only = std::env::var_os("LANTERN_STAGE_EXTRAS_ONLY").is_some();
+    let pair_controls = label.starts_with("stages-after");
     for cells in [false, true] {
         for cultures in (0..=maximum).chain([10, 25]) {
             if (cultures > maximum && !cells) || (extras_only && cultures <= maximum) {
                 continue;
             }
+            let mut paired = None;
             for dim in [false, true] {
                 let name = format!(
                     "{label}-{}-level-{cultures}-{}",
                     if cells { "cellular" } else { "legacy" },
                     if dim { "dim" } else { "full" }
                 );
-                let profile = std::env::temp_dir()
-                    .join(format!("crab-lantern-{}-{name}", std::process::id()));
-                let mut b = Chrome::start_without_clipboard(
-                    &name,
-                    &profile,
-                    Options {
-                        fake_mic: false,
-                        slow: 1.0,
-                    },
-                )?;
-                b.protocol_viewport(1280, 720)?;
-                fixture(&mut b, base, cells, 6000.0, -3380.0, dim, cultures)?;
-                let began = Instant::now();
-                while !b
-                    .attr("data-crab")
-                    .is_some_and(|p| p.split_whitespace().nth(2) == Some("1"))
-                {
-                    if began.elapsed().as_secs() > 90 {
-                        return Err("stage fixture did not ground".into());
+                let (mut b, profile) = if let Some((mut b, profile)) = paired.take() {
+                    rendered_key(&mut b, "KeyH")?;
+                    b.eval("new Promise(resolve => {let frames=0;function step(){if(++frames===30)resolve(true);else requestAnimationFrame(step)}requestAnimationFrame(step)})")?;
+                    (b, profile)
+                } else {
+                    let profile = std::env::temp_dir()
+                        .join(format!("crab-lantern-{}-{name}", std::process::id()));
+                    let mut b = Chrome::start_without_clipboard(
+                        &name,
+                        &profile,
+                        Options {
+                            fake_mic: false,
+                            slow: 1.0,
+                        },
+                    )?;
+                    b.protocol_viewport(1280, 720)?;
+                    fixture(&mut b, base, cells, 6000.0, -3380.0, dim, cultures)?;
+                    let began = Instant::now();
+                    while !b
+                        .attr("data-crab")
+                        .is_some_and(|p| p.split_whitespace().nth(2) == Some("1"))
+                    {
+                        if began.elapsed().as_secs() > 90 {
+                            return Err("stage fixture did not ground".into());
+                        }
+                        sleep(Duration::from_millis(100));
                     }
-                    sleep(Duration::from_millis(100));
-                }
-                // Rendered-frame settling also allows the camera/pose to catch up on a busy Mac.
-                b.eval("new Promise(resolve => {let frames=0;function step(){if(++frames===120)resolve(true);else requestAnimationFrame(step)}requestAnimationFrame(step)})")?;
-                b.hold_key("KeyB", 0.1)?;
-                sleep(Duration::from_millis(500));
+                    // Rendered-frame settling also allows the camera/pose to catch up on a busy Mac.
+                    b.eval("new Promise(resolve => {let frames=0;function step(){if(++frames===120)resolve(true);else requestAnimationFrame(step)}requestAnimationFrame(step)})")?;
+                    rendered_key(&mut b, "KeyB")?;
+                    sleep(Duration::from_millis(500));
+                    (b, profile)
+                };
                 let path = out.join(format!("{name}.png"));
                 b.screenshot(&path)?;
-                let record = json!({"name":name,"cultures":cultures,"fixed_pickup_cultures":maximum,"dim_fixture":dim,"synthetic_spawn":[6000,-3380],"position":b.attr("data-crab"),"pixels":pixels(&mut b,&path)?});
+                let record = json!({"name":name,"cultures":cultures,"fixed_pickup_cultures":maximum,"dim":dim,"dim_via_keyboard":pair_controls && dim,"synthetic_spawn":[6000,-3380],"position":b.attr("data-crab"),"pixels":pixels(&mut b,&path)?});
                 println!("{record}");
                 records.push(record);
                 if let Some(e) = b.trouble() {
                     return Err(e);
                 }
-                drop(b);
-                std::fs::remove_dir_all(profile).map_err(|e| e.to_string())?;
+                if pair_controls && !dim {
+                    paired = Some((b, profile));
+                } else {
+                    drop(b);
+                    std::fs::remove_dir_all(profile).map_err(|e| e.to_string())?;
+                }
             }
         }
     }
