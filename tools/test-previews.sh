@@ -10,12 +10,22 @@ for entry in ci.yml:preview ci.yml:deploy previews.yml:cleanup; do
   awk -v job="$job" -v expected='github-pages-${{ github.job }}-${{ github.run_attempt }}' '
     /^  [a-zA-Z0-9_-]+:/ { active = ($0 == "  " job ":") }
     active && /^      - / { action = "" }
-    active && /uses: actions\/upload-pages-artifact@/ { action = "upload"; uploads++ }
-    active && /uses: actions\/deploy-pages@/ { action = "deploy"; deploys++ }
+    active && /actions: read/ { actions_read++ }
+    active && /^      - id: pages_artifact$/ { artifact_ids++ }
+    active && /uses: actions\/upload-pages-artifact@/ { action = "upload"; uploads++; upload_line = NR }
+    active && /^      - name: Wait for the uploaded Pages artifact$/ { action = "wait"; waits++; wait_line = NR }
+    active && /uses: actions\/deploy-pages@/ { action = "deploy"; deploys++; deploy_line = NR }
     active && action == "upload" && $0 == "          name: " expected { upload_names++ }
+    active && action == "wait" && $0 == "        if: steps.snap.outputs.deployed == '\''true'\''" { wait_conditions++ }
+    active && action == "wait" && /^        timeout-minutes: 2$/ { wait_budgets++ }
+    active && action == "wait" && $0 == "        run: bash tools/wait-pages-artifact.sh \"$ARTIFACT_ID\" \"$ARTIFACT_NAME\"" { wait_commands++ }
+    active && action == "wait" && $0 == "          ARTIFACT_ID: ${{ steps.pages_artifact.outputs.artifact_id }}" { wait_ids++ }
+    active && action == "wait" && $0 == "          ARTIFACT_NAME: " expected { wait_names++ }
     active && action == "deploy" && $0 == "          artifact_name: " expected { deploy_names++ }
     active && action == "deploy" && /^          timeout: 600000([[:space:]]|$)/ { sync_budgets++ }
-    END { if (uploads != 1 || deploys != 1 || upload_names != 1 || deploy_names != 1 || sync_budgets != 1) exit 1 }
+    END { if (uploads != 1 || deploys != 1 || upload_names != 1 || deploy_names != 1 || sync_budgets != 1 ||
+      actions_read != 1 || artifact_ids != 1 || waits != 1 || wait_conditions != 1 || wait_budgets != 1 ||
+      wait_commands != 1 || wait_ids != 1 || wait_names != 1 || !(upload_line < wait_line && wait_line < deploy_line)) exit 1 }
   ' "$root/.github/workflows/$workflow" || {
     echo "Pages artifact identity or bounded sync budget is wrong: $workflow/$job" >&2
     exit 1
