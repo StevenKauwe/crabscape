@@ -222,10 +222,16 @@ impl Mover {
 
     pub fn lantern_sight(&self, t: &crate::Tuning) -> crate::memory::Sight {
         let eye = self.pos + bevy_math::Vec2::Y * self.height(t);
-        let mut sight = crate::memory::Sight::new(eye, self.lantern_glow(), &t.memory);
         let depth = crate::memory::depth_factor(self.pos);
-        sight.radii *= 1.0 - (1.0 - self.lantern_light_factor()) * depth;
-        sight
+        let light_factor = self.lantern_light_factor();
+        let sight_factor = 1.0 - (1.0 - light_factor) * depth;
+        crate::memory::Sight::for_lantern(
+            eye,
+            self.lantern_glow(),
+            sight_factor,
+            light_factor,
+            &t.memory,
+        )
     }
 
     /// How many cultures' worth of light the lantern gives: the ones brought

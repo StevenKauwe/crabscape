@@ -1997,8 +1997,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             for p in [&mut host, &mut guest] {
                 pause_region(p, false)?;
             }
-            guest.b.hold_key("KeyH", 0.1)?;
-            // H opens a question; Y answers it in a later game frame. A
+            guest.b.hold_key("Home", 0.1)?;
+            // Home opens a question; Y answers it in a later game frame. A
             // wall-time delay can put both presses in one slow CI frame.
             guest.b.eval("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))")?;
             guest.b.hold_key("KeyY", 0.1)?;

@@ -1,8 +1,8 @@
 //! The Home button: one tap (or a controller's Select) puts the local crab
-//! straight back in its home shell, tucked in as if it had walked in. H or
-//! the Home key asks first, "Go home? Y / N" with the keys drawn as keycaps:
-//! Y goes; N, Esc or any other key doesn't (H sits beside J, the dodge, so a
-//! slip mustn't throw a fight away). When it works is the sim's rule
+//! straight back in its home shell, tucked in as if it had walked in. The
+//! Home key asks first, "Go home? Y / N" with the keys drawn as keycaps:
+//! Y goes; N, Esc or any other key doesn't. H belongs only to the lantern,
+//! so dimming it cannot also ask to leave a fight. When it works is the sim's rule
 //! (`crabsim::home::may_go_home`: any time, for now, even mid-fight); this
 //! only asks for it, like any other command, and shows the button.
 //!
@@ -21,8 +21,8 @@ use crate::player::{GameSet, LocalPlayer, PlayerId};
 /// What the button says.
 const LABEL: &str = "Home";
 
-/// The keys that ask to go home.
-const KEYS: [KeyCode; 2] = [KeyCode::KeyH, KeyCode::Home];
+/// H belongs to the lantern; Home still asks before returning.
+const KEYS: [KeyCode; 1] = [KeyCode::Home];
 
 /// The key that answers yes; any other key answers no.
 const YES: KeyCode = KeyCode::KeyY;
@@ -147,7 +147,7 @@ fn spawn_question(mut commands: Commands) {
         });
 }
 
-/// What a key press does to the question: H (or Home) asks it; then Y goes
+/// What a key press does to the question: Home asks it; then Y goes
 /// home and any other key puts it away. True when the crab should go.
 fn answer(asking: &mut bool, keys: &ButtonInput<KeyCode>) -> bool {
     if *asking {
@@ -163,7 +163,7 @@ fn answer(asking: &mut bool, keys: &ButtonInput<KeyCode>) -> bool {
 }
 
 /// A tap or click on the button, or a controller's Select: the local crab
-/// goes home. H or Home asks first.
+/// goes home. The Home key asks first.
 #[allow(clippy::too_many_arguments)] // Bevy systems often need many inputs
 fn press(
     keys: Res<ButtonInput<KeyCode>>,
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn h_asks_first_and_y_goes_home() {
+    fn home_asks_first_and_y_goes_home() {
         for ask in KEYS {
             let mut app = far_from_home();
             frame(&mut app, Some(ask));
@@ -293,10 +293,10 @@ mod tests {
     }
 
     #[test]
-    fn h_then_n_or_any_other_key_stays_put() {
+    fn home_then_n_or_any_other_key_stays_put() {
         for no in [KeyCode::KeyN, KeyCode::Escape, KeyCode::KeyD, KeyCode::KeyH] {
             let mut app = far_from_home();
-            frame(&mut app, Some(KeyCode::KeyH));
+            frame(&mut app, Some(KeyCode::Home));
             assert!(asking(&app));
             frame(&mut app, Some(no));
             assert!(!asking(&app) && !at_home(&app), "{no:?} says no");
@@ -304,6 +304,35 @@ mod tests {
             frame(&mut app, Some(YES));
             assert!(!at_home(&app), "{no:?}");
         }
+    }
+
+    #[test]
+    fn h_toggles_the_lantern_without_arming_home_or_making_y_dangerous() {
+        let mut app = far_from_home();
+        app.init_resource::<crate::codes::CodeBox>()
+            .add_plugins(crate::shell_inventory::ShellInventoryPlugin);
+        frame(&mut app, Some(KeyCode::KeyH));
+        assert!(
+            app.world()
+                .resource::<Sim>()
+                .crab(PlayerId(0))
+                .unwrap()
+                .mover
+                .lantern_dim
+        );
+        assert!(!asking(&app) && !at_home(&app));
+        frame(&mut app, Some(YES));
+        assert!(!asking(&app) && !at_home(&app));
+        frame(&mut app, Some(KeyCode::KeyH));
+        assert!(
+            !app.world()
+                .resource::<Sim>()
+                .crab(PlayerId(0))
+                .unwrap()
+                .mover
+                .lantern_dim
+        );
+        assert!(!asking(&app) && !at_home(&app));
     }
 
     #[test]
