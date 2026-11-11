@@ -511,6 +511,9 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
+- **L1 (#622), the loop measured:** `crates/sim/tests/loop_pacing.rs` plays three wants through the beat sheet
+  (glass lamp 4.8 min, bone arch 2.1, kelp curtain 2.8 against 20); prize beats are 6 to 30 s of work. The table and
+  the checklist lines are in `core-loop.md` ("Measured loop"). Pieces cannot be pinned as wants yet.
 - **H1 (#617), sim side:** pick a want, the pinned goal and eight shared home pieces are in `crates/sim`
   (`economy/wants.rs`, `economy/home.rs`, tests in `home_wants.rs`); the board, the HUD line and drawing the pieces are
   presentation work in `src/`. See "Pick a want" and "Home pieces".
