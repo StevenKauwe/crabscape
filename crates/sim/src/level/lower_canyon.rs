@@ -213,7 +213,7 @@ fn build_specs() -> Vec<Frame> {
     out.push(seep);
 
     // s3, under the vent field.
-    let lc = Rect::new(720.0, -12800.0, 880.0, -10.0);
+    let lc = Rect::new(720.0, -12800.0, 880.0, -12.0);
     out.push(full(
         "long chimney",
         lc,
