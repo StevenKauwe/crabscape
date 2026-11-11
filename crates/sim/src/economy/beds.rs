@@ -52,7 +52,10 @@ impl Economy {
         self.beds
             .iter()
             .enumerate()
-            .filter_map(|(i, b)| b.filter(|b| !b.fed && b.ready_at_tick > tick).map(|b| (i, b)))
+            .filter_map(|(i, b)| {
+                b.filter(|b| !b.fed && b.ready_at_tick > tick)
+                    .map(|b| (i, b))
+            })
             .max_by_key(|(i, b)| (b.ready_at_tick, std::cmp::Reverse(*i)))
             .map(|(i, _)| i)
     }
@@ -82,16 +85,14 @@ impl Sim {
     pub fn harvest_bed(&mut self, id: PlayerId) -> Result<(), CantMakeEcon> {
         self.at_home(id)?;
         let tick = self.tick_count();
-        let level = self.crab(id).map_or(1, |c| c.level(Skill::Culturing, &self.tuning));
+        let level = self
+            .crab(id)
+            .map_or(1, |c| c.level(Skill::Culturing, &self.tuning));
         let crab = self.crab_mut(id).ok_or(CantMakeEcon::NotAtHome)?;
-        let i = crab
-            .econ
-            .ripe_bed(tick)
-            .ok_or(CantMakeEcon::NothingReady)?;
+        let i = crab.econ.ripe_bed(tick).ok_or(CantMakeEcon::NothingReady)?;
         let bed = crab.econ.beds[i].take().ok_or(CantMakeEcon::NothingReady)?;
         let xp = StrainDef::of(bed.strain).map_or(0, |d| d.harvest_xp);
-        crab.stash
-            .add(bed.strain, StrainDef::harvest_count(level));
+        crab.stash.add(bed.strain, StrainDef::harvest_count(level));
         crab.econ.crafts_done += 1;
         self.earn(id, Skill::Culturing, xp as f32);
         self.record_craft(id, crate::craft::Craft::Bed(BedAction::Harvest));

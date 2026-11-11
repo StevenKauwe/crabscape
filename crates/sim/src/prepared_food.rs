@@ -71,7 +71,9 @@ mod slots_serde {
         slots.as_slice().serialize(s)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[Option<Portion>; SLOTS], D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<[Option<Portion>; SLOTS], D::Error> {
         let list = Vec::<Option<Portion>>::deserialize(d)?;
         if list.len() > SLOTS {
             return Err(serde::de::Error::custom("too many portion slots"));

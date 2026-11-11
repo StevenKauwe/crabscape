@@ -310,10 +310,13 @@ impl super::Economy {
     pub fn repair_target(&self, repair: super::recipes::Repairs) -> Option<MendTarget> {
         use super::recipes::Repairs;
         match repair {
-            Repairs::Tool(tier) => ToolKind::ALL.into_iter().find(|&k| {
-                let t = self.tool(k);
-                t.tier == tier && tier > 0 && t.uses_left < TOOL_USES[usize::from(tier)]
-            }).map(MendTarget::Tool),
+            Repairs::Tool(tier) => ToolKind::ALL
+                .into_iter()
+                .find(|&k| {
+                    let t = self.tool(k);
+                    t.tier == tier && tier > 0 && t.uses_left < TOOL_USES[usize::from(tier)]
+                })
+                .map(MendTarget::Tool),
             Repairs::Plating(tier) => match self.gear.body {
                 Some((g, uses)) if g.plating_tier() == tier && uses < g.plating_uses() => {
                     Some(MendTarget::Plating)

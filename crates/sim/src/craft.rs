@@ -23,7 +23,7 @@ use crate::economy::{ECON_RECIPES, EconRecipe, Item, Slot, Station, Tool, gear, 
 use crate::level::Place;
 use crate::prepared_food::PortionKind;
 use crate::skills::Skill;
-use crate::world::{PlayerId, SimCrab, Sim};
+use crate::world::{PlayerId, Sim, SimCrab};
 
 /// Something kept at the workbench to make things from: any of the
 /// economy's items.
@@ -531,7 +531,10 @@ impl Sim {
     pub fn make_econ(&mut self, id: PlayerId, what: impl EconRef) -> Result<(), CantMakeEcon> {
         let r = what.econ_recipe().ok_or(CantMakeEcon::Unknown)?;
         self.can_make_econ(id, r)?;
-        let index = ECON_RECIPES.iter().position(|x| x.word == r.word).unwrap_or(0);
+        let index = ECON_RECIPES
+            .iter()
+            .position(|x| x.word == r.word)
+            .unwrap_or(0);
         let tick = self.tick_count();
         let level = self.crab(id).map_or(1, |c| c.level(r.skill, &self.tuning));
         let Some(crab) = self.crab_mut(id) else {

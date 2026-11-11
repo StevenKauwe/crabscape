@@ -168,8 +168,9 @@ impl crate::SimCrab {
             0 => {}
             u8::MAX => self.mover.reserve = 1.0,
             strokes => {
-                self.mover.reserve =
-                    (self.mover.reserve + f32::from(strokes) / self.mover.reserve_strokes(t)).min(1.0);
+                self.mover.reserve = (self.mover.reserve
+                    + f32::from(strokes) / self.mover.reserve_strokes(t))
+                .min(1.0);
             }
         }
         if let Some(buff) = food.buff() {
