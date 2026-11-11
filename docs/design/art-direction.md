@@ -20,6 +20,11 @@ realistic rendering.
 - **Cut-out puppets.** Characters are drawn in parts (rig: `art/crab/crab-parts.svg`) and animated by moving parts.
 - **Paint ahead, play live.** Paint parts and backgrounds offline (lit and unlit versions); the game blends them by
   distance to the lantern at runtime, because real 2D lights are too heavy for phones.
+- **Lantern output.** Full light contributes three times the original intensity. Both full and dim light have twice
+  the previous radius at every culture-upgrade count: `230 × (1 + 0.35 × cultures)`, then depth-band, dim and flicker
+  factors. The inner falloff radius also doubles, from 8 to 16. H / Inventory keeps the original lower dim intensity
+  and 45% relative reach. Terrain keeps its own colour; daylight and enemy detection are unchanged. Player sight
+  expands only where needed to contain the larger light. This is art tuning, not a physical irradiance measurement.
 
 ## The player crab
 A composite swimming crab (portunid paddles on the 5th legs), crusher claw on its right (screen left), cutter on its

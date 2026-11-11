@@ -108,6 +108,16 @@ impl PageCache {
         self.protected.contains(key) || self.pinned.contains(key)
     }
     pub fn requests(&self, limit: usize, dirty: impl Fn(&Coordinate) -> bool) -> Vec<PageTicket> {
+        self.requests_with_capacity(limit, self.resident_limit(), dirty)
+    }
+    /// Memory supplies its bounded current sight working set. Terrain keeps
+    /// using `requests` and its separate ordinary/transition admission limit.
+    pub fn requests_with_capacity(
+        &self,
+        limit: usize,
+        resident_limit: usize,
+        dirty: impl Fn(&Coordinate) -> bool,
+    ) -> Vec<PageTicket> {
         let mut requests = self.requests.lock().expect("page request lock");
         if requests.is_empty() {
             return Vec::new();
@@ -121,7 +131,7 @@ impl PageCache {
         // same lookahead ring, or unreadable slots would cycle every frame.
         let needed = !urgent.is_empty();
         let recent = self.recent.lock().expect("page access lock");
-        let free = self.resident_limit().saturating_sub(self.known.len());
+        let free = resident_limit.saturating_sub(self.known.len());
         let replaceable = || {
             self.known
                 .iter()

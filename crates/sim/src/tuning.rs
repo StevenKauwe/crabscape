@@ -11,8 +11,8 @@
 //! jump, and so on), so `cargo test` tells you if a change breaks the level.
 //! `cargo crabsim` shows the numbers of a scripted run before and after.
 //!
-//! (The camera and lantern numbers only change how things look, so they live
-//! with the game, in `src/tuning.rs`.)
+//! Camera tuning lives with the game. Lantern reach is shared here so the
+//! player's perception can contain the rendered lamp without changing enemies.
 //!
 //! Fighting numbers are in *ticks* (120 = 1 s), as in the combat spec
 //! (`docs/design/creatures/README.md`), so a window can be tried tick by tick.
@@ -29,6 +29,17 @@ pub(crate) const SNAPPER_REST_TICKS: u32 = 180;
 pub(crate) const DIM_LANTERN_LIGHT: f32 = 0.45;
 pub(crate) const DIM_LANTERN_NOTICE: f32 = 0.6;
 pub(crate) const DIM_LANTERN_CLOSE: f32 = 140.0;
+
+/// Full lamp radius before depth, dimming and flicker. Shared with drawing
+/// so perception can leave room for the visible light.
+pub const LANTERN_LIGHT_RADIUS: f32 = 230.0;
+/// Additional radius per acquired culture, as a fraction of the base radius.
+pub const LANTERN_RADIUS_PER_CULTURE: f32 = 0.35;
+/// Drawing's two flicker waves have amplitudes 0.03 and 0.02.
+pub const LANTERN_MAX_FLICKER: f32 = 1.05;
+/// Nominal eye-to-jar allowance for the normal-size puppet, not a bound on
+/// every animation or enlarged cheat-code pose. It is not reduced by dimming.
+pub const LANTERN_SOURCE_MARGIN: f32 = 64.0;
 
 // Eastern moray excursions: gameplay timing in fixed ticks, not a diel cycle.
 pub(crate) const MORAY_FORAGE_CYCLE_TICKS: u32 = 2400;
@@ -1438,9 +1449,9 @@ impl Tuning {
                 cell: 32.0, // 5 cm
                 step_ticks: 12,
                 // The usual view's corners on a wide screen (58 cm): what's
-                // on screen at the usual zoom is what the crab perceives
-                // (tuned; its lantern lights only 18 cm, beyond that dim
-                // shapes and movement).
+                // on screen at the usual zoom is what the crab perceives.
+                // Sight also has a floor matching the larger cultured lamp;
+                // these values retain the earlier view where it is wider.
                 sight: 360.0,
                 sight_tall: 1.0,
                 sight_per_culture: 40.0,

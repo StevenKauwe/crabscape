@@ -99,12 +99,20 @@ pub fn water_at(at: Vec2) -> Color {
     shallow.mix(&ABYSS_WATER, depth_factor(at))
 }
 
+/// One lamp's geometry and independent brightness. The struct's 16-byte
+/// alignment is shared with WGSL, including arrays on WebGL2.
+#[derive(ShaderType, Clone, Copy, Default, Debug, PartialEq)]
+pub(crate) struct LightUniform {
+    pub(crate) geometry: Vec4,
+    pub(crate) luminosity: f32,
+}
+
 #[derive(ShaderType, Clone, Debug)]
 pub struct MemoryUniform {
     pub(crate) color: Vec4,
     pub(crate) water: Vec4,
     pub(crate) grid: Vec4,
-    pub(crate) lights: [Vec4; 8],
+    pub(crate) lights: [LightUniform; 8],
 }
 
 /// Shared values change every frame without marking each material modified.
@@ -112,7 +120,7 @@ pub struct MemoryUniform {
 #[extract_app(RenderApp)]
 pub(crate) struct MemoryGlobals {
     pub(crate) grid: Vec4,
-    pub(crate) lights: [Vec4; 8],
+    pub(crate) lights: [LightUniform; 8],
 }
 
 #[derive(Resource, Default)]
@@ -228,7 +236,7 @@ impl MemoryTexture {
                 color: LinearRgba::from(colour).to_vec4(),
                 water: LinearRgba::from(WATER).to_vec4(),
                 grid: self.grid,
-                lights: [Vec4::ZERO; 8],
+                lights: [LightUniform::default(); 8],
             },
             memory: self.image.clone(),
         }
@@ -630,7 +638,7 @@ mod tests {
         assert!(initial.z > 0.0 && initial.w > 0.0);
         assert_eq!(
             app.world().resource::<MemoryGlobals>().lights,
-            [Vec4::ZERO; 8]
+            [LightUniform::default(); 8]
         );
         let material = app
             .world()

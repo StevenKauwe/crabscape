@@ -56,12 +56,12 @@ fn each_band_is_darker_and_quieter_than_the_one_above() {
 }
 
 #[test]
-fn shallows_perception_is_unchanged() {
+fn opening_shallows_perception_is_unchanged() {
     let sim = Sim::with_one_crab(SPAWN);
     let crab = sim.crab(crabsim::PlayerId(0)).unwrap();
     let eye = crab.mover.pos + Vec2::Y * crab.mover.height(&sim.tuning);
     assert_eq!(Sight::new(eye, 0, &sim.tuning.memory).radii.x, 360.0);
-    assert_eq!(Sight::new(eye, 3, &sim.tuning.memory).radii.x, 480.0);
+    assert_eq!(Sight::new(eye, 1, &sim.tuning.memory).radii.x, 400.0);
 }
 
 #[test]
@@ -74,7 +74,13 @@ fn perception_scales_in_every_band_including_cultures() {
             let sight = Sight::new(eye, cultures, &tuning.memory);
             assert_eq!(
                 sight.radii.x,
-                (360.0 + 40.0 * cultures as f32) * level.band_at(eye).lantern_reach_factor
+                ((360.0 + 40.0 * cultures as f32) * level.band_at(eye).lantern_reach_factor).max(
+                    230.0
+                        * (1.0 + 0.35 * cultures as f32)
+                        * level.band_at(eye).lantern_reach_factor
+                        * 1.05
+                        + 64.0
+                )
             );
             assert!(sight.sees(eye + Vec2::X * (sight.radii.x - 0.01)));
             assert!(!sight.sees(eye + Vec2::X * (sight.radii.x + 1.0)));
