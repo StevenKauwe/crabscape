@@ -50,7 +50,7 @@ one GitHub issue (label `world-plan`) that stands on its own.
    - Then PR (`Closes #n`), `gh pr merge <n> --squash --auto --delete-branch`, and remove the worktree once merged.
 6. **Notes** go on the issue (a comment): what was done, what is left, numbers measured. Decisions go in
    `docs/design/decisions.md` (one row, one-line reason). Never leave notes only in a chat or a private page.
-7. **Human taste gates.** Each milestone below ends in a gate. At a gate, **stop and wait**: post the PR's preview
+7. **Human taste gates.** (Superseded 2026-11-10: post the gate, never wait; see the lanes section.) Each milestone below ends in a gate. At a gate, **stop and wait**: post the PR's preview
    link (`https://stevenkauwe.github.io/crabscape/pr-<n>/`) on the gate's issue with the "what to try" list and a
    recommendation, add `needs-human` to the next phase's first package, and do not start it until the owner answers.
    Do not guess at taste. Packages marked **(gate)** do not auto-merge: open the PR without `--auto` and wait.
@@ -113,6 +113,59 @@ canyons. The game adapts the level that already exists, so:
   true; the Plunge's hint of more lies under the one canyon.
 - **The bake is bounded** (16 million cells, no strata below y -10,000 except sealed frames), so depth beyond the
   Plunge stays a hint, as Plate D also intends.
+
+## The Plate D build: dependency graph and lanes (2026-11-10, owner's orders)
+The owner's orders (2026-11-10): build the whole Plate D world in one push, **never wait on taste gates** (post the
+preview and a "what to try" list on the gate's issue, then keep building and fold feedback in later), and run many
+lanes at once. Claude Sonnet writes the package code, Claude Haiku the mechanical work, the lead writes briefs,
+reviews every diff and orders merges. Briefs live in `.claude/worktrees/_briefs/` (not committed).
+
+### The one serial bottleneck: the geometry batch (G)
+Every terrain change (floor, rocks, frames, strata, shafts, galleries) goes in **one** batch and **one** bake, merged
+first. Everything else is rules, cues and drawing that find places by **landmark name** (`Level::landmarks()`,
+`Level::pockets()`), never by literal coordinates, so they run in parallel before and after G lands.
+
+The geometry batch reshapes the strip towards Plate D (decision in `decisions.md`, 2026-11-10):
+- **The world steps down to the right.** Everything east of the canyon crossing (the far rim, the octopus den, the
+  eastern reef, Coral Rise, the slump dam) drops 2,000 units, so each step lies below the last; the lower canyon
+  (narrows lock, vent field) stays at y -10,000 as the deepest step.
+- **The basin pit is filled** to the mudbank floor (y -700): Plate D's mudbank holds the mantis burrow and the bone hall
+  in its bank, not a shaft. The pit's finds move into that pocket chain (egg 4, the clue and the tooth become the bone
+  hall's prize area); the basin floor's net becomes the scissor gate to the hub from either side.
+- **The canyon floor rises** from y -9,400 to about -6,000: the crossing stays (open water, the shark's ground) but
+  the deepest place is now the lower canyon, as in the picture.
+- **Five sediment bodies** like Plate D's: home burrow and clam beds (A, B), mantis burrow and bone hall (C, D), clay
+  cathedral and pebble warren (E, F) under the slump dam's step, seep garden and chimney hall (G, H) under the vent
+  field, crust vault and warm seam (I, J) beyond the narrows; each pocket opens to traversable ground by its mouths.
+- **Wormhole shells:** the seep shaft (bone hall up to the hanging garden), the long seep (bone hall to the seep
+  garden), the long chimney (chimney hall to the tide-pool shelf), the Plunge's odd tunnel, shaft, crack and stage.
+
+### Lanes
+| Lane | Packages | Needs | Files it owns | Coder |
+|---|---|---|---|---|
+| R: tunnel rules | W3.1 rules (#465) | none | `enemy.rs` sanctuary, `navigation.rs`, `level/strata.rs` pockets, `tests/pockets.rs` | lead |
+| G: geometry batch | Plate D geometry, home burrow shafts and gallery, W3.2 terrain (#466), all frames, one bake | R | `level.rs`, `level/*`, the settled seed and digest, coordinate tests, `src/` drawing tied to places | Sonnet (+ Haiku for test transcription) |
+| H: open-water hunter | W1.2 (#458) | R | `enemy.rs` (a new kind), new `tests/open_water.rs`, `src/deep.rs` | Sonnet |
+| C: chambers | W3.3 bone hall clock, scavengers, prize (#467); W3.2 clam beds' finds (#466) | R | new `bone_hall.rs`, `tests/bone_hall.rs`, new `src/bone_hall.rs` | Sonnet |
+| W: chimneys | W4.1 seep chimney, W4.2 long chimney and act 3 (#468, #469); the shared forced-motion ride | none | new `ride.rs`, `chimney.rs`, `tests/chimneys.rs`, `src/chimney.rs` | Sonnet |
+| P: the Plunge | W5.1 to W5.3 (#470 to #472) | W (the ride) | new `plunge.rs`, `tests/plunge.rs`, `src/plunge.rs` | Sonnet |
+| A: atmosphere | per-bed smells, sounds and lantern for the new beds; the three Plunge hints | G | `level/bands.rs`, `src/sound.rs` hooks | Sonnet |
+| V: proofs | route solver over the new map: no gate bypass by digging or chimneys, every pocket's exits, refuge spacing, round trips, co-op two-sim hashes | G, W | `tests/world_shape.rs`, `dig_gates.rs`, `dive_budget.rs` | Sonnet |
+| D: docs and checks | plan upkeep, issue text, preview checks | any | `docs/`, issues | Haiku |
+
+```
+R ──> G ──> A
+│     ├───> V <── W ──> P
+├──> H
+└──> C
+```
+Merge order: R, then H, C and W as they finish (rules only, no bake), then G (the bake; rebase it last-but-one if
+others merged), then P, A and V. Shared touch points (`world.rs`'s tick, `lib.rs` module lists, `decisions.md`) are
+one-line edits; the lead resolves them at merge.
+
+### Gates (posted, never waited on)
+Milestone 1 (W1.2), Milestone 3 (W3.3) and Milestone 4 (W5.2): the PR gets its preview link and the "what to try"
+list from this plan on the issue, with a recommendation, and auto-merges like any other.
 
 ## Hidden rules found while building (read before any package)
 - **The seed fingerprint.** See item 8: only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the
